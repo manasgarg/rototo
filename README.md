@@ -32,9 +32,6 @@ RUST_LOG=debug cargo run
 RUST_LOG=rototo=trace cargo run
 ```
 
-Use `/home/manas/projects/rototo/main` as a clean reference worktree and create
-task-specific worktrees from `/home/manas/projects/rototo`:
-
 ```sh
 git --git-dir=.bare worktree add -b my-branch my-branch main
 ```

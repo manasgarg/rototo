@@ -156,18 +156,6 @@ generic public "read by kind" API unless there is a concrete app-facing need.
 SDK resolution APIs take a JSON object context directly; the CLI-only
 convenience forms for `--context` are parsed in `src/main.rs`.
 
-## Worktrees
-
-Use `/home/manas/projects/rototo/main` as a clean reference worktree. Do not do
-normal development there. Create a task-specific worktree from
-`/home/manas/projects/rototo`:
-
-```sh
-git --git-dir=.bare worktree add -b my-branch my-branch main
-```
-
-Work inside the task worktree.
-
 ## Commands
 
 Use `just` as the project command surface:
