@@ -1,0 +1,9 @@
+schema_version = 1
+
+[qualifier]
+description = "Users on the premium plan"
+
+[[qualifier.predicate]]
+attribute = "user.tier"
+op = "eq"
+value = "premium"

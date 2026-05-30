@@ -1,0 +1,4 @@
+schema_version = 1
+
+[workspace]
+description = "Invalid because no environments are declared"

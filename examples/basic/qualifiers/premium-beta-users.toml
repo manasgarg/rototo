@@ -1,0 +1,14 @@
+schema_version = 1
+
+[qualifier]
+description = "Premium users who are also in the beta rollout bucket"
+
+[[qualifier.predicate]]
+attribute = "qualifier.premium-users"
+op = "eq"
+value = true
+
+[[qualifier.predicate]]
+attribute = "qualifier.beta-rollout-bucket"
+op = "eq"
+value = true

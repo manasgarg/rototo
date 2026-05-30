@@ -1,0 +1,11 @@
+schema_version = 1
+
+[variable]
+description = "Variable pointing at an invalid JSON schema"
+schema = "../schemas/invalid.schema.json"
+
+[variable.values.default]
+name = "Example"
+
+[variable.env._]
+value = "default"

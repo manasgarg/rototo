@@ -1,0 +1,14 @@
+schema_version = 1
+
+[qualifier]
+description = "Premium users in the European operating region"
+
+[[qualifier.predicate]]
+attribute = "qualifier.premium-users"
+op = "eq"
+value = true
+
+[[qualifier.predicate]]
+attribute = "qualifier.eu-users"
+op = "eq"
+value = true

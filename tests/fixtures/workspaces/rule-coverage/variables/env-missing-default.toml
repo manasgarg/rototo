@@ -1,0 +1,11 @@
+schema_version = 1
+
+[variable]
+description = "Missing default environment"
+type = "string"
+
+[variable.values]
+default = "default"
+
+[variable.env.prod]
+value = "default"

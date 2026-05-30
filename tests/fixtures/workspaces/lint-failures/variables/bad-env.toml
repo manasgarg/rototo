@@ -1,0 +1,19 @@
+schema_version = 1
+
+[variable]
+description = "Variable with bad environment, qualifier, and value references"
+type = "string"
+
+[variable.values]
+control = "control"
+treatment = "treatment"
+
+[variable.env._]
+value = "control"
+
+[variable.env.qa]
+value = "missing-value"
+
+[[variable.env.qa.rule]]
+qualifier = "missing-qualifier"
+value = "another-missing-value"

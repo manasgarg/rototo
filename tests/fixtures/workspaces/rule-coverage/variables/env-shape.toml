@@ -1,0 +1,11 @@
+schema_version = 1
+
+[variable]
+description = "Environment block has wrong shape"
+type = "string"
+
+[variable.values]
+default = "default"
+
+[variable.env]
+_ = "default"

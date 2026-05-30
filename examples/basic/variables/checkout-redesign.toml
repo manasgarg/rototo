@@ -1,0 +1,33 @@
+schema_version = 1
+
+[variable]
+description = "Checkout page content and layout variant"
+schema = "../schemas/checkout-page.schema.json"
+
+[variable.lint]
+path = "../lint/checkout-redesign.lua"
+
+[variable.values.control]
+variant = "control"
+heading = "Complete your purchase"
+subheading = "You're almost done"
+image_url = "/images/checkout/control.png"
+content = "Secure checkout in seconds."
+
+[variable.values.premium]
+variant = "premium"
+heading = "Fast checkout for members"
+subheading = "Your saved details are ready"
+image_url = "/images/checkout/premium.png"
+content = "Review and place your order."
+
+[variable.env._]
+value = "control"
+
+[variable.env.prod]
+value = "control"
+
+[[variable.env.prod.rule]]
+description = "Premium users get the premium checkout"
+qualifier = "premium-users"
+value = "premium"

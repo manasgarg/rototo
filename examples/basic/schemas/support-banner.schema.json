@@ -1,0 +1,22 @@
+{
+  "type": "object",
+  "required": ["enabled", "tone", "heading", "body", "cta"],
+  "properties": {
+    "enabled": {
+      "type": "boolean"
+    },
+    "tone": {
+      "type": "string"
+    },
+    "heading": {
+      "type": "string"
+    },
+    "body": {
+      "type": "string"
+    },
+    "cta": {
+      "type": "string"
+    }
+  },
+  "additionalProperties": false
+}

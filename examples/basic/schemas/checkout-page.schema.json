@@ -1,0 +1,22 @@
+{
+  "type": "object",
+  "required": ["variant", "heading", "subheading", "image_url", "content"],
+  "properties": {
+    "variant": {
+      "type": "string"
+    },
+    "heading": {
+      "type": "string"
+    },
+    "subheading": {
+      "type": "string"
+    },
+    "image_url": {
+      "type": "string"
+    },
+    "content": {
+      "type": "string"
+    }
+  },
+  "additionalProperties": false
+}

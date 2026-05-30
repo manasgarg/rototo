@@ -1,0 +1,32 @@
+# Local pre-commit hooks for rototo. `just setup-min` installs pre-commit
+# from requirements-dev.txt and registers both commit and push hooks.
+repos:
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v6.0.0
+    hooks:
+      - id: trailing-whitespace
+      - id: end-of-file-fixer
+      - id: check-yaml
+      - id: check-toml
+        exclude: 'tests/fixtures/(workspaces/invalid-(workspace-toml|resource-toml)|packages/invalid-toml)/'
+      - id: mixed-line-ending
+        args: [--fix=lf]
+        exclude: '\.(bat|cmd)$'
+
+  - repo: local
+    hooks:
+      - id: cargo-fmt
+        name: cargo fmt
+        description: Check Rust formatting.
+        entry: cargo fmt --all -- --check
+        language: system
+        types: [rust]
+        pass_filenames: false
+
+      - id: check
+        name: just check
+        description: Run the local CI-equivalent gate before push.
+        entry: just check
+        language: system
+        pass_filenames: false
+        stages: [pre-push]

@@ -1,0 +1,12 @@
+schema_version = 1
+
+[variable]
+description = "Whether the user should receive admin UI affordances"
+type = "bool"
+
+[variable.values]
+off = false
+on = true
+
+[variable.env._]
+value = "off"

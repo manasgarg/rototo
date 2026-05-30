@@ -1,0 +1,26 @@
+schema_version = 1
+
+[variable]
+description = "Queue used for manual fraud review"
+type = "string"
+
+[variable.values]
+default = "risk-standard"
+high_value = "risk-priority"
+eu = "risk-eu"
+
+[variable.env._]
+value = "default"
+
+[variable.env.prod]
+value = "default"
+
+[[variable.env.prod.rule]]
+description = "High-value carts go to the priority queue"
+qualifier = "high-value-cart"
+value = "high_value"
+
+[[variable.env.prod.rule]]
+description = "EU users go to the regional queue"
+qualifier = "eu-users"
+value = "eu"

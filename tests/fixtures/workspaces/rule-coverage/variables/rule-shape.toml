@@ -1,0 +1,12 @@
+schema_version = 1
+
+[variable]
+description = "Rule has wrong shape"
+type = "string"
+
+[variable.values]
+default = "default"
+
+[variable.env._]
+value = "default"
+rule = ["not-a-table"]

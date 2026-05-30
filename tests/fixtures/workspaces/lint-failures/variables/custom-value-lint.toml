@@ -1,0 +1,14 @@
+schema_version = 1
+
+[variable]
+description = "Variable with failing custom Lua value lint"
+type = "string"
+
+[variable.lint]
+path = "../lint/custom-value.lua"
+
+[variable.values]
+default = "ok"
+
+[variable.env._]
+value = "default"

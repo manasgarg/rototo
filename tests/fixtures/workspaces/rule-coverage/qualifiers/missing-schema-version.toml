@@ -1,0 +1,7 @@
+[qualifier]
+description = "Missing qualifier schema_version"
+
+[[qualifier.predicate]]
+attribute = "user.tier"
+op = "eq"
+value = "premium"

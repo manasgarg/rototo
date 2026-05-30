@@ -1,0 +1,7 @@
+schema_version = 1
+
+[qualifier]
+description = "Predicate missing required fields"
+
+[[qualifier.predicate]]
+attribute = "user.tier"

@@ -1,0 +1,19 @@
+schema_version = 1
+
+[variable]
+description = "LLM settings for the main agent loop"
+schema = "../schemas/llm-config.schema.json"
+
+[variable.env._]
+value = "standard"
+
+[variable.env.dev]
+value = "local"
+
+[variable.env.prod]
+value = "standard"
+
+[[variable.env.prod.rule]]
+description = "Enterprise accounts get the larger reasoning model"
+qualifier = "enterprise-accounts"
+value = "enterprise"

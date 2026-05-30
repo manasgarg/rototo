@@ -1,0 +1,20 @@
+{
+  "type": "object",
+  "required": ["algorithm", "slots", "include_sponsored", "fallback_collection"],
+  "properties": {
+    "algorithm": {
+      "type": "string"
+    },
+    "slots": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "include_sponsored": {
+      "type": "boolean"
+    },
+    "fallback_collection": {
+      "type": "string"
+    }
+  },
+  "additionalProperties": false
+}

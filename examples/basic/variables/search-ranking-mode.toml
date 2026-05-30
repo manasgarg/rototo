@@ -1,0 +1,24 @@
+schema_version = 1
+
+[variable]
+description = "Search ranking algorithm for catalog queries"
+type = "string"
+
+[variable.values]
+classic = "classic"
+semantic = "semantic"
+hybrid = "hybrid"
+
+[variable.env._]
+value = "classic"
+
+[variable.env.stage]
+value = "hybrid"
+
+[variable.env.prod]
+value = "classic"
+
+[[variable.env.prod.rule]]
+description = "Beta bucket exercises hybrid ranking"
+qualifier = "beta-rollout-bucket"
+value = "hybrid"

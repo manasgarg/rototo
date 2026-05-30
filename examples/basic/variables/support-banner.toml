@@ -1,0 +1,42 @@
+schema_version = 1
+
+[variable]
+description = "Support banner shown in account and checkout flows"
+schema = "../schemas/support-banner.schema.json"
+
+[variable.values.hidden]
+enabled = false
+tone = "neutral"
+heading = ""
+body = ""
+cta = ""
+
+[variable.values.mobile_help]
+enabled = true
+tone = "help"
+heading = "Need help?"
+body = "Chat with support without leaving the app."
+cta = "Open chat"
+
+[variable.values.german_hours]
+enabled = true
+tone = "info"
+heading = "Supportzeiten"
+body = "Unser deutschsprachiges Team ist werktags erreichbar."
+cta = "Kontakt aufnehmen"
+
+[variable.env._]
+value = "hidden"
+
+[variable.env.prod]
+value = "hidden"
+
+[[variable.env.prod.rule]]
+description = "Mobile users get an in-app support prompt"
+qualifier = "mobile-users"
+value = "mobile_help"
+
+[[variable.env.prod.rule]]
+description = "German speakers get localized support copy"
+qualifier = "german-speakers"
+value = "german_hours"

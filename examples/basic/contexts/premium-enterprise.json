@@ -1,0 +1,17 @@
+{
+  "user": {
+    "id": "user-123",
+    "tier": "premium",
+    "role": "admin"
+  },
+  "account": {
+    "plan": "enterprise",
+    "seats": 250
+  },
+  "cart": {
+    "total_usd": 300
+  },
+  "request": {
+    "country": "DE"
+  }
+}

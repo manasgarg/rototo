@@ -1,0 +1,11 @@
+schema_version = 1
+
+[variable]
+description = "Variable declaring a type rototo does not know"
+type = "currency"
+
+[variable.values]
+usd = "USD"
+
+[variable.env._]
+value = "usd"

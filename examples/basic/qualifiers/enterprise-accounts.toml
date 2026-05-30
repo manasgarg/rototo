@@ -1,0 +1,14 @@
+schema_version = 1
+
+[qualifier]
+description = "Users attached to large enterprise accounts"
+
+[[qualifier.predicate]]
+attribute = "account.plan"
+op = "eq"
+value = "enterprise"
+
+[[qualifier.predicate]]
+attribute = "account.seats"
+op = "gte"
+value = 100

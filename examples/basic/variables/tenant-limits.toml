@@ -1,0 +1,55 @@
+schema_version = 1
+
+[variable]
+description = "Nested account limits and enabled tenant features"
+schema = "../schemas/tenant-limits.schema.json"
+
+[variable.values.starter.limits]
+projects = 3
+members = 5
+monthly_requests = 10000
+
+[variable.values.starter]
+enabled_features = ["basic-reporting"]
+
+[variable.values.starter.metadata]
+support_tier = "community"
+audit_retention_days = 7
+
+[variable.values.growth.limits]
+projects = 25
+members = 50
+monthly_requests = 250000
+
+[variable.values.growth]
+enabled_features = ["basic-reporting", "scheduled-exports", "webhooks"]
+
+[variable.values.growth.metadata]
+support_tier = "standard"
+audit_retention_days = 30
+
+[variable.values.enterprise.limits]
+projects = 500
+members = 5000
+monthly_requests = 10000000
+
+[variable.values.enterprise]
+enabled_features = ["basic-reporting", "scheduled-exports", "webhooks", "sso", "audit-log"]
+
+[variable.values.enterprise.metadata]
+support_tier = "dedicated"
+audit_retention_days = 365
+
+[variable.env._]
+value = "growth"
+
+[variable.env.dev]
+value = "enterprise"
+
+[variable.env.prod]
+value = "growth"
+
+[[variable.env.prod.rule]]
+description = "Enterprise accounts get enterprise limits"
+qualifier = "enterprise-accounts"
+value = "enterprise"

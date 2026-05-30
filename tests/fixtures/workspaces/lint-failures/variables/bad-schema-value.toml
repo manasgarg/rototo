@@ -1,0 +1,16 @@
+schema_version = 1
+
+[variable]
+description = "Schema-backed variable with a value that does not match"
+schema = "../schemas/panel.schema.json"
+
+[variable.values.default]
+heading = "Enabled panel"
+enabled = true
+
+[variable.values.broken]
+heading = "Broken panel"
+enabled = "yes"
+
+[variable.env._]
+value = "default"
