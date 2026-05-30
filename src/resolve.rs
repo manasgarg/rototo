@@ -187,9 +187,8 @@ async fn resolve_variable_with_state(
     let variable = variable_for_id(inspection, id)?;
     let toml = read_variable_toml(&inspection.root, variable).await?;
     let variable_toml = toml
-        .get("variable")
-        .and_then(toml::Value::as_table)
-        .ok_or_else(|| RototoError::new(format!("variable has no [variable] table: {id}")))?;
+        .as_table()
+        .ok_or_else(|| RototoError::new(format!("variable TOML root is not a table: {id}")))?;
     let values = variable_toml
         .get("values")
         .and_then(toml::Value::as_table)
@@ -280,8 +279,7 @@ impl<'a> QualifierState<'a> {
             let qualifier = qualifier_for_id(self.inspection, id)?;
             let toml = read_toml(&self.inspection.root.join(&qualifier.path)).await?;
             let predicates = toml
-                .get("qualifier")
-                .and_then(|qualifier| qualifier.get("predicate"))
+                .get("predicate")
                 .and_then(toml::Value::as_array)
                 .ok_or_else(|| RototoError::new(format!("qualifier has no predicates: {id}")))?;
 

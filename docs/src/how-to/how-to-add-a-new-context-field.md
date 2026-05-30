@@ -87,10 +87,9 @@ qualifier:
 ```toml
 schema_version = 1
 
-[qualifier]
 description = "Requests from Germany"
 
-[[qualifier.predicate]]
+[[predicate]]
 attribute = "request.country"
 op = "eq"
 value = "DE"

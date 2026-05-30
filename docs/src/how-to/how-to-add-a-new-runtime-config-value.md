@@ -40,22 +40,21 @@ Add the variable contract, values, and environment mapping:
 ```toml
 schema_version = 1
 
-[variable]
 description = "Maximum number of tokens the summarizer can emit"
 type = "int"
 
-[variable.values]
+[values]
 small = 500
 standard = 1000
 large = 2000
 
-[variable.env._]
+[env._]
 value = "standard"
 
-[variable.env.dev]
+[env.dev]
 value = "small"
 
-[variable.env.prod]
+[env.prod]
 value = "large"
 ```
 
@@ -105,7 +104,7 @@ rototo variable resolve max-output-tokens \
 
 ## Common mistakes
 
-Do not skip `[variable.env._]`. The fallback is required and makes the default
+Do not skip `[env._]`. The fallback is required and makes the default
 behavior explicit.
 
 Do not use a value key as the application contract. Application code should ask

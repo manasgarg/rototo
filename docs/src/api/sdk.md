@@ -93,7 +93,7 @@ needs to bypass the application contract.
 
 ## External Variable Values
 
-Variable values can be declared inline under `[variable.values]` or in TOML
+Variable values can be declared inline under `[values]` or in TOML
 files next to the variable file. For `variables/banner.toml`, rototo also loads
 `variables/banner-values/*.toml`; each file stem is the value key.
 

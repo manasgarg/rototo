@@ -1,19 +1,18 @@
 schema_version = 1
 
-[qualifier]
 description = "Qualifier with predicate values that do not fit their operators"
 
-[[qualifier.predicate]]
+[[predicate]]
 attribute = "user.country"
 op = "in"
 value = "DE"
 
-[[qualifier.predicate]]
+[[predicate]]
 attribute = "cart.total"
 op = "gte"
 value = "large"
 
-[[qualifier.predicate]]
+[[predicate]]
 attribute = "user.tier"
 op = "contains"
 value = "premium"

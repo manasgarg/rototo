@@ -11,7 +11,6 @@ declare both.
 Primitive type variables use:
 
 ```toml
-[variable]
 type = "int"
 ```
 
@@ -30,7 +29,7 @@ list
 TOML boolean.
 
 ```toml
-[variable.values]
+[values]
 enabled = true
 disabled = false
 ```
@@ -40,7 +39,7 @@ disabled = false
 TOML integer.
 
 ```toml
-[variable.values]
+[values]
 small = 500
 large = 2000
 ```
@@ -50,7 +49,7 @@ large = 2000
 TOML integer or floating point number.
 
 ```toml
-[variable.values]
+[values]
 low = 0.1
 standard = 1
 ```
@@ -60,7 +59,7 @@ standard = 1
 TOML string.
 
 ```toml
-[variable.values]
+[values]
 control = "Welcome back."
 premium = "Welcome back, premium member."
 ```
@@ -70,7 +69,7 @@ premium = "Welcome back, premium member."
 TOML array.
 
 ```toml
-[variable.values]
+[values]
 default = ["card", "bank_transfer"]
 ```
 
@@ -82,7 +81,6 @@ declare element types. Use a JSON Schema variable when element shape matters.
 Structured values should use `schema`, not primitive `type`.
 
 ```toml
-[variable]
 schema = "../schemas/llm-config.schema.json"
 ```
 
@@ -92,7 +90,7 @@ lint.
 Inline object values:
 
 ```toml
-[variable.values.enterprise]
+[values.enterprise]
 model = "gpt-5"
 gateway = "openai"
 max_output_tokens = 5000

@@ -1,12 +1,11 @@
 schema_version = 1
 
-[variable]
 description = "Invalid variable lint shape"
 type = "string"
 lint = true
 
-[variable.values]
+[values]
 default = "default"
 
-[variable.env._]
+[env._]
 value = "default"

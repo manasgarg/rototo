@@ -1,12 +1,11 @@
 schema_version = 1
 
-[variable]
 description = "Rule has wrong shape"
 type = "string"
 
-[variable.values]
+[values]
 default = "default"
 
-[variable.env._]
+[env._]
 value = "default"
 rule = ["not-a-table"]

@@ -1,43 +1,42 @@
 schema_version = 1
 
-[variable]
 description = "Checkout page content and layout variant"
 schema = "../schemas/checkout-page.schema.json"
 
-[variable.lint]
+[lint]
 path = "../lint/checkout-redesign.lua"
 
-[[variable.lint.rule]]
+[[lint.rule]]
 id = "consumer-experience/checkout-heading-required"
 title = "Checkout heading is missing"
 help = "Set heading to visible checkout copy."
 
-[[variable.lint.rule]]
+[[lint.rule]]
 id = "consumer-experience/checkout-image-path"
 title = "Checkout image path is invalid"
 help = "Use an image URL under /images/checkout/."
 
-[variable.values.control]
+[values.control]
 variant = "control"
 heading = "Complete your purchase"
 subheading = "You're almost done"
 image_url = "/images/checkout/control.png"
 content = "Secure checkout in seconds."
 
-[variable.values.premium]
+[values.premium]
 variant = "premium"
 heading = "Fast checkout for members"
 subheading = "Your saved details are ready"
 image_url = "/images/checkout/premium.png"
 content = "Review and place your order."
 
-[variable.env._]
+[env._]
 value = "control"
 
-[variable.env.prod]
+[env.prod]
 value = "control"
 
-[[variable.env.prod.rule]]
+[[env.prod.rule]]
 description = "Premium users get the premium checkout"
 qualifier = "premium-users"
 value = "premium"

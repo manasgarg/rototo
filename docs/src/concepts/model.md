@@ -225,15 +225,14 @@ refer to that name instead of repeating the predicate everywhere.
 ```toml
 schema_version = 1
 
-[qualifier]
 description = "Accounts on the enterprise plan with at least 100 seats"
 
-[[qualifier.predicate]]
+[[predicate]]
 attribute = "account.plan"
 op = "eq"
 value = "enterprise"
 
-[[qualifier.predicate]]
+[[predicate]]
 attribute = "account.seats"
 op = "gte"
 value = 100
@@ -255,22 +254,21 @@ the returned value.
 ```toml
 schema_version = 1
 
-[variable]
 description = "Maximum number of tokens the summarizer can emit"
 type = "int"
 
-[variable.values]
+[values]
 small = 500
 standard = 1000
 large = 2000
 
-[variable.env._]
+[env._]
 value = "standard"
 
-[variable.env.dev]
+[env.dev]
 value = "small"
 
-[variable.env.prod]
+[env.prod]
 value = "large"
 ```
 
@@ -286,7 +284,7 @@ values are large enough to deserve their own files.
 Inline values keep small decisions close to the variable:
 
 ```toml
-[variable.values]
+[values]
 small = 500
 standard = 1000
 large = 2000
@@ -350,10 +348,10 @@ The environment block provides the default value for that environment. Rules can
 override that default when their qualifier matches the runtime context.
 
 ```toml
-[variable.env.prod]
+[env.prod]
 value = "standard"
 
-[[variable.env.prod.rule]]
+[[env.prod.rule]]
 description = "Enterprise accounts get the larger agent configuration"
 qualifier = "enterprise-accounts"
 value = "enterprise"
@@ -440,7 +438,7 @@ Custom lint is declared on a variable. The variable points at a Lua file owned
 by the workspace:
 
 ```toml
-[variable.lint]
+[lint]
 path = "../lint/llm-agent-config.lua"
 ```
 

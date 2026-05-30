@@ -179,20 +179,7 @@ fn validate_qualifier_toml(
             diagnostics,
         );
     }
-    if toml.get("qualifier").and_then(Value::as_table).is_none() {
-        push_qualifier_error(
-            qualifier,
-            RototoRuleId::QualifierMissingTable,
-            "qualifier must contain a [qualifier] table",
-            diagnostics,
-        );
-    }
-
-    if let Some(predicates) = toml
-        .get("qualifier")
-        .and_then(|qualifier| qualifier.get("predicate"))
-        .and_then(Value::as_array)
-    {
+    if let Some(predicates) = toml.get("predicate").and_then(Value::as_array) {
         for predicate in predicates {
             lint_predicate(qualifier, predicate, qualifier_ids, diagnostics);
         }
@@ -200,7 +187,7 @@ fn validate_qualifier_toml(
         push_qualifier_error(
             qualifier,
             RototoRuleId::QualifierPredicateMissing,
-            "qualifier must contain at least one [[qualifier.predicate]]",
+            "qualifier must contain at least one [[predicate]]",
             diagnostics,
         );
     }
@@ -291,13 +278,7 @@ async fn validate_variable_toml(
         );
     }
 
-    let Some(variable) = toml.get("variable").and_then(Value::as_table) else {
-        push_variable_error(
-            variable_inspection,
-            RototoRuleId::VariableMissingTable,
-            "variable must contain a [variable] table",
-            diagnostics,
-        );
+    let Some(variable) = toml.as_table() else {
         return custom_rule_definitions;
     };
 
@@ -336,7 +317,7 @@ async fn validate_variable_toml(
         push_variable_error(
             variable_inspection,
             RototoRuleId::VariableValuesMissing,
-            "variable must contain [variable.values]",
+            "variable must contain [values]",
             diagnostics,
         );
         return custom_rule_definitions;
@@ -361,7 +342,7 @@ async fn validate_variable_toml(
         push_variable_error(
             variable_inspection,
             RototoRuleId::VariableEnvMissingDefault,
-            "variable must contain [variable.env._]",
+            "variable must contain [env._]",
             diagnostics,
         );
         return custom_rule_definitions;
@@ -370,7 +351,7 @@ async fn validate_variable_toml(
         push_variable_error(
             variable_inspection,
             RototoRuleId::VariableEnvMissingDefault,
-            "variable must contain [variable.env._]",
+            "variable must contain [env._]",
             diagnostics,
         );
     }
@@ -408,7 +389,7 @@ fn lint_custom_rule_definitions(
         push_variable_error(
             variable,
             RototoRuleId::VariableLintShape,
-            "variable lint rules must use [[variable.lint.rule]] tables",
+            "variable lint rules must use [[lint.rule]] tables",
             diagnostics,
         );
         return Vec::new();
@@ -816,11 +797,7 @@ async fn lint_context_schema_references(
         let Ok(toml) = toml.parse::<Value>() else {
             continue;
         };
-        let Some(predicates) = toml
-            .get("qualifier")
-            .and_then(|qualifier| qualifier.get("predicate"))
-            .and_then(Value::as_array)
-        else {
+        let Some(predicates) = toml.get("predicate").and_then(Value::as_array) else {
             continue;
         };
 

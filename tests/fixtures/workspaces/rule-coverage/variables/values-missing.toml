@@ -1,8 +1,7 @@
 schema_version = 1
 
-[variable]
 description = "Missing values"
 type = "string"
 
-[variable.env._]
+[env._]
 value = "default"

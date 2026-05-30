@@ -69,8 +69,7 @@ pub fn diagnostic_for_rule<'a>(
 
 fn custom_rule_definitions_from_toml(toml: &Value) -> Vec<CustomRuleDefinition> {
     let Some(rules) = toml
-        .get("variable")
-        .and_then(|variable| variable.get("lint"))
+        .get("lint")
         .and_then(|lint| lint.get("rule"))
         .and_then(Value::as_array)
     else {

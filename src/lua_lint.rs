@@ -111,11 +111,7 @@ fn lint_variable_script(
     }
 
     if let Some(lint_value) = lint_value {
-        let Some(values) = variable_toml
-            .get("variable")
-            .and_then(|variable| variable.get("values"))
-            .and_then(Value::as_table)
-        else {
+        let Some(values) = variable_toml.get("values").and_then(Value::as_table) else {
             return Ok(diagnostics);
         };
 
@@ -146,8 +142,7 @@ fn lint_variable_script(
 
 fn lint_path(variable_toml: &Value) -> Option<&str> {
     variable_toml
-        .get("variable")
-        .and_then(|variable| variable.get("lint"))
+        .get("lint")
         .and_then(|lint| lint.get("path"))
         .and_then(Value::as_str)
 }

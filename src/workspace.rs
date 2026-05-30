@@ -381,10 +381,7 @@ async fn merge_external_variable_values(
     let Some(root_table) = toml.as_table_mut() else {
         return Ok(());
     };
-    let Some(variable_table) = root_table.get_mut("variable").and_then(Value::as_table_mut) else {
-        return Ok(());
-    };
-    let values = variable_table
+    let values = root_table
         .entry("values".to_owned())
         .or_insert_with(|| Value::Table(toml::map::Map::new()));
     let Some(values) = values.as_table_mut() else {

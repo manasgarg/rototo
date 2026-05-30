@@ -46,8 +46,8 @@ Rules:
 - `_` is reserved for the variable fallback environment and must not appear in
   this list.
 
-Variables may define blocks such as `[variable.env.prod]` only for environments
-declared here. A variable must also define `[variable.env._]`, but `_` is not a
+Variables may define blocks such as `[env.prod]` only for environments
+declared here. A variable must also define `[env._]`, but `_` is not a
 workspace environment.
 
 ## `[context]`

@@ -38,19 +38,18 @@ custom lint defines local rules that rototo cannot infer.
 
 ## Attach lint to the variable
 
-In the variable file, add `[variable.lint]`:
+In the variable file, add `[lint]`:
 
 ```toml
 schema_version = 1
 
-[variable]
 description = "LLM settings for the incident summary agent"
 schema = "../schemas/llm-config.schema.json"
 
-[variable.lint]
+[lint]
 path = "../lint/llm-agent-config.lua"
 
-[[variable.lint.rule]]
+[[lint.rule]]
 id = "platform/max-output-token-budget"
 title = "LLM output token budget is too high"
 help = "Use 5000 or fewer output tokens."
@@ -122,6 +121,6 @@ Attach the policy to the variables whose values it governs.
 
 ## Related docs
 
-- `variable-reference` specifies `[variable.lint]`.
+- `variable-reference` specifies `[lint]`.
 - `diagnostics` explains custom lint diagnostics.
 - `value-types-reference` explains value validation.

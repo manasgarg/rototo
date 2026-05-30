@@ -67,33 +67,32 @@ Create `variables/max-output-tokens.toml`:
 ```toml
 schema_version = 1
 
-[variable]
 description = "Maximum number of tokens the summarizer can emit"
 type = "int"
 
-[variable.values]
+[values]
 small = 500
 standard = 1000
 large = 2000
 
-[variable.env._]
+[env._]
 value = "standard"
 
-[variable.env.dev]
+[env.dev]
 value = "small"
 
-[variable.env.stage]
+[env.stage]
 value = "standard"
 
-[variable.env.prod]
+[env.prod]
 value = "large"
 ```
 
 This file separates three ideas:
 
 - `type = "int"` says the application should receive an integer.
-- `[variable.values]` defines the possible named values.
-- `[variable.env.*]` chooses which named value each environment receives.
+- `[values]` defines the possible named values.
+- `[env.*]` chooses which named value each environment receives.
 
 The selected name is called the value key. In `prod`, the value key is `large`
 and the returned value is `2000`. The `_` environment is the fallback used when

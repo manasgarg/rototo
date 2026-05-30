@@ -27,7 +27,7 @@ variables/max-output-tokens.toml
 The relevant section is the environment block:
 
 ```toml
-[variable.env.prod]
+[env.prod]
 value = "standard"
 ```
 
@@ -36,7 +36,7 @@ value = "standard"
 If the desired value key already exists, reuse it:
 
 ```toml
-[variable.values]
+[values]
 small = 500
 standard = 1000
 large = 2000
@@ -45,7 +45,7 @@ large = 2000
 If it does not exist, add a new value key first:
 
 ```toml
-[variable.values]
+[values]
 small = 500
 standard = 1000
 large = 2000
@@ -60,17 +60,17 @@ make sense in logs and review.
 Update only the environment that should change:
 
 ```toml
-[variable.env.prod]
+[env.prod]
 value = "large"
 ```
 
 Leave other environment blocks unchanged:
 
 ```toml
-[variable.env.dev]
+[env.dev]
 value = "small"
 
-[variable.env.stage]
+[env.stage]
 value = "standard"
 ```
 
@@ -105,7 +105,7 @@ rototo variable resolve max-output-tokens \
 
 ## Common mistakes
 
-Do not change `[variable.env._]` when only one named environment should change.
+Do not change `[env._]` when only one named environment should change.
 The fallback can affect any environment without its own block.
 
 Do not point an environment at a value key that does not exist. Lint catches

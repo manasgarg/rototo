@@ -1,9 +1,8 @@
 schema_version = 1
 
-[variable]
 description = "Variable with malformed external value merge target"
 type = "string"
 values = "not a table"
 
-[variable.env._]
+[env._]
 value = "default"

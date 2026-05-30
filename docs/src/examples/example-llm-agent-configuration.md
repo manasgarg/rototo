@@ -72,23 +72,22 @@ Create `variables/llm-agent-config.toml`:
 ```toml
 schema_version = 1
 
-[variable]
 description = "LLM settings for the incident summary agent"
 schema = "../schemas/llm-config.schema.json"
 
-[variable.lint]
+[lint]
 path = "../lint/llm-agent-config.lua"
 
-[variable.env._]
+[env._]
 value = "standard"
 
-[variable.env.dev]
+[env.dev]
 value = "local"
 
-[variable.env.prod]
+[env.prod]
 value = "standard"
 
-[[variable.env.prod.rule]]
+[[env.prod.rule]]
 description = "Enterprise accounts get the larger agent configuration"
 qualifier = "enterprise-accounts"
 value = "enterprise"

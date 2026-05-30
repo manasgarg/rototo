@@ -1,9 +1,8 @@
-[variable]
 description = "Missing variable schema_version"
 type = "string"
 
-[variable.values]
+[values]
 default = "default"
 
-[variable.env._]
+[env._]
 value = "default"

@@ -1,7 +1,6 @@
 schema_version = 1
 
-[qualifier]
 description = "Predicate missing required fields"
 
-[[qualifier.predicate]]
+[[predicate]]
 attribute = "user.tier"

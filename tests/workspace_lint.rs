@@ -250,10 +250,6 @@ fn covers_every_rototo_rule_with_targeted_fixtures() {
             "tests/fixtures/workspaces/rule-coverage",
         ),
         (
-            RototoRuleId::QualifierMissingTable,
-            "tests/fixtures/workspaces/rule-coverage",
-        ),
-        (
             RototoRuleId::QualifierPredicateMissing,
             "tests/fixtures/workspaces/rule-coverage",
         ),
@@ -283,10 +279,6 @@ fn covers_every_rototo_rule_with_targeted_fixtures() {
         ),
         (
             RototoRuleId::VariableSchemaVersion,
-            "tests/fixtures/workspaces/rule-coverage",
-        ),
-        (
-            RototoRuleId::VariableMissingTable,
             "tests/fixtures/workspaces/rule-coverage",
         ),
         (

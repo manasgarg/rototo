@@ -27,15 +27,14 @@ qualifiers/enterprise-accounts.toml
 ```toml
 schema_version = 1
 
-[qualifier]
 description = "Accounts on the enterprise plan with at least 100 seats"
 
-[[qualifier.predicate]]
+[[predicate]]
 attribute = "account.plan"
 op = "eq"
 value = "enterprise"
 
-[[qualifier.predicate]]
+[[predicate]]
 attribute = "account.seats"
 op = "gte"
 value = 100
@@ -49,7 +48,7 @@ named condition that can be reviewed and reused.
 Add the target value to the variable. For a primitive value:
 
 ```toml
-[variable.values]
+[values]
 standard = 1000
 enterprise = 2000
 ```
@@ -68,10 +67,10 @@ Add a rule under the environment where the condition should select the new
 value:
 
 ```toml
-[variable.env.prod]
+[env.prod]
 value = "standard"
 
-[[variable.env.prod.rule]]
+[[env.prod.rule]]
 description = "Enterprise accounts get the larger value"
 qualifier = "enterprise-accounts"
 value = "enterprise"

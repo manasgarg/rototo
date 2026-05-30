@@ -105,23 +105,17 @@ rototo_rules! {
         title: "Qualifier schema version is missing or unsupported",
         help: "Declare schema_version = 1 in the qualifier file.",
     },
-    QualifierMissingTable => {
-        id: "qualifier-missing-table",
-        entity: Qualifier,
-        title: "Qualifier table is missing",
-        help: "Add a [qualifier] table.",
-    },
     QualifierPredicateMissing => {
         id: "qualifier-predicate-missing",
         entity: Qualifier,
         title: "Qualifier predicate is missing",
-        help: "Add at least one [[qualifier.predicate]] table.",
+        help: "Add at least one [[predicate]] table.",
     },
     QualifierPredicateShape => {
         id: "qualifier-predicate-shape",
         entity: Qualifier,
         title: "Qualifier predicate has the wrong shape",
-        help: "Use [[qualifier.predicate]] tables with attribute, op, and value fields.",
+        help: "Use [[predicate]] tables with attribute, op, and value fields.",
     },
     QualifierPredicateUnknownOp => {
         id: "qualifier-predicate-unknown-op",
@@ -159,17 +153,11 @@ rototo_rules! {
         title: "Variable schema version is missing or unsupported",
         help: "Declare schema_version = 1 in the variable file.",
     },
-    VariableMissingTable => {
-        id: "variable-missing-table",
-        entity: Variable,
-        title: "Variable table is missing",
-        help: "Add a [variable] table.",
-    },
     VariableTypeOrSchema => {
         id: "variable-type-or-schema",
         entity: Variable,
         title: "Variable must declare exactly one type source",
-        help: "Declare exactly one of type or schema under [variable].",
+        help: "Declare exactly one of type or schema.",
     },
     VariableUnknownType => {
         id: "variable-unknown-type",
@@ -181,19 +169,19 @@ rototo_rules! {
         id: "variable-lint-shape",
         entity: Variable,
         title: "Variable custom lint declaration is invalid",
-        help: "Use [variable.lint] with a string path field and declared custom rules.",
+        help: "Use [lint] with a string path field and declared custom rules.",
     },
     VariableValuesMissing => {
         id: "variable-values-missing",
         entity: Variable,
         title: "Variable values are missing",
-        help: "Add [variable.values] entries or external value files.",
+        help: "Add [values] entries or external value files.",
     },
     VariableUnknownValue => {
         id: "variable-unknown-value",
         entity: Variable,
         title: "Variable references an unknown value",
-        help: "Create the referenced value under [variable.values] or update the reference.",
+        help: "Create the referenced value under [values] or update the reference.",
     },
     VariableValueTypeMismatch => {
         id: "variable-value-type-mismatch",
@@ -217,7 +205,7 @@ rototo_rules! {
         id: "variable-env-missing-default",
         entity: Variable,
         title: "Variable default environment is missing",
-        help: "Add [variable.env._] with a value reference.",
+        help: "Add [env._] with a value reference.",
     },
     VariableUnknownEnvironment => {
         id: "variable-unknown-environment",
@@ -277,7 +265,7 @@ rototo_rules! {
         id: "custom-lint-unknown-rule",
         entity: Variable,
         title: "Custom lint emitted an undeclared rule",
-        help: "Declare the custom rule in [variable.lint] or update the Lua diagnostic.",
+        help: "Declare the custom rule in [lint] or update the Lua diagnostic.",
     },
     CustomLintRuleConflict => {
         id: "custom-lint-rule-conflict",

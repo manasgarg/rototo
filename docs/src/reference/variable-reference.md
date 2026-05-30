@@ -27,27 +27,27 @@ application code depends on them.
 
 ## Minimal Shape
 
-Every variable file uses `schema_version = 1` and a `[variable]` table:
+Every variable file uses `schema_version = 1`, a type source, named values, and
+environment selection blocks:
 
 ```toml
 schema_version = 1
 
-[variable]
 description = "Maximum number of tokens the summarizer can emit"
 type = "int"
 
-[variable.values]
+[values]
 small = 500
 standard = 1000
 large = 2000
 
-[variable.env._]
+[env._]
 value = "standard"
 
-[variable.env.dev]
+[env.dev]
 value = "small"
 
-[variable.env.prod]
+[env.prod]
 value = "large"
 ```
 
@@ -64,22 +64,17 @@ schema_version = 1
 
 Files without a supported schema version fail lint.
 
-## `[variable]`
-
-Required. Contains the variable metadata and contract.
-
-### `description`
+## `description`
 
 Optional but recommended. Use it to explain what application-facing behavior the
 variable controls.
 
 ```toml
-[variable]
 description = "LLM settings for the incident summary agent"
 type = "string"
 ```
 
-### `type`
+## `type`
 
 Declares a primitive value type. A variable must declare exactly one of `type`
 or `schema`.
@@ -97,13 +92,12 @@ list
 Primitive values are checked during lint. A variable with `type = "int"` fails
 lint if any configured value is not an integer.
 
-### `schema`
+## `schema`
 
 Declares a JSON Schema file for structured values. A variable must declare
 exactly one of `type` or `schema`.
 
 ```toml
-[variable]
 description = "LLM settings for the incident summary agent"
 schema = "../schemas/llm-config.schema.json"
 ```
@@ -111,15 +105,15 @@ schema = "../schemas/llm-config.schema.json"
 The schema path is resolved relative to the variable file. Each configured value
 is validated against the schema during lint.
 
-### `[variable.lint]`
+## `[lint]`
 
 Optional. Declares variable-scoped custom Lua lint.
 
 ```toml
-[variable.lint]
+[lint]
 path = "../lint/llm-agent-config.lua"
 
-[[variable.lint.rule]]
+[[lint.rule]]
 id = "platform/max-output-token-budget"
 title = "LLM output token budget is too high"
 help = "Use 5000 or fewer output tokens."
@@ -156,7 +150,7 @@ end
 ```
 
 Each function must return a list of diagnostics. A diagnostic must contain
-`rule` and `message`. The rule must match a declared `[[variable.lint.rule]]`;
+`rule` and `message`. The rule must match a declared `[[lint.rule]]`;
 the declaration owns the diagnostic title and help text.
 
 Custom lint is declared on variables today. Workspace-level and qualifier-level
@@ -172,10 +166,10 @@ returned in resolution output as `value_key`.
 
 ### Inline Primitive Values
 
-Use `[variable.values]` for primitive values:
+Use `[values]` for primitive values:
 
 ```toml
-[variable.values]
+[values]
 small = 500
 standard = 1000
 large = 2000
@@ -186,13 +180,13 @@ large = 2000
 Use nested tables for object values:
 
 ```toml
-[variable.values.standard]
+[values.standard]
 model = "gpt-5-mini"
 gateway = "openai"
 max_output_tokens = 2400
 temperature = 0.3
 
-[variable.values.enterprise]
+[values.enterprise]
 model = "gpt-5"
 gateway = "openai"
 max_output_tokens = 5000
@@ -226,7 +220,7 @@ variables/
     enterprise.toml   -> enterprise
 ```
 
-External values are merged into `[variable.values]` before lint, custom lint,
+External values are merged into `[values]` before lint, custom lint,
 and resolution. If the same value key is declared inline and externally, loading
 fails.
 
@@ -265,22 +259,22 @@ key, rototo uses the whole TOML document as the value.
 
 ## Environment Mappings
 
-Variable environment blocks live under `[variable.env]`.
+Variable environment blocks live under `[env]`.
 
 The fallback block is required:
 
 ```toml
-[variable.env._]
+[env._]
 value = "standard"
 ```
 
 Named environment blocks are optional:
 
 ```toml
-[variable.env.dev]
+[env.dev]
 value = "small"
 
-[variable.env.prod]
+[env.prod]
 value = "large"
 ```
 
@@ -288,7 +282,7 @@ Environment names other than `_` must be declared in the workspace manifest
 under `[environments].values`.
 
 When resolving a variable, rototo first looks for a block matching the requested
-environment. If there is no matching block, it uses `[variable.env._]`.
+environment. If there is no matching block, it uses `[env._]`.
 
 Each environment block must contain:
 
@@ -303,10 +297,10 @@ The value key must exist in the expanded values table.
 Rules let an environment block select a value by qualifier.
 
 ```toml
-[variable.env.prod]
+[env.prod]
 value = "standard"
 
-[[variable.env.prod.rule]]
+[[env.prod.rule]]
 description = "Enterprise accounts get the larger agent configuration"
 qualifier = "enterprise-accounts"
 value = "enterprise"
@@ -354,13 +348,12 @@ CLI JSON output also includes the workspace source/path.
 Variable lint checks:
 
 - `schema_version = 1` exists.
-- `[variable]` exists.
 - Exactly one of `type` or `schema` is declared.
-- `[variable.lint]`, when present, is a table with `path`.
+- `[lint]`, when present, is a table with `path`.
 - Values exist after external value files are loaded.
 - Primitive values match `type`.
 - Schema-backed values match the referenced JSON Schema.
-- `[variable.env._]` exists.
+- `[env._]` exists.
 - Environment blocks are tables with `value`.
 - Named environments are declared in the workspace manifest.
 - Environment `value` references point at known value keys.
@@ -379,22 +372,21 @@ workspace is used.
 ```toml
 schema_version = 1
 
-[variable]
 description = "Maximum number of tokens the summarizer can emit"
 type = "int"
 
-[variable.values]
+[values]
 small = 500
 standard = 1000
 large = 2000
 
-[variable.env._]
+[env._]
 value = "standard"
 
-[variable.env.dev]
+[env.dev]
 value = "small"
 
-[variable.env.prod]
+[env.prod]
 value = "large"
 ```
 
@@ -403,20 +395,19 @@ value = "large"
 ```toml
 schema_version = 1
 
-[variable]
 description = "LLM settings for the incident summary agent"
 schema = "../schemas/llm-config.schema.json"
 
-[variable.lint]
+[lint]
 path = "../lint/llm-agent-config.lua"
 
-[variable.env._]
+[env._]
 value = "standard"
 
-[variable.env.prod]
+[env.prod]
 value = "standard"
 
-[[variable.env.prod.rule]]
+[[env.prod.rule]]
 description = "Enterprise accounts get the larger agent configuration"
 qualifier = "enterprise-accounts"
 value = "enterprise"

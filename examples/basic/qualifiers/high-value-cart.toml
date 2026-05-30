@@ -1,9 +1,8 @@
 schema_version = 1
 
-[qualifier]
 description = "Checkout sessions with a high cart value"
 
-[[qualifier.predicate]]
+[[predicate]]
 attribute = "cart.total_usd"
 op = "gte"
 value = 250

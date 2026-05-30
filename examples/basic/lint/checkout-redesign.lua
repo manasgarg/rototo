@@ -1,6 +1,6 @@
 function lint(variable)
   local diagnostics = {}
-  local values = variable.toml.variable.values
+  local values = variable.toml.values
 
   for name, value in pairs(values) do
     if value.heading == "" then

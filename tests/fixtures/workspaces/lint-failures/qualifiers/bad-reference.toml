@@ -1,9 +1,8 @@
 schema_version = 1
 
-[qualifier]
 description = "Qualifier referencing a missing qualifier"
 
-[[qualifier.predicate]]
+[[predicate]]
 attribute = "qualifier.missing-qualifier"
 op = "eq"
 value = true

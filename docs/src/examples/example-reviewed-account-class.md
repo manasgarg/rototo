@@ -58,15 +58,14 @@ Create `qualifiers/premium-germany.toml`:
 ```toml
 schema_version = 1
 
-[qualifier]
 description = "Premium accounts making requests from Germany"
 
-[[qualifier.predicate]]
+[[predicate]]
 attribute = "account.plan"
 op = "eq"
 value = "premium"
 
-[[qualifier.predicate]]
+[[predicate]]
 attribute = "request.country"
 op = "eq"
 value = "DE"
@@ -82,21 +81,20 @@ Create `variables/payment-review-queue.toml`:
 ```toml
 schema_version = 1
 
-[variable]
 description = "Payment review queue"
 type = "string"
 
-[variable.values]
+[values]
 standard = "standard-review"
 regional_priority = "de-priority-review"
 
-[variable.env._]
+[env._]
 value = "standard"
 
-[variable.env.prod]
+[env.prod]
 value = "standard"
 
-[[variable.env.prod.rule]]
+[[env.prod.rule]]
 description = "Premium German accounts use regional priority review"
 qualifier = "premium-germany"
 value = "regional_priority"

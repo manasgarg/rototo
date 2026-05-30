@@ -1,8 +1,7 @@
 schema_version = 1
 
-[variable]
 description = "Variable with an invalid external value file"
 type = "string"
 
-[variable.env._]
+[env._]
 value = "broken"

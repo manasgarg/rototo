@@ -56,10 +56,10 @@ consumer-experience/banner-too-large
 Custom rules must be declared in reviewable TOML before Lua can emit them:
 
 ```toml
-[variable.lint]
+[lint]
 path = "../lint/llm.lua"
 
-[[variable.lint.rule]]
+[[lint.rule]]
 id = "payments/max-token-budget"
 title = "Token budget exceeds payments policy"
 help = "Lower max_output_tokens or update the payments policy."

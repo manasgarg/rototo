@@ -69,14 +69,13 @@ values = ["prod"]
         format!(
             r#"schema_version = 1
 
-[variable]
 description = "Message"
 type = "string"
 
-[variable.values]
+[values]
 default = "{message}"
 
-[variable.env._]
+[env._]
 value = "default"
 "#,
         ),
@@ -172,7 +171,7 @@ async fn sdk_reads_variable_config() {
 
     assert_eq!(variable.id, "checkout-redesign");
     assert_eq!(
-        variable.value["variable"]["description"],
+        variable.value["description"],
         "Checkout page content and layout variant"
     );
 }
@@ -183,12 +182,9 @@ async fn sdk_reads_directory_backed_variable_values() {
         .await
         .unwrap();
 
+    assert_eq!(variable.value["values"]["control"], "Welcome back.");
     assert_eq!(
-        variable.value["variable"]["values"]["control"],
-        "Welcome back."
-    );
-    assert_eq!(
-        variable.value["variable"]["values"]["premium"],
+        variable.value["values"]["premium"],
         "Welcome back, premium member."
     );
 }
@@ -200,12 +196,12 @@ async fn sdk_reads_all_basic_variable_configs_with_values() {
     assert!(variables.len() > 10);
     for variable in variables {
         assert!(
-            variable.value["variable"]["values"].is_object(),
+            variable.value["values"].is_object(),
             "variable://{} should expose expanded values",
             variable.id
         );
         assert!(
-            variable.value["variable"]["values"]
+            variable.value["values"]
                 .as_object()
                 .is_some_and(|values| !values.is_empty()),
             "variable://{} should expose at least one value",

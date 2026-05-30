@@ -99,22 +99,22 @@ workspace structure and files:
 
 - Workspace manifest exists, parses, declares `schema_version = 1`, and declares
   non-empty `[environments].values`.
-- Qualifier files parse, declare `schema_version = 1`, contain `[qualifier]`,
-  contain at least one `[[qualifier.predicate]]`, reference known qualifiers when
+- Qualifier files parse, declare `schema_version = 1`, contain at least one
+  `[[predicate]]`, reference known qualifiers when
   using `qualifier.<id>`, use known predicate operators, and validate bucket and
   operator value shapes.
-- Variable files parse, declare `schema_version = 1`, contain `[variable]`,
-  declare exactly one of `type` or `schema`, contain inline values under
-  `[variable.values]` and/or external values under a sibling
-  `<variable-id>-values/*.toml` directory, contain `[variable.env._]`, reference
+- Variable files parse, declare `schema_version = 1`, declare exactly one of
+  `type` or `schema`, contain inline values under `[values]` and/or external
+  values under a sibling
+  `<variable-id>-values/*.toml` directory, contain `[env._]`, reference
   declared environments, reference known values, and reference known qualifiers
   from rules.
 - Primitive variable values match `bool`, `int`, `number`, `string`, or `list`.
 - Schema-backed variable values validate against their JSON Schema.
-- Variables can declare `[variable.lint] path = "../lint/name.lua"` for custom
+- Variables can declare `[lint] path = "../lint/name.lua"` for custom
   Lua lint. Lua files define `lint(variable)` and/or `lint_value(value)` and
   return diagnostics with `rule` and `message`. Custom rules are declared in
-  TOML under `[[variable.lint.rule]]` with `id`, `title`, and `help`; Lua emits
+  TOML under `[[lint.rule]]` with `id`, `title`, and `help`; Lua emits
   declared `<authority>/<rule-id>` ids. `rototo` is reserved for built-in
   diagnostics.
 - Standalone `schemas/*.json` files parse and compile as JSON Schema.

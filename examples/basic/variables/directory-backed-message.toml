@@ -1,24 +1,23 @@
 schema_version = 1
 
-[variable]
 description = "Message loaded from per-value TOML files"
 type = "string"
 
-[variable.lint]
+[lint]
 path = "../lint/directory-backed-message.lua"
 
-[[variable.lint.rule]]
+[[lint.rule]]
 id = "consumer-experience/message-not-empty"
 title = "Directory-backed message is empty"
 help = "Set a non-empty message."
 
-[variable.env._]
+[env._]
 value = "control"
 
-[variable.env.prod]
+[env.prod]
 value = "control"
 
-[[variable.env.prod.rule]]
+[[env.prod.rule]]
 description = "Premium users get the premium message"
 qualifier = "premium-users"
 value = "premium"

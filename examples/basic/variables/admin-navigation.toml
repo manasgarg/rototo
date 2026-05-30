@@ -1,23 +1,22 @@
 schema_version = 1
 
-[variable]
 description = "Whether to show administrator navigation affordances"
 type = "bool"
 
-[variable.values]
+[values]
 hidden = false
 visible = true
 
-[variable.env._]
+[env._]
 value = "hidden"
 
-[variable.env.dev]
+[env.dev]
 value = "visible"
 
-[variable.env.prod]
+[env.prod]
 value = "hidden"
 
-[[variable.env.prod.rule]]
+[[env.prod.rule]]
 description = "Only administrators see admin navigation in production"
 qualifier = "admin-users"
 value = "visible"

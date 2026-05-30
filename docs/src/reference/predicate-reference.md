@@ -6,7 +6,7 @@ Predicates are the boolean tests inside qualifier files. A qualifier resolves to
 ## Shape
 
 ```toml
-[[qualifier.predicate]]
+[[predicate]]
 attribute = "account.plan"
 op = "eq"
 value = "enterprise"
@@ -109,7 +109,7 @@ Predicates can read another qualifier by using `qualifier.<id>` as the
 attribute:
 
 ```toml
-[[qualifier.predicate]]
+[[predicate]]
 attribute = "qualifier.enterprise-accounts"
 op = "eq"
 value = true
