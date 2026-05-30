@@ -1,16 +1,5 @@
 # Contributing to rototo
 
-## Worktrees
-
-Use `/home/manas/projects/rototo/main` as a clean reference worktree. Create a
-separate worktree for each task:
-
-```sh
-cd /home/manas/projects/rototo
-git --git-dir=.bare worktree add -b my-branch my-branch main
-```
-
-Do development inside the task worktree, not `main`.
 
 ## Setup
 
