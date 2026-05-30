@@ -1,7 +1,7 @@
 function lint(variable)
   return {
     {
-      rule = "fixture/custom-variable-rejected",
+      rule = "payments/undeclared-rule",
       message = "custom lint rejected " .. variable.id
     }
   }

@@ -1,0 +1,19 @@
+schema_version = 1
+
+[variable]
+description = "First custom rule declaration"
+type = "string"
+
+[variable.lint]
+path = "../lint/noop.lua"
+
+[[variable.lint.rule]]
+id = "billing/conflicting-rule"
+title = "First title"
+help = "First help."
+
+[variable.values]
+default = "default"
+
+[variable.env._]
+value = "default"

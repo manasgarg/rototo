@@ -3,21 +3,16 @@ use std::path::{Path, PathBuf};
 use mlua::{Lua, LuaSerdeExt, Table, Value as LuaValue};
 use toml::Value;
 
-use crate::diagnostics::{Diagnostic, DiagnosticSource, LintRule, VARIABLE_CUSTOM_LINT_FAILED};
+use crate::diagnostics::{CustomRuleDefinition, CustomRuleId, Diagnostic, RototoRuleId};
 use crate::error::{Result, RototoError};
 use crate::model::VariableInspection;
-
-const RULE_VARIABLE_CUSTOM_LINT: LintRule = LintRule {
-    id: "rototo/variable/custom-lint/failed",
-    title: "Variable custom lint failed",
-    help: "Update the variable or its Lua lint rule so custom lint passes.",
-};
 
 pub async fn lint_variable(
     workspace_root: &Path,
     variable: &VariableInspection,
     variable_toml: &Value,
     environments: &[String],
+    custom_rules: &[CustomRuleDefinition],
 ) -> Result<Vec<Diagnostic>> {
     let Some(path) = lint_path(variable_toml) else {
         return Ok(Vec::new());
@@ -39,12 +34,14 @@ pub async fn lint_variable(
     let variable = variable.clone();
     let variable_toml = variable_toml.clone();
     let environments = environments.to_vec();
+    let custom_rules = custom_rules.to_vec();
     tokio::task::spawn_blocking(move || {
         lint_variable_script(
             workspace_root,
             variable,
             variable_toml,
             environments,
+            custom_rules,
             lint_path,
             script,
         )
@@ -58,6 +55,7 @@ fn lint_variable_script(
     variable: VariableInspection,
     variable_toml: Value,
     environments: Vec<String>,
+    custom_rules: Vec<CustomRuleDefinition>,
     lint_path: PathBuf,
     script: String,
 ) -> Result<Vec<Diagnostic>> {
@@ -109,7 +107,7 @@ fn lint_variable_script(
                 RototoError::new(format!("failed to read Lua variable context: {err}"))
             })?)
             .map_err(|err| RototoError::new(format!("custom lint failed: {err}")))?;
-        diagnostics.extend(diagnostics_from_lua(&variable, returned)?);
+        diagnostics.extend(diagnostics_from_lua(&variable, returned, &custom_rules)?);
     }
 
     if let Some(lint_value) = lint_value {
@@ -139,7 +137,7 @@ fn lint_variable_script(
             let returned: LuaValue = lint_value
                 .call(value_context)
                 .map_err(|err| RototoError::new(format!("custom value lint failed: {err}")))?;
-            diagnostics.extend(diagnostics_from_lua(&variable, returned)?);
+            diagnostics.extend(diagnostics_from_lua(&variable, returned, &custom_rules)?);
         }
     }
 
@@ -157,10 +155,11 @@ fn lint_path(variable_toml: &Value) -> Option<&str> {
 fn diagnostics_from_lua(
     variable: &VariableInspection,
     returned: LuaValue,
+    custom_rules: &[CustomRuleDefinition],
 ) -> Result<Vec<Diagnostic>> {
     match returned {
         LuaValue::Nil => Ok(Vec::new()),
-        LuaValue::Table(table) => diagnostics_from_table(variable, table),
+        LuaValue::Table(table) => diagnostics_from_table(variable, table, custom_rules),
         other => Err(RototoError::new(format!(
             "custom lint must return a list of diagnostics, got {}",
             lua_type_name(&other)
@@ -168,38 +167,60 @@ fn diagnostics_from_lua(
     }
 }
 
-fn diagnostics_from_table(variable: &VariableInspection, table: Table) -> Result<Vec<Diagnostic>> {
+fn diagnostics_from_table(
+    variable: &VariableInspection,
+    table: Table,
+    custom_rules: &[CustomRuleDefinition],
+) -> Result<Vec<Diagnostic>> {
     let mut diagnostics = Vec::new();
     for entry in table.sequence_values::<Table>() {
         let entry = entry.map_err(|err| {
             RototoError::new(format!("custom lint returned an invalid diagnostic: {err}"))
         })?;
+        let rule = entry
+            .get::<Option<String>>("rule")
+            .map_err(|err| RototoError::new(format!("custom lint rule is invalid: {err}")))?;
         let message = entry
             .get::<Option<String>>("message")
             .map_err(|err| RototoError::new(format!("custom lint message is invalid: {err}")))?
             .ok_or_else(|| RototoError::new("custom lint diagnostic must contain message"))?;
-        let help = entry
-            .get::<Option<String>>("help")
-            .map_err(|err| RototoError::new(format!("custom lint help is invalid: {err}")))?
-            .unwrap_or_else(|| VARIABLE_CUSTOM_LINT_FAILED.help.to_owned());
 
-        diagnostics.push(
-            Diagnostic::new_rule(
-                VARIABLE_CUSTOM_LINT_FAILED,
-                DiagnosticSource::Custom,
+        let Some(rule) = rule else {
+            diagnostics.push(Diagnostic::rototo(
+                RototoRuleId::CustomLintInvalidRule,
                 variable.path.display().to_string(),
-                message,
-                RULE_VARIABLE_CUSTOM_LINT,
-            )
-            .with_kind("variable")
-            .with_details(serde_json::json!({
-                "title": VARIABLE_CUSTOM_LINT_FAILED.title,
-                "help": help,
-            })),
-        );
-        if let Some(diagnostic) = diagnostics.last_mut() {
-            diagnostic.help = help;
-        }
+                "custom lint diagnostic must contain rule",
+            ));
+            continue;
+        };
+        let rule = match CustomRuleId::parse(&rule) {
+            Ok(rule) => rule,
+            Err(err) => {
+                diagnostics.push(Diagnostic::rototo(
+                    RototoRuleId::CustomLintInvalidRule,
+                    variable.path.display().to_string(),
+                    format!("custom lint emitted invalid rule {rule}: {err}"),
+                ));
+                continue;
+            }
+        };
+        let Some(definition) = custom_rules
+            .iter()
+            .find(|definition| definition.rule == rule)
+        else {
+            diagnostics.push(Diagnostic::rototo(
+                RototoRuleId::CustomLintUnknownRule,
+                variable.path.display().to_string(),
+                format!("custom lint emitted undeclared rule: {rule}"),
+            ));
+            continue;
+        };
+
+        diagnostics.push(Diagnostic::custom(
+            definition,
+            variable.path.display().to_string(),
+            message,
+        ));
     }
     Ok(diagnostics)
 }

@@ -2,6 +2,8 @@ use assert_cmd::Command;
 use predicates::prelude::*;
 use std::collections::BTreeSet;
 
+use rototo::diagnostics::RototoRuleId;
+
 #[test]
 fn lints_basic_workspace() {
     let workspace = std::path::absolute("examples/basic").unwrap();
@@ -62,7 +64,7 @@ fn lints_discovered_workspace() {
 
 #[test]
 fn reports_workspace_manifest_missing() {
-    assert_lint_code(
+    assert_lint_rule(
         "tests/fixtures/workspaces/missing-manifest",
         "rototo/workspace-manifest-missing",
     );
@@ -70,7 +72,7 @@ fn reports_workspace_manifest_missing() {
 
 #[test]
 fn reports_workspace_manifest_parse_failed() {
-    assert_lint_code(
+    assert_lint_rule(
         "tests/fixtures/workspaces/invalid-workspace-toml",
         "rototo/workspace-manifest-parse-failed",
     );
@@ -78,7 +80,7 @@ fn reports_workspace_manifest_parse_failed() {
 
 #[test]
 fn reports_workspace_manifest_schema_failed() {
-    assert_lint_code(
+    assert_lint_rule(
         "tests/fixtures/workspaces/missing-environments",
         "rototo/workspace-manifest-schema-failed",
     );
@@ -86,9 +88,13 @@ fn reports_workspace_manifest_schema_failed() {
 
 #[test]
 fn reports_workspace_file_parse_failed() {
-    assert_lint_code(
+    assert_lint_rule(
         "tests/fixtures/workspaces/invalid-workspace-file-toml",
-        "rototo/workspace-toml-file-parse-failed",
+        "rototo/qualifier-parse-failed",
+    );
+    assert_lint_rule(
+        "tests/fixtures/workspaces/invalid-workspace-file-toml",
+        "rototo/variable-parse-failed",
     );
 }
 
@@ -98,35 +104,59 @@ fn reports_core_workspace_file_failures() {
         "tests/fixtures/workspaces/lint-failures",
         &[
             "bucket range must satisfy 0 <= start < end <= 10000",
-            r#""rule": "rototo/qualifier/predicate/bucket""#,
+            r#""rule": "rototo/qualifier-predicate-bucket""#,
             "predicate references unknown qualifier: missing-qualifier",
-            r#""rule": "rototo/qualifier/predicate/unknown-qualifier""#,
+            r#""rule": "rototo/qualifier-predicate-unknown-qualifier""#,
             "in predicate value must be a list",
-            r#""rule": "rototo/qualifier/predicate/value""#,
+            r#""rule": "rototo/qualifier-predicate-value""#,
             "gte predicate value must be a number",
             "predicate has unknown op: contains",
-            r#""rule": "rototo/qualifier/predicate/unknown-op""#,
+            r#""rule": "rototo/qualifier-predicate-unknown-op""#,
             "variable references undeclared environment: qa",
-            r#""rule": "rototo/variable/env/unknown-environment""#,
+            r#""rule": "rototo/variable-unknown-environment""#,
             "environment references unknown value: missing-value",
-            r#""rule": "rototo/variable/value/unknown""#,
+            r#""rule": "rototo/variable-unknown-value""#,
             "rule references unknown qualifier: missing-qualifier",
-            r#""rule": "rototo/variable/rule/unknown-qualifier""#,
+            r#""rule": "rototo/variable-rule-unknown-qualifier""#,
             "rule references unknown value: another-missing-value",
             "schema is invalid:",
-            r#""rule": "rototo/variable/schema/ref""#,
+            r#""rule": "rototo/variable-schema-ref""#,
             "schemas/invalid-json.schema.json",
-            r#""rule": "rototo/json-schema-file/parse-failed""#,
+            r#""rule": "rototo/schema-parse-failed""#,
             "value broken does not match schema:",
-            r#""rule": "rototo/variable/value/schema-mismatch""#,
+            r#""rule": "rototo/variable-value-schema-mismatch""#,
             "value bad does not match type int",
-            r#""rule": "rototo/variable/value/type-mismatch""#,
+            r#""rule": "rototo/variable-value-type-mismatch""#,
             "variable declares unknown type: currency",
-            r#""rule": "rototo/variable/type/unknown""#,
+            r#""rule": "rototo/variable-unknown-type""#,
+            "variable value is declared more than once: default",
+            r#""rule": "rototo/variable-external-value-duplicate""#,
+            "failed to parse",
+            r#""rule": "rototo/variable-external-value-parse-failed""#,
+            "variable values must be a table",
+            r#""rule": "rototo/variable-external-values-load-failed""#,
             "custom lint rejected custom-lint",
             "custom value lint rejected custom-value-lint.default",
-            "rototo/variable-custom-lint-failed",
-            r#""rule": "rototo/variable/custom-lint/failed""#,
+            r#""rule": "fixture/custom-variable-rejected""#,
+            r#""rule": "fixture/custom-value-rejected""#,
+        ],
+    );
+}
+
+#[test]
+fn reports_custom_lint_contract_failures() {
+    assert_lint_messages(
+        "tests/fixtures/workspaces/custom-lint-contract",
+        &[
+            r#""rule": "payments/max-token-budget""#,
+            "custom lint emitted invalid rule rototo/not-allowed",
+            r#""rule": "rototo/custom-lint-invalid-rule""#,
+            "custom lint emitted undeclared rule: payments/undeclared-rule",
+            r#""rule": "rototo/custom-lint-unknown-rule""#,
+            "custom lint rule metadata conflicts: billing/conflicting-rule",
+            r#""rule": "rototo/custom-lint-rule-conflict""#,
+            "script failed for custom-failed",
+            r#""rule": "rototo/custom-lint-failed""#,
         ],
     );
 }
@@ -137,8 +167,7 @@ fn reports_context_schema_contract_failures() {
         "tests/fixtures/workspaces/context-schema-attribute",
         &[
             "context schema does not declare attribute: account.plan",
-            "rototo/workspace-context-schema-failed",
-            r#""rule": "rototo/workspace/context-schema/attribute""#,
+            r#""rule": "rototo/workspace-context-schema-attribute""#,
         ],
     );
 }
@@ -149,8 +178,7 @@ fn reports_malformed_context_schema_references() {
         "tests/fixtures/workspaces/bad-context-config",
         &[
             "[context] must be a table",
-            "rototo/workspace-context-schema-failed",
-            r#""rule": "rototo/workspace/context-schema/ref""#,
+            r#""rule": "rototo/workspace-context-schema-ref""#,
         ],
     );
     assert_lint_messages(
@@ -181,100 +209,209 @@ fn reports_unsafe_context_schema_paths() {
         "tests/fixtures/workspaces/context-schema-path-escape",
         &[
             "context schema path must be a relative path inside the workspace",
-            "rototo/workspace-context-schema-failed",
-            r#""rule": "rototo/workspace/context-schema/ref""#,
+            r#""rule": "rototo/workspace-context-schema-ref""#,
         ],
     );
 }
 
 #[test]
-fn covers_every_diagnostic_code_and_lint_rule() {
-    let fixtures = [
-        "tests/fixtures/workspaces/does-not-exist",
-        "tests/fixtures/workspaces/missing-manifest",
-        "tests/fixtures/workspaces/invalid-workspace-toml",
-        "tests/fixtures/workspaces/missing-environments",
-        "tests/fixtures/workspaces/invalid-workspace-file-toml",
-        "tests/fixtures/workspaces/lint-failures",
-        "tests/fixtures/workspaces/context-schema-attribute",
-        "tests/fixtures/workspaces/context-schema-path-escape",
-        "tests/fixtures/workspaces/rule-coverage",
+fn covers_every_rototo_rule_with_targeted_fixtures() {
+    let targets = [
+        (
+            RototoRuleId::WorkspaceNotFound,
+            "tests/fixtures/workspaces/does-not-exist",
+        ),
+        (
+            RototoRuleId::WorkspaceManifestMissing,
+            "tests/fixtures/workspaces/missing-manifest",
+        ),
+        (
+            RototoRuleId::WorkspaceManifestParseFailed,
+            "tests/fixtures/workspaces/invalid-workspace-toml",
+        ),
+        (
+            RototoRuleId::WorkspaceManifestSchemaFailed,
+            "tests/fixtures/workspaces/missing-environments",
+        ),
+        (
+            RototoRuleId::WorkspaceContextSchemaRef,
+            "tests/fixtures/workspaces/context-schema-path-escape",
+        ),
+        (
+            RototoRuleId::WorkspaceContextSchemaAttribute,
+            "tests/fixtures/workspaces/context-schema-attribute",
+        ),
+        (
+            RototoRuleId::QualifierParseFailed,
+            "tests/fixtures/workspaces/invalid-workspace-file-toml",
+        ),
+        (
+            RototoRuleId::QualifierSchemaVersion,
+            "tests/fixtures/workspaces/rule-coverage",
+        ),
+        (
+            RototoRuleId::QualifierMissingTable,
+            "tests/fixtures/workspaces/rule-coverage",
+        ),
+        (
+            RototoRuleId::QualifierPredicateMissing,
+            "tests/fixtures/workspaces/rule-coverage",
+        ),
+        (
+            RototoRuleId::QualifierPredicateShape,
+            "tests/fixtures/workspaces/rule-coverage",
+        ),
+        (
+            RototoRuleId::QualifierPredicateUnknownOp,
+            "tests/fixtures/workspaces/lint-failures",
+        ),
+        (
+            RototoRuleId::QualifierPredicateUnknownQualifier,
+            "tests/fixtures/workspaces/lint-failures",
+        ),
+        (
+            RototoRuleId::QualifierPredicateBucket,
+            "tests/fixtures/workspaces/lint-failures",
+        ),
+        (
+            RototoRuleId::QualifierPredicateValue,
+            "tests/fixtures/workspaces/lint-failures",
+        ),
+        (
+            RototoRuleId::VariableParseFailed,
+            "tests/fixtures/workspaces/invalid-workspace-file-toml",
+        ),
+        (
+            RototoRuleId::VariableSchemaVersion,
+            "tests/fixtures/workspaces/rule-coverage",
+        ),
+        (
+            RototoRuleId::VariableMissingTable,
+            "tests/fixtures/workspaces/rule-coverage",
+        ),
+        (
+            RototoRuleId::VariableTypeOrSchema,
+            "tests/fixtures/workspaces/rule-coverage",
+        ),
+        (
+            RototoRuleId::VariableUnknownType,
+            "tests/fixtures/workspaces/lint-failures",
+        ),
+        (
+            RototoRuleId::VariableLintShape,
+            "tests/fixtures/workspaces/rule-coverage",
+        ),
+        (
+            RototoRuleId::VariableValuesMissing,
+            "tests/fixtures/workspaces/rule-coverage",
+        ),
+        (
+            RototoRuleId::VariableUnknownValue,
+            "tests/fixtures/workspaces/lint-failures",
+        ),
+        (
+            RototoRuleId::VariableValueTypeMismatch,
+            "tests/fixtures/workspaces/lint-failures",
+        ),
+        (
+            RototoRuleId::VariableValueSchemaMismatch,
+            "tests/fixtures/workspaces/lint-failures",
+        ),
+        (
+            RototoRuleId::VariableSchemaRef,
+            "tests/fixtures/workspaces/lint-failures",
+        ),
+        (
+            RototoRuleId::VariableEnvMissingDefault,
+            "tests/fixtures/workspaces/rule-coverage",
+        ),
+        (
+            RototoRuleId::VariableUnknownEnvironment,
+            "tests/fixtures/workspaces/lint-failures",
+        ),
+        (
+            RototoRuleId::VariableEnvShape,
+            "tests/fixtures/workspaces/rule-coverage",
+        ),
+        (
+            RototoRuleId::VariableRuleShape,
+            "tests/fixtures/workspaces/rule-coverage",
+        ),
+        (
+            RototoRuleId::VariableRuleUnknownQualifier,
+            "tests/fixtures/workspaces/lint-failures",
+        ),
+        (
+            RototoRuleId::VariableExternalValuesLoadFailed,
+            "tests/fixtures/workspaces/lint-failures",
+        ),
+        (
+            RototoRuleId::VariableExternalValueParseFailed,
+            "tests/fixtures/workspaces/lint-failures",
+        ),
+        (
+            RototoRuleId::VariableExternalValueDuplicate,
+            "tests/fixtures/workspaces/lint-failures",
+        ),
+        (
+            RototoRuleId::CustomLintFailed,
+            "tests/fixtures/workspaces/custom-lint-contract",
+        ),
+        (
+            RototoRuleId::CustomLintInvalidRule,
+            "tests/fixtures/workspaces/custom-lint-contract",
+        ),
+        (
+            RototoRuleId::CustomLintUnknownRule,
+            "tests/fixtures/workspaces/custom-lint-contract",
+        ),
+        (
+            RototoRuleId::CustomLintRuleConflict,
+            "tests/fixtures/workspaces/custom-lint-contract",
+        ),
+        (
+            RototoRuleId::SchemaParseFailed,
+            "tests/fixtures/workspaces/lint-failures",
+        ),
+        (
+            RototoRuleId::SchemaInvalid,
+            "tests/fixtures/workspaces/lint-failures",
+        ),
     ];
 
-    let mut codes = BTreeSet::new();
-    let mut rules = BTreeSet::new();
-    for fixture in fixtures {
-        let lint = lint_json(fixture);
-        for diagnostic in lint["diagnostics"].as_array().unwrap() {
-            codes.insert(diagnostic["code"].as_str().unwrap().to_owned());
-            if let Some(rule) = diagnostic.get("rule").and_then(serde_json::Value::as_str) {
-                rules.insert(rule.to_owned());
-            }
-        }
+    let mut covered = BTreeSet::new();
+    for (rule, fixture) in targets {
+        let rule = rule.meta().rule;
+        assert_workspace_emits_rule(fixture, rule);
+        covered.insert(rule.to_owned());
     }
 
     assert_eq!(
-        codes,
-        BTreeSet::from([
-            "rototo/json-schema-file-invalid".to_owned(),
-            "rototo/json-schema-file-parse-failed".to_owned(),
-            "rototo/variable-custom-lint-failed".to_owned(),
-            "rototo/workspace-context-schema-failed".to_owned(),
-            "rototo/workspace-manifest-missing".to_owned(),
-            "rototo/workspace-manifest-parse-failed".to_owned(),
-            "rototo/workspace-manifest-schema-failed".to_owned(),
-            "rototo/workspace-not-found".to_owned(),
-            "rototo/workspace-toml-file-invalid".to_owned(),
-            "rototo/workspace-toml-file-parse-failed".to_owned(),
-        ])
-    );
-    assert_eq!(
-        rules,
-        BTreeSet::from([
-            "rototo/json-schema-file/parse-failed".to_owned(),
-            "rototo/qualifier/missing-table".to_owned(),
-            "rototo/qualifier/predicate/bucket".to_owned(),
-            "rototo/qualifier/predicate/missing".to_owned(),
-            "rototo/qualifier/predicate/shape".to_owned(),
-            "rototo/qualifier/predicate/unknown-op".to_owned(),
-            "rototo/qualifier/predicate/unknown-qualifier".to_owned(),
-            "rototo/qualifier/predicate/value".to_owned(),
-            "rototo/qualifier/schema-version".to_owned(),
-            "rototo/schema/invalid".to_owned(),
-            "rototo/variable/custom-lint/failed".to_owned(),
-            "rototo/variable/env/missing-default".to_owned(),
-            "rototo/variable/env/shape".to_owned(),
-            "rototo/variable/env/unknown-environment".to_owned(),
-            "rototo/variable/lint/shape".to_owned(),
-            "rototo/variable/missing-table".to_owned(),
-            "rototo/variable/rule/shape".to_owned(),
-            "rototo/variable/rule/unknown-qualifier".to_owned(),
-            "rototo/variable/schema-version".to_owned(),
-            "rototo/variable/schema/ref".to_owned(),
-            "rototo/variable/type-or-schema".to_owned(),
-            "rototo/variable/type/unknown".to_owned(),
-            "rototo/variable/value/schema-mismatch".to_owned(),
-            "rototo/variable/value/type-mismatch".to_owned(),
-            "rototo/variable/value/unknown".to_owned(),
-            "rototo/variable/values/missing".to_owned(),
-            "rototo/workspace/context-schema/attribute".to_owned(),
-            "rototo/workspace/context-schema/ref".to_owned(),
-            "rototo/workspace-file/toml-parse-failed".to_owned(),
-            "rototo/workspace/manifest/missing".to_owned(),
-            "rototo/workspace/manifest/parse-failed".to_owned(),
-            "rototo/workspace/manifest/schema-failed".to_owned(),
-            "rototo/workspace/not-found".to_owned(),
-        ])
+        covered,
+        RototoRuleId::iter()
+            .map(|rule| rule.meta().rule.to_owned())
+            .collect()
     );
 }
 
-fn assert_lint_code(workspace: &str, code: &str) {
+fn assert_lint_rule(workspace: &str, rule: &str) {
     Command::cargo_bin("rototo")
         .unwrap()
         .args(["workspace", "lint", workspace, "--json"])
         .assert()
         .failure()
-        .stdout(predicate::str::contains(format!(r#""code": "{code}""#)));
+        .stdout(predicate::str::contains(format!(r#""rule": "{rule}""#)));
+}
+
+fn assert_workspace_emits_rule(workspace: &str, rule: &str) {
+    let lint = lint_json(workspace);
+    let rules: BTreeSet<_> = lint["diagnostics"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter_map(|diagnostic| diagnostic["rule"].as_str())
+        .collect();
+    assert!(rules.contains(rule), "{workspace} did not emit {rule}");
 }
 
 fn lint_json(workspace: &str) -> serde_json::Value {

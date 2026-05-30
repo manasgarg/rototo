@@ -1,0 +1,11 @@
+schema_version = 1
+
+[variable]
+description = "Variable with a duplicate external value"
+type = "string"
+
+[variable.values]
+default = "inline"
+
+[variable.env._]
+value = "default"

@@ -6,7 +6,7 @@ use std::time::{Duration, Instant};
 use rototo::{
     Environment, LintMode, LoadOptions, RefreshOptions, RefreshOutcome, RefreshingWorkspace,
     ResolveContext, ResolveOptions, SourceOptions, Workspace, catalog_for_workspace,
-    diagnostic_for_code, inspect_workspace, lint_qualifier, lint_workspace, list_variables,
+    diagnostic_for_rule, inspect_workspace, lint_qualifier, lint_workspace, list_variables,
     read_qualifiers, read_variable, read_variables, resolve_qualifier, resolve_variable,
     stage_workspace_source,
 };
@@ -292,12 +292,11 @@ async fn sdk_reads_diagnostic_catalog() {
     let catalog = catalog_for_workspace("examples/basic".as_ref())
         .await
         .unwrap();
-    let diagnostic =
-        diagnostic_for_code(&catalog, "rototo/workspace-toml-file-parse-failed").unwrap();
+    let diagnostic = diagnostic_for_rule(&catalog, "rototo/qualifier-parse-failed").unwrap();
 
     assert_eq!(
-        diagnostic.source,
-        rototo::diagnostics::DiagnosticSource::Kernel
+        diagnostic.entity,
+        rototo::diagnostics::DiagnosticEntity::Qualifier
     );
 }
 

@@ -16,7 +16,7 @@ but returned an unexpected value, use
 After this investigation:
 
 - You know which file or rule failed.
-- You know the stable diagnostic code.
+- You know the stable diagnostic rule.
 - You can inspect the diagnostic help text.
 - You can rerun lint after the fix and get a clean result.
 
@@ -38,25 +38,27 @@ rototo workspace lint \
 If CI failed on a Git source, reproduce with that Git URI instead of your local
 working tree. Otherwise you may debug a different workspace version.
 
-## Read the diagnostic code first
+## Read the diagnostic rule first
 
-Lint diagnostics include a stable code. Use that code to inspect the catalog:
+Lint diagnostics include a stable rule id. Use that rule to inspect the catalog:
 
 ```sh
-rototo diagnostics get rototo/workspace-toml-file-parse-failed
+rototo diagnostics get rototo/qualifier-parse-failed
 ```
 
 For automation, use JSON:
 
 ```sh
-rototo diagnostics get rototo/workspace-toml-file-parse-failed --json
+rototo diagnostics get rototo/qualifier-parse-failed --json
 ```
 
-The catalog explains the rule, source, title, and recovery guidance.
+The catalog explains the entity, severity, title, and recovery guidance. For
+custom lint rules, pass the workspace so the catalog can include declared
+non-rototo authorities.
 
 ## Narrow the failure area
 
-Use the diagnostic kind and message to decide where to look:
+Use the diagnostic rule, path, and message to decide where to look:
 
 ```text
 workspace manifest failure -> rototo-workspace.toml
@@ -113,7 +115,7 @@ behaves as intended.
 
 ## Common mistakes
 
-Do not fix diagnostics from memory. Look up the diagnostic code and confirm the
+Do not fix diagnostics from memory. Look up the diagnostic rule and confirm the
 actual rule.
 
 Do not debug against local files when CI failed against a Git ref.

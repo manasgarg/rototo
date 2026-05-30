@@ -13,7 +13,7 @@ use crate::output::{
 };
 use rototo::{
     Result, RototoError, SourceAuth, SourceOptions, StagedWorkspace, catalog,
-    catalog_for_workspace, diagnostic_for_code, find_workspace_root, inspect_workspace,
+    catalog_for_workspace, diagnostic_for_rule, find_workspace_root, inspect_workspace,
     lint_qualifier, lint_variable, lint_workspace, resolve_qualifier, resolve_qualifiers,
     resolve_variable, resolve_variables, stage_workspace_source,
 };
@@ -70,7 +70,7 @@ enum Command {
         #[command(subcommand)]
         command: VariableCommand,
     },
-    /// Look up rototo diagnostic codes and help text.
+    /// Look up rototo diagnostic rules and help text.
     Diagnostics {
         #[command(subcommand)]
         command: DiagnosticsCommand,
@@ -172,12 +172,12 @@ enum VariableCommand {
 
 #[derive(Debug, Subcommand)]
 enum DiagnosticsCommand {
-    /// Show known diagnostic codes with titles and sources.
+    /// Show known diagnostic rules with titles and severity.
     List,
-    /// Explain one diagnostic code and how to address it.
+    /// Explain one diagnostic rule and how to address it.
     Get {
-        /// Diagnostic code, such as rototo/workspace-toml-file-parse-failed.
-        code: String,
+        /// Diagnostic rule, such as rototo/workspace-manifest-missing.
+        rule: String,
     },
 }
 
@@ -417,10 +417,10 @@ async fn run() -> Result<ExitCode> {
             Ok(ExitCode::SUCCESS)
         }
         Command::Diagnostics {
-            command: DiagnosticsCommand::Get { code },
+            command: DiagnosticsCommand::Get { rule },
         } => {
             let catalog = diagnostic_catalog(workspace_flag.clone(), &source_options).await?;
-            let diagnostic = diagnostic_for_code(&catalog, &code)?;
+            let diagnostic = diagnostic_for_rule(&catalog, &rule)?;
             print_diagnostic_catalog_entry(diagnostic, cli.json)?;
             Ok(ExitCode::SUCCESS)
         }

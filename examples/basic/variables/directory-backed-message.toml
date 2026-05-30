@@ -7,6 +7,11 @@ type = "string"
 [variable.lint]
 path = "../lint/directory-backed-message.lua"
 
+[[variable.lint.rule]]
+id = "consumer-experience/message-not-empty"
+title = "Directory-backed message is empty"
+help = "Set a non-empty message."
+
 [variable.env._]
 value = "control"
 

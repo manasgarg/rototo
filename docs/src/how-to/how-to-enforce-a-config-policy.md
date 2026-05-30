@@ -49,9 +49,15 @@ schema = "../schemas/llm-config.schema.json"
 
 [variable.lint]
 path = "../lint/llm-agent-config.lua"
+
+[[variable.lint.rule]]
+id = "platform/max-output-token-budget"
+title = "LLM output token budget is too high"
+help = "Use 5000 or fewer output tokens."
 ```
 
-The path is resolved relative to the variable file.
+The path is resolved relative to the variable file. The rule id uses
+`<authority>/<rule-id>`; `rototo` is reserved for built-in diagnostics.
 
 ## Write the policy
 
@@ -64,8 +70,8 @@ function lint_value(value)
   if config.max_output_tokens > 5000 then
     return {
       {
-        message = "value " .. value.name .. " exceeds the token budget",
-        help = "Use 5000 or fewer output tokens."
+        rule = "platform/max-output-token-budget",
+        message = "value " .. value.name .. " exceeds the token budget"
       }
     }
   end
@@ -85,8 +91,8 @@ function lint(variable)
 end
 ```
 
-Each function returns a list of diagnostics. Return an empty list when the
-policy passes.
+Each function returns a list of diagnostics with `rule` and `message`. Return an
+empty list when the policy passes.
 
 ## Verify the policy
 
@@ -97,10 +103,10 @@ rototo workspace lint config/
 ```
 
 If a value violates the policy, lint fails with a custom diagnostic. Inspect
-the diagnostic catalog when you need the stable code or JSON shape:
+the workspace diagnostic catalog when you need the stable rule or JSON shape:
 
 ```sh
-rototo diagnostics get rototo/variable-custom-lint-failed
+rototo diagnostics get platform/max-output-token-budget --workspace config/
 ```
 
 ## Common mistakes
@@ -108,8 +114,8 @@ rototo diagnostics get rototo/variable-custom-lint-failed
 Do not use custom lint for type checking that a schema or primitive type can
 already enforce.
 
-Do not write vague diagnostics. The message should identify the offending value
-and the help text should say how to fix it.
+Do not write vague diagnostics. The message should identify the offending value;
+the declared rule help should say how to fix it.
 
 Do not assume custom lint is a separate workspace-level extension point today.
 Attach the policy to the variables whose values it governs.

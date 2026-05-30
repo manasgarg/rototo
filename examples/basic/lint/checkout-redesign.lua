@@ -5,15 +5,15 @@ function lint(variable)
   for name, value in pairs(values) do
     if value.heading == "" then
       table.insert(diagnostics, {
-        message = "checkout value " .. name .. " must include heading",
-        help = "Set heading to visible checkout copy."
+        rule = "consumer-experience/checkout-heading-required",
+        message = "checkout value " .. name .. " must include heading"
       })
     end
 
     if not string.match(value.image_url, "^/images/checkout/") then
       table.insert(diagnostics, {
-        message = "checkout value " .. name .. " must use a checkout image path",
-        help = "Use an image URL under /images/checkout/."
+        rule = "consumer-experience/checkout-image-path",
+        message = "checkout value " .. name .. " must use a checkout image path"
       })
     end
   end

@@ -1,0 +1,19 @@
+schema_version = 1
+
+[variable]
+description = "Variable with a declared custom lint rule"
+type = "string"
+
+[variable.lint]
+path = "../lint/custom-valid.lua"
+
+[[variable.lint.rule]]
+id = "payments/max-token-budget"
+title = "Token budget exceeds payments policy"
+help = "Lower max_output_tokens or update the payments policy."
+
+[variable.values]
+default = "default"
+
+[variable.env._]
+value = "default"

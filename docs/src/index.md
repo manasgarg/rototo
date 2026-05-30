@@ -177,7 +177,7 @@ JSON value returned to application
 A workspace is the versioned source of truth. Qualifiers describe reusable
 conditions. Variables use environments and qualifiers to select values. Schemas
 validate the contract between configuration and application code. Diagnostics
-explain invalid workspace files with stable error codes.
+explain invalid workspace files with stable rule ids.
 
 The same model is available through the CLI and the Rust SDK.
 

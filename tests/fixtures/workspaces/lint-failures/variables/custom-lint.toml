@@ -7,6 +7,11 @@ type = "string"
 [variable.lint]
 path = "../lint/custom-variable.lua"
 
+[[variable.lint.rule]]
+id = "fixture/custom-variable-rejected"
+title = "Custom variable lint rejected the variable"
+help = "Change the fixture or the Lua lint rule."
+
 [variable.values]
 default = "default"
 

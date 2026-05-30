@@ -1,6 +1,6 @@
 use serde::Serialize;
 
-use rototo::diagnostics::{Diagnostic, DiagnosticCatalogEntry, DiagnosticSource, Severity};
+use rototo::diagnostics::{Diagnostic, DiagnosticCatalogEntry, DiagnosticEntity, Severity};
 use rototo::error::{Result, RototoError};
 use rototo::model::{
     DiagnosticCatalog, QualifierInspection, QualifierLint, VariableInspection, VariableLint,
@@ -304,12 +304,13 @@ pub(crate) fn print_diagnostic_catalog(catalog: &DiagnosticCatalog, json: bool) 
         return Ok(());
     }
 
-    println!("{:<44}  {:<6}  title", "code", "source",);
+    println!("{:<48}  {:<9}  {:<8}  title", "rule", "entity", "severity");
     for diagnostic in &catalog.diagnostics {
         println!(
-            "{:<44}  {:<6}  {}",
-            diagnostic.code,
-            diagnostic_source_label(&diagnostic.source),
+            "{:<48}  {:<9}  {:<8}  {}",
+            diagnostic.rule,
+            diagnostic_entity_label(&diagnostic.entity),
+            severity_label(&diagnostic.severity),
             diagnostic.title
         );
     }
@@ -429,11 +430,9 @@ pub(crate) fn print_diagnostic_catalog_entry(
         return Ok(());
     }
 
-    println!("{}", diagnostic.code);
-    println!("  source: {}", diagnostic_source_label(&diagnostic.source));
-    if let Some(kind) = &diagnostic.kind {
-        println!("  kind: {}", kind);
-    }
+    println!("{}", diagnostic.rule);
+    println!("  entity: {}", diagnostic_entity_label(&diagnostic.entity));
+    println!("  severity: {}", severity_label(&diagnostic.severity));
     println!("  title: {}", diagnostic.title);
     println!("  help: {}", diagnostic.help);
     Ok(())
@@ -479,13 +478,10 @@ fn print_diagnostics(diagnostics: &[Diagnostic]) {
         println!(
             "{}[{}]: {}: {}",
             severity_label(&diagnostic.severity),
-            diagnostic.code,
+            diagnostic.rule.as_string(),
             diagnostic.path,
             diagnostic.message
         );
-        if let Some(rule) = &diagnostic.rule {
-            println!("  rule: {}", rule);
-        }
         println!("  help: {}", diagnostic.help);
     }
 }
@@ -496,10 +492,11 @@ fn severity_label(severity: &Severity) -> &'static str {
     }
 }
 
-fn diagnostic_source_label(source: &DiagnosticSource) -> &'static str {
-    match source {
-        DiagnosticSource::Kernel => "kernel",
-        DiagnosticSource::Schema => "schema",
-        DiagnosticSource::Custom => "custom",
+fn diagnostic_entity_label(entity: &DiagnosticEntity) -> &'static str {
+    match entity {
+        DiagnosticEntity::Workspace => "workspace",
+        DiagnosticEntity::Qualifier => "qualifier",
+        DiagnosticEntity::Variable => "variable",
+        DiagnosticEntity::Schema => "schema",
     }
 }

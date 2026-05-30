@@ -484,7 +484,7 @@ schemas, external value files, and custom lint failures. Context validation
 checks the runtime input the application supplies. Value validation checks the
 selected output before the application consumes it.
 
-Diagnostics use stable codes so humans and agents can recognize failure classes
+Diagnostics use stable rule ids so humans and agents can recognize failure classes
 and link them to reference documentation. That makes validation usable in local
 development, CI, release automation, and application startup.
 

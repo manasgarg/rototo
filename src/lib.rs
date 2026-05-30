@@ -10,7 +10,7 @@ pub mod sdk;
 pub mod source;
 pub mod workspace;
 
-pub use catalog::{catalog, catalog_for_workspace, diagnostic_for_code};
+pub use catalog::{catalog, catalog_for_workspace, diagnostic_for_rule};
 pub use error::{Result, RototoError};
 pub use lint::{lint_qualifier, lint_variable, lint_workspace};
 pub use resolve::{resolve_qualifier, resolve_qualifiers, resolve_variable, resolve_variables};

@@ -2,8 +2,8 @@ function lint_value(value)
   if value.value == "" then
     return {
       {
-        message = "value " .. value.name .. " must not be empty",
-        help = "Set a non-empty message."
+        rule = "consumer-experience/message-not-empty",
+        message = "value " .. value.name .. " must not be empty"
       }
     }
   end

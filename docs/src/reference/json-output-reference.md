@@ -63,9 +63,8 @@ Variable lint:
 }
 ```
 
-Diagnostics contain stable fields such as `code`, `source`, `message`, `help`,
-and `rule` when a lint rule is associated with the diagnostic. See
-`diagnostics`.
+Diagnostics contain `rule`, `severity`, `path`, `message`, and `help`. The
+`rule` field is the stable identity for automation. See `diagnostics`.
 
 ## List Commands
 
@@ -219,12 +218,21 @@ Diagnostic list:
 ```json
 {
   "scope": "global",
-  "subject": "rototo",
-  "diagnostics": []
+  "subject": "global",
+  "diagnostics": [
+    {
+      "rule": "rototo/variable-unknown-type",
+      "severity": "error",
+      "entity": "variable",
+      "title": "Variable type is unknown",
+      "help": "Use one of bool, int, number, string, or list."
+    }
+  ]
 }
 ```
 
-Diagnostic get prints one catalog entry as JSON.
+Diagnostic get prints one catalog entry as JSON. Workspace-scoped catalogs also
+include declared custom lint rules such as `payments/max-token-budget`.
 
 ## Stability Notes
 

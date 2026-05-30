@@ -118,10 +118,17 @@ Optional. Declares variable-scoped custom Lua lint.
 ```toml
 [variable.lint]
 path = "../lint/llm-agent-config.lua"
+
+[[variable.lint.rule]]
+id = "platform/max-output-token-budget"
+title = "LLM output token budget is too high"
+help = "Use 5000 or fewer output tokens."
 ```
 
 The path is resolved relative to the variable file. The Lua script can define
-`lint(variable)`, `lint_value(value)`, or both.
+`lint(variable)`, `lint_value(value)`, or both. Custom rule ids use
+`<authority>/<rule-id>`. The `rototo` authority is reserved for built-in
+diagnostics.
 
 `lint(variable)` receives the expanded variable, including inline and external
 values:
@@ -139,8 +146,8 @@ function lint_value(value)
   if value.value.max_output_tokens > 5000 then
     return {
       {
+        rule = "platform/max-output-token-budget",
         message = "value " .. value.name .. " exceeds the token budget",
-        help = "Use 5000 or fewer output tokens."
       }
     }
   end
@@ -149,7 +156,8 @@ end
 ```
 
 Each function must return a list of diagnostics. A diagnostic must contain
-`message` and may contain `help`.
+`rule` and `message`. The rule must match a declared `[[variable.lint.rule]]`;
+the declaration owns the diagnostic title and help text.
 
 Custom lint is declared on variables today. Workspace-level and qualifier-level
 custom lint are not separate extension points.

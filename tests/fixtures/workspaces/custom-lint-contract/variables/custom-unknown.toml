@@ -1,0 +1,19 @@
+schema_version = 1
+
+[variable]
+description = "Variable whose custom lint emits an undeclared rule"
+type = "string"
+
+[variable.lint]
+path = "../lint/custom-unknown.lua"
+
+[[variable.lint.rule]]
+id = "payments/known-rule"
+title = "Known payments rule"
+help = "Emit the declared rule."
+
+[variable.values]
+default = "default"
+
+[variable.env._]
+value = "default"

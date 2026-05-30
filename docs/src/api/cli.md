@@ -73,10 +73,10 @@ ROTOTO_WORKSPACE_TOKEN=secret rototo workspace inspect \
 ## Diagnostic Commands
 
 - `rototo diagnostics list [--workspace <workspace>]`
-- `rototo diagnostics get <code> [--workspace <workspace>]`
+- `rototo diagnostics get <rule> [--workspace <workspace>]`
 
 Diagnostics are global by default. `--workspace` is optional and only scopes the
-catalog subject today.
+catalog subject and includes custom lint rules declared by that workspace.
 
 ## Shell Completions
 

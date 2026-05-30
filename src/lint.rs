@@ -1,188 +1,20 @@
-use std::collections::HashSet;
+use std::collections::{BTreeMap, HashSet};
 use std::path::{Component, Path};
 
 use jsonschema::Validator;
 use toml::Value;
 
-use crate::diagnostics::{
-    Diagnostic, DiagnosticSource, JSON_SCHEMA_FILE_INVALID, JSON_SCHEMA_FILE_PARSE_FAILED,
-    LintRule, VARIABLE_CUSTOM_LINT_FAILED, WORKSPACE_CONTEXT_SCHEMA_FAILED,
-    WORKSPACE_MANIFEST_MISSING, WORKSPACE_MANIFEST_PARSE_FAILED, WORKSPACE_MANIFEST_SCHEMA_FAILED,
-    WORKSPACE_NOT_FOUND, WORKSPACE_TOML_FILE_INVALID, WORKSPACE_TOML_FILE_PARSE_FAILED,
-};
+use crate::diagnostics::{CustomRuleDefinition, CustomRuleId, Diagnostic, RototoRuleId};
 use crate::error::{Result, RototoError};
 use crate::model::{
     QualifierInspection, QualifierLint, VariableInspection, VariableLint, WorkspaceLint,
 };
-use crate::workspace::{inspect_workspace, read_variable_toml, workspace_environments};
+use crate::workspace::{
+    VariableTomlReadErrorKind, inspect_workspace, read_variable_toml_detailed,
+    workspace_environments,
+};
 
 const WORKSPACE_MANIFEST: &str = "rototo-workspace.toml";
-
-const RULE_WORKSPACE_NOT_FOUND: LintRule = LintRule {
-    id: "rototo/workspace/not-found",
-    title: "Workspace was not found",
-    help: "Pass a path to an existing rototo workspace directory.",
-};
-const RULE_WORKSPACE_MANIFEST_MISSING: LintRule = LintRule {
-    id: "rototo/workspace/manifest/missing",
-    title: "Workspace manifest is missing",
-    help: "Create rototo-workspace.toml at the workspace root.",
-};
-const RULE_WORKSPACE_MANIFEST_PARSE_FAILED: LintRule = LintRule {
-    id: "rototo/workspace/manifest/parse-failed",
-    title: "Workspace manifest could not be parsed",
-    help: "Fix the TOML syntax in rototo-workspace.toml.",
-};
-const RULE_WORKSPACE_MANIFEST_SCHEMA_FAILED: LintRule = LintRule {
-    id: "rototo/workspace/manifest/schema-failed",
-    title: "Workspace manifest does not match schema",
-    help: "Declare schema_version = 1 and [environments].values in rototo-workspace.toml.",
-};
-const RULE_WORKSPACE_TOML_FILE_PARSE_FAILED: LintRule = LintRule {
-    id: "rototo/workspace-file/toml-parse-failed",
-    title: "Workspace TOML file could not be parsed",
-    help: "Fix the TOML syntax so rototo can parse the workspace file.",
-};
-const RULE_JSON_SCHEMA_FILE_PARSE_FAILED: LintRule = LintRule {
-    id: "rototo/json-schema-file/parse-failed",
-    title: "JSON Schema file could not be parsed",
-    help: "Fix the JSON syntax so rototo can parse the schema file.",
-};
-const RULE_SCHEMA_INVALID: LintRule = LintRule {
-    id: "rototo/schema/invalid",
-    title: "JSON Schema is invalid",
-    help: "Update the schema file so it is valid JSON Schema.",
-};
-const RULE_CONTEXT_SCHEMA_REF: LintRule = LintRule {
-    id: "rototo/workspace/context-schema/ref",
-    title: "Resolve context schema reference is invalid",
-    help: "Point [context].schema to a readable valid JSON Schema file.",
-};
-const RULE_CONTEXT_SCHEMA_ATTRIBUTE: LintRule = LintRule {
-    id: "rototo/workspace/context-schema/attribute",
-    title: "Qualifier context attribute is not declared by the resolve context schema",
-    help: "Declare the context path in the workspace context schema or update the qualifier.",
-};
-const RULE_QUALIFIER_SCHEMA_VERSION: LintRule = LintRule {
-    id: "rototo/qualifier/schema-version",
-    title: "Qualifier schema version is missing or unsupported",
-    help: "Declare schema_version = 1 in the qualifier file.",
-};
-const RULE_QUALIFIER_MISSING_TABLE: LintRule = LintRule {
-    id: "rototo/qualifier/missing-table",
-    title: "Qualifier table is missing",
-    help: "Add a [qualifier] table.",
-};
-const RULE_QUALIFIER_MISSING_PREDICATE: LintRule = LintRule {
-    id: "rototo/qualifier/predicate/missing",
-    title: "Qualifier predicate is missing",
-    help: "Add at least one [[qualifier.predicate]] table.",
-};
-const RULE_QUALIFIER_PREDICATE_SHAPE: LintRule = LintRule {
-    id: "rototo/qualifier/predicate/shape",
-    title: "Qualifier predicate has the wrong shape",
-    help: "Use [[qualifier.predicate]] tables with attribute, op, and value fields.",
-};
-const RULE_QUALIFIER_PREDICATE_UNKNOWN_OP: LintRule = LintRule {
-    id: "rototo/qualifier/predicate/unknown-op",
-    title: "Qualifier predicate uses an unknown operator",
-    help: "Use one of eq, neq, in, not_in, gt, gte, lt, lte, or bucket.",
-};
-const RULE_QUALIFIER_PREDICATE_UNKNOWN_QUALIFIER: LintRule = LintRule {
-    id: "rototo/qualifier/predicate/unknown-qualifier",
-    title: "Qualifier predicate references an unknown qualifier",
-    help: "Create the referenced qualifier or update the qualifier.<id> reference.",
-};
-const RULE_QUALIFIER_BUCKET: LintRule = LintRule {
-    id: "rototo/qualifier/predicate/bucket",
-    title: "Bucket predicate is invalid",
-    help: "Bucket predicates need salt and range = [start, end] with 0 <= start < end <= 10000.",
-};
-const RULE_QUALIFIER_PREDICATE_VALUE: LintRule = LintRule {
-    id: "rototo/qualifier/predicate/value",
-    title: "Qualifier predicate value is invalid",
-    help: "Add a value with the shape required by the predicate operator.",
-};
-const RULE_VARIABLE_SCHEMA_VERSION: LintRule = LintRule {
-    id: "rototo/variable/schema-version",
-    title: "Variable schema version is missing or unsupported",
-    help: "Declare schema_version = 1 in the variable file.",
-};
-const RULE_VARIABLE_MISSING_TABLE: LintRule = LintRule {
-    id: "rototo/variable/missing-table",
-    title: "Variable table is missing",
-    help: "Add a [variable] table.",
-};
-const RULE_VARIABLE_TYPE_OR_SCHEMA: LintRule = LintRule {
-    id: "rototo/variable/type-or-schema",
-    title: "Variable must declare exactly one type source",
-    help: "Declare exactly one of type or schema under [variable].",
-};
-const RULE_VARIABLE_LINT_SHAPE: LintRule = LintRule {
-    id: "rototo/variable/lint/shape",
-    title: "Variable custom lint declaration is invalid",
-    help: "Use [variable.lint] with a string path field.",
-};
-const RULE_VARIABLE_MISSING_VALUES: LintRule = LintRule {
-    id: "rototo/variable/values/missing",
-    title: "Variable values are missing",
-    help: "Add [variable.values] entries.",
-};
-const RULE_VARIABLE_MISSING_ENV: LintRule = LintRule {
-    id: "rototo/variable/env/missing-default",
-    title: "Variable default environment is missing",
-    help: "Add [variable.env._] with a value reference.",
-};
-const RULE_VARIABLE_UNKNOWN_ENVIRONMENT: LintRule = LintRule {
-    id: "rototo/variable/env/unknown-environment",
-    title: "Variable references an undeclared environment",
-    help: "Declare the environment in [environments].values or remove the environment block.",
-};
-const RULE_VARIABLE_ENV_SHAPE: LintRule = LintRule {
-    id: "rototo/variable/env/shape",
-    title: "Variable environment block is invalid",
-    help: "Environment blocks must be tables with a value reference.",
-};
-const RULE_VARIABLE_UNKNOWN_VALUE: LintRule = LintRule {
-    id: "rototo/variable/value/unknown",
-    title: "Variable references an unknown value",
-    help: "Create the referenced value under [variable.values] or update the reference.",
-};
-const RULE_VARIABLE_RULE_SHAPE: LintRule = LintRule {
-    id: "rototo/variable/rule/shape",
-    title: "Variable rule is invalid",
-    help: "Rules must be tables with qualifier and value references.",
-};
-const RULE_VARIABLE_RULE_UNKNOWN_QUALIFIER: LintRule = LintRule {
-    id: "rototo/variable/rule/unknown-qualifier",
-    title: "Variable rule references an unknown qualifier",
-    help: "Create the referenced qualifier or update the rule.",
-};
-const RULE_VARIABLE_UNKNOWN_TYPE: LintRule = LintRule {
-    id: "rototo/variable/type/unknown",
-    title: "Variable type is unknown",
-    help: "Use one of bool, int, number, string, or list.",
-};
-const RULE_VARIABLE_VALUE_TYPE_MISMATCH: LintRule = LintRule {
-    id: "rototo/variable/value/type-mismatch",
-    title: "Variable value does not match type",
-    help: "Update the value so it matches the declared primitive type.",
-};
-const RULE_VARIABLE_SCHEMA_REF: LintRule = LintRule {
-    id: "rototo/variable/schema/ref",
-    title: "Variable schema reference is invalid",
-    help: "Point schema to a readable valid JSON Schema file.",
-};
-const RULE_VARIABLE_VALUE_SCHEMA_MISMATCH: LintRule = LintRule {
-    id: "rototo/variable/value/schema-mismatch",
-    title: "Variable value does not match schema",
-    help: "Update the value so it matches the variable JSON Schema.",
-};
-const RULE_VARIABLE_CUSTOM_LINT: LintRule = LintRule {
-    id: "rototo/variable/custom-lint/failed",
-    title: "Variable custom lint failed",
-    help: "Update the variable or its Lua lint rule so custom lint passes.",
-};
 
 pub async fn lint_workspace(workspace_root: &Path) -> Result<WorkspaceLint> {
     let root = match tokio::fs::canonicalize(workspace_root).await {
@@ -190,12 +22,10 @@ pub async fn lint_workspace(workspace_root: &Path) -> Result<WorkspaceLint> {
         Err(err) => {
             return Ok(WorkspaceLint {
                 root: workspace_root.to_path_buf(),
-                diagnostics: vec![Diagnostic::new_rule(
-                    WORKSPACE_NOT_FOUND,
-                    DiagnosticSource::Kernel,
+                diagnostics: vec![Diagnostic::rototo(
+                    RototoRuleId::WorkspaceNotFound,
                     workspace_root.display().to_string(),
                     err.to_string(),
-                    RULE_WORKSPACE_NOT_FOUND,
                 )],
             });
         }
@@ -204,10 +34,8 @@ pub async fn lint_workspace(workspace_root: &Path) -> Result<WorkspaceLint> {
     let mut diagnostics = Vec::new();
     let Some(manifest) = read_toml_diagnostic(
         &root.join(WORKSPACE_MANIFEST),
-        WORKSPACE_MANIFEST_MISSING,
-        WORKSPACE_MANIFEST_PARSE_FAILED,
-        RULE_WORKSPACE_MANIFEST_MISSING,
-        RULE_WORKSPACE_MANIFEST_PARSE_FAILED,
+        RototoRuleId::WorkspaceManifestMissing,
+        RototoRuleId::WorkspaceManifestParseFailed,
         &mut diagnostics,
     )
     .await
@@ -218,12 +46,10 @@ pub async fn lint_workspace(workspace_root: &Path) -> Result<WorkspaceLint> {
     let environments = match workspace_environments(&manifest) {
         Ok(environments) => environments,
         Err(err) => {
-            diagnostics.push(Diagnostic::new_rule(
-                WORKSPACE_MANIFEST_SCHEMA_FAILED,
-                DiagnosticSource::Kernel,
+            diagnostics.push(Diagnostic::rototo(
+                RototoRuleId::WorkspaceManifestSchemaFailed,
                 WORKSPACE_MANIFEST,
                 err.to_string(),
-                RULE_WORKSPACE_MANIFEST_SCHEMA_FAILED,
             ));
             return Ok(WorkspaceLint { root, diagnostics });
         }
@@ -232,12 +58,10 @@ pub async fn lint_workspace(workspace_root: &Path) -> Result<WorkspaceLint> {
     let inspection = match inspect_workspace(&root).await {
         Ok(inspection) => inspection,
         Err(err) => {
-            diagnostics.push(Diagnostic::new_rule(
-                WORKSPACE_MANIFEST_SCHEMA_FAILED,
-                DiagnosticSource::Kernel,
+            diagnostics.push(Diagnostic::rototo(
+                RototoRuleId::WorkspaceManifestSchemaFailed,
                 WORKSPACE_MANIFEST,
                 err.to_string(),
-                RULE_WORKSPACE_MANIFEST_SCHEMA_FAILED,
             ));
             return Ok(WorkspaceLint { root, diagnostics });
         }
@@ -252,12 +76,14 @@ pub async fn lint_workspace(workspace_root: &Path) -> Result<WorkspaceLint> {
     for qualifier in &inspection.qualifiers {
         lint_qualifier_file(&root, qualifier, &qualifier_ids, &mut diagnostics).await;
     }
+    let mut custom_rules = BTreeMap::new();
     for variable in &inspection.variables {
         lint_variable_file(
             &root,
             variable,
             &environments,
             &qualifier_ids,
+            &mut custom_rules,
             &mut diagnostics,
         )
         .await;
@@ -275,6 +101,7 @@ pub async fn lint_workspace(workspace_root: &Path) -> Result<WorkspaceLint> {
     }
 
     lint_schemas(&root, &mut diagnostics).await;
+    sort_diagnostics(&mut diagnostics);
 
     Ok(WorkspaceLint { root, diagnostics })
 }
@@ -326,10 +153,8 @@ async fn lint_qualifier_file(
     let path = root.join(&qualifier.path);
     let Some(toml) = read_toml_diagnostic(
         &path,
-        WORKSPACE_TOML_FILE_PARSE_FAILED,
-        WORKSPACE_TOML_FILE_PARSE_FAILED,
-        RULE_WORKSPACE_TOML_FILE_PARSE_FAILED,
-        RULE_WORKSPACE_TOML_FILE_PARSE_FAILED,
+        RototoRuleId::QualifierParseFailed,
+        RototoRuleId::QualifierParseFailed,
         diagnostics,
     )
     .await
@@ -349,7 +174,7 @@ fn validate_qualifier_toml(
     if toml.get("schema_version").and_then(Value::as_integer) != Some(1) {
         push_qualifier_error(
             qualifier,
-            RULE_QUALIFIER_SCHEMA_VERSION,
+            RototoRuleId::QualifierSchemaVersion,
             "qualifier must declare schema_version = 1",
             diagnostics,
         );
@@ -357,7 +182,7 @@ fn validate_qualifier_toml(
     if toml.get("qualifier").and_then(Value::as_table).is_none() {
         push_qualifier_error(
             qualifier,
-            RULE_QUALIFIER_MISSING_TABLE,
+            RototoRuleId::QualifierMissingTable,
             "qualifier must contain a [qualifier] table",
             diagnostics,
         );
@@ -374,7 +199,7 @@ fn validate_qualifier_toml(
     } else {
         push_qualifier_error(
             qualifier,
-            RULE_QUALIFIER_MISSING_PREDICATE,
+            RototoRuleId::QualifierPredicateMissing,
             "qualifier must contain at least one [[qualifier.predicate]]",
             diagnostics,
         );
@@ -386,27 +211,26 @@ async fn lint_variable_file(
     variable: &VariableInspection,
     environments: &[String],
     qualifier_ids: &HashSet<&str>,
+    custom_rules: &mut BTreeMap<CustomRuleId, CustomRuleDefinition>,
     diagnostics: &mut Vec<Diagnostic>,
 ) {
     let path = root.join(&variable.path);
     let Some(_) = read_toml_diagnostic(
         &path,
-        WORKSPACE_TOML_FILE_PARSE_FAILED,
-        WORKSPACE_TOML_FILE_PARSE_FAILED,
-        RULE_WORKSPACE_TOML_FILE_PARSE_FAILED,
-        RULE_WORKSPACE_TOML_FILE_PARSE_FAILED,
+        RototoRuleId::VariableParseFailed,
+        RototoRuleId::VariableParseFailed,
         diagnostics,
     )
     .await
     else {
         return;
     };
-    let toml = match read_variable_toml(root, variable).await {
+    let toml = match read_variable_toml_detailed(root, variable).await {
         Ok(toml) => toml,
         Err(err) => {
             push_variable_error(
                 variable,
-                RULE_VARIABLE_MISSING_VALUES,
+                variable_toml_error_rule(err.kind),
                 format!("variable values could not be loaded: {err}"),
                 diagnostics,
             );
@@ -414,7 +238,7 @@ async fn lint_variable_file(
         }
     };
 
-    validate_variable_toml(
+    let custom_rule_definitions = validate_variable_toml(
         root,
         variable,
         &toml,
@@ -423,18 +247,28 @@ async fn lint_variable_file(
         diagnostics,
     )
     .await;
-    match crate::lua_lint::lint_variable(root, variable, &toml, environments).await {
+    record_custom_rule_definitions(
+        variable,
+        &custom_rule_definitions,
+        custom_rules,
+        diagnostics,
+    );
+
+    match crate::lua_lint::lint_variable(
+        root,
+        variable,
+        &toml,
+        environments,
+        &custom_rule_definitions,
+    )
+    .await
+    {
         Ok(custom_diagnostics) => diagnostics.extend(custom_diagnostics),
-        Err(err) => diagnostics.push(
-            Diagnostic::new_rule(
-                VARIABLE_CUSTOM_LINT_FAILED,
-                DiagnosticSource::Custom,
-                variable.path.display().to_string(),
-                err.to_string(),
-                RULE_VARIABLE_CUSTOM_LINT,
-            )
-            .with_kind("variable"),
-        ),
+        Err(err) => diagnostics.push(Diagnostic::rototo(
+            RototoRuleId::CustomLintFailed,
+            variable.path.display().to_string(),
+            err.to_string(),
+        )),
     }
 }
 
@@ -445,11 +279,13 @@ async fn validate_variable_toml(
     environments: &[String],
     qualifier_ids: &HashSet<&str>,
     diagnostics: &mut Vec<Diagnostic>,
-) {
+) -> Vec<CustomRuleDefinition> {
+    let mut custom_rule_definitions = Vec::new();
+
     if toml.get("schema_version").and_then(Value::as_integer) != Some(1) {
         push_variable_error(
             variable_inspection,
-            RULE_VARIABLE_SCHEMA_VERSION,
+            RototoRuleId::VariableSchemaVersion,
             "variable must declare schema_version = 1",
             diagnostics,
         );
@@ -458,11 +294,11 @@ async fn validate_variable_toml(
     let Some(variable) = toml.get("variable").and_then(Value::as_table) else {
         push_variable_error(
             variable_inspection,
-            RULE_VARIABLE_MISSING_TABLE,
+            RototoRuleId::VariableMissingTable,
             "variable must contain a [variable] table",
             diagnostics,
         );
-        return;
+        return custom_rule_definitions;
     };
 
     let has_type = variable.get("type").and_then(Value::as_str).is_some();
@@ -470,23 +306,26 @@ async fn validate_variable_toml(
     if has_type == schema.is_some() {
         push_variable_error(
             variable_inspection,
-            RULE_VARIABLE_TYPE_OR_SCHEMA,
+            RototoRuleId::VariableTypeOrSchema,
             "variable must declare exactly one of type or schema",
             diagnostics,
         );
     }
     if let Some(lint) = variable.get("lint") {
         match lint.as_table() {
-            Some(lint) if lint.get("path").and_then(Value::as_str).is_some() => {}
+            Some(lint) if lint.get("path").and_then(Value::as_str).is_some() => {
+                custom_rule_definitions =
+                    lint_custom_rule_definitions(variable_inspection, lint, diagnostics);
+            }
             Some(_) => push_variable_error(
                 variable_inspection,
-                RULE_VARIABLE_LINT_SHAPE,
+                RototoRuleId::VariableLintShape,
                 "variable lint must contain path",
                 diagnostics,
             ),
             None => push_variable_error(
                 variable_inspection,
-                RULE_VARIABLE_LINT_SHAPE,
+                RototoRuleId::VariableLintShape,
                 "variable lint must be a table",
                 diagnostics,
             ),
@@ -496,11 +335,11 @@ async fn validate_variable_toml(
     let Some(values) = variable.get("values").and_then(Value::as_table) else {
         push_variable_error(
             variable_inspection,
-            RULE_VARIABLE_MISSING_VALUES,
+            RototoRuleId::VariableValuesMissing,
             "variable must contain [variable.values]",
             diagnostics,
         );
-        return;
+        return custom_rule_definitions;
     };
 
     match schema {
@@ -521,16 +360,16 @@ async fn validate_variable_toml(
     let Some(env) = variable.get("env").and_then(Value::as_table) else {
         push_variable_error(
             variable_inspection,
-            RULE_VARIABLE_MISSING_ENV,
+            RototoRuleId::VariableEnvMissingDefault,
             "variable must contain [variable.env._]",
             diagnostics,
         );
-        return;
+        return custom_rule_definitions;
     };
     if !env.contains_key("_") {
         push_variable_error(
             variable_inspection,
-            RULE_VARIABLE_MISSING_ENV,
+            RototoRuleId::VariableEnvMissingDefault,
             "variable must contain [variable.env._]",
             diagnostics,
         );
@@ -540,7 +379,7 @@ async fn validate_variable_toml(
         if environment != "_" && !environments.iter().any(|known| known == environment) {
             push_variable_error(
                 variable_inspection,
-                RULE_VARIABLE_UNKNOWN_ENVIRONMENT,
+                RototoRuleId::VariableUnknownEnvironment,
                 format!("variable references undeclared environment: {environment}"),
                 diagnostics,
             );
@@ -553,6 +392,132 @@ async fn validate_variable_toml(
             diagnostics,
         );
     }
+
+    custom_rule_definitions
+}
+
+fn lint_custom_rule_definitions(
+    variable: &VariableInspection,
+    lint: &toml::map::Map<String, Value>,
+    diagnostics: &mut Vec<Diagnostic>,
+) -> Vec<CustomRuleDefinition> {
+    let Some(rules) = lint.get("rule") else {
+        return Vec::new();
+    };
+    let Some(rules) = rules.as_array() else {
+        push_variable_error(
+            variable,
+            RototoRuleId::VariableLintShape,
+            "variable lint rules must use [[variable.lint.rule]] tables",
+            diagnostics,
+        );
+        return Vec::new();
+    };
+
+    let mut definitions = Vec::new();
+    for rule in rules {
+        let Some(rule) = rule.as_table() else {
+            push_variable_error(
+                variable,
+                RototoRuleId::VariableLintShape,
+                "variable lint rule must be a table",
+                diagnostics,
+            );
+            continue;
+        };
+        let Some(id) = rule.get("id").and_then(Value::as_str) else {
+            push_variable_error(
+                variable,
+                RototoRuleId::VariableLintShape,
+                "variable lint rule must contain id",
+                diagnostics,
+            );
+            continue;
+        };
+        let Some(title) = rule.get("title").and_then(Value::as_str) else {
+            push_variable_error(
+                variable,
+                RototoRuleId::VariableLintShape,
+                "variable lint rule must contain title",
+                diagnostics,
+            );
+            continue;
+        };
+        let Some(help) = rule.get("help").and_then(Value::as_str) else {
+            push_variable_error(
+                variable,
+                RototoRuleId::VariableLintShape,
+                "variable lint rule must contain help",
+                diagnostics,
+            );
+            continue;
+        };
+
+        match CustomRuleId::parse(id) {
+            Ok(rule) => definitions.push(CustomRuleDefinition::new(rule, title, help)),
+            Err(err) => push_variable_error(
+                variable,
+                RototoRuleId::CustomLintInvalidRule,
+                format!("custom lint rule id is invalid: {id}: {err}"),
+                diagnostics,
+            ),
+        }
+    }
+    definitions
+}
+
+fn record_custom_rule_definitions(
+    variable: &VariableInspection,
+    definitions: &[CustomRuleDefinition],
+    custom_rules: &mut BTreeMap<CustomRuleId, CustomRuleDefinition>,
+    diagnostics: &mut Vec<Diagnostic>,
+) {
+    for definition in definitions {
+        match custom_rules.get(&definition.rule) {
+            Some(existing) if existing.same_metadata(definition) => {}
+            Some(_) => push_variable_error(
+                variable,
+                RototoRuleId::CustomLintRuleConflict,
+                format!("custom lint rule metadata conflicts: {}", definition.rule),
+                diagnostics,
+            ),
+            None => {
+                custom_rules.insert(definition.rule.clone(), definition.clone());
+            }
+        }
+    }
+}
+
+fn variable_toml_error_rule(kind: VariableTomlReadErrorKind) -> RototoRuleId {
+    match kind {
+        VariableTomlReadErrorKind::Read | VariableTomlReadErrorKind::Parse => {
+            RototoRuleId::VariableParseFailed
+        }
+        VariableTomlReadErrorKind::ExternalValuesLoad => {
+            RototoRuleId::VariableExternalValuesLoadFailed
+        }
+        VariableTomlReadErrorKind::ExternalValueParse => {
+            RototoRuleId::VariableExternalValueParseFailed
+        }
+        VariableTomlReadErrorKind::ExternalValueDuplicate => {
+            RototoRuleId::VariableExternalValueDuplicate
+        }
+    }
+}
+
+fn sort_diagnostics(diagnostics: &mut [Diagnostic]) {
+    diagnostics.sort_by(|left, right| {
+        (
+            left.path.as_str(),
+            left.rule.as_string(),
+            left.message.as_str(),
+        )
+            .cmp(&(
+                right.path.as_str(),
+                right.rule.as_string(),
+                right.message.as_str(),
+            ))
+    });
 }
 
 fn lint_environment_block(
@@ -565,7 +530,7 @@ fn lint_environment_block(
     let Some(table) = block.as_table() else {
         push_variable_error(
             variable,
-            RULE_VARIABLE_ENV_SHAPE,
+            RototoRuleId::VariableEnvShape,
             "environment block must be a table",
             diagnostics,
         );
@@ -575,7 +540,7 @@ fn lint_environment_block(
     let Some(value) = table.get("value").and_then(Value::as_str) else {
         push_variable_error(
             variable,
-            RULE_VARIABLE_ENV_SHAPE,
+            RototoRuleId::VariableEnvShape,
             "environment block must reference a value",
             diagnostics,
         );
@@ -584,7 +549,7 @@ fn lint_environment_block(
     if !values.contains_key(value) {
         push_variable_error(
             variable,
-            RULE_VARIABLE_UNKNOWN_VALUE,
+            RototoRuleId::VariableUnknownValue,
             format!("environment references unknown value: {value}"),
             diagnostics,
         );
@@ -595,7 +560,7 @@ fn lint_environment_block(
             let Some(rule) = rule.as_table() else {
                 push_variable_error(
                     variable,
-                    RULE_VARIABLE_RULE_SHAPE,
+                    RototoRuleId::VariableRuleShape,
                     "rule must be a table",
                     diagnostics,
                 );
@@ -606,13 +571,13 @@ fn lint_environment_block(
                 Some(qualifier) if qualifier_ids.contains(qualifier) => {}
                 Some(qualifier) => push_variable_error(
                     variable,
-                    RULE_VARIABLE_RULE_UNKNOWN_QUALIFIER,
+                    RototoRuleId::VariableRuleUnknownQualifier,
                     format!("rule references unknown qualifier: {qualifier}"),
                     diagnostics,
                 ),
                 None => push_variable_error(
                     variable,
-                    RULE_VARIABLE_RULE_SHAPE,
+                    RototoRuleId::VariableRuleShape,
                     "rule must reference a qualifier",
                     diagnostics,
                 ),
@@ -622,13 +587,13 @@ fn lint_environment_block(
                 Some(value) if values.contains_key(value) => {}
                 Some(value) => push_variable_error(
                     variable,
-                    RULE_VARIABLE_UNKNOWN_VALUE,
+                    RototoRuleId::VariableUnknownValue,
                     format!("rule references unknown value: {value}"),
                     diagnostics,
                 ),
                 None => push_variable_error(
                     variable,
-                    RULE_VARIABLE_RULE_SHAPE,
+                    RototoRuleId::VariableRuleShape,
                     "rule must reference a value",
                     diagnostics,
                 ),
@@ -646,7 +611,7 @@ fn lint_predicate(
     let Some(predicate) = predicate.as_table() else {
         push_qualifier_error(
             qualifier,
-            RULE_QUALIFIER_PREDICATE_SHAPE,
+            RototoRuleId::QualifierPredicateShape,
             "predicate must be a table",
             diagnostics,
         );
@@ -656,7 +621,7 @@ fn lint_predicate(
     let Some(attribute) = predicate.get("attribute").and_then(Value::as_str) else {
         push_qualifier_error(
             qualifier,
-            RULE_QUALIFIER_PREDICATE_SHAPE,
+            RototoRuleId::QualifierPredicateShape,
             "predicate must contain attribute",
             diagnostics,
         );
@@ -665,7 +630,7 @@ fn lint_predicate(
     let Some(op) = predicate.get("op").and_then(Value::as_str) else {
         push_qualifier_error(
             qualifier,
-            RULE_QUALIFIER_PREDICATE_SHAPE,
+            RototoRuleId::QualifierPredicateShape,
             "predicate must contain op",
             diagnostics,
         );
@@ -677,7 +642,7 @@ fn lint_predicate(
     ) {
         push_qualifier_error(
             qualifier,
-            RULE_QUALIFIER_PREDICATE_UNKNOWN_OP,
+            RototoRuleId::QualifierPredicateUnknownOp,
             format!("predicate has unknown op: {op}"),
             diagnostics,
         );
@@ -688,7 +653,7 @@ fn lint_predicate(
     {
         push_qualifier_error(
             qualifier,
-            RULE_QUALIFIER_PREDICATE_UNKNOWN_QUALIFIER,
+            RototoRuleId::QualifierPredicateUnknownQualifier,
             format!("predicate references unknown qualifier: {referenced_qualifier}"),
             diagnostics,
         );
@@ -698,7 +663,7 @@ fn lint_predicate(
         if predicate.get("salt").and_then(Value::as_str).is_none() {
             push_qualifier_error(
                 qualifier,
-                RULE_QUALIFIER_BUCKET,
+                RototoRuleId::QualifierPredicateBucket,
                 "bucket predicate must contain salt",
                 diagnostics,
             );
@@ -706,7 +671,7 @@ fn lint_predicate(
         let Some(range) = predicate.get("range").and_then(Value::as_array) else {
             push_qualifier_error(
                 qualifier,
-                RULE_QUALIFIER_BUCKET,
+                RototoRuleId::QualifierPredicateBucket,
                 "bucket predicate must contain range",
                 diagnostics,
             );
@@ -715,7 +680,7 @@ fn lint_predicate(
         if range.len() != 2 {
             push_qualifier_error(
                 qualifier,
-                RULE_QUALIFIER_BUCKET,
+                RototoRuleId::QualifierPredicateBucket,
                 "bucket range must contain two integers",
                 diagnostics,
             );
@@ -727,7 +692,7 @@ fn lint_predicate(
             (Some(start), Some(end)) if 0 <= start && start < end && end <= 10_000 => {}
             _ => push_qualifier_error(
                 qualifier,
-                RULE_QUALIFIER_BUCKET,
+                RototoRuleId::QualifierPredicateBucket,
                 "bucket range must satisfy 0 <= start < end <= 10000",
                 diagnostics,
             ),
@@ -735,7 +700,7 @@ fn lint_predicate(
         if predicate.contains_key("value") {
             push_qualifier_error(
                 qualifier,
-                RULE_QUALIFIER_BUCKET,
+                RototoRuleId::QualifierPredicateBucket,
                 "bucket predicate must not contain value",
                 diagnostics,
             );
@@ -744,7 +709,7 @@ fn lint_predicate(
         let Some(value) = predicate.get("value") else {
             push_qualifier_error(
                 qualifier,
-                RULE_QUALIFIER_PREDICATE_VALUE,
+                RototoRuleId::QualifierPredicateValue,
                 "predicate must contain value",
                 diagnostics,
             );
@@ -754,7 +719,7 @@ fn lint_predicate(
             "in" | "not_in" if !value.is_array() => {
                 push_qualifier_error(
                     qualifier,
-                    RULE_QUALIFIER_PREDICATE_VALUE,
+                    RototoRuleId::QualifierPredicateValue,
                     format!("{op} predicate value must be a list"),
                     diagnostics,
                 );
@@ -762,7 +727,7 @@ fn lint_predicate(
             "gt" | "gte" | "lt" | "lte" if !value_is_number(value) => {
                 push_qualifier_error(
                     qualifier,
-                    RULE_QUALIFIER_PREDICATE_VALUE,
+                    RototoRuleId::QualifierPredicateValue,
                     format!("{op} predicate value must be a number"),
                     diagnostics,
                 );
@@ -779,32 +744,26 @@ async fn context_schema_validator(
 ) -> Option<serde_json::Value> {
     let context = manifest.get("context")?;
     let Some(context) = context.as_table() else {
-        diagnostics.push(Diagnostic::new_rule(
-            WORKSPACE_CONTEXT_SCHEMA_FAILED,
-            DiagnosticSource::Custom,
+        diagnostics.push(Diagnostic::rototo(
+            RototoRuleId::WorkspaceContextSchemaRef,
             WORKSPACE_MANIFEST,
             "[context] must be a table",
-            RULE_CONTEXT_SCHEMA_REF,
         ));
         return None;
     };
     let Some(schema_ref) = context.get("schema").and_then(Value::as_str) else {
-        diagnostics.push(Diagnostic::new_rule(
-            WORKSPACE_CONTEXT_SCHEMA_FAILED,
-            DiagnosticSource::Custom,
+        diagnostics.push(Diagnostic::rototo(
+            RototoRuleId::WorkspaceContextSchemaRef,
             WORKSPACE_MANIFEST,
             "[context] must declare schema",
-            RULE_CONTEXT_SCHEMA_REF,
         ));
         return None;
     };
     if !context_schema_ref_is_safe(schema_ref) {
-        diagnostics.push(Diagnostic::new_rule(
-            WORKSPACE_CONTEXT_SCHEMA_FAILED,
-            DiagnosticSource::Custom,
+        diagnostics.push(Diagnostic::rototo(
+            RototoRuleId::WorkspaceContextSchemaRef,
             WORKSPACE_MANIFEST,
             "context schema path must be a relative path inside the workspace",
-            RULE_CONTEXT_SCHEMA_REF,
         ));
         return None;
     }
@@ -813,12 +772,10 @@ async fn context_schema_validator(
     let text = match tokio::fs::read_to_string(&schema_path).await {
         Ok(text) => text,
         Err(err) => {
-            diagnostics.push(Diagnostic::new_rule(
-                WORKSPACE_CONTEXT_SCHEMA_FAILED,
-                DiagnosticSource::Custom,
+            diagnostics.push(Diagnostic::rototo(
+                RototoRuleId::WorkspaceContextSchemaRef,
                 schema_ref,
                 format!("context schema could not be read: {err}"),
-                RULE_CONTEXT_SCHEMA_REF,
             ));
             return None;
         }
@@ -826,23 +783,19 @@ async fn context_schema_validator(
     let schema = match serde_json::from_str::<serde_json::Value>(&text) {
         Ok(schema) => schema,
         Err(err) => {
-            diagnostics.push(Diagnostic::new_rule(
-                WORKSPACE_CONTEXT_SCHEMA_FAILED,
-                DiagnosticSource::Custom,
+            diagnostics.push(Diagnostic::rototo(
+                RototoRuleId::WorkspaceContextSchemaRef,
                 schema_ref,
                 format!("context schema could not be parsed: {err}"),
-                RULE_CONTEXT_SCHEMA_REF,
             ));
             return None;
         }
     };
     if let Err(err) = jsonschema::validator_for(&schema) {
-        diagnostics.push(Diagnostic::new_rule(
-            WORKSPACE_CONTEXT_SCHEMA_FAILED,
-            DiagnosticSource::Custom,
+        diagnostics.push(Diagnostic::rototo(
+            RototoRuleId::WorkspaceContextSchemaRef,
             schema_ref,
             format!("context schema is invalid: {err}"),
-            RULE_CONTEXT_SCHEMA_REF,
         ));
         return None;
     }
@@ -882,16 +835,11 @@ async fn lint_context_schema_references(
             if attribute.starts_with("qualifier.") || schema_declares_path(schema, attribute) {
                 continue;
             }
-            diagnostics.push(
-                Diagnostic::new_rule(
-                    WORKSPACE_CONTEXT_SCHEMA_FAILED,
-                    DiagnosticSource::Custom,
-                    qualifier.path.display().to_string(),
-                    format!("context schema does not declare attribute: {attribute}"),
-                    RULE_CONTEXT_SCHEMA_ATTRIBUTE,
-                )
-                .with_kind("qualifier"),
-            );
+            diagnostics.push(Diagnostic::rototo(
+                RototoRuleId::WorkspaceContextSchemaAttribute,
+                qualifier.path.display().to_string(),
+                format!("context schema does not declare attribute: {attribute}"),
+            ));
         }
     }
 }
@@ -940,7 +888,7 @@ fn lint_typed_values(
     if !matches!(type_name, "bool" | "int" | "number" | "string" | "list") {
         push_variable_error(
             variable,
-            RULE_VARIABLE_UNKNOWN_TYPE,
+            RototoRuleId::VariableUnknownType,
             format!("variable declares unknown type: {type_name}"),
             diagnostics,
         );
@@ -959,7 +907,7 @@ fn lint_typed_values(
         if !matches_type {
             push_variable_error(
                 variable,
-                RULE_VARIABLE_VALUE_TYPE_MISMATCH,
+                RototoRuleId::VariableValueTypeMismatch,
                 format!("value {name} does not match type {type_name}"),
                 diagnostics,
             );
@@ -977,7 +925,7 @@ fn lint_schema_values(
         let Ok(json) = serde_json::to_value(value) else {
             push_variable_error(
                 variable,
-                RULE_VARIABLE_VALUE_SCHEMA_MISMATCH,
+                RototoRuleId::VariableValueSchemaMismatch,
                 format!("value {name} could not be converted to JSON"),
                 diagnostics,
             );
@@ -987,7 +935,7 @@ fn lint_schema_values(
         if let Err(error) = validator.validate(&json) {
             push_variable_error(
                 variable,
-                RULE_VARIABLE_VALUE_SCHEMA_MISMATCH,
+                RototoRuleId::VariableValueSchemaMismatch,
                 format!("value {name} does not match schema: {error}"),
                 diagnostics,
             );
@@ -1013,7 +961,7 @@ async fn schema_validator(
                 Err(err) => {
                     push_variable_error(
                         variable,
-                        RULE_VARIABLE_SCHEMA_REF,
+                        RototoRuleId::VariableSchemaRef,
                         format!("schema could not be parsed: {err}"),
                         diagnostics,
                     );
@@ -1025,7 +973,7 @@ async fn schema_validator(
                 Err(err) => {
                     push_variable_error(
                         variable,
-                        RULE_VARIABLE_SCHEMA_REF,
+                        RototoRuleId::VariableSchemaRef,
                         format!("schema is invalid: {err}"),
                         diagnostics,
                     );
@@ -1036,7 +984,7 @@ async fn schema_validator(
         Err(err) => {
             push_variable_error(
                 variable,
-                RULE_VARIABLE_SCHEMA_REF,
+                RototoRuleId::VariableSchemaRef,
                 format!("schema could not be read: {err}"),
                 diagnostics,
             );
@@ -1063,12 +1011,10 @@ async fn lint_schemas(root: &Path, diagnostics: &mut Vec<Diagnostic>) {
         let text = match tokio::fs::read_to_string(&entry).await {
             Ok(text) => text,
             Err(err) => {
-                diagnostics.push(Diagnostic::new_rule(
-                    JSON_SCHEMA_FILE_PARSE_FAILED,
-                    DiagnosticSource::Schema,
+                diagnostics.push(Diagnostic::rototo(
+                    RototoRuleId::SchemaParseFailed,
                     display_relative(root, &entry),
                     err.to_string(),
-                    RULE_JSON_SCHEMA_FILE_PARSE_FAILED,
                 ));
                 continue;
             }
@@ -1076,23 +1022,19 @@ async fn lint_schemas(root: &Path, diagnostics: &mut Vec<Diagnostic>) {
         let schema = match serde_json::from_str::<serde_json::Value>(&text) {
             Ok(schema) => schema,
             Err(err) => {
-                diagnostics.push(Diagnostic::new_rule(
-                    JSON_SCHEMA_FILE_PARSE_FAILED,
-                    DiagnosticSource::Schema,
+                diagnostics.push(Diagnostic::rototo(
+                    RototoRuleId::SchemaParseFailed,
                     display_relative(root, &entry),
                     err.to_string(),
-                    RULE_JSON_SCHEMA_FILE_PARSE_FAILED,
                 ));
                 continue;
             }
         };
         if let Err(err) = jsonschema::validator_for(&schema) {
-            diagnostics.push(Diagnostic::new_rule(
-                JSON_SCHEMA_FILE_INVALID,
-                DiagnosticSource::Schema,
+            diagnostics.push(Diagnostic::rototo(
+                RototoRuleId::SchemaInvalid,
                 display_relative(root, &entry),
                 err.to_string(),
-                RULE_SCHEMA_INVALID,
             ));
         }
     }
@@ -1100,21 +1042,17 @@ async fn lint_schemas(root: &Path, diagnostics: &mut Vec<Diagnostic>) {
 
 async fn read_toml_diagnostic(
     path: &Path,
-    missing: crate::diagnostics::DiagnosticSpec,
-    parse_failed: crate::diagnostics::DiagnosticSpec,
-    missing_rule: LintRule,
-    parse_rule: LintRule,
+    missing_rule: RototoRuleId,
+    parse_rule: RototoRuleId,
     diagnostics: &mut Vec<Diagnostic>,
 ) -> Option<Value> {
     let text = match tokio::fs::read_to_string(path).await {
         Ok(text) => text,
         Err(err) => {
-            diagnostics.push(Diagnostic::new_rule(
-                missing,
-                DiagnosticSource::Kernel,
+            diagnostics.push(Diagnostic::rototo(
+                missing_rule,
                 display_path(path),
                 err.to_string(),
-                missing_rule,
             ));
             return None;
         }
@@ -1122,12 +1060,10 @@ async fn read_toml_diagnostic(
     match text.parse::<Value>() {
         Ok(value) => Some(value),
         Err(err) => {
-            diagnostics.push(Diagnostic::new_rule(
-                parse_failed,
-                DiagnosticSource::Kernel,
+            diagnostics.push(Diagnostic::rototo(
+                parse_rule,
                 display_path(path),
                 err.to_string(),
-                parse_rule,
             ));
             None
         }
@@ -1136,39 +1072,33 @@ async fn read_toml_diagnostic(
 
 fn push_qualifier_error(
     qualifier: &QualifierInspection,
-    rule: LintRule,
+    rule: RototoRuleId,
     message: impl Into<String>,
     diagnostics: &mut Vec<Diagnostic>,
 ) {
-    push_workspace_file_error("qualifier", &qualifier.path, rule, message, diagnostics);
+    push_workspace_file_error(&qualifier.path, rule, message, diagnostics);
 }
 
 fn push_variable_error(
     variable: &VariableInspection,
-    rule: LintRule,
+    rule: RototoRuleId,
     message: impl Into<String>,
     diagnostics: &mut Vec<Diagnostic>,
 ) {
-    push_workspace_file_error("variable", &variable.path, rule, message, diagnostics);
+    push_workspace_file_error(&variable.path, rule, message, diagnostics);
 }
 
 fn push_workspace_file_error(
-    kind: &str,
     path: &Path,
-    rule: LintRule,
+    rule: RototoRuleId,
     message: impl Into<String>,
     diagnostics: &mut Vec<Diagnostic>,
 ) {
-    diagnostics.push(
-        Diagnostic::new_rule(
-            WORKSPACE_TOML_FILE_INVALID,
-            DiagnosticSource::Kernel,
-            path.display().to_string(),
-            message,
-            rule,
-        )
-        .with_kind(kind),
-    );
+    diagnostics.push(Diagnostic::rototo(
+        rule,
+        path.display().to_string(),
+        message,
+    ));
 }
 
 fn display_path(path: &Path) -> String {

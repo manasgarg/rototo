@@ -1,0 +1,14 @@
+schema_version = 1
+
+[variable]
+description = "Variable whose custom lint emits an invalid rule"
+type = "string"
+
+[variable.lint]
+path = "../lint/custom-invalid.lua"
+
+[variable.values]
+default = "default"
+
+[variable.env._]
+value = "default"

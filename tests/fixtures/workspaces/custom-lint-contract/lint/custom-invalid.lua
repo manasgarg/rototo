@@ -1,7 +1,7 @@
 function lint(variable)
   return {
     {
-      rule = "fixture/custom-variable-rejected",
+      rule = "rototo/not-allowed",
       message = "custom lint rejected " .. variable.id
     }
   }

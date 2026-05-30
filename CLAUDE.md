@@ -113,21 +113,19 @@ workspace structure and files:
 - Schema-backed variable values validate against their JSON Schema.
 - Variables can declare `[variable.lint] path = "../lint/name.lua"` for custom
   Lua lint. Lua files define `lint(variable)` and/or `lint_value(value)` and
-  return diagnostics with `message` and optional `help`; Rust owns diagnostic
-  codes.
+  return diagnostics with `rule` and `message`. Custom rules are declared in
+  TOML under `[[variable.lint.rule]]` with `id`, `title`, and `help`; Lua emits
+  declared `<authority>/<rule-id>` ids. `rototo` is reserved for built-in
+  diagnostics.
 - Standalone `schemas/*.json` files parse and compile as JSON Schema.
 
-Diagnostics should use stable codes. Current file-level codes are:
-
-- `rototo/workspace-toml-file-parse-failed` for qualifier/variable TOML parse failures.
-- `rototo/workspace-toml-file-invalid` for qualifier/variable semantic validation failures.
-- `rototo/json-schema-file-parse-failed` for standalone JSON Schema parse failures.
-- `rototo/json-schema-file-invalid` for invalid standalone JSON Schema files.
-- `rototo/variable-custom-lint-failed` for Lua custom lint failures.
-
-Lint diagnostics should also include a stable `rule` id using slash-separated
-namespaces, for example `rototo/variable/env/unknown-environment`. Keep `code`
-as the broad diagnostic family and `rule` as the exact documented lint failure.
+Diagnostics use one stable `rule` identity. Built-in rototo rules use
+`rototo/<rule-id>` with a flat rule id, for example
+`rototo/variable-unknown-environment`; they must not use nested
+`rototo/*/<rule-id>` paths. Lua/custom lint rules use
+`<authority>/<rule-id>` with a non-`rototo` authority, for example
+`payments/max-token-budget`. The diagnostics catalog lists built-in rules
+globally and adds declared custom rules for a workspace-scoped catalog.
 
 The failure fixture at `tests/fixtures/workspaces/lint-failures` is a compact
 coverage workspace for expected lint failures. Extend it when adding new lint

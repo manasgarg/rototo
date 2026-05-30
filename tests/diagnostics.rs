@@ -8,14 +8,12 @@ fn lists_global_diagnostics() {
         .args(["diagnostics", "list"])
         .assert()
         .success()
-        .stdout(predicate::str::contains("code"))
-        .stdout(predicate::str::contains("source"))
+        .stdout(predicate::str::contains("rule"))
+        .stdout(predicate::str::contains("entity"))
         .stdout(predicate::str::contains("rototo/workspace-not-found"))
+        .stdout(predicate::str::contains("rototo/qualifier-parse-failed"))
         .stdout(predicate::str::contains(
-            "rototo/workspace-toml-file-parse-failed",
-        ))
-        .stdout(predicate::str::contains(
-            "Workspace TOML file could not be parsed",
+            "Qualifier TOML file could not be parsed",
         ))
         .stdout(predicate::str::contains("help:").not());
 }
@@ -27,8 +25,9 @@ fn lists_workspace_scoped_diagnostics_when_requested() {
         .args(["diagnostics", "list", "--workspace", "examples/basic"])
         .assert()
         .success()
+        .stdout(predicate::str::contains("rototo/qualifier-parse-failed"))
         .stdout(predicate::str::contains(
-            "rototo/workspace-toml-file-parse-failed",
+            "consumer-experience/checkout-heading-required",
         ))
         .stdout(predicate::str::contains("help:").not());
 }
@@ -43,7 +42,7 @@ fn lists_global_diagnostics_as_json() {
         .stdout(predicate::str::contains(r#""scope": "global""#))
         .stdout(predicate::str::contains(r#""subject": "global""#))
         .stdout(predicate::str::contains(
-            r#""code": "rototo/workspace-not-found""#,
+            r#""rule": "rototo/workspace-not-found""#,
         ));
 }
 
@@ -51,17 +50,30 @@ fn lists_global_diagnostics_as_json() {
 fn gets_workspace_diagnostic() {
     Command::cargo_bin("rototo")
         .unwrap()
+        .args(["diagnostics", "get", "rototo/qualifier-parse-failed"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("rototo/qualifier-parse-failed"))
+        .stdout(predicate::str::contains("entity: qualifier"));
+}
+
+#[test]
+fn gets_workspace_custom_diagnostic() {
+    Command::cargo_bin("rototo")
+        .unwrap()
         .args([
             "diagnostics",
             "get",
-            "rototo/workspace-toml-file-parse-failed",
+            "consumer-experience/checkout-heading-required",
+            "--workspace",
+            "examples/basic",
         ])
         .assert()
         .success()
         .stdout(predicate::str::contains(
-            "rototo/workspace-toml-file-parse-failed",
+            "consumer-experience/checkout-heading-required",
         ))
-        .stdout(predicate::str::contains("source: kernel"));
+        .stdout(predicate::str::contains("Checkout heading is missing"));
 }
 
 #[test]
