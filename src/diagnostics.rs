@@ -8,6 +8,8 @@ pub enum DiagnosticEntity {
     Workspace,
     Qualifier,
     Variable,
+    Value,
+    Rule,
     Schema,
 }
 
@@ -20,12 +22,22 @@ pub struct RuleMeta {
     pub help: &'static str,
 }
 
+macro_rules! rototo_rule_severity {
+    () => {
+        Severity::Error
+    };
+    ($severity:ident) => {
+        Severity::$severity
+    };
+}
+
 macro_rules! rototo_rules {
     ($($variant:ident => {
         id: $id:literal,
         entity: $entity:ident,
         title: $title:literal,
-        help: $help:literal $(,)?
+        help: $help:literal $(,
+        severity: $severity:ident)? $(,)?
     }),+ $(,)?) => {
         #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
         pub enum RototoRuleId {
@@ -45,7 +57,7 @@ macro_rules! rototo_rules {
                 match self {
                     $(Self::$variant => RuleMeta {
                         rule: concat!("rototo/", $id),
-                        severity: Severity::Error,
+                        severity: rototo_rule_severity!($($severity)?),
                         entity: DiagnosticEntity::$entity,
                         title: $title,
                         help: $help,
@@ -141,6 +153,19 @@ rototo_rules! {
         title: "Qualifier predicate value is invalid",
         help: "Add a value with the shape required by the predicate operator.",
     },
+    QualifierCycle => {
+        id: "qualifier-cycle",
+        entity: Qualifier,
+        title: "Qualifier references form a cycle",
+        help: "Remove the qualifier reference cycle so qualifier evaluation can terminate.",
+    },
+    QualifierUnreferenced => {
+        id: "qualifier-unreferenced",
+        entity: Qualifier,
+        title: "Qualifier is not referenced",
+        help: "Reference the qualifier from another qualifier or variable rule, or remove it.",
+        severity: Warning,
+    },
     VariableParseFailed => {
         id: "variable-parse-failed",
         entity: Variable,
@@ -224,6 +249,20 @@ rototo_rules! {
         entity: Variable,
         title: "Variable rule references an unknown qualifier",
         help: "Create the referenced qualifier or update the rule.",
+    },
+    VariableRuleShadowed => {
+        id: "variable-rule-shadowed",
+        entity: Rule,
+        title: "Variable rule is shadowed",
+        help: "Remove the later duplicate qualifier rule or reorder the environment rules.",
+        severity: Warning,
+    },
+    VariableValueUnused => {
+        id: "variable-value-unused",
+        entity: Value,
+        title: "Variable value is not used",
+        help: "Reference the value from an environment default or rule, or remove it.",
+        severity: Warning,
     },
     VariableExternalValuesLoadFailed => {
         id: "variable-external-values-load-failed",
@@ -674,4 +713,5 @@ impl Diagnostic {
 #[serde(rename_all = "lowercase")]
 pub enum Severity {
     Error,
+    Warning,
 }

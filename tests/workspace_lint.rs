@@ -400,6 +400,124 @@ fn reports_value_stage_failures() {
 }
 
 #[test]
+fn reports_graph_stage_qualifier_cycles() {
+    let lint = lint_json(
+        "tests/fixtures/workspaces/rules/graph/qualifier-cycle",
+        false,
+    );
+    let diagnostics = diagnostics_for_rule(&lint, "rototo/qualifier-cycle");
+
+    assert_eq!(diagnostics.len(), 3, "{lint:#}");
+    assert!(
+        diagnostics
+            .iter()
+            .all(|diagnostic| diagnostic["stage"] == "graph")
+    );
+    assert!(
+        diagnostics
+            .iter()
+            .all(|diagnostic| diagnostic["severity"] == "error")
+    );
+    assert!(
+        diagnostics
+            .iter()
+            .all(|diagnostic| diagnostic["primary"]["range"].is_object())
+    );
+    assert!(
+        diagnostics
+            .iter()
+            .any(|diagnostic| diagnostic["entity"]["id"] == "self")
+    );
+    assert!(
+        diagnostics
+            .iter()
+            .any(|diagnostic| diagnostic["entity"]["id"] == "alpha")
+    );
+    assert!(
+        diagnostics
+            .iter()
+            .any(|diagnostic| diagnostic["entity"]["id"] == "beta")
+    );
+
+    let alpha = diagnostics
+        .iter()
+        .find(|diagnostic| diagnostic["entity"]["id"] == "alpha")
+        .unwrap();
+    assert!(!alpha["related"].as_array().unwrap().is_empty());
+}
+
+#[test]
+fn reports_graph_stage_qualifier_unreferenced_warning_without_failing() {
+    let lint = lint_json(
+        "tests/fixtures/workspaces/rules/graph/qualifier-unreferenced",
+        true,
+    );
+    let diagnostic = only_diagnostic(&lint);
+
+    assert_eq!(diagnostic["rule"], "rototo/qualifier-unreferenced");
+    assert_eq!(diagnostic["severity"], "warning");
+    assert_eq!(diagnostic["stage"], "graph");
+    assert_eq!(diagnostic["entity"]["kind"], "qualifier");
+    assert_eq!(diagnostic["entity"]["id"], "unused");
+}
+
+#[test]
+fn reports_graph_stage_shadowed_rule_warning_without_failing() {
+    let lint = lint_json(
+        "tests/fixtures/workspaces/rules/graph/variable-rule-shadowed",
+        true,
+    );
+    let diagnostic = only_diagnostic(&lint);
+
+    assert_eq!(diagnostic["rule"], "rototo/variable-rule-shadowed");
+    assert_eq!(diagnostic["severity"], "warning");
+    assert_eq!(diagnostic["stage"], "graph");
+    assert_eq!(diagnostic["entity"]["kind"], "rule");
+    assert_eq!(diagnostic["entity"]["variable"], "checkout");
+    assert_eq!(diagnostic["entity"]["environment"], "prod");
+    assert_eq!(diagnostic["entity"]["index"], 1);
+    assert_eq!(diagnostic["related"].as_array().unwrap().len(), 1);
+}
+
+#[test]
+fn reports_graph_stage_unused_value_warning_without_failing() {
+    let lint = lint_json(
+        "tests/fixtures/workspaces/rules/graph/variable-value-unused",
+        true,
+    );
+    let diagnostic = only_diagnostic(&lint);
+
+    assert_eq!(diagnostic["rule"], "rototo/variable-value-unused");
+    assert_eq!(diagnostic["severity"], "warning");
+    assert_eq!(diagnostic["stage"], "graph");
+    assert_eq!(diagnostic["entity"]["kind"], "value");
+    assert_eq!(diagnostic["entity"]["variable"], "message");
+    assert_eq!(diagnostic["entity"]["key"], "unused");
+}
+
+#[test]
+fn lint_failures_fixture_covers_graph_rules() {
+    let lint = lint_json("tests/fixtures/workspaces/lint-failures", false);
+
+    assert_graph_rule(&lint, "rototo/qualifier-cycle", "qualifiers/cycle-a.toml");
+    assert_graph_rule(
+        &lint,
+        "rototo/qualifier-unreferenced",
+        "qualifiers/unreferenced.toml",
+    );
+    assert_graph_rule(
+        &lint,
+        "rototo/variable-rule-shadowed",
+        "variables/graph-warnings.toml",
+    );
+    assert_graph_rule(
+        &lint,
+        "rototo/variable-value-unused",
+        "variables/graph-warnings.toml",
+    );
+}
+
+#[test]
 fn reports_workspace_custom_lint_failures() {
     let lint = lint_json("tests/fixtures/workspaces/lint-failures", false);
 
@@ -563,6 +681,15 @@ fn diagnostic_for_rule<'a>(lint: &'a serde_json::Value, rule: &str) -> &'a serde
         .unwrap_or_else(|| panic!("diagnostic not found: {rule}\n{lint:#}"))
 }
 
+fn diagnostics_for_rule<'a>(lint: &'a serde_json::Value, rule: &str) -> Vec<&'a serde_json::Value> {
+    lint["diagnostics"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|diagnostic| diagnostic["rule"] == rule)
+        .collect()
+}
+
 fn diagnostic_messages_for_rule(lint: &serde_json::Value, rule: &str) -> Vec<String> {
     lint["diagnostics"]
         .as_array()
@@ -594,6 +721,15 @@ fn assert_reference_rule(lint: &serde_json::Value, rule: &str, path: &str) {
 fn assert_value_rule(lint: &serde_json::Value, rule: &str, path: &str) {
     let diagnostic = diagnostic_for_rule(lint, rule);
     assert_eq!(diagnostic["stage"], "value");
+    assert_eq!(diagnostic["primary"]["path"], path);
+}
+
+fn assert_graph_rule(lint: &serde_json::Value, rule: &str, path: &str) {
+    let diagnostic = diagnostics_for_rule(lint, rule)
+        .into_iter()
+        .find(|diagnostic| diagnostic["primary"]["path"] == path)
+        .unwrap_or_else(|| panic!("diagnostic not found: {rule} at {path}\n{lint:#}"));
+    assert_eq!(diagnostic["stage"], "graph");
     assert_eq!(diagnostic["primary"]["path"], path);
 }
 

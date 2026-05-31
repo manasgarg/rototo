@@ -11,6 +11,9 @@ strict = 0.70
 [env._]
 value = "standard"
 
+[env.dev]
+value = "relaxed"
+
 [env.prod]
 value = "standard"
 

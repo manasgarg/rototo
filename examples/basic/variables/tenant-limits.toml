@@ -45,6 +45,9 @@ value = "growth"
 [env.dev]
 value = "enterprise"
 
+[env.stage]
+value = "starter"
+
 [env.prod]
 value = "growth"
 

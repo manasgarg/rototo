@@ -727,6 +727,15 @@ async fn workspace_sdk_rejects_workspace_when_lint_fails() {
 }
 
 #[tokio::test]
+async fn workspace_sdk_loads_workspace_when_lint_only_warns() {
+    let workspace = Workspace::load("tests/fixtures/workspaces/rules/graph/qualifier-unreferenced")
+        .await
+        .unwrap();
+
+    assert_eq!(workspace.inspection().qualifiers[0].id, "unused");
+}
+
+#[tokio::test]
 async fn workspace_sdk_can_inspect_without_linting() {
     let workspace = Workspace::inspect("tests/fixtures/workspaces/lint-failures")
         .await

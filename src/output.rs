@@ -503,6 +503,7 @@ fn diagnostic_location_label(diagnostic: &LintDiagnostic) -> String {
 fn severity_label(severity: &Severity) -> &'static str {
     match severity {
         Severity::Error => "error",
+        Severity::Warning => "warning",
     }
 }
 
@@ -511,6 +512,8 @@ fn diagnostic_entity_label(entity: &DiagnosticEntity) -> &'static str {
         DiagnosticEntity::Workspace => "workspace",
         DiagnosticEntity::Qualifier => "qualifier",
         DiagnosticEntity::Variable => "variable",
+        DiagnosticEntity::Value => "value",
+        DiagnosticEntity::Rule => "rule",
         DiagnosticEntity::Schema => "schema",
     }
 }

@@ -1,0 +1,16 @@
+schema_version = 1
+type = "string"
+
+[values]
+control = "control"
+treatment = "treatment"
+
+[env._]
+value = "control"
+
+[env.prod]
+value = "control"
+
+[[env.prod.rule]]
+qualifier = "missing-context-contract"
+value = "treatment"

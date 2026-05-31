@@ -28,6 +28,11 @@ value = "baseline"
 value = "baseline"
 
 [[env.prod.rule]]
+description = "EU premium users receive personalized recommendations"
+qualifier = "eu-premium-users"
+value = "personalized"
+
+[[env.prod.rule]]
 description = "Returning users receive personalized recommendations"
 qualifier = "returning-users"
 value = "personalized"

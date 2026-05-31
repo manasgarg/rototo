@@ -43,7 +43,11 @@ fn lists_global_diagnostics_as_json() {
         .stdout(predicate::str::contains(r#""subject": "global""#))
         .stdout(predicate::str::contains(
             r#""rule": "rototo/workspace-not-found""#,
-        ));
+        ))
+        .stdout(predicate::str::contains(
+            r#""rule": "rototo/qualifier-unreferenced""#,
+        ))
+        .stdout(predicate::str::contains(r#""severity": "warning""#));
 }
 
 #[test]

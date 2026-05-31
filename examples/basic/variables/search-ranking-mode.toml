@@ -11,6 +11,9 @@ hybrid = "hybrid"
 [env._]
 value = "classic"
 
+[env.dev]
+value = "semantic"
+
 [env.stage]
 value = "hybrid"
 
@@ -18,6 +21,6 @@ value = "hybrid"
 value = "classic"
 
 [[env.prod.rule]]
-description = "Beta bucket exercises hybrid ranking"
-qualifier = "beta-rollout-bucket"
+description = "Premium users in the beta rollout exercise hybrid ranking"
+qualifier = "premium-beta-users"
 value = "hybrid"

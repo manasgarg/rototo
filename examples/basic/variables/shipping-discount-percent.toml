@@ -12,6 +12,9 @@ high_value = 25
 [env._]
 value = "none"
 
+[env.stage]
+value = "small"
+
 [env.prod]
 value = "none"
 

@@ -1,0 +1,24 @@
+schema_version = 1
+
+description = "Variable with graph warnings"
+type = "string"
+
+[values]
+control = "control"
+first = "first"
+duplicate = "duplicate"
+unused = "unused"
+
+[env._]
+value = "control"
+
+[env.prod]
+value = "control"
+
+[[env.prod.rule]]
+qualifier = "self-cycle"
+value = "first"
+
+[[env.prod.rule]]
+qualifier = "self-cycle"
+value = "duplicate"
