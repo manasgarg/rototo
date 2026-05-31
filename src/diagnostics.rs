@@ -255,6 +255,18 @@ rototo_rules! {
         title: "Variable custom lint execution failed",
         help: "Update the variable or its Lua lint rule so custom lint can run.",
     },
+    CustomLintRegistrationInvalid => {
+        id: "custom-lint-registration-invalid",
+        entity: Variable,
+        title: "Custom lint registration is invalid",
+        help: "Register custom lint with an allowed stage, entity, field, rule, and handler.",
+    },
+    CustomLintRuleShape => {
+        id: "custom-lint-rule-shape",
+        entity: Variable,
+        title: "Custom lint rule declaration is invalid",
+        help: "Declare custom lint rules with id, title, and help.",
+    },
     CustomLintInvalidRule => {
         id: "custom-lint-invalid-rule",
         entity: Variable,

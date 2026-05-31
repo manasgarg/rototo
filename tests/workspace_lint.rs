@@ -460,6 +460,34 @@ fn reports_custom_lint_contract_failures() {
     );
 }
 
+#[test]
+fn reports_registered_custom_lint_failures() {
+    let lint = lint_json("tests/fixtures/workspaces/custom-register", false);
+
+    assert_register_rule(
+        &lint,
+        "rototo/custom-lint-registration-invalid",
+        "lint/payments.lua",
+    );
+    assert_register_rule(
+        &lint,
+        "rototo/custom-lint-unknown-rule",
+        "lint/payments.lua",
+    );
+    assert_value_rule(
+        &lint,
+        "payments/max-token-budget",
+        "variables/agent-config.toml",
+    );
+
+    let diagnostic = diagnostic_for_rule(&lint, "payments/max-token-budget");
+    assert_eq!(diagnostic["entity"]["kind"], "value");
+    assert_eq!(diagnostic["entity"]["variable"], "agent-config");
+    assert_eq!(diagnostic["entity"]["key"], "standard");
+    assert_eq!(diagnostic["stage"], "value");
+    assert!(diagnostic["primary"]["range"].is_object());
+}
+
 fn lint_json(workspace: &str, success: bool) -> serde_json::Value {
     let output = Command::cargo_bin("rototo")
         .unwrap()
@@ -514,6 +542,12 @@ fn diagnostic_messages_for_rule(lint: &serde_json::Value, rule: &str) -> Vec<Str
 fn assert_project_rule(lint: &serde_json::Value, rule: &str, path: &str) {
     let diagnostic = diagnostic_for_rule(lint, rule);
     assert_eq!(diagnostic["stage"], "project");
+    assert_eq!(diagnostic["primary"]["path"], path);
+}
+
+fn assert_register_rule(lint: &serde_json::Value, rule: &str, path: &str) {
+    let diagnostic = diagnostic_for_rule(lint, rule);
+    assert_eq!(diagnostic["stage"], "register");
     assert_eq!(diagnostic["primary"]["path"], path);
 }
 
