@@ -6,9 +6,9 @@ use crate::diagnostics::{
 };
 
 use super::WorkspaceLintSnapshot;
+use super::builtins::{custom_rule_definitions_from_collection, qualifier_reference};
 use super::engine::{resolve_workspace_relative_path, resolve_workspace_root_path};
 use super::nodes::*;
-use super::rules::{custom_rule_definitions_from_collection, qualifier_reference};
 
 const CUSTOM_LINT_FIELD_SELECTORS: &[&str] = &[
     "context_schema",

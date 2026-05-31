@@ -4,12 +4,12 @@ use crate::diagnostics::{EntityId, LintDiagnostic, SourcePosition};
 use crate::error::{Result, RototoError};
 use crate::model::{QualifierLint, VariableLint, WorkspaceLint};
 
+mod builtins;
 mod custom;
 mod engine;
 pub(crate) mod input;
 mod nodes;
 mod project;
-mod rules;
 mod source;
 mod symbols;
 mod syntax;

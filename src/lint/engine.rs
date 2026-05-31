@@ -8,13 +8,13 @@ use crate::diagnostics::{DiagnosticLocation, EntityId, LintDiagnostic, LintStage
 use crate::error::Result;
 use crate::model::WorkspaceLint;
 
+use super::builtins;
 use super::custom::{RegisteredCustomLint, register_custom_lints, run_registered_custom_lints};
 use super::input::LintInput;
 use super::nodes::*;
 use super::project::{
     project_external_value, project_manifest, project_qualifier, project_variable,
 };
-use super::rules;
 use super::source::{DocumentCollection, DocumentKind, SourceStore, workspace_path};
 use super::syntax::{
     ParsedToml, SyntaxIndex, json_parse_diagnostic, read_error_diagnostic,
@@ -216,7 +216,7 @@ impl LintEngine {
     }
 
     fn run_project(&self, ctx: &mut LintContext) {
-        rules::run_project(ctx);
+        builtins::run_project(ctx);
     }
 
     async fn run_register(&self, ctx: &mut LintContext) {
@@ -224,15 +224,15 @@ impl LintEngine {
     }
 
     fn run_reference(&self, ctx: &mut LintContext) {
-        rules::run_reference(ctx);
+        builtins::run_reference(ctx);
     }
 
     fn run_value(&self, ctx: &mut LintContext) {
-        rules::run_value(ctx);
+        builtins::run_value(ctx);
     }
 
     fn run_graph(&self, ctx: &mut LintContext) {
-        rules::run_graph(ctx);
+        builtins::run_graph(ctx);
     }
 
     async fn run_registered_custom_lints(&self, ctx: &mut LintContext, stage: LintStage) {
