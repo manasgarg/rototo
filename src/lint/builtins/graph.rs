@@ -4,8 +4,9 @@ use crate::diagnostics::{
     DiagnosticLocation, EntityId, LintDiagnostic, LintStage, RelatedLocation, RototoRuleId,
 };
 
-use super::super::engine::{LintContext, push_graph_diagnostic, variable_values};
+use super::super::engine::{LintContext, variable_values};
 use super::super::nodes::*;
+use super::super::stages::push_graph_diagnostic;
 use super::qualifier_reference;
 
 #[derive(Clone)]

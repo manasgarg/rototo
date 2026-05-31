@@ -2,11 +2,10 @@ use serde_json::Value as JsonValue;
 
 use crate::diagnostics::{DiagnosticLocation, EntityId, RototoRuleId};
 
-use super::super::engine::{
-    LintContext, push_reference_diagnostic, push_value_diagnostic, resolve_workspace_root_path,
-};
+use super::super::engine::LintContext;
 use super::super::nodes::*;
-use super::super::source::DocumentKind;
+use super::super::source::{DocumentKind, resolve_workspace_root_path};
+use super::super::stages::{push_reference_diagnostic, push_value_diagnostic};
 use super::qualifier_reference;
 
 struct ContextSchemaError {

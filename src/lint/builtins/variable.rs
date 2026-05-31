@@ -4,12 +4,12 @@ use serde_json::Value as JsonValue;
 
 use crate::diagnostics::{EntityId, LintDiagnostic, RototoRuleId};
 
-use super::super::engine::{
-    LintContext, push_project_diagnostic, push_reference_diagnostic, push_value_diagnostic,
-    resolve_workspace_relative_path, variable_values,
-};
+use super::super::engine::{LintContext, variable_values};
 use super::super::nodes::*;
-use super::super::source::DocumentKind;
+use super::super::source::{DocumentKind, resolve_workspace_relative_path};
+use super::super::stages::{
+    push_project_diagnostic, push_reference_diagnostic, push_value_diagnostic,
+};
 use super::{declared_workspace_environments, field_is_integer, field_is_not_present};
 
 pub(super) fn lint_variable_shapes(ctx: &mut LintContext) {

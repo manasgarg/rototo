@@ -2,8 +2,8 @@ use crate::diagnostics::{DiagnosticLocation, DocId, SourcePosition};
 
 use super::super::WorkspaceLintSnapshot;
 use super::super::builtins::qualifier_reference;
-use super::super::engine::{resolve_workspace_relative_path, resolve_workspace_root_path};
 use super::super::nodes::*;
+use super::super::source::{resolve_workspace_relative_path, resolve_workspace_root_path};
 use super::WorkspaceReference;
 use super::common::{
     location_contains_position, source_range_size, variable_value_definition_location,

@@ -6,8 +6,9 @@ use crate::diagnostics::{
 };
 use crate::workspace::workspace_environments;
 
-use super::super::engine::{LintContext, push_project_diagnostic};
+use super::super::engine::LintContext;
 use super::super::nodes::*;
+use super::super::stages::push_project_diagnostic;
 use super::field_is_not_present;
 
 pub(super) fn lint_manifest_shape(ctx: &mut LintContext) {

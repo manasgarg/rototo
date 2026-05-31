@@ -4,8 +4,9 @@ use crate::diagnostics::{CustomRuleDefinition, CustomRuleId, EntityId, LintStage
 use crate::lua_lint;
 
 use super::super::builtins::workspace_custom_rule_definitions;
-use super::super::engine::{LintContext, push_register_diagnostic};
+use super::super::engine::LintContext;
 use super::super::source::DocumentKind;
+use super::super::stages::push_register_diagnostic;
 use super::runner;
 use super::{
     QualifierLintField, RegisteredCustomLint, RegisteredLintEntity, RegisteredLintField,

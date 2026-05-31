@@ -2,8 +2,9 @@ use std::collections::BTreeSet;
 
 use crate::diagnostics::{EntityId, LintDiagnostic, RototoRuleId};
 
-use super::super::engine::{LintContext, push_project_diagnostic, push_reference_diagnostic};
+use super::super::engine::LintContext;
 use super::super::nodes::*;
+use super::super::stages::{push_project_diagnostic, push_reference_diagnostic};
 use super::{field_is_integer, field_is_not_present, predicate_op_label};
 
 pub(super) fn lint_qualifier_shapes(ctx: &mut LintContext) {

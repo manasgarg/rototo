@@ -6,7 +6,8 @@ use crate::diagnostics::{LintDiagnostic, LintStage, RototoRuleId};
 use crate::error::Result;
 use crate::lua_lint;
 
-use super::super::engine::{LintContext, push_stage_diagnostic};
+use super::super::engine::LintContext;
+use super::super::stages::push_stage_diagnostic;
 use super::marshal::{lint_stage_label, registered_lint_entity_label};
 use super::targets::registered_lint_targets;
 

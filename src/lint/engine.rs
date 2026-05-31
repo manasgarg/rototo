@@ -1,4 +1,4 @@
-use std::path::{Component, Path, PathBuf};
+use std::path::PathBuf;
 
 use serde_json::Value as JsonValue;
 use toml::Value as TomlValue;
@@ -12,10 +12,11 @@ use super::builtins;
 use super::custom::{RegisteredCustomLint, register_custom_lints, run_registered_custom_lints};
 use super::input::LintInput;
 use super::nodes::*;
+use super::output::sort_diagnostics;
 use super::project::{
     project_external_value, project_manifest, project_qualifier, project_variable,
 };
-use super::source::{DocumentCollection, DocumentKind, SourceStore, workspace_path};
+use super::source::{DocumentCollection, DocumentKind, SourceStore};
 use super::syntax::{
     ParsedToml, SyntaxIndex, json_parse_diagnostic, read_error_diagnostic,
     toml_de_parse_diagnostic, toml_edit_parse_diagnostic,
@@ -287,177 +288,6 @@ pub(super) fn variable_values<'a>(
             .get(&variable.id)
             .into_iter()
             .flat_map(|values| values.values()),
-    )
-}
-
-pub(super) fn resolve_workspace_relative_path(
-    document_path: &str,
-    reference: &str,
-) -> Option<String> {
-    let reference = Path::new(reference);
-    if reference.as_os_str().is_empty() || reference.is_absolute() {
-        return None;
-    }
-
-    let base = Path::new(document_path).parent().unwrap_or(Path::new(""));
-    let mut normalized = PathBuf::new();
-    for component in base.join(reference).components() {
-        match component {
-            Component::Normal(segment) => normalized.push(segment),
-            Component::CurDir => {}
-            Component::ParentDir => {
-                if !normalized.pop() {
-                    return None;
-                }
-            }
-            Component::Prefix(_) | Component::RootDir => return None,
-        }
-    }
-
-    if normalized.as_os_str().is_empty() {
-        None
-    } else {
-        Some(workspace_path(&normalized))
-    }
-}
-
-pub(super) fn resolve_workspace_root_path(reference: &str) -> Option<String> {
-    let reference = Path::new(reference);
-    if reference.as_os_str().is_empty() || reference.is_absolute() {
-        return None;
-    }
-
-    let mut normalized = PathBuf::new();
-    for component in reference.components() {
-        match component {
-            Component::Normal(segment) => normalized.push(segment),
-            Component::CurDir => {}
-            Component::ParentDir | Component::Prefix(_) | Component::RootDir => return None,
-        }
-    }
-
-    if normalized.as_os_str().is_empty() {
-        None
-    } else {
-        Some(workspace_path(&normalized))
-    }
-}
-
-pub(super) fn push_project_diagnostic(
-    diagnostics: &mut Vec<LintDiagnostic>,
-    rule: RototoRuleId,
-    entity: EntityId,
-    primary: DiagnosticLocation,
-    message: impl Into<String>,
-) {
-    diagnostics.push(LintDiagnostic::rototo(
-        rule,
-        LintStage::Project,
-        entity,
-        primary,
-        message,
-    ));
-}
-
-pub(super) fn push_reference_diagnostic(
-    diagnostics: &mut Vec<LintDiagnostic>,
-    rule: RototoRuleId,
-    entity: EntityId,
-    primary: DiagnosticLocation,
-    message: impl Into<String>,
-) {
-    diagnostics.push(LintDiagnostic::rototo(
-        rule,
-        LintStage::Reference,
-        entity,
-        primary,
-        message,
-    ));
-}
-
-pub(super) fn push_graph_diagnostic(
-    diagnostics: &mut Vec<LintDiagnostic>,
-    rule: RototoRuleId,
-    entity: EntityId,
-    primary: DiagnosticLocation,
-    message: impl Into<String>,
-) {
-    diagnostics.push(LintDiagnostic::rototo(
-        rule,
-        LintStage::Graph,
-        entity,
-        primary,
-        message,
-    ));
-}
-
-pub(super) fn push_register_diagnostic(
-    diagnostics: &mut Vec<LintDiagnostic>,
-    rule: RototoRuleId,
-    entity: EntityId,
-    primary: DiagnosticLocation,
-    message: impl Into<String>,
-) {
-    diagnostics.push(LintDiagnostic::rototo(
-        rule,
-        LintStage::Register,
-        entity,
-        primary,
-        message,
-    ));
-}
-
-pub(super) fn push_stage_diagnostic(
-    diagnostics: &mut Vec<LintDiagnostic>,
-    stage: LintStage,
-    rule: RototoRuleId,
-    entity: EntityId,
-    primary: DiagnosticLocation,
-    message: impl Into<String>,
-) {
-    diagnostics.push(LintDiagnostic::rototo(
-        rule, stage, entity, primary, message,
-    ));
-}
-
-pub(super) fn push_value_diagnostic(
-    diagnostics: &mut Vec<LintDiagnostic>,
-    rule: RototoRuleId,
-    entity: EntityId,
-    primary: DiagnosticLocation,
-    message: impl Into<String>,
-) {
-    diagnostics.push(LintDiagnostic::rototo(
-        rule,
-        LintStage::Value,
-        entity,
-        primary,
-        message,
-    ));
-}
-
-fn sort_diagnostics(diagnostics: &mut [LintDiagnostic]) {
-    diagnostics.sort_by(|left, right| diagnostic_sort_key(left).cmp(&diagnostic_sort_key(right)));
-}
-
-fn diagnostic_sort_key(diagnostic: &LintDiagnostic) -> (u8, &str, usize, usize, String, &str) {
-    let location_rank = match diagnostic.primary.kind {
-        crate::diagnostics::DiagnosticLocationKind::WorkspaceRoot => 0,
-        crate::diagnostics::DiagnosticLocationKind::Document
-        | crate::diagnostics::DiagnosticLocationKind::Span => 1,
-    };
-    let (line, character) = diagnostic
-        .primary
-        .range
-        .map(|range| (range.start.line, range.start.character))
-        .unwrap_or((0, 0));
-    (
-        location_rank,
-        diagnostic.primary.path.as_str(),
-        line,
-        character,
-        diagnostic.rule.as_string(),
-        diagnostic.message.as_str(),
     )
 }
 

@@ -9,8 +9,10 @@ mod custom;
 mod engine;
 pub(crate) mod input;
 mod nodes;
+mod output;
 mod project;
 mod source;
+mod stages;
 mod symbols;
 mod syntax;
 
