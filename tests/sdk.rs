@@ -722,6 +722,25 @@ async fn workspace_sdk_loads_linted_workspace() {
 }
 
 #[tokio::test]
+async fn workspace_sdk_resolves_from_loaded_runtime_snapshot() {
+    let temp = tempfile::TempDir::new().unwrap();
+    let root = temp.path().join("workspace");
+    write_minimal_workspace_with_message(&root, "loaded").await;
+
+    let workspace = Workspace::load(root.to_str().unwrap()).await.unwrap();
+    write_minimal_workspace_with_message(&root, "changed").await;
+
+    let env = Environment::new("prod");
+    let context = ResolveContext::from_json(serde_json::json!({})).unwrap();
+    let resolution = workspace
+        .resolve_variable("message", &env, &context)
+        .await
+        .unwrap();
+
+    assert_eq!(resolution.value, "loaded");
+}
+
+#[tokio::test]
 async fn workspace_sdk_rejects_workspace_when_lint_fails() {
     let err = Workspace::load("tests/fixtures/workspaces/lint-failures")
         .await
@@ -807,15 +826,22 @@ async fn workspace_sdk_rejects_unknown_environment_before_fallback() {
 }
 
 #[tokio::test]
-async fn workspace_sdk_rejects_malformed_context_config_even_when_lint_is_skipped() {
-    let err = Workspace::load_with_options(
+async fn workspace_sdk_loads_malformed_context_config_when_lint_is_skipped_for_inspection() {
+    let workspace = Workspace::load_with_options(
         "tests/fixtures/workspaces/bad-context-config",
         LoadOptions::new().with_lint(LintMode::Skip),
     )
     .await
-    .unwrap_err();
+    .unwrap();
 
-    assert_eq!(err.to_string(), "[context] must be a table");
+    assert_eq!(workspace.inspection().environments, ["prod"]);
+
+    let context = ResolveContext::from_json(serde_json::json!({})).unwrap();
+    let err = workspace
+        .resolve_qualifier("anything", &context)
+        .await
+        .unwrap_err();
+    assert!(err.to_string().contains("loaded without a runtime model"));
 }
 
 #[cfg(unix)]
@@ -851,17 +877,9 @@ schema = "schemas/context.schema.json"
     )
     .unwrap();
 
-    let err = Workspace::load_with_options(
-        root.to_str().unwrap(),
-        LoadOptions::new().with_lint(LintMode::Skip),
-    )
-    .await
-    .unwrap_err();
+    let err = Workspace::load(root.to_str().unwrap()).await.unwrap_err();
 
-    assert!(
-        err.to_string()
-            .contains("must resolve inside the workspace")
-    );
+    assert!(err.to_string().contains("workspace lint failed"));
 }
 
 #[tokio::test]

@@ -303,6 +303,7 @@ impl<T> ProjectField<T> {
 pub(in crate::lint) struct ValueShapeNode {
     pub(in crate::lint) location: DiagnosticLocation,
     pub(in crate::lint) shape: ValueShape,
+    pub(in crate::lint) value: JsonValue,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]

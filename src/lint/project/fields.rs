@@ -108,6 +108,7 @@ pub(super) fn project_value_shape(
     ValueShapeNode {
         location: item_location(document, item),
         shape: value_shape(item),
+        value: json_from_toml_value(item),
     }
 }
 

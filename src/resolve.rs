@@ -1,34 +1,33 @@
 use std::cmp::Ordering;
 use std::collections::{HashMap, HashSet};
-use std::future::Future;
-use std::path::{Component, Path, PathBuf};
-use std::pin::Pin;
+use std::path::Path;
 
 use serde_json::Value as JsonValue;
 
 use crate::error::{Result, RototoError};
-use crate::model::{QualifierResolution, VariableResolution, WorkspaceInspection};
-use crate::workspace::{
-    inspect_workspace, qualifier_for_id, read_toml, read_variable_toml, variable_for_id,
+use crate::lint::{
+    RuntimeAttribute, RuntimeCompareOp, RuntimePredicate, RuntimeWorkspace,
+    compile_runtime_workspace,
 };
+use crate::model::{QualifierResolution, VariableResolution};
 
 pub async fn resolve_qualifier(
     workspace_root: &Path,
     id: &str,
     context: &JsonValue,
 ) -> Result<QualifierResolution> {
-    let inspection = inspect_workspace(workspace_root).await?;
-    validate_context_schema(&inspection.root, context).await?;
-    resolve_qualifier_unchecked(&inspection, id, context).await
+    let runtime = compile_runtime_workspace(workspace_root).await?;
+    runtime.validate_context(context)?;
+    resolve_qualifier_unchecked(&runtime, id, context).await
 }
 
 pub(crate) async fn resolve_qualifier_unchecked(
-    inspection: &WorkspaceInspection,
+    runtime: &RuntimeWorkspace,
     id: &str,
     context: &JsonValue,
 ) -> Result<QualifierResolution> {
-    let mut state = QualifierState::new(inspection, context);
-    let value = state.resolve(id).await?;
+    let mut state = QualifierState::new(runtime, context);
+    let value = state.resolve(id)?;
     Ok(QualifierResolution {
         id: id.to_owned(),
         value,
@@ -39,25 +38,21 @@ pub async fn resolve_qualifiers(
     workspace_root: &Path,
     context: &JsonValue,
 ) -> Result<Vec<QualifierResolution>> {
-    let inspection = inspect_workspace(workspace_root).await?;
-    validate_context_schema(&inspection.root, context).await?;
-    resolve_qualifiers_unchecked(&inspection, context).await
+    let runtime = compile_runtime_workspace(workspace_root).await?;
+    runtime.validate_context(context)?;
+    resolve_qualifiers_unchecked(&runtime, context).await
 }
 
 pub(crate) async fn resolve_qualifiers_unchecked(
-    inspection: &WorkspaceInspection,
+    runtime: &RuntimeWorkspace,
     context: &JsonValue,
 ) -> Result<Vec<QualifierResolution>> {
-    let mut state = QualifierState::new(inspection, context);
-    let ids: Vec<String> = inspection
-        .qualifiers
-        .iter()
-        .map(|qualifier| qualifier.id.clone())
-        .collect();
+    let mut state = QualifierState::new(runtime, context);
+    let ids: Vec<String> = runtime.qualifiers.keys().cloned().collect();
 
     let mut resolutions = Vec::new();
     for id in ids {
-        let value = state.resolve(&id).await?;
+        let value = state.resolve(&id)?;
         resolutions.push(QualifierResolution { id, value });
     }
     Ok(resolutions)
@@ -69,20 +64,20 @@ pub async fn resolve_variable(
     environment: &str,
     context: &JsonValue,
 ) -> Result<VariableResolution> {
-    let inspection = inspect_workspace(workspace_root).await?;
-    validate_environment(&inspection, environment)?;
-    validate_context_schema(&inspection.root, context).await?;
-    resolve_variable_unchecked(&inspection, id, environment, context).await
+    let runtime = compile_runtime_workspace(workspace_root).await?;
+    runtime.validate_environment(environment)?;
+    runtime.validate_context(context)?;
+    resolve_variable_unchecked(&runtime, id, environment, context).await
 }
 
 pub(crate) async fn resolve_variable_unchecked(
-    inspection: &WorkspaceInspection,
+    runtime: &RuntimeWorkspace,
     id: &str,
     environment: &str,
     context: &JsonValue,
 ) -> Result<VariableResolution> {
-    let mut state = QualifierState::new(inspection, context);
-    resolve_variable_with_state(inspection, &mut state, id, environment).await
+    let mut state = QualifierState::new(runtime, context);
+    resolve_variable_with_state(runtime, &mut state, id, environment)
 }
 
 pub async fn resolve_variables(
@@ -90,335 +85,173 @@ pub async fn resolve_variables(
     environment: &str,
     context: &JsonValue,
 ) -> Result<Vec<VariableResolution>> {
-    let inspection = inspect_workspace(workspace_root).await?;
-    validate_environment(&inspection, environment)?;
-    validate_context_schema(&inspection.root, context).await?;
-    resolve_variables_unchecked(&inspection, environment, context).await
+    let runtime = compile_runtime_workspace(workspace_root).await?;
+    runtime.validate_environment(environment)?;
+    runtime.validate_context(context)?;
+    resolve_variables_unchecked(&runtime, environment, context).await
 }
 
 pub(crate) async fn resolve_variables_unchecked(
-    inspection: &WorkspaceInspection,
+    runtime: &RuntimeWorkspace,
     environment: &str,
     context: &JsonValue,
 ) -> Result<Vec<VariableResolution>> {
-    let ids: Vec<String> = inspection
-        .variables
-        .iter()
-        .map(|variable| variable.id.clone())
-        .collect();
-    let mut state = QualifierState::new(inspection, context);
+    let ids: Vec<String> = runtime.variables.keys().cloned().collect();
+    let mut state = QualifierState::new(runtime, context);
 
     let mut resolutions = Vec::new();
     for id in ids {
-        resolutions
-            .push(resolve_variable_with_state(inspection, &mut state, &id, environment).await?);
+        resolutions.push(resolve_variable_with_state(
+            runtime,
+            &mut state,
+            &id,
+            environment,
+        )?);
     }
     Ok(resolutions)
 }
 
-fn validate_environment(inspection: &WorkspaceInspection, environment: &str) -> Result<()> {
-    if inspection
-        .environments
-        .iter()
-        .any(|known| known == environment)
-    {
-        Ok(())
-    } else {
-        Err(RototoError::new(format!(
-            "unknown environment: {environment}"
-        )))
-    }
-}
-
-async fn validate_context_schema(root: &Path, context: &JsonValue) -> Result<()> {
-    let manifest = read_toml(&root.join("rototo-workspace.toml")).await?;
-    let Some(context_config) = manifest.get("context") else {
-        return Ok(());
-    };
-    let context_config = context_config
-        .as_table()
-        .ok_or_else(|| RototoError::new("[context] must be a table"))?;
-    let schema_ref = context_config
-        .get("schema")
-        .and_then(toml::Value::as_str)
-        .ok_or_else(|| RototoError::new("[context] must declare schema"))?;
-    let schema_path = context_schema_path(root, schema_ref).await?;
-    let text = tokio::fs::read_to_string(&schema_path)
-        .await
-        .map_err(|err| {
-            RototoError::new(format!(
-                "failed to read context schema {}: {err}",
-                schema_path.display()
-            ))
-        })?;
-    let schema = serde_json::from_str::<JsonValue>(&text).map_err(|err| {
-        RototoError::new(format!(
-            "failed to parse context schema {}: {err}",
-            schema_path.display()
-        ))
-    })?;
-    let validator = jsonschema::validator_for(&schema)
-        .map_err(|err| RototoError::new(format!("context schema is invalid: {err}")))?;
-    validator
-        .validate(context)
-        .map_err(|err| RototoError::new(format!("resolve context does not match schema: {err}")))
-}
-
-async fn context_schema_path(root: &Path, schema_ref: &str) -> Result<PathBuf> {
-    let schema_ref = Path::new(schema_ref);
-    if schema_ref.as_os_str().is_empty()
-        || schema_ref.is_absolute()
-        || schema_ref
-            .components()
-            .any(|component| matches!(component, Component::ParentDir))
-    {
-        return Err(RototoError::new(
-            "context schema path must be a relative path inside the workspace",
-        ));
-    }
-    let root = tokio::fs::canonicalize(root).await.map_err(|err| {
-        RototoError::new(format!(
-            "failed to canonicalize workspace root {}: {err}",
-            root.display()
-        ))
-    })?;
-    let schema_path = root.join(schema_ref);
-    let canonical_schema = tokio::fs::canonicalize(&schema_path).await.map_err(|err| {
-        RototoError::new(format!(
-            "failed to read context schema {}: {err}",
-            schema_path.display()
-        ))
-    })?;
-    if !canonical_schema.starts_with(&root) {
-        return Err(RototoError::new(
-            "context schema path must resolve inside the workspace",
-        ));
-    }
-    Ok(canonical_schema)
-}
-
-async fn resolve_variable_with_state(
-    inspection: &WorkspaceInspection,
+fn resolve_variable_with_state(
+    runtime: &RuntimeWorkspace,
     state: &mut QualifierState<'_>,
     id: &str,
     environment: &str,
 ) -> Result<VariableResolution> {
-    let variable = variable_for_id(inspection, id)?;
-    let toml = read_variable_toml(&inspection.root, variable).await?;
-    let variable_toml = toml
-        .as_table()
-        .ok_or_else(|| RototoError::new(format!("variable TOML root is not a table: {id}")))?;
-    let values = variable_toml
-        .get("values")
-        .and_then(toml::Value::as_table)
-        .ok_or_else(|| RototoError::new(format!("variable has no values: {id}")))?;
-    let env = variable_toml
-        .get("env")
-        .and_then(toml::Value::as_table)
-        .ok_or_else(|| RototoError::new(format!("variable has no environments: {id}")))?;
-
-    let block = env
+    let variable = runtime
+        .variables
+        .get(id)
+        .ok_or_else(|| RototoError::new(format!("variable not found: variable://{id}")))?;
+    let block = variable
+        .environments
         .get(environment)
-        .or_else(|| env.get("_"))
+        .or_else(|| variable.environments.get("_"))
         .ok_or_else(|| RototoError::new(format!("variable has no environment fallback: {id}")))?;
-    let block = block
-        .as_table()
-        .ok_or_else(|| RototoError::new(format!("environment block is not a table: {id}")))?;
 
     let mut value_key = None;
-    if let Some(rule_value) = block.get("rule") {
-        let rules = rule_value
-            .as_array()
-            .ok_or_else(|| RototoError::new(format!("environment rule must be an array: {id}")))?;
-        for rule in rules {
-            let rule = rule.as_table().ok_or_else(|| {
-                RototoError::new(format!("environment rule must be a table: {id}"))
-            })?;
-            let qualifier = rule
-                .get("qualifier")
-                .and_then(toml::Value::as_str)
-                .ok_or_else(|| {
-                    RototoError::new(format!("environment rule must reference a qualifier: {id}"))
-                })?;
-            if state.resolve(qualifier).await? {
-                value_key = Some(
-                    rule.get("value")
-                        .and_then(toml::Value::as_str)
-                        .ok_or_else(|| {
-                            RototoError::new(format!(
-                                "matching environment rule must reference a value: {id}"
-                            ))
-                        })?
-                        .to_owned(),
-                );
-                break;
-            }
+    for rule in &block.rules {
+        if state.resolve(&rule.qualifier)? {
+            value_key = Some(rule.value.clone());
+            break;
         }
     }
 
-    let value_key = match value_key {
-        Some(value_key) => value_key,
-        None => block
-            .get("value")
-            .ok_or_else(|| RototoError::new(format!("environment block has no value: {id}")))?
-            .as_str()
-            .ok_or_else(|| {
-                RototoError::new(format!("environment block value must be a string: {id}"))
-            })?
-            .to_owned(),
-    };
-    let value = values.get(&value_key).ok_or_else(|| {
+    let value_key = value_key.unwrap_or_else(|| block.value.clone());
+    let value = variable.values.get(&value_key).ok_or_else(|| {
         RototoError::new(format!("variable references unknown value: {value_key}"))
     })?;
-    let value = serde_json::to_value(value).map_err(|err| RototoError::new(err.to_string()))?;
 
     Ok(VariableResolution {
         id: id.to_owned(),
         environment: environment.to_owned(),
         value_key,
-        value,
+        value: value.clone(),
     })
 }
 
 struct QualifierState<'a> {
-    inspection: &'a WorkspaceInspection,
+    runtime: &'a RuntimeWorkspace,
     context: &'a JsonValue,
     cache: HashMap<String, bool>,
     resolving: HashSet<String>,
 }
 
 impl<'a> QualifierState<'a> {
-    fn new(inspection: &'a WorkspaceInspection, context: &'a JsonValue) -> Self {
+    fn new(runtime: &'a RuntimeWorkspace, context: &'a JsonValue) -> Self {
         Self {
-            inspection,
+            runtime,
             context,
             cache: HashMap::new(),
             resolving: HashSet::new(),
         }
     }
 
-    fn resolve<'b>(&'b mut self, id: &'b str) -> Pin<Box<dyn Future<Output = Result<bool>> + 'b>> {
-        Box::pin(async move {
-            if let Some(value) = self.cache.get(id) {
-                return Ok(*value);
-            }
-            if !self.resolving.insert(id.to_owned()) {
-                return Err(RototoError::new(format!(
-                    "qualifier cycle detected at qualifier://{id}"
-                )));
-            }
-
-            let qualifier = qualifier_for_id(self.inspection, id)?;
-            let toml = read_toml(&self.inspection.root.join(&qualifier.path)).await?;
-            let predicates = toml
-                .get("predicate")
-                .and_then(toml::Value::as_array)
-                .ok_or_else(|| RototoError::new(format!("qualifier has no predicates: {id}")))?;
-            if predicates.is_empty() {
-                return Err(RototoError::new(format!(
-                    "qualifier must contain at least one predicate: {id}"
-                )));
-            }
-
-            let mut value = true;
-            for predicate in predicates {
-                if !self.evaluate_predicate(predicate).await? {
-                    value = false;
-                    break;
-                }
-            }
-
-            self.resolving.remove(id);
-            self.cache.insert(id.to_owned(), value);
-            Ok(value)
-        })
-    }
-
-    async fn evaluate_predicate(&mut self, predicate: &toml::Value) -> Result<bool> {
-        let predicate = predicate
-            .as_table()
-            .ok_or_else(|| RototoError::new("predicate must be a table"))?;
-        let attribute = predicate
-            .get("attribute")
-            .and_then(toml::Value::as_str)
-            .ok_or_else(|| RototoError::new("predicate must contain attribute"))?;
-        let op = predicate
-            .get("op")
-            .and_then(toml::Value::as_str)
-            .ok_or_else(|| RototoError::new("predicate must contain op"))?;
-
-        if op == "bucket" {
-            let Some(context_value) = context_path(self.context, attribute) else {
-                return Ok(false);
-            };
-            let salt = predicate
-                .get("salt")
-                .and_then(toml::Value::as_str)
-                .ok_or_else(|| RototoError::new("bucket predicate must contain salt"))?;
-            let range = predicate
-                .get("range")
-                .and_then(toml::Value::as_array)
-                .ok_or_else(|| RototoError::new("bucket predicate must contain range"))?;
-            if range.len() != 2 {
-                return Err(RototoError::new(
-                    "bucket predicate range must contain two integers",
-                ));
-            }
-            let start = range
-                .first()
-                .and_then(toml::Value::as_integer)
-                .ok_or_else(|| {
-                    RototoError::new("bucket predicate range must contain two integers")
-                })?;
-            let end = range
-                .get(1)
-                .and_then(toml::Value::as_integer)
-                .ok_or_else(|| {
-                    RototoError::new("bucket predicate range must contain two integers")
-                })?;
-            let bucket = bucket_value(salt, context_value);
-            return Ok(i64::from(bucket) >= start && i64::from(bucket) < end);
+    fn resolve(&mut self, id: &str) -> Result<bool> {
+        if let Some(value) = self.cache.get(id) {
+            return Ok(*value);
+        }
+        if !self.resolving.insert(id.to_owned()) {
+            return Err(RototoError::new(format!(
+                "qualifier cycle detected at qualifier://{id}"
+            )));
         }
 
-        let actual = if let Some(qualifier) = attribute.strip_prefix("qualifier.") {
-            JsonValue::Bool(self.resolve(qualifier).await?)
-        } else {
-            let Some(value) = context_path(self.context, attribute) else {
-                return Ok(false);
-            };
-            value.clone()
-        };
-        let expected = predicate
-            .get("value")
-            .ok_or_else(|| RototoError::new("predicate must contain value"))?;
-        let expected =
-            serde_json::to_value(expected).map_err(|err| RototoError::new(err.to_string()))?;
+        let result = self.resolve_uncached(id);
+        self.resolving.remove(id);
+        let value = result?;
+        self.cache.insert(id.to_owned(), value);
+        Ok(value)
+    }
 
-        Ok(match op {
-            "eq" => json_values_equal(&actual, &expected),
-            "neq" => !json_values_equal(&actual, &expected),
-            "in" => expected
-                .as_array()
-                .is_some_and(|values| values.iter().any(|value| json_values_equal(value, &actual))),
-            "not_in" => expected.as_array().is_some_and(|values| {
-                values
-                    .iter()
-                    .all(|value| !json_values_equal(value, &actual))
-            }),
-            "gt" => numeric_compare(&actual, &expected, |ordering| ordering == Ordering::Greater),
-            "gte" => numeric_compare(&actual, &expected, |ordering| {
-                matches!(ordering, Ordering::Greater | Ordering::Equal)
-            }),
-            "lt" => numeric_compare(&actual, &expected, |ordering| ordering == Ordering::Less),
-            "lte" => numeric_compare(&actual, &expected, |ordering| {
-                matches!(ordering, Ordering::Less | Ordering::Equal)
-            }),
-            _ => {
-                return Err(RototoError::new(format!(
-                    "unknown predicate operator: {op}"
-                )));
+    fn resolve_uncached(&mut self, id: &str) -> Result<bool> {
+        let qualifier =
+            self.runtime.qualifiers.get(id).ok_or_else(|| {
+                RototoError::new(format!("qualifier not found: qualifier://{id}"))
+            })?;
+        for predicate in &qualifier.predicates {
+            if !self.evaluate_predicate(predicate)? {
+                return Ok(false);
             }
-        })
+        }
+        Ok(true)
+    }
+
+    fn evaluate_predicate(&mut self, predicate: &RuntimePredicate) -> Result<bool> {
+        match predicate {
+            RuntimePredicate::Bucket {
+                attribute,
+                salt,
+                start,
+                end,
+            } => {
+                let Some(context_value) = context_path(self.context, attribute) else {
+                    return Ok(false);
+                };
+                let bucket = bucket_value(salt, context_value);
+                Ok(i64::from(bucket) >= *start && i64::from(bucket) < *end)
+            }
+            RuntimePredicate::Compare {
+                attribute,
+                op,
+                value,
+            } => {
+                let actual = match attribute {
+                    RuntimeAttribute::Qualifier(qualifier) => {
+                        JsonValue::Bool(self.resolve(qualifier)?)
+                    }
+                    RuntimeAttribute::ContextPath(path) => {
+                        let Some(value) = context_path(self.context, path) else {
+                            return Ok(false);
+                        };
+                        value.clone()
+                    }
+                };
+
+                Ok(match op {
+                    RuntimeCompareOp::Eq => json_values_equal(&actual, value),
+                    RuntimeCompareOp::Neq => !json_values_equal(&actual, value),
+                    RuntimeCompareOp::In => value.as_array().is_some_and(|values| {
+                        values.iter().any(|value| json_values_equal(value, &actual))
+                    }),
+                    RuntimeCompareOp::NotIn => value.as_array().is_some_and(|values| {
+                        values
+                            .iter()
+                            .all(|value| !json_values_equal(value, &actual))
+                    }),
+                    RuntimeCompareOp::Gt => {
+                        numeric_compare(&actual, value, |ordering| ordering == Ordering::Greater)
+                    }
+                    RuntimeCompareOp::Gte => numeric_compare(&actual, value, |ordering| {
+                        matches!(ordering, Ordering::Greater | Ordering::Equal)
+                    }),
+                    RuntimeCompareOp::Lt => {
+                        numeric_compare(&actual, value, |ordering| ordering == Ordering::Less)
+                    }
+                    RuntimeCompareOp::Lte => numeric_compare(&actual, value, |ordering| {
+                        matches!(ordering, Ordering::Less | Ordering::Equal)
+                    }),
+                })
+            }
+        }
     }
 }
 
@@ -732,7 +565,7 @@ rule = ["not-a-table"]
         let err = resolve_variable(workspace.path(), "bad-rule", "prod", &context)
             .await
             .unwrap_err();
-        assert!(err.to_string().contains("environment rule must be a table"));
+        assert!(err.to_string().contains("rule must be a table"));
     }
 
     #[tokio::test]
@@ -775,19 +608,30 @@ rule = ["not-a-table"]
 
     #[tokio::test]
     async fn malformed_predicates_return_errors_during_unchecked_resolution() {
-        let workspace = workspace_with_qualifiers(&[
-            (
-                "unknown-op",
-                predicate("user.tier", "contains", r#""premium""#),
-            ),
-            (
-                "empty",
-                String::from("schema_version = 1\npredicate = []\n"),
-            ),
-            (
-                "bad-bucket",
-                String::from(
-                    r#"schema_version = 1
+        let context = serde_json::json!({ "user": { "tier": "premium", "id": "user-123" } });
+
+        let workspace = workspace_with_qualifiers(&[(
+            "unknown-op",
+            predicate("user.tier", "contains", r#""premium""#),
+        )]);
+        let err = resolve_qualifier(workspace.path(), "unknown-op", &context)
+            .await
+            .unwrap_err();
+        assert!(err.to_string().contains("unknown predicate operator"));
+
+        let workspace = workspace_with_qualifiers(&[(
+            "empty",
+            String::from("schema_version = 1\npredicate = []\n"),
+        )]);
+        let err = resolve_qualifier(workspace.path(), "empty", &context)
+            .await
+            .unwrap_err();
+        assert!(err.to_string().contains("at least one predicate"));
+
+        let workspace = workspace_with_qualifiers(&[(
+            "bad-bucket",
+            String::from(
+                r#"schema_version = 1
 
 [[predicate]]
 attribute = "user.id"
@@ -795,21 +639,8 @@ op = "bucket"
 salt = "known-salt"
 range = [1.5, 2.5]
 "#,
-                ),
             ),
-        ]);
-        let context = serde_json::json!({ "user": { "tier": "premium", "id": "user-123" } });
-
-        let err = resolve_qualifier(workspace.path(), "unknown-op", &context)
-            .await
-            .unwrap_err();
-        assert!(err.to_string().contains("unknown predicate operator"));
-
-        let err = resolve_qualifier(workspace.path(), "empty", &context)
-            .await
-            .unwrap_err();
-        assert!(err.to_string().contains("at least one predicate"));
-
+        )]);
         let err = resolve_qualifier(workspace.path(), "bad-bucket", &context)
             .await
             .unwrap_err();

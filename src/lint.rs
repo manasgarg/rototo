@@ -12,6 +12,7 @@ pub(crate) mod input;
 mod output;
 mod project;
 mod references;
+mod runtime;
 mod source;
 mod stages;
 mod symbols;
@@ -20,6 +21,10 @@ mod syntax;
 use index::*;
 pub(crate) use input::{LintInput, OverlayDocument};
 use references::ReferenceIndex;
+pub(crate) use runtime::{
+    RuntimeAttribute, RuntimeCompareOp, RuntimePredicate, RuntimeWorkspace,
+    compile_runtime_workspace, compile_runtime_workspace_from_snapshot,
+};
 pub(crate) use symbols::{
     WorkspaceCompletionItem, WorkspaceCompletionItemKind, WorkspaceDefinition,
     WorkspaceDocumentSymbol, WorkspaceDocumentSymbolKind, WorkspaceHover, WorkspaceReference,
