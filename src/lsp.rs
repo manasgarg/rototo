@@ -10,8 +10,9 @@ use tokio::io::{
 use crate::diagnostics::{DiagnosticLocation, LintDiagnostic, Severity, SourceRange};
 use crate::error::{Result, RototoError};
 use crate::lint::{
-    LintInput, OverlayDocument, WorkspaceDocumentSymbol, WorkspaceDocumentSymbolKind,
-    WorkspaceLintSnapshot, lint_workspace_snapshot,
+    LintInput, OverlayDocument, WorkspaceCompletionItem, WorkspaceCompletionItemKind,
+    WorkspaceDocumentSymbol, WorkspaceDocumentSymbolKind, WorkspaceLintSnapshot,
+    lint_workspace_snapshot,
 };
 use crate::model::WorkspaceLint;
 
@@ -79,6 +80,16 @@ impl LspServer {
                     writer,
                     id,
                     serde_json::to_value(symbols)
+                        .map_err(|err| RototoError::new(err.to_string()))?,
+                )
+                .await?;
+            }
+            (Some(id), "textDocument/completion") => {
+                let completions = self.completion_items(params).await?;
+                write_response(
+                    writer,
+                    id,
+                    serde_json::to_value(completions)
                         .map_err(|err| RototoError::new(err.to_string()))?,
                 )
                 .await?;
@@ -214,6 +225,25 @@ impl LspServer {
             .collect())
     }
 
+    async fn completion_items(&self, params: JsonValue) -> Result<Vec<LspCompletionItem>> {
+        let text_document = params
+            .get("textDocument")
+            .ok_or_else(|| RototoError::new("completion missing textDocument"))?;
+        let uri = text_document
+            .get("uri")
+            .and_then(JsonValue::as_str)
+            .ok_or_else(|| RototoError::new("completion missing textDocument.uri"))?;
+        let path = self.workspace_path_for_uri(uri)?;
+        let Some(snapshot) = self.workspace_snapshot().await? else {
+            return Ok(Vec::new());
+        };
+        Ok(snapshot
+            .completion_items(&path)
+            .iter()
+            .map(lsp_completion_item)
+            .collect())
+    }
+
     async fn workspace_snapshot(&self) -> Result<Option<WorkspaceLintSnapshot>> {
         let Some(root) = &self.workspace_root else {
             return Ok(None);
@@ -270,6 +300,14 @@ struct LspDocumentSymbol {
     children: Vec<LspDocumentSymbol>,
 }
 
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct LspCompletionItem {
+    label: String,
+    kind: u8,
+    detail: &'static str,
+}
+
 #[derive(Debug, Serialize, Clone, Copy)]
 struct LspRange {
     start: LspPosition,
@@ -318,6 +356,14 @@ fn lsp_document_symbol(symbol: &WorkspaceDocumentSymbol) -> LspDocumentSymbol {
     }
 }
 
+fn lsp_completion_item(item: &WorkspaceCompletionItem) -> LspCompletionItem {
+    LspCompletionItem {
+        label: item.label.clone(),
+        kind: lsp_completion_item_kind(item.kind),
+        detail: item.detail,
+    }
+}
+
 fn lsp_symbol_kind(kind: WorkspaceDocumentSymbolKind) -> u8 {
     match kind {
         WorkspaceDocumentSymbolKind::WorkspaceEnvironments => 18,
@@ -329,6 +375,16 @@ fn lsp_symbol_kind(kind: WorkspaceDocumentSymbolKind) -> u8 {
         WorkspaceDocumentSymbolKind::Value => 14,
         WorkspaceDocumentSymbolKind::EnvironmentBlock => 3,
         WorkspaceDocumentSymbolKind::Rule => 8,
+    }
+}
+
+fn lsp_completion_item_kind(kind: WorkspaceCompletionItemKind) -> u8 {
+    match kind {
+        WorkspaceCompletionItemKind::Environment => 12,
+        WorkspaceCompletionItemKind::Qualifier => 18,
+        WorkspaceCompletionItemKind::Value => 12,
+        WorkspaceCompletionItemKind::PredicateOperator => 24,
+        WorkspaceCompletionItemKind::FieldSelector => 5,
     }
 }
 
@@ -509,7 +565,11 @@ fn initialize_result() -> JsonValue {
                     "includeText": false
                 }
             },
-            "documentSymbolProvider": true
+            "documentSymbolProvider": true,
+            "completionProvider": {
+                "resolveProvider": false,
+                "triggerCharacters": [".", "\""]
+            }
         },
         "serverInfo": {
             "name": "rototo",
@@ -866,10 +926,140 @@ rule = [
         child_symbol(&external_value_symbols, "message.external");
     }
 
+    #[tokio::test]
+    async fn lsp_completion_items_use_snapshot_index_and_unsaved_overlays() {
+        let tempdir = tempfile::tempdir().unwrap();
+        let root = tempdir.path();
+        tokio::fs::create_dir_all(root.join("qualifiers"))
+            .await
+            .unwrap();
+        tokio::fs::create_dir_all(root.join("variables"))
+            .await
+            .unwrap();
+        let manifest_path = root.join("rototo-workspace.toml");
+        let disk_manifest = r#"schema_version = 1
+
+[environments]
+values = ["prod"]
+"#;
+        tokio::fs::write(&manifest_path, disk_manifest)
+            .await
+            .unwrap();
+        tokio::fs::write(
+            root.join("qualifiers/premium.toml"),
+            r#"schema_version = 1
+
+[[predicate]]
+attribute = "account.tier"
+op = "eq"
+value = "premium"
+"#,
+        )
+        .await
+        .unwrap();
+        let disk_variable = r#"schema_version = 1
+type = "string"
+
+[values]
+control = "hello"
+
+[env._]
+value = "control"
+"#;
+        let variable_path = root.join("variables/message.toml");
+        tokio::fs::write(&variable_path, disk_variable)
+            .await
+            .unwrap();
+
+        let mut server = LspServer::new();
+        server.workspace_root = Some(tokio::fs::canonicalize(root).await.unwrap());
+        server
+            .open_document(json!({
+                "textDocument": {
+                    "uri": format!("file://{}", manifest_path.display()),
+                    "version": 2,
+                    "text": r#"schema_version = 1
+
+[environments]
+values = ["prod", "stage"]
+"#,
+                }
+            }))
+            .unwrap();
+        server
+            .open_document(json!({
+                "textDocument": {
+                    "uri": format!("file://{}", variable_path.display()),
+                    "version": 3,
+                    "text": r#"schema_version = 1
+type = "string"
+
+[values]
+control = "hello"
+treatment = "welcome"
+
+[env._]
+value = "control"
+"#,
+                }
+            }))
+            .unwrap();
+
+        let completions = server
+            .completion_items(json!({
+                "textDocument": {
+                    "uri": format!("file://{}", variable_path.display())
+                },
+                "position": {
+                    "line": 8,
+                    "character": 8
+                }
+            }))
+            .await
+            .unwrap();
+
+        assert_completion(&completions, "stage", "workspace environment");
+        assert_completion(&completions, "premium", "qualifier");
+        assert_completion(&completions, "treatment", "variable value");
+        assert_completion(&completions, "bucket", "predicate operator");
+        assert_completion(&completions, "context_schema", "custom lint field selector");
+        assert_completion(&completions, "value.", "custom lint field selector");
+        assert_eq!(
+            tokio::fs::read_to_string(&manifest_path).await.unwrap(),
+            disk_manifest
+        );
+        assert_eq!(
+            tokio::fs::read_to_string(&variable_path).await.unwrap(),
+            disk_variable
+        );
+    }
+
+    #[test]
+    fn initialize_advertises_completion_provider() {
+        let result = initialize_result();
+        assert_eq!(
+            result
+                .get("capabilities")
+                .and_then(|capabilities| capabilities.get("completionProvider"))
+                .and_then(|provider| provider.get("resolveProvider"))
+                .and_then(JsonValue::as_bool),
+            Some(false)
+        );
+    }
+
     fn child_symbol<'a>(symbols: &'a [LspDocumentSymbol], name: &str) -> &'a LspDocumentSymbol {
         symbols
             .iter()
             .find(|symbol| symbol.name == name)
             .unwrap_or_else(|| panic!("missing symbol {name}"))
+    }
+
+    fn assert_completion(completions: &[LspCompletionItem], label: &str, detail: &str) {
+        assert!(
+            completions
+                .iter()
+                .any(|completion| completion.label == label && completion.detail == detail),
+            "missing completion {label} ({detail})"
+        );
     }
 }
