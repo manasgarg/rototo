@@ -1,4 +1,4 @@
-use crate::diagnostics::{DiagnosticLocation, DocId, SourcePosition};
+use crate::diagnostics::{DiagnosticLocation, SourcePosition};
 
 use super::super::WorkspaceLintSnapshot;
 use super::super::index::*;
@@ -66,6 +66,9 @@ fn push_manifest_definition_candidates(
     let Some(schema_path) = resolve_workspace_root_path(&schema.value) else {
         return;
     };
+    let Some(schema_node) = index.schemas.get(&schema_path) else {
+        return;
+    };
     candidates.push(DefinitionCandidate {
         priority: 2,
         span_size: schema
@@ -73,7 +76,7 @@ fn push_manifest_definition_candidates(
             .range
             .map(source_range_size)
             .unwrap_or(usize::MAX),
-        location: DiagnosticLocation::document(DocId(0), schema_path),
+        location: schema_node.location.clone(),
     });
 }
 
@@ -125,6 +128,7 @@ fn push_variable_definition_candidates(
             && location_contains_position(&schema.location, path, position)
             && let Some(schema_path) =
                 resolve_workspace_relative_path(&variable.location.path, &schema.value)
+            && let Some(schema_node) = index.schemas.get(&schema_path)
         {
             candidates.push(DefinitionCandidate {
                 priority: 1,
@@ -133,7 +137,7 @@ fn push_variable_definition_candidates(
                     .range
                     .map(source_range_size)
                     .unwrap_or(usize::MAX),
-                location: DiagnosticLocation::document(DocId(0), schema_path),
+                location: schema_node.location.clone(),
             });
         }
 

@@ -173,7 +173,8 @@ fn registered_schema_targets(
         .values()
         .filter(|document| matches!(&document.kind, DocumentKind::Schema))
         .filter_map(|document| {
-            let schema = ctx.syntax.json.get(&document.id)?;
+            let schema = ctx.index.schemas.get(&document.path)?;
+            let json = schema.json.as_ref()?;
             Some(RegisteredLintTargetInstance {
                 entity: EntityId::Schema {
                     path: document.path.clone(),
@@ -183,8 +184,8 @@ fn registered_schema_targets(
                     "kind": "schema",
                     "uri": document.uri,
                     "path": document.path,
-                    "json": schema,
-                    "selected": selected_schema_field(schema, field),
+                    "json": json,
+                    "selected": selected_schema_field(json, field),
                 }),
             })
         })

@@ -383,6 +383,17 @@ rule = [
         let referenced_qualifiers = snapshot.references.referenced_qualifier_ids();
         assert!(referenced_qualifiers.contains("beta"));
         assert!(referenced_qualifiers.contains("premium"));
+
+        let context_schema = snapshot
+            .index
+            .schemas
+            .get("schemas/context.schema.json")
+            .expect("context schema node");
+        assert_eq!(context_schema.doc, context_schema.location.doc().unwrap());
+        assert_eq!(context_schema.path, "schemas/context.schema.json");
+        assert!(context_schema.json.is_some());
+        assert!(context_schema.validator.is_some());
+        assert!(context_schema.invalid_message.is_none());
     }
 
     fn diagnostic_by_rule<'a>(lint: &'a WorkspaceLint, rule: &str) -> &'a LintDiagnostic {

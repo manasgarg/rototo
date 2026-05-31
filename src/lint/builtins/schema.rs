@@ -5,7 +5,7 @@ use crate::diagnostics::{DiagnosticLocation, EntityId, RototoRuleId};
 use super::super::engine::LintContext;
 use super::super::index::*;
 use super::super::references::{ReferenceSource, ReferenceTarget};
-use super::super::source::{DocumentKind, resolve_workspace_root_path};
+use super::super::source::resolve_workspace_root_path;
 use super::super::stages::{push_project_diagnostic, push_reference_diagnostic};
 
 struct ContextSchemaError {
@@ -40,7 +40,10 @@ pub(super) fn lint_qualifier_context_schema_attributes(ctx: &mut LintContext) {
         let ReferenceTarget::ContextAttribute(attribute) = &edge.target else {
             continue;
         };
-        if context_schema_declares_path(schema, attribute) {
+        let Some(schema_json) = schema.json.as_ref() else {
+            continue;
+        };
+        if context_schema_declares_path(schema_json, attribute) {
             continue;
         }
 
@@ -57,7 +60,7 @@ pub(super) fn lint_qualifier_context_schema_attributes(ctx: &mut LintContext) {
 
 fn valid_context_schema(
     ctx: &LintContext,
-) -> std::result::Result<Option<&JsonValue>, Box<ContextSchemaError>> {
+) -> std::result::Result<Option<&SchemaNode>, Box<ContextSchemaError>> {
     let Some(manifest) = &ctx.index.manifest else {
         return Ok(None);
     };
@@ -85,31 +88,43 @@ fn valid_context_schema(
             message: "context schema path must be a relative path inside the workspace".to_owned(),
         })
     })?;
-    let schema_document = ctx.source.document_by_path(&schema_path).ok_or_else(|| {
+    let _schema_document = ctx.source.document_by_path(&schema_path).ok_or_else(|| {
         Box::new(ContextSchemaError {
             location: schema_ref.location.clone(),
             message: format!("context schema file not found: {schema_path}"),
         })
     })?;
-    if !matches!(&schema_document.kind, DocumentKind::Schema) {
+    if !ctx.index.schemas.contains_key(&schema_path) {
         return Err(Box::new(ContextSchemaError {
             location: schema_ref.location.clone(),
             message: format!("context schema path is not a schema document: {schema_path}"),
         }));
     }
-
-    let schema = ctx.syntax.json.get(&schema_document.id).ok_or_else(|| {
+    let schema = ctx.index.schemas.get(&schema_path).ok_or_else(|| {
         Box::new(ContextSchemaError {
+            location: schema_ref.location.clone(),
+            message: format!("context schema file not found: {schema_path}"),
+        })
+    })?;
+
+    if schema.json.is_none() {
+        return Err(Box::new(ContextSchemaError {
             location: schema_ref.location.clone(),
             message: format!("context schema file could not be parsed: {schema_path}"),
-        })
-    })?;
-    jsonschema::validator_for(schema).map_err(|err| {
-        Box::new(ContextSchemaError {
+        }));
+    };
+    if schema.validator.is_none() {
+        return Err(Box::new(ContextSchemaError {
             location: schema_ref.location.clone(),
-            message: format!("context schema is invalid: {err}"),
-        })
-    })?;
+            message: format!(
+                "context schema is invalid: {}",
+                schema
+                    .invalid_message
+                    .as_deref()
+                    .unwrap_or("schema did not compile")
+            ),
+        }));
+    }
 
     Ok(Some(schema))
 }
@@ -134,25 +149,19 @@ fn context_schema_declares_path(schema: &JsonValue, attribute: &str) -> bool {
 
 pub(super) fn lint_schema_documents(ctx: &mut LintContext) {
     let mut diagnostics = Vec::new();
-    for document in ctx.source.documents.values() {
-        if !matches!(&document.kind, DocumentKind::Schema) {
-            continue;
-        }
-        let Some(schema) = ctx.syntax.json.get(&document.id) else {
+    for schema in ctx.index.schemas.values() {
+        let Some(message) = &schema.invalid_message else {
             continue;
         };
-
-        if let Err(err) = jsonschema::validator_for(schema) {
-            push_project_diagnostic(
-                &mut diagnostics,
-                RototoRuleId::SchemaInvalid,
-                EntityId::Schema {
-                    path: document.path.clone(),
-                },
-                document.document_location(),
-                format!("schema is invalid: {err}"),
-            );
-        }
+        push_project_diagnostic(
+            &mut diagnostics,
+            RototoRuleId::SchemaInvalid,
+            EntityId::Schema {
+                path: schema.path.clone(),
+            },
+            schema.location.clone(),
+            format!("schema is invalid: {message}"),
+        );
     }
     ctx.diagnostics.extend(diagnostics);
 }

@@ -1,10 +1,11 @@
 use std::collections::{BTreeMap, BTreeSet};
+use std::sync::Arc;
 
 use serde_json::Value as JsonValue;
 
 use crate::diagnostics::{DiagnosticLocation, DocId, Severity};
 
-use super::ids::{EnvironmentId, QualifierId, ValueKey, VariableId};
+use super::ids::{EnvironmentId, QualifierId, ValueKey, VariableId, WorkspacePath};
 
 pub(in crate::lint) struct ManifestNode {
     pub(in crate::lint) doc: DocId,
@@ -163,6 +164,16 @@ pub(in crate::lint) struct ValueNode {
     pub(in crate::lint) key: ValueKey,
     pub(in crate::lint) location: DiagnosticLocation,
     pub(in crate::lint) value: JsonValue,
+}
+
+pub(in crate::lint) struct SchemaNode {
+    #[allow(dead_code)]
+    pub(in crate::lint) doc: DocId,
+    pub(in crate::lint) path: WorkspacePath,
+    pub(in crate::lint) location: DiagnosticLocation,
+    pub(in crate::lint) json: Option<JsonValue>,
+    pub(in crate::lint) validator: Option<Arc<jsonschema::Validator>>,
+    pub(in crate::lint) invalid_message: Option<String>,
 }
 
 pub(in crate::lint) enum CustomRuleCollection {

@@ -7,7 +7,7 @@ use crate::diagnostics::{DiagnosticLocation, EntityId, LintDiagnostic, RototoRul
 use super::super::engine::{LintContext, variable_values};
 use super::super::index::*;
 use super::super::references::{ReferenceSource, ReferenceTarget};
-use super::super::source::{DocumentKind, SourceDocument, resolve_workspace_relative_path};
+use super::super::source::resolve_workspace_relative_path;
 use super::super::stages::{
     push_project_diagnostic, push_reference_diagnostic, push_value_diagnostic,
 };
@@ -366,7 +366,7 @@ pub(super) fn lint_variable_schema_references(ctx: &mut LintContext) {
             continue;
         };
 
-        if let Err(err) = resolve_variable_schema_document(ctx, variable, schema_ref) {
+        if let Err(err) = resolve_variable_schema_node(ctx, variable, schema_ref) {
             push_reference_diagnostic(
                 &mut diagnostics,
                 RototoRuleId::VariableSchemaRef,
@@ -461,19 +461,12 @@ fn lint_schema_backed_variable_values(
     variable: &VariableNode,
     schema_ref: &Spanned<String>,
 ) {
-    let Ok(document) = resolve_variable_schema_document(ctx, variable, schema_ref) else {
+    let Ok(schema) = resolve_variable_schema_node(ctx, variable, schema_ref) else {
         return;
     };
 
-    let Some(schema) = ctx.syntax.json.get(&document.id) else {
+    let Some(validator) = &schema.validator else {
         return;
-    };
-
-    let validator = match jsonschema::validator_for(schema) {
-        Ok(validator) => validator,
-        Err(_) => {
-            return;
-        }
     };
 
     for value in variable_values(ctx, variable) {
@@ -497,11 +490,11 @@ struct VariableSchemaReferenceError {
     message: String,
 }
 
-fn resolve_variable_schema_document<'a>(
+fn resolve_variable_schema_node<'a>(
     ctx: &'a LintContext,
     variable: &VariableNode,
     schema_ref: &Spanned<String>,
-) -> std::result::Result<&'a SourceDocument, Box<VariableSchemaReferenceError>> {
+) -> std::result::Result<&'a SchemaNode, Box<VariableSchemaReferenceError>> {
     let Some(schema_path) =
         resolve_workspace_relative_path(&variable.location.path, &schema_ref.value)
     else {
@@ -514,7 +507,7 @@ fn resolve_variable_schema_document<'a>(
         }));
     };
 
-    let document = ctx.source.document_by_path(&schema_path).ok_or_else(|| {
+    let _document = ctx.source.document_by_path(&schema_path).ok_or_else(|| {
         Box::new(VariableSchemaReferenceError {
             location: schema_ref.location.clone(),
             message: format!(
@@ -523,16 +516,14 @@ fn resolve_variable_schema_document<'a>(
         })
     })?;
 
-    if !matches!(&document.kind, DocumentKind::Schema) {
-        return Err(Box::new(VariableSchemaReferenceError {
+    ctx.index.schemas.get(&schema_path).ok_or_else(|| {
+        Box::new(VariableSchemaReferenceError {
             location: schema_ref.location.clone(),
             message: format!(
                 "variable schema reference is invalid: path is not a schema document: {schema_path}"
             ),
-        }));
-    }
-
-    Ok(document)
+        })
+    })
 }
 
 #[derive(Clone, Copy)]
