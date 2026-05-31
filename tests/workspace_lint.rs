@@ -1,6 +1,7 @@
 use assert_cmd::Command;
 use predicates::prelude::*;
-use rototo::diagnostics::LintStage;
+use rototo::diagnostics::{LintStage, RototoRuleId};
+use std::collections::BTreeSet;
 
 #[test]
 fn lints_basic_workspace() {
@@ -122,6 +123,32 @@ fn canonical_discover_fixture_reports_workspace_manifest_missing() {
         },
     );
     assert!(lint["documents"].as_array().unwrap().is_empty());
+}
+
+#[test]
+fn canonical_rule_fixture_table_covers_every_rototo_rule() {
+    let mut covered = BTreeSet::new();
+
+    for fixture in canonical_rule_fixtures() {
+        assert!(
+            covered.insert(fixture.rule.meta().rule),
+            "duplicate canonical fixture table entry: {}",
+            fixture.rule.meta().rule
+        );
+        assert_canonical_fixture(fixture);
+    }
+    for pending in pending_canonical_rule_fixtures() {
+        assert!(
+            covered.insert(pending.rule.meta().rule),
+            "duplicate canonical fixture table entry: {}",
+            pending.rule.meta().rule
+        );
+    }
+
+    let expected = RototoRuleId::iter()
+        .map(|rule| rule.meta().rule)
+        .collect::<BTreeSet<_>>();
+    assert_eq!(covered, expected);
 }
 
 #[test]
@@ -809,6 +836,19 @@ fn assert_policy_rule(lint: &serde_json::Value, rule: &str, path: &str) {
 }
 
 #[derive(Clone, Copy)]
+struct CanonicalRuleFixture {
+    rule: RototoRuleId,
+    workspace: &'static str,
+    success: bool,
+    expected: &'static [ExpectedDiagnostic],
+}
+
+#[derive(Clone, Copy)]
+struct PendingCanonicalRuleFixture {
+    rule: RototoRuleId,
+}
+
+#[derive(Clone, Copy)]
 struct ExpectedDiagnostic {
     rule: &'static str,
     severity: &'static str,
@@ -869,6 +909,195 @@ struct ExpectedRelatedLocation {
     path: &'static str,
     range: ExpectedRange,
     message: &'static str,
+}
+
+fn canonical_rule_fixtures() -> &'static [CanonicalRuleFixture] {
+    &[
+        CanonicalRuleFixture {
+            rule: RototoRuleId::WorkspaceManifestMissing,
+            workspace: "tests/fixtures/workspaces/rules/discover/workspace-manifest-missing",
+            success: false,
+            expected: &[ExpectedDiagnostic {
+                rule: "rototo/workspace-manifest-missing",
+                severity: "error",
+                stage: LintStage::Discover,
+                entity: ExpectedEntity::Workspace,
+                primary: ExpectedPrimaryLocation::WorkspaceRoot,
+                related: &[],
+            }],
+        },
+        CanonicalRuleFixture {
+            rule: RototoRuleId::VariableRuleUnknownQualifier,
+            workspace: "tests/fixtures/workspaces/rules/reference/variable-rule-unknown-qualifier",
+            success: false,
+            expected: &[ExpectedDiagnostic {
+                rule: "rototo/variable-rule-unknown-qualifier",
+                severity: "error",
+                stage: LintStage::Reference,
+                entity: ExpectedEntity::Rule {
+                    variable: "checkout-redesign",
+                    environment: "prod",
+                    index: 0,
+                },
+                primary: ExpectedPrimaryLocation::Document {
+                    path: "variables/checkout-redesign.toml",
+                    range: Some(ExpectedRange {
+                        start_line: 14,
+                        start_character: 12,
+                        end_line: 14,
+                        end_character: 27,
+                    }),
+                },
+                related: &[],
+            }],
+        },
+    ]
+}
+
+fn pending_canonical_rule_fixtures() -> &'static [PendingCanonicalRuleFixture] {
+    &[
+        PendingCanonicalRuleFixture {
+            rule: RototoRuleId::WorkspaceNotFound,
+        },
+        PendingCanonicalRuleFixture {
+            rule: RototoRuleId::WorkspaceManifestParseFailed,
+        },
+        PendingCanonicalRuleFixture {
+            rule: RototoRuleId::WorkspaceManifestSchemaFailed,
+        },
+        PendingCanonicalRuleFixture {
+            rule: RototoRuleId::WorkspaceContextSchemaRef,
+        },
+        PendingCanonicalRuleFixture {
+            rule: RototoRuleId::WorkspaceContextSchemaAttribute,
+        },
+        PendingCanonicalRuleFixture {
+            rule: RototoRuleId::QualifierParseFailed,
+        },
+        PendingCanonicalRuleFixture {
+            rule: RototoRuleId::QualifierSchemaVersion,
+        },
+        PendingCanonicalRuleFixture {
+            rule: RototoRuleId::QualifierPredicateMissing,
+        },
+        PendingCanonicalRuleFixture {
+            rule: RototoRuleId::QualifierPredicateShape,
+        },
+        PendingCanonicalRuleFixture {
+            rule: RototoRuleId::QualifierPredicateUnknownOp,
+        },
+        PendingCanonicalRuleFixture {
+            rule: RototoRuleId::QualifierPredicateUnknownQualifier,
+        },
+        PendingCanonicalRuleFixture {
+            rule: RototoRuleId::QualifierPredicateBucket,
+        },
+        PendingCanonicalRuleFixture {
+            rule: RototoRuleId::QualifierPredicateValue,
+        },
+        PendingCanonicalRuleFixture {
+            rule: RototoRuleId::QualifierCycle,
+        },
+        PendingCanonicalRuleFixture {
+            rule: RototoRuleId::QualifierUnreferenced,
+        },
+        PendingCanonicalRuleFixture {
+            rule: RototoRuleId::VariableParseFailed,
+        },
+        PendingCanonicalRuleFixture {
+            rule: RototoRuleId::VariableSchemaVersion,
+        },
+        PendingCanonicalRuleFixture {
+            rule: RototoRuleId::VariableTypeOrSchema,
+        },
+        PendingCanonicalRuleFixture {
+            rule: RototoRuleId::VariableUnknownType,
+        },
+        PendingCanonicalRuleFixture {
+            rule: RototoRuleId::VariableValuesMissing,
+        },
+        PendingCanonicalRuleFixture {
+            rule: RototoRuleId::VariableUnknownValue,
+        },
+        PendingCanonicalRuleFixture {
+            rule: RototoRuleId::VariableValueTypeMismatch,
+        },
+        PendingCanonicalRuleFixture {
+            rule: RototoRuleId::VariableValueSchemaMismatch,
+        },
+        PendingCanonicalRuleFixture {
+            rule: RototoRuleId::VariableSchemaRef,
+        },
+        PendingCanonicalRuleFixture {
+            rule: RototoRuleId::VariableEnvMissingDefault,
+        },
+        PendingCanonicalRuleFixture {
+            rule: RototoRuleId::VariableUnknownEnvironment,
+        },
+        PendingCanonicalRuleFixture {
+            rule: RototoRuleId::VariableEnvShape,
+        },
+        PendingCanonicalRuleFixture {
+            rule: RototoRuleId::VariableRuleShape,
+        },
+        PendingCanonicalRuleFixture {
+            rule: RototoRuleId::VariableRuleShadowed,
+        },
+        PendingCanonicalRuleFixture {
+            rule: RototoRuleId::VariableValueUnused,
+        },
+        PendingCanonicalRuleFixture {
+            rule: RototoRuleId::VariableExternalValuesLoadFailed,
+        },
+        PendingCanonicalRuleFixture {
+            rule: RototoRuleId::VariableExternalValueParseFailed,
+        },
+        PendingCanonicalRuleFixture {
+            rule: RototoRuleId::VariableExternalValueDuplicate,
+        },
+        PendingCanonicalRuleFixture {
+            rule: RototoRuleId::CustomLintFailed,
+        },
+        PendingCanonicalRuleFixture {
+            rule: RototoRuleId::CustomLintRegistrationInvalid,
+        },
+        PendingCanonicalRuleFixture {
+            rule: RototoRuleId::CustomLintRuleShape,
+        },
+        PendingCanonicalRuleFixture {
+            rule: RototoRuleId::CustomLintInvalidRule,
+        },
+        PendingCanonicalRuleFixture {
+            rule: RototoRuleId::CustomLintUnknownRule,
+        },
+        PendingCanonicalRuleFixture {
+            rule: RototoRuleId::CustomLintRuleConflict,
+        },
+        PendingCanonicalRuleFixture {
+            rule: RototoRuleId::SchemaParseFailed,
+        },
+        PendingCanonicalRuleFixture {
+            rule: RototoRuleId::SchemaInvalid,
+        },
+    ]
+}
+
+fn assert_canonical_fixture(fixture: &CanonicalRuleFixture) {
+    let lint = lint_json(fixture.workspace, fixture.success);
+    assert_expected_diagnostics(&lint, fixture.expected);
+}
+
+fn assert_expected_diagnostics(lint: &serde_json::Value, expected: &[ExpectedDiagnostic]) {
+    let diagnostics = lint["diagnostics"].as_array().unwrap();
+    assert_eq!(
+        diagnostics.len(),
+        expected.len(),
+        "unexpected diagnostic count\n{lint:#}"
+    );
+    for expected in expected {
+        let diagnostic = diagnostic_for_rule(lint, expected.rule);
+        assert_expected_diagnostic(lint, diagnostic, *expected);
+    }
 }
 
 fn assert_only_expected_diagnostic(lint: &serde_json::Value, expected: ExpectedDiagnostic) {
