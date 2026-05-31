@@ -2,3 +2,13 @@ schema_version = 1
 
 [environments]
 values = ["dev", "prod"]
+
+[[lint.rule]]
+id = "fixture/custom-variable-rejected"
+title = "Custom variable lint rejected the variable"
+help = "Change the fixture or the Lua lint rule."
+
+[[lint.rule]]
+id = "fixture/custom-value-rejected"
+title = "Custom value lint rejected a value"
+help = "Change the fixture value or the Lua lint rule."

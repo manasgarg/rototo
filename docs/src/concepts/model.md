@@ -434,27 +434,32 @@ Built-in validation checks the rototo model: manifests, environments,
 qualifier references, value keys, schemas, and value types. Some teams also
 need workspace-specific policy that rototo cannot know in advance.
 
-Custom lint is declared on a variable. The variable points at a Lua file owned
-by the workspace:
+Custom lint is declared at the workspace level. The manifest owns rule
+metadata, and Lua files under `lint/*.lua` register handlers:
 
 ```toml
-[lint]
-path = "../lint/llm-agent-config.lua"
+[[lint.rule]]
+id = "platform/max-output-token-budget"
+title = "LLM output token budget is too high"
+help = "Use 5000 or fewer output tokens."
 ```
 
-The Lua file can define hooks at two levels:
-
-- `lint(variable)` validates the expanded variable as a whole.
-- `lint_value(value)` validates each value after inline and external value files
-  have been loaded.
-
 ```lua
-function lint_value(value)
-  if value.value.max_output_tokens > 5000 then
+function register(lint)
+  lint:on({
+    stage = "value",
+    entity = "value",
+    field = "value.max_output_tokens",
+    rule = "platform/max-output-token-budget",
+    handler = "check_token_budget",
+  })
+end
+
+function check_token_budget(ctx)
+  if ctx.target.value.max_output_tokens > 5000 then
     return {
       {
-        message = "value " .. value.name .. " exceeds the token budget",
-        help = "Use 5000 or fewer output tokens."
+        message = "value " .. ctx.target.name .. " exceeds the token budget"
       }
     }
   end
@@ -467,9 +472,6 @@ metadata, allowed model families, rollout rules, or organization-specific
 constraints. It runs with workspace lint, so policy failures can block local
 pre-push checks, CI, and release promotion before an application loads the
 workspace.
-
-The current custom lint declaration is variable-scoped. Workspace-level and
-qualifier-level custom lint are not separate extension points today.
 
 ## Validation and Diagnostics
 

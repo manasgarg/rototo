@@ -260,11 +260,6 @@ fn reports_project_stage_variable_shape_failures() {
         "rototo/variable-rule-shape",
         "variables/rule-shape.toml",
     );
-    assert_project_rule(
-        &lint,
-        "rototo/variable-lint-shape",
-        "variables/lint-shape.toml",
-    );
 }
 
 #[test]
@@ -405,7 +400,7 @@ fn reports_value_stage_failures() {
 }
 
 #[test]
-fn reports_variable_scoped_custom_lint_failures() {
+fn reports_workspace_custom_lint_failures() {
     let lint = lint_json("tests/fixtures/workspaces/lint-failures", false);
 
     assert_policy_rule(
@@ -413,7 +408,7 @@ fn reports_variable_scoped_custom_lint_failures() {
         "fixture/custom-variable-rejected",
         "variables/custom-lint.toml",
     );
-    assert_policy_rule(
+    assert_value_rule(
         &lint,
         "fixture/custom-value-rejected",
         "variables/custom-value-lint.toml",
@@ -436,22 +431,17 @@ fn reports_custom_lint_contract_failures() {
     assert_project_rule(
         &lint,
         "rototo/custom-lint-rule-conflict",
-        "variables/conflict-b.toml",
+        "rototo-workspace.toml",
+    );
+    assert_project_rule(
+        &lint,
+        "rototo/custom-lint-invalid-rule",
+        "rototo-workspace.toml",
     );
     assert_policy_rule(
         &lint,
         "rototo/custom-lint-failed",
         "variables/custom-failed.toml",
-    );
-    assert_policy_rule(
-        &lint,
-        "rototo/custom-lint-invalid-rule",
-        "variables/custom-invalid.toml",
-    );
-    assert_policy_rule(
-        &lint,
-        "rototo/custom-lint-unknown-rule",
-        "variables/custom-unknown.toml",
     );
     assert_policy_rule(
         &lint,

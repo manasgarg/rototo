@@ -111,8 +111,9 @@ queue = "priority-review"
 timeout_ms = 3000
 ```
 
-Custom Lua lint can validate each expanded value by defining
-`lint_value(value)`. The argument contains `name`, `value`, and `variable`.
+Custom Lua lint can register value handlers for expanded values through
+workspace-level `[[lint.rule]]` declarations and auto-discovered `lint/*.lua`
+files.
 
 ## Lower-Level APIs
 

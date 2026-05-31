@@ -111,12 +111,12 @@ workspace structure and files:
   from rules.
 - Primitive variable values match `bool`, `int`, `number`, `string`, or `list`.
 - Schema-backed variable values validate against their JSON Schema.
-- Variables can declare `[lint] path = "../lint/name.lua"` for custom
-  Lua lint. Lua files define `lint(variable)` and/or `lint_value(value)` and
-  return diagnostics with `rule` and `message`. Custom rules are declared in
-  TOML under `[[lint.rule]]` with `id`, `title`, and `help`; Lua emits
-  declared `<authority>/<rule-id>` ids. `rototo` is reserved for built-in
-  diagnostics.
+- Workspaces can declare custom rules in `rototo-workspace.toml` under
+  `[[lint.rule]]` with `id`, `title`, and `help`. Lua files under `lint/*.lua`
+  define `register(lint)` and register handlers with stage, entity, optional
+  field, declared rule, and handler name. Handlers return diagnostics with
+  `message`; the registration owns the rule id. `rototo` is reserved for
+  built-in diagnostics.
 - Standalone `schemas/*.json` files parse and compile as JSON Schema.
 
 Diagnostics use one stable `rule` identity. Built-in rototo rules use

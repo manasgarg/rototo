@@ -131,4 +131,4 @@ Value validation happens during lint:
 - primitive variables check every value against `type`;
 - schema-backed variables check every value against the JSON Schema;
 - external value files are loaded before validation;
-- custom `lint_value(value)` runs after values have been expanded.
+- registered custom value lint runs after values have been expanded.

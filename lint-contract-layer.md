@@ -56,24 +56,32 @@ consumer-experience/banner-too-large
 Custom rules must be declared in reviewable TOML before Lua can emit them:
 
 ```toml
-[lint]
-path = "../lint/llm.lua"
-
 [[lint.rule]]
 id = "payments/max-token-budget"
 title = "Token budget exceeds payments policy"
 help = "Lower max_output_tokens or update the payments policy."
 ```
 
-Lua returns the rule id and a concrete message:
+Lua registers a handler for the declared rule and returns a concrete message:
 
 ```lua
-return {
-  {
+function register(lint)
+  lint:on({
+    stage = "value",
+    entity = "value",
+    field = "value.max_output_tokens",
     rule = "payments/max-token-budget",
-    message = "enterprise.max_output_tokens exceeds 5000"
+    handler = "check_token_budget",
+  })
+end
+
+function check_token_budget(ctx)
+  return {
+    {
+      message = ctx.target.name .. ".max_output_tokens exceeds 5000"
+    }
   }
-}
+end
 ```
 
 Rust owns built-in rototo metadata. TOML owns custom rule metadata. Lua does not
@@ -132,7 +140,6 @@ rototo/variable-schema-version
 rototo/variable-missing-table
 rototo/variable-type-or-schema
 rototo/variable-unknown-type
-rototo/variable-lint-shape
 rototo/variable-values-missing
 rototo/variable-unknown-value
 rototo/variable-value-type-mismatch

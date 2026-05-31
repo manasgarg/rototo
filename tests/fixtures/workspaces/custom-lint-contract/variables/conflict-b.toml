@@ -3,14 +3,6 @@ schema_version = 1
 description = "Second custom rule declaration"
 type = "string"
 
-[lint]
-path = "../lint/noop.lua"
-
-[[lint.rule]]
-id = "billing/conflicting-rule"
-title = "Second title"
-help = "Second help."
-
 [values]
 default = "default"
 

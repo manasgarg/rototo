@@ -3,9 +3,6 @@ schema_version = 1
 description = "Variable whose custom lint emits an invalid rule"
 type = "string"
 
-[lint]
-path = "../lint/custom-invalid.lua"
-
 [values]
 default = "default"
 

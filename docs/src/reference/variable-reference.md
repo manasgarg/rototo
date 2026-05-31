@@ -105,43 +105,30 @@ schema = "../schemas/llm-config.schema.json"
 The schema path is resolved relative to the variable file. Each configured value
 is validated against the schema during lint.
 
-## `[lint]`
+## Custom Lint
 
-Optional. Declares variable-scoped custom Lua lint.
+Variables do not point at custom lint scripts. Custom lint is workspace-scoped:
+the manifest declares rule metadata with `[[lint.rule]]`, and rototo
+auto-discovers Lua files under `lint/*.lua`.
 
-```toml
-[lint]
-path = "../lint/llm-agent-config.lua"
-
-[[lint.rule]]
-id = "platform/max-output-token-budget"
-title = "LLM output token budget is too high"
-help = "Use 5000 or fewer output tokens."
-```
-
-The path is resolved relative to the variable file. The Lua script can define
-`lint(variable)`, `lint_value(value)`, or both. Custom rule ids use
-`<authority>/<rule-id>`. The `rototo` authority is reserved for built-in
-diagnostics.
-
-`lint(variable)` receives the expanded variable, including inline and external
-values:
+A Lua file registers handlers with `register(lint)`:
 
 ```lua
-function lint(variable)
-  return {}
+function register(lint)
+  lint:on({
+    stage = "value",
+    entity = "value",
+    field = "value.max_output_tokens",
+    rule = "platform/max-output-token-budget",
+    handler = "check_token_budget",
+  })
 end
-```
 
-`lint_value(value)` runs once for each expanded value:
-
-```lua
-function lint_value(value)
-  if value.value.max_output_tokens > 5000 then
+function check_token_budget(ctx)
+  if ctx.target.value.max_output_tokens > 5000 then
     return {
       {
-        rule = "platform/max-output-token-budget",
-        message = "value " .. value.name .. " exceeds the token budget",
+        message = "value " .. ctx.target.name .. " exceeds the token budget",
       }
     }
   end
@@ -149,12 +136,8 @@ function lint_value(value)
 end
 ```
 
-Each function must return a list of diagnostics. A diagnostic must contain
-`rule` and `message`. The rule must match a declared `[[lint.rule]]`;
-the declaration owns the diagnostic title and help text.
-
-Custom lint is declared on variables today. Workspace-level and qualifier-level
-custom lint are not separate extension points.
+Handlers return diagnostics with `message`. The registration owns the rule id,
+and the manifest declaration owns the diagnostic title and help text.
 
 ## Values
 
@@ -349,7 +332,6 @@ Variable lint checks:
 
 - `schema_version = 1` exists.
 - Exactly one of `type` or `schema` is declared.
-- `[lint]`, when present, is a table with `path`.
 - Values exist after external value files are loaded.
 - Primitive values match `type`.
 - Schema-backed values match the referenced JSON Schema.
@@ -359,7 +341,7 @@ Variable lint checks:
 - Environment `value` references point at known value keys.
 - Rule `qualifier` references point at known qualifier ids.
 - Rule `value` references point at known value keys.
-- Custom lint returns no diagnostics.
+- Registered custom lint returns no diagnostics.
 
 Context schema validation happens during resolution, before qualifiers and rules
 are evaluated. Value type and value schema checks happen during lint, before the
@@ -397,9 +379,6 @@ schema_version = 1
 
 description = "LLM settings for the incident summary agent"
 schema = "../schemas/llm-config.schema.json"
-
-[lint]
-path = "../lint/llm-agent-config.lua"
 
 [env._]
 value = "standard"

@@ -3,14 +3,6 @@ schema_version = 1
 description = "Variable with failing custom Lua lint"
 type = "string"
 
-[lint]
-path = "../lint/custom-variable.lua"
-
-[[lint.rule]]
-id = "fixture/custom-variable-rejected"
-title = "Custom variable lint rejected the variable"
-help = "Change the fixture or the Lua lint rule."
-
 [values]
 default = "default"
 

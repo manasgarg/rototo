@@ -39,18 +39,6 @@ pub async fn catalog_for_workspace(workspace_root: &Path) -> Result<DiagnosticCa
         }
     }
 
-    for variable in &workspace.variables {
-        let path = workspace.root.join(&variable.path);
-        let Ok(toml) = read_toml(&path).await else {
-            continue;
-        };
-        for definition in custom_rule_definitions_from_toml(&toml) {
-            custom_rules
-                .entry(definition.rule.clone())
-                .or_insert(definition);
-        }
-    }
-
     diagnostics.extend(
         custom_rules
             .values()

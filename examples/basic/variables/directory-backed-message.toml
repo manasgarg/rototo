@@ -3,14 +3,6 @@ schema_version = 1
 description = "Message loaded from per-value TOML files"
 type = "string"
 
-[lint]
-path = "../lint/directory-backed-message.lua"
-
-[[lint.rule]]
-id = "consumer-experience/message-not-empty"
-title = "Directory-backed message is empty"
-help = "Set a non-empty message."
-
 [env._]
 value = "control"
 

@@ -3,9 +3,6 @@ schema_version = 1
 description = "Variable whose custom lint script fails"
 type = "string"
 
-[lint]
-path = "../lint/custom-failed.lua"
-
 [values]
 default = "default"
 

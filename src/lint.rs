@@ -11,7 +11,7 @@ use crate::diagnostics::{
     LintStage, RototoRuleId, SourcePosition, SourceRange,
 };
 use crate::error::{Result, RototoError};
-use crate::lua_lint::{self, CustomLintOutput, CustomLintTarget};
+use crate::lua_lint;
 use crate::model::{QualifierLint, SourceDocumentSummary, SourceKind, VariableLint, WorkspaceLint};
 use crate::workspace::workspace_environments;
 
@@ -111,7 +111,6 @@ impl LintEngine {
             .await;
         self.run_registered_custom_lints(&mut ctx, LintStage::Policy)
             .await;
-        self.run_policy(&mut ctx).await;
 
         Ok(ctx.finish())
     }
@@ -300,10 +299,6 @@ impl LintEngine {
     async fn run_registered_custom_lints(&self, ctx: &mut LintContext, stage: LintStage) {
         run_registered_custom_lints(ctx, stage).await;
     }
-
-    async fn run_policy(&self, ctx: &mut LintContext) {
-        run_custom_lints(ctx).await;
-    }
 }
 
 struct LintContext {
@@ -423,7 +418,6 @@ struct VariableNode {
     location: DiagnosticLocation,
     schema_version: ProjectField<i64>,
     type_source: TypeSourceNode,
-    lint: Option<VariableLintNode>,
     values: ValuesNode,
     environments: EnvironmentCollection,
 }
@@ -448,13 +442,6 @@ struct ValueNode {
     key: String,
     location: DiagnosticLocation,
     value: JsonValue,
-}
-
-struct VariableLintNode {
-    location: DiagnosticLocation,
-    path: ProjectField<String>,
-    rules: CustomRuleCollection,
-    invalid_shape: bool,
 }
 
 enum CustomRuleCollection {
@@ -645,7 +632,6 @@ fn project_variable(
     let location = document.document_location();
     let schema_version = integer_field(document, root, "schema_version", location.clone());
     let type_source = project_type_source(document, root, location.clone());
-    let lint = project_variable_lint(document, root);
     let values = project_values(document, toml, root, id, source);
     let environments = project_environments(document, root, id);
 
@@ -655,7 +641,6 @@ fn project_variable(
         location,
         schema_version,
         type_source,
-        lint,
         values,
         environments,
     }
@@ -692,28 +677,6 @@ fn project_type_source(
             },
         },
     }
-}
-
-fn project_variable_lint(document: &SourceDocument, root: &Table) -> Option<VariableLintNode> {
-    let item = root.get("lint")?;
-    let location = item_location(document, item);
-    let Some(table) = item.as_table() else {
-        return Some(VariableLintNode {
-            location: location.clone(),
-            path: ProjectField::Invalid {
-                location: location.clone(),
-            },
-            rules: CustomRuleCollection::Rules(Vec::new()),
-            invalid_shape: true,
-        });
-    };
-
-    Some(VariableLintNode {
-        location: location.clone(),
-        path: string_field(document, table, "path", location.clone()),
-        rules: project_custom_rule_declarations(document, table),
-        invalid_shape: false,
-    })
 }
 
 fn project_custom_rule_declarations(
@@ -1434,110 +1397,12 @@ fn lint_variable_shapes(ctx: &mut LintContext) {
         }
 
         lint_type_source(diagnostics, variable);
-        lint_variable_lint_shape(diagnostics, variable);
         lint_values_shape(
             diagnostics,
             variable,
             ctx.index.external_values.get(&variable.id),
         );
         lint_environment_shapes(diagnostics, variable);
-    }
-}
-
-fn lint_variable_lint_shape(diagnostics: &mut Vec<LintDiagnostic>, variable: &VariableNode) {
-    let Some(lint) = &variable.lint else {
-        return;
-    };
-
-    if lint.invalid_shape {
-        push_project_diagnostic(
-            diagnostics,
-            RototoRuleId::VariableLintShape,
-            EntityId::Variable {
-                id: variable.id.clone(),
-            },
-            lint.location.clone(),
-            "variable lint must be a table",
-        );
-        return;
-    }
-
-    if field_is_not_present(&lint.path) {
-        push_project_diagnostic(
-            diagnostics,
-            RototoRuleId::VariableLintShape,
-            EntityId::Variable {
-                id: variable.id.clone(),
-            },
-            lint.path.location(),
-            "variable lint must contain path",
-        );
-    }
-
-    match &lint.rules {
-        CustomRuleCollection::Invalid { location } => push_project_diagnostic(
-            diagnostics,
-            RototoRuleId::VariableLintShape,
-            EntityId::Variable {
-                id: variable.id.clone(),
-            },
-            location.clone(),
-            "lint rule declarations must use [[lint.rule]] tables",
-        ),
-        CustomRuleCollection::Rules(rules) => {
-            for rule in rules {
-                lint_custom_rule_declaration_shape(diagnostics, variable, rule);
-            }
-        }
-    }
-}
-
-fn lint_custom_rule_declaration_shape(
-    diagnostics: &mut Vec<LintDiagnostic>,
-    variable: &VariableNode,
-    rule: &CustomRuleDeclarationNode,
-) {
-    let entity = EntityId::Variable {
-        id: variable.id.clone(),
-    };
-    if field_is_not_present(&rule.id) {
-        push_project_diagnostic(
-            diagnostics,
-            RototoRuleId::VariableLintShape,
-            entity.clone(),
-            rule.id.location(),
-            "custom lint rule must contain id",
-        );
-    }
-    if field_is_not_present(&rule.title) {
-        push_project_diagnostic(
-            diagnostics,
-            RototoRuleId::VariableLintShape,
-            entity.clone(),
-            rule.title.location(),
-            "custom lint rule must contain title",
-        );
-    }
-    if field_is_not_present(&rule.help) {
-        push_project_diagnostic(
-            diagnostics,
-            RototoRuleId::VariableLintShape,
-            entity.clone(),
-            rule.help.location(),
-            "custom lint rule must contain help",
-        );
-    }
-
-    if let ProjectField::Present(id) = &rule.id
-        && let Err(err) = CustomRuleId::parse(&id.value)
-    {
-        push_project_diagnostic(
-            diagnostics,
-            RototoRuleId::CustomLintInvalidRule,
-            entity,
-            id.location.clone(),
-            format!("custom lint rule id is invalid: {err}"),
-        );
     }
 }
 
@@ -1579,34 +1444,7 @@ fn custom_rule_definition_entries(
         );
     }
 
-    for variable in ctx.index.variables.values() {
-        definitions.extend(custom_rule_definitions(variable).into_iter().map(
-            |(definition, location)| {
-                (
-                    definition,
-                    location,
-                    EntityId::Variable {
-                        id: variable.id.clone(),
-                    },
-                )
-            },
-        ));
-    }
-
     definitions
-}
-
-fn custom_rule_definitions(
-    variable: &VariableNode,
-) -> Vec<(CustomRuleDefinition, DiagnosticLocation)> {
-    let Some(lint) = &variable.lint else {
-        return Vec::new();
-    };
-    let CustomRuleCollection::Rules(rules) = &lint.rules else {
-        return Vec::new();
-    };
-
-    custom_rule_definitions_from_rules(rules)
 }
 
 fn workspace_custom_rule_definitions(
@@ -2574,145 +2412,6 @@ fn unsupported_registration_field<T>(
     ))
 }
 
-struct CustomLintJob {
-    variable_id: String,
-    variable_location: DiagnosticLocation,
-    lint_location: DiagnosticLocation,
-    value_locations: BTreeMap<String, DiagnosticLocation>,
-    definitions: BTreeMap<CustomRuleId, CustomRuleDefinition>,
-    input: lua_lint::PipelineLintInput,
-}
-
-async fn run_custom_lints(ctx: &mut LintContext) {
-    let (jobs, diagnostics) = custom_lint_jobs(ctx);
-    ctx.diagnostics.extend(diagnostics);
-
-    for job in jobs {
-        match lua_lint::lint_pipeline_variable(job.input.clone()).await {
-            Ok(outputs) => push_custom_lint_outputs(&mut ctx.diagnostics, &job, outputs),
-            Err(err) => push_policy_diagnostic(
-                &mut ctx.diagnostics,
-                RototoRuleId::CustomLintFailed,
-                EntityId::Variable {
-                    id: job.variable_id.clone(),
-                },
-                job.lint_location.clone(),
-                err.to_string(),
-            ),
-        }
-    }
-}
-
-fn custom_lint_jobs(ctx: &LintContext) -> (Vec<CustomLintJob>, Vec<LintDiagnostic>) {
-    let mut jobs = Vec::new();
-    let mut diagnostics = Vec::new();
-    let environments = declared_workspace_environments(ctx)
-        .unwrap_or_default()
-        .into_iter()
-        .collect::<Vec<_>>();
-
-    for variable in ctx.index.variables.values() {
-        let Some(lint) = &variable.lint else {
-            continue;
-        };
-        if lint.invalid_shape {
-            continue;
-        }
-        let ProjectField::Present(lint_path) = &lint.path else {
-            continue;
-        };
-
-        let Some(workspace_lint_path) =
-            resolve_workspace_relative_path(&variable.location.path, &lint_path.value)
-        else {
-            push_policy_diagnostic(
-                &mut diagnostics,
-                RototoRuleId::CustomLintFailed,
-                EntityId::Variable {
-                    id: variable.id.clone(),
-                },
-                lint_path.location.clone(),
-                format!(
-                    "custom lint path is not relative inside the workspace: {}",
-                    lint_path.value
-                ),
-            );
-            continue;
-        };
-
-        let Some(lint_document) = ctx.source.document_by_path(&workspace_lint_path) else {
-            push_policy_diagnostic(
-                &mut diagnostics,
-                RototoRuleId::CustomLintFailed,
-                EntityId::Variable {
-                    id: variable.id.clone(),
-                },
-                lint_path.location.clone(),
-                format!("custom lint file not found: {workspace_lint_path}"),
-            );
-            continue;
-        };
-        if let Some(read_error) = &lint_document.read_error {
-            push_policy_diagnostic(
-                &mut diagnostics,
-                RototoRuleId::CustomLintFailed,
-                EntityId::Variable {
-                    id: variable.id.clone(),
-                },
-                lint_path.location.clone(),
-                format!("failed to read custom lint {workspace_lint_path}: {read_error}"),
-            );
-            continue;
-        }
-
-        let Some(variable_document) = ctx.source.documents.get(&variable.doc) else {
-            continue;
-        };
-        let definitions = custom_rule_definitions(variable)
-            .into_iter()
-            .map(|(definition, _)| definition)
-            .collect::<Vec<_>>();
-        let definition_map = definitions
-            .iter()
-            .map(|definition| (definition.rule.clone(), definition.clone()))
-            .collect::<BTreeMap<_, _>>();
-        let values = variable_values(ctx, variable)
-            .map(|value| lua_lint::PipelineValue {
-                name: value.key.clone(),
-                value: value.value.clone(),
-            })
-            .collect::<Vec<_>>();
-        let value_locations = variable_values(ctx, variable)
-            .map(|value| (value.key.clone(), value.location.clone()))
-            .collect::<BTreeMap<_, _>>();
-        let input = lua_lint::PipelineLintInput {
-            workspace_root: ctx.source.root.clone(),
-            environments: environments.clone(),
-            variable: lua_lint::PipelineVariable {
-                id: variable.id.clone(),
-                uri: variable_document.uri.clone(),
-                path: variable_document.path.clone(),
-                toml: expanded_variable_toml_json(ctx, variable),
-                values,
-            },
-            lint_path: ctx.source.root.join(&workspace_lint_path),
-            script: lint_document.text.clone(),
-            custom_rules: definitions,
-        };
-
-        jobs.push(CustomLintJob {
-            variable_id: variable.id.clone(),
-            variable_location: variable.location.clone(),
-            lint_location: lint_path.location.clone(),
-            value_locations,
-            definitions: definition_map,
-            input,
-        });
-    }
-
-    (jobs, diagnostics)
-}
-
 fn expanded_variable_toml_json(ctx: &LintContext, variable: &VariableNode) -> JsonValue {
     let mut toml = ctx
         .syntax
@@ -2729,82 +2428,6 @@ fn expanded_variable_toml_json(ctx: &LintContext, variable: &VariableNode) -> Js
         object.insert("values".to_owned(), JsonValue::Object(values));
     }
     toml
-}
-
-fn push_custom_lint_outputs(
-    diagnostics: &mut Vec<LintDiagnostic>,
-    job: &CustomLintJob,
-    outputs: Vec<CustomLintOutput>,
-) {
-    for output in outputs {
-        match output {
-            CustomLintOutput::Diagnostic {
-                target,
-                rule,
-                message,
-            } => {
-                let Some(definition) = job.definitions.get(&rule) else {
-                    continue;
-                };
-                let (entity, location) = custom_lint_target_location(job, &target);
-                diagnostics.push(LintDiagnostic::custom(
-                    definition,
-                    LintStage::Policy,
-                    entity,
-                    location,
-                    message,
-                ));
-            }
-            CustomLintOutput::InvalidRule { target, message } => {
-                let (entity, location) = custom_lint_target_location(job, &target);
-                push_policy_diagnostic(
-                    diagnostics,
-                    RototoRuleId::CustomLintInvalidRule,
-                    entity,
-                    location,
-                    message,
-                );
-            }
-            CustomLintOutput::UnknownRule {
-                target,
-                rule,
-                message,
-            } => {
-                let (entity, location) = custom_lint_target_location(job, &target);
-                push_policy_diagnostic(
-                    diagnostics,
-                    RototoRuleId::CustomLintUnknownRule,
-                    entity,
-                    location,
-                    format!("{message}: {rule}"),
-                );
-            }
-        }
-    }
-}
-
-fn custom_lint_target_location(
-    job: &CustomLintJob,
-    target: &CustomLintTarget,
-) -> (EntityId, DiagnosticLocation) {
-    match target {
-        CustomLintTarget::Variable => (
-            EntityId::Variable {
-                id: job.variable_id.clone(),
-            },
-            job.variable_location.clone(),
-        ),
-        CustomLintTarget::Value { name } => (
-            EntityId::Value {
-                variable: job.variable_id.clone(),
-                key: name.clone(),
-            },
-            job.value_locations
-                .get(name)
-                .cloned()
-                .unwrap_or_else(|| job.variable_location.clone()),
-        ),
-    }
 }
 
 fn lint_schema_documents(ctx: &mut LintContext) {
@@ -3561,22 +3184,6 @@ fn push_value_diagnostic(
     diagnostics.push(LintDiagnostic::rototo(
         rule,
         LintStage::Value,
-        entity,
-        primary,
-        message,
-    ));
-}
-
-fn push_policy_diagnostic(
-    diagnostics: &mut Vec<LintDiagnostic>,
-    rule: RototoRuleId,
-    entity: EntityId,
-    primary: DiagnosticLocation,
-    message: impl Into<String>,
-) {
-    diagnostics.push(LintDiagnostic::rototo(
-        rule,
-        LintStage::Policy,
         entity,
         primary,
         message,

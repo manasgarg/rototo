@@ -83,10 +83,16 @@ values = ["dev", "stage", "prod"]
 
 [context]
 schema = "schemas/context.schema.json"
+
+[[lint.rule]]
+id = "platform/max-output-token-budget"
+title = "LLM output token budget is too high"
+help = "Use 5000 or fewer output tokens."
 ```
 
-The manifest declares the environments and the context schema. rototo discovers
-qualifiers and variables from the conventional workspace directories.
+The manifest declares the environments, context schema, and custom rule
+metadata. rototo discovers qualifiers, variables, schemas, and Lua lint files
+from the conventional workspace directories.
 
 The context schema is the input contract between the application and the
 workspace. It defines the JSON attributes the application promises to send at
@@ -201,9 +207,6 @@ schema_version = 1
 description = "LLM settings for the incident summary agent"
 schema = "../schemas/llm-config.schema.json"
 
-[lint]
-path = "../lint/llm-agent-config.lua"
-
 [env._]
 value = "standard"
 
@@ -257,20 +260,29 @@ temperature = 0.2
 `local`. `prod` uses `standard`, except when `enterprise-accounts` matches.
 The value keys come from the files in `llm-agent-config-values/`.
 
-The variable also points at a custom lint script. Built-in validation checks the
-rototo model and the JSON Schema. Custom lint adds local policy that is specific
-to this workspace.
+Built-in validation checks the rototo model and the JSON Schema. The workspace
+manifest declares custom rule metadata, and the auto-discovered Lua file
+registers the local policy that is specific to this workspace.
 
 Create `config/lint/llm-agent-config.lua`:
 
 ```lua
-function lint_value(value)
-  local config = value.value
+function register(lint)
+  lint:on({
+    stage = "value",
+    entity = "value",
+    field = "value.max_output_tokens",
+    rule = "platform/max-output-token-budget",
+    handler = "check_token_budget",
+  })
+end
+
+function check_token_budget(ctx)
+  local config = ctx.target.value
   if config.max_output_tokens > 5000 then
     return {
       {
-        message = "value " .. value.name .. " exceeds the maximum token budget",
-        help = "Use 5000 or fewer output tokens."
+        message = "value " .. ctx.target.name .. " exceeds the maximum token budget"
       }
     }
   end

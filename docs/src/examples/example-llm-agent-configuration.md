@@ -67,6 +67,16 @@ The schema is the contract application code can rely on.
 
 ## Variable
 
+Declare the custom rule in `rototo-workspace.toml` so the diagnostic identity,
+title, and help text are reviewable:
+
+```toml
+[[lint.rule]]
+id = "platform/max-output-token-budget"
+title = "LLM output token budget is too high"
+help = "Use 5000 or fewer output tokens."
+```
+
 Create `variables/llm-agent-config.toml`:
 
 ```toml
@@ -74,9 +84,6 @@ schema_version = 1
 
 description = "LLM settings for the incident summary agent"
 schema = "../schemas/llm-config.schema.json"
-
-[lint]
-path = "../lint/llm-agent-config.lua"
 
 [env._]
 value = "standard"
@@ -116,12 +123,21 @@ Create similar files for `local` and `standard`.
 Create `lint/llm-agent-config.lua`:
 
 ```lua
-function lint_value(value)
-  if value.value.max_output_tokens > 5000 then
+function register(lint)
+  lint:on({
+    stage = "value",
+    entity = "value",
+    field = "value.max_output_tokens",
+    rule = "platform/max-output-token-budget",
+    handler = "check_token_budget",
+  })
+end
+
+function check_token_budget(ctx)
+  if ctx.target.value.max_output_tokens > 5000 then
     return {
       {
-        message = "value " .. value.name .. " exceeds the token budget",
-        help = "Use 5000 or fewer output tokens."
+        message = "value " .. ctx.target.name .. " exceeds the token budget"
       }
     }
   end
