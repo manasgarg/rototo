@@ -18,11 +18,7 @@ use crate::workspace::workspace_environments;
 const WORKSPACE_MANIFEST: &str = "rototo-workspace.toml";
 
 pub async fn lint_workspace(workspace_root: &Path) -> Result<WorkspaceLint> {
-    LintEngine::new()
-        .lint_workspace(LintInput {
-            root: workspace_root.to_path_buf(),
-        })
-        .await
+    lint_workspace_snapshot(LintInput::new(workspace_root.to_path_buf())).await
 }
 
 pub async fn lint_qualifier(workspace_root: &Path, id: &str) -> Result<QualifierLint> {
@@ -79,8 +75,29 @@ fn diagnostic_belongs_to_variable(diagnostic: &LintDiagnostic, id: &str, path: &
         || diagnostic.primary.path == path
 }
 
-struct LintInput {
+pub(crate) async fn lint_workspace_snapshot(input: LintInput) -> Result<WorkspaceLint> {
+    LintEngine::new().lint_workspace(input).await
+}
+
+#[derive(Clone)]
+pub(crate) struct LintInput {
     root: PathBuf,
+    pub(crate) overlays: BTreeMap<String, OverlayDocument>,
+}
+
+impl LintInput {
+    pub(crate) fn new(root: PathBuf) -> Self {
+        Self {
+            root,
+            overlays: BTreeMap::new(),
+        }
+    }
+}
+
+#[derive(Clone)]
+pub(crate) struct OverlayDocument {
+    pub(crate) text: String,
+    pub(crate) version: Option<i32>,
 }
 
 struct LintEngine;
@@ -317,8 +334,9 @@ struct LintContext {
 
 impl LintContext {
     fn new(input: LintInput) -> Self {
+        let source = SourceStore::new(input.root.clone(), input.overlays.clone());
         Self {
-            source: SourceStore::new(input.root.clone()),
+            source,
             input,
             syntax: SyntaxIndex::default(),
             index: SemanticIndex::default(),
@@ -3556,14 +3574,16 @@ fn push_value_diagnostic(
 
 struct SourceStore {
     root: PathBuf,
+    overlays: BTreeMap<String, OverlayDocument>,
     documents: BTreeMap<DocId, SourceDocument>,
     by_path: BTreeMap<String, DocId>,
 }
 
 impl SourceStore {
-    fn new(root: PathBuf) -> Self {
+    fn new(root: PathBuf, overlays: BTreeMap<String, OverlayDocument>) -> Self {
         Self {
             root,
+            overlays,
             documents: BTreeMap::new(),
             by_path: BTreeMap::new(),
         }
@@ -3711,15 +3731,18 @@ impl SourceStore {
 
         let id = DocId(self.documents.len() as u32);
         let absolute_path = self.root.join(&relative_path);
-        let (text, read_error) = match tokio::fs::read_to_string(&absolute_path).await {
-            Ok(text) => (text, None),
-            Err(err) => (String::new(), Some(err.to_string())),
+        let (text, version, read_error) = match self.overlays.get(&path) {
+            Some(overlay) => (overlay.text.clone(), overlay.version, None),
+            None => match tokio::fs::read_to_string(&absolute_path).await {
+                Ok(text) => (text, None, None),
+                Err(err) => (String::new(), None, Some(err.to_string())),
+            },
         };
         let document = SourceDocument {
             id,
             path: path.clone(),
             uri: file_uri(&absolute_path),
-            version: None,
+            version,
             kind,
             line_index: LineIndex::new(&text),
             text,
@@ -4026,4 +4049,105 @@ fn workspace_path(path: &Path) -> String {
 
 fn file_uri(path: &Path) -> String {
     format!("file://{}", path.display())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn snapshot_lints_overlay_without_writing_to_disk_and_groups_empty_documents() {
+        let tempdir = tempfile::tempdir().unwrap();
+        let root = tempdir.path();
+        tokio::fs::create_dir_all(root.join("variables"))
+            .await
+            .unwrap();
+        tokio::fs::write(
+            root.join(WORKSPACE_MANIFEST),
+            r#"schema_version = 1
+
+[environments]
+values = ["prod"]
+"#,
+        )
+        .await
+        .unwrap();
+        let disk_variable = r#"schema_version = 1
+type = "string"
+
+[values]
+control = "hello"
+
+[env._]
+value = "control"
+"#;
+        tokio::fs::write(root.join("variables/message.toml"), disk_variable)
+            .await
+            .unwrap();
+
+        let invalid_overlay = r#"schema_version = 1
+type = "mystery"
+
+[values]
+control = "hello"
+
+[env._]
+value = "control"
+"#;
+        let mut input = LintInput::new(root.to_path_buf());
+        input.overlays.insert(
+            "variables/message.toml".to_owned(),
+            OverlayDocument {
+                text: invalid_overlay.to_owned(),
+                version: Some(42),
+            },
+        );
+        let lint = lint_workspace_snapshot(input).await.unwrap();
+
+        let diagnostic = lint
+            .diagnostics
+            .iter()
+            .find(|diagnostic| diagnostic.rule.as_string() == "rototo/variable-unknown-type")
+            .unwrap();
+        assert_eq!(diagnostic.primary.path, "variables/message.toml");
+        assert_eq!(diagnostic.primary.range.unwrap().start.line, 1);
+
+        let variable_document = lint
+            .documents
+            .iter()
+            .find(|document| document.path == "variables/message.toml")
+            .unwrap();
+        assert_eq!(variable_document.version, Some(42));
+
+        let grouped = lint.diagnostics_by_document();
+        assert!(grouped.iter().any(|group| {
+            group.document.path == "rototo-workspace.toml" && group.diagnostics.is_empty()
+        }));
+        assert!(grouped.iter().any(|group| {
+            group.document.path == "variables/message.toml" && !group.diagnostics.is_empty()
+        }));
+        let disk_after_overlay = tokio::fs::read_to_string(root.join("variables/message.toml"))
+            .await
+            .unwrap();
+        assert_eq!(disk_after_overlay, disk_variable);
+
+        let mut cleared_input = LintInput::new(root.to_path_buf());
+        cleared_input.overlays.insert(
+            "variables/message.toml".to_owned(),
+            OverlayDocument {
+                text: disk_variable.to_owned(),
+                version: Some(43),
+            },
+        );
+        let cleared = lint_workspace_snapshot(cleared_input).await.unwrap();
+
+        assert!(cleared.diagnostics.is_empty());
+        let cleared_groups = cleared.diagnostics_by_document();
+        let variable_group = cleared_groups
+            .iter()
+            .find(|group| group.document.path == "variables/message.toml")
+            .unwrap();
+        assert_eq!(variable_group.document.version, Some(43));
+        assert!(variable_group.diagnostics.is_empty());
+    }
 }

@@ -59,6 +59,22 @@ impl WorkspaceLint {
             .iter()
             .filter(move |diagnostic| diagnostic.primary.doc() == Some(doc))
     }
+
+    pub fn diagnostics_by_document(&self) -> Vec<DocumentDiagnostics<'_>> {
+        self.documents
+            .iter()
+            .map(|document| DocumentDiagnostics {
+                document,
+                diagnostics: self.diagnostics_for_doc(document.id).collect(),
+            })
+            .collect()
+    }
+}
+
+#[derive(Debug)]
+pub struct DocumentDiagnostics<'a> {
+    pub document: &'a SourceDocumentSummary,
+    pub diagnostics: Vec<&'a LintDiagnostic>,
 }
 
 #[derive(Clone, Debug, serde::Serialize)]
