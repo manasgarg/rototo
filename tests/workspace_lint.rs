@@ -786,6 +786,48 @@ fn reports_registered_custom_lint_failures() {
 }
 
 #[test]
+fn reports_custom_registration_contract_failures() {
+    let lint = lint_json(
+        "tests/fixtures/workspaces/custom-registration-contract",
+        false,
+    );
+    let invalid_messages =
+        diagnostic_messages_for_rule(&lint, "rototo/custom-lint-registration-invalid");
+    let unknown_messages = diagnostic_messages_for_rule(&lint, "rototo/custom-lint-unknown-rule");
+
+    assert_eq!(invalid_messages.len(), 4, "{lint:#}");
+    assert!(
+        invalid_messages
+            .contains(&"custom lint registration has unsupported stage: parse".to_owned())
+    );
+    assert!(
+        invalid_messages
+            .contains(&"custom lint registration has unsupported entity: predicate".to_owned())
+    );
+    assert!(
+        invalid_messages
+            .contains(&"custom lint registration has unsupported field: value.".to_owned())
+    );
+    assert!(
+        invalid_messages.contains(
+            &"custom lint registration has unsupported field: value.bad segment".to_owned()
+        )
+    );
+    assert_eq!(
+        unknown_messages,
+        vec!["custom lint registration references undeclared rule: policy/missing".to_owned()]
+    );
+
+    for diagnostic in diagnostics_for_rule(&lint, "rototo/custom-lint-registration-invalid") {
+        assert_eq!(diagnostic["stage"], "register");
+        assert_eq!(diagnostic["primary"]["path"], "lint/register.lua");
+    }
+    let unknown = diagnostic_for_rule(&lint, "rototo/custom-lint-unknown-rule");
+    assert_eq!(unknown["stage"], "register");
+    assert_eq!(unknown["primary"]["path"], "lint/register.lua");
+}
+
+#[test]
 fn reports_registered_custom_lint_targets() {
     let lint = lint_json("tests/fixtures/workspaces/custom-targets", false);
 
