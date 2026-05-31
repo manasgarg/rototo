@@ -1,6 +1,6 @@
 use std::path::PathBuf;
 
-use crate::diagnostics::{Diagnostic, DiagnosticCatalogEntry};
+use crate::diagnostics::{DiagnosticCatalogEntry, DocId, LintDiagnostic, Severity};
 
 #[derive(Debug)]
 pub struct WorkspaceInspection {
@@ -43,21 +43,56 @@ pub struct VariableConfig {
 #[derive(Debug)]
 pub struct WorkspaceLint {
     pub root: PathBuf,
-    pub diagnostics: Vec<Diagnostic>,
+    pub documents: Vec<SourceDocumentSummary>,
+    pub diagnostics: Vec<LintDiagnostic>,
+}
+
+impl WorkspaceLint {
+    pub fn has_errors(&self) -> bool {
+        self.diagnostics
+            .iter()
+            .any(|diagnostic| diagnostic.severity == Severity::Error)
+    }
+
+    pub fn diagnostics_for_doc(&self, doc: DocId) -> impl Iterator<Item = &LintDiagnostic> + '_ {
+        self.diagnostics
+            .iter()
+            .filter(move |diagnostic| diagnostic.primary.doc() == Some(doc))
+    }
+}
+
+#[derive(Clone, Debug, serde::Serialize)]
+pub struct SourceDocumentSummary {
+    pub id: DocId,
+    pub path: String,
+    pub uri: String,
+    pub version: Option<i32>,
+    pub kind: SourceKind,
+}
+
+#[derive(Clone, Debug, serde::Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum SourceKind {
+    Manifest,
+    Qualifier,
+    Variable,
+    Schema,
+    CustomLint,
+    ExternalValue,
 }
 
 #[derive(Debug)]
 pub struct QualifierLint {
     pub root: PathBuf,
     pub id: String,
-    pub diagnostics: Vec<Diagnostic>,
+    pub diagnostics: Vec<LintDiagnostic>,
 }
 
 #[derive(Debug)]
 pub struct VariableLint {
     pub root: PathBuf,
     pub id: String,
-    pub diagnostics: Vec<Diagnostic>,
+    pub diagnostics: Vec<LintDiagnostic>,
 }
 
 #[derive(Debug, serde::Serialize)]

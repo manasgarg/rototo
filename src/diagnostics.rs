@@ -453,6 +453,159 @@ impl DiagnosticCatalogEntry {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize)]
+#[serde(transparent)]
+pub struct DocId(pub u32);
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize)]
+#[serde(rename_all = "lowercase")]
+pub enum LintStage {
+    Discover,
+    Parse,
+    Project,
+    Register,
+    Reference,
+    Value,
+    Graph,
+    Policy,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Serialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum EntityId {
+    Workspace,
+    Manifest,
+    Qualifier {
+        id: String,
+    },
+    Predicate {
+        qualifier: String,
+        index: usize,
+    },
+    Variable {
+        id: String,
+    },
+    Value {
+        variable: String,
+        key: String,
+    },
+    EnvironmentBlock {
+        variable: String,
+        environment: String,
+    },
+    Rule {
+        variable: String,
+        environment: String,
+        index: usize,
+    },
+    Schema {
+        path: String,
+    },
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+pub struct SourcePosition {
+    pub line: usize,
+    pub character: usize,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+pub struct SourceRange {
+    pub start: SourcePosition,
+    pub end: SourcePosition,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum DiagnosticLocationKind {
+    Span,
+    Document,
+    WorkspaceRoot,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct DiagnosticLocation {
+    #[serde(skip)]
+    pub kind: DiagnosticLocationKind,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub doc: Option<DocId>,
+    pub path: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub range: Option<SourceRange>,
+}
+
+impl DiagnosticLocation {
+    pub fn span(doc: DocId, path: impl Into<String>, range: SourceRange) -> Self {
+        Self {
+            kind: DiagnosticLocationKind::Span,
+            doc: Some(doc),
+            path: path.into(),
+            range: Some(range),
+        }
+    }
+
+    pub fn document(doc: DocId, path: impl Into<String>) -> Self {
+        Self {
+            kind: DiagnosticLocationKind::Document,
+            doc: Some(doc),
+            path: path.into(),
+            range: None,
+        }
+    }
+
+    pub fn workspace_root(path: impl Into<String>) -> Self {
+        Self {
+            kind: DiagnosticLocationKind::WorkspaceRoot,
+            doc: None,
+            path: path.into(),
+            range: None,
+        }
+    }
+
+    pub fn doc(&self) -> Option<DocId> {
+        self.doc
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct RelatedLocation {
+    pub location: DiagnosticLocation,
+    pub message: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct LintDiagnostic {
+    pub rule: DiagnosticRule,
+    pub severity: Severity,
+    pub stage: LintStage,
+    pub entity: EntityId,
+    pub message: String,
+    pub help: String,
+    pub primary: DiagnosticLocation,
+    pub related: Vec<RelatedLocation>,
+}
+
+impl LintDiagnostic {
+    pub fn rototo(
+        rule: RototoRuleId,
+        stage: LintStage,
+        entity: EntityId,
+        primary: DiagnosticLocation,
+        message: impl Into<String>,
+    ) -> Self {
+        let meta = rule.meta();
+        Self {
+            rule: DiagnosticRule::Rototo(rule),
+            severity: meta.severity,
+            stage,
+            entity,
+            message: message.into(),
+            help: meta.help.to_owned(),
+            primary,
+            related: Vec::new(),
+        }
+    }
+}
+
 #[derive(Debug, Serialize)]
 pub struct Diagnostic {
     pub rule: DiagnosticRule,

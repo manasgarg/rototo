@@ -76,25 +76,14 @@ pub(crate) async fn read_variable_toml_detailed(
     Ok(toml)
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum VariableTomlReadErrorKind {
-    Read,
-    Parse,
-    ExternalValuesLoad,
-    ExternalValueParse,
-    ExternalValueDuplicate,
-}
-
 #[derive(Debug)]
 pub(crate) struct VariableTomlReadError {
-    pub kind: VariableTomlReadErrorKind,
     message: String,
 }
 
 impl VariableTomlReadError {
-    fn new(kind: VariableTomlReadErrorKind, message: impl Into<String>) -> Self {
+    fn new(message: impl Into<String>) -> Self {
         Self {
-            kind,
             message: message.into(),
         }
     }
@@ -110,16 +99,10 @@ impl std::error::Error for VariableTomlReadError {}
 
 async fn read_toml_detailed(path: &Path) -> std::result::Result<Value, VariableTomlReadError> {
     let text = tokio::fs::read_to_string(path).await.map_err(|err| {
-        VariableTomlReadError::new(
-            VariableTomlReadErrorKind::Read,
-            format!("failed to read {}: {err}", path.display()),
-        )
+        VariableTomlReadError::new(format!("failed to read {}: {err}", path.display()))
     })?;
     text.parse::<Value>().map_err(|err| {
-        VariableTomlReadError::new(
-            VariableTomlReadErrorKind::Parse,
-            format!("failed to parse {}: {err}", path.display()),
-        )
+        VariableTomlReadError::new(format!("failed to parse {}: {err}", path.display()))
     })
 }
 
@@ -337,20 +320,16 @@ async fn merge_external_variable_values(
 
     let mut external_values = toml::map::Map::new();
     let mut entries = tokio::fs::read_dir(&values_dir).await.map_err(|err| {
-        VariableTomlReadError::new(
-            VariableTomlReadErrorKind::ExternalValuesLoad,
-            format!(
-                "failed to read variable values directory {}: {err}",
-                values_dir.display()
-            ),
-        )
+        VariableTomlReadError::new(format!(
+            "failed to read variable values directory {}: {err}",
+            values_dir.display()
+        ))
     })?;
-    while let Some(entry) = entries.next_entry().await.map_err(|err| {
-        VariableTomlReadError::new(
-            VariableTomlReadErrorKind::ExternalValuesLoad,
-            err.to_string(),
-        )
-    })? {
+    while let Some(entry) = entries
+        .next_entry()
+        .await
+        .map_err(|err| VariableTomlReadError::new(err.to_string()))?
+    {
         let path = entry.path();
         if path.extension().and_then(|extension| extension.to_str()) != Some("toml")
             || !tokio::fs::metadata(&path)
@@ -359,18 +338,12 @@ async fn merge_external_variable_values(
         {
             continue;
         }
-        let id = id_from_path(&path).map_err(|err| {
-            VariableTomlReadError::new(
-                VariableTomlReadErrorKind::ExternalValuesLoad,
-                err.to_string(),
-            )
-        })?;
+        let id = id_from_path(&path).map_err(|err| VariableTomlReadError::new(err.to_string()))?;
         let value = value_from_external_value_toml(&path).await?;
         if external_values.insert(id.clone(), value).is_some() {
-            return Err(VariableTomlReadError::new(
-                VariableTomlReadErrorKind::ExternalValueDuplicate,
-                format!("duplicate external variable value: {id}"),
-            ));
+            return Err(VariableTomlReadError::new(format!(
+                "duplicate external variable value: {id}"
+            )));
         }
     }
 
@@ -385,21 +358,17 @@ async fn merge_external_variable_values(
         .entry("values".to_owned())
         .or_insert_with(|| Value::Table(toml::map::Map::new()));
     let Some(values) = values.as_table_mut() else {
-        return Err(VariableTomlReadError::new(
-            VariableTomlReadErrorKind::ExternalValuesLoad,
-            format!(
-                "variable values must be a table: {}",
-                variable.path.display()
-            ),
-        ));
+        return Err(VariableTomlReadError::new(format!(
+            "variable values must be a table: {}",
+            variable.path.display()
+        )));
     };
 
     for (id, value) in external_values {
         if values.insert(id.clone(), value).is_some() {
-            return Err(VariableTomlReadError::new(
-                VariableTomlReadErrorKind::ExternalValueDuplicate,
-                format!("variable value is declared more than once: {id}"),
-            ));
+            return Err(VariableTomlReadError::new(format!(
+                "variable value is declared more than once: {id}"
+            )));
         }
     }
     Ok(())
@@ -417,16 +386,10 @@ async fn value_from_external_value_toml(
     path: &Path,
 ) -> std::result::Result<Value, VariableTomlReadError> {
     let text = tokio::fs::read_to_string(path).await.map_err(|err| {
-        VariableTomlReadError::new(
-            VariableTomlReadErrorKind::ExternalValuesLoad,
-            format!("failed to read {}: {err}", path.display()),
-        )
+        VariableTomlReadError::new(format!("failed to read {}: {err}", path.display()))
     })?;
     let value = text.parse::<Value>().map_err(|err| {
-        VariableTomlReadError::new(
-            VariableTomlReadErrorKind::ExternalValueParse,
-            format!("failed to parse {}: {err}", path.display()),
-        )
+        VariableTomlReadError::new(format!("failed to parse {}: {err}", path.display()))
     })?;
     let Some(table) = value.as_table() else {
         return Ok(value);

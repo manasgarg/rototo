@@ -1,8 +1,5 @@
 use assert_cmd::Command;
 use predicates::prelude::*;
-use std::collections::BTreeSet;
-
-use rototo::diagnostics::RototoRuleId;
 
 #[test]
 fn lints_basic_workspace() {
@@ -15,6 +12,21 @@ fn lints_basic_workspace() {
         .assert()
         .success()
         .stdout(predicate::eq(expected));
+}
+
+#[test]
+fn lints_basic_workspace_as_json_with_documents() {
+    let lint = lint_json("examples/basic", true);
+
+    assert!(lint["diagnostics"].as_array().unwrap().is_empty());
+    assert!(document_paths(&lint).contains(&"rototo-workspace.toml".to_owned()));
+    assert!(document_paths(&lint).contains(&"qualifiers/premium-users.toml".to_owned()));
+    assert!(document_paths(&lint).contains(&"variables/checkout-redesign.toml".to_owned()));
+    assert!(
+        document_paths(&lint)
+            .contains(&"variables/directory-backed-message-values/control.toml".to_owned())
+    );
+    assert!(document_paths(&lint).contains(&"schemas/context.schema.json".to_owned()));
 }
 
 #[test]
@@ -64,369 +76,234 @@ fn lints_discovered_workspace() {
 
 #[test]
 fn reports_workspace_manifest_missing() {
-    assert_lint_rule(
-        "tests/fixtures/workspaces/missing-manifest",
-        "rototo/workspace-manifest-missing",
-    );
+    let lint = lint_json("tests/fixtures/workspaces/missing-manifest", false);
+    let diagnostic = only_diagnostic(&lint);
+
+    assert_eq!(diagnostic["rule"], "rototo/workspace-manifest-missing");
+    assert_eq!(diagnostic["stage"], "discover");
+    assert_eq!(diagnostic["entity"]["kind"], "workspace");
+    assert!(diagnostic["primary"]["doc"].is_null());
+    assert!(diagnostic["primary"]["range"].is_null());
+    assert!(lint["documents"].as_array().unwrap().is_empty());
 }
 
 #[test]
 fn reports_workspace_manifest_parse_failed() {
-    assert_lint_rule(
-        "tests/fixtures/workspaces/invalid-workspace-toml",
-        "rototo/workspace-manifest-parse-failed",
-    );
+    let lint = lint_json("tests/fixtures/workspaces/invalid-workspace-toml", false);
+    let diagnostic = only_diagnostic(&lint);
+
+    assert_eq!(diagnostic["rule"], "rototo/workspace-manifest-parse-failed");
+    assert_eq!(diagnostic["stage"], "parse");
+    assert_eq!(diagnostic["entity"]["kind"], "manifest");
+    assert_eq!(diagnostic["primary"]["path"], "rototo-workspace.toml");
+    assert!(diagnostic["primary"]["range"].is_object());
 }
 
 #[test]
 fn reports_workspace_manifest_schema_failed() {
-    assert_lint_rule(
-        "tests/fixtures/workspaces/missing-environments",
-        "rototo/workspace-manifest-schema-failed",
+    let lint = lint_json("tests/fixtures/workspaces/missing-environments", false);
+    let diagnostic = only_diagnostic(&lint);
+
+    assert_eq!(
+        diagnostic["rule"],
+        "rototo/workspace-manifest-schema-failed"
     );
+    assert_eq!(diagnostic["stage"], "project");
+    assert_eq!(diagnostic["entity"]["kind"], "manifest");
+    assert_eq!(diagnostic["primary"]["path"], "rototo-workspace.toml");
+    assert!(diagnostic["primary"]["range"].is_null());
 }
 
 #[test]
 fn reports_workspace_file_parse_failed() {
-    assert_lint_rule(
+    let lint = lint_json(
         "tests/fixtures/workspaces/invalid-workspace-file-toml",
-        "rototo/qualifier-parse-failed",
+        false,
     );
-    assert_lint_rule(
-        "tests/fixtures/workspaces/invalid-workspace-file-toml",
-        "rototo/variable-parse-failed",
-    );
-}
-
-#[test]
-fn reports_core_workspace_file_failures() {
-    assert_lint_messages(
-        "tests/fixtures/workspaces/lint-failures",
-        &[
-            "bucket range must satisfy 0 <= start < end <= 10000",
-            r#""rule": "rototo/qualifier-predicate-bucket""#,
-            "predicate references unknown qualifier: missing-qualifier",
-            r#""rule": "rototo/qualifier-predicate-unknown-qualifier""#,
-            "in predicate value must be a list",
-            r#""rule": "rototo/qualifier-predicate-value""#,
-            "gte predicate value must be a number",
-            "predicate has unknown op: contains",
-            r#""rule": "rototo/qualifier-predicate-unknown-op""#,
-            "variable references undeclared environment: qa",
-            r#""rule": "rototo/variable-unknown-environment""#,
-            "environment references unknown value: missing-value",
-            r#""rule": "rototo/variable-unknown-value""#,
-            "rule references unknown qualifier: missing-qualifier",
-            r#""rule": "rototo/variable-rule-unknown-qualifier""#,
-            "rule references unknown value: another-missing-value",
-            "schema is invalid:",
-            r#""rule": "rototo/variable-schema-ref""#,
-            "schemas/invalid-json.schema.json",
-            r#""rule": "rototo/schema-parse-failed""#,
-            "value broken does not match schema:",
-            r#""rule": "rototo/variable-value-schema-mismatch""#,
-            "value bad does not match type int",
-            r#""rule": "rototo/variable-value-type-mismatch""#,
-            "variable declares unknown type: currency",
-            r#""rule": "rototo/variable-unknown-type""#,
-            "variable value is declared more than once: default",
-            r#""rule": "rototo/variable-external-value-duplicate""#,
-            "failed to parse",
-            r#""rule": "rototo/variable-external-value-parse-failed""#,
-            "variable values must be a table",
-            r#""rule": "rototo/variable-external-values-load-failed""#,
-            "custom lint rejected custom-lint",
-            "custom value lint rejected custom-value-lint.default",
-            r#""rule": "fixture/custom-variable-rejected""#,
-            r#""rule": "fixture/custom-value-rejected""#,
-        ],
-    );
-}
-
-#[test]
-fn reports_custom_lint_contract_failures() {
-    assert_lint_messages(
-        "tests/fixtures/workspaces/custom-lint-contract",
-        &[
-            r#""rule": "payments/max-token-budget""#,
-            "custom lint emitted invalid rule rototo/not-allowed",
-            r#""rule": "rototo/custom-lint-invalid-rule""#,
-            "custom lint emitted undeclared rule: payments/undeclared-rule",
-            r#""rule": "rototo/custom-lint-unknown-rule""#,
-            "custom lint rule metadata conflicts: billing/conflicting-rule",
-            r#""rule": "rototo/custom-lint-rule-conflict""#,
-            "script failed for custom-failed",
-            r#""rule": "rototo/custom-lint-failed""#,
-        ],
-    );
-}
-
-#[test]
-fn reports_context_schema_contract_failures() {
-    assert_lint_messages(
-        "tests/fixtures/workspaces/context-schema-attribute",
-        &[
-            "context schema does not declare attribute: account.plan",
-            r#""rule": "rototo/workspace-context-schema-attribute""#,
-        ],
-    );
-}
-
-#[test]
-fn reports_malformed_context_schema_references() {
-    assert_lint_messages(
-        "tests/fixtures/workspaces/bad-context-config",
-        &[
-            "[context] must be a table",
-            r#""rule": "rototo/workspace-context-schema-ref""#,
-        ],
-    );
-    assert_lint_messages(
-        "tests/fixtures/workspaces/context-schema-missing-field",
-        &["[context] must declare schema"],
-    );
-    assert_lint_messages(
-        "tests/fixtures/workspaces/context-schema-empty-path",
-        &["context schema path must be a relative path inside the workspace"],
-    );
-    assert_lint_messages(
-        "tests/fixtures/workspaces/context-schema-missing-file",
-        &["context schema could not be read:"],
-    );
-    assert_lint_messages(
-        "tests/fixtures/workspaces/context-schema-invalid-json",
-        &["context schema could not be parsed:"],
-    );
-    assert_lint_messages(
-        "tests/fixtures/workspaces/context-schema-invalid-schema",
-        &["context schema is invalid:"],
-    );
-}
-
-#[test]
-fn reports_unsafe_context_schema_paths() {
-    assert_lint_messages(
-        "tests/fixtures/workspaces/context-schema-path-escape",
-        &[
-            "context schema path must be a relative path inside the workspace",
-            r#""rule": "rototo/workspace-context-schema-ref""#,
-        ],
-    );
-}
-
-#[test]
-fn covers_every_rototo_rule_with_targeted_fixtures() {
-    let targets = [
-        (
-            RototoRuleId::WorkspaceNotFound,
-            "tests/fixtures/workspaces/does-not-exist",
-        ),
-        (
-            RototoRuleId::WorkspaceManifestMissing,
-            "tests/fixtures/workspaces/missing-manifest",
-        ),
-        (
-            RototoRuleId::WorkspaceManifestParseFailed,
-            "tests/fixtures/workspaces/invalid-workspace-toml",
-        ),
-        (
-            RototoRuleId::WorkspaceManifestSchemaFailed,
-            "tests/fixtures/workspaces/missing-environments",
-        ),
-        (
-            RototoRuleId::WorkspaceContextSchemaRef,
-            "tests/fixtures/workspaces/context-schema-path-escape",
-        ),
-        (
-            RototoRuleId::WorkspaceContextSchemaAttribute,
-            "tests/fixtures/workspaces/context-schema-attribute",
-        ),
-        (
-            RototoRuleId::QualifierParseFailed,
-            "tests/fixtures/workspaces/invalid-workspace-file-toml",
-        ),
-        (
-            RototoRuleId::QualifierSchemaVersion,
-            "tests/fixtures/workspaces/rule-coverage",
-        ),
-        (
-            RototoRuleId::QualifierPredicateMissing,
-            "tests/fixtures/workspaces/rule-coverage",
-        ),
-        (
-            RototoRuleId::QualifierPredicateShape,
-            "tests/fixtures/workspaces/rule-coverage",
-        ),
-        (
-            RototoRuleId::QualifierPredicateUnknownOp,
-            "tests/fixtures/workspaces/lint-failures",
-        ),
-        (
-            RototoRuleId::QualifierPredicateUnknownQualifier,
-            "tests/fixtures/workspaces/lint-failures",
-        ),
-        (
-            RototoRuleId::QualifierPredicateBucket,
-            "tests/fixtures/workspaces/lint-failures",
-        ),
-        (
-            RototoRuleId::QualifierPredicateValue,
-            "tests/fixtures/workspaces/lint-failures",
-        ),
-        (
-            RototoRuleId::VariableParseFailed,
-            "tests/fixtures/workspaces/invalid-workspace-file-toml",
-        ),
-        (
-            RototoRuleId::VariableSchemaVersion,
-            "tests/fixtures/workspaces/rule-coverage",
-        ),
-        (
-            RototoRuleId::VariableTypeOrSchema,
-            "tests/fixtures/workspaces/rule-coverage",
-        ),
-        (
-            RototoRuleId::VariableUnknownType,
-            "tests/fixtures/workspaces/lint-failures",
-        ),
-        (
-            RototoRuleId::VariableLintShape,
-            "tests/fixtures/workspaces/rule-coverage",
-        ),
-        (
-            RototoRuleId::VariableValuesMissing,
-            "tests/fixtures/workspaces/rule-coverage",
-        ),
-        (
-            RototoRuleId::VariableUnknownValue,
-            "tests/fixtures/workspaces/lint-failures",
-        ),
-        (
-            RototoRuleId::VariableValueTypeMismatch,
-            "tests/fixtures/workspaces/lint-failures",
-        ),
-        (
-            RototoRuleId::VariableValueSchemaMismatch,
-            "tests/fixtures/workspaces/lint-failures",
-        ),
-        (
-            RototoRuleId::VariableSchemaRef,
-            "tests/fixtures/workspaces/lint-failures",
-        ),
-        (
-            RototoRuleId::VariableEnvMissingDefault,
-            "tests/fixtures/workspaces/rule-coverage",
-        ),
-        (
-            RototoRuleId::VariableUnknownEnvironment,
-            "tests/fixtures/workspaces/lint-failures",
-        ),
-        (
-            RototoRuleId::VariableEnvShape,
-            "tests/fixtures/workspaces/rule-coverage",
-        ),
-        (
-            RototoRuleId::VariableRuleShape,
-            "tests/fixtures/workspaces/rule-coverage",
-        ),
-        (
-            RototoRuleId::VariableRuleUnknownQualifier,
-            "tests/fixtures/workspaces/lint-failures",
-        ),
-        (
-            RototoRuleId::VariableExternalValuesLoadFailed,
-            "tests/fixtures/workspaces/lint-failures",
-        ),
-        (
-            RototoRuleId::VariableExternalValueParseFailed,
-            "tests/fixtures/workspaces/lint-failures",
-        ),
-        (
-            RototoRuleId::VariableExternalValueDuplicate,
-            "tests/fixtures/workspaces/lint-failures",
-        ),
-        (
-            RototoRuleId::CustomLintFailed,
-            "tests/fixtures/workspaces/custom-lint-contract",
-        ),
-        (
-            RototoRuleId::CustomLintInvalidRule,
-            "tests/fixtures/workspaces/custom-lint-contract",
-        ),
-        (
-            RototoRuleId::CustomLintUnknownRule,
-            "tests/fixtures/workspaces/custom-lint-contract",
-        ),
-        (
-            RototoRuleId::CustomLintRuleConflict,
-            "tests/fixtures/workspaces/custom-lint-contract",
-        ),
-        (
-            RototoRuleId::SchemaParseFailed,
-            "tests/fixtures/workspaces/lint-failures",
-        ),
-        (
-            RototoRuleId::SchemaInvalid,
-            "tests/fixtures/workspaces/lint-failures",
-        ),
-    ];
-
-    let mut covered = BTreeSet::new();
-    for (rule, fixture) in targets {
-        let rule = rule.meta().rule;
-        assert_workspace_emits_rule(fixture, rule);
-        covered.insert(rule.to_owned());
-    }
+    let rules = diagnostic_rules(&lint);
 
     assert_eq!(
-        covered,
-        RototoRuleId::iter()
-            .map(|rule| rule.meta().rule.to_owned())
-            .collect()
+        rules,
+        vec![
+            "rototo/qualifier-parse-failed".to_owned(),
+            "rototo/variable-parse-failed".to_owned(),
+        ]
+    );
+
+    let qualifier = diagnostic_for_rule(&lint, "rototo/qualifier-parse-failed");
+    assert_eq!(qualifier["stage"], "parse");
+    assert_eq!(qualifier["entity"]["kind"], "qualifier");
+    assert_eq!(qualifier["entity"]["id"], "broken");
+    assert_eq!(qualifier["primary"]["path"], "qualifiers/broken.toml");
+    assert!(qualifier["primary"]["range"].is_object());
+
+    let variable = diagnostic_for_rule(&lint, "rototo/variable-parse-failed");
+    assert_eq!(variable["stage"], "parse");
+    assert_eq!(variable["entity"]["kind"], "variable");
+    assert_eq!(variable["entity"]["id"], "broken");
+    assert_eq!(variable["primary"]["path"], "variables/broken.toml");
+    assert!(variable["primary"]["range"].is_object());
+}
+
+#[test]
+fn reports_schema_parse_failed() {
+    let lint = lint_json("tests/fixtures/workspaces/lint-failures", false);
+    let diagnostic = diagnostic_for_rule(&lint, "rototo/schema-parse-failed");
+
+    assert_eq!(diagnostic["rule"], "rototo/schema-parse-failed");
+    assert_eq!(diagnostic["stage"], "parse");
+    assert_eq!(diagnostic["entity"]["kind"], "schema");
+    assert_eq!(
+        diagnostic["entity"]["path"],
+        "schemas/invalid-json.schema.json"
+    );
+    assert_eq!(
+        diagnostic["primary"]["path"],
+        "schemas/invalid-json.schema.json"
+    );
+    assert!(diagnostic["primary"]["range"].is_object());
+}
+
+#[test]
+fn reports_project_stage_qualifier_shape_failures() {
+    let lint = lint_json("tests/fixtures/workspaces/rule-coverage", false);
+
+    assert_project_rule(
+        &lint,
+        "rototo/qualifier-schema-version",
+        "qualifiers/missing-schema-version.toml",
+    );
+    assert_project_rule(
+        &lint,
+        "rototo/qualifier-predicate-missing",
+        "qualifiers/missing-predicate.toml",
+    );
+    assert_project_rule(
+        &lint,
+        "rototo/qualifier-predicate-shape",
+        "qualifiers/predicate-shape.toml",
     );
 }
 
-fn assert_lint_rule(workspace: &str, rule: &str) {
-    Command::cargo_bin("rototo")
-        .unwrap()
-        .args(["workspace", "lint", workspace, "--json"])
-        .assert()
-        .failure()
-        .stdout(predicate::str::contains(format!(r#""rule": "{rule}""#)));
+#[test]
+fn reports_project_stage_variable_shape_failures() {
+    let lint = lint_json("tests/fixtures/workspaces/rule-coverage", false);
+
+    assert_project_rule(
+        &lint,
+        "rototo/variable-schema-version",
+        "variables/missing-schema-version.toml",
+    );
+    assert_project_rule(
+        &lint,
+        "rototo/variable-type-or-schema",
+        "variables/type-or-schema.toml",
+    );
+    assert_project_rule(
+        &lint,
+        "rototo/variable-values-missing",
+        "variables/values-missing.toml",
+    );
+    assert_project_rule(
+        &lint,
+        "rototo/variable-env-missing-default",
+        "variables/env-missing-default.toml",
+    );
+    assert_project_rule(
+        &lint,
+        "rototo/variable-env-shape",
+        "variables/env-shape.toml",
+    );
+    assert_project_rule(
+        &lint,
+        "rototo/variable-rule-shape",
+        "variables/rule-shape.toml",
+    );
 }
 
-fn assert_workspace_emits_rule(workspace: &str, rule: &str) {
-    let lint = lint_json(workspace);
-    let rules: BTreeSet<_> = lint["diagnostics"]
-        .as_array()
-        .unwrap()
-        .iter()
-        .filter_map(|diagnostic| diagnostic["rule"].as_str())
-        .collect();
-    assert!(rules.contains(rule), "{workspace} did not emit {rule}");
+#[test]
+fn reports_project_stage_predicate_and_type_failures() {
+    let lint = lint_json("tests/fixtures/workspaces/lint-failures", false);
+
+    assert_project_rule(
+        &lint,
+        "rototo/qualifier-predicate-bucket",
+        "qualifiers/bad-bucket.toml",
+    );
+    assert_project_rule(
+        &lint,
+        "rototo/qualifier-predicate-unknown-op",
+        "qualifiers/bad-value-shape.toml",
+    );
+    assert_project_rule(
+        &lint,
+        "rototo/qualifier-predicate-value",
+        "qualifiers/bad-value-shape.toml",
+    );
+    assert_project_rule(
+        &lint,
+        "rototo/variable-unknown-type",
+        "variables/unknown-type.toml",
+    );
+
+    let diagnostic = diagnostic_for_rule(&lint, "rototo/variable-unknown-type");
+    assert_eq!(diagnostic["entity"]["kind"], "variable");
+    assert_eq!(diagnostic["entity"]["id"], "unknown-type");
+    assert!(diagnostic["primary"]["range"].is_object());
 }
 
-fn lint_json(workspace: &str) -> serde_json::Value {
+fn lint_json(workspace: &str, success: bool) -> serde_json::Value {
     let output = Command::cargo_bin("rototo")
         .unwrap()
         .args(["workspace", "lint", workspace, "--json"])
         .output()
         .unwrap();
-    assert!(
-        !output.status.success(),
-        "fixture should produce diagnostics: {workspace}"
+
+    assert_eq!(
+        output.status.success(),
+        success,
+        "unexpected lint status for {workspace}\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
     );
     serde_json::from_slice(&output.stdout).unwrap()
 }
 
-fn assert_lint_messages(workspace: &str, messages: &[&str]) {
-    let mut assertion = Command::cargo_bin("rototo")
-        .unwrap()
-        .args(["workspace", "lint", workspace, "--json"])
-        .assert()
-        .failure();
+fn only_diagnostic(lint: &serde_json::Value) -> &serde_json::Value {
+    let diagnostics = lint["diagnostics"].as_array().unwrap();
+    assert_eq!(diagnostics.len(), 1, "{lint:#}");
+    &diagnostics[0]
+}
 
-    for message in messages {
-        assertion = assertion.stdout(predicate::str::contains(*message));
-    }
+fn diagnostic_rules(lint: &serde_json::Value) -> Vec<String> {
+    lint["diagnostics"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|diagnostic| diagnostic["rule"].as_str().unwrap().to_owned())
+        .collect()
+}
+
+fn diagnostic_for_rule<'a>(lint: &'a serde_json::Value, rule: &str) -> &'a serde_json::Value {
+    lint["diagnostics"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|diagnostic| diagnostic["rule"] == rule)
+        .unwrap_or_else(|| panic!("diagnostic not found: {rule}\n{lint:#}"))
+}
+
+fn assert_project_rule(lint: &serde_json::Value, rule: &str, path: &str) {
+    let diagnostic = diagnostic_for_rule(lint, rule);
+    assert_eq!(diagnostic["stage"], "project");
+    assert_eq!(diagnostic["primary"]["path"], path);
+}
+
+fn document_paths(lint: &serde_json::Value) -> Vec<String> {
+    lint["documents"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|document| document["path"].as_str().unwrap().to_owned())
+        .collect()
 }

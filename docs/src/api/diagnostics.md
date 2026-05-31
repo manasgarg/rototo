@@ -15,9 +15,12 @@ Every emitted lint diagnostic has these fields:
 
 - `rule`: stable diagnostic identity in `<authority>/<rule-id>` form.
 - `severity`: currently `error`.
-- `path`: workspace-relative file path when rototo can attach the diagnostic to a file.
+- `stage`: lint pipeline stage that produced the diagnostic.
+- `entity`: workspace, manifest, qualifier, variable, or schema owner.
 - `message`: concrete failure message.
 - `help`: recovery guidance from the built-in rule or declared custom rule.
+- `primary`: workspace-relative path, optional document id, and optional zero-based line/character range.
+- `related`: secondary locations when a rule needs them.
 
 Built-in rules use the reserved `rototo` authority and flat rule ids, such as
 `rototo/qualifier-predicate-unknown-op`. Custom Lua lint rules use a

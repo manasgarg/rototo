@@ -1,6 +1,6 @@
 use serde::Serialize;
 
-use rototo::diagnostics::{Diagnostic, DiagnosticCatalogEntry, DiagnosticEntity, Severity};
+use rototo::diagnostics::{DiagnosticCatalogEntry, DiagnosticEntity, LintDiagnostic, Severity};
 use rototo::error::{Result, RototoError};
 use rototo::model::{
     DiagnosticCatalog, QualifierInspection, QualifierLint, VariableInspection, VariableLint,
@@ -26,21 +26,22 @@ struct WorkspaceFileJson<'a> {
 #[derive(Debug, Serialize)]
 struct WorkspaceLintJson<'a> {
     workspace: String,
-    diagnostics: &'a [Diagnostic],
+    documents: &'a [rototo::model::SourceDocumentSummary],
+    diagnostics: &'a [LintDiagnostic],
 }
 
 #[derive(Debug, Serialize)]
 struct QualifierLintJson<'a> {
     workspace: String,
     id: &'a str,
-    diagnostics: &'a [Diagnostic],
+    diagnostics: &'a [LintDiagnostic],
 }
 
 #[derive(Debug, Serialize)]
 struct VariableLintJson<'a> {
     workspace: String,
     id: &'a str,
-    diagnostics: &'a [Diagnostic],
+    diagnostics: &'a [LintDiagnostic],
 }
 
 #[derive(Debug, Serialize)]
@@ -125,6 +126,7 @@ pub(crate) fn print_workspace_lint(lint: &WorkspaceLint, json: bool, quiet: bool
             "{}",
             serde_json::to_string_pretty(&WorkspaceLintJson {
                 workspace: lint.root.display().to_string(),
+                documents: &lint.documents,
                 diagnostics: &lint.diagnostics,
             })
             .map_err(|err| RototoError::new(err.to_string()))?
@@ -473,17 +475,29 @@ async fn print_workspace_file(path: &std::path::Path) -> Result<()> {
     Ok(())
 }
 
-fn print_diagnostics(diagnostics: &[Diagnostic]) {
+fn print_diagnostics(diagnostics: &[LintDiagnostic]) {
     for diagnostic in diagnostics {
         println!(
             "{}[{}]: {}: {}",
             severity_label(&diagnostic.severity),
             diagnostic.rule.as_string(),
-            diagnostic.path,
+            diagnostic_location_label(diagnostic),
             diagnostic.message
         );
         println!("  help: {}", diagnostic.help);
     }
+}
+
+fn diagnostic_location_label(diagnostic: &LintDiagnostic) -> String {
+    let Some(range) = diagnostic.primary.range else {
+        return diagnostic.primary.path.clone();
+    };
+    format!(
+        "{}:{}:{}",
+        diagnostic.primary.path,
+        range.start.line + 1,
+        range.start.character + 1
+    )
 }
 
 fn severity_label(severity: &Severity) -> &'static str {

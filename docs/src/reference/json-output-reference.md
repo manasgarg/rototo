@@ -39,6 +39,15 @@ Workspace lint:
 ```json
 {
   "workspace": "/abs/path/config",
+  "documents": [
+    {
+      "id": 0,
+      "path": "rototo-workspace.toml",
+      "uri": "file:///abs/path/config/rototo-workspace.toml",
+      "version": null,
+      "kind": "manifest"
+    }
+  ],
   "diagnostics": []
 }
 ```
@@ -63,8 +72,12 @@ Variable lint:
 }
 ```
 
-Diagnostics contain `rule`, `severity`, `path`, `message`, and `help`. The
-`rule` field is the stable identity for automation. See `diagnostics`.
+Workspace lint includes every document considered by lint, including documents
+with no diagnostics. Diagnostics contain `rule`, `severity`, `stage`, `entity`,
+`message`, `help`, `primary`, and `related`. The `rule` field is the stable
+identity for automation. `primary` contains the workspace-relative `path`, the
+document id when there is one, and a zero-based line/character `range` when
+rototo can attach the diagnostic to a span. See `diagnostics`.
 
 ## List Commands
 

@@ -1,1090 +1,1813 @@
-use std::collections::{BTreeMap, HashSet};
-use std::path::{Component, Path};
+use std::collections::{BTreeMap, BTreeSet};
+use std::ops::Range;
+use std::path::{Component, Path, PathBuf};
 
-use jsonschema::Validator;
-use toml::Value;
+use serde_json::Value as JsonValue;
+use toml::Value as TomlValue;
+use toml_edit::{ImDocument, Item, Table, TableLike, Value as EditValue};
 
-use crate::diagnostics::{CustomRuleDefinition, CustomRuleId, Diagnostic, RototoRuleId};
+use crate::diagnostics::{
+    DiagnosticLocation, DocId, EntityId, LintDiagnostic, LintStage, RototoRuleId, SourcePosition,
+    SourceRange,
+};
 use crate::error::{Result, RototoError};
-use crate::model::{
-    QualifierInspection, QualifierLint, VariableInspection, VariableLint, WorkspaceLint,
-};
-use crate::workspace::{
-    VariableTomlReadErrorKind, inspect_workspace, read_variable_toml_detailed,
-    workspace_environments,
-};
+use crate::model::{QualifierLint, SourceDocumentSummary, SourceKind, VariableLint, WorkspaceLint};
+use crate::workspace::workspace_environments;
 
 const WORKSPACE_MANIFEST: &str = "rototo-workspace.toml";
 
 pub async fn lint_workspace(workspace_root: &Path) -> Result<WorkspaceLint> {
-    let root = match tokio::fs::canonicalize(workspace_root).await {
-        Ok(root) => root,
-        Err(err) => {
-            return Ok(WorkspaceLint {
-                root: workspace_root.to_path_buf(),
-                diagnostics: vec![Diagnostic::rototo(
-                    RototoRuleId::WorkspaceNotFound,
-                    workspace_root.display().to_string(),
-                    err.to_string(),
-                )],
-            });
-        }
-    };
-
-    let mut diagnostics = Vec::new();
-    let Some(manifest) = read_toml_diagnostic(
-        &root.join(WORKSPACE_MANIFEST),
-        RototoRuleId::WorkspaceManifestMissing,
-        RototoRuleId::WorkspaceManifestParseFailed,
-        &mut diagnostics,
-    )
-    .await
-    else {
-        return Ok(WorkspaceLint { root, diagnostics });
-    };
-
-    let environments = match workspace_environments(&manifest) {
-        Ok(environments) => environments,
-        Err(err) => {
-            diagnostics.push(Diagnostic::rototo(
-                RototoRuleId::WorkspaceManifestSchemaFailed,
-                WORKSPACE_MANIFEST,
-                err.to_string(),
-            ));
-            return Ok(WorkspaceLint { root, diagnostics });
-        }
-    };
-
-    let inspection = match inspect_workspace(&root).await {
-        Ok(inspection) => inspection,
-        Err(err) => {
-            diagnostics.push(Diagnostic::rototo(
-                RototoRuleId::WorkspaceManifestSchemaFailed,
-                WORKSPACE_MANIFEST,
-                err.to_string(),
-            ));
-            return Ok(WorkspaceLint { root, diagnostics });
-        }
-    };
-
-    let qualifier_ids: HashSet<&str> = inspection
-        .qualifiers
-        .iter()
-        .map(|qualifier| qualifier.id.as_str())
-        .collect();
-
-    for qualifier in &inspection.qualifiers {
-        lint_qualifier_file(&root, qualifier, &qualifier_ids, &mut diagnostics).await;
-    }
-    let mut custom_rules = BTreeMap::new();
-    for variable in &inspection.variables {
-        lint_variable_file(
-            &root,
-            variable,
-            &environments,
-            &qualifier_ids,
-            &mut custom_rules,
-            &mut diagnostics,
-        )
-        .await;
-    }
-
-    if let Some(context_schema) = context_schema_validator(&root, &manifest, &mut diagnostics).await
-    {
-        lint_context_schema_references(
-            &root,
-            &inspection.qualifiers,
-            &context_schema,
-            &mut diagnostics,
-        )
-        .await;
-    }
-
-    lint_schemas(&root, &mut diagnostics).await;
-    sort_diagnostics(&mut diagnostics);
-
-    Ok(WorkspaceLint { root, diagnostics })
+    LintEngine::new()
+        .lint_workspace(LintInput {
+            root: workspace_root.to_path_buf(),
+        })
+        .await
 }
 
 pub async fn lint_qualifier(workspace_root: &Path, id: &str) -> Result<QualifierLint> {
-    let root = tokio::fs::canonicalize(workspace_root)
-        .await
-        .map_err(|err| RototoError::new(format!("workspace not found: {err}")))?;
-    let lint = lint_workspace(&root).await?;
-    let inspection = inspect_workspace(&root).await?;
-    let qualifier = crate::workspace::qualifier_for_id(&inspection, id)?;
+    let lint = lint_workspace(workspace_root).await?;
+    let path = format!("qualifiers/{id}.toml");
+    if !lint.documents.iter().any(|document| document.path == path) {
+        return Err(RototoError::new(format!(
+            "qualifier not found: qualifier://{id}"
+        )));
+    }
 
     Ok(QualifierLint {
-        root,
+        root: lint.root,
         id: id.to_owned(),
         diagnostics: lint
             .diagnostics
             .into_iter()
-            .filter(|diagnostic| diagnostic.path == qualifier.path.display().to_string())
+            .filter(|diagnostic| diagnostic_belongs_to_qualifier(diagnostic, id, &path))
             .collect(),
     })
 }
 
 pub async fn lint_variable(workspace_root: &Path, id: &str) -> Result<VariableLint> {
-    let root = tokio::fs::canonicalize(workspace_root)
-        .await
-        .map_err(|err| RototoError::new(format!("workspace not found: {err}")))?;
-    let lint = lint_workspace(&root).await?;
-    let inspection = inspect_workspace(&root).await?;
-    let variable = crate::workspace::variable_for_id(&inspection, id)?;
+    let lint = lint_workspace(workspace_root).await?;
+    let path = format!("variables/{id}.toml");
+    if !lint.documents.iter().any(|document| document.path == path) {
+        return Err(RototoError::new(format!(
+            "variable not found: variable://{id}"
+        )));
+    }
 
     Ok(VariableLint {
-        root,
+        root: lint.root,
         id: id.to_owned(),
         diagnostics: lint
             .diagnostics
             .into_iter()
-            .filter(|diagnostic| diagnostic.path == variable.path.display().to_string())
+            .filter(|diagnostic| diagnostic_belongs_to_variable(diagnostic, id, &path))
             .collect(),
     })
 }
 
-async fn lint_qualifier_file(
-    root: &Path,
-    qualifier: &QualifierInspection,
-    qualifier_ids: &HashSet<&str>,
-    diagnostics: &mut Vec<Diagnostic>,
-) {
-    let path = root.join(&qualifier.path);
-    let Some(toml) = read_toml_diagnostic(
-        &path,
-        RototoRuleId::QualifierParseFailed,
-        RototoRuleId::QualifierParseFailed,
-        diagnostics,
-    )
-    .await
-    else {
-        return;
-    };
-
-    validate_qualifier_toml(qualifier, &toml, qualifier_ids, diagnostics);
+fn diagnostic_belongs_to_qualifier(diagnostic: &LintDiagnostic, id: &str, path: &str) -> bool {
+    matches!(&diagnostic.entity, EntityId::Qualifier { id: diagnostic_id } if diagnostic_id == id)
+        || matches!(&diagnostic.entity, EntityId::Predicate { qualifier, .. } if qualifier == id)
+        || diagnostic.primary.path == path
 }
 
-fn validate_qualifier_toml(
-    qualifier: &QualifierInspection,
-    toml: &Value,
-    qualifier_ids: &HashSet<&str>,
-    diagnostics: &mut Vec<Diagnostic>,
-) {
-    if toml.get("schema_version").and_then(Value::as_integer) != Some(1) {
-        push_qualifier_error(
-            qualifier,
-            RototoRuleId::QualifierSchemaVersion,
-            "qualifier must declare schema_version = 1",
-            diagnostics,
-        );
-    }
-    if let Some(predicates) = toml.get("predicate").and_then(Value::as_array) {
-        for predicate in predicates {
-            lint_predicate(qualifier, predicate, qualifier_ids, diagnostics);
-        }
-    } else {
-        push_qualifier_error(
-            qualifier,
-            RototoRuleId::QualifierPredicateMissing,
-            "qualifier must contain at least one [[predicate]]",
-            diagnostics,
-        );
-    }
+fn diagnostic_belongs_to_variable(diagnostic: &LintDiagnostic, id: &str, path: &str) -> bool {
+    matches!(&diagnostic.entity, EntityId::Variable { id: diagnostic_id } if diagnostic_id == id)
+        || matches!(&diagnostic.entity, EntityId::Value { variable, .. } if variable == id)
+        || matches!(&diagnostic.entity, EntityId::EnvironmentBlock { variable, .. } if variable == id)
+        || matches!(&diagnostic.entity, EntityId::Rule { variable, .. } if variable == id)
+        || diagnostic.primary.path == path
 }
 
-async fn lint_variable_file(
-    root: &Path,
-    variable: &VariableInspection,
-    environments: &[String],
-    qualifier_ids: &HashSet<&str>,
-    custom_rules: &mut BTreeMap<CustomRuleId, CustomRuleDefinition>,
-    diagnostics: &mut Vec<Diagnostic>,
-) {
-    let path = root.join(&variable.path);
-    let Some(_) = read_toml_diagnostic(
-        &path,
-        RototoRuleId::VariableParseFailed,
-        RototoRuleId::VariableParseFailed,
-        diagnostics,
-    )
-    .await
-    else {
-        return;
-    };
-    let toml = match read_variable_toml_detailed(root, variable).await {
-        Ok(toml) => toml,
-        Err(err) => {
-            push_variable_error(
-                variable,
-                variable_toml_error_rule(err.kind),
-                format!("variable values could not be loaded: {err}"),
-                diagnostics,
-            );
-            return;
-        }
-    };
-
-    let custom_rule_definitions = validate_variable_toml(
-        root,
-        variable,
-        &toml,
-        environments,
-        qualifier_ids,
-        diagnostics,
-    )
-    .await;
-    record_custom_rule_definitions(
-        variable,
-        &custom_rule_definitions,
-        custom_rules,
-        diagnostics,
-    );
-
-    match crate::lua_lint::lint_variable(
-        root,
-        variable,
-        &toml,
-        environments,
-        &custom_rule_definitions,
-    )
-    .await
-    {
-        Ok(custom_diagnostics) => diagnostics.extend(custom_diagnostics),
-        Err(err) => diagnostics.push(Diagnostic::rototo(
-            RototoRuleId::CustomLintFailed,
-            variable.path.display().to_string(),
-            err.to_string(),
-        )),
-    }
+struct LintInput {
+    root: PathBuf,
 }
 
-async fn validate_variable_toml(
-    root: &Path,
-    variable_inspection: &VariableInspection,
-    toml: &Value,
-    environments: &[String],
-    qualifier_ids: &HashSet<&str>,
-    diagnostics: &mut Vec<Diagnostic>,
-) -> Vec<CustomRuleDefinition> {
-    let mut custom_rule_definitions = Vec::new();
+struct LintEngine;
 
-    if toml.get("schema_version").and_then(Value::as_integer) != Some(1) {
-        push_variable_error(
-            variable_inspection,
-            RototoRuleId::VariableSchemaVersion,
-            "variable must declare schema_version = 1",
-            diagnostics,
-        );
+impl LintEngine {
+    fn new() -> Self {
+        Self
     }
 
-    let Some(variable) = toml.as_table() else {
-        return custom_rule_definitions;
-    };
+    async fn lint_workspace(&self, input: LintInput) -> Result<WorkspaceLint> {
+        let mut ctx = LintContext::new(input);
 
-    let has_type = variable.get("type").and_then(Value::as_str).is_some();
-    let schema = variable.get("schema").and_then(Value::as_str);
-    if has_type == schema.is_some() {
-        push_variable_error(
-            variable_inspection,
-            RototoRuleId::VariableTypeOrSchema,
-            "variable must declare exactly one of type or schema",
-            diagnostics,
-        );
+        self.run_discover(&mut ctx).await?;
+        self.run_parse(&mut ctx);
+        self.build_projection(&mut ctx);
+        self.run_project(&mut ctx);
+
+        Ok(ctx.finish())
     }
-    if let Some(lint) = variable.get("lint") {
-        match lint.as_table() {
-            Some(lint) if lint.get("path").and_then(Value::as_str).is_some() => {
-                custom_rule_definitions =
-                    lint_custom_rule_definitions(variable_inspection, lint, diagnostics);
+
+    async fn run_discover(&self, ctx: &mut LintContext) -> Result<()> {
+        let root = match tokio::fs::canonicalize(&ctx.input.root).await {
+            Ok(root) => root,
+            Err(err) => {
+                ctx.diagnostics.push(LintDiagnostic::rototo(
+                    RototoRuleId::WorkspaceNotFound,
+                    LintStage::Discover,
+                    EntityId::Workspace,
+                    DiagnosticLocation::workspace_root(ctx.input.root.display().to_string()),
+                    err.to_string(),
+                ));
+                return Ok(());
             }
-            Some(_) => push_variable_error(
-                variable_inspection,
-                RototoRuleId::VariableLintShape,
-                "variable lint must contain path",
-                diagnostics,
-            ),
-            None => push_variable_error(
-                variable_inspection,
-                RototoRuleId::VariableLintShape,
-                "variable lint must be a table",
-                diagnostics,
-            ),
+        };
+
+        let metadata = match tokio::fs::metadata(&root).await {
+            Ok(metadata) => metadata,
+            Err(err) => {
+                ctx.diagnostics.push(LintDiagnostic::rototo(
+                    RototoRuleId::WorkspaceNotFound,
+                    LintStage::Discover,
+                    EntityId::Workspace,
+                    DiagnosticLocation::workspace_root(root.display().to_string()),
+                    err.to_string(),
+                ));
+                return Ok(());
+            }
+        };
+
+        if !metadata.is_dir() {
+            ctx.diagnostics.push(LintDiagnostic::rototo(
+                RototoRuleId::WorkspaceNotFound,
+                LintStage::Discover,
+                EntityId::Workspace,
+                DiagnosticLocation::workspace_root(root.display().to_string()),
+                "workspace path is not a directory",
+            ));
+            return Ok(());
         }
+
+        ctx.source.root = root;
+        let manifest_path = PathBuf::from(WORKSPACE_MANIFEST);
+        if tokio::fs::metadata(ctx.source.root.join(&manifest_path))
+            .await
+            .is_ok_and(|metadata| metadata.is_file())
+        {
+            ctx.source
+                .add_disk_document(manifest_path, DocumentKind::Manifest)
+                .await;
+        } else {
+            ctx.diagnostics.push(LintDiagnostic::rototo(
+                RototoRuleId::WorkspaceManifestMissing,
+                LintStage::Discover,
+                EntityId::Workspace,
+                DiagnosticLocation::workspace_root(ctx.source.root.display().to_string()),
+                "workspace manifest is missing",
+            ));
+            return Ok(());
+        }
+
+        ctx.source
+            .add_named_toml_documents("qualifiers", DocumentCollection::Qualifiers)
+            .await?;
+        ctx.source
+            .add_named_toml_documents("variables", DocumentCollection::Variables)
+            .await?;
+        ctx.source.add_schema_documents().await?;
+
+        Ok(())
     }
 
-    let Some(values) = variable.get("values").and_then(Value::as_table) else {
-        push_variable_error(
-            variable_inspection,
-            RototoRuleId::VariableValuesMissing,
-            "variable must contain [values]",
-            diagnostics,
-        );
-        return custom_rule_definitions;
-    };
-
-    match schema {
-        Some(schema) => {
-            if let Some(validator) =
-                schema_validator(root, variable_inspection, schema, diagnostics).await
-            {
-                lint_schema_values(variable_inspection, values, &validator, diagnostics);
+    fn run_parse(&self, ctx: &mut LintContext) {
+        for document in ctx.source.documents.values() {
+            if let Some(read_error) = &document.read_error {
+                ctx.diagnostics
+                    .push(read_error_diagnostic(document, read_error));
+                continue;
             }
-        }
-        None => {
-            if let Some(type_name) = variable.get("type").and_then(Value::as_str) {
-                lint_typed_values(variable_inspection, values, type_name, diagnostics);
+
+            match &document.kind {
+                DocumentKind::Manifest
+                | DocumentKind::Qualifier { .. }
+                | DocumentKind::Variable { .. }
+                | DocumentKind::ExternalValue { .. } => {
+                    match ImDocument::parse(document.text.clone()) {
+                        Ok(edit) => match document.text.parse::<TomlValue>() {
+                            Ok(plain) => {
+                                ctx.syntax
+                                    .toml
+                                    .insert(document.id, ParsedToml { edit, plain });
+                            }
+                            Err(err) => {
+                                ctx.diagnostics
+                                    .push(toml_de_parse_diagnostic(document, &err));
+                            }
+                        },
+                        Err(err) => {
+                            ctx.diagnostics
+                                .push(toml_edit_parse_diagnostic(document, &err));
+                        }
+                    }
+                }
+                DocumentKind::Schema => match serde_json::from_str::<JsonValue>(&document.text) {
+                    Ok(value) => {
+                        ctx.syntax.json.insert(document.id, value);
+                    }
+                    Err(err) => {
+                        ctx.diagnostics.push(json_parse_diagnostic(document, &err));
+                    }
+                },
             }
         }
     }
 
-    let Some(env) = variable.get("env").and_then(Value::as_table) else {
-        push_variable_error(
-            variable_inspection,
-            RototoRuleId::VariableEnvMissingDefault,
-            "variable must contain [env._]",
-            diagnostics,
-        );
-        return custom_rule_definitions;
-    };
-    if !env.contains_key("_") {
-        push_variable_error(
-            variable_inspection,
-            RototoRuleId::VariableEnvMissingDefault,
-            "variable must contain [env._]",
-            diagnostics,
-        );
-    }
-
-    for (environment, block) in env {
-        if environment != "_" && !environments.iter().any(|known| known == environment) {
-            push_variable_error(
-                variable_inspection,
-                RototoRuleId::VariableUnknownEnvironment,
-                format!("variable references undeclared environment: {environment}"),
-                diagnostics,
-            );
-        }
-        lint_environment_block(
-            variable_inspection,
-            block,
-            values,
-            qualifier_ids,
-            diagnostics,
-        );
-    }
-
-    custom_rule_definitions
-}
-
-fn lint_custom_rule_definitions(
-    variable: &VariableInspection,
-    lint: &toml::map::Map<String, Value>,
-    diagnostics: &mut Vec<Diagnostic>,
-) -> Vec<CustomRuleDefinition> {
-    let Some(rules) = lint.get("rule") else {
-        return Vec::new();
-    };
-    let Some(rules) = rules.as_array() else {
-        push_variable_error(
-            variable,
-            RototoRuleId::VariableLintShape,
-            "variable lint rules must use [[lint.rule]] tables",
-            diagnostics,
-        );
-        return Vec::new();
-    };
-
-    let mut definitions = Vec::new();
-    for rule in rules {
-        let Some(rule) = rule.as_table() else {
-            push_variable_error(
-                variable,
-                RototoRuleId::VariableLintShape,
-                "variable lint rule must be a table",
-                diagnostics,
-            );
-            continue;
-        };
-        let Some(id) = rule.get("id").and_then(Value::as_str) else {
-            push_variable_error(
-                variable,
-                RototoRuleId::VariableLintShape,
-                "variable lint rule must contain id",
-                diagnostics,
-            );
-            continue;
-        };
-        let Some(title) = rule.get("title").and_then(Value::as_str) else {
-            push_variable_error(
-                variable,
-                RototoRuleId::VariableLintShape,
-                "variable lint rule must contain title",
-                diagnostics,
-            );
-            continue;
-        };
-        let Some(help) = rule.get("help").and_then(Value::as_str) else {
-            push_variable_error(
-                variable,
-                RototoRuleId::VariableLintShape,
-                "variable lint rule must contain help",
-                diagnostics,
-            );
-            continue;
-        };
-
-        match CustomRuleId::parse(id) {
-            Ok(rule) => definitions.push(CustomRuleDefinition::new(rule, title, help)),
-            Err(err) => push_variable_error(
-                variable,
-                RototoRuleId::CustomLintInvalidRule,
-                format!("custom lint rule id is invalid: {id}: {err}"),
-                diagnostics,
-            ),
-        }
-    }
-    definitions
-}
-
-fn record_custom_rule_definitions(
-    variable: &VariableInspection,
-    definitions: &[CustomRuleDefinition],
-    custom_rules: &mut BTreeMap<CustomRuleId, CustomRuleDefinition>,
-    diagnostics: &mut Vec<Diagnostic>,
-) {
-    for definition in definitions {
-        match custom_rules.get(&definition.rule) {
-            Some(existing) if existing.same_metadata(definition) => {}
-            Some(_) => push_variable_error(
-                variable,
-                RototoRuleId::CustomLintRuleConflict,
-                format!("custom lint rule metadata conflicts: {}", definition.rule),
-                diagnostics,
-            ),
-            None => {
-                custom_rules.insert(definition.rule.clone(), definition.clone());
-            }
-        }
-    }
-}
-
-fn variable_toml_error_rule(kind: VariableTomlReadErrorKind) -> RototoRuleId {
-    match kind {
-        VariableTomlReadErrorKind::Read | VariableTomlReadErrorKind::Parse => {
-            RototoRuleId::VariableParseFailed
-        }
-        VariableTomlReadErrorKind::ExternalValuesLoad => {
-            RototoRuleId::VariableExternalValuesLoadFailed
-        }
-        VariableTomlReadErrorKind::ExternalValueParse => {
-            RototoRuleId::VariableExternalValueParseFailed
-        }
-        VariableTomlReadErrorKind::ExternalValueDuplicate => {
-            RototoRuleId::VariableExternalValueDuplicate
-        }
-    }
-}
-
-fn sort_diagnostics(diagnostics: &mut [Diagnostic]) {
-    diagnostics.sort_by(|left, right| {
-        (
-            left.path.as_str(),
-            left.rule.as_string(),
-            left.message.as_str(),
-        )
-            .cmp(&(
-                right.path.as_str(),
-                right.rule.as_string(),
-                right.message.as_str(),
-            ))
-    });
-}
-
-fn lint_environment_block(
-    variable: &VariableInspection,
-    block: &Value,
-    values: &toml::map::Map<String, Value>,
-    qualifier_ids: &HashSet<&str>,
-    diagnostics: &mut Vec<Diagnostic>,
-) {
-    let Some(table) = block.as_table() else {
-        push_variable_error(
-            variable,
-            RototoRuleId::VariableEnvShape,
-            "environment block must be a table",
-            diagnostics,
-        );
-        return;
-    };
-
-    let Some(value) = table.get("value").and_then(Value::as_str) else {
-        push_variable_error(
-            variable,
-            RototoRuleId::VariableEnvShape,
-            "environment block must reference a value",
-            diagnostics,
-        );
-        return;
-    };
-    if !values.contains_key(value) {
-        push_variable_error(
-            variable,
-            RototoRuleId::VariableUnknownValue,
-            format!("environment references unknown value: {value}"),
-            diagnostics,
-        );
-    }
-
-    if let Some(rules) = table.get("rule").and_then(Value::as_array) {
-        for rule in rules {
-            let Some(rule) = rule.as_table() else {
-                push_variable_error(
-                    variable,
-                    RototoRuleId::VariableRuleShape,
-                    "rule must be a table",
-                    diagnostics,
-                );
+    fn build_projection(&self, ctx: &mut LintContext) {
+        for document in ctx.source.documents.values() {
+            let Some(toml) = ctx.syntax.toml.get(&document.id) else {
                 continue;
             };
 
-            match rule.get("qualifier").and_then(Value::as_str) {
-                Some(qualifier) if qualifier_ids.contains(qualifier) => {}
-                Some(qualifier) => push_variable_error(
-                    variable,
-                    RototoRuleId::VariableRuleUnknownQualifier,
-                    format!("rule references unknown qualifier: {qualifier}"),
-                    diagnostics,
-                ),
-                None => push_variable_error(
-                    variable,
-                    RototoRuleId::VariableRuleShape,
-                    "rule must reference a qualifier",
-                    diagnostics,
-                ),
+            match &document.kind {
+                DocumentKind::Manifest => {
+                    ctx.index.manifest = Some(project_manifest(document, toml));
+                }
+                DocumentKind::Qualifier { id } => {
+                    ctx.index
+                        .qualifiers
+                        .insert(id.clone(), project_qualifier(document, toml, id));
+                }
+                DocumentKind::Variable { id } => {
+                    ctx.index.variables.insert(
+                        id.clone(),
+                        project_variable(document, toml, id, &ctx.source),
+                    );
+                }
+                DocumentKind::ExternalValue {
+                    variable_id,
+                    value_key,
+                } => {
+                    ctx.index
+                        .external_values
+                        .entry(variable_id.clone())
+                        .or_default()
+                        .insert(value_key.clone());
+                }
+                DocumentKind::Schema => {}
             }
+        }
+    }
 
-            match rule.get("value").and_then(Value::as_str) {
-                Some(value) if values.contains_key(value) => {}
-                Some(value) => push_variable_error(
-                    variable,
-                    RototoRuleId::VariableUnknownValue,
-                    format!("rule references unknown value: {value}"),
-                    diagnostics,
-                ),
-                None => push_variable_error(
-                    variable,
-                    RototoRuleId::VariableRuleShape,
-                    "rule must reference a value",
-                    diagnostics,
-                ),
-            }
+    fn run_project(&self, ctx: &mut LintContext) {
+        lint_manifest_shape(ctx);
+        lint_qualifier_shapes(ctx);
+        lint_variable_shapes(ctx);
+    }
+}
+
+struct LintContext {
+    input: LintInput,
+    source: SourceStore,
+    syntax: SyntaxIndex,
+    index: SemanticIndex,
+    diagnostics: Vec<LintDiagnostic>,
+}
+
+impl LintContext {
+    fn new(input: LintInput) -> Self {
+        Self {
+            source: SourceStore::new(input.root.clone()),
+            input,
+            syntax: SyntaxIndex::default(),
+            index: SemanticIndex::default(),
+            diagnostics: Vec::new(),
+        }
+    }
+
+    fn finish(mut self) -> WorkspaceLint {
+        sort_diagnostics(&mut self.diagnostics);
+        let documents = self.source.document_summaries();
+        WorkspaceLint {
+            root: self.source.root,
+            documents,
+            diagnostics: self.diagnostics,
         }
     }
 }
 
-fn lint_predicate(
-    qualifier: &QualifierInspection,
-    predicate: &Value,
-    qualifier_ids: &HashSet<&str>,
-    diagnostics: &mut Vec<Diagnostic>,
-) {
-    let Some(predicate) = predicate.as_table() else {
-        push_qualifier_error(
-            qualifier,
-            RototoRuleId::QualifierPredicateShape,
-            "predicate must be a table",
-            diagnostics,
-        );
-        return;
+#[derive(Default)]
+struct SyntaxIndex {
+    toml: BTreeMap<DocId, ParsedToml>,
+    json: BTreeMap<DocId, JsonValue>,
+}
+
+struct ParsedToml {
+    edit: ImDocument<String>,
+    plain: TomlValue,
+}
+
+#[derive(Default)]
+struct SemanticIndex {
+    manifest: Option<ManifestNode>,
+    qualifiers: BTreeMap<String, QualifierNode>,
+    variables: BTreeMap<String, VariableNode>,
+    external_values: BTreeMap<String, BTreeSet<String>>,
+}
+
+struct ManifestNode {
+    doc: DocId,
+    location: DiagnosticLocation,
+}
+
+struct QualifierNode {
+    id: String,
+    schema_version: ProjectField<i64>,
+    predicates: PredicateCollection,
+}
+
+struct PredicateNode {
+    index: usize,
+    location: DiagnosticLocation,
+    attribute: ProjectField<String>,
+    op: ProjectField<PredicateOp>,
+    value: Option<ValueShapeNode>,
+    salt: Option<ProjectField<String>>,
+    range: Option<BucketRangeNode>,
+    has_bucket_value: bool,
+}
+
+enum PredicateCollection {
+    Missing { location: DiagnosticLocation },
+    Invalid { location: DiagnosticLocation },
+    Predicates(Vec<PredicateNode>),
+}
+
+#[derive(Clone)]
+enum PredicateOp {
+    Eq,
+    Neq,
+    In,
+    NotIn,
+    Gt,
+    Gte,
+    Lt,
+    Lte,
+    Bucket,
+    Unknown(String),
+}
+
+struct BucketRangeNode {
+    location: DiagnosticLocation,
+    is_array: bool,
+    len: usize,
+    start: Option<i64>,
+    end: Option<i64>,
+}
+
+struct VariableNode {
+    id: String,
+    location: DiagnosticLocation,
+    schema_version: ProjectField<i64>,
+    type_source: TypeSourceNode,
+    values: ValuesNode,
+    environments: EnvironmentCollection,
+}
+
+enum TypeSourceNode {
+    Primitive(Spanned<String>),
+    Schema(Spanned<String>),
+    Missing { location: DiagnosticLocation },
+    Conflict { location: DiagnosticLocation },
+    Invalid { location: DiagnosticLocation },
+}
+
+struct ValuesNode {
+    location: DiagnosticLocation,
+    inline_keys: BTreeSet<String>,
+    external_keys: BTreeSet<String>,
+    invalid_shape: bool,
+}
+
+enum EnvironmentCollection {
+    Missing { location: DiagnosticLocation },
+    Invalid { location: DiagnosticLocation },
+    Environments(BTreeMap<String, EnvironmentBlockNode>),
+}
+
+struct EnvironmentBlockNode {
+    environment: String,
+    value: ProjectField<String>,
+    rules: RuleCollection,
+}
+
+enum RuleCollection {
+    Rules(Vec<VariableRuleNode>),
+    Invalid { location: DiagnosticLocation },
+}
+
+struct VariableRuleNode {
+    index: usize,
+    location: DiagnosticLocation,
+    qualifier: ProjectField<String>,
+    value: ProjectField<String>,
+    invalid_shape: bool,
+}
+
+#[derive(Clone)]
+struct Spanned<T> {
+    value: T,
+    location: DiagnosticLocation,
+}
+
+enum ProjectField<T> {
+    Present(Spanned<T>),
+    Invalid { location: DiagnosticLocation },
+    Missing { location: DiagnosticLocation },
+}
+
+impl<T> ProjectField<T> {
+    fn location(&self) -> DiagnosticLocation {
+        match self {
+            Self::Present(value) => value.location.clone(),
+            Self::Invalid { location } | Self::Missing { location } => location.clone(),
+        }
+    }
+}
+
+struct ValueShapeNode {
+    location: DiagnosticLocation,
+    shape: ValueShape,
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum ValueShape {
+    String,
+    Integer,
+    Float,
+    Boolean,
+    Array,
+    Table,
+}
+
+fn project_manifest(document: &SourceDocument, _toml: &ParsedToml) -> ManifestNode {
+    ManifestNode {
+        doc: document.id,
+        location: document.document_location(),
+    }
+}
+
+fn project_qualifier(document: &SourceDocument, toml: &ParsedToml, id: &str) -> QualifierNode {
+    let root = toml.edit.as_table();
+    let location = document.document_location();
+    let schema_version = integer_field(document, root, "schema_version", location.clone());
+    let predicates = project_predicates(document, root);
+
+    QualifierNode {
+        id: id.to_owned(),
+        schema_version,
+        predicates,
+    }
+}
+
+fn project_predicates(document: &SourceDocument, root: &Table) -> PredicateCollection {
+    let Some(item) = root.get("predicate") else {
+        return PredicateCollection::Missing {
+            location: document.document_location(),
+        };
+    };
+    let Some(predicates) = item.as_array_of_tables() else {
+        return PredicateCollection::Invalid {
+            location: item_location(document, item),
+        };
     };
 
-    let Some(attribute) = predicate.get("attribute").and_then(Value::as_str) else {
-        push_qualifier_error(
-            qualifier,
-            RototoRuleId::QualifierPredicateShape,
-            "predicate must contain attribute",
-            diagnostics,
-        );
-        return;
-    };
-    let Some(op) = predicate.get("op").and_then(Value::as_str) else {
-        push_qualifier_error(
-            qualifier,
-            RototoRuleId::QualifierPredicateShape,
-            "predicate must contain op",
-            diagnostics,
-        );
-        return;
-    };
-    if !matches!(
+    PredicateCollection::Predicates(
+        predicates
+            .iter()
+            .enumerate()
+            .map(|(index, table)| project_predicate(document, index, table))
+            .collect(),
+    )
+}
+
+fn project_predicate(document: &SourceDocument, index: usize, table: &Table) -> PredicateNode {
+    let location = table_location(document, table);
+    let attribute = string_field(document, table, "attribute", location.clone());
+    let op = predicate_op_field(document, table, location.clone());
+    let value = table
+        .get("value")
+        .map(|item| project_value_shape(document, item));
+    let salt = table
+        .get("salt")
+        .map(|_| string_field(document, table, "salt", location.clone()));
+    let range = table
+        .get("range")
+        .map(|item| project_bucket_range(document, item));
+    let has_bucket_value = table.contains_key("value");
+
+    PredicateNode {
+        index,
+        location,
+        attribute,
         op,
-        "eq" | "neq" | "in" | "not_in" | "gt" | "gte" | "lt" | "lte" | "bucket"
-    ) {
-        push_qualifier_error(
-            qualifier,
-            RototoRuleId::QualifierPredicateUnknownOp,
-            format!("predicate has unknown op: {op}"),
-            diagnostics,
-        );
+        value,
+        salt,
+        range,
+        has_bucket_value,
     }
+}
 
-    if let Some(referenced_qualifier) = attribute.strip_prefix("qualifier.")
-        && !qualifier_ids.contains(referenced_qualifier)
-    {
-        push_qualifier_error(
-            qualifier,
-            RototoRuleId::QualifierPredicateUnknownQualifier,
-            format!("predicate references unknown qualifier: {referenced_qualifier}"),
-            diagnostics,
-        );
+fn project_variable(
+    document: &SourceDocument,
+    toml: &ParsedToml,
+    id: &str,
+    source: &SourceStore,
+) -> VariableNode {
+    let root = toml.edit.as_table();
+    let location = document.document_location();
+    let schema_version = integer_field(document, root, "schema_version", location.clone());
+    let type_source = project_type_source(document, root, location.clone());
+    let values = project_values(document, root, id, source);
+    let environments = project_environments(document, root, id);
+
+    VariableNode {
+        id: id.to_owned(),
+        location,
+        schema_version,
+        type_source,
+        values,
+        environments,
     }
+}
 
-    if op == "bucket" {
-        if predicate.get("salt").and_then(Value::as_str).is_none() {
-            push_qualifier_error(
-                qualifier,
-                RototoRuleId::QualifierPredicateBucket,
-                "bucket predicate must contain salt",
-                diagnostics,
-            );
-        }
-        let Some(range) = predicate.get("range").and_then(Value::as_array) else {
-            push_qualifier_error(
-                qualifier,
-                RototoRuleId::QualifierPredicateBucket,
-                "bucket predicate must contain range",
-                diagnostics,
-            );
-            return;
+fn project_type_source(
+    document: &SourceDocument,
+    root: &Table,
+    location: DiagnosticLocation,
+) -> TypeSourceNode {
+    let type_item = root.get("type");
+    let schema_item = root.get("schema");
+    match (type_item, schema_item) {
+        (None, None) => TypeSourceNode::Missing { location },
+        (Some(_type_item), Some(schema_item)) => TypeSourceNode::Conflict {
+            location: item_location(document, schema_item),
+        },
+        (Some(item), None) => match item.as_str() {
+            Some(type_name) => TypeSourceNode::Primitive(Spanned {
+                value: type_name.to_owned(),
+                location: item_location(document, item),
+            }),
+            None => TypeSourceNode::Invalid {
+                location: item_location(document, item),
+            },
+        },
+        (None, Some(item)) => match item.as_str() {
+            Some(schema) => TypeSourceNode::Schema(Spanned {
+                value: schema.to_owned(),
+                location: item_location(document, item),
+            }),
+            None => TypeSourceNode::Invalid {
+                location: item_location(document, item),
+            },
+        },
+    }
+}
+
+fn project_values(
+    document: &SourceDocument,
+    root: &Table,
+    id: &str,
+    source: &SourceStore,
+) -> ValuesNode {
+    let external_keys = source.external_value_keys(id);
+    let Some(item) = root.get("values") else {
+        return ValuesNode {
+            location: document.document_location(),
+            inline_keys: BTreeSet::new(),
+            external_keys,
+            invalid_shape: false,
         };
-        if range.len() != 2 {
-            push_qualifier_error(
-                qualifier,
-                RototoRuleId::QualifierPredicateBucket,
-                "bucket range must contain two integers",
+    };
+    let location = item_location(document, item);
+    let Some(table) = item.as_table() else {
+        return ValuesNode {
+            location,
+            inline_keys: BTreeSet::new(),
+            external_keys,
+            invalid_shape: true,
+        };
+    };
+
+    ValuesNode {
+        location,
+        inline_keys: table.iter().map(|(key, _)| key.to_owned()).collect(),
+        external_keys,
+        invalid_shape: false,
+    }
+}
+
+fn project_environments(
+    document: &SourceDocument,
+    root: &Table,
+    variable_id: &str,
+) -> EnvironmentCollection {
+    let Some(item) = root.get("env") else {
+        return EnvironmentCollection::Missing {
+            location: document.document_location(),
+        };
+    };
+    let Some(table) = item.as_table() else {
+        return EnvironmentCollection::Invalid {
+            location: item_location(document, item),
+        };
+    };
+
+    EnvironmentCollection::Environments(
+        table
+            .iter()
+            .map(|(environment, item)| {
+                (
+                    environment.to_owned(),
+                    project_environment_block(document, variable_id, environment, item),
+                )
+            })
+            .collect(),
+    )
+}
+
+fn project_environment_block(
+    document: &SourceDocument,
+    variable_id: &str,
+    environment: &str,
+    item: &Item,
+) -> EnvironmentBlockNode {
+    let location = item_location(document, item);
+    let Some(table) = item.as_table() else {
+        return EnvironmentBlockNode {
+            environment: environment.to_owned(),
+            value: ProjectField::Invalid {
+                location: location.clone(),
+            },
+            rules: RuleCollection::Rules(Vec::new()),
+        };
+    };
+
+    EnvironmentBlockNode {
+        environment: environment.to_owned(),
+        value: string_field(document, table, "value", location.clone()),
+        rules: project_rules(document, variable_id, environment, table),
+    }
+}
+
+fn project_rules(
+    document: &SourceDocument,
+    variable_id: &str,
+    environment: &str,
+    table: &Table,
+) -> RuleCollection {
+    let Some(item) = table.get("rule") else {
+        return RuleCollection::Rules(Vec::new());
+    };
+
+    if let Some(rules) = item.as_array_of_tables() {
+        return RuleCollection::Rules(
+            rules
+                .iter()
+                .enumerate()
+                .map(|(index, table)| {
+                    project_rule_from_table(document, variable_id, environment, index, table)
+                })
+                .collect(),
+        );
+    }
+
+    if let Some(array) = item.as_array() {
+        return RuleCollection::Rules(
+            array
+                .iter()
+                .enumerate()
+                .map(|(index, value)| {
+                    project_rule_from_value(document, variable_id, environment, index, value)
+                })
+                .collect(),
+        );
+    }
+
+    RuleCollection::Invalid {
+        location: item_location(document, item),
+    }
+}
+
+fn project_rule_from_table(
+    document: &SourceDocument,
+    variable_id: &str,
+    environment: &str,
+    index: usize,
+    table: &Table,
+) -> VariableRuleNode {
+    let location = table_location(document, table);
+    project_rule_from_table_like(
+        document,
+        variable_id,
+        environment,
+        index,
+        table,
+        location,
+        false,
+    )
+}
+
+fn project_rule_from_value(
+    document: &SourceDocument,
+    variable_id: &str,
+    environment: &str,
+    index: usize,
+    value: &EditValue,
+) -> VariableRuleNode {
+    let location = value_location(document, value);
+    let Some(table) = value.as_inline_table() else {
+        return VariableRuleNode {
+            index,
+            location: location.clone(),
+            qualifier: ProjectField::Invalid {
+                location: location.clone(),
+            },
+            value: ProjectField::Invalid { location },
+            invalid_shape: true,
+        };
+    };
+    project_rule_from_table_like(
+        document,
+        variable_id,
+        environment,
+        index,
+        table,
+        location,
+        false,
+    )
+}
+
+fn project_rule_from_table_like(
+    document: &SourceDocument,
+    _variable_id: &str,
+    _environment: &str,
+    index: usize,
+    table: &dyn TableLike,
+    location: DiagnosticLocation,
+    invalid_shape: bool,
+) -> VariableRuleNode {
+    VariableRuleNode {
+        index,
+        location: location.clone(),
+        qualifier: string_field(document, table, "qualifier", location.clone()),
+        value: string_field(document, table, "value", location.clone()),
+        invalid_shape,
+    }
+}
+
+fn integer_field(
+    document: &SourceDocument,
+    table: &dyn TableLike,
+    key: &str,
+    missing_location: DiagnosticLocation,
+) -> ProjectField<i64> {
+    match table.get(key) {
+        Some(item) => match item.as_integer() {
+            Some(value) => ProjectField::Present(Spanned {
+                value,
+                location: item_location(document, item),
+            }),
+            None => ProjectField::Invalid {
+                location: item_location(document, item),
+            },
+        },
+        None => ProjectField::Missing {
+            location: missing_location,
+        },
+    }
+}
+
+fn string_field(
+    document: &SourceDocument,
+    table: &dyn TableLike,
+    key: &str,
+    missing_location: DiagnosticLocation,
+) -> ProjectField<String> {
+    match table.get(key) {
+        Some(item) => match item.as_str() {
+            Some(value) => ProjectField::Present(Spanned {
+                value: value.to_owned(),
+                location: item_location(document, item),
+            }),
+            None => ProjectField::Invalid {
+                location: item_location(document, item),
+            },
+        },
+        None => ProjectField::Missing {
+            location: missing_location,
+        },
+    }
+}
+
+fn predicate_op_field(
+    document: &SourceDocument,
+    table: &Table,
+    missing_location: DiagnosticLocation,
+) -> ProjectField<PredicateOp> {
+    match string_field(document, table, "op", missing_location) {
+        ProjectField::Present(op) => ProjectField::Present(Spanned {
+            value: PredicateOp::from_str(&op.value),
+            location: op.location,
+        }),
+        ProjectField::Invalid { location } => ProjectField::Invalid { location },
+        ProjectField::Missing { location } => ProjectField::Missing { location },
+    }
+}
+
+impl PredicateOp {
+    fn from_str(op: &str) -> Self {
+        match op {
+            "eq" => Self::Eq,
+            "neq" => Self::Neq,
+            "in" => Self::In,
+            "not_in" => Self::NotIn,
+            "gt" => Self::Gt,
+            "gte" => Self::Gte,
+            "lt" => Self::Lt,
+            "lte" => Self::Lte,
+            "bucket" => Self::Bucket,
+            op => Self::Unknown(op.to_owned()),
+        }
+    }
+}
+
+fn project_value_shape(document: &SourceDocument, item: &Item) -> ValueShapeNode {
+    ValueShapeNode {
+        location: item_location(document, item),
+        shape: value_shape(item),
+    }
+}
+
+fn project_bucket_range(document: &SourceDocument, item: &Item) -> BucketRangeNode {
+    let location = item_location(document, item);
+    let Some(array) = item.as_array() else {
+        return BucketRangeNode {
+            location,
+            is_array: false,
+            len: 0,
+            start: None,
+            end: None,
+        };
+    };
+    let values: Vec<_> = array.iter().collect();
+    BucketRangeNode {
+        location,
+        is_array: true,
+        len: values.len(),
+        start: values.first().and_then(|value| value.as_integer()),
+        end: values.get(1).and_then(|value| value.as_integer()),
+    }
+}
+
+fn value_shape(item: &Item) -> ValueShape {
+    if item.as_str().is_some() {
+        ValueShape::String
+    } else if item.as_integer().is_some() {
+        ValueShape::Integer
+    } else if item.as_float().is_some() {
+        ValueShape::Float
+    } else if item.as_bool().is_some() {
+        ValueShape::Boolean
+    } else if item.as_array().is_some() {
+        ValueShape::Array
+    } else {
+        ValueShape::Table
+    }
+}
+
+fn lint_manifest_shape(ctx: &mut LintContext) {
+    let Some(manifest) = &ctx.index.manifest else {
+        return;
+    };
+    let Some(parsed) = ctx.syntax.toml.get(&manifest.doc) else {
+        return;
+    };
+
+    if let Err(err) = workspace_environments(&parsed.plain) {
+        ctx.diagnostics.push(LintDiagnostic::rototo(
+            RototoRuleId::WorkspaceManifestSchemaFailed,
+            LintStage::Project,
+            EntityId::Manifest,
+            manifest.location.clone(),
+            err.to_string(),
+        ));
+    }
+}
+
+fn lint_qualifier_shapes(ctx: &mut LintContext) {
+    let diagnostics = &mut ctx.diagnostics;
+    for qualifier in ctx.index.qualifiers.values() {
+        if !field_is_integer(&qualifier.schema_version, 1) {
+            push_project_diagnostic(
                 diagnostics,
+                RototoRuleId::QualifierSchemaVersion,
+                EntityId::Qualifier {
+                    id: qualifier.id.clone(),
+                },
+                qualifier.schema_version.location(),
+                "qualifier must declare schema_version = 1",
+            );
+        }
+
+        match &qualifier.predicates {
+            PredicateCollection::Missing { location } => push_project_diagnostic(
+                diagnostics,
+                RototoRuleId::QualifierPredicateMissing,
+                EntityId::Qualifier {
+                    id: qualifier.id.clone(),
+                },
+                location.clone(),
+                "qualifier must contain at least one [[predicate]]",
+            ),
+            PredicateCollection::Invalid { location } => push_project_diagnostic(
+                diagnostics,
+                RototoRuleId::QualifierPredicateShape,
+                EntityId::Qualifier {
+                    id: qualifier.id.clone(),
+                },
+                location.clone(),
+                "predicate must use [[predicate]] tables",
+            ),
+            PredicateCollection::Predicates(predicates) => {
+                for predicate in predicates {
+                    lint_predicate_shape(diagnostics, qualifier, predicate);
+                }
+            }
+        }
+    }
+}
+
+fn lint_predicate_shape(
+    diagnostics: &mut Vec<LintDiagnostic>,
+    qualifier: &QualifierNode,
+    predicate: &PredicateNode,
+) {
+    let entity = EntityId::Predicate {
+        qualifier: qualifier.id.clone(),
+        index: predicate.index,
+    };
+    if field_is_not_present(&predicate.attribute) {
+        push_project_diagnostic(
+            diagnostics,
+            RototoRuleId::QualifierPredicateShape,
+            entity.clone(),
+            predicate.attribute.location(),
+            "predicate must contain attribute",
+        );
+        return;
+    }
+
+    let op = match &predicate.op {
+        ProjectField::Present(op) => &op.value,
+        ProjectField::Invalid { location } | ProjectField::Missing { location } => {
+            push_project_diagnostic(
+                diagnostics,
+                RototoRuleId::QualifierPredicateShape,
+                entity,
+                location.clone(),
+                "predicate must contain op",
             );
             return;
         }
-        let start = range[0].as_integer();
-        let end = range[1].as_integer();
-        match (start, end) {
+    };
+
+    if let PredicateOp::Unknown(op) = op {
+        push_project_diagnostic(
+            diagnostics,
+            RototoRuleId::QualifierPredicateUnknownOp,
+            entity.clone(),
+            predicate.op.location(),
+            format!("predicate has unknown op: {op}"),
+        );
+    }
+
+    if matches!(op, PredicateOp::Bucket) {
+        lint_bucket_predicate(diagnostics, predicate, entity);
+    } else {
+        lint_comparison_predicate(diagnostics, predicate, op, entity);
+    }
+}
+
+fn lint_bucket_predicate(
+    diagnostics: &mut Vec<LintDiagnostic>,
+    predicate: &PredicateNode,
+    entity: EntityId,
+) {
+    if predicate.salt.as_ref().is_none_or(field_is_not_present) {
+        let location = predicate
+            .salt
+            .as_ref()
+            .map(ProjectField::location)
+            .unwrap_or_else(|| predicate.location.clone());
+        push_project_diagnostic(
+            diagnostics,
+            RototoRuleId::QualifierPredicateBucket,
+            entity.clone(),
+            location,
+            "bucket predicate must contain salt",
+        );
+    }
+
+    let Some(range) = &predicate.range else {
+        push_project_diagnostic(
+            diagnostics,
+            RototoRuleId::QualifierPredicateBucket,
+            entity.clone(),
+            predicate.location.clone(),
+            "bucket predicate must contain range",
+        );
+        return;
+    };
+
+    if !range.is_array {
+        push_project_diagnostic(
+            diagnostics,
+            RototoRuleId::QualifierPredicateBucket,
+            entity.clone(),
+            range.location.clone(),
+            "bucket range must be a list",
+        );
+    } else if range.len != 2 {
+        push_project_diagnostic(
+            diagnostics,
+            RototoRuleId::QualifierPredicateBucket,
+            entity.clone(),
+            range.location.clone(),
+            "bucket range must contain two integers",
+        );
+    } else {
+        match (range.start, range.end) {
             (Some(start), Some(end)) if 0 <= start && start < end && end <= 10_000 => {}
-            _ => push_qualifier_error(
-                qualifier,
-                RototoRuleId::QualifierPredicateBucket,
-                "bucket range must satisfy 0 <= start < end <= 10000",
+            _ => push_project_diagnostic(
                 diagnostics,
+                RototoRuleId::QualifierPredicateBucket,
+                entity.clone(),
+                range.location.clone(),
+                "bucket range must satisfy 0 <= start < end <= 10000",
             ),
         }
-        if predicate.contains_key("value") {
-            push_qualifier_error(
-                qualifier,
-                RototoRuleId::QualifierPredicateBucket,
-                "bucket predicate must not contain value",
-                diagnostics,
-            );
-        }
-    } else {
-        let Some(value) = predicate.get("value") else {
-            push_qualifier_error(
-                qualifier,
-                RototoRuleId::QualifierPredicateValue,
-                "predicate must contain value",
-                diagnostics,
-            );
-            return;
-        };
-        match op {
-            "in" | "not_in" if !value.is_array() => {
-                push_qualifier_error(
-                    qualifier,
-                    RototoRuleId::QualifierPredicateValue,
-                    format!("{op} predicate value must be a list"),
-                    diagnostics,
-                );
-            }
-            "gt" | "gte" | "lt" | "lte" if !value_is_number(value) => {
-                push_qualifier_error(
-                    qualifier,
-                    RototoRuleId::QualifierPredicateValue,
-                    format!("{op} predicate value must be a number"),
-                    diagnostics,
-                );
-            }
-            _ => {}
-        }
-    }
-}
-
-async fn context_schema_validator(
-    root: &Path,
-    manifest: &Value,
-    diagnostics: &mut Vec<Diagnostic>,
-) -> Option<serde_json::Value> {
-    let context = manifest.get("context")?;
-    let Some(context) = context.as_table() else {
-        diagnostics.push(Diagnostic::rototo(
-            RototoRuleId::WorkspaceContextSchemaRef,
-            WORKSPACE_MANIFEST,
-            "[context] must be a table",
-        ));
-        return None;
-    };
-    let Some(schema_ref) = context.get("schema").and_then(Value::as_str) else {
-        diagnostics.push(Diagnostic::rototo(
-            RototoRuleId::WorkspaceContextSchemaRef,
-            WORKSPACE_MANIFEST,
-            "[context] must declare schema",
-        ));
-        return None;
-    };
-    if !context_schema_ref_is_safe(schema_ref) {
-        diagnostics.push(Diagnostic::rototo(
-            RototoRuleId::WorkspaceContextSchemaRef,
-            WORKSPACE_MANIFEST,
-            "context schema path must be a relative path inside the workspace",
-        ));
-        return None;
     }
 
-    let schema_path = root.join(schema_ref);
-    let text = match tokio::fs::read_to_string(&schema_path).await {
-        Ok(text) => text,
-        Err(err) => {
-            diagnostics.push(Diagnostic::rototo(
-                RototoRuleId::WorkspaceContextSchemaRef,
-                schema_ref,
-                format!("context schema could not be read: {err}"),
-            ));
-            return None;
-        }
-    };
-    let schema = match serde_json::from_str::<serde_json::Value>(&text) {
-        Ok(schema) => schema,
-        Err(err) => {
-            diagnostics.push(Diagnostic::rototo(
-                RototoRuleId::WorkspaceContextSchemaRef,
-                schema_ref,
-                format!("context schema could not be parsed: {err}"),
-            ));
-            return None;
-        }
-    };
-    if let Err(err) = jsonschema::validator_for(&schema) {
-        diagnostics.push(Diagnostic::rototo(
-            RototoRuleId::WorkspaceContextSchemaRef,
-            schema_ref,
-            format!("context schema is invalid: {err}"),
-        ));
-        return None;
-    }
-    Some(schema)
-}
-
-async fn lint_context_schema_references(
-    root: &Path,
-    qualifiers: &[QualifierInspection],
-    schema: &serde_json::Value,
-    diagnostics: &mut Vec<Diagnostic>,
-) {
-    for qualifier in qualifiers {
-        let path = root.join(&qualifier.path);
-        let Ok(toml) = tokio::fs::read_to_string(&path).await else {
-            continue;
-        };
-        let Ok(toml) = toml.parse::<Value>() else {
-            continue;
-        };
-        let Some(predicates) = toml.get("predicate").and_then(Value::as_array) else {
-            continue;
-        };
-
-        for predicate in predicates {
-            let Some(attribute) = predicate
-                .as_table()
-                .and_then(|predicate| predicate.get("attribute"))
-                .and_then(Value::as_str)
-            else {
-                continue;
-            };
-            if attribute.starts_with("qualifier.") || schema_declares_path(schema, attribute) {
-                continue;
-            }
-            diagnostics.push(Diagnostic::rototo(
-                RototoRuleId::WorkspaceContextSchemaAttribute,
-                qualifier.path.display().to_string(),
-                format!("context schema does not declare attribute: {attribute}"),
-            ));
-        }
-    }
-}
-
-fn schema_declares_path(schema: &serde_json::Value, path: &str) -> bool {
-    let mut current = schema;
-    for segment in path.split('.') {
-        if accepts_any_object_property(current) {
-            return true;
-        }
-        let Some(properties) = current
-            .get("properties")
-            .and_then(serde_json::Value::as_object)
-        else {
-            return false;
-        };
-        let Some(next) = properties.get(segment) else {
-            return false;
-        };
-        current = next;
-    }
-    true
-}
-
-fn accepts_any_object_property(schema: &serde_json::Value) -> bool {
-    schema.get("type").and_then(serde_json::Value::as_str) == Some("object")
-        && schema.get("properties").is_none()
-        && schema.get("additionalProperties") != Some(&serde_json::Value::Bool(false))
-}
-
-fn context_schema_ref_is_safe(schema_ref: &str) -> bool {
-    let schema_ref = Path::new(schema_ref);
-    !schema_ref.as_os_str().is_empty()
-        && !schema_ref.is_absolute()
-        && schema_ref
-            .components()
-            .all(|component| !matches!(component, Component::ParentDir))
-}
-
-fn lint_typed_values(
-    variable: &VariableInspection,
-    values: &toml::map::Map<String, Value>,
-    type_name: &str,
-    diagnostics: &mut Vec<Diagnostic>,
-) {
-    if !matches!(type_name, "bool" | "int" | "number" | "string" | "list") {
-        push_variable_error(
-            variable,
-            RototoRuleId::VariableUnknownType,
-            format!("variable declares unknown type: {type_name}"),
+    if predicate.has_bucket_value {
+        let location = predicate
+            .value
+            .as_ref()
+            .map(|value| value.location.clone())
+            .unwrap_or_else(|| predicate.location.clone());
+        push_project_diagnostic(
             diagnostics,
+            RototoRuleId::QualifierPredicateBucket,
+            entity,
+            location,
+            "bucket predicate must not contain value",
+        );
+    }
+}
+
+fn lint_comparison_predicate(
+    diagnostics: &mut Vec<LintDiagnostic>,
+    predicate: &PredicateNode,
+    op: &PredicateOp,
+    entity: EntityId,
+) {
+    let Some(value) = &predicate.value else {
+        push_project_diagnostic(
+            diagnostics,
+            RototoRuleId::QualifierPredicateValue,
+            entity,
+            predicate.location.clone(),
+            "predicate must contain value",
+        );
+        return;
+    };
+
+    match op {
+        PredicateOp::In | PredicateOp::NotIn if value.shape != ValueShape::Array => {
+            push_project_diagnostic(
+                diagnostics,
+                RototoRuleId::QualifierPredicateValue,
+                entity,
+                value.location.clone(),
+                format!("{} predicate value must be a list", predicate_op_label(op)),
+            );
+        }
+        PredicateOp::Gt | PredicateOp::Gte | PredicateOp::Lt | PredicateOp::Lte
+            if !matches!(value.shape, ValueShape::Integer | ValueShape::Float) =>
+        {
+            push_project_diagnostic(
+                diagnostics,
+                RototoRuleId::QualifierPredicateValue,
+                entity,
+                value.location.clone(),
+                format!(
+                    "{} predicate value must be a number",
+                    predicate_op_label(op)
+                ),
+            );
+        }
+        _ => {}
+    }
+}
+
+fn lint_variable_shapes(ctx: &mut LintContext) {
+    let diagnostics = &mut ctx.diagnostics;
+    for variable in ctx.index.variables.values() {
+        if !field_is_integer(&variable.schema_version, 1) {
+            push_project_diagnostic(
+                diagnostics,
+                RototoRuleId::VariableSchemaVersion,
+                EntityId::Variable {
+                    id: variable.id.clone(),
+                },
+                variable.schema_version.location(),
+                "variable must declare schema_version = 1",
+            );
+        }
+
+        lint_type_source(diagnostics, variable);
+        lint_values_shape(diagnostics, variable);
+        lint_environment_shapes(diagnostics, variable);
+    }
+}
+
+fn lint_type_source(diagnostics: &mut Vec<LintDiagnostic>, variable: &VariableNode) {
+    match &variable.type_source {
+        TypeSourceNode::Primitive(type_name) => {
+            if !matches!(
+                type_name.value.as_str(),
+                "bool" | "int" | "number" | "string" | "list"
+            ) {
+                push_project_diagnostic(
+                    diagnostics,
+                    RototoRuleId::VariableUnknownType,
+                    EntityId::Variable {
+                        id: variable.id.clone(),
+                    },
+                    type_name.location.clone(),
+                    format!("variable declares unknown type: {}", type_name.value),
+                );
+            }
+        }
+        TypeSourceNode::Schema(schema) => {
+            let _ = &schema.value;
+        }
+        TypeSourceNode::Missing { location } => push_project_diagnostic(
+            diagnostics,
+            RototoRuleId::VariableTypeOrSchema,
+            EntityId::Variable {
+                id: variable.id.clone(),
+            },
+            location.clone(),
+            "variable must declare exactly one of type or schema",
+        ),
+        TypeSourceNode::Conflict { location } => push_project_diagnostic(
+            diagnostics,
+            RototoRuleId::VariableTypeOrSchema,
+            EntityId::Variable {
+                id: variable.id.clone(),
+            },
+            location.clone(),
+            "variable must declare exactly one of type or schema",
+        ),
+        TypeSourceNode::Invalid { location } => push_project_diagnostic(
+            diagnostics,
+            RototoRuleId::VariableTypeOrSchema,
+            EntityId::Variable {
+                id: variable.id.clone(),
+            },
+            location.clone(),
+            "variable type source must be a string",
+        ),
+    }
+}
+
+fn lint_values_shape(diagnostics: &mut Vec<LintDiagnostic>, variable: &VariableNode) {
+    if variable.values.invalid_shape {
+        push_project_diagnostic(
+            diagnostics,
+            RototoRuleId::VariableValuesMissing,
+            EntityId::Variable {
+                id: variable.id.clone(),
+            },
+            variable.values.location.clone(),
+            "variable values must be a table",
         );
         return;
     }
 
-    for (name, value) in values {
-        let matches_type = match type_name {
-            "bool" => value.as_bool().is_some(),
-            "int" => value.as_integer().is_some(),
-            "number" => value_is_number(value),
-            "string" => value.as_str().is_some(),
-            "list" => value.as_array().is_some(),
-            _ => unreachable!("unknown type checked above"),
-        };
-        if !matches_type {
-            push_variable_error(
-                variable,
-                RototoRuleId::VariableValueTypeMismatch,
-                format!("value {name} does not match type {type_name}"),
-                diagnostics,
-            );
-        }
+    if variable.values.inline_keys.is_empty() && variable.values.external_keys.is_empty() {
+        push_project_diagnostic(
+            diagnostics,
+            RototoRuleId::VariableValuesMissing,
+            EntityId::Variable {
+                id: variable.id.clone(),
+            },
+            variable.values.location.clone(),
+            "variable must contain [values] or external values",
+        );
     }
 }
 
-fn lint_schema_values(
-    variable: &VariableInspection,
-    values: &toml::map::Map<String, Value>,
-    validator: &Validator,
-    diagnostics: &mut Vec<Diagnostic>,
+fn lint_environment_shapes(diagnostics: &mut Vec<LintDiagnostic>, variable: &VariableNode) {
+    let environments = match &variable.environments {
+        EnvironmentCollection::Missing { location } => {
+            push_project_diagnostic(
+                diagnostics,
+                RototoRuleId::VariableEnvMissingDefault,
+                EntityId::Variable {
+                    id: variable.id.clone(),
+                },
+                location.clone(),
+                "variable must contain [env._]",
+            );
+            return;
+        }
+        EnvironmentCollection::Invalid { location } => {
+            push_project_diagnostic(
+                diagnostics,
+                RototoRuleId::VariableEnvShape,
+                EntityId::Variable {
+                    id: variable.id.clone(),
+                },
+                location.clone(),
+                "env must be a table",
+            );
+            return;
+        }
+        EnvironmentCollection::Environments(environments) => environments,
+    };
+
+    if !environments.contains_key("_") {
+        push_project_diagnostic(
+            diagnostics,
+            RototoRuleId::VariableEnvMissingDefault,
+            EntityId::Variable {
+                id: variable.id.clone(),
+            },
+            variable.location.clone(),
+            "variable must contain [env._]",
+        );
+    }
+
+    for block in environments.values() {
+        lint_environment_block_shape(diagnostics, variable, block);
+    }
+}
+
+fn lint_environment_block_shape(
+    diagnostics: &mut Vec<LintDiagnostic>,
+    variable: &VariableNode,
+    block: &EnvironmentBlockNode,
 ) {
-    for (name, value) in values {
-        let Ok(json) = serde_json::to_value(value) else {
-            push_variable_error(
-                variable,
-                RototoRuleId::VariableValueSchemaMismatch,
-                format!("value {name} could not be converted to JSON"),
-                diagnostics,
-            );
-            continue;
-        };
-
-        if let Err(error) = validator.validate(&json) {
-            push_variable_error(
-                variable,
-                RototoRuleId::VariableValueSchemaMismatch,
-                format!("value {name} does not match schema: {error}"),
-                diagnostics,
-            );
-        }
+    let entity = EntityId::EnvironmentBlock {
+        variable: variable.id.clone(),
+        environment: block.environment.clone(),
+    };
+    if field_is_not_present(&block.value) {
+        push_project_diagnostic(
+            diagnostics,
+            RototoRuleId::VariableEnvShape,
+            entity,
+            block.value.location(),
+            "environment block must reference a value",
+        );
     }
-}
 
-async fn schema_validator(
-    root: &Path,
-    variable: &VariableInspection,
-    schema_ref: &str,
-    diagnostics: &mut Vec<Diagnostic>,
-) -> Option<Validator> {
-    let schema_path = root
-        .join(&variable.path)
-        .parent()
-        .unwrap_or(root)
-        .join(schema_ref);
-    match tokio::fs::read_to_string(&schema_path).await {
-        Ok(text) => {
-            let schema: serde_json::Value = match serde_json::from_str(&text) {
-                Ok(schema) => schema,
-                Err(err) => {
-                    push_variable_error(
-                        variable,
-                        RototoRuleId::VariableSchemaRef,
-                        format!("schema could not be parsed: {err}"),
-                        diagnostics,
-                    );
-                    return None;
-                }
-            };
-            match jsonschema::validator_for(&schema) {
-                Ok(validator) => Some(validator),
-                Err(err) => {
-                    push_variable_error(
-                        variable,
-                        RototoRuleId::VariableSchemaRef,
-                        format!("schema is invalid: {err}"),
-                        diagnostics,
-                    );
-                    None
-                }
+    match &block.rules {
+        RuleCollection::Invalid { location } => push_project_diagnostic(
+            diagnostics,
+            RototoRuleId::VariableRuleShape,
+            EntityId::EnvironmentBlock {
+                variable: variable.id.clone(),
+                environment: block.environment.clone(),
+            },
+            location.clone(),
+            "rule must use [[env.<id>.rule]] tables or inline rule tables",
+        ),
+        RuleCollection::Rules(rules) => {
+            for rule in rules {
+                lint_variable_rule_shape(diagnostics, variable, block, rule);
             }
         }
-        Err(err) => {
-            push_variable_error(
-                variable,
-                RototoRuleId::VariableSchemaRef,
-                format!("schema could not be read: {err}"),
-                diagnostics,
-            );
-            None
-        }
     }
 }
 
-fn value_is_number(value: &Value) -> bool {
-    value.as_integer().is_some() || value.as_float().is_some()
-}
+fn lint_variable_rule_shape(
+    diagnostics: &mut Vec<LintDiagnostic>,
+    variable: &VariableNode,
+    block: &EnvironmentBlockNode,
+    rule: &VariableRuleNode,
+) {
+    let entity = EntityId::Rule {
+        variable: variable.id.clone(),
+        environment: block.environment.clone(),
+        index: rule.index,
+    };
 
-async fn lint_schemas(root: &Path, diagnostics: &mut Vec<Diagnostic>) {
-    let schemas_dir = root.join("schemas");
-    let Ok(mut entries) = tokio::fs::read_dir(&schemas_dir).await else {
+    if rule.invalid_shape {
+        push_project_diagnostic(
+            diagnostics,
+            RototoRuleId::VariableRuleShape,
+            entity,
+            rule.location.clone(),
+            "rule must be a table",
+        );
         return;
-    };
+    }
 
-    while let Ok(Some(entry)) = entries.next_entry().await {
-        let entry = entry.path();
-        if entry.extension().and_then(|extension| extension.to_str()) != Some("json") {
-            continue;
-        }
-        let text = match tokio::fs::read_to_string(&entry).await {
-            Ok(text) => text,
-            Err(err) => {
-                diagnostics.push(Diagnostic::rototo(
-                    RototoRuleId::SchemaParseFailed,
-                    display_relative(root, &entry),
-                    err.to_string(),
-                ));
-                continue;
-            }
-        };
-        let schema = match serde_json::from_str::<serde_json::Value>(&text) {
-            Ok(schema) => schema,
-            Err(err) => {
-                diagnostics.push(Diagnostic::rototo(
-                    RototoRuleId::SchemaParseFailed,
-                    display_relative(root, &entry),
-                    err.to_string(),
-                ));
-                continue;
-            }
-        };
-        if let Err(err) = jsonschema::validator_for(&schema) {
-            diagnostics.push(Diagnostic::rototo(
-                RototoRuleId::SchemaInvalid,
-                display_relative(root, &entry),
-                err.to_string(),
-            ));
-        }
+    if field_is_not_present(&rule.qualifier) {
+        push_project_diagnostic(
+            diagnostics,
+            RototoRuleId::VariableRuleShape,
+            entity.clone(),
+            rule.qualifier.location(),
+            "rule must reference a qualifier",
+        );
+    }
+    if field_is_not_present(&rule.value) {
+        push_project_diagnostic(
+            diagnostics,
+            RototoRuleId::VariableRuleShape,
+            entity,
+            rule.value.location(),
+            "rule must reference a value",
+        );
     }
 }
 
-async fn read_toml_diagnostic(
-    path: &Path,
-    missing_rule: RototoRuleId,
-    parse_rule: RototoRuleId,
-    diagnostics: &mut Vec<Diagnostic>,
-) -> Option<Value> {
-    let text = match tokio::fs::read_to_string(path).await {
-        Ok(text) => text,
-        Err(err) => {
-            diagnostics.push(Diagnostic::rototo(
-                missing_rule,
-                display_path(path),
-                err.to_string(),
-            ));
-            return None;
-        }
-    };
-    match text.parse::<Value>() {
-        Ok(value) => Some(value),
-        Err(err) => {
-            diagnostics.push(Diagnostic::rototo(
-                parse_rule,
-                display_path(path),
-                err.to_string(),
-            ));
-            None
-        }
+fn field_is_not_present<T>(field: &ProjectField<T>) -> bool {
+    !matches!(field, ProjectField::Present(_))
+}
+
+fn field_is_integer(field: &ProjectField<i64>, expected: i64) -> bool {
+    matches!(field, ProjectField::Present(value) if value.value == expected)
+}
+
+fn predicate_op_label(op: &PredicateOp) -> &'static str {
+    match op {
+        PredicateOp::Eq => "eq",
+        PredicateOp::Neq => "neq",
+        PredicateOp::In => "in",
+        PredicateOp::NotIn => "not_in",
+        PredicateOp::Gt => "gt",
+        PredicateOp::Gte => "gte",
+        PredicateOp::Lt => "lt",
+        PredicateOp::Lte => "lte",
+        PredicateOp::Bucket => "bucket",
+        PredicateOp::Unknown(_) => "unknown",
     }
 }
 
-fn push_qualifier_error(
-    qualifier: &QualifierInspection,
+fn push_project_diagnostic(
+    diagnostics: &mut Vec<LintDiagnostic>,
     rule: RototoRuleId,
+    entity: EntityId,
+    primary: DiagnosticLocation,
     message: impl Into<String>,
-    diagnostics: &mut Vec<Diagnostic>,
 ) {
-    push_workspace_file_error(&qualifier.path, rule, message, diagnostics);
-}
-
-fn push_variable_error(
-    variable: &VariableInspection,
-    rule: RototoRuleId,
-    message: impl Into<String>,
-    diagnostics: &mut Vec<Diagnostic>,
-) {
-    push_workspace_file_error(&variable.path, rule, message, diagnostics);
-}
-
-fn push_workspace_file_error(
-    path: &Path,
-    rule: RototoRuleId,
-    message: impl Into<String>,
-    diagnostics: &mut Vec<Diagnostic>,
-) {
-    diagnostics.push(Diagnostic::rototo(
+    diagnostics.push(LintDiagnostic::rototo(
         rule,
-        path.display().to_string(),
+        LintStage::Project,
+        entity,
+        primary,
         message,
     ));
 }
 
-fn display_path(path: &Path) -> String {
-    path.display().to_string()
+struct SourceStore {
+    root: PathBuf,
+    documents: BTreeMap<DocId, SourceDocument>,
+    by_path: BTreeMap<String, DocId>,
 }
 
-fn display_relative(root: &Path, path: &Path) -> String {
-    path.strip_prefix(root)
-        .unwrap_or(path)
-        .display()
-        .to_string()
+impl SourceStore {
+    fn new(root: PathBuf) -> Self {
+        Self {
+            root,
+            documents: BTreeMap::new(),
+            by_path: BTreeMap::new(),
+        }
+    }
+
+    async fn add_named_toml_documents(
+        &mut self,
+        directory: &str,
+        collection: DocumentCollection,
+    ) -> Result<()> {
+        let directory_path = self.root.join(directory);
+        let entries = match sorted_directory_entries(&directory_path).await {
+            Ok(entries) => entries,
+            Err(err) if err.kind() == std::io::ErrorKind::NotFound => return Ok(()),
+            Err(err) => {
+                return Err(RototoError::new(format!(
+                    "failed to read {}: {err}",
+                    directory_path.display()
+                )));
+            }
+        };
+
+        for path in entries {
+            if path.extension().and_then(|extension| extension.to_str()) != Some("toml") {
+                continue;
+            }
+            let Some(stem) = path.file_stem().and_then(|stem| stem.to_str()) else {
+                continue;
+            };
+            let relative_path =
+                PathBuf::from(directory).join(path.file_name().expect("entry has filename"));
+            let kind = match collection {
+                DocumentCollection::Qualifiers => DocumentKind::Qualifier {
+                    id: stem.to_owned(),
+                },
+                DocumentCollection::Variables => DocumentKind::Variable {
+                    id: stem.to_owned(),
+                },
+            };
+            self.add_disk_document(relative_path, kind).await;
+            if matches!(collection, DocumentCollection::Variables) {
+                self.add_external_value_documents(stem).await?;
+            }
+        }
+
+        Ok(())
+    }
+
+    async fn add_external_value_documents(&mut self, variable_id: &str) -> Result<()> {
+        let values_dir = self
+            .root
+            .join("variables")
+            .join(format!("{variable_id}-values"));
+        let entries = match sorted_directory_entries(&values_dir).await {
+            Ok(entries) => entries,
+            Err(err) if err.kind() == std::io::ErrorKind::NotFound => return Ok(()),
+            Err(err) => {
+                return Err(RototoError::new(format!(
+                    "failed to read {}: {err}",
+                    values_dir.display()
+                )));
+            }
+        };
+
+        for path in entries {
+            if path.extension().and_then(|extension| extension.to_str()) != Some("toml") {
+                continue;
+            }
+            let Some(value_key) = path.file_stem().and_then(|stem| stem.to_str()) else {
+                continue;
+            };
+            let relative_path = PathBuf::from("variables")
+                .join(format!("{variable_id}-values"))
+                .join(path.file_name().expect("entry has filename"));
+            self.add_disk_document(
+                relative_path,
+                DocumentKind::ExternalValue {
+                    variable_id: variable_id.to_owned(),
+                    value_key: value_key.to_owned(),
+                },
+            )
+            .await;
+        }
+
+        Ok(())
+    }
+
+    async fn add_schema_documents(&mut self) -> Result<()> {
+        let schemas = self.root.join("schemas");
+        let entries = match sorted_directory_entries(&schemas).await {
+            Ok(entries) => entries,
+            Err(err) if err.kind() == std::io::ErrorKind::NotFound => return Ok(()),
+            Err(err) => {
+                return Err(RototoError::new(format!(
+                    "failed to read {}: {err}",
+                    schemas.display()
+                )));
+            }
+        };
+
+        for path in entries {
+            if path.extension().and_then(|extension| extension.to_str()) != Some("json") {
+                continue;
+            }
+            let relative_path =
+                PathBuf::from("schemas").join(path.file_name().expect("entry has filename"));
+            self.add_disk_document(relative_path, DocumentKind::Schema)
+                .await;
+        }
+
+        Ok(())
+    }
+
+    async fn add_disk_document(&mut self, relative_path: PathBuf, kind: DocumentKind) -> DocId {
+        let path = workspace_path(&relative_path);
+        if let Some(doc) = self.by_path.get(&path).copied() {
+            return doc;
+        }
+
+        let id = DocId(self.documents.len() as u32);
+        let absolute_path = self.root.join(&relative_path);
+        let (text, read_error) = match tokio::fs::read_to_string(&absolute_path).await {
+            Ok(text) => (text, None),
+            Err(err) => (String::new(), Some(err.to_string())),
+        };
+        let document = SourceDocument {
+            id,
+            path: path.clone(),
+            uri: file_uri(&absolute_path),
+            version: None,
+            kind,
+            line_index: LineIndex::new(&text),
+            text,
+            read_error,
+        };
+
+        self.documents.insert(id, document);
+        self.by_path.insert(path, id);
+        id
+    }
+
+    fn external_value_keys(&self, variable_id: &str) -> BTreeSet<String> {
+        self.documents
+            .values()
+            .filter_map(|document| match &document.kind {
+                DocumentKind::ExternalValue {
+                    variable_id: document_variable_id,
+                    value_key,
+                } if document_variable_id == variable_id => Some(value_key.clone()),
+                _ => None,
+            })
+            .collect()
+    }
+
+    fn document_summaries(&self) -> Vec<SourceDocumentSummary> {
+        self.documents
+            .values()
+            .map(|document| SourceDocumentSummary {
+                id: document.id,
+                path: document.path.clone(),
+                uri: document.uri.clone(),
+                version: document.version,
+                kind: document.kind.summary_kind(),
+            })
+            .collect()
+    }
+}
+
+#[derive(Clone)]
+enum DocumentKind {
+    Manifest,
+    Qualifier {
+        id: String,
+    },
+    Variable {
+        id: String,
+    },
+    ExternalValue {
+        variable_id: String,
+        value_key: String,
+    },
+    Schema,
+}
+
+impl DocumentKind {
+    fn summary_kind(&self) -> SourceKind {
+        match self {
+            Self::Manifest => SourceKind::Manifest,
+            Self::Qualifier { .. } => SourceKind::Qualifier,
+            Self::Variable { .. } => SourceKind::Variable,
+            Self::ExternalValue { .. } => SourceKind::ExternalValue,
+            Self::Schema => SourceKind::Schema,
+        }
+    }
+}
+
+#[derive(Clone)]
+struct SourceDocument {
+    id: DocId,
+    path: String,
+    uri: String,
+    version: Option<i32>,
+    kind: DocumentKind,
+    text: String,
+    line_index: LineIndex,
+    read_error: Option<String>,
+}
+
+impl SourceDocument {
+    fn document_location(&self) -> DiagnosticLocation {
+        DiagnosticLocation::document(self.id, self.path.clone())
+    }
+
+    fn span_location(&self, range: Range<usize>) -> DiagnosticLocation {
+        DiagnosticLocation::span(self.id, self.path.clone(), self.line_index.range(range))
+    }
+}
+
+#[derive(Clone)]
+struct LineIndex {
+    line_starts: Vec<usize>,
+    text_len: usize,
+}
+
+impl LineIndex {
+    fn new(text: &str) -> Self {
+        let mut line_starts = vec![0];
+        for (index, byte) in text.bytes().enumerate() {
+            if byte == b'\n' {
+                line_starts.push(index + 1);
+            }
+        }
+        Self {
+            line_starts,
+            text_len: text.len(),
+        }
+    }
+
+    fn range(&self, range: Range<usize>) -> SourceRange {
+        let start = range.start.min(self.text_len);
+        let end = range.end.min(self.text_len).max(start);
+        SourceRange {
+            start: self.position(start),
+            end: self.position(end),
+        }
+    }
+
+    fn position(&self, offset: usize) -> SourcePosition {
+        let line = match self.line_starts.binary_search(&offset) {
+            Ok(line) => line,
+            Err(next_line) => next_line.saturating_sub(1),
+        };
+        let line_start = self.line_starts.get(line).copied().unwrap_or(0);
+        SourcePosition {
+            line,
+            character: offset.saturating_sub(line_start),
+        }
+    }
+
+    fn offset_for_line_character(&self, line: usize, character: usize) -> usize {
+        let line_start = self.line_starts.get(line).copied().unwrap_or(self.text_len);
+        line_start.saturating_add(character).min(self.text_len)
+    }
+}
+
+#[derive(Clone, Copy)]
+enum DocumentCollection {
+    Qualifiers,
+    Variables,
+}
+
+fn item_location(document: &SourceDocument, item: &Item) -> DiagnosticLocation {
+    item.span()
+        .map(|span| document.span_location(span))
+        .unwrap_or_else(|| document.document_location())
+}
+
+fn table_location(document: &SourceDocument, table: &Table) -> DiagnosticLocation {
+    table
+        .span()
+        .map(|span| document.span_location(span))
+        .unwrap_or_else(|| document.document_location())
+}
+
+fn value_location(document: &SourceDocument, value: &EditValue) -> DiagnosticLocation {
+    value
+        .span()
+        .map(|span| document.span_location(span))
+        .unwrap_or_else(|| document.document_location())
+}
+
+fn read_error_diagnostic(document: &SourceDocument, read_error: &str) -> LintDiagnostic {
+    LintDiagnostic::rototo(
+        parse_failed_rule(&document.kind),
+        LintStage::Parse,
+        entity_for_document(document),
+        document.document_location(),
+        format!("failed to read {}: {read_error}", document.path),
+    )
+}
+
+fn toml_edit_parse_diagnostic(
+    document: &SourceDocument,
+    err: &toml_edit::TomlError,
+) -> LintDiagnostic {
+    let location = err
+        .span()
+        .map(|span| document.span_location(span))
+        .unwrap_or_else(|| document.document_location());
+    LintDiagnostic::rototo(
+        parse_failed_rule(&document.kind),
+        LintStage::Parse,
+        entity_for_document(document),
+        location,
+        format!("failed to parse {}: {err}", document.path),
+    )
+}
+
+fn toml_de_parse_diagnostic(document: &SourceDocument, err: &toml::de::Error) -> LintDiagnostic {
+    let location = err
+        .span()
+        .map(|span| document.span_location(span))
+        .unwrap_or_else(|| document.document_location());
+    LintDiagnostic::rototo(
+        parse_failed_rule(&document.kind),
+        LintStage::Parse,
+        entity_for_document(document),
+        location,
+        format!("failed to parse {}: {err}", document.path),
+    )
+}
+
+fn json_parse_diagnostic(document: &SourceDocument, err: &serde_json::Error) -> LintDiagnostic {
+    let line = err.line().saturating_sub(1);
+    let column = err.column();
+    let start = document.line_index.offset_for_line_character(line, column);
+    let end = start.saturating_add(1).min(document.text.len());
+    LintDiagnostic::rototo(
+        RototoRuleId::SchemaParseFailed,
+        LintStage::Parse,
+        entity_for_document(document),
+        document.span_location(start..end),
+        format!("failed to parse {}: {err}", document.path),
+    )
+}
+
+fn parse_failed_rule(kind: &DocumentKind) -> RototoRuleId {
+    match kind {
+        DocumentKind::Manifest => RototoRuleId::WorkspaceManifestParseFailed,
+        DocumentKind::Qualifier { .. } => RototoRuleId::QualifierParseFailed,
+        DocumentKind::Variable { .. } => RototoRuleId::VariableParseFailed,
+        DocumentKind::ExternalValue { .. } => RototoRuleId::VariableExternalValueParseFailed,
+        DocumentKind::Schema => RototoRuleId::SchemaParseFailed,
+    }
+}
+
+fn entity_for_document(document: &SourceDocument) -> EntityId {
+    match &document.kind {
+        DocumentKind::Manifest => EntityId::Manifest,
+        DocumentKind::Qualifier { id } => EntityId::Qualifier { id: id.clone() },
+        DocumentKind::Variable { id } => EntityId::Variable { id: id.clone() },
+        DocumentKind::ExternalValue {
+            variable_id,
+            value_key,
+        } => EntityId::Value {
+            variable: variable_id.clone(),
+            key: value_key.clone(),
+        },
+        DocumentKind::Schema => EntityId::Schema {
+            path: document.path.clone(),
+        },
+    }
+}
+
+fn sort_diagnostics(diagnostics: &mut [LintDiagnostic]) {
+    diagnostics.sort_by(|left, right| diagnostic_sort_key(left).cmp(&diagnostic_sort_key(right)));
+}
+
+fn diagnostic_sort_key(diagnostic: &LintDiagnostic) -> (u8, &str, usize, usize, String, &str) {
+    let location_rank = match diagnostic.primary.kind {
+        crate::diagnostics::DiagnosticLocationKind::WorkspaceRoot => 0,
+        crate::diagnostics::DiagnosticLocationKind::Document
+        | crate::diagnostics::DiagnosticLocationKind::Span => 1,
+    };
+    let (line, character) = diagnostic
+        .primary
+        .range
+        .map(|range| (range.start.line, range.start.character))
+        .unwrap_or((0, 0));
+    (
+        location_rank,
+        diagnostic.primary.path.as_str(),
+        line,
+        character,
+        diagnostic.rule.as_string(),
+        diagnostic.message.as_str(),
+    )
+}
+
+async fn sorted_directory_entries(path: &Path) -> std::io::Result<Vec<PathBuf>> {
+    let mut entries = Vec::new();
+    let mut read_dir = tokio::fs::read_dir(path).await?;
+    while let Some(entry) = read_dir.next_entry().await? {
+        let metadata = entry.metadata().await?;
+        if metadata.is_file() {
+            entries.push(entry.path());
+        }
+    }
+    entries.sort();
+    Ok(entries)
+}
+
+fn workspace_path(path: &Path) -> String {
+    path.components()
+        .filter_map(|component| match component {
+            Component::Normal(segment) => Some(segment.to_string_lossy().into_owned()),
+            _ => None,
+        })
+        .collect::<Vec<_>>()
+        .join("/")
+}
+
+fn file_uri(path: &Path) -> String {
+    format!("file://{}", path.display())
 }

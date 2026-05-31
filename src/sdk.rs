@@ -34,7 +34,7 @@ impl Workspace {
         let workspace = Self::stage_and_inspect(source, options.source()).await?;
         if options.lint() == LintMode::Deny {
             let lint = crate::lint_workspace(workspace.root()).await?;
-            if !lint.diagnostics.is_empty() {
+            if lint.has_errors() {
                 return Err(RototoError::new(format!(
                     "workspace lint failed with {} diagnostic(s)",
                     lint.diagnostics.len()
@@ -51,7 +51,7 @@ impl Workspace {
         let workspace = Self::stage_snapshot_and_inspect(source, options.source()).await?;
         if options.lint() == LintMode::Deny {
             let lint = crate::lint_workspace(workspace.root()).await?;
-            if !lint.diagnostics.is_empty() {
+            if lint.has_errors() {
                 return Err(RototoError::new(format!(
                     "workspace lint failed with {} diagnostic(s)",
                     lint.diagnostics.len()

@@ -313,7 +313,7 @@ async fn run() -> Result<ExitCode> {
             )
             .await?;
             let lint = lint_workspace(workspace.path()).await?;
-            let passed = lint.diagnostics.is_empty();
+            let passed = !lint.has_errors();
             print_workspace_lint(&lint, cli.json, cli.quiet)?;
             Ok(if passed {
                 ExitCode::SUCCESS
@@ -340,7 +340,10 @@ async fn run() -> Result<ExitCode> {
                 let workspace =
                     workspace_source_or_current(workspace_flag.clone(), &source_options).await?;
                 let lint = lint_qualifier(workspace.path(), &id).await?;
-                let passed = lint.diagnostics.is_empty();
+                let passed = lint
+                    .diagnostics
+                    .iter()
+                    .all(|diagnostic| diagnostic.severity != rototo::diagnostics::Severity::Error);
                 print_qualifier_lint(&lint, cli.json, cli.quiet)?;
                 Ok(if passed {
                     ExitCode::SUCCESS
@@ -384,7 +387,10 @@ async fn run() -> Result<ExitCode> {
                 let workspace =
                     workspace_source_or_current(workspace_flag.clone(), &source_options).await?;
                 let lint = lint_variable(workspace.path(), &id).await?;
-                let passed = lint.diagnostics.is_empty();
+                let passed = lint
+                    .diagnostics
+                    .iter()
+                    .all(|diagnostic| diagnostic.severity != rototo::diagnostics::Severity::Error);
                 print_variable_lint(&lint, cli.json, cli.quiet)?;
                 Ok(if passed {
                     ExitCode::SUCCESS
