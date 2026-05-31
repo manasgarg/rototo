@@ -1,0 +1,13 @@
+schema_version = 1
+type = "string"
+
+[values]
+control = "control"
+self = "self"
+
+[env._]
+value = "control"
+
+[[env._.rule]]
+qualifier = "self"
+value = "self"

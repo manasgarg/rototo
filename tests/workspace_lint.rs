@@ -1668,6 +1668,153 @@ fn canonical_rule_fixtures() -> &'static [CanonicalRuleFixture] {
                 related: &[],
             }],
         },
+        CanonicalRuleFixture {
+            rule: RototoRuleId::QualifierCycle,
+            workspace: "tests/fixtures/workspaces/rules/graph/qualifier-cycle",
+            success: false,
+            expected: &[
+                ExpectedDiagnostic {
+                    rule: "rototo/qualifier-cycle",
+                    severity: "error",
+                    stage: LintStage::Graph,
+                    entity: ExpectedEntity::Qualifier("alpha"),
+                    primary: ExpectedPrimaryLocation::Document {
+                        path: "qualifiers/alpha.toml",
+                        range: Some(ExpectedRange {
+                            start_line: 3,
+                            start_character: 12,
+                            end_line: 3,
+                            end_character: 28,
+                        }),
+                    },
+                    related: &[ExpectedRelatedLocation {
+                        path: "qualifiers/beta.toml",
+                        range: ExpectedRange {
+                            start_line: 3,
+                            start_character: 12,
+                            end_line: 3,
+                            end_character: 29,
+                        },
+                        message: "cycle reference: beta -> alpha",
+                    }],
+                },
+                ExpectedDiagnostic {
+                    rule: "rototo/qualifier-cycle",
+                    severity: "error",
+                    stage: LintStage::Graph,
+                    entity: ExpectedEntity::Qualifier("beta"),
+                    primary: ExpectedPrimaryLocation::Document {
+                        path: "qualifiers/beta.toml",
+                        range: Some(ExpectedRange {
+                            start_line: 3,
+                            start_character: 12,
+                            end_line: 3,
+                            end_character: 29,
+                        }),
+                    },
+                    related: &[ExpectedRelatedLocation {
+                        path: "qualifiers/alpha.toml",
+                        range: ExpectedRange {
+                            start_line: 3,
+                            start_character: 12,
+                            end_line: 3,
+                            end_character: 28,
+                        },
+                        message: "cycle reference: alpha -> beta",
+                    }],
+                },
+                ExpectedDiagnostic {
+                    rule: "rototo/qualifier-cycle",
+                    severity: "error",
+                    stage: LintStage::Graph,
+                    entity: ExpectedEntity::Qualifier("self"),
+                    primary: ExpectedPrimaryLocation::Document {
+                        path: "qualifiers/self.toml",
+                        range: Some(ExpectedRange {
+                            start_line: 3,
+                            start_character: 12,
+                            end_line: 3,
+                            end_character: 28,
+                        }),
+                    },
+                    related: &[],
+                },
+            ],
+        },
+        CanonicalRuleFixture {
+            rule: RototoRuleId::QualifierUnreferenced,
+            workspace: "tests/fixtures/workspaces/rules/graph/qualifier-unreferenced",
+            success: true,
+            expected: &[ExpectedDiagnostic {
+                rule: "rototo/qualifier-unreferenced",
+                severity: "warning",
+                stage: LintStage::Graph,
+                entity: ExpectedEntity::Qualifier("unused"),
+                primary: ExpectedPrimaryLocation::Document {
+                    path: "qualifiers/unused.toml",
+                    range: None,
+                },
+                related: &[],
+            }],
+        },
+        CanonicalRuleFixture {
+            rule: RototoRuleId::VariableRuleShadowed,
+            workspace: "tests/fixtures/workspaces/rules/graph/variable-rule-shadowed",
+            success: true,
+            expected: &[ExpectedDiagnostic {
+                rule: "rototo/variable-rule-shadowed",
+                severity: "warning",
+                stage: LintStage::Graph,
+                entity: ExpectedEntity::Rule {
+                    variable: "checkout",
+                    environment: "prod",
+                    index: 1,
+                },
+                primary: ExpectedPrimaryLocation::Document {
+                    path: "variables/checkout.toml",
+                    range: Some(ExpectedRange {
+                        start_line: 19,
+                        start_character: 12,
+                        end_line: 19,
+                        end_character: 27,
+                    }),
+                },
+                related: &[ExpectedRelatedLocation {
+                    path: "variables/checkout.toml",
+                    range: ExpectedRange {
+                        start_line: 15,
+                        start_character: 12,
+                        end_line: 15,
+                        end_character: 27,
+                    },
+                    message: "first rule using qualifier: premium-users",
+                }],
+            }],
+        },
+        CanonicalRuleFixture {
+            rule: RototoRuleId::VariableValueUnused,
+            workspace: "tests/fixtures/workspaces/rules/graph/variable-value-unused",
+            success: true,
+            expected: &[ExpectedDiagnostic {
+                rule: "rototo/variable-value-unused",
+                severity: "warning",
+                stage: LintStage::Graph,
+                entity: ExpectedEntity::Value {
+                    variable: "message",
+                    key: "unused",
+                },
+                primary: ExpectedPrimaryLocation::Document {
+                    path: "variables/message.toml",
+                    range: Some(ExpectedRange {
+                        start_line: 5,
+                        start_character: 9,
+                        end_line: 5,
+                        end_character: 23,
+                    }),
+                },
+                related: &[],
+            }],
+        },
     ]
 }
 
@@ -1675,18 +1822,6 @@ fn pending_canonical_rule_fixtures() -> &'static [PendingCanonicalRuleFixture] {
     &[
         PendingCanonicalRuleFixture {
             rule: RototoRuleId::WorkspaceNotFound,
-        },
-        PendingCanonicalRuleFixture {
-            rule: RototoRuleId::QualifierCycle,
-        },
-        PendingCanonicalRuleFixture {
-            rule: RototoRuleId::QualifierUnreferenced,
-        },
-        PendingCanonicalRuleFixture {
-            rule: RototoRuleId::VariableRuleShadowed,
-        },
-        PendingCanonicalRuleFixture {
-            rule: RototoRuleId::VariableValueUnused,
         },
         PendingCanonicalRuleFixture {
             rule: RototoRuleId::CustomLintFailed,
@@ -1707,15 +1842,20 @@ fn assert_canonical_fixture(fixture: &CanonicalRuleFixture) {
 
 fn assert_expected_diagnostics(lint: &serde_json::Value, expected: &[ExpectedDiagnostic]) {
     let diagnostics = lint["diagnostics"].as_array().unwrap();
-    assert_eq!(
-        diagnostics.len(),
-        expected.len(),
-        "unexpected diagnostic count\n{lint:#}"
-    );
-    for expected in expected {
-        let diagnostic = diagnostic_for_rule(lint, expected.rule);
-        assert_expected_diagnostic(lint, diagnostic, *expected);
-    }
+    let mut actual = diagnostics
+        .iter()
+        .map(diagnostic_contract_value)
+        .map(|value| serde_json::to_string(&value).unwrap())
+        .collect::<Vec<_>>();
+    let mut expected = expected
+        .iter()
+        .map(|expected| expected_diagnostic_value(lint, *expected))
+        .map(|value| serde_json::to_string(&value).unwrap())
+        .collect::<Vec<_>>();
+
+    actual.sort();
+    expected.sort();
+    assert_eq!(actual, expected, "unexpected diagnostics\n{lint:#}");
 }
 
 fn assert_only_expected_diagnostic(lint: &serde_json::Value, expected: ExpectedDiagnostic) {
@@ -1767,6 +1907,74 @@ fn assert_expected_primary_location(
                 Some(range) => assert_eq!(primary["range"], expected_range_value(range)),
                 None => assert!(primary["range"].is_null()),
             }
+        }
+    }
+}
+
+fn diagnostic_contract_value(diagnostic: &serde_json::Value) -> serde_json::Value {
+    serde_json::json!({
+        "rule": diagnostic["rule"],
+        "severity": diagnostic["severity"],
+        "stage": diagnostic["stage"],
+        "entity": diagnostic["entity"],
+        "primary": {
+            "path": diagnostic["primary"]["path"],
+            "range": diagnostic["primary"]["range"],
+        },
+        "related": diagnostic["related"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|related| {
+                serde_json::json!({
+                    "path": related["location"]["path"],
+                    "range": related["location"]["range"],
+                    "message": related["message"],
+                })
+            })
+            .collect::<Vec<_>>(),
+    })
+}
+
+fn expected_diagnostic_value(
+    lint: &serde_json::Value,
+    expected: ExpectedDiagnostic,
+) -> serde_json::Value {
+    serde_json::json!({
+        "rule": expected.rule,
+        "severity": expected.severity,
+        "stage": expected_stage_label(expected.stage),
+        "entity": expected_entity_value(expected.entity),
+        "primary": expected_primary_location_value(lint, expected.primary),
+        "related": expected.related
+            .iter()
+            .map(|related| {
+                serde_json::json!({
+                    "path": related.path,
+                    "range": expected_range_value(related.range),
+                    "message": related.message,
+                })
+            })
+            .collect::<Vec<_>>(),
+    })
+}
+
+fn expected_primary_location_value(
+    lint: &serde_json::Value,
+    expected: ExpectedPrimaryLocation,
+) -> serde_json::Value {
+    match expected {
+        ExpectedPrimaryLocation::WorkspaceRoot => {
+            serde_json::json!({
+                "path": lint["workspace"],
+                "range": serde_json::Value::Null,
+            })
+        }
+        ExpectedPrimaryLocation::Document { path, range } => {
+            serde_json::json!({
+                "path": path,
+                "range": range.map_or(serde_json::Value::Null, expected_range_value),
+            })
         }
     }
 }
