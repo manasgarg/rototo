@@ -1,0 +1,6 @@
+schema_version = 1
+type = "string"
+values = "not a table"
+
+[env._]
+value = "default"
