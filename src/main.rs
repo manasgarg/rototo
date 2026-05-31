@@ -80,6 +80,8 @@ enum Command {
         #[command(subcommand)]
         command: DocsCommand,
     },
+    /// Run the rototo Language Server Protocol server over stdio.
+    Lsp,
     /// Generate shell completion scripts.
     Completions { shell: CompletionShell },
 }
@@ -452,6 +454,10 @@ async fn run() -> Result<ExitCode> {
                 rototo::docs::serve(addr).await.map(|()| ExitCode::SUCCESS)
             }
         },
+        Command::Lsp => {
+            rototo::lsp::serve_stdio().await?;
+            Ok(ExitCode::SUCCESS)
+        }
         Command::Completions { shell } => {
             let mut command = Cli::command();
             let name = command.get_name().to_owned();

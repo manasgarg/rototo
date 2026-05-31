@@ -3,6 +3,7 @@ pub mod diagnostics;
 pub mod docs;
 pub mod error;
 pub mod lint;
+pub mod lsp;
 pub mod lua_lint;
 pub mod model;
 pub mod resolve;

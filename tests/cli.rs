@@ -50,6 +50,18 @@ fn generates_zsh_completions() {
 }
 
 #[test]
+fn exposes_lsp_command() {
+    Command::cargo_bin("rototo")
+        .unwrap()
+        .args(["lsp", "--help"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains(
+            "Run the rototo Language Server Protocol server over stdio",
+        ));
+}
+
+#[test]
 fn lists_bundled_docs() {
     let assert = Command::cargo_bin("rototo")
         .unwrap()
