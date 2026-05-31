@@ -1,5 +1,6 @@
 use assert_cmd::Command;
 use predicates::prelude::*;
+use rototo::diagnostics::LintStage;
 
 #[test]
 fn lints_basic_workspace() {
@@ -378,6 +379,36 @@ fn reports_reference_stage_failures() {
 }
 
 #[test]
+fn canonical_reference_fixture_reports_variable_rule_unknown_qualifier() {
+    let lint = lint_json(
+        "tests/fixtures/workspaces/rules/reference/variable-rule-unknown-qualifier",
+        false,
+    );
+
+    assert_only_expected_diagnostic(
+        &lint,
+        ExpectedDiagnostic {
+            rule: "rototo/variable-rule-unknown-qualifier",
+            severity: "error",
+            stage: LintStage::Reference,
+            entity: ExpectedEntity::Rule {
+                variable: "checkout-redesign",
+                environment: "prod",
+                index: 0,
+            },
+            path: "variables/checkout-redesign.toml",
+            range: ExpectedRange {
+                start_line: 14,
+                start_character: 12,
+                end_line: 14,
+                end_character: 27,
+            },
+            related: &[],
+        },
+    );
+}
+
+#[test]
 fn reports_value_stage_failures() {
     let lint = lint_json("tests/fixtures/workspaces/lint-failures", false);
 
@@ -752,6 +783,174 @@ fn assert_policy_rule(lint: &serde_json::Value, rule: &str, path: &str) {
     let diagnostic = diagnostic_for_rule(lint, rule);
     assert_eq!(diagnostic["stage"], "policy");
     assert_eq!(diagnostic["primary"]["path"], path);
+}
+
+#[derive(Clone, Copy)]
+struct ExpectedDiagnostic {
+    rule: &'static str,
+    severity: &'static str,
+    stage: LintStage,
+    entity: ExpectedEntity,
+    path: &'static str,
+    range: ExpectedRange,
+    related: &'static [ExpectedRelatedLocation],
+}
+
+#[derive(Clone, Copy)]
+struct ExpectedRange {
+    start_line: u32,
+    start_character: u32,
+    end_line: u32,
+    end_character: u32,
+}
+
+#[allow(dead_code)]
+#[derive(Clone, Copy)]
+enum ExpectedEntity {
+    Workspace,
+    Manifest,
+    Qualifier(&'static str),
+    Predicate {
+        qualifier: &'static str,
+        index: usize,
+    },
+    Variable(&'static str),
+    Value {
+        variable: &'static str,
+        key: &'static str,
+    },
+    EnvironmentBlock {
+        variable: &'static str,
+        environment: &'static str,
+    },
+    Rule {
+        variable: &'static str,
+        environment: &'static str,
+        index: usize,
+    },
+    Schema(&'static str),
+    CustomRule(&'static str),
+}
+
+#[allow(dead_code)]
+#[derive(Clone, Copy)]
+struct ExpectedRelatedLocation {
+    path: &'static str,
+    range: ExpectedRange,
+    message: &'static str,
+}
+
+fn assert_only_expected_diagnostic(lint: &serde_json::Value, expected: ExpectedDiagnostic) {
+    let diagnostic = only_diagnostic(lint);
+    assert_expected_diagnostic(diagnostic, expected);
+}
+
+fn assert_expected_diagnostic(diagnostic: &serde_json::Value, expected: ExpectedDiagnostic) {
+    assert_eq!(diagnostic["rule"], expected.rule);
+    assert_eq!(diagnostic["severity"], expected.severity);
+    assert_eq!(diagnostic["stage"], expected_stage_label(expected.stage));
+    assert_eq!(diagnostic["entity"], expected_entity_value(expected.entity));
+    assert_eq!(diagnostic["primary"]["path"], expected.path);
+    assert_eq!(
+        diagnostic["primary"]["range"],
+        expected_range_value(expected.range)
+    );
+
+    let related = diagnostic["related"].as_array().unwrap();
+    assert_eq!(
+        related.len(),
+        expected.related.len(),
+        "unexpected related locations for diagnostic\n{diagnostic:#}"
+    );
+    for (actual, expected) in related.iter().zip(expected.related) {
+        assert_eq!(actual["location"]["path"], expected.path);
+        assert_eq!(
+            actual["location"]["range"],
+            expected_range_value(expected.range)
+        );
+        assert_eq!(actual["message"], expected.message);
+    }
+}
+
+fn expected_stage_label(stage: LintStage) -> &'static str {
+    match stage {
+        LintStage::Discover => "discover",
+        LintStage::Parse => "parse",
+        LintStage::Project => "project",
+        LintStage::Register => "register",
+        LintStage::Reference => "reference",
+        LintStage::Value => "value",
+        LintStage::Graph => "graph",
+        LintStage::Policy => "policy",
+    }
+}
+
+fn expected_entity_value(entity: ExpectedEntity) -> serde_json::Value {
+    match entity {
+        ExpectedEntity::Workspace => serde_json::json!({ "kind": "workspace" }),
+        ExpectedEntity::Manifest => serde_json::json!({ "kind": "manifest" }),
+        ExpectedEntity::Qualifier(id) => {
+            serde_json::json!({ "kind": "qualifier", "id": id })
+        }
+        ExpectedEntity::Predicate { qualifier, index } => {
+            serde_json::json!({
+                "kind": "predicate",
+                "qualifier": qualifier,
+                "index": index,
+            })
+        }
+        ExpectedEntity::Variable(id) => {
+            serde_json::json!({ "kind": "variable", "id": id })
+        }
+        ExpectedEntity::Value { variable, key } => {
+            serde_json::json!({
+                "kind": "value",
+                "variable": variable,
+                "key": key,
+            })
+        }
+        ExpectedEntity::EnvironmentBlock {
+            variable,
+            environment,
+        } => {
+            serde_json::json!({
+                "kind": "environment_block",
+                "variable": variable,
+                "environment": environment,
+            })
+        }
+        ExpectedEntity::Rule {
+            variable,
+            environment,
+            index,
+        } => {
+            serde_json::json!({
+                "kind": "rule",
+                "variable": variable,
+                "environment": environment,
+                "index": index,
+            })
+        }
+        ExpectedEntity::Schema(path) => {
+            serde_json::json!({ "kind": "schema", "path": path })
+        }
+        ExpectedEntity::CustomRule(rule) => {
+            serde_json::json!({ "kind": "custom_rule", "rule": rule })
+        }
+    }
+}
+
+fn expected_range_value(range: ExpectedRange) -> serde_json::Value {
+    serde_json::json!({
+        "start": {
+            "line": range.start_line,
+            "character": range.start_character,
+        },
+        "end": {
+            "line": range.end_line,
+            "character": range.end_character,
+        },
+    })
 }
 
 fn document_paths(lint: &serde_json::Value) -> Vec<String> {
