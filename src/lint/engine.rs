@@ -9,9 +9,7 @@ use super::custom::{RegisteredCustomLint, register_custom_lints, run_registered_
 use super::input::LintInput;
 use super::nodes::*;
 use super::output::sort_diagnostics;
-use super::project::{
-    project_external_value, project_manifest, project_qualifier, project_variable,
-};
+use super::project::build_semantic_index;
 use super::references::ReferenceIndex;
 use super::source::{DocumentCollection, DocumentKind, SourceStore};
 use super::syntax::{SyntaxIndex, parse_sources};
@@ -131,42 +129,7 @@ impl LintEngine {
     }
 
     fn build_projection(&self, ctx: &mut LintContext) {
-        for document in ctx.source.documents.values() {
-            let Some(toml) = ctx.syntax.toml.get(&document.id) else {
-                continue;
-            };
-
-            match &document.kind {
-                DocumentKind::Manifest => {
-                    ctx.index.manifest = Some(project_manifest(document, toml));
-                }
-                DocumentKind::Qualifier { id } => {
-                    ctx.index
-                        .qualifiers
-                        .insert(id.clone(), project_qualifier(document, toml, id));
-                }
-                DocumentKind::Variable { id } => {
-                    ctx.index.variables.insert(
-                        id.clone(),
-                        project_variable(document, toml, id, &ctx.source),
-                    );
-                }
-                DocumentKind::ExternalValue {
-                    variable_id,
-                    value_key,
-                } => {
-                    ctx.index
-                        .external_values
-                        .entry(variable_id.clone())
-                        .or_default()
-                        .insert(
-                            value_key.clone(),
-                            project_external_value(document, toml, value_key),
-                        );
-                }
-                DocumentKind::Schema | DocumentKind::CustomLint => {}
-            }
-        }
+        ctx.index = build_semantic_index(&ctx.source, &ctx.syntax);
     }
 
     fn run_project(&self, ctx: &mut LintContext) {
