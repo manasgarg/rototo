@@ -1,11 +1,221 @@
 use std::path::{Path, PathBuf};
 
 use mlua::{Lua, LuaSerdeExt, Table, Value as LuaValue};
+use serde_json::Value as JsonValue;
 use toml::Value;
 
 use crate::diagnostics::{CustomRuleDefinition, CustomRuleId, Diagnostic, RototoRuleId};
 use crate::error::{Result, RototoError};
 use crate::model::VariableInspection;
+
+#[derive(Clone)]
+pub struct PipelineLintInput {
+    pub workspace_root: PathBuf,
+    pub environments: Vec<String>,
+    pub variable: PipelineVariable,
+    pub lint_path: PathBuf,
+    pub script: String,
+    pub custom_rules: Vec<CustomRuleDefinition>,
+}
+
+#[derive(Clone)]
+pub struct PipelineVariable {
+    pub id: String,
+    pub uri: String,
+    pub path: String,
+    pub toml: JsonValue,
+    pub values: Vec<PipelineValue>,
+}
+
+#[derive(Clone)]
+pub struct PipelineValue {
+    pub name: String,
+    pub value: JsonValue,
+}
+
+#[derive(Clone)]
+pub enum CustomLintTarget {
+    Variable,
+    Value { name: String },
+}
+
+pub enum CustomLintOutput {
+    Diagnostic {
+        target: CustomLintTarget,
+        rule: CustomRuleId,
+        message: String,
+    },
+    InvalidRule {
+        target: CustomLintTarget,
+        message: String,
+    },
+    UnknownRule {
+        target: CustomLintTarget,
+        rule: String,
+        message: String,
+    },
+}
+
+pub async fn lint_pipeline_variable(input: PipelineLintInput) -> Result<Vec<CustomLintOutput>> {
+    tokio::task::spawn_blocking(move || lint_pipeline_variable_script(input))
+        .await
+        .map_err(|err| RototoError::new(format!("custom lint task failed: {err}")))?
+}
+
+fn lint_pipeline_variable_script(input: PipelineLintInput) -> Result<Vec<CustomLintOutput>> {
+    let lua = Lua::new();
+    let globals = lua.globals();
+    let variable_id = input.variable.id.clone();
+    let variable_uri = input.variable.uri.clone();
+    let variable_path = input.variable.path.clone();
+    let variable_context = lua
+        .to_value(&serde_json::json!({
+            "id": variable_id,
+            "uri": variable_uri,
+            "path": variable_path,
+            "toml": input.variable.toml.clone(),
+            "workspace": {
+                "root": input.workspace_root,
+                "environments": input.environments,
+            },
+        }))
+        .map_err(|err| RototoError::new(format!("failed to prepare Lua context: {err}")))?;
+    globals
+        .set("variable", variable_context.clone())
+        .map_err(|err| RototoError::new(format!("failed to set Lua context: {err}")))?;
+
+    lua.load(&input.script)
+        .set_name(input.lint_path.display().to_string())
+        .exec()
+        .map_err(|err| RototoError::new(format!("failed to execute custom lint: {err}")))?;
+
+    let lint = globals
+        .get::<Option<mlua::Function>>("lint")
+        .map_err(|err| RototoError::new(format!("custom lint has invalid lint function: {err}")))?;
+    let lint_value = globals
+        .get::<Option<mlua::Function>>("lint_value")
+        .map_err(|err| {
+            RototoError::new(format!(
+                "custom lint has invalid lint_value function: {err}"
+            ))
+        })?;
+    if lint.is_none() && lint_value.is_none() {
+        return Err(RototoError::new(
+            "custom lint must define lint(variable) or lint_value(value)",
+        ));
+    }
+
+    let mut diagnostics = Vec::new();
+    if let Some(lint) = lint {
+        let returned: LuaValue = lint
+            .call(variable_context)
+            .map_err(|err| RototoError::new(format!("custom lint failed: {err}")))?;
+        diagnostics.extend(pipeline_diagnostics_from_lua(
+            CustomLintTarget::Variable,
+            returned,
+            &input.custom_rules,
+        )?);
+    }
+
+    if let Some(lint_value) = lint_value {
+        for value in input.variable.values {
+            let value_context = lua
+                .to_value(&serde_json::json!({
+                    "name": value.name.clone(),
+                    "value": value.value,
+                    "variable": {
+                        "id": input.variable.id.clone(),
+                        "uri": input.variable.uri.clone(),
+                        "path": input.variable.path.clone(),
+                    },
+                }))
+                .map_err(|err| {
+                    RototoError::new(format!("failed to prepare Lua value context: {err}"))
+                })?;
+            let returned: LuaValue = lint_value
+                .call(value_context)
+                .map_err(|err| RototoError::new(format!("custom value lint failed: {err}")))?;
+            diagnostics.extend(pipeline_diagnostics_from_lua(
+                CustomLintTarget::Value { name: value.name },
+                returned,
+                &input.custom_rules,
+            )?);
+        }
+    }
+
+    Ok(diagnostics)
+}
+
+fn pipeline_diagnostics_from_lua(
+    target: CustomLintTarget,
+    returned: LuaValue,
+    custom_rules: &[CustomRuleDefinition],
+) -> Result<Vec<CustomLintOutput>> {
+    match returned {
+        LuaValue::Nil => Ok(Vec::new()),
+        LuaValue::Table(table) => pipeline_diagnostics_from_table(target, table, custom_rules),
+        other => Err(RototoError::new(format!(
+            "custom lint must return a list of diagnostics, got {}",
+            lua_type_name(&other)
+        ))),
+    }
+}
+
+fn pipeline_diagnostics_from_table(
+    target: CustomLintTarget,
+    table: Table,
+    custom_rules: &[CustomRuleDefinition],
+) -> Result<Vec<CustomLintOutput>> {
+    let mut diagnostics = Vec::new();
+    for entry in table.sequence_values::<Table>() {
+        let entry = entry.map_err(|err| {
+            RototoError::new(format!("custom lint returned an invalid diagnostic: {err}"))
+        })?;
+        let rule = entry
+            .get::<Option<String>>("rule")
+            .map_err(|err| RototoError::new(format!("custom lint rule is invalid: {err}")))?;
+        let message = entry
+            .get::<Option<String>>("message")
+            .map_err(|err| RototoError::new(format!("custom lint message is invalid: {err}")))?
+            .ok_or_else(|| RototoError::new("custom lint diagnostic must contain message"))?;
+
+        let Some(rule) = rule else {
+            diagnostics.push(CustomLintOutput::InvalidRule {
+                target: target.clone(),
+                message: "custom lint diagnostic must contain rule".to_owned(),
+            });
+            continue;
+        };
+        let parsed_rule = match CustomRuleId::parse(&rule) {
+            Ok(rule) => rule,
+            Err(err) => {
+                diagnostics.push(CustomLintOutput::InvalidRule {
+                    target: target.clone(),
+                    message: format!("custom lint emitted invalid rule {rule}: {err}"),
+                });
+                continue;
+            }
+        };
+        if !custom_rules
+            .iter()
+            .any(|definition| definition.rule == parsed_rule)
+        {
+            diagnostics.push(CustomLintOutput::UnknownRule {
+                target: target.clone(),
+                rule,
+                message: "custom lint emitted undeclared rule".to_owned(),
+            });
+            continue;
+        }
+
+        diagnostics.push(CustomLintOutput::Diagnostic {
+            target: target.clone(),
+            rule: parsed_rule,
+            message,
+        });
+    }
+    Ok(diagnostics)
+}
 
 pub async fn lint_variable(
     workspace_root: &Path,

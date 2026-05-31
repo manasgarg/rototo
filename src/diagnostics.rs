@@ -498,6 +498,9 @@ pub enum EntityId {
         environment: String,
         index: usize,
     },
+    CustomLint {
+        path: String,
+    },
     Schema {
         path: String,
     },
@@ -600,6 +603,25 @@ impl LintDiagnostic {
             entity,
             message: message.into(),
             help: meta.help.to_owned(),
+            primary,
+            related: Vec::new(),
+        }
+    }
+
+    pub fn custom(
+        definition: &CustomRuleDefinition,
+        stage: LintStage,
+        entity: EntityId,
+        primary: DiagnosticLocation,
+        message: impl Into<String>,
+    ) -> Self {
+        Self {
+            rule: DiagnosticRule::Custom(definition.rule.clone()),
+            severity: Severity::Error,
+            stage,
+            entity,
+            message: message.into(),
+            help: definition.help.clone(),
             primary,
             related: Vec::new(),
         }

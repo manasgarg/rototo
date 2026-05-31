@@ -219,6 +219,11 @@ fn reports_project_stage_variable_shape_failures() {
         "rototo/variable-rule-shape",
         "variables/rule-shape.toml",
     );
+    assert_project_rule(
+        &lint,
+        "rototo/variable-lint-shape",
+        "variables/lint-shape.toml",
+    );
 }
 
 #[test]
@@ -358,6 +363,62 @@ fn reports_value_stage_failures() {
     assert!(type_mismatch["primary"]["range"].is_object());
 }
 
+#[test]
+fn reports_variable_scoped_custom_lint_failures() {
+    let lint = lint_json("tests/fixtures/workspaces/lint-failures", false);
+
+    assert_policy_rule(
+        &lint,
+        "fixture/custom-variable-rejected",
+        "variables/custom-lint.toml",
+    );
+    assert_policy_rule(
+        &lint,
+        "fixture/custom-value-rejected",
+        "variables/custom-value-lint.toml",
+    );
+
+    let variable = diagnostic_for_rule(&lint, "fixture/custom-variable-rejected");
+    assert_eq!(variable["entity"]["kind"], "variable");
+    assert_eq!(variable["entity"]["id"], "custom-lint");
+
+    let value = diagnostic_for_rule(&lint, "fixture/custom-value-rejected");
+    assert_eq!(value["entity"]["kind"], "value");
+    assert_eq!(value["entity"]["variable"], "custom-value-lint");
+    assert_eq!(value["entity"]["key"], "default");
+}
+
+#[test]
+fn reports_custom_lint_contract_failures() {
+    let lint = lint_json("tests/fixtures/workspaces/custom-lint-contract", false);
+
+    assert_project_rule(
+        &lint,
+        "rototo/custom-lint-rule-conflict",
+        "variables/conflict-b.toml",
+    );
+    assert_policy_rule(
+        &lint,
+        "rototo/custom-lint-failed",
+        "variables/custom-failed.toml",
+    );
+    assert_policy_rule(
+        &lint,
+        "rototo/custom-lint-invalid-rule",
+        "variables/custom-invalid.toml",
+    );
+    assert_policy_rule(
+        &lint,
+        "rototo/custom-lint-unknown-rule",
+        "variables/custom-unknown.toml",
+    );
+    assert_policy_rule(
+        &lint,
+        "payments/max-token-budget",
+        "variables/custom-valid.toml",
+    );
+}
+
 fn lint_json(workspace: &str, success: bool) -> serde_json::Value {
     let output = Command::cargo_bin("rototo")
         .unwrap()
@@ -424,6 +485,12 @@ fn assert_reference_rule(lint: &serde_json::Value, rule: &str, path: &str) {
 fn assert_value_rule(lint: &serde_json::Value, rule: &str, path: &str) {
     let diagnostic = diagnostic_for_rule(lint, rule);
     assert_eq!(diagnostic["stage"], "value");
+    assert_eq!(diagnostic["primary"]["path"], path);
+}
+
+fn assert_policy_rule(lint: &serde_json::Value, rule: &str, path: &str) {
+    let diagnostic = diagnostic_for_rule(lint, rule);
+    assert_eq!(diagnostic["stage"], "policy");
     assert_eq!(diagnostic["primary"]["path"], path);
 }
 
