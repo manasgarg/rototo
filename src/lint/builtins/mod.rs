@@ -7,10 +7,7 @@ mod workspace;
 use super::engine::LintContext;
 use super::index::{PredicateOp, ProjectField};
 
-pub(super) use workspace::{
-    custom_rule_definitions_from_collection, declared_workspace_environments,
-    workspace_custom_rule_definitions,
-};
+pub(super) use workspace::declared_workspace_environments;
 
 pub(super) fn run_project(ctx: &mut LintContext) {
     workspace::lint_manifest_shape(ctx);

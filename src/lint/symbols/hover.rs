@@ -2,11 +2,10 @@ use serde_json::Value as JsonValue;
 
 use crate::diagnostics::{
     CustomRuleDefinition, CustomRuleId, DiagnosticLocation, DiagnosticRule, LintDiagnostic,
-    Severity, SourcePosition,
+    SourcePosition,
 };
 
 use super::super::WorkspaceLintSnapshot;
-use super::super::builtins::custom_rule_definitions_from_collection;
 use super::super::index::*;
 use super::WorkspaceHover;
 use super::common::{
@@ -356,33 +355,17 @@ fn custom_rule_definition(
     index: &SemanticIndex,
     rule: &CustomRuleId,
 ) -> Option<CustomRuleDefinition> {
-    let manifest = index.manifest.as_ref()?;
-    custom_rule_definitions_from_collection(&manifest.custom_rules)
-        .into_iter()
-        .map(|(definition, _)| definition)
-        .find(|definition| &definition.rule == rule)
+    index
+        .custom_lints
+        .rules
+        .get(rule)
+        .map(|rule| rule.definition.clone())
 }
 
 fn custom_rule_definition_from_declaration(
     rule: &CustomRuleDeclarationNode,
 ) -> Option<CustomRuleDefinition> {
-    let (ProjectField::Present(id), ProjectField::Present(title), ProjectField::Present(help)) =
-        (&rule.id, &rule.title, &rule.help)
-    else {
-        return None;
-    };
-    let rule_id = CustomRuleId::parse(&id.value).ok()?;
-    let severity = match &rule.severity {
-        Some(ProjectField::Present(severity)) => severity.value,
-        Some(ProjectField::Invalid { .. }) => return None,
-        Some(ProjectField::Missing { .. }) | None => Severity::Error,
-    };
-    Some(CustomRuleDefinition::with_severity(
-        rule_id,
-        severity,
-        title.value.clone(),
-        help.value.clone(),
-    ))
+    rule.definition()
 }
 
 fn custom_rule_hover_contents(definition: &CustomRuleDefinition) -> String {

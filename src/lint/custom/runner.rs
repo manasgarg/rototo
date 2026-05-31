@@ -38,7 +38,9 @@ async fn lint_registered_target(
 
 pub(crate) async fn run_registered_custom_lints(ctx: &mut LintContext, stage: LintStage) {
     let registrations = ctx
-        .registered_custom_lints
+        .index
+        .custom_lints
+        .registrations
         .iter()
         .filter(|registration| registration.stage == stage)
         .cloned()
@@ -46,13 +48,34 @@ pub(crate) async fn run_registered_custom_lints(ctx: &mut LintContext, stage: Li
 
     for registration in registrations {
         let targets = registered_lint_targets(ctx, &registration.selector);
+        let Some(file) = ctx
+            .index
+            .custom_lints
+            .files
+            .get(&registration.file_path)
+            .cloned()
+        else {
+            continue;
+        };
+        let Some(document) = ctx.source.documents.get(&file.doc).cloned() else {
+            continue;
+        };
+        let Some(definition) = ctx
+            .index
+            .custom_lints
+            .rules
+            .get(&registration.rule)
+            .map(|rule| rule.definition.clone())
+        else {
+            continue;
+        };
         for target in targets {
             match lint_registered_target(
                 stage,
                 registered_lint_entity_label(registration.selector.entity).to_owned(),
                 target.data,
                 ctx.source.root.join(&registration.file_path),
-                registration.script.clone(),
+                document.text.clone(),
                 registration.handler.clone(),
             )
             .await
@@ -60,7 +83,7 @@ pub(crate) async fn run_registered_custom_lints(ctx: &mut LintContext, stage: Li
                 Ok(outputs) => {
                     for output in outputs {
                         ctx.diagnostics.push(LintDiagnostic::custom(
-                            &registration.definition,
+                            &definition,
                             stage,
                             target.entity.clone(),
                             target.location.clone(),

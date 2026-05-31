@@ -2,7 +2,7 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use crate::diagnostics::{
     CustomRuleDefinition, CustomRuleId, DiagnosticLocation, EntityId, LintDiagnostic, LintStage,
-    RototoRuleId, Severity,
+    RototoRuleId,
 };
 use crate::workspace::workspace_environments;
 
@@ -146,18 +146,6 @@ fn custom_rule_definition_entries(
     definitions
 }
 
-pub(crate) fn workspace_custom_rule_definitions(
-    ctx: &LintContext,
-) -> BTreeMap<CustomRuleId, CustomRuleDefinition> {
-    let Some(manifest) = &ctx.index.manifest else {
-        return BTreeMap::new();
-    };
-    custom_rule_definitions_from_collection(&manifest.custom_rules)
-        .into_iter()
-        .map(|(definition, _)| (definition.rule.clone(), definition))
-        .collect()
-}
-
 pub(crate) fn custom_rule_definitions_from_collection(
     rules: &CustomRuleCollection,
 ) -> Vec<(CustomRuleDefinition, DiagnosticLocation)> {
@@ -172,33 +160,7 @@ fn custom_rule_definitions_from_rules(
 ) -> Vec<(CustomRuleDefinition, DiagnosticLocation)> {
     rules
         .iter()
-        .filter_map(|rule| {
-            let (
-                ProjectField::Present(id),
-                ProjectField::Present(title),
-                ProjectField::Present(help),
-            ) = (&rule.id, &rule.title, &rule.help)
-            else {
-                return None;
-            };
-            let Ok(rule_id) = CustomRuleId::parse(&id.value) else {
-                return None;
-            };
-            let severity = match &rule.severity {
-                Some(ProjectField::Present(severity)) => severity.value,
-                Some(ProjectField::Invalid { .. }) => return None,
-                Some(ProjectField::Missing { .. }) | None => Severity::Error,
-            };
-            Some((
-                CustomRuleDefinition::with_severity(
-                    rule_id,
-                    severity,
-                    title.value.clone(),
-                    help.value.clone(),
-                ),
-                rule.location.clone(),
-            ))
-        })
+        .filter_map(|rule| Some((rule.definition()?, rule.location.clone())))
         .collect()
 }
 

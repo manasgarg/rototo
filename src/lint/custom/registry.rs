@@ -1,44 +1,45 @@
 use std::collections::BTreeMap;
 
-use crate::diagnostics::{CustomRuleDefinition, CustomRuleId, EntityId, LintStage, RototoRuleId};
+use crate::diagnostics::{CustomRuleId, EntityId, LintStage, RototoRuleId};
 use crate::lua_lint;
 
-use super::super::builtins::workspace_custom_rule_definitions;
 use super::super::engine::LintContext;
-use super::super::source::DocumentKind;
+use super::super::index::{CustomLintRegistration, CustomRuleDefinitionNode};
 use super::super::stages::push_register_diagnostic;
 use super::runner;
 use super::{
-    QualifierLintField, RegisteredCustomLint, RegisteredLintEntity, RegisteredLintField,
-    RegisteredLintSelector, SchemaLintField, ValueLintField, VariableLintField, WorkspaceLintField,
+    QualifierLintField, RegisteredLintEntity, RegisteredLintField, RegisteredLintSelector,
+    SchemaLintField, ValueLintField, VariableLintField, WorkspaceLintField,
 };
 
 pub(crate) async fn register_custom_lints(ctx: &mut LintContext) {
-    let workspace_rules = workspace_custom_rule_definitions(ctx);
-    let documents = ctx
-        .source
-        .documents
+    let files = ctx
+        .index
+        .custom_lints
+        .files
         .values()
-        .filter(|document| matches!(&document.kind, DocumentKind::CustomLint))
         .cloned()
         .collect::<Vec<_>>();
 
-    for document in documents {
+    for file in files {
+        let Some(document) = ctx.source.documents.get(&file.doc).cloned() else {
+            continue;
+        };
         if let Some(read_error) = &document.read_error {
             push_register_diagnostic(
                 &mut ctx.diagnostics,
                 RototoRuleId::CustomLintFailed,
                 EntityId::CustomLint {
-                    path: document.path.clone(),
+                    path: file.path.clone(),
                 },
-                document.document_location(),
-                format!("failed to read custom lint {}: {read_error}", document.path),
+                file.location.clone(),
+                format!("failed to read custom lint {}: {read_error}", file.path),
             );
             continue;
         }
 
         let registrations = match runner::register_pipeline_lint(
-            ctx.source.root.join(&document.path),
+            ctx.source.root.join(&file.path),
             document.text.clone(),
         )
         .await
@@ -49,9 +50,9 @@ pub(crate) async fn register_custom_lints(ctx: &mut LintContext) {
                     &mut ctx.diagnostics,
                     RototoRuleId::CustomLintFailed,
                     EntityId::CustomLint {
-                        path: document.path.clone(),
+                        path: file.path.clone(),
                     },
-                    document.document_location(),
+                    file.location.clone(),
                     err.to_string(),
                 );
                 continue;
@@ -59,24 +60,27 @@ pub(crate) async fn register_custom_lints(ctx: &mut LintContext) {
         };
 
         for registration in registrations {
-            match validate_custom_registration(&workspace_rules, &registration) {
-                Ok((stage, selector, definition)) => {
-                    ctx.registered_custom_lints.push(RegisteredCustomLint {
-                        file_path: document.path.clone(),
-                        script: document.text.clone(),
-                        stage,
-                        selector,
-                        definition,
-                        handler: registration.handler,
-                    });
+            match validate_custom_registration(&ctx.index.custom_lints.rules, &registration) {
+                Ok((stage, selector, rule)) => {
+                    ctx.index
+                        .custom_lints
+                        .registrations
+                        .push(CustomLintRegistration {
+                            file_path: file.path.clone(),
+                            rule,
+                            stage,
+                            selector,
+                            handler: registration.handler,
+                            location: file.location.clone(),
+                        });
                 }
                 Err((rule, message)) => push_register_diagnostic(
                     &mut ctx.diagnostics,
                     rule,
                     EntityId::CustomLint {
-                        path: document.path.clone(),
+                        path: file.path.clone(),
                     },
-                    document.document_location(),
+                    file.location.clone(),
                     message,
                 ),
             }
@@ -85,12 +89,10 @@ pub(crate) async fn register_custom_lints(ctx: &mut LintContext) {
 }
 
 fn validate_custom_registration(
-    workspace_rules: &BTreeMap<CustomRuleId, CustomRuleDefinition>,
+    workspace_rules: &BTreeMap<CustomRuleId, CustomRuleDefinitionNode>,
     registration: &lua_lint::RawCustomLintRegistration,
-) -> std::result::Result<
-    (LintStage, RegisteredLintSelector, CustomRuleDefinition),
-    (RototoRuleId, String),
-> {
+) -> std::result::Result<(LintStage, RegisteredLintSelector, CustomRuleId), (RototoRuleId, String)>
+{
     let stage = parse_registered_lint_stage(&registration.stage)?;
     let selector =
         parse_registered_lint_selector(&registration.entity, registration.field.as_deref())?;
@@ -120,7 +122,7 @@ fn validate_custom_registration(
         )
     })?;
 
-    Ok((stage, selector, definition))
+    Ok((stage, selector, definition.definition.rule))
 }
 
 fn parse_registered_lint_stage(

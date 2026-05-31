@@ -20,6 +20,7 @@ pub(super) struct SemanticIndex {
     pub(super) variables: BTreeMap<VariableId, VariableNode>,
     pub(super) schemas: BTreeMap<WorkspacePath, SchemaNode>,
     pub(super) external_values: BTreeMap<VariableId, BTreeMap<ValueKey, ValueNode>>,
+    pub(super) custom_lints: CustomLintRegistry,
     #[allow(dead_code)]
     pub(super) gates: GateIndex,
 }

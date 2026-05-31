@@ -2,7 +2,6 @@ use crate::diagnostics::{LintDiagnostic, LintStage};
 use crate::error::Result;
 use crate::model::WorkspaceLint;
 
-use super::custom::RegisteredCustomLint;
 use super::index::*;
 use super::input::LintInput;
 use super::output::sort_diagnostics;
@@ -52,7 +51,6 @@ pub(crate) struct LintContext {
     pub(super) syntax: SyntaxIndex,
     pub(super) index: SemanticIndex,
     pub(super) references: ReferenceIndex,
-    pub(super) registered_custom_lints: Vec<RegisteredCustomLint>,
     pub(super) diagnostics: Vec<LintDiagnostic>,
 }
 
@@ -65,7 +63,6 @@ impl LintContext {
             syntax: SyntaxIndex::default(),
             index: SemanticIndex::default(),
             references: ReferenceIndex::default(),
-            registered_custom_lints: Vec::new(),
             diagnostics: Vec::new(),
         }
     }
@@ -103,10 +100,11 @@ pub(super) fn variable_values<'a>(
 mod tests {
     use std::path::PathBuf;
 
-    use crate::diagnostics::EntityId;
+    use crate::diagnostics::{CustomRuleId, EntityId};
 
     use super::super::WORKSPACE_MANIFEST;
     use super::super::index::ValueOrigin;
+    use super::super::index::{RegisteredLintEntity, RegisteredLintField, SchemaLintField};
     use super::super::input::OverlayDocument;
     use super::*;
 
@@ -259,6 +257,46 @@ value = "control"
             &external_node.origin,
             ValueOrigin::External { path, .. }
                 if path == "variables/external-message-values/default.toml"
+        ));
+    }
+
+    #[tokio::test]
+    async fn snapshot_index_records_custom_lint_registry() {
+        let snapshot = lint_workspace_snapshot(LintInput::new(PathBuf::from(
+            "tests/fixtures/workspaces/custom-targets",
+        )))
+        .await
+        .unwrap();
+        let registry = &snapshot.index.custom_lints;
+
+        let schema_rule = CustomRuleId::parse("targets/schema-json").unwrap();
+        let schema_definition = registry.rules.get(&schema_rule).unwrap();
+        assert_eq!(
+            schema_definition.definition.title,
+            "Schema JSON target was checked"
+        );
+        assert_eq!(schema_definition.location.path, "rototo-workspace.toml");
+
+        let file = registry.files.get("lint/targets.lua").unwrap();
+        assert_eq!(file.path, "lint/targets.lua");
+        assert_eq!(file.location.path, "lint/targets.lua");
+
+        let registration = registry
+            .registrations
+            .iter()
+            .find(|registration| registration.rule == schema_rule)
+            .unwrap();
+        assert_eq!(registration.file_path, "lint/targets.lua");
+        assert_eq!(registration.stage, LintStage::Value);
+        assert_eq!(registration.location.path, "lint/targets.lua");
+        assert!(matches!(
+            registration.selector.entity,
+            RegisteredLintEntity::Schema
+        ));
+        assert!(matches!(
+            &registration.selector.field,
+            Some(RegisteredLintField::Schema(SchemaLintField::JsonPath(path)))
+                if path.as_slice() == ["properties"]
         ));
     }
 

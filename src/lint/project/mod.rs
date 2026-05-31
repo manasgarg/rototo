@@ -5,7 +5,7 @@ mod qualifier;
 mod schema;
 mod variable;
 
-use super::index::SemanticIndex;
+use super::index::{CustomLintFileNode, CustomRuleDefinitionNode, SemanticIndex};
 use super::source::{DocumentKind, SourceStore};
 use super::syntax::SyntaxIndex;
 
@@ -66,9 +66,41 @@ pub(super) fn build_semantic_index(source: &SourceStore, syntax: &SyntaxIndex) -
                     schema::project_schema(document, syntax),
                 );
             }
-            DocumentKind::CustomLint => {}
+            DocumentKind::CustomLint => {
+                index.custom_lints.files.insert(
+                    document.path.clone(),
+                    CustomLintFileNode {
+                        path: document.path.clone(),
+                        doc: document.id,
+                        location: document.document_location(),
+                    },
+                );
+            }
         }
+    }
+    if let Some(manifest) = &index.manifest {
+        index.custom_lints.rules = manifest_custom_rule_definitions(manifest)
+            .into_iter()
+            .map(|node| (node.definition.rule.clone(), node))
+            .collect();
     }
 
     index
+}
+
+fn manifest_custom_rule_definitions(
+    manifest: &super::index::ManifestNode,
+) -> Vec<CustomRuleDefinitionNode> {
+    let super::index::CustomRuleCollection::Rules(rules) = &manifest.custom_rules else {
+        return Vec::new();
+    };
+    rules
+        .iter()
+        .filter_map(|rule| {
+            Some(CustomRuleDefinitionNode {
+                definition: rule.definition()?,
+                location: rule.location.clone(),
+            })
+        })
+        .collect()
 }
