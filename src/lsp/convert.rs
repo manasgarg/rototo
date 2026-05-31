@@ -1,3 +1,5 @@
+use std::collections::BTreeMap;
+
 use crate::diagnostics::{DiagnosticLocation, LintDiagnostic, Severity, SourceRange};
 use crate::lint::{
     WorkspaceCompletionItem, WorkspaceCompletionItemKind, WorkspaceDefinition,
@@ -6,28 +8,55 @@ use crate::lint::{
 use crate::model::WorkspaceLint;
 
 use super::protocol::{
-    LspCompletionItem, LspDiagnostic, LspDiagnosticData, LspDocumentSymbol, LspHover, LspLocation,
-    LspMarkupContent, LspPosition, LspRange, PublishDiagnosticsParams,
+    LspCompletionItem, LspDiagnostic, LspDiagnosticData, LspDiagnosticRelatedInformation,
+    LspDocumentSymbol, LspHover, LspLocation, LspMarkupContent, LspPosition, LspRange,
+    PublishDiagnosticsParams,
 };
 
 pub(super) fn publish_diagnostics_params(lint: &WorkspaceLint) -> Vec<PublishDiagnosticsParams> {
+    let uri_by_path = lint
+        .documents
+        .iter()
+        .map(|document| (document.path.clone(), document.uri.clone()))
+        .collect::<BTreeMap<_, _>>();
     lint.diagnostics_by_document()
         .into_iter()
         .map(|group| PublishDiagnosticsParams {
             uri: group.document.uri.clone(),
             version: group.document.version,
-            diagnostics: group.diagnostics.into_iter().map(lsp_diagnostic).collect(),
+            diagnostics: group
+                .diagnostics
+                .into_iter()
+                .map(|diagnostic| lsp_diagnostic(diagnostic, &uri_by_path))
+                .collect(),
         })
         .collect()
 }
 
-pub(super) fn lsp_diagnostic(diagnostic: &LintDiagnostic) -> LspDiagnostic {
+pub(super) fn lsp_diagnostic(
+    diagnostic: &LintDiagnostic,
+    uri_by_path: &BTreeMap<String, String>,
+) -> LspDiagnostic {
     LspDiagnostic {
         range: lsp_range(&diagnostic.primary),
         severity: lsp_severity(diagnostic.severity),
         source: "rototo",
         code: diagnostic.rule.as_string(),
         message: diagnostic.message.clone(),
+        related_information: diagnostic
+            .related
+            .iter()
+            .map(|related| LspDiagnosticRelatedInformation {
+                location: LspLocation {
+                    uri: uri_by_path
+                        .get(&related.location.path)
+                        .cloned()
+                        .unwrap_or_else(|| related.location.path.clone()),
+                    range: lsp_range(&related.location),
+                },
+                message: related.message.clone(),
+            })
+            .collect(),
         data: LspDiagnosticData {
             rule: diagnostic.rule.as_string(),
             stage: lint_stage_label(diagnostic.stage).to_owned(),

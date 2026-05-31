@@ -831,7 +831,8 @@ struct WorkspaceFileView {
 struct DiagnosticCatalogEntryView {
     rule: String,
     severity: Severity,
-    entity: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    entity: Option<String>,
     title: String,
     help: String,
 }
@@ -1077,7 +1078,9 @@ fn catalog_entry_view(entry: &DiagnosticCatalogEntry) -> DiagnosticCatalogEntryV
     DiagnosticCatalogEntryView {
         rule: entry.rule.clone(),
         severity: entry.severity,
-        entity: format!("{:?}", entry.entity).to_lowercase(),
+        entity: entry
+            .entity
+            .map(|entity| format!("{entity:?}").to_lowercase()),
         title: entry.title.clone(),
         help: entry.help.clone(),
     }
@@ -1136,7 +1139,10 @@ fn print_diagnostic_catalog(catalog: &DiagnosticCatalog, json: bool) -> Result<(
         println!(
             "{:<48}  {:<9}  {:<8}  {}",
             entry.rule,
-            format!("{:?}", entry.entity).to_lowercase(),
+            entry
+                .entity
+                .map(|entity| format!("{entity:?}").to_lowercase())
+                .unwrap_or_default(),
             severity_label(&entry.severity),
             entry.title
         );
@@ -1697,5 +1703,6 @@ fn init_tracing() {
     tracing_subscriber::fmt()
         .with_env_filter(filter)
         .with_target(false)
+        .with_writer(std::io::stderr)
         .init();
 }

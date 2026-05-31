@@ -17,7 +17,7 @@ pub(super) fn toml_span_parse_diagnostic(
     document: &SourceDocument,
     err: &::toml_span::Error,
 ) -> LintDiagnostic {
-    let start = err.span.start.min(document.text.len());
+    let start = floor_char_boundary(&document.text, err.span.start.min(document.text.len()));
     let end = parse_error_end(document, start, err.span.end);
     let location = if start == end {
         document.document_location()
@@ -34,8 +34,12 @@ pub(super) fn toml_span_parse_diagnostic(
 }
 
 fn parse_error_end(document: &SourceDocument, start: usize, raw_end: usize) -> usize {
-    let bounded_end = raw_end.min(document.text.len()).max(start);
-    let Some(relative_newline) = document.text[start..bounded_end].find('\n') else {
+    let bounded_end =
+        ceil_char_boundary(&document.text, raw_end.min(document.text.len())).max(start);
+    let Some(slice) = document.text.get(start..bounded_end) else {
+        return start;
+    };
+    let Some(relative_newline) = slice.find('\n') else {
         return bounded_end;
     };
     start + relative_newline + 1
@@ -46,7 +50,7 @@ pub(super) fn json_parse_diagnostic(
     err: &::serde_json::Error,
 ) -> LintDiagnostic {
     let line = err.line().saturating_sub(1);
-    let column = err.column();
+    let column = err.column().saturating_sub(1);
     let start = document.line_index.offset_for_line_character(line, column);
     let end = start.saturating_add(1).min(document.text.len());
     LintDiagnostic::rototo(
@@ -56,6 +60,20 @@ pub(super) fn json_parse_diagnostic(
         document.span_location(start..end),
         format!("failed to parse {}: {err}", document.path),
     )
+}
+
+fn floor_char_boundary(text: &str, mut offset: usize) -> usize {
+    while offset > 0 && !text.is_char_boundary(offset) {
+        offset -= 1;
+    }
+    offset
+}
+
+fn ceil_char_boundary(text: &str, mut offset: usize) -> usize {
+    while offset < text.len() && !text.is_char_boundary(offset) {
+        offset += 1;
+    }
+    offset
 }
 
 fn parse_failed_rule(kind: &DocumentKind) -> RototoRuleId {

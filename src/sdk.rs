@@ -688,7 +688,7 @@ async fn read_context_schema(root: &Path) -> Result<Option<JsonValue>> {
         .get("schema")
         .and_then(toml::Value::as_str)
         .ok_or_else(|| RototoError::new("[context] must declare schema"))?;
-    let path = context_schema_path(root, schema_ref)?;
+    let path = context_schema_path(root, schema_ref).await?;
     let text = tokio::fs::read_to_string(&path).await.map_err(|err| {
         RototoError::new(format!(
             "failed to read context schema {}: {err}",
@@ -704,7 +704,7 @@ async fn read_context_schema(root: &Path) -> Result<Option<JsonValue>> {
     Ok(Some(schema))
 }
 
-fn context_schema_path(root: &Path, schema_ref: &str) -> Result<PathBuf> {
+async fn context_schema_path(root: &Path, schema_ref: &str) -> Result<PathBuf> {
     let schema_ref = Path::new(schema_ref);
     if schema_ref.as_os_str().is_empty()
         || schema_ref.is_absolute()
@@ -716,5 +716,23 @@ fn context_schema_path(root: &Path, schema_ref: &str) -> Result<PathBuf> {
             "context schema path must be a relative path inside the workspace",
         ));
     }
-    Ok(root.join(schema_ref))
+    let root = tokio::fs::canonicalize(root).await.map_err(|err| {
+        RototoError::new(format!(
+            "failed to canonicalize workspace root {}: {err}",
+            root.display()
+        ))
+    })?;
+    let schema_path = root.join(schema_ref);
+    let canonical_schema = tokio::fs::canonicalize(&schema_path).await.map_err(|err| {
+        RototoError::new(format!(
+            "failed to read context schema {}: {err}",
+            schema_path.display()
+        ))
+    })?;
+    if !canonical_schema.starts_with(&root) {
+        return Err(RototoError::new(
+            "context schema path must resolve inside the workspace",
+        ));
+    }
+    Ok(canonical_schema)
 }

@@ -1,17 +1,25 @@
+use std::cell::Cell;
 use std::path::PathBuf;
+use std::rc::Rc;
+use std::time::{Duration, Instant};
 
-use mlua::{Lua, LuaSerdeExt, Table, Value as LuaValue};
+use mlua::{HookTriggers, Lua, LuaOptions, LuaSerdeExt, StdLib, Table, Value as LuaValue, VmState};
 use serde_json::Value as JsonValue;
 
 use crate::error::{Result, RototoError};
 
-#[derive(Clone)]
+const LUA_MEMORY_LIMIT_BYTES: usize = 16 * 1024 * 1024;
+const LUA_INSTRUCTION_LIMIT: u64 = 1_000_000;
+const LUA_HOOK_INTERVAL: u32 = 1_000;
+const LUA_TASK_TIMEOUT: Duration = Duration::from_secs(2);
+
+#[derive(Clone, Debug)]
 pub struct RegisterLintInput {
     pub lint_path: PathBuf,
     pub script: String,
 }
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct RawCustomLintRegistration {
     pub stage: String,
     pub entity: String,
@@ -21,7 +29,7 @@ pub struct RawCustomLintRegistration {
     pub handler_exists: bool,
 }
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct RegisteredLintInput {
     pub stage: String,
     pub target: RegisteredLintTarget,
@@ -30,12 +38,13 @@ pub struct RegisteredLintInput {
     pub handler: String,
 }
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct RegisteredLintTarget {
     pub entity: String,
     pub data: JsonValue,
 }
 
+#[derive(Debug)]
 pub struct RegisteredCustomLintOutput {
     pub message: String,
     pub field: Option<String>,
@@ -44,15 +53,16 @@ pub struct RegisteredCustomLintOutput {
 pub async fn register_pipeline_lint(
     input: RegisterLintInput,
 ) -> Result<Vec<RawCustomLintRegistration>> {
-    tokio::task::spawn_blocking(move || register_pipeline_lint_script(input))
-        .await
-        .map_err(|err| RototoError::new(format!("custom lint registration task failed: {err}")))?
+    bounded_lua_task("custom lint registration", move || {
+        register_pipeline_lint_script(input)
+    })
+    .await
 }
 
 fn register_pipeline_lint_script(
     input: RegisterLintInput,
 ) -> Result<Vec<RawCustomLintRegistration>> {
-    let lua = Lua::new();
+    let lua = custom_lint_lua()?;
     lua.load(&input.script)
         .set_name(input.lint_path.display().to_string())
         .exec()
@@ -65,7 +75,7 @@ fn register_pipeline_lint_script(
             RototoError::new(format!("custom lint has invalid register function: {err}"))
         })?;
     let Some(register) = register else {
-        return Ok(Vec::new());
+        return Err(RototoError::new("custom lint must define register(lint)"));
     };
 
     let registrations = std::rc::Rc::new(std::cell::RefCell::new(Vec::new()));
@@ -133,15 +143,13 @@ fn required_registration_string(table: &Table, key: &str) -> mlua::Result<String
 pub async fn lint_registered_target(
     input: RegisteredLintInput,
 ) -> Result<Vec<RegisteredCustomLintOutput>> {
-    tokio::task::spawn_blocking(move || lint_registered_target_script(input))
-        .await
-        .map_err(|err| RototoError::new(format!("custom lint task failed: {err}")))?
+    bounded_lua_task("custom lint", move || lint_registered_target_script(input)).await
 }
 
 fn lint_registered_target_script(
     input: RegisteredLintInput,
 ) -> Result<Vec<RegisteredCustomLintOutput>> {
-    let lua = Lua::new();
+    let lua = custom_lint_lua()?;
     lua.load(&input.script)
         .set_name(input.lint_path.display().to_string())
         .exec()
@@ -162,6 +170,67 @@ fn lint_registered_target_script(
         .call(ctx)
         .map_err(|err| RototoError::new(format!("custom lint failed: {err}")))?;
     registered_outputs_from_lua(returned)
+}
+
+async fn bounded_lua_task<T, F>(label: &'static str, task: F) -> Result<T>
+where
+    T: Send + 'static,
+    F: FnOnce() -> Result<T> + Send + 'static,
+{
+    tokio::time::timeout(LUA_TASK_TIMEOUT, tokio::task::spawn_blocking(task))
+        .await
+        .map_err(|_| RototoError::new(format!("{label} exceeded execution timeout")))?
+        .map_err(|err| RototoError::new(format!("{label} task failed: {err}")))?
+}
+
+fn custom_lint_lua() -> Result<Lua> {
+    let libs = StdLib::TABLE | StdLib::STRING | StdLib::UTF8 | StdLib::MATH;
+    let lua = Lua::new_with(libs, LuaOptions::default())
+        .map_err(|err| RototoError::new(format!("failed to prepare custom lint VM: {err}")))?;
+    lua.set_memory_limit(LUA_MEMORY_LIMIT_BYTES)
+        .map_err(|err| {
+            RototoError::new(format!("failed to set custom lint memory limit: {err}"))
+        })?;
+
+    let globals = lua.globals();
+    for global in [
+        "os",
+        "io",
+        "package",
+        "require",
+        "dofile",
+        "loadfile",
+        "load",
+        "collectgarbage",
+        "debug",
+    ] {
+        globals.set(global, LuaValue::Nil).map_err(|err| {
+            RototoError::new(format!(
+                "failed to restrict custom lint global {global}: {err}"
+            ))
+        })?;
+    }
+
+    let started = Instant::now();
+    let instructions = Rc::new(Cell::new(0_u64));
+    let hook_instructions = instructions.clone();
+    lua.set_hook(
+        HookTriggers::new().every_nth_instruction(LUA_HOOK_INTERVAL),
+        move |_, _| {
+            let executed = hook_instructions
+                .get()
+                .saturating_add(u64::from(LUA_HOOK_INTERVAL));
+            hook_instructions.set(executed);
+            if executed > LUA_INSTRUCTION_LIMIT || started.elapsed() > LUA_TASK_TIMEOUT {
+                return Err(mlua::Error::external(
+                    "custom lint exceeded Lua execution limits",
+                ));
+            }
+            Ok(VmState::Continue)
+        },
+    );
+
+    Ok(lua)
 }
 
 fn registered_outputs_from_lua(returned: LuaValue) -> Result<Vec<RegisteredCustomLintOutput>> {
@@ -209,5 +278,99 @@ fn lua_type_name(value: &LuaValue) -> &'static str {
         LuaValue::UserData(_) => "userdata",
         LuaValue::Error(_) => "error",
         LuaValue::Other(_) => "other",
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn custom_lint_sandbox_denies_file_process_env_and_require_globals() {
+        let registrations = register_pipeline_lint(RegisterLintInput {
+            lint_path: PathBuf::from("lint/sandbox.lua"),
+            script: r#"
+                assert(os == nil, "os global is available")
+                assert(io == nil, "io global is available")
+                assert(package == nil, "package global is available")
+                assert(require == nil, "require global is available")
+                assert(dofile == nil, "dofile global is available")
+                assert(loadfile == nil, "loadfile global is available")
+
+                function register(lint)
+                  lint:on({
+                    stage = "policy",
+                    entity = "workspace",
+                    rule = "policy/sandbox",
+                    handler = "check"
+                  })
+                end
+
+                function check(ctx)
+                  return {}
+                end
+            "#
+            .to_owned(),
+        })
+        .await
+        .unwrap();
+
+        assert_eq!(registrations.len(), 1);
+        assert!(registrations[0].handler_exists);
+    }
+
+    #[tokio::test]
+    async fn custom_lint_registration_loop_is_bounded() {
+        let err = register_pipeline_lint(RegisterLintInput {
+            lint_path: PathBuf::from("lint/loop.lua"),
+            script: "while true do end".to_owned(),
+        })
+        .await
+        .unwrap_err();
+
+        assert!(
+            err.to_string().contains("execution limits")
+                || err.to_string().contains("execution timeout"),
+            "{err}"
+        );
+    }
+
+    #[tokio::test]
+    async fn custom_lint_without_register_is_an_error() {
+        let err = register_pipeline_lint(RegisterLintInput {
+            lint_path: PathBuf::from("lint/no-register.lua"),
+            script: "function check(ctx) return {} end".to_owned(),
+        })
+        .await
+        .unwrap_err();
+
+        assert!(err.to_string().contains("must define register"), "{err}");
+    }
+
+    #[tokio::test]
+    async fn custom_lint_handler_loop_is_bounded() {
+        let err = lint_registered_target(RegisteredLintInput {
+            stage: "policy".to_owned(),
+            target: RegisteredLintTarget {
+                entity: "workspace".to_owned(),
+                data: serde_json::json!({}),
+            },
+            lint_path: PathBuf::from("lint/loop.lua"),
+            script: r#"
+                function check(ctx)
+                  while true do end
+                end
+            "#
+            .to_owned(),
+            handler: "check".to_owned(),
+        })
+        .await
+        .unwrap_err();
+
+        assert!(
+            err.to_string().contains("execution limits")
+                || err.to_string().contains("execution timeout"),
+            "{err}"
+        );
     }
 }

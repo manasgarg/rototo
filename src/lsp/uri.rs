@@ -29,7 +29,12 @@ pub(super) async fn initialize_workspace_root(params: &JsonValue) -> Result<Opti
 }
 
 async fn canonicalize_workspace_root(path: PathBuf) -> Result<Option<PathBuf>> {
-    let root = tokio::fs::canonicalize(&path).await.unwrap_or(path);
+    let root = tokio::fs::canonicalize(&path).await.map_err(|err| {
+        RototoError::new(format!(
+            "failed to canonicalize LSP workspace root {}: {err}",
+            path.display()
+        ))
+    })?;
     Ok(Some(root))
 }
 
@@ -117,4 +122,27 @@ pub(super) fn workspace_relative_path(root: &Path, path: &Path) -> Result<String
         return Err(RototoError::new("LSP document path is workspace root"));
     }
     Ok(workspace_path)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn file_uri_paths_percent_decode_special_and_multibyte_bytes() {
+        assert_eq!(
+            path_from_file_uri("file:///tmp/rototo%20%23%C3%A9%25.toml")
+                .unwrap()
+                .to_string_lossy(),
+            "/tmp/rototo #é%.toml"
+        );
+    }
+
+    #[test]
+    fn file_uri_paths_reject_bad_percent_encoding_and_utf8() {
+        assert!(path_from_file_uri("file:///tmp/%").is_err());
+        assert!(path_from_file_uri("file:///tmp/%GG").is_err());
+        assert!(path_from_file_uri("file:///tmp/%FF").is_err());
+        assert!(path_from_file_uri("https://example.test/workspace").is_err());
+    }
 }

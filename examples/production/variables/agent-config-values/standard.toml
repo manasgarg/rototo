@@ -1,4 +1,3 @@
-[value]
 model = "gpt-5-mini"
 gateway = "openai"
 prompt = "You are a pragmatic production assistant."

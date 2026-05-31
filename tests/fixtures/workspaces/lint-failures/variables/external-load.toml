@@ -1,7 +1,7 @@
 schema_version = 1
 
 description = "Variable with malformed external value merge target"
-type = "string"
+schema = "../schemas/panel.schema.json"
 values = "not a table"
 
 [env._]

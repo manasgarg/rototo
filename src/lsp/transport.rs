@@ -4,6 +4,7 @@ use tokio::io::{AsyncBufRead, AsyncBufReadExt, AsyncReadExt, AsyncWrite, AsyncWr
 use crate::error::{Result, RototoError};
 
 const JSONRPC_VERSION: &str = "2.0";
+const MAX_CONTENT_LENGTH: usize = 4 * 1024 * 1024;
 
 pub(super) async fn read_message<R>(reader: &mut R) -> Result<Option<JsonValue>>
 where
@@ -36,6 +37,11 @@ where
 
     let content_length =
         content_length.ok_or_else(|| RototoError::new("missing LSP Content-Length header"))?;
+    if content_length > MAX_CONTENT_LENGTH {
+        return Err(RototoError::new(format!(
+            "LSP Content-Length exceeds maximum of {MAX_CONTENT_LENGTH} bytes"
+        )));
+    }
     let mut body = vec![0; content_length];
     reader
         .read_exact(&mut body)
@@ -126,4 +132,49 @@ where
         .await
         .map_err(|err| RototoError::new(format!("failed to flush LSP output: {err}")))?;
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use tokio::io::BufReader;
+
+    use super::*;
+
+    #[tokio::test]
+    async fn read_message_rejects_oversized_content_length_before_allocation() {
+        let input = format!(
+            "Content-Length: {}\r\n\r\n",
+            MAX_CONTENT_LENGTH.saturating_add(1)
+        );
+        let err = read_message(&mut BufReader::new(input.as_bytes()))
+            .await
+            .unwrap_err();
+
+        assert!(err.to_string().contains("exceeds maximum"));
+    }
+
+    #[tokio::test]
+    async fn read_message_rejects_missing_and_malformed_content_length() {
+        let missing = read_message(&mut BufReader::new("\r\n{}".as_bytes()))
+            .await
+            .unwrap_err();
+        assert!(missing.to_string().contains("missing LSP Content-Length"));
+
+        let malformed = read_message(&mut BufReader::new(
+            "Content-Length: nope\r\n\r\n{}".as_bytes(),
+        ))
+        .await
+        .unwrap_err();
+        assert!(malformed.to_string().contains("invalid LSP Content-Length"));
+    }
+
+    #[tokio::test]
+    async fn read_message_accepts_valid_framing() {
+        let body = r#"{"jsonrpc":"2.0","method":"ping"}"#;
+        let input = format!("Content-Length: {}\r\n\r\n{body}", body.len());
+        let mut input = BufReader::new(input.as_bytes());
+        let message = read_message(&mut input).await.unwrap().unwrap();
+
+        assert_eq!(message["method"], "ping");
+    }
 }

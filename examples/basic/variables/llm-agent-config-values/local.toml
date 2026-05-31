@@ -1,4 +1,3 @@
-[value]
 model = "local-small"
 gateway = "ollama"
 prompt = "You are a concise development assistant."

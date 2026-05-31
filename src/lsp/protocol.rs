@@ -19,7 +19,16 @@ pub(super) struct LspDiagnostic {
     pub(super) source: &'static str,
     pub(super) code: String,
     pub(super) message: String,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub(super) related_information: Vec<LspDiagnosticRelatedInformation>,
     pub(super) data: LspDiagnosticData,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(super) struct LspDiagnosticRelatedInformation {
+    pub(super) location: LspLocation,
+    pub(super) message: String,
 }
 
 #[derive(Debug, Serialize)]
@@ -83,6 +92,7 @@ pub(super) struct LspPosition {
 pub(super) fn initialize_result() -> JsonValue {
     json!({
         "capabilities": {
+            "positionEncoding": "utf-16",
             "textDocumentSync": {
                 "openClose": true,
                 "change": TEXT_DOCUMENT_SYNC_KIND_FULL,

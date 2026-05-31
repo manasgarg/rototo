@@ -67,18 +67,25 @@ fn qualifier_cycle_message(qualifier_id: &str, component: &[String]) -> String {
         format!("qualifier references itself: {qualifier_id}")
     } else {
         format!(
-            "qualifier participates in a reference cycle: {}",
-            component.join(" -> ")
+            "qualifier participates in a reference cycle with: {}",
+            component.join(", ")
         )
     }
 }
 
 pub(super) fn lint_unreferenced_qualifiers(ctx: &mut LintContext) {
     let referenced = ctx.references.referenced_qualifier_ids();
+    let graph = ctx.references.qualifier_reference_graph();
     let mut diagnostics = Vec::new();
 
     for qualifier in ctx.index.qualifiers.values() {
-        if referenced.contains(&qualifier.id) {
+        if referenced.contains(&qualifier.id)
+            || graph
+                .get(&qualifier.id)
+                .into_iter()
+                .flatten()
+                .any(|edge| edge.from == qualifier.id && edge.to == qualifier.id)
+        {
             continue;
         }
 

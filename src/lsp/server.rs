@@ -27,15 +27,35 @@ pub async fn serve_stdio() -> Result<()> {
     serve(BufReader::new(stdin), stdout).await
 }
 
-async fn serve<R, W>(mut reader: R, mut writer: W) -> Result<()>
+pub(super) async fn serve<R, W>(mut reader: R, mut writer: W) -> Result<()>
 where
     R: AsyncBufRead + Unpin,
     W: AsyncWrite + Unpin,
 {
     let mut server = LspServer::new();
     while let Some(message) = read_message(&mut reader).await? {
-        if server.handle_message(message, &mut writer).await? {
-            break;
+        let id = message.get("id").cloned();
+        let method = message
+            .get("method")
+            .and_then(JsonValue::as_str)
+            .unwrap_or_default()
+            .to_owned();
+        match server.handle_message(message, &mut writer).await {
+            Ok(true) => break,
+            Ok(false) => {}
+            Err(err) if id.is_some() => {
+                write_error_response(
+                    &mut writer,
+                    id.unwrap(),
+                    -32603,
+                    &format!("rototo LSP request failed: {err}"),
+                )
+                .await?;
+            }
+            Err(err) if method == "exit" => return Err(err),
+            Err(err) => {
+                tracing::warn!(method = %method, error = %err, "rototo LSP notification failed");
+            }
         }
     }
     Ok(())
@@ -142,7 +162,12 @@ impl LspServer {
                 self.remove_document_overlay(params)?;
                 self.publish_workspace_diagnostics(writer).await?;
             }
-            (None, "exit") => return Ok(self.shutdown_requested),
+            (None, "exit") => {
+                if self.shutdown_requested {
+                    return Ok(true);
+                }
+                return Err(RototoError::new("LSP exit received before shutdown"));
+            }
             (None, _) => {}
         }
 
@@ -182,11 +207,18 @@ impl LspServer {
             .and_then(JsonValue::as_str)
             .ok_or_else(|| RototoError::new("didChange missing textDocument.uri"))?;
         let version = json_i32(text_document.get("version"));
-        let text = params
+        let change = params
             .get("contentChanges")
             .and_then(JsonValue::as_array)
             .and_then(|changes| changes.last())
-            .and_then(|change| change.get("text"))
+            .ok_or_else(|| RototoError::new("didChange missing content change"))?;
+        if change.get("range").is_some() || change.get("rangeLength").is_some() {
+            return Err(RototoError::new(
+                "incremental didChange ranges are unsupported; send full document text",
+            ));
+        }
+        let text = change
+            .get("text")
             .and_then(JsonValue::as_str)
             .ok_or_else(|| RototoError::new("didChange missing full text content change"))?;
         let path = self.workspace_path_for_uri(uri)?;
@@ -269,12 +301,17 @@ impl LspServer {
             .get("uri")
             .and_then(JsonValue::as_str)
             .ok_or_else(|| RototoError::new("completion missing textDocument.uri"))?;
+        let position = source_position_from_json(
+            params
+                .get("position")
+                .ok_or_else(|| RototoError::new("completion missing position"))?,
+        )?;
         let path = self.workspace_path_for_uri(uri)?;
         let Some(snapshot) = self.workspace_snapshot().await? else {
             return Ok(Vec::new());
         };
         Ok(snapshot
-            .completion_items(&path)
+            .completion_items(&path, position)
             .iter()
             .map(lsp_completion_item)
             .collect())

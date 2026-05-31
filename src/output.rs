@@ -1,6 +1,8 @@
 use serde::Serialize;
 
-use rototo::diagnostics::{DiagnosticCatalogEntry, DiagnosticEntity, LintDiagnostic, Severity};
+use rototo::diagnostics::{
+    DiagnosticCatalogEntry, DiagnosticEntity, DiagnosticLocation, LintDiagnostic, Severity,
+};
 use rototo::error::{Result, RototoError};
 use rototo::model::{QualifierInspection, VariableInspection, WorkspaceInspection, WorkspaceLint};
 use rototo::workspace::{qualifier_for_id, read_toml, read_variable_toml, variable_for_id};
@@ -181,7 +183,6 @@ pub(crate) async fn print_variable_get(
     json: bool,
 ) -> Result<()> {
     let variable = variable_for_id(inspection, id)?;
-    let path = inspection.root.join(&variable.path);
 
     if json {
         let value = serde_json::to_value(read_variable_toml(&inspection.root, variable).await?)
@@ -200,7 +201,12 @@ pub(crate) async fn print_variable_get(
         return Ok(());
     }
 
-    print_workspace_file(&path).await
+    let value = read_variable_toml(&inspection.root, variable).await?;
+    print!(
+        "{}",
+        toml::to_string_pretty(&value).map_err(|err| RototoError::new(err.to_string()))?
+    );
+    Ok(())
 }
 
 pub(crate) fn print_diagnostic_catalog_entry(
@@ -217,7 +223,9 @@ pub(crate) fn print_diagnostic_catalog_entry(
     }
 
     println!("{}", diagnostic.rule);
-    println!("  entity: {}", diagnostic_entity_label(&diagnostic.entity));
+    if let Some(entity) = &diagnostic.entity {
+        println!("  entity: {}", diagnostic_entity_label(entity));
+    }
     println!("  severity: {}", severity_label(&diagnostic.severity));
     println!("  title: {}", diagnostic.title);
     println!("  help: {}", diagnostic.help);
@@ -269,16 +277,27 @@ fn print_diagnostics(diagnostics: &[LintDiagnostic]) {
             diagnostic.message
         );
         println!("  help: {}", diagnostic.help);
+        for related in &diagnostic.related {
+            println!(
+                "  note: {}: {}",
+                diagnostic_location_label_for_location(&related.location),
+                related.message
+            );
+        }
     }
 }
 
 fn diagnostic_location_label(diagnostic: &LintDiagnostic) -> String {
-    let Some(range) = diagnostic.primary.range else {
-        return diagnostic.primary.path.clone();
+    diagnostic_location_label_for_location(&diagnostic.primary)
+}
+
+fn diagnostic_location_label_for_location(location: &DiagnosticLocation) -> String {
+    let Some(range) = location.range else {
+        return location.path.clone();
     };
     format!(
         "{}:{}:{}",
-        diagnostic.primary.path,
+        location.path,
         range.start.line + 1,
         range.start.character + 1
     )

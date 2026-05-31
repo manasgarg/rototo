@@ -1,10 +1,11 @@
 schema_version = 1
 
 description = "Variable with a duplicate external value"
-type = "string"
+schema = "../schemas/panel.schema.json"
 
-[values]
-default = "inline"
+[values.default]
+heading = "Inline"
+enabled = true
 
 [env._]
 value = "default"

@@ -139,7 +139,7 @@ fn lint_bucket_predicate(
             range.location.clone(),
             "bucket range must be a list",
         );
-    } else if range.len != 2 {
+    } else if range.len != 2 || range.start.is_none() || range.end.is_none() {
         push_project_diagnostic(
             diagnostics,
             RototoRuleId::QualifierPredicateBucket,

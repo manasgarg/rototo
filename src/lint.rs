@@ -111,8 +111,12 @@ impl WorkspaceLintSnapshot {
         symbols::document_symbols(&self.index, path)
     }
 
-    pub(crate) fn completion_items(&self, path: &str) -> Vec<WorkspaceCompletionItem> {
-        symbols::completion_items(&self.index, path)
+    pub(crate) fn completion_items(
+        &self,
+        path: &str,
+        position: SourcePosition,
+    ) -> Vec<WorkspaceCompletionItem> {
+        symbols::completion_items(&self.index, path, position)
     }
 
     pub(crate) fn hover(&self, path: &str, position: SourcePosition) -> Option<WorkspaceHover> {

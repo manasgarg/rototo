@@ -52,6 +52,7 @@ pub(super) async fn run(ctx: &mut LintContext) -> Result<()> {
     if tokio::fs::metadata(ctx.source.root.join(&manifest_path))
         .await
         .is_ok_and(|metadata| metadata.is_file())
+        || ctx.input.overlays.contains_key(WORKSPACE_MANIFEST)
     {
         ctx.source
             .add_disk_document(manifest_path, DocumentKind::Manifest)
@@ -75,6 +76,7 @@ pub(super) async fn run(ctx: &mut LintContext) -> Result<()> {
         .await?;
     ctx.source.add_schema_documents().await?;
     ctx.source.add_custom_lint_documents().await?;
+    ctx.source.add_overlay_documents().await?;
 
     Ok(())
 }

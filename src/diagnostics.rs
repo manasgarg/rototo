@@ -481,7 +481,8 @@ impl Serialize for DiagnosticRule {
 pub struct DiagnosticCatalogEntry {
     pub rule: String,
     pub severity: Severity,
-    pub entity: DiagnosticEntity,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub entity: Option<DiagnosticEntity>,
     pub title: String,
     pub help: String,
 }
@@ -492,7 +493,7 @@ impl DiagnosticCatalogEntry {
         Self {
             rule: meta.rule.to_owned(),
             severity: meta.severity,
-            entity: meta.entity,
+            entity: Some(meta.entity),
             title: meta.title.to_owned(),
             help: meta.help.to_owned(),
         }
@@ -502,7 +503,7 @@ impl DiagnosticCatalogEntry {
         Self {
             rule: definition.rule.as_str().to_owned(),
             severity: definition.severity,
-            entity: DiagnosticEntity::Variable,
+            entity: None,
             title: definition.title.clone(),
             help: definition.help.clone(),
         }

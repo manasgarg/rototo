@@ -11,9 +11,10 @@ mod tests {
     use std::path::Path;
 
     use serde_json::{Value as JsonValue, json};
+    use tokio::io::{AsyncBufReadExt, AsyncRead, AsyncWrite, AsyncWriteExt, BufReader};
 
     use super::protocol::{LspCompletionItem, LspDocumentSymbol, LspLocation, initialize_result};
-    use super::server::LspServer;
+    use super::server::{LspServer, serve};
 
     #[tokio::test]
     async fn lsp_diagnostics_use_unsaved_overlay_and_clear_by_document() {
@@ -119,6 +120,7 @@ value = "control"
         tokio::fs::create_dir_all(root.join("variables"))
             .await
             .unwrap();
+        tokio::fs::create_dir_all(root.join("lint")).await.unwrap();
         let manifest_path = root.join("rototo-workspace.toml");
         tokio::fs::write(
             &manifest_path,
@@ -269,6 +271,7 @@ rule = [
         tokio::fs::create_dir_all(root.join("variables"))
             .await
             .unwrap();
+        tokio::fs::create_dir_all(root.join("lint")).await.unwrap();
         let manifest_path = root.join("rototo-workspace.toml");
         let disk_manifest = r#"schema_version = 1
 
@@ -303,6 +306,15 @@ value = "control"
         tokio::fs::write(&variable_path, disk_variable)
             .await
             .unwrap();
+        let lint_path = root.join("lint/fields.lua");
+        tokio::fs::write(
+            &lint_path,
+            r#"function register(lint)
+end
+"#,
+        )
+        .await
+        .unwrap();
 
         let mut server = LspServer::new();
         server.workspace_root = Some(tokio::fs::canonicalize(root).await.unwrap());
@@ -357,12 +369,51 @@ rule = [
             .await
             .unwrap();
 
-        assert_completion(&completions, "stage", "workspace environment");
+        assert_no_completion(&completions, "stage", "workspace environment");
         assert_completion(&completions, "premium", "qualifier");
         assert_completion(&completions, "treatment", "variable value");
-        assert_completion(&completions, "bucket", "predicate operator");
-        assert_completion(&completions, "context_schema", "custom lint field selector");
-        assert_completion(&completions, "value.", "custom lint field selector");
+        assert_no_completion(&completions, "bucket", "predicate operator");
+        assert_no_completion(&completions, "context_schema", "custom lint field selector");
+
+        let qualifier_completions = server
+            .completion_items(json!({
+                "textDocument": {
+                    "uri": format!("file://{}", root.join("qualifiers/premium.toml").display())
+                },
+                "position": {
+                    "line": 4,
+                    "character": 6
+                }
+            }))
+            .await
+            .unwrap();
+        assert_completion(&qualifier_completions, "bucket", "predicate operator");
+        assert_completion(&qualifier_completions, "premium", "qualifier");
+        assert_no_completion(&qualifier_completions, "treatment", "variable value");
+
+        let custom_lint_completions = server
+            .completion_items(json!({
+                "textDocument": {
+                    "uri": format!("file://{}", lint_path.display())
+                },
+                "position": {
+                    "line": 1,
+                    "character": 0
+                }
+            }))
+            .await
+            .unwrap();
+        assert_completion(
+            &custom_lint_completions,
+            "context_schema",
+            "custom lint field selector",
+        );
+        assert_completion(
+            &custom_lint_completions,
+            "value.",
+            "custom lint field selector",
+        );
+        assert_no_completion(&custom_lint_completions, "bucket", "predicate operator");
         assert_eq!(
             tokio::fs::read_to_string(&manifest_path).await.unwrap(),
             disk_manifest
@@ -516,6 +567,38 @@ value = "control"
             tokio::fs::read_to_string(&variable_path).await.unwrap(),
             disk_variable
         );
+    }
+
+    #[tokio::test]
+    async fn lsp_rejects_incremental_did_change_ranges() {
+        let tempdir = tempfile::tempdir().unwrap();
+        let root = tempdir.path();
+        tokio::fs::create_dir_all(root.join("variables"))
+            .await
+            .unwrap();
+        let variable_path = root.join("variables/message.toml");
+
+        let mut server = LspServer::new();
+        server.workspace_root = Some(tokio::fs::canonicalize(root).await.unwrap());
+        let err = server
+            .change_document(json!({
+                "textDocument": {
+                    "uri": format!("file://{}", variable_path.display()),
+                    "version": 2
+                },
+                "contentChanges": [
+                    {
+                        "range": {
+                            "start": { "line": 0, "character": 0 },
+                            "end": { "line": 0, "character": 0 }
+                        },
+                        "text": "schema_version = 1"
+                    }
+                ]
+            }))
+            .unwrap_err();
+
+        assert!(err.to_string().contains("incremental didChange"));
     }
 
     #[tokio::test]
@@ -847,6 +930,13 @@ rule = [
         assert_eq!(
             result
                 .get("capabilities")
+                .and_then(|capabilities| capabilities.get("positionEncoding"))
+                .and_then(JsonValue::as_str),
+            Some("utf-16")
+        );
+        assert_eq!(
+            result
+                .get("capabilities")
                 .and_then(|capabilities| capabilities.get("completionProvider"))
                 .and_then(|provider| provider.get("resolveProvider"))
                 .and_then(JsonValue::as_bool),
@@ -875,6 +965,55 @@ rule = [
         );
     }
 
+    #[tokio::test]
+    async fn lsp_request_errors_do_not_stop_the_server() {
+        let (mut client, server_io) = tokio::io::duplex(8192);
+        let (server_read, server_write) = tokio::io::split(server_io);
+        let server =
+            tokio::spawn(async move { serve(BufReader::new(server_read), server_write).await });
+
+        write_lsp_message(
+            &mut client,
+            json!({
+                "jsonrpc": "2.0",
+                "id": 1,
+                "method": "textDocument/documentSymbol",
+                "params": {
+                    "textDocument": {
+                        "uri": "file:///tmp/outside.toml"
+                    }
+                }
+            }),
+        )
+        .await;
+        let failed = read_lsp_message(&mut client).await;
+        assert_eq!(failed["id"], 1);
+        assert_eq!(failed["error"]["code"], -32603);
+
+        write_lsp_message(
+            &mut client,
+            json!({
+                "jsonrpc": "2.0",
+                "id": 2,
+                "method": "shutdown"
+            }),
+        )
+        .await;
+        let shutdown = read_lsp_message(&mut client).await;
+        assert_eq!(shutdown["id"], 2);
+        assert!(shutdown["result"].is_null());
+
+        write_lsp_message(
+            &mut client,
+            json!({
+                "jsonrpc": "2.0",
+                "method": "exit"
+            }),
+        )
+        .await;
+        server.await.unwrap().unwrap();
+    }
+
     fn child_symbol<'a>(symbols: &'a [LspDocumentSymbol], name: &str) -> &'a LspDocumentSymbol {
         symbols
             .iter()
@@ -888,6 +1027,15 @@ rule = [
                 .iter()
                 .any(|completion| completion.label == label && completion.detail == detail),
             "missing completion {label} ({detail})"
+        );
+    }
+
+    fn assert_no_completion(completions: &[LspCompletionItem], label: &str, detail: &str) {
+        assert!(
+            !completions
+                .iter()
+                .any(|completion| completion.label == label && completion.detail == detail),
+            "unexpected completion {label} ({detail})"
         );
     }
 
@@ -964,5 +1112,42 @@ rule = [
             contents.contains(expected),
             "hover did not contain {expected:?}: {contents}"
         );
+    }
+
+    async fn write_lsp_message<W>(writer: &mut W, message: JsonValue)
+    where
+        W: AsyncWrite + Unpin,
+    {
+        let body = serde_json::to_vec(&message).unwrap();
+        writer
+            .write_all(format!("Content-Length: {}\r\n\r\n", body.len()).as_bytes())
+            .await
+            .unwrap();
+        writer.write_all(&body).await.unwrap();
+        writer.flush().await.unwrap();
+    }
+
+    async fn read_lsp_message<R>(reader: &mut R) -> JsonValue
+    where
+        R: AsyncRead + Unpin,
+    {
+        let mut reader = BufReader::new(reader);
+        let mut content_length = None;
+        loop {
+            let mut line = String::new();
+            reader.read_line(&mut line).await.unwrap();
+            let line = line.trim_end_matches(['\r', '\n']);
+            if line.is_empty() {
+                break;
+            }
+            if let Some(value) = line.strip_prefix("Content-Length:") {
+                content_length = Some(value.trim().parse::<usize>().unwrap());
+            }
+        }
+        let mut body = vec![0; content_length.unwrap()];
+        tokio::io::AsyncReadExt::read_exact(&mut reader, &mut body)
+            .await
+            .unwrap();
+        serde_json::from_slice(&body).unwrap()
     }
 }

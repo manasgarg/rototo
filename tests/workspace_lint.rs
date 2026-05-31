@@ -25,8 +25,7 @@ fn lints_basic_workspace_as_json_with_documents() {
     assert!(document_paths(&lint).contains(&"qualifiers/premium-users.toml".to_owned()));
     assert!(document_paths(&lint).contains(&"variables/checkout-redesign.toml".to_owned()));
     assert!(
-        document_paths(&lint)
-            .contains(&"variables/directory-backed-message-values/control.toml".to_owned())
+        document_paths(&lint).contains(&"variables/llm-agent-config-values/local.toml".to_owned())
     );
     assert!(document_paths(&lint).contains(&"schemas/context.schema.json".to_owned()));
 }
@@ -196,6 +195,45 @@ fn reports_schema_parse_failed() {
         "schemas/invalid-json.schema.json"
     );
     assert!(diagnostic["location"]["range"].is_object());
+}
+
+#[test]
+fn parse_diagnostics_handle_multibyte_text_near_syntax_errors() {
+    let temp = tempfile::TempDir::new().unwrap();
+    let toml_root = temp.path().join("toml");
+    std::fs::create_dir_all(&toml_root).unwrap();
+    std::fs::write(
+        toml_root.join("rototo-workspace.toml"),
+        "schema_version = 1\n[environments]\nvalues = [\"prod\"]\nlabel = \"café\n",
+    )
+    .unwrap();
+    let toml_lint = lint_json(toml_root.to_str().unwrap(), false);
+    assert_eq!(
+        only_diagnostic(&toml_lint)["rule"],
+        "rototo/workspace-manifest-parse-failed"
+    );
+
+    let json_root = temp.path().join("json");
+    std::fs::create_dir_all(json_root.join("schemas")).unwrap();
+    std::fs::write(
+        json_root.join("rototo-workspace.toml"),
+        r#"schema_version = 1
+
+[environments]
+values = ["prod"]
+"#,
+    )
+    .unwrap();
+    std::fs::write(
+        json_root.join("schemas/broken.schema.json"),
+        "{\"title\":\"café\",\"type\":}",
+    )
+    .unwrap();
+    let json_lint = lint_json(json_root.to_str().unwrap(), false);
+    assert_eq!(
+        only_diagnostic(&json_lint)["rule"],
+        "rototo/schema-parse-failed"
+    );
 }
 
 #[test]
@@ -381,6 +419,97 @@ fn reports_project_stage_external_value_integrity_failures() {
     assert_eq!(load_failed["entity"]["kind"], "variable");
     assert_eq!(load_failed["entity"]["id"], "external-load");
     assert!(load_failed["location"]["range"].is_object());
+}
+
+#[test]
+fn external_value_file_can_represent_object_with_value_key() {
+    let temp = tempfile::TempDir::new().unwrap();
+    let root = temp.path();
+    std::fs::create_dir_all(root.join("variables/message-values")).unwrap();
+    std::fs::create_dir_all(root.join("schemas")).unwrap();
+    std::fs::write(
+        root.join("rototo-workspace.toml"),
+        r#"schema_version = 1
+
+[environments]
+values = ["prod"]
+"#,
+    )
+    .unwrap();
+    std::fs::write(
+        root.join("schemas/message.schema.json"),
+        r#"{
+  "type": "object",
+  "properties": { "value": { "type": "string" } },
+  "required": ["value"],
+  "additionalProperties": false
+}"#,
+    )
+    .unwrap();
+    std::fs::write(
+        root.join("variables/message.toml"),
+        r#"schema_version = 1
+schema = "../schemas/message.schema.json"
+
+[env._]
+value = "default"
+"#,
+    )
+    .unwrap();
+    std::fs::write(
+        root.join("variables/message-values/default.toml"),
+        r#"value = "literal object field""#,
+    )
+    .unwrap();
+
+    Command::cargo_bin("rototo")
+        .unwrap()
+        .args(["lint", root.to_str().unwrap()])
+        .assert()
+        .success();
+}
+
+#[test]
+fn duplicate_external_values_are_not_validated_twice() {
+    let temp = tempfile::TempDir::new().unwrap();
+    let root = temp.path();
+    std::fs::create_dir_all(root.join("variables/message-values")).unwrap();
+    std::fs::write(
+        root.join("rototo-workspace.toml"),
+        r#"schema_version = 1
+
+[environments]
+values = ["prod"]
+"#,
+    )
+    .unwrap();
+    std::fs::write(
+        root.join("variables/message.toml"),
+        r#"schema_version = 1
+type = "string"
+
+[values]
+default = "inline"
+
+[env._]
+value = "default"
+"#,
+    )
+    .unwrap();
+    std::fs::write(
+        root.join("variables/message-values/default.toml"),
+        "value = 1",
+    )
+    .unwrap();
+
+    let lint = lint_json(root.to_str().unwrap(), false);
+    let rules = diagnostic_rules(&lint);
+
+    assert!(rules.contains(&"rototo/variable-external-value-duplicate".to_owned()));
+    assert!(
+        !rules.contains(&"rototo/variable-value-type-mismatch".to_owned()),
+        "{lint:#}"
+    );
 }
 
 #[test]
@@ -578,6 +707,10 @@ fn reports_graph_stage_qualifier_cycles() {
         .iter()
         .find(|diagnostic| diagnostic["entity"]["id"] == "alpha")
         .unwrap();
+    assert_eq!(
+        alpha["message"],
+        "qualifier participates in a reference cycle with: alpha, beta"
+    );
     assert!(!alpha["related"].as_array().unwrap().is_empty());
 }
 
@@ -594,6 +727,38 @@ fn reports_graph_stage_qualifier_unreferenced_warning_without_failing() {
     assert_eq!(diagnostic["stage"], "graph");
     assert_eq!(diagnostic["entity"]["kind"], "qualifier");
     assert_eq!(diagnostic["entity"]["id"], "unused");
+}
+
+#[test]
+fn self_referencing_qualifier_does_not_also_report_unreferenced() {
+    let temp = tempfile::TempDir::new().unwrap();
+    let root = temp.path();
+    std::fs::create_dir_all(root.join("qualifiers")).unwrap();
+    std::fs::write(
+        root.join("rototo-workspace.toml"),
+        r#"schema_version = 1
+
+[environments]
+values = ["prod"]
+"#,
+    )
+    .unwrap();
+    std::fs::write(
+        root.join("qualifiers/self.toml"),
+        r#"schema_version = 1
+
+[[predicate]]
+attribute = "qualifier.self"
+op = "eq"
+value = true
+"#,
+    )
+    .unwrap();
+
+    let lint = lint_json(root.to_str().unwrap(), false);
+    let rules = diagnostic_rules(&lint);
+
+    assert_eq!(rules, vec!["rototo/qualifier-cycle"], "{lint:#}");
 }
 
 #[test]
@@ -1197,9 +1362,9 @@ fn canonical_rule_fixtures() -> &'static [CanonicalRuleFixture] {
                     path: "schemas/broken.schema.json",
                     range: Some(ExpectedRange {
                         start_line: 2,
-                        start_character: 1,
-                        end_line: 3,
-                        end_character: 0,
+                        start_character: 0,
+                        end_line: 2,
+                        end_character: 1,
                     }),
                 },
                 related: &[],
@@ -1520,9 +1685,9 @@ fn canonical_rule_fixtures() -> &'static [CanonicalRuleFixture] {
                     path: "variables/external-message-values/default.toml",
                     range: Some(ExpectedRange {
                         start_line: 0,
-                        start_character: 8,
-                        end_line: 0,
-                        end_character: 18,
+                        start_character: 0,
+                        end_line: 1,
+                        end_character: 0,
                     }),
                 },
                 related: &[],
@@ -1675,8 +1840,8 @@ fn canonical_rule_fixtures() -> &'static [CanonicalRuleFixture] {
                 primary: ExpectedPrimaryLocation::Document {
                     path: "variables/message.toml",
                     range: Some(ExpectedRange {
-                        start_line: 10,
-                        start_character: 8,
+                        start_line: 9,
+                        start_character: 0,
                         end_line: 10,
                         end_character: 17,
                     }),

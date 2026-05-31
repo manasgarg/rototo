@@ -211,7 +211,7 @@ async fn sdk_reads_all_basic_variable_configs_with_values() {
 }
 
 #[tokio::test]
-async fn external_value_files_use_value_wrapper() {
+async fn external_value_files_are_whole_toml_objects() {
     let variables_dir = std::path::Path::new("examples/basic/variables");
     for entry in std::fs::read_dir(variables_dir).unwrap() {
         let entry = entry.unwrap();
@@ -239,10 +239,14 @@ async fn external_value_files_use_value_wrapper() {
             let table = toml
                 .as_table()
                 .unwrap_or_else(|| panic!("{} should be a TOML table", value_path.display()));
-            assert_eq!(
-                table.keys().collect::<Vec<_>>(),
-                vec!["value"],
-                "{} should contain exactly one top-level value entry",
+            assert!(
+                !table.is_empty(),
+                "{} should contain an object value",
+                value_path.display()
+            );
+            assert!(
+                table.get("value").and_then(toml::Value::as_table).is_none(),
+                "{} should not use a wrapper table",
                 value_path.display()
             );
         }
@@ -292,7 +296,7 @@ async fn sdk_reads_diagnostic_catalog() {
 
     assert_eq!(
         diagnostic.entity,
-        rototo::diagnostics::DiagnosticEntity::Qualifier
+        Some(rototo::diagnostics::DiagnosticEntity::Qualifier)
     );
 }
 
@@ -812,6 +816,52 @@ async fn workspace_sdk_rejects_malformed_context_config_even_when_lint_is_skippe
     .unwrap_err();
 
     assert_eq!(err.to_string(), "[context] must be a table");
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn workspace_sdk_rejects_context_schema_symlink_escape() {
+    let temp = tempfile::TempDir::new().unwrap();
+    let root = temp.path().join("workspace");
+    tokio::fs::create_dir_all(root.join("schemas"))
+        .await
+        .unwrap();
+    tokio::fs::write(
+        root.join("rototo-workspace.toml"),
+        r#"schema_version = 1
+
+[environments]
+values = ["prod"]
+
+[context]
+schema = "schemas/context.schema.json"
+"#,
+    )
+    .await
+    .unwrap();
+    tokio::fs::write(
+        temp.path().join("outside.schema.json"),
+        r#"{"type":"object"}"#,
+    )
+    .await
+    .unwrap();
+    std::os::unix::fs::symlink(
+        temp.path().join("outside.schema.json"),
+        root.join("schemas/context.schema.json"),
+    )
+    .unwrap();
+
+    let err = Workspace::load_with_options(
+        root.to_str().unwrap(),
+        LoadOptions::new().with_lint(LintMode::Skip),
+    )
+    .await
+    .unwrap_err();
+
+    assert!(
+        err.to_string()
+            .contains("must resolve inside the workspace")
+    );
 }
 
 #[tokio::test]

@@ -145,6 +145,31 @@ fn lists_workspace_custom_warning_severity() {
 }
 
 #[test]
+fn custom_diagnostic_catalog_entries_do_not_claim_variable_entity() {
+    let output = Command::cargo_bin("rototo")
+        .unwrap()
+        .args([
+            "show",
+            "tests/fixtures/workspaces/custom-targets",
+            "--lint-rules",
+            "--json",
+        ])
+        .output()
+        .unwrap();
+
+    assert!(output.status.success());
+    let catalog: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    let schema_rule = catalog["lint_rules"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|diagnostic| diagnostic["rule"] == "targets/schema-json")
+        .unwrap();
+
+    assert!(schema_rule.get("entity").is_none(), "{schema_rule:#}");
+}
+
+#[test]
 fn lists_custom_lint_example_diagnostics() {
     Command::cargo_bin("rototo")
         .unwrap()

@@ -1295,6 +1295,7 @@ dependencies = [
  "pulldown-cmark",
  "regex",
  "reqwest",
+ "ring",
  "serde",
  "serde_json",
  "tar",

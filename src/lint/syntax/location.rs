@@ -24,13 +24,27 @@ pub(crate) fn value_location(
 }
 
 fn span_location(document: &SourceDocument, span: ::toml_span::Span) -> DiagnosticLocation {
-    let start = span.start.min(document.text.len());
-    let end = span.end.min(document.text.len()).max(start);
+    let start = floor_char_boundary(&document.text, span.start.min(document.text.len()));
+    let end = ceil_char_boundary(&document.text, span.end.min(document.text.len())).max(start);
     if start == end {
         document.document_location()
     } else {
         document.span_location(start..end)
     }
+}
+
+fn floor_char_boundary(text: &str, mut offset: usize) -> usize {
+    while offset > 0 && !text.is_char_boundary(offset) {
+        offset -= 1;
+    }
+    offset
+}
+
+fn ceil_char_boundary(text: &str, mut offset: usize) -> usize {
+    while offset < text.len() && !text.is_char_boundary(offset) {
+        offset += 1;
+    }
+    offset
 }
 
 fn value_span(document: &SourceDocument, value: &::toml_span::Value<'_>) -> ::toml_span::Span {

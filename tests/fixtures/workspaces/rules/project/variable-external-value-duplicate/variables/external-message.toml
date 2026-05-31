@@ -1,8 +1,8 @@
 schema_version = 1
-type = "string"
+schema = "../schemas/message.schema.json"
 
-[values]
-default = "inline"
+[values.default]
+message = "inline"
 
 [env._]
 value = "default"

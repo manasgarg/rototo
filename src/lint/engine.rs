@@ -212,6 +212,107 @@ value = "control"
     }
 
     #[tokio::test]
+    async fn snapshot_discovers_overlay_only_workspace_files() {
+        let tempdir = tempfile::tempdir().unwrap();
+        let root = tempdir.path();
+        let mut input = LintInput::new(root.to_path_buf());
+        for (path, text) in [
+            (
+                WORKSPACE_MANIFEST,
+                r#"schema_version = 1
+
+[environments]
+values = ["prod"]
+
+[[lint.rule]]
+id = "policy/noop"
+title = "No-op policy"
+help = "No-op policy used by tests."
+"#,
+            ),
+            (
+                "qualifiers/premium.toml",
+                r#"schema_version = 1
+
+[[predicate]]
+attribute = "account.tier"
+op = "eq"
+value = "premium"
+"#,
+            ),
+            (
+                "variables/message.toml",
+                r#"schema_version = 1
+schema = "../schemas/message.schema.json"
+
+[env._]
+value = "default"
+
+[env.prod]
+value = "default"
+
+[[env.prod.rule]]
+qualifier = "premium"
+value = "default"
+"#,
+            ),
+            (
+                "variables/message-values/default.toml",
+                r#"message = "hello""#,
+            ),
+            (
+                "schemas/message.schema.json",
+                r#"{
+  "type": "object",
+  "properties": { "message": { "type": "string" } },
+  "required": ["message"],
+  "additionalProperties": false
+}"#,
+            ),
+            (
+                "lint/noop.lua",
+                r#"function register(lint)
+end
+"#,
+            ),
+        ] {
+            input.overlays.insert(
+                path.to_owned(),
+                OverlayDocument {
+                    text: text.to_owned(),
+                    version: Some(7),
+                },
+            );
+        }
+
+        let snapshot = lint_workspace_snapshot(input).await.unwrap();
+        let lint = &snapshot.lint;
+        let paths = lint
+            .documents
+            .iter()
+            .map(|document| document.path.as_str())
+            .collect::<Vec<_>>();
+
+        assert!(lint.diagnostics.is_empty(), "{:#?}", lint.diagnostics);
+        for expected in [
+            WORKSPACE_MANIFEST,
+            "qualifiers/premium.toml",
+            "variables/message.toml",
+            "variables/message-values/default.toml",
+            "schemas/message.schema.json",
+            "lint/noop.lua",
+        ] {
+            assert!(
+                paths.contains(&expected),
+                "missing overlay document {expected}"
+            );
+        }
+
+        let symbols = snapshot.document_symbols("variables/message.toml");
+        assert_eq!(symbols[0].name, "message");
+    }
+
+    #[tokio::test]
     async fn snapshot_diagnostic_ranges_cover_references_and_external_values() {
         let reference_snapshot = lint_workspace_snapshot(LintInput::new(PathBuf::from(
             "tests/fixtures/workspaces/rules/reference/variable-rule-unknown-qualifier",
@@ -242,9 +343,9 @@ value = "control"
             "variables/external-message-values/default.toml"
         );
         assert_eq!(external_value.primary.range.unwrap().start.line, 0);
-        assert_eq!(external_value.primary.range.unwrap().start.character, 8);
-        assert_eq!(external_value.primary.range.unwrap().end.line, 0);
-        assert_eq!(external_value.primary.range.unwrap().end.character, 18);
+        assert_eq!(external_value.primary.range.unwrap().start.character, 0);
+        assert_eq!(external_value.primary.range.unwrap().end.line, 1);
+        assert_eq!(external_value.primary.range.unwrap().end.character, 0);
 
         let external_node = external_value_snapshot
             .index

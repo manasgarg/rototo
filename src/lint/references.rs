@@ -430,7 +430,7 @@ impl ReferenceIndex {
                             variable: variable.id.clone(),
                             environment: block.environment.clone(),
                         },
-                        block.value.location(),
+                        block.location.clone(),
                         ReferenceTarget::Environment(block.environment.clone()),
                     );
                 }

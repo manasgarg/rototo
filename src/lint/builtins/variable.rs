@@ -433,7 +433,7 @@ fn lint_primitive_variable_values(
     variable: &VariableNode,
     primitive: PrimitiveType,
 ) {
-    for value in variable_values(ctx, variable) {
+    for value in variable_values_for_validation(ctx, variable) {
         if primitive.matches(&value.value) {
             continue;
         }
@@ -469,7 +469,7 @@ fn lint_schema_backed_variable_values(
         return;
     };
 
-    for value in variable_values(ctx, variable) {
+    for value in variable_values_for_validation(ctx, variable) {
         if let Err(err) = validator.validate(&value.value) {
             push_value_diagnostic(
                 diagnostics,
@@ -483,6 +483,16 @@ fn lint_schema_backed_variable_values(
             );
         }
     }
+}
+
+fn variable_values_for_validation<'a>(
+    ctx: &'a LintContext,
+    variable: &'a VariableNode,
+) -> impl Iterator<Item = &'a ValueNode> {
+    variable_values(ctx, variable).filter(move |value| {
+        !(matches!(&value.origin, ValueOrigin::External { .. })
+            && variable.values.inline_keys.contains(&value.key))
+    })
 }
 
 struct VariableSchemaReferenceError {

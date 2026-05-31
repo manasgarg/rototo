@@ -1,5 +1,5 @@
 schema_version = 1
-type = "string"
+schema = "../schemas/message.schema.json"
 values = "not a table"
 
 [env._]

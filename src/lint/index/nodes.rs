@@ -327,3 +327,36 @@ impl ValueShape {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn predicate_completion_labels_stay_in_sync_with_known_ops() {
+        for label in PredicateOp::COMPLETION_LABELS {
+            let op = PredicateOp::from_str(label);
+            assert_eq!(op.as_str(), *label);
+            assert!(!matches!(op, PredicateOp::Unknown(_)));
+        }
+
+        let known = [
+            PredicateOp::Eq,
+            PredicateOp::Neq,
+            PredicateOp::In,
+            PredicateOp::NotIn,
+            PredicateOp::Gt,
+            PredicateOp::Gte,
+            PredicateOp::Lt,
+            PredicateOp::Lte,
+            PredicateOp::Bucket,
+        ];
+        for op in known {
+            assert!(
+                PredicateOp::COMPLETION_LABELS.contains(&op.as_str()),
+                "missing completion label for {}",
+                op.as_str()
+            );
+        }
+    }
+}

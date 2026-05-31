@@ -1,5 +1,7 @@
 use super::super::index::*;
+use super::common::location_contains_position;
 use super::{WorkspaceCompletionItem, WorkspaceCompletionItemKind};
+use crate::diagnostics::SourcePosition;
 
 const CUSTOM_LINT_FIELD_SELECTORS: &[&str] = &[
     "context_schema",
@@ -17,21 +19,98 @@ const CUSTOM_LINT_FIELD_SELECTORS: &[&str] = &[
     "values",
 ];
 
-pub(crate) fn completion_items(index: &SemanticIndex, path: &str) -> Vec<WorkspaceCompletionItem> {
+pub(crate) fn completion_items(
+    index: &SemanticIndex,
+    path: &str,
+    position: SourcePosition,
+) -> Vec<WorkspaceCompletionItem> {
     let mut items = Vec::new();
 
-    if let Some(manifest) = &index.manifest {
-        items.extend(workspace_environment_completion_items(
-            &manifest.environments,
-        ));
+    match completion_context(index, path, position) {
+        CompletionContext::Manifest => {
+            if let Some(manifest) = &index.manifest {
+                items.extend(workspace_environment_completion_items(
+                    &manifest.environments,
+                ));
+            }
+        }
+        CompletionContext::Qualifier => {
+            items.extend(qualifier_completion_items(index));
+            items.extend(predicate_operator_completion_items());
+        }
+        CompletionContext::Variable { environment_header } => {
+            if environment_header && let Some(manifest) = &index.manifest {
+                items.extend(workspace_environment_completion_items(
+                    &manifest.environments,
+                ));
+            }
+            items.extend(qualifier_completion_items(index));
+            items.extend(current_variable_value_completion_items(index, path));
+        }
+        CompletionContext::CustomLint => {
+            items.extend(custom_lint_field_selector_completion_items());
+        }
+        CompletionContext::Other => {}
     }
-    items.extend(qualifier_completion_items(index));
-    items.extend(current_variable_value_completion_items(index, path));
-    items.extend(predicate_operator_completion_items());
-    items.extend(custom_lint_field_selector_completion_items());
 
     sort_and_deduplicate_workspace_completion_items(&mut items);
     items
+}
+
+enum CompletionContext {
+    Manifest,
+    Qualifier,
+    Variable { environment_header: bool },
+    CustomLint,
+    Other,
+}
+
+fn completion_context(
+    index: &SemanticIndex,
+    path: &str,
+    position: SourcePosition,
+) -> CompletionContext {
+    if path == super::super::WORKSPACE_MANIFEST {
+        return CompletionContext::Manifest;
+    }
+    if index
+        .custom_lints
+        .files
+        .values()
+        .any(|file| file.path == path)
+    {
+        return CompletionContext::CustomLint;
+    }
+    if index
+        .qualifiers
+        .values()
+        .any(|qualifier| qualifier.location.path == path)
+    {
+        return CompletionContext::Qualifier;
+    }
+    if let Some(variable) = current_variable_for_path(index, path) {
+        return CompletionContext::Variable {
+            environment_header: position_is_environment_header(variable, path, position),
+        };
+    }
+    CompletionContext::Other
+}
+
+fn position_is_environment_header(
+    variable: &VariableNode,
+    path: &str,
+    position: SourcePosition,
+) -> bool {
+    let EnvironmentCollection::Environments(environments) = &variable.environments else {
+        return false;
+    };
+    environments.values().any(|environment| {
+        location_contains_position(&environment.location, path, position)
+            && environment
+                .location
+                .range
+                .is_some_and(|range| range.start.line == position.line)
+    })
 }
 
 fn workspace_environment_completion_items(

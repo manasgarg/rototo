@@ -14,7 +14,8 @@ rototo show ./config --lint-rule payments/max-token-budget
 Every emitted lint diagnostic has these fields:
 
 - `rule`: stable diagnostic identity in `<authority>/<rule-id>` form.
-- `severity`: currently `error`.
+- `severity`: `error` or `warning`. Errors fail lint; warnings are reported but
+  do not make lint fail.
 - `stage`: lint pipeline stage that produced the diagnostic.
 - `entity`: workspace, manifest, qualifier, variable, or schema owner.
 - `message`: concrete failure message.

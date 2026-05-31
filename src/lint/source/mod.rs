@@ -1,7 +1,6 @@
 mod discover;
 mod line_index;
 mod path;
-mod span;
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::ops::Range;

@@ -65,6 +65,18 @@ fn gets_variable_from_discovered_workspace() {
 }
 
 #[test]
+fn gets_directory_backed_variable_with_expanded_values() {
+    Command::cargo_bin("rototo")
+        .unwrap()
+        .args(["show", "examples/basic", "--variable", "llm-agent-config"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("[values.local]"))
+        .stdout(predicate::str::contains("model = \"local-small\""))
+        .stdout(predicate::str::contains("value = \"enterprise\""));
+}
+
+#[test]
 fn gets_qualifier_by_id_as_json() {
     Command::cargo_bin("rototo")
         .unwrap()
