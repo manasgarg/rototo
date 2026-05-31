@@ -14,7 +14,7 @@ use crate::error::{Result, RototoError};
 use crate::lint::{
     LintInput, OverlayDocument, WorkspaceCompletionItem, WorkspaceCompletionItemKind,
     WorkspaceDefinition, WorkspaceDocumentSymbol, WorkspaceDocumentSymbolKind, WorkspaceHover,
-    WorkspaceLintSnapshot, lint_workspace_snapshot,
+    WorkspaceLintSnapshot, WorkspaceReference, lint_workspace_snapshot,
 };
 use crate::model::WorkspaceLint;
 
@@ -113,6 +113,16 @@ impl LspServer {
                     .map_err(|err| RototoError::new(err.to_string()))?
                     .unwrap_or(JsonValue::Null);
                 write_response(writer, id, result).await?;
+            }
+            (Some(id), "textDocument/references") => {
+                let references = self.references(params).await?;
+                write_response(
+                    writer,
+                    id,
+                    serde_json::to_value(references)
+                        .map_err(|err| RototoError::new(err.to_string()))?,
+                )
+                .await?;
             }
             (Some(id), _) => {
                 write_error_response(writer, id, -32601, "method not found").await?;
@@ -304,6 +314,35 @@ impl LspServer {
         Ok(snapshot.definition(&path, position).map(lsp_location))
     }
 
+    async fn references(&self, params: JsonValue) -> Result<Vec<LspLocation>> {
+        let text_document = params
+            .get("textDocument")
+            .ok_or_else(|| RototoError::new("references missing textDocument"))?;
+        let uri = text_document
+            .get("uri")
+            .and_then(JsonValue::as_str)
+            .ok_or_else(|| RototoError::new("references missing textDocument.uri"))?;
+        let position = source_position_from_json(
+            params
+                .get("position")
+                .ok_or_else(|| RototoError::new("references missing position"))?,
+        )?;
+        let include_declaration = params
+            .get("context")
+            .and_then(|context| context.get("includeDeclaration"))
+            .and_then(JsonValue::as_bool)
+            .unwrap_or(false);
+        let path = self.workspace_path_for_uri(uri)?;
+        let Some(snapshot) = self.workspace_snapshot().await? else {
+            return Ok(Vec::new());
+        };
+        Ok(snapshot
+            .references(&path, position, include_declaration)
+            .iter()
+            .map(lsp_reference)
+            .collect())
+    }
+
     async fn workspace_snapshot(&self) -> Result<Option<WorkspaceLintSnapshot>> {
         let Some(root) = &self.workspace_root else {
             return Ok(None);
@@ -457,6 +496,13 @@ fn lsp_location(definition: WorkspaceDefinition) -> LspLocation {
     LspLocation {
         uri: definition.uri,
         range: lsp_range(&definition.location),
+    }
+}
+
+fn lsp_reference(reference: &WorkspaceReference) -> LspLocation {
+    LspLocation {
+        uri: reference.uri.clone(),
+        range: lsp_range(&reference.location),
     }
 }
 
@@ -667,7 +713,8 @@ fn initialize_result() -> JsonValue {
                 "triggerCharacters": [".", "\""]
             },
             "hoverProvider": true,
-            "definitionProvider": true
+            "definitionProvider": true,
+            "referencesProvider": true
         },
         "serverInfo": {
             "name": "rototo",
@@ -1419,6 +1466,207 @@ rule = [
         );
     }
 
+    #[tokio::test]
+    async fn lsp_references_use_snapshot_index_and_unsaved_overlays() {
+        let tempdir = tempfile::tempdir().unwrap();
+        let root = tempdir.path();
+        tokio::fs::create_dir_all(root.join("qualifiers"))
+            .await
+            .unwrap();
+        tokio::fs::create_dir_all(root.join("variables"))
+            .await
+            .unwrap();
+        tokio::fs::create_dir_all(root.join("schemas"))
+            .await
+            .unwrap();
+        let manifest_path = root.join("rototo-workspace.toml");
+        tokio::fs::write(
+            &manifest_path,
+            r#"schema_version = 1
+
+[environments]
+values = ["prod"]
+
+[context]
+schema = "schemas/context.schema.json"
+"#,
+        )
+        .await
+        .unwrap();
+        let beta_qualifier_path = root.join("qualifiers/beta.toml");
+        tokio::fs::write(
+            &beta_qualifier_path,
+            r#"schema_version = 1
+
+[[predicate]]
+attribute = "account.beta"
+op = "eq"
+value = true
+"#,
+        )
+        .await
+        .unwrap();
+        let gamma_qualifier_path = root.join("qualifiers/gamma.toml");
+        tokio::fs::write(
+            &gamma_qualifier_path,
+            r#"schema_version = 1
+
+[[predicate]]
+attribute = "account.beta"
+op = "eq"
+value = true
+"#,
+        )
+        .await
+        .unwrap();
+        let premium_qualifier_path = root.join("qualifiers/premium.toml");
+        tokio::fs::write(
+            &premium_qualifier_path,
+            r#"schema_version = 1
+
+[[predicate]]
+attribute = "qualifier.beta"
+op = "eq"
+value = true
+"#,
+        )
+        .await
+        .unwrap();
+        tokio::fs::write(
+            root.join("schemas/context.schema.json"),
+            r#"{"type":"object","properties":{"account":{"type":"object","properties":{"beta":{"type":"boolean"}}}}}"#,
+        )
+        .await
+        .unwrap();
+        let message_schema_path = root.join("schemas/message.schema.json");
+        tokio::fs::write(&message_schema_path, r#"{"type":"string"}"#)
+            .await
+            .unwrap();
+        let disk_variable = r#"schema_version = 1
+type = "string"
+
+[values]
+control = "hello"
+
+[env._]
+value = "control"
+"#;
+        let variable_path = root.join("variables/message.toml");
+        tokio::fs::write(&variable_path, disk_variable)
+            .await
+            .unwrap();
+
+        let mut server = LspServer::new();
+        server.workspace_root = Some(tokio::fs::canonicalize(root).await.unwrap());
+        server
+            .open_document(json!({
+                "textDocument": {
+                    "uri": format!("file://{}", variable_path.display()),
+                    "version": 7,
+                    "text": r#"schema_version = 1
+schema = "../schemas/message.schema.json"
+
+[values]
+control = "hello"
+treatment = "welcome"
+
+[env._]
+value = "control"
+
+[env.prod]
+value = "control"
+rule = [
+  { qualifier = "premium", value = "treatment" },
+]
+"#,
+                }
+            }))
+            .unwrap();
+
+        let beta_references = reference_locations(&server, &beta_qualifier_path, 0, 0, true).await;
+        assert_eq!(beta_references.len(), 2);
+        assert!(
+            beta_references
+                .iter()
+                .any(|location| location.uri.ends_with("/qualifiers/beta.toml"))
+        );
+        assert!(
+            beta_references
+                .iter()
+                .any(|location| location.uri.ends_with("/qualifiers/premium.toml"))
+        );
+
+        let premium_references = reference_locations(&server, &variable_path, 13, 18, true).await;
+        assert_eq!(premium_references.len(), 2);
+        assert!(
+            premium_references
+                .iter()
+                .any(|location| location.uri.ends_with("/qualifiers/premium.toml"))
+        );
+        assert!(
+            premium_references
+                .iter()
+                .any(|location| location.uri.ends_with("/variables/message.toml"))
+        );
+
+        let treatment_references = reference_locations(&server, &variable_path, 5, 14, true).await;
+        assert_eq!(treatment_references.len(), 2);
+        assert_eq!(
+            treatment_references
+                .iter()
+                .filter(|location| location.uri.ends_with("/variables/message.toml"))
+                .count(),
+            2
+        );
+
+        let message_schema_references =
+            reference_locations(&server, &variable_path, 1, 12, true).await;
+        assert_eq!(message_schema_references.len(), 2);
+        assert!(
+            message_schema_references
+                .iter()
+                .any(|location| location.uri.ends_with("/schemas/message.schema.json"))
+        );
+        assert!(
+            message_schema_references
+                .iter()
+                .any(|location| location.uri.ends_with("/variables/message.toml"))
+        );
+
+        let context_schema_references =
+            reference_locations(&server, &manifest_path, 6, 12, true).await;
+        assert_eq!(context_schema_references.len(), 2);
+        assert!(
+            context_schema_references
+                .iter()
+                .any(|location| location.uri.ends_with("/schemas/context.schema.json"))
+        );
+        assert!(
+            context_schema_references
+                .iter()
+                .any(|location| location.uri.ends_with("/rototo-workspace.toml"))
+        );
+
+        let context_attribute_references =
+            reference_locations(&server, &beta_qualifier_path, 3, 14, true).await;
+        assert_eq!(context_attribute_references.len(), 2);
+        assert!(
+            context_attribute_references
+                .iter()
+                .any(|location| location.uri.ends_with("/qualifiers/beta.toml"))
+        );
+        assert!(
+            context_attribute_references
+                .iter()
+                .any(|location| location.uri.ends_with("/qualifiers/gamma.toml"))
+        );
+
+        assert_eq!(
+            tokio::fs::read_to_string(&variable_path).await.unwrap(),
+            disk_variable
+        );
+    }
+
     #[test]
     fn initialize_advertises_completion_provider() {
         let result = initialize_result();
@@ -1441,6 +1689,13 @@ rule = [
             result
                 .get("capabilities")
                 .and_then(|capabilities| capabilities.get("definitionProvider"))
+                .and_then(JsonValue::as_bool),
+            Some(true)
+        );
+        assert_eq!(
+            result
+                .get("capabilities")
+                .and_then(|capabilities| capabilities.get("referencesProvider"))
                 .and_then(JsonValue::as_bool),
             Some(true)
         );
@@ -1504,6 +1759,30 @@ rule = [
             .await
             .unwrap()
             .expect("definition result")
+    }
+
+    async fn reference_locations(
+        server: &LspServer,
+        path: &Path,
+        line: usize,
+        character: usize,
+        include_declaration: bool,
+    ) -> Vec<LspLocation> {
+        server
+            .references(json!({
+                "textDocument": {
+                    "uri": format!("file://{}", path.display())
+                },
+                "position": {
+                    "line": line,
+                    "character": character
+                },
+                "context": {
+                    "includeDeclaration": include_declaration
+                }
+            }))
+            .await
+            .unwrap()
     }
 
     fn assert_hover_contains(contents: &str, expected: &str) {
