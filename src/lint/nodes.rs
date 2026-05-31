@@ -145,6 +145,18 @@ pub(super) enum TypeSourceNode {
     Invalid { location: DiagnosticLocation },
 }
 
+impl TypeSourceNode {
+    pub(super) fn location(&self) -> DiagnosticLocation {
+        match self {
+            Self::Primitive(type_name) => type_name.location.clone(),
+            Self::Schema(schema) => schema.location.clone(),
+            Self::Missing { location }
+            | Self::Conflict { location }
+            | Self::Invalid { location } => location.clone(),
+        }
+    }
+}
+
 pub(super) struct ValuesNode {
     pub(super) location: DiagnosticLocation,
     pub(super) inline_keys: BTreeSet<String>,
