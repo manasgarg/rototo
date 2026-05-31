@@ -13,8 +13,8 @@ use crate::diagnostics::{
 use crate::error::{Result, RototoError};
 use crate::lint::{
     LintInput, OverlayDocument, WorkspaceCompletionItem, WorkspaceCompletionItemKind,
-    WorkspaceDocumentSymbol, WorkspaceDocumentSymbolKind, WorkspaceHover, WorkspaceLintSnapshot,
-    lint_workspace_snapshot,
+    WorkspaceDefinition, WorkspaceDocumentSymbol, WorkspaceDocumentSymbolKind, WorkspaceHover,
+    WorkspaceLintSnapshot, lint_workspace_snapshot,
 };
 use crate::model::WorkspaceLint;
 
@@ -99,6 +99,15 @@ impl LspServer {
             (Some(id), "textDocument/hover") => {
                 let hover = self.hover(params).await?;
                 let result = hover
+                    .map(serde_json::to_value)
+                    .transpose()
+                    .map_err(|err| RototoError::new(err.to_string()))?
+                    .unwrap_or(JsonValue::Null);
+                write_response(writer, id, result).await?;
+            }
+            (Some(id), "textDocument/definition") => {
+                let definition = self.definition(params).await?;
+                let result = definition
                     .map(serde_json::to_value)
                     .transpose()
                     .map_err(|err| RototoError::new(err.to_string()))?
@@ -275,6 +284,26 @@ impl LspServer {
         Ok(snapshot.hover(&path, position).map(lsp_hover))
     }
 
+    async fn definition(&self, params: JsonValue) -> Result<Option<LspLocation>> {
+        let text_document = params
+            .get("textDocument")
+            .ok_or_else(|| RototoError::new("definition missing textDocument"))?;
+        let uri = text_document
+            .get("uri")
+            .and_then(JsonValue::as_str)
+            .ok_or_else(|| RototoError::new("definition missing textDocument.uri"))?;
+        let position = source_position_from_json(
+            params
+                .get("position")
+                .ok_or_else(|| RototoError::new("definition missing position"))?,
+        )?;
+        let path = self.workspace_path_for_uri(uri)?;
+        let Some(snapshot) = self.workspace_snapshot().await? else {
+            return Ok(None);
+        };
+        Ok(snapshot.definition(&path, position).map(lsp_location))
+    }
+
     async fn workspace_snapshot(&self) -> Result<Option<WorkspaceLintSnapshot>> {
         let Some(root) = &self.workspace_root else {
             return Ok(None);
@@ -347,6 +376,12 @@ struct LspHover {
 }
 
 #[derive(Debug, Serialize)]
+struct LspLocation {
+    uri: String,
+    range: LspRange,
+}
+
+#[derive(Debug, Serialize)]
 struct LspMarkupContent {
     kind: &'static str,
     value: String,
@@ -415,6 +450,13 @@ fn lsp_hover(hover: WorkspaceHover) -> LspHover {
             kind: "markdown",
             value: hover.contents,
         },
+    }
+}
+
+fn lsp_location(definition: WorkspaceDefinition) -> LspLocation {
+    LspLocation {
+        uri: definition.uri,
+        range: lsp_range(&definition.location),
     }
 }
 
@@ -624,7 +666,8 @@ fn initialize_result() -> JsonValue {
                 "resolveProvider": false,
                 "triggerCharacters": [".", "\""]
             },
-            "hoverProvider": true
+            "hoverProvider": true,
+            "definitionProvider": true
         },
         "serverInfo": {
             "name": "rototo",
@@ -1254,6 +1297,128 @@ value = "control"
         );
     }
 
+    #[tokio::test]
+    async fn lsp_definition_uses_snapshot_index_and_unsaved_overlays() {
+        let tempdir = tempfile::tempdir().unwrap();
+        let root = tempdir.path();
+        tokio::fs::create_dir_all(root.join("qualifiers"))
+            .await
+            .unwrap();
+        tokio::fs::create_dir_all(root.join("variables"))
+            .await
+            .unwrap();
+        tokio::fs::create_dir_all(root.join("schemas"))
+            .await
+            .unwrap();
+        tokio::fs::write(
+            root.join("rototo-workspace.toml"),
+            r#"schema_version = 1
+
+[environments]
+values = ["prod"]
+"#,
+        )
+        .await
+        .unwrap();
+        let beta_qualifier_path = root.join("qualifiers/beta.toml");
+        tokio::fs::write(
+            &beta_qualifier_path,
+            r#"schema_version = 1
+
+[[predicate]]
+attribute = "account.beta"
+op = "eq"
+value = true
+"#,
+        )
+        .await
+        .unwrap();
+        let premium_qualifier_path = root.join("qualifiers/premium.toml");
+        tokio::fs::write(
+            &premium_qualifier_path,
+            r#"schema_version = 1
+
+[[predicate]]
+attribute = "qualifier.beta"
+op = "eq"
+value = true
+"#,
+        )
+        .await
+        .unwrap();
+        let schema_path = root.join("schemas/message.schema.json");
+        tokio::fs::write(&schema_path, r#"{"type":"string"}"#)
+            .await
+            .unwrap();
+        let disk_variable = r#"schema_version = 1
+type = "string"
+
+[values]
+control = "hello"
+
+[env._]
+value = "control"
+"#;
+        let variable_path = root.join("variables/message.toml");
+        tokio::fs::write(&variable_path, disk_variable)
+            .await
+            .unwrap();
+
+        let mut server = LspServer::new();
+        server.workspace_root = Some(tokio::fs::canonicalize(root).await.unwrap());
+        server
+            .open_document(json!({
+                "textDocument": {
+                    "uri": format!("file://{}", variable_path.display()),
+                    "version": 6,
+                    "text": r#"schema_version = 1
+schema = "../schemas/message.schema.json"
+
+[values]
+control = "hello"
+treatment = "welcome"
+
+[env._]
+value = "control"
+
+[env.prod]
+value = "control"
+rule = [
+  { qualifier = "premium", value = "treatment" },
+]
+"#,
+                }
+            }))
+            .unwrap();
+
+        let schema_definition = definition_location(&server, &variable_path, 1, 12).await;
+        assert!(
+            schema_definition
+                .uri
+                .ends_with("/schemas/message.schema.json")
+        );
+
+        let qualifier_definition = definition_location(&server, &variable_path, 13, 18).await;
+        assert!(
+            qualifier_definition
+                .uri
+                .ends_with("/qualifiers/premium.toml")
+        );
+
+        let value_definition = definition_location(&server, &variable_path, 13, 39).await;
+        assert!(value_definition.uri.ends_with("/variables/message.toml"));
+        assert_eq!(value_definition.range.start.line, 5);
+
+        let predicate_definition =
+            definition_location(&server, &premium_qualifier_path, 3, 14).await;
+        assert!(predicate_definition.uri.ends_with("/qualifiers/beta.toml"));
+
+        assert_eq!(
+            tokio::fs::read_to_string(&variable_path).await.unwrap(),
+            disk_variable
+        );
+    }
+
     #[test]
     fn initialize_advertises_completion_provider() {
         let result = initialize_result();
@@ -1269,6 +1434,13 @@ value = "control"
             result
                 .get("capabilities")
                 .and_then(|capabilities| capabilities.get("hoverProvider"))
+                .and_then(JsonValue::as_bool),
+            Some(true)
+        );
+        assert_eq!(
+            result
+                .get("capabilities")
+                .and_then(|capabilities| capabilities.get("definitionProvider"))
                 .and_then(JsonValue::as_bool),
             Some(true)
         );
@@ -1311,6 +1483,27 @@ value = "control"
             .expect("hover result")
             .contents
             .value
+    }
+
+    async fn definition_location(
+        server: &LspServer,
+        path: &Path,
+        line: usize,
+        character: usize,
+    ) -> LspLocation {
+        server
+            .definition(json!({
+                "textDocument": {
+                    "uri": format!("file://{}", path.display())
+                },
+                "position": {
+                    "line": line,
+                    "character": character
+                }
+            }))
+            .await
+            .unwrap()
+            .expect("definition result")
     }
 
     fn assert_hover_contains(contents: &str, expected: &str) {
