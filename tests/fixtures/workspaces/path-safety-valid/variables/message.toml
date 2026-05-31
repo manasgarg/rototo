@@ -1,0 +1,9 @@
+schema_version = 1
+schema = "../schemas/value.schema.json"
+description = "Variable with a normalized schema reference"
+
+[values]
+default = { message = "hello" }
+
+[env._]
+value = "default"

@@ -252,6 +252,45 @@ fn reports_workspace_context_schema_ref_failures() {
 }
 
 #[test]
+fn accepts_path_safety_normalized_refs() {
+    let lint = lint_json("tests/fixtures/workspaces/path-safety-valid", true);
+
+    assert!(lint["diagnostics"].as_array().unwrap().is_empty());
+    assert!(document_paths(&lint).contains(&"rototo-workspace.toml".to_owned()));
+    assert!(document_paths(&lint).contains(&"schemas/context.schema.json".to_owned()));
+    assert!(document_paths(&lint).contains(&"schemas/value.schema.json".to_owned()));
+    assert!(document_paths(&lint).contains(&"variables/message.toml".to_owned()));
+    assert!(document_paths(&lint).contains(&"lint/ok.lua".to_owned()));
+}
+
+#[test]
+fn rejects_path_safety_escaping_refs_and_lint_files() {
+    let lint = lint_json("tests/fixtures/workspaces/path-safety-escapes", false);
+
+    assert_reference_rule(
+        &lint,
+        "rototo/workspace-context-schema-ref",
+        "rototo-workspace.toml",
+    );
+    assert_value_rule(
+        &lint,
+        "rototo/variable-schema-ref",
+        "variables/message.toml",
+    );
+    assert_register_rule(&lint, "rototo/custom-lint-failed", "lint/escape.lua");
+
+    let lint_file = diagnostic_for_rule(&lint, "rototo/custom-lint-failed");
+    assert_eq!(lint_file["entity"]["kind"], "custom_lint");
+    assert_eq!(lint_file["entity"]["path"], "lint/escape.lua");
+    assert!(
+        lint_file["message"]
+            .as_str()
+            .unwrap()
+            .contains("path escapes workspace")
+    );
+}
+
+#[test]
 fn reports_workspace_context_schema_attribute_failures() {
     let lint = lint_json("tests/fixtures/workspaces/context-schema-attribute", false);
     let diagnostic = only_diagnostic(&lint);

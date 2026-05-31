@@ -457,8 +457,10 @@ impl LintEngine {
     fn run_parse(&self, ctx: &mut LintContext) {
         for document in ctx.source.documents.values() {
             if let Some(read_error) = &document.read_error {
-                ctx.diagnostics
-                    .push(read_error_diagnostic(document, read_error));
+                if !matches!(&document.kind, DocumentKind::CustomLint) {
+                    ctx.diagnostics
+                        .push(read_error_diagnostic(document, read_error));
+                }
                 continue;
             }
 
@@ -5654,12 +5656,17 @@ impl SourceStore {
 
         let id = DocId(self.documents.len() as u32);
         let absolute_path = self.root.join(&relative_path);
-        let (text, version, read_error) = match self.overlays.get(&path) {
-            Some(overlay) => (overlay.text.clone(), overlay.version, None),
-            None => match tokio::fs::read_to_string(&absolute_path).await {
-                Ok(text) => (text, None, None),
-                Err(err) => (String::new(), None, Some(err.to_string())),
-            },
+        let containment_error = path_containment_error(&self.root, &absolute_path).await;
+        let (text, version, read_error) = if let Some(err) = containment_error {
+            (String::new(), None, Some(err))
+        } else {
+            match self.overlays.get(&path) {
+                Some(overlay) => (overlay.text.clone(), overlay.version, None),
+                None => match tokio::fs::read_to_string(&absolute_path).await {
+                    Ok(text) => (text, None, None),
+                    Err(err) => (String::new(), None, Some(err.to_string())),
+                },
+            }
         };
         let document = SourceDocument {
             id,
@@ -5737,6 +5744,16 @@ impl DocumentKind {
             Self::Schema => SourceKind::Schema,
             Self::CustomLint => SourceKind::CustomLint,
         }
+    }
+}
+
+async fn path_containment_error(root: &Path, path: &Path) -> Option<String> {
+    let root = tokio::fs::canonicalize(root).await.ok()?;
+    let path = tokio::fs::canonicalize(path).await.ok()?;
+    if path.starts_with(&root) {
+        None
+    } else {
+        Some("path escapes workspace".to_owned())
     }
 }
 
@@ -5951,8 +5968,8 @@ async fn sorted_directory_entries(path: &Path) -> std::io::Result<Vec<PathBuf>> 
     let mut entries = Vec::new();
     let mut read_dir = tokio::fs::read_dir(path).await?;
     while let Some(entry) = read_dir.next_entry().await? {
-        let metadata = entry.metadata().await?;
-        if metadata.is_file() {
+        let file_type = entry.file_type().await?;
+        if file_type.is_file() || file_type.is_symlink() {
             entries.push(entry.path());
         }
     }
