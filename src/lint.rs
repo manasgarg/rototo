@@ -1,6 +1,6 @@
 use std::path::Path;
 
-use crate::diagnostics::{EntityId, LintDiagnostic, SourcePosition};
+use crate::diagnostics::{EntityId, LintDiagnostic, LintStage, SourcePosition};
 use crate::error::{Result, RototoError};
 use crate::model::{QualifierLint, VariableLint, WorkspaceLint};
 
@@ -90,6 +90,14 @@ pub(crate) async fn lint_workspace_with_input(input: LintInput) -> Result<Worksp
 
 pub(crate) async fn lint_workspace_snapshot(input: LintInput) -> Result<WorkspaceLintSnapshot> {
     engine::lint_workspace_snapshot(input).await
+}
+
+#[allow(dead_code)]
+pub(crate) async fn lint_workspace_until(
+    input: LintInput,
+    stage: LintStage,
+) -> Result<engine::LintContext> {
+    engine::lint_workspace_until(input, stage).await
 }
 
 pub(crate) struct WorkspaceLintSnapshot {

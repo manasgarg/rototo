@@ -1,22 +1,25 @@
-use std::path::PathBuf;
-
-use crate::diagnostics::{DiagnosticLocation, EntityId, LintDiagnostic, LintStage, RototoRuleId};
+use crate::diagnostics::{LintDiagnostic, LintStage};
 use crate::error::Result;
 use crate::model::WorkspaceLint;
 
-use super::builtins;
-use super::custom::{RegisteredCustomLint, register_custom_lints, run_registered_custom_lints};
+use super::custom::RegisteredCustomLint;
 use super::input::LintInput;
 use super::nodes::*;
 use super::output::sort_diagnostics;
-use super::project::build_semantic_index;
 use super::references::ReferenceIndex;
-use super::source::{DocumentCollection, DocumentKind, SourceStore};
-use super::syntax::{SyntaxIndex, parse_sources};
-use super::{WORKSPACE_MANIFEST, WorkspaceLintSnapshot};
+use super::source::SourceStore;
+use super::syntax::SyntaxIndex;
+use super::{WorkspaceLintSnapshot, stages};
 
 pub(super) async fn lint_workspace_snapshot(input: LintInput) -> Result<WorkspaceLintSnapshot> {
     LintEngine::new().lint_workspace(input).await
+}
+
+pub(crate) async fn lint_workspace_until(
+    input: LintInput,
+    stage: LintStage,
+) -> Result<LintContext> {
+    LintEngine::new().lint_workspace_until(input, stage).await
 }
 
 struct LintEngine;
@@ -28,140 +31,22 @@ impl LintEngine {
 
     async fn lint_workspace(&self, input: LintInput) -> Result<WorkspaceLintSnapshot> {
         let mut ctx = LintContext::new(input);
-
-        self.run_discover(&mut ctx).await?;
-        self.run_parse(&mut ctx);
-        self.build_projection(&mut ctx);
-        self.build_references(&mut ctx);
-        self.run_project(&mut ctx);
-        self.run_register(&mut ctx).await;
-        self.run_registered_custom_lints(&mut ctx, LintStage::Project)
-            .await;
-        self.run_reference(&mut ctx);
-        self.run_registered_custom_lints(&mut ctx, LintStage::Reference)
-            .await;
-        self.run_value(&mut ctx);
-        self.run_registered_custom_lints(&mut ctx, LintStage::Value)
-            .await;
-        self.run_graph(&mut ctx);
-        self.run_registered_custom_lints(&mut ctx, LintStage::Graph)
-            .await;
-        self.run_registered_custom_lints(&mut ctx, LintStage::Policy)
-            .await;
-
+        stages::run_pipeline(&mut ctx).await?;
         Ok(ctx.finish())
     }
 
-    async fn run_discover(&self, ctx: &mut LintContext) -> Result<()> {
-        let root = match tokio::fs::canonicalize(&ctx.input.root).await {
-            Ok(root) => root,
-            Err(err) => {
-                ctx.diagnostics.push(LintDiagnostic::rototo(
-                    RototoRuleId::WorkspaceNotFound,
-                    LintStage::Discover,
-                    EntityId::Workspace,
-                    DiagnosticLocation::workspace_root(ctx.input.root.display().to_string()),
-                    err.to_string(),
-                ));
-                return Ok(());
-            }
-        };
-
-        let metadata = match tokio::fs::metadata(&root).await {
-            Ok(metadata) => metadata,
-            Err(err) => {
-                ctx.diagnostics.push(LintDiagnostic::rototo(
-                    RototoRuleId::WorkspaceNotFound,
-                    LintStage::Discover,
-                    EntityId::Workspace,
-                    DiagnosticLocation::workspace_root(root.display().to_string()),
-                    err.to_string(),
-                ));
-                return Ok(());
-            }
-        };
-
-        if !metadata.is_dir() {
-            ctx.diagnostics.push(LintDiagnostic::rototo(
-                RototoRuleId::WorkspaceNotFound,
-                LintStage::Discover,
-                EntityId::Workspace,
-                DiagnosticLocation::workspace_root(root.display().to_string()),
-                "workspace path is not a directory",
-            ));
-            return Ok(());
-        }
-
-        ctx.source.root = root;
-        let manifest_path = PathBuf::from(WORKSPACE_MANIFEST);
-        if tokio::fs::metadata(ctx.source.root.join(&manifest_path))
-            .await
-            .is_ok_and(|metadata| metadata.is_file())
-        {
-            ctx.source
-                .add_disk_document(manifest_path, DocumentKind::Manifest)
-                .await;
-        } else {
-            ctx.diagnostics.push(LintDiagnostic::rototo(
-                RototoRuleId::WorkspaceManifestMissing,
-                LintStage::Discover,
-                EntityId::Workspace,
-                DiagnosticLocation::workspace_root(ctx.source.root.display().to_string()),
-                "workspace manifest is missing",
-            ));
-            return Ok(());
-        }
-
-        ctx.source
-            .add_named_toml_documents("qualifiers", DocumentCollection::Qualifiers)
-            .await?;
-        ctx.source
-            .add_named_toml_documents("variables", DocumentCollection::Variables)
-            .await?;
-        ctx.source.add_schema_documents().await?;
-        ctx.source.add_custom_lint_documents().await?;
-
-        Ok(())
-    }
-
-    fn run_parse(&self, ctx: &mut LintContext) {
-        ctx.syntax = parse_sources(&ctx.source, &mut ctx.diagnostics);
-    }
-
-    fn build_projection(&self, ctx: &mut LintContext) {
-        ctx.index = build_semantic_index(&ctx.source, &ctx.syntax);
-    }
-
-    fn run_project(&self, ctx: &mut LintContext) {
-        builtins::run_project(ctx);
-    }
-
-    fn build_references(&self, ctx: &mut LintContext) {
-        ctx.references = ReferenceIndex::build(&ctx.index, &ctx.source, &ctx.syntax);
-    }
-
-    async fn run_register(&self, ctx: &mut LintContext) {
-        register_custom_lints(ctx).await;
-    }
-
-    fn run_reference(&self, ctx: &mut LintContext) {
-        builtins::run_reference(ctx);
-    }
-
-    fn run_value(&self, ctx: &mut LintContext) {
-        builtins::run_value(ctx);
-    }
-
-    fn run_graph(&self, ctx: &mut LintContext) {
-        builtins::run_graph(ctx);
-    }
-
-    async fn run_registered_custom_lints(&self, ctx: &mut LintContext, stage: LintStage) {
-        run_registered_custom_lints(ctx, stage).await;
+    async fn lint_workspace_until(
+        &self,
+        input: LintInput,
+        stage: LintStage,
+    ) -> Result<LintContext> {
+        let mut ctx = LintContext::new(input);
+        stages::run_until(&mut ctx, stage).await?;
+        Ok(ctx)
     }
 }
 
-pub(super) struct LintContext {
+pub(crate) struct LintContext {
     pub(super) input: LintInput,
     pub(super) source: SourceStore,
     pub(super) syntax: SyntaxIndex,
@@ -216,6 +101,9 @@ pub(super) fn variable_values<'a>(
 
 #[cfg(test)]
 mod tests {
+    use std::path::PathBuf;
+
+    use super::super::WORKSPACE_MANIFEST;
     use super::super::input::OverlayDocument;
     use super::*;
 
