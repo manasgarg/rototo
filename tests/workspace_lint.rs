@@ -900,6 +900,7 @@ enum ExpectedEntity {
         index: usize,
     },
     Schema(&'static str),
+    CustomLintFile(&'static str),
     CustomRule(&'static str),
 }
 
@@ -913,6 +914,19 @@ struct ExpectedRelatedLocation {
 
 fn canonical_rule_fixtures() -> &'static [CanonicalRuleFixture] {
     &[
+        CanonicalRuleFixture {
+            rule: RototoRuleId::WorkspaceNotFound,
+            workspace: "tests/fixtures/workspaces/rules/discover/workspace-not-found",
+            success: false,
+            expected: &[ExpectedDiagnostic {
+                rule: "rototo/workspace-not-found",
+                severity: "error",
+                stage: LintStage::Discover,
+                entity: ExpectedEntity::Workspace,
+                primary: ExpectedPrimaryLocation::WorkspaceRoot,
+                related: &[],
+            }],
+        },
         CanonicalRuleFixture {
             rule: RototoRuleId::WorkspaceManifestMissing,
             workspace: "tests/fixtures/workspaces/rules/discover/workspace-manifest-missing",
@@ -1815,24 +1829,59 @@ fn canonical_rule_fixtures() -> &'static [CanonicalRuleFixture] {
                 related: &[],
             }],
         },
+        CanonicalRuleFixture {
+            rule: RototoRuleId::CustomLintFailed,
+            workspace: "tests/fixtures/workspaces/rules/register/custom-lint-failed",
+            success: false,
+            expected: &[ExpectedDiagnostic {
+                rule: "rototo/custom-lint-failed",
+                severity: "error",
+                stage: LintStage::Register,
+                entity: ExpectedEntity::CustomLintFile("lint/broken.lua"),
+                primary: ExpectedPrimaryLocation::Document {
+                    path: "lint/broken.lua",
+                    range: None,
+                },
+                related: &[],
+            }],
+        },
+        CanonicalRuleFixture {
+            rule: RototoRuleId::CustomLintRegistrationInvalid,
+            workspace: "tests/fixtures/workspaces/rules/register/custom-lint-registration-invalid",
+            success: false,
+            expected: &[ExpectedDiagnostic {
+                rule: "rototo/custom-lint-registration-invalid",
+                severity: "error",
+                stage: LintStage::Register,
+                entity: ExpectedEntity::CustomLintFile("lint/invalid.lua"),
+                primary: ExpectedPrimaryLocation::Document {
+                    path: "lint/invalid.lua",
+                    range: None,
+                },
+                related: &[],
+            }],
+        },
+        CanonicalRuleFixture {
+            rule: RototoRuleId::CustomLintUnknownRule,
+            workspace: "tests/fixtures/workspaces/rules/register/custom-lint-unknown-rule",
+            success: false,
+            expected: &[ExpectedDiagnostic {
+                rule: "rototo/custom-lint-unknown-rule",
+                severity: "error",
+                stage: LintStage::Register,
+                entity: ExpectedEntity::CustomLintFile("lint/unknown.lua"),
+                primary: ExpectedPrimaryLocation::Document {
+                    path: "lint/unknown.lua",
+                    range: None,
+                },
+                related: &[],
+            }],
+        },
     ]
 }
 
 fn pending_canonical_rule_fixtures() -> &'static [PendingCanonicalRuleFixture] {
-    &[
-        PendingCanonicalRuleFixture {
-            rule: RototoRuleId::WorkspaceNotFound,
-        },
-        PendingCanonicalRuleFixture {
-            rule: RototoRuleId::CustomLintFailed,
-        },
-        PendingCanonicalRuleFixture {
-            rule: RototoRuleId::CustomLintRegistrationInvalid,
-        },
-        PendingCanonicalRuleFixture {
-            rule: RototoRuleId::CustomLintUnknownRule,
-        },
-    ]
+    &[]
 }
 
 fn assert_canonical_fixture(fixture: &CanonicalRuleFixture) {
@@ -2040,6 +2089,9 @@ fn expected_entity_value(entity: ExpectedEntity) -> serde_json::Value {
         }
         ExpectedEntity::Schema(path) => {
             serde_json::json!({ "kind": "schema", "path": path })
+        }
+        ExpectedEntity::CustomLintFile(path) => {
+            serde_json::json!({ "kind": "custom_lint", "path": path })
         }
         ExpectedEntity::CustomRule(rule) => {
             serde_json::json!({ "kind": "custom_rule", "rule": rule })
