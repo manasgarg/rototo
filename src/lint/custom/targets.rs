@@ -278,8 +278,7 @@ fn toml_root_item_location(ctx: &LintContext, doc: DocId, key: &str) -> Option<D
     let document = ctx.source.documents.get(&doc)?;
     let parsed = ctx.syntax.toml.get(&doc)?;
     parsed
-        .edit
-        .as_table()
+        .root_table()?
         .get(key)
         .map(|item| item_location(document, item))
 }

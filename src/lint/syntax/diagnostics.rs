@@ -13,14 +13,17 @@ pub(super) fn read_error_diagnostic(document: &SourceDocument, read_error: &str)
     )
 }
 
-pub(super) fn toml_edit_parse_diagnostic(
+pub(super) fn toml_span_parse_diagnostic(
     document: &SourceDocument,
-    err: &::toml_edit::TomlError,
+    err: &::toml_span::Error,
 ) -> LintDiagnostic {
-    let location = err
-        .span()
-        .map(|span| document.span_location(span))
-        .unwrap_or_else(|| document.document_location());
+    let start = err.span.start.min(document.text.len());
+    let end = parse_error_end(document, start, err.span.end);
+    let location = if start == end {
+        document.document_location()
+    } else {
+        document.span_location(start..end)
+    };
     LintDiagnostic::rototo(
         parse_failed_rule(&document.kind),
         LintStage::Parse,
@@ -30,21 +33,12 @@ pub(super) fn toml_edit_parse_diagnostic(
     )
 }
 
-pub(super) fn toml_de_parse_diagnostic(
-    document: &SourceDocument,
-    err: &::toml::de::Error,
-) -> LintDiagnostic {
-    let location = err
-        .span()
-        .map(|span| document.span_location(span))
-        .unwrap_or_else(|| document.document_location());
-    LintDiagnostic::rototo(
-        parse_failed_rule(&document.kind),
-        LintStage::Parse,
-        entity_for_document(document),
-        location,
-        format!("failed to parse {}: {err}", document.path),
-    )
+fn parse_error_end(document: &SourceDocument, start: usize, raw_end: usize) -> usize {
+    let bounded_end = raw_end.min(document.text.len()).max(start);
+    let Some(relative_newline) = document.text[start..bounded_end].find('\n') else {
+        return bounded_end;
+    };
+    start + relative_newline + 1
 }
 
 pub(super) fn json_parse_diagnostic(

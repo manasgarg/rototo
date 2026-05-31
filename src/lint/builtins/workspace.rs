@@ -19,7 +19,7 @@ pub(super) fn lint_manifest_shape(ctx: &mut LintContext) {
         return;
     };
 
-    if let Err(err) = workspace_environments(&parsed.plain) {
+    if let Err(err) = workspace_environments(&parsed.to_plain_toml()) {
         ctx.diagnostics.push(LintDiagnostic::rototo(
             RototoRuleId::WorkspaceManifestSchemaFailed,
             LintStage::Project,
@@ -205,7 +205,7 @@ fn custom_rule_definitions_from_rules(
 pub(crate) fn declared_workspace_environments(ctx: &LintContext) -> Option<BTreeSet<String>> {
     let manifest = ctx.index.manifest.as_ref()?;
     let parsed = ctx.syntax.toml.get(&manifest.doc)?;
-    workspace_environments(&parsed.plain)
+    workspace_environments(&parsed.to_plain_toml())
         .ok()
         .map(|environments| environments.into_iter().collect())
 }

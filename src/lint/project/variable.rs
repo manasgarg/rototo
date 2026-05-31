@@ -1,13 +1,13 @@
 use std::collections::{BTreeMap, BTreeSet};
 
-use toml::Value as TomlValue;
-use toml_edit::{Item, Table, TableLike, Value as EditValue};
+use toml_span::Value as TomlValue;
+use toml_span::value::Table;
 
 use crate::diagnostics::DiagnosticLocation;
 
 use super::super::index::*;
 use super::super::source::{SourceDocument, SourceStore};
-use super::super::syntax::{ParsedToml, item_location, table_location, value_location};
+use super::super::syntax::{ParsedToml, item_location, value_location};
 use super::fields::{integer_field, json_from_toml_value, optional_string_field, string_field};
 
 pub(crate) fn project_variable(
@@ -16,10 +16,14 @@ pub(crate) fn project_variable(
     id: &str,
     source: &SourceStore,
 ) -> VariableNode {
-    let root = toml.edit.as_table();
+    let root = toml.root_table();
     let location = document.document_location();
-    let schema_version = integer_field(document, root, "schema_version", location.clone());
-    let description = optional_string_field(document, root, "description");
+    let schema_version = root
+        .map(|root| integer_field(document, root, "schema_version", location.clone()))
+        .unwrap_or_else(|| ProjectField::Missing {
+            location: location.clone(),
+        });
+    let description = root.and_then(|root| optional_string_field(document, root, "description"));
     let type_source = project_type_source(document, root, location.clone());
     let values = project_values(document, toml, root, id, source);
     let environments = project_environments(document, root, id);
@@ -38,9 +42,12 @@ pub(crate) fn project_variable(
 
 fn project_type_source(
     document: &SourceDocument,
-    root: &Table,
+    root: Option<&Table<'_>>,
     location: DiagnosticLocation,
 ) -> TypeSourceNode {
+    let Some(root) = root else {
+        return TypeSourceNode::Missing { location };
+    };
     let type_item = root.get("type");
     let schema_item = root.get("schema");
     match (type_item, schema_item) {
@@ -72,11 +79,20 @@ fn project_type_source(
 fn project_values(
     document: &SourceDocument,
     toml: &ParsedToml,
-    root: &Table,
+    root: Option<&Table<'_>>,
     id: &str,
     source: &SourceStore,
 ) -> ValuesNode {
     let external_keys = source.external_value_keys(id);
+    let Some(root) = root else {
+        return ValuesNode {
+            location: document.document_location(),
+            inline_keys: BTreeSet::new(),
+            inline_values: BTreeMap::new(),
+            external_keys,
+            invalid_shape: false,
+        };
+    };
     let Some(item) = root.get("values") else {
         return ValuesNode {
             location: document.document_location(),
@@ -109,31 +125,35 @@ fn project_values(
 
 fn project_inline_values(
     document: &SourceDocument,
-    toml: &ParsedToml,
-    table: &Table,
+    _toml: &ParsedToml,
+    table: &Table<'_>,
 ) -> BTreeMap<String, ValueNode> {
-    let plain_values = toml.plain.get("values").and_then(TomlValue::as_table);
     table
         .iter()
-        .filter_map(|(key, item)| {
-            let value = plain_values?.get(key)?;
-            Some((
-                key.to_owned(),
+        .map(|(key, value)| {
+            let key = key.name.to_string();
+            (
+                key.clone(),
                 ValueNode {
-                    key: key.to_owned(),
-                    location: item_location(document, item),
+                    key,
+                    location: item_location(document, value),
                     value: json_from_toml_value(value),
                 },
-            ))
+            )
         })
         .collect()
 }
 
 fn project_environments(
     document: &SourceDocument,
-    root: &Table,
+    root: Option<&Table<'_>>,
     variable_id: &str,
 ) -> EnvironmentCollection {
+    let Some(root) = root else {
+        return EnvironmentCollection::Missing {
+            location: document.document_location(),
+        };
+    };
     let Some(item) = root.get("env") else {
         return EnvironmentCollection::Missing {
             location: document.document_location(),
@@ -150,8 +170,8 @@ fn project_environments(
             .iter()
             .map(|(environment, item)| {
                 (
-                    environment.to_owned(),
-                    project_environment_block(document, variable_id, environment, item),
+                    environment.name.to_string(),
+                    project_environment_block(document, variable_id, &environment.name, item),
                 )
             })
             .collect(),
@@ -162,7 +182,7 @@ fn project_environment_block(
     document: &SourceDocument,
     variable_id: &str,
     environment: &str,
-    item: &Item,
+    item: &TomlValue<'_>,
 ) -> EnvironmentBlockNode {
     let location = item_location(document, item);
     let Some(table) = item.as_table() else {
@@ -188,23 +208,11 @@ fn project_rules(
     document: &SourceDocument,
     variable_id: &str,
     environment: &str,
-    table: &Table,
+    table: &Table<'_>,
 ) -> RuleCollection {
     let Some(item) = table.get("rule") else {
         return RuleCollection::Rules(Vec::new());
     };
-
-    if let Some(rules) = item.as_array_of_tables() {
-        return RuleCollection::Rules(
-            rules
-                .iter()
-                .enumerate()
-                .map(|(index, table)| {
-                    project_rule_from_table(document, variable_id, environment, index, table)
-                })
-                .collect(),
-        );
-    }
 
     if let Some(array) = item.as_array() {
         return RuleCollection::Rules(
@@ -223,34 +231,15 @@ fn project_rules(
     }
 }
 
-fn project_rule_from_table(
-    document: &SourceDocument,
-    variable_id: &str,
-    environment: &str,
-    index: usize,
-    table: &Table,
-) -> VariableRuleNode {
-    let location = table_location(document, table);
-    project_rule_from_table_like(
-        document,
-        variable_id,
-        environment,
-        index,
-        table,
-        location,
-        false,
-    )
-}
-
 fn project_rule_from_value(
     document: &SourceDocument,
     variable_id: &str,
     environment: &str,
     index: usize,
-    value: &EditValue,
+    value: &TomlValue<'_>,
 ) -> VariableRuleNode {
     let location = value_location(document, value);
-    let Some(table) = value.as_inline_table() else {
+    let Some(table) = value.as_table() else {
         return VariableRuleNode {
             index,
             location: location.clone(),
@@ -277,7 +266,7 @@ fn project_rule_from_table_like(
     _variable_id: &str,
     _environment: &str,
     index: usize,
-    table: &dyn TableLike,
+    table: &Table<'_>,
     location: DiagnosticLocation,
     invalid_shape: bool,
 ) -> VariableRuleNode {

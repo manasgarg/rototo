@@ -523,7 +523,7 @@ fn declared_workspace_environments(
 ) -> Option<BTreeSet<String>> {
     let manifest = index.manifest.as_ref()?;
     let parsed = syntax.toml.get(&manifest.doc)?;
-    workspace_environments(&parsed.plain)
+    workspace_environments(&parsed.to_plain_toml())
         .ok()
         .map(|environments| environments.into_iter().collect())
 }

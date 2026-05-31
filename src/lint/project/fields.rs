@@ -1,16 +1,16 @@
 use serde_json::Value as JsonValue;
-use toml::Value as TomlValue;
-use toml_edit::{Item, Table, TableLike};
+use toml_span::Value as TomlValue;
+use toml_span::value::Table;
 
 use crate::diagnostics::{DiagnosticLocation, Severity};
 
 use super::super::index::*;
 use super::super::source::SourceDocument;
-use super::super::syntax::item_location;
+use super::super::syntax::{item_location, plain_toml_from_span_value};
 
 pub(super) fn integer_field(
     document: &SourceDocument,
-    table: &dyn TableLike,
+    table: &Table<'_>,
     key: &str,
     missing_location: DiagnosticLocation,
 ) -> ProjectField<i64> {
@@ -32,7 +32,7 @@ pub(super) fn integer_field(
 
 pub(super) fn string_field(
     document: &SourceDocument,
-    table: &dyn TableLike,
+    table: &Table<'_>,
     key: &str,
     missing_location: DiagnosticLocation,
 ) -> ProjectField<String> {
@@ -54,7 +54,7 @@ pub(super) fn string_field(
 
 pub(super) fn optional_string_field(
     document: &SourceDocument,
-    table: &dyn TableLike,
+    table: &Table<'_>,
     key: &str,
 ) -> Option<ProjectField<String>> {
     let item = table.get(key)?;
@@ -71,7 +71,7 @@ pub(super) fn optional_string_field(
 
 pub(super) fn optional_severity_field(
     document: &SourceDocument,
-    table: &dyn TableLike,
+    table: &Table<'_>,
     key: &str,
 ) -> Option<ProjectField<Severity>> {
     let item = table.get(key)?;
@@ -88,7 +88,7 @@ pub(super) fn optional_severity_field(
 
 pub(super) fn predicate_op_field(
     document: &SourceDocument,
-    table: &Table,
+    table: &Table<'_>,
     missing_location: DiagnosticLocation,
 ) -> ProjectField<PredicateOp> {
     match string_field(document, table, "op", missing_location) {
@@ -101,14 +101,20 @@ pub(super) fn predicate_op_field(
     }
 }
 
-pub(super) fn project_value_shape(document: &SourceDocument, item: &Item) -> ValueShapeNode {
+pub(super) fn project_value_shape(
+    document: &SourceDocument,
+    item: &TomlValue<'_>,
+) -> ValueShapeNode {
     ValueShapeNode {
         location: item_location(document, item),
         shape: value_shape(item),
     }
 }
 
-pub(super) fn project_bucket_range(document: &SourceDocument, item: &Item) -> BucketRangeNode {
+pub(super) fn project_bucket_range(
+    document: &SourceDocument,
+    item: &TomlValue<'_>,
+) -> BucketRangeNode {
     let location = item_location(document, item);
     let Some(array) = item.as_array() else {
         return BucketRangeNode {
@@ -129,7 +135,7 @@ pub(super) fn project_bucket_range(document: &SourceDocument, item: &Item) -> Bu
     }
 }
 
-fn value_shape(item: &Item) -> ValueShape {
+fn value_shape(item: &TomlValue<'_>) -> ValueShape {
     if item.as_str().is_some() {
         ValueShape::String
     } else if item.as_integer().is_some() {
@@ -145,6 +151,6 @@ fn value_shape(item: &Item) -> ValueShape {
     }
 }
 
-pub(crate) fn json_from_toml_value(value: &TomlValue) -> JsonValue {
-    serde_json::to_value(value).unwrap_or(JsonValue::Null)
+pub(crate) fn json_from_toml_value(value: &TomlValue<'_>) -> JsonValue {
+    serde_json::to_value(plain_toml_from_span_value(value)).unwrap_or(JsonValue::Null)
 }

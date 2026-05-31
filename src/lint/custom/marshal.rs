@@ -12,7 +12,7 @@ pub(super) fn expanded_variable_toml_json(ctx: &LintContext, variable: &Variable
         .syntax
         .toml
         .get(&variable.doc)
-        .map(|parsed| json_from_toml_value(&parsed.plain))
+        .map(|parsed| json_from_toml_value(parsed.root()))
         .unwrap_or_else(|| JsonValue::Object(serde_json::Map::new()));
     let mut values = serde_json::Map::new();
     for value in variable_values(ctx, variable) {
@@ -29,7 +29,7 @@ pub(super) fn parsed_toml_json(ctx: &LintContext, doc: DocId) -> JsonValue {
     ctx.syntax
         .toml
         .get(&doc)
-        .map(|parsed| json_from_toml_value(&parsed.plain))
+        .map(|parsed| json_from_toml_value(parsed.root()))
         .unwrap_or(JsonValue::Null)
 }
 
