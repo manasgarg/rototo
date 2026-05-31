@@ -51,6 +51,40 @@ fn lists_global_diagnostics_as_json() {
 }
 
 #[test]
+fn retired_rototo_rules_are_not_listed() {
+    let output = Command::cargo_bin("rototo")
+        .unwrap()
+        .args(["diagnostics", "list", "--json"])
+        .output()
+        .unwrap();
+
+    assert!(
+        output.status.success(),
+        "diagnostics list failed\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let diagnostics: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    let rules = diagnostics["diagnostics"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|diagnostic| diagnostic["rule"].as_str().unwrap())
+        .collect::<Vec<_>>();
+
+    for retired in [
+        "rototo/variable-lint-shape",
+        "rototo/qualifier-missing-table",
+        "rototo/variable-missing-table",
+    ] {
+        assert!(
+            !rules.contains(&retired),
+            "retired rule is listed: {retired}"
+        );
+    }
+}
+
+#[test]
 fn gets_workspace_diagnostic() {
     Command::cargo_bin("rototo")
         .unwrap()

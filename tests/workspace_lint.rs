@@ -614,6 +614,21 @@ fn lint_failures_fixture_covers_graph_rules() {
 }
 
 #[test]
+fn diagnostics_are_sorted_by_path_range_rule_and_message() {
+    let lint = lint_json("tests/fixtures/workspaces/lint-failures", false);
+    let keys = lint["diagnostics"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(diagnostic_order_key)
+        .collect::<Vec<_>>();
+    let mut sorted = keys.clone();
+    sorted.sort();
+
+    assert_eq!(keys, sorted, "{lint:#}");
+}
+
+#[test]
 fn reports_workspace_custom_lint_failures() {
     let lint = lint_json("tests/fixtures/workspaces/lint-failures", false);
 
@@ -794,6 +809,22 @@ fn diagnostic_messages_for_rule(lint: &serde_json::Value, rule: &str) -> Vec<Str
         .filter(|diagnostic| diagnostic["rule"] == rule)
         .map(|diagnostic| diagnostic["message"].as_str().unwrap().to_owned())
         .collect()
+}
+
+fn diagnostic_order_key(diagnostic: &serde_json::Value) -> (String, u64, u64, String, String) {
+    let range = &diagnostic["primary"]["range"];
+    let line = range["start"]["line"].as_u64().unwrap_or(0);
+    let character = range["start"]["character"].as_u64().unwrap_or(0);
+    (
+        diagnostic["primary"]["path"]
+            .as_str()
+            .unwrap_or_default()
+            .to_owned(),
+        line,
+        character,
+        diagnostic["rule"].as_str().unwrap().to_owned(),
+        diagnostic["message"].as_str().unwrap().to_owned(),
+    )
 }
 
 fn assert_project_rule(lint: &serde_json::Value, rule: &str, path: &str) {
