@@ -1,0 +1,20 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "required": ["model", "gateway", "prompt", "max_output_tokens", "temperature"],
+  "additionalProperties": false,
+  "properties": {
+    "model": { "type": "string" },
+    "gateway": { "type": "string" },
+    "prompt": { "type": "string" },
+    "max_output_tokens": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "temperature": {
+      "type": "number",
+      "minimum": 0,
+      "maximum": 2
+    }
+  }
+}

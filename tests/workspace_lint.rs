@@ -30,6 +30,21 @@ fn lints_basic_workspace_as_json_with_documents() {
 }
 
 #[test]
+fn lints_curated_examples() {
+    for workspace in [
+        "examples/quickstart",
+        "examples/production",
+        "examples/custom-lint",
+    ] {
+        let lint = lint_json(workspace, true);
+        assert!(
+            lint["diagnostics"].as_array().unwrap().is_empty(),
+            "{workspace} should stay lint-clean\n{lint:#}"
+        );
+    }
+}
+
+#[test]
 fn lints_workspace_with_workspace_flag() {
     let workspace = std::path::absolute("examples/basic").unwrap();
     let expected = format!("ok: {}\n", workspace.display());

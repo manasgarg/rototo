@@ -188,6 +188,29 @@ fn resolves_variable_by_id() {
 }
 
 #[test]
+fn resolves_production_example_enterprise_profile() {
+    Command::cargo_bin("rototo")
+        .unwrap()
+        .args([
+            "variable",
+            "resolve",
+            "agent-config",
+            "--workspace",
+            "examples/production",
+            "--env",
+            "prod",
+            "--context",
+            "@examples/production/contexts/eu-enterprise.json",
+            "--json",
+        ])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains(r#""id": "agent-config""#))
+        .stdout(predicate::str::contains(r#""value_key": "enterprise""#))
+        .stdout(predicate::str::contains(r#""model": "gpt-5""#));
+}
+
+#[test]
 fn resolves_all_variables() {
     Command::cargo_bin("rototo")
         .unwrap()

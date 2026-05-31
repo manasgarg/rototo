@@ -1,0 +1,9 @@
+{
+  "account": {
+    "plan": "enterprise",
+    "seats": 250
+  },
+  "request": {
+    "region": "eu"
+  }
+}

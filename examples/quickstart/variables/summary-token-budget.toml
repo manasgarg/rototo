@@ -1,0 +1,10 @@
+schema_version = 1
+
+description = "Maximum output tokens for generated summaries"
+type = "int"
+
+[values]
+standard = 1800
+
+[env._]
+value = "standard"

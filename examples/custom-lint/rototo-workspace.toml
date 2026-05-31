@@ -1,0 +1,9 @@
+schema_version = 1
+
+[environments]
+values = ["prod"]
+
+[[lint.rule]]
+id = "operations/message-not-empty"
+title = "Operational message is empty"
+help = "Set a non-empty message before releasing the workspace."

@@ -1,0 +1,6 @@
+[value]
+model = "local-small"
+gateway = "ollama"
+prompt = "You are a concise development assistant."
+max_output_tokens = 1200
+temperature = 0.2

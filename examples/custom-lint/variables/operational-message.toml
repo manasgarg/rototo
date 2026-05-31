@@ -1,0 +1,10 @@
+schema_version = 1
+
+description = "Message displayed in an operational status surface"
+type = "string"
+
+[values]
+standard = "All systems operational."
+
+[env._]
+value = "standard"

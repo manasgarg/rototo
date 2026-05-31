@@ -1,0 +1,13 @@
+schema_version = 1
+
+description = "Large enterprise accounts that can use the advanced agent profile"
+
+[[predicate]]
+attribute = "account.plan"
+op = "eq"
+value = "enterprise"
+
+[[predicate]]
+attribute = "account.seats"
+op = "gte"
+value = 100

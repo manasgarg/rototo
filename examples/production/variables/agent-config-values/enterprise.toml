@@ -1,0 +1,6 @@
+[value]
+model = "gpt-5"
+gateway = "openai"
+prompt = "You are a precise assistant for enterprise operational workflows."
+max_output_tokens = 5000
+temperature = 0.2

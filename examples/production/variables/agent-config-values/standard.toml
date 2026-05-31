@@ -1,0 +1,6 @@
+[value]
+model = "gpt-5-mini"
+gateway = "openai"
+prompt = "You are a pragmatic production assistant."
+max_output_tokens = 2400
+temperature = 0.3
