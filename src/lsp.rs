@@ -9,7 +9,10 @@ use tokio::io::{
 
 use crate::diagnostics::{DiagnosticLocation, LintDiagnostic, Severity, SourceRange};
 use crate::error::{Result, RototoError};
-use crate::lint::{LintInput, OverlayDocument, lint_workspace_snapshot};
+use crate::lint::{
+    LintInput, OverlayDocument, WorkspaceDocumentSymbol, WorkspaceDocumentSymbolKind,
+    WorkspaceLintSnapshot, lint_workspace_snapshot,
+};
 use crate::model::WorkspaceLint;
 
 const JSONRPC_VERSION: &str = "2.0";
@@ -71,7 +74,14 @@ impl LspServer {
                 write_response(writer, id, JsonValue::Null).await?;
             }
             (Some(id), "textDocument/documentSymbol") => {
-                write_response(writer, id, JsonValue::Array(Vec::new())).await?;
+                let symbols = self.document_symbols(params).await?;
+                write_response(
+                    writer,
+                    id,
+                    serde_json::to_value(symbols)
+                        .map_err(|err| RototoError::new(err.to_string()))?,
+                )
+                .await?;
             }
             (Some(id), _) => {
                 write_error_response(writer, id, -32601, "method not found").await?;
@@ -179,13 +189,38 @@ impl LspServer {
     }
 
     async fn workspace_diagnostics(&self) -> Result<Vec<PublishDiagnosticsParams>> {
-        let Some(root) = &self.workspace_root else {
+        let Some(snapshot) = self.workspace_snapshot().await? else {
             return Ok(Vec::new());
+        };
+        Ok(publish_diagnostics_params(&snapshot.lint))
+    }
+
+    async fn document_symbols(&self, params: JsonValue) -> Result<Vec<LspDocumentSymbol>> {
+        let text_document = params
+            .get("textDocument")
+            .ok_or_else(|| RototoError::new("documentSymbol missing textDocument"))?;
+        let uri = text_document
+            .get("uri")
+            .and_then(JsonValue::as_str)
+            .ok_or_else(|| RototoError::new("documentSymbol missing textDocument.uri"))?;
+        let path = self.workspace_path_for_uri(uri)?;
+        let Some(snapshot) = self.workspace_snapshot().await? else {
+            return Ok(Vec::new());
+        };
+        Ok(snapshot
+            .document_symbols(&path)
+            .iter()
+            .map(lsp_document_symbol)
+            .collect())
+    }
+
+    async fn workspace_snapshot(&self) -> Result<Option<WorkspaceLintSnapshot>> {
+        let Some(root) = &self.workspace_root else {
+            return Ok(None);
         };
         let mut input = LintInput::new(root.clone());
         input.overlays = self.overlays.clone();
-        let lint = lint_workspace_snapshot(input).await?;
-        Ok(publish_diagnostics_params(&lint))
+        lint_workspace_snapshot(input).await.map(Some)
     }
 
     fn workspace_path_for_uri(&self, uri: &str) -> Result<String> {
@@ -224,6 +259,17 @@ struct LspDiagnosticData {
     help: String,
 }
 
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct LspDocumentSymbol {
+    name: String,
+    kind: u8,
+    range: LspRange,
+    selection_range: LspRange,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    children: Vec<LspDocumentSymbol>,
+}
+
 #[derive(Debug, Serialize, Clone, Copy)]
 struct LspRange {
     start: LspPosition,
@@ -259,6 +305,30 @@ fn lsp_diagnostic(diagnostic: &LintDiagnostic) -> LspDiagnostic {
             stage: lint_stage_label(diagnostic.stage).to_owned(),
             help: diagnostic.help.clone(),
         },
+    }
+}
+
+fn lsp_document_symbol(symbol: &WorkspaceDocumentSymbol) -> LspDocumentSymbol {
+    LspDocumentSymbol {
+        name: symbol.name.clone(),
+        kind: lsp_symbol_kind(symbol.kind),
+        range: lsp_range(&symbol.location),
+        selection_range: lsp_range(&symbol.selection_location),
+        children: symbol.children.iter().map(lsp_document_symbol).collect(),
+    }
+}
+
+fn lsp_symbol_kind(kind: WorkspaceDocumentSymbolKind) -> u8 {
+    match kind {
+        WorkspaceDocumentSymbolKind::WorkspaceEnvironments => 18,
+        WorkspaceDocumentSymbolKind::Environment => 15,
+        WorkspaceDocumentSymbolKind::Qualifier => 19,
+        WorkspaceDocumentSymbolKind::Predicate => 17,
+        WorkspaceDocumentSymbolKind::Variable => 13,
+        WorkspaceDocumentSymbolKind::Values => 18,
+        WorkspaceDocumentSymbolKind::Value => 14,
+        WorkspaceDocumentSymbolKind::EnvironmentBlock => 3,
+        WorkspaceDocumentSymbolKind::Rule => 8,
     }
 }
 
@@ -438,7 +508,8 @@ fn initialize_result() -> JsonValue {
                 "save": {
                     "includeText": false
                 }
-            }
+            },
+            "documentSymbolProvider": true
         },
         "serverInfo": {
             "name": "rototo",
@@ -643,5 +714,162 @@ value = "control"
             .unwrap();
         assert_eq!(variable_publication.version, Some(8));
         assert!(variable_publication.diagnostics.is_empty());
+    }
+
+    #[tokio::test]
+    async fn lsp_document_symbols_use_snapshot_index_and_unsaved_overlay() {
+        let tempdir = tempfile::tempdir().unwrap();
+        let root = tempdir.path();
+        tokio::fs::create_dir_all(root.join("qualifiers"))
+            .await
+            .unwrap();
+        tokio::fs::create_dir_all(root.join("variables"))
+            .await
+            .unwrap();
+        let manifest_path = root.join("rototo-workspace.toml");
+        tokio::fs::write(
+            &manifest_path,
+            r#"schema_version = 1
+
+[environments]
+values = ["prod"]
+"#,
+        )
+        .await
+        .unwrap();
+        let qualifier_path = root.join("qualifiers/premium.toml");
+        tokio::fs::write(
+            &qualifier_path,
+            r#"schema_version = 1
+
+[[predicate]]
+attribute = "account.tier"
+op = "eq"
+value = "premium"
+"#,
+        )
+        .await
+        .unwrap();
+        let disk_variable = r#"schema_version = 1
+type = "string"
+
+[values]
+control = "hello"
+
+[env._]
+value = "control"
+"#;
+        let variable_path = root.join("variables/message.toml");
+        tokio::fs::write(&variable_path, disk_variable)
+            .await
+            .unwrap();
+        tokio::fs::create_dir_all(root.join("variables/message-values"))
+            .await
+            .unwrap();
+        let external_value_path = root.join("variables/message-values/external.toml");
+        tokio::fs::write(&external_value_path, r#"value = "external""#)
+            .await
+            .unwrap();
+
+        let mut server = LspServer::new();
+        server.workspace_root = Some(tokio::fs::canonicalize(root).await.unwrap());
+        let variable_uri = format!("file://{}", variable_path.display());
+        server
+            .open_document(json!({
+                "textDocument": {
+                    "uri": variable_uri,
+                    "version": 3,
+                    "text": r#"schema_version = 1
+type = "string"
+
+[values]
+control = "hello"
+treatment = "welcome"
+
+[env._]
+value = "control"
+
+[env.prod]
+value = "control"
+rule = [
+  { qualifier = "premium", value = "treatment" },
+]
+"#,
+                }
+            }))
+            .unwrap();
+
+        let manifest_symbols = server
+            .document_symbols(json!({
+                "textDocument": {
+                    "uri": format!("file://{}", manifest_path.display())
+                }
+            }))
+            .await
+            .unwrap();
+        let environments = child_symbol(&manifest_symbols, "environments");
+        assert!(
+            environments
+                .children
+                .iter()
+                .any(|child| child.name == "prod")
+        );
+
+        let qualifier_symbols = server
+            .document_symbols(json!({
+                "textDocument": {
+                    "uri": format!("file://{}", qualifier_path.display())
+                }
+            }))
+            .await
+            .unwrap();
+        let qualifier = child_symbol(&qualifier_symbols, "premium");
+        assert!(
+            qualifier
+                .children
+                .iter()
+                .any(|child| child.name == "predicate 1: account.tier eq")
+        );
+
+        let variable_symbols = server
+            .document_symbols(json!({
+                "textDocument": {
+                    "uri": format!("file://{}", variable_path.display())
+                }
+            }))
+            .await
+            .unwrap();
+        let variable = child_symbol(&variable_symbols, "message");
+        let values = child_symbol(&variable.children, "values");
+        let treatment = child_symbol(&values.children, "treatment");
+        assert_eq!(treatment.range.start.line, 5);
+
+        let prod = child_symbol(&variable.children, "env.prod");
+        assert!(
+            prod.children
+                .iter()
+                .any(|child| child.name == "rule 1: premium -> treatment")
+        );
+        assert_eq!(
+            tokio::fs::read_to_string(&variable_path).await.unwrap(),
+            disk_variable
+        );
+
+        let external_value_symbols = server
+            .document_symbols(json!({
+                "textDocument": {
+                    "uri": format!("file://{}", external_value_path.display())
+                }
+            }))
+            .await
+            .unwrap();
+        child_symbol(&external_value_symbols, "message.external");
+    }
+
+    fn child_symbol<'a>(symbols: &'a [LspDocumentSymbol], name: &str) -> &'a LspDocumentSymbol {
+        symbols
+            .iter()
+            .find(|symbol| symbol.name == name)
+            .unwrap_or_else(|| panic!("missing symbol {name}"))
     }
 }

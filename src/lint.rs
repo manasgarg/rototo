@@ -18,7 +18,7 @@ use crate::workspace::workspace_environments;
 const WORKSPACE_MANIFEST: &str = "rototo-workspace.toml";
 
 pub async fn lint_workspace(workspace_root: &Path) -> Result<WorkspaceLint> {
-    lint_workspace_snapshot(LintInput::new(workspace_root.to_path_buf())).await
+    lint_workspace_with_input(LintInput::new(workspace_root.to_path_buf())).await
 }
 
 pub async fn lint_qualifier(workspace_root: &Path, id: &str) -> Result<QualifierLint> {
@@ -75,7 +75,11 @@ fn diagnostic_belongs_to_variable(diagnostic: &LintDiagnostic, id: &str, path: &
         || diagnostic.primary.path == path
 }
 
-pub(crate) async fn lint_workspace_snapshot(input: LintInput) -> Result<WorkspaceLint> {
+pub(crate) async fn lint_workspace_with_input(input: LintInput) -> Result<WorkspaceLint> {
+    Ok(lint_workspace_snapshot(input).await?.lint)
+}
+
+pub(crate) async fn lint_workspace_snapshot(input: LintInput) -> Result<WorkspaceLintSnapshot> {
     LintEngine::new().lint_workspace(input).await
 }
 
@@ -100,6 +104,86 @@ pub(crate) struct OverlayDocument {
     pub(crate) version: Option<i32>,
 }
 
+pub(crate) struct WorkspaceLintSnapshot {
+    pub(crate) lint: WorkspaceLint,
+    index: SemanticIndex,
+}
+
+impl WorkspaceLintSnapshot {
+    pub(crate) fn document_symbols(&self, path: &str) -> Vec<WorkspaceDocumentSymbol> {
+        let mut symbols = Vec::new();
+
+        if let Some(manifest) = &self.index.manifest
+            && manifest.location.path == path
+            && let Some(symbol) = workspace_environments_symbol(&manifest.environments)
+        {
+            symbols.push(symbol);
+        }
+
+        for qualifier in self.index.qualifiers.values() {
+            if qualifier.location.path == path {
+                symbols.push(qualifier_document_symbol(qualifier));
+            }
+        }
+
+        for variable in self.index.variables.values() {
+            if variable.location.path == path {
+                symbols.push(variable_document_symbol(variable));
+            }
+        }
+
+        for (variable_id, values) in &self.index.external_values {
+            for value in values.values() {
+                if value.location.path == path {
+                    symbols.push(external_value_document_symbol(variable_id, value));
+                }
+            }
+        }
+
+        sort_workspace_document_symbols(&mut symbols);
+        symbols
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct WorkspaceDocumentSymbol {
+    pub(crate) name: String,
+    pub(crate) kind: WorkspaceDocumentSymbolKind,
+    pub(crate) location: DiagnosticLocation,
+    pub(crate) selection_location: DiagnosticLocation,
+    pub(crate) children: Vec<WorkspaceDocumentSymbol>,
+}
+
+impl WorkspaceDocumentSymbol {
+    fn new(
+        name: impl Into<String>,
+        kind: WorkspaceDocumentSymbolKind,
+        location: DiagnosticLocation,
+        children: Vec<Self>,
+    ) -> Self {
+        Self {
+            name: name.into(),
+            kind,
+            selection_location: location.clone(),
+            location,
+            children,
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum WorkspaceDocumentSymbolKind {
+    WorkspaceEnvironments,
+    Environment,
+    Qualifier,
+    Predicate,
+    Variable,
+    Values,
+    Value,
+    EnvironmentBlock,
+    Rule,
+}
+
 struct LintEngine;
 
 impl LintEngine {
@@ -107,7 +191,7 @@ impl LintEngine {
         Self
     }
 
-    async fn lint_workspace(&self, input: LintInput) -> Result<WorkspaceLint> {
+    async fn lint_workspace(&self, input: LintInput) -> Result<WorkspaceLintSnapshot> {
         let mut ctx = LintContext::new(input);
 
         self.run_discover(&mut ctx).await?;
@@ -345,13 +429,17 @@ impl LintContext {
         }
     }
 
-    fn finish(mut self) -> WorkspaceLint {
+    fn finish(mut self) -> WorkspaceLintSnapshot {
         sort_diagnostics(&mut self.diagnostics);
         let documents = self.source.document_summaries();
-        WorkspaceLint {
+        let lint = WorkspaceLint {
             root: self.source.root,
             documents,
             diagnostics: self.diagnostics,
+        };
+        WorkspaceLintSnapshot {
+            lint,
+            index: self.index,
         }
     }
 }
@@ -378,8 +466,25 @@ struct SemanticIndex {
 struct ManifestNode {
     doc: DocId,
     location: DiagnosticLocation,
+    environments: WorkspaceEnvironmentCollection,
     context_schema: Option<ContextSchemaNode>,
     custom_rules: CustomRuleCollection,
+}
+
+struct WorkspaceEnvironmentNode {
+    name: String,
+    location: DiagnosticLocation,
+}
+
+enum WorkspaceEnvironmentCollection {
+    Missing,
+    Invalid {
+        location: DiagnosticLocation,
+    },
+    Environments {
+        location: DiagnosticLocation,
+        values: Vec<WorkspaceEnvironmentNode>,
+    },
 }
 
 struct ContextSchemaNode {
@@ -487,6 +592,7 @@ enum EnvironmentCollection {
 
 struct EnvironmentBlockNode {
     environment: String,
+    location: DiagnosticLocation,
     value: ProjectField<String>,
     rules: RuleCollection,
 }
@@ -545,8 +651,42 @@ fn project_manifest(document: &SourceDocument, toml: &ParsedToml) -> ManifestNod
     ManifestNode {
         doc: document.id,
         location: document.document_location(),
+        environments: project_workspace_environments(document, root),
         context_schema: project_context_schema(document, root),
         custom_rules: project_workspace_custom_rules(document, root),
+    }
+}
+
+fn project_workspace_environments(
+    document: &SourceDocument,
+    root: &Table,
+) -> WorkspaceEnvironmentCollection {
+    let Some(item) = root.get("environments") else {
+        return WorkspaceEnvironmentCollection::Missing;
+    };
+    let location = item_location(document, item);
+    let Some(table) = item.as_table() else {
+        return WorkspaceEnvironmentCollection::Invalid { location };
+    };
+    let Some(values_item) = table.get("values") else {
+        return WorkspaceEnvironmentCollection::Missing;
+    };
+    let location = item_location(document, values_item);
+    let Some(values) = values_item.as_array() else {
+        return WorkspaceEnvironmentCollection::Invalid { location };
+    };
+
+    WorkspaceEnvironmentCollection::Environments {
+        location,
+        values: values
+            .iter()
+            .filter_map(|value| {
+                Some(WorkspaceEnvironmentNode {
+                    name: value.as_str()?.to_owned(),
+                    location: value_location(document, value),
+                })
+            })
+            .collect(),
     }
 }
 
@@ -860,6 +1000,7 @@ fn project_environment_block(
     let Some(table) = item.as_table() else {
         return EnvironmentBlockNode {
             environment: environment.to_owned(),
+            location: location.clone(),
             value: ProjectField::Invalid {
                 location: location.clone(),
             },
@@ -869,6 +1010,7 @@ fn project_environment_block(
 
     EnvironmentBlockNode {
         environment: environment.to_owned(),
+        location: location.clone(),
         value: string_field(document, table, "value", location.clone()),
         rules: project_rules(document, variable_id, environment, table),
     }
@@ -1052,6 +1194,21 @@ impl PredicateOp {
             "lte" => Self::Lte,
             "bucket" => Self::Bucket,
             op => Self::Unknown(op.to_owned()),
+        }
+    }
+
+    fn as_str(&self) -> &str {
+        match self {
+            Self::Eq => "eq",
+            Self::Neq => "neq",
+            Self::In => "in",
+            Self::NotIn => "not_in",
+            Self::Gt => "gt",
+            Self::Gte => "gte",
+            Self::Lt => "lt",
+            Self::Lte => "lte",
+            Self::Bucket => "bucket",
+            Self::Unknown(op) => op,
         }
     }
 }
@@ -3364,6 +3521,205 @@ fn variable_values<'a>(
     )
 }
 
+fn workspace_environments_symbol(
+    environments: &WorkspaceEnvironmentCollection,
+) -> Option<WorkspaceDocumentSymbol> {
+    match environments {
+        WorkspaceEnvironmentCollection::Missing => None,
+        WorkspaceEnvironmentCollection::Invalid { location } => Some(WorkspaceDocumentSymbol::new(
+            "environments",
+            WorkspaceDocumentSymbolKind::WorkspaceEnvironments,
+            location.clone(),
+            Vec::new(),
+        )),
+        WorkspaceEnvironmentCollection::Environments { location, values } => {
+            Some(WorkspaceDocumentSymbol::new(
+                "environments",
+                WorkspaceDocumentSymbolKind::WorkspaceEnvironments,
+                location.clone(),
+                values
+                    .iter()
+                    .map(|environment| {
+                        WorkspaceDocumentSymbol::new(
+                            environment.name.clone(),
+                            WorkspaceDocumentSymbolKind::Environment,
+                            environment.location.clone(),
+                            Vec::new(),
+                        )
+                    })
+                    .collect(),
+            ))
+        }
+    }
+}
+
+fn qualifier_document_symbol(qualifier: &QualifierNode) -> WorkspaceDocumentSymbol {
+    let children = match &qualifier.predicates {
+        PredicateCollection::Predicates(predicates) => predicates
+            .iter()
+            .map(predicate_document_symbol)
+            .collect::<Vec<_>>(),
+        PredicateCollection::Missing { .. } | PredicateCollection::Invalid { .. } => Vec::new(),
+    };
+    WorkspaceDocumentSymbol::new(
+        qualifier.id.clone(),
+        WorkspaceDocumentSymbolKind::Qualifier,
+        qualifier.location.clone(),
+        children,
+    )
+}
+
+fn predicate_document_symbol(predicate: &PredicateNode) -> WorkspaceDocumentSymbol {
+    WorkspaceDocumentSymbol::new(
+        predicate_symbol_name(predicate),
+        WorkspaceDocumentSymbolKind::Predicate,
+        predicate.location.clone(),
+        Vec::new(),
+    )
+}
+
+fn variable_document_symbol(variable: &VariableNode) -> WorkspaceDocumentSymbol {
+    let mut children = Vec::new();
+    if let Some(values) = variable_values_document_symbol(variable) {
+        children.push(values);
+    }
+    children.extend(variable_environment_document_symbols(variable));
+
+    WorkspaceDocumentSymbol::new(
+        variable.id.clone(),
+        WorkspaceDocumentSymbolKind::Variable,
+        variable.location.clone(),
+        children,
+    )
+}
+
+fn variable_values_document_symbol(variable: &VariableNode) -> Option<WorkspaceDocumentSymbol> {
+    if variable.values.inline_values.is_empty() && !variable.values.invalid_shape {
+        return None;
+    }
+
+    Some(WorkspaceDocumentSymbol::new(
+        "values",
+        WorkspaceDocumentSymbolKind::Values,
+        variable.values.location.clone(),
+        variable
+            .values
+            .inline_values
+            .values()
+            .map(value_document_symbol)
+            .collect(),
+    ))
+}
+
+fn variable_environment_document_symbols(variable: &VariableNode) -> Vec<WorkspaceDocumentSymbol> {
+    let EnvironmentCollection::Environments(environments) = &variable.environments else {
+        return Vec::new();
+    };
+
+    environments
+        .values()
+        .map(|block| {
+            let children = match &block.rules {
+                RuleCollection::Rules(rules) => rules
+                    .iter()
+                    .map(variable_rule_document_symbol)
+                    .collect::<Vec<_>>(),
+                RuleCollection::Invalid { .. } => Vec::new(),
+            };
+            WorkspaceDocumentSymbol::new(
+                format!("env.{}", block.environment),
+                WorkspaceDocumentSymbolKind::EnvironmentBlock,
+                block.location.clone(),
+                children,
+            )
+        })
+        .collect()
+}
+
+fn variable_rule_document_symbol(rule: &VariableRuleNode) -> WorkspaceDocumentSymbol {
+    WorkspaceDocumentSymbol::new(
+        variable_rule_symbol_name(rule),
+        WorkspaceDocumentSymbolKind::Rule,
+        rule.location.clone(),
+        Vec::new(),
+    )
+}
+
+fn external_value_document_symbol(variable_id: &str, value: &ValueNode) -> WorkspaceDocumentSymbol {
+    WorkspaceDocumentSymbol::new(
+        format!("{}.{}", variable_id, value.key),
+        WorkspaceDocumentSymbolKind::Value,
+        value.location.clone(),
+        Vec::new(),
+    )
+}
+
+fn value_document_symbol(value: &ValueNode) -> WorkspaceDocumentSymbol {
+    WorkspaceDocumentSymbol::new(
+        value.key.clone(),
+        WorkspaceDocumentSymbolKind::Value,
+        value.location.clone(),
+        Vec::new(),
+    )
+}
+
+fn predicate_symbol_name(predicate: &PredicateNode) -> String {
+    let index = predicate.index + 1;
+    let Some(attribute) = string_project_field_value(&predicate.attribute) else {
+        return format!("predicate {index}");
+    };
+    let Some(op) = predicate_op_project_field_value(&predicate.op) else {
+        return format!("predicate {index}: {attribute}");
+    };
+    format!("predicate {index}: {attribute} {op}")
+}
+
+fn variable_rule_symbol_name(rule: &VariableRuleNode) -> String {
+    let index = rule.index + 1;
+    match (
+        string_project_field_value(&rule.qualifier),
+        string_project_field_value(&rule.value),
+    ) {
+        (Some(qualifier), Some(value)) => format!("rule {index}: {qualifier} -> {value}"),
+        (Some(qualifier), None) => format!("rule {index}: {qualifier}"),
+        (None, Some(value)) => format!("rule {index}: {value}"),
+        (None, None) => format!("rule {index}"),
+    }
+}
+
+fn string_project_field_value(field: &ProjectField<String>) -> Option<&str> {
+    match field {
+        ProjectField::Present(value) => Some(&value.value),
+        ProjectField::Invalid { .. } | ProjectField::Missing { .. } => None,
+    }
+}
+
+fn predicate_op_project_field_value(field: &ProjectField<PredicateOp>) -> Option<&str> {
+    match field {
+        ProjectField::Present(value) => Some(value.value.as_str()),
+        ProjectField::Invalid { .. } | ProjectField::Missing { .. } => None,
+    }
+}
+
+fn sort_workspace_document_symbols(symbols: &mut [WorkspaceDocumentSymbol]) {
+    for symbol in symbols.iter_mut() {
+        sort_workspace_document_symbols(&mut symbol.children);
+    }
+    symbols.sort_by(|left, right| {
+        symbol_position(left)
+            .cmp(&symbol_position(right))
+            .then_with(|| left.name.cmp(&right.name))
+    });
+}
+
+fn symbol_position(symbol: &WorkspaceDocumentSymbol) -> (usize, usize) {
+    symbol
+        .location
+        .range
+        .map(|range| (range.start.line, range.start.character))
+        .unwrap_or((0, 0))
+}
+
 fn resolve_workspace_relative_path(document_path: &str, reference: &str) -> Option<String> {
     let reference = Path::new(reference);
     if reference.as_os_str().is_empty() || reference.is_absolute() {
@@ -4102,7 +4458,8 @@ value = "control"
                 version: Some(42),
             },
         );
-        let lint = lint_workspace_snapshot(input).await.unwrap();
+        let snapshot = lint_workspace_snapshot(input).await.unwrap();
+        let lint = &snapshot.lint;
 
         let diagnostic = lint
             .diagnostics
@@ -4131,6 +4488,12 @@ value = "control"
             .unwrap();
         assert_eq!(disk_after_overlay, disk_variable);
 
+        let symbols = snapshot.document_symbols("variables/message.toml");
+        assert_eq!(symbols[0].name, "message");
+        assert!(symbols[0].children.iter().any(|symbol| {
+            symbol.name == "values" && symbol.children.iter().any(|child| child.name == "control")
+        }));
+
         let mut cleared_input = LintInput::new(root.to_path_buf());
         cleared_input.overlays.insert(
             "variables/message.toml".to_owned(),
@@ -4141,8 +4504,8 @@ value = "control"
         );
         let cleared = lint_workspace_snapshot(cleared_input).await.unwrap();
 
-        assert!(cleared.diagnostics.is_empty());
-        let cleared_groups = cleared.diagnostics_by_document();
+        assert!(cleared.lint.diagnostics.is_empty());
+        let cleared_groups = cleared.lint.diagnostics_by_document();
         let variable_group = cleared_groups
             .iter()
             .find(|group| group.document.path == "variables/message.toml")
