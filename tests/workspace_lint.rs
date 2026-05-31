@@ -488,6 +488,50 @@ fn reports_registered_custom_lint_failures() {
     assert!(diagnostic["primary"]["range"].is_object());
 }
 
+#[test]
+fn reports_registered_custom_lint_targets() {
+    let lint = lint_json("tests/fixtures/workspaces/custom-targets", false);
+
+    assert_project_rule(
+        &lint,
+        "targets/workspace-environments",
+        "rototo-workspace.toml",
+    );
+    assert_project_rule(
+        &lint,
+        "targets/qualifier-predicates",
+        "qualifiers/premium-users.toml",
+    );
+    assert_value_rule(
+        &lint,
+        "targets/variable-schema",
+        "variables/agent-config.toml",
+    );
+    assert_value_rule(&lint, "targets/schema-json", "schemas/config.schema.json");
+
+    let workspace = diagnostic_for_rule(&lint, "targets/workspace-environments");
+    assert_eq!(workspace["entity"]["kind"], "workspace");
+    assert_eq!(workspace["stage"], "project");
+    assert!(workspace["primary"]["range"].is_object());
+
+    let qualifier = diagnostic_for_rule(&lint, "targets/qualifier-predicates");
+    assert_eq!(qualifier["entity"]["kind"], "qualifier");
+    assert_eq!(qualifier["entity"]["id"], "premium-users");
+    assert_eq!(qualifier["stage"], "project");
+    assert!(qualifier["primary"]["range"].is_object());
+
+    let variable = diagnostic_for_rule(&lint, "targets/variable-schema");
+    assert_eq!(variable["entity"]["kind"], "variable");
+    assert_eq!(variable["entity"]["id"], "agent-config");
+    assert_eq!(variable["stage"], "value");
+    assert!(variable["primary"]["range"].is_object());
+
+    let schema = diagnostic_for_rule(&lint, "targets/schema-json");
+    assert_eq!(schema["entity"]["kind"], "schema");
+    assert_eq!(schema["entity"]["path"], "schemas/config.schema.json");
+    assert_eq!(schema["stage"], "value");
+}
+
 fn lint_json(workspace: &str, success: bool) -> serde_json::Value {
     let output = Command::cargo_bin("rototo")
         .unwrap()

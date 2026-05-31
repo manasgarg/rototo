@@ -25,23 +25,23 @@ pub struct RawCustomLintRegistration {
 }
 
 #[derive(Clone)]
-pub struct RegisteredValueLintInput {
-    pub variable: RegisteredVariable,
-    pub value: PipelineValue,
+pub struct RegisteredLintInput {
+    pub stage: String,
+    pub target: RegisteredLintTarget,
     pub lint_path: PathBuf,
     pub script: String,
     pub handler: String,
 }
 
 #[derive(Clone)]
-pub struct RegisteredVariable {
-    pub id: String,
-    pub uri: String,
-    pub path: String,
+pub struct RegisteredLintTarget {
+    pub entity: String,
+    pub data: JsonValue,
 }
 
 pub struct RegisteredCustomLintOutput {
     pub message: String,
+    pub field: Option<String>,
 }
 
 pub async fn register_pipeline_lint(
@@ -133,16 +133,16 @@ fn required_registration_string(table: &Table, key: &str) -> mlua::Result<String
         .ok_or_else(|| mlua::Error::external(format!("registration must contain {key}")))
 }
 
-pub async fn lint_registered_value(
-    input: RegisteredValueLintInput,
+pub async fn lint_registered_target(
+    input: RegisteredLintInput,
 ) -> Result<Vec<RegisteredCustomLintOutput>> {
-    tokio::task::spawn_blocking(move || lint_registered_value_script(input))
+    tokio::task::spawn_blocking(move || lint_registered_target_script(input))
         .await
         .map_err(|err| RototoError::new(format!("custom lint task failed: {err}")))?
 }
 
-fn lint_registered_value_script(
-    input: RegisteredValueLintInput,
+fn lint_registered_target_script(
+    input: RegisteredLintInput,
 ) -> Result<Vec<RegisteredCustomLintOutput>> {
     let lua = Lua::new();
     lua.load(&input.script)
@@ -156,15 +156,9 @@ fn lint_registered_value_script(
         .map_err(|err| RototoError::new(format!("custom lint handler is invalid: {err}")))?;
     let ctx = lua
         .to_value(&serde_json::json!({
-            "target": {
-                "name": input.value.name,
-                "value": input.value.value,
-                "variable": {
-                    "id": input.variable.id,
-                    "uri": input.variable.uri,
-                    "path": input.variable.path,
-                }
-            }
+            "stage": input.stage,
+            "entity": input.target.entity,
+            "target": input.target.data,
         }))
         .map_err(|err| RototoError::new(format!("failed to prepare Lua context: {err}")))?;
     let returned: LuaValue = handler
@@ -190,7 +184,10 @@ fn registered_outputs_from_lua(returned: LuaValue) -> Result<Vec<RegisteredCusto
                     .ok_or_else(|| {
                         RototoError::new("custom lint diagnostic must contain message")
                     })?;
-                diagnostics.push(RegisteredCustomLintOutput { message });
+                let field = entry.get::<Option<String>>("field").map_err(|err| {
+                    RototoError::new(format!("custom lint field is invalid: {err}"))
+                })?;
+                diagnostics.push(RegisteredCustomLintOutput { message, field });
             }
             Ok(diagnostics)
         }

@@ -30,6 +30,15 @@ pub async fn catalog_for_workspace(workspace_root: &Path) -> Result<DiagnosticCa
         .collect();
     let mut custom_rules = BTreeMap::new();
 
+    let manifest_path = workspace.root.join("rototo-workspace.toml");
+    if let Ok(toml) = read_toml(&manifest_path).await {
+        for definition in custom_rule_definitions_from_toml(&toml) {
+            custom_rules
+                .entry(definition.rule.clone())
+                .or_insert(definition);
+        }
+    }
+
     for variable in &workspace.variables {
         let path = workspace.root.join(&variable.path);
         let Ok(toml) = read_toml(&path).await else {

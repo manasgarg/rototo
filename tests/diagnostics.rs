@@ -77,6 +77,22 @@ fn gets_workspace_custom_diagnostic() {
 }
 
 #[test]
+fn lists_workspace_level_custom_diagnostics() {
+    Command::cargo_bin("rototo")
+        .unwrap()
+        .args([
+            "diagnostics",
+            "list",
+            "--workspace",
+            "tests/fixtures/workspaces/custom-targets",
+        ])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("targets/workspace-environments"))
+        .stdout(predicate::str::contains("targets/schema-json"));
+}
+
+#[test]
 fn missing_diagnostic_fails() {
     Command::cargo_bin("rototo")
         .unwrap()
