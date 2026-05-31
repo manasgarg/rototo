@@ -8,13 +8,13 @@ use crate::diagnostics::{
 };
 use crate::workspace::workspace_environments;
 
-use super::nodes::*;
-use super::source::DocumentKind;
-use super::{
+use super::engine::{
     LintContext, push_graph_diagnostic, push_project_diagnostic, push_reference_diagnostic,
     push_value_diagnostic, resolve_workspace_relative_path, resolve_workspace_root_path,
     variable_values,
 };
+use super::nodes::*;
+use super::source::DocumentKind;
 
 pub(super) fn run_project(ctx: &mut LintContext) {
     lint_manifest_shape(ctx);
