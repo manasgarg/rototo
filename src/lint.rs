@@ -1205,7 +1205,11 @@ fn lint_variable_shapes(ctx: &mut LintContext) {
         }
 
         lint_type_source(diagnostics, variable);
-        lint_values_shape(diagnostics, variable);
+        lint_values_shape(
+            diagnostics,
+            variable,
+            ctx.index.external_values.get(&variable.id),
+        );
         lint_environment_shapes(diagnostics, variable);
     }
 }
@@ -1261,8 +1265,25 @@ fn lint_type_source(diagnostics: &mut Vec<LintDiagnostic>, variable: &VariableNo
     }
 }
 
-fn lint_values_shape(diagnostics: &mut Vec<LintDiagnostic>, variable: &VariableNode) {
+fn lint_values_shape(
+    diagnostics: &mut Vec<LintDiagnostic>,
+    variable: &VariableNode,
+    external_values: Option<&BTreeMap<String, ValueNode>>,
+) {
     if variable.values.invalid_shape {
+        if !variable.values.external_keys.is_empty() {
+            push_project_diagnostic(
+                diagnostics,
+                RototoRuleId::VariableExternalValuesLoadFailed,
+                EntityId::Variable {
+                    id: variable.id.clone(),
+                },
+                variable.values.location.clone(),
+                "external values cannot be merged because variable values must be a table",
+            );
+            return;
+        }
+
         push_project_diagnostic(
             diagnostics,
             RototoRuleId::VariableValuesMissing,
@@ -1284,6 +1305,35 @@ fn lint_values_shape(diagnostics: &mut Vec<LintDiagnostic>, variable: &VariableN
             },
             variable.values.location.clone(),
             "variable must contain [values] or external values",
+        );
+    }
+
+    lint_external_value_duplicates(diagnostics, variable, external_values);
+}
+
+fn lint_external_value_duplicates(
+    diagnostics: &mut Vec<LintDiagnostic>,
+    variable: &VariableNode,
+    external_values: Option<&BTreeMap<String, ValueNode>>,
+) {
+    let Some(external_values) = external_values else {
+        return;
+    };
+
+    for (key, value) in external_values {
+        if !variable.values.inline_keys.contains(key) {
+            continue;
+        }
+
+        push_project_diagnostic(
+            diagnostics,
+            RototoRuleId::VariableExternalValueDuplicate,
+            EntityId::Value {
+                variable: variable.id.clone(),
+                key: key.clone(),
+            },
+            value.location.clone(),
+            format!("external value duplicates inline value: {key}"),
         );
     }
 }

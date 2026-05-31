@@ -253,6 +253,33 @@ fn reports_project_stage_predicate_and_type_failures() {
 }
 
 #[test]
+fn reports_project_stage_external_value_integrity_failures() {
+    let lint = lint_json("tests/fixtures/workspaces/lint-failures", false);
+
+    assert_project_rule(
+        &lint,
+        "rototo/variable-external-value-duplicate",
+        "variables/external-duplicate-values/default.toml",
+    );
+    assert_project_rule(
+        &lint,
+        "rototo/variable-external-values-load-failed",
+        "variables/external-load.toml",
+    );
+
+    let duplicate = diagnostic_for_rule(&lint, "rototo/variable-external-value-duplicate");
+    assert_eq!(duplicate["entity"]["kind"], "value");
+    assert_eq!(duplicate["entity"]["variable"], "external-duplicate");
+    assert_eq!(duplicate["entity"]["key"], "default");
+    assert!(duplicate["primary"]["range"].is_object());
+
+    let load_failed = diagnostic_for_rule(&lint, "rototo/variable-external-values-load-failed");
+    assert_eq!(load_failed["entity"]["kind"], "variable");
+    assert_eq!(load_failed["entity"]["id"], "external-load");
+    assert!(load_failed["primary"]["range"].is_object());
+}
+
+#[test]
 fn reports_reference_stage_failures() {
     let lint = lint_json("tests/fixtures/workspaces/lint-failures", false);
 
