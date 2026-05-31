@@ -508,11 +508,6 @@ fn reports_value_stage_failures() {
     );
     assert_value_rule(
         &lint,
-        "rototo/variable-schema-ref",
-        "variables/bad-schema-ref.toml",
-    );
-    assert_value_rule(
-        &lint,
         "rototo/variable-value-schema-mismatch",
         "variables/bad-schema-value.toml",
     );
@@ -532,6 +527,45 @@ fn reports_value_stage_failures() {
     assert_eq!(type_mismatch["entity"]["variable"], "bad-type-value");
     assert_eq!(type_mismatch["entity"]["key"], "bad");
     assert!(type_mismatch["primary"]["range"].is_object());
+}
+
+#[test]
+fn schema_contract_normalizes_and_deduplicates_schema_documents() {
+    let lint = lint_json("tests/fixtures/workspaces/schema-contract-normalized", true);
+    let schema_documents = document_paths(&lint)
+        .into_iter()
+        .filter(|path| path == "schemas/value.schema.json")
+        .count();
+
+    assert!(lint["diagnostics"].as_array().unwrap().is_empty());
+    assert_eq!(schema_documents, 1, "{lint:#}");
+}
+
+#[test]
+fn schema_contract_skips_value_validation_when_schema_cannot_compile() {
+    let lint = lint_json("tests/fixtures/workspaces/schema-contract-invalid", false);
+    let rules = diagnostic_rules(&lint);
+
+    assert_eq!(rules, vec!["rototo/schema-invalid"], "{lint:#}");
+    let diagnostic = only_diagnostic(&lint);
+    assert_eq!(diagnostic["entity"]["kind"], "schema");
+    assert_eq!(diagnostic["entity"]["path"], "schemas/value.schema.json");
+    assert_eq!(diagnostic["primary"]["path"], "schemas/value.schema.json");
+}
+
+#[test]
+fn schema_contract_skips_value_validation_when_schema_cannot_parse() {
+    let lint = lint_json(
+        "tests/fixtures/workspaces/schema-contract-parse-failed",
+        false,
+    );
+    let rules = diagnostic_rules(&lint);
+
+    assert_eq!(rules, vec!["rototo/schema-parse-failed"], "{lint:#}");
+    let diagnostic = only_diagnostic(&lint);
+    assert_eq!(diagnostic["entity"]["kind"], "schema");
+    assert_eq!(diagnostic["entity"]["path"], "schemas/value.schema.json");
+    assert_eq!(diagnostic["primary"]["path"], "schemas/value.schema.json");
 }
 
 #[test]

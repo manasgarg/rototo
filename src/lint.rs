@@ -3680,34 +3680,59 @@ fn lint_schema_backed_variable_values(
     variable: &VariableNode,
     schema_ref: &Spanned<String>,
 ) {
-    let schema = match variable_schema(ctx, variable, schema_ref) {
-        Ok(schema) => schema,
-        Err(err) => {
-            push_value_diagnostic(
-                diagnostics,
-                RototoRuleId::VariableSchemaRef,
-                EntityId::Variable {
-                    id: variable.id.clone(),
-                },
-                schema_ref.location.clone(),
-                format!("variable schema reference is invalid: {err}"),
-            );
-            return;
-        }
+    let Some(schema_path) =
+        resolve_workspace_relative_path(&variable.location.path, &schema_ref.value)
+    else {
+        push_value_diagnostic(
+            diagnostics,
+            RototoRuleId::VariableSchemaRef,
+            EntityId::Variable {
+                id: variable.id.clone(),
+            },
+            schema_ref.location.clone(),
+            format!(
+                "variable schema reference is invalid: {} is not a relative path inside the workspace",
+                schema_ref.value
+            ),
+        );
+        return;
+    };
+
+    let Some(document) = ctx.source.document_by_path(&schema_path) else {
+        push_value_diagnostic(
+            diagnostics,
+            RototoRuleId::VariableSchemaRef,
+            EntityId::Variable {
+                id: variable.id.clone(),
+            },
+            schema_ref.location.clone(),
+            format!("variable schema reference is invalid: schema file not found: {schema_path}"),
+        );
+        return;
+    };
+
+    if !matches!(&document.kind, DocumentKind::Schema) {
+        push_value_diagnostic(
+            diagnostics,
+            RototoRuleId::VariableSchemaRef,
+            EntityId::Variable {
+                id: variable.id.clone(),
+            },
+            schema_ref.location.clone(),
+            format!(
+                "variable schema reference is invalid: path is not a schema document: {schema_path}"
+            ),
+        );
+        return;
+    }
+
+    let Some(schema) = ctx.syntax.json.get(&document.id) else {
+        return;
     };
 
     let validator = match jsonschema::validator_for(schema) {
         Ok(validator) => validator,
-        Err(err) => {
-            push_value_diagnostic(
-                diagnostics,
-                RototoRuleId::VariableSchemaRef,
-                EntityId::Variable {
-                    id: variable.id.clone(),
-                },
-                schema_ref.location.clone(),
-                format!("variable schema reference is invalid: {err}"),
-            );
+        Err(_) => {
             return;
         }
     };
@@ -3726,32 +3751,6 @@ fn lint_schema_backed_variable_values(
             );
         }
     }
-}
-
-fn variable_schema<'a>(
-    ctx: &'a LintContext,
-    variable: &VariableNode,
-    schema_ref: &Spanned<String>,
-) -> std::result::Result<&'a JsonValue, String> {
-    let Some(schema_path) =
-        resolve_workspace_relative_path(&variable.location.path, &schema_ref.value)
-    else {
-        return Err(format!(
-            "{} is not a relative path inside the workspace",
-            schema_ref.value
-        ));
-    };
-    let document = ctx
-        .source
-        .document_by_path(&schema_path)
-        .ok_or_else(|| format!("schema file not found: {schema_path}"))?;
-    if !matches!(&document.kind, DocumentKind::Schema) {
-        return Err(format!("path is not a schema document: {schema_path}"));
-    }
-    ctx.syntax
-        .json
-        .get(&document.id)
-        .ok_or_else(|| format!("schema file could not be parsed: {schema_path}"))
 }
 
 fn variable_values<'a>(

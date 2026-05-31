@@ -1,0 +1,9 @@
+schema_version = 1
+schema = "../schemas/value.schema.json"
+description = "Variable whose referenced schema cannot parse"
+
+[values]
+default = { enabled = "not a boolean" }
+
+[env._]
+value = "default"
