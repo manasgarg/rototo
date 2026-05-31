@@ -19,6 +19,16 @@ title = "Variable schema target was checked"
 help = "Update the variable schema policy."
 
 [[lint.rule]]
+id = "targets/returned-variable-schema"
+title = "Returned variable schema field was checked"
+help = "Update the returned field policy."
+
+[[lint.rule]]
+id = "targets/invalid-returned-field"
+title = "Invalid returned field fell back"
+help = "Update the invalid returned field policy."
+
+[[lint.rule]]
 id = "targets/schema-json"
 title = "Schema JSON target was checked"
 help = "Update the schema JSON policy."

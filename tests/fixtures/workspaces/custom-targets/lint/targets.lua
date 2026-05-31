@@ -25,6 +25,20 @@ function register(lint)
 
   lint:on({
     stage = "value",
+    entity = "variable",
+    rule = "targets/returned-variable-schema",
+    handler = "check_returned_variable_field",
+  })
+
+  lint:on({
+    stage = "value",
+    entity = "variable",
+    rule = "targets/invalid-returned-field",
+    handler = "check_invalid_returned_field",
+  })
+
+  lint:on({
+    stage = "value",
     entity = "schema",
     field = "json.properties",
     rule = "targets/schema-json",
@@ -54,6 +68,30 @@ function check_variable(ctx)
   if ctx.target.toml.schema ~= nil then
     return {
       { message = "variable target checked schema" },
+    }
+  end
+  return {}
+end
+
+function check_returned_variable_field(ctx)
+  if ctx.target.toml.schema ~= nil then
+    return {
+      {
+        message = "variable target checked returned schema field",
+        field = "schema",
+      },
+    }
+  end
+  return {}
+end
+
+function check_invalid_returned_field(ctx)
+  if ctx.target.id == "agent-config" then
+    return {
+      {
+        message = "variable target fell back for invalid returned field",
+        field = "missing..field",
+      },
     }
   end
   return {}

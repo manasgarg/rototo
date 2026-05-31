@@ -88,6 +88,21 @@ pub(crate) async fn register_custom_lints(ctx: &mut LintContext) {
     }
 }
 
+pub(super) fn parse_registered_lint_output_field(
+    entity: RegisteredLintEntity,
+    field: &str,
+) -> Option<RegisteredLintField> {
+    match entity {
+        RegisteredLintEntity::Workspace => parse_workspace_lint_field(Some(field)),
+        RegisteredLintEntity::Qualifier => parse_qualifier_lint_field(Some(field)),
+        RegisteredLintEntity::Variable => parse_variable_lint_field(Some(field)),
+        RegisteredLintEntity::Value => parse_value_lint_field(Some(field)),
+        RegisteredLintEntity::Schema => parse_schema_lint_field(Some(field)),
+    }
+    .ok()
+    .flatten()
+}
+
 fn validate_custom_registration(
     workspace_rules: &BTreeMap<CustomRuleId, CustomRuleDefinitionNode>,
     registration: &lua_lint::RawCustomLintRegistration,

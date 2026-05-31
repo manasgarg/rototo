@@ -9,7 +9,8 @@ use crate::lua_lint;
 use super::super::engine::LintContext;
 use super::super::stages::push_stage_diagnostic;
 use super::marshal::{lint_stage_label, registered_lint_entity_label};
-use super::targets::registered_lint_targets;
+use super::registry::parse_registered_lint_output_field;
+use super::targets::{registered_lint_output_location, registered_lint_targets};
 
 pub(super) async fn register_pipeline_lint(
     lint_path: PathBuf,
@@ -73,7 +74,7 @@ pub(crate) async fn run_registered_custom_lints(ctx: &mut LintContext, stage: Li
             match lint_registered_target(
                 stage,
                 registered_lint_entity_label(registration.selector.entity).to_owned(),
-                target.data,
+                target.data.clone(),
                 ctx.source.root.join(&registration.file_path),
                 document.text.clone(),
                 registration.handler.clone(),
@@ -82,11 +83,16 @@ pub(crate) async fn run_registered_custom_lints(ctx: &mut LintContext, stage: Li
             {
                 Ok(outputs) => {
                     for output in outputs {
+                        let output_field = output.field.as_deref().and_then(|field| {
+                            parse_registered_lint_output_field(registration.selector.entity, field)
+                        });
+                        let location =
+                            registered_lint_output_location(ctx, &target, output_field.as_ref());
                         ctx.diagnostics.push(LintDiagnostic::custom(
                             &definition,
                             stage,
                             target.entity.clone(),
-                            target.location.clone(),
+                            location,
                             output.message,
                         ));
                     }

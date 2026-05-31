@@ -38,6 +38,47 @@ pub(super) fn registered_lint_targets(
     }
 }
 
+pub(super) fn registered_lint_output_location(
+    ctx: &LintContext,
+    target: &RegisteredLintTargetInstance,
+    field: Option<&RegisteredLintField>,
+) -> DiagnosticLocation {
+    let Some(field) = field else {
+        return target.location.clone();
+    };
+    match (&target.entity, field) {
+        (EntityId::Workspace, RegisteredLintField::Workspace(_)) => ctx
+            .index
+            .manifest
+            .as_ref()
+            .map(|manifest| registered_workspace_location(ctx, manifest, Some(field)))
+            .unwrap_or_else(|| target.location.clone()),
+        (EntityId::Qualifier { id }, RegisteredLintField::Qualifier(_)) => ctx
+            .index
+            .qualifiers
+            .get(id)
+            .map(|qualifier| registered_qualifier_location(ctx, qualifier, Some(field)))
+            .unwrap_or_else(|| target.location.clone()),
+        (EntityId::Variable { id }, RegisteredLintField::Variable(_)) => ctx
+            .index
+            .variables
+            .get(id)
+            .map(|variable| registered_variable_location(ctx, variable, Some(field)))
+            .unwrap_or_else(|| target.location.clone()),
+        (EntityId::Value { variable, key }, RegisteredLintField::Value(_)) => {
+            find_value(ctx, variable, key)
+                .map(|value| registered_value_location(value, Some(field)))
+                .unwrap_or_else(|| target.location.clone())
+        }
+        (EntityId::Schema { path }, RegisteredLintField::Schema(_)) => ctx
+            .source
+            .document_by_path(path)
+            .map(|document| registered_schema_location(document, Some(field)))
+            .unwrap_or_else(|| target.location.clone()),
+        _ => target.location.clone(),
+    }
+}
+
 fn registered_workspace_targets(
     ctx: &LintContext,
     field: Option<&RegisteredLintField>,
@@ -205,6 +246,11 @@ fn registered_schema_targets(
             })
         })
         .collect()
+}
+
+fn find_value<'a>(ctx: &'a LintContext, variable: &str, key: &str) -> Option<&'a ValueNode> {
+    let variable = ctx.index.variables.get(variable)?;
+    variable_values(ctx, variable).find(|value| value.key.as_str() == key)
 }
 
 fn registered_workspace_location(

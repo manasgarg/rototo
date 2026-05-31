@@ -843,6 +843,16 @@ fn reports_registered_custom_lint_targets() {
         "targets/variable-schema",
         "variables/agent-config.toml",
     );
+    assert_value_rule(
+        &lint,
+        "targets/returned-variable-schema",
+        "variables/agent-config.toml",
+    );
+    assert_value_rule(
+        &lint,
+        "targets/invalid-returned-field",
+        "variables/agent-config.toml",
+    );
     assert_value_rule(&lint, "targets/schema-json", "schemas/config.schema.json");
 
     let workspace = diagnostic_for_rule(&lint, "targets/workspace-environments");
@@ -861,6 +871,22 @@ fn reports_registered_custom_lint_targets() {
     assert_eq!(variable["entity"]["id"], "agent-config");
     assert_eq!(variable["stage"], "value");
     assert!(variable["location"]["range"].is_object());
+
+    let returned = diagnostic_for_rule(&lint, "targets/returned-variable-schema");
+    assert_eq!(returned["entity"]["kind"], "variable");
+    assert_eq!(returned["entity"]["id"], "agent-config");
+    assert_eq!(returned["location"]["range"]["start"]["line"], 3);
+    assert!(
+        returned["location"]["range"]["start"]["character"]
+            .as_u64()
+            .unwrap()
+            > 0
+    );
+
+    let invalid = diagnostic_for_rule(&lint, "targets/invalid-returned-field");
+    assert_eq!(invalid["entity"]["kind"], "variable");
+    assert_eq!(invalid["entity"]["id"], "agent-config");
+    assert!(invalid["location"]["range"].is_null());
 
     let schema = diagnostic_for_rule(&lint, "targets/schema-json");
     assert_eq!(schema["entity"]["kind"], "schema");
