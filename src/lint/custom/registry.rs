@@ -1,10 +1,10 @@
 use std::collections::BTreeMap;
 
-use crate::diagnostics::{CustomRuleId, EntityId, LintStage, RototoRuleId};
+use crate::diagnostics::{CustomRuleId, DiagnosticRule, EntityId, LintStage, RototoRuleId};
 use crate::lua_lint;
 
 use super::super::engine::LintContext;
-use super::super::index::{CustomLintRegistration, CustomRuleDefinitionNode};
+use super::super::index::{CustomLintRegistration, CustomRuleDefinitionNode, GateEntity};
 use super::super::stages::push_register_diagnostic;
 use super::runner;
 use super::{
@@ -26,6 +26,11 @@ pub(crate) async fn register_custom_lints(ctx: &mut LintContext) {
             continue;
         };
         if let Some(read_error) = &document.read_error {
+            ctx.index.gates.block(
+                GateEntity::CustomLintFile(file.path.clone()),
+                LintStage::Register,
+                Some(DiagnosticRule::Rototo(RototoRuleId::CustomLintFailed)),
+            );
             push_register_diagnostic(
                 &mut ctx.diagnostics,
                 RototoRuleId::CustomLintFailed,
@@ -46,6 +51,11 @@ pub(crate) async fn register_custom_lints(ctx: &mut LintContext) {
         {
             Ok(registrations) => registrations,
             Err(err) => {
+                ctx.index.gates.block(
+                    GateEntity::CustomLintFile(file.path.clone()),
+                    LintStage::Register,
+                    Some(DiagnosticRule::Rototo(RototoRuleId::CustomLintFailed)),
+                );
                 push_register_diagnostic(
                     &mut ctx.diagnostics,
                     RototoRuleId::CustomLintFailed,

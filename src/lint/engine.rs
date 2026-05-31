@@ -100,10 +100,10 @@ pub(super) fn variable_values<'a>(
 mod tests {
     use std::path::PathBuf;
 
-    use crate::diagnostics::{CustomRuleId, EntityId};
+    use crate::diagnostics::{CustomRuleId, DiagnosticRule, EntityId, RototoRuleId};
 
     use super::super::WORKSPACE_MANIFEST;
-    use super::super::index::ValueOrigin;
+    use super::super::index::{GateEntity, ValueOrigin};
     use super::super::index::{RegisteredLintEntity, RegisteredLintField, SchemaLintField};
     use super::super::input::OverlayDocument;
     use super::*;
@@ -298,6 +298,43 @@ value = "control"
             Some(RegisteredLintField::Schema(SchemaLintField::JsonPath(path)))
                 if path.as_slice() == ["properties"]
         ));
+    }
+
+    #[tokio::test]
+    async fn snapshot_gate_index_records_source_backed_failures() {
+        let parse_snapshot = lint_workspace_snapshot(LintInput::new(PathBuf::from(
+            "tests/fixtures/workspaces/rules/parse/variable-parse-failed",
+        )))
+        .await
+        .unwrap();
+        let parse_gate = parse_snapshot
+            .index
+            .gates
+            .entity_state
+            .get(&GateEntity::Variable("broken".to_owned()))
+            .expect("variable parse gate");
+        assert_eq!(parse_gate.blocked_at, LintStage::Parse);
+        assert_eq!(
+            parse_gate.diagnostic.as_ref(),
+            Some(&DiagnosticRule::Rototo(RototoRuleId::VariableParseFailed))
+        );
+
+        let register_snapshot = lint_workspace_snapshot(LintInput::new(PathBuf::from(
+            "tests/fixtures/workspaces/rules/register/custom-lint-failed",
+        )))
+        .await
+        .unwrap();
+        let register_gate = register_snapshot
+            .index
+            .gates
+            .entity_state
+            .get(&GateEntity::CustomLintFile("lint/broken.lua".to_owned()))
+            .expect("custom lint file gate");
+        assert_eq!(register_gate.blocked_at, LintStage::Register);
+        assert_eq!(
+            register_gate.diagnostic.as_ref(),
+            Some(&DiagnosticRule::Rototo(RototoRuleId::CustomLintFailed))
+        );
     }
 
     #[tokio::test]

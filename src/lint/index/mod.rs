@@ -5,7 +5,7 @@ mod targets;
 
 use std::collections::BTreeMap;
 
-pub(super) use gates::GateIndex;
+pub(super) use gates::{GateEntity, GateIndex};
 pub(super) use ids::{QualifierId, ValueKey, VariableId, WorkspacePath};
 pub(super) use nodes::*;
 pub(super) use targets::{
