@@ -19,12 +19,15 @@ Every emitted lint diagnostic has these fields:
 - `entity`: workspace, manifest, qualifier, variable, or schema owner.
 - `message`: concrete failure message.
 - `help`: recovery guidance from the built-in rule or declared custom rule.
-- `primary`: workspace-relative path, optional document id, and optional zero-based line/character range.
+- `location`: workspace-relative path and optional zero-based line/character range.
 - `related`: secondary locations when a rule needs them.
 
 Built-in rules use the reserved `rototo` authority and flat rule ids, such as
 `rototo/qualifier-predicate-unknown-op`. Custom Lua lint rules use a
-non-`rototo` authority declared in the variable file.
+non-`rototo` authority declared in the workspace manifest.
+
+Precise locations use LSP-style line and character ranges. Document-only and
+workspace-root diagnostics include a path without a range.
 
 Use JSON output for scripts and CI annotations:
 

@@ -74,10 +74,10 @@ Variable lint:
 
 Workspace lint includes every document considered by lint, including documents
 with no diagnostics. Diagnostics contain `rule`, `severity`, `stage`, `entity`,
-`message`, `help`, `primary`, and `related`. The `rule` field is the stable
-identity for automation. `primary` contains the workspace-relative `path`, the
-document id when there is one, and a zero-based line/character `range` when
-rototo can attach the diagnostic to a span. See `diagnostics`.
+`message`, `help`, `location`, and `related`. The `rule` field is the stable
+identity for automation. `location` contains the workspace-relative `path` and
+a zero-based line/character `range` when rototo can attach the diagnostic to a
+span. See `diagnostics`.
 
 ## List Commands
 

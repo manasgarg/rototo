@@ -603,7 +603,7 @@ pub enum DiagnosticLocationKind {
 pub struct DiagnosticLocation {
     #[serde(skip)]
     pub kind: DiagnosticLocationKind,
-    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(skip)]
     pub doc: Option<DocId>,
     #[serde(skip)]
     pub(crate) span: Option<SourceSpan>,
@@ -684,6 +684,7 @@ pub struct LintDiagnostic {
     pub entity: EntityId,
     pub message: String,
     pub help: String,
+    #[serde(rename = "location")]
     pub primary: DiagnosticLocation,
     pub related: Vec<RelatedLocation>,
 }
