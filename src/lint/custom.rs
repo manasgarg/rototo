@@ -10,12 +10,10 @@ use crate::lua_lint;
 
 use super::nodes::*;
 use super::project::json_from_toml_value;
+use super::rules::{declared_workspace_environments, workspace_custom_rule_definitions};
 use super::source::{DocumentKind, SourceDocument};
 use super::syntax::item_location;
-use super::{
-    LintContext, declared_workspace_environments, push_register_diagnostic, push_stage_diagnostic,
-    variable_values, workspace_custom_rule_definitions,
-};
+use super::{LintContext, push_register_diagnostic, push_stage_diagnostic, variable_values};
 
 #[derive(Clone)]
 pub(super) struct RegisteredCustomLint {
