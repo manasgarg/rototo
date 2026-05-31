@@ -137,7 +137,10 @@ end
 ```
 
 Handlers return diagnostics with `message`. The registration owns the rule id,
-and the manifest declaration owns the diagnostic title and help text.
+and the manifest declaration owns the diagnostic title and help text. A
+diagnostic can also return `field` to point at a narrower target field using the
+same field grammar as the registration target. If the returned field is not
+valid for that target, rototo keeps the diagnostic on the registered target.
 
 ## Values
 

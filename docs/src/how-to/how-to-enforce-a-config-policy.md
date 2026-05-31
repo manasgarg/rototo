@@ -87,8 +87,9 @@ end
 
 The registration runs the handler once for each expanded value, including
 values loaded from external value files. Handlers return a list of diagnostics
-with `message`; the registration supplies the rule id. Return an empty list
-when the policy passes.
+with `message`; the registration supplies the rule id. A diagnostic can include
+`field` when it should point at a narrower field inside the registered target.
+Return an empty list when the policy passes.
 
 ## Verify the policy
 
