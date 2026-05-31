@@ -575,6 +575,24 @@ pub struct SourceRange {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct TextRange {
+    pub(crate) start: usize,
+    pub(crate) end: usize,
+}
+
+impl TextRange {
+    pub(crate) fn new(start: usize, end: usize) -> Self {
+        Self { start, end }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct SourceSpan {
+    pub(crate) doc: DocId,
+    pub(crate) range: TextRange,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum DiagnosticLocationKind {
     Span,
     Document,
@@ -587,6 +605,8 @@ pub struct DiagnosticLocation {
     pub kind: DiagnosticLocationKind,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub doc: Option<DocId>,
+    #[serde(skip)]
+    pub(crate) span: Option<SourceSpan>,
     pub path: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub range: Option<SourceRange>,
@@ -597,8 +617,27 @@ impl DiagnosticLocation {
         Self {
             kind: DiagnosticLocationKind::Span,
             doc: Some(doc),
+            span: None,
             path: path.into(),
             range: Some(range),
+        }
+    }
+
+    pub(crate) fn source_span(
+        doc: DocId,
+        path: impl Into<String>,
+        text_range: TextRange,
+        rendered_range: SourceRange,
+    ) -> Self {
+        Self {
+            kind: DiagnosticLocationKind::Span,
+            doc: Some(doc),
+            span: Some(SourceSpan {
+                doc,
+                range: text_range,
+            }),
+            path: path.into(),
+            range: Some(rendered_range),
         }
     }
 
@@ -606,6 +645,7 @@ impl DiagnosticLocation {
         Self {
             kind: DiagnosticLocationKind::Document,
             doc: Some(doc),
+            span: None,
             path: path.into(),
             range: None,
         }
@@ -615,6 +655,7 @@ impl DiagnosticLocation {
         Self {
             kind: DiagnosticLocationKind::WorkspaceRoot,
             doc: None,
+            span: None,
             path: path.into(),
             range: None,
         }
@@ -622,6 +663,10 @@ impl DiagnosticLocation {
 
     pub fn doc(&self) -> Option<DocId> {
         self.doc
+    }
+
+    pub(crate) fn byte_start(&self) -> Option<usize> {
+        self.span.map(|span| span.range.start)
     }
 }
 

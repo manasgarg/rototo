@@ -1,12 +1,13 @@
 mod discover;
 mod line_index;
 mod path;
+mod span;
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::ops::Range;
 use std::path::PathBuf;
 
-use crate::diagnostics::{DiagnosticLocation, DocId};
+use crate::diagnostics::{DiagnosticLocation, DocId, TextRange};
 use crate::model::{SourceDocumentSummary, SourceKind};
 
 use super::input::OverlayDocument;
@@ -156,7 +157,13 @@ impl SourceDocument {
     }
 
     pub(super) fn span_location(&self, range: Range<usize>) -> DiagnosticLocation {
-        DiagnosticLocation::span(self.id, self.path.clone(), self.line_index.range(range))
+        let text_range = TextRange::new(range.start, range.end);
+        DiagnosticLocation::source_span(
+            self.id,
+            self.path.clone(),
+            text_range,
+            self.line_index.range(range),
+        )
     }
 }
 

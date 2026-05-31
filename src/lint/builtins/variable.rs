@@ -501,36 +501,35 @@ fn resolve_variable_schema_document<'a>(
     ctx: &'a LintContext,
     variable: &VariableNode,
     schema_ref: &Spanned<String>,
-) -> std::result::Result<&'a SourceDocument, VariableSchemaReferenceError> {
+) -> std::result::Result<&'a SourceDocument, Box<VariableSchemaReferenceError>> {
     let Some(schema_path) =
         resolve_workspace_relative_path(&variable.location.path, &schema_ref.value)
     else {
-        return Err(VariableSchemaReferenceError {
+        return Err(Box::new(VariableSchemaReferenceError {
             location: schema_ref.location.clone(),
             message: format!(
                 "variable schema reference is invalid: {} is not a relative path inside the workspace",
                 schema_ref.value
             ),
-        });
+        }));
     };
 
-    let document =
-        ctx.source
-            .document_by_path(&schema_path)
-            .ok_or_else(|| VariableSchemaReferenceError {
-                location: schema_ref.location.clone(),
-                message: format!(
-                    "variable schema reference is invalid: schema file not found: {schema_path}"
-                ),
-            })?;
+    let document = ctx.source.document_by_path(&schema_path).ok_or_else(|| {
+        Box::new(VariableSchemaReferenceError {
+            location: schema_ref.location.clone(),
+            message: format!(
+                "variable schema reference is invalid: schema file not found: {schema_path}"
+            ),
+        })
+    })?;
 
     if !matches!(&document.kind, DocumentKind::Schema) {
-        return Err(VariableSchemaReferenceError {
+        return Err(Box::new(VariableSchemaReferenceError {
             location: schema_ref.location.clone(),
             message: format!(
                 "variable schema reference is invalid: path is not a schema document: {schema_path}"
             ),
-        });
+        }));
     }
 
     Ok(document)

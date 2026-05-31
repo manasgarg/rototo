@@ -57,7 +57,7 @@ pub(super) fn lint_qualifier_context_schema_attributes(ctx: &mut LintContext) {
 
 fn valid_context_schema(
     ctx: &LintContext,
-) -> std::result::Result<Option<&JsonValue>, ContextSchemaError> {
+) -> std::result::Result<Option<&JsonValue>, Box<ContextSchemaError>> {
     let Some(manifest) = &ctx.index.manifest else {
         return Ok(None);
     };
@@ -66,49 +66,49 @@ fn valid_context_schema(
     };
 
     if context.invalid_shape {
-        return Err(ContextSchemaError {
+        return Err(Box::new(ContextSchemaError {
             location: context.location.clone(),
             message: "[context] must be a table".to_owned(),
-        });
+        }));
     }
 
     let ProjectField::Present(schema_ref) = &context.schema else {
-        return Err(ContextSchemaError {
+        return Err(Box::new(ContextSchemaError {
             location: context.schema.location(),
             message: "[context] must declare schema".to_owned(),
-        });
+        }));
     };
 
-    let schema_path =
-        resolve_workspace_root_path(&schema_ref.value).ok_or_else(|| ContextSchemaError {
+    let schema_path = resolve_workspace_root_path(&schema_ref.value).ok_or_else(|| {
+        Box::new(ContextSchemaError {
             location: schema_ref.location.clone(),
             message: "context schema path must be a relative path inside the workspace".to_owned(),
-        })?;
-    let schema_document =
-        ctx.source
-            .document_by_path(&schema_path)
-            .ok_or_else(|| ContextSchemaError {
-                location: schema_ref.location.clone(),
-                message: format!("context schema file not found: {schema_path}"),
-            })?;
+        })
+    })?;
+    let schema_document = ctx.source.document_by_path(&schema_path).ok_or_else(|| {
+        Box::new(ContextSchemaError {
+            location: schema_ref.location.clone(),
+            message: format!("context schema file not found: {schema_path}"),
+        })
+    })?;
     if !matches!(&schema_document.kind, DocumentKind::Schema) {
-        return Err(ContextSchemaError {
+        return Err(Box::new(ContextSchemaError {
             location: schema_ref.location.clone(),
             message: format!("context schema path is not a schema document: {schema_path}"),
-        });
+        }));
     }
 
-    let schema = ctx
-        .syntax
-        .json
-        .get(&schema_document.id)
-        .ok_or_else(|| ContextSchemaError {
+    let schema = ctx.syntax.json.get(&schema_document.id).ok_or_else(|| {
+        Box::new(ContextSchemaError {
             location: schema_ref.location.clone(),
             message: format!("context schema file could not be parsed: {schema_path}"),
-        })?;
-    jsonschema::validator_for(schema).map_err(|err| ContextSchemaError {
-        location: schema_ref.location.clone(),
-        message: format!("context schema is invalid: {err}"),
+        })
+    })?;
+    jsonschema::validator_for(schema).map_err(|err| {
+        Box::new(ContextSchemaError {
+            location: schema_ref.location.clone(),
+            message: format!("context schema is invalid: {err}"),
+        })
     })?;
 
     Ok(Some(schema))

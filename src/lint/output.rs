@@ -10,11 +10,16 @@ fn diagnostic_sort_key(diagnostic: &LintDiagnostic) -> (u8, &str, usize, usize, 
         crate::diagnostics::DiagnosticLocationKind::Document
         | crate::diagnostics::DiagnosticLocationKind::Span => 1,
     };
-    let (line, character) = diagnostic
-        .primary
-        .range
-        .map(|range| (range.start.line, range.start.character))
-        .unwrap_or((0, 0));
+    let (line, character) = diagnostic.primary.byte_start().map_or_else(
+        || {
+            diagnostic
+                .primary
+                .range
+                .map(|range| (range.start.line, range.start.character))
+                .unwrap_or((0, 0))
+        },
+        |byte_start| (byte_start, 0),
+    );
     (
         location_rank,
         diagnostic.primary.path.as_str(),
