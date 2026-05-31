@@ -103,6 +103,8 @@ pub(super) fn variable_values<'a>(
 mod tests {
     use std::path::PathBuf;
 
+    use crate::diagnostics::EntityId;
+
     use super::super::WORKSPACE_MANIFEST;
     use super::super::input::OverlayDocument;
     use super::*;
@@ -383,6 +385,40 @@ rule = [
         let referenced_qualifiers = snapshot.references.referenced_qualifier_ids();
         assert!(referenced_qualifiers.contains("beta"));
         assert!(referenced_qualifiers.contains("premium"));
+        assert!(
+            snapshot
+                .references
+                .qualifier_reference_sites("premium")
+                .iter()
+                .any(|site| matches!(
+                site.from,
+                EntityId::Rule {
+                    ref variable,
+                    ref environment,
+                    index: 0,
+                } if variable == "message" && environment == "prod"
+                ) && site.location.path == "variables/message.toml")
+        );
+        assert!(
+            snapshot
+                .references
+                .variable_value_reference_sites("message", "treatment")
+                .iter()
+                .any(|site| matches!(
+                    site.from,
+                    EntityId::Rule {
+                        ref variable,
+                        ref environment,
+                        index: 0,
+                    } if variable == "message" && environment == "prod"
+                ))
+        );
+        assert!(
+            snapshot
+                .references
+                .variable_value_reference_sites("message", "absent")
+                .is_empty()
+        );
 
         let context_schema = snapshot
             .index

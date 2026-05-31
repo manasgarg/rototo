@@ -13,6 +13,8 @@ use super::syntax::SyntaxIndex;
 pub(super) struct ReferenceIndex {
     declarations: BTreeMap<ReferenceTarget, DiagnosticLocation>,
     edges: Vec<ReferenceEdge>,
+    qualifier_referenced_by: BTreeMap<QualifierId, Vec<ReferenceSite>>,
+    value_referenced_by: BTreeMap<(VariableId, ValueKey), Vec<ReferenceSite>>,
 }
 
 #[derive(Clone)]
@@ -71,6 +73,13 @@ pub(super) enum ReferenceTarget {
 pub(super) struct QualifierReferenceEdge {
     pub(super) from: String,
     pub(super) to: String,
+    pub(super) location: DiagnosticLocation,
+}
+
+#[derive(Clone)]
+#[allow(dead_code)]
+pub(super) struct ReferenceSite {
+    pub(super) from: EntityId,
     pub(super) location: DiagnosticLocation,
 }
 
@@ -229,22 +238,31 @@ impl ReferenceIndex {
     }
 
     pub(super) fn referenced_variable_value_keys(&self, variable_id: &str) -> BTreeSet<String> {
-        self.edges
-            .iter()
-            .filter(|edge| {
-                matches!(
-                    edge.source,
-                    ReferenceSource::VariableEnvironmentValue { .. }
-                        | ReferenceSource::VariableRuleValue { .. }
-                ) && edge.is_resolved()
-            })
-            .filter_map(|edge| match &edge.target {
-                ReferenceTarget::VariableValue { variable, value } if variable == variable_id => {
-                    Some(value.clone())
-                }
-                _ => None,
-            })
+        self.value_referenced_by
+            .keys()
+            .filter(|(variable, _value)| variable == variable_id)
+            .map(|(_variable, value)| value.clone())
             .collect()
+    }
+
+    #[allow(dead_code)]
+    pub(super) fn qualifier_reference_sites(&self, qualifier: &str) -> &[ReferenceSite] {
+        self.qualifier_referenced_by
+            .get(qualifier)
+            .map(Vec::as_slice)
+            .unwrap_or(&[])
+    }
+
+    #[allow(dead_code)]
+    pub(super) fn variable_value_reference_sites(
+        &self,
+        variable: &str,
+        value: &str,
+    ) -> &[ReferenceSite] {
+        self.value_referenced_by
+            .get(&(variable.to_owned(), value.to_owned()))
+            .map(Vec::as_slice)
+            .unwrap_or(&[])
     }
 
     fn add_declarations(&mut self, index: &SemanticIndex, source: &SourceStore) {
@@ -487,6 +505,29 @@ impl ReferenceIndex {
         target: ReferenceTarget,
     ) {
         let declaration = self.declarations.get(&target).cloned();
+        if declaration.is_some() {
+            let site = ReferenceSite {
+                from: entity.clone(),
+                location: location.clone(),
+            };
+            match &target {
+                ReferenceTarget::Qualifier(qualifier) => {
+                    self.qualifier_referenced_by
+                        .entry(qualifier.clone())
+                        .or_default()
+                        .push(site);
+                }
+                ReferenceTarget::VariableValue { variable, value } => {
+                    self.value_referenced_by
+                        .entry((variable.clone(), value.clone()))
+                        .or_default()
+                        .push(site);
+                }
+                ReferenceTarget::ContextAttribute(_)
+                | ReferenceTarget::Environment(_)
+                | ReferenceTarget::Schema(_) => {}
+            }
+        }
         self.edges.push(ReferenceEdge {
             source,
             entity,
