@@ -6096,4 +6096,47 @@ value = "control"
         assert_eq!(variable_group.document.version, Some(43));
         assert!(variable_group.diagnostics.is_empty());
     }
+
+    #[tokio::test]
+    async fn snapshot_diagnostic_ranges_cover_references_and_external_values() {
+        let reference_snapshot = lint_workspace_snapshot(LintInput::new(PathBuf::from(
+            "tests/fixtures/workspaces/rules/reference/variable-rule-unknown-qualifier",
+        )))
+        .await
+        .unwrap();
+        let reference = diagnostic_by_rule(
+            &reference_snapshot.lint,
+            "rototo/variable-rule-unknown-qualifier",
+        );
+        assert_eq!(reference.primary.path, "variables/checkout-redesign.toml");
+        assert_eq!(reference.primary.range.unwrap().start.line, 14);
+        assert_eq!(reference.primary.range.unwrap().start.character, 12);
+        assert_eq!(reference.primary.range.unwrap().end.line, 14);
+        assert_eq!(reference.primary.range.unwrap().end.character, 27);
+
+        let external_value_snapshot = lint_workspace_snapshot(LintInput::new(PathBuf::from(
+            "tests/fixtures/workspaces/rules/project/variable-external-value-duplicate",
+        )))
+        .await
+        .unwrap();
+        let external_value = diagnostic_by_rule(
+            &external_value_snapshot.lint,
+            "rototo/variable-external-value-duplicate",
+        );
+        assert_eq!(
+            external_value.primary.path,
+            "variables/external-message-values/default.toml"
+        );
+        assert_eq!(external_value.primary.range.unwrap().start.line, 0);
+        assert_eq!(external_value.primary.range.unwrap().start.character, 8);
+        assert_eq!(external_value.primary.range.unwrap().end.line, 0);
+        assert_eq!(external_value.primary.range.unwrap().end.character, 18);
+    }
+
+    fn diagnostic_by_rule<'a>(lint: &'a WorkspaceLint, rule: &str) -> &'a LintDiagnostic {
+        lint.diagnostics
+            .iter()
+            .find(|diagnostic| diagnostic.rule.as_string() == rule)
+            .unwrap_or_else(|| panic!("diagnostic not found: {rule}"))
+    }
 }
