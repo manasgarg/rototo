@@ -104,6 +104,27 @@ fn reports_workspace_manifest_missing() {
 }
 
 #[test]
+fn canonical_discover_fixture_reports_workspace_manifest_missing() {
+    let lint = lint_json(
+        "tests/fixtures/workspaces/rules/discover/workspace-manifest-missing",
+        false,
+    );
+
+    assert_only_expected_diagnostic(
+        &lint,
+        ExpectedDiagnostic {
+            rule: "rototo/workspace-manifest-missing",
+            severity: "error",
+            stage: LintStage::Discover,
+            entity: ExpectedEntity::Workspace,
+            primary: ExpectedPrimaryLocation::WorkspaceRoot,
+            related: &[],
+        },
+    );
+    assert!(lint["documents"].as_array().unwrap().is_empty());
+}
+
+#[test]
 fn reports_workspace_manifest_parse_failed() {
     let lint = lint_json("tests/fixtures/workspaces/invalid-workspace-toml", false);
     let diagnostic = only_diagnostic(&lint);
@@ -396,12 +417,14 @@ fn canonical_reference_fixture_reports_variable_rule_unknown_qualifier() {
                 environment: "prod",
                 index: 0,
             },
-            path: "variables/checkout-redesign.toml",
-            range: ExpectedRange {
-                start_line: 14,
-                start_character: 12,
-                end_line: 14,
-                end_character: 27,
+            primary: ExpectedPrimaryLocation::Document {
+                path: "variables/checkout-redesign.toml",
+                range: Some(ExpectedRange {
+                    start_line: 14,
+                    start_character: 12,
+                    end_line: 14,
+                    end_character: 27,
+                }),
             },
             related: &[],
         },
@@ -791,9 +814,17 @@ struct ExpectedDiagnostic {
     severity: &'static str,
     stage: LintStage,
     entity: ExpectedEntity,
-    path: &'static str,
-    range: ExpectedRange,
+    primary: ExpectedPrimaryLocation,
     related: &'static [ExpectedRelatedLocation],
+}
+
+#[derive(Clone, Copy)]
+enum ExpectedPrimaryLocation {
+    WorkspaceRoot,
+    Document {
+        path: &'static str,
+        range: Option<ExpectedRange>,
+    },
 }
 
 #[derive(Clone, Copy)]
@@ -842,19 +873,19 @@ struct ExpectedRelatedLocation {
 
 fn assert_only_expected_diagnostic(lint: &serde_json::Value, expected: ExpectedDiagnostic) {
     let diagnostic = only_diagnostic(lint);
-    assert_expected_diagnostic(diagnostic, expected);
+    assert_expected_diagnostic(lint, diagnostic, expected);
 }
 
-fn assert_expected_diagnostic(diagnostic: &serde_json::Value, expected: ExpectedDiagnostic) {
+fn assert_expected_diagnostic(
+    lint: &serde_json::Value,
+    diagnostic: &serde_json::Value,
+    expected: ExpectedDiagnostic,
+) {
     assert_eq!(diagnostic["rule"], expected.rule);
     assert_eq!(diagnostic["severity"], expected.severity);
     assert_eq!(diagnostic["stage"], expected_stage_label(expected.stage));
     assert_eq!(diagnostic["entity"], expected_entity_value(expected.entity));
-    assert_eq!(diagnostic["primary"]["path"], expected.path);
-    assert_eq!(
-        diagnostic["primary"]["range"],
-        expected_range_value(expected.range)
-    );
+    assert_expected_primary_location(lint, &diagnostic["primary"], expected.primary);
 
     let related = diagnostic["related"].as_array().unwrap();
     assert_eq!(
@@ -869,6 +900,27 @@ fn assert_expected_diagnostic(diagnostic: &serde_json::Value, expected: Expected
             expected_range_value(expected.range)
         );
         assert_eq!(actual["message"], expected.message);
+    }
+}
+
+fn assert_expected_primary_location(
+    lint: &serde_json::Value,
+    primary: &serde_json::Value,
+    expected: ExpectedPrimaryLocation,
+) {
+    match expected {
+        ExpectedPrimaryLocation::WorkspaceRoot => {
+            assert_eq!(primary["path"], lint["workspace"]);
+            assert!(primary["doc"].is_null());
+            assert!(primary["range"].is_null());
+        }
+        ExpectedPrimaryLocation::Document { path, range } => {
+            assert_eq!(primary["path"], path);
+            match range {
+                Some(range) => assert_eq!(primary["range"], expected_range_value(range)),
+                None => assert!(primary["range"].is_null()),
+            }
+        }
     }
 }
 
