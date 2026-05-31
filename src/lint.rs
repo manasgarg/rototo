@@ -267,6 +267,8 @@ impl LintEngine {
     }
 
     fn run_reference(&self, ctx: &mut LintContext) {
+        lint_context_schema_reference(ctx);
+        lint_qualifier_context_schema_attributes(ctx);
         lint_qualifier_references(ctx);
         lint_variable_references(ctx);
     }
@@ -333,6 +335,13 @@ struct SemanticIndex {
 struct ManifestNode {
     doc: DocId,
     location: DiagnosticLocation,
+    context_schema: Option<ContextSchemaNode>,
+}
+
+struct ContextSchemaNode {
+    location: DiagnosticLocation,
+    schema: ProjectField<String>,
+    invalid_shape: bool,
 }
 
 struct QualifierNode {
@@ -493,11 +502,33 @@ enum ValueShape {
     Table,
 }
 
-fn project_manifest(document: &SourceDocument, _toml: &ParsedToml) -> ManifestNode {
+fn project_manifest(document: &SourceDocument, toml: &ParsedToml) -> ManifestNode {
+    let root = toml.edit.as_table();
     ManifestNode {
         doc: document.id,
         location: document.document_location(),
+        context_schema: project_context_schema(document, root),
     }
+}
+
+fn project_context_schema(document: &SourceDocument, root: &Table) -> Option<ContextSchemaNode> {
+    let item = root.get("context")?;
+    let location = item_location(document, item);
+    let Some(table) = item.as_table() else {
+        return Some(ContextSchemaNode {
+            location: location.clone(),
+            schema: ProjectField::Invalid {
+                location: location.clone(),
+            },
+            invalid_shape: true,
+        });
+    };
+
+    Some(ContextSchemaNode {
+        location: location.clone(),
+        schema: string_field(document, table, "schema", location),
+        invalid_shape: false,
+    })
 }
 
 fn project_qualifier(document: &SourceDocument, toml: &ParsedToml, id: &str) -> QualifierNode {
@@ -1713,6 +1744,141 @@ fn lint_variable_rule_shape(
     }
 }
 
+struct ContextSchemaError {
+    location: DiagnosticLocation,
+    message: String,
+}
+
+fn lint_context_schema_reference(ctx: &mut LintContext) {
+    let Err(err) = valid_context_schema(ctx) else {
+        return;
+    };
+
+    push_reference_diagnostic(
+        &mut ctx.diagnostics,
+        RototoRuleId::WorkspaceContextSchemaRef,
+        EntityId::Manifest,
+        err.location,
+        err.message,
+    );
+}
+
+fn lint_qualifier_context_schema_attributes(ctx: &mut LintContext) {
+    let Ok(Some(schema)) = valid_context_schema(ctx) else {
+        return;
+    };
+
+    let mut diagnostics = Vec::new();
+    for qualifier in ctx.index.qualifiers.values() {
+        let PredicateCollection::Predicates(predicates) = &qualifier.predicates else {
+            continue;
+        };
+
+        for predicate in predicates {
+            let ProjectField::Present(attribute) = &predicate.attribute else {
+                continue;
+            };
+            if qualifier_reference(&attribute.value).is_some()
+                || context_schema_declares_path(schema, &attribute.value)
+            {
+                continue;
+            }
+
+            push_reference_diagnostic(
+                &mut diagnostics,
+                RototoRuleId::WorkspaceContextSchemaAttribute,
+                EntityId::Predicate {
+                    qualifier: qualifier.id.clone(),
+                    index: predicate.index,
+                },
+                attribute.location.clone(),
+                format!(
+                    "context attribute is not declared by the context schema: {}",
+                    attribute.value
+                ),
+            );
+        }
+    }
+    ctx.diagnostics.extend(diagnostics);
+}
+
+fn valid_context_schema(
+    ctx: &LintContext,
+) -> std::result::Result<Option<&JsonValue>, ContextSchemaError> {
+    let Some(manifest) = &ctx.index.manifest else {
+        return Ok(None);
+    };
+    let Some(context) = &manifest.context_schema else {
+        return Ok(None);
+    };
+
+    if context.invalid_shape {
+        return Err(ContextSchemaError {
+            location: context.location.clone(),
+            message: "[context] must be a table".to_owned(),
+        });
+    }
+
+    let ProjectField::Present(schema_ref) = &context.schema else {
+        return Err(ContextSchemaError {
+            location: context.schema.location(),
+            message: "[context] must declare schema".to_owned(),
+        });
+    };
+
+    let schema_path =
+        resolve_workspace_root_path(&schema_ref.value).ok_or_else(|| ContextSchemaError {
+            location: schema_ref.location.clone(),
+            message: "context schema path must be a relative path inside the workspace".to_owned(),
+        })?;
+    let schema_document =
+        ctx.source
+            .document_by_path(&schema_path)
+            .ok_or_else(|| ContextSchemaError {
+                location: schema_ref.location.clone(),
+                message: format!("context schema file not found: {schema_path}"),
+            })?;
+    if !matches!(&schema_document.kind, DocumentKind::Schema) {
+        return Err(ContextSchemaError {
+            location: schema_ref.location.clone(),
+            message: format!("context schema path is not a schema document: {schema_path}"),
+        });
+    }
+
+    let schema = ctx
+        .syntax
+        .json
+        .get(&schema_document.id)
+        .ok_or_else(|| ContextSchemaError {
+            location: schema_ref.location.clone(),
+            message: format!("context schema file could not be parsed: {schema_path}"),
+        })?;
+    jsonschema::validator_for(schema).map_err(|err| ContextSchemaError {
+        location: schema_ref.location.clone(),
+        message: format!("context schema is invalid: {err}"),
+    })?;
+
+    Ok(Some(schema))
+}
+
+fn context_schema_declares_path(schema: &JsonValue, attribute: &str) -> bool {
+    if attribute.is_empty() {
+        return false;
+    }
+
+    let mut current = schema;
+    for segment in attribute.split('.') {
+        let Some(properties) = current.get("properties").and_then(JsonValue::as_object) else {
+            return false;
+        };
+        let Some(next) = properties.get(segment) else {
+            return false;
+        };
+        current = next;
+    }
+    true
+}
+
 fn lint_qualifier_references(ctx: &mut LintContext) {
     let known_qualifiers: BTreeSet<_> = ctx.index.qualifiers.keys().cloned().collect();
     let diagnostics = &mut ctx.diagnostics;
@@ -2322,6 +2488,28 @@ fn resolve_workspace_relative_path(document_path: &str, reference: &str) -> Opti
                 }
             }
             Component::Prefix(_) | Component::RootDir => return None,
+        }
+    }
+
+    if normalized.as_os_str().is_empty() {
+        None
+    } else {
+        Some(workspace_path(&normalized))
+    }
+}
+
+fn resolve_workspace_root_path(reference: &str) -> Option<String> {
+    let reference = Path::new(reference);
+    if reference.as_os_str().is_empty() || reference.is_absolute() {
+        return None;
+    }
+
+    let mut normalized = PathBuf::new();
+    for component in reference.components() {
+        match component {
+            Component::Normal(segment) => normalized.push(segment),
+            Component::CurDir => {}
+            Component::ParentDir | Component::Prefix(_) | Component::RootDir => return None,
         }
     }
 

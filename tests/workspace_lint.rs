@@ -165,6 +165,47 @@ fn reports_schema_parse_failed() {
 }
 
 #[test]
+fn reports_workspace_context_schema_ref_failures() {
+    for workspace in [
+        "tests/fixtures/workspaces/bad-context-config",
+        "tests/fixtures/workspaces/context-schema-empty-path",
+        "tests/fixtures/workspaces/context-schema-invalid-json",
+        "tests/fixtures/workspaces/context-schema-invalid-schema",
+        "tests/fixtures/workspaces/context-schema-missing-field",
+        "tests/fixtures/workspaces/context-schema-missing-file",
+        "tests/fixtures/workspaces/context-schema-path-escape",
+    ] {
+        let lint = lint_json(workspace, false);
+        assert_reference_rule(
+            &lint,
+            "rototo/workspace-context-schema-ref",
+            "rototo-workspace.toml",
+        );
+
+        let diagnostic = diagnostic_for_rule(&lint, "rototo/workspace-context-schema-ref");
+        assert_eq!(diagnostic["entity"]["kind"], "manifest");
+    }
+}
+
+#[test]
+fn reports_workspace_context_schema_attribute_failures() {
+    let lint = lint_json("tests/fixtures/workspaces/context-schema-attribute", false);
+    let diagnostic = only_diagnostic(&lint);
+
+    assert_eq!(
+        diagnostic["rule"],
+        "rototo/workspace-context-schema-attribute"
+    );
+    assert_eq!(diagnostic["stage"], "reference");
+    assert_eq!(diagnostic["entity"]["kind"], "predicate");
+    assert_eq!(
+        diagnostic["primary"]["path"],
+        "qualifiers/missing-context-contract.toml"
+    );
+    assert!(diagnostic["primary"]["range"].is_object());
+}
+
+#[test]
 fn reports_project_stage_qualifier_shape_failures() {
     let lint = lint_json("tests/fixtures/workspaces/rule-coverage", false);
 
