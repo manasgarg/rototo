@@ -97,6 +97,7 @@ impl LintEngine {
         self.build_projection(&mut ctx);
         self.run_project(&mut ctx);
         self.run_reference(&mut ctx);
+        self.run_value(&mut ctx);
 
         Ok(ctx.finish())
     }
@@ -244,7 +245,10 @@ impl LintEngine {
                         .external_values
                         .entry(variable_id.clone())
                         .or_default()
-                        .insert(value_key.clone());
+                        .insert(
+                            value_key.clone(),
+                            project_external_value(document, toml, value_key),
+                        );
                 }
                 DocumentKind::Schema => {}
             }
@@ -260,6 +264,11 @@ impl LintEngine {
     fn run_reference(&self, ctx: &mut LintContext) {
         lint_qualifier_references(ctx);
         lint_variable_references(ctx);
+    }
+
+    fn run_value(&self, ctx: &mut LintContext) {
+        lint_schema_documents(ctx);
+        lint_variable_values(ctx);
     }
 }
 
@@ -309,7 +318,7 @@ struct SemanticIndex {
     manifest: Option<ManifestNode>,
     qualifiers: BTreeMap<String, QualifierNode>,
     variables: BTreeMap<String, VariableNode>,
-    external_values: BTreeMap<String, BTreeSet<String>>,
+    external_values: BTreeMap<String, BTreeMap<String, ValueNode>>,
 }
 
 struct ManifestNode {
@@ -382,8 +391,15 @@ enum TypeSourceNode {
 struct ValuesNode {
     location: DiagnosticLocation,
     inline_keys: BTreeSet<String>,
+    inline_values: BTreeMap<String, ValueNode>,
     external_keys: BTreeSet<String>,
     invalid_shape: bool,
+}
+
+struct ValueNode {
+    key: String,
+    location: DiagnosticLocation,
+    value: JsonValue,
 }
 
 enum EnvironmentCollection {
@@ -525,7 +541,7 @@ fn project_variable(
     let location = document.document_location();
     let schema_version = integer_field(document, root, "schema_version", location.clone());
     let type_source = project_type_source(document, root, location.clone());
-    let values = project_values(document, root, id, source);
+    let values = project_values(document, toml, root, id, source);
     let environments = project_environments(document, root, id);
 
     VariableNode {
@@ -573,6 +589,7 @@ fn project_type_source(
 
 fn project_values(
     document: &SourceDocument,
+    toml: &ParsedToml,
     root: &Table,
     id: &str,
     source: &SourceStore,
@@ -582,6 +599,7 @@ fn project_values(
         return ValuesNode {
             location: document.document_location(),
             inline_keys: BTreeSet::new(),
+            inline_values: BTreeMap::new(),
             external_keys,
             invalid_shape: false,
         };
@@ -591,16 +609,66 @@ fn project_values(
         return ValuesNode {
             location,
             inline_keys: BTreeSet::new(),
+            inline_values: BTreeMap::new(),
             external_keys,
             invalid_shape: true,
         };
     };
 
+    let inline_values = project_inline_values(document, toml, table);
     ValuesNode {
         location,
-        inline_keys: table.iter().map(|(key, _)| key.to_owned()).collect(),
+        inline_keys: inline_values.keys().cloned().collect(),
+        inline_values,
         external_keys,
         invalid_shape: false,
+    }
+}
+
+fn project_inline_values(
+    document: &SourceDocument,
+    toml: &ParsedToml,
+    table: &Table,
+) -> BTreeMap<String, ValueNode> {
+    let plain_values = toml.plain.get("values").and_then(TomlValue::as_table);
+    table
+        .iter()
+        .filter_map(|(key, item)| {
+            let value = plain_values?.get(key)?;
+            Some((
+                key.to_owned(),
+                ValueNode {
+                    key: key.to_owned(),
+                    location: item_location(document, item),
+                    value: json_from_toml_value(value),
+                },
+            ))
+        })
+        .collect()
+}
+
+fn project_external_value(document: &SourceDocument, toml: &ParsedToml, key: &str) -> ValueNode {
+    let root = toml.edit.as_table();
+    let wrapped_value = toml
+        .plain
+        .as_table()
+        .filter(|table| table.len() == 1)
+        .and_then(|table| table.get("value"));
+
+    match wrapped_value {
+        Some(value) => ValueNode {
+            key: key.to_owned(),
+            location: root
+                .get("value")
+                .map(|item| item_location(document, item))
+                .unwrap_or_else(|| document.document_location()),
+            value: json_from_toml_value(value),
+        },
+        None => ValueNode {
+            key: key.to_owned(),
+            location: document.document_location(),
+            value: json_from_toml_value(&toml.plain),
+        },
     }
 }
 
@@ -881,6 +949,10 @@ fn value_shape(item: &Item) -> ValueShape {
     } else {
         ValueShape::Table
     }
+}
+
+fn json_from_toml_value(value: &TomlValue) -> JsonValue {
+    serde_json::to_value(value).unwrap_or(JsonValue::Null)
 }
 
 fn lint_manifest_shape(ctx: &mut LintContext) {
@@ -1534,6 +1606,243 @@ fn variable_has_value(variable: &VariableNode, value: &str) -> bool {
     variable.values.inline_keys.contains(value) || variable.values.external_keys.contains(value)
 }
 
+fn lint_schema_documents(ctx: &mut LintContext) {
+    let mut diagnostics = Vec::new();
+    for document in ctx.source.documents.values() {
+        if !matches!(&document.kind, DocumentKind::Schema) {
+            continue;
+        }
+        let Some(schema) = ctx.syntax.json.get(&document.id) else {
+            continue;
+        };
+
+        if let Err(err) = jsonschema::validator_for(schema) {
+            push_value_diagnostic(
+                &mut diagnostics,
+                RototoRuleId::SchemaInvalid,
+                EntityId::Schema {
+                    path: document.path.clone(),
+                },
+                document.document_location(),
+                format!("schema is invalid: {err}"),
+            );
+        }
+    }
+    ctx.diagnostics.extend(diagnostics);
+}
+
+fn lint_variable_values(ctx: &mut LintContext) {
+    let mut diagnostics = Vec::new();
+    for variable in ctx.index.variables.values() {
+        match &variable.type_source {
+            TypeSourceNode::Primitive(type_name) => {
+                let Some(primitive) = PrimitiveType::from_str(&type_name.value) else {
+                    continue;
+                };
+                lint_primitive_variable_values(&mut diagnostics, ctx, variable, primitive);
+            }
+            TypeSourceNode::Schema(schema_ref) => {
+                lint_schema_backed_variable_values(&mut diagnostics, ctx, variable, schema_ref);
+            }
+            TypeSourceNode::Missing { .. }
+            | TypeSourceNode::Conflict { .. }
+            | TypeSourceNode::Invalid { .. } => {}
+        }
+    }
+    ctx.diagnostics.extend(diagnostics);
+}
+
+fn lint_primitive_variable_values(
+    diagnostics: &mut Vec<LintDiagnostic>,
+    ctx: &LintContext,
+    variable: &VariableNode,
+    primitive: PrimitiveType,
+) {
+    for value in variable_values(ctx, variable) {
+        if primitive.matches(&value.value) {
+            continue;
+        }
+
+        push_value_diagnostic(
+            diagnostics,
+            RototoRuleId::VariableValueTypeMismatch,
+            EntityId::Value {
+                variable: variable.id.clone(),
+                key: value.key.clone(),
+            },
+            value.location.clone(),
+            format!(
+                "value {} does not match type {}",
+                value.key,
+                primitive.as_str()
+            ),
+        );
+    }
+}
+
+fn lint_schema_backed_variable_values(
+    diagnostics: &mut Vec<LintDiagnostic>,
+    ctx: &LintContext,
+    variable: &VariableNode,
+    schema_ref: &Spanned<String>,
+) {
+    let schema = match variable_schema(ctx, variable, schema_ref) {
+        Ok(schema) => schema,
+        Err(err) => {
+            push_value_diagnostic(
+                diagnostics,
+                RototoRuleId::VariableSchemaRef,
+                EntityId::Variable {
+                    id: variable.id.clone(),
+                },
+                schema_ref.location.clone(),
+                format!("variable schema reference is invalid: {err}"),
+            );
+            return;
+        }
+    };
+
+    let validator = match jsonschema::validator_for(schema) {
+        Ok(validator) => validator,
+        Err(err) => {
+            push_value_diagnostic(
+                diagnostics,
+                RototoRuleId::VariableSchemaRef,
+                EntityId::Variable {
+                    id: variable.id.clone(),
+                },
+                schema_ref.location.clone(),
+                format!("variable schema reference is invalid: {err}"),
+            );
+            return;
+        }
+    };
+
+    for value in variable_values(ctx, variable) {
+        if let Err(err) = validator.validate(&value.value) {
+            push_value_diagnostic(
+                diagnostics,
+                RototoRuleId::VariableValueSchemaMismatch,
+                EntityId::Value {
+                    variable: variable.id.clone(),
+                    key: value.key.clone(),
+                },
+                value.location.clone(),
+                format!("value {} does not match schema: {err}", value.key),
+            );
+        }
+    }
+}
+
+fn variable_schema<'a>(
+    ctx: &'a LintContext,
+    variable: &VariableNode,
+    schema_ref: &Spanned<String>,
+) -> std::result::Result<&'a JsonValue, String> {
+    let Some(schema_path) =
+        resolve_workspace_relative_path(&variable.location.path, &schema_ref.value)
+    else {
+        return Err(format!(
+            "{} is not a relative path inside the workspace",
+            schema_ref.value
+        ));
+    };
+    let document = ctx
+        .source
+        .document_by_path(&schema_path)
+        .ok_or_else(|| format!("schema file not found: {schema_path}"))?;
+    if !matches!(&document.kind, DocumentKind::Schema) {
+        return Err(format!("path is not a schema document: {schema_path}"));
+    }
+    ctx.syntax
+        .json
+        .get(&document.id)
+        .ok_or_else(|| format!("schema file could not be parsed: {schema_path}"))
+}
+
+fn variable_values<'a>(
+    ctx: &'a LintContext,
+    variable: &'a VariableNode,
+) -> impl Iterator<Item = &'a ValueNode> {
+    variable.values.inline_values.values().chain(
+        ctx.index
+            .external_values
+            .get(&variable.id)
+            .into_iter()
+            .flat_map(|values| values.values()),
+    )
+}
+
+fn resolve_workspace_relative_path(document_path: &str, reference: &str) -> Option<String> {
+    let reference = Path::new(reference);
+    if reference.as_os_str().is_empty() || reference.is_absolute() {
+        return None;
+    }
+
+    let base = Path::new(document_path).parent().unwrap_or(Path::new(""));
+    let mut normalized = PathBuf::new();
+    for component in base.join(reference).components() {
+        match component {
+            Component::Normal(segment) => normalized.push(segment),
+            Component::CurDir => {}
+            Component::ParentDir => {
+                if !normalized.pop() {
+                    return None;
+                }
+            }
+            Component::Prefix(_) | Component::RootDir => return None,
+        }
+    }
+
+    if normalized.as_os_str().is_empty() {
+        None
+    } else {
+        Some(workspace_path(&normalized))
+    }
+}
+
+#[derive(Clone, Copy)]
+enum PrimitiveType {
+    Bool,
+    Int,
+    Number,
+    String,
+    List,
+}
+
+impl PrimitiveType {
+    fn from_str(value: &str) -> Option<Self> {
+        match value {
+            "bool" => Some(Self::Bool),
+            "int" => Some(Self::Int),
+            "number" => Some(Self::Number),
+            "string" => Some(Self::String),
+            "list" => Some(Self::List),
+            _ => None,
+        }
+    }
+
+    fn as_str(self) -> &'static str {
+        match self {
+            Self::Bool => "bool",
+            Self::Int => "int",
+            Self::Number => "number",
+            Self::String => "string",
+            Self::List => "list",
+        }
+    }
+
+    fn matches(self, value: &JsonValue) -> bool {
+        match self {
+            Self::Bool => value.is_boolean(),
+            Self::Int => value.as_i64().is_some() || value.as_u64().is_some(),
+            Self::Number => value.is_number(),
+            Self::String => value.is_string(),
+            Self::List => value.is_array(),
+        }
+    }
+}
+
 fn field_is_not_present<T>(field: &ProjectField<T>) -> bool {
     !matches!(field, ProjectField::Present(_))
 }
@@ -1583,6 +1892,22 @@ fn push_reference_diagnostic(
     diagnostics.push(LintDiagnostic::rototo(
         rule,
         LintStage::Reference,
+        entity,
+        primary,
+        message,
+    ));
+}
+
+fn push_value_diagnostic(
+    diagnostics: &mut Vec<LintDiagnostic>,
+    rule: RototoRuleId,
+    entity: EntityId,
+    primary: DiagnosticLocation,
+    message: impl Into<String>,
+) {
+    diagnostics.push(LintDiagnostic::rototo(
+        rule,
+        LintStage::Value,
         entity,
         primary,
         message,
@@ -1751,6 +2076,12 @@ impl SourceStore {
                 _ => None,
             })
             .collect()
+    }
+
+    fn document_by_path(&self, path: &str) -> Option<&SourceDocument> {
+        self.by_path
+            .get(path)
+            .and_then(|document_id| self.documents.get(document_id))
     }
 
     fn document_summaries(&self) -> Vec<SourceDocumentSummary> {

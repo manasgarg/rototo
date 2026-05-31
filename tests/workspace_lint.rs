@@ -294,6 +294,43 @@ fn reports_reference_stage_failures() {
     );
 }
 
+#[test]
+fn reports_value_stage_failures() {
+    let lint = lint_json("tests/fixtures/workspaces/lint-failures", false);
+
+    assert_value_rule(
+        &lint,
+        "rototo/schema-invalid",
+        "schemas/invalid.schema.json",
+    );
+    assert_value_rule(
+        &lint,
+        "rototo/variable-schema-ref",
+        "variables/bad-schema-ref.toml",
+    );
+    assert_value_rule(
+        &lint,
+        "rototo/variable-value-schema-mismatch",
+        "variables/bad-schema-value.toml",
+    );
+    assert_value_rule(
+        &lint,
+        "rototo/variable-value-type-mismatch",
+        "variables/bad-type-value.toml",
+    );
+
+    let schema_mismatch = diagnostic_for_rule(&lint, "rototo/variable-value-schema-mismatch");
+    assert_eq!(schema_mismatch["entity"]["kind"], "value");
+    assert_eq!(schema_mismatch["entity"]["variable"], "bad-schema-value");
+    assert_eq!(schema_mismatch["entity"]["key"], "broken");
+
+    let type_mismatch = diagnostic_for_rule(&lint, "rototo/variable-value-type-mismatch");
+    assert_eq!(type_mismatch["entity"]["kind"], "value");
+    assert_eq!(type_mismatch["entity"]["variable"], "bad-type-value");
+    assert_eq!(type_mismatch["entity"]["key"], "bad");
+    assert!(type_mismatch["primary"]["range"].is_object());
+}
+
 fn lint_json(workspace: &str, success: bool) -> serde_json::Value {
     let output = Command::cargo_bin("rototo")
         .unwrap()
@@ -354,6 +391,12 @@ fn assert_project_rule(lint: &serde_json::Value, rule: &str, path: &str) {
 fn assert_reference_rule(lint: &serde_json::Value, rule: &str, path: &str) {
     let diagnostic = diagnostic_for_rule(lint, rule);
     assert_eq!(diagnostic["stage"], "reference");
+    assert_eq!(diagnostic["primary"]["path"], path);
+}
+
+fn assert_value_rule(lint: &serde_json::Value, rule: &str, path: &str) {
+    let diagnostic = diagnostic_for_rule(lint, rule);
+    assert_eq!(diagnostic["stage"], "value");
     assert_eq!(diagnostic["primary"]["path"], path);
 }
 
