@@ -240,7 +240,7 @@ fn reports_workspace_context_schema_ref_failures() {
         "tests/fixtures/workspaces/context-schema-path-escape",
     ] {
         let lint = lint_json(workspace, false);
-        assert_reference_rule(
+        assert_project_rule(
             &lint,
             "rototo/workspace-context-schema-ref",
             "rototo-workspace.toml",
@@ -267,12 +267,12 @@ fn accepts_path_safety_normalized_refs() {
 fn rejects_path_safety_escaping_refs_and_lint_files() {
     let lint = lint_json("tests/fixtures/workspaces/path-safety-escapes", false);
 
-    assert_reference_rule(
+    assert_project_rule(
         &lint,
         "rototo/workspace-context-schema-ref",
         "rototo-workspace.toml",
     );
-    assert_value_rule(
+    assert_reference_rule(
         &lint,
         "rototo/variable-schema-ref",
         "variables/message.toml",
@@ -366,7 +366,7 @@ fn reports_project_stage_variable_shape_failures() {
 }
 
 #[test]
-fn reports_project_stage_predicate_and_type_failures() {
+fn reports_project_stage_predicate_failures() {
     let lint = lint_json("tests/fixtures/workspaces/lint-failures", false);
 
     assert_project_rule(
@@ -384,16 +384,6 @@ fn reports_project_stage_predicate_and_type_failures() {
         "rototo/qualifier-predicate-value",
         "qualifiers/bad-value-shape.toml",
     );
-    assert_project_rule(
-        &lint,
-        "rototo/variable-unknown-type",
-        "variables/unknown-type.toml",
-    );
-
-    let diagnostic = diagnostic_for_rule(&lint, "rototo/variable-unknown-type");
-    assert_eq!(diagnostic["entity"]["kind"], "variable");
-    assert_eq!(diagnostic["entity"]["id"], "unknown-type");
-    assert!(diagnostic["primary"]["range"].is_object());
 }
 
 #[test]
@@ -503,11 +493,6 @@ fn reports_value_stage_failures() {
 
     assert_value_rule(
         &lint,
-        "rototo/schema-invalid",
-        "schemas/invalid.schema.json",
-    );
-    assert_value_rule(
-        &lint,
         "rototo/variable-value-schema-mismatch",
         "variables/bad-schema-value.toml",
     );
@@ -516,6 +501,16 @@ fn reports_value_stage_failures() {
         "rototo/variable-value-type-mismatch",
         "variables/bad-type-value.toml",
     );
+    assert_value_rule(
+        &lint,
+        "rototo/variable-unknown-type",
+        "variables/unknown-type.toml",
+    );
+
+    let unknown_type = diagnostic_for_rule(&lint, "rototo/variable-unknown-type");
+    assert_eq!(unknown_type["entity"]["kind"], "variable");
+    assert_eq!(unknown_type["entity"]["id"], "unknown-type");
+    assert!(unknown_type["primary"]["range"].is_object());
 
     let schema_mismatch = diagnostic_for_rule(&lint, "rototo/variable-value-schema-mismatch");
     assert_eq!(schema_mismatch["entity"]["kind"], "value");
@@ -548,6 +543,7 @@ fn schema_contract_skips_value_validation_when_schema_cannot_compile() {
 
     assert_eq!(rules, vec!["rototo/schema-invalid"], "{lint:#}");
     let diagnostic = only_diagnostic(&lint);
+    assert_eq!(diagnostic["stage"], "project");
     assert_eq!(diagnostic["entity"]["kind"], "schema");
     assert_eq!(diagnostic["entity"]["path"], "schemas/value.schema.json");
     assert_eq!(diagnostic["primary"]["path"], "schemas/value.schema.json");
@@ -1601,12 +1597,12 @@ fn canonical_rule_fixtures() -> &'static [CanonicalRuleFixture] {
         },
         CanonicalRuleFixture {
             rule: RototoRuleId::WorkspaceContextSchemaRef,
-            workspace: "tests/fixtures/workspaces/rules/reference/workspace-context-schema-ref",
+            workspace: "tests/fixtures/workspaces/rules/project/workspace-context-schema-ref",
             success: false,
             expected: &[ExpectedDiagnostic {
                 rule: "rototo/workspace-context-schema-ref",
                 severity: "error",
-                stage: LintStage::Reference,
+                stage: LintStage::Project,
                 entity: ExpectedEntity::Manifest,
                 primary: ExpectedPrimaryLocation::Document {
                     path: "rototo-workspace.toml",
@@ -1748,7 +1744,7 @@ fn canonical_rule_fixtures() -> &'static [CanonicalRuleFixture] {
             expected: &[ExpectedDiagnostic {
                 rule: "rototo/variable-unknown-type",
                 severity: "error",
-                stage: LintStage::Project,
+                stage: LintStage::Value,
                 entity: ExpectedEntity::Variable("message"),
                 primary: ExpectedPrimaryLocation::Document {
                     path: "variables/message.toml",
@@ -1812,12 +1808,12 @@ fn canonical_rule_fixtures() -> &'static [CanonicalRuleFixture] {
         },
         CanonicalRuleFixture {
             rule: RototoRuleId::VariableSchemaRef,
-            workspace: "tests/fixtures/workspaces/rules/value/variable-schema-ref",
+            workspace: "tests/fixtures/workspaces/rules/reference/variable-schema-ref",
             success: false,
             expected: &[ExpectedDiagnostic {
                 rule: "rototo/variable-schema-ref",
                 severity: "error",
-                stage: LintStage::Value,
+                stage: LintStage::Reference,
                 entity: ExpectedEntity::Variable("message"),
                 primary: ExpectedPrimaryLocation::Document {
                     path: "variables/message.toml",
@@ -1833,12 +1829,12 @@ fn canonical_rule_fixtures() -> &'static [CanonicalRuleFixture] {
         },
         CanonicalRuleFixture {
             rule: RototoRuleId::SchemaInvalid,
-            workspace: "tests/fixtures/workspaces/rules/value/schema-invalid",
+            workspace: "tests/fixtures/workspaces/rules/project/schema-invalid",
             success: false,
             expected: &[ExpectedDiagnostic {
                 rule: "rototo/schema-invalid",
                 severity: "error",
-                stage: LintStage::Value,
+                stage: LintStage::Project,
                 entity: ExpectedEntity::Schema("schemas/broken.schema.json"),
                 primary: ExpectedPrimaryLocation::Document {
                     path: "schemas/broken.schema.json",

@@ -14,6 +14,8 @@ pub(super) use workspace::{
 
 pub(super) fn run_project(ctx: &mut LintContext) {
     workspace::lint_manifest_shape(ctx);
+    schema::lint_context_schema_reference(ctx);
+    schema::lint_schema_documents(ctx);
     workspace::lint_manifest_custom_rule_shapes(ctx);
     qualifier::lint_qualifier_shapes(ctx);
     variable::lint_variable_shapes(ctx);
@@ -21,14 +23,13 @@ pub(super) fn run_project(ctx: &mut LintContext) {
 }
 
 pub(super) fn run_reference(ctx: &mut LintContext) {
-    schema::lint_context_schema_reference(ctx);
     schema::lint_qualifier_context_schema_attributes(ctx);
     qualifier::lint_qualifier_references(ctx);
     variable::lint_variable_references(ctx);
+    variable::lint_variable_schema_references(ctx);
 }
 
 pub(super) fn run_value(ctx: &mut LintContext) {
-    schema::lint_schema_documents(ctx);
     variable::lint_variable_values(ctx);
 }
 

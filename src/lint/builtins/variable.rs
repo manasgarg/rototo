@@ -2,12 +2,12 @@ use std::collections::BTreeMap;
 
 use serde_json::Value as JsonValue;
 
-use crate::diagnostics::{EntityId, LintDiagnostic, RototoRuleId};
+use crate::diagnostics::{DiagnosticLocation, EntityId, LintDiagnostic, RototoRuleId};
 
 use super::super::engine::{LintContext, variable_values};
 use super::super::nodes::*;
 use super::super::references::{ReferenceSource, ReferenceTarget};
-use super::super::source::{DocumentKind, resolve_workspace_relative_path};
+use super::super::source::{DocumentKind, SourceDocument, resolve_workspace_relative_path};
 use super::super::stages::{
     push_project_diagnostic, push_reference_diagnostic, push_value_diagnostic,
 };
@@ -40,22 +40,7 @@ pub(super) fn lint_variable_shapes(ctx: &mut LintContext) {
 
 fn lint_type_source(diagnostics: &mut Vec<LintDiagnostic>, variable: &VariableNode) {
     match &variable.type_source {
-        TypeSourceNode::Primitive(type_name) => {
-            if !matches!(
-                type_name.value.as_str(),
-                "bool" | "int" | "number" | "string" | "list"
-            ) {
-                push_project_diagnostic(
-                    diagnostics,
-                    RototoRuleId::VariableUnknownType,
-                    EntityId::Variable {
-                        id: variable.id.clone(),
-                    },
-                    type_name.location.clone(),
-                    format!("variable declares unknown type: {}", type_name.value),
-                );
-            }
-        }
+        TypeSourceNode::Primitive(_) => {}
         TypeSourceNode::Schema(schema) => {
             let _ = &schema.value;
         }
@@ -374,6 +359,28 @@ pub(super) fn lint_variable_references(ctx: &mut LintContext) {
     ctx.diagnostics.extend(diagnostics);
 }
 
+pub(super) fn lint_variable_schema_references(ctx: &mut LintContext) {
+    let mut diagnostics = Vec::new();
+    for variable in ctx.index.variables.values() {
+        let TypeSourceNode::Schema(schema_ref) = &variable.type_source else {
+            continue;
+        };
+
+        if let Err(err) = resolve_variable_schema_document(ctx, variable, schema_ref) {
+            push_reference_diagnostic(
+                &mut diagnostics,
+                RototoRuleId::VariableSchemaRef,
+                EntityId::Variable {
+                    id: variable.id.clone(),
+                },
+                err.location,
+                err.message,
+            );
+        }
+    }
+    ctx.diagnostics.extend(diagnostics);
+}
+
 fn variable_has_values(variable: &VariableNode) -> bool {
     !variable.values.inline_keys.is_empty() || !variable.values.external_keys.is_empty()
 }
@@ -383,7 +390,8 @@ pub(super) fn lint_variable_values(ctx: &mut LintContext) {
     for variable in ctx.index.variables.values() {
         match &variable.type_source {
             TypeSourceNode::Primitive(type_name) => {
-                let Some(primitive) = PrimitiveType::from_str(&type_name.value) else {
+                let Some(primitive) = lint_primitive_type(&mut diagnostics, variable, type_name)
+                else {
                     continue;
                 };
                 lint_primitive_variable_values(&mut diagnostics, ctx, variable, primitive);
@@ -397,6 +405,26 @@ pub(super) fn lint_variable_values(ctx: &mut LintContext) {
         }
     }
     ctx.diagnostics.extend(diagnostics);
+}
+
+fn lint_primitive_type(
+    diagnostics: &mut Vec<LintDiagnostic>,
+    variable: &VariableNode,
+    type_name: &Spanned<String>,
+) -> Option<PrimitiveType> {
+    let primitive = PrimitiveType::from_str(&type_name.value);
+    if primitive.is_none() {
+        push_value_diagnostic(
+            diagnostics,
+            RototoRuleId::VariableUnknownType,
+            EntityId::Variable {
+                id: variable.id.clone(),
+            },
+            type_name.location.clone(),
+            format!("variable declares unknown type: {}", type_name.value),
+        );
+    }
+    primitive
 }
 
 fn lint_primitive_variable_values(
@@ -433,51 +461,9 @@ fn lint_schema_backed_variable_values(
     variable: &VariableNode,
     schema_ref: &Spanned<String>,
 ) {
-    let Some(schema_path) =
-        resolve_workspace_relative_path(&variable.location.path, &schema_ref.value)
-    else {
-        push_value_diagnostic(
-            diagnostics,
-            RototoRuleId::VariableSchemaRef,
-            EntityId::Variable {
-                id: variable.id.clone(),
-            },
-            schema_ref.location.clone(),
-            format!(
-                "variable schema reference is invalid: {} is not a relative path inside the workspace",
-                schema_ref.value
-            ),
-        );
+    let Ok(document) = resolve_variable_schema_document(ctx, variable, schema_ref) else {
         return;
     };
-
-    let Some(document) = ctx.source.document_by_path(&schema_path) else {
-        push_value_diagnostic(
-            diagnostics,
-            RototoRuleId::VariableSchemaRef,
-            EntityId::Variable {
-                id: variable.id.clone(),
-            },
-            schema_ref.location.clone(),
-            format!("variable schema reference is invalid: schema file not found: {schema_path}"),
-        );
-        return;
-    };
-
-    if !matches!(&document.kind, DocumentKind::Schema) {
-        push_value_diagnostic(
-            diagnostics,
-            RototoRuleId::VariableSchemaRef,
-            EntityId::Variable {
-                id: variable.id.clone(),
-            },
-            schema_ref.location.clone(),
-            format!(
-                "variable schema reference is invalid: path is not a schema document: {schema_path}"
-            ),
-        );
-        return;
-    }
 
     let Some(schema) = ctx.syntax.json.get(&document.id) else {
         return;
@@ -504,6 +490,50 @@ fn lint_schema_backed_variable_values(
             );
         }
     }
+}
+
+struct VariableSchemaReferenceError {
+    location: DiagnosticLocation,
+    message: String,
+}
+
+fn resolve_variable_schema_document<'a>(
+    ctx: &'a LintContext,
+    variable: &VariableNode,
+    schema_ref: &Spanned<String>,
+) -> std::result::Result<&'a SourceDocument, VariableSchemaReferenceError> {
+    let Some(schema_path) =
+        resolve_workspace_relative_path(&variable.location.path, &schema_ref.value)
+    else {
+        return Err(VariableSchemaReferenceError {
+            location: schema_ref.location.clone(),
+            message: format!(
+                "variable schema reference is invalid: {} is not a relative path inside the workspace",
+                schema_ref.value
+            ),
+        });
+    };
+
+    let document =
+        ctx.source
+            .document_by_path(&schema_path)
+            .ok_or_else(|| VariableSchemaReferenceError {
+                location: schema_ref.location.clone(),
+                message: format!(
+                    "variable schema reference is invalid: schema file not found: {schema_path}"
+                ),
+            })?;
+
+    if !matches!(&document.kind, DocumentKind::Schema) {
+        return Err(VariableSchemaReferenceError {
+            location: schema_ref.location.clone(),
+            message: format!(
+                "variable schema reference is invalid: path is not a schema document: {schema_path}"
+            ),
+        });
+    }
+
+    Ok(document)
 }
 
 #[derive(Clone, Copy)]

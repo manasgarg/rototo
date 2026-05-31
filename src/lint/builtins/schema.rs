@@ -6,7 +6,7 @@ use super::super::engine::LintContext;
 use super::super::nodes::*;
 use super::super::references::{ReferenceSource, ReferenceTarget};
 use super::super::source::{DocumentKind, resolve_workspace_root_path};
-use super::super::stages::{push_reference_diagnostic, push_value_diagnostic};
+use super::super::stages::{push_project_diagnostic, push_reference_diagnostic};
 
 struct ContextSchemaError {
     location: DiagnosticLocation,
@@ -18,7 +18,7 @@ pub(super) fn lint_context_schema_reference(ctx: &mut LintContext) {
         return;
     };
 
-    push_reference_diagnostic(
+    push_project_diagnostic(
         &mut ctx.diagnostics,
         RototoRuleId::WorkspaceContextSchemaRef,
         EntityId::Manifest,
@@ -143,7 +143,7 @@ pub(super) fn lint_schema_documents(ctx: &mut LintContext) {
         };
 
         if let Err(err) = jsonschema::validator_for(schema) {
-            push_value_diagnostic(
+            push_project_diagnostic(
                 &mut diagnostics,
                 RototoRuleId::SchemaInvalid,
                 EntityId::Schema {
