@@ -1,4 +1,4 @@
-use super::super::nodes::*;
+use super::super::index::*;
 use super::{WorkspaceCompletionItem, WorkspaceCompletionItemKind};
 
 const CUSTOM_LINT_FIELD_SELECTORS: &[&str] = &[

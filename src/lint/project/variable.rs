@@ -5,7 +5,7 @@ use toml_edit::{Item, Table, TableLike, Value as EditValue};
 
 use crate::diagnostics::DiagnosticLocation;
 
-use super::super::nodes::*;
+use super::super::index::*;
 use super::super::source::{SourceDocument, SourceStore};
 use super::super::syntax::{ParsedToml, item_location, table_location, value_location};
 use super::fields::{integer_field, json_from_toml_value, optional_string_field, string_field};

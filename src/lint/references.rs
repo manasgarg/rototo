@@ -3,7 +3,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use crate::diagnostics::{DiagnosticLocation, EntityId, SourcePosition, SourceRange};
 use crate::workspace::workspace_environments;
 
-use super::nodes::*;
+use super::index::*;
 use super::source::{
     DocumentKind, SourceStore, resolve_workspace_relative_path, resolve_workspace_root_path,
 };

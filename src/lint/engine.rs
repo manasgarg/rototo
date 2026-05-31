@@ -3,8 +3,8 @@ use crate::error::Result;
 use crate::model::WorkspaceLint;
 
 use super::custom::RegisteredCustomLint;
+use super::index::*;
 use super::input::LintInput;
-use super::nodes::*;
 use super::output::sort_diagnostics;
 use super::references::ReferenceIndex;
 use super::source::SourceStore;

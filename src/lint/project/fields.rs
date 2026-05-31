@@ -4,7 +4,7 @@ use toml_edit::{Item, Table, TableLike};
 
 use crate::diagnostics::{DiagnosticLocation, Severity};
 
-use super::super::nodes::*;
+use super::super::index::*;
 use super::super::source::SourceDocument;
 use super::super::syntax::item_location;
 

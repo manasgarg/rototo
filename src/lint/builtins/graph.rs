@@ -5,7 +5,7 @@ use crate::diagnostics::{
 };
 
 use super::super::engine::{LintContext, variable_values};
-use super::super::nodes::*;
+use super::super::index::*;
 use super::super::references::QualifierReferenceEdge;
 use super::super::stages::push_graph_diagnostic;
 

@@ -1,4 +1,4 @@
-use super::super::nodes::ValueNode;
+use super::super::index::ValueNode;
 use super::super::source::SourceDocument;
 use super::super::syntax::{ParsedToml, item_location};
 use super::fields::json_from_toml_value;

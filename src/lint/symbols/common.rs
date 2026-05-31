@@ -1,6 +1,6 @@
 use crate::diagnostics::{DiagnosticLocation, SourcePosition, SourceRange};
 
-use super::super::nodes::*;
+use super::super::index::*;
 
 pub(super) fn string_project_field_value(field: &ProjectField<String>) -> Option<&str> {
     match field {

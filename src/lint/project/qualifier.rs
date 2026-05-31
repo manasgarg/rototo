@@ -1,6 +1,6 @@
 use toml_edit::Table;
 
-use super::super::nodes::*;
+use super::super::index::*;
 use super::super::source::SourceDocument;
 use super::super::syntax::{ParsedToml, item_location, table_location};
 use super::fields::{

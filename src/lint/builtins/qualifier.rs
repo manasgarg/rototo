@@ -1,7 +1,7 @@
 use crate::diagnostics::{EntityId, LintDiagnostic, RototoRuleId};
 
 use super::super::engine::LintContext;
-use super::super::nodes::*;
+use super::super::index::*;
 use super::super::references::{ReferenceSource, ReferenceTarget};
 use super::super::stages::{push_project_diagnostic, push_reference_diagnostic};
 use super::{field_is_integer, field_is_not_present, predicate_op_label};

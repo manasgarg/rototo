@@ -4,7 +4,7 @@ use crate::diagnostics::{DiagnosticLocation, DocId, EntityId};
 
 use super::super::builtins::declared_workspace_environments;
 use super::super::engine::{LintContext, variable_values};
-use super::super::nodes::*;
+use super::super::index::*;
 use super::super::source::{DocumentKind, SourceDocument};
 use super::super::syntax::item_location;
 use super::marshal::{

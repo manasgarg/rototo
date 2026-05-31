@@ -7,7 +7,7 @@ use crate::diagnostics::{
 use crate::workspace::workspace_environments;
 
 use super::super::engine::LintContext;
-use super::super::nodes::*;
+use super::super::index::*;
 use super::super::stages::push_project_diagnostic;
 use super::field_is_not_present;
 

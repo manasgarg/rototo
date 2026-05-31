@@ -1,7 +1,7 @@
 use crate::diagnostics::{DiagnosticLocation, DocId, SourcePosition};
 
 use super::super::WorkspaceLintSnapshot;
-use super::super::nodes::*;
+use super::super::index::*;
 use super::super::references::qualifier_reference;
 use super::super::source::{resolve_workspace_relative_path, resolve_workspace_root_path};
 use super::WorkspaceDefinition;

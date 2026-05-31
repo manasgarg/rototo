@@ -3,7 +3,7 @@ use serde_json::Value as JsonValue;
 use crate::diagnostics::{DocId, LintStage};
 
 use super::super::engine::{LintContext, variable_values};
-use super::super::nodes::*;
+use super::super::index::*;
 use super::super::project::json_from_toml_value;
 use super::{RegisteredLintEntity, RegisteredLintField, SchemaLintField, ValueLintField};
 

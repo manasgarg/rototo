@@ -1,4 +1,4 @@
-use super::super::nodes::*;
+use super::super::index::*;
 use super::common::{predicate_op_project_field_value, string_project_field_value};
 use super::{WorkspaceDocumentSymbol, WorkspaceDocumentSymbolKind};
 

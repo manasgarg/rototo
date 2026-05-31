@@ -7,7 +7,7 @@ use crate::diagnostics::{
 
 use super::super::WorkspaceLintSnapshot;
 use super::super::builtins::custom_rule_definitions_from_collection;
-use super::super::nodes::*;
+use super::super::index::*;
 use super::WorkspaceHover;
 use super::common::{
     location_contains_position, predicate_op_project_field_value, source_range_size,

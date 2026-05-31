@@ -5,7 +5,7 @@ use serde_json::Value as JsonValue;
 use crate::diagnostics::{DiagnosticLocation, EntityId, LintDiagnostic, RototoRuleId};
 
 use super::super::engine::{LintContext, variable_values};
-use super::super::nodes::*;
+use super::super::index::*;
 use super::super::references::{ReferenceSource, ReferenceTarget};
 use super::super::source::{DocumentKind, SourceDocument, resolve_workspace_relative_path};
 use super::super::stages::{

@@ -3,7 +3,7 @@ use serde_json::Value as JsonValue;
 use crate::diagnostics::{DiagnosticLocation, EntityId, RototoRuleId};
 
 use super::super::engine::LintContext;
-use super::super::nodes::*;
+use super::super::index::*;
 use super::super::references::{ReferenceSource, ReferenceTarget};
 use super::super::source::{DocumentKind, resolve_workspace_root_path};
 use super::super::stages::{push_project_diagnostic, push_reference_diagnostic};

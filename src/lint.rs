@@ -7,8 +7,8 @@ use crate::model::{QualifierLint, VariableLint, WorkspaceLint};
 mod builtins;
 mod custom;
 mod engine;
+mod index;
 pub(crate) mod input;
-mod nodes;
 mod output;
 mod project;
 mod references;
@@ -17,8 +17,8 @@ mod stages;
 mod symbols;
 mod syntax;
 
+use index::*;
 pub(crate) use input::{LintInput, OverlayDocument};
-use nodes::*;
 use references::ReferenceIndex;
 pub(crate) use symbols::{
     WorkspaceCompletionItem, WorkspaceCompletionItemKind, WorkspaceDefinition,

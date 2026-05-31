@@ -5,7 +5,7 @@ mod variable;
 mod workspace;
 
 use super::engine::LintContext;
-use super::nodes::{PredicateOp, ProjectField};
+use super::index::{PredicateOp, ProjectField};
 
 pub(super) use workspace::{
     custom_rule_definitions_from_collection, declared_workspace_environments,

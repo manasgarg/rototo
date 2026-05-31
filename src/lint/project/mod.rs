@@ -4,7 +4,7 @@ mod manifest;
 mod qualifier;
 mod variable;
 
-use super::nodes::SemanticIndex;
+use super::index::SemanticIndex;
 use super::source::{DocumentKind, SourceStore};
 use super::syntax::SyntaxIndex;
 
