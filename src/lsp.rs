@@ -7,11 +7,13 @@ use tokio::io::{
     AsyncBufRead, AsyncBufReadExt, AsyncReadExt, AsyncWrite, AsyncWriteExt, BufReader,
 };
 
-use crate::diagnostics::{DiagnosticLocation, LintDiagnostic, Severity, SourceRange};
+use crate::diagnostics::{
+    DiagnosticLocation, LintDiagnostic, Severity, SourcePosition, SourceRange,
+};
 use crate::error::{Result, RototoError};
 use crate::lint::{
     LintInput, OverlayDocument, WorkspaceCompletionItem, WorkspaceCompletionItemKind,
-    WorkspaceDocumentSymbol, WorkspaceDocumentSymbolKind, WorkspaceLintSnapshot,
+    WorkspaceDocumentSymbol, WorkspaceDocumentSymbolKind, WorkspaceHover, WorkspaceLintSnapshot,
     lint_workspace_snapshot,
 };
 use crate::model::WorkspaceLint;
@@ -93,6 +95,15 @@ impl LspServer {
                         .map_err(|err| RototoError::new(err.to_string()))?,
                 )
                 .await?;
+            }
+            (Some(id), "textDocument/hover") => {
+                let hover = self.hover(params).await?;
+                let result = hover
+                    .map(serde_json::to_value)
+                    .transpose()
+                    .map_err(|err| RototoError::new(err.to_string()))?
+                    .unwrap_or(JsonValue::Null);
+                write_response(writer, id, result).await?;
             }
             (Some(id), _) => {
                 write_error_response(writer, id, -32601, "method not found").await?;
@@ -244,6 +255,26 @@ impl LspServer {
             .collect())
     }
 
+    async fn hover(&self, params: JsonValue) -> Result<Option<LspHover>> {
+        let text_document = params
+            .get("textDocument")
+            .ok_or_else(|| RototoError::new("hover missing textDocument"))?;
+        let uri = text_document
+            .get("uri")
+            .and_then(JsonValue::as_str)
+            .ok_or_else(|| RototoError::new("hover missing textDocument.uri"))?;
+        let position = source_position_from_json(
+            params
+                .get("position")
+                .ok_or_else(|| RototoError::new("hover missing position"))?,
+        )?;
+        let path = self.workspace_path_for_uri(uri)?;
+        let Some(snapshot) = self.workspace_snapshot().await? else {
+            return Ok(None);
+        };
+        Ok(snapshot.hover(&path, position).map(lsp_hover))
+    }
+
     async fn workspace_snapshot(&self) -> Result<Option<WorkspaceLintSnapshot>> {
         let Some(root) = &self.workspace_root else {
             return Ok(None);
@@ -308,6 +339,19 @@ struct LspCompletionItem {
     detail: &'static str,
 }
 
+#[derive(Debug, Serialize)]
+struct LspHover {
+    contents: LspMarkupContent,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    range: Option<LspRange>,
+}
+
+#[derive(Debug, Serialize)]
+struct LspMarkupContent {
+    kind: &'static str,
+    value: String,
+}
+
 #[derive(Debug, Serialize, Clone, Copy)]
 struct LspRange {
     start: LspPosition,
@@ -361,6 +405,16 @@ fn lsp_completion_item(item: &WorkspaceCompletionItem) -> LspCompletionItem {
         label: item.label.clone(),
         kind: lsp_completion_item_kind(item.kind),
         detail: item.detail,
+    }
+}
+
+fn lsp_hover(hover: WorkspaceHover) -> LspHover {
+    LspHover {
+        range: hover.location.range.map(lsp_range_from_source),
+        contents: LspMarkupContent {
+            kind: "markdown",
+            value: hover.contents,
+        },
     }
 }
 
@@ -569,7 +623,8 @@ fn initialize_result() -> JsonValue {
             "completionProvider": {
                 "resolveProvider": false,
                 "triggerCharacters": [".", "\""]
-            }
+            },
+            "hoverProvider": true
         },
         "serverInfo": {
             "name": "rototo",
@@ -610,6 +665,20 @@ fn json_i32(value: Option<&JsonValue>) -> Option<i32> {
     value
         .and_then(JsonValue::as_i64)
         .and_then(|value| i32::try_from(value).ok())
+}
+
+fn source_position_from_json(value: &JsonValue) -> Result<SourcePosition> {
+    let line = value
+        .get("line")
+        .and_then(JsonValue::as_u64)
+        .and_then(|line| usize::try_from(line).ok())
+        .ok_or_else(|| RototoError::new("position missing line"))?;
+    let character = value
+        .get("character")
+        .and_then(JsonValue::as_u64)
+        .and_then(|character| usize::try_from(character).ok())
+        .ok_or_else(|| RototoError::new("position missing character"))?;
+    Ok(SourcePosition { line, character })
 }
 
 fn path_from_file_uri(uri: &str) -> Result<PathBuf> {
@@ -1000,6 +1069,12 @@ treatment = "welcome"
 
 [env._]
 value = "control"
+
+[env.prod]
+value = "control"
+rule = [
+  { qualifier = "premium", value = "treatment" },
+]
 "#,
                 }
             }))
@@ -1034,6 +1109,151 @@ value = "control"
         );
     }
 
+    #[tokio::test]
+    async fn lsp_hover_uses_snapshot_index_and_unsaved_overlays() {
+        let tempdir = tempfile::tempdir().unwrap();
+        let root = tempdir.path();
+        tokio::fs::create_dir_all(root.join("qualifiers"))
+            .await
+            .unwrap();
+        tokio::fs::create_dir_all(root.join("variables"))
+            .await
+            .unwrap();
+        let manifest_path = root.join("rototo-workspace.toml");
+        tokio::fs::write(
+            &manifest_path,
+            r#"schema_version = 1
+
+[environments]
+values = ["prod"]
+
+[[lint.rule]]
+id = "operations/message-not-empty"
+title = "Operational message is empty"
+help = "Set a non-empty message before releasing the workspace."
+"#,
+        )
+        .await
+        .unwrap();
+        let qualifier_path = root.join("qualifiers/premium.toml");
+        tokio::fs::write(
+            &qualifier_path,
+            r#"schema_version = 1
+description = "Premium accounts"
+
+[[predicate]]
+attribute = "account.tier"
+op = "eq"
+value = "premium"
+"#,
+        )
+        .await
+        .unwrap();
+        let disk_variable = r#"schema_version = 1
+description = "Disk message"
+type = "string"
+
+[values]
+control = "hello"
+
+[env._]
+value = "control"
+"#;
+        let variable_path = root.join("variables/message.toml");
+        tokio::fs::write(&variable_path, disk_variable)
+            .await
+            .unwrap();
+
+        let mut server = LspServer::new();
+        server.workspace_root = Some(tokio::fs::canonicalize(root).await.unwrap());
+        let variable_uri = format!("file://{}", variable_path.display());
+        server
+            .open_document(json!({
+                "textDocument": {
+                    "uri": variable_uri,
+                    "version": 4,
+                    "text": r#"schema_version = 1
+description = "Overlay message hover"
+type = "string"
+
+[values]
+control = "hello"
+treatment = "welcome"
+
+[env._]
+value = "control"
+
+[env.prod]
+value = "control"
+rule = [
+  { qualifier = "premium", value = "treatment" },
+]
+"#,
+                }
+            }))
+            .unwrap();
+
+        assert_hover_contains(
+            &hover_contents(&server, &variable_path, 1, 18).await,
+            "Overlay message hover",
+        );
+        assert_hover_contains(
+            &hover_contents(&server, &variable_path, 2, 8).await,
+            "Type: `string`",
+        );
+        assert_hover_contains(
+            &hover_contents(&server, &variable_path, 6, 14).await,
+            "Value `treatment`",
+        );
+        assert_hover_contains(
+            &hover_contents(&server, &qualifier_path, 1, 17).await,
+            "Premium accounts",
+        );
+        assert_hover_contains(
+            &hover_contents(&server, &qualifier_path, 4, 14).await,
+            "Predicate 1",
+        );
+        assert_hover_contains(
+            &hover_contents(&server, &manifest_path, 6, 7).await,
+            "Custom rule `operations/message-not-empty`",
+        );
+        assert_hover_contains(
+            &hover_contents(&server, &manifest_path, 6, 7).await,
+            "Operational message is empty",
+        );
+
+        server
+            .change_document(json!({
+                "textDocument": {
+                    "uri": format!("file://{}", variable_path.display()),
+                    "version": 5
+                },
+                "contentChanges": [
+                    {
+                        "text": r#"schema_version = 1
+description = "Overlay message hover"
+type = "missing"
+
+[values]
+control = "hello"
+
+[env._]
+value = "control"
+"#
+                    }
+                ]
+            }))
+            .unwrap();
+        assert_hover_contains(
+            &hover_contents(&server, &variable_path, 2, 8).await,
+            "Variable type is unknown",
+        );
+        assert_eq!(
+            tokio::fs::read_to_string(&variable_path).await.unwrap(),
+            disk_variable
+        );
+    }
+
     #[test]
     fn initialize_advertises_completion_provider() {
         let result = initialize_result();
@@ -1044,6 +1264,13 @@ value = "control"
                 .and_then(|provider| provider.get("resolveProvider"))
                 .and_then(JsonValue::as_bool),
             Some(false)
+        );
+        assert_eq!(
+            result
+                .get("capabilities")
+                .and_then(|capabilities| capabilities.get("hoverProvider"))
+                .and_then(JsonValue::as_bool),
+            Some(true)
         );
     }
 
@@ -1060,6 +1287,36 @@ value = "control"
                 .iter()
                 .any(|completion| completion.label == label && completion.detail == detail),
             "missing completion {label} ({detail})"
+        );
+    }
+
+    async fn hover_contents(
+        server: &LspServer,
+        path: &Path,
+        line: usize,
+        character: usize,
+    ) -> String {
+        server
+            .hover(json!({
+                "textDocument": {
+                    "uri": format!("file://{}", path.display())
+                },
+                "position": {
+                    "line": line,
+                    "character": character
+                }
+            }))
+            .await
+            .unwrap()
+            .expect("hover result")
+            .contents
+            .value
+    }
+
+    fn assert_hover_contains(contents: &str, expected: &str) {
+        assert!(
+            contents.contains(expected),
+            "hover did not contain {expected:?}: {contents}"
         );
     }
 }
