@@ -82,6 +82,42 @@ pub(super) enum PredicateOp {
     Unknown(String),
 }
 
+impl PredicateOp {
+    pub(super) const COMPLETION_LABELS: &'static [&'static str] = &[
+        "eq", "neq", "in", "not_in", "gt", "gte", "lt", "lte", "bucket",
+    ];
+
+    pub(super) fn from_str(op: &str) -> Self {
+        match op {
+            "eq" => Self::Eq,
+            "neq" => Self::Neq,
+            "in" => Self::In,
+            "not_in" => Self::NotIn,
+            "gt" => Self::Gt,
+            "gte" => Self::Gte,
+            "lt" => Self::Lt,
+            "lte" => Self::Lte,
+            "bucket" => Self::Bucket,
+            op => Self::Unknown(op.to_owned()),
+        }
+    }
+
+    pub(super) fn as_str(&self) -> &str {
+        match self {
+            Self::Eq => "eq",
+            Self::Neq => "neq",
+            Self::In => "in",
+            Self::NotIn => "not_in",
+            Self::Gt => "gt",
+            Self::Gte => "gte",
+            Self::Lt => "lt",
+            Self::Lte => "lte",
+            Self::Bucket => "bucket",
+            Self::Unknown(op) => op,
+        }
+    }
+}
+
 pub(super) struct BucketRangeNode {
     pub(super) location: DiagnosticLocation,
     pub(super) is_array: bool,
