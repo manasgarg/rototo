@@ -1,44 +1,7 @@
-use std::collections::BTreeMap;
-
-use serde_json::Value as JsonValue;
-use toml::Value as TomlValue;
-use toml_edit::{ImDocument, Item, Table, Value as EditValue};
-
 use crate::diagnostics::RototoRuleId;
-use crate::diagnostics::{DiagnosticLocation, DocId, EntityId, LintDiagnostic, LintStage};
+use crate::diagnostics::{EntityId, LintDiagnostic, LintStage};
 
-use super::source::{DocumentKind, SourceDocument};
-
-#[derive(Default)]
-pub(super) struct SyntaxIndex {
-    pub(super) toml: BTreeMap<DocId, ParsedToml>,
-    pub(super) json: BTreeMap<DocId, JsonValue>,
-}
-
-pub(super) struct ParsedToml {
-    pub(super) edit: ImDocument<String>,
-    pub(super) plain: TomlValue,
-}
-
-pub(super) fn item_location(document: &SourceDocument, item: &Item) -> DiagnosticLocation {
-    item.span()
-        .map(|span| document.span_location(span))
-        .unwrap_or_else(|| document.document_location())
-}
-
-pub(super) fn table_location(document: &SourceDocument, table: &Table) -> DiagnosticLocation {
-    table
-        .span()
-        .map(|span| document.span_location(span))
-        .unwrap_or_else(|| document.document_location())
-}
-
-pub(super) fn value_location(document: &SourceDocument, value: &EditValue) -> DiagnosticLocation {
-    value
-        .span()
-        .map(|span| document.span_location(span))
-        .unwrap_or_else(|| document.document_location())
-}
+use super::super::source::{DocumentKind, SourceDocument};
 
 pub(super) fn read_error_diagnostic(document: &SourceDocument, read_error: &str) -> LintDiagnostic {
     LintDiagnostic::rototo(
@@ -52,7 +15,7 @@ pub(super) fn read_error_diagnostic(document: &SourceDocument, read_error: &str)
 
 pub(super) fn toml_edit_parse_diagnostic(
     document: &SourceDocument,
-    err: &toml_edit::TomlError,
+    err: &::toml_edit::TomlError,
 ) -> LintDiagnostic {
     let location = err
         .span()
@@ -69,7 +32,7 @@ pub(super) fn toml_edit_parse_diagnostic(
 
 pub(super) fn toml_de_parse_diagnostic(
     document: &SourceDocument,
-    err: &toml::de::Error,
+    err: &::toml::de::Error,
 ) -> LintDiagnostic {
     let location = err
         .span()
@@ -86,7 +49,7 @@ pub(super) fn toml_de_parse_diagnostic(
 
 pub(super) fn json_parse_diagnostic(
     document: &SourceDocument,
-    err: &serde_json::Error,
+    err: &::serde_json::Error,
 ) -> LintDiagnostic {
     let line = err.line().saturating_sub(1);
     let column = err.column();

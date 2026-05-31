@@ -1,9 +1,5 @@
 use std::path::PathBuf;
 
-use serde_json::Value as JsonValue;
-use toml::Value as TomlValue;
-use toml_edit::ImDocument;
-
 use crate::diagnostics::{DiagnosticLocation, EntityId, LintDiagnostic, LintStage, RototoRuleId};
 use crate::error::Result;
 use crate::model::WorkspaceLint;
@@ -18,10 +14,7 @@ use super::project::{
 };
 use super::references::ReferenceIndex;
 use super::source::{DocumentCollection, DocumentKind, SourceStore};
-use super::syntax::{
-    ParsedToml, SyntaxIndex, json_parse_diagnostic, read_error_diagnostic,
-    toml_de_parse_diagnostic, toml_edit_parse_diagnostic,
-};
+use super::syntax::{SyntaxIndex, parse_sources};
 use super::{WORKSPACE_MANIFEST, WorkspaceLintSnapshot};
 
 pub(super) async fn lint_workspace_snapshot(input: LintInput) -> Result<WorkspaceLintSnapshot> {
@@ -134,49 +127,7 @@ impl LintEngine {
     }
 
     fn run_parse(&self, ctx: &mut LintContext) {
-        for document in ctx.source.documents.values() {
-            if let Some(read_error) = &document.read_error {
-                if !matches!(&document.kind, DocumentKind::CustomLint) {
-                    ctx.diagnostics
-                        .push(read_error_diagnostic(document, read_error));
-                }
-                continue;
-            }
-
-            match &document.kind {
-                DocumentKind::Manifest
-                | DocumentKind::Qualifier { .. }
-                | DocumentKind::Variable { .. }
-                | DocumentKind::ExternalValue { .. } => {
-                    match ImDocument::parse(document.text.clone()) {
-                        Ok(edit) => match document.text.parse::<TomlValue>() {
-                            Ok(plain) => {
-                                ctx.syntax
-                                    .toml
-                                    .insert(document.id, ParsedToml { edit, plain });
-                            }
-                            Err(err) => {
-                                ctx.diagnostics
-                                    .push(toml_de_parse_diagnostic(document, &err));
-                            }
-                        },
-                        Err(err) => {
-                            ctx.diagnostics
-                                .push(toml_edit_parse_diagnostic(document, &err));
-                        }
-                    }
-                }
-                DocumentKind::Schema => match serde_json::from_str::<JsonValue>(&document.text) {
-                    Ok(value) => {
-                        ctx.syntax.json.insert(document.id, value);
-                    }
-                    Err(err) => {
-                        ctx.diagnostics.push(json_parse_diagnostic(document, &err));
-                    }
-                },
-                DocumentKind::CustomLint => {}
-            }
-        }
+        ctx.syntax = parse_sources(&ctx.source, &mut ctx.diagnostics);
     }
 
     fn build_projection(&self, ctx: &mut LintContext) {
