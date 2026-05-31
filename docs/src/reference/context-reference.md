@@ -34,7 +34,7 @@ earlier values.
 ### Inline JSON
 
 ```sh
-rototo variable resolve llm-agent-config \
+rototo resolve --variable llm-agent-config \
   --env prod \
   --context '{"account":{"plan":"enterprise","seats":250}}'
 ```
@@ -46,7 +46,7 @@ Inline JSON must be an object.
 Prefix a path with `@`:
 
 ```sh
-rototo variable resolve llm-agent-config \
+rototo resolve --variable llm-agent-config \
   --env prod \
   --context @context/prod-enterprise.json
 ```
@@ -58,7 +58,7 @@ The file must contain a JSON object.
 Use `path=value` for small overrides:
 
 ```sh
-rototo variable resolve llm-agent-config \
+rototo resolve --variable llm-agent-config \
   --env prod \
   --context account.plan=enterprise \
   --context account.seats=250

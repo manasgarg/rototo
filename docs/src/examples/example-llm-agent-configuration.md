@@ -150,8 +150,7 @@ The schema validates shape. Custom lint enforces local policy.
 ## Verify the behavior
 
 ```sh
-rototo variable resolve llm-agent-config \
-  --workspace config/ \
+rototo resolve config/ --variable llm-agent-config \
   --env prod \
   --context '{"account":{"plan":"enterprise","seats":250}}' \
   --json

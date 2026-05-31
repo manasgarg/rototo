@@ -82,14 +82,13 @@ This preserves the application contract. Application code continues to resolve
 Lint the workspace:
 
 ```sh
-rototo workspace lint config/
+rototo lint config/
 ```
 
 Resolve the changed environment:
 
 ```sh
-rototo variable resolve max-output-tokens \
-  --workspace config/ \
+rototo resolve config/ --variable max-output-tokens \
   --env prod \
   --context '{}'
 ```
@@ -97,8 +96,7 @@ rototo variable resolve max-output-tokens \
 Resolve at least one unchanged environment as a regression check:
 
 ```sh
-rototo variable resolve max-output-tokens \
-  --workspace config/ \
+rototo resolve config/ --variable max-output-tokens \
   --env stage \
   --context '{}'
 ```

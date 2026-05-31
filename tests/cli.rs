@@ -6,17 +6,43 @@ use rototo::docs::DOCS;
 fn prints_version() {
     Command::cargo_bin("rototo")
         .unwrap()
-        .arg("--version")
+        .arg("-V")
         .assert()
         .success()
         .stdout(predicate::str::contains("rototo 0.1.0-alpha.1"));
 }
 
 #[test]
+fn top_level_help_is_task_oriented() {
+    Command::cargo_bin("rototo")
+        .unwrap()
+        .arg("--help")
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("Workspace commands"))
+        .stdout(predicate::str::contains("Utility commands"))
+        .stdout(predicate::str::contains("lint"))
+        .stdout(predicate::str::contains(
+            "rototo docs -p source-uri-reference",
+        ))
+        .stdout(predicate::str::contains("rototo help workspace-sources").not())
+        .stdout(predicate::str::contains("git+https://").not());
+}
+
+#[test]
+fn custom_help_topics_are_not_supported() {
+    Command::cargo_bin("rototo")
+        .unwrap()
+        .args(["help", "context"])
+        .assert()
+        .failure();
+}
+
+#[test]
 fn quiet_suppresses_successful_lint_output() {
     Command::cargo_bin("rototo")
         .unwrap()
-        .args(["--quiet", "workspace", "lint", "examples/basic"])
+        .args(["--quiet", "lint", "examples/basic"])
         .assert()
         .success()
         .stdout(predicate::eq(""));
@@ -28,7 +54,6 @@ fn quiet_keeps_lint_diagnostics() {
         .unwrap()
         .args([
             "--quiet",
-            "workspace",
             "lint",
             "tests/fixtures/workspaces/missing-environments",
         ])
@@ -37,6 +62,15 @@ fn quiet_keeps_lint_diagnostics() {
         .stdout(predicate::str::contains(
             "error[rototo/workspace-manifest-schema-failed]",
         ));
+}
+
+#[test]
+fn old_noun_commands_are_removed() {
+    Command::cargo_bin("rototo")
+        .unwrap()
+        .args(["workspace", "lint", "examples/basic"])
+        .assert()
+        .failure();
 }
 
 #[test]
@@ -65,7 +99,7 @@ fn exposes_lsp_command() {
 fn lists_bundled_docs() {
     let assert = Command::cargo_bin("rototo")
         .unwrap()
-        .args(["docs", "list"])
+        .arg("docs")
         .assert()
         .success();
     let stdout = String::from_utf8(assert.get_output().stdout.clone()).unwrap();
@@ -79,44 +113,47 @@ fn lists_bundled_docs() {
 }
 
 #[test]
-fn shows_bundled_docs_as_markdown() {
+fn shows_bundled_docs_by_prefix_as_markdown() {
     Command::cargo_bin("rototo")
         .unwrap()
-        .args(["docs", "show", "cli"])
+        .args(["docs", "-p", "cli"])
         .assert()
         .success()
         .stdout(predicate::str::contains("# rototo CLI reference"));
 }
 
 #[test]
-fn shows_bundled_docs_as_html() {
+fn docs_page_prefix_reports_ambiguity() {
     Command::cargo_bin("rototo")
         .unwrap()
-        .args(["docs", "show", "cli", "--format", "html"])
+        .args(["docs", "-p", "how-to"])
         .assert()
-        .success()
-        .stdout(predicate::str::contains("<!doctype html>"))
-        .stdout(predicate::str::contains("<h1>rototo CLI reference</h1>"));
+        .failure()
+        .stdout(predicate::str::contains(
+            "multiple documentation pages match",
+        ))
+        .stdout(predicate::str::contains("rototo docs -p"));
 }
 
 #[test]
-fn exports_bundled_docs_as_static_html() {
-    let temp = tempfile::tempdir().unwrap();
+fn docs_search_uses_regex() {
     Command::cargo_bin("rototo")
         .unwrap()
-        .args(["docs", "export", "--out"])
-        .arg(temp.path())
+        .args(["docs", "-s", "workspace source"])
         .assert()
         .success()
-        .stdout(predicate::str::contains("exported rototo docs"));
+        .stdout(predicate::str::contains("workspace source"))
+        .stdout(predicate::str::contains("^"));
+}
 
-    for page in DOCS {
-        let path = temp.path().join(format!("{}.html", page.id));
-        assert!(
-            path.exists(),
-            "docs export did not create {}",
-            path.display()
-        );
-    }
-    assert!(temp.path().join("styles.css").exists());
+#[test]
+fn docs_search_rejects_invalid_regex() {
+    Command::cargo_bin("rototo")
+        .unwrap()
+        .args(["docs", "-s", "["])
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains(
+            "invalid documentation search regex",
+        ));
 }

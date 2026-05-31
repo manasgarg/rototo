@@ -5,7 +5,7 @@ use predicates::prelude::*;
 fn lists_qualifiers() {
     Command::cargo_bin("rototo")
         .unwrap()
-        .args(["qualifier", "list", "--workspace", "examples/basic"])
+        .args(["show", "examples/basic", "--qualifiers"])
         .assert()
         .success()
         .stdout(predicate::str::contains("admin-users"))
@@ -18,7 +18,7 @@ fn lists_variables_from_discovered_workspace() {
     Command::cargo_bin("rototo")
         .unwrap()
         .current_dir("examples/basic")
-        .args(["variable", "list"])
+        .args(["show", "--variables"])
         .assert()
         .success()
         .stdout(predicate::str::contains("checkout-redesign"))
@@ -31,13 +31,7 @@ fn lists_variables_from_discovered_workspace() {
 fn lists_qualifiers_as_json() {
     Command::cargo_bin("rototo")
         .unwrap()
-        .args([
-            "qualifier",
-            "list",
-            "--workspace",
-            "examples/basic",
-            "--json",
-        ])
+        .args(["show", "examples/basic", "--qualifiers", "--json"])
         .assert()
         .success()
         .stdout(predicate::str::contains(r#""qualifiers": ["#))
@@ -50,13 +44,7 @@ fn lists_qualifiers_as_json() {
 fn gets_qualifier_by_id() {
     Command::cargo_bin("rototo")
         .unwrap()
-        .args([
-            "qualifier",
-            "get",
-            "premium-users",
-            "--workspace",
-            "examples/basic",
-        ])
+        .args(["show", "examples/basic", "--qualifier", "premium-users"])
         .assert()
         .success()
         .stdout(predicate::str::contains(
@@ -70,7 +58,7 @@ fn gets_variable_from_discovered_workspace() {
     Command::cargo_bin("rototo")
         .unwrap()
         .current_dir("examples/basic")
-        .args(["variable", "get", "user-is-admin"])
+        .args(["show", "--variable", "user-is-admin"])
         .assert()
         .success()
         .stdout(predicate::str::contains("type = \"bool\""));
@@ -82,11 +70,10 @@ fn gets_qualifier_by_id_as_json() {
         .unwrap()
         .args([
             "--json",
-            "qualifier",
-            "get",
-            "premium-users",
-            "--workspace",
+            "show",
             "examples/basic",
+            "--qualifier",
+            "premium-users",
         ])
         .assert()
         .success()
@@ -99,18 +86,15 @@ fn gets_qualifier_by_id_as_json() {
 
 #[test]
 fn lints_qualifier_by_id() {
+    let workspace = std::path::absolute("examples/basic").unwrap();
+    let expected = format!("ok: {}\n", workspace.display());
+
     Command::cargo_bin("rototo")
         .unwrap()
-        .args([
-            "qualifier",
-            "lint",
-            "premium-users",
-            "--workspace",
-            "examples/basic",
-        ])
+        .args(["lint", "examples/basic", "--qualifier", "premium-users"])
         .assert()
         .success()
-        .stdout(predicate::eq("ok: qualifier://premium-users\n"));
+        .stdout(predicate::eq(expected));
 }
 
 #[test]
@@ -118,11 +102,10 @@ fn resolves_qualifier_by_id() {
     Command::cargo_bin("rototo")
         .unwrap()
         .args([
-            "qualifier",
             "resolve",
-            "premium-users",
-            "--workspace",
             "examples/basic",
+            "--qualifier",
+            "premium-users",
             "--context",
             r#"{"user":{"tier":"premium","id":"a=b"}}"#,
             "--json",
@@ -138,10 +121,9 @@ fn resolves_all_qualifiers() {
     Command::cargo_bin("rototo")
         .unwrap()
         .args([
-            "qualifier",
-            "resolve-all",
-            "--workspace",
+            "resolve",
             "examples/basic",
+            "--qualifiers",
             "--context",
             r#"{"user":{"tier":"premium","id":"user-123"},"account":{"plan":"enterprise","seats":250},"request":{"country":"DE"}}"#,
             "--json",
@@ -155,13 +137,16 @@ fn resolves_all_qualifiers() {
 
 #[test]
 fn lints_variable_from_discovered_workspace() {
+    let workspace = std::path::absolute("examples/basic").unwrap();
+    let expected = format!("ok: {}\n", workspace.display());
+
     Command::cargo_bin("rototo")
         .unwrap()
         .current_dir("examples/basic")
-        .args(["variable", "lint", "checkout-redesign"])
+        .args(["lint", "--variable", "checkout-redesign"])
         .assert()
         .success()
-        .stdout(predicate::eq("ok: variable://checkout-redesign\n"));
+        .stdout(predicate::eq(expected));
 }
 
 #[test]
@@ -169,11 +154,10 @@ fn resolves_variable_by_id() {
     Command::cargo_bin("rototo")
         .unwrap()
         .args([
-            "variable",
             "resolve",
-            "checkout-redesign",
-            "--workspace",
             "examples/basic",
+            "--variable",
+            "checkout-redesign",
             "--env",
             "prod",
             "--context",
@@ -192,11 +176,10 @@ fn resolves_production_example_enterprise_profile() {
     Command::cargo_bin("rototo")
         .unwrap()
         .args([
-            "variable",
             "resolve",
-            "agent-config",
-            "--workspace",
             "examples/production",
+            "--variable",
+            "agent-config",
             "--env",
             "prod",
             "--context",
@@ -215,10 +198,9 @@ fn resolves_all_variables() {
     Command::cargo_bin("rototo")
         .unwrap()
         .args([
-            "variable",
-            "resolve-all",
-            "--workspace",
+            "resolve",
             "examples/basic",
+            "--variables",
             "--env",
             "prod",
             "--context",
@@ -237,11 +219,10 @@ fn resolves_variable_with_context_assignments() {
     Command::cargo_bin("rototo")
         .unwrap()
         .args([
-            "variable",
             "resolve",
-            "checkout-redesign",
-            "--workspace",
             "examples/basic",
+            "--variable",
+            "checkout-redesign",
             "--env",
             "prod",
             "--context",
@@ -260,11 +241,10 @@ fn resolve_rejects_context_that_does_not_match_workspace_schema() {
     Command::cargo_bin("rototo")
         .unwrap()
         .args([
-            "qualifier",
             "resolve",
-            "premium-users",
-            "--workspace",
             "examples/basic",
+            "--qualifier",
+            "premium-users",
             "--context",
             r#"{"unknown":true}"#,
         ])
@@ -280,11 +260,10 @@ fn resolve_rejects_unknown_environment_before_fallback() {
     Command::cargo_bin("rototo")
         .unwrap()
         .args([
-            "variable",
             "resolve",
-            "checkout-redesign",
-            "--workspace",
             "examples/basic",
+            "--variable",
+            "checkout-redesign",
             "--env",
             "prd",
             "--context",
@@ -296,16 +275,39 @@ fn resolve_rejects_unknown_environment_before_fallback() {
 }
 
 #[test]
-fn missing_qualifier_id_fails() {
+fn resolve_rejects_missing_env_for_variables() {
     Command::cargo_bin("rototo")
         .unwrap()
         .args([
-            "qualifier",
-            "get",
-            "missing",
-            "--workspace",
+            "resolve",
             "examples/basic",
+            "--variable",
+            "checkout-redesign",
+            "--context",
+            "{}",
         ])
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains(
+            "--env is required when resolving variables",
+        ));
+}
+
+#[test]
+fn resolve_rejects_missing_target() {
+    Command::cargo_bin("rototo")
+        .unwrap()
+        .args(["resolve", "examples/basic", "--context", "{}"])
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("resolve requires at least one"));
+}
+
+#[test]
+fn missing_qualifier_id_fails() {
+    Command::cargo_bin("rototo")
+        .unwrap()
+        .args(["show", "examples/basic", "--qualifier", "missing"])
         .assert()
         .failure()
         .stderr(predicate::str::contains(
@@ -317,10 +319,10 @@ fn missing_qualifier_id_fails() {
 fn missing_workspace_context_fails() {
     Command::cargo_bin("rototo")
         .unwrap()
-        .args(["qualifier", "list"])
+        .args(["show", "--qualifiers"])
         .assert()
         .failure()
         .stderr(predicate::str::contains(
-            "workspace not found: pass --workspace or run inside a rototo workspace",
+            "workspace not found: pass a workspace source or run inside a rototo workspace",
         ));
 }

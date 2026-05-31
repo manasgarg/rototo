@@ -5,7 +5,7 @@ use predicates::prelude::*;
 fn inspects_basic_workspace() {
     Command::cargo_bin("rototo")
         .unwrap()
-        .args(["workspace", "inspect", "examples/basic"])
+        .args(["inspect", "examples/basic"])
         .assert()
         .success()
         .stdout(predicate::str::contains("workspace: "))
@@ -27,25 +27,11 @@ fn inspects_basic_workspace() {
 }
 
 #[test]
-fn inspects_workspace_with_workspace_flag() {
-    Command::cargo_bin("rototo")
-        .unwrap()
-        .args(["workspace", "inspect", "--workspace", "examples/basic"])
-        .assert()
-        .success()
-        .stdout(predicate::str::contains("workspace: "))
-        .stdout(predicate::str::contains("environments:"))
-        .stdout(predicate::str::contains("  dev"))
-        .stdout(predicate::str::contains("  stage"))
-        .stdout(predicate::str::contains("  prod"));
-}
-
-#[test]
 fn inspects_discovered_workspace() {
     Command::cargo_bin("rototo")
         .unwrap()
         .current_dir("examples/basic")
-        .args(["workspace", "inspect"])
+        .arg("inspect")
         .assert()
         .success()
         .stdout(predicate::str::contains("workspace: "))
@@ -56,7 +42,7 @@ fn inspects_discovered_workspace() {
 fn inspects_basic_workspace_as_json() {
     Command::cargo_bin("rototo")
         .unwrap()
-        .args(["--json", "workspace", "inspect", "examples/basic"])
+        .args(["--json", "inspect", "examples/basic"])
         .assert()
         .success()
         .stdout(predicate::str::contains(r#""environments": ["#))
@@ -74,7 +60,7 @@ fn inspects_basic_workspace_as_json() {
 fn json_is_a_trailing_global_arg() {
     Command::cargo_bin("rototo")
         .unwrap()
-        .args(["workspace", "inspect", "examples/basic", "--json"])
+        .args(["inspect", "examples/basic", "--json"])
         .assert()
         .success()
         .stdout(predicate::str::contains(

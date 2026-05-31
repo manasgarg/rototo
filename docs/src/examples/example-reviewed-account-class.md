@@ -105,8 +105,7 @@ value = "regional_priority"
 Matching context:
 
 ```sh
-rototo variable resolve payment-review-queue \
-  --workspace config/ \
+rototo resolve config/ --variable payment-review-queue \
   --env prod \
   --context '{"account":{"plan":"premium"},"request":{"country":"DE"}}'
 ```
@@ -114,8 +113,7 @@ rototo variable resolve payment-review-queue \
 Non-matching context:
 
 ```sh
-rototo variable resolve payment-review-queue \
-  --workspace config/ \
+rototo resolve config/ --variable payment-review-queue \
   --env prod \
   --context '{"account":{"plan":"free"},"request":{"country":"DE"}}'
 ```

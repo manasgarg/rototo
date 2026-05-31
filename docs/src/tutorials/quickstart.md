@@ -120,7 +120,7 @@ real value key.
 Run:
 
 ```sh
-rototo workspace lint token-config/
+rototo lint token-config/
 ```
 
 Expected output:
@@ -150,7 +150,7 @@ which reviewed value key applies, and what value should the application receive?
 Resolve the variable in `dev`:
 
 ```sh
-rototo variable resolve max-output-tokens --env dev --context '{}'
+rototo resolve --variable max-output-tokens --env dev --context '{}'
 ```
 
 Expected output:
@@ -162,7 +162,7 @@ max-output-tokens=500 (small)
 Resolve the same variable in `prod`:
 
 ```sh
-rototo variable resolve max-output-tokens --env prod --context '{}'
+rototo resolve --variable max-output-tokens --env prod --context '{}'
 ```
 
 Expected output:
@@ -178,7 +178,7 @@ different integer.
 For automation or application integration, use JSON output:
 
 ```sh
-rototo variable resolve max-output-tokens --env prod --context '{}' --json
+rototo resolve --variable max-output-tokens --env prod --context '{}' --json
 ```
 
 Expected output:
@@ -186,10 +186,15 @@ Expected output:
 ```json
 {
   "workspace": "/path/to/token-config",
-  "id": "max-output-tokens",
-  "environment": "prod",
-  "value_key": "large",
-  "value": 2000
+  "variables": [
+    {
+      "id": "max-output-tokens",
+      "environment": "prod",
+      "value_key": "large",
+      "value": 2000
+    }
+  ],
+  "qualifiers": []
 }
 ```
 

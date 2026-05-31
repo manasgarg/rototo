@@ -1362,6 +1362,7 @@ dependencies = [
  "mlua",
  "predicates",
  "pulldown-cmark",
+ "regex",
  "reqwest",
  "serde",
  "serde_json",

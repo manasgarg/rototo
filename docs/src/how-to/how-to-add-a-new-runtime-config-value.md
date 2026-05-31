@@ -13,8 +13,8 @@ environment mapping, validation, and later rollout rules.
 After this change:
 
 - The workspace contains a new variable file.
-- `rototo workspace lint` validates the variable.
-- `rototo variable resolve` returns the expected value in each environment.
+- `rototo lint` validates the variable.
+- `rototo resolve --variable` returns the expected value in each environment.
 - Application code can resolve one stable variable id.
 
 ## Before you start
@@ -67,7 +67,7 @@ application received `small`, `standard`, or `large`.
 Run lint before wiring the value into application code:
 
 ```sh
-rototo workspace lint config/
+rototo lint config/
 ```
 
 Lint verifies that the variable declares a supported type, every value matches
@@ -79,15 +79,13 @@ to a known value key.
 Resolve the new variable for the environments that matter:
 
 ```sh
-rototo variable resolve max-output-tokens \
-  --workspace config/ \
+rototo resolve config/ --variable max-output-tokens \
   --env dev \
   --context '{}'
 ```
 
 ```sh
-rototo variable resolve max-output-tokens \
-  --workspace config/ \
+rototo resolve config/ --variable max-output-tokens \
   --env prod \
   --context '{}'
 ```
@@ -95,8 +93,7 @@ rototo variable resolve max-output-tokens \
 Use JSON output when adding automated tests:
 
 ```sh
-rototo variable resolve max-output-tokens \
-  --workspace config/ \
+rototo resolve config/ --variable max-output-tokens \
   --env prod \
   --context '{}' \
   --json

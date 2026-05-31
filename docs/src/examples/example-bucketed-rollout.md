@@ -103,8 +103,7 @@ value = "next"
 ## Verify the behavior
 
 ```sh
-rototo variable resolve search-backend \
-  --workspace config/ \
+rototo resolve config/ --variable search-backend \
   --env prod \
   --context '{"account":{"id":"acct_123"}}'
 ```

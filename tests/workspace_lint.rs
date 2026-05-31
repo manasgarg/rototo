@@ -10,7 +10,7 @@ fn lints_basic_workspace() {
 
     Command::cargo_bin("rototo")
         .unwrap()
-        .args(["workspace", "lint", "examples/basic"])
+        .args(["lint", "examples/basic"])
         .assert()
         .success()
         .stdout(predicate::eq(expected));
@@ -47,37 +47,6 @@ fn lints_curated_examples() {
 }
 
 #[test]
-fn lints_workspace_with_workspace_flag() {
-    let workspace = std::path::absolute("examples/basic").unwrap();
-    let expected = format!("ok: {}\n", workspace.display());
-
-    Command::cargo_bin("rototo")
-        .unwrap()
-        .args(["workspace", "lint", "--workspace", "examples/basic"])
-        .assert()
-        .success()
-        .stdout(predicate::eq(expected));
-}
-
-#[test]
-fn rejects_duplicate_workspace_inputs() {
-    Command::cargo_bin("rototo")
-        .unwrap()
-        .args([
-            "workspace",
-            "lint",
-            "examples/basic",
-            "--workspace",
-            "examples/basic",
-        ])
-        .assert()
-        .failure()
-        .stderr(predicate::str::contains(
-            "pass workspace either as --workspace or as a positional argument, not both",
-        ));
-}
-
-#[test]
 fn lints_discovered_workspace() {
     let workspace = std::path::absolute("examples/basic").unwrap();
     let expected = format!("ok: {}\n", workspace.display());
@@ -85,7 +54,7 @@ fn lints_discovered_workspace() {
     Command::cargo_bin("rototo")
         .unwrap()
         .current_dir("examples/basic")
-        .args(["workspace", "lint"])
+        .arg("lint")
         .assert()
         .success()
         .stdout(predicate::eq(expected));
@@ -911,7 +880,7 @@ fn reports_custom_warning_lint_without_failing() {
 fn lint_json(workspace: &str, success: bool) -> serde_json::Value {
     let output = Command::cargo_bin("rototo")
         .unwrap()
-        .args(["workspace", "lint", workspace, "--json"])
+        .args(["lint", workspace, "--json"])
         .output()
         .unwrap();
 

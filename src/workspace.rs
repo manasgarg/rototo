@@ -43,7 +43,7 @@ pub async fn find_workspace_root(start: &Path) -> Result<PathBuf> {
 
         if !current.pop() {
             return Err(RototoError::new(
-                "workspace not found: pass --workspace or run inside a rototo workspace",
+                "workspace not found: pass a workspace source or run inside a rototo workspace",
             ));
         }
     }

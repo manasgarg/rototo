@@ -2,10 +2,7 @@ use serde::Serialize;
 
 use rototo::diagnostics::{DiagnosticCatalogEntry, DiagnosticEntity, LintDiagnostic, Severity};
 use rototo::error::{Result, RototoError};
-use rototo::model::{
-    DiagnosticCatalog, QualifierInspection, QualifierLint, VariableInspection, VariableLint,
-    VariableResolution, WorkspaceInspection, WorkspaceLint,
-};
+use rototo::model::{QualifierInspection, VariableInspection, WorkspaceInspection, WorkspaceLint};
 use rototo::workspace::{qualifier_for_id, read_toml, read_variable_toml, variable_for_id};
 
 #[derive(Debug, Serialize)]
@@ -27,20 +24,6 @@ struct WorkspaceFileJson<'a> {
 struct WorkspaceLintJson<'a> {
     workspace: String,
     documents: &'a [rototo::model::SourceDocumentSummary],
-    diagnostics: &'a [LintDiagnostic],
-}
-
-#[derive(Debug, Serialize)]
-struct QualifierLintJson<'a> {
-    workspace: String,
-    id: &'a str,
-    diagnostics: &'a [LintDiagnostic],
-}
-
-#[derive(Debug, Serialize)]
-struct VariableLintJson<'a> {
-    workspace: String,
-    id: &'a str,
     diagnostics: &'a [LintDiagnostic],
 }
 
@@ -72,26 +55,6 @@ struct VariableGetJson {
     uri: String,
     path: String,
     value: serde_json::Value,
-}
-
-#[derive(Debug, Serialize)]
-struct ResolutionJson<'a, T: Serialize> {
-    workspace: String,
-    #[serde(flatten)]
-    resolution: &'a T,
-}
-
-#[derive(Debug, Serialize)]
-struct ResolutionsJson<'a, T: Serialize> {
-    workspace: String,
-    values: &'a [T],
-}
-
-#[derive(Debug, Serialize)]
-struct DiagnosticCatalogJson<'a> {
-    scope: &'a rototo::model::DiagnosticCatalogScope,
-    subject: &'a str,
-    diagnostics: &'a [DiagnosticCatalogEntry],
 }
 
 pub(crate) fn print_inspection(inspection: &WorkspaceInspection, json: bool) -> Result<()> {
@@ -139,58 +102,6 @@ pub(crate) fn print_workspace_lint(lint: &WorkspaceLint, json: bool, quiet: bool
             return Ok(());
         }
         println!("ok: {}", lint.root.display());
-        return Ok(());
-    }
-
-    print_diagnostics(&lint.diagnostics);
-    Ok(())
-}
-
-pub(crate) fn print_qualifier_lint(lint: &QualifierLint, json: bool, quiet: bool) -> Result<()> {
-    if json {
-        println!(
-            "{}",
-            serde_json::to_string_pretty(&QualifierLintJson {
-                workspace: lint.root.display().to_string(),
-                id: &lint.id,
-                diagnostics: &lint.diagnostics,
-            })
-            .map_err(|err| RototoError::new(err.to_string()))?
-        );
-        return Ok(());
-    }
-
-    if lint.diagnostics.is_empty() {
-        if quiet {
-            return Ok(());
-        }
-        println!("ok: qualifier://{}", lint.id);
-        return Ok(());
-    }
-
-    print_diagnostics(&lint.diagnostics);
-    Ok(())
-}
-
-pub(crate) fn print_variable_lint(lint: &VariableLint, json: bool, quiet: bool) -> Result<()> {
-    if json {
-        println!(
-            "{}",
-            serde_json::to_string_pretty(&VariableLintJson {
-                workspace: lint.root.display().to_string(),
-                id: &lint.id,
-                diagnostics: &lint.diagnostics,
-            })
-            .map_err(|err| RototoError::new(err.to_string()))?
-        );
-        return Ok(());
-    }
-
-    if lint.diagnostics.is_empty() {
-        if quiet {
-            return Ok(());
-        }
-        println!("ok: variable://{}", lint.id);
         return Ok(());
     }
 
@@ -290,133 +201,6 @@ pub(crate) async fn print_variable_get(
     }
 
     print_workspace_file(&path).await
-}
-
-pub(crate) fn print_diagnostic_catalog(catalog: &DiagnosticCatalog, json: bool) -> Result<()> {
-    if json {
-        println!(
-            "{}",
-            serde_json::to_string_pretty(&DiagnosticCatalogJson {
-                scope: &catalog.scope,
-                subject: &catalog.subject,
-                diagnostics: &catalog.diagnostics,
-            })
-            .map_err(|err| RototoError::new(err.to_string()))?
-        );
-        return Ok(());
-    }
-
-    println!("{:<48}  {:<9}  {:<8}  title", "rule", "entity", "severity");
-    for diagnostic in &catalog.diagnostics {
-        println!(
-            "{:<48}  {:<9}  {:<8}  {}",
-            diagnostic.rule,
-            diagnostic_entity_label(&diagnostic.entity),
-            severity_label(&diagnostic.severity),
-            diagnostic.title
-        );
-    }
-    Ok(())
-}
-
-pub(crate) fn print_qualifier_resolution(
-    workspace: &std::path::Path,
-    resolution: &rototo::model::QualifierResolution,
-    json: bool,
-) -> Result<()> {
-    if json {
-        println!(
-            "{}",
-            serde_json::to_string_pretty(&ResolutionJson {
-                workspace: workspace.display().to_string(),
-                resolution,
-            })
-            .map_err(|err| RototoError::new(err.to_string()))?
-        );
-        return Ok(());
-    }
-
-    println!("{}={}", resolution.id, resolution.value);
-    Ok(())
-}
-
-pub(crate) fn print_qualifier_resolutions(
-    workspace: &std::path::Path,
-    resolutions: &[rototo::model::QualifierResolution],
-    json: bool,
-) -> Result<()> {
-    if json {
-        println!(
-            "{}",
-            serde_json::to_string_pretty(&ResolutionsJson {
-                workspace: workspace.display().to_string(),
-                values: resolutions,
-            })
-            .map_err(|err| RototoError::new(err.to_string()))?
-        );
-        return Ok(());
-    }
-
-    for resolution in resolutions {
-        println!("{}={}", resolution.id, resolution.value);
-    }
-    Ok(())
-}
-
-pub(crate) fn print_variable_resolution(
-    workspace: &std::path::Path,
-    resolution: &VariableResolution,
-    json: bool,
-) -> Result<()> {
-    if json {
-        println!(
-            "{}",
-            serde_json::to_string_pretty(&ResolutionJson {
-                workspace: workspace.display().to_string(),
-                resolution,
-            })
-            .map_err(|err| RototoError::new(err.to_string()))?
-        );
-        return Ok(());
-    }
-
-    println!(
-        "{}={} ({})",
-        resolution.id,
-        serde_json::to_string(&resolution.value)
-            .map_err(|err| RototoError::new(err.to_string()))?,
-        resolution.value_key
-    );
-    Ok(())
-}
-
-pub(crate) fn print_variable_resolutions(
-    workspace: &std::path::Path,
-    resolutions: &[VariableResolution],
-    json: bool,
-) -> Result<()> {
-    if json {
-        println!(
-            "{}",
-            serde_json::to_string_pretty(&ResolutionsJson {
-                workspace: workspace.display().to_string(),
-                values: resolutions,
-            })
-            .map_err(|err| RototoError::new(err.to_string()))?
-        );
-        return Ok(());
-    }
-
-    for resolution in resolutions {
-        println!(
-            "{}={} ({})",
-            resolution.id,
-            serde_json::to_string(&resolution.value)
-                .map_err(|err| RototoError::new(err.to_string()))?,
-            resolution.value_key
-        );
-    }
-    Ok(())
 }
 
 pub(crate) fn print_diagnostic_catalog_entry(

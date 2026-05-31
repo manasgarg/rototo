@@ -42,8 +42,7 @@ environment are the same.
 Use the CLI to inspect the variable definition:
 
 ```sh
-rototo variable get llm-agent-config \
-  --workspace config/
+rototo show config/ --variable llm-agent-config
 ```
 
 Look at the selected environment block. It defines the default value and any
@@ -55,8 +54,7 @@ If the environment block has rules, inspect the qualifiers referenced by those
 rules:
 
 ```sh
-rototo qualifier get enterprise-accounts \
-  --workspace config/
+rototo show config/ --qualifier enterprise-accounts
 ```
 
 Check the predicates against the runtime context. Missing fields resolve as
@@ -68,8 +66,7 @@ evaluation.
 Resolve the variable with the same environment and context:
 
 ```sh
-rototo variable resolve llm-agent-config \
-  --workspace config/ \
+rototo resolve config/ --variable llm-agent-config \
   --env prod \
   --context @incident-context.json \
   --json

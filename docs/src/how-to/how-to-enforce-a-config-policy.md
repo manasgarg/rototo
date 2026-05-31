@@ -14,7 +14,7 @@ After this change:
 
 - The workspace manifest declares custom lint rule metadata.
 - A Lua script registers a handler and returns diagnostics when values violate policy.
-- `rototo workspace lint` fails on policy violations.
+- `rototo lint` fails on policy violations.
 - Reviewers see a clear message and recovery guidance.
 
 ## Decide what belongs in custom lint
@@ -96,14 +96,14 @@ Return an empty list when the policy passes.
 Run lint:
 
 ```sh
-rototo workspace lint config/
+rototo lint config/
 ```
 
 If a value violates the policy, lint fails with a custom diagnostic. Inspect
 the workspace diagnostic catalog when you need the stable rule or JSON shape:
 
 ```sh
-rototo diagnostics get platform/max-output-token-budget --workspace config/
+rototo show config/ --lint-rule platform/max-output-token-budget
 ```
 
 ## Common mistakes

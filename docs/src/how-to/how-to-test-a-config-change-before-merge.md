@@ -22,7 +22,7 @@ After this change:
 Run workspace lint for every change:
 
 ```sh
-rototo workspace lint config/
+rototo lint config/
 ```
 
 Lint catches structural problems: invalid manifests, missing schemas, unknown
@@ -69,16 +69,14 @@ change is supposed to preserve.
 Run the changed variable against each fixture:
 
 ```sh
-rototo variable resolve llm-agent-config \
-  --workspace config/ \
+rototo resolve config/ --variable llm-agent-config \
   --env prod \
   --context @config/tests/prod-enterprise.context.json \
   --json
 ```
 
 ```sh
-rototo variable resolve llm-agent-config \
-  --workspace config/ \
+rototo resolve config/ --variable llm-agent-config \
   --env prod \
   --context @config/tests/prod-default.context.json \
   --json
@@ -92,10 +90,10 @@ the value is what the application will receive.
 Put the commands in the config repository's test script or CI job:
 
 ```sh
-rototo workspace lint config/
-rototo variable resolve llm-agent-config --workspace config/ --env prod \
+rototo lint config/
+rototo resolve config/ --variable llm-agent-config --env prod \
   --context @config/tests/prod-enterprise.context.json --json
-rototo variable resolve llm-agent-config --workspace config/ --env prod \
+rototo resolve config/ --variable llm-agent-config --env prod \
   --context @config/tests/prod-default.context.json --json
 ```
 

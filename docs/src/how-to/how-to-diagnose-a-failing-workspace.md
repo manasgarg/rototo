@@ -1,6 +1,6 @@
 # How to Diagnose a Failing Workspace
 
-Use this when `rototo workspace lint` fails and you need to turn the diagnostic
+Use this when `rototo lint` fails and you need to turn the diagnostic
 into a concrete fix.
 
 The goal is to identify whether the failure is in the workspace manifest,
@@ -25,14 +25,13 @@ After this investigation:
 Use the same workspace source the failing workflow used:
 
 ```sh
-rototo workspace lint config/
+rototo lint config/
 ```
 
 or:
 
 ```sh
-rototo workspace lint \
-  --workspace 'git+https://github.com/acme/runtime-config.git#prod:config'
+rototo lint 'git+https://github.com/acme/runtime-config.git#prod:config'
 ```
 
 If CI failed on a Git source, reproduce with that Git URI instead of your local
@@ -43,13 +42,13 @@ working tree. Otherwise you may debug a different workspace version.
 Lint diagnostics include a stable rule id. Use that rule to inspect the catalog:
 
 ```sh
-rototo diagnostics get rototo/qualifier-parse-failed
+rototo show --lint-rule rototo/qualifier-parse-failed
 ```
 
 For automation, use JSON:
 
 ```sh
-rototo diagnostics get rototo/qualifier-parse-failed --json
+rototo show --lint-rule rototo/qualifier-parse-failed --json
 ```
 
 The catalog explains the entity, severity, title, and recovery guidance. For
@@ -79,15 +78,13 @@ contract.
 If lint points at a variable, inspect it:
 
 ```sh
-rototo variable get llm-agent-config \
-  --workspace config/
+rototo show config/ --variable llm-agent-config
 ```
 
 If lint points at a qualifier, inspect it:
 
 ```sh
-rototo qualifier get enterprise-accounts \
-  --workspace config/
+rototo show config/ --qualifier enterprise-accounts
 ```
 
 Inspection helps confirm what rototo loaded, including expanded variable values
@@ -98,14 +95,13 @@ from external files.
 After editing, rerun workspace lint:
 
 ```sh
-rototo workspace lint config/
+rototo lint config/
 ```
 
 Then resolve the affected variable or qualifier with representative context:
 
 ```sh
-rototo variable resolve llm-agent-config \
-  --workspace config/ \
+rototo resolve config/ --variable llm-agent-config \
   --env prod \
   --context '{"account":{"plan":"enterprise","seats":250}}'
 ```

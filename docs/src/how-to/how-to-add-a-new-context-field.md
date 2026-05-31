@@ -103,14 +103,13 @@ the schema does not declare.
 Lint the workspace:
 
 ```sh
-rototo workspace lint config/
+rototo lint config/
 ```
 
 Resolve with context that includes the new field:
 
 ```sh
-rototo qualifier resolve germany-requests \
-  --workspace config/ \
+rototo resolve config/ --qualifier germany-requests \
   --context '{"account":{"plan":"enterprise"},"request":{"country":"DE"}}'
 ```
 
@@ -118,8 +117,7 @@ If the field is required, also verify that missing context fails before rule
 evaluation:
 
 ```sh
-rototo qualifier resolve germany-requests \
-  --workspace config/ \
+rototo resolve config/ --qualifier germany-requests \
   --context '{"account":{"plan":"enterprise"}}'
 ```
 

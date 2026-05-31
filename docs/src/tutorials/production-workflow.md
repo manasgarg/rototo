@@ -319,16 +319,21 @@ Create `config/tests/prod-enterprise.expected.json`:
 
 ```json
 {
-  "id": "llm-agent-config",
-  "environment": "prod",
-  "value_key": "enterprise",
-  "value": {
-    "gateway": "openai",
-    "max_output_tokens": 5000,
-    "model": "gpt-5",
-    "prompt": "Summarize the incident for an enterprise support workflow. Preserve customer impact, operational risk, and next actions.",
-    "temperature": 0.2
-  }
+  "variables": [
+    {
+      "id": "llm-agent-config",
+      "environment": "prod",
+      "value_key": "enterprise",
+      "value": {
+        "gateway": "openai",
+        "max_output_tokens": 5000,
+        "model": "gpt-5",
+        "prompt": "Summarize the incident for an enterprise support workflow. Preserve customer impact, operational risk, and next actions.",
+        "temperature": 0.2
+      }
+    }
+  ],
+  "qualifiers": []
 }
 ```
 
@@ -343,15 +348,14 @@ about Git, CI, or application code.
 From the repository root:
 
 ```sh
-rototo workspace inspect --workspace ./config
-rototo workspace lint --workspace ./config
+rototo inspect ./config
+rototo lint ./config
 ```
 
 Resolve the qualifier:
 
 ```sh
-rototo qualifier resolve enterprise-accounts \
-  --workspace ./config \
+rototo resolve ./config --qualifier enterprise-accounts \
   --context @config/tests/prod-enterprise.json
 ```
 
@@ -364,8 +368,7 @@ enterprise-accounts=true
 Resolve the variable:
 
 ```sh
-rototo variable resolve llm-agent-config \
-  --workspace ./config \
+rototo resolve ./config --variable llm-agent-config \
   --env prod \
   --context @config/tests/prod-enterprise.json
 ```
@@ -381,10 +384,9 @@ llm-agent-config={"gateway":"openai","max_output_tokens":5000,"model":"gpt-5","p
 For CI, use JSON output and compare it with the committed expected output:
 
 ```sh
-rototo workspace lint --workspace ./config
+rototo lint ./config
 
-rototo variable resolve llm-agent-config \
-  --workspace ./config \
+rototo resolve ./config --variable llm-agent-config \
   --env prod \
   --context @config/tests/prod-enterprise.json \
   --json > /tmp/llm-agent-config.actual.json
@@ -405,9 +407,8 @@ developer machine. Create `.git/hooks/pre-push`:
 #!/usr/bin/env sh
 set -eu
 
-rototo workspace lint --workspace ./config
-rototo variable resolve llm-agent-config \
-  --workspace ./config \
+rototo lint ./config
+rototo resolve ./config --variable llm-agent-config \
   --env prod \
   --context @config/tests/prod-enterprise.json \
   --json > /tmp/llm-agent-config.actual.json
@@ -457,8 +458,7 @@ directly from the Git source, which is useful for release verification and
 debugging.
 
 ```sh
-rototo variable resolve llm-agent-config \
-  --workspace git+https://github.com/acme/runtime-config.git#prod:config \
+rototo resolve 'git+https://github.com/acme/runtime-config.git#prod:config' --variable llm-agent-config \
   --env prod \
   --context @config/tests/prod-enterprise.json
 ```

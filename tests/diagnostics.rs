@@ -5,7 +5,7 @@ use predicates::prelude::*;
 fn lists_global_diagnostics() {
     Command::cargo_bin("rototo")
         .unwrap()
-        .args(["diagnostics", "list"])
+        .args(["show", "--lint-rules"])
         .assert()
         .success()
         .stdout(predicate::str::contains("rule"))
@@ -22,7 +22,7 @@ fn lists_global_diagnostics() {
 fn lists_workspace_scoped_diagnostics_when_requested() {
     Command::cargo_bin("rototo")
         .unwrap()
-        .args(["diagnostics", "list", "--workspace", "examples/basic"])
+        .args(["show", "examples/basic", "--lint-rules"])
         .assert()
         .success()
         .stdout(predicate::str::contains("rototo/qualifier-parse-failed"))
@@ -36,7 +36,7 @@ fn lists_workspace_scoped_diagnostics_when_requested() {
 fn lists_global_diagnostics_as_json() {
     Command::cargo_bin("rototo")
         .unwrap()
-        .args(["diagnostics", "list", "--json"])
+        .args(["show", "--lint-rules", "--json"])
         .assert()
         .success()
         .stdout(predicate::str::contains(r#""scope": "global""#))
@@ -54,7 +54,7 @@ fn lists_global_diagnostics_as_json() {
 fn retired_rototo_rules_are_not_listed() {
     let output = Command::cargo_bin("rototo")
         .unwrap()
-        .args(["diagnostics", "list", "--json"])
+        .args(["show", "--lint-rules", "--json"])
         .output()
         .unwrap();
 
@@ -88,7 +88,7 @@ fn retired_rototo_rules_are_not_listed() {
 fn gets_workspace_diagnostic() {
     Command::cargo_bin("rototo")
         .unwrap()
-        .args(["diagnostics", "get", "rototo/qualifier-parse-failed"])
+        .args(["show", "--lint-rule", "rototo/qualifier-parse-failed"])
         .assert()
         .success()
         .stdout(predicate::str::contains("rototo/qualifier-parse-failed"))
@@ -100,11 +100,10 @@ fn gets_workspace_custom_diagnostic() {
     Command::cargo_bin("rototo")
         .unwrap()
         .args([
-            "diagnostics",
-            "get",
-            "consumer-experience/checkout-heading-required",
-            "--workspace",
+            "show",
             "examples/basic",
+            "--lint-rule",
+            "consumer-experience/checkout-heading-required",
         ])
         .assert()
         .success()
@@ -119,10 +118,9 @@ fn lists_workspace_level_custom_diagnostics() {
     Command::cargo_bin("rototo")
         .unwrap()
         .args([
-            "diagnostics",
-            "list",
-            "--workspace",
+            "show",
             "tests/fixtures/workspaces/custom-targets",
+            "--lint-rules",
         ])
         .assert()
         .success()
@@ -135,10 +133,9 @@ fn lists_workspace_custom_warning_severity() {
     Command::cargo_bin("rototo")
         .unwrap()
         .args([
-            "diagnostics",
-            "list",
-            "--workspace",
+            "show",
             "tests/fixtures/workspaces/custom-warning",
+            "--lint-rules",
             "--json",
         ])
         .assert()
@@ -151,7 +148,7 @@ fn lists_workspace_custom_warning_severity() {
 fn lists_custom_lint_example_diagnostics() {
     Command::cargo_bin("rototo")
         .unwrap()
-        .args(["diagnostics", "list", "--workspace", "examples/custom-lint"])
+        .args(["show", "examples/custom-lint", "--lint-rules"])
         .assert()
         .success()
         .stdout(predicate::str::contains("operations/message-not-empty"));
@@ -161,7 +158,7 @@ fn lists_custom_lint_example_diagnostics() {
 fn missing_diagnostic_fails() {
     Command::cargo_bin("rototo")
         .unwrap()
-        .args(["diagnostics", "get", "rototo/missing"])
+        .args(["show", "--lint-rule", "rototo/missing"])
         .assert()
         .failure()
         .stderr(predicate::str::contains(

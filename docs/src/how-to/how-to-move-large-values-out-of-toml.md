@@ -103,14 +103,13 @@ value keys because there would be two sources of truth.
 Lint the workspace:
 
 ```sh
-rototo workspace lint config/
+rototo lint config/
 ```
 
 Resolve a value that moved:
 
 ```sh
-rototo variable resolve llm-agent-config \
-  --workspace config/ \
+rototo resolve config/ --variable llm-agent-config \
   --env prod \
   --context '{"account":{"plan":"enterprise","seats":250}}' \
   --json

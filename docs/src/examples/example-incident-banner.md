@@ -83,8 +83,7 @@ value = "payment_incident"
 ## Verify the behavior
 
 ```sh
-rototo variable resolve checkout-banner \
-  --workspace config/ \
+rototo resolve config/ --variable checkout-banner \
   --env prod \
   --context '{"request":{"country":"DE"}}' \
   --json

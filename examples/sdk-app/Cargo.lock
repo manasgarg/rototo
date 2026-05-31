@@ -1293,6 +1293,7 @@ dependencies = [
  "jsonschema",
  "mlua",
  "pulldown-cmark",
+ "regex",
  "reqwest",
  "serde",
  "serde_json",

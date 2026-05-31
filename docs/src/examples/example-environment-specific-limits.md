@@ -72,12 +72,11 @@ The `_` mapping is the explicit fallback. Named environment blocks override it.
 ## Verify the behavior
 
 ```sh
-rototo workspace lint config/
+rototo lint config/
 ```
 
 ```sh
-rototo variable resolve max-output-tokens \
-  --workspace config/ \
+rototo resolve config/ --variable max-output-tokens \
   --env prod \
   --context '{}'
 ```

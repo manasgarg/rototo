@@ -104,8 +104,7 @@ value = "acme"
 ## Verify the behavior
 
 ```sh
-rototo variable resolve search-config \
-  --workspace config/ \
+rototo resolve config/ --variable search-config \
   --env prod \
   --context '{"tenant":{"id":"acme","plan":"enterprise"}}' \
   --json

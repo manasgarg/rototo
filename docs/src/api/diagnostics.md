@@ -6,9 +6,9 @@ workspace.
 Use the CLI diagnostic catalog as the source of truth:
 
 ```sh
-rototo diagnostics list
-rototo diagnostics get rototo/variable-unknown-type
-rototo diagnostics get payments/max-token-budget --workspace ./config
+rototo show --lint-rules
+rototo show --lint-rule rototo/variable-unknown-type
+rototo show ./config --lint-rule payments/max-token-budget
 ```
 
 Every emitted lint diagnostic has these fields:
@@ -32,6 +32,6 @@ workspace-root diagnostics include a path without a range.
 Use JSON output for scripts and CI annotations:
 
 ```sh
-rototo diagnostics list --json
-rototo diagnostics get rototo/variable-unknown-type --json
+rototo show --lint-rules --json
+rototo show --lint-rule rototo/variable-unknown-type --json
 ```

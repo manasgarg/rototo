@@ -84,14 +84,13 @@ rototo selects `enterprise`. If it does not match, rototo selects `standard`.
 Lint the workspace:
 
 ```sh
-rototo workspace lint config/
+rototo lint config/
 ```
 
 Resolve with matching context:
 
 ```sh
-rototo variable resolve max-output-tokens \
-  --workspace config/ \
+rototo resolve config/ --variable max-output-tokens \
   --env prod \
   --context '{"account":{"plan":"enterprise","seats":250}}'
 ```
@@ -99,8 +98,7 @@ rototo variable resolve max-output-tokens \
 Resolve with non-matching context:
 
 ```sh
-rototo variable resolve max-output-tokens \
-  --workspace config/ \
+rototo resolve config/ --variable max-output-tokens \
   --env prod \
   --context '{"account":{"plan":"team","seats":25}}'
 ```
