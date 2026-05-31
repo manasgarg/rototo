@@ -52,7 +52,12 @@ pub(super) fn build_semantic_index(source: &SourceStore, syntax: &SyntaxIndex) -
                     .or_default()
                     .insert(
                         value_key.clone(),
-                        external_value::project_external_value(document, toml, value_key),
+                        external_value::project_external_value(
+                            document,
+                            toml,
+                            variable_id,
+                            value_key,
+                        ),
                     );
             }
             DocumentKind::Schema => {

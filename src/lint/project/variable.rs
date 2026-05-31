@@ -113,7 +113,7 @@ fn project_values(
         };
     };
 
-    let inline_values = project_inline_values(document, toml, table);
+    let inline_values = project_inline_values(document, toml, id, table);
     ValuesNode {
         location,
         inline_keys: inline_values.keys().cloned().collect(),
@@ -126,6 +126,7 @@ fn project_values(
 fn project_inline_values(
     document: &SourceDocument,
     _toml: &ParsedToml,
+    variable_id: &str,
     table: &Table<'_>,
 ) -> BTreeMap<String, ValueNode> {
     table
@@ -135,9 +136,13 @@ fn project_inline_values(
             (
                 key.clone(),
                 ValueNode {
+                    variable_id: variable_id.to_owned(),
                     key,
                     location: item_location(document, value),
                     value: json_from_toml_value(value),
+                    origin: ValueOrigin::Inline {
+                        variable_doc: document.id,
+                    },
                 },
             )
         })

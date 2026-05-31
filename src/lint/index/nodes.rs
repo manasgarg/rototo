@@ -161,9 +161,16 @@ pub(in crate::lint) struct ValuesNode {
 }
 
 pub(in crate::lint) struct ValueNode {
+    pub(in crate::lint) variable_id: VariableId,
     pub(in crate::lint) key: ValueKey,
     pub(in crate::lint) location: DiagnosticLocation,
     pub(in crate::lint) value: JsonValue,
+    pub(in crate::lint) origin: ValueOrigin,
+}
+
+pub(in crate::lint) enum ValueOrigin {
+    Inline { variable_doc: DocId },
+    External { doc: DocId, path: WorkspacePath },
 }
 
 pub(in crate::lint) struct SchemaNode {

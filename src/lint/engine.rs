@@ -106,6 +106,7 @@ mod tests {
     use crate::diagnostics::EntityId;
 
     use super::super::WORKSPACE_MANIFEST;
+    use super::super::index::ValueOrigin;
     use super::super::input::OverlayDocument;
     use super::*;
 
@@ -246,6 +247,19 @@ value = "control"
         assert_eq!(external_value.primary.range.unwrap().start.character, 8);
         assert_eq!(external_value.primary.range.unwrap().end.line, 0);
         assert_eq!(external_value.primary.range.unwrap().end.character, 18);
+
+        let external_node = external_value_snapshot
+            .index
+            .external_values
+            .get("external-message")
+            .and_then(|values| values.get("default"))
+            .expect("external value node");
+        assert_eq!(external_node.variable_id, "external-message");
+        assert!(matches!(
+            &external_node.origin,
+            ValueOrigin::External { path, .. }
+                if path == "variables/external-message-values/default.toml"
+        ));
     }
 
     #[tokio::test]

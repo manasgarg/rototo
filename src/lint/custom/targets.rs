@@ -143,7 +143,7 @@ fn registered_value_targets(
         for value in variable_values(ctx, variable) {
             targets.push(RegisteredLintTargetInstance {
                 entity: EntityId::Value {
-                    variable: variable.id.clone(),
+                    variable: value.variable_id.clone(),
                     key: value.key.clone(),
                 },
                 location: registered_value_location(value, field),
@@ -151,6 +151,7 @@ fn registered_value_targets(
                     "kind": "value",
                     "name": value.key,
                     "value": value.value,
+                    "origin": value_origin_json(value),
                     "selected": selected_value_field(&value.value, field),
                     "variable": {
                         "id": variable.id,
@@ -162,6 +163,20 @@ fn registered_value_targets(
         }
     }
     targets
+}
+
+fn value_origin_json(value: &ValueNode) -> JsonValue {
+    match &value.origin {
+        ValueOrigin::Inline { variable_doc } => serde_json::json!({
+            "kind": "inline",
+            "doc": variable_doc,
+        }),
+        ValueOrigin::External { doc, path } => serde_json::json!({
+            "kind": "external",
+            "doc": doc,
+            "path": path,
+        }),
+    }
 }
 
 fn registered_schema_targets(
