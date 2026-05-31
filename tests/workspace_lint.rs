@@ -252,6 +252,48 @@ fn reports_project_stage_predicate_and_type_failures() {
     assert!(diagnostic["primary"]["range"].is_object());
 }
 
+#[test]
+fn reports_reference_stage_failures() {
+    let lint = lint_json("tests/fixtures/workspaces/lint-failures", false);
+
+    assert_reference_rule(
+        &lint,
+        "rototo/qualifier-predicate-unknown-qualifier",
+        "qualifiers/bad-reference.toml",
+    );
+    assert_reference_rule(
+        &lint,
+        "rototo/variable-unknown-environment",
+        "variables/bad-env.toml",
+    );
+    assert_reference_rule(
+        &lint,
+        "rototo/variable-rule-unknown-qualifier",
+        "variables/bad-env.toml",
+    );
+    assert_reference_rule(
+        &lint,
+        "rototo/variable-unknown-value",
+        "variables/bad-env.toml",
+    );
+
+    let qualifier = diagnostic_for_rule(&lint, "rototo/qualifier-predicate-unknown-qualifier");
+    assert_eq!(qualifier["entity"]["kind"], "predicate");
+    assert_eq!(qualifier["entity"]["qualifier"], "bad-reference");
+    assert_eq!(qualifier["entity"]["index"], 0);
+
+    let unknown_value_messages =
+        diagnostic_messages_for_rule(&lint, "rototo/variable-unknown-value");
+    assert!(
+        unknown_value_messages
+            .contains(&"environment references unknown value: missing-value".to_owned())
+    );
+    assert!(
+        unknown_value_messages
+            .contains(&"rule references unknown value: another-missing-value".to_owned())
+    );
+}
+
 fn lint_json(workspace: &str, success: bool) -> serde_json::Value {
     let output = Command::cargo_bin("rototo")
         .unwrap()
@@ -293,9 +335,25 @@ fn diagnostic_for_rule<'a>(lint: &'a serde_json::Value, rule: &str) -> &'a serde
         .unwrap_or_else(|| panic!("diagnostic not found: {rule}\n{lint:#}"))
 }
 
+fn diagnostic_messages_for_rule(lint: &serde_json::Value, rule: &str) -> Vec<String> {
+    lint["diagnostics"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|diagnostic| diagnostic["rule"] == rule)
+        .map(|diagnostic| diagnostic["message"].as_str().unwrap().to_owned())
+        .collect()
+}
+
 fn assert_project_rule(lint: &serde_json::Value, rule: &str, path: &str) {
     let diagnostic = diagnostic_for_rule(lint, rule);
     assert_eq!(diagnostic["stage"], "project");
+    assert_eq!(diagnostic["primary"]["path"], path);
+}
+
+fn assert_reference_rule(lint: &serde_json::Value, rule: &str, path: &str) {
+    let diagnostic = diagnostic_for_rule(lint, rule);
+    assert_eq!(diagnostic["stage"], "reference");
     assert_eq!(diagnostic["primary"]["path"], path);
 }
 

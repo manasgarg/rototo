@@ -96,6 +96,7 @@ impl LintEngine {
         self.run_parse(&mut ctx);
         self.build_projection(&mut ctx);
         self.run_project(&mut ctx);
+        self.run_reference(&mut ctx);
 
         Ok(ctx.finish())
     }
@@ -254,6 +255,11 @@ impl LintEngine {
         lint_manifest_shape(ctx);
         lint_qualifier_shapes(ctx);
         lint_variable_shapes(ctx);
+    }
+
+    fn run_reference(&self, ctx: &mut LintContext) {
+        lint_qualifier_references(ctx);
+        lint_variable_references(ctx);
     }
 }
 
@@ -1337,6 +1343,197 @@ fn lint_variable_rule_shape(
     }
 }
 
+fn lint_qualifier_references(ctx: &mut LintContext) {
+    let known_qualifiers: BTreeSet<_> = ctx.index.qualifiers.keys().cloned().collect();
+    let diagnostics = &mut ctx.diagnostics;
+
+    for qualifier in ctx.index.qualifiers.values() {
+        let PredicateCollection::Predicates(predicates) = &qualifier.predicates else {
+            continue;
+        };
+
+        for predicate in predicates {
+            let ProjectField::Present(attribute) = &predicate.attribute else {
+                continue;
+            };
+            let Some(referenced_qualifier) = qualifier_reference(&attribute.value) else {
+                continue;
+            };
+
+            if known_qualifiers.contains(referenced_qualifier) {
+                continue;
+            }
+
+            push_reference_diagnostic(
+                diagnostics,
+                RototoRuleId::QualifierPredicateUnknownQualifier,
+                EntityId::Predicate {
+                    qualifier: qualifier.id.clone(),
+                    index: predicate.index,
+                },
+                attribute.location.clone(),
+                format!(
+                    "predicate references unknown qualifier: {}",
+                    reference_label(referenced_qualifier)
+                ),
+            );
+        }
+    }
+}
+
+fn lint_variable_references(ctx: &mut LintContext) {
+    let known_qualifiers: BTreeSet<_> = ctx.index.qualifiers.keys().cloned().collect();
+    let declared_environments = declared_workspace_environments(ctx);
+    let diagnostics = &mut ctx.diagnostics;
+
+    for variable in ctx.index.variables.values() {
+        let EnvironmentCollection::Environments(environments) = &variable.environments else {
+            continue;
+        };
+
+        for block in environments.values() {
+            lint_environment_reference(
+                diagnostics,
+                variable,
+                block,
+                declared_environments.as_ref(),
+            );
+            lint_environment_value_reference(diagnostics, variable, block);
+            lint_rule_references(diagnostics, variable, block, &known_qualifiers);
+        }
+    }
+}
+
+fn lint_environment_reference(
+    diagnostics: &mut Vec<LintDiagnostic>,
+    variable: &VariableNode,
+    block: &EnvironmentBlockNode,
+    declared_environments: Option<&BTreeSet<String>>,
+) {
+    let Some(declared_environments) = declared_environments else {
+        return;
+    };
+
+    if block.environment == "_" || declared_environments.contains(&block.environment) {
+        return;
+    }
+
+    push_reference_diagnostic(
+        diagnostics,
+        RototoRuleId::VariableUnknownEnvironment,
+        EntityId::EnvironmentBlock {
+            variable: variable.id.clone(),
+            environment: block.environment.clone(),
+        },
+        block.value.location(),
+        format!(
+            "variable references undeclared environment: {}",
+            block.environment
+        ),
+    );
+}
+
+fn lint_environment_value_reference(
+    diagnostics: &mut Vec<LintDiagnostic>,
+    variable: &VariableNode,
+    block: &EnvironmentBlockNode,
+) {
+    let ProjectField::Present(value) = &block.value else {
+        return;
+    };
+
+    if !variable_has_values(variable) || variable_has_value(variable, &value.value) {
+        return;
+    }
+
+    push_reference_diagnostic(
+        diagnostics,
+        RototoRuleId::VariableUnknownValue,
+        EntityId::EnvironmentBlock {
+            variable: variable.id.clone(),
+            environment: block.environment.clone(),
+        },
+        value.location.clone(),
+        format!("environment references unknown value: {}", value.value),
+    );
+}
+
+fn lint_rule_references(
+    diagnostics: &mut Vec<LintDiagnostic>,
+    variable: &VariableNode,
+    block: &EnvironmentBlockNode,
+    known_qualifiers: &BTreeSet<String>,
+) {
+    let RuleCollection::Rules(rules) = &block.rules else {
+        return;
+    };
+
+    for rule in rules {
+        if rule.invalid_shape {
+            continue;
+        }
+
+        let entity = EntityId::Rule {
+            variable: variable.id.clone(),
+            environment: block.environment.clone(),
+            index: rule.index,
+        };
+
+        if let ProjectField::Present(qualifier) = &rule.qualifier
+            && !known_qualifiers.contains(&qualifier.value)
+        {
+            push_reference_diagnostic(
+                diagnostics,
+                RototoRuleId::VariableRuleUnknownQualifier,
+                entity.clone(),
+                qualifier.location.clone(),
+                format!("rule references unknown qualifier: {}", qualifier.value),
+            );
+        }
+
+        if let ProjectField::Present(value) = &rule.value
+            && variable_has_values(variable)
+            && !variable_has_value(variable, &value.value)
+        {
+            push_reference_diagnostic(
+                diagnostics,
+                RototoRuleId::VariableUnknownValue,
+                entity,
+                value.location.clone(),
+                format!("rule references unknown value: {}", value.value),
+            );
+        }
+    }
+}
+
+fn declared_workspace_environments(ctx: &LintContext) -> Option<BTreeSet<String>> {
+    let manifest = ctx.index.manifest.as_ref()?;
+    let parsed = ctx.syntax.toml.get(&manifest.doc)?;
+    workspace_environments(&parsed.plain)
+        .ok()
+        .map(|environments| environments.into_iter().collect())
+}
+
+fn qualifier_reference(attribute: &str) -> Option<&str> {
+    attribute.strip_prefix("qualifier.")
+}
+
+fn reference_label(reference: &str) -> &str {
+    if reference.is_empty() {
+        "<empty>"
+    } else {
+        reference
+    }
+}
+
+fn variable_has_values(variable: &VariableNode) -> bool {
+    !variable.values.inline_keys.is_empty() || !variable.values.external_keys.is_empty()
+}
+
+fn variable_has_value(variable: &VariableNode, value: &str) -> bool {
+    variable.values.inline_keys.contains(value) || variable.values.external_keys.contains(value)
+}
+
 fn field_is_not_present<T>(field: &ProjectField<T>) -> bool {
     !matches!(field, ProjectField::Present(_))
 }
@@ -1370,6 +1567,22 @@ fn push_project_diagnostic(
     diagnostics.push(LintDiagnostic::rototo(
         rule,
         LintStage::Project,
+        entity,
+        primary,
+        message,
+    ));
+}
+
+fn push_reference_diagnostic(
+    diagnostics: &mut Vec<LintDiagnostic>,
+    rule: RototoRuleId,
+    entity: EntityId,
+    primary: DiagnosticLocation,
+    message: impl Into<String>,
+) {
+    diagnostics.push(LintDiagnostic::rototo(
+        rule,
+        LintStage::Reference,
         entity,
         primary,
         message,
