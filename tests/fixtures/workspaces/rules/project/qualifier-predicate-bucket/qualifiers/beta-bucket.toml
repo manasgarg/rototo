@@ -1,0 +1,7 @@
+schema_version = 1
+
+[[predicate]]
+attribute = "account.id"
+op = "bucket"
+salt = "checkout"
+range = [0, 20000]

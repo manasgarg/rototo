@@ -1,0 +1,9 @@
+schema_version = 1
+type = "string"
+
+[values]
+control = "control"
+
+[env._]
+value = "control"
+rule = ["not-a-table"]

@@ -1,0 +1,5 @@
+schema_version = 1
+
+[[predicate]]
+attribute = "account.tier"
+value = "premium"

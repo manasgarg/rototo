@@ -1035,6 +1035,284 @@ fn canonical_rule_fixtures() -> &'static [CanonicalRuleFixture] {
             }],
         },
         CanonicalRuleFixture {
+            rule: RototoRuleId::WorkspaceManifestSchemaFailed,
+            workspace: "tests/fixtures/workspaces/rules/project/workspace-manifest-schema-failed",
+            success: false,
+            expected: &[ExpectedDiagnostic {
+                rule: "rototo/workspace-manifest-schema-failed",
+                severity: "error",
+                stage: LintStage::Project,
+                entity: ExpectedEntity::Manifest,
+                primary: ExpectedPrimaryLocation::Document {
+                    path: "rototo-workspace.toml",
+                    range: None,
+                },
+                related: &[],
+            }],
+        },
+        CanonicalRuleFixture {
+            rule: RototoRuleId::QualifierSchemaVersion,
+            workspace: "tests/fixtures/workspaces/rules/project/qualifier-schema-version",
+            success: false,
+            expected: &[ExpectedDiagnostic {
+                rule: "rototo/qualifier-schema-version",
+                severity: "error",
+                stage: LintStage::Project,
+                entity: ExpectedEntity::Qualifier("premium-users"),
+                primary: ExpectedPrimaryLocation::Document {
+                    path: "qualifiers/premium-users.toml",
+                    range: None,
+                },
+                related: &[],
+            }],
+        },
+        CanonicalRuleFixture {
+            rule: RototoRuleId::QualifierPredicateMissing,
+            workspace: "tests/fixtures/workspaces/rules/project/qualifier-predicate-missing",
+            success: false,
+            expected: &[ExpectedDiagnostic {
+                rule: "rototo/qualifier-predicate-missing",
+                severity: "error",
+                stage: LintStage::Project,
+                entity: ExpectedEntity::Qualifier("premium-users"),
+                primary: ExpectedPrimaryLocation::Document {
+                    path: "qualifiers/premium-users.toml",
+                    range: None,
+                },
+                related: &[],
+            }],
+        },
+        CanonicalRuleFixture {
+            rule: RototoRuleId::QualifierPredicateShape,
+            workspace: "tests/fixtures/workspaces/rules/project/qualifier-predicate-shape",
+            success: false,
+            expected: &[ExpectedDiagnostic {
+                rule: "rototo/qualifier-predicate-shape",
+                severity: "error",
+                stage: LintStage::Project,
+                entity: ExpectedEntity::Predicate {
+                    qualifier: "premium-users",
+                    index: 0,
+                },
+                primary: ExpectedPrimaryLocation::Document {
+                    path: "qualifiers/premium-users.toml",
+                    range: Some(ExpectedRange {
+                        start_line: 2,
+                        start_character: 0,
+                        end_line: 4,
+                        end_character: 17,
+                    }),
+                },
+                related: &[],
+            }],
+        },
+        CanonicalRuleFixture {
+            rule: RototoRuleId::QualifierPredicateUnknownOp,
+            workspace: "tests/fixtures/workspaces/rules/project/qualifier-predicate-unknown-op",
+            success: false,
+            expected: &[ExpectedDiagnostic {
+                rule: "rototo/qualifier-predicate-unknown-op",
+                severity: "error",
+                stage: LintStage::Project,
+                entity: ExpectedEntity::Predicate {
+                    qualifier: "premium-users",
+                    index: 0,
+                },
+                primary: ExpectedPrimaryLocation::Document {
+                    path: "qualifiers/premium-users.toml",
+                    range: Some(ExpectedRange {
+                        start_line: 4,
+                        start_character: 5,
+                        end_line: 4,
+                        end_character: 15,
+                    }),
+                },
+                related: &[],
+            }],
+        },
+        CanonicalRuleFixture {
+            rule: RototoRuleId::QualifierPredicateBucket,
+            workspace: "tests/fixtures/workspaces/rules/project/qualifier-predicate-bucket",
+            success: false,
+            expected: &[ExpectedDiagnostic {
+                rule: "rototo/qualifier-predicate-bucket",
+                severity: "error",
+                stage: LintStage::Project,
+                entity: ExpectedEntity::Predicate {
+                    qualifier: "beta-bucket",
+                    index: 0,
+                },
+                primary: ExpectedPrimaryLocation::Document {
+                    path: "qualifiers/beta-bucket.toml",
+                    range: Some(ExpectedRange {
+                        start_line: 6,
+                        start_character: 8,
+                        end_line: 6,
+                        end_character: 18,
+                    }),
+                },
+                related: &[],
+            }],
+        },
+        CanonicalRuleFixture {
+            rule: RototoRuleId::QualifierPredicateValue,
+            workspace: "tests/fixtures/workspaces/rules/project/qualifier-predicate-value",
+            success: false,
+            expected: &[ExpectedDiagnostic {
+                rule: "rototo/qualifier-predicate-value",
+                severity: "error",
+                stage: LintStage::Project,
+                entity: ExpectedEntity::Predicate {
+                    qualifier: "premium-users",
+                    index: 0,
+                },
+                primary: ExpectedPrimaryLocation::Document {
+                    path: "qualifiers/premium-users.toml",
+                    range: Some(ExpectedRange {
+                        start_line: 5,
+                        start_character: 8,
+                        end_line: 5,
+                        end_character: 17,
+                    }),
+                },
+                related: &[],
+            }],
+        },
+        CanonicalRuleFixture {
+            rule: RototoRuleId::VariableSchemaVersion,
+            workspace: "tests/fixtures/workspaces/rules/project/variable-schema-version",
+            success: false,
+            expected: &[ExpectedDiagnostic {
+                rule: "rototo/variable-schema-version",
+                severity: "error",
+                stage: LintStage::Project,
+                entity: ExpectedEntity::Variable("message"),
+                primary: ExpectedPrimaryLocation::Document {
+                    path: "variables/message.toml",
+                    range: None,
+                },
+                related: &[],
+            }],
+        },
+        CanonicalRuleFixture {
+            rule: RototoRuleId::VariableTypeOrSchema,
+            workspace: "tests/fixtures/workspaces/rules/project/variable-type-or-schema",
+            success: false,
+            expected: &[ExpectedDiagnostic {
+                rule: "rototo/variable-type-or-schema",
+                severity: "error",
+                stage: LintStage::Project,
+                entity: ExpectedEntity::Variable("message"),
+                primary: ExpectedPrimaryLocation::Document {
+                    path: "variables/message.toml",
+                    range: None,
+                },
+                related: &[],
+            }],
+        },
+        CanonicalRuleFixture {
+            rule: RototoRuleId::VariableValuesMissing,
+            workspace: "tests/fixtures/workspaces/rules/project/variable-values-missing",
+            success: false,
+            expected: &[ExpectedDiagnostic {
+                rule: "rototo/variable-values-missing",
+                severity: "error",
+                stage: LintStage::Project,
+                entity: ExpectedEntity::Variable("message"),
+                primary: ExpectedPrimaryLocation::Document {
+                    path: "variables/message.toml",
+                    range: None,
+                },
+                related: &[],
+            }],
+        },
+        CanonicalRuleFixture {
+            rule: RototoRuleId::VariableEnvMissingDefault,
+            workspace: "tests/fixtures/workspaces/rules/project/variable-env-missing-default",
+            success: false,
+            expected: &[ExpectedDiagnostic {
+                rule: "rototo/variable-env-missing-default",
+                severity: "error",
+                stage: LintStage::Project,
+                entity: ExpectedEntity::Variable("message"),
+                primary: ExpectedPrimaryLocation::Document {
+                    path: "variables/message.toml",
+                    range: None,
+                },
+                related: &[],
+            }],
+        },
+        CanonicalRuleFixture {
+            rule: RototoRuleId::VariableEnvShape,
+            workspace: "tests/fixtures/workspaces/rules/project/variable-env-shape",
+            success: false,
+            expected: &[
+                ExpectedDiagnostic {
+                    rule: "rototo/variable-env-shape",
+                    severity: "error",
+                    stage: LintStage::Project,
+                    entity: ExpectedEntity::EnvironmentBlock {
+                        variable: "message",
+                        environment: "_",
+                    },
+                    primary: ExpectedPrimaryLocation::Document {
+                        path: "variables/message.toml",
+                        range: Some(ExpectedRange {
+                            start_line: 7,
+                            start_character: 4,
+                            end_line: 7,
+                            end_character: 13,
+                        }),
+                    },
+                    related: &[],
+                },
+                ExpectedDiagnostic {
+                    rule: "rototo/variable-value-unused",
+                    severity: "warning",
+                    stage: LintStage::Graph,
+                    entity: ExpectedEntity::Value {
+                        variable: "message",
+                        key: "control",
+                    },
+                    primary: ExpectedPrimaryLocation::Document {
+                        path: "variables/message.toml",
+                        range: Some(ExpectedRange {
+                            start_line: 4,
+                            start_character: 10,
+                            end_line: 4,
+                            end_character: 19,
+                        }),
+                    },
+                    related: &[],
+                },
+            ],
+        },
+        CanonicalRuleFixture {
+            rule: RototoRuleId::VariableRuleShape,
+            workspace: "tests/fixtures/workspaces/rules/project/variable-rule-shape",
+            success: false,
+            expected: &[ExpectedDiagnostic {
+                rule: "rototo/variable-rule-shape",
+                severity: "error",
+                stage: LintStage::Project,
+                entity: ExpectedEntity::Rule {
+                    variable: "message",
+                    environment: "_",
+                    index: 0,
+                },
+                primary: ExpectedPrimaryLocation::Document {
+                    path: "variables/message.toml",
+                    range: Some(ExpectedRange {
+                        start_line: 8,
+                        start_character: 8,
+                        end_line: 8,
+                        end_character: 21,
+                    }),
+                },
+                related: &[],
+            }],
+        },
+        CanonicalRuleFixture {
             rule: RototoRuleId::VariableRuleUnknownQualifier,
             workspace: "tests/fixtures/workspaces/rules/reference/variable-rule-unknown-qualifier",
             success: false,
@@ -1068,34 +1346,13 @@ fn pending_canonical_rule_fixtures() -> &'static [PendingCanonicalRuleFixture] {
             rule: RototoRuleId::WorkspaceNotFound,
         },
         PendingCanonicalRuleFixture {
-            rule: RototoRuleId::WorkspaceManifestSchemaFailed,
-        },
-        PendingCanonicalRuleFixture {
             rule: RototoRuleId::WorkspaceContextSchemaRef,
         },
         PendingCanonicalRuleFixture {
             rule: RototoRuleId::WorkspaceContextSchemaAttribute,
         },
         PendingCanonicalRuleFixture {
-            rule: RototoRuleId::QualifierSchemaVersion,
-        },
-        PendingCanonicalRuleFixture {
-            rule: RototoRuleId::QualifierPredicateMissing,
-        },
-        PendingCanonicalRuleFixture {
-            rule: RototoRuleId::QualifierPredicateShape,
-        },
-        PendingCanonicalRuleFixture {
-            rule: RototoRuleId::QualifierPredicateUnknownOp,
-        },
-        PendingCanonicalRuleFixture {
             rule: RototoRuleId::QualifierPredicateUnknownQualifier,
-        },
-        PendingCanonicalRuleFixture {
-            rule: RototoRuleId::QualifierPredicateBucket,
-        },
-        PendingCanonicalRuleFixture {
-            rule: RototoRuleId::QualifierPredicateValue,
         },
         PendingCanonicalRuleFixture {
             rule: RototoRuleId::QualifierCycle,
@@ -1104,16 +1361,7 @@ fn pending_canonical_rule_fixtures() -> &'static [PendingCanonicalRuleFixture] {
             rule: RototoRuleId::QualifierUnreferenced,
         },
         PendingCanonicalRuleFixture {
-            rule: RototoRuleId::VariableSchemaVersion,
-        },
-        PendingCanonicalRuleFixture {
-            rule: RototoRuleId::VariableTypeOrSchema,
-        },
-        PendingCanonicalRuleFixture {
             rule: RototoRuleId::VariableUnknownType,
-        },
-        PendingCanonicalRuleFixture {
-            rule: RototoRuleId::VariableValuesMissing,
         },
         PendingCanonicalRuleFixture {
             rule: RototoRuleId::VariableUnknownValue,
@@ -1128,16 +1376,7 @@ fn pending_canonical_rule_fixtures() -> &'static [PendingCanonicalRuleFixture] {
             rule: RototoRuleId::VariableSchemaRef,
         },
         PendingCanonicalRuleFixture {
-            rule: RototoRuleId::VariableEnvMissingDefault,
-        },
-        PendingCanonicalRuleFixture {
             rule: RototoRuleId::VariableUnknownEnvironment,
-        },
-        PendingCanonicalRuleFixture {
-            rule: RototoRuleId::VariableEnvShape,
-        },
-        PendingCanonicalRuleFixture {
-            rule: RototoRuleId::VariableRuleShape,
         },
         PendingCanonicalRuleFixture {
             rule: RototoRuleId::VariableRuleShadowed,
