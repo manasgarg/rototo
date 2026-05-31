@@ -927,6 +927,114 @@ fn canonical_rule_fixtures() -> &'static [CanonicalRuleFixture] {
             }],
         },
         CanonicalRuleFixture {
+            rule: RototoRuleId::WorkspaceManifestParseFailed,
+            workspace: "tests/fixtures/workspaces/rules/parse/workspace-manifest-parse-failed",
+            success: false,
+            expected: &[ExpectedDiagnostic {
+                rule: "rototo/workspace-manifest-parse-failed",
+                severity: "error",
+                stage: LintStage::Parse,
+                entity: ExpectedEntity::Manifest,
+                primary: ExpectedPrimaryLocation::Document {
+                    path: "rototo-workspace.toml",
+                    range: Some(ExpectedRange {
+                        start_line: 2,
+                        start_character: 13,
+                        end_line: 3,
+                        end_character: 0,
+                    }),
+                },
+                related: &[],
+            }],
+        },
+        CanonicalRuleFixture {
+            rule: RototoRuleId::QualifierParseFailed,
+            workspace: "tests/fixtures/workspaces/rules/parse/qualifier-parse-failed",
+            success: false,
+            expected: &[ExpectedDiagnostic {
+                rule: "rototo/qualifier-parse-failed",
+                severity: "error",
+                stage: LintStage::Parse,
+                entity: ExpectedEntity::Qualifier("broken"),
+                primary: ExpectedPrimaryLocation::Document {
+                    path: "qualifiers/broken.toml",
+                    range: Some(ExpectedRange {
+                        start_line: 2,
+                        start_character: 10,
+                        end_line: 3,
+                        end_character: 0,
+                    }),
+                },
+                related: &[],
+            }],
+        },
+        CanonicalRuleFixture {
+            rule: RototoRuleId::VariableParseFailed,
+            workspace: "tests/fixtures/workspaces/rules/parse/variable-parse-failed",
+            success: false,
+            expected: &[ExpectedDiagnostic {
+                rule: "rototo/variable-parse-failed",
+                severity: "error",
+                stage: LintStage::Parse,
+                entity: ExpectedEntity::Variable("broken"),
+                primary: ExpectedPrimaryLocation::Document {
+                    path: "variables/broken.toml",
+                    range: Some(ExpectedRange {
+                        start_line: 3,
+                        start_character: 6,
+                        end_line: 4,
+                        end_character: 0,
+                    }),
+                },
+                related: &[],
+            }],
+        },
+        CanonicalRuleFixture {
+            rule: RototoRuleId::VariableExternalValueParseFailed,
+            workspace: "tests/fixtures/workspaces/rules/parse/variable-external-value-parse-failed",
+            success: false,
+            expected: &[ExpectedDiagnostic {
+                rule: "rototo/variable-external-value-parse-failed",
+                severity: "error",
+                stage: LintStage::Parse,
+                entity: ExpectedEntity::Value {
+                    variable: "external-message",
+                    key: "broken",
+                },
+                primary: ExpectedPrimaryLocation::Document {
+                    path: "variables/external-message-values/broken.toml",
+                    range: Some(ExpectedRange {
+                        start_line: 0,
+                        start_character: 7,
+                        end_line: 1,
+                        end_character: 0,
+                    }),
+                },
+                related: &[],
+            }],
+        },
+        CanonicalRuleFixture {
+            rule: RototoRuleId::SchemaParseFailed,
+            workspace: "tests/fixtures/workspaces/rules/parse/schema-parse-failed",
+            success: false,
+            expected: &[ExpectedDiagnostic {
+                rule: "rototo/schema-parse-failed",
+                severity: "error",
+                stage: LintStage::Parse,
+                entity: ExpectedEntity::Schema("schemas/broken.schema.json"),
+                primary: ExpectedPrimaryLocation::Document {
+                    path: "schemas/broken.schema.json",
+                    range: Some(ExpectedRange {
+                        start_line: 2,
+                        start_character: 1,
+                        end_line: 3,
+                        end_character: 0,
+                    }),
+                },
+                related: &[],
+            }],
+        },
+        CanonicalRuleFixture {
             rule: RototoRuleId::VariableRuleUnknownQualifier,
             workspace: "tests/fixtures/workspaces/rules/reference/variable-rule-unknown-qualifier",
             success: false,
@@ -960,9 +1068,6 @@ fn pending_canonical_rule_fixtures() -> &'static [PendingCanonicalRuleFixture] {
             rule: RototoRuleId::WorkspaceNotFound,
         },
         PendingCanonicalRuleFixture {
-            rule: RototoRuleId::WorkspaceManifestParseFailed,
-        },
-        PendingCanonicalRuleFixture {
             rule: RototoRuleId::WorkspaceManifestSchemaFailed,
         },
         PendingCanonicalRuleFixture {
@@ -970,9 +1075,6 @@ fn pending_canonical_rule_fixtures() -> &'static [PendingCanonicalRuleFixture] {
         },
         PendingCanonicalRuleFixture {
             rule: RototoRuleId::WorkspaceContextSchemaAttribute,
-        },
-        PendingCanonicalRuleFixture {
-            rule: RototoRuleId::QualifierParseFailed,
         },
         PendingCanonicalRuleFixture {
             rule: RototoRuleId::QualifierSchemaVersion,
@@ -1000,9 +1102,6 @@ fn pending_canonical_rule_fixtures() -> &'static [PendingCanonicalRuleFixture] {
         },
         PendingCanonicalRuleFixture {
             rule: RototoRuleId::QualifierUnreferenced,
-        },
-        PendingCanonicalRuleFixture {
-            rule: RototoRuleId::VariableParseFailed,
         },
         PendingCanonicalRuleFixture {
             rule: RototoRuleId::VariableSchemaVersion,
@@ -1050,9 +1149,6 @@ fn pending_canonical_rule_fixtures() -> &'static [PendingCanonicalRuleFixture] {
             rule: RototoRuleId::VariableExternalValuesLoadFailed,
         },
         PendingCanonicalRuleFixture {
-            rule: RototoRuleId::VariableExternalValueParseFailed,
-        },
-        PendingCanonicalRuleFixture {
             rule: RototoRuleId::VariableExternalValueDuplicate,
         },
         PendingCanonicalRuleFixture {
@@ -1072,9 +1168,6 @@ fn pending_canonical_rule_fixtures() -> &'static [PendingCanonicalRuleFixture] {
         },
         PendingCanonicalRuleFixture {
             rule: RototoRuleId::CustomLintRuleConflict,
-        },
-        PendingCanonicalRuleFixture {
-            rule: RototoRuleId::SchemaParseFailed,
         },
         PendingCanonicalRuleFixture {
             rule: RototoRuleId::SchemaInvalid,
