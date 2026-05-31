@@ -19,6 +19,12 @@ title = "Invalid custom authority"
 help = "Use a non-rototo authority."
 
 [[lint.rule]]
+id = "payments/invalid-severity"
+title = "Invalid custom severity"
+help = "Use error or warning severity."
+severity = "notice"
+
+[[lint.rule]]
 id = "payments/max-token-budget"
 title = "Token budget exceeds payments policy"
 help = "Lower max_output_tokens or update the payments policy."

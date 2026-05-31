@@ -421,21 +421,32 @@ fn valid_rule_segment(segment: &str) -> bool {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CustomRuleDefinition {
     pub rule: CustomRuleId,
+    pub severity: Severity,
     pub title: String,
     pub help: String,
 }
 
 impl CustomRuleDefinition {
     pub fn new(rule: CustomRuleId, title: impl Into<String>, help: impl Into<String>) -> Self {
+        Self::with_severity(rule, Severity::Error, title, help)
+    }
+
+    pub fn with_severity(
+        rule: CustomRuleId,
+        severity: Severity,
+        title: impl Into<String>,
+        help: impl Into<String>,
+    ) -> Self {
         Self {
             rule,
+            severity,
             title: title.into(),
             help: help.into(),
         }
     }
 
     pub fn same_metadata(&self, other: &Self) -> bool {
-        self.title == other.title && self.help == other.help
+        self.severity == other.severity && self.title == other.title && self.help == other.help
     }
 }
 
@@ -490,7 +501,7 @@ impl DiagnosticCatalogEntry {
     pub fn from_custom(definition: &CustomRuleDefinition) -> Self {
         Self {
             rule: definition.rule.as_str().to_owned(),
-            severity: Severity::Error,
+            severity: definition.severity,
             entity: DiagnosticEntity::Variable,
             title: definition.title.clone(),
             help: definition.help.clone(),
@@ -662,7 +673,7 @@ impl LintDiagnostic {
     ) -> Self {
         Self {
             rule: DiagnosticRule::Custom(definition.rule.clone()),
-            severity: Severity::Error,
+            severity: definition.severity,
             stage,
             entity,
             message: message.into(),
@@ -701,7 +712,7 @@ impl Diagnostic {
     ) -> Self {
         Self {
             rule: DiagnosticRule::Custom(definition.rule.clone()),
-            severity: Severity::Error,
+            severity: definition.severity,
             path: path.into(),
             message: message.into(),
             help: definition.help.clone(),
@@ -714,4 +725,14 @@ impl Diagnostic {
 pub enum Severity {
     Error,
     Warning,
+}
+
+impl Severity {
+    pub fn parse(value: &str) -> Option<Self> {
+        match value {
+            "error" => Some(Self::Error),
+            "warning" => Some(Self::Warning),
+            _ => None,
+        }
+    }
 }

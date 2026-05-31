@@ -4,7 +4,7 @@ use std::path::Path;
 use toml::Value;
 
 use crate::diagnostics::{
-    CustomRuleDefinition, CustomRuleId, DiagnosticCatalogEntry, RototoRuleId,
+    CustomRuleDefinition, CustomRuleId, DiagnosticCatalogEntry, RototoRuleId, Severity,
 };
 use crate::error::{Result, RototoError};
 use crate::model::{DiagnosticCatalog, DiagnosticCatalogScope};
@@ -85,10 +85,19 @@ fn custom_rule_definitions_from_toml(toml: &Value) -> Vec<CustomRuleDefinition> 
         ) else {
             continue;
         };
-        let Ok(rule) = CustomRuleId::parse(id) else {
+        let Ok(rule_id) = CustomRuleId::parse(id) else {
             continue;
         };
-        definitions.push(CustomRuleDefinition::new(rule, title, help));
+        let Some(severity) = rule
+            .get("severity")
+            .map(|value| value.as_str().and_then(Severity::parse))
+            .unwrap_or(Some(Severity::Error))
+        else {
+            continue;
+        };
+        definitions.push(CustomRuleDefinition::with_severity(
+            rule_id, severity, title, help,
+        ));
     }
     definitions
 }

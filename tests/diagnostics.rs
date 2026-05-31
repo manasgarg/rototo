@@ -131,6 +131,23 @@ fn lists_workspace_level_custom_diagnostics() {
 }
 
 #[test]
+fn lists_workspace_custom_warning_severity() {
+    Command::cargo_bin("rototo")
+        .unwrap()
+        .args([
+            "diagnostics",
+            "list",
+            "--workspace",
+            "tests/fixtures/workspaces/custom-warning",
+            "--json",
+        ])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains(r#""rule": "policy/advisory""#))
+        .stdout(predicate::str::contains(r#""severity": "warning""#));
+}
+
+#[test]
 fn lists_custom_lint_example_diagnostics() {
     Command::cargo_bin("rototo")
         .unwrap()

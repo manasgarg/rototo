@@ -8,7 +8,8 @@ use toml_edit::{ImDocument, Item, Table, TableLike, Value as EditValue};
 
 use crate::diagnostics::{
     CustomRuleDefinition, CustomRuleId, DiagnosticLocation, DiagnosticRule, DocId, EntityId,
-    LintDiagnostic, LintStage, RelatedLocation, RototoRuleId, SourcePosition, SourceRange,
+    LintDiagnostic, LintStage, RelatedLocation, RototoRuleId, Severity, SourcePosition,
+    SourceRange,
 };
 use crate::error::{Result, RototoError};
 use crate::lua_lint;
@@ -749,6 +750,7 @@ struct CustomRuleDeclarationNode {
     id: ProjectField<String>,
     title: ProjectField<String>,
     help: ProjectField<String>,
+    severity: Option<ProjectField<Severity>>,
 }
 
 enum EnvironmentCollection {
@@ -1057,6 +1059,7 @@ fn project_custom_rule_declaration(
         id: string_field(document, table, "id", location.clone()),
         title: string_field(document, table, "title", location.clone()),
         help: string_field(document, table, "help", location),
+        severity: optional_severity_field(document, table, "severity"),
     }
 }
 
@@ -1359,6 +1362,23 @@ fn optional_string_field(
     Some(match item.as_str() {
         Some(value) => ProjectField::Present(Spanned {
             value: value.to_owned(),
+            location: item_location(document, item),
+        }),
+        None => ProjectField::Invalid {
+            location: item_location(document, item),
+        },
+    })
+}
+
+fn optional_severity_field(
+    document: &SourceDocument,
+    table: &dyn TableLike,
+    key: &str,
+) -> Option<ProjectField<Severity>> {
+    let item = table.get(key)?;
+    Some(match item.as_str().and_then(Severity::parse) {
+        Some(value) => ProjectField::Present(Spanned {
+            value,
             location: item_location(document, item),
         }),
         None => ProjectField::Invalid {
@@ -1752,6 +1772,15 @@ fn lint_workspace_custom_rule_declaration_shape(
             "custom lint rule must contain help",
         );
     }
+    if let Some(ProjectField::Invalid { location }) = &rule.severity {
+        push_project_diagnostic(
+            diagnostics,
+            RototoRuleId::CustomLintRuleShape,
+            EntityId::Manifest,
+            location.clone(),
+            "custom lint rule severity must be error or warning",
+        );
+    }
 
     if let ProjectField::Present(id) = &rule.id
         && let Err(err) = CustomRuleId::parse(&id.value)
@@ -1870,8 +1899,18 @@ fn custom_rule_definitions_from_rules(
             let Ok(rule_id) = CustomRuleId::parse(&id.value) else {
                 return None;
             };
+            let severity = match &rule.severity {
+                Some(ProjectField::Present(severity)) => severity.value,
+                Some(ProjectField::Invalid { .. }) => return None,
+                Some(ProjectField::Missing { .. }) | None => Severity::Error,
+            };
             Some((
-                CustomRuleDefinition::new(rule_id, title.value.clone(), help.value.clone()),
+                CustomRuleDefinition::with_severity(
+                    rule_id,
+                    severity,
+                    title.value.clone(),
+                    help.value.clone(),
+                ),
                 rule.location.clone(),
             ))
         })
@@ -4101,10 +4140,14 @@ fn push_manifest_hover_candidates(
             custom_rule_hover_contents(&definition),
         );
         for location in [
-            rule.id.location(),
-            rule.title.location(),
-            rule.help.location(),
-        ] {
+            Some(rule.id.location()),
+            Some(rule.title.location()),
+            Some(rule.help.location()),
+            rule.severity.as_ref().map(ProjectField::location),
+        ]
+        .into_iter()
+        .flatten()
+        {
             push_hover_candidate(
                 candidates,
                 path,
@@ -4425,8 +4468,14 @@ fn custom_rule_definition_from_declaration(
         return None;
     };
     let rule_id = CustomRuleId::parse(&id.value).ok()?;
-    Some(CustomRuleDefinition::new(
+    let severity = match &rule.severity {
+        Some(ProjectField::Present(severity)) => severity.value,
+        Some(ProjectField::Invalid { .. }) => return None,
+        Some(ProjectField::Missing { .. }) | None => Severity::Error,
+    };
+    Some(CustomRuleDefinition::with_severity(
         rule_id,
+        severity,
         title.value.clone(),
         help.value.clone(),
     ))

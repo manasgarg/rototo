@@ -667,6 +667,11 @@ fn reports_custom_lint_contract_failures() {
         "rototo/custom-lint-invalid-rule",
         "rototo-workspace.toml",
     );
+    assert_project_rule(
+        &lint,
+        "rototo/custom-lint-rule-shape",
+        "rototo-workspace.toml",
+    );
     assert_policy_rule(
         &lint,
         "rototo/custom-lint-failed",
@@ -749,6 +754,20 @@ fn reports_registered_custom_lint_targets() {
     assert_eq!(schema["entity"]["kind"], "schema");
     assert_eq!(schema["entity"]["path"], "schemas/config.schema.json");
     assert_eq!(schema["stage"], "value");
+}
+
+#[test]
+fn reports_custom_warning_lint_without_failing() {
+    let lint = lint_json("tests/fixtures/workspaces/custom-warning", true);
+    let diagnostic = only_diagnostic(&lint);
+
+    assert_eq!(diagnostic["rule"], "policy/advisory");
+    assert_eq!(diagnostic["severity"], "warning");
+    assert_eq!(diagnostic["stage"], "policy");
+    assert_eq!(diagnostic["entity"]["kind"], "variable");
+    assert_eq!(diagnostic["entity"]["id"], "message");
+    assert_eq!(diagnostic["primary"]["path"], "variables/message.toml");
+    assert!(diagnostic["primary"]["range"].is_object());
 }
 
 fn lint_json(workspace: &str, success: bool) -> serde_json::Value {

@@ -1,0 +1,9 @@
+schema_version = 1
+type = "string"
+description = "Message variable with a custom warning"
+
+[values]
+default = "hello"
+
+[env._]
+value = "default"
