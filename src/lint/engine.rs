@@ -16,6 +16,7 @@ use super::output::sort_diagnostics;
 use super::project::{
     project_external_value, project_manifest, project_qualifier, project_variable,
 };
+use super::references::ReferenceIndex;
 use super::source::{DocumentCollection, DocumentKind, SourceStore};
 use super::syntax::{
     ParsedToml, SyntaxIndex, json_parse_diagnostic, read_error_diagnostic,
@@ -40,6 +41,7 @@ impl LintEngine {
         self.run_discover(&mut ctx).await?;
         self.run_parse(&mut ctx);
         self.build_projection(&mut ctx);
+        self.build_references(&mut ctx);
         self.run_project(&mut ctx);
         self.run_register(&mut ctx).await;
         self.run_registered_custom_lints(&mut ctx, LintStage::Project)
@@ -220,6 +222,10 @@ impl LintEngine {
         builtins::run_project(ctx);
     }
 
+    fn build_references(&self, ctx: &mut LintContext) {
+        ctx.references = ReferenceIndex::build(&ctx.index, &ctx.source, &ctx.syntax);
+    }
+
     async fn run_register(&self, ctx: &mut LintContext) {
         register_custom_lints(ctx).await;
     }
@@ -246,6 +252,7 @@ pub(super) struct LintContext {
     pub(super) source: SourceStore,
     pub(super) syntax: SyntaxIndex,
     pub(super) index: SemanticIndex,
+    pub(super) references: ReferenceIndex,
     pub(super) registered_custom_lints: Vec<RegisteredCustomLint>,
     pub(super) diagnostics: Vec<LintDiagnostic>,
 }
@@ -258,6 +265,7 @@ impl LintContext {
             input,
             syntax: SyntaxIndex::default(),
             index: SemanticIndex::default(),
+            references: ReferenceIndex::default(),
             registered_custom_lints: Vec::new(),
             diagnostics: Vec::new(),
         }
@@ -274,6 +282,7 @@ impl LintContext {
         WorkspaceLintSnapshot {
             lint,
             index: self.index,
+            references: self.references,
         }
     }
 }
@@ -433,6 +442,145 @@ value = "control"
         assert_eq!(external_value.primary.range.unwrap().start.character, 8);
         assert_eq!(external_value.primary.range.unwrap().end.line, 0);
         assert_eq!(external_value.primary.range.unwrap().end.character, 18);
+    }
+
+    #[tokio::test]
+    async fn snapshot_reference_index_records_resolved_and_unresolved_edges() {
+        use super::super::references::{ReferenceSource, ReferenceTarget};
+
+        let tempdir = tempfile::tempdir().unwrap();
+        let root = tempdir.path();
+        tokio::fs::create_dir_all(root.join("qualifiers"))
+            .await
+            .unwrap();
+        tokio::fs::create_dir_all(root.join("variables"))
+            .await
+            .unwrap();
+        tokio::fs::create_dir_all(root.join("schemas"))
+            .await
+            .unwrap();
+        tokio::fs::write(
+            root.join(WORKSPACE_MANIFEST),
+            r#"schema_version = 1
+
+[environments]
+values = ["prod", "stage"]
+
+[context]
+schema = "schemas/context.schema.json"
+"#,
+        )
+        .await
+        .unwrap();
+        tokio::fs::write(
+            root.join("qualifiers/beta.toml"),
+            r#"schema_version = 1
+
+[[predicate]]
+attribute = "account.beta"
+op = "eq"
+value = true
+"#,
+        )
+        .await
+        .unwrap();
+        tokio::fs::write(
+            root.join("qualifiers/premium.toml"),
+            r#"schema_version = 1
+
+[[predicate]]
+attribute = "qualifier.beta"
+op = "eq"
+value = true
+
+[[predicate]]
+attribute = "account.region"
+op = "eq"
+value = "eu"
+"#,
+        )
+        .await
+        .unwrap();
+        tokio::fs::write(
+            root.join("variables/message.toml"),
+            r#"schema_version = 1
+schema = "../schemas/message.schema.json"
+
+[values]
+control = "hello"
+treatment = "welcome"
+
+[env._]
+value = "control"
+
+[env.prod]
+value = "control"
+rule = [
+  { qualifier = "premium", value = "treatment" },
+]
+
+[env.stage]
+value = "missing"
+rule = [
+  { qualifier = "missing", value = "absent" },
+]
+"#,
+        )
+        .await
+        .unwrap();
+        tokio::fs::write(
+            root.join("schemas/context.schema.json"),
+            r#"{"type":"object"}"#,
+        )
+        .await
+        .unwrap();
+        tokio::fs::write(
+            root.join("schemas/message.schema.json"),
+            r#"{"type":"string"}"#,
+        )
+        .await
+        .unwrap();
+
+        let snapshot = lint_workspace_snapshot(LintInput::new(root.to_path_buf()))
+            .await
+            .unwrap();
+
+        assert!(snapshot.references.edges().iter().any(|edge| {
+            matches!(edge.source, ReferenceSource::ManifestContextSchema)
+                && edge.target == ReferenceTarget::Schema("schemas/context.schema.json".to_owned())
+                && edge.is_resolved()
+        }));
+        assert!(snapshot.references.edges().iter().any(|edge| {
+            matches!(
+                edge.source,
+                ReferenceSource::QualifierPredicateQualifier { .. }
+            ) && edge.target == ReferenceTarget::Qualifier("beta".to_owned())
+                && edge.is_resolved()
+        }));
+        assert!(snapshot.references.edges().iter().any(|edge| {
+            matches!(
+                edge.source,
+                ReferenceSource::QualifierPredicateContextAttribute { .. }
+            ) && edge.target == ReferenceTarget::ContextAttribute("account.region".to_owned())
+        }));
+        assert!(snapshot.references.edges().iter().any(|edge| {
+            matches!(edge.source, ReferenceSource::VariableRuleQualifier { .. })
+                && edge.target == ReferenceTarget::Qualifier("missing".to_owned())
+                && !edge.is_resolved()
+        }));
+        assert!(snapshot.references.edges().iter().any(|edge| {
+            matches!(edge.source, ReferenceSource::VariableRuleValue { .. })
+                && edge.target
+                    == ReferenceTarget::VariableValue {
+                        variable: "message".to_owned(),
+                        value: "absent".to_owned(),
+                    }
+                && !edge.is_resolved()
+        }));
+
+        let referenced_qualifiers = snapshot.references.referenced_qualifier_ids();
+        assert!(referenced_qualifiers.contains("beta"));
+        assert!(referenced_qualifiers.contains("premium"));
     }
 
     fn diagnostic_by_rule<'a>(lint: &'a WorkspaceLint, rule: &str) -> &'a LintDiagnostic {

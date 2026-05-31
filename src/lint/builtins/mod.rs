@@ -7,7 +7,6 @@ mod workspace;
 use super::engine::LintContext;
 use super::nodes::{PredicateOp, ProjectField};
 
-pub(super) use qualifier::qualifier_reference;
 pub(super) use workspace::{
     custom_rule_definitions_from_collection, declared_workspace_environments,
     workspace_custom_rule_definitions,

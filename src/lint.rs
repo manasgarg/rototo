@@ -11,6 +11,7 @@ pub(crate) mod input;
 mod nodes;
 mod output;
 mod project;
+mod references;
 mod source;
 mod stages;
 mod symbols;
@@ -18,6 +19,7 @@ mod syntax;
 
 pub(crate) use input::{LintInput, OverlayDocument};
 use nodes::*;
+use references::ReferenceIndex;
 pub(crate) use symbols::{
     WorkspaceCompletionItem, WorkspaceCompletionItemKind, WorkspaceDefinition,
     WorkspaceDocumentSymbol, WorkspaceDocumentSymbolKind, WorkspaceHover, WorkspaceReference,
@@ -93,6 +95,7 @@ pub(crate) async fn lint_workspace_snapshot(input: LintInput) -> Result<Workspac
 pub(crate) struct WorkspaceLintSnapshot {
     pub(crate) lint: WorkspaceLint,
     index: SemanticIndex,
+    references: ReferenceIndex,
 }
 
 impl WorkspaceLintSnapshot {

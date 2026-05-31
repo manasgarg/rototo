@@ -4,9 +4,9 @@ use crate::diagnostics::{DiagnosticLocation, EntityId, RototoRuleId};
 
 use super::super::engine::LintContext;
 use super::super::nodes::*;
+use super::super::references::{ReferenceSource, ReferenceTarget};
 use super::super::source::{DocumentKind, resolve_workspace_root_path};
 use super::super::stages::{push_reference_diagnostic, push_value_diagnostic};
-use super::qualifier_reference;
 
 struct ContextSchemaError {
     location: DiagnosticLocation,
@@ -33,35 +33,24 @@ pub(super) fn lint_qualifier_context_schema_attributes(ctx: &mut LintContext) {
     };
 
     let mut diagnostics = Vec::new();
-    for qualifier in ctx.index.qualifiers.values() {
-        let PredicateCollection::Predicates(predicates) = &qualifier.predicates else {
+    for edge in ctx.references.edges() {
+        let ReferenceSource::QualifierPredicateContextAttribute { .. } = &edge.source else {
             continue;
         };
-
-        for predicate in predicates {
-            let ProjectField::Present(attribute) = &predicate.attribute else {
-                continue;
-            };
-            if qualifier_reference(&attribute.value).is_some()
-                || context_schema_declares_path(schema, &attribute.value)
-            {
-                continue;
-            }
-
-            push_reference_diagnostic(
-                &mut diagnostics,
-                RototoRuleId::WorkspaceContextSchemaAttribute,
-                EntityId::Predicate {
-                    qualifier: qualifier.id.clone(),
-                    index: predicate.index,
-                },
-                attribute.location.clone(),
-                format!(
-                    "context attribute is not declared by the context schema: {}",
-                    attribute.value
-                ),
-            );
+        let ReferenceTarget::ContextAttribute(attribute) = &edge.target else {
+            continue;
+        };
+        if context_schema_declares_path(schema, attribute) {
+            continue;
         }
+
+        push_reference_diagnostic(
+            &mut diagnostics,
+            RototoRuleId::WorkspaceContextSchemaAttribute,
+            edge.entity.clone(),
+            edge.location.clone(),
+            format!("context attribute is not declared by the context schema: {attribute}"),
+        );
     }
     ctx.diagnostics.extend(diagnostics);
 }

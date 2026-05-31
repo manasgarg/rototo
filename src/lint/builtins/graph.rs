@@ -6,18 +6,11 @@ use crate::diagnostics::{
 
 use super::super::engine::{LintContext, variable_values};
 use super::super::nodes::*;
+use super::super::references::QualifierReferenceEdge;
 use super::super::stages::push_graph_diagnostic;
-use super::qualifier_reference;
-
-#[derive(Clone)]
-struct QualifierReferenceEdge {
-    from: String,
-    to: String,
-    location: DiagnosticLocation,
-}
 
 pub(super) fn lint_qualifier_cycles(ctx: &mut LintContext) {
-    let graph = qualifier_reference_graph(ctx);
+    let graph = ctx.references.qualifier_reference_graph();
     let components = strongly_connected_qualifiers(&graph);
     let mut diagnostics = Vec::new();
 
@@ -81,7 +74,7 @@ fn qualifier_cycle_message(qualifier_id: &str, component: &[String]) -> String {
 }
 
 pub(super) fn lint_unreferenced_qualifiers(ctx: &mut LintContext) {
-    let referenced = referenced_qualifier_ids(ctx);
+    let referenced = ctx.references.referenced_qualifier_ids();
     let mut diagnostics = Vec::new();
 
     for qualifier in ctx.index.qualifiers.values() {
@@ -159,7 +152,7 @@ pub(super) fn lint_unused_variable_values(ctx: &mut LintContext) {
     let mut diagnostics = Vec::new();
 
     for variable in ctx.index.variables.values() {
-        let referenced = referenced_variable_value_keys(variable);
+        let referenced = ctx.references.referenced_variable_value_keys(&variable.id);
         for value in variable_values(ctx, variable) {
             if referenced.contains(&value.key) {
                 continue;
@@ -179,43 +172,6 @@ pub(super) fn lint_unused_variable_values(ctx: &mut LintContext) {
     }
 
     ctx.diagnostics.extend(diagnostics);
-}
-
-fn qualifier_reference_graph(ctx: &LintContext) -> BTreeMap<String, Vec<QualifierReferenceEdge>> {
-    let known_qualifiers: BTreeSet<_> = ctx.index.qualifiers.keys().cloned().collect();
-    let mut graph = known_qualifiers
-        .iter()
-        .map(|qualifier_id| (qualifier_id.clone(), Vec::new()))
-        .collect::<BTreeMap<_, _>>();
-
-    for qualifier in ctx.index.qualifiers.values() {
-        let PredicateCollection::Predicates(predicates) = &qualifier.predicates else {
-            continue;
-        };
-
-        for predicate in predicates {
-            let ProjectField::Present(attribute) = &predicate.attribute else {
-                continue;
-            };
-            let Some(referenced_qualifier) = qualifier_reference(&attribute.value) else {
-                continue;
-            };
-            if !known_qualifiers.contains(referenced_qualifier) {
-                continue;
-            }
-
-            graph
-                .entry(qualifier.id.clone())
-                .or_default()
-                .push(QualifierReferenceEdge {
-                    from: qualifier.id.clone(),
-                    to: referenced_qualifier.to_owned(),
-                    location: attribute.location.clone(),
-                });
-        }
-    }
-
-    graph
 }
 
 #[derive(Default)]
@@ -287,67 +243,4 @@ fn strong_connect_qualifier(
     }
     component.sort();
     state.components.push(component);
-}
-
-fn referenced_qualifier_ids(ctx: &LintContext) -> BTreeSet<String> {
-    let known_qualifiers: BTreeSet<_> = ctx.index.qualifiers.keys().cloned().collect();
-    let mut referenced = BTreeSet::new();
-
-    for edges in qualifier_reference_graph(ctx).values() {
-        for edge in edges {
-            if edge.from != edge.to {
-                referenced.insert(edge.to.clone());
-            }
-        }
-    }
-
-    for variable in ctx.index.variables.values() {
-        let EnvironmentCollection::Environments(environments) = &variable.environments else {
-            continue;
-        };
-        for block in environments.values() {
-            let RuleCollection::Rules(rules) = &block.rules else {
-                continue;
-            };
-            for rule in rules {
-                if rule.invalid_shape {
-                    continue;
-                }
-                let ProjectField::Present(qualifier) = &rule.qualifier else {
-                    continue;
-                };
-                if known_qualifiers.contains(&qualifier.value) {
-                    referenced.insert(qualifier.value.clone());
-                }
-            }
-        }
-    }
-
-    referenced
-}
-
-fn referenced_variable_value_keys(variable: &VariableNode) -> BTreeSet<String> {
-    let mut referenced = BTreeSet::new();
-    let EnvironmentCollection::Environments(environments) = &variable.environments else {
-        return referenced;
-    };
-
-    for block in environments.values() {
-        if let ProjectField::Present(value) = &block.value {
-            referenced.insert(value.value.clone());
-        }
-        let RuleCollection::Rules(rules) = &block.rules else {
-            continue;
-        };
-        for rule in rules {
-            if rule.invalid_shape {
-                continue;
-            }
-            if let ProjectField::Present(value) = &rule.value {
-                referenced.insert(value.value.clone());
-            }
-        }
-    }
-
-    referenced
 }

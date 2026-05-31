@@ -1,9 +1,8 @@
-use std::collections::BTreeSet;
-
 use crate::diagnostics::{EntityId, LintDiagnostic, RototoRuleId};
 
 use super::super::engine::LintContext;
 use super::super::nodes::*;
+use super::super::references::{ReferenceSource, ReferenceTarget};
 use super::super::stages::{push_project_diagnostic, push_reference_diagnostic};
 use super::{field_is_integer, field_is_not_present, predicate_op_label};
 
@@ -223,45 +222,30 @@ fn lint_comparison_predicate(
 }
 
 pub(super) fn lint_qualifier_references(ctx: &mut LintContext) {
-    let known_qualifiers: BTreeSet<_> = ctx.index.qualifiers.keys().cloned().collect();
     let diagnostics = &mut ctx.diagnostics;
 
-    for qualifier in ctx.index.qualifiers.values() {
-        let PredicateCollection::Predicates(predicates) = &qualifier.predicates else {
+    for edge in ctx.references.edges() {
+        let ReferenceSource::QualifierPredicateQualifier { .. } = &edge.source else {
+            continue;
+        };
+        if edge.is_resolved() {
+            continue;
+        }
+        let ReferenceTarget::Qualifier(reference) = &edge.target else {
             continue;
         };
 
-        for predicate in predicates {
-            let ProjectField::Present(attribute) = &predicate.attribute else {
-                continue;
-            };
-            let Some(referenced_qualifier) = qualifier_reference(&attribute.value) else {
-                continue;
-            };
-
-            if known_qualifiers.contains(referenced_qualifier) {
-                continue;
-            }
-
-            push_reference_diagnostic(
-                diagnostics,
-                RototoRuleId::QualifierPredicateUnknownQualifier,
-                EntityId::Predicate {
-                    qualifier: qualifier.id.clone(),
-                    index: predicate.index,
-                },
-                attribute.location.clone(),
-                format!(
-                    "predicate references unknown qualifier: {}",
-                    reference_label(referenced_qualifier)
-                ),
-            );
-        }
+        push_reference_diagnostic(
+            diagnostics,
+            RototoRuleId::QualifierPredicateUnknownQualifier,
+            edge.entity.clone(),
+            edge.location.clone(),
+            format!(
+                "predicate references unknown qualifier: {}",
+                reference_label(reference)
+            ),
+        );
     }
-}
-
-pub(crate) fn qualifier_reference(attribute: &str) -> Option<&str> {
-    attribute.strip_prefix("qualifier.")
 }
 
 fn reference_label(reference: &str) -> &str {
