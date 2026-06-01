@@ -1,0 +1,4 @@
+schema_version = 1
+
+description = "Agent config resource with custom target coverage"
+schema = "../schemas/config.schema.json"

@@ -3,10 +3,9 @@
 Use this when the workspace is structurally valid, but your team has a policy
 that schemas cannot express clearly.
 
-Examples include token ceilings, naming conventions, required prompt metadata,
-allowed model families, or environment-specific safety limits. rototo supports
-workspace-scoped custom Lua lint, so policy can run before the workspace is
-published.
+Examples include token ceilings, naming conventions, and
+environment-specific safety limits. rototo supports workspace-scoped custom Lua
+lint, so policy can run before the workspace is published.
 
 ## Expected outcome
 
@@ -19,18 +18,18 @@ After this change:
 
 ## Decide what belongs in custom lint
 
-Use schemas for shape:
+Use schemas for resource object shape:
 
 ```text
 this object must have model, prompt, and max_output_tokens
 ```
 
-Use custom lint for policy:
+Use custom lint for workspace policy:
 
 ```text
-max_output_tokens must be <= 5000
-production models must use the approved model prefix
-enterprise prompts must include escalation guidance
+max-output-tokens must be <= 5000
+variable descriptions must include an owner
+production limits must stay below a service threshold
 ```
 
 Keeping this distinction matters. Schemas define the application contract;
@@ -48,7 +47,7 @@ values = ["prod"]
 
 [[lint.rule]]
 id = "platform/max-output-token-budget"
-title = "LLM output token budget is too high"
+title = "Output token budget is too high"
 help = "Use 5000 or fewer output tokens."
 ```
 
@@ -57,23 +56,21 @@ diagnostics.
 
 ## Write the policy
 
-Create `lint/llm-agent-config.lua`:
+Create `lint/max-output-tokens.lua`:
 
 ```lua
 function register(lint)
   lint:on({
     stage = "value",
     entity = "value",
-    field = "value.max_output_tokens",
+    field = "value",
     rule = "platform/max-output-token-budget",
     handler = "check_token_budget",
   })
 end
 
 function check_token_budget(ctx)
-  local config = ctx.target.value
-
-  if config.max_output_tokens > 5000 then
+  if ctx.target.value > 5000 then
     return {
       {
         message = "value " .. ctx.target.name .. " exceeds the token budget"
@@ -85,11 +82,10 @@ function check_token_budget(ctx)
 end
 ```
 
-The registration runs the handler once for each expanded value, including
-values loaded from external value files. Handlers return a list of diagnostics
-with `message`; the registration supplies the rule id. A diagnostic can include
-`field` when it should point at a narrower field inside the registered target.
-Return an empty list when the policy passes.
+The registration runs the handler once for each primitive inline value. Handlers
+return a list of diagnostics with `message`; the registration supplies the rule
+id. A diagnostic can include `field` when it should point at a narrower field
+inside the registered target. Return an empty list when the policy passes.
 
 ## Verify the policy
 

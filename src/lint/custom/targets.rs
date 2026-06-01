@@ -212,11 +212,6 @@ fn value_origin_json(value: &ValueNode) -> JsonValue {
             "kind": "inline",
             "doc": variable_doc,
         }),
-        ValueOrigin::External { doc, path } => serde_json::json!({
-            "kind": "external",
-            "doc": doc,
-            "path": path,
-        }),
     }
 }
 
@@ -301,7 +296,10 @@ fn registered_variable_location(
                 .unwrap_or_else(|| variable.location.clone())
         }
         Some(RegisteredLintField::Variable(VariableLintField::Type))
-            if matches!(&variable.type_source, TypeSourceNode::Primitive(_)) =>
+            if matches!(
+                &variable.type_source,
+                TypeSourceNode::Primitive(_) | TypeSourceNode::Resource(_)
+            ) =>
         {
             variable.type_source.location()
         }

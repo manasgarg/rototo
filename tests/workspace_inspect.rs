@@ -73,12 +73,16 @@ fn inspect_human_predicates_show_values() {
 fn inspect_human_values_show_config_values() {
     Command::cargo_bin("rototo")
         .unwrap()
-        .args(["inspect", "examples/basic", "--variable", "tenant-limits"])
+        .args(["inspect", "examples/basic", "--resource", "tenant-limits"])
         .assert()
         .success()
-        .stdout(predicate::str::contains("variable: tenant-limits"))
-        .stdout(predicate::str::contains("enterprise (inline) = {"))
+        .stdout(predicate::str::contains("resource: tenant-limits"))
+        .stdout(predicate::str::contains("enterprise = {"))
         .stdout(predicate::str::contains(r#""support_tier":"dedicated""#))
+        .stdout(predicate::str::contains(
+            "variable tenant-limits  variables/tenant-limits.toml",
+        ))
+        .stdout(predicate::str::contains("variable tenant-limits type").not())
         .stdout(predicate::str::contains("enterprise  inline  variables/tenant-limits.toml").not());
 }
 

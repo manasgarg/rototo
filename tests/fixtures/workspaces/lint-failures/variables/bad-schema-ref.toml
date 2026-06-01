@@ -1,10 +1,7 @@
 schema_version = 1
 
-description = "Variable pointing at an invalid JSON schema"
-schema = "../schemas/invalid.schema.json"
-
-[values.default]
-name = "Example"
+description = "Variable backed by a resource with an invalid schema reference"
+type = "resource:bad-schema-ref"
 
 [env._]
 value = "default"

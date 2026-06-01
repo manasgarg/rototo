@@ -1,0 +1,10 @@
+enabled_features = ["basic-reporting", "scheduled-exports", "webhooks"]
+
+[limits]
+projects = 25
+members = 50
+monthly_requests = 250000
+
+[metadata]
+support_tier = "standard"
+audit_retention_days = 30

@@ -2,7 +2,7 @@ mod discover;
 mod line_index;
 mod path;
 
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::BTreeMap;
 use std::ops::Range;
 use std::path::PathBuf;
 
@@ -75,19 +75,6 @@ impl SourceStore {
         id
     }
 
-    pub(super) fn external_value_keys(&self, variable_id: &str) -> BTreeSet<String> {
-        self.documents
-            .values()
-            .filter_map(|document| match &document.kind {
-                DocumentKind::ExternalValue {
-                    variable_id: document_variable_id,
-                    value_key,
-                } if document_variable_id == variable_id => Some(value_key.clone()),
-                _ => None,
-            })
-            .collect()
-    }
-
     pub(super) fn document_by_path(&self, path: &str) -> Option<&SourceDocument> {
         self.by_path
             .get(path)
@@ -117,9 +104,12 @@ pub(super) enum DocumentKind {
     Variable {
         id: String,
     },
-    ExternalValue {
-        variable_id: String,
-        value_key: String,
+    Resource {
+        id: String,
+    },
+    ResourceObject {
+        resource_id: String,
+        object_id: String,
     },
     Schema,
     CustomLint,
@@ -131,7 +121,8 @@ impl DocumentKind {
             Self::Manifest => SourceKind::Manifest,
             Self::Qualifier { .. } => SourceKind::Qualifier,
             Self::Variable { .. } => SourceKind::Variable,
-            Self::ExternalValue { .. } => SourceKind::ExternalValue,
+            Self::Resource { .. } => SourceKind::Resource,
+            Self::ResourceObject { .. } => SourceKind::ResourceObject,
             Self::Schema => SourceKind::Schema,
             Self::CustomLint => SourceKind::CustomLint,
         }
@@ -170,4 +161,5 @@ impl SourceDocument {
 pub(super) enum DocumentCollection {
     Qualifiers,
     Variables,
+    Resources,
 }

@@ -120,6 +120,9 @@ value = "control"
         tokio::fs::create_dir_all(root.join("variables"))
             .await
             .unwrap();
+        tokio::fs::create_dir_all(root.join("resources/message-objects"))
+            .await
+            .unwrap();
         tokio::fs::create_dir_all(root.join("lint")).await.unwrap();
         let manifest_path = root.join("rototo-workspace.toml");
         tokio::fs::write(
@@ -158,11 +161,17 @@ value = "control"
         tokio::fs::write(&variable_path, disk_variable)
             .await
             .unwrap();
-        tokio::fs::create_dir_all(root.join("variables/message-values"))
-            .await
-            .unwrap();
-        let external_value_path = root.join("variables/message-values/external.toml");
-        tokio::fs::write(&external_value_path, r#"value = "external""#)
+        let resource_path = root.join("resources/message.toml");
+        tokio::fs::write(
+            &resource_path,
+            r#"schema_version = 1
+schema = "../schemas/message.schema.json"
+"#,
+        )
+        .await
+        .unwrap();
+        let resource_object_path = root.join("resources/message-objects/external.toml");
+        tokio::fs::write(&resource_object_path, r#"value = "external""#)
             .await
             .unwrap();
 
@@ -250,15 +259,15 @@ rule = [
             disk_variable
         );
 
-        let external_value_symbols = server
+        let resource_object_symbols = server
             .document_symbols(json!({
                 "textDocument": {
-                    "uri": format!("file://{}", external_value_path.display())
+                    "uri": format!("file://{}", resource_object_path.display())
                 }
             }))
             .await
             .unwrap();
-        child_symbol(&external_value_symbols, "message.external");
+        child_symbol(&resource_object_symbols, "message.external");
     }
 
     #[tokio::test]
@@ -915,20 +924,6 @@ rule = [
                 .filter(|location| location.uri.ends_with("/variables/message.toml"))
                 .count(),
             2
-        );
-
-        let message_schema_references =
-            reference_locations(&server, &variable_path, 1, 12, true).await;
-        assert_eq!(message_schema_references.len(), 2);
-        assert!(
-            message_schema_references
-                .iter()
-                .any(|location| location.uri.ends_with("/schemas/message.schema.json"))
-        );
-        assert!(
-            message_schema_references
-                .iter()
-                .any(|location| location.uri.ends_with("/variables/message.toml"))
         );
 
         let context_schema_references =

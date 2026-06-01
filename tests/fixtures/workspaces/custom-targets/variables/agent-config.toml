@@ -1,10 +1,7 @@
 schema_version = 1
 
 description = "Agent config with custom target coverage"
-schema = "../schemas/config.schema.json"
-
-[values.standard]
-max_output_tokens = 1000
+type = "resource:agent-config"
 
 [env._]
 value = "standard"

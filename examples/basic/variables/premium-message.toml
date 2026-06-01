@@ -1,6 +1,6 @@
 schema_version = 1
 
-description = "Message loaded from per-value TOML files"
+description = "Welcome message selected by runtime condition"
 type = "string"
 
 [values]

@@ -1,13 +1,10 @@
-use std::collections::BTreeMap;
-
 use serde_json::Value as JsonValue;
 
-use crate::diagnostics::{DiagnosticLocation, EntityId, LintDiagnostic, RototoRuleId};
+use crate::diagnostics::{EntityId, LintDiagnostic, RototoRuleId};
 
-use super::super::engine::{LintContext, variable_values};
+use super::super::engine::LintContext;
 use super::super::index::*;
 use super::super::references::{ReferenceSource, ReferenceTarget};
-use super::super::source::resolve_workspace_relative_path;
 use super::super::stages::{
     push_project_diagnostic, push_reference_diagnostic, push_value_diagnostic,
 };
@@ -29,70 +26,63 @@ pub(super) fn lint_variable_shapes(ctx: &mut LintContext) {
         }
 
         lint_type_source(diagnostics, variable);
-        lint_values_shape(
-            diagnostics,
-            variable,
-            ctx.index.external_values.get(&variable.id),
-        );
+        lint_values_shape(diagnostics, variable);
         lint_environment_shapes(diagnostics, variable);
     }
 }
 
 fn lint_type_source(diagnostics: &mut Vec<LintDiagnostic>, variable: &VariableNode) {
     match &variable.type_source {
-        TypeSourceNode::Primitive(_) => {}
-        TypeSourceNode::Schema(schema) => {
-            let _ = &schema.value;
+        TypeSourceNode::Primitive(_) | TypeSourceNode::Resource(_) => {}
+        TypeSourceNode::Schema(schema) => push_project_diagnostic(
+            diagnostics,
+            RototoRuleId::VariableTypeSource,
+            EntityId::Variable {
+                id: variable.id.clone(),
+            },
+            schema.location.clone(),
+            "variable schemas are no longer supported; declare type instead",
+        ),
+        TypeSourceNode::Missing { location } | TypeSourceNode::Conflict { location } => {
+            push_project_diagnostic(
+                diagnostics,
+                RototoRuleId::VariableTypeSource,
+                EntityId::Variable {
+                    id: variable.id.clone(),
+                },
+                location.clone(),
+                "variable must declare type",
+            );
         }
-        TypeSourceNode::Missing { location } => push_project_diagnostic(
-            diagnostics,
-            RototoRuleId::VariableTypeOrSchema,
-            EntityId::Variable {
-                id: variable.id.clone(),
-            },
-            location.clone(),
-            "variable must declare exactly one of type or schema",
-        ),
-        TypeSourceNode::Conflict { location } => push_project_diagnostic(
-            diagnostics,
-            RototoRuleId::VariableTypeOrSchema,
-            EntityId::Variable {
-                id: variable.id.clone(),
-            },
-            location.clone(),
-            "variable must declare exactly one of type or schema",
-        ),
         TypeSourceNode::Invalid { location } => push_project_diagnostic(
             diagnostics,
-            RototoRuleId::VariableTypeOrSchema,
+            RototoRuleId::VariableTypeSource,
             EntityId::Variable {
                 id: variable.id.clone(),
             },
             location.clone(),
-            "variable type source must be a string",
+            "variable type must be a string",
         ),
     }
 }
 
-fn lint_values_shape(
-    diagnostics: &mut Vec<LintDiagnostic>,
-    variable: &VariableNode,
-    external_values: Option<&BTreeMap<String, ValueNode>>,
-) {
-    if variable.values.invalid_shape {
-        if !variable.values.external_keys.is_empty() {
+fn lint_values_shape(diagnostics: &mut Vec<LintDiagnostic>, variable: &VariableNode) {
+    if is_resource_backed(variable) {
+        if variable.values.invalid_shape || !variable.values.inline_values.is_empty() {
             push_project_diagnostic(
                 diagnostics,
-                RototoRuleId::VariableExternalValuesLoadFailed,
+                RototoRuleId::VariableValuesDisallowed,
                 EntityId::Variable {
                     id: variable.id.clone(),
                 },
                 variable.values.location.clone(),
-                "external values cannot be merged because variable values must be a table",
+                "resource-backed variables must not contain [values]",
             );
-            return;
         }
+        return;
+    }
 
+    if variable.values.invalid_shape {
         push_project_diagnostic(
             diagnostics,
             RototoRuleId::VariableValuesMissing,
@@ -105,7 +95,7 @@ fn lint_values_shape(
         return;
     }
 
-    if variable.values.inline_keys.is_empty() && variable.values.external_keys.is_empty() {
+    if variable.values.inline_values.is_empty() {
         push_project_diagnostic(
             diagnostics,
             RototoRuleId::VariableValuesMissing,
@@ -113,36 +103,7 @@ fn lint_values_shape(
                 id: variable.id.clone(),
             },
             variable.values.location.clone(),
-            "variable must contain [values] or external values",
-        );
-    }
-
-    lint_external_value_duplicates(diagnostics, variable, external_values);
-}
-
-fn lint_external_value_duplicates(
-    diagnostics: &mut Vec<LintDiagnostic>,
-    variable: &VariableNode,
-    external_values: Option<&BTreeMap<String, ValueNode>>,
-) {
-    let Some(external_values) = external_values else {
-        return;
-    };
-
-    for (key, value) in external_values {
-        if !variable.values.inline_keys.contains(key) {
-            continue;
-        }
-
-        push_project_diagnostic(
-            diagnostics,
-            RototoRuleId::VariableExternalValueDuplicate,
-            EntityId::Value {
-                variable: variable.id.clone(),
-                key: key.clone(),
-            },
-            value.location.clone(),
-            format!("external value duplicates inline value: {key}"),
+            "primitive variable must contain [values]",
         );
     }
 }
@@ -283,6 +244,16 @@ pub(super) fn lint_variable_references(ctx: &mut LintContext) {
         }
         match (&edge.source, &edge.target) {
             (
+                ReferenceSource::VariableResource { variable: _ },
+                ReferenceTarget::Resource(resource),
+            ) => push_reference_diagnostic(
+                &mut diagnostics,
+                RototoRuleId::VariableUnknownResource,
+                edge.entity.clone(),
+                edge.location.clone(),
+                format!("variable references unknown resource: {resource}"),
+            ),
+            (
                 ReferenceSource::VariableEnvironment {
                     variable: _,
                     environment: _,
@@ -314,6 +285,26 @@ pub(super) fn lint_variable_references(ctx: &mut LintContext) {
                     edge.entity.clone(),
                     edge.location.clone(),
                     format!("environment references unknown value: {value}"),
+                );
+            }
+            (
+                ReferenceSource::VariableEnvironmentValue {
+                    variable,
+                    environment: _,
+                },
+                ReferenceTarget::ResourceObject { resource, value },
+            ) => {
+                if !ctx.index.resources.contains_key(resource)
+                    || variable_resource_id(ctx, variable).is_none_or(|id| id != resource)
+                {
+                    continue;
+                }
+                push_reference_diagnostic(
+                    &mut diagnostics,
+                    RototoRuleId::VariableUnknownValue,
+                    edge.entity.clone(),
+                    edge.location.clone(),
+                    format!("environment references unknown resource object: {value}"),
                 );
             }
             (
@@ -352,6 +343,27 @@ pub(super) fn lint_variable_references(ctx: &mut LintContext) {
                     format!("rule references unknown value: {value}"),
                 );
             }
+            (
+                ReferenceSource::VariableRuleValue {
+                    variable,
+                    environment: _,
+                    rule: _,
+                },
+                ReferenceTarget::ResourceObject { resource, value },
+            ) => {
+                if !ctx.index.resources.contains_key(resource)
+                    || variable_resource_id(ctx, variable).is_none_or(|id| id != resource)
+                {
+                    continue;
+                }
+                push_reference_diagnostic(
+                    &mut diagnostics,
+                    RototoRuleId::VariableUnknownValue,
+                    edge.entity.clone(),
+                    edge.location.clone(),
+                    format!("rule references unknown resource object: {value}"),
+                );
+            }
             _ => {}
         }
     }
@@ -359,30 +371,8 @@ pub(super) fn lint_variable_references(ctx: &mut LintContext) {
     ctx.diagnostics.extend(diagnostics);
 }
 
-pub(super) fn lint_variable_schema_references(ctx: &mut LintContext) {
-    let mut diagnostics = Vec::new();
-    for variable in ctx.index.variables.values() {
-        let TypeSourceNode::Schema(schema_ref) = &variable.type_source else {
-            continue;
-        };
-
-        if let Err(err) = resolve_variable_schema_node(ctx, variable, schema_ref) {
-            push_reference_diagnostic(
-                &mut diagnostics,
-                RototoRuleId::VariableSchemaRef,
-                EntityId::Variable {
-                    id: variable.id.clone(),
-                },
-                err.location,
-                err.message,
-            );
-        }
-    }
-    ctx.diagnostics.extend(diagnostics);
-}
-
 fn variable_has_values(variable: &VariableNode) -> bool {
-    !variable.values.inline_keys.is_empty() || !variable.values.external_keys.is_empty()
+    !variable.values.inline_values.is_empty()
 }
 
 pub(super) fn lint_variable_values(ctx: &mut LintContext) {
@@ -394,12 +384,11 @@ pub(super) fn lint_variable_values(ctx: &mut LintContext) {
                 else {
                     continue;
                 };
-                lint_primitive_variable_values(&mut diagnostics, ctx, variable, primitive);
+                lint_primitive_variable_values(&mut diagnostics, variable, primitive);
             }
-            TypeSourceNode::Schema(schema_ref) => {
-                lint_schema_backed_variable_values(&mut diagnostics, ctx, variable, schema_ref);
-            }
-            TypeSourceNode::Missing { .. }
+            TypeSourceNode::Resource(_)
+            | TypeSourceNode::Schema(_)
+            | TypeSourceNode::Missing { .. }
             | TypeSourceNode::Conflict { .. }
             | TypeSourceNode::Invalid { .. } => {}
         }
@@ -429,11 +418,10 @@ fn lint_primitive_type(
 
 fn lint_primitive_variable_values(
     diagnostics: &mut Vec<LintDiagnostic>,
-    ctx: &LintContext,
     variable: &VariableNode,
     primitive: PrimitiveType,
 ) {
-    for value in variable_values_for_validation(ctx, variable) {
+    for value in variable.values.inline_values.values() {
         if primitive.matches(&value.value) {
             continue;
         }
@@ -455,85 +443,16 @@ fn lint_primitive_variable_values(
     }
 }
 
-fn lint_schema_backed_variable_values(
-    diagnostics: &mut Vec<LintDiagnostic>,
-    ctx: &LintContext,
-    variable: &VariableNode,
-    schema_ref: &Spanned<String>,
-) {
-    let Ok(schema) = resolve_variable_schema_node(ctx, variable, schema_ref) else {
-        return;
-    };
+fn is_resource_backed(variable: &VariableNode) -> bool {
+    matches!(variable.type_source, TypeSourceNode::Resource(_))
+}
 
-    let Some(validator) = &schema.validator else {
-        return;
-    };
-
-    for value in variable_values_for_validation(ctx, variable) {
-        if let Err(err) = validator.validate(&value.value) {
-            push_value_diagnostic(
-                diagnostics,
-                RototoRuleId::VariableValueSchemaMismatch,
-                EntityId::Value {
-                    variable: variable.id.clone(),
-                    key: value.key.clone(),
-                },
-                value.location.clone(),
-                format!("value {} does not match schema: {err}", value.key),
-            );
-        }
+fn variable_resource_id<'a>(ctx: &'a LintContext, variable: &str) -> Option<&'a str> {
+    let variable = ctx.index.variables.get(variable)?;
+    match &variable.type_source {
+        TypeSourceNode::Resource(resource) => Some(resource.value.as_str()),
+        _ => None,
     }
-}
-
-fn variable_values_for_validation<'a>(
-    ctx: &'a LintContext,
-    variable: &'a VariableNode,
-) -> impl Iterator<Item = &'a ValueNode> {
-    variable_values(ctx, variable).filter(move |value| {
-        !(matches!(&value.origin, ValueOrigin::External { .. })
-            && variable.values.inline_keys.contains(&value.key))
-    })
-}
-
-struct VariableSchemaReferenceError {
-    location: DiagnosticLocation,
-    message: String,
-}
-
-fn resolve_variable_schema_node<'a>(
-    ctx: &'a LintContext,
-    variable: &VariableNode,
-    schema_ref: &Spanned<String>,
-) -> std::result::Result<&'a SchemaNode, Box<VariableSchemaReferenceError>> {
-    let Some(schema_path) =
-        resolve_workspace_relative_path(&variable.location.path, &schema_ref.value)
-    else {
-        return Err(Box::new(VariableSchemaReferenceError {
-            location: schema_ref.location.clone(),
-            message: format!(
-                "variable schema reference is invalid: {} is not a relative path inside the workspace",
-                schema_ref.value
-            ),
-        }));
-    };
-
-    let _document = ctx.source.document_by_path(&schema_path).ok_or_else(|| {
-        Box::new(VariableSchemaReferenceError {
-            location: schema_ref.location.clone(),
-            message: format!(
-                "variable schema reference is invalid: schema file not found: {schema_path}"
-            ),
-        })
-    })?;
-
-    ctx.index.schemas.get(&schema_path).ok_or_else(|| {
-        Box::new(VariableSchemaReferenceError {
-            location: schema_ref.location.clone(),
-            message: format!(
-                "variable schema reference is invalid: path is not a schema document: {schema_path}"
-            ),
-        })
-    })
 }
 
 #[derive(Clone, Copy)]

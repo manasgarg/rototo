@@ -7,8 +7,9 @@ use crate::model::{
     DependencyInspectReport, EnvironmentPathwayInspectReport, InspectRuntimeStatus,
     InspectSelection, LintAuthorityInspectReport, LintRuleInspectReport, LinterInspectReport,
     LinterRegistrationInspectReport, PredicateInspectReport, QualifierInspectReport,
-    ReferenceInspectReport, RulePathwayInspectReport, SchemaInspectReport, ValueInspectReport,
-    VariableInspectReport, WorkspaceInspectReport, WorkspaceInspectRequest,
+    ReferenceInspectReport, ResourceInspectReport, ResourceObjectInspectReport,
+    RulePathwayInspectReport, SchemaInspectReport, ValueInspectReport, VariableInspectReport,
+    WorkspaceInspectReport, WorkspaceInspectRequest,
 };
 use crate::resolve::{trace_qualifier_unchecked, trace_variable_unchecked};
 
@@ -28,6 +29,7 @@ pub(crate) async fn inspect_snapshot(
     validate_request(snapshot, request, &catalog)?;
 
     let inventory = request.variables.is_none()
+        && request.resources.is_none()
         && request.qualifiers.is_none()
         && request.lint_rules.is_none()
         && request.lint_authorities.is_none()
@@ -42,6 +44,11 @@ pub(crate) async fn inspect_snapshot(
         snapshot.index.qualifiers.keys().map(String::as_str),
         inventory,
     );
+    let resource_ids = selected_ids(
+        &request.resources,
+        snapshot.index.resources.keys().map(String::as_str),
+        inventory,
+    );
 
     let mut variables = Vec::new();
     for id in variable_ids {
@@ -51,6 +58,11 @@ pub(crate) async fn inspect_snapshot(
     let mut qualifiers = Vec::new();
     for id in qualifier_ids {
         qualifiers.push(inspect_qualifier(snapshot, runtime, request, &id).await?);
+    }
+
+    let mut resources = Vec::new();
+    for id in resource_ids {
+        resources.push(inspect_resource(snapshot, &id)?);
     }
 
     let schemas = selected_schemas(snapshot, inventory);
@@ -69,6 +81,7 @@ pub(crate) async fn inspect_snapshot(
         },
         diagnostics,
         schemas,
+        resources,
         variables,
         qualifiers,
         lint_rules,
@@ -110,6 +123,13 @@ fn validate_request(
         if !snapshot.index.qualifiers.contains_key(id) {
             return Err(RototoError::new(format!(
                 "qualifier not found: qualifier://{id}"
+            )));
+        }
+    }
+    for id in request.resources.explicit_values() {
+        if !snapshot.index.resources.contains_key(id) {
+            return Err(RototoError::new(format!(
+                "resource not found: resource://{id}"
             )));
         }
     }
@@ -277,6 +297,51 @@ async fn inspect_qualifier(
     })
 }
 
+fn inspect_resource(snapshot: &WorkspaceLintSnapshot, id: &str) -> Result<ResourceInspectReport> {
+    let resource = snapshot
+        .index
+        .resources
+        .get(id)
+        .ok_or_else(|| RototoError::new(format!("resource not found: resource://{id}")))?;
+    let (_source_uri, path) = document_uri_path(snapshot, resource.doc);
+    let diagnostics = snapshot
+        .lint
+        .diagnostics
+        .iter()
+        .filter(|diagnostic| diagnostic_belongs_to_resource(diagnostic, id))
+        .cloned()
+        .collect();
+
+    Ok(ResourceInspectReport {
+        id: id.to_owned(),
+        uri: format!("resource://{id}"),
+        path,
+        schema: resource_schema_dependency(snapshot, id),
+        objects: resource_objects(snapshot, id),
+        dependencies: resource_dependencies(snapshot, id),
+        consumers: resource_consumers(snapshot, id),
+        diagnostics,
+    })
+}
+
+fn resource_objects(
+    snapshot: &WorkspaceLintSnapshot,
+    id: &str,
+) -> Vec<ResourceObjectInspectReport> {
+    snapshot
+        .index
+        .resource_objects
+        .get(id)
+        .into_iter()
+        .flat_map(|objects| objects.values())
+        .map(|object| ResourceObjectInspectReport {
+            key: object.key.clone(),
+            value: object.value.clone(),
+            location: object.location.clone(),
+        })
+        .collect()
+}
+
 fn workspace_environments(snapshot: &WorkspaceLintSnapshot) -> Vec<String> {
     let Some(manifest) = &snapshot.index.manifest else {
         return Vec::new();
@@ -333,6 +398,7 @@ fn selected_ids<'a>(
 fn variable_type_source_label(variable: &VariableNode) -> String {
     match &variable.type_source {
         TypeSourceNode::Primitive(type_name) => type_name.value.clone(),
+        TypeSourceNode::Resource(resource) => format!("resource:{}", resource.value),
         TypeSourceNode::Schema(schema) => format!("schema {}", schema.value),
         TypeSourceNode::Missing { .. } => "missing".to_owned(),
         TypeSourceNode::Conflict { .. } => "conflict".to_owned(),
@@ -340,31 +406,33 @@ fn variable_type_source_label(variable: &VariableNode) -> String {
     }
 }
 
-fn variable_schema_dependency(snapshot: &WorkspaceLintSnapshot, variable: &str) -> Option<String> {
+fn variable_schema_dependency(
+    _snapshot: &WorkspaceLintSnapshot,
+    _variable: &str,
+) -> Option<String> {
+    None
+}
+
+fn resource_schema_dependency(snapshot: &WorkspaceLintSnapshot, resource: &str) -> Option<String> {
     snapshot
         .references
         .edges()
         .iter()
         .find_map(|edge| match (&edge.source, &edge.target) {
             (
-                ReferenceSource::VariableSchema {
-                    variable: source_variable,
+                ReferenceSource::ResourceSchema {
+                    resource: source_resource,
                 },
                 ReferenceTarget::Schema(schema),
-            ) if source_variable == variable => Some(schema.clone()),
+            ) if source_resource == resource => Some(schema.clone()),
             _ => None,
         })
 }
 
-fn variable_values(variable: &VariableNode, index: &SemanticIndex) -> Vec<ValueInspectReport> {
+fn variable_values(variable: &VariableNode, _index: &SemanticIndex) -> Vec<ValueInspectReport> {
     let mut values = Vec::new();
     for value in variable.values.inline_values.values() {
         values.push(value_report(value));
-    }
-    if let Some(external_values) = index.external_values.get(&variable.id) {
-        for value in external_values.values() {
-            values.push(value_report(value));
-        }
     }
     values.sort_by(|left, right| left.key.cmp(&right.key));
     values
@@ -373,26 +441,13 @@ fn variable_values(variable: &VariableNode, index: &SemanticIndex) -> Vec<ValueI
 fn value_report(value: &ValueNode) -> ValueInspectReport {
     let origin = match &value.origin {
         ValueOrigin::Inline { .. } => "inline".to_owned(),
-        ValueOrigin::External { .. } => "external".to_owned(),
     };
     ValueInspectReport {
         key: value.key.clone(),
         origin,
-        value: inspect_value_json(&value.value),
+        value: value.value.clone(),
         location: value.location.clone(),
     }
-}
-
-fn inspect_value_json(value: &serde_json::Value) -> serde_json::Value {
-    let Some(object) = value.as_object() else {
-        return value.clone();
-    };
-    if object.len() == 1
-        && let Some(value) = object.get("value")
-    {
-        return value.clone();
-    }
-    value.clone()
 }
 
 fn variable_pathways(
@@ -445,7 +500,7 @@ fn variable_dependencies(
 ) -> DependencyInspectReport {
     let mut qualifiers = BTreeSet::new();
     let mut context_paths = BTreeSet::new();
-    let mut schemas = BTreeSet::new();
+    let mut resources = BTreeSet::new();
 
     for edge in snapshot.references.edges() {
         match (&edge.source, &edge.target) {
@@ -465,12 +520,12 @@ fn variable_dependencies(
                 );
             }
             (
-                ReferenceSource::VariableSchema {
+                ReferenceSource::VariableResource {
                     variable: source_variable,
                 },
-                ReferenceTarget::Schema(schema),
+                ReferenceTarget::Resource(resource),
             ) if source_variable == variable && edge.is_resolved() => {
-                schemas.insert(schema.clone());
+                resources.insert(resource.clone());
             }
             _ => {}
         }
@@ -479,7 +534,36 @@ fn variable_dependencies(
     DependencyInspectReport {
         qualifiers: qualifiers.into_iter().collect(),
         context_paths: context_paths.into_iter().collect(),
+        schemas: Vec::new(),
+        resources: resources.into_iter().collect(),
+    }
+}
+
+fn resource_dependencies(
+    snapshot: &WorkspaceLintSnapshot,
+    resource: &str,
+) -> DependencyInspectReport {
+    let mut schemas = BTreeSet::new();
+
+    for edge in snapshot.references.edges() {
+        match (&edge.source, &edge.target) {
+            (
+                ReferenceSource::ResourceSchema {
+                    resource: source_resource,
+                },
+                ReferenceTarget::Schema(schema),
+            ) if source_resource == resource && edge.is_resolved() => {
+                schemas.insert(schema.clone());
+            }
+            _ => {}
+        }
+    }
+
+    DependencyInspectReport {
+        qualifiers: Vec::new(),
+        context_paths: Vec::new(),
         schemas: schemas.into_iter().collect(),
+        resources: Vec::new(),
     }
 }
 
@@ -501,6 +585,7 @@ fn qualifier_dependencies(
         qualifiers: qualifiers.into_iter().collect(),
         context_paths: context_paths.into_iter().collect(),
         schemas: Vec::new(),
+        resources: Vec::new(),
     }
 }
 
@@ -594,15 +679,40 @@ fn qualifier_consumers(
         .collect()
 }
 
+fn resource_consumers(
+    snapshot: &WorkspaceLintSnapshot,
+    resource: &str,
+) -> Vec<ReferenceInspectReport> {
+    snapshot
+        .references
+        .edges()
+        .iter()
+        .filter_map(|edge| {
+            let ReferenceTarget::Resource(target) = &edge.target else {
+                return None;
+            };
+            if target != resource {
+                return None;
+            }
+            Some(ReferenceInspectReport {
+                kind: reference_source_kind(&edge.source).to_owned(),
+                label: reference_source_label(&edge.source),
+                location: edge.location.clone(),
+            })
+        })
+        .collect()
+}
+
 fn reference_source_kind(source: &ReferenceSource) -> &'static str {
     match source {
         ReferenceSource::QualifierPredicateQualifier { .. }
         | ReferenceSource::QualifierPredicateContextAttribute { .. } => "qualifier",
+        ReferenceSource::ResourceSchema { .. } => "resource",
         ReferenceSource::VariableRuleQualifier { .. }
         | ReferenceSource::VariableRuleValue { .. }
         | ReferenceSource::VariableEnvironment { .. }
         | ReferenceSource::VariableEnvironmentValue { .. }
-        | ReferenceSource::VariableSchema { .. } => "variable",
+        | ReferenceSource::VariableResource { .. } => "variable",
         ReferenceSource::ManifestContextSchema => "workspace",
     }
 }
@@ -635,7 +745,8 @@ fn reference_source_label(source: &ReferenceSource) -> String {
             variable,
             environment,
         } => format!("variable {variable} env.{environment}"),
-        ReferenceSource::VariableSchema { variable } => format!("variable {variable} schema"),
+        ReferenceSource::VariableResource { variable } => format!("variable {variable}"),
+        ReferenceSource::ResourceSchema { resource } => format!("resource {resource} schema"),
         ReferenceSource::ManifestContextSchema => "workspace context schema".to_owned(),
     }
 }
@@ -662,6 +773,7 @@ fn diagnostic_matches_request(
     request: &WorkspaceInspectRequest,
 ) -> bool {
     selection_matches_variable(&request.variables, diagnostic)
+        || selection_matches_resource(&request.resources, diagnostic)
         || selection_matches_qualifier(&request.qualifiers, diagnostic)
         || selection_matches_lint_rule(&request.lint_rules, diagnostic)
         || selection_matches_lint_authority(&request.lint_authorities, diagnostic)
@@ -685,6 +797,16 @@ fn selection_matches_qualifier(selection: &InspectSelection, diagnostic: &LintDi
         InspectSelection::Some(ids) => ids
             .iter()
             .any(|id| diagnostic_belongs_to_qualifier(diagnostic, id)),
+    }
+}
+
+fn selection_matches_resource(selection: &InspectSelection, diagnostic: &LintDiagnostic) -> bool {
+    match selection {
+        InspectSelection::None => false,
+        InspectSelection::All => diagnostic_is_resource_related(diagnostic),
+        InspectSelection::Some(ids) => ids
+            .iter()
+            .any(|id| diagnostic_belongs_to_resource(diagnostic, id)),
     }
 }
 
@@ -730,13 +852,30 @@ fn diagnostic_is_variable_related(diagnostic: &LintDiagnostic) -> bool {
 
 fn diagnostic_belongs_to_variable(diagnostic: &LintDiagnostic, id: &str) -> bool {
     let variable_path = format!("variables/{id}.toml");
-    let external_values_prefix = format!("variables/{id}-values/");
     matches!(&diagnostic.entity, EntityId::Variable { id: diagnostic_id } if diagnostic_id == id)
         || matches!(&diagnostic.entity, EntityId::Value { variable, .. } if variable == id)
         || matches!(&diagnostic.entity, EntityId::EnvironmentBlock { variable, .. } if variable == id)
         || matches!(&diagnostic.entity, EntityId::Rule { variable, .. } if variable == id)
         || diagnostic.primary.path == variable_path
-        || diagnostic.primary.path.starts_with(&external_values_prefix)
+}
+
+fn diagnostic_is_resource_related(diagnostic: &LintDiagnostic) -> bool {
+    matches!(
+        diagnostic.entity,
+        EntityId::Resource { .. } | EntityId::ResourceObject { .. }
+    ) || diagnostic.primary.path.starts_with("resources/")
+}
+
+fn diagnostic_belongs_to_resource(diagnostic: &LintDiagnostic, id: &str) -> bool {
+    let resource_path = format!("resources/{id}.toml");
+    let resource_objects_prefix = format!("resources/{id}-objects/");
+    matches!(&diagnostic.entity, EntityId::Resource { id: diagnostic_id } if diagnostic_id == id)
+        || matches!(&diagnostic.entity, EntityId::ResourceObject { resource, .. } if resource == id)
+        || diagnostic.primary.path == resource_path
+        || diagnostic
+            .primary
+            .path
+            .starts_with(&resource_objects_prefix)
 }
 
 fn diagnostic_is_qualifier_related(diagnostic: &LintDiagnostic) -> bool {

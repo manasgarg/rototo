@@ -46,6 +46,8 @@ pub(crate) enum WorkspaceDocumentSymbolKind {
     Qualifier,
     Predicate,
     Variable,
+    Resource,
+    ResourceObject,
     Values,
     Value,
     EnvironmentBlock,

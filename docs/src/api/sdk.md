@@ -30,7 +30,8 @@ part of the SDK contract; application/runtime facts belong in `ResolveContext`.
 - `Workspace::load(source).await` parses, lints, and prepares the workspace.
 - `Workspace::load_with_options(source, LoadOptions::new().with_lint(LintMode::Skip)).await`
   is available for tools that need to inspect broken workspaces.
-- `workspace.inspection()` exposes environments, qualifiers, and variables.
+- `workspace.inspection()` exposes environments, qualifiers, variables, and
+  resources.
 - `workspace.lint().await` reruns workspace lint and returns structured diagnostics.
 
 `source` can be a local path, `file://` URI, `git+file://`, `git+https://`,
@@ -93,29 +94,22 @@ needs to bypass schema validation. This does not bypass predicate path checks:
 when a qualifier reads a context path, that path must be present for the
 resolution.
 
-## External Variable Values
+## Resource Values
 
-Variable values can be declared inline under `[values]` or in TOML
-files next to the variable file. For `variables/banner.toml`, rototo also loads
-`variables/banner-values/*.toml`; each file stem is the value key.
+Primitive variable values are declared inline under `[values]`. Structured
+values live in resources. A variable declares `type = "resource:<id>"`, and
+rototo selects TOML objects from:
 
-Each file can use a single top-level `value` key:
-
-```toml
-value = "Welcome back."
+```text
+resources/<id>-objects/*.toml
 ```
 
-Object values use a `[value]` table:
+The file stem is the object id returned as `value_key`. Resource definitions
+under `resources/<id>.toml` point at the JSON Schema used to validate those
+objects.
 
-```toml
-[value]
-queue = "priority-review"
-timeout_ms = 3000
-```
-
-Custom Lua lint can register value handlers for expanded values through
-workspace-level `[[lint.rule]]` declarations and auto-discovered `lint/*.lua`
-files.
+Use `list_resources`, `read_resource`, or `read_resources` when tooling needs
+to inspect the available structured catalogs without resolving a variable.
 
 ## Lower-Level APIs
 
@@ -125,6 +119,8 @@ The crate still exposes the function APIs used by the CLI:
 - `lint_workspace(path).await`
 - `list_qualifiers(workspace).await`
 - `read_qualifier(workspace, id).await`
+- `list_resources(workspace).await`
+- `read_resource(workspace, id).await`
 - `resolve_qualifier(workspace, id, context).await`
 - `resolve_variable(workspace, id, environment, context).await`
 

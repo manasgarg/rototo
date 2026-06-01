@@ -9,6 +9,7 @@ pub struct WorkspaceInspection {
     pub root: PathBuf,
     pub environments: Vec<String>,
     pub schemas: Vec<SchemaInspection>,
+    pub resources: Vec<ResourceInspection>,
     pub qualifiers: Vec<QualifierInspection>,
     pub variables: Vec<VariableInspection>,
     pub linters: Vec<LinterInspection>,
@@ -34,6 +35,13 @@ pub struct VariableInspection {
     pub path: PathBuf,
 }
 
+#[derive(Clone, Debug)]
+pub struct ResourceInspection {
+    pub id: String,
+    pub uri: String,
+    pub path: PathBuf,
+}
+
 #[derive(Clone, Debug, serde::Serialize)]
 pub struct LinterInspection {
     pub id: String,
@@ -50,6 +58,14 @@ pub struct QualifierConfig {
 
 #[derive(Debug)]
 pub struct VariableConfig {
+    pub id: String,
+    pub uri: String,
+    pub path: PathBuf,
+    pub value: serde_json::Value,
+}
+
+#[derive(Debug)]
+pub struct ResourceConfig {
     pub id: String,
     pub uri: String,
     pub path: PathBuf,
@@ -108,9 +124,10 @@ pub enum SourceKind {
     Manifest,
     Qualifier,
     Variable,
+    Resource,
+    ResourceObject,
     Schema,
     CustomLint,
-    ExternalValue,
 }
 
 #[derive(Debug)]
@@ -122,6 +139,13 @@ pub struct QualifierLint {
 
 #[derive(Debug)]
 pub struct VariableLint {
+    pub root: PathBuf,
+    pub id: String,
+    pub diagnostics: Vec<LintDiagnostic>,
+}
+
+#[derive(Debug)]
+pub struct ResourceLint {
     pub root: PathBuf,
     pub id: String,
     pub diagnostics: Vec<LintDiagnostic>,
@@ -158,6 +182,7 @@ pub enum DiagnosticCatalogScope {
 #[derive(Clone, Debug, Default)]
 pub struct WorkspaceInspectRequest {
     pub variables: InspectSelection,
+    pub resources: InspectSelection,
     pub qualifiers: InspectSelection,
     pub lint_rules: InspectSelection,
     pub lint_authorities: InspectSelection,
@@ -199,11 +224,32 @@ pub struct WorkspaceInspectReport {
     pub runtime: InspectRuntimeStatus,
     pub diagnostics: Vec<LintDiagnostic>,
     pub schemas: Vec<SchemaInspectReport>,
+    pub resources: Vec<ResourceInspectReport>,
     pub variables: Vec<VariableInspectReport>,
     pub qualifiers: Vec<QualifierInspectReport>,
     pub lint_rules: Vec<LintRuleInspectReport>,
     pub lint_authorities: Vec<LintAuthorityInspectReport>,
     pub linters: Vec<LinterInspectReport>,
+}
+
+#[derive(Debug, serde::Serialize)]
+pub struct ResourceInspectReport {
+    pub id: String,
+    pub uri: String,
+    pub path: String,
+    pub schema: Option<String>,
+    pub objects: Vec<ResourceObjectInspectReport>,
+    pub dependencies: DependencyInspectReport,
+    pub consumers: Vec<ReferenceInspectReport>,
+    pub diagnostics: Vec<LintDiagnostic>,
+}
+
+#[derive(Debug, serde::Serialize)]
+pub struct ResourceObjectInspectReport {
+    pub key: String,
+    pub value: serde_json::Value,
+    #[serde(skip_serializing)]
+    pub location: DiagnosticLocation,
 }
 
 #[derive(Debug, serde::Serialize)]
@@ -261,6 +307,7 @@ pub struct DependencyInspectReport {
     pub qualifiers: Vec<String>,
     pub context_paths: Vec<String>,
     pub schemas: Vec<String>,
+    pub resources: Vec<String>,
 }
 
 #[derive(Debug, serde::Serialize)]

@@ -1,43 +1,7 @@
 schema_version = 1
 
 description = "Nested account limits and enabled tenant features"
-schema = "../schemas/tenant-limits.schema.json"
-
-[values.starter.limits]
-projects = 3
-members = 5
-monthly_requests = 10000
-
-[values.starter]
-enabled_features = ["basic-reporting"]
-
-[values.starter.metadata]
-support_tier = "community"
-audit_retention_days = 7
-
-[values.growth.limits]
-projects = 25
-members = 50
-monthly_requests = 250000
-
-[values.growth]
-enabled_features = ["basic-reporting", "scheduled-exports", "webhooks"]
-
-[values.growth.metadata]
-support_tier = "standard"
-audit_retention_days = 30
-
-[values.enterprise.limits]
-projects = 500
-members = 5000
-monthly_requests = 10000000
-
-[values.enterprise]
-enabled_features = ["basic-reporting", "scheduled-exports", "webhooks", "sso", "audit-log"]
-
-[values.enterprise.metadata]
-support_tier = "dedicated"
-audit_retention_days = 365
+type = "resource:tenant-limits"
 
 [env._]
 value = "growth"

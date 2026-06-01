@@ -9,7 +9,7 @@ function register(lint)
 end
 
 function check_message(ctx)
-  if ctx.target.variable.id == "directory-backed-message"
+  if ctx.target.variable.id == "premium-message"
       and ctx.target.value == "" then
     return {
       {

@@ -1,28 +1,7 @@
 schema_version = 1
 
 description = "Support banner shown in account and checkout flows"
-schema = "../schemas/support-banner.schema.json"
-
-[values.hidden]
-enabled = false
-tone = "neutral"
-heading = ""
-body = ""
-cta = ""
-
-[values.mobile_help]
-enabled = true
-tone = "help"
-heading = "Need help?"
-body = "Chat with support without leaving the app."
-cta = "Open chat"
-
-[values.german_hours]
-enabled = true
-tone = "info"
-heading = "Supportzeiten"
-body = "Unser deutschsprachiges Team ist werktags erreichbar."
-cta = "Kontakt aufnehmen"
+type = "resource:support-banner"
 
 [env._]
 value = "hidden"

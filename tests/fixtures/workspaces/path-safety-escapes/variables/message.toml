@@ -1,9 +1,6 @@
 schema_version = 1
-schema = "../../value.schema.json"
-description = "Variable with an escaping schema reference"
-
-[values]
-default = { message = "hello" }
+type = "resource:message"
+description = "Variable with an escaping resource schema reference"
 
 [env._]
 value = "default"

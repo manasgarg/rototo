@@ -154,19 +154,33 @@ fn current_variable_value_completion_items(
         return Vec::new();
     };
 
-    variable
-        .values
-        .inline_keys
-        .iter()
-        .chain(variable.values.external_keys.iter())
-        .map(|value| {
-            WorkspaceCompletionItem::new(
-                value.clone(),
-                WorkspaceCompletionItemKind::Value,
-                "variable value",
-            )
-        })
-        .collect()
+    match &variable.type_source {
+        TypeSourceNode::Resource(resource) => index
+            .resource_objects
+            .get(&resource.value)
+            .into_iter()
+            .flat_map(|objects| objects.keys())
+            .map(|value| {
+                WorkspaceCompletionItem::new(
+                    value.clone(),
+                    WorkspaceCompletionItemKind::Value,
+                    "resource object",
+                )
+            })
+            .collect(),
+        _ => variable
+            .values
+            .inline_values
+            .keys()
+            .map(|value| {
+                WorkspaceCompletionItem::new(
+                    value.clone(),
+                    WorkspaceCompletionItemKind::Value,
+                    "variable value",
+                )
+            })
+            .collect(),
+    }
 }
 
 fn current_variable_for_path<'a>(index: &'a SemanticIndex, path: &str) -> Option<&'a VariableNode> {
@@ -174,23 +188,6 @@ fn current_variable_for_path<'a>(index: &'a SemanticIndex, path: &str) -> Option
         .variables
         .values()
         .find(|variable| variable.location.path == path)
-        .or_else(|| current_variable_for_external_value_path(index, path))
-}
-
-fn current_variable_for_external_value_path<'a>(
-    index: &'a SemanticIndex,
-    path: &str,
-) -> Option<&'a VariableNode> {
-    let variable_id = index
-        .external_values
-        .iter()
-        .find_map(|(variable_id, values)| {
-            values
-                .values()
-                .any(|value| value.location.path == path)
-                .then_some(variable_id)
-        })?;
-    index.variables.get(variable_id)
 }
 
 fn predicate_operator_completion_items() -> Vec<WorkspaceCompletionItem> {

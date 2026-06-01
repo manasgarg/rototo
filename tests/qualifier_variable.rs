@@ -49,7 +49,7 @@ fn shows_workspace_inventory_including_linters() {
             "checkout-redesign  lint/checkout-redesign.lua",
         ))
         .stdout(predicate::str::contains(
-            "directory-backed-message  lint/directory-backed-message.lua",
+            "premium-message  lint/premium-message.lua",
         ));
 }
 
@@ -112,15 +112,15 @@ fn gets_variable_from_discovered_workspace() {
 }
 
 #[test]
-fn gets_directory_backed_variable_with_expanded_values() {
+fn gets_resource_with_objects() {
     Command::cargo_bin("rototo")
         .unwrap()
-        .args(["show", "examples/basic", "--variable", "llm-agent-config"])
+        .args(["show", "examples/basic", "--resource", "llm-agent-config"])
         .assert()
         .success()
-        .stdout(predicate::str::contains("[values.local]"))
+        .stdout(predicate::str::contains("[objects.local]"))
         .stdout(predicate::str::contains("model = \"local-small\""))
-        .stdout(predicate::str::contains("value = \"enterprise\""));
+        .stdout(predicate::str::contains("model = \"gpt-5\""));
 }
 
 #[test]

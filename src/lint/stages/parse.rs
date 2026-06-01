@@ -34,7 +34,8 @@ fn document_needs_parse_gate(ctx: &LintContext, document: &SourceDocument) -> bo
         DocumentKind::Manifest
         | DocumentKind::Qualifier { .. }
         | DocumentKind::Variable { .. }
-        | DocumentKind::ExternalValue { .. } => !ctx.syntax.toml.contains_key(&document.id),
+        | DocumentKind::Resource { .. }
+        | DocumentKind::ResourceObject { .. } => !ctx.syntax.toml.contains_key(&document.id),
         DocumentKind::Schema => !ctx.syntax.json.contains_key(&document.id),
         DocumentKind::CustomLint => false,
     }
@@ -45,12 +46,13 @@ fn gate_entity_for_document(document: &SourceDocument) -> Option<GateEntity> {
         DocumentKind::Manifest => Some(GateEntity::Manifest),
         DocumentKind::Qualifier { id } => Some(GateEntity::Qualifier(id.clone())),
         DocumentKind::Variable { id } => Some(GateEntity::Variable(id.clone())),
-        DocumentKind::ExternalValue {
-            variable_id,
-            value_key,
-        } => Some(GateEntity::ExternalValue {
-            variable: variable_id.clone(),
-            key: value_key.clone(),
+        DocumentKind::Resource { id } => Some(GateEntity::Resource(id.clone())),
+        DocumentKind::ResourceObject {
+            resource_id,
+            object_id,
+        } => Some(GateEntity::ResourceObject {
+            resource: resource_id.clone(),
+            key: object_id.clone(),
         }),
         DocumentKind::Schema => Some(GateEntity::Schema(document.path.clone())),
         DocumentKind::CustomLint => None,
@@ -62,7 +64,8 @@ fn parse_failed_rule(kind: &DocumentKind) -> RototoRuleId {
         DocumentKind::Manifest => RototoRuleId::WorkspaceManifestParseFailed,
         DocumentKind::Qualifier { .. } => RototoRuleId::QualifierParseFailed,
         DocumentKind::Variable { .. } => RototoRuleId::VariableParseFailed,
-        DocumentKind::ExternalValue { .. } => RototoRuleId::VariableExternalValueParseFailed,
+        DocumentKind::Resource { .. } => RototoRuleId::ResourceParseFailed,
+        DocumentKind::ResourceObject { .. } => RototoRuleId::ResourceObjectParseFailed,
         DocumentKind::Schema => RototoRuleId::SchemaParseFailed,
         DocumentKind::CustomLint => RototoRuleId::CustomLintFailed,
     }

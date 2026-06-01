@@ -18,6 +18,7 @@ pub(crate) fn definition(
     push_manifest_definition_candidates(&snapshot.index, path, position, &mut candidates);
     push_qualifier_definition_candidates(&snapshot.index, path, position, &mut candidates);
     push_variable_definition_candidates(&snapshot.index, path, position, &mut candidates);
+    push_resource_definition_candidates(&snapshot.index, path, position, &mut candidates);
     sort_definition_candidates(&mut candidates);
     candidates
         .into_iter()
@@ -124,21 +125,39 @@ fn push_variable_definition_candidates(
     candidates: &mut Vec<DefinitionCandidate>,
 ) {
     for variable in index.variables.values() {
-        if let TypeSourceNode::Schema(schema) = &variable.type_source
-            && location_contains_position(&schema.location, path, position)
-            && let Some(schema_path) =
-                resolve_workspace_relative_path(&variable.location.path, &schema.value)
-            && let Some(schema_node) = index.schemas.get(&schema_path)
-        {
-            candidates.push(DefinitionCandidate {
-                priority: 1,
-                span_size: schema
-                    .location
-                    .range
-                    .map(source_range_size)
-                    .unwrap_or(usize::MAX),
-                location: schema_node.location.clone(),
-            });
+        match &variable.type_source {
+            TypeSourceNode::Resource(resource)
+                if location_contains_position(&resource.location, path, position) =>
+            {
+                if let Some(resource_node) = index.resources.get(&resource.value) {
+                    candidates.push(DefinitionCandidate {
+                        priority: 1,
+                        span_size: resource
+                            .location
+                            .range
+                            .map(source_range_size)
+                            .unwrap_or(usize::MAX),
+                        location: resource_node.location.clone(),
+                    });
+                }
+            }
+            TypeSourceNode::Schema(schema)
+                if location_contains_position(&schema.location, path, position)
+                    && let Some(schema_path) =
+                        resolve_workspace_relative_path(&variable.location.path, &schema.value)
+                    && let Some(schema_node) = index.schemas.get(&schema_path) =>
+            {
+                candidates.push(DefinitionCandidate {
+                    priority: 1,
+                    span_size: schema
+                        .location
+                        .range
+                        .map(source_range_size)
+                        .unwrap_or(usize::MAX),
+                    location: schema_node.location.clone(),
+                });
+            }
+            _ => {}
         }
 
         let EnvironmentCollection::Environments(environments) = &variable.environments else {
@@ -199,6 +218,39 @@ fn push_variable_definition_candidates(
                 }
             }
         }
+    }
+}
+
+fn push_resource_definition_candidates(
+    index: &SemanticIndex,
+    path: &str,
+    position: SourcePosition,
+    candidates: &mut Vec<DefinitionCandidate>,
+) {
+    for resource in index.resources.values() {
+        let ProjectField::Present(schema) = &resource.schema else {
+            continue;
+        };
+        if !location_contains_position(&schema.location, path, position) {
+            continue;
+        }
+        let Some(schema_path) =
+            resolve_workspace_relative_path(&resource.location.path, &schema.value)
+        else {
+            continue;
+        };
+        let Some(schema_node) = index.schemas.get(&schema_path) else {
+            continue;
+        };
+        candidates.push(DefinitionCandidate {
+            priority: 1,
+            span_size: schema
+                .location
+                .range
+                .map(source_range_size)
+                .unwrap_or(usize::MAX),
+            location: schema_node.location.clone(),
+        });
     }
 }
 

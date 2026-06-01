@@ -2,7 +2,7 @@ use std::path::Path;
 
 use crate::diagnostics::{EntityId, LintDiagnostic, LintStage, SourcePosition};
 use crate::error::{Result, RototoError};
-use crate::model::{QualifierLint, VariableLint, WorkspaceLint};
+use crate::model::{QualifierLint, ResourceLint, VariableLint, WorkspaceLint};
 
 mod builtins;
 mod custom;
@@ -77,6 +77,26 @@ pub async fn lint_variable(workspace_root: &Path, id: &str) -> Result<VariableLi
     })
 }
 
+pub async fn lint_resource(workspace_root: &Path, id: &str) -> Result<ResourceLint> {
+    let lint = lint_workspace(workspace_root).await?;
+    let path = format!("resources/{id}.toml");
+    if !lint.documents.iter().any(|document| document.path == path) {
+        return Err(RototoError::new(format!(
+            "resource not found: resource://{id}"
+        )));
+    }
+
+    Ok(ResourceLint {
+        root: lint.root,
+        id: id.to_owned(),
+        diagnostics: lint
+            .diagnostics
+            .into_iter()
+            .filter(|diagnostic| diagnostic_belongs_to_resource(diagnostic, id, &path))
+            .collect(),
+    })
+}
+
 fn diagnostic_belongs_to_qualifier(diagnostic: &LintDiagnostic, id: &str, path: &str) -> bool {
     matches!(&diagnostic.entity, EntityId::Qualifier { id: diagnostic_id } if diagnostic_id == id)
         || matches!(&diagnostic.entity, EntityId::Predicate { qualifier, .. } if qualifier == id)
@@ -89,6 +109,14 @@ fn diagnostic_belongs_to_variable(diagnostic: &LintDiagnostic, id: &str, path: &
         || matches!(&diagnostic.entity, EntityId::EnvironmentBlock { variable, .. } if variable == id)
         || matches!(&diagnostic.entity, EntityId::Rule { variable, .. } if variable == id)
         || diagnostic.primary.path == path
+}
+
+fn diagnostic_belongs_to_resource(diagnostic: &LintDiagnostic, id: &str, path: &str) -> bool {
+    let objects_prefix = format!("resources/{id}-objects/");
+    matches!(&diagnostic.entity, EntityId::Resource { id: diagnostic_id } if diagnostic_id == id)
+        || matches!(&diagnostic.entity, EntityId::ResourceObject { resource, .. } if resource == id)
+        || diagnostic.primary.path == path
+        || diagnostic.primary.path.starts_with(&objects_prefix)
 }
 
 pub(crate) async fn lint_workspace_with_input(input: LintInput) -> Result<WorkspaceLint> {

@@ -24,10 +24,16 @@ pub(crate) fn document_symbols(index: &SemanticIndex, path: &str) -> Vec<Workspa
         }
     }
 
-    for (variable_id, values) in &index.external_values {
-        for value in values.values() {
-            if value.location.path == path {
-                symbols.push(external_value_document_symbol(variable_id, value));
+    for resource in index.resources.values() {
+        if resource.location.path == path {
+            symbols.push(resource_document_symbol(resource));
+        }
+    }
+
+    for objects in index.resource_objects.values() {
+        for object in objects.values() {
+            if object.location.path == path {
+                symbols.push(resource_object_document_symbol(object));
             }
         }
     }
@@ -160,11 +166,20 @@ fn variable_rule_document_symbol(rule: &VariableRuleNode) -> WorkspaceDocumentSy
     )
 }
 
-fn external_value_document_symbol(variable_id: &str, value: &ValueNode) -> WorkspaceDocumentSymbol {
+fn resource_document_symbol(resource: &ResourceNode) -> WorkspaceDocumentSymbol {
     WorkspaceDocumentSymbol::new(
-        format!("{}.{}", variable_id, value.key),
-        WorkspaceDocumentSymbolKind::Value,
-        value.location.clone(),
+        resource.id.clone(),
+        WorkspaceDocumentSymbolKind::Resource,
+        resource.location.clone(),
+        Vec::new(),
+    )
+}
+
+fn resource_object_document_symbol(object: &ResourceObjectNode) -> WorkspaceDocumentSymbol {
+    WorkspaceDocumentSymbol::new(
+        format!("{}.{}", object.resource_id, object.key),
+        WorkspaceDocumentSymbolKind::ResourceObject,
+        object.location.clone(),
         Vec::new(),
     )
 }

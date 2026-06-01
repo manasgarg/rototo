@@ -1,0 +1,4 @@
+algorithm = "popular"
+slots = 4
+include_sponsored = false
+fallback_collection = "top-sellers"
