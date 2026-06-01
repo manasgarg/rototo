@@ -81,7 +81,8 @@ fn parse_failed_rule(kind: &DocumentKind) -> RototoRuleId {
         DocumentKind::Manifest => RototoRuleId::WorkspaceManifestParseFailed,
         DocumentKind::Qualifier { .. } => RototoRuleId::QualifierParseFailed,
         DocumentKind::Variable { .. } => RototoRuleId::VariableParseFailed,
-        DocumentKind::ExternalValue { .. } => RototoRuleId::VariableExternalValueParseFailed,
+        DocumentKind::Resource { .. } => RototoRuleId::ResourceParseFailed,
+        DocumentKind::ResourceObject { .. } => RototoRuleId::ResourceObjectParseFailed,
         DocumentKind::Schema => RototoRuleId::SchemaParseFailed,
         DocumentKind::CustomLint => RototoRuleId::CustomLintFailed,
     }
@@ -92,12 +93,13 @@ fn entity_for_document(document: &SourceDocument) -> EntityId {
         DocumentKind::Manifest => EntityId::Manifest,
         DocumentKind::Qualifier { id } => EntityId::Qualifier { id: id.clone() },
         DocumentKind::Variable { id } => EntityId::Variable { id: id.clone() },
-        DocumentKind::ExternalValue {
-            variable_id,
-            value_key,
-        } => EntityId::Value {
-            variable: variable_id.clone(),
-            key: value_key.clone(),
+        DocumentKind::Resource { id } => EntityId::Resource { id: id.clone() },
+        DocumentKind::ResourceObject {
+            resource_id,
+            object_id,
+        } => EntityId::ResourceObject {
+            resource: resource_id.clone(),
+            key: object_id.clone(),
         },
         DocumentKind::Schema => EntityId::Schema {
             path: document.path.clone(),

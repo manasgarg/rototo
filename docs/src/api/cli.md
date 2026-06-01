@@ -29,6 +29,9 @@ sources are rejected. Git sources support `#ref:subdir`; archive URLs support
 
 - `--variable <id>`: select one variable. Repeatable.
 - `--variables`: select all variables.
+- `--resource <id>`: select one resource. Repeatable for `lint`, `inspect`,
+  and `show`.
+- `--resources`: select all resources for `lint`, `inspect`, and `show`.
 - `--qualifier <id>`: select one qualifier. Repeatable.
 - `--qualifiers`: select all qualifiers.
 - `--lint-rule <authority/rule>`: select one diagnostic rule. Repeatable.
@@ -39,7 +42,8 @@ sources are rejected. Git sources support `#ref:subdir`; archive URLs support
 - `--linters`: select all workspace Lua linters.
 
 When no selector is provided, `lint`, `inspect`, and `show` operate at
-workspace level. `resolve` requires at least one variable or qualifier selector.
+workspace level. `resolve` requires at least one variable or qualifier selector;
+resources are selected through variables during resolution.
 
 ## Resolution Context
 

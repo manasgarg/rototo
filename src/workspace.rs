@@ -1,12 +1,11 @@
-use std::fmt;
 use std::path::{Path, PathBuf};
 
 use toml::Value;
 
 use crate::error::{Result, RototoError};
 use crate::model::{
-    LinterInspection, QualifierConfig, QualifierInspection, SchemaInspection, VariableConfig,
-    VariableInspection, WorkspaceInspection,
+    LinterInspection, QualifierConfig, QualifierInspection, ResourceConfig, ResourceInspection,
+    SchemaInspection, VariableConfig, VariableInspection, WorkspaceInspection,
 };
 
 const WORKSPACE_MANIFEST: &str = "rototo-workspace.toml";
@@ -19,6 +18,7 @@ pub async fn inspect_workspace(workspace_root: &Path) -> Result<WorkspaceInspect
     let manifest = read_toml(&workspace_root.join(WORKSPACE_MANIFEST)).await?;
     let environments = workspace_environments(&manifest)?;
     let schemas = discover_schemas(&workspace_root).await?;
+    let resources = discover_resources(&workspace_root).await?;
     let qualifiers = discover_qualifiers(&workspace_root).await?;
     let variables = discover_variables(&workspace_root).await?;
     let linters = discover_linters(&workspace_root).await?;
@@ -27,6 +27,7 @@ pub async fn inspect_workspace(workspace_root: &Path) -> Result<WorkspaceInspect
         root: workspace_root,
         environments,
         schemas,
+        resources,
         qualifiers,
         variables,
         linters,
@@ -66,49 +67,7 @@ pub async fn read_variable_toml(
     workspace_root: &Path,
     variable: &VariableInspection,
 ) -> Result<Value> {
-    read_variable_toml_detailed(workspace_root, variable)
-        .await
-        .map_err(|err| RototoError::new(err.to_string()))
-}
-
-pub(crate) async fn read_variable_toml_detailed(
-    workspace_root: &Path,
-    variable: &VariableInspection,
-) -> std::result::Result<Value, VariableTomlReadError> {
-    let path = workspace_root.join(&variable.path);
-    let mut toml = read_toml_detailed(&path).await?;
-    merge_external_variable_values(workspace_root, variable, &mut toml).await?;
-    Ok(toml)
-}
-
-#[derive(Debug)]
-pub(crate) struct VariableTomlReadError {
-    message: String,
-}
-
-impl VariableTomlReadError {
-    fn new(message: impl Into<String>) -> Self {
-        Self {
-            message: message.into(),
-        }
-    }
-}
-
-impl fmt::Display for VariableTomlReadError {
-    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        formatter.write_str(&self.message)
-    }
-}
-
-impl std::error::Error for VariableTomlReadError {}
-
-async fn read_toml_detailed(path: &Path) -> std::result::Result<Value, VariableTomlReadError> {
-    let text = tokio::fs::read_to_string(path).await.map_err(|err| {
-        VariableTomlReadError::new(format!("failed to read {}: {err}", path.display()))
-    })?;
-    text.parse::<Value>().map_err(|err| {
-        VariableTomlReadError::new(format!("failed to parse {}: {err}", path.display()))
-    })
+    read_toml(&workspace_root.join(&variable.path)).await
 }
 
 pub fn qualifier_for_id<'a>(
@@ -133,12 +92,27 @@ pub fn variable_for_id<'a>(
         .ok_or_else(|| RototoError::new(format!("variable not found: variable://{id}")))
 }
 
+pub fn resource_for_id<'a>(
+    inspection: &'a WorkspaceInspection,
+    id: &str,
+) -> Result<&'a ResourceInspection> {
+    inspection
+        .resources
+        .iter()
+        .find(|resource| resource.id == id)
+        .ok_or_else(|| RototoError::new(format!("resource not found: resource://{id}")))
+}
+
 pub async fn list_qualifiers(workspace_root: &Path) -> Result<Vec<QualifierInspection>> {
     Ok(inspect_workspace(workspace_root).await?.qualifiers)
 }
 
 pub async fn list_variables(workspace_root: &Path) -> Result<Vec<VariableInspection>> {
     Ok(inspect_workspace(workspace_root).await?.variables)
+}
+
+pub async fn list_resources(workspace_root: &Path) -> Result<Vec<ResourceInspection>> {
+    Ok(inspect_workspace(workspace_root).await?.resources)
 }
 
 pub async fn read_qualifier(workspace_root: &Path, id: &str) -> Result<QualifierConfig> {
@@ -151,6 +125,12 @@ pub async fn read_variable(workspace_root: &Path, id: &str) -> Result<VariableCo
     let inspection = inspect_workspace(workspace_root).await?;
     let variable = variable_for_id(&inspection, id)?;
     variable_config(&inspection.root, variable).await
+}
+
+pub async fn read_resource(workspace_root: &Path, id: &str) -> Result<ResourceConfig> {
+    let inspection = inspect_workspace(workspace_root).await?;
+    let resource = resource_for_id(&inspection, id)?;
+    resource_config(&inspection.root, resource).await
 }
 
 pub async fn read_qualifiers(workspace_root: &Path) -> Result<Vec<QualifierConfig>> {
@@ -167,6 +147,15 @@ pub async fn read_variables(workspace_root: &Path) -> Result<Vec<VariableConfig>
     let mut configs = Vec::new();
     for variable in &inspection.variables {
         configs.push(variable_config(&inspection.root, variable).await?);
+    }
+    Ok(configs)
+}
+
+pub async fn read_resources(workspace_root: &Path) -> Result<Vec<ResourceConfig>> {
+    let inspection = inspect_workspace(workspace_root).await?;
+    let mut configs = Vec::new();
+    for resource in &inspection.resources {
+        configs.push(resource_config(&inspection.root, resource).await?);
     }
     Ok(configs)
 }
@@ -244,6 +233,65 @@ async fn variable_config(
     })
 }
 
+async fn resource_config(
+    workspace_root: &Path,
+    resource: &ResourceInspection,
+) -> Result<ResourceConfig> {
+    let value = serde_json::to_value(read_resource_toml(workspace_root, resource).await?)
+        .map_err(|err| RototoError::new(err.to_string()))?;
+
+    Ok(ResourceConfig {
+        id: resource.id.clone(),
+        uri: resource.uri.clone(),
+        path: resource.path.clone(),
+        value,
+    })
+}
+
+pub async fn read_resource_toml(
+    workspace_root: &Path,
+    resource: &ResourceInspection,
+) -> Result<Value> {
+    let mut toml = read_toml(&workspace_root.join(&resource.path)).await?;
+    let objects = read_resource_objects_toml(workspace_root, resource).await?;
+    if objects.is_empty() {
+        return Ok(toml);
+    }
+    let Some(root_table) = toml.as_table_mut() else {
+        return Ok(toml);
+    };
+    root_table.insert("objects".to_owned(), Value::Table(objects));
+    Ok(toml)
+}
+
+async fn read_resource_objects_toml(
+    workspace_root: &Path,
+    resource: &ResourceInspection,
+) -> Result<toml::map::Map<String, Value>> {
+    let objects_dir = workspace_root
+        .join("resources")
+        .join(format!("{}-objects", resource.id));
+    let mut objects = toml::map::Map::new();
+    let Ok(mut entries) = tokio::fs::read_dir(&objects_dir).await else {
+        return Ok(objects);
+    };
+    while let Some(entry) = entries.next_entry().await.map_err(|err| {
+        RototoError::new(format!("failed to read {}: {err}", objects_dir.display()))
+    })? {
+        let path = entry.path();
+        if path.extension().and_then(|extension| extension.to_str()) != Some("toml")
+            || !tokio::fs::metadata(&path)
+                .await
+                .is_ok_and(|metadata| metadata.is_file())
+        {
+            continue;
+        }
+        let id = id_from_path(&path)?;
+        objects.insert(id, read_toml(&path).await?);
+    }
+    Ok(objects)
+}
+
 async fn discover_qualifiers(workspace_root: &Path) -> Result<Vec<QualifierInspection>> {
     let mut qualifiers = Vec::new();
     for path in discover_named_toml_files(workspace_root, "qualifiers").await? {
@@ -272,6 +320,21 @@ async fn discover_variables(workspace_root: &Path) -> Result<Vec<VariableInspect
     }
     variables.sort_by(|left, right| left.uri.cmp(&right.uri));
     Ok(variables)
+}
+
+async fn discover_resources(workspace_root: &Path) -> Result<Vec<ResourceInspection>> {
+    let mut resources = Vec::new();
+    for path in discover_named_toml_files(workspace_root, "resources").await? {
+        let id = id_from_path(&path)?;
+        let relative_path = relative_path(workspace_root, &path)?;
+        resources.push(ResourceInspection {
+            uri: format!("resource://{id}"),
+            id,
+            path: relative_path,
+        });
+    }
+    resources.sort_by(|left, right| left.uri.cmp(&right.uri));
+    Ok(resources)
 }
 
 async fn discover_schemas(workspace_root: &Path) -> Result<Vec<SchemaInspection>> {
@@ -359,99 +422,4 @@ fn relative_path(workspace_root: &Path, path: &Path) -> Result<PathBuf> {
     path.strip_prefix(workspace_root)
         .map(Path::to_path_buf)
         .map_err(|err| RototoError::new(err.to_string()))
-}
-
-async fn merge_external_variable_values(
-    workspace_root: &Path,
-    variable: &VariableInspection,
-    toml: &mut Value,
-) -> std::result::Result<(), VariableTomlReadError> {
-    let values_dir = external_values_dir(workspace_root, variable);
-    if !tokio::fs::metadata(&values_dir)
-        .await
-        .is_ok_and(|metadata| metadata.is_dir())
-    {
-        return Ok(());
-    }
-
-    let mut external_values = toml::map::Map::new();
-    let mut entries = tokio::fs::read_dir(&values_dir).await.map_err(|err| {
-        VariableTomlReadError::new(format!(
-            "failed to read variable values directory {}: {err}",
-            values_dir.display()
-        ))
-    })?;
-    while let Some(entry) = entries
-        .next_entry()
-        .await
-        .map_err(|err| VariableTomlReadError::new(err.to_string()))?
-    {
-        let path = entry.path();
-        if path.extension().and_then(|extension| extension.to_str()) != Some("toml")
-            || !tokio::fs::metadata(&path)
-                .await
-                .is_ok_and(|metadata| metadata.is_file())
-        {
-            continue;
-        }
-        let id = id_from_path(&path).map_err(|err| VariableTomlReadError::new(err.to_string()))?;
-        let value = value_from_external_value_toml(&path).await?;
-        if external_values.insert(id.clone(), value).is_some() {
-            return Err(VariableTomlReadError::new(format!(
-                "duplicate external variable value: {id}"
-            )));
-        }
-    }
-
-    if external_values.is_empty() {
-        return Ok(());
-    }
-
-    let Some(root_table) = toml.as_table_mut() else {
-        return Ok(());
-    };
-    let values = root_table
-        .entry("values".to_owned())
-        .or_insert_with(|| Value::Table(toml::map::Map::new()));
-    let Some(values) = values.as_table_mut() else {
-        return Err(VariableTomlReadError::new(format!(
-            "variable values must be a table: {}",
-            variable.path.display()
-        )));
-    };
-
-    for (id, value) in external_values {
-        if values.insert(id.clone(), value).is_some() {
-            return Err(VariableTomlReadError::new(format!(
-                "variable value is declared more than once: {id}"
-            )));
-        }
-    }
-    Ok(())
-}
-
-fn external_values_dir(workspace_root: &Path, variable: &VariableInspection) -> PathBuf {
-    workspace_root
-        .join(&variable.path)
-        .parent()
-        .unwrap_or(workspace_root)
-        .join(format!("{}-values", variable.id))
-}
-
-async fn value_from_external_value_toml(
-    path: &Path,
-) -> std::result::Result<Value, VariableTomlReadError> {
-    let text = tokio::fs::read_to_string(path).await.map_err(|err| {
-        VariableTomlReadError::new(format!("failed to read {}: {err}", path.display()))
-    })?;
-    let value = text.parse::<Value>().map_err(|err| {
-        VariableTomlReadError::new(format!("failed to parse {}: {err}", path.display()))
-    })?;
-    let Some(table) = value.as_table() else {
-        return Ok(value);
-    };
-    if table.len() == 1 && table.contains_key("value") {
-        return Ok(table.get("value").expect("value key checked").clone());
-    }
-    Ok(value)
 }

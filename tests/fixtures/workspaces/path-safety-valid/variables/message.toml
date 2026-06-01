@@ -1,9 +1,6 @@
 schema_version = 1
-schema = "../schemas/value.schema.json"
-description = "Variable with a normalized schema reference"
-
-[values]
-default = { message = "hello" }
+type = "resource:message"
+description = "Variable with a resource value"
 
 [env._]
 value = "default"

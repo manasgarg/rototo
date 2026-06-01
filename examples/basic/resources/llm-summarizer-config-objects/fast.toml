@@ -1,0 +1,5 @@
+model = "gpt-5-nano"
+gateway = "openai"
+prompt = "Summarize operational context in compact bullet points."
+max_output_tokens = 700
+temperature = 0.1

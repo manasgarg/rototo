@@ -1,0 +1,5 @@
+model = "gpt-5-mini"
+gateway = "openai"
+prompt = "Summarize operational context with key tradeoffs preserved."
+max_output_tokens = 1600
+temperature = 0.2

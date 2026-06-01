@@ -1,11 +1,11 @@
 # Example: Control Structured LLM Agent Config Safely
 
 This example models a structured LLM configuration that application code can
-load at runtime while the workspace owns validation, selection rules, external
-value files, and local policy.
+load at runtime while the workspace owns validation, selection rules, resource
+objects, and local policy.
 
 Use this pattern when the value is not a scalar knob. LLM configuration usually
-has a model, gateway, prompt, token limit, temperature, and local policy rules.
+has a model, gateway, prompt, token limit, temperature, and local policy.
 That should be schema-validated and reviewable as configuration.
 
 ## Production problem
@@ -36,12 +36,12 @@ config/
     enterprise-accounts.toml
   variables/
     llm-agent-config.toml
-    llm-agent-config-values/
+  resources/
+    llm-agent-config.toml
+    llm-agent-config-objects/
       local.toml
       standard.toml
       enterprise.toml
-  lint/
-    llm-agent-config.lua
 ```
 
 ## Value schema
@@ -56,7 +56,7 @@ Create `schemas/llm-config.schema.json`:
     "model": { "type": "string" },
     "gateway": { "type": "string" },
     "prompt": { "type": "string" },
-    "max_output_tokens": { "type": "integer", "minimum": 1 },
+    "max_output_tokens": { "type": "integer", "minimum": 1, "maximum": 5000 },
     "temperature": { "type": "number", "minimum": 0, "maximum": 2 }
   },
   "additionalProperties": false
@@ -67,23 +67,13 @@ The schema is the contract application code can rely on.
 
 ## Variable
 
-Declare the custom rule in `rototo-workspace.toml` so the diagnostic identity,
-title, and help text are reviewable:
-
-```toml
-[[lint.rule]]
-id = "platform/max-output-token-budget"
-title = "LLM output token budget is too high"
-help = "Use 5000 or fewer output tokens."
-```
-
 Create `variables/llm-agent-config.toml`:
 
 ```toml
 schema_version = 1
 
 description = "LLM settings for the incident summary agent"
-schema = "../schemas/llm-config.schema.json"
+type = "resource:llm-agent-config"
 
 [env._]
 value = "standard"
@@ -100,15 +90,21 @@ qualifier = "enterprise-accounts"
 value = "enterprise"
 ```
 
-The variable file stays focused on the application contract and selection
-rules. The large values live in separate files.
+The variable file stays focused on the application-facing id and selection
+rules. The large values live in resource object files.
 
-## External values
+## Resource Objects
 
-Create `variables/llm-agent-config-values/enterprise.toml`:
+Create `resources/llm-agent-config.toml`:
 
 ```toml
-[value]
+schema_version = 1
+schema = "../schemas/llm-config.schema.json"
+```
+
+Create `resources/llm-agent-config-objects/enterprise.toml`:
+
+```toml
 model = "gpt-5"
 gateway = "openai"
 prompt = "Summarize the incident for an enterprise support workflow."
@@ -118,34 +114,8 @@ temperature = 0.2
 
 Create similar files for `local` and `standard`.
 
-## Policy lint
-
-Create `lint/llm-agent-config.lua`:
-
-```lua
-function register(lint)
-  lint:on({
-    stage = "value",
-    entity = "value",
-    field = "value.max_output_tokens",
-    rule = "platform/max-output-token-budget",
-    handler = "check_token_budget",
-  })
-end
-
-function check_token_budget(ctx)
-  if ctx.target.value.max_output_tokens > 5000 then
-    return {
-      {
-        message = "value " .. ctx.target.name .. " exceeds the token budget"
-      }
-    }
-  end
-  return {}
-end
-```
-
-The schema validates shape. Custom lint enforces local policy.
+The schema validates shape and enforces the token ceiling before the workspace
+can be loaded.
 
 ## Verify the behavior
 
@@ -165,8 +135,8 @@ enterprise
 ## Tests to keep
 
 Test the default production path, enterprise production path, and development
-path. Also include one lint fixture or test change that proves policy catches a
-value above the token ceiling.
+path. Also include one lint fixture or test change that proves schema validation
+catches a value above the token ceiling.
 
 ## Fit
 
@@ -181,4 +151,5 @@ clearer for small knobs.
 - `how-to-move-large-values-out-of-toml`
 - `how-to-enforce-a-config-policy`
 - `variable-reference`
+- `resource-reference`
 - `value-types-reference`

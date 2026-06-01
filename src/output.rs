@@ -5,8 +5,13 @@ use rototo::diagnostics::{
 };
 use rototo::error::{Result, RototoError};
 use rototo::model::{InspectRuntimeStatus, WorkspaceInspectReport};
-use rototo::model::{QualifierInspection, VariableInspection, WorkspaceInspection, WorkspaceLint};
-use rototo::workspace::{qualifier_for_id, read_toml, read_variable_toml, variable_for_id};
+use rototo::model::{
+    QualifierInspection, ResourceInspection, VariableInspection, WorkspaceInspection, WorkspaceLint,
+};
+use rototo::workspace::{
+    qualifier_for_id, read_resource_toml, read_toml, read_variable_toml, resource_for_id,
+    variable_for_id,
+};
 
 #[derive(Debug, Serialize)]
 struct WorkspaceFileJson<'a> {
@@ -35,6 +40,12 @@ struct VariableListJson<'a> {
 }
 
 #[derive(Debug, Serialize)]
+struct ResourceListJson<'a> {
+    workspace: String,
+    resources: Vec<WorkspaceFileJson<'a>>,
+}
+
+#[derive(Debug, Serialize)]
 struct QualifierGetJson {
     workspace: String,
     id: String,
@@ -45,6 +56,15 @@ struct QualifierGetJson {
 
 #[derive(Debug, Serialize)]
 struct VariableGetJson {
+    workspace: String,
+    id: String,
+    uri: String,
+    path: String,
+    value: serde_json::Value,
+}
+
+#[derive(Debug, Serialize)]
+struct ResourceGetJson {
     workspace: String,
     id: String,
     uri: String,
@@ -168,6 +188,36 @@ pub(crate) fn print_inspect_report(report: &WorkspaceInspectReport, json: bool) 
                         predicate.index, predicate.attribute, predicate.result
                     );
                 }
+            }
+        }
+    }
+
+    if !report.resources.is_empty() {
+        println!("resources:");
+        let count = report.resources.len();
+        for (index, resource) in report.resources.iter().enumerate() {
+            print_entity_separator(index, count);
+            println!("  resource: {}", resource.id);
+            println!("    path: {}", resource.path);
+            if let Some(schema) = &resource.schema {
+                println!("    schema: {schema}");
+            }
+            if !resource.objects.is_empty() {
+                println!("    objects:");
+                for object in &resource.objects {
+                    println!("      {} = {}", object.key, compact_json(&object.value)?);
+                }
+            }
+            print_dependencies(&resource.dependencies, "    ");
+            if !resource.consumers.is_empty() {
+                println!("    consumed by:");
+                for consumer in &resource.consumers {
+                    println!("      {}  {}", consumer.label, consumer.location.path);
+                }
+            }
+            if !resource.diagnostics.is_empty() {
+                println!("    diagnostics:");
+                print_diagnostics(&resource.diagnostics);
             }
         }
     }
@@ -328,6 +378,7 @@ fn print_dependencies(dependencies: &rototo::model::DependencyInspectReport, ind
     if dependencies.qualifiers.is_empty()
         && dependencies.context_paths.is_empty()
         && dependencies.schemas.is_empty()
+        && dependencies.resources.is_empty()
     {
         return;
     }
@@ -340,6 +391,9 @@ fn print_dependencies(dependencies: &rototo::model::DependencyInspectReport, ind
     }
     for schema in &dependencies.schemas {
         println!("{indent}  schema {schema}");
+    }
+    for resource in &dependencies.resources {
+        println!("{indent}  resource {resource}");
     }
 }
 
@@ -377,6 +431,25 @@ pub(crate) fn print_variable_list(inspection: &WorkspaceInspection, json: bool) 
 
     for variable in &inspection.variables {
         println!("{}", variable.id);
+    }
+    Ok(())
+}
+
+pub(crate) fn print_resource_list(inspection: &WorkspaceInspection, json: bool) -> Result<()> {
+    if json {
+        println!(
+            "{}",
+            serde_json::to_string_pretty(&ResourceListJson {
+                workspace: inspection.root.display().to_string(),
+                resources: inspection.resources.iter().map(resource_json).collect(),
+            })
+            .map_err(|err| RototoError::new(err.to_string()))?
+        );
+        return Ok(());
+    }
+
+    for resource in &inspection.resources {
+        println!("{}", resource.id);
     }
     Ok(())
 }
@@ -441,6 +514,38 @@ pub(crate) async fn print_variable_get(
     Ok(())
 }
 
+pub(crate) async fn print_resource_get(
+    inspection: &WorkspaceInspection,
+    id: &str,
+    json: bool,
+) -> Result<()> {
+    let resource = resource_for_id(inspection, id)?;
+
+    if json {
+        let value = serde_json::to_value(read_resource_toml(&inspection.root, resource).await?)
+            .map_err(|err| RototoError::new(err.to_string()))?;
+        println!(
+            "{}",
+            serde_json::to_string_pretty(&ResourceGetJson {
+                workspace: inspection.root.display().to_string(),
+                id: resource.id.clone(),
+                uri: resource.uri.clone(),
+                path: resource.path.display().to_string(),
+                value,
+            })
+            .map_err(|err| RototoError::new(err.to_string()))?
+        );
+        return Ok(());
+    }
+
+    let value = read_resource_toml(&inspection.root, resource).await?;
+    print!(
+        "{}",
+        toml::to_string_pretty(&value).map_err(|err| RototoError::new(err.to_string()))?
+    );
+    Ok(())
+}
+
 pub(crate) fn print_diagnostic_catalog_entry(
     diagnostic: &DiagnosticCatalogEntry,
     json: bool,
@@ -477,6 +582,14 @@ fn variable_json(variable: &VariableInspection) -> WorkspaceFileJson<'_> {
         id: &variable.id,
         uri: &variable.uri,
         path: variable.path.display().to_string(),
+    }
+}
+
+fn resource_json(resource: &ResourceInspection) -> WorkspaceFileJson<'_> {
+    WorkspaceFileJson {
+        id: &resource.id,
+        uri: &resource.uri,
+        path: resource.path.display().to_string(),
     }
 }
 
@@ -538,6 +651,8 @@ fn diagnostic_entity_label(entity: &DiagnosticEntity) -> &'static str {
         DiagnosticEntity::Workspace => "workspace",
         DiagnosticEntity::Qualifier => "qualifier",
         DiagnosticEntity::Variable => "variable",
+        DiagnosticEntity::Resource => "resource",
+        DiagnosticEntity::ResourceObject => "resource_object",
         DiagnosticEntity::Value => "value",
         DiagnosticEntity::Rule => "rule",
         DiagnosticEntity::Schema => "schema",

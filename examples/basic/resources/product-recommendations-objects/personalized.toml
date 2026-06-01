@@ -1,0 +1,4 @@
+algorithm = "personalized-v2"
+slots = 6
+include_sponsored = true
+fallback_collection = "trending-now"

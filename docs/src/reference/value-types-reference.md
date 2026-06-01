@@ -3,8 +3,8 @@
 Variable values are TOML values that rototo validates and returns as JSON-like
 values during resolution.
 
-Variables declare either a primitive `type` or a JSON `schema`. They must not
-declare both.
+Variables declare `type`. The type is either a primitive type or a resource
+type in the form `resource:<resource-id>`.
 
 ## Primitive Types
 
@@ -74,33 +74,30 @@ default = ["card", "bank_transfer"]
 ```
 
 The primitive `list` type validates that the value is an array. It does not
-declare element types. Use a JSON Schema variable when element shape matters.
+declare element types. Use a resource when element shape matters.
 
 ## Structured Values
 
-Structured values should use `schema`, not primitive `type`.
+Structured values should use a resource type, not a primitive type.
 
 ```toml
+type = "resource:llm-agent-config"
+```
+
+The resource declares its JSON Schema, and each object under
+`resources/llm-agent-config-objects/` is validated against that schema during
+lint.
+
+Resource definition:
+
+```toml
+schema_version = 1
 schema = "../schemas/llm-config.schema.json"
 ```
 
-Each configured value is validated against the referenced JSON Schema during
-lint.
-
-Inline object values:
+Resource object:
 
 ```toml
-[values.enterprise]
-model = "gpt-5"
-gateway = "openai"
-max_output_tokens = 5000
-temperature = 0.2
-```
-
-External object value:
-
-```toml
-[value]
 model = "gpt-5"
 gateway = "openai"
 max_output_tokens = 5000
@@ -117,18 +114,26 @@ Resolution output is JSON. TOML values are converted to JSON-compatible values:
 - TOML arrays become JSON arrays.
 - TOML tables become JSON objects.
 
-## Choosing `type` Or `schema`
+## Choosing Primitive Or Resource Types
 
-Use primitive `type` for small scalar or list decisions.
+Use primitive `type` for small scalar or list decisions:
 
-Use `schema` when the value is an object, when a list needs element validation,
-or when application code expects a precise structured contract.
+```toml
+type = "int"
+```
+
+Use a resource type when the value is an object, when a list needs element
+validation, or when application code expects a precise structured contract:
+
+```toml
+type = "resource:llm-agent-config"
+```
 
 ## Validation
 
 Value validation happens during lint:
 
 - primitive variables check every value against `type`;
-- schema-backed variables check every value against the JSON Schema;
-- external value files are loaded before validation;
-- registered custom value lint runs after values have been expanded.
+- resource objects check every object against the resource JSON Schema;
+- resource-backed variable defaults and rules point at known resource objects;
+- registered custom value lint runs for primitive variable values.

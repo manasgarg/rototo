@@ -18,15 +18,15 @@ function register(lint)
   lint:on({
     stage = "value",
     entity = "variable",
-    field = "schema",
-    rule = "targets/variable-schema",
+    field = "type",
+    rule = "targets/variable-type",
     handler = "check_variable",
   })
 
   lint:on({
     stage = "value",
     entity = "variable",
-    rule = "targets/returned-variable-schema",
+    rule = "targets/returned-variable-type",
     handler = "check_returned_variable_field",
   })
 
@@ -65,20 +65,20 @@ function check_qualifier(ctx)
 end
 
 function check_variable(ctx)
-  if ctx.target.toml.schema ~= nil then
+  if ctx.target.toml.type ~= nil then
     return {
-      { message = "variable target checked schema" },
+      { message = "variable target checked type" },
     }
   end
   return {}
 end
 
 function check_returned_variable_field(ctx)
-  if ctx.target.toml.schema ~= nil then
+  if ctx.target.toml.type ~= nil then
     return {
       {
-        message = "variable target checked returned schema field",
-        field = "schema",
+        message = "variable target checked returned type field",
+        field = "type",
       },
     }
   end

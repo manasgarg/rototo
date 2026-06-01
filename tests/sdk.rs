@@ -6,9 +6,9 @@ use std::time::{Duration, Instant};
 use rototo::{
     Environment, LintMode, LoadOptions, RefreshOptions, RefreshOutcome, RefreshingWorkspace,
     ResolveContext, ResolveOptions, SourceOptions, Workspace, catalog_for_workspace,
-    diagnostic_for_rule, inspect_workspace, lint_qualifier, lint_workspace, list_variables,
-    read_qualifiers, read_variable, read_variables, resolve_qualifier, resolve_variable,
-    stage_workspace_source,
+    diagnostic_for_rule, inspect_workspace, lint_qualifier, lint_workspace, list_resources,
+    list_variables, read_qualifiers, read_resource, read_variable, read_variables,
+    resolve_qualifier, resolve_variable, stage_workspace_source,
 };
 
 async fn run_git(repo: &std::path::Path, args: &[&str]) {
@@ -176,6 +176,18 @@ async fn sdk_lists_variables_for_apps() {
 }
 
 #[tokio::test]
+async fn sdk_lists_resources_for_apps() {
+    let resources = list_resources("examples/basic".as_ref()).await.unwrap();
+
+    assert!(resources.len() > 2);
+    assert!(
+        resources
+            .iter()
+            .any(|resource| resource.uri == "resource://checkout-redesign")
+    );
+}
+
+#[tokio::test]
 async fn sdk_reads_variable_config() {
     let variable = read_variable("examples/basic".as_ref(), "checkout-redesign")
         .await
@@ -189,8 +201,18 @@ async fn sdk_reads_variable_config() {
 }
 
 #[tokio::test]
-async fn sdk_reads_directory_backed_variable_values() {
-    let variable = read_variable("examples/basic".as_ref(), "directory-backed-message")
+async fn sdk_reads_resource_config() {
+    let resource = read_resource("examples/basic".as_ref(), "checkout-redesign")
+        .await
+        .unwrap();
+
+    assert_eq!(resource.id, "checkout-redesign");
+    assert_eq!(resource.value["objects"]["premium"]["variant"], "premium");
+}
+
+#[tokio::test]
+async fn sdk_reads_primitive_variable_values() {
+    let variable = read_variable("examples/basic".as_ref(), "premium-message")
         .await
         .unwrap();
 
@@ -202,37 +224,41 @@ async fn sdk_reads_directory_backed_variable_values() {
 }
 
 #[tokio::test]
-async fn sdk_reads_all_basic_variable_configs_with_values() {
+async fn sdk_reads_all_basic_variable_configs_with_declared_sources() {
     let variables = read_variables("examples/basic".as_ref()).await.unwrap();
 
     assert!(variables.len() > 10);
     for variable in variables {
-        assert!(
-            variable.value["values"].is_object(),
-            "variable://{} should expose expanded values",
-            variable.id
-        );
-        assert!(
-            variable.value["values"]
-                .as_object()
-                .is_some_and(|values| !values.is_empty()),
-            "variable://{} should expose at least one value",
-            variable.id
-        );
+        let type_name = variable.value["type"].as_str().unwrap_or_default();
+        if type_name.starts_with("resource:") {
+            assert!(
+                variable.value.get("values").is_none(),
+                "variable://{} should not declare inline values",
+                variable.id
+            );
+        } else {
+            assert!(
+                variable.value["values"]
+                    .as_object()
+                    .is_some_and(|values| !values.is_empty()),
+                "variable://{} should expose at least one value",
+                variable.id
+            );
+        }
     }
 }
 
 #[tokio::test]
-async fn external_value_files_are_whole_toml_objects() {
-    let variables_dir = std::path::Path::new("examples/basic/variables");
-    for entry in std::fs::read_dir(variables_dir).unwrap() {
+async fn resource_object_files_are_whole_toml_objects() {
+    let resources_dir = std::path::Path::new("examples/basic/resources");
+    for entry in std::fs::read_dir(resources_dir).unwrap() {
         let entry = entry.unwrap();
         let path = entry.path();
         if !path.is_dir()
             || !path
                 .file_name()
                 .and_then(|name| name.to_str())
-                .is_some_and(|name| name.ends_with("-values"))
+                .is_some_and(|name| name.ends_with("-objects"))
         {
             continue;
         }
@@ -702,7 +728,7 @@ async fn sdk_resolves_variable() {
 }
 
 #[tokio::test]
-async fn sdk_resolves_directory_backed_variable() {
+async fn sdk_resolves_primitive_variable() {
     let context = serde_json::json!({
         "user": {
             "tier": "premium"
@@ -711,7 +737,7 @@ async fn sdk_resolves_directory_backed_variable() {
 
     let resolution = resolve_variable(
         "examples/basic".as_ref(),
-        "directory-backed-message",
+        "premium-message",
         "prod",
         &context,
     )

@@ -1,4 +1,4 @@
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::BTreeMap;
 use std::sync::Arc;
 
 use serde_json::Value as JsonValue;
@@ -7,7 +7,7 @@ use crate::diagnostics::{
     CustomRuleDefinition, CustomRuleId, DiagnosticLocation, DocId, LintStage, Severity,
 };
 
-use super::ids::{EnvironmentId, QualifierId, ValueKey, VariableId, WorkspacePath};
+use super::ids::{EnvironmentId, QualifierId, ResourceId, ValueKey, VariableId, WorkspacePath};
 use super::targets::RegisteredLintSelector;
 
 pub(in crate::lint) struct ManifestNode {
@@ -137,6 +137,7 @@ pub(in crate::lint) struct VariableNode {
 
 pub(in crate::lint) enum TypeSourceNode {
     Primitive(Spanned<String>),
+    Resource(Spanned<String>),
     Schema(Spanned<String>),
     Missing { location: DiagnosticLocation },
     Conflict { location: DiagnosticLocation },
@@ -147,6 +148,7 @@ impl TypeSourceNode {
     pub(in crate::lint) fn location(&self) -> DiagnosticLocation {
         match self {
             Self::Primitive(type_name) => type_name.location.clone(),
+            Self::Resource(resource) => resource.location.clone(),
             Self::Schema(schema) => schema.location.clone(),
             Self::Missing { location }
             | Self::Conflict { location }
@@ -155,11 +157,25 @@ impl TypeSourceNode {
     }
 }
 
+pub(in crate::lint) struct ResourceNode {
+    pub(in crate::lint) doc: DocId,
+    pub(in crate::lint) id: ResourceId,
+    pub(in crate::lint) location: DiagnosticLocation,
+    pub(in crate::lint) schema_version: ProjectField<i64>,
+    pub(in crate::lint) description: Option<ProjectField<String>>,
+    pub(in crate::lint) schema: ProjectField<String>,
+}
+
+pub(in crate::lint) struct ResourceObjectNode {
+    pub(in crate::lint) resource_id: ResourceId,
+    pub(in crate::lint) key: ValueKey,
+    pub(in crate::lint) location: DiagnosticLocation,
+    pub(in crate::lint) value: JsonValue,
+}
+
 pub(in crate::lint) struct ValuesNode {
     pub(in crate::lint) location: DiagnosticLocation,
-    pub(in crate::lint) inline_keys: BTreeSet<ValueKey>,
     pub(in crate::lint) inline_values: BTreeMap<ValueKey, ValueNode>,
-    pub(in crate::lint) external_keys: BTreeSet<ValueKey>,
     pub(in crate::lint) invalid_shape: bool,
 }
 
@@ -173,7 +189,6 @@ pub(in crate::lint) struct ValueNode {
 
 pub(in crate::lint) enum ValueOrigin {
     Inline { variable_doc: DocId },
-    External { doc: DocId, path: WorkspacePath },
 }
 
 pub(in crate::lint) struct SchemaNode {

@@ -1,15 +1,7 @@
 schema_version = 1
 
-description = "Schema-backed variable with a value that does not match"
-schema = "../schemas/panel.schema.json"
-
-[values.default]
-heading = "Enabled panel"
-enabled = true
-
-[values.broken]
-heading = "Broken panel"
-enabled = "yes"
+description = "Resource-backed variable with an object that does not match"
+type = "resource:bad-schema-value"
 
 [env._]
 value = "default"

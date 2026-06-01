@@ -86,15 +86,14 @@ needs a place where that decision can be reviewed and explained as a whole.
 rototo addresses those failure modes by putting the runtime decision in one
 workspace that the CLI, CI, agents, and application SDK can all load.
 
-- Late validation becomes workspace validation. Lint, type checks, schema
-  checks, unknown environment checks, missing value checks, external value file
-  checks, and custom lint can run before an application depends on the
-  workspace.
+- Late validation becomes workspace validation. Lint, type checks, resource
+  schema checks, unknown environment checks, missing value checks, and custom
+  lint can run before an application depends on the workspace.
 - Thin review history becomes a source-controlled workspace. Configuration
   changes can have diffs, code review, automated checks, release history, and
   rollback.
 - Unclear contract becomes a variable contract. Application code asks for a
-  named variable, and the variable declares its type or schema.
+  named variable, and the variable declares a primitive type or a resource type.
 - Scattered inputs become explicit resolution inputs. Environment and runtime
   context are passed into resolution instead of being hidden across deployment
   state, dashboards, and ad hoc overrides.
@@ -111,8 +110,8 @@ that can be reviewed, linted, tested, and loaded by applications.
 
 Inside the workspace, variables define what application code can ask for. A
 variable such as `max-output-tokens` or `llm-agent-config` is the stable
-application-facing name. It also declares the type or schema of the value the
-application receives.
+application-facing name. It also declares whether the value is primitive or
+selected from a resource.
 
 Variables are resolved in an environment. The environment is the deployment or
 runtime lane, such as `dev`, `stage`, or `prod`. That gives the same variable

@@ -32,6 +32,11 @@ config/
     acme-enterprise-tenant.toml
   variables/
     search-config.toml
+  resources/
+    search-config.toml
+    search-config-objects/
+      standard.toml
+      acme.toml
 ```
 
 ## Runtime context
@@ -79,15 +84,7 @@ Create `variables/search-config.toml`:
 schema_version = 1
 
 description = "Search backend settings"
-schema = "../schemas/search-config.schema.json"
-
-[values.standard]
-backend = "shared-search"
-timeout_ms = 1500
-
-[values.acme]
-backend = "acme-dedicated-search"
-timeout_ms = 3000
+type = "resource:search-config"
 
 [env._]
 value = "standard"
@@ -99,6 +96,27 @@ value = "standard"
 description = "Acme uses a dedicated production search backend"
 qualifier = "acme-enterprise-tenant"
 value = "acme"
+```
+
+Create `resources/search-config.toml`:
+
+```toml
+schema_version = 1
+schema = "../schemas/search-config.schema.json"
+```
+
+Create `resources/search-config-objects/standard.toml`:
+
+```toml
+backend = "shared-search"
+timeout_ms = 1500
+```
+
+Create `resources/search-config-objects/acme.toml`:
+
+```toml
+backend = "acme-dedicated-search"
+timeout_ms = 3000
 ```
 
 ## Verify the behavior
@@ -135,3 +153,4 @@ should select runtime behavior, not replace application data storage.
 - `how-to-add-a-new-context-field`
 - `context-reference`
 - `variable-reference`
+- `resource-reference`

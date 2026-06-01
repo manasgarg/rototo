@@ -1,0 +1,5 @@
+enabled = true
+tone = "info"
+heading = "Supportzeiten"
+body = "Unser deutschsprachiges Team ist werktags erreichbar."
+cta = "Kontakt aufnehmen"

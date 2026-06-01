@@ -1,0 +1,4 @@
+schema_version = 1
+
+description = "Product recommendation strategy objects"
+schema = "../schemas/recommendation-config.schema.json"

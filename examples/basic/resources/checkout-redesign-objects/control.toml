@@ -1,0 +1,5 @@
+variant = "control"
+heading = "Complete your purchase"
+subheading = "You're almost done"
+image_url = "/images/checkout/control.png"
+content = "Secure checkout in seconds."

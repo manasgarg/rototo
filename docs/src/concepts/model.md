@@ -249,8 +249,8 @@ asks for a variable id such as `max-output-tokens` or `llm-agent-config`; it
 does not need to know which qualifiers, branches, or rules are active.
 
 A variable defines possible values and the logic for selecting one of them in
-an environment. It also declares either a primitive type or a JSON Schema for
-the returned value.
+an environment. It declares either a primitive type or a resource type for the
+returned value.
 
 ```toml
 schema_version = 1
@@ -277,10 +277,10 @@ The variable id is stable from the application's point of view. The workspace
 can change which value key is selected in each environment without requiring
 application code to change.
 
-## External Value Files
+## Resources
 
-Values can live inline in the variable file, or in a sibling directory when the
-values are large enough to deserve their own files.
+Primitive values live inline in the variable file. Structured values live in
+resources when they need their own schema and object files.
 
 Inline values keep small decisions close to the variable:
 
@@ -291,29 +291,27 @@ standard = 1000
 large = 2000
 ```
 
-External value files keep richer values readable and reviewable. For a variable
-file named `variables/llm-agent-config.toml`, rototo also loads value files
-from `variables/llm-agent-config-values/*.toml`. Each file stem becomes the
-value key.
+A resource-backed variable uses `type = "resource:<resource-id>"`. For a
+resource named `llm-agent-config`, each object file stem becomes a value key.
 
 ```text
-variables/
+resources/
   llm-agent-config.toml
-  llm-agent-config-values/
+  llm-agent-config-objects/
     standard.toml
     enterprise.toml
 ```
 
-An external value file can hold a scalar:
+The resource definition points at a JSON Schema:
 
 ```toml
-value = "Welcome back, premium member."
+schema_version = 1
+schema = "../schemas/llm-config.schema.json"
 ```
 
-Or it can hold an object under `[value]`:
+Each object file is validated against that schema:
 
 ```toml
-[value]
 model = "gpt-5"
 gateway = "openai"
 prompt = "Summarize the incident for an enterprise support workflow."
@@ -321,9 +319,9 @@ max_output_tokens = 5000
 temperature = 0.2
 ```
 
-Resolution does not care whether the selected value came from the variable file
-or a separate value file. The workspace loader expands both forms into the same
-variable model before linting and resolution.
+Resolution returns the selected resource object in the same `value` field used
+for primitive variables. The variable still owns environment selection; the
+resource owns object validation.
 
 ## Value Key and Value
 
@@ -380,7 +378,7 @@ For a variable resolution, rototo follows this shape:
 5. Find the requested variable.
 6. Evaluate qualifiers referenced by matching rules.
 7. Select the value key for the environment.
-8. Validate the selected value against the variable type or schema.
+8. Return the primitive value or selected resource object.
 9. Return the selected value key and value.
 ```
 
@@ -432,7 +430,7 @@ refresh attempt succeeding.
 ## Custom Lint
 
 Built-in validation checks the rototo model: manifests, environments,
-qualifier references, value keys, schemas, and value types. Some teams also
+qualifier references, value keys, resources, schemas, and value types. Some teams also
 need workspace-specific policy that rototo cannot know in advance.
 
 Custom lint is declared at the workspace level. The manifest owns rule
@@ -450,14 +448,14 @@ function register(lint)
   lint:on({
     stage = "value",
     entity = "value",
-    field = "value.max_output_tokens",
+    field = "value",
     rule = "platform/max-output-token-budget",
     handler = "check_token_budget",
   })
 end
 
 function check_token_budget(ctx)
-  if ctx.target.value.max_output_tokens > 5000 then
+  if ctx.target.value > 5000 then
     return {
       {
         message = "value " .. ctx.target.name .. " exceeds the token budget"
@@ -481,7 +479,7 @@ appear at different times.
 
 Workspace lint checks the files before release: parse errors, invalid
 manifests, unknown environments, missing values, unknown qualifiers, invalid
-schemas, external value files, and custom lint failures. Context validation
+schemas, resource object failures, and custom lint failures. Context validation
 checks the runtime input the application supplies. Value validation checks the
 selected output before the application consumes it.
 

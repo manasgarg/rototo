@@ -114,6 +114,8 @@ fn lsp_symbol_kind(kind: WorkspaceDocumentSymbolKind) -> u8 {
         WorkspaceDocumentSymbolKind::Qualifier => 19,
         WorkspaceDocumentSymbolKind::Predicate => 17,
         WorkspaceDocumentSymbolKind::Variable => 13,
+        WorkspaceDocumentSymbolKind::Resource => 13,
+        WorkspaceDocumentSymbolKind::ResourceObject => 14,
         WorkspaceDocumentSymbolKind::Values => 18,
         WorkspaceDocumentSymbolKind::Value => 14,
         WorkspaceDocumentSymbolKind::EnvironmentBlock => 3,

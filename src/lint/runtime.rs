@@ -357,37 +357,21 @@ impl<'a> RuntimeCompiler<'a> {
                 "variable declares unknown type: {}",
                 type_name.value
             ))),
-            TypeSourceNode::Schema(schema_ref) => {
-                let schema_path = super::source::resolve_workspace_relative_path(
-                    &variable.location.path,
-                    &schema_ref.value,
-                )
-                .ok_or_else(|| {
-                    RototoError::new(format!(
-                        "variable schema reference is invalid: {} is not a relative path inside the workspace",
-                        schema_ref.value
-                    ))
-                })?;
-                let schema = index.schemas.get(&schema_path).ok_or_else(|| {
-                    RototoError::new(format!(
-                        "variable schema reference is invalid: schema file not found: {schema_path}"
-                    ))
-                })?;
-                if schema.validator.is_none() {
-                    return Err(RototoError::new(format!(
-                        "variable schema is invalid: {}",
-                        schema
-                            .invalid_message
-                            .as_deref()
-                            .unwrap_or("schema did not compile")
-                    )));
-                }
+            TypeSourceNode::Resource(resource) if index.resources.contains_key(&resource.value) => {
                 Ok(())
             }
+            TypeSourceNode::Resource(resource) => Err(RototoError::new(format!(
+                "variable references unknown resource: {}",
+                resource.value
+            ))),
+            TypeSourceNode::Schema(_) => Err(RototoError::new(format!(
+                "variable schemas are no longer supported: {}",
+                variable.id
+            ))),
             TypeSourceNode::Missing { .. }
             | TypeSourceNode::Conflict { .. }
             | TypeSourceNode::Invalid { .. } => Err(RototoError::new(format!(
-                "variable must declare exactly one of type or schema: {}",
+                "variable must declare type: {}",
                 variable.id
             ))),
         }
@@ -398,33 +382,41 @@ impl<'a> RuntimeCompiler<'a> {
         index: &SemanticIndex,
         variable: &VariableNode,
     ) -> Result<BTreeMap<String, JsonValue>> {
+        if let TypeSourceNode::Resource(resource) = &variable.type_source {
+            if variable.values.invalid_shape || !variable.values.inline_values.is_empty() {
+                return Err(RototoError::new(format!(
+                    "resource-backed variable must not contain values: {}",
+                    variable.id
+                )));
+            }
+
+            let objects = index.resource_objects.get(&resource.value).ok_or_else(|| {
+                RototoError::new(format!(
+                    "resource has no objects for variable {}: {}",
+                    variable.id, resource.value
+                ))
+            })?;
+            if objects.is_empty() {
+                return Err(RototoError::new(format!(
+                    "resource has no objects for variable {}: {}",
+                    variable.id, resource.value
+                )));
+            }
+            return Ok(objects
+                .iter()
+                .map(|(key, object)| (key.clone(), object.value.clone()))
+                .collect());
+        }
+
         if variable.values.invalid_shape {
             return Err(RototoError::new(format!(
                 "variable values must be a table: {}",
                 variable.id
             )));
         }
-
         let mut values = BTreeMap::new();
         for (key, value) in &variable.values.inline_values {
             values.insert(key.clone(), value.value.clone());
-        }
-
-        let external_values = index.external_values.get(&variable.id);
-        for key in &variable.values.external_keys {
-            let value = external_values
-                .and_then(|values| values.get(key))
-                .ok_or_else(|| {
-                    RototoError::new(format!("external value could not be loaded: {key}"))
-                })?;
-            if values
-                .insert(key.clone(), runtime_external_value(&value.value))
-                .is_some()
-            {
-                return Err(RototoError::new(format!(
-                    "variable value is declared more than once: {key}"
-                )));
-            }
         }
 
         if values.is_empty() {
@@ -601,16 +593,4 @@ fn validate_compare_value(op: RuntimeCompareOp, value: &ValueShapeNode) -> Resul
 
 fn is_known_primitive(value: &str) -> bool {
     matches!(value, "bool" | "int" | "number" | "string" | "list")
-}
-
-fn runtime_external_value(value: &JsonValue) -> JsonValue {
-    let Some(object) = value.as_object() else {
-        return value.clone();
-    };
-    if object.len() == 1
-        && let Some(value) = object.get("value")
-    {
-        return value.clone();
-    }
-    value.clone()
 }

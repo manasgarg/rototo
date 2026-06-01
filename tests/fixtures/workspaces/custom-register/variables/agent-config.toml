@@ -1,13 +1,11 @@
 schema_version = 1
 
 description = "Agent config with a registered custom value lint"
-schema = "../schemas/config.schema.json"
+type = "list"
 
-[values.standard]
-max_output_tokens = 6000
-
-[values.small]
-max_output_tokens = 1000
+[values]
+standard = [6000]
+small = [1000]
 
 [env._]
 value = "standard"

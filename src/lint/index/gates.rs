@@ -4,7 +4,7 @@ use std::collections::BTreeMap;
 
 use crate::diagnostics::{DiagnosticRule, LintStage};
 
-use super::ids::{QualifierId, ValueKey, VariableId, WorkspacePath};
+use super::ids::{QualifierId, ResourceId, ValueKey, VariableId, WorkspacePath};
 
 #[derive(Default)]
 pub(in crate::lint) struct GateIndex {
@@ -21,7 +21,8 @@ pub(in crate::lint) enum GateEntity {
     Manifest,
     Qualifier(QualifierId),
     Variable(VariableId),
-    ExternalValue { variable: VariableId, key: ValueKey },
+    Resource(ResourceId),
+    ResourceObject { resource: ResourceId, key: ValueKey },
     Schema(WorkspacePath),
     CustomLintFile(WorkspacePath),
 }

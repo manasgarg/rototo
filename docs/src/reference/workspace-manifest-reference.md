@@ -82,14 +82,15 @@ rototo discovers workspace files from conventional directories:
 ```text
 qualifiers/*.toml
 variables/*.toml
+resources/*.toml
+resources/<resource-id>-objects/*.toml
 schemas/*.json
 ```
 
-Only direct `.toml` files in `qualifiers/` and `variables/` define qualifier and
-variable ids. The file stem is the id.
-
-External variable value files live next to a variable in
-`variables/<variable-id>-values/*.toml`; see `variable-reference`.
+Only direct `.toml` files in `qualifiers/`, `variables/`, and `resources/`
+define ids. Resource object files live under the matching
+`resources/<resource-id>-objects/` directory; the object file stem is the object
+id.
 
 ## Complete Example
 

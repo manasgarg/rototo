@@ -1,0 +1,4 @@
+algorithm = "account-affinity"
+slots = 8
+include_sponsored = false
+fallback_collection = "enterprise-staples"

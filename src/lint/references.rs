@@ -15,6 +15,7 @@ pub(super) struct ReferenceIndex {
     edges: Vec<ReferenceEdge>,
     qualifier_referenced_by: BTreeMap<QualifierId, Vec<ReferenceSite>>,
     value_referenced_by: BTreeMap<(VariableId, ValueKey), Vec<ReferenceSite>>,
+    resource_object_referenced_by: BTreeMap<(ResourceId, ValueKey), Vec<ReferenceSite>>,
 }
 
 #[derive(Clone)]
@@ -37,8 +38,11 @@ pub(super) enum ReferenceSource {
         qualifier: String,
         predicate: usize,
     },
-    VariableSchema {
+    VariableResource {
         variable: String,
+    },
+    ResourceSchema {
+        resource: String,
     },
     VariableEnvironment {
         variable: String,
@@ -65,6 +69,8 @@ pub(super) enum ReferenceTarget {
     ContextAttribute(String),
     Environment(String),
     Qualifier(String),
+    Resource(String),
+    ResourceObject { resource: String, value: String },
     Schema(String),
     VariableValue { variable: String, value: String },
 }
@@ -157,8 +163,19 @@ impl ReferenceIndex {
                         target: target.clone(),
                     });
                 }
+                ReferenceTarget::ResourceObject { .. }
+                    if location_contains_position(location, path, position) =>
+                {
+                    candidates.push(ReferenceTargetCandidate {
+                        priority: 1,
+                        span_size: location.range.map(source_range_size).unwrap_or(usize::MAX),
+                        target: target.clone(),
+                    });
+                }
                 ReferenceTarget::ContextAttribute(_) | ReferenceTarget::Environment(_) => {}
                 ReferenceTarget::Qualifier(_)
+                | ReferenceTarget::Resource(_)
+                | ReferenceTarget::ResourceObject { .. }
                 | ReferenceTarget::Schema(_)
                 | ReferenceTarget::VariableValue { .. } => {}
             }
@@ -313,15 +330,24 @@ impl ReferenceIndex {
                     value.location.clone(),
                 );
             }
-            if let Some(external_values) = index.external_values.get(&variable.id) {
-                for value in external_values.values() {
-                    self.declarations
-                        .entry(ReferenceTarget::VariableValue {
-                            variable: variable.id.clone(),
-                            value: value.key.clone(),
-                        })
-                        .or_insert_with(|| value.location.clone());
-                }
+        }
+
+        for resource in index.resources.values() {
+            self.declarations.insert(
+                ReferenceTarget::Resource(resource.id.clone()),
+                resource.location.clone(),
+            );
+        }
+
+        for (resource_id, objects) in &index.resource_objects {
+            for object in objects.values() {
+                self.declarations.insert(
+                    ReferenceTarget::ResourceObject {
+                        resource: resource_id.clone(),
+                        value: object.key.clone(),
+                    },
+                    object.location.clone(),
+                );
             }
         }
 
@@ -339,17 +365,6 @@ impl ReferenceIndex {
 
         for document in source.documents.values() {
             match &document.kind {
-                DocumentKind::ExternalValue {
-                    variable_id,
-                    value_key,
-                } => {
-                    self.declarations
-                        .entry(ReferenceTarget::VariableValue {
-                            variable: variable_id.clone(),
-                            value: value_key.clone(),
-                        })
-                        .or_insert_with(|| document.document_location());
-                }
                 DocumentKind::Schema => {
                     self.declarations.insert(
                         ReferenceTarget::Schema(document.path.clone()),
@@ -359,6 +374,8 @@ impl ReferenceIndex {
                 DocumentKind::Manifest
                 | DocumentKind::Qualifier { .. }
                 | DocumentKind::Variable { .. }
+                | DocumentKind::Resource { .. }
+                | DocumentKind::ResourceObject { .. }
                 | DocumentKind::CustomLint => {}
             }
         }
@@ -429,19 +446,16 @@ impl ReferenceIndex {
 
     fn add_variable_references(&mut self, index: &SemanticIndex, syntax: &SyntaxIndex) {
         for variable in index.variables.values() {
-            if let TypeSourceNode::Schema(schema) = &variable.type_source
-                && let Some(schema_path) =
-                    resolve_workspace_relative_path(&variable.location.path, &schema.value)
-            {
+            if let TypeSourceNode::Resource(resource) = &variable.type_source {
                 self.push_edge(
-                    ReferenceSource::VariableSchema {
+                    ReferenceSource::VariableResource {
                         variable: variable.id.clone(),
                     },
                     EntityId::Variable {
                         id: variable.id.clone(),
                     },
-                    schema.location.clone(),
-                    ReferenceTarget::Schema(schema_path),
+                    resource.location.clone(),
+                    ReferenceTarget::Resource(resource.value.clone()),
                 );
             }
 
@@ -466,6 +480,7 @@ impl ReferenceIndex {
                 }
 
                 if let ProjectField::Present(value) = &block.value {
+                    let target = variable_value_target(variable, &value.value);
                     self.push_edge(
                         ReferenceSource::VariableEnvironmentValue {
                             variable: variable.id.clone(),
@@ -476,10 +491,7 @@ impl ReferenceIndex {
                             environment: block.environment.clone(),
                         },
                         value.location.clone(),
-                        ReferenceTarget::VariableValue {
-                            variable: variable.id.clone(),
-                            value: value.value.clone(),
-                        },
+                        target,
                     );
                 }
 
@@ -508,6 +520,7 @@ impl ReferenceIndex {
                         );
                     }
                     if let ProjectField::Present(value) = &rule.value {
+                        let target = variable_value_target(variable, &value.value);
                         self.push_edge(
                             ReferenceSource::VariableRuleValue {
                                 variable: variable.id.clone(),
@@ -516,13 +529,30 @@ impl ReferenceIndex {
                             },
                             entity.clone(),
                             value.location.clone(),
-                            ReferenceTarget::VariableValue {
-                                variable: variable.id.clone(),
-                                value: value.value.clone(),
-                            },
+                            target,
                         );
                     }
                 }
+            }
+        }
+
+        for resource in index.resources.values() {
+            let ProjectField::Present(schema) = &resource.schema else {
+                continue;
+            };
+            if let Some(schema_path) =
+                resolve_workspace_relative_path(&resource.location.path, &schema.value)
+            {
+                self.push_edge(
+                    ReferenceSource::ResourceSchema {
+                        resource: resource.id.clone(),
+                    },
+                    EntityId::Resource {
+                        id: resource.id.clone(),
+                    },
+                    schema.location.clone(),
+                    ReferenceTarget::Schema(schema_path),
+                );
             }
         }
     }
@@ -553,8 +583,15 @@ impl ReferenceIndex {
                         .or_default()
                         .push(site);
                 }
+                ReferenceTarget::ResourceObject { resource, value } => {
+                    self.resource_object_referenced_by
+                        .entry((resource.clone(), value.clone()))
+                        .or_default()
+                        .push(site);
+                }
                 ReferenceTarget::ContextAttribute(_)
                 | ReferenceTarget::Environment(_)
+                | ReferenceTarget::Resource(_)
                 | ReferenceTarget::Schema(_) => {}
             }
         }
@@ -569,6 +606,26 @@ impl ReferenceIndex {
 
     pub(super) fn has_references(&self, target: &ReferenceTarget) -> bool {
         self.edges.iter().any(|edge| &edge.target == target)
+    }
+}
+
+fn variable_resource_id(variable: &VariableNode) -> Option<&str> {
+    match &variable.type_source {
+        TypeSourceNode::Resource(resource) => Some(&resource.value),
+        _ => None,
+    }
+}
+
+fn variable_value_target(variable: &VariableNode, value: &str) -> ReferenceTarget {
+    match variable_resource_id(variable) {
+        Some(resource) => ReferenceTarget::ResourceObject {
+            resource: resource.to_owned(),
+            value: value.to_owned(),
+        },
+        None => ReferenceTarget::VariableValue {
+            variable: variable.id.clone(),
+            value: value.to_owned(),
+        },
     }
 }
 
