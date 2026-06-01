@@ -1609,16 +1609,30 @@ fn print_docs_search(query: &str, json: bool) -> Result<ExitCode> {
             println!("{} - {}", hit.page, hit.title);
             current_page = Some(hit.page);
         }
-        println!("  {}: {}", hit.line, hit.text);
-        if let Some(span) = hit.spans.first() {
-            println!(
-                "      {}{}",
-                " ".repeat(span.start),
-                "^".repeat(span.end - span.start)
-            );
-        }
+        println!(
+            "  {}: {}",
+            hit.line,
+            highlight_docs_search(&hit.text, &hit.spans)
+        );
     }
     Ok(ExitCode::SUCCESS)
+}
+
+fn highlight_docs_search(text: &str, spans: &[DocsSearchSpan]) -> String {
+    let mut highlighted = String::new();
+    let mut cursor = 0;
+    for span in spans {
+        if span.start < cursor || span.start == span.end {
+            continue;
+        }
+        highlighted.push_str(&text[cursor..span.start]);
+        highlighted.push_str("\x1b[7m");
+        highlighted.push_str(&text[span.start..span.end]);
+        highlighted.push_str("\x1b[0m");
+        cursor = span.end;
+    }
+    highlighted.push_str(&text[cursor..]);
+    highlighted
 }
 
 fn search_docs(query: &str, regex: &Regex) -> Vec<DocsSearchMatch> {
@@ -1646,6 +1660,7 @@ fn push_search_match(
 ) {
     let spans = regex
         .find_iter(text)
+        .filter(|found| found.start() < found.end())
         .map(|found| DocsSearchSpan {
             start: found.start(),
             end: found.end(),

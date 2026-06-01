@@ -167,13 +167,21 @@ fn docs_page_prefix_reports_ambiguity() {
 
 #[test]
 fn docs_search_uses_regex() {
-    Command::cargo_bin("rototo")
+    let output = Command::cargo_bin("rototo")
         .unwrap()
         .args(["docs", "-s", "workspace source"])
-        .assert()
-        .success()
-        .stdout(predicate::str::contains("workspace source"))
-        .stdout(predicate::str::contains("^"));
+        .output()
+        .unwrap();
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    assert!(stdout.contains("\x1b[7mworkspace source\x1b[0m"));
+    assert!(
+        !stdout
+            .lines()
+            .any(|line| line.trim_start().starts_with('^')),
+        "docs search should highlight matches inline instead of printing marker lines:\n{stdout}"
+    );
 }
 
 #[test]
