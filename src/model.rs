@@ -1,13 +1,23 @@
 use std::path::PathBuf;
 
-use crate::diagnostics::{DiagnosticCatalogEntry, DocId, LintDiagnostic, Severity};
+use crate::diagnostics::{
+    DiagnosticCatalogEntry, DiagnosticLocation, DocId, LintDiagnostic, Severity,
+};
 
 #[derive(Debug)]
 pub struct WorkspaceInspection {
     pub root: PathBuf,
     pub environments: Vec<String>,
+    pub schemas: Vec<SchemaInspection>,
     pub qualifiers: Vec<QualifierInspection>,
     pub variables: Vec<VariableInspection>,
+    pub linters: Vec<LinterInspection>,
+}
+
+#[derive(Clone, Debug, serde::Serialize)]
+pub struct SchemaInspection {
+    pub id: String,
+    pub path: PathBuf,
 }
 
 #[derive(Clone, Debug)]
@@ -21,6 +31,12 @@ pub struct QualifierInspection {
 pub struct VariableInspection {
     pub id: String,
     pub uri: String,
+    pub path: PathBuf,
+}
+
+#[derive(Clone, Debug, serde::Serialize)]
+pub struct LinterInspection {
+    pub id: String,
     pub path: PathBuf,
 }
 
@@ -111,13 +127,13 @@ pub struct VariableLint {
     pub diagnostics: Vec<LintDiagnostic>,
 }
 
-#[derive(Debug, serde::Serialize)]
+#[derive(Clone, Debug, serde::Serialize)]
 pub struct QualifierResolution {
     pub id: String,
     pub value: bool,
 }
 
-#[derive(Debug, serde::Serialize)]
+#[derive(Clone, Debug, serde::Serialize)]
 pub struct VariableResolution {
     pub id: String,
     pub environment: String,
@@ -137,4 +153,246 @@ pub struct DiagnosticCatalog {
 pub enum DiagnosticCatalogScope {
     Global,
     Workspace,
+}
+
+#[derive(Clone, Debug, Default)]
+pub struct WorkspaceInspectRequest {
+    pub variables: InspectSelection,
+    pub qualifiers: InspectSelection,
+    pub lint_rules: InspectSelection,
+    pub lint_authorities: InspectSelection,
+    pub linters: InspectSelection,
+    pub environment: Option<String>,
+    pub context: Option<serde_json::Value>,
+}
+
+#[derive(Clone, Debug, Default)]
+pub enum InspectSelection {
+    #[default]
+    None,
+    Some(Vec<String>),
+    All,
+}
+
+impl InspectSelection {
+    pub fn is_none(&self) -> bool {
+        matches!(self, Self::None)
+    }
+
+    pub fn is_some_or_all(&self) -> bool {
+        !self.is_none()
+    }
+
+    pub fn explicit_values(&self) -> &[String] {
+        match self {
+            Self::Some(values) => values,
+            Self::None | Self::All => &[],
+        }
+    }
+}
+
+#[derive(Debug, serde::Serialize)]
+pub struct WorkspaceInspectReport {
+    pub workspace: String,
+    pub environments: Vec<String>,
+    pub documents: Vec<SourceDocumentSummary>,
+    pub runtime: InspectRuntimeStatus,
+    pub diagnostics: Vec<LintDiagnostic>,
+    pub schemas: Vec<SchemaInspectReport>,
+    pub variables: Vec<VariableInspectReport>,
+    pub qualifiers: Vec<QualifierInspectReport>,
+    pub lint_rules: Vec<LintRuleInspectReport>,
+    pub lint_authorities: Vec<LintAuthorityInspectReport>,
+    pub linters: Vec<LinterInspectReport>,
+}
+
+#[derive(Debug, serde::Serialize)]
+#[serde(tag = "status", rename_all = "snake_case")]
+pub enum InspectRuntimeStatus {
+    Available,
+    Unavailable { reason: String },
+}
+
+#[derive(Debug, serde::Serialize)]
+pub struct VariableInspectReport {
+    pub id: String,
+    pub uri: String,
+    pub path: String,
+    pub type_source: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub schema: Option<String>,
+    pub values: Vec<ValueInspectReport>,
+    pub environments: Vec<EnvironmentPathwayInspectReport>,
+    pub dependencies: DependencyInspectReport,
+    pub diagnostics: Vec<LintDiagnostic>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub trace: Option<VariableResolutionTrace>,
+}
+
+#[derive(Debug, serde::Serialize)]
+pub struct ValueInspectReport {
+    pub key: String,
+    pub origin: String,
+    pub value: serde_json::Value,
+    #[serde(skip_serializing)]
+    pub location: DiagnosticLocation,
+}
+
+#[derive(Debug, serde::Serialize)]
+pub struct EnvironmentPathwayInspectReport {
+    pub environment: String,
+    pub default_value: Option<String>,
+    pub rules: Vec<RulePathwayInspectReport>,
+    #[serde(skip_serializing)]
+    pub location: DiagnosticLocation,
+}
+
+#[derive(Debug, serde::Serialize)]
+pub struct RulePathwayInspectReport {
+    pub index: usize,
+    pub qualifier: Option<String>,
+    pub value: Option<String>,
+    #[serde(skip_serializing)]
+    pub location: DiagnosticLocation,
+}
+
+#[derive(Default, Debug, serde::Serialize)]
+pub struct DependencyInspectReport {
+    pub qualifiers: Vec<String>,
+    pub context_paths: Vec<String>,
+    pub schemas: Vec<String>,
+}
+
+#[derive(Debug, serde::Serialize)]
+pub struct QualifierInspectReport {
+    pub id: String,
+    pub uri: String,
+    pub path: String,
+    pub predicates: Vec<PredicateInspectReport>,
+    pub dependencies: DependencyInspectReport,
+    pub consumers: Vec<ReferenceInspectReport>,
+    pub diagnostics: Vec<LintDiagnostic>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub trace: Option<QualifierResolutionTrace>,
+}
+
+#[derive(Debug, serde::Serialize)]
+pub struct SchemaInspectReport {
+    pub id: String,
+    pub path: String,
+    pub status: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub error: Option<String>,
+    pub consumers: Vec<ReferenceInspectReport>,
+    pub diagnostics: Vec<LintDiagnostic>,
+}
+
+#[derive(Debug, serde::Serialize)]
+pub struct PredicateInspectReport {
+    pub index: usize,
+    pub attribute: Option<String>,
+    pub op: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub value: Option<serde_json::Value>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub salt: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub range: Option<Vec<i64>>,
+    #[serde(skip_serializing)]
+    pub location: DiagnosticLocation,
+}
+
+#[derive(Debug, serde::Serialize)]
+pub struct ReferenceInspectReport {
+    pub kind: String,
+    pub label: String,
+    #[serde(skip_serializing)]
+    pub location: DiagnosticLocation,
+}
+
+#[derive(Debug, serde::Serialize)]
+pub struct LintRuleInspectReport {
+    pub rule: String,
+    pub severity: Severity,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub entity: Option<String>,
+    pub title: String,
+    pub help: String,
+    pub diagnostics: Vec<LintDiagnostic>,
+}
+
+#[derive(Debug, serde::Serialize)]
+pub struct LintAuthorityInspectReport {
+    pub authority: String,
+    pub rules: Vec<LintRuleInspectReport>,
+}
+
+#[derive(Debug, serde::Serialize)]
+pub struct LinterInspectReport {
+    pub id: String,
+    pub path: String,
+    pub registrations: Vec<LinterRegistrationInspectReport>,
+    pub diagnostics: Vec<LintDiagnostic>,
+}
+
+#[derive(Debug, serde::Serialize)]
+pub struct LinterRegistrationInspectReport {
+    pub stage: String,
+    pub entity: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub field: Option<String>,
+    pub rule: String,
+    pub handler: String,
+}
+
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct QualifierResolutionTrace {
+    pub id: String,
+    pub value: bool,
+    pub predicates: Vec<PredicateResolutionTrace>,
+}
+
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct PredicateResolutionTrace {
+    pub index: usize,
+    pub kind: String,
+    pub attribute: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub op: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub expected: Option<serde_json::Value>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub actual: Option<serde_json::Value>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub bucket: Option<BucketResolutionTrace>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub qualifier: Option<String>,
+    pub result: bool,
+}
+
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct BucketResolutionTrace {
+    pub salt: String,
+    pub start: i64,
+    pub end: i64,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub value: Option<u16>,
+}
+
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct VariableResolutionTrace {
+    pub resolution: VariableResolution,
+    pub requested_environment: String,
+    pub used_environment: String,
+    pub fallback_value: String,
+    pub rules: Vec<VariableRuleResolutionTrace>,
+    pub qualifier_traces: Vec<QualifierResolutionTrace>,
+}
+
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct VariableRuleResolutionTrace {
+    pub index: usize,
+    pub qualifier: String,
+    pub value: String,
+    pub matched: bool,
 }

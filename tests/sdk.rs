@@ -133,6 +133,18 @@ async fn sdk_inspects_workspace() {
             .iter()
             .any(|variable| variable.uri == "variable://checkout-redesign")
     );
+    assert!(
+        inspection
+            .schemas
+            .iter()
+            .any(|schema| schema.path == std::path::Path::new("schemas/context.schema.json"))
+    );
+    assert!(
+        inspection
+            .linters
+            .iter()
+            .any(|linter| linter.id == "checkout-redesign")
+    );
 }
 
 #[tokio::test]

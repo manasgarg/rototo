@@ -9,6 +9,7 @@ mod custom;
 mod engine;
 mod index;
 pub(crate) mod input;
+mod inspect;
 mod output;
 mod project;
 mod references;
@@ -20,6 +21,7 @@ mod syntax;
 
 use index::*;
 pub(crate) use input::{LintInput, OverlayDocument};
+pub(crate) use inspect::inspect_snapshot;
 use references::ReferenceIndex;
 pub(crate) use runtime::{
     RuntimeAttribute, RuntimeCompareOp, RuntimePredicate, RuntimeWorkspace,

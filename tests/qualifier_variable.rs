@@ -28,6 +28,53 @@ fn lists_variables_from_discovered_workspace() {
 }
 
 #[test]
+fn shows_workspace_inventory_including_linters() {
+    Command::cargo_bin("rototo")
+        .unwrap()
+        .args(["show", "examples/basic"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("qualifiers:"))
+        .stdout(predicate::str::contains("variables:"))
+        .stdout(predicate::str::contains("schemas:"))
+        .stdout(predicate::str::contains(
+            "checkout-page.schema  schemas/checkout-page.schema.json",
+        ))
+        .stdout(predicate::str::contains("lint authorities:"))
+        .stdout(predicate::str::contains(
+            "consumer-experience/checkout-heading-required",
+        ))
+        .stdout(predicate::str::contains("linters:"))
+        .stdout(predicate::str::contains(
+            "checkout-redesign  lint/checkout-redesign.lua",
+        ))
+        .stdout(predicate::str::contains(
+            "directory-backed-message  lint/directory-backed-message.lua",
+        ));
+}
+
+#[test]
+fn shows_workspace_inventory_as_json_including_top_level_objects() {
+    Command::cargo_bin("rototo")
+        .unwrap()
+        .args(["show", "examples/basic", "--json"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains(r#""environments": ["#))
+        .stdout(predicate::str::contains(r#""schemas": ["#))
+        .stdout(predicate::str::contains(
+            r#""path": "schemas/context.schema.json""#,
+        ))
+        .stdout(predicate::str::contains(r#""qualifiers": ["#))
+        .stdout(predicate::str::contains(r#""variables": ["#))
+        .stdout(predicate::str::contains(r#""lint_authorities": ["#))
+        .stdout(predicate::str::contains(
+            r#""authority": "consumer-experience""#,
+        ))
+        .stdout(predicate::str::contains(r#""linters": ["#));
+}
+
+#[test]
 fn lists_qualifiers_as_json() {
     Command::cargo_bin("rototo")
         .unwrap()
@@ -148,6 +195,31 @@ fn resolves_all_qualifiers() {
 }
 
 #[test]
+fn resolves_qualifier_with_trace_output() {
+    let assert = Command::cargo_bin("rototo")
+        .unwrap()
+        .args([
+            "resolve",
+            "examples/basic",
+            "--qualifier",
+            "premium-users",
+            "--context",
+            "user.tier=premium",
+        ])
+        .assert()
+        .success();
+    let stdout = String::from_utf8(assert.get_output().stdout.clone()).unwrap();
+
+    assert!(stdout.contains("qualifier: premium-users"));
+    assert!(stdout.contains(r#"[0] context user.tier = "premium""#));
+    assert!(stdout.contains(r#"test: eq "premium""#));
+    assert!(stdout.contains("matched: true"));
+    assert!(stdout.contains("result: true"));
+    assert!(!stdout.contains("premium-users=true"));
+    assert!(stdout.find("predicates:").unwrap() < stdout.find("result: true").unwrap());
+}
+
+#[test]
 fn lints_variable_from_discovered_workspace() {
     let workspace = std::path::absolute("examples/basic").unwrap();
     let expected = format!("ok: {}\n", workspace.display());
@@ -246,6 +318,39 @@ fn resolves_variable_with_context_assignments() {
         .assert()
         .success()
         .stdout(predicate::str::contains(r#""value_key": "premium""#));
+}
+
+#[test]
+fn resolves_variable_with_trace_output() {
+    let assert = Command::cargo_bin("rototo")
+        .unwrap()
+        .args([
+            "resolve",
+            "examples/basic",
+            "--variable",
+            "checkout-redesign",
+            "--env",
+            "prod",
+            "--context",
+            "user.tier=premium",
+        ])
+        .assert()
+        .success();
+    let stdout = String::from_utf8(assert.get_output().stdout.clone()).unwrap();
+
+    assert!(stdout.contains("variable: checkout-redesign"));
+    assert!(stdout.contains("environment: prod"));
+    assert!(stdout.contains("qualifier: premium-users"));
+    assert!(stdout.contains(r#"[0] context user.tier = "premium""#));
+    assert!(stdout.contains(r#"test: eq "premium""#));
+    assert!(stdout.contains("matched: true"));
+    assert!(stdout.contains("rule[0] if premium-users -> premium (matched)"));
+    assert!(stdout.contains("fallback -> control"));
+    assert!(stdout.contains("value key: premium"));
+    assert!(
+        stdout.find("qualifiers:").unwrap() < stdout.find("  result:").unwrap(),
+        "qualifier predicates should be printed before the final variable result"
+    );
 }
 
 #[test]

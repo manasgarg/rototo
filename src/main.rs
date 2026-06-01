@@ -10,20 +10,21 @@ use regex::Regex;
 use serde::Serialize;
 
 use crate::output::{
-    print_diagnostic_catalog_entry, print_inspection, print_qualifier_get, print_qualifier_list,
-    print_variable_get, print_variable_list, print_workspace_lint,
+    print_diagnostic_catalog_entry, print_inspect_report, print_qualifier_get,
+    print_qualifier_list, print_variable_get, print_variable_list, print_workspace_lint,
 };
 use rototo::diagnostics::{DiagnosticCatalogEntry, EntityId, LintDiagnostic, Severity};
 use rototo::model::{
-    DiagnosticCatalog, QualifierInspection, QualifierResolution, VariableInspection,
-    VariableResolution, WorkspaceInspection, WorkspaceLint,
+    DiagnosticCatalog, InspectSelection, LinterInspection, QualifierInspection,
+    QualifierResolutionTrace, SchemaInspection, VariableInspection, VariableResolutionTrace,
+    WorkspaceInspectRequest, WorkspaceInspection, WorkspaceLint,
 };
 use rototo::workspace::{qualifier_for_id, read_toml, read_variable_toml, variable_for_id};
 use rototo::{
     Result, RototoError, SourceAuth, SourceOptions, StagedWorkspace, catalog,
     catalog_for_workspace, diagnostic_for_rule, find_workspace_root, inspect_workspace,
-    lint_workspace, resolve_qualifier, resolve_qualifiers, resolve_variable, resolve_variables,
-    stage_workspace_source,
+    inspect_workspace_report, lint_workspace, stage_workspace_source, trace_qualifier_resolution,
+    trace_qualifier_resolutions, trace_variable_resolution, trace_variable_resolutions,
 };
 
 #[derive(Debug, Parser)]
@@ -63,7 +64,7 @@ enum Command {
     /// Validate a workspace or selected targets.
     Lint(WorkspaceCommandArgs),
     /// Explain how rototo sees workspace data.
-    Inspect(WorkspaceCommandArgs),
+    Inspect(InspectArgs),
     /// Display workspace config, variables, qualifiers, and lint metadata.
     Show(WorkspaceCommandArgs),
     /// Evaluate variables or qualifiers with runtime context.
@@ -84,6 +85,24 @@ struct WorkspaceCommandArgs {
 
     #[command(flatten)]
     selectors: SelectorArgs,
+}
+
+#[derive(Debug, Args)]
+struct InspectArgs {
+    /// Workspace source. Defaults to the nearest parent with rototo-workspace.toml.
+    #[arg(value_name = "WORKSPACE_SOURCE")]
+    workspace: Option<String>,
+
+    #[command(flatten)]
+    selectors: SelectorArgs,
+
+    /// Environment name for variable resolution tracing.
+    #[arg(long = "env", value_name = "ENV")]
+    env: Option<String>,
+
+    /// Evaluation context: JSON object, @file, or path=value. Repeatable; later values override earlier ones.
+    #[arg(long = "context", value_name = "CONTEXT")]
+    context: Vec<String>,
 }
 
 #[derive(Clone, Debug, Default, Args)]
@@ -129,6 +148,25 @@ struct SelectorArgs {
     all_linters: bool,
 }
 
+#[derive(Clone, Debug, Default, Args)]
+struct ResolveSelectorArgs {
+    /// Select one variable id. Repeatable.
+    #[arg(long = "variable", value_name = "ID")]
+    variables: Vec<String>,
+
+    /// Select all variables.
+    #[arg(long = "variables", action = ArgAction::SetTrue)]
+    all_variables: bool,
+
+    /// Select one qualifier id. Repeatable.
+    #[arg(long = "qualifier", value_name = "ID")]
+    qualifiers: Vec<String>,
+
+    /// Select all qualifiers.
+    #[arg(long = "qualifiers", action = ArgAction::SetTrue)]
+    all_qualifiers: bool,
+}
+
 #[derive(Debug, Args)]
 struct ResolveArgs {
     /// Workspace source. Defaults to the nearest parent with rototo-workspace.toml.
@@ -136,7 +174,7 @@ struct ResolveArgs {
     workspace: Option<String>,
 
     #[command(flatten)]
-    selectors: SelectorArgs,
+    selectors: ResolveSelectorArgs,
 
     /// Environment name for variable resolution.
     #[arg(long = "env", value_name = "ENV")]
@@ -229,6 +267,16 @@ impl TargetSelectors {
         }
     }
 
+    fn from_resolve_args(args: &ResolveSelectorArgs) -> Self {
+        Self {
+            variables: selection(args.all_variables, &args.variables),
+            qualifiers: selection(args.all_qualifiers, &args.qualifiers),
+            lint_rules: Selection::None,
+            lint_authorities: Selection::None,
+            linters: Selection::None,
+        }
+    }
+
     fn is_empty(&self) -> bool {
         self.variables.is_none()
             && self.qualifiers.is_none()
@@ -239,12 +287,6 @@ impl TargetSelectors {
 
     fn has_resolvable_targets(&self) -> bool {
         self.variables.is_some_or_all() || self.qualifiers.is_some_or_all()
-    }
-
-    fn has_lint_metadata_targets(&self) -> bool {
-        self.lint_rules.is_some_or_all()
-            || self.lint_authorities.is_some_or_all()
-            || self.linters.is_some_or_all()
     }
 
     fn is_global_catalog_query(&self) -> bool {
@@ -262,6 +304,14 @@ fn selection(all: bool, values: &[String]) -> Selection<String> {
         Selection::None
     } else {
         Selection::Some(values.iter().cloned().collect())
+    }
+}
+
+fn inspect_selection(selection: &Selection<String>) -> InspectSelection {
+    match selection {
+        Selection::None => InspectSelection::None,
+        Selection::All => InspectSelection::All,
+        Selection::Some(values) => InspectSelection::Some(values.iter().cloned().collect()),
     }
 }
 
@@ -365,7 +415,7 @@ async fn run_lint(
 
     let inspection = inspect_workspace(workspace.path()).await?;
     let catalog = catalog_for_workspace(workspace.path()).await?;
-    validate_workspace_selectors(&selectors, &inspection, &catalog, workspace.path()).await?;
+    validate_workspace_selectors(&selectors, &inspection, &catalog)?;
 
     let lint = lint_workspace(workspace.path()).await?;
     let lint = filter_lint(lint, &selectors);
@@ -379,23 +429,31 @@ async fn run_lint(
 }
 
 async fn run_inspect(
-    args: WorkspaceCommandArgs,
+    args: InspectArgs,
     source_options: &SourceOptions,
     json: bool,
 ) -> Result<ExitCode> {
     let workspace = workspace_source_or_current(args.workspace, source_options).await?;
-    let inspection = inspect_workspace(workspace.path()).await?;
     let selectors = TargetSelectors::from_args(&args.selectors);
-
-    if selectors.is_empty() {
-        print_inspection(&inspection, json)?;
-        return Ok(ExitCode::SUCCESS);
-    }
-
-    let catalog = catalog_for_workspace(workspace.path()).await?;
-    validate_workspace_selectors(&selectors, &inspection, &catalog, workspace.path()).await?;
-    let view = selected_workspace_view(&inspection, &selectors, &catalog, workspace.path()).await?;
-    print_workspace_view("inspect", &view, json)?;
+    let context = if args.context.is_empty() {
+        None
+    } else {
+        Some(parse_context(&args.context).await?)
+    };
+    let report = inspect_workspace_report(
+        workspace.path(),
+        WorkspaceInspectRequest {
+            variables: inspect_selection(&selectors.variables),
+            qualifiers: inspect_selection(&selectors.qualifiers),
+            lint_rules: inspect_selection(&selectors.lint_rules),
+            lint_authorities: inspect_selection(&selectors.lint_authorities),
+            linters: inspect_selection(&selectors.linters),
+            environment: args.env,
+            context,
+        },
+    )
+    .await?;
+    print_inspect_report(&report, json)?;
     Ok(ExitCode::SUCCESS)
 }
 
@@ -414,23 +472,23 @@ async fn run_show(
 
     let workspace = workspace_source_or_current(args.workspace, source_options).await?;
     let inspection = inspect_workspace(workspace.path()).await?;
+    let catalog = catalog_for_workspace(workspace.path()).await?;
 
     if selectors.is_empty() {
-        print_inspection(&inspection, json)?;
+        let view = workspace_inventory_view(&inspection, &catalog).await?;
+        print_workspace_view("show", &view, json)?;
         return Ok(ExitCode::SUCCESS);
     }
 
-    let catalog = catalog_for_workspace(workspace.path()).await?;
-    validate_workspace_selectors(&selectors, &inspection, &catalog, workspace.path()).await?;
+    validate_workspace_selectors(&selectors, &inspection, &catalog)?;
 
     if json {
-        let view =
-            selected_workspace_view(&inspection, &selectors, &catalog, workspace.path()).await?;
+        let view = selected_workspace_view(&inspection, &selectors, &catalog).await?;
         print_workspace_view("show", &view, true)?;
         return Ok(ExitCode::SUCCESS);
     }
 
-    show_selected_targets(&inspection, &selectors, &catalog, workspace.path()).await?;
+    show_selected_targets(&inspection, &selectors, &catalog).await?;
     Ok(ExitCode::SUCCESS)
 }
 
@@ -457,12 +515,7 @@ async fn run_resolve(
     source_options: &SourceOptions,
     json: bool,
 ) -> Result<ExitCode> {
-    let selectors = TargetSelectors::from_args(&args.selectors);
-    if selectors.has_lint_metadata_targets() {
-        return Err(RototoError::new(
-            "lint selectors cannot be used with resolve",
-        ));
-    }
+    let selectors = TargetSelectors::from_resolve_args(&args.selectors);
     if !selectors.has_resolvable_targets() {
         return Err(RototoError::new(
             "resolve requires at least one --variable, --variables, --qualifier, or --qualifiers selector",
@@ -482,7 +535,7 @@ async fn run_resolve(
     let workspace = workspace_source_or_current(args.workspace, source_options).await?;
     let inspection = inspect_workspace(workspace.path()).await?;
     let catalog = catalog_for_workspace(workspace.path()).await?;
-    validate_workspace_selectors(&selectors, &inspection, &catalog, workspace.path()).await?;
+    validate_workspace_selectors(&selectors, &inspection, &catalog)?;
 
     let context = parse_context(&args.context).await?;
     let mut variables = Vec::new();
@@ -492,11 +545,13 @@ async fn run_resolve(
         let env = args.env.as_deref().expect("validated above");
         match selected_variable_ids(&inspection, &selectors.variables) {
             SelectedIds::All => {
-                variables.extend(resolve_variables(workspace.path(), env, &context).await?)
+                variables.extend(trace_variable_resolutions(workspace.path(), env, &context).await?)
             }
             SelectedIds::Some(ids) => {
                 for id in ids {
-                    variables.push(resolve_variable(workspace.path(), &id, env, &context).await?);
+                    variables.push(
+                        trace_variable_resolution(workspace.path(), &id, env, &context).await?,
+                    );
                 }
             }
             SelectedIds::None => {}
@@ -506,11 +561,12 @@ async fn run_resolve(
     if selectors.qualifiers.is_some_or_all() {
         match selected_qualifier_ids(&inspection, &selectors.qualifiers) {
             SelectedIds::All => {
-                qualifiers.extend(resolve_qualifiers(workspace.path(), &context).await?)
+                qualifiers.extend(trace_qualifier_resolutions(workspace.path(), &context).await?)
             }
             SelectedIds::Some(ids) => {
                 for id in ids {
-                    qualifiers.push(resolve_qualifier(workspace.path(), &id, &context).await?);
+                    qualifiers
+                        .push(trace_qualifier_resolution(workspace.path(), &id, &context).await?);
                 }
             }
             SelectedIds::None => {}
@@ -594,11 +650,10 @@ fn ordered_selected_ids<'a>(
     ordered
 }
 
-async fn validate_workspace_selectors(
+fn validate_workspace_selectors(
     selectors: &TargetSelectors,
     inspection: &WorkspaceInspection,
     catalog: &DiagnosticCatalog,
-    workspace: &Path,
 ) -> Result<()> {
     for id in selectors.variables.explicit_values() {
         if !inspection
@@ -633,9 +688,8 @@ async fn validate_workspace_selectors(
             )));
         }
     }
-    let linters = discover_linters(workspace).await?;
     for id in selectors.linters.explicit_values() {
-        if !linters.iter().any(|linter| linter.id == *id) {
+        if !inspection.linters.iter().any(|linter| linter.id == *id) {
             return Err(RototoError::new(format!("linter not found: {id}")));
         }
     }
@@ -780,7 +834,6 @@ async fn show_selected_targets(
     inspection: &WorkspaceInspection,
     selectors: &TargetSelectors,
     catalog: &DiagnosticCatalog,
-    workspace: &Path,
 ) -> Result<()> {
     match &selectors.variables {
         Selection::All => print_variable_list(inspection, false)?,
@@ -803,7 +856,7 @@ async fn show_selected_targets(
         Selection::None => {}
     }
     print_selected_lint_rules(catalog, selectors, false)?;
-    print_selected_linters(workspace, selectors, false).await?;
+    print_selected_linters(inspection, selectors, false)?;
     Ok(())
 }
 
@@ -811,11 +864,13 @@ async fn show_selected_targets(
 struct WorkspaceView {
     command: String,
     workspace: String,
+    environments: Vec<String>,
+    schemas: Vec<SchemaInspection>,
     variables: Vec<WorkspaceFileView>,
     qualifiers: Vec<WorkspaceFileView>,
     lint_rules: Vec<DiagnosticCatalogEntryView>,
     lint_authorities: Vec<LintAuthorityView>,
-    linters: Vec<LinterInfo>,
+    linters: Vec<LinterInspection>,
 }
 
 #[derive(Debug, Serialize)]
@@ -843,23 +898,43 @@ struct LintAuthorityView {
     rules: Vec<DiagnosticCatalogEntryView>,
 }
 
-#[derive(Clone, Debug, Serialize)]
-struct LinterInfo {
-    id: String,
-    path: String,
+async fn workspace_inventory_view(
+    inspection: &WorkspaceInspection,
+    catalog: &DiagnosticCatalog,
+) -> Result<WorkspaceView> {
+    let mut variables = Vec::new();
+    for variable in &inspection.variables {
+        variables.push(variable_view(inspection, variable, false).await?);
+    }
+
+    let mut qualifiers = Vec::new();
+    for qualifier in &inspection.qualifiers {
+        qualifiers.push(qualifier_view(inspection, qualifier, false).await?);
+    }
+
+    Ok(WorkspaceView {
+        command: String::new(),
+        workspace: inspection.root.display().to_string(),
+        environments: inspection.environments.clone(),
+        schemas: inspection.schemas.clone(),
+        variables,
+        qualifiers,
+        lint_rules: Vec::new(),
+        lint_authorities: workspace_lint_authorities(catalog),
+        linters: inspection.linters.clone(),
+    })
 }
 
 async fn selected_workspace_view(
     inspection: &WorkspaceInspection,
     selectors: &TargetSelectors,
     catalog: &DiagnosticCatalog,
-    workspace: &Path,
 ) -> Result<WorkspaceView> {
     let mut variables = Vec::new();
     let mut qualifiers = Vec::new();
     let mut lint_rules = selected_lint_rule_entries(catalog, selectors);
     let mut lint_authorities = selected_lint_authorities(catalog, selectors);
-    let mut linters = selected_linters(workspace, selectors).await?;
+    let mut linters = selected_linters(inspection, selectors);
 
     match &selectors.variables {
         Selection::All => {
@@ -898,12 +973,14 @@ async fn selected_workspace_view(
         lint_authorities = authorities_from_catalog(catalog);
     }
     if matches!(selectors.linters, Selection::All) {
-        linters = discover_linters(workspace).await?;
+        linters = inspection.linters.clone();
     }
 
     Ok(WorkspaceView {
         command: String::new(),
         workspace: inspection.root.display().to_string(),
+        environments: Vec::new(),
+        schemas: Vec::new(),
         variables,
         qualifiers,
         lint_rules,
@@ -971,16 +1048,29 @@ fn print_workspace_view(command: &str, view: &WorkspaceView, json: bool) -> Resu
         return Ok(());
     }
 
-    if !view.variables.is_empty() {
-        println!("variables:");
-        for variable in &view.variables {
-            println!("  {}  {}  {}", variable.id, variable.uri, variable.path);
+    println!("workspace: {}", view.workspace);
+    if !view.environments.is_empty() {
+        println!("environments:");
+        for environment in &view.environments {
+            println!("  {}", environment);
+        }
+    }
+    if !view.schemas.is_empty() {
+        println!("schemas:");
+        for schema in &view.schemas {
+            println!("  {}  {}", schema.id, schema.path.display());
         }
     }
     if !view.qualifiers.is_empty() {
         println!("qualifiers:");
         for qualifier in &view.qualifiers {
             println!("  {}  {}  {}", qualifier.id, qualifier.uri, qualifier.path);
+        }
+    }
+    if !view.variables.is_empty() {
+        println!("variables:");
+        for variable in &view.variables {
+            println!("  {}  {}  {}", variable.id, variable.uri, variable.path);
         }
     }
     if !view.lint_rules.is_empty() {
@@ -1001,7 +1091,7 @@ fn print_workspace_view(command: &str, view: &WorkspaceView, json: bool) -> Resu
     if !view.linters.is_empty() {
         println!("linters:");
         for linter in &view.linters {
-            println!("  {}  {}", linter.id, linter.path);
+            println!("  {}  {}", linter.id, linter.path.display());
         }
     }
     Ok(())
@@ -1044,17 +1134,25 @@ fn selected_lint_authorities(
     }
 }
 
-async fn selected_linters(
-    workspace: &Path,
+fn workspace_lint_authorities(catalog: &DiagnosticCatalog) -> Vec<LintAuthorityView> {
+    authorities_from_catalog(catalog)
+        .into_iter()
+        .filter(|authority| authority.authority != "rototo")
+        .collect()
+}
+
+fn selected_linters(
+    inspection: &WorkspaceInspection,
     selectors: &TargetSelectors,
-) -> Result<Vec<LinterInfo>> {
+) -> Vec<LinterInspection> {
     match &selectors.linters {
-        Selection::None | Selection::All => Ok(Vec::new()),
-        Selection::Some(ids) => Ok(discover_linters(workspace)
-            .await?
-            .into_iter()
+        Selection::None | Selection::All => Vec::new(),
+        Selection::Some(ids) => inspection
+            .linters
+            .iter()
             .filter(|linter| ids.contains(&linter.id))
-            .collect()),
+            .cloned()
+            .collect(),
     }
 }
 
@@ -1168,19 +1266,20 @@ fn print_lint_authorities(authorities: &[LintAuthorityView], json: bool) -> Resu
     Ok(())
 }
 
-async fn print_selected_linters(
-    workspace: &Path,
+fn print_selected_linters(
+    inspection: &WorkspaceInspection,
     selectors: &TargetSelectors,
     json: bool,
 ) -> Result<()> {
     match &selectors.linters {
         Selection::None => {}
-        Selection::All => print_linters(&discover_linters(workspace).await?, json)?,
+        Selection::All => print_linters(&inspection.linters, json)?,
         Selection::Some(ids) => {
-            let selected: Vec<_> = discover_linters(workspace)
-                .await?
-                .into_iter()
+            let selected: Vec<_> = inspection
+                .linters
+                .iter()
                 .filter(|linter| ids.contains(&linter.id))
+                .cloned()
                 .collect();
             print_linters(&selected, json)?;
         }
@@ -1188,7 +1287,7 @@ async fn print_selected_linters(
     Ok(())
 }
 
-fn print_linters(linters: &[LinterInfo], json: bool) -> Result<()> {
+fn print_linters(linters: &[LinterInspection], json: bool) -> Result<()> {
     if json {
         println!(
             "{}",
@@ -1198,62 +1297,22 @@ fn print_linters(linters: &[LinterInfo], json: bool) -> Result<()> {
         return Ok(());
     }
     for linter in linters {
-        println!("{}  {}", linter.id, linter.path);
+        println!("{}  {}", linter.id, linter.path.display());
     }
     Ok(())
-}
-
-async fn discover_linters(workspace: &Path) -> Result<Vec<LinterInfo>> {
-    let lint_dir = workspace.join("lint");
-    if tokio::fs::metadata(&lint_dir).await.is_err() {
-        return Ok(Vec::new());
-    }
-
-    let mut entries = tokio::fs::read_dir(&lint_dir)
-        .await
-        .map_err(|err| RototoError::new(format!("failed to read {}: {err}", lint_dir.display())))?;
-    let mut linters = Vec::new();
-    while let Some(entry) = entries
-        .next_entry()
-        .await
-        .map_err(|err| RototoError::new(format!("failed to read {}: {err}", lint_dir.display())))?
-    {
-        let file_type = entry.file_type().await.map_err(|err| {
-            RototoError::new(format!(
-                "failed to inspect {}: {err}",
-                entry.path().display()
-            ))
-        })?;
-        if !file_type.is_file() {
-            continue;
-        }
-        let path = entry.path();
-        if path.extension().and_then(|extension| extension.to_str()) != Some("lua") {
-            continue;
-        }
-        let Some(id) = path.file_stem().and_then(|stem| stem.to_str()) else {
-            continue;
-        };
-        linters.push(LinterInfo {
-            id: id.to_owned(),
-            path: format!("lint/{}.lua", id),
-        });
-    }
-    linters.sort_by(|left, right| left.id.cmp(&right.id));
-    Ok(linters)
 }
 
 #[derive(Debug, Serialize)]
 struct ResolveOutput<'a> {
     workspace: String,
-    variables: &'a [VariableResolution],
-    qualifiers: &'a [QualifierResolution],
+    variables: &'a [VariableResolutionTrace],
+    qualifiers: &'a [QualifierResolutionTrace],
 }
 
 fn print_resolutions(
     workspace: &Path,
-    variables: &[VariableResolution],
-    qualifiers: &[QualifierResolution],
+    variables: &[VariableResolutionTrace],
+    qualifiers: &[QualifierResolutionTrace],
     json: bool,
 ) -> Result<()> {
     if json {
@@ -1269,19 +1328,136 @@ fn print_resolutions(
         return Ok(());
     }
 
-    for resolution in variables {
-        println!(
-            "{}={} ({})",
-            resolution.id,
-            serde_json::to_string(&resolution.value)
-                .map_err(|err| RototoError::new(err.to_string()))?,
-            resolution.value_key
-        );
+    println!("workspace: {}", workspace.display());
+    let count = variables.len() + qualifiers.len();
+    let mut index = 0;
+    for trace in variables {
+        print_resolve_separator(index, count);
+        index += 1;
+        print_variable_resolution_trace(trace)?;
     }
-    for resolution in qualifiers {
-        println!("{}={}", resolution.id, resolution.value);
+    for trace in qualifiers {
+        print_resolve_separator(index, count);
+        index += 1;
+        print_qualifier_resolution_trace(trace)?;
     }
     Ok(())
+}
+
+fn print_resolve_separator(index: usize, count: usize) {
+    if count > 1 && index > 0 {
+        println!("----------------------------------------");
+    }
+}
+
+fn print_variable_resolution_trace(trace: &VariableResolutionTrace) -> Result<()> {
+    println!("variable: {}", trace.resolution.id);
+    if trace.requested_environment == trace.used_environment {
+        println!("  environment: {}", trace.requested_environment);
+    } else {
+        println!(
+            "  environment: {} -> {}",
+            trace.requested_environment, trace.used_environment
+        );
+    }
+    if !trace.qualifier_traces.is_empty() {
+        println!("  qualifiers:");
+        for qualifier in &trace.qualifier_traces {
+            print_nested_qualifier_resolution_trace(qualifier)?;
+        }
+    }
+    println!("  pathway:");
+    for rule in &trace.rules {
+        println!(
+            "    rule[{}] if {} -> {} ({})",
+            rule.index,
+            rule.qualifier,
+            rule.value,
+            if rule.matched { "matched" } else { "skipped" }
+        );
+    }
+    println!("    fallback -> {}", trace.fallback_value);
+    println!("  result:");
+    println!("    value key: {}", trace.resolution.value_key);
+    println!("    value: {}", compact_json(&trace.resolution.value)?);
+    Ok(())
+}
+
+fn print_qualifier_resolution_trace(trace: &QualifierResolutionTrace) -> Result<()> {
+    println!("qualifier: {}", trace.id);
+    if !trace.predicates.is_empty() {
+        println!("  predicates:");
+        for predicate in &trace.predicates {
+            print_predicate_resolution(predicate, "    ")?;
+        }
+    }
+    println!("  result: {}", trace.value);
+    Ok(())
+}
+
+fn print_nested_qualifier_resolution_trace(trace: &QualifierResolutionTrace) -> Result<()> {
+    println!("    qualifier: {}", trace.id);
+    if !trace.predicates.is_empty() {
+        println!("      predicates:");
+        for predicate in &trace.predicates {
+            print_predicate_resolution(predicate, "        ")?;
+        }
+    }
+    println!("      result: {}", trace.value);
+    Ok(())
+}
+
+fn print_predicate_resolution(
+    predicate: &rototo::model::PredicateResolutionTrace,
+    indent: &str,
+) -> Result<()> {
+    println!(
+        "{indent}[{}] {}",
+        predicate.index,
+        predicate_source_label(predicate)?
+    );
+    match &predicate.bucket {
+        Some(bucket) => {
+            let bucket_value = bucket
+                .value
+                .map(|value| value.to_string())
+                .unwrap_or_else(|| "<missing>".to_owned());
+            println!(
+                "{indent}    test: bucket salt={} range=[{},{}] bucket={}",
+                bucket.salt, bucket.start, bucket.end, bucket_value
+            );
+        }
+        None => {
+            let op = predicate.op.as_deref().unwrap_or("<op>");
+            let expected = predicate
+                .expected
+                .as_ref()
+                .map(compact_json)
+                .transpose()?
+                .unwrap_or_else(|| "<missing>".to_owned());
+            println!("{indent}    test: {op} {expected}");
+        }
+    }
+    println!("{indent}    matched: {}", predicate.result);
+    Ok(())
+}
+
+fn predicate_source_label(predicate: &rototo::model::PredicateResolutionTrace) -> Result<String> {
+    let actual = predicate
+        .actual
+        .as_ref()
+        .map(compact_json)
+        .transpose()?
+        .unwrap_or_else(|| "<missing>".to_owned());
+    if let Some(qualifier) = &predicate.qualifier {
+        Ok(format!("qualifier {qualifier} = {actual}"))
+    } else {
+        Ok(format!("context {} = {actual}", predicate.attribute))
+    }
+}
+
+fn compact_json(value: &serde_json::Value) -> Result<String> {
+    serde_json::to_string(value).map_err(|err| RototoError::new(err.to_string()))
 }
 
 #[derive(Serialize)]

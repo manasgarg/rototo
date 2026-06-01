@@ -5,7 +5,8 @@ use toml::Value;
 
 use crate::error::{Result, RototoError};
 use crate::model::{
-    QualifierConfig, QualifierInspection, VariableConfig, VariableInspection, WorkspaceInspection,
+    LinterInspection, QualifierConfig, QualifierInspection, SchemaInspection, VariableConfig,
+    VariableInspection, WorkspaceInspection,
 };
 
 const WORKSPACE_MANIFEST: &str = "rototo-workspace.toml";
@@ -17,14 +18,18 @@ pub async fn inspect_workspace(workspace_root: &Path) -> Result<WorkspaceInspect
         .map_err(|err| RototoError::new(format!("workspace not found: {err}")))?;
     let manifest = read_toml(&workspace_root.join(WORKSPACE_MANIFEST)).await?;
     let environments = workspace_environments(&manifest)?;
+    let schemas = discover_schemas(&workspace_root).await?;
     let qualifiers = discover_qualifiers(&workspace_root).await?;
     let variables = discover_variables(&workspace_root).await?;
+    let linters = discover_linters(&workspace_root).await?;
 
     Ok(WorkspaceInspection {
         root: workspace_root,
         environments,
+        schemas,
         qualifiers,
         variables,
+        linters,
     })
 }
 
@@ -269,7 +274,58 @@ async fn discover_variables(workspace_root: &Path) -> Result<Vec<VariableInspect
     Ok(variables)
 }
 
+async fn discover_schemas(workspace_root: &Path) -> Result<Vec<SchemaInspection>> {
+    let mut schemas = Vec::new();
+    for path in discover_named_files(workspace_root, "schemas", "json").await? {
+        let id = id_from_path(&path)?;
+        let relative_path = relative_path(workspace_root, &path)?;
+        schemas.push(SchemaInspection {
+            id,
+            path: relative_path,
+        });
+    }
+    schemas.sort_by(|left, right| left.path.cmp(&right.path));
+    Ok(schemas)
+}
+
+async fn discover_linters(workspace_root: &Path) -> Result<Vec<LinterInspection>> {
+    let mut linters = Vec::new();
+    let dir = workspace_root.join("lint");
+    let Ok(mut entries) = tokio::fs::read_dir(&dir).await else {
+        return Ok(linters);
+    };
+    while let Some(entry) = entries
+        .next_entry()
+        .await
+        .map_err(|err| RototoError::new(format!("failed to read {}: {err}", dir.display())))?
+    {
+        let path = entry.path();
+        if path.extension().and_then(|extension| extension.to_str()) == Some("lua")
+            && tokio::fs::metadata(&path)
+                .await
+                .is_ok_and(|metadata| metadata.is_file())
+        {
+            let id = id_from_path(&path)?;
+            let relative_path = relative_path(workspace_root, &path)?;
+            linters.push(LinterInspection {
+                id,
+                path: relative_path,
+            });
+        }
+    }
+    linters.sort_by(|left, right| left.id.cmp(&right.id));
+    Ok(linters)
+}
+
 async fn discover_named_toml_files(workspace_root: &Path, dir: &str) -> Result<Vec<PathBuf>> {
+    discover_named_files(workspace_root, dir, "toml").await
+}
+
+async fn discover_named_files(
+    workspace_root: &Path,
+    dir: &str,
+    extension: &str,
+) -> Result<Vec<PathBuf>> {
     let dir = workspace_root.join(dir);
     let mut paths = Vec::new();
     let Ok(mut entries) = tokio::fs::read_dir(&dir).await else {
@@ -281,7 +337,7 @@ async fn discover_named_toml_files(workspace_root: &Path, dir: &str) -> Result<V
         .map_err(|err| RototoError::new(format!("failed to read {}: {err}", dir.display())))?
     {
         let path = entry.path();
-        if path.extension().and_then(|extension| extension.to_str()) == Some("toml")
+        if path.extension().and_then(|value| value.to_str()) == Some(extension)
             && tokio::fs::metadata(&path)
                 .await
                 .is_ok_and(|metadata| metadata.is_file())

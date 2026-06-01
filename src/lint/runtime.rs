@@ -50,11 +50,13 @@ pub(crate) struct RuntimeQualifier {
 #[derive(Debug)]
 pub(crate) enum RuntimePredicate {
     Compare {
+        index: usize,
         attribute: RuntimeAttribute,
         op: RuntimeCompareOp,
         value: JsonValue,
     },
     Bucket {
+        index: usize,
         attribute: String,
         salt: String,
         start: i64,
@@ -94,6 +96,7 @@ pub(crate) struct RuntimeEnvironmentBlock {
 
 #[derive(Debug)]
 pub(crate) struct RuntimeRule {
+    pub(crate) index: usize,
     pub(crate) qualifier: String,
     pub(crate) value: String,
 }
@@ -275,6 +278,7 @@ impl<'a> RuntimeCompiler<'a> {
                 return Err(RototoError::new("bucket predicate must not contain value"));
             }
             return Ok(RuntimePredicate::Bucket {
+                index: predicate.index,
                 attribute: attribute.value.clone(),
                 salt,
                 start,
@@ -300,6 +304,7 @@ impl<'a> RuntimeCompiler<'a> {
         };
 
         Ok(RuntimePredicate::Compare {
+            index: predicate.index,
             attribute,
             op: compare_op,
             value: value.value.clone(),
@@ -511,7 +516,11 @@ impl<'a> RuntimeCompiler<'a> {
                 "rule references unknown value: {value}"
             )));
         }
-        Ok(RuntimeRule { qualifier, value })
+        Ok(RuntimeRule {
+            index: rule.index,
+            qualifier,
+            value,
+        })
     }
 }
 

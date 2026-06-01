@@ -96,6 +96,36 @@ fn exposes_lsp_command() {
 }
 
 #[test]
+fn resolve_help_omits_lint_selectors() {
+    Command::cargo_bin("rototo")
+        .unwrap()
+        .args(["resolve", "--help"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("--variable"))
+        .stdout(predicate::str::contains("--qualifier"))
+        .stdout(predicate::str::contains("--context"))
+        .stdout(predicate::str::contains("--lint-rule").not())
+        .stdout(predicate::str::contains("--lint-authority").not())
+        .stdout(predicate::str::contains("--linter").not());
+}
+
+#[test]
+fn resolve_rejects_lint_selectors_at_parse_time() {
+    Command::cargo_bin("rototo")
+        .unwrap()
+        .args([
+            "resolve",
+            "examples/basic",
+            "--lint-rule",
+            "consumer-experience/message-not-empty",
+        ])
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("--lint-rule"));
+}
+
+#[test]
 fn lists_bundled_docs() {
     let assert = Command::cargo_bin("rototo")
         .unwrap()

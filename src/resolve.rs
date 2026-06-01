@@ -9,6 +9,10 @@ use crate::lint::{
     RuntimeAttribute, RuntimeCompareOp, RuntimePredicate, RuntimeWorkspace,
     compile_runtime_workspace,
 };
+use crate::model::{
+    BucketResolutionTrace, PredicateResolutionTrace, QualifierResolutionTrace,
+    VariableResolutionTrace, VariableRuleResolutionTrace,
+};
 use crate::model::{QualifierResolution, VariableResolution};
 
 pub async fn resolve_qualifier(
@@ -19,6 +23,16 @@ pub async fn resolve_qualifier(
     let runtime = compile_runtime_workspace(workspace_root).await?;
     runtime.validate_context(context)?;
     resolve_qualifier_unchecked(&runtime, id, context).await
+}
+
+pub async fn trace_qualifier_resolution(
+    workspace_root: &Path,
+    id: &str,
+    context: &JsonValue,
+) -> Result<QualifierResolutionTrace> {
+    let runtime = compile_runtime_workspace(workspace_root).await?;
+    runtime.validate_context(context)?;
+    trace_qualifier_unchecked(&runtime, id, context).await
 }
 
 pub(crate) async fn resolve_qualifier_unchecked(
@@ -34,6 +48,18 @@ pub(crate) async fn resolve_qualifier_unchecked(
     })
 }
 
+pub(crate) async fn trace_qualifier_unchecked(
+    runtime: &RuntimeWorkspace,
+    id: &str,
+    context: &JsonValue,
+) -> Result<QualifierResolutionTrace> {
+    let mut state = QualifierState::new(runtime, context);
+    state.resolve(id)?;
+    state
+        .take_qualifier_trace(id)
+        .ok_or_else(|| RototoError::new(format!("qualifier trace not found: qualifier://{id}")))
+}
+
 pub async fn resolve_qualifiers(
     workspace_root: &Path,
     context: &JsonValue,
@@ -41,6 +67,15 @@ pub async fn resolve_qualifiers(
     let runtime = compile_runtime_workspace(workspace_root).await?;
     runtime.validate_context(context)?;
     resolve_qualifiers_unchecked(&runtime, context).await
+}
+
+pub async fn trace_qualifier_resolutions(
+    workspace_root: &Path,
+    context: &JsonValue,
+) -> Result<Vec<QualifierResolutionTrace>> {
+    let runtime = compile_runtime_workspace(workspace_root).await?;
+    runtime.validate_context(context)?;
+    trace_qualifier_resolutions_unchecked(&runtime, context).await
 }
 
 pub(crate) async fn resolve_qualifiers_unchecked(
@@ -58,6 +93,23 @@ pub(crate) async fn resolve_qualifiers_unchecked(
     Ok(resolutions)
 }
 
+pub(crate) async fn trace_qualifier_resolutions_unchecked(
+    runtime: &RuntimeWorkspace,
+    context: &JsonValue,
+) -> Result<Vec<QualifierResolutionTrace>> {
+    let ids: Vec<String> = runtime.qualifiers.keys().cloned().collect();
+    let mut state = QualifierState::new(runtime, context);
+
+    let mut traces = Vec::new();
+    for id in ids {
+        state.resolve(&id)?;
+        traces.push(state.take_qualifier_trace(&id).ok_or_else(|| {
+            RototoError::new(format!("qualifier trace not found: qualifier://{id}"))
+        })?);
+    }
+    Ok(traces)
+}
+
 pub async fn resolve_variable(
     workspace_root: &Path,
     id: &str,
@@ -70,6 +122,18 @@ pub async fn resolve_variable(
     resolve_variable_unchecked(&runtime, id, environment, context).await
 }
 
+pub async fn trace_variable_resolution(
+    workspace_root: &Path,
+    id: &str,
+    environment: &str,
+    context: &JsonValue,
+) -> Result<VariableResolutionTrace> {
+    let runtime = compile_runtime_workspace(workspace_root).await?;
+    runtime.validate_environment(environment)?;
+    runtime.validate_context(context)?;
+    trace_variable_unchecked(&runtime, id, environment, context).await
+}
+
 pub(crate) async fn resolve_variable_unchecked(
     runtime: &RuntimeWorkspace,
     id: &str,
@@ -78,6 +142,16 @@ pub(crate) async fn resolve_variable_unchecked(
 ) -> Result<VariableResolution> {
     let mut state = QualifierState::new(runtime, context);
     resolve_variable_with_state(runtime, &mut state, id, environment)
+}
+
+pub(crate) async fn trace_variable_unchecked(
+    runtime: &RuntimeWorkspace,
+    id: &str,
+    environment: &str,
+    context: &JsonValue,
+) -> Result<VariableResolutionTrace> {
+    let mut state = QualifierState::new(runtime, context);
+    resolve_variable_trace_with_state(runtime, &mut state, id, environment)
 }
 
 pub async fn resolve_variables(
@@ -89,6 +163,17 @@ pub async fn resolve_variables(
     runtime.validate_environment(environment)?;
     runtime.validate_context(context)?;
     resolve_variables_unchecked(&runtime, environment, context).await
+}
+
+pub async fn trace_variable_resolutions(
+    workspace_root: &Path,
+    environment: &str,
+    context: &JsonValue,
+) -> Result<Vec<VariableResolutionTrace>> {
+    let runtime = compile_runtime_workspace(workspace_root).await?;
+    runtime.validate_environment(environment)?;
+    runtime.validate_context(context)?;
+    trace_variable_resolutions_unchecked(&runtime, environment, context).await
 }
 
 pub(crate) async fn resolve_variables_unchecked(
@@ -111,25 +196,67 @@ pub(crate) async fn resolve_variables_unchecked(
     Ok(resolutions)
 }
 
+pub(crate) async fn trace_variable_resolutions_unchecked(
+    runtime: &RuntimeWorkspace,
+    environment: &str,
+    context: &JsonValue,
+) -> Result<Vec<VariableResolutionTrace>> {
+    let ids: Vec<String> = runtime.variables.keys().cloned().collect();
+
+    let mut traces = Vec::new();
+    for id in ids {
+        let mut state = QualifierState::new(runtime, context);
+        traces.push(resolve_variable_trace_with_state(
+            runtime,
+            &mut state,
+            &id,
+            environment,
+        )?);
+    }
+    Ok(traces)
+}
+
 fn resolve_variable_with_state(
     runtime: &RuntimeWorkspace,
     state: &mut QualifierState<'_>,
     id: &str,
     environment: &str,
 ) -> Result<VariableResolution> {
+    Ok(resolve_variable_trace_with_state(runtime, state, id, environment)?.resolution)
+}
+
+fn resolve_variable_trace_with_state(
+    runtime: &RuntimeWorkspace,
+    state: &mut QualifierState<'_>,
+    id: &str,
+    environment: &str,
+) -> Result<VariableResolutionTrace> {
     let variable = runtime
         .variables
         .get(id)
         .ok_or_else(|| RototoError::new(format!("variable not found: variable://{id}")))?;
-    let block = variable
-        .environments
-        .get(environment)
-        .or_else(|| variable.environments.get("_"))
-        .ok_or_else(|| RototoError::new(format!("variable has no environment fallback: {id}")))?;
+    let (used_environment, block) = if let Some(block) = variable.environments.get(environment) {
+        (environment.to_owned(), block)
+    } else {
+        (
+            "_".to_owned(),
+            variable.environments.get("_").ok_or_else(|| {
+                RototoError::new(format!("variable has no environment fallback: {id}"))
+            })?,
+        )
+    };
 
     let mut value_key = None;
+    let mut rules = Vec::new();
     for rule in &block.rules {
-        if state.resolve(&rule.qualifier)? {
+        let matched = state.resolve(&rule.qualifier)?;
+        rules.push(VariableRuleResolutionTrace {
+            index: rule.index,
+            qualifier: rule.qualifier.clone(),
+            value: rule.value.clone(),
+            matched,
+        });
+        if matched {
             value_key = Some(rule.value.clone());
             break;
         }
@@ -140,11 +267,21 @@ fn resolve_variable_with_state(
         RototoError::new(format!("variable references unknown value: {value_key}"))
     })?;
 
-    Ok(VariableResolution {
+    let resolution = VariableResolution {
         id: id.to_owned(),
         environment: environment.to_owned(),
         value_key,
         value: value.clone(),
+    };
+    let qualifier_traces = state.qualifier_traces();
+
+    Ok(VariableResolutionTrace {
+        resolution,
+        requested_environment: environment.to_owned(),
+        used_environment,
+        fallback_value: block.value.clone(),
+        rules,
+        qualifier_traces,
     })
 }
 
@@ -153,6 +290,7 @@ struct QualifierState<'a> {
     context: &'a JsonValue,
     cache: HashMap<String, bool>,
     resolving: HashSet<String>,
+    traces: HashMap<String, QualifierResolutionTrace>,
 }
 
 impl<'a> QualifierState<'a> {
@@ -162,6 +300,7 @@ impl<'a> QualifierState<'a> {
             context,
             cache: HashMap::new(),
             resolving: HashSet::new(),
+            traces: HashMap::new(),
         }
     }
 
@@ -187,46 +326,113 @@ impl<'a> QualifierState<'a> {
             self.runtime.qualifiers.get(id).ok_or_else(|| {
                 RototoError::new(format!("qualifier not found: qualifier://{id}"))
             })?;
+        let mut predicate_traces = Vec::new();
         for predicate in &qualifier.predicates {
-            if !self.evaluate_predicate(predicate)? {
+            let trace = self.evaluate_predicate(predicate)?;
+            let result = trace.result;
+            predicate_traces.push(trace);
+            if !result {
+                self.traces.insert(
+                    id.to_owned(),
+                    QualifierResolutionTrace {
+                        id: id.to_owned(),
+                        value: false,
+                        predicates: predicate_traces,
+                    },
+                );
                 return Ok(false);
             }
         }
+        self.traces.insert(
+            id.to_owned(),
+            QualifierResolutionTrace {
+                id: id.to_owned(),
+                value: true,
+                predicates: predicate_traces,
+            },
+        );
         Ok(true)
     }
 
-    fn evaluate_predicate(&mut self, predicate: &RuntimePredicate) -> Result<bool> {
+    fn evaluate_predicate(
+        &mut self,
+        predicate: &RuntimePredicate,
+    ) -> Result<PredicateResolutionTrace> {
         match predicate {
             RuntimePredicate::Bucket {
+                index,
                 attribute,
                 salt,
                 start,
                 end,
             } => {
                 let Some(context_value) = context_path(self.context, attribute) else {
-                    return Ok(false);
+                    return Ok(PredicateResolutionTrace {
+                        index: *index,
+                        kind: "bucket".to_owned(),
+                        attribute: attribute.clone(),
+                        op: None,
+                        expected: None,
+                        actual: None,
+                        bucket: Some(BucketResolutionTrace {
+                            salt: salt.clone(),
+                            start: *start,
+                            end: *end,
+                            value: None,
+                        }),
+                        qualifier: None,
+                        result: false,
+                    });
                 };
                 let bucket = bucket_value(salt, context_value);
-                Ok(i64::from(bucket) >= *start && i64::from(bucket) < *end)
+                Ok(PredicateResolutionTrace {
+                    index: *index,
+                    kind: "bucket".to_owned(),
+                    attribute: attribute.clone(),
+                    op: None,
+                    expected: None,
+                    actual: Some(context_value.clone()),
+                    bucket: Some(BucketResolutionTrace {
+                        salt: salt.clone(),
+                        start: *start,
+                        end: *end,
+                        value: Some(bucket),
+                    }),
+                    qualifier: None,
+                    result: i64::from(bucket) >= *start && i64::from(bucket) < *end,
+                })
             }
             RuntimePredicate::Compare {
+                index,
                 attribute,
                 op,
                 value,
             } => {
-                let actual = match attribute {
-                    RuntimeAttribute::Qualifier(qualifier) => {
-                        JsonValue::Bool(self.resolve(qualifier)?)
-                    }
+                let (attribute_label, qualifier, actual) = match attribute {
+                    RuntimeAttribute::Qualifier(qualifier) => (
+                        format!("qualifier.{qualifier}"),
+                        Some(qualifier.clone()),
+                        JsonValue::Bool(self.resolve(qualifier)?),
+                    ),
                     RuntimeAttribute::ContextPath(path) => {
                         let Some(value) = context_path(self.context, path) else {
-                            return Ok(false);
+                            return Ok(PredicateResolutionTrace {
+                                index: *index,
+                                kind: "compare".to_owned(),
+                                attribute: path.clone(),
+                                op: Some(runtime_compare_op_label(*op).to_owned()),
+                                expected: Some(value.clone()),
+                                actual: None,
+                                bucket: None,
+                                qualifier: None,
+                                result: false,
+                            });
                         };
-                        value.clone()
+                        (path.clone(), None, value.clone())
                     }
                 };
 
-                Ok(match op {
+                let result = match op {
                     RuntimeCompareOp::Eq => json_values_equal(&actual, value),
                     RuntimeCompareOp::Neq => !json_values_equal(&actual, value),
                     RuntimeCompareOp::In => value.as_array().is_some_and(|values| {
@@ -249,9 +455,43 @@ impl<'a> QualifierState<'a> {
                     RuntimeCompareOp::Lte => numeric_compare(&actual, value, |ordering| {
                         matches!(ordering, Ordering::Less | Ordering::Equal)
                     }),
+                };
+                Ok(PredicateResolutionTrace {
+                    index: *index,
+                    kind: "compare".to_owned(),
+                    attribute: attribute_label,
+                    op: Some(runtime_compare_op_label(*op).to_owned()),
+                    expected: Some(value.clone()),
+                    actual: Some(actual),
+                    bucket: None,
+                    qualifier,
+                    result,
                 })
             }
         }
+    }
+
+    fn qualifier_traces(&self) -> Vec<QualifierResolutionTrace> {
+        let mut traces = self.traces.values().cloned().collect::<Vec<_>>();
+        traces.sort_by(|left, right| left.id.cmp(&right.id));
+        traces
+    }
+
+    fn take_qualifier_trace(&mut self, id: &str) -> Option<QualifierResolutionTrace> {
+        self.traces.remove(id)
+    }
+}
+
+fn runtime_compare_op_label(op: RuntimeCompareOp) -> &'static str {
+    match op {
+        RuntimeCompareOp::Eq => "eq",
+        RuntimeCompareOp::Neq => "neq",
+        RuntimeCompareOp::In => "in",
+        RuntimeCompareOp::NotIn => "not_in",
+        RuntimeCompareOp::Gt => "gt",
+        RuntimeCompareOp::Gte => "gte",
+        RuntimeCompareOp::Lt => "lt",
+        RuntimeCompareOp::Lte => "lte",
     }
 }
 
