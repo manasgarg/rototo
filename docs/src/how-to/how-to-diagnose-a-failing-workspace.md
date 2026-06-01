@@ -124,8 +124,8 @@ part of the workspace release gate.
 
 ## Related docs
 
-- `diagnostics` explains diagnostic fields and catalog commands.
-- `cli` lists lint, get, and resolve commands.
+- `diagnostic-reference` explains diagnostic fields and catalog commands.
+- `cli-reference` lists lint, get, and resolve commands.
 - `workspace-manifest-reference` specifies the manifest.
 - `variable-reference`, `resource-reference`, and `qualifier-reference`
   specify workspace object validation.

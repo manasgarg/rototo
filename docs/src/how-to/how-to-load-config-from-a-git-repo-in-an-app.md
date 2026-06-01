@@ -94,5 +94,5 @@ config releases from refresh.
 ## Related docs
 
 - `source-uri-reference` specifies Git URI syntax.
-- `sdk` explains application integration.
-- `model` explains workspace source and refresh lifecycle.
+- `rust-sdk-reference` explains application integration.
+- `rototo-model` explains workspace source and refresh lifecycle.

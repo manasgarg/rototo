@@ -168,9 +168,19 @@ fn exports_bundled_docs_as_static_site() {
 
     let index = fs::read_to_string(site.join("index.html")).unwrap();
     assert!(index.contains("<!doctype html>"));
-    assert!(index.contains("rototo documentation"));
-    assert!(site.join("cli.html").is_file());
-    assert!(site.join("styles.css").is_file());
+    assert!(index.contains("rototo introduction"));
+    assert!(index.contains(r#"<header class="topbar">"#));
+    assert!(index.contains(r#"<aside class="sidenav" aria-label="Documentation">"#));
+    assert!(index.contains(r#"<nav class="page-nav" aria-label="Page">"#));
+    assert!(site.join("cli-reference.html").is_file());
+    assert!(site.join("assets/rototo-docs.css").is_file());
+    assert!(site.join("assets/favicon.svg").is_file());
+    assert!(site.join("assets/rototo-wordmark.svg").is_file());
+
+    let quickstart = fs::read_to_string(site.join("quickstart.html")).unwrap();
+    assert!(quickstart.contains(r#"<pre class="code-block language-toml">"#));
+    assert!(quickstart.contains(r#"<span class="sx-section">[environments]</span>"#));
+    assert!(quickstart.contains(r#"<span class="sx-key">schema_version</span>"#));
 }
 
 #[test]

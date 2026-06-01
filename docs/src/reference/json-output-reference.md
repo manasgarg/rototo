@@ -74,7 +74,7 @@ with no diagnostics. Diagnostics contain `rule`, `severity`, `stage`, `entity`,
 `message`, `help`, `location`, and `related`. The `rule` field is the stable
 identity for automation. `location` contains the workspace-relative `path` and
 a zero-based line/character `range` when rototo can attach the diagnostic to a
-span. See `diagnostics`.
+span. See `diagnostic-reference`.
 
 ## Show Commands
 

@@ -86,6 +86,6 @@ decision is no longer fully observable through rototo.
 
 ## Related docs
 
-- `model` explains the runtime refresh lifecycle.
+- `rototo-model` explains the runtime refresh lifecycle.
 - `source-uri-reference` explains source ref behavior.
-- `sdk` explains SDK loading and refresh APIs.
+- `rust-sdk-reference` explains SDK loading and refresh APIs.
