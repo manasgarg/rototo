@@ -17,7 +17,9 @@ The `attribute` field reads either:
 - a dot-separated path from runtime context, such as `account.plan`; or
 - another qualifier through `qualifier.<id>`.
 
-If the context path is missing, the predicate is `false`.
+If the context path is missing, resolution fails. The predicate requires the
+field it reads even when the workspace context schema leaves that field
+optional.
 
 ## Operators
 
@@ -76,7 +78,8 @@ value = 100
 ```
 
 Both the actual context value and expected `value` must be numeric. If the
-actual value is missing or not numeric, the predicate is `false`.
+actual value is not numeric, the predicate is `false`. If the actual context
+path is missing, resolution fails.
 
 ### `bucket`
 
@@ -127,7 +130,7 @@ JSON.
 - `in` and `not_in` compare the actual value against elements in the expected
   list.
 - Numeric comparisons use numeric conversion.
-- Missing context paths resolve to `false`.
+- Missing context paths fail resolution.
 
 ## Context Schema Interaction
 

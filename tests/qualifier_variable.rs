@@ -184,7 +184,7 @@ fn resolves_all_qualifiers() {
             "examples/basic",
             "--qualifiers",
             "--context",
-            r#"{"user":{"tier":"premium","id":"user-123"},"account":{"plan":"enterprise","seats":250},"request":{"country":"DE"}}"#,
+            r#"{"user":{"tier":"premium","id":"user-123","role":"admin","email_domain":"example.com","language":"en","session_count":1},"account":{"plan":"enterprise","seats":250},"cart":{"total_usd":300},"device":{"platform":"web"},"request":{"country":"DE"}}"#,
             "--json",
         ])
         .assert()
@@ -369,6 +369,25 @@ fn resolve_rejects_context_that_does_not_match_workspace_schema() {
         .failure()
         .stderr(predicate::str::contains(
             "resolve context does not match schema",
+        ));
+}
+
+#[test]
+fn resolve_rejects_missing_predicate_context_even_when_schema_allows_it() {
+    Command::cargo_bin("rototo")
+        .unwrap()
+        .args([
+            "resolve",
+            "examples/basic",
+            "--qualifier",
+            "premium-users",
+            "--context",
+            r#"{"user":{"id":"user-123"}}"#,
+        ])
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains(
+            "missing resolve context attribute: user.tier required by qualifier://premium-users",
         ));
 }
 

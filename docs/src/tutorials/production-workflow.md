@@ -125,8 +125,9 @@ Create `config/schemas/context.schema.json`:
 
 If the application later stops sending `account.seats`, or changes it from an
 integer to a string, context validation catches the mismatch before rules are
-evaluated. That prevents silent fallthrough to the default LLM config when the
-workspace no longer receives the facts its qualifier depends on.
+evaluated. Predicate evaluation also fails if a qualifier reads a context path
+that is missing, so the workspace does not choose the default LLM config when it
+no longer receives the facts its qualifier depends on.
 
 Now the workspace knows what information it can trust from the application. The
 next step turns a business condition in that context into a reusable name.

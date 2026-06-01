@@ -113,8 +113,9 @@ and reuse it from rules.
 Do not skip the non-matching test. Rollout mistakes often come from defaults,
 not only from the matching branch.
 
-Do not rely on missing context fields. Add or update a context schema so the
-application/config boundary is explicit.
+Do not rely on missing context fields. A qualifier requires every context path it
+reads, and a context schema makes the application/config boundary explicit before
+runtime.
 
 ## Related docs
 

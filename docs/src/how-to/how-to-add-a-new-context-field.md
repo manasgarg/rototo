@@ -113,8 +113,7 @@ rototo resolve config/ --qualifier germany-requests \
   --context '{"account":{"plan":"enterprise"},"request":{"country":"DE"}}'
 ```
 
-If the field is required, also verify that missing context fails before rule
-evaluation:
+Also verify that missing context fails before rule evaluation:
 
 ```sh
 rototo resolve config/ --qualifier germany-requests \
@@ -123,8 +122,9 @@ rototo resolve config/ --qualifier germany-requests \
 
 ## Common mistakes
 
-Do not add a predicate before updating the context schema. Without a schema, a
-misspelled or missing path can quietly resolve as `false`.
+Do not add a predicate before updating the context schema. Without a schema, lint
+cannot catch a misspelled path before the predicate starts requiring it at
+resolution time.
 
 Do not make a new field required before all application callers can send it.
 That turns a config release into a runtime integration break.

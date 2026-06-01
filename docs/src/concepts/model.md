@@ -209,8 +209,9 @@ string, the rule may no longer mean what the author intended.
 
 With a context schema, rototo can reject invalid context before evaluating
 qualifiers or variables. That turns a hidden mismatch into a validation failure
-with a diagnostic, instead of silently falling through to a default branch or
-selecting a value for the wrong reason.
+with a diagnostic. During qualifier evaluation, each predicate also requires the
+context path it reads, so missing request facts fail instead of selecting a value
+for the wrong reason.
 
 ## Qualifier
 

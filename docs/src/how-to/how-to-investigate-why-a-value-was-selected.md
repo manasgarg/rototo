@@ -57,8 +57,8 @@ rules:
 rototo show config/ --qualifier enterprise-accounts
 ```
 
-Check the predicates against the runtime context. Missing fields resolve as
-non-matches, and a context schema can catch those mismatches before qualifier
+Check the predicates against the runtime context. Missing fields fail resolution,
+and a context schema can catch shape or type mismatches before qualifier
 evaluation.
 
 ## Re-run the resolution

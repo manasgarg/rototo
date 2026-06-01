@@ -819,6 +819,27 @@ async fn workspace_sdk_validates_resolve_context_against_schema() {
 }
 
 #[tokio::test]
+async fn workspace_sdk_rejects_missing_predicate_context_even_when_schema_allows_it() {
+    let workspace = Workspace::load("examples/basic").await.unwrap();
+    let context = ResolveContext::from_json(serde_json::json!({
+        "user": {
+            "id": "user-123"
+        }
+    }))
+    .unwrap();
+
+    let err = workspace
+        .resolve_qualifier("premium-users", &context)
+        .await
+        .unwrap_err();
+
+    assert_eq!(
+        err.to_string(),
+        "missing resolve context attribute: user.tier required by qualifier://premium-users"
+    );
+}
+
+#[tokio::test]
 async fn workspace_sdk_rejects_unknown_environment_before_fallback() {
     let workspace = Workspace::load("examples/basic").await.unwrap();
     let env = Environment::new("prd");
@@ -917,7 +938,10 @@ async fn workspace_sdk_can_load_with_lint_skipped_for_inspection_tools() {
 async fn workspace_sdk_can_bypass_context_validation_explicitly() {
     let workspace = Workspace::load("examples/basic").await.unwrap();
     let context = ResolveContext::from_json(serde_json::json!({
-        "unknown": true
+        "unknown": true,
+        "user": {
+            "tier": "free"
+        }
     }))
     .unwrap();
 

@@ -328,7 +328,10 @@ impl<'a> QualifierState<'a> {
             })?;
         let mut predicate_traces = Vec::new();
         for predicate in &qualifier.predicates {
-            let trace = self.evaluate_predicate(predicate)?;
+            self.validate_predicate_context(id, predicate)?;
+        }
+        for predicate in &qualifier.predicates {
+            let trace = self.evaluate_predicate(id, predicate)?;
             let result = trace.result;
             predicate_traces.push(trace);
             if !result {
@@ -354,8 +357,32 @@ impl<'a> QualifierState<'a> {
         Ok(true)
     }
 
+    fn validate_predicate_context(
+        &self,
+        qualifier_id: &str,
+        predicate: &RuntimePredicate,
+    ) -> Result<()> {
+        match predicate {
+            RuntimePredicate::Bucket { attribute, .. } => {
+                require_context_path(self.context, qualifier_id, attribute)?;
+            }
+            RuntimePredicate::Compare {
+                attribute: RuntimeAttribute::ContextPath(path),
+                ..
+            } => {
+                require_context_path(self.context, qualifier_id, path)?;
+            }
+            RuntimePredicate::Compare {
+                attribute: RuntimeAttribute::Qualifier(_),
+                ..
+            } => {}
+        }
+        Ok(())
+    }
+
     fn evaluate_predicate(
         &mut self,
+        qualifier_id: &str,
         predicate: &RuntimePredicate,
     ) -> Result<PredicateResolutionTrace> {
         match predicate {
@@ -366,24 +393,7 @@ impl<'a> QualifierState<'a> {
                 start,
                 end,
             } => {
-                let Some(context_value) = context_path(self.context, attribute) else {
-                    return Ok(PredicateResolutionTrace {
-                        index: *index,
-                        kind: "bucket".to_owned(),
-                        attribute: attribute.clone(),
-                        op: None,
-                        expected: None,
-                        actual: None,
-                        bucket: Some(BucketResolutionTrace {
-                            salt: salt.clone(),
-                            start: *start,
-                            end: *end,
-                            value: None,
-                        }),
-                        qualifier: None,
-                        result: false,
-                    });
-                };
+                let context_value = require_context_path(self.context, qualifier_id, attribute)?;
                 let bucket = bucket_value(salt, context_value);
                 Ok(PredicateResolutionTrace {
                     index: *index,
@@ -415,19 +425,7 @@ impl<'a> QualifierState<'a> {
                         JsonValue::Bool(self.resolve(qualifier)?),
                     ),
                     RuntimeAttribute::ContextPath(path) => {
-                        let Some(value) = context_path(self.context, path) else {
-                            return Ok(PredicateResolutionTrace {
-                                index: *index,
-                                kind: "compare".to_owned(),
-                                attribute: path.clone(),
-                                op: Some(runtime_compare_op_label(*op).to_owned()),
-                                expected: Some(value.clone()),
-                                actual: None,
-                                bucket: None,
-                                qualifier: None,
-                                result: false,
-                            });
-                        };
+                        let value = require_context_path(self.context, qualifier_id, path)?;
                         (path.clone(), None, value.clone())
                     }
                 };
@@ -493,6 +491,18 @@ fn runtime_compare_op_label(op: RuntimeCompareOp) -> &'static str {
         RuntimeCompareOp::Lt => "lt",
         RuntimeCompareOp::Lte => "lte",
     }
+}
+
+fn require_context_path<'a>(
+    context: &'a JsonValue,
+    qualifier_id: &str,
+    path: &str,
+) -> Result<&'a JsonValue> {
+    context_path(context, path).ok_or_else(|| {
+        RototoError::new(format!(
+            "missing resolve context attribute: {path} required by qualifier://{qualifier_id}"
+        ))
+    })
 }
 
 fn context_path<'a>(context: &'a JsonValue, path: &str) -> Option<&'a JsonValue> {
@@ -631,14 +641,6 @@ mod tests {
             ("lt-false", predicate("account.seats", "lt", "10")),
             ("lte-true", predicate("account.seats", "lte", "42")),
             ("lte-false", predicate("account.seats", "lte", "41")),
-            (
-                "missing-neq-false",
-                predicate("missing.path", "neq", r#""anything""#),
-            ),
-            (
-                "missing-not-in-false",
-                predicate("missing.path", "not_in", r#"["anything"]"#),
-            ),
         ]);
         let context = serde_json::json!({
             "user": { "tier": "premium" },
@@ -673,8 +675,6 @@ mod tests {
             "gte-false",
             "lt-false",
             "lte-false",
-            "missing-neq-false",
-            "missing-not-in-false",
         ] {
             assert!(
                 !resolve_qualifier(workspace.path(), id, &context)
@@ -684,6 +684,68 @@ mod tests {
                 "{id}"
             );
         }
+    }
+
+    #[tokio::test]
+    async fn missing_context_paths_fail_resolution() {
+        let workspace = workspace_with_qualifiers(&[
+            (
+                "missing-compare",
+                predicate("missing.path", "neq", r#""anything""#),
+            ),
+            (
+                "missing-bucket",
+                bucket_predicate_for("missing.id", "0, 1000"),
+            ),
+            (
+                "missing-after-false",
+                r#"schema_version = 1
+
+[[predicate]]
+attribute = "user.tier"
+op = "eq"
+value = "premium"
+
+[[predicate]]
+attribute = "missing.path"
+op = "eq"
+value = "anything"
+"#
+                .to_owned(),
+            ),
+        ]);
+        let context = serde_json::json!({ "user": { "id": "user-123" } });
+        let non_matching_context = serde_json::json!({
+            "user": { "id": "user-123", "tier": "free" }
+        });
+
+        let err = resolve_qualifier(workspace.path(), "missing-compare", &context)
+            .await
+            .unwrap_err();
+        assert_eq!(
+            err.to_string(),
+            "missing resolve context attribute: missing.path required by qualifier://missing-compare"
+        );
+
+        let err = resolve_qualifier(workspace.path(), "missing-bucket", &context)
+            .await
+            .unwrap_err();
+        assert_eq!(
+            err.to_string(),
+            "missing resolve context attribute: missing.id required by qualifier://missing-bucket"
+        );
+
+        let err = resolve_qualifier(
+            workspace.path(),
+            "missing-after-false",
+            &non_matching_context,
+        )
+        .await
+        .unwrap_err();
+        assert_eq!(
+            err.to_string(),
+            "missing resolve context attribute: missing.path required by qualifier://missing-after-false"
+        );
     }
 
     #[tokio::test]
@@ -922,11 +984,15 @@ value = {value}
     }
 
     fn bucket_predicate(range: &str) -> String {
+        bucket_predicate_for("user.id", range)
+    }
+
+    fn bucket_predicate_for(attribute: &str, range: &str) -> String {
         format!(
             r#"schema_version = 1
 
 [[predicate]]
-attribute = "user.id"
+attribute = "{attribute}"
 op = "bucket"
 salt = "known-salt"
 range = [{range}]

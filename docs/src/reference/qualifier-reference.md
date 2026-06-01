@@ -95,7 +95,9 @@ Referenced qualifiers must exist. Cycles fail at resolution time.
 ## Missing Context
 
 If a predicate reads a context path that is missing from the runtime context,
-the predicate resolves to `false`.
+resolution fails. A predicate makes the path it reads required for that
+evaluation, regardless of whether the workspace context schema marks the field
+as required.
 
 If the workspace has a context schema, lint also checks that qualifier context
 attributes are declared by that schema. Attributes beginning with `qualifier.`

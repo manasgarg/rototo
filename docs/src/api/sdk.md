@@ -89,7 +89,9 @@ The linter validates this contract:
 Resolution validates each `ResolveContext` against the schema before evaluating
 qualifiers or variables. Use `resolve_*_with_options` and
 `ResolveOptions { validate_context: false }` only for tooling that deliberately
-needs to bypass the application contract.
+needs to bypass schema validation. This does not bypass predicate path checks:
+when a qualifier reads a context path, that path must be present for the
+resolution.
 
 ## External Variable Values
 

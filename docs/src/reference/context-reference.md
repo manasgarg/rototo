@@ -130,11 +130,12 @@ context paths.
 
 ## Missing Attributes
 
-If a predicate reads a context path that is missing, the predicate resolves to
-`false`.
+If a predicate reads a context path that is missing, resolution fails. The path
+is required by that predicate even when the context schema does not mark the
+field as required.
 
-Use a context schema when missing attributes should be rejected instead of
-falling through to a default branch.
+Use a context schema to validate the overall shape and types of runtime context.
+Predicate path checks then protect the specific fields that qualifiers read.
 
 ## SDK Context
 
