@@ -113,6 +113,6 @@ fixtures minimal and safe to review.
 
 ## Related docs
 
-- `cli` lists lint and resolve commands.
+- `cli-reference` lists lint and resolve commands.
 - `json-output-reference` specifies fields for assertions.
-- `diagnostics` explains lint failures.
+- `diagnostic-reference` explains lint failures.

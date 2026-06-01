@@ -186,7 +186,7 @@ The same model is available through the CLI and the Rust SDK.
 If you are evaluating rototo, start with `why-rototo`. It explains the runtime
 configuration problem rototo is designed for and when the model is a good fit.
 
-If you want the vocabulary before running commands, read `model`. It explains
+If you want the vocabulary before running commands, read `rototo-model`. It explains
 the core objects and how resolution turns workspace, environment, and context
 into a selected value.
 
@@ -218,7 +218,7 @@ After that, use the docs by intent:
 ```text
 Concepts
   why-rototo
-  model
+  rototo-model
 
 Tutorials
   quickstart
@@ -263,8 +263,8 @@ Reference
   source-uri-reference
 
 API
-  cli
-  sdk
-  diagnostics
+  cli-reference
+  rust-sdk-reference
+  diagnostic-reference
   json-output-reference
 ```

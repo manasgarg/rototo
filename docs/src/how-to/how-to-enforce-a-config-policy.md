@@ -116,5 +116,5 @@ Custom lint files are discovered from `lint/*.lua`; keep policy routing in
 ## Related docs
 
 - `variable-reference` explains how variables are targeted by custom lint.
-- `diagnostics` explains custom lint diagnostics.
+- `diagnostic-reference` explains custom lint diagnostics.
 - `value-types-reference` explains value validation.

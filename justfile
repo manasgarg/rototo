@@ -7,6 +7,7 @@
 #   03. lint    no test execution
 #   04. test    test runners
 #   05. check   local pre-push gate
+#   06. docs    documentation publishing previews
 
 default:
     @just --list --unsorted
@@ -62,3 +63,36 @@ test:
 # Run the local pre-push gate.
 [group('05. check')]
 check: lint test
+
+# Export docs and publish a Cloudflare Pages preview deployment.
+[group('06. docs')]
+docs-preview branch="docs-dev":
+    #!/usr/bin/env bash
+    set -euo pipefail
+
+    if [[ "{{branch}}" == "main" ]]; then
+        echo "docs-preview refuses branch=main; production docs deploy from the GitHub workflow" >&2
+        exit 1
+    fi
+
+    for name in CLOUDFLARE_ACCOUNT_ID CLOUDFLARE_API_TOKEN; do
+        if [[ -z "${!name:-}" ]]; then
+            echo "$name is required for Cloudflare Pages preview deploys" >&2
+            exit 1
+        fi
+    done
+
+    if ! command -v mise >/dev/null; then
+        echo "mise is required for the pinned Wrangler tool in .tool-versions; run just setup after installing mise" >&2
+        exit 1
+    fi
+
+    project="${CLOUDFLARE_PAGES_PROJECT:-rototo-docs}"
+    out="$(mktemp -d -t rototo-docs-site.XXXXXX)"
+    trap 'rm -rf "$out"' EXIT
+
+    cargo run --locked -- docs --export "$out"
+    mise exec -- wrangler pages deploy "$out" \
+        --project-name="$project" \
+        --branch="{{branch}}" \
+        --commit-dirty=true

@@ -1,5 +1,6 @@
 # Non-Rust tool versions for local development.
 #
-# Rust is pinned in rust-toolchain.toml and applied by rustup. Keep this file
-# for tools that do not have a better repo-native version file.
+# Rust is pinned in rust-toolchain.toml and applied by rustup.
 python 3.13
+node 24
+npm:wrangler 4

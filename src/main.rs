@@ -1,7 +1,7 @@
 mod output;
 
 use std::collections::{BTreeMap, BTreeSet};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
 use clap::{ArgAction, Args, CommandFactory, Parser, Subcommand, ValueEnum};
@@ -204,13 +204,27 @@ struct DocsArgs {
         short = 'p',
         long = "page",
         value_name = "PAGE_PREFIX",
-        conflicts_with = "search"
+        conflicts_with_all = ["search", "export"]
     )]
     page: Option<String>,
 
     /// Search documentation pages with a regular expression.
-    #[arg(short = 's', long = "search", value_name = "REGEX")]
+    #[arg(
+        short = 's',
+        long = "search",
+        value_name = "REGEX",
+        conflicts_with = "export"
+    )]
     search: Option<String>,
+
+    /// Export documentation pages as a static HTML site. Defaults to ./site when no path is given.
+    #[arg(
+        long = "export",
+        value_name = "OUT_DIR",
+        num_args = 0..=1,
+        default_missing_value = "site"
+    )]
+    export: Option<PathBuf>,
 }
 
 #[derive(Clone, Copy, Debug, ValueEnum)]
@@ -391,7 +405,7 @@ async fn run() -> Result<ExitCode> {
         Command::Inspect(args) => run_inspect(args, &source_options, cli.json).await,
         Command::Show(args) => run_show(args, &source_options, cli.json).await,
         Command::Resolve(args) => run_resolve(args, &source_options, cli.json).await,
-        Command::Docs(args) => run_docs(args, cli.json),
+        Command::Docs(args) => run_docs(args, cli.json).await,
         Command::Lsp => {
             rototo::lsp::serve_stdio().await?;
             Ok(ExitCode::SUCCESS)
@@ -595,16 +609,21 @@ async fn run_resolve(
     Ok(ExitCode::SUCCESS)
 }
 
-fn run_docs(args: DocsArgs, json: bool) -> Result<ExitCode> {
-    match (args.page, args.search) {
-        (Some(page), None) => print_docs_page(&page, json),
-        (None, Some(search)) => print_docs_search(&search, json),
-        (None, None) => {
+async fn run_docs(args: DocsArgs, json: bool) -> Result<ExitCode> {
+    match (args.export, args.page, args.search) {
+        (Some(out), None, None) => {
+            rototo::docs::export_html(&out).await?;
+            print_docs_export(&out, json)?;
+            Ok(ExitCode::SUCCESS)
+        }
+        (None, Some(page), None) => print_docs_page(&page, json),
+        (None, None, Some(search)) => print_docs_search(&search, json),
+        (None, None, None) => {
             print_docs_index(json)?;
             Ok(ExitCode::SUCCESS)
         }
-        (Some(_), Some(_)) => Err(RototoError::new(
-            "--page and --search cannot be used together",
+        _ => Err(RototoError::new(
+            "--export, --page, and --search cannot be used together",
         )),
     }
 }
@@ -1609,6 +1628,11 @@ struct DocsSearchJson {
 }
 
 #[derive(Serialize)]
+struct DocsExportJson {
+    out: String,
+}
+
+#[derive(Serialize)]
 struct DocsSearchMatch {
     page: &'static str,
     title: &'static str,
@@ -1661,6 +1685,20 @@ fn print_docs_index(json: bool) -> Result<()> {
             println!("  {:<42} {}", page.id, page.title);
         }
         println!();
+    }
+    Ok(())
+}
+
+fn print_docs_export(out: &Path, json: bool) -> Result<()> {
+    let out = out.display().to_string();
+    if json {
+        println!(
+            "{}",
+            serde_json::to_string_pretty(&DocsExportJson { out })
+                .map_err(|err| RototoError::new(err.to_string()))?
+        );
+    } else {
+        println!("exported documentation to {out}");
     }
     Ok(())
 }
