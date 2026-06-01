@@ -1778,6 +1778,22 @@ fn canonical_rule_fixtures() -> &'static [CanonicalRuleFixture] {
             }],
         },
         CanonicalRuleFixture {
+            rule: RototoRuleId::WorkspaceContextSchemaReservedField,
+            workspace: "tests/fixtures/workspaces/rules/project/workspace-context-schema-reserved-field",
+            success: false,
+            expected: &[ExpectedDiagnostic {
+                rule: "rototo/workspace-context-schema-reserved-field",
+                severity: "error",
+                stage: LintStage::Project,
+                entity: ExpectedEntity::Schema("schemas/context.schema.json"),
+                primary: ExpectedPrimaryLocation::Document {
+                    path: "schemas/context.schema.json",
+                    range: None,
+                },
+                related: &[],
+            }],
+        },
+        CanonicalRuleFixture {
             rule: RototoRuleId::WorkspaceContextSchemaAttribute,
             workspace: "tests/fixtures/workspaces/rules/reference/workspace-context-schema-attribute",
             success: false,
@@ -1800,6 +1816,89 @@ fn canonical_rule_fixtures() -> &'static [CanonicalRuleFixture] {
                 },
                 related: &[],
             }],
+        },
+        CanonicalRuleFixture {
+            rule: RototoRuleId::QualifierPredicateContextTypeMismatch,
+            workspace: "tests/fixtures/workspaces/rules/reference/qualifier-predicate-context-type-mismatch",
+            success: false,
+            expected: &[
+                ExpectedDiagnostic {
+                    rule: "rototo/qualifier-predicate-context-type-mismatch",
+                    severity: "error",
+                    stage: LintStage::Reference,
+                    entity: ExpectedEntity::Predicate {
+                        qualifier: "boolean-in-string",
+                        index: 0,
+                    },
+                    primary: ExpectedPrimaryLocation::Document {
+                        path: "qualifiers/boolean-in-string.toml",
+                        range: Some(ExpectedRange {
+                            start_line: 5,
+                            start_character: 8,
+                            end_line: 5,
+                            end_character: 16,
+                        }),
+                    },
+                    related: &[],
+                },
+                ExpectedDiagnostic {
+                    rule: "rototo/qualifier-predicate-context-type-mismatch",
+                    severity: "error",
+                    stage: LintStage::Reference,
+                    entity: ExpectedEntity::Predicate {
+                        qualifier: "integer-eq-string",
+                        index: 0,
+                    },
+                    primary: ExpectedPrimaryLocation::Document {
+                        path: "qualifiers/integer-eq-string.toml",
+                        range: Some(ExpectedRange {
+                            start_line: 5,
+                            start_character: 8,
+                            end_line: 5,
+                            end_character: 11,
+                        }),
+                    },
+                    related: &[],
+                },
+                ExpectedDiagnostic {
+                    rule: "rototo/qualifier-predicate-context-type-mismatch",
+                    severity: "error",
+                    stage: LintStage::Reference,
+                    entity: ExpectedEntity::Predicate {
+                        qualifier: "object-bucket",
+                        index: 0,
+                    },
+                    primary: ExpectedPrimaryLocation::Document {
+                        path: "qualifiers/object-bucket.toml",
+                        range: Some(ExpectedRange {
+                            start_line: 4,
+                            start_character: 5,
+                            end_line: 4,
+                            end_character: 13,
+                        }),
+                    },
+                    related: &[],
+                },
+                ExpectedDiagnostic {
+                    rule: "rototo/qualifier-predicate-context-type-mismatch",
+                    severity: "error",
+                    stage: LintStage::Reference,
+                    entity: ExpectedEntity::Predicate {
+                        qualifier: "string-gt-number",
+                        index: 0,
+                    },
+                    primary: ExpectedPrimaryLocation::Document {
+                        path: "qualifiers/string-gt-number.toml",
+                        range: Some(ExpectedRange {
+                            start_line: 4,
+                            start_character: 5,
+                            end_line: 4,
+                            end_character: 9,
+                        }),
+                    },
+                    related: &[],
+                },
+            ],
         },
         CanonicalRuleFixture {
             rule: RototoRuleId::WorkspaceContextSchemaMissing,

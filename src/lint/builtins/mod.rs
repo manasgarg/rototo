@@ -12,6 +12,7 @@ pub(super) use workspace::declared_workspace_environments;
 pub(super) fn run_project(ctx: &mut LintContext) {
     workspace::lint_manifest_shape(ctx);
     schema::lint_context_schema_reference(ctx);
+    schema::lint_context_schema_reserved_fields(ctx);
     schema::lint_schema_documents(ctx);
     workspace::lint_manifest_custom_rule_shapes(ctx);
     qualifier::lint_qualifier_shapes(ctx);
@@ -21,6 +22,7 @@ pub(super) fn run_project(ctx: &mut LintContext) {
 
 pub(super) fn run_reference(ctx: &mut LintContext) {
     schema::lint_qualifier_context_schema_attributes(ctx);
+    schema::lint_qualifier_context_schema_types(ctx);
     schema::lint_unreferenced_schemas(ctx);
     qualifier::lint_qualifier_references(ctx);
     variable::lint_variable_references(ctx);

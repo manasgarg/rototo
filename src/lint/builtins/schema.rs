@@ -1,3 +1,5 @@
+use std::collections::BTreeSet;
+
 use serde_json::Value as JsonValue;
 
 use crate::diagnostics::{DiagnosticLocation, EntityId, RototoRuleId, Severity};
@@ -24,6 +26,28 @@ pub(super) fn lint_context_schema_reference(ctx: &mut LintContext) {
         EntityId::Manifest,
         err.location,
         err.message,
+    );
+}
+
+pub(super) fn lint_context_schema_reserved_fields(ctx: &mut LintContext) {
+    let Ok(Some(schema)) = valid_context_schema(ctx) else {
+        return;
+    };
+    let Some(schema_json) = schema.json.as_ref() else {
+        return;
+    };
+    if !context_schema_declares_top_level_property(schema_json, "qualifier") {
+        return;
+    }
+    let schema_path = schema.path.clone();
+    let schema_location = schema.location.clone();
+
+    push_project_diagnostic(
+        &mut ctx.diagnostics,
+        RototoRuleId::WorkspaceContextSchemaReservedField,
+        EntityId::Schema { path: schema_path },
+        schema_location,
+        "context schema declares reserved top-level field: qualifier",
     );
 }
 
@@ -54,6 +78,64 @@ pub(super) fn lint_qualifier_context_schema_attributes(ctx: &mut LintContext) {
             edge.location.clone(),
             format!("context attribute is not declared by the context schema: {attribute}"),
         );
+    }
+    ctx.diagnostics.extend(diagnostics);
+}
+
+pub(super) fn lint_qualifier_context_schema_types(ctx: &mut LintContext) {
+    let Ok(Some(schema)) = valid_context_schema(ctx) else {
+        return;
+    };
+    let Some(schema_json) = schema.json.as_ref() else {
+        return;
+    };
+
+    let mut diagnostics = Vec::new();
+    for qualifier in ctx.index.qualifiers.values() {
+        let PredicateCollection::Predicates(predicates) = &qualifier.predicates else {
+            continue;
+        };
+
+        for predicate in predicates {
+            let ProjectField::Present(attribute) = &predicate.attribute else {
+                continue;
+            };
+            if attribute.value.starts_with("qualifier.") {
+                continue;
+            }
+            let Some(attribute_schema) = context_schema_field(schema_json, &attribute.value) else {
+                continue;
+            };
+            let Some(schema_types) = schema_value_types(attribute_schema) else {
+                continue;
+            };
+            let ProjectField::Present(op) = &predicate.op else {
+                continue;
+            };
+            if matches!(op.value, PredicateOp::Unknown(_)) {
+                continue;
+            }
+
+            let Some((location, message)) = predicate_context_type_mismatch(
+                &attribute.value,
+                &op.value,
+                predicate,
+                &schema_types,
+            ) else {
+                continue;
+            };
+
+            push_reference_diagnostic(
+                &mut diagnostics,
+                RototoRuleId::QualifierPredicateContextTypeMismatch,
+                EntityId::Predicate {
+                    qualifier: qualifier.id.clone(),
+                    index: predicate.index,
+                },
+                location,
+                message,
+            );
+        }
     }
     ctx.diagnostics.extend(diagnostics);
 }
@@ -218,21 +300,208 @@ fn valid_context_schema(
 }
 
 fn context_schema_declares_path(schema: &JsonValue, attribute: &str) -> bool {
+    context_schema_field(schema, attribute).is_some()
+}
+
+fn context_schema_declares_top_level_property(schema: &JsonValue, property: &str) -> bool {
+    schema
+        .get("properties")
+        .and_then(JsonValue::as_object)
+        .is_some_and(|properties| properties.contains_key(property))
+}
+
+fn context_schema_field<'a>(schema: &'a JsonValue, attribute: &str) -> Option<&'a JsonValue> {
     if attribute.is_empty() {
-        return false;
+        return None;
     }
 
     let mut current = schema;
     for segment in attribute.split('.') {
-        let Some(properties) = current.get("properties").and_then(JsonValue::as_object) else {
-            return false;
-        };
-        let Some(next) = properties.get(segment) else {
-            return false;
-        };
+        let properties = current.get("properties").and_then(JsonValue::as_object)?;
+        let next = properties.get(segment)?;
         current = next;
     }
-    true
+    Some(current)
+}
+
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+enum JsonSchemaSimpleType {
+    Null,
+    Boolean,
+    Integer,
+    Number,
+    String,
+    Array,
+    Object,
+}
+
+impl JsonSchemaSimpleType {
+    fn label(self) -> &'static str {
+        match self {
+            Self::Null => "null",
+            Self::Boolean => "boolean",
+            Self::Integer => "integer",
+            Self::Number => "number",
+            Self::String => "string",
+            Self::Array => "array",
+            Self::Object => "object",
+        }
+    }
+}
+
+fn schema_value_types(schema: &JsonValue) -> Option<BTreeSet<JsonSchemaSimpleType>> {
+    let schema_type = schema.get("type")?;
+    match schema_type {
+        JsonValue::String(value) => {
+            let ty = parse_schema_type(value)?;
+            Some(BTreeSet::from([ty]))
+        }
+        JsonValue::Array(values) => {
+            let mut types = BTreeSet::new();
+            for value in values {
+                let value = value.as_str()?;
+                types.insert(parse_schema_type(value)?);
+            }
+            if types.is_empty() { None } else { Some(types) }
+        }
+        _ => None,
+    }
+}
+
+fn parse_schema_type(value: &str) -> Option<JsonSchemaSimpleType> {
+    match value {
+        "null" => Some(JsonSchemaSimpleType::Null),
+        "boolean" => Some(JsonSchemaSimpleType::Boolean),
+        "integer" => Some(JsonSchemaSimpleType::Integer),
+        "number" => Some(JsonSchemaSimpleType::Number),
+        "string" => Some(JsonSchemaSimpleType::String),
+        "array" => Some(JsonSchemaSimpleType::Array),
+        "object" => Some(JsonSchemaSimpleType::Object),
+        _ => None,
+    }
+}
+
+fn predicate_context_type_mismatch(
+    attribute: &str,
+    op: &PredicateOp,
+    predicate: &PredicateNode,
+    schema_types: &BTreeSet<JsonSchemaSimpleType>,
+) -> Option<(DiagnosticLocation, String)> {
+    match op {
+        PredicateOp::Eq | PredicateOp::Neq => {
+            let value = predicate.value.as_ref()?;
+            if value_is_compatible_with_schema(&value.value, schema_types) {
+                return None;
+            }
+            Some((
+                value.location.clone(),
+                format!(
+                    "{} predicate value type {} is incompatible with context attribute {attribute} declared as {}",
+                    op.as_str(),
+                    json_value_type(&value.value).label(),
+                    schema_types_label(schema_types)
+                ),
+            ))
+        }
+        PredicateOp::In | PredicateOp::NotIn => {
+            let value = predicate.value.as_ref()?;
+            let values = value.value.as_array()?;
+            let incompatible = values
+                .iter()
+                .find(|value| !value_is_compatible_with_schema(value, schema_types))?;
+            Some((
+                value.location.clone(),
+                format!(
+                    "{} predicate contains value type {} incompatible with context attribute {attribute} declared as {}",
+                    op.as_str(),
+                    json_value_type(incompatible).label(),
+                    schema_types_label(schema_types)
+                ),
+            ))
+        }
+        PredicateOp::Gt | PredicateOp::Gte | PredicateOp::Lt | PredicateOp::Lte => {
+            if schema_types.iter().all(|ty| {
+                matches!(
+                    ty,
+                    JsonSchemaSimpleType::Integer | JsonSchemaSimpleType::Number
+                )
+            }) {
+                return None;
+            }
+            Some((
+                predicate.op.location(),
+                format!(
+                    "{} predicate requires numeric context attribute, but {attribute} is declared as {}",
+                    op.as_str(),
+                    schema_types_label(schema_types)
+                ),
+            ))
+        }
+        PredicateOp::Bucket => {
+            if schema_types.iter().all(|ty| {
+                matches!(
+                    ty,
+                    JsonSchemaSimpleType::Boolean
+                        | JsonSchemaSimpleType::Integer
+                        | JsonSchemaSimpleType::Number
+                        | JsonSchemaSimpleType::String
+                )
+            }) {
+                return None;
+            }
+            Some((
+                predicate.op.location(),
+                format!(
+                    "bucket predicate requires scalar context attribute, but {attribute} is declared as {}",
+                    schema_types_label(schema_types)
+                ),
+            ))
+        }
+        PredicateOp::Unknown(_) => None,
+    }
+}
+
+fn value_is_compatible_with_schema(
+    value: &JsonValue,
+    schema_types: &BTreeSet<JsonSchemaSimpleType>,
+) -> bool {
+    let value_type = json_value_type(value);
+    match value_type {
+        JsonSchemaSimpleType::Integer => schema_types.iter().any(|ty| {
+            matches!(
+                ty,
+                JsonSchemaSimpleType::Integer | JsonSchemaSimpleType::Number
+            )
+        }),
+        ty => schema_types.contains(&ty),
+    }
+}
+
+fn json_value_type(value: &JsonValue) -> JsonSchemaSimpleType {
+    match value {
+        JsonValue::Null => JsonSchemaSimpleType::Null,
+        JsonValue::Bool(_) => JsonSchemaSimpleType::Boolean,
+        JsonValue::Number(number) if number.is_i64() || number.is_u64() => {
+            JsonSchemaSimpleType::Integer
+        }
+        JsonValue::Number(_) => JsonSchemaSimpleType::Number,
+        JsonValue::String(_) => JsonSchemaSimpleType::String,
+        JsonValue::Array(_) => JsonSchemaSimpleType::Array,
+        JsonValue::Object(_) => JsonSchemaSimpleType::Object,
+    }
+}
+
+fn schema_types_label(types: &BTreeSet<JsonSchemaSimpleType>) -> String {
+    let labels = types.iter().map(|ty| ty.label()).collect::<Vec<_>>();
+    match labels.as_slice() {
+        [] => "unknown".to_owned(),
+        [one] => (*one).to_owned(),
+        [first, second] => format!("{first} or {second}"),
+        _ => {
+            let (last, rest) = labels.split_last().expect("labels is not empty");
+            format!("{}, or {last}", rest.join(", "))
+        }
+    }
 }
 
 pub(super) fn lint_schema_documents(ctx: &mut LintContext) {

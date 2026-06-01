@@ -112,6 +112,12 @@ rototo_rules! {
         help: "Declare [context].schema so qualifier context attributes are validated.",
         severity: Warning,
     },
+    WorkspaceContextSchemaReservedField => {
+        id: "workspace-context-schema-reserved-field",
+        entity: Workspace,
+        title: "Resolve context schema declares a reserved field",
+        help: "Rename the request context field; qualifier is reserved for qualifier.<id> predicate references.",
+    },
     QualifierParseFailed => {
         id: "qualifier-parse-failed",
         entity: Qualifier,
@@ -159,6 +165,12 @@ rototo_rules! {
         entity: Qualifier,
         title: "Qualifier predicate value is invalid",
         help: "Add a value with the shape required by the predicate operator.",
+    },
+    QualifierPredicateContextTypeMismatch => {
+        id: "qualifier-predicate-context-type-mismatch",
+        entity: Qualifier,
+        title: "Qualifier predicate does not match the resolve context schema type",
+        help: "Update the predicate operator or value so it matches the context schema field type.",
     },
     QualifierPredicateDuplicate => {
         id: "qualifier-predicate-duplicate",

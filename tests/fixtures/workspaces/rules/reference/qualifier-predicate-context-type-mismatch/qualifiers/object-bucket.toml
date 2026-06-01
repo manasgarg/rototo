@@ -1,0 +1,7 @@
+schema_version = 1
+
+[[predicate]]
+attribute = "account.profile"
+op = "bucket"
+salt = "profile"
+range = [0, 1000]
