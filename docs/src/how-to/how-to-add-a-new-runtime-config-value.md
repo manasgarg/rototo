@@ -13,8 +13,8 @@ environment mapping, validation, and later rollout rules.
 After this change:
 
 - The workspace contains a new variable file.
-- `rototo workspace lint` validates the variable.
-- `rototo variable resolve` returns the expected value in each environment.
+- `rototo lint` validates the variable.
+- `rototo resolve --variable` returns the expected value in each environment.
 - Application code can resolve one stable variable id.
 
 ## Before you start
@@ -40,22 +40,21 @@ Add the variable contract, values, and environment mapping:
 ```toml
 schema_version = 1
 
-[variable]
 description = "Maximum number of tokens the summarizer can emit"
 type = "int"
 
-[variable.values]
+[values]
 small = 500
 standard = 1000
 large = 2000
 
-[variable.env._]
+[env._]
 value = "standard"
 
-[variable.env.dev]
+[env.dev]
 value = "small"
 
-[variable.env.prod]
+[env.prod]
 value = "large"
 ```
 
@@ -68,7 +67,7 @@ application received `small`, `standard`, or `large`.
 Run lint before wiring the value into application code:
 
 ```sh
-rototo workspace lint config/
+rototo lint config/
 ```
 
 Lint verifies that the variable declares a supported type, every value matches
@@ -80,15 +79,13 @@ to a known value key.
 Resolve the new variable for the environments that matter:
 
 ```sh
-rototo variable resolve max-output-tokens \
-  --workspace config/ \
+rototo resolve config/ --variable max-output-tokens \
   --env dev \
   --context '{}'
 ```
 
 ```sh
-rototo variable resolve max-output-tokens \
-  --workspace config/ \
+rototo resolve config/ --variable max-output-tokens \
   --env prod \
   --context '{}'
 ```
@@ -96,8 +93,7 @@ rototo variable resolve max-output-tokens \
 Use JSON output when adding automated tests:
 
 ```sh
-rototo variable resolve max-output-tokens \
-  --workspace config/ \
+rototo resolve config/ --variable max-output-tokens \
   --env prod \
   --context '{}' \
   --json
@@ -105,7 +101,7 @@ rototo variable resolve max-output-tokens \
 
 ## Common mistakes
 
-Do not skip `[variable.env._]`. The fallback is required and makes the default
+Do not skip `[env._]`. The fallback is required and makes the default
 behavior explicit.
 
 Do not use a value key as the application contract. Application code should ask

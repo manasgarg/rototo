@@ -1,0 +1,6 @@
+schema_version = 1
+
+[[predicate]]
+attribute = "qualifier.dead-leaf"
+op = "eq"
+value = true

@@ -1,0 +1,11 @@
+{
+  "type": "object",
+  "properties": {
+    "account": {
+      "type": "object",
+      "properties": {
+        "tier": { "type": "string" }
+      }
+    }
+  }
+}

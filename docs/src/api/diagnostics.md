@@ -6,23 +6,33 @@ workspace.
 Use the CLI diagnostic catalog as the source of truth:
 
 ```sh
-rototo diagnostics list
-rototo diagnostics get rototo/workspace-toml-file-parse-failed
-rototo diagnostics get rototo/variable-custom-lint-failed
+rototo show --lint-rules
+rototo show --lint-rule rototo/variable-unknown-type
+rototo show ./config --lint-rule payments/max-token-budget
 ```
 
 Every emitted lint diagnostic has these fields:
 
-- `code`: stable identifier emitted by lint commands.
-- `rule`: exact lint rule when the diagnostic comes from a lint rule.
-- `source`: `kernel`, `schema`, or `custom`.
-- `kind`: `qualifier` or `variable` when the diagnostic belongs to one.
-- `title`: short diagnostic name.
-- `help`: recovery guidance.
+- `rule`: stable diagnostic identity in `<authority>/<rule-id>` form.
+- `severity`: `error` or `warning`. Errors fail lint; warnings are reported but
+  do not make lint fail.
+- `stage`: lint pipeline stage that produced the diagnostic.
+- `entity`: workspace, manifest, qualifier, variable, or schema owner.
+- `message`: concrete failure message.
+- `help`: recovery guidance from the built-in rule or declared custom rule.
+- `location`: workspace-relative path and optional zero-based line/character range.
+- `related`: secondary locations when a rule needs them.
+
+Built-in rules use the reserved `rototo` authority and flat rule ids, such as
+`rototo/qualifier-predicate-unknown-op`. Custom Lua lint rules use a
+non-`rototo` authority declared in the workspace manifest.
+
+Precise locations use LSP-style line and character ranges. Document-only and
+workspace-root diagnostics include a path without a range.
 
 Use JSON output for scripts and CI annotations:
 
 ```sh
-rototo diagnostics list --json
-rototo diagnostics get rototo/workspace-toml-file-parse-failed --json
+rototo show --lint-rules --json
+rototo show --lint-rule rototo/variable-unknown-type --json
 ```

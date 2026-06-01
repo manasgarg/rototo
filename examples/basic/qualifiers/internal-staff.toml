@@ -1,9 +1,8 @@
 schema_version = 1
 
-[qualifier]
 description = "Employees using internal accounts"
 
-[[qualifier.predicate]]
+[[predicate]]
 attribute = "user.email_domain"
 op = "eq"
 value = "rototo.dev"

@@ -1,0 +1,1 @@
+../../path-safety-outside.lua

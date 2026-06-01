@@ -43,15 +43,13 @@ workspace from the `config` directory.
 Before changing application code, verify that the URI loads:
 
 ```sh
-rototo workspace inspect \
-  --workspace 'git+https://github.com/acme/runtime-config.git#prod:config'
+rototo inspect 'git+https://github.com/acme/runtime-config.git#prod:config'
 ```
 
 Then resolve one application-facing variable:
 
 ```sh
-rototo variable resolve llm-agent-config \
-  --workspace 'git+https://github.com/acme/runtime-config.git#prod:config' \
+rototo resolve 'git+https://github.com/acme/runtime-config.git#prod:config' --variable llm-agent-config \
   --env prod \
   --context '{"account":{"plan":"team","seats":25}}'
 ```

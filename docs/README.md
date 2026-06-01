@@ -23,10 +23,9 @@ renaming a page, update that registry and the bundled documentation list in
 Use the CLI to inspect the bundled docs:
 
 ```sh
-rototo docs list
-rototo docs show quickstart
-rototo docs export --out site
-rototo docs serve
+rototo docs
+rototo docs -p quickstart
+rototo docs -s "workspace source"
 ```
 
 Maintainer-only process documentation belongs in `internal-docs/`.

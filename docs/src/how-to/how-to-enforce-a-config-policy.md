@@ -5,16 +5,16 @@ that schemas cannot express clearly.
 
 Examples include token ceilings, naming conventions, required prompt metadata,
 allowed model families, or environment-specific safety limits. rototo supports
-custom Lua lint on variables, so policy can run before the workspace is
+workspace-scoped custom Lua lint, so policy can run before the workspace is
 published.
 
 ## Expected outcome
 
 After this change:
 
-- The variable declares a custom lint script.
-- The script returns diagnostics when values violate policy.
-- `rototo workspace lint` fails on policy violations.
+- The workspace manifest declares custom lint rule metadata.
+- A Lua script registers a handler and returns diagnostics when values violate policy.
+- `rototo lint` fails on policy violations.
 - Reviewers see a clear message and recovery guidance.
 
 ## Decide what belongs in custom lint
@@ -36,36 +36,47 @@ enterprise prompts must include escalation guidance
 Keeping this distinction matters. Schemas define the application contract;
 custom lint defines local rules that rototo cannot infer.
 
-## Attach lint to the variable
+## Declare the rule
 
-In the variable file, add `[variable.lint]`:
+In `rototo-workspace.toml`, declare the diagnostic rule:
 
 ```toml
 schema_version = 1
 
-[variable]
-description = "LLM settings for the incident summary agent"
-schema = "../schemas/llm-config.schema.json"
+[environments]
+values = ["prod"]
 
-[variable.lint]
-path = "../lint/llm-agent-config.lua"
+[[lint.rule]]
+id = "platform/max-output-token-budget"
+title = "LLM output token budget is too high"
+help = "Use 5000 or fewer output tokens."
 ```
 
-The path is resolved relative to the variable file.
+The rule id uses `<authority>/<rule-id>`; `rototo` is reserved for built-in
+diagnostics.
 
 ## Write the policy
 
 Create `lint/llm-agent-config.lua`:
 
 ```lua
-function lint_value(value)
-  local config = value.value
+function register(lint)
+  lint:on({
+    stage = "value",
+    entity = "value",
+    field = "value.max_output_tokens",
+    rule = "platform/max-output-token-budget",
+    handler = "check_token_budget",
+  })
+end
+
+function check_token_budget(ctx)
+  local config = ctx.target.value
 
   if config.max_output_tokens > 5000 then
     return {
       {
-        message = "value " .. value.name .. " exceeds the token budget",
-        help = "Use 5000 or fewer output tokens."
+        message = "value " .. ctx.target.name .. " exceeds the token budget"
       }
     }
   end
@@ -74,33 +85,25 @@ function lint_value(value)
 end
 ```
 
-`lint_value(value)` runs once for each expanded value, including values loaded
-from external value files.
-
-Use `lint(variable)` when the policy needs to inspect the variable as a whole:
-
-```lua
-function lint(variable)
-  return {}
-end
-```
-
-Each function returns a list of diagnostics. Return an empty list when the
-policy passes.
+The registration runs the handler once for each expanded value, including
+values loaded from external value files. Handlers return a list of diagnostics
+with `message`; the registration supplies the rule id. A diagnostic can include
+`field` when it should point at a narrower field inside the registered target.
+Return an empty list when the policy passes.
 
 ## Verify the policy
 
 Run lint:
 
 ```sh
-rototo workspace lint config/
+rototo lint config/
 ```
 
 If a value violates the policy, lint fails with a custom diagnostic. Inspect
-the diagnostic catalog when you need the stable code or JSON shape:
+the workspace diagnostic catalog when you need the stable rule or JSON shape:
 
 ```sh
-rototo diagnostics get rototo/variable-custom-lint-failed
+rototo show config/ --lint-rule platform/max-output-token-budget
 ```
 
 ## Common mistakes
@@ -108,14 +111,14 @@ rototo diagnostics get rototo/variable-custom-lint-failed
 Do not use custom lint for type checking that a schema or primitive type can
 already enforce.
 
-Do not write vague diagnostics. The message should identify the offending value
-and the help text should say how to fix it.
+Do not write vague diagnostics. The message should identify the offending value;
+the declared rule help should say how to fix it.
 
-Do not assume custom lint is a separate workspace-level extension point today.
-Attach the policy to the variables whose values it governs.
+Custom lint files are discovered from `lint/*.lua`; keep policy routing in
+`register(lint)`.
 
 ## Related docs
 
-- `variable-reference` specifies `[variable.lint]`.
+- `variable-reference` explains how variables are targeted by custom lint.
 - `diagnostics` explains custom lint diagnostics.
 - `value-types-reference` explains value validation.

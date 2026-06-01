@@ -40,10 +40,9 @@ Create `qualifiers/affected-payment-region.toml`:
 ```toml
 schema_version = 1
 
-[qualifier]
 description = "Requests from regions affected by the payment provider incident"
 
-[[qualifier.predicate]]
+[[predicate]]
 attribute = "request.country"
 op = "in"
 value = ["DE", "FR", "NL"]
@@ -56,27 +55,26 @@ Create `variables/checkout-banner.toml`:
 ```toml
 schema_version = 1
 
-[variable]
 description = "Checkout banner shown during operational incidents"
 schema = "../schemas/banner.schema.json"
 
-[variable.values.none]
+[values.none]
 enabled = false
 message = ""
 severity = "info"
 
-[variable.values.payment_incident]
+[values.payment_incident]
 enabled = true
 message = "Some payment methods may be delayed. Card checkout is still available."
 severity = "warning"
 
-[variable.env._]
+[env._]
 value = "none"
 
-[variable.env.prod]
+[env.prod]
 value = "none"
 
-[[variable.env.prod.rule]]
+[[env.prod.rule]]
 description = "Show the payment incident banner in affected regions"
 qualifier = "affected-payment-region"
 value = "payment_incident"
@@ -85,8 +83,7 @@ value = "payment_incident"
 ## Verify the behavior
 
 ```sh
-rototo variable resolve checkout-banner \
-  --workspace config/ \
+rototo resolve config/ --variable checkout-banner \
   --env prod \
   --context '{"request":{"country":"DE"}}' \
   --json

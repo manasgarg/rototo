@@ -1,65 +1,113 @@
+use std::cmp::Ordering;
 use std::collections::{HashMap, HashSet};
-use std::future::Future;
-use std::path::{Component, Path, PathBuf};
-use std::pin::Pin;
+use std::path::Path;
 
 use serde_json::Value as JsonValue;
 
 use crate::error::{Result, RototoError};
-use crate::model::{QualifierResolution, VariableResolution, WorkspaceInspection};
-use crate::workspace::{
-    inspect_workspace, qualifier_for_id, read_toml, read_variable_toml, variable_for_id,
+use crate::lint::{
+    RuntimeAttribute, RuntimeCompareOp, RuntimePredicate, RuntimeWorkspace,
+    compile_runtime_workspace,
 };
+use crate::model::{
+    BucketResolutionTrace, PredicateResolutionTrace, QualifierResolutionTrace,
+    VariableResolutionTrace, VariableRuleResolutionTrace,
+};
+use crate::model::{QualifierResolution, VariableResolution};
 
 pub async fn resolve_qualifier(
     workspace_root: &Path,
     id: &str,
     context: &JsonValue,
 ) -> Result<QualifierResolution> {
-    let inspection = inspect_workspace(workspace_root).await?;
-    validate_context_schema(&inspection.root, context).await?;
-    resolve_qualifier_unchecked(&inspection, id, context).await
+    let runtime = compile_runtime_workspace(workspace_root).await?;
+    runtime.validate_context(context)?;
+    resolve_qualifier_unchecked(&runtime, id, context).await
+}
+
+pub async fn trace_qualifier_resolution(
+    workspace_root: &Path,
+    id: &str,
+    context: &JsonValue,
+) -> Result<QualifierResolutionTrace> {
+    let runtime = compile_runtime_workspace(workspace_root).await?;
+    runtime.validate_context(context)?;
+    trace_qualifier_unchecked(&runtime, id, context).await
 }
 
 pub(crate) async fn resolve_qualifier_unchecked(
-    inspection: &WorkspaceInspection,
+    runtime: &RuntimeWorkspace,
     id: &str,
     context: &JsonValue,
 ) -> Result<QualifierResolution> {
-    let mut state = QualifierState::new(inspection, context);
-    let value = state.resolve(id).await?;
+    let mut state = QualifierState::new(runtime, context);
+    let value = state.resolve(id)?;
     Ok(QualifierResolution {
         id: id.to_owned(),
         value,
     })
 }
 
+pub(crate) async fn trace_qualifier_unchecked(
+    runtime: &RuntimeWorkspace,
+    id: &str,
+    context: &JsonValue,
+) -> Result<QualifierResolutionTrace> {
+    let mut state = QualifierState::new(runtime, context);
+    state.resolve(id)?;
+    state
+        .take_qualifier_trace(id)
+        .ok_or_else(|| RototoError::new(format!("qualifier trace not found: qualifier://{id}")))
+}
+
 pub async fn resolve_qualifiers(
     workspace_root: &Path,
     context: &JsonValue,
 ) -> Result<Vec<QualifierResolution>> {
-    let inspection = inspect_workspace(workspace_root).await?;
-    validate_context_schema(&inspection.root, context).await?;
-    resolve_qualifiers_unchecked(&inspection, context).await
+    let runtime = compile_runtime_workspace(workspace_root).await?;
+    runtime.validate_context(context)?;
+    resolve_qualifiers_unchecked(&runtime, context).await
+}
+
+pub async fn trace_qualifier_resolutions(
+    workspace_root: &Path,
+    context: &JsonValue,
+) -> Result<Vec<QualifierResolutionTrace>> {
+    let runtime = compile_runtime_workspace(workspace_root).await?;
+    runtime.validate_context(context)?;
+    trace_qualifier_resolutions_unchecked(&runtime, context).await
 }
 
 pub(crate) async fn resolve_qualifiers_unchecked(
-    inspection: &WorkspaceInspection,
+    runtime: &RuntimeWorkspace,
     context: &JsonValue,
 ) -> Result<Vec<QualifierResolution>> {
-    let mut state = QualifierState::new(inspection, context);
-    let ids: Vec<String> = inspection
-        .qualifiers
-        .iter()
-        .map(|qualifier| qualifier.id.clone())
-        .collect();
+    let mut state = QualifierState::new(runtime, context);
+    let ids: Vec<String> = runtime.qualifiers.keys().cloned().collect();
 
     let mut resolutions = Vec::new();
     for id in ids {
-        let value = state.resolve(&id).await?;
+        let value = state.resolve(&id)?;
         resolutions.push(QualifierResolution { id, value });
     }
     Ok(resolutions)
+}
+
+pub(crate) async fn trace_qualifier_resolutions_unchecked(
+    runtime: &RuntimeWorkspace,
+    context: &JsonValue,
+) -> Result<Vec<QualifierResolutionTrace>> {
+    let ids: Vec<String> = runtime.qualifiers.keys().cloned().collect();
+    let mut state = QualifierState::new(runtime, context);
+
+    let mut traces = Vec::new();
+    for id in ids {
+        state.resolve(&id)?;
+        traces.push(state.take_qualifier_trace(&id).ok_or_else(|| {
+            RototoError::new(format!("qualifier trace not found: qualifier://{id}"))
+        })?);
+    }
+    Ok(traces)
 }
 
 pub async fn resolve_variable(
@@ -68,20 +116,42 @@ pub async fn resolve_variable(
     environment: &str,
     context: &JsonValue,
 ) -> Result<VariableResolution> {
-    let inspection = inspect_workspace(workspace_root).await?;
-    validate_environment(&inspection, environment)?;
-    validate_context_schema(&inspection.root, context).await?;
-    resolve_variable_unchecked(&inspection, id, environment, context).await
+    let runtime = compile_runtime_workspace(workspace_root).await?;
+    runtime.validate_environment(environment)?;
+    runtime.validate_context(context)?;
+    resolve_variable_unchecked(&runtime, id, environment, context).await
+}
+
+pub async fn trace_variable_resolution(
+    workspace_root: &Path,
+    id: &str,
+    environment: &str,
+    context: &JsonValue,
+) -> Result<VariableResolutionTrace> {
+    let runtime = compile_runtime_workspace(workspace_root).await?;
+    runtime.validate_environment(environment)?;
+    runtime.validate_context(context)?;
+    trace_variable_unchecked(&runtime, id, environment, context).await
 }
 
 pub(crate) async fn resolve_variable_unchecked(
-    inspection: &WorkspaceInspection,
+    runtime: &RuntimeWorkspace,
     id: &str,
     environment: &str,
     context: &JsonValue,
 ) -> Result<VariableResolution> {
-    let mut state = QualifierState::new(inspection, context);
-    resolve_variable_with_state(inspection, &mut state, id, environment).await
+    let mut state = QualifierState::new(runtime, context);
+    resolve_variable_with_state(runtime, &mut state, id, environment)
+}
+
+pub(crate) async fn trace_variable_unchecked(
+    runtime: &RuntimeWorkspace,
+    id: &str,
+    environment: &str,
+    context: &JsonValue,
+) -> Result<VariableResolutionTrace> {
+    let mut state = QualifierState::new(runtime, context);
+    resolve_variable_trace_with_state(runtime, &mut state, id, environment)
 }
 
 pub async fn resolve_variables(
@@ -89,277 +159,350 @@ pub async fn resolve_variables(
     environment: &str,
     context: &JsonValue,
 ) -> Result<Vec<VariableResolution>> {
-    let inspection = inspect_workspace(workspace_root).await?;
-    validate_environment(&inspection, environment)?;
-    validate_context_schema(&inspection.root, context).await?;
-    resolve_variables_unchecked(&inspection, environment, context).await
+    let runtime = compile_runtime_workspace(workspace_root).await?;
+    runtime.validate_environment(environment)?;
+    runtime.validate_context(context)?;
+    resolve_variables_unchecked(&runtime, environment, context).await
+}
+
+pub async fn trace_variable_resolutions(
+    workspace_root: &Path,
+    environment: &str,
+    context: &JsonValue,
+) -> Result<Vec<VariableResolutionTrace>> {
+    let runtime = compile_runtime_workspace(workspace_root).await?;
+    runtime.validate_environment(environment)?;
+    runtime.validate_context(context)?;
+    trace_variable_resolutions_unchecked(&runtime, environment, context).await
 }
 
 pub(crate) async fn resolve_variables_unchecked(
-    inspection: &WorkspaceInspection,
+    runtime: &RuntimeWorkspace,
     environment: &str,
     context: &JsonValue,
 ) -> Result<Vec<VariableResolution>> {
-    let ids: Vec<String> = inspection
-        .variables
-        .iter()
-        .map(|variable| variable.id.clone())
-        .collect();
-    let mut state = QualifierState::new(inspection, context);
+    let ids: Vec<String> = runtime.variables.keys().cloned().collect();
+    let mut state = QualifierState::new(runtime, context);
 
     let mut resolutions = Vec::new();
     for id in ids {
-        resolutions
-            .push(resolve_variable_with_state(inspection, &mut state, &id, environment).await?);
+        resolutions.push(resolve_variable_with_state(
+            runtime,
+            &mut state,
+            &id,
+            environment,
+        )?);
     }
     Ok(resolutions)
 }
 
-fn validate_environment(inspection: &WorkspaceInspection, environment: &str) -> Result<()> {
-    if inspection
-        .environments
-        .iter()
-        .any(|known| known == environment)
-    {
-        Ok(())
-    } else {
-        Err(RototoError::new(format!(
-            "unknown environment: {environment}"
-        )))
+pub(crate) async fn trace_variable_resolutions_unchecked(
+    runtime: &RuntimeWorkspace,
+    environment: &str,
+    context: &JsonValue,
+) -> Result<Vec<VariableResolutionTrace>> {
+    let ids: Vec<String> = runtime.variables.keys().cloned().collect();
+
+    let mut traces = Vec::new();
+    for id in ids {
+        let mut state = QualifierState::new(runtime, context);
+        traces.push(resolve_variable_trace_with_state(
+            runtime,
+            &mut state,
+            &id,
+            environment,
+        )?);
     }
+    Ok(traces)
 }
 
-async fn validate_context_schema(root: &Path, context: &JsonValue) -> Result<()> {
-    let manifest = read_toml(&root.join("rototo-workspace.toml")).await?;
-    let Some(context_config) = manifest.get("context") else {
-        return Ok(());
-    };
-    let context_config = context_config
-        .as_table()
-        .ok_or_else(|| RototoError::new("[context] must be a table"))?;
-    let schema_ref = context_config
-        .get("schema")
-        .and_then(toml::Value::as_str)
-        .ok_or_else(|| RototoError::new("[context] must declare schema"))?;
-    let schema_path = context_schema_path(root, schema_ref)?;
-    let text = tokio::fs::read_to_string(&schema_path)
-        .await
-        .map_err(|err| {
-            RototoError::new(format!(
-                "failed to read context schema {}: {err}",
-                schema_path.display()
-            ))
-        })?;
-    let schema = serde_json::from_str::<JsonValue>(&text).map_err(|err| {
-        RototoError::new(format!(
-            "failed to parse context schema {}: {err}",
-            schema_path.display()
-        ))
-    })?;
-    let validator = jsonschema::validator_for(&schema)
-        .map_err(|err| RototoError::new(format!("context schema is invalid: {err}")))?;
-    validator
-        .validate(context)
-        .map_err(|err| RototoError::new(format!("resolve context does not match schema: {err}")))
-}
-
-fn context_schema_path(root: &Path, schema_ref: &str) -> Result<PathBuf> {
-    let schema_ref = Path::new(schema_ref);
-    if schema_ref.as_os_str().is_empty()
-        || schema_ref.is_absolute()
-        || schema_ref
-            .components()
-            .any(|component| matches!(component, Component::ParentDir))
-    {
-        return Err(RototoError::new(
-            "context schema path must be a relative path inside the workspace",
-        ));
-    }
-    Ok(root.join(schema_ref))
-}
-
-async fn resolve_variable_with_state(
-    inspection: &WorkspaceInspection,
+fn resolve_variable_with_state(
+    runtime: &RuntimeWorkspace,
     state: &mut QualifierState<'_>,
     id: &str,
     environment: &str,
 ) -> Result<VariableResolution> {
-    let variable = variable_for_id(inspection, id)?;
-    let toml = read_variable_toml(&inspection.root, variable).await?;
-    let variable_toml = toml
-        .get("variable")
-        .and_then(toml::Value::as_table)
-        .ok_or_else(|| RototoError::new(format!("variable has no [variable] table: {id}")))?;
-    let values = variable_toml
-        .get("values")
-        .and_then(toml::Value::as_table)
-        .ok_or_else(|| RototoError::new(format!("variable has no values: {id}")))?;
-    let env = variable_toml
-        .get("env")
-        .and_then(toml::Value::as_table)
-        .ok_or_else(|| RototoError::new(format!("variable has no environments: {id}")))?;
+    Ok(resolve_variable_trace_with_state(runtime, state, id, environment)?.resolution)
+}
 
-    let block = env
-        .get(environment)
-        .or_else(|| env.get("_"))
-        .ok_or_else(|| RototoError::new(format!("variable has no environment fallback: {id}")))?;
-    let block = block
-        .as_table()
-        .ok_or_else(|| RototoError::new(format!("environment block is not a table: {id}")))?;
+fn resolve_variable_trace_with_state(
+    runtime: &RuntimeWorkspace,
+    state: &mut QualifierState<'_>,
+    id: &str,
+    environment: &str,
+) -> Result<VariableResolutionTrace> {
+    let variable = runtime
+        .variables
+        .get(id)
+        .ok_or_else(|| RototoError::new(format!("variable not found: variable://{id}")))?;
+    let (used_environment, block) = if let Some(block) = variable.environments.get(environment) {
+        (environment.to_owned(), block)
+    } else {
+        (
+            "_".to_owned(),
+            variable.environments.get("_").ok_or_else(|| {
+                RototoError::new(format!("variable has no environment fallback: {id}"))
+            })?,
+        )
+    };
 
     let mut value_key = None;
-    if let Some(rules) = block.get("rule").and_then(toml::Value::as_array) {
-        for rule in rules {
-            let Some(rule) = rule.as_table() else {
-                continue;
-            };
-            let Some(qualifier) = rule.get("qualifier").and_then(toml::Value::as_str) else {
-                continue;
-            };
-            if state.resolve(qualifier).await? {
-                value_key = rule
-                    .get("value")
-                    .and_then(toml::Value::as_str)
-                    .map(str::to_owned);
-                if value_key.is_some() {
-                    break;
-                }
-            }
+    let mut rules = Vec::new();
+    for rule in &block.rules {
+        let matched = state.resolve(&rule.qualifier)?;
+        rules.push(VariableRuleResolutionTrace {
+            index: rule.index,
+            qualifier: rule.qualifier.clone(),
+            value: rule.value.clone(),
+            matched,
+        });
+        if matched {
+            value_key = Some(rule.value.clone());
+            break;
         }
     }
 
-    let value_key = value_key
-        .or_else(|| {
-            block
-                .get("value")
-                .and_then(toml::Value::as_str)
-                .map(str::to_owned)
-        })
-        .ok_or_else(|| RototoError::new(format!("environment block has no value: {id}")))?;
-    let value = values.get(&value_key).ok_or_else(|| {
+    let value_key = value_key.unwrap_or_else(|| block.value.clone());
+    let value = variable.values.get(&value_key).ok_or_else(|| {
         RototoError::new(format!("variable references unknown value: {value_key}"))
     })?;
-    let value = serde_json::to_value(value).map_err(|err| RototoError::new(err.to_string()))?;
 
-    Ok(VariableResolution {
+    let resolution = VariableResolution {
         id: id.to_owned(),
         environment: environment.to_owned(),
         value_key,
-        value,
+        value: value.clone(),
+    };
+    let qualifier_traces = state.qualifier_traces();
+
+    Ok(VariableResolutionTrace {
+        resolution,
+        requested_environment: environment.to_owned(),
+        used_environment,
+        fallback_value: block.value.clone(),
+        rules,
+        qualifier_traces,
     })
 }
 
 struct QualifierState<'a> {
-    inspection: &'a WorkspaceInspection,
+    runtime: &'a RuntimeWorkspace,
     context: &'a JsonValue,
     cache: HashMap<String, bool>,
     resolving: HashSet<String>,
+    traces: HashMap<String, QualifierResolutionTrace>,
 }
 
 impl<'a> QualifierState<'a> {
-    fn new(inspection: &'a WorkspaceInspection, context: &'a JsonValue) -> Self {
+    fn new(runtime: &'a RuntimeWorkspace, context: &'a JsonValue) -> Self {
         Self {
-            inspection,
+            runtime,
             context,
             cache: HashMap::new(),
             resolving: HashSet::new(),
+            traces: HashMap::new(),
         }
     }
 
-    fn resolve<'b>(&'b mut self, id: &'b str) -> Pin<Box<dyn Future<Output = Result<bool>> + 'b>> {
-        Box::pin(async move {
-            if let Some(value) = self.cache.get(id) {
-                return Ok(*value);
-            }
-            if !self.resolving.insert(id.to_owned()) {
-                return Err(RototoError::new(format!(
-                    "qualifier cycle detected at qualifier://{id}"
-                )));
-            }
-
-            let qualifier = qualifier_for_id(self.inspection, id)?;
-            let toml = read_toml(&self.inspection.root.join(&qualifier.path)).await?;
-            let predicates = toml
-                .get("qualifier")
-                .and_then(|qualifier| qualifier.get("predicate"))
-                .and_then(toml::Value::as_array)
-                .ok_or_else(|| RototoError::new(format!("qualifier has no predicates: {id}")))?;
-
-            let mut value = true;
-            for predicate in predicates {
-                if !self.evaluate_predicate(predicate).await? {
-                    value = false;
-                    break;
-                }
-            }
-
-            self.resolving.remove(id);
-            self.cache.insert(id.to_owned(), value);
-            Ok(value)
-        })
-    }
-
-    async fn evaluate_predicate(&mut self, predicate: &toml::Value) -> Result<bool> {
-        let predicate = predicate
-            .as_table()
-            .ok_or_else(|| RototoError::new("predicate must be a table"))?;
-        let attribute = predicate
-            .get("attribute")
-            .and_then(toml::Value::as_str)
-            .ok_or_else(|| RototoError::new("predicate must contain attribute"))?;
-        let op = predicate
-            .get("op")
-            .and_then(toml::Value::as_str)
-            .ok_or_else(|| RototoError::new("predicate must contain op"))?;
-
-        if op == "bucket" {
-            let Some(context_value) = context_path(self.context, attribute) else {
-                return Ok(false);
-            };
-            let salt = predicate
-                .get("salt")
-                .and_then(toml::Value::as_str)
-                .ok_or_else(|| RototoError::new("bucket predicate must contain salt"))?;
-            let range = predicate
-                .get("range")
-                .and_then(toml::Value::as_array)
-                .ok_or_else(|| RototoError::new("bucket predicate must contain range"))?;
-            let start = range.first().and_then(toml::Value::as_integer).unwrap_or(0);
-            let end = range.get(1).and_then(toml::Value::as_integer).unwrap_or(0);
-            let bucket = bucket_value(salt, context_value);
-            return Ok(i64::from(bucket) >= start && i64::from(bucket) < end);
+    fn resolve(&mut self, id: &str) -> Result<bool> {
+        if let Some(value) = self.cache.get(id) {
+            return Ok(*value);
+        }
+        if !self.resolving.insert(id.to_owned()) {
+            return Err(RototoError::new(format!(
+                "qualifier cycle detected at qualifier://{id}"
+            )));
         }
 
-        let actual = if let Some(qualifier) = attribute.strip_prefix("qualifier.") {
-            JsonValue::Bool(self.resolve(qualifier).await?)
-        } else {
-            let Some(value) = context_path(self.context, attribute) else {
-                return Ok(false);
-            };
-            value.clone()
-        };
-        let expected = predicate
-            .get("value")
-            .ok_or_else(|| RototoError::new("predicate must contain value"))?;
-        let expected =
-            serde_json::to_value(expected).map_err(|err| RototoError::new(err.to_string()))?;
-
-        Ok(match op {
-            "eq" => actual == expected,
-            "neq" => actual != expected,
-            "in" => expected
-                .as_array()
-                .is_some_and(|values| values.iter().any(|value| value == &actual)),
-            "not_in" => expected
-                .as_array()
-                .is_some_and(|values| values.iter().all(|value| value != &actual)),
-            "gt" => numeric_compare(&actual, &expected, |left, right| left > right),
-            "gte" => numeric_compare(&actual, &expected, |left, right| left >= right),
-            "lt" => numeric_compare(&actual, &expected, |left, right| left < right),
-            "lte" => numeric_compare(&actual, &expected, |left, right| left <= right),
-            _ => false,
-        })
+        let result = self.resolve_uncached(id);
+        self.resolving.remove(id);
+        let value = result?;
+        self.cache.insert(id.to_owned(), value);
+        Ok(value)
     }
+
+    fn resolve_uncached(&mut self, id: &str) -> Result<bool> {
+        let qualifier =
+            self.runtime.qualifiers.get(id).ok_or_else(|| {
+                RototoError::new(format!("qualifier not found: qualifier://{id}"))
+            })?;
+        let mut predicate_traces = Vec::new();
+        for predicate in &qualifier.predicates {
+            self.validate_predicate_context(id, predicate)?;
+        }
+        for predicate in &qualifier.predicates {
+            let trace = self.evaluate_predicate(id, predicate)?;
+            let result = trace.result;
+            predicate_traces.push(trace);
+            if !result {
+                self.traces.insert(
+                    id.to_owned(),
+                    QualifierResolutionTrace {
+                        id: id.to_owned(),
+                        value: false,
+                        predicates: predicate_traces,
+                    },
+                );
+                return Ok(false);
+            }
+        }
+        self.traces.insert(
+            id.to_owned(),
+            QualifierResolutionTrace {
+                id: id.to_owned(),
+                value: true,
+                predicates: predicate_traces,
+            },
+        );
+        Ok(true)
+    }
+
+    fn validate_predicate_context(
+        &self,
+        qualifier_id: &str,
+        predicate: &RuntimePredicate,
+    ) -> Result<()> {
+        match predicate {
+            RuntimePredicate::Bucket { attribute, .. } => {
+                require_context_path(self.context, qualifier_id, attribute)?;
+            }
+            RuntimePredicate::Compare {
+                attribute: RuntimeAttribute::ContextPath(path),
+                ..
+            } => {
+                require_context_path(self.context, qualifier_id, path)?;
+            }
+            RuntimePredicate::Compare {
+                attribute: RuntimeAttribute::Qualifier(_),
+                ..
+            } => {}
+        }
+        Ok(())
+    }
+
+    fn evaluate_predicate(
+        &mut self,
+        qualifier_id: &str,
+        predicate: &RuntimePredicate,
+    ) -> Result<PredicateResolutionTrace> {
+        match predicate {
+            RuntimePredicate::Bucket {
+                index,
+                attribute,
+                salt,
+                start,
+                end,
+            } => {
+                let context_value = require_context_path(self.context, qualifier_id, attribute)?;
+                let bucket = bucket_value(salt, context_value);
+                Ok(PredicateResolutionTrace {
+                    index: *index,
+                    kind: "bucket".to_owned(),
+                    attribute: attribute.clone(),
+                    op: None,
+                    expected: None,
+                    actual: Some(context_value.clone()),
+                    bucket: Some(BucketResolutionTrace {
+                        salt: salt.clone(),
+                        start: *start,
+                        end: *end,
+                        value: Some(bucket),
+                    }),
+                    qualifier: None,
+                    result: i64::from(bucket) >= *start && i64::from(bucket) < *end,
+                })
+            }
+            RuntimePredicate::Compare {
+                index,
+                attribute,
+                op,
+                value,
+            } => {
+                let (attribute_label, qualifier, actual) = match attribute {
+                    RuntimeAttribute::Qualifier(qualifier) => (
+                        format!("qualifier.{qualifier}"),
+                        Some(qualifier.clone()),
+                        JsonValue::Bool(self.resolve(qualifier)?),
+                    ),
+                    RuntimeAttribute::ContextPath(path) => {
+                        let value = require_context_path(self.context, qualifier_id, path)?;
+                        (path.clone(), None, value.clone())
+                    }
+                };
+
+                let result = match op {
+                    RuntimeCompareOp::Eq => json_values_equal(&actual, value),
+                    RuntimeCompareOp::Neq => !json_values_equal(&actual, value),
+                    RuntimeCompareOp::In => value.as_array().is_some_and(|values| {
+                        values.iter().any(|value| json_values_equal(value, &actual))
+                    }),
+                    RuntimeCompareOp::NotIn => value.as_array().is_some_and(|values| {
+                        values
+                            .iter()
+                            .all(|value| !json_values_equal(value, &actual))
+                    }),
+                    RuntimeCompareOp::Gt => {
+                        numeric_compare(&actual, value, |ordering| ordering == Ordering::Greater)
+                    }
+                    RuntimeCompareOp::Gte => numeric_compare(&actual, value, |ordering| {
+                        matches!(ordering, Ordering::Greater | Ordering::Equal)
+                    }),
+                    RuntimeCompareOp::Lt => {
+                        numeric_compare(&actual, value, |ordering| ordering == Ordering::Less)
+                    }
+                    RuntimeCompareOp::Lte => numeric_compare(&actual, value, |ordering| {
+                        matches!(ordering, Ordering::Less | Ordering::Equal)
+                    }),
+                };
+                Ok(PredicateResolutionTrace {
+                    index: *index,
+                    kind: "compare".to_owned(),
+                    attribute: attribute_label,
+                    op: Some(runtime_compare_op_label(*op).to_owned()),
+                    expected: Some(value.clone()),
+                    actual: Some(actual),
+                    bucket: None,
+                    qualifier,
+                    result,
+                })
+            }
+        }
+    }
+
+    fn qualifier_traces(&self) -> Vec<QualifierResolutionTrace> {
+        let mut traces = self.traces.values().cloned().collect::<Vec<_>>();
+        traces.sort_by(|left, right| left.id.cmp(&right.id));
+        traces
+    }
+
+    fn take_qualifier_trace(&mut self, id: &str) -> Option<QualifierResolutionTrace> {
+        self.traces.remove(id)
+    }
+}
+
+fn runtime_compare_op_label(op: RuntimeCompareOp) -> &'static str {
+    match op {
+        RuntimeCompareOp::Eq => "eq",
+        RuntimeCompareOp::Neq => "neq",
+        RuntimeCompareOp::In => "in",
+        RuntimeCompareOp::NotIn => "not_in",
+        RuntimeCompareOp::Gt => "gt",
+        RuntimeCompareOp::Gte => "gte",
+        RuntimeCompareOp::Lt => "lt",
+        RuntimeCompareOp::Lte => "lte",
+    }
+}
+
+fn require_context_path<'a>(
+    context: &'a JsonValue,
+    qualifier_id: &str,
+    path: &str,
+) -> Result<&'a JsonValue> {
+    context_path(context, path).ok_or_else(|| {
+        RototoError::new(format!(
+            "missing resolve context attribute: {path} required by qualifier://{qualifier_id}"
+        ))
+    })
 }
 
 fn context_path<'a>(context: &'a JsonValue, path: &str) -> Option<&'a JsonValue> {
@@ -370,18 +513,80 @@ fn context_path<'a>(context: &'a JsonValue, path: &str) -> Option<&'a JsonValue>
     Some(current)
 }
 
+fn json_values_equal(left: &JsonValue, right: &JsonValue) -> bool {
+    match (left.as_number(), right.as_number()) {
+        (Some(left), Some(right)) => exact_number_ordering(left, right) == Some(Ordering::Equal),
+        _ => left == right,
+    }
+}
+
 fn numeric_compare(
     actual: &JsonValue,
     expected: &JsonValue,
-    compare: impl FnOnce(f64, f64) -> bool,
+    compare: impl FnOnce(Ordering) -> bool,
 ) -> bool {
-    let Some(actual) = actual.as_f64() else {
+    let (Some(actual), Some(expected)) = (actual.as_number(), expected.as_number()) else {
         return false;
     };
-    let Some(expected) = expected.as_f64() else {
-        return false;
-    };
-    compare(actual, expected)
+    exact_number_ordering(actual, expected).is_some_and(compare)
+}
+
+fn exact_number_ordering(
+    left: &serde_json::Number,
+    right: &serde_json::Number,
+) -> Option<Ordering> {
+    match (number_integer(left), number_integer(right)) {
+        (Some(IntegerNumber::Signed(left)), Some(IntegerNumber::Signed(right))) => {
+            return Some(left.cmp(&right));
+        }
+        (Some(IntegerNumber::Unsigned(left)), Some(IntegerNumber::Unsigned(right))) => {
+            return Some(left.cmp(&right));
+        }
+        (Some(IntegerNumber::Signed(left)), Some(IntegerNumber::Unsigned(right))) => {
+            return if left < 0 {
+                Some(Ordering::Less)
+            } else {
+                Some((left as u64).cmp(&right))
+            };
+        }
+        (Some(IntegerNumber::Unsigned(left)), Some(IntegerNumber::Signed(right))) => {
+            return if right < 0 {
+                Some(Ordering::Greater)
+            } else {
+                Some(left.cmp(&(right as u64)))
+            };
+        }
+        _ => {}
+    }
+
+    let left = exact_f64(left)?;
+    let right = exact_f64(right)?;
+    left.partial_cmp(&right)
+}
+
+#[derive(Clone, Copy)]
+enum IntegerNumber {
+    Signed(i64),
+    Unsigned(u64),
+}
+
+fn number_integer(number: &serde_json::Number) -> Option<IntegerNumber> {
+    number
+        .as_i64()
+        .map(IntegerNumber::Signed)
+        .or_else(|| number.as_u64().map(IntegerNumber::Unsigned))
+}
+
+fn exact_f64(number: &serde_json::Number) -> Option<f64> {
+    if let Some(value) = number.as_i64() {
+        let as_f64 = value as f64;
+        return ((as_f64 as i64) == value).then_some(as_f64);
+    }
+    if let Some(value) = number.as_u64() {
+        let as_f64 = value as f64;
+        return ((as_f64 as u64) == value).then_some(as_f64);
+    }
+    number.as_f64().filter(|value| value.is_finite())
 }
 
 fn bucket_value(salt: &str, value: &JsonValue) -> u16 {
@@ -401,5 +606,397 @@ fn canonical_context_value(value: &JsonValue) -> String {
     match value {
         JsonValue::String(value) => value.clone(),
         _ => value.to_string(),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn resolves_predicate_operator_true_and_false_outcomes() {
+        let workspace = workspace_with_qualifiers(&[
+            ("eq-true", predicate("user.tier", "eq", r#""premium""#)),
+            ("eq-false", predicate("user.tier", "eq", r#""free""#)),
+            ("neq-true", predicate("user.tier", "neq", r#""free""#)),
+            ("neq-false", predicate("user.tier", "neq", r#""premium""#)),
+            (
+                "in-true",
+                predicate("user.tier", "in", r#"["free", "premium"]"#),
+            ),
+            ("in-false", predicate("user.tier", "in", r#"["free"]"#)),
+            (
+                "not-in-true",
+                predicate("user.tier", "not_in", r#"["free"]"#),
+            ),
+            (
+                "not-in-false",
+                predicate("user.tier", "not_in", r#"["premium"]"#),
+            ),
+            ("gt-true", predicate("account.seats", "gt", "10")),
+            ("gt-false", predicate("account.seats", "gt", "100")),
+            ("gte-true", predicate("account.seats", "gte", "42")),
+            ("gte-false", predicate("account.seats", "gte", "43")),
+            ("lt-true", predicate("account.seats", "lt", "100")),
+            ("lt-false", predicate("account.seats", "lt", "10")),
+            ("lte-true", predicate("account.seats", "lte", "42")),
+            ("lte-false", predicate("account.seats", "lte", "41")),
+        ]);
+        let context = serde_json::json!({
+            "user": { "tier": "premium" },
+            "account": { "seats": 42 }
+        });
+
+        for id in [
+            "eq-true",
+            "neq-true",
+            "in-true",
+            "not-in-true",
+            "gt-true",
+            "gte-true",
+            "lt-true",
+            "lte-true",
+        ] {
+            assert!(
+                resolve_qualifier(workspace.path(), id, &context)
+                    .await
+                    .unwrap()
+                    .value,
+                "{id}"
+            );
+        }
+
+        for id in [
+            "eq-false",
+            "neq-false",
+            "in-false",
+            "not-in-false",
+            "gt-false",
+            "gte-false",
+            "lt-false",
+            "lte-false",
+        ] {
+            assert!(
+                !resolve_qualifier(workspace.path(), id, &context)
+                    .await
+                    .unwrap()
+                    .value,
+                "{id}"
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn missing_context_paths_fail_resolution() {
+        let workspace = workspace_with_qualifiers(&[
+            (
+                "missing-compare",
+                predicate("missing.path", "neq", r#""anything""#),
+            ),
+            (
+                "missing-bucket",
+                bucket_predicate_for("missing.id", "0, 1000"),
+            ),
+            (
+                "missing-after-false",
+                r#"schema_version = 1
+
+[[predicate]]
+attribute = "user.tier"
+op = "eq"
+value = "premium"
+
+[[predicate]]
+attribute = "missing.path"
+op = "eq"
+value = "anything"
+"#
+                .to_owned(),
+            ),
+        ]);
+        let context = serde_json::json!({ "user": { "id": "user-123" } });
+        let non_matching_context = serde_json::json!({
+            "user": { "id": "user-123", "tier": "free" }
+        });
+
+        let err = resolve_qualifier(workspace.path(), "missing-compare", &context)
+            .await
+            .unwrap_err();
+        assert_eq!(
+            err.to_string(),
+            "missing resolve context attribute: missing.path required by qualifier://missing-compare"
+        );
+
+        let err = resolve_qualifier(workspace.path(), "missing-bucket", &context)
+            .await
+            .unwrap_err();
+        assert_eq!(
+            err.to_string(),
+            "missing resolve context attribute: missing.id required by qualifier://missing-bucket"
+        );
+
+        let err = resolve_qualifier(
+            workspace.path(),
+            "missing-after-false",
+            &non_matching_context,
+        )
+        .await
+        .unwrap_err();
+        assert_eq!(
+            err.to_string(),
+            "missing resolve context attribute: missing.path required by qualifier://missing-after-false"
+        );
+    }
+
+    #[tokio::test]
+    async fn resolves_bucket_boundaries_and_is_deterministic() {
+        assert_eq!(
+            bucket_value("known-salt", &serde_json::json!("user-123")),
+            9913
+        );
+        assert_eq!(
+            bucket_value("known-salt", &serde_json::json!("user-123")),
+            bucket_value("known-salt", &serde_json::json!("user-123"))
+        );
+        let workspace = workspace_with_qualifiers(&[
+            ("bucket-in", bucket_predicate("9913, 9914")),
+            ("bucket-start-exclusive", bucket_predicate("9914, 9915")),
+            ("bucket-end-exclusive", bucket_predicate("9912, 9913")),
+        ]);
+        let context = serde_json::json!({ "user": { "id": "user-123" } });
+
+        assert!(
+            resolve_qualifier(workspace.path(), "bucket-in", &context)
+                .await
+                .unwrap()
+                .value
+        );
+        assert!(
+            !resolve_qualifier(workspace.path(), "bucket-start-exclusive", &context)
+                .await
+                .unwrap()
+                .value
+        );
+        assert!(
+            !resolve_qualifier(workspace.path(), "bucket-end-exclusive", &context)
+                .await
+                .unwrap()
+                .value
+        );
+    }
+
+    #[tokio::test]
+    async fn resolves_qualifier_indirection_and_cycles() {
+        let workspace = workspace_with_qualifiers(&[
+            ("premium", predicate("user.tier", "eq", r#""premium""#)),
+            ("free", predicate("user.tier", "eq", r#""free""#)),
+            (
+                "premium-derived",
+                predicate("qualifier.premium", "eq", "true"),
+            ),
+            ("free-derived", predicate("qualifier.free", "eq", "true")),
+            ("cycle-a", predicate("qualifier.cycle-b", "eq", "true")),
+            ("cycle-b", predicate("qualifier.cycle-a", "eq", "true")),
+        ]);
+        let context = serde_json::json!({ "user": { "tier": "premium" } });
+
+        assert!(
+            resolve_qualifier(workspace.path(), "premium-derived", &context)
+                .await
+                .unwrap()
+                .value
+        );
+        assert!(
+            !resolve_qualifier(workspace.path(), "free-derived", &context)
+                .await
+                .unwrap()
+                .value
+        );
+        let err = resolve_qualifier(workspace.path(), "cycle-a", &context)
+            .await
+            .unwrap_err();
+        assert!(err.to_string().contains("qualifier cycle detected"));
+    }
+
+    #[tokio::test]
+    async fn resolves_variable_environment_fallback_and_fails_closed() {
+        let workspace =
+            workspace_with_qualifiers(&[("premium", predicate("user.tier", "eq", r#""premium""#))]);
+        std::fs::create_dir_all(workspace.path().join("variables")).unwrap();
+        std::fs::write(
+            workspace.path().join("variables/message.toml"),
+            r#"schema_version = 1
+type = "string"
+
+[values]
+control = "control"
+premium = "premium"
+
+[env._]
+value = "control"
+
+[env.prod]
+value = "control"
+rule = [
+  { qualifier = "premium", value = "premium" },
+]
+"#,
+        )
+        .unwrap();
+        let context = serde_json::json!({ "user": { "tier": "free" } });
+
+        let fallback = resolve_variable(workspace.path(), "message", "stage", &context)
+            .await
+            .unwrap();
+        assert_eq!(fallback.value_key, "control");
+
+        std::fs::write(
+            workspace.path().join("variables/bad-rule.toml"),
+            r#"schema_version = 1
+type = "string"
+
+[values]
+control = "control"
+
+[env._]
+value = "control"
+rule = ["not-a-table"]
+"#,
+        )
+        .unwrap();
+        let err = resolve_variable(workspace.path(), "bad-rule", "prod", &context)
+            .await
+            .unwrap_err();
+        assert!(err.to_string().contains("rule must be a table"));
+    }
+
+    #[tokio::test]
+    async fn numeric_equality_is_exact_without_lossy_large_integer_casts() {
+        let workspace = workspace_with_qualifiers(&[
+            ("int-float-equal", predicate("n", "eq", "100.0")),
+            (
+                "large-int-float-not-equal",
+                predicate("large", "eq", "9007199254740992.0"),
+            ),
+            (
+                "large-int-self-equal",
+                predicate("large", "eq", "9007199254740993"),
+            ),
+        ]);
+        let context = serde_json::json!({
+            "n": 100,
+            "large": 9007199254740993_i64
+        });
+
+        assert!(
+            resolve_qualifier(workspace.path(), "int-float-equal", &context)
+                .await
+                .unwrap()
+                .value
+        );
+        assert!(
+            !resolve_qualifier(workspace.path(), "large-int-float-not-equal", &context)
+                .await
+                .unwrap()
+                .value
+        );
+        assert!(
+            resolve_qualifier(workspace.path(), "large-int-self-equal", &context)
+                .await
+                .unwrap()
+                .value
+        );
+    }
+
+    #[tokio::test]
+    async fn malformed_predicates_return_errors_during_unchecked_resolution() {
+        let context = serde_json::json!({ "user": { "tier": "premium", "id": "user-123" } });
+
+        let workspace = workspace_with_qualifiers(&[(
+            "unknown-op",
+            predicate("user.tier", "contains", r#""premium""#),
+        )]);
+        let err = resolve_qualifier(workspace.path(), "unknown-op", &context)
+            .await
+            .unwrap_err();
+        assert!(err.to_string().contains("unknown predicate operator"));
+
+        let workspace = workspace_with_qualifiers(&[(
+            "empty",
+            String::from("schema_version = 1\npredicate = []\n"),
+        )]);
+        let err = resolve_qualifier(workspace.path(), "empty", &context)
+            .await
+            .unwrap_err();
+        assert!(err.to_string().contains("at least one predicate"));
+
+        let workspace = workspace_with_qualifiers(&[(
+            "bad-bucket",
+            String::from(
+                r#"schema_version = 1
+
+[[predicate]]
+attribute = "user.id"
+op = "bucket"
+salt = "known-salt"
+range = [1.5, 2.5]
+"#,
+            ),
+        )]);
+        let err = resolve_qualifier(workspace.path(), "bad-bucket", &context)
+            .await
+            .unwrap_err();
+        assert!(err.to_string().contains("range must contain two integers"));
+    }
+
+    fn workspace_with_qualifiers(qualifiers: &[(&str, String)]) -> tempfile::TempDir {
+        let workspace = tempfile::TempDir::new().unwrap();
+        std::fs::write(
+            workspace.path().join("rototo-workspace.toml"),
+            r#"schema_version = 1
+
+[environments]
+values = ["prod", "stage"]
+"#,
+        )
+        .unwrap();
+        std::fs::create_dir_all(workspace.path().join("qualifiers")).unwrap();
+        for (id, contents) in qualifiers {
+            std::fs::write(
+                workspace.path().join(format!("qualifiers/{id}.toml")),
+                contents,
+            )
+            .unwrap();
+        }
+        workspace
+    }
+
+    fn predicate(attribute: &str, op: &str, value: &str) -> String {
+        format!(
+            r#"schema_version = 1
+
+[[predicate]]
+attribute = "{attribute}"
+op = "{op}"
+value = {value}
+"#
+        )
+    }
+
+    fn bucket_predicate(range: &str) -> String {
+        bucket_predicate_for("user.id", range)
+    }
+
+    fn bucket_predicate_for(attribute: &str, range: &str) -> String {
+        format!(
+            r#"schema_version = 1
+
+[[predicate]]
+attribute = "{attribute}"
+op = "bucket"
+salt = "known-salt"
+range = [{range}]
+"#
+        )
     }
 }

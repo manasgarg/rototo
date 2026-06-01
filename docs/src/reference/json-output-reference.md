@@ -6,7 +6,7 @@ CI, and agents.
 ## Workspace Inspect
 
 ```sh
-rototo workspace inspect --workspace ./config --json
+rototo inspect ./config --json
 ```
 
 Shape:
@@ -39,106 +39,84 @@ Workspace lint:
 ```json
 {
   "workspace": "/abs/path/config",
-  "diagnostics": []
-}
-```
-
-Qualifier lint:
-
-```json
-{
-  "workspace": "/abs/path/config",
-  "id": "enterprise-accounts",
-  "diagnostics": []
-}
-```
-
-Variable lint:
-
-```json
-{
-  "workspace": "/abs/path/config",
-  "id": "llm-agent-config",
-  "diagnostics": []
-}
-```
-
-Diagnostics contain stable fields such as `code`, `source`, `message`, `help`,
-and `rule` when a lint rule is associated with the diagnostic. See
-`diagnostics`.
-
-## List Commands
-
-Qualifier list:
-
-```json
-{
-  "workspace": "/abs/path/config",
-  "qualifiers": [
+  "documents": [
     {
-      "id": "enterprise-accounts",
-      "uri": "qualifier://enterprise-accounts",
-      "path": "qualifiers/enterprise-accounts.toml"
+      "id": 0,
+      "path": "rototo-workspace.toml",
+      "uri": "file:///abs/path/config/rototo-workspace.toml",
+      "version": null,
+      "kind": "manifest"
     }
-  ]
+  ],
+  "diagnostics": []
 }
 ```
 
-Variable list:
+Targeted lint uses the same envelope after selectors filter diagnostics:
 
 ```json
 {
+  "workspace": "/abs/path/config",
+  "documents": [],
+  "diagnostics": []
+}
+```
+
+Lint output includes every document considered by lint, including documents
+with no diagnostics. Diagnostics contain `rule`, `severity`, `stage`, `entity`,
+`message`, `help`, `location`, and `related`. The `rule` field is the stable
+identity for automation. `location` contains the workspace-relative `path` and
+a zero-based line/character `range` when rototo can attach the diagnostic to a
+span. See `diagnostics`.
+
+## Show Commands
+
+`show` uses selectors to return variables, qualifiers, lint rules, authorities,
+and linters in one envelope:
+
+```json
+{
+  "command": "show",
+  "workspace": "/abs/path/config",
+  "variables": [],
+  "qualifiers": [],
+  "lint_rules": [],
+  "lint_authorities": [],
+  "linters": []
+}
+```
+
+Selected variable and qualifier entries include authored TOML when a specific
+id is selected:
+
+```json
+{
+  "command": "show",
   "workspace": "/abs/path/config",
   "variables": [
     {
       "id": "llm-agent-config",
       "uri": "variable://llm-agent-config",
-      "path": "variables/llm-agent-config.toml"
+      "path": "variables/llm-agent-config.toml",
+      "value": {
+        "schema_version": 1
+      }
     }
-  ]
+  ],
+  "qualifiers": [],
+  "lint_rules": [],
+  "lint_authorities": [],
+  "linters": []
 }
 ```
 
-## Get Commands
-
-Qualifier get:
-
-```json
-{
-  "workspace": "/abs/path/config",
-  "id": "enterprise-accounts",
-  "uri": "qualifier://enterprise-accounts",
-  "path": "qualifiers/enterprise-accounts.toml",
-  "value": {
-    "schema_version": 1,
-    "qualifier": {}
-  }
-}
-```
-
-Variable get:
-
-```json
-{
-  "workspace": "/abs/path/config",
-  "id": "llm-agent-config",
-  "uri": "variable://llm-agent-config",
-  "path": "variables/llm-agent-config.toml",
-  "value": {
-    "schema_version": 1,
-    "variable": {}
-  }
-}
-```
-
-Variable get returns the expanded variable TOML after external value files have
+Variable show returns the expanded variable TOML after external value files have
 been loaded.
 
 ## Qualifier Resolution
 
 ```sh
-rototo qualifier resolve enterprise-accounts \
-  --workspace ./config \
+rototo resolve ./config --qualifier enterprise-accounts \
   --context @context.json \
   --json
 ```
@@ -148,17 +126,8 @@ Shape:
 ```json
 {
   "workspace": "/abs/path/config",
-  "id": "enterprise-accounts",
-  "value": true
-}
-```
-
-Resolve all qualifiers:
-
-```json
-{
-  "workspace": "/abs/path/config",
-  "values": [
+  "variables": [],
+  "qualifiers": [
     {
       "id": "enterprise-accounts",
       "value": true
@@ -170,8 +139,7 @@ Resolve all qualifiers:
 ## Variable Resolution
 
 ```sh
-rototo variable resolve llm-agent-config \
-  --workspace ./config \
+rototo resolve ./config --variable llm-agent-config \
   --env prod \
   --context @context.json \
   --json
@@ -182,24 +150,7 @@ Shape:
 ```json
 {
   "workspace": "/abs/path/config",
-  "id": "llm-agent-config",
-  "environment": "prod",
-  "value_key": "enterprise",
-  "value": {
-    "model": "gpt-5",
-    "gateway": "openai",
-    "max_output_tokens": 5000,
-    "temperature": 0.2
-  }
-}
-```
-
-Resolve all variables:
-
-```json
-{
-  "workspace": "/abs/path/config",
-  "values": [
+  "variables": [
     {
       "id": "llm-agent-config",
       "environment": "prod",
@@ -208,7 +159,8 @@ Resolve all variables:
         "model": "gpt-5"
       }
     }
-  ]
+  ],
+  "qualifiers": []
 }
 ```
 
@@ -219,12 +171,21 @@ Diagnostic list:
 ```json
 {
   "scope": "global",
-  "subject": "rototo",
-  "diagnostics": []
+  "subject": "global",
+  "diagnostics": [
+    {
+      "rule": "rototo/variable-unknown-type",
+      "severity": "error",
+      "entity": "variable",
+      "title": "Variable type is unknown",
+      "help": "Use one of bool, int, number, string, or list."
+    }
+  ]
 }
 ```
 
-Diagnostic get prints one catalog entry as JSON.
+Diagnostic get prints one catalog entry as JSON. Workspace-scoped catalogs also
+include declared custom lint rules such as `payments/max-token-budget`.
 
 ## Stability Notes
 

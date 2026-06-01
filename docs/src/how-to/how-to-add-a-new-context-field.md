@@ -87,10 +87,9 @@ qualifier:
 ```toml
 schema_version = 1
 
-[qualifier]
 description = "Requests from Germany"
 
-[[qualifier.predicate]]
+[[predicate]]
 attribute = "request.country"
 op = "eq"
 value = "DE"
@@ -104,30 +103,28 @@ the schema does not declare.
 Lint the workspace:
 
 ```sh
-rototo workspace lint config/
+rototo lint config/
 ```
 
 Resolve with context that includes the new field:
 
 ```sh
-rototo qualifier resolve germany-requests \
-  --workspace config/ \
+rototo resolve config/ --qualifier germany-requests \
   --context '{"account":{"plan":"enterprise"},"request":{"country":"DE"}}'
 ```
 
-If the field is required, also verify that missing context fails before rule
-evaluation:
+Also verify that missing context fails before rule evaluation:
 
 ```sh
-rototo qualifier resolve germany-requests \
-  --workspace config/ \
+rototo resolve config/ --qualifier germany-requests \
   --context '{"account":{"plan":"enterprise"}}'
 ```
 
 ## Common mistakes
 
-Do not add a predicate before updating the context schema. Without a schema, a
-misspelled or missing path can quietly resolve as `false`.
+Do not add a predicate before updating the context schema. Without a schema, lint
+cannot catch a misspelled path before the predicate starts requiring it at
+resolution time.
 
 Do not make a new field required before all application callers can send it.
 That turns a config release into a runtime integration break.

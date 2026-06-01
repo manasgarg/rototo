@@ -1,0 +1,30 @@
+schema_version = 1
+
+[environments]
+values = ["prod"]
+
+[[lint.rule]]
+id = "billing/conflicting-rule"
+title = "First title"
+help = "First help."
+
+[[lint.rule]]
+id = "billing/conflicting-rule"
+title = "Second title"
+help = "Second help."
+
+[[lint.rule]]
+id = "rototo/not-allowed"
+title = "Invalid custom authority"
+help = "Use a non-rototo authority."
+
+[[lint.rule]]
+id = "payments/invalid-severity"
+title = "Invalid custom severity"
+help = "Use error or warning severity."
+severity = "notice"
+
+[[lint.rule]]
+id = "payments/max-token-budget"
+title = "Token budget exceeds payments policy"
+help = "Lower max_output_tokens or update the payments policy."

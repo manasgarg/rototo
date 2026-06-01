@@ -3,88 +3,101 @@
 ## Global Flags
 
 - `--json`: emit machine-readable JSON where supported.
-- `--quiet`, `-q`: suppress success output from lint commands.
+- `--quiet`: suppress success output from lint commands.
 - `--workspace-token`: bearer token for `https://` workspace archive sources.
   Can also be set with `ROTOTO_WORKSPACE_TOKEN`.
-- `--version`: print the rototo version.
-- `--help`: print command help.
+- `--version`, `-V`: print the rototo version.
+- `--help`, `-h`: print command help.
 
 ## Workspace Commands
 
-- `rototo workspace inspect [workspace] [--workspace <workspace>]`
-- `rototo workspace lint [workspace] [--workspace <workspace>]`
+Workspace commands take the workspace source as their first positional
+argument. If it is omitted, rototo walks up from the current directory until it
+finds `rototo-workspace.toml`.
 
-When `workspace` is omitted, rototo walks up from the current directory until
-it finds `rototo-workspace.toml`.
-The positional workspace argument is kept for compatibility; `--workspace` is
-preferred for consistency with qualifier, variable, and diagnostics commands.
+- `rototo lint [workspace] [selectors]`
+- `rototo inspect [workspace] [selectors]`
+- `rototo show [workspace] [selectors]`
+- `rototo resolve [workspace] [selectors] --context <context>...`
+
 Workspace inputs can be local paths, `file://` URIs, `git+file://`,
 `git+https://`, `git+ssh://`, or `https://` archive URLs. Plain `http://`
 sources are rejected. Git sources support `#ref:subdir`; archive URLs support
 `#:subdir`.
 
-## Qualifier Commands
+## Selectors
 
-- `rototo qualifier list [--workspace <workspace>]`
-- `rototo qualifier get <id> [--workspace <workspace>]`
-- `rototo qualifier lint <id> [--workspace <workspace>]`
-- `rototo qualifier resolve <id> --context <context> [--workspace <workspace>]`
-- `rototo qualifier resolve-all --context <context> [--workspace <workspace>]`
+- `--variable <id>`: select one variable. Repeatable.
+- `--variables`: select all variables.
+- `--qualifier <id>`: select one qualifier. Repeatable.
+- `--qualifiers`: select all qualifiers.
+- `--lint-rule <authority/rule>`: select one diagnostic rule. Repeatable.
+- `--lint-rules`: select all diagnostic rules.
+- `--lint-authority <authority>`: select one lint authority. Repeatable.
+- `--lint-authorities`: select all lint authorities.
+- `--linter <id>`: select one workspace Lua linter. Repeatable.
+- `--linters`: select all workspace Lua linters.
 
-## Variable Commands
+When no selector is provided, `lint`, `inspect`, and `show` operate at
+workspace level. `resolve` requires at least one variable or qualifier selector.
 
-- `rototo variable list [--workspace <workspace>]`
-- `rototo variable get <id> [--workspace <workspace>]`
-- `rototo variable lint <id> [--workspace <workspace>]`
-- `rototo variable resolve <id> --env <env> --context <context> [--workspace <workspace>]`
-- `rototo variable resolve-all --env <env> --context <context> [--workspace <workspace>]`
+## Resolution Context
 
 Resolution commands accept repeatable `--context` inputs. Each value can be a
 JSON object, `@path/to/context.json`, or `path=value`; later inputs override
-earlier ones. Qualifiers are resolved against that context. Variables resolve by
-environment, applying matching rules before the environment's fallback value.
+earlier ones. Qualifiers are resolved against that context. Variables also
+require `--env <environment>`.
 
 ## Examples
 
 ```sh
-rototo variable resolve llm-agent-config --workspace ./workspace --env prod \
+rototo resolve ./workspace --variable llm-agent-config --env prod \
   --context '{"user":{"tier":"premium"}}'
 
-rototo variable resolve-all --workspace ./workspace --env prod \
+rototo resolve ./workspace --variables --env prod \
   --context @context.json
 
-rototo qualifier resolve enterprise-accounts --workspace ./workspace \
+rototo resolve ./workspace --qualifier enterprise-accounts \
   --context account.plan=enterprise --context account.seats=250
 
-rototo workspace lint \
-  --workspace git+https://github.com/acme/config.git#main:rototo
+rototo lint git+https://github.com/acme/config.git#main:rototo
 
-ROTOTO_WORKSPACE_TOKEN=secret rototo workspace inspect \
-  --workspace https://example.com/rototo-workspace.tar.gz#:workspace
+ROTOTO_WORKSPACE_TOKEN=secret rototo inspect \
+  https://example.com/rototo-workspace.tar.gz#:workspace
 ```
 
 ## Documentation Commands
 
-- `rototo docs list`
-- `rototo docs show [page] [--format markdown|html]`
-- `rototo docs export --out <directory>`
-- `rototo docs serve [--addr <address>]`
+- `rototo docs`: list bundled documentation pages in sidebar order.
+- `rototo docs -p <page-prefix>`: render a bundled page.
+- `rototo docs -s <regex>`: search bundled pages with a regular expression.
 
-## Diagnostic Commands
+Internal documentation links rendered by the CLI are printed as
+`rototo docs -p <page-id>` references.
 
-- `rototo diagnostics list [--workspace <workspace>]`
-- `rototo diagnostics get <code> [--workspace <workspace>]`
+## Diagnostic Catalog
 
-Diagnostics are global by default. `--workspace` is optional and only scopes the
-catalog subject today.
+Diagnostics are shown through the lint-rule selectors:
 
-## Shell Completions
+- `rototo show --lint-rules`
+- `rototo show --lint-rule rototo/variable-unknown-type`
+- `rototo show ./config --lint-rule payments/max-token-budget`
 
+Without a workspace source, rototo lists built-in diagnostic rules. With a
+workspace source, the catalog also includes custom rules declared by that
+workspace.
+
+## Utility Commands
+
+- `rototo lsp`
 - `rototo completions bash`
 - `rototo completions elvish`
 - `rototo completions fish`
 - `rototo completions power-shell`
 - `rototo completions zsh`
+
+Use `rototo <command> --help` for command syntax. Use `rototo docs` for
+concepts, references, and search.
 
 ## Exit Policy
 

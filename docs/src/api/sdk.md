@@ -89,11 +89,13 @@ The linter validates this contract:
 Resolution validates each `ResolveContext` against the schema before evaluating
 qualifiers or variables. Use `resolve_*_with_options` and
 `ResolveOptions { validate_context: false }` only for tooling that deliberately
-needs to bypass the application contract.
+needs to bypass schema validation. This does not bypass predicate path checks:
+when a qualifier reads a context path, that path must be present for the
+resolution.
 
 ## External Variable Values
 
-Variable values can be declared inline under `[variable.values]` or in TOML
+Variable values can be declared inline under `[values]` or in TOML
 files next to the variable file. For `variables/banner.toml`, rototo also loads
 `variables/banner-values/*.toml`; each file stem is the value key.
 
@@ -111,8 +113,9 @@ queue = "priority-review"
 timeout_ms = 3000
 ```
 
-Custom Lua lint can validate each expanded value by defining
-`lint_value(value)`. The argument contains `name`, `value`, and `variable`.
+Custom Lua lint can register value handlers for expanded values through
+workspace-level `[[lint.rule]]` declarations and auto-discovered `lint/*.lua`
+files.
 
 ## Lower-Level APIs
 

@@ -1,0 +1,8 @@
+schema_version = 1
+
+description = "Qualifier in a two-node cycle"
+
+[[predicate]]
+attribute = "qualifier.cycle-a"
+op = "eq"
+value = true

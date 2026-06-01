@@ -48,7 +48,7 @@ The file stems define the value keys `standard` and `enterprise`.
 If the inline value is an object:
 
 ```toml
-[variable.values.enterprise]
+[values.enterprise]
 model = "gpt-5"
 gateway = "openai"
 prompt = "Summarize the incident for an enterprise support workflow."
@@ -80,17 +80,16 @@ The variable file should keep the contract and environment rules:
 ```toml
 schema_version = 1
 
-[variable]
 description = "LLM settings for the incident summary agent"
 schema = "../schemas/llm-config.schema.json"
 
-[variable.env._]
+[env._]
 value = "standard"
 
-[variable.env.prod]
+[env.prod]
 value = "standard"
 
-[[variable.env.prod.rule]]
+[[env.prod.rule]]
 description = "Enterprise accounts get the larger agent configuration"
 qualifier = "enterprise-accounts"
 value = "enterprise"
@@ -104,14 +103,13 @@ value keys because there would be two sources of truth.
 Lint the workspace:
 
 ```sh
-rototo workspace lint config/
+rototo lint config/
 ```
 
 Resolve a value that moved:
 
 ```sh
-rototo variable resolve llm-agent-config \
-  --workspace config/ \
+rototo resolve config/ --variable llm-agent-config \
   --env prod \
   --context '{"account":{"plan":"enterprise","seats":250}}' \
   --json

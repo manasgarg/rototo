@@ -1,27 +1,29 @@
 schema_version = 1
 
-[variable]
 description = "Shipping discount percentage at checkout"
 type = "int"
 
-[variable.values]
+[values]
 none = 0
 small = 5
 premium = 15
 high_value = 25
 
-[variable.env._]
+[env._]
 value = "none"
 
-[variable.env.prod]
+[env.stage]
+value = "small"
+
+[env.prod]
 value = "none"
 
-[[variable.env.prod.rule]]
+[[env.prod.rule]]
 description = "Premium users receive a shipping discount"
 qualifier = "premium-users"
 value = "premium"
 
-[[variable.env.prod.rule]]
+[[env.prod.rule]]
 description = "High-value carts receive the strongest shipping discount"
 qualifier = "high-value-cart"
 value = "high_value"

@@ -1,26 +1,25 @@
 schema_version = 1
 
-[variable]
 description = "Payment methods enabled at checkout"
 type = "list"
 
-[variable.values]
+[values]
 standard = ["card", "paypal"]
 mobile = ["card", "apple_pay", "google_pay"]
 enterprise = ["card", "invoice", "wire_transfer"]
 
-[variable.env._]
+[env._]
 value = "standard"
 
-[variable.env.prod]
+[env.prod]
 value = "standard"
 
-[[variable.env.prod.rule]]
+[[env.prod.rule]]
 description = "Mobile clients get wallet payment methods"
 qualifier = "mobile-users"
 value = "mobile"
 
-[[variable.env.prod.rule]]
+[[env.prod.rule]]
 description = "Enterprise accounts can pay by invoice or wire"
 qualifier = "enterprise-accounts"
 value = "enterprise"

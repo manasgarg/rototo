@@ -1,12 +1,11 @@
 schema_version = 1
 
-[variable]
 description = "Primitive variable with a mismatched value"
 type = "int"
 
-[variable.values]
+[values]
 ok = 10
 bad = "ten"
 
-[variable.env._]
+[env._]
 value = "ok"

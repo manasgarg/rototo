@@ -46,25 +46,24 @@ Create `variables/max-output-tokens.toml`:
 ```toml
 schema_version = 1
 
-[variable]
 description = "Maximum number of tokens the summarizer can emit"
 type = "int"
 
-[variable.values]
+[values]
 small = 500
 standard = 1000
 large = 2000
 
-[variable.env._]
+[env._]
 value = "standard"
 
-[variable.env.dev]
+[env.dev]
 value = "small"
 
-[variable.env.stage]
+[env.stage]
 value = "standard"
 
-[variable.env.prod]
+[env.prod]
 value = "large"
 ```
 
@@ -73,12 +72,11 @@ The `_` mapping is the explicit fallback. Named environment blocks override it.
 ## Verify the behavior
 
 ```sh
-rototo workspace lint config/
+rototo lint config/
 ```
 
 ```sh
-rototo variable resolve max-output-tokens \
-  --workspace config/ \
+rototo resolve config/ --variable max-output-tokens \
   --env prod \
   --context '{}'
 ```

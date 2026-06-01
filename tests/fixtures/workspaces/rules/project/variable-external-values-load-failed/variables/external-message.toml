@@ -1,0 +1,6 @@
+schema_version = 1
+schema = "../schemas/message.schema.json"
+values = "not a table"
+
+[env._]
+value = "default"

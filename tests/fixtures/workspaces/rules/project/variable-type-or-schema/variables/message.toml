@@ -1,0 +1,7 @@
+schema_version = 1
+
+[values]
+control = "control"
+
+[env._]
+value = "control"

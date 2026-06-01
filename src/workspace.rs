@@ -1,10 +1,12 @@
+use std::fmt;
 use std::path::{Path, PathBuf};
 
 use toml::Value;
 
 use crate::error::{Result, RototoError};
 use crate::model::{
-    QualifierConfig, QualifierInspection, VariableConfig, VariableInspection, WorkspaceInspection,
+    LinterInspection, QualifierConfig, QualifierInspection, SchemaInspection, VariableConfig,
+    VariableInspection, WorkspaceInspection,
 };
 
 const WORKSPACE_MANIFEST: &str = "rototo-workspace.toml";
@@ -16,14 +18,18 @@ pub async fn inspect_workspace(workspace_root: &Path) -> Result<WorkspaceInspect
         .map_err(|err| RototoError::new(format!("workspace not found: {err}")))?;
     let manifest = read_toml(&workspace_root.join(WORKSPACE_MANIFEST)).await?;
     let environments = workspace_environments(&manifest)?;
+    let schemas = discover_schemas(&workspace_root).await?;
     let qualifiers = discover_qualifiers(&workspace_root).await?;
     let variables = discover_variables(&workspace_root).await?;
+    let linters = discover_linters(&workspace_root).await?;
 
     Ok(WorkspaceInspection {
         root: workspace_root,
         environments,
+        schemas,
         qualifiers,
         variables,
+        linters,
     })
 }
 
@@ -42,7 +48,7 @@ pub async fn find_workspace_root(start: &Path) -> Result<PathBuf> {
 
         if !current.pop() {
             return Err(RototoError::new(
-                "workspace not found: pass --workspace or run inside a rototo workspace",
+                "workspace not found: pass a workspace source or run inside a rototo workspace",
             ));
         }
     }
@@ -60,10 +66,49 @@ pub async fn read_variable_toml(
     workspace_root: &Path,
     variable: &VariableInspection,
 ) -> Result<Value> {
+    read_variable_toml_detailed(workspace_root, variable)
+        .await
+        .map_err(|err| RototoError::new(err.to_string()))
+}
+
+pub(crate) async fn read_variable_toml_detailed(
+    workspace_root: &Path,
+    variable: &VariableInspection,
+) -> std::result::Result<Value, VariableTomlReadError> {
     let path = workspace_root.join(&variable.path);
-    let mut toml = read_toml(&path).await?;
+    let mut toml = read_toml_detailed(&path).await?;
     merge_external_variable_values(workspace_root, variable, &mut toml).await?;
     Ok(toml)
+}
+
+#[derive(Debug)]
+pub(crate) struct VariableTomlReadError {
+    message: String,
+}
+
+impl VariableTomlReadError {
+    fn new(message: impl Into<String>) -> Self {
+        Self {
+            message: message.into(),
+        }
+    }
+}
+
+impl fmt::Display for VariableTomlReadError {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.write_str(&self.message)
+    }
+}
+
+impl std::error::Error for VariableTomlReadError {}
+
+async fn read_toml_detailed(path: &Path) -> std::result::Result<Value, VariableTomlReadError> {
+    let text = tokio::fs::read_to_string(path).await.map_err(|err| {
+        VariableTomlReadError::new(format!("failed to read {}: {err}", path.display()))
+    })?;
+    text.parse::<Value>().map_err(|err| {
+        VariableTomlReadError::new(format!("failed to parse {}: {err}", path.display()))
+    })
 }
 
 pub fn qualifier_for_id<'a>(
@@ -229,7 +274,58 @@ async fn discover_variables(workspace_root: &Path) -> Result<Vec<VariableInspect
     Ok(variables)
 }
 
+async fn discover_schemas(workspace_root: &Path) -> Result<Vec<SchemaInspection>> {
+    let mut schemas = Vec::new();
+    for path in discover_named_files(workspace_root, "schemas", "json").await? {
+        let id = id_from_path(&path)?;
+        let relative_path = relative_path(workspace_root, &path)?;
+        schemas.push(SchemaInspection {
+            id,
+            path: relative_path,
+        });
+    }
+    schemas.sort_by(|left, right| left.path.cmp(&right.path));
+    Ok(schemas)
+}
+
+async fn discover_linters(workspace_root: &Path) -> Result<Vec<LinterInspection>> {
+    let mut linters = Vec::new();
+    let dir = workspace_root.join("lint");
+    let Ok(mut entries) = tokio::fs::read_dir(&dir).await else {
+        return Ok(linters);
+    };
+    while let Some(entry) = entries
+        .next_entry()
+        .await
+        .map_err(|err| RototoError::new(format!("failed to read {}: {err}", dir.display())))?
+    {
+        let path = entry.path();
+        if path.extension().and_then(|extension| extension.to_str()) == Some("lua")
+            && tokio::fs::metadata(&path)
+                .await
+                .is_ok_and(|metadata| metadata.is_file())
+        {
+            let id = id_from_path(&path)?;
+            let relative_path = relative_path(workspace_root, &path)?;
+            linters.push(LinterInspection {
+                id,
+                path: relative_path,
+            });
+        }
+    }
+    linters.sort_by(|left, right| left.id.cmp(&right.id));
+    Ok(linters)
+}
+
 async fn discover_named_toml_files(workspace_root: &Path, dir: &str) -> Result<Vec<PathBuf>> {
+    discover_named_files(workspace_root, dir, "toml").await
+}
+
+async fn discover_named_files(
+    workspace_root: &Path,
+    dir: &str,
+    extension: &str,
+) -> Result<Vec<PathBuf>> {
     let dir = workspace_root.join(dir);
     let mut paths = Vec::new();
     let Ok(mut entries) = tokio::fs::read_dir(&dir).await else {
@@ -241,7 +337,7 @@ async fn discover_named_toml_files(workspace_root: &Path, dir: &str) -> Result<V
         .map_err(|err| RototoError::new(format!("failed to read {}: {err}", dir.display())))?
     {
         let path = entry.path();
-        if path.extension().and_then(|extension| extension.to_str()) == Some("toml")
+        if path.extension().and_then(|value| value.to_str()) == Some(extension)
             && tokio::fs::metadata(&path)
                 .await
                 .is_ok_and(|metadata| metadata.is_file())
@@ -269,7 +365,7 @@ async fn merge_external_variable_values(
     workspace_root: &Path,
     variable: &VariableInspection,
     toml: &mut Value,
-) -> Result<()> {
+) -> std::result::Result<(), VariableTomlReadError> {
     let values_dir = external_values_dir(workspace_root, variable);
     if !tokio::fs::metadata(&values_dir)
         .await
@@ -280,7 +376,7 @@ async fn merge_external_variable_values(
 
     let mut external_values = toml::map::Map::new();
     let mut entries = tokio::fs::read_dir(&values_dir).await.map_err(|err| {
-        RototoError::new(format!(
+        VariableTomlReadError::new(format!(
             "failed to read variable values directory {}: {err}",
             values_dir.display()
         ))
@@ -288,7 +384,7 @@ async fn merge_external_variable_values(
     while let Some(entry) = entries
         .next_entry()
         .await
-        .map_err(|err| RototoError::new(err.to_string()))?
+        .map_err(|err| VariableTomlReadError::new(err.to_string()))?
     {
         let path = entry.path();
         if path.extension().and_then(|extension| extension.to_str()) != Some("toml")
@@ -298,10 +394,10 @@ async fn merge_external_variable_values(
         {
             continue;
         }
-        let id = id_from_path(&path)?;
+        let id = id_from_path(&path).map_err(|err| VariableTomlReadError::new(err.to_string()))?;
         let value = value_from_external_value_toml(&path).await?;
         if external_values.insert(id.clone(), value).is_some() {
-            return Err(RototoError::new(format!(
+            return Err(VariableTomlReadError::new(format!(
                 "duplicate external variable value: {id}"
             )));
         }
@@ -314,14 +410,11 @@ async fn merge_external_variable_values(
     let Some(root_table) = toml.as_table_mut() else {
         return Ok(());
     };
-    let Some(variable_table) = root_table.get_mut("variable").and_then(Value::as_table_mut) else {
-        return Ok(());
-    };
-    let values = variable_table
+    let values = root_table
         .entry("values".to_owned())
         .or_insert_with(|| Value::Table(toml::map::Map::new()));
     let Some(values) = values.as_table_mut() else {
-        return Err(RototoError::new(format!(
+        return Err(VariableTomlReadError::new(format!(
             "variable values must be a table: {}",
             variable.path.display()
         )));
@@ -329,7 +422,7 @@ async fn merge_external_variable_values(
 
     for (id, value) in external_values {
         if values.insert(id.clone(), value).is_some() {
-            return Err(RototoError::new(format!(
+            return Err(VariableTomlReadError::new(format!(
                 "variable value is declared more than once: {id}"
             )));
         }
@@ -345,8 +438,15 @@ fn external_values_dir(workspace_root: &Path, variable: &VariableInspection) -> 
         .join(format!("{}-values", variable.id))
 }
 
-async fn value_from_external_value_toml(path: &Path) -> Result<Value> {
-    let value = read_toml(path).await?;
+async fn value_from_external_value_toml(
+    path: &Path,
+) -> std::result::Result<Value, VariableTomlReadError> {
+    let text = tokio::fs::read_to_string(path).await.map_err(|err| {
+        VariableTomlReadError::new(format!("failed to read {}: {err}", path.display()))
+    })?;
+    let value = text.parse::<Value>().map_err(|err| {
+        VariableTomlReadError::new(format!("failed to parse {}: {err}", path.display()))
+    })?;
     let Some(table) = value.as_table() else {
         return Ok(value);
     };

@@ -209,8 +209,9 @@ string, the rule may no longer mean what the author intended.
 
 With a context schema, rototo can reject invalid context before evaluating
 qualifiers or variables. That turns a hidden mismatch into a validation failure
-with a diagnostic, instead of silently falling through to a default branch or
-selecting a value for the wrong reason.
+with a diagnostic. During qualifier evaluation, each predicate also requires the
+context path it reads, so missing request facts fail instead of selecting a value
+for the wrong reason.
 
 ## Qualifier
 
@@ -225,15 +226,14 @@ refer to that name instead of repeating the predicate everywhere.
 ```toml
 schema_version = 1
 
-[qualifier]
 description = "Accounts on the enterprise plan with at least 100 seats"
 
-[[qualifier.predicate]]
+[[predicate]]
 attribute = "account.plan"
 op = "eq"
 value = "enterprise"
 
-[[qualifier.predicate]]
+[[predicate]]
 attribute = "account.seats"
 op = "gte"
 value = 100
@@ -255,22 +255,21 @@ the returned value.
 ```toml
 schema_version = 1
 
-[variable]
 description = "Maximum number of tokens the summarizer can emit"
 type = "int"
 
-[variable.values]
+[values]
 small = 500
 standard = 1000
 large = 2000
 
-[variable.env._]
+[env._]
 value = "standard"
 
-[variable.env.dev]
+[env.dev]
 value = "small"
 
-[variable.env.prod]
+[env.prod]
 value = "large"
 ```
 
@@ -286,7 +285,7 @@ values are large enough to deserve their own files.
 Inline values keep small decisions close to the variable:
 
 ```toml
-[variable.values]
+[values]
 small = 500
 standard = 1000
 large = 2000
@@ -350,10 +349,10 @@ The environment block provides the default value for that environment. Rules can
 override that default when their qualifier matches the runtime context.
 
 ```toml
-[variable.env.prod]
+[env.prod]
 value = "standard"
 
-[[variable.env.prod.rule]]
+[[env.prod.rule]]
 description = "Enterprise accounts get the larger agent configuration"
 qualifier = "enterprise-accounts"
 value = "enterprise"
@@ -436,27 +435,32 @@ Built-in validation checks the rototo model: manifests, environments,
 qualifier references, value keys, schemas, and value types. Some teams also
 need workspace-specific policy that rototo cannot know in advance.
 
-Custom lint is declared on a variable. The variable points at a Lua file owned
-by the workspace:
+Custom lint is declared at the workspace level. The manifest owns rule
+metadata, and Lua files under `lint/*.lua` register handlers:
 
 ```toml
-[variable.lint]
-path = "../lint/llm-agent-config.lua"
+[[lint.rule]]
+id = "platform/max-output-token-budget"
+title = "LLM output token budget is too high"
+help = "Use 5000 or fewer output tokens."
 ```
 
-The Lua file can define hooks at two levels:
-
-- `lint(variable)` validates the expanded variable as a whole.
-- `lint_value(value)` validates each value after inline and external value files
-  have been loaded.
-
 ```lua
-function lint_value(value)
-  if value.value.max_output_tokens > 5000 then
+function register(lint)
+  lint:on({
+    stage = "value",
+    entity = "value",
+    field = "value.max_output_tokens",
+    rule = "platform/max-output-token-budget",
+    handler = "check_token_budget",
+  })
+end
+
+function check_token_budget(ctx)
+  if ctx.target.value.max_output_tokens > 5000 then
     return {
       {
-        message = "value " .. value.name .. " exceeds the token budget",
-        help = "Use 5000 or fewer output tokens."
+        message = "value " .. ctx.target.name .. " exceeds the token budget"
       }
     }
   end
@@ -470,9 +474,6 @@ constraints. It runs with workspace lint, so policy failures can block local
 pre-push checks, CI, and release promotion before an application loads the
 workspace.
 
-The current custom lint declaration is variable-scoped. Workspace-level and
-qualifier-level custom lint are not separate extension points today.
-
 ## Validation and Diagnostics
 
 rototo validates configuration at multiple points because different mistakes
@@ -484,7 +485,7 @@ schemas, external value files, and custom lint failures. Context validation
 checks the runtime input the application supplies. Value validation checks the
 selected output before the application consumes it.
 
-Diagnostics use stable codes so humans and agents can recognize failure classes
+Diagnostics use stable rule ids so humans and agents can recognize failure classes
 and link them to reference documentation. That makes validation usable in local
 development, CI, release automation, and application startup.
 

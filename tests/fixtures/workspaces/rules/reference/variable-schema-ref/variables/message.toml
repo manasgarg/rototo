@@ -1,0 +1,8 @@
+schema_version = 1
+schema = "../schemas/missing.schema.json"
+
+[values]
+control = "control"
+
+[env._]
+value = "control"

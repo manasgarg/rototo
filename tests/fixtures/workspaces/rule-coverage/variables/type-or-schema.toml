@@ -1,12 +1,11 @@
 schema_version = 1
 
-[variable]
 description = "Declares both type and schema"
 type = "string"
 schema = "../schemas/missing.schema.json"
 
-[variable.values]
+[values]
 default = "default"
 
-[variable.env._]
+[env._]
 value = "default"

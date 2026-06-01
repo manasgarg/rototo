@@ -2,7 +2,10 @@
   "user": {
     "id": "user-123",
     "tier": "premium",
-    "role": "admin"
+    "role": "admin",
+    "email_domain": "example.com",
+    "language": "en",
+    "session_count": 1
   },
   "account": {
     "plan": "enterprise",
@@ -10,6 +13,9 @@
   },
   "cart": {
     "total_usd": 300
+  },
+  "device": {
+    "platform": "web"
   },
   "request": {
     "country": "DE"

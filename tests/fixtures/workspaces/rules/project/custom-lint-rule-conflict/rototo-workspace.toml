@@ -1,0 +1,14 @@
+schema_version = 1
+
+[environments]
+values = ["prod"]
+
+[[lint.rule]]
+id = "payments/conflict"
+title = "First title"
+help = "First help."
+
+[[lint.rule]]
+id = "payments/conflict"
+title = "Second title"
+help = "Second help."

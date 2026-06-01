@@ -27,15 +27,14 @@ qualifiers/enterprise-accounts.toml
 ```toml
 schema_version = 1
 
-[qualifier]
 description = "Accounts on the enterprise plan with at least 100 seats"
 
-[[qualifier.predicate]]
+[[predicate]]
 attribute = "account.plan"
 op = "eq"
 value = "enterprise"
 
-[[qualifier.predicate]]
+[[predicate]]
 attribute = "account.seats"
 op = "gte"
 value = 100
@@ -49,7 +48,7 @@ named condition that can be reviewed and reused.
 Add the target value to the variable. For a primitive value:
 
 ```toml
-[variable.values]
+[values]
 standard = 1000
 enterprise = 2000
 ```
@@ -68,10 +67,10 @@ Add a rule under the environment where the condition should select the new
 value:
 
 ```toml
-[variable.env.prod]
+[env.prod]
 value = "standard"
 
-[[variable.env.prod.rule]]
+[[env.prod.rule]]
 description = "Enterprise accounts get the larger value"
 qualifier = "enterprise-accounts"
 value = "enterprise"
@@ -85,14 +84,13 @@ rototo selects `enterprise`. If it does not match, rototo selects `standard`.
 Lint the workspace:
 
 ```sh
-rototo workspace lint config/
+rototo lint config/
 ```
 
 Resolve with matching context:
 
 ```sh
-rototo variable resolve max-output-tokens \
-  --workspace config/ \
+rototo resolve config/ --variable max-output-tokens \
   --env prod \
   --context '{"account":{"plan":"enterprise","seats":250}}'
 ```
@@ -100,8 +98,7 @@ rototo variable resolve max-output-tokens \
 Resolve with non-matching context:
 
 ```sh
-rototo variable resolve max-output-tokens \
-  --workspace config/ \
+rototo resolve config/ --variable max-output-tokens \
   --env prod \
   --context '{"account":{"plan":"team","seats":25}}'
 ```
@@ -116,8 +113,9 @@ and reuse it from rules.
 Do not skip the non-matching test. Rollout mistakes often come from defaults,
 not only from the matching branch.
 
-Do not rely on missing context fields. Add or update a context schema so the
-application/config boundary is explicit.
+Do not rely on missing context fields. A qualifier requires every context path it
+reads, and a context schema makes the application/config boundary explicit before
+runtime.
 
 ## Related docs
 

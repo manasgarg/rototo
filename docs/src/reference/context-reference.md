@@ -34,7 +34,7 @@ earlier values.
 ### Inline JSON
 
 ```sh
-rototo variable resolve llm-agent-config \
+rototo resolve --variable llm-agent-config \
   --env prod \
   --context '{"account":{"plan":"enterprise","seats":250}}'
 ```
@@ -46,7 +46,7 @@ Inline JSON must be an object.
 Prefix a path with `@`:
 
 ```sh
-rototo variable resolve llm-agent-config \
+rototo resolve --variable llm-agent-config \
   --env prod \
   --context @context/prod-enterprise.json
 ```
@@ -58,7 +58,7 @@ The file must contain a JSON object.
 Use `path=value` for small overrides:
 
 ```sh
-rototo variable resolve llm-agent-config \
+rototo resolve --variable llm-agent-config \
   --env prod \
   --context account.plan=enterprise \
   --context account.seats=250
@@ -130,11 +130,12 @@ context paths.
 
 ## Missing Attributes
 
-If a predicate reads a context path that is missing, the predicate resolves to
-`false`.
+If a predicate reads a context path that is missing, resolution fails. The path
+is required by that predicate even when the context schema does not mark the
+field as required.
 
-Use a context schema when missing attributes should be rejected instead of
-falling through to a default branch.
+Use a context schema to validate the overall shape and types of runtime context.
+Predicate path checks then protect the specific fields that qualifiers read.
 
 ## SDK Context
 

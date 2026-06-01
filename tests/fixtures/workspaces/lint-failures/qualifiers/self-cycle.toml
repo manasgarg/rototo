@@ -1,0 +1,8 @@
+schema_version = 1
+
+description = "Qualifier that references itself"
+
+[[predicate]]
+attribute = "qualifier.self-cycle"
+op = "eq"
+value = true

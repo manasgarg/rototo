@@ -6,7 +6,7 @@ use std::time::{Duration, Instant};
 use rototo::{
     Environment, LintMode, LoadOptions, RefreshOptions, RefreshOutcome, RefreshingWorkspace,
     ResolveContext, ResolveOptions, SourceOptions, Workspace, catalog_for_workspace,
-    diagnostic_for_code, inspect_workspace, lint_qualifier, lint_workspace, list_variables,
+    diagnostic_for_rule, inspect_workspace, lint_qualifier, lint_workspace, list_variables,
     read_qualifiers, read_variable, read_variables, resolve_qualifier, resolve_variable,
     stage_workspace_source,
 };
@@ -69,14 +69,13 @@ values = ["prod"]
         format!(
             r#"schema_version = 1
 
-[variable]
 description = "Message"
 type = "string"
 
-[variable.values]
+[values]
 default = "{message}"
 
-[variable.env._]
+[env._]
 value = "default"
 "#,
         ),
@@ -134,6 +133,18 @@ async fn sdk_inspects_workspace() {
             .iter()
             .any(|variable| variable.uri == "variable://checkout-redesign")
     );
+    assert!(
+        inspection
+            .schemas
+            .iter()
+            .any(|schema| schema.path == std::path::Path::new("schemas/context.schema.json"))
+    );
+    assert!(
+        inspection
+            .linters
+            .iter()
+            .any(|linter| linter.id == "checkout-redesign")
+    );
 }
 
 #[tokio::test]
@@ -172,7 +183,7 @@ async fn sdk_reads_variable_config() {
 
     assert_eq!(variable.id, "checkout-redesign");
     assert_eq!(
-        variable.value["variable"]["description"],
+        variable.value["description"],
         "Checkout page content and layout variant"
     );
 }
@@ -183,12 +194,9 @@ async fn sdk_reads_directory_backed_variable_values() {
         .await
         .unwrap();
 
+    assert_eq!(variable.value["values"]["control"], "Welcome back.");
     assert_eq!(
-        variable.value["variable"]["values"]["control"],
-        "Welcome back."
-    );
-    assert_eq!(
-        variable.value["variable"]["values"]["premium"],
+        variable.value["values"]["premium"],
         "Welcome back, premium member."
     );
 }
@@ -200,12 +208,12 @@ async fn sdk_reads_all_basic_variable_configs_with_values() {
     assert!(variables.len() > 10);
     for variable in variables {
         assert!(
-            variable.value["variable"]["values"].is_object(),
+            variable.value["values"].is_object(),
             "variable://{} should expose expanded values",
             variable.id
         );
         assert!(
-            variable.value["variable"]["values"]
+            variable.value["values"]
                 .as_object()
                 .is_some_and(|values| !values.is_empty()),
             "variable://{} should expose at least one value",
@@ -215,7 +223,7 @@ async fn sdk_reads_all_basic_variable_configs_with_values() {
 }
 
 #[tokio::test]
-async fn external_value_files_use_value_wrapper() {
+async fn external_value_files_are_whole_toml_objects() {
     let variables_dir = std::path::Path::new("examples/basic/variables");
     for entry in std::fs::read_dir(variables_dir).unwrap() {
         let entry = entry.unwrap();
@@ -243,10 +251,14 @@ async fn external_value_files_use_value_wrapper() {
             let table = toml
                 .as_table()
                 .unwrap_or_else(|| panic!("{} should be a TOML table", value_path.display()));
-            assert_eq!(
-                table.keys().collect::<Vec<_>>(),
-                vec!["value"],
-                "{} should contain exactly one top-level value entry",
+            assert!(
+                !table.is_empty(),
+                "{} should contain an object value",
+                value_path.display()
+            );
+            assert!(
+                table.get("value").and_then(toml::Value::as_table).is_none(),
+                "{} should not use a wrapper table",
                 value_path.display()
             );
         }
@@ -292,12 +304,11 @@ async fn sdk_reads_diagnostic_catalog() {
     let catalog = catalog_for_workspace("examples/basic".as_ref())
         .await
         .unwrap();
-    let diagnostic =
-        diagnostic_for_code(&catalog, "rototo/workspace-toml-file-parse-failed").unwrap();
+    let diagnostic = diagnostic_for_rule(&catalog, "rototo/qualifier-parse-failed").unwrap();
 
     assert_eq!(
-        diagnostic.source,
-        rototo::diagnostics::DiagnosticSource::Kernel
+        diagnostic.entity,
+        Some(rototo::diagnostics::DiagnosticEntity::Qualifier)
     );
 }
 
@@ -723,12 +734,40 @@ async fn workspace_sdk_loads_linted_workspace() {
 }
 
 #[tokio::test]
+async fn workspace_sdk_resolves_from_loaded_runtime_snapshot() {
+    let temp = tempfile::TempDir::new().unwrap();
+    let root = temp.path().join("workspace");
+    write_minimal_workspace_with_message(&root, "loaded").await;
+
+    let workspace = Workspace::load(root.to_str().unwrap()).await.unwrap();
+    write_minimal_workspace_with_message(&root, "changed").await;
+
+    let env = Environment::new("prod");
+    let context = ResolveContext::from_json(serde_json::json!({})).unwrap();
+    let resolution = workspace
+        .resolve_variable("message", &env, &context)
+        .await
+        .unwrap();
+
+    assert_eq!(resolution.value, "loaded");
+}
+
+#[tokio::test]
 async fn workspace_sdk_rejects_workspace_when_lint_fails() {
     let err = Workspace::load("tests/fixtures/workspaces/lint-failures")
         .await
         .unwrap_err();
 
     assert!(err.to_string().contains("workspace lint failed"));
+}
+
+#[tokio::test]
+async fn workspace_sdk_loads_workspace_when_lint_only_warns() {
+    let workspace = Workspace::load("tests/fixtures/workspaces/rules/graph/qualifier-unreferenced")
+        .await
+        .unwrap();
+
+    assert_eq!(workspace.inspection().qualifiers[0].id, "unused");
 }
 
 #[tokio::test]
@@ -780,6 +819,27 @@ async fn workspace_sdk_validates_resolve_context_against_schema() {
 }
 
 #[tokio::test]
+async fn workspace_sdk_rejects_missing_predicate_context_even_when_schema_allows_it() {
+    let workspace = Workspace::load("examples/basic").await.unwrap();
+    let context = ResolveContext::from_json(serde_json::json!({
+        "user": {
+            "id": "user-123"
+        }
+    }))
+    .unwrap();
+
+    let err = workspace
+        .resolve_qualifier("premium-users", &context)
+        .await
+        .unwrap_err();
+
+    assert_eq!(
+        err.to_string(),
+        "missing resolve context attribute: user.tier required by qualifier://premium-users"
+    );
+}
+
+#[tokio::test]
 async fn workspace_sdk_rejects_unknown_environment_before_fallback() {
     let workspace = Workspace::load("examples/basic").await.unwrap();
     let env = Environment::new("prd");
@@ -799,15 +859,60 @@ async fn workspace_sdk_rejects_unknown_environment_before_fallback() {
 }
 
 #[tokio::test]
-async fn workspace_sdk_rejects_malformed_context_config_even_when_lint_is_skipped() {
-    let err = Workspace::load_with_options(
+async fn workspace_sdk_loads_malformed_context_config_when_lint_is_skipped_for_inspection() {
+    let workspace = Workspace::load_with_options(
         "tests/fixtures/workspaces/bad-context-config",
         LoadOptions::new().with_lint(LintMode::Skip),
     )
     .await
-    .unwrap_err();
+    .unwrap();
 
-    assert_eq!(err.to_string(), "[context] must be a table");
+    assert_eq!(workspace.inspection().environments, ["prod"]);
+
+    let context = ResolveContext::from_json(serde_json::json!({})).unwrap();
+    let err = workspace
+        .resolve_qualifier("anything", &context)
+        .await
+        .unwrap_err();
+    assert!(err.to_string().contains("loaded without a runtime model"));
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn workspace_sdk_rejects_context_schema_symlink_escape() {
+    let temp = tempfile::TempDir::new().unwrap();
+    let root = temp.path().join("workspace");
+    tokio::fs::create_dir_all(root.join("schemas"))
+        .await
+        .unwrap();
+    tokio::fs::write(
+        root.join("rototo-workspace.toml"),
+        r#"schema_version = 1
+
+[environments]
+values = ["prod"]
+
+[context]
+schema = "schemas/context.schema.json"
+"#,
+    )
+    .await
+    .unwrap();
+    tokio::fs::write(
+        temp.path().join("outside.schema.json"),
+        r#"{"type":"object"}"#,
+    )
+    .await
+    .unwrap();
+    std::os::unix::fs::symlink(
+        temp.path().join("outside.schema.json"),
+        root.join("schemas/context.schema.json"),
+    )
+    .unwrap();
+
+    let err = Workspace::load(root.to_str().unwrap()).await.unwrap_err();
+
+    assert!(err.to_string().contains("workspace lint failed"));
 }
 
 #[tokio::test]
@@ -833,7 +938,10 @@ async fn workspace_sdk_can_load_with_lint_skipped_for_inspection_tools() {
 async fn workspace_sdk_can_bypass_context_validation_explicitly() {
     let workspace = Workspace::load("examples/basic").await.unwrap();
     let context = ResolveContext::from_json(serde_json::json!({
-        "unknown": true
+        "unknown": true,
+        "user": {
+            "tier": "free"
+        }
     }))
     .unwrap();
 

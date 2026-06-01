@@ -1,0 +1,13 @@
+schema_version = 1
+type = "string"
+
+[values]
+control = "control"
+premium = "premium"
+
+[env._]
+value = "control"
+
+[[env._.rule]]
+qualifier = "premium-users"
+value = "premium"

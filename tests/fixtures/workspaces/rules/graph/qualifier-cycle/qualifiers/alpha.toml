@@ -1,0 +1,6 @@
+schema_version = 1
+
+[[predicate]]
+attribute = "qualifier.beta"
+op = "eq"
+value = true

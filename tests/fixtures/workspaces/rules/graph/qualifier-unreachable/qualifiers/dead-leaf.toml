@@ -1,0 +1,6 @@
+schema_version = 1
+
+[[predicate]]
+attribute = "feature.enabled"
+op = "eq"
+value = true

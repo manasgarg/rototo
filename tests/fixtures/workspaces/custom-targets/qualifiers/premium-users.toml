@@ -1,0 +1,7 @@
+schema_version = 1
+description = "Premium account condition"
+
+[[predicate]]
+attribute = "account.tier"
+op = "eq"
+value = "premium"

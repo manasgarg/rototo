@@ -1,26 +1,27 @@
-use std::path::{Component, Path, PathBuf};
+use std::path::Path;
 use std::sync::Arc;
 use std::time::{Duration, SystemTime};
 
-use jsonschema::Validator;
 use serde_json::Value as JsonValue;
 use tokio::sync::{Mutex, RwLock, watch};
 use tokio::task::JoinHandle;
 
 use crate::error::{Result, RototoError};
+use crate::lint::{
+    LintInput, RuntimeWorkspace, compile_runtime_workspace_from_snapshot, lint_workspace_snapshot,
+};
 use crate::model::{QualifierResolution, VariableResolution, WorkspaceInspection, WorkspaceLint};
 use crate::source::{
     SourceAuth, SourceFingerprint, SourceOptions, SourceProbe, StagedWorkspace,
     load_workspace_source, load_workspace_source_snapshot, probe_workspace_source,
 };
-use crate::workspace::{inspect_workspace, read_toml};
+use crate::workspace::inspect_workspace;
 
 #[derive(Debug)]
 pub struct Workspace {
     staged: StagedWorkspace,
     inspection: WorkspaceInspection,
-    context_schema: Option<JsonValue>,
-    context_validator: Option<Validator>,
+    runtime: Option<RuntimeWorkspace>,
     source_fingerprint: Option<SourceFingerprint>,
     immutable_source: bool,
 }
@@ -31,15 +32,9 @@ impl Workspace {
     }
 
     pub async fn load_with_options(source: impl AsRef<str>, options: LoadOptions) -> Result<Self> {
-        let workspace = Self::stage_and_inspect(source, options.source()).await?;
+        let mut workspace = Self::stage_and_inspect(source, options.source()).await?;
         if options.lint() == LintMode::Deny {
-            let lint = crate::lint_workspace(workspace.root()).await?;
-            if !lint.diagnostics.is_empty() {
-                return Err(RototoError::new(format!(
-                    "workspace lint failed with {} diagnostic(s)",
-                    lint.diagnostics.len()
-                )));
-            }
+            workspace.compile_runtime_after_lint().await?;
         }
         Ok(workspace)
     }
@@ -48,15 +43,9 @@ impl Workspace {
         source: impl AsRef<str>,
         options: LoadOptions,
     ) -> Result<Self> {
-        let workspace = Self::stage_snapshot_and_inspect(source, options.source()).await?;
+        let mut workspace = Self::stage_snapshot_and_inspect(source, options.source()).await?;
         if options.lint() == LintMode::Deny {
-            let lint = crate::lint_workspace(workspace.root()).await?;
-            if !lint.diagnostics.is_empty() {
-                return Err(RototoError::new(format!(
-                    "workspace lint failed with {} diagnostic(s)",
-                    lint.diagnostics.len()
-                )));
-            }
+            workspace.compile_runtime_after_lint().await?;
         }
         Ok(workspace)
     }
@@ -92,21 +81,26 @@ impl Workspace {
         let root = staged.path().to_path_buf();
 
         let inspection = inspect_workspace(&root).await?;
-        let context_schema = read_context_schema(&root).await?;
-        let context_validator = context_schema
-            .as_ref()
-            .map(jsonschema::validator_for)
-            .transpose()
-            .map_err(|err| RototoError::new(format!("context schema is invalid: {err}")))?;
 
         Ok(Self {
             staged,
             inspection,
-            context_schema,
-            context_validator,
+            runtime: None,
             source_fingerprint,
             immutable_source,
         })
+    }
+
+    async fn compile_runtime_after_lint(&mut self) -> Result<()> {
+        let snapshot = lint_workspace_snapshot(LintInput::new(self.root().to_path_buf())).await?;
+        if snapshot.lint.has_errors() {
+            return Err(RototoError::new(format!(
+                "workspace lint failed with {} diagnostic(s)",
+                snapshot.lint.diagnostics.len()
+            )));
+        }
+        self.runtime = Some(compile_runtime_workspace_from_snapshot(&snapshot)?);
+        Ok(())
     }
 
     pub fn root(&self) -> &Path {
@@ -118,7 +112,9 @@ impl Workspace {
     }
 
     pub fn context_schema(&self) -> Option<&JsonValue> {
-        self.context_schema.as_ref()
+        self.runtime
+            .as_ref()
+            .and_then(|runtime| runtime.context_schema.as_ref())
     }
 
     pub fn source_fingerprint(&self) -> Option<&SourceFingerprint> {
@@ -134,12 +130,7 @@ impl Workspace {
     }
 
     pub async fn validate_context(&self, context: &ResolveContext) -> Result<()> {
-        let Some(validator) = &self.context_validator else {
-            return Ok(());
-        };
-        validator.validate(context.value()).map_err(|err| {
-            RototoError::new(format!("resolve context does not match schema: {err}"))
-        })
+        self.runtime()?.validate_context(context.value())
     }
 
     pub async fn resolve_qualifier(
@@ -160,7 +151,7 @@ impl Workspace {
         if options.validate_context {
             self.validate_context(context).await?;
         }
-        crate::resolve::resolve_qualifier_unchecked(&self.inspection, id.as_ref(), context.value())
+        crate::resolve::resolve_qualifier_unchecked(self.runtime()?, id.as_ref(), context.value())
             .await
     }
 
@@ -181,27 +172,25 @@ impl Workspace {
         context: &ResolveContext,
         options: ResolveOptions,
     ) -> Result<VariableResolution> {
-        if !self
-            .inspection
-            .environments
-            .iter()
-            .any(|known| known == environment.name())
-        {
-            return Err(RototoError::new(format!(
-                "unknown environment: {}",
-                environment.name()
-            )));
-        }
+        self.runtime()?.validate_environment(environment.name())?;
         if options.validate_context {
             self.validate_context(context).await?;
         }
         crate::resolve::resolve_variable_unchecked(
-            &self.inspection,
+            self.runtime()?,
             id.as_ref(),
             environment.name(),
             context.value(),
         )
         .await
+    }
+
+    fn runtime(&self) -> Result<&RuntimeWorkspace> {
+        self.runtime.as_ref().ok_or_else(|| {
+            RototoError::new(
+                "workspace was loaded without a runtime model; use Workspace::load with lint enabled",
+            )
+        })
     }
 }
 
@@ -674,47 +663,4 @@ impl ResolveContext {
     pub fn value(&self) -> &JsonValue {
         &self.value
     }
-}
-
-async fn read_context_schema(root: &Path) -> Result<Option<JsonValue>> {
-    let manifest = read_toml(&root.join("rototo-workspace.toml")).await?;
-    let Some(context) = manifest.get("context") else {
-        return Ok(None);
-    };
-    let context = context
-        .as_table()
-        .ok_or_else(|| RototoError::new("[context] must be a table"))?;
-    let schema_ref = context
-        .get("schema")
-        .and_then(toml::Value::as_str)
-        .ok_or_else(|| RototoError::new("[context] must declare schema"))?;
-    let path = context_schema_path(root, schema_ref)?;
-    let text = tokio::fs::read_to_string(&path).await.map_err(|err| {
-        RototoError::new(format!(
-            "failed to read context schema {}: {err}",
-            path.display()
-        ))
-    })?;
-    let schema = serde_json::from_str(&text).map_err(|err| {
-        RototoError::new(format!(
-            "failed to parse context schema {}: {err}",
-            path.display()
-        ))
-    })?;
-    Ok(Some(schema))
-}
-
-fn context_schema_path(root: &Path, schema_ref: &str) -> Result<PathBuf> {
-    let schema_ref = Path::new(schema_ref);
-    if schema_ref.as_os_str().is_empty()
-        || schema_ref.is_absolute()
-        || schema_ref
-            .components()
-            .any(|component| matches!(component, Component::ParentDir))
-    {
-        return Err(RototoError::new(
-            "context schema path must be a relative path inside the workspace",
-        ));
-    }
-    Ok(root.join(schema_ref))
 }

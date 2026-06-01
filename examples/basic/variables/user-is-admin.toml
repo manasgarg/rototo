@@ -1,12 +1,19 @@
 schema_version = 1
 
-[variable]
 description = "Whether the user should receive admin UI affordances"
 type = "bool"
 
-[variable.values]
+[values]
 off = false
 on = true
 
-[variable.env._]
+[env._]
 value = "off"
+
+[env.prod]
+value = "off"
+
+[[env.prod.rule]]
+description = "Administrator users resolve to true"
+qualifier = "admin-users"
+value = "on"

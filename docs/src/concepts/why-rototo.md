@@ -258,10 +258,10 @@ that can be checked before release.
 Validation starts at the workspace boundary. The CLI can lint the manifest,
 check variable types, validate schemas, reject unknown environments, and catch
 rules that point at missing values. A context schema can reject malformed
-runtime context before rules are evaluated, preventing silent fallthrough to a
-default branch. Custom lint can enforce local policy, such as allowed model
-families or token budgets. That moves many configuration failures from
-production runtime to review or CI.
+runtime context before rules are evaluated, and predicate evaluation fails when
+a qualifier reads a missing context field. Custom lint can enforce local policy,
+such as allowed model families or token budgets. That moves many configuration
+failures from production runtime to review or CI.
 
 Because the workspace is source-controlled, configuration changes also get a
 review history. A change to a variable, qualifier, schema, or environment mapping

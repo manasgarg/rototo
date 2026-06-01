@@ -22,15 +22,14 @@ qualifiers/enterprise-accounts.toml -> enterprise-accounts
 ```toml
 schema_version = 1
 
-[qualifier]
 description = "Accounts on the enterprise plan with at least 100 seats"
 
-[[qualifier.predicate]]
+[[predicate]]
 attribute = "account.plan"
 op = "eq"
 value = "enterprise"
 
-[[qualifier.predicate]]
+[[predicate]]
 attribute = "account.seats"
 op = "gte"
 value = 100
@@ -49,26 +48,21 @@ schema_version = 1
 
 Unsupported or missing schema versions fail lint.
 
-## `[qualifier]`
-
-Required. Contains qualifier metadata and predicates.
-
-### `description`
+## `description`
 
 Optional but recommended. Use it to explain the named condition in application
 or product language.
 
 ```toml
-[qualifier]
 description = "Premium users in Germany"
 ```
 
-### `[[qualifier.predicate]]`
+## `[[predicate]]`
 
 Required. A qualifier must have at least one predicate.
 
 ```toml
-[[qualifier.predicate]]
+[[predicate]]
 attribute = "account.plan"
 op = "eq"
 value = "enterprise"
@@ -90,7 +84,7 @@ See `predicate-reference` for operator semantics.
 A predicate can reference another qualifier:
 
 ```toml
-[[qualifier.predicate]]
+[[predicate]]
 attribute = "qualifier.enterprise-accounts"
 op = "eq"
 value = true
@@ -101,7 +95,9 @@ Referenced qualifiers must exist. Cycles fail at resolution time.
 ## Missing Context
 
 If a predicate reads a context path that is missing from the runtime context,
-the predicate resolves to `false`.
+resolution fails. A predicate makes the path it reads required for that
+evaluation, regardless of whether the workspace context schema marks the field
+as required.
 
 If the workspace has a context schema, lint also checks that qualifier context
 attributes are declared by that schema. Attributes beginning with `qualifier.`
@@ -112,20 +108,19 @@ are qualifier references and are not checked against the context schema.
 ```toml
 schema_version = 1
 
-[qualifier]
 description = "Enterprise accounts in Germany"
 
-[[qualifier.predicate]]
+[[predicate]]
 attribute = "account.plan"
 op = "eq"
 value = "enterprise"
 
-[[qualifier.predicate]]
+[[predicate]]
 attribute = "account.seats"
 op = "gte"
 value = 100
 
-[[qualifier.predicate]]
+[[predicate]]
 attribute = "request.country"
 op = "eq"
 value = "DE"
@@ -136,8 +131,7 @@ value = "DE"
 Qualifier lint checks:
 
 - `schema_version = 1` exists.
-- `[qualifier]` exists.
-- At least one `[[qualifier.predicate]]` exists.
+- At least one `[[predicate]]` exists.
 - Each predicate is a table.
 - Each predicate has `attribute` and `op`.
 - Operators are known.

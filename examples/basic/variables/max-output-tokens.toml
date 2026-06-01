@@ -1,24 +1,26 @@
 schema_version = 1
 
-[variable]
 description = "Maximum response token budget for interactive completions"
 type = "int"
 
-[variable.values]
+[values]
 small = 1200
 standard = 2400
 large = 5000
 
-[variable.env._]
+[env._]
 value = "standard"
 
-[variable.env.dev]
+[env.dev]
 value = "large"
 
-[variable.env.prod]
+[env.stage]
+value = "small"
+
+[env.prod]
 value = "standard"
 
-[[variable.env.prod.rule]]
+[[env.prod.rule]]
 description = "Enterprise accounts get a larger token budget"
 qualifier = "enterprise-accounts"
 value = "large"

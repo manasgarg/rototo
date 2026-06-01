@@ -1,0 +1,22 @@
+{
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "account": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "profile": { "type": "object" },
+        "seats": { "type": "integer" }
+      }
+    },
+    "user": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "active": { "type": "boolean" },
+        "tier": { "type": "string" }
+      }
+    }
+  }
+}

@@ -53,10 +53,9 @@ Create `qualifiers/search-v2-10-percent.toml`:
 ```toml
 schema_version = 1
 
-[qualifier]
 description = "Stable 10 percent search backend rollout"
 
-[[qualifier.predicate]]
+[[predicate]]
 attribute = "account.id"
 op = "bucket"
 salt = "search-v2-v1"
@@ -82,21 +81,20 @@ Create `variables/search-backend.toml`:
 ```toml
 schema_version = 1
 
-[variable]
 description = "Search backend"
 type = "string"
 
-[variable.values]
+[values]
 current = "search-v1"
 next = "search-v2"
 
-[variable.env._]
+[env._]
 value = "current"
 
-[variable.env.prod]
+[env.prod]
 value = "current"
 
-[[variable.env.prod.rule]]
+[[env.prod.rule]]
 description = "Stable account bucket uses the new search backend"
 qualifier = "search-v2-10-percent"
 value = "next"
@@ -105,8 +103,7 @@ value = "next"
 ## Verify the behavior
 
 ```sh
-rototo variable resolve search-backend \
-  --workspace config/ \
+rototo resolve config/ --variable search-backend \
   --env prod \
   --context '{"account":{"id":"acct_123"}}'
 ```

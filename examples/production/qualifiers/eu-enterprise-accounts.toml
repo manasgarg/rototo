@@ -1,0 +1,13 @@
+schema_version = 1
+
+description = "Enterprise accounts operating in the European region"
+
+[[predicate]]
+attribute = "qualifier.enterprise-accounts"
+op = "eq"
+value = true
+
+[[predicate]]
+attribute = "request.region"
+op = "eq"
+value = "eu"

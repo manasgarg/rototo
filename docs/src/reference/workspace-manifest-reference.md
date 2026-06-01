@@ -46,8 +46,8 @@ Rules:
 - `_` is reserved for the variable fallback environment and must not appear in
   this list.
 
-Variables may define blocks such as `[variable.env.prod]` only for environments
-declared here. A variable must also define `[variable.env._]`, but `_` is not a
+Variables may define blocks such as `[env.prod]` only for environments
+declared here. A variable must also define `[env._]`, but `_` is not a
 workspace environment.
 
 ## `[context]`
@@ -72,8 +72,8 @@ When a context schema is present:
 - qualifier predicate attributes must be declared by the schema unless the
   attribute starts with `qualifier.`.
 
-Context schema validation prevents malformed runtime context from silently
-falling through to a default value or selecting a value for the wrong reason.
+Context schema validation prevents malformed runtime context from reaching
+qualifier and variable rule evaluation.
 
 ## Discovery
 

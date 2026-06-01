@@ -1,0 +1,12 @@
+schema_version = 1
+type = "string"
+
+[values]
+control = "control"
+
+[env._]
+value = "missing"
+
+[[env._.rule]]
+qualifier = "always"
+value = "control"

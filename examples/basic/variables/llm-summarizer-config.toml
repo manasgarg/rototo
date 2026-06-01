@@ -1,33 +1,32 @@
 schema_version = 1
 
-[variable]
 description = "LLM settings for background summarization"
 schema = "../schemas/llm-config.schema.json"
 
-[variable.values.fast]
+[values.fast]
 model = "gpt-5-nano"
 gateway = "openai"
 prompt = "Summarize operational context in compact bullet points."
 max_output_tokens = 700
 temperature = 0.1
 
-[variable.values.rich]
+[values.rich]
 model = "gpt-5-mini"
 gateway = "openai"
 prompt = "Summarize operational context with key tradeoffs preserved."
 max_output_tokens = 1600
 temperature = 0.2
 
-[variable.env._]
+[env._]
 value = "fast"
 
-[variable.env.stage]
+[env.stage]
 value = "rich"
 
-[variable.env.prod]
+[env.prod]
 value = "fast"
 
-[[variable.env.prod.rule]]
+[[env.prod.rule]]
 description = "Internal staff can exercise the richer summarizer"
 qualifier = "internal-staff"
 value = "rich"

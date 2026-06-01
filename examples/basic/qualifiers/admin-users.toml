@@ -1,9 +1,8 @@
 schema_version = 1
 
-[qualifier]
 description = "Users with an administrator role"
 
-[[qualifier.predicate]]
+[[predicate]]
 attribute = "user.role"
 op = "eq"
 value = "admin"

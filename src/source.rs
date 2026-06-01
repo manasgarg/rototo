@@ -1,5 +1,3 @@
-use std::collections::hash_map::DefaultHasher;
-use std::hash::{Hash, Hasher};
 use std::path::{Component, Path, PathBuf};
 use std::time::Duration;
 
@@ -11,6 +9,8 @@ use crate::error::{Result, RototoError};
 
 const WORKSPACE_MANIFEST: &str = "rototo-workspace.toml";
 const DEFAULT_MAX_ARCHIVE_BYTES: u64 = 50 * 1024 * 1024;
+const DEFAULT_MAX_DECOMPRESSED_ARCHIVE_BYTES: u64 = 200 * 1024 * 1024;
+const DEFAULT_MAX_ARCHIVE_ENTRIES: u64 = 10_000;
 const ERROR_BODY_PREVIEW_BYTES: u64 = 4096;
 
 #[derive(Clone, Debug)]
@@ -19,6 +19,8 @@ pub struct SourceOptions {
     git_timeout: Duration,
     http_timeout: Duration,
     max_archive_bytes: u64,
+    max_decompressed_archive_bytes: u64,
+    max_archive_entries: u64,
 }
 
 impl SourceOptions {
@@ -42,6 +44,14 @@ impl SourceOptions {
         self.max_archive_bytes
     }
 
+    pub fn max_decompressed_archive_bytes(&self) -> u64 {
+        self.max_decompressed_archive_bytes
+    }
+
+    pub fn max_archive_entries(&self) -> u64 {
+        self.max_archive_entries
+    }
+
     pub fn with_auth(mut self, auth: SourceAuth) -> Self {
         self.auth = auth;
         self
@@ -61,6 +71,16 @@ impl SourceOptions {
         self.max_archive_bytes = bytes;
         self
     }
+
+    pub fn with_max_decompressed_archive_bytes(mut self, bytes: u64) -> Self {
+        self.max_decompressed_archive_bytes = bytes;
+        self
+    }
+
+    pub fn with_max_archive_entries(mut self, entries: u64) -> Self {
+        self.max_archive_entries = entries;
+        self
+    }
 }
 
 impl Default for SourceOptions {
@@ -70,6 +90,8 @@ impl Default for SourceOptions {
             git_timeout: Duration::from_secs(60),
             http_timeout: Duration::from_secs(30),
             max_archive_bytes: DEFAULT_MAX_ARCHIVE_BYTES,
+            max_decompressed_archive_bytes: DEFAULT_MAX_DECOMPRESSED_ARCHIVE_BYTES,
+            max_archive_entries: DEFAULT_MAX_ARCHIVE_ENTRIES,
         }
     }
 }
@@ -280,6 +302,9 @@ async fn stage_git_repo(
             "git workspace source scheme is not supported: git+{inner_scheme}"
         )));
     }
+    if let Some(ref_) = uri.ref_.as_deref() {
+        validate_git_ref(ref_)?;
+    }
     let clone_url = format!("{inner_scheme}://{}", uri.base);
     let tempdir = TempDir::new()
         .map_err(|err| RototoError::new(format!("failed to create tempdir: {err}")))?;
@@ -298,6 +323,7 @@ async fn stage_git_repo(
         command.arg("--branch").arg(ref_);
     }
     command.arg(&clone_url).arg(&clone_dir);
+    scrub_git_environment(&mut command);
 
     let output = tokio::time::timeout(options.git_timeout(), command.output())
         .await
@@ -349,6 +375,7 @@ async fn stage_https_archive(
     let url = format!("{}://{}", uri.scheme, uri.base);
     let client = reqwest::Client::builder()
         .timeout(options.http_timeout())
+        .redirect(https_only_redirect_policy())
         .build()
         .map_err(|err| RototoError::new(format!("failed to build HTTP client: {err}")))?;
     let mut request = client.get(&url);
@@ -395,9 +422,18 @@ async fn stage_https_archive(
         .map_err(|err| RototoError::new(format!("failed to create extraction directory: {err}")))?;
 
     let extract_dir_for_task = extract_dir.clone();
-    tokio::task::spawn_blocking(move || extract_archive(&archive_path, &extract_dir_for_task))
-        .await
-        .map_err(|err| RototoError::new(format!("archive extraction task failed: {err}")))??;
+    let max_decompressed_bytes = options.max_decompressed_archive_bytes();
+    let max_entries = options.max_archive_entries();
+    tokio::task::spawn_blocking(move || {
+        extract_archive(
+            &archive_path,
+            &extract_dir_for_task,
+            max_decompressed_bytes,
+            max_entries,
+        )
+    })
+    .await
+    .map_err(|err| RototoError::new(format!("archive extraction task failed: {err}")))??;
 
     let root = match uri.subdir.as_deref() {
         Some(subdir) => select_subdir(&extract_dir, Some(subdir), original).await?,
@@ -446,6 +482,7 @@ async fn probe_https_archive(
     let url = format!("{}://{}", uri.scheme, uri.base);
     let client = reqwest::Client::builder()
         .timeout(options.http_timeout())
+        .redirect(https_only_redirect_policy())
         .build()
         .map_err(|err| RototoError::new(format!("failed to build HTTP client: {err}")))?;
     let mut request = client.head(&url);
@@ -475,16 +512,8 @@ async fn probe_https_archive(
 async fn git_rev_parse_head(repo: &Path, options: &SourceOptions) -> Result<String> {
     let mut command = Command::new("git");
     command.kill_on_drop(true);
-    command
-        .current_dir(repo)
-        .arg("rev-parse")
-        .arg("HEAD")
-        .env_remove("GIT_INDEX_FILE")
-        .env_remove("GIT_DIR")
-        .env_remove("GIT_WORK_TREE")
-        .env_remove("GIT_PREFIX")
-        .env_remove("GIT_OBJECT_DIRECTORY")
-        .env_remove("GIT_ALTERNATE_OBJECT_DIRECTORIES");
+    command.current_dir(repo).arg("rev-parse").arg("HEAD");
+    scrub_git_environment(&mut command);
     let output = tokio::time::timeout(options.git_timeout(), command.output())
         .await
         .map_err(|_| RototoError::new("git rev-parse timed out for workspace source"))?
@@ -500,19 +529,15 @@ async fn git_rev_parse_head(repo: &Path, options: &SourceOptions) -> Result<Stri
 }
 
 async fn git_checkout(repo: &Path, ref_: &str, options: &SourceOptions) -> Result<()> {
+    validate_git_ref(ref_)?;
     let mut command = Command::new("git");
     command.kill_on_drop(true);
     command
         .current_dir(repo)
         .arg("checkout")
         .arg("--quiet")
-        .arg(ref_)
-        .env_remove("GIT_INDEX_FILE")
-        .env_remove("GIT_DIR")
-        .env_remove("GIT_WORK_TREE")
-        .env_remove("GIT_PREFIX")
-        .env_remove("GIT_OBJECT_DIRECTORY")
-        .env_remove("GIT_ALTERNATE_OBJECT_DIRECTORIES");
+        .arg(ref_);
+    scrub_git_environment(&mut command);
     let output = tokio::time::timeout(options.git_timeout(), command.output())
         .await
         .map_err(|_| RototoError::new("git checkout timed out for workspace source"))?
@@ -537,9 +562,11 @@ async fn git_ls_remote(uri: &SourceUri, original: &str, options: &SourceOptions)
         .ref_
         .as_deref()
         .ok_or_else(|| RototoError::new("git workspace source has no ref"))?;
+    validate_git_ref(ref_)?;
     let mut command = Command::new("git");
     command.kill_on_drop(true);
-    command.arg("ls-remote").arg(&clone_url).arg(ref_);
+    command.arg("ls-remote").arg(&clone_url).arg("--").arg(ref_);
+    scrub_git_environment(&mut command);
     let output = tokio::time::timeout(options.git_timeout(), command.output())
         .await
         .map_err(|_| {
@@ -567,6 +594,45 @@ async fn git_ls_remote(uri: &SourceUri, original: &str, options: &SourceOptions)
         .find_map(|line| line.split_whitespace().next())
         .map(str::to_owned)
         .ok_or_else(|| RototoError::new(format!("git ref `{ref_}` was not found in `{original}`")))
+}
+
+fn validate_git_ref(ref_: &str) -> Result<()> {
+    if ref_.starts_with('-') {
+        return Err(RototoError::new(format!(
+            "git workspace ref must not begin with '-': {ref_}"
+        )));
+    }
+    Ok(())
+}
+
+fn scrub_git_environment(command: &mut Command) {
+    for (key, _) in std::env::vars_os() {
+        if key.to_string_lossy().starts_with("GIT_") {
+            command.env_remove(key);
+        }
+    }
+    for key in [
+        "GIT_INDEX_FILE",
+        "GIT_DIR",
+        "GIT_WORK_TREE",
+        "GIT_PREFIX",
+        "GIT_OBJECT_DIRECTORY",
+        "GIT_ALTERNATE_OBJECT_DIRECTORIES",
+    ] {
+        command.env_remove(key);
+    }
+}
+
+fn https_only_redirect_policy() -> reqwest::redirect::Policy {
+    reqwest::redirect::Policy::custom(|attempt| {
+        if attempt.previous().len() > 10 {
+            return attempt.error("too many redirects");
+        }
+        if attempt.url().scheme() != "https" {
+            return attempt.error("workspace archive redirects must stay on https");
+        }
+        attempt.follow()
+    })
 }
 
 fn response_fingerprint(response: &reqwest::Response) -> Option<SourceFingerprint> {
@@ -599,12 +665,20 @@ async fn content_hash_fingerprint(path: &Path) -> Result<SourceFingerprint> {
             path.display()
         ))
     })?;
-    let mut hasher = DefaultHasher::new();
-    bytes.hash(&mut hasher);
+    let digest = ring::digest::digest(&ring::digest::SHA256, &bytes);
     Ok(SourceFingerprint::ContentHash(format!(
-        "{:016x}",
-        hasher.finish()
+        "sha256:{}",
+        hex_digest(digest.as_ref())
     )))
+}
+
+fn hex_digest(bytes: &[u8]) -> String {
+    let mut encoded = String::with_capacity(bytes.len() * 2);
+    for byte in bytes {
+        use std::fmt::Write;
+        let _ = write!(encoded, "{byte:02x}");
+    }
+    encoded
 }
 
 async fn write_response_to_file(
@@ -658,7 +732,12 @@ async fn response_preview(mut response: reqwest::Response, max_bytes: u64) -> Re
     Ok(String::from_utf8_lossy(&body).trim().to_owned())
 }
 
-fn extract_archive(archive_path: &Path, extract_dir: &Path) -> Result<()> {
+fn extract_archive(
+    archive_path: &Path,
+    extract_dir: &Path,
+    max_decompressed_bytes: u64,
+    max_entries: u64,
+) -> Result<()> {
     let file = std::fs::File::open(archive_path).map_err(|err| {
         RototoError::new(format!(
             "failed to open workspace archive {}: {err}",
@@ -667,12 +746,22 @@ fn extract_archive(archive_path: &Path, extract_dir: &Path) -> Result<()> {
     })?;
     let decoder = flate2::read::GzDecoder::new(file);
     let mut archive = tar::Archive::new(decoder);
+    let mut entry_count = 0_u64;
+    let mut decompressed_bytes = 0_u64;
     for entry in archive
         .entries()
         .map_err(|err| RototoError::new(format!("failed to read workspace archive: {err}")))?
     {
         let mut entry = entry
             .map_err(|err| RototoError::new(format!("failed to read archive entry: {err}")))?;
+        entry_count = entry_count
+            .checked_add(1)
+            .ok_or_else(|| RototoError::new("workspace archive contains too many entries"))?;
+        if entry_count > max_entries {
+            return Err(RototoError::new(format!(
+                "workspace archive contains too many entries: exceeded limit of {max_entries}"
+            )));
+        }
         let path = entry
             .path()
             .map_err(|err| RototoError::new(format!("archive entry path is invalid: {err}")))?;
@@ -688,6 +777,18 @@ fn extract_archive(archive_path: &Path, extract_dir: &Path) -> Result<()> {
                 "workspace archive contains unsupported entry type at: {}",
                 path.display()
             )));
+        }
+        if entry_type.is_file() {
+            decompressed_bytes = decompressed_bytes
+                .checked_add(entry.header().size().map_err(|err| {
+                    RototoError::new(format!("archive entry size is invalid: {err}"))
+                })?)
+                .ok_or_else(|| RototoError::new("workspace archive is too large"))?;
+            if decompressed_bytes > max_decompressed_bytes {
+                return Err(RototoError::new(format!(
+                    "workspace archive decompressed content is too large: exceeded limit of {max_decompressed_bytes} bytes"
+                )));
+            }
         }
         entry.unpack_in(extract_dir).map_err(|err| {
             RototoError::new(format!("failed to extract workspace archive: {err}"))
@@ -789,8 +890,14 @@ async fn async_is_file(path: &Path) -> bool {
 }
 
 async fn select_subdir(root: &Path, subdir: Option<&str>, original: &str) -> Result<PathBuf> {
+    let canonical_root = tokio::fs::canonicalize(root).await.map_err(|err| {
+        RototoError::new(format!(
+            "failed to canonicalize staged workspace root {}: {err}",
+            root.display()
+        ))
+    })?;
     let Some(subdir) = subdir else {
-        return Ok(root.to_path_buf());
+        return Ok(canonical_root);
     };
     if !relative_path_is_safe(Path::new(subdir)) {
         return Err(RototoError::new(format!(
@@ -808,7 +915,17 @@ async fn select_subdir(root: &Path, subdir: Option<&str>, original: &str) -> Res
             "workspace source subdir `{subdir}` is not a directory"
         )));
     }
-    Ok(target)
+    let canonical_target = tokio::fs::canonicalize(&target).await.map_err(|err| {
+        RototoError::new(format!(
+            "failed to canonicalize workspace source subdir `{subdir}`: {err}"
+        ))
+    })?;
+    if !canonical_target.starts_with(&canonical_root) {
+        return Err(RototoError::new(format!(
+            "workspace source subdir `{subdir}` escapes staged workspace"
+        )));
+    }
+    Ok(canonical_target)
 }
 
 fn archive_path_is_safe(path: &Path) -> bool {
@@ -890,6 +1007,25 @@ mod tests {
         Ok(())
     }
 
+    fn write_archive_with_file(path: &Path, entry_path: &str, contents: &[u8]) -> Result<()> {
+        let file = std::fs::File::create(path)
+            .map_err(|err| RototoError::new(format!("failed to create test archive: {err}")))?;
+        let encoder = flate2::write::GzEncoder::new(file, flate2::Compression::default());
+        let mut archive = tar::Builder::new(encoder);
+        let mut header = tar::Header::new_gnu();
+        header.set_entry_type(tar::EntryType::Regular);
+        header.set_size(contents.len() as u64);
+        header.set_mode(0o644);
+        header.set_cksum();
+        archive
+            .append_data(&mut header, entry_path, Cursor::new(contents))
+            .map_err(|err| RototoError::new(format!("failed to write test archive: {err}")))?;
+        archive
+            .finish()
+            .map_err(|err| RototoError::new(format!("failed to finish test archive: {err}")))?;
+        Ok(())
+    }
+
     #[test]
     fn source_uri_rejects_malformed_uris() {
         assert!(SourceUri::parse("examples/basic").unwrap().is_none());
@@ -928,6 +1064,18 @@ mod tests {
         );
     }
 
+    #[tokio::test]
+    async fn stage_workspace_source_rejects_leading_dash_git_refs_before_running_git() {
+        let err = stage_workspace_source(
+            "git+file://example.com/workspace.git#--upload-pack=/tmp/evil",
+            &SourceOptions::default(),
+        )
+        .await
+        .unwrap_err();
+
+        assert!(err.to_string().contains("must not begin with '-'"));
+    }
+
     #[test]
     fn extract_archive_rejects_unsafe_paths() {
         assert!(!archive_path_is_safe(Path::new("../evil")));
@@ -941,9 +1089,73 @@ mod tests {
         let archive_path = temp.path().join("workspace.tar.gz");
         write_archive_with_entry(&archive_path, "workspace/fifo", tar::EntryType::Fifo).unwrap();
 
-        let err = extract_archive(&archive_path, &temp.path().join("extract")).unwrap_err();
+        let err = extract_archive(
+            &archive_path,
+            &temp.path().join("extract"),
+            DEFAULT_MAX_DECOMPRESSED_ARCHIVE_BYTES,
+            DEFAULT_MAX_ARCHIVE_ENTRIES,
+        )
+        .unwrap_err();
 
         assert!(err.to_string().contains("unsupported entry type"));
+    }
+
+    #[test]
+    fn extract_archive_rejects_decompressed_size_over_limit() {
+        let temp = tempfile::TempDir::new().unwrap();
+        let archive_path = temp.path().join("workspace.tar.gz");
+        write_archive_with_file(&archive_path, "workspace/rototo-workspace.toml", b"12345")
+            .unwrap();
+
+        let err = extract_archive(&archive_path, &temp.path().join("extract"), 4, 10).unwrap_err();
+
+        assert!(
+            err.to_string()
+                .contains("decompressed content is too large")
+        );
+    }
+
+    #[test]
+    fn extract_archive_rejects_entry_count_over_limit() {
+        let temp = tempfile::TempDir::new().unwrap();
+        let archive_path = temp.path().join("workspace.tar.gz");
+        {
+            let file = std::fs::File::create(&archive_path).unwrap();
+            let encoder = flate2::write::GzEncoder::new(file, flate2::Compression::default());
+            let mut archive = tar::Builder::new(encoder);
+            for entry_path in ["workspace/a.toml", "workspace/b.toml"] {
+                let mut header = tar::Header::new_gnu();
+                header.set_entry_type(tar::EntryType::Regular);
+                header.set_size(0);
+                header.set_mode(0o644);
+                header.set_cksum();
+                archive
+                    .append_data(&mut header, entry_path, Cursor::new(Vec::<u8>::new()))
+                    .unwrap();
+            }
+            archive.finish().unwrap();
+        }
+
+        let extract_dir = temp.path().join("extract");
+        std::fs::create_dir_all(&extract_dir).unwrap();
+        let err = extract_archive(&archive_path, &extract_dir, 100, 1).unwrap_err();
+
+        assert!(err.to_string().contains("too many entries"), "{err}");
+    }
+
+    #[tokio::test]
+    async fn content_hash_fingerprint_uses_stable_sha256_digest() {
+        let temp = tempfile::TempDir::new().unwrap();
+        let archive_path = temp.path().join("workspace.tar.gz");
+        tokio::fs::write(&archive_path, b"abc").await.unwrap();
+
+        assert_eq!(
+            content_hash_fingerprint(&archive_path).await.unwrap(),
+            SourceFingerprint::ContentHash(
+                "sha256:ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad"
+                    .to_owned()
+            )
+        );
     }
 
     #[test]

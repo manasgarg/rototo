@@ -27,27 +27,27 @@ application code depends on them.
 
 ## Minimal Shape
 
-Every variable file uses `schema_version = 1` and a `[variable]` table:
+Every variable file uses `schema_version = 1`, a type source, named values, and
+environment selection blocks:
 
 ```toml
 schema_version = 1
 
-[variable]
 description = "Maximum number of tokens the summarizer can emit"
 type = "int"
 
-[variable.values]
+[values]
 small = 500
 standard = 1000
 large = 2000
 
-[variable.env._]
+[env._]
 value = "standard"
 
-[variable.env.dev]
+[env.dev]
 value = "small"
 
-[variable.env.prod]
+[env.prod]
 value = "large"
 ```
 
@@ -64,22 +64,17 @@ schema_version = 1
 
 Files without a supported schema version fail lint.
 
-## `[variable]`
-
-Required. Contains the variable metadata and contract.
-
-### `description`
+## `description`
 
 Optional but recommended. Use it to explain what application-facing behavior the
 variable controls.
 
 ```toml
-[variable]
 description = "LLM settings for the incident summary agent"
 type = "string"
 ```
 
-### `type`
+## `type`
 
 Declares a primitive value type. A variable must declare exactly one of `type`
 or `schema`.
@@ -97,13 +92,12 @@ list
 Primitive values are checked during lint. A variable with `type = "int"` fails
 lint if any configured value is not an integer.
 
-### `schema`
+## `schema`
 
 Declares a JSON Schema file for structured values. A variable must declare
 exactly one of `type` or `schema`.
 
 ```toml
-[variable]
 description = "LLM settings for the incident summary agent"
 schema = "../schemas/llm-config.schema.json"
 ```
@@ -111,36 +105,30 @@ schema = "../schemas/llm-config.schema.json"
 The schema path is resolved relative to the variable file. Each configured value
 is validated against the schema during lint.
 
-### `[variable.lint]`
+## Custom Lint
 
-Optional. Declares variable-scoped custom Lua lint.
+Variables do not point at custom lint scripts. Custom lint is workspace-scoped:
+the manifest declares rule metadata with `[[lint.rule]]`, and rototo
+auto-discovers Lua files under `lint/*.lua`.
 
-```toml
-[variable.lint]
-path = "../lint/llm-agent-config.lua"
-```
-
-The path is resolved relative to the variable file. The Lua script can define
-`lint(variable)`, `lint_value(value)`, or both.
-
-`lint(variable)` receives the expanded variable, including inline and external
-values:
+A Lua file registers handlers with `register(lint)`:
 
 ```lua
-function lint(variable)
-  return {}
+function register(lint)
+  lint:on({
+    stage = "value",
+    entity = "value",
+    field = "value.max_output_tokens",
+    rule = "platform/max-output-token-budget",
+    handler = "check_token_budget",
+  })
 end
-```
 
-`lint_value(value)` runs once for each expanded value:
-
-```lua
-function lint_value(value)
-  if value.value.max_output_tokens > 5000 then
+function check_token_budget(ctx)
+  if ctx.target.value.max_output_tokens > 5000 then
     return {
       {
-        message = "value " .. value.name .. " exceeds the token budget",
-        help = "Use 5000 or fewer output tokens."
+        message = "value " .. ctx.target.name .. " exceeds the token budget",
       }
     }
   end
@@ -148,11 +136,11 @@ function lint_value(value)
 end
 ```
 
-Each function must return a list of diagnostics. A diagnostic must contain
-`message` and may contain `help`.
-
-Custom lint is declared on variables today. Workspace-level and qualifier-level
-custom lint are not separate extension points.
+Handlers return diagnostics with `message`. The registration owns the rule id,
+and the manifest declaration owns the diagnostic title and help text. A
+diagnostic can also return `field` to point at a narrower target field using the
+same field grammar as the registration target. If the returned field is not
+valid for that target, rototo keeps the diagnostic on the registered target.
 
 ## Values
 
@@ -164,10 +152,10 @@ returned in resolution output as `value_key`.
 
 ### Inline Primitive Values
 
-Use `[variable.values]` for primitive values:
+Use `[values]` for primitive values:
 
 ```toml
-[variable.values]
+[values]
 small = 500
 standard = 1000
 large = 2000
@@ -178,13 +166,13 @@ large = 2000
 Use nested tables for object values:
 
 ```toml
-[variable.values.standard]
+[values.standard]
 model = "gpt-5-mini"
 gateway = "openai"
 max_output_tokens = 2400
 temperature = 0.3
 
-[variable.values.enterprise]
+[values.enterprise]
 model = "gpt-5"
 gateway = "openai"
 max_output_tokens = 5000
@@ -218,7 +206,7 @@ variables/
     enterprise.toml   -> enterprise
 ```
 
-External values are merged into `[variable.values]` before lint, custom lint,
+External values are merged into `[values]` before lint, custom lint,
 and resolution. If the same value key is declared inline and externally, loading
 fails.
 
@@ -257,22 +245,22 @@ key, rototo uses the whole TOML document as the value.
 
 ## Environment Mappings
 
-Variable environment blocks live under `[variable.env]`.
+Variable environment blocks live under `[env]`.
 
 The fallback block is required:
 
 ```toml
-[variable.env._]
+[env._]
 value = "standard"
 ```
 
 Named environment blocks are optional:
 
 ```toml
-[variable.env.dev]
+[env.dev]
 value = "small"
 
-[variable.env.prod]
+[env.prod]
 value = "large"
 ```
 
@@ -280,7 +268,7 @@ Environment names other than `_` must be declared in the workspace manifest
 under `[environments].values`.
 
 When resolving a variable, rototo first looks for a block matching the requested
-environment. If there is no matching block, it uses `[variable.env._]`.
+environment. If there is no matching block, it uses `[env._]`.
 
 Each environment block must contain:
 
@@ -295,10 +283,10 @@ The value key must exist in the expanded values table.
 Rules let an environment block select a value by qualifier.
 
 ```toml
-[variable.env.prod]
+[env.prod]
 value = "standard"
 
-[[variable.env.prod.rule]]
+[[env.prod.rule]]
 description = "Enterprise accounts get the larger agent configuration"
 qualifier = "enterprise-accounts"
 value = "enterprise"
@@ -346,19 +334,17 @@ CLI JSON output also includes the workspace source/path.
 Variable lint checks:
 
 - `schema_version = 1` exists.
-- `[variable]` exists.
 - Exactly one of `type` or `schema` is declared.
-- `[variable.lint]`, when present, is a table with `path`.
 - Values exist after external value files are loaded.
 - Primitive values match `type`.
 - Schema-backed values match the referenced JSON Schema.
-- `[variable.env._]` exists.
+- `[env._]` exists.
 - Environment blocks are tables with `value`.
 - Named environments are declared in the workspace manifest.
 - Environment `value` references point at known value keys.
 - Rule `qualifier` references point at known qualifier ids.
 - Rule `value` references point at known value keys.
-- Custom lint returns no diagnostics.
+- Registered custom lint returns no diagnostics.
 
 Context schema validation happens during resolution, before qualifiers and rules
 are evaluated. Value type and value schema checks happen during lint, before the
@@ -371,22 +357,21 @@ workspace is used.
 ```toml
 schema_version = 1
 
-[variable]
 description = "Maximum number of tokens the summarizer can emit"
 type = "int"
 
-[variable.values]
+[values]
 small = 500
 standard = 1000
 large = 2000
 
-[variable.env._]
+[env._]
 value = "standard"
 
-[variable.env.dev]
+[env.dev]
 value = "small"
 
-[variable.env.prod]
+[env.prod]
 value = "large"
 ```
 
@@ -395,20 +380,16 @@ value = "large"
 ```toml
 schema_version = 1
 
-[variable]
 description = "LLM settings for the incident summary agent"
 schema = "../schemas/llm-config.schema.json"
 
-[variable.lint]
-path = "../lint/llm-agent-config.lua"
-
-[variable.env._]
+[env._]
 value = "standard"
 
-[variable.env.prod]
+[env.prod]
 value = "standard"
 
-[[variable.env.prod.rule]]
+[[env.prod.rule]]
 description = "Enterprise accounts get the larger agent configuration"
 qualifier = "enterprise-accounts"
 value = "enterprise"

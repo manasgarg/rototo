@@ -55,15 +55,14 @@ Create `qualifiers/acme-enterprise-tenant.toml`:
 ```toml
 schema_version = 1
 
-[qualifier]
 description = "Acme enterprise tenant"
 
-[[qualifier.predicate]]
+[[predicate]]
 attribute = "tenant.id"
 op = "eq"
 value = "acme"
 
-[[qualifier.predicate]]
+[[predicate]]
 attribute = "tenant.plan"
 op = "eq"
 value = "enterprise"
@@ -79,25 +78,24 @@ Create `variables/search-config.toml`:
 ```toml
 schema_version = 1
 
-[variable]
 description = "Search backend settings"
 schema = "../schemas/search-config.schema.json"
 
-[variable.values.standard]
+[values.standard]
 backend = "shared-search"
 timeout_ms = 1500
 
-[variable.values.acme]
+[values.acme]
 backend = "acme-dedicated-search"
 timeout_ms = 3000
 
-[variable.env._]
+[env._]
 value = "standard"
 
-[variable.env.prod]
+[env.prod]
 value = "standard"
 
-[[variable.env.prod.rule]]
+[[env.prod.rule]]
 description = "Acme uses a dedicated production search backend"
 qualifier = "acme-enterprise-tenant"
 value = "acme"
@@ -106,8 +104,7 @@ value = "acme"
 ## Verify the behavior
 
 ```sh
-rototo variable resolve search-config \
-  --workspace config/ \
+rototo resolve config/ --variable search-config \
   --env prod \
   --context '{"tenant":{"id":"acme","plan":"enterprise"}}' \
   --json

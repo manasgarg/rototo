@@ -19,13 +19,16 @@ glob = "0.3"
 jsonschema = { version = "0.33", default-features = false }
 mlua = { version = "0.10", default-features = false, features = ["lua54", "serialize", "vendored"] }
 pulldown-cmark = "0.13"
+regex = "1"
 reqwest = { version = "0.12", default-features = false, features = ["rustls-tls"] }
+ring = "0.17"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 tar = "0.4"
 tempfile = "3"
-tokio = { version = "1", features = ["fs", "io-util", "macros", "net", "process", "rt-multi-thread", "sync", "test-util", "time"] }
+tokio = { version = "1", features = ["fs", "io-std", "io-util", "macros", "net", "process", "rt-multi-thread", "sync", "test-util", "time"] }
 toml = "0.8"
+toml-span = "0.7.1"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt"] }
 

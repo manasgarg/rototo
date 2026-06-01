@@ -1,11 +1,10 @@
 schema_version = 1
 
-[variable]
 description = "Environment block has wrong shape"
 type = "string"
 
-[variable.values]
+[values]
 default = "default"
 
-[variable.env]
+[env]
 _ = "default"

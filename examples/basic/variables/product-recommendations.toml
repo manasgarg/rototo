@@ -1,39 +1,43 @@
 schema_version = 1
 
-[variable]
 description = "Product recommendation strategy for shopping surfaces"
 schema = "../schemas/recommendation-config.schema.json"
 
-[variable.values.baseline]
+[values.baseline]
 algorithm = "popular"
 slots = 4
 include_sponsored = false
 fallback_collection = "top-sellers"
 
-[variable.values.personalized]
+[values.personalized]
 algorithm = "personalized-v2"
 slots = 6
 include_sponsored = true
 fallback_collection = "trending-now"
 
-[variable.values.enterprise]
+[values.enterprise]
 algorithm = "account-affinity"
 slots = 8
 include_sponsored = false
 fallback_collection = "enterprise-staples"
 
-[variable.env._]
+[env._]
 value = "baseline"
 
-[variable.env.prod]
+[env.prod]
 value = "baseline"
 
-[[variable.env.prod.rule]]
+[[env.prod.rule]]
+description = "EU premium users receive personalized recommendations"
+qualifier = "eu-premium-users"
+value = "personalized"
+
+[[env.prod.rule]]
 description = "Returning users receive personalized recommendations"
 qualifier = "returning-users"
 value = "personalized"
 
-[[variable.env.prod.rule]]
+[[env.prod.rule]]
 description = "Enterprise accounts receive account-aware recommendations"
 qualifier = "enterprise-accounts"
 value = "enterprise"

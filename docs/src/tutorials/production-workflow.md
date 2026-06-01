@@ -83,10 +83,16 @@ values = ["dev", "stage", "prod"]
 
 [context]
 schema = "schemas/context.schema.json"
+
+[[lint.rule]]
+id = "platform/max-output-token-budget"
+title = "LLM output token budget is too high"
+help = "Use 5000 or fewer output tokens."
 ```
 
-The manifest declares the environments and the context schema. rototo discovers
-qualifiers and variables from the conventional workspace directories.
+The manifest declares the environments, context schema, and custom rule
+metadata. rototo discovers qualifiers, variables, schemas, and Lua lint files
+from the conventional workspace directories.
 
 The context schema is the input contract between the application and the
 workspace. It defines the JSON attributes the application promises to send at
@@ -119,8 +125,9 @@ Create `config/schemas/context.schema.json`:
 
 If the application later stops sending `account.seats`, or changes it from an
 integer to a string, context validation catches the mismatch before rules are
-evaluated. That prevents silent fallthrough to the default LLM config when the
-workspace no longer receives the facts its qualifier depends on.
+evaluated. Predicate evaluation also fails if a qualifier reads a context path
+that is missing, so the workspace does not choose the default LLM config when it
+no longer receives the facts its qualifier depends on.
 
 Now the workspace knows what information it can trust from the application. The
 next step turns a business condition in that context into a reusable name.
@@ -138,15 +145,14 @@ Create `config/qualifiers/enterprise-accounts.toml`:
 ```toml
 schema_version = 1
 
-[qualifier]
 description = "Accounts on the enterprise plan with at least 100 seats"
 
-[[qualifier.predicate]]
+[[predicate]]
 attribute = "account.plan"
 op = "eq"
 value = "enterprise"
 
-[[qualifier.predicate]]
+[[predicate]]
 attribute = "account.seats"
 op = "gte"
 value = 100
@@ -199,23 +205,19 @@ Create `config/variables/llm-agent-config.toml`:
 ```toml
 schema_version = 1
 
-[variable]
 description = "LLM settings for the incident summary agent"
 schema = "../schemas/llm-config.schema.json"
 
-[variable.lint]
-path = "../lint/llm-agent-config.lua"
-
-[variable.env._]
+[env._]
 value = "standard"
 
-[variable.env.dev]
+[env.dev]
 value = "local"
 
-[variable.env.prod]
+[env.prod]
 value = "standard"
 
-[[variable.env.prod.rule]]
+[[env.prod.rule]]
 description = "Enterprise accounts get the larger agent configuration"
 qualifier = "enterprise-accounts"
 value = "enterprise"
@@ -259,20 +261,29 @@ temperature = 0.2
 `local`. `prod` uses `standard`, except when `enterprise-accounts` matches.
 The value keys come from the files in `llm-agent-config-values/`.
 
-The variable also points at a custom lint script. Built-in validation checks the
-rototo model and the JSON Schema. Custom lint adds local policy that is specific
-to this workspace.
+Built-in validation checks the rototo model and the JSON Schema. The workspace
+manifest declares custom rule metadata, and the auto-discovered Lua file
+registers the local policy that is specific to this workspace.
 
 Create `config/lint/llm-agent-config.lua`:
 
 ```lua
-function lint_value(value)
-  local config = value.value
+function register(lint)
+  lint:on({
+    stage = "value",
+    entity = "value",
+    field = "value.max_output_tokens",
+    rule = "platform/max-output-token-budget",
+    handler = "check_token_budget",
+  })
+end
+
+function check_token_budget(ctx)
+  local config = ctx.target.value
   if config.max_output_tokens > 5000 then
     return {
       {
-        message = "value " .. value.name .. " exceeds the maximum token budget",
-        help = "Use 5000 or fewer output tokens."
+        message = "value " .. ctx.target.name .. " exceeds the maximum token budget"
       }
     }
   end
@@ -309,16 +320,21 @@ Create `config/tests/prod-enterprise.expected.json`:
 
 ```json
 {
-  "id": "llm-agent-config",
-  "environment": "prod",
-  "value_key": "enterprise",
-  "value": {
-    "gateway": "openai",
-    "max_output_tokens": 5000,
-    "model": "gpt-5",
-    "prompt": "Summarize the incident for an enterprise support workflow. Preserve customer impact, operational risk, and next actions.",
-    "temperature": 0.2
-  }
+  "variables": [
+    {
+      "id": "llm-agent-config",
+      "environment": "prod",
+      "value_key": "enterprise",
+      "value": {
+        "gateway": "openai",
+        "max_output_tokens": 5000,
+        "model": "gpt-5",
+        "prompt": "Summarize the incident for an enterprise support workflow. Preserve customer impact, operational risk, and next actions.",
+        "temperature": 0.2
+      }
+    }
+  ],
+  "qualifiers": []
 }
 ```
 
@@ -333,15 +349,14 @@ about Git, CI, or application code.
 From the repository root:
 
 ```sh
-rototo workspace inspect --workspace ./config
-rototo workspace lint --workspace ./config
+rototo inspect ./config
+rototo lint ./config
 ```
 
 Resolve the qualifier:
 
 ```sh
-rototo qualifier resolve enterprise-accounts \
-  --workspace ./config \
+rototo resolve ./config --qualifier enterprise-accounts \
   --context @config/tests/prod-enterprise.json
 ```
 
@@ -354,8 +369,7 @@ enterprise-accounts=true
 Resolve the variable:
 
 ```sh
-rototo variable resolve llm-agent-config \
-  --workspace ./config \
+rototo resolve ./config --variable llm-agent-config \
   --env prod \
   --context @config/tests/prod-enterprise.json
 ```
@@ -371,10 +385,9 @@ llm-agent-config={"gateway":"openai","max_output_tokens":5000,"model":"gpt-5","p
 For CI, use JSON output and compare it with the committed expected output:
 
 ```sh
-rototo workspace lint --workspace ./config
+rototo lint ./config
 
-rototo variable resolve llm-agent-config \
-  --workspace ./config \
+rototo resolve ./config --variable llm-agent-config \
   --env prod \
   --context @config/tests/prod-enterprise.json \
   --json > /tmp/llm-agent-config.actual.json
@@ -395,9 +408,8 @@ developer machine. Create `.git/hooks/pre-push`:
 #!/usr/bin/env sh
 set -eu
 
-rototo workspace lint --workspace ./config
-rototo variable resolve llm-agent-config \
-  --workspace ./config \
+rototo lint ./config
+rototo resolve ./config --variable llm-agent-config \
   --env prod \
   --context @config/tests/prod-enterprise.json \
   --json > /tmp/llm-agent-config.actual.json
@@ -447,8 +459,7 @@ directly from the Git source, which is useful for release verification and
 debugging.
 
 ```sh
-rototo variable resolve llm-agent-config \
-  --workspace git+https://github.com/acme/runtime-config.git#prod:config \
+rototo resolve 'git+https://github.com/acme/runtime-config.git#prod:config' --variable llm-agent-config \
   --env prod \
   --context @config/tests/prod-enterprise.json
 ```

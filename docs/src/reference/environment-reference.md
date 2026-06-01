@@ -21,20 +21,20 @@ Rules:
 
 ## Variable Environment Blocks
 
-Variables select values through `[variable.env]` blocks:
+Variables select values through `[env]` blocks:
 
 ```toml
-[variable.env._]
+[env._]
 value = "standard"
 
-[variable.env.dev]
+[env.dev]
 value = "small"
 
-[variable.env.prod]
+[env.prod]
 value = "large"
 ```
 
-Every variable must define `[variable.env._]`. That block is the fallback when
+Every variable must define `[env._]`. That block is the fallback when
 the requested environment has no variable-specific block.
 
 Named environment blocks must match environments declared in the workspace
@@ -45,8 +45,8 @@ manifest.
 When resolving a variable for an environment:
 
 1. rototo checks that the requested environment is declared by the workspace.
-2. rototo uses `[variable.env.<environment>]` if it exists.
-3. Otherwise, rototo uses `[variable.env._]`.
+2. rototo uses `[env.<environment>]` if it exists.
+3. Otherwise, rototo uses `[env._]`.
 4. Rules in the selected block are evaluated in order.
 5. The first matching rule selects its value.
 6. If no rule matches, the block's `value` is selected.
@@ -67,22 +67,21 @@ use production or default behavior.
 ```toml
 schema_version = 1
 
-[variable]
 description = "Maximum number of tokens the summarizer can emit"
 type = "int"
 
-[variable.values]
+[values]
 small = 500
 standard = 1000
 large = 2000
 
-[variable.env._]
+[env._]
 value = "standard"
 
-[variable.env.dev]
+[env.dev]
 value = "small"
 
-[variable.env.prod]
+[env.prod]
 value = "large"
 ```
 
