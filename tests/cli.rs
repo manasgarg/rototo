@@ -1,3 +1,5 @@
+use std::fs;
+
 use assert_cmd::Command;
 use predicates::prelude::*;
 use rototo::docs::DOCS;
@@ -150,6 +152,25 @@ fn shows_bundled_docs_by_prefix_as_markdown() {
         .assert()
         .success()
         .stdout(predicate::str::contains("# rototo CLI reference"));
+}
+
+#[test]
+fn exports_bundled_docs_as_static_site() {
+    let temp = tempfile::tempdir().unwrap();
+    let site = temp.path().join("site");
+
+    Command::cargo_bin("rototo")
+        .unwrap()
+        .args(["docs", "--export", site.to_str().unwrap()])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("exported documentation to"));
+
+    let index = fs::read_to_string(site.join("index.html")).unwrap();
+    assert!(index.contains("<!doctype html>"));
+    assert!(index.contains("rototo documentation"));
+    assert!(site.join("cli.html").is_file());
+    assert!(site.join("styles.css").is_file());
 }
 
 #[test]

@@ -33,7 +33,7 @@ jobs:
         uses: dtolnay/rust-toolchain@stable
 
       - name: Export static docs
-        run: cargo run --locked -- docs export --out site
+        run: cargo run --locked -- docs --export site
 
       - name: Deploy to Cloudflare Pages
         uses: cloudflare/wrangler-action@v3

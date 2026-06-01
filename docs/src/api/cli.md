@@ -75,6 +75,7 @@ ROTOTO_WORKSPACE_TOKEN=secret rototo inspect \
 - `rototo docs`: list bundled documentation pages in sidebar order.
 - `rototo docs -p <page-prefix>`: render a bundled page.
 - `rototo docs -s <regex>`: search bundled pages with a regular expression.
+- `rototo docs --export [out-dir]`: export bundled pages as a static HTML site.
 
 Internal documentation links rendered by the CLI are printed as
 `rototo docs -p <page-id>` references.

@@ -11,8 +11,8 @@ mise trust
 just setup
 ```
 
-Rust is pinned in `rust-toolchain.toml`. Python is pinned in
-`.tool-versions` and is used to install `pre-commit`.
+Rust is pinned in `rust-toolchain.toml`. Non-Rust local development tools,
+including Python, Node, and Wrangler, are pinned in `.tool-versions`.
 
 ## Development
 
@@ -38,15 +38,29 @@ git --git-dir=.bare worktree add -b my-branch my-branch main
 
 ## Documentation
 
-The CLI ships bundled Markdown documentation and can export or serve the same
-pages as static HTML:
+The CLI ships bundled Markdown documentation and can export the same pages as
+static HTML:
 
 ```sh
-cargo run -- docs list
-cargo run -- docs show quickstart
-cargo run -- docs export --out site
-cargo run -- docs serve
+cargo run -- docs
+cargo run -- docs -p quickstart
+cargo run -- docs --export site
 ```
+
+To check the rendered site remotely before a production deploy, publish a
+Cloudflare Pages preview:
+
+```sh
+export CLOUDFLARE_ACCOUNT_ID=...
+export CLOUDFLARE_API_TOKEN=...
+just docs-preview
+```
+
+The preview deploys to the `docs-dev` branch of the `rototo-docs` Pages project
+by default. Use `CLOUDFLARE_PAGES_PROJECT` to target another project, or pass a
+different preview branch with `just docs-preview branch=my-docs-branch`.
+`docs-preview` refuses `branch=main`; production docs are published by the
+GitHub workflow after `main` updates.
 
 ## License
 

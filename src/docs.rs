@@ -1,9 +1,6 @@
-use std::net::SocketAddr;
 use std::path::Path;
 
 use pulldown_cmark::{Options, Parser, html};
-use tokio::io::{AsyncReadExt, AsyncWriteExt};
-use tokio::net::{TcpListener, TcpStream};
 
 use crate::error::{Result, RototoError};
 
@@ -477,118 +474,6 @@ pub async fn export_html(out: &Path) -> Result<()> {
     Ok(())
 }
 
-pub async fn serve(addr: SocketAddr) -> Result<()> {
-    let listener = TcpListener::bind(addr)
-        .await
-        .map_err(|err| RototoError::new(format!("failed to bind {addr}: {err}")))?;
-    let local_addr = listener
-        .local_addr()
-        .map_err(|err| RototoError::new(format!("failed to read local address: {err}")))?;
-    println!("serving rototo docs at http://{local_addr}/");
-
-    loop {
-        let (stream, _) = match listener.accept().await {
-            Ok(stream) => stream,
-            Err(err) => {
-                eprintln!("failed to accept docs connection: {err}");
-                continue;
-            }
-        };
-        tokio::spawn(async move {
-            let _ = handle_connection(stream).await;
-        });
-    }
-}
-
-async fn handle_connection(mut stream: TcpStream) -> Result<()> {
-    let mut buffer = [0_u8; 8192];
-    let read = stream
-        .read(&mut buffer)
-        .await
-        .map_err(|err| RototoError::new(format!("failed to read request: {err}")))?;
-    let request = String::from_utf8_lossy(&buffer[..read]);
-    let response = response_for_request(&request);
-    stream
-        .write_all(response.as_bytes())
-        .await
-        .map_err(|err| RototoError::new(format!("failed to write response: {err}")))?;
-    Ok(())
-}
-
-fn response_for_request(request: &str) -> String {
-    let Some(request_line) = request.lines().next() else {
-        return http_response(
-            "400 Bad Request",
-            "text/plain; charset=utf-8",
-            "bad request",
-        );
-    };
-    let mut parts = request_line.split_whitespace();
-    let method = parts.next().unwrap_or_default();
-    let path = parts.next().unwrap_or_default();
-
-    if method != "GET" && method != "HEAD" {
-        return http_response(
-            "405 Method Not Allowed",
-            "text/plain; charset=utf-8",
-            "method not allowed",
-        );
-    }
-
-    let route = route(path);
-    let (content_type, body) = match route {
-        Route::Style => ("text/css; charset=utf-8", STYLE_CSS.to_owned()),
-        Route::Page(page) => ("text/html; charset=utf-8", render_page_html(page)),
-        Route::NotFound => {
-            let body = "not found";
-            return if method == "HEAD" {
-                http_head_response("404 Not Found", "text/plain; charset=utf-8", body.len())
-            } else {
-                http_response("404 Not Found", "text/plain; charset=utf-8", body)
-            };
-        }
-    };
-    if method == "HEAD" {
-        http_head_response("200 OK", content_type, body.len())
-    } else {
-        http_response("200 OK", content_type, &body)
-    }
-}
-
-enum Route {
-    Style,
-    Page(&'static DocPage),
-    NotFound,
-}
-
-fn route(path: &str) -> Route {
-    let path = path.split_once('?').map_or(path, |(path, _)| path);
-    if path == "/styles.css" {
-        return Route::Style;
-    }
-    let raw_id = match path {
-        "/" | "/index.html" | "/index" => "index",
-        _ => path.trim_start_matches('/').trim_end_matches('/'),
-    };
-    let id = raw_id.strip_suffix(".html").unwrap_or(raw_id);
-    DOCS.iter()
-        .find(|page| page.id == id)
-        .map_or(Route::NotFound, Route::Page)
-}
-
-fn http_head_response(status: &str, content_type: &str, content_length: usize) -> String {
-    format!(
-        "HTTP/1.1 {status}\r\nContent-Type: {content_type}\r\nContent-Length: {content_length}\r\nConnection: close\r\n\r\n"
-    )
-}
-
-fn http_response(status: &str, content_type: &str, body: &str) -> String {
-    format!(
-        "HTTP/1.1 {status}\r\nContent-Type: {content_type}\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
-        body.len()
-    )
-}
-
 fn render_nav(current: &str) -> String {
     let mut nav = String::new();
     for section in DOC_NAV_SECTIONS {
@@ -636,41 +521,4 @@ fn escape_html(text: &str) -> String {
         .replace('<', "&lt;")
         .replace('>', "&gt;")
         .replace('"', "&quot;")
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn head_uses_get_content_length_without_body() {
-        let get = response_for_request("GET /cli.html HTTP/1.1\r\n\r\n");
-        let head = response_for_request("HEAD /cli.html HTTP/1.1\r\n\r\n");
-
-        let get_length = header_value(&get, "Content-Length").unwrap();
-        let head_length = header_value(&head, "Content-Length").unwrap();
-
-        assert_eq!(head_length, get_length);
-        assert!(head.ends_with("\r\n\r\n"));
-    }
-
-    #[test]
-    fn trailing_slash_html_routes_to_page() {
-        let response = response_for_request("GET /cli.html/ HTTP/1.1\r\n\r\n");
-
-        assert!(response.starts_with("HTTP/1.1 200 OK"));
-    }
-
-    #[test]
-    fn unsupported_docs_routes_return_404() {
-        let response = response_for_request("GET /missing.html HTTP/1.1\r\n\r\n");
-
-        assert!(response.starts_with("HTTP/1.1 404 Not Found"));
-    }
-
-    fn header_value<'a>(response: &'a str, name: &str) -> Option<&'a str> {
-        response
-            .lines()
-            .find_map(|line| line.strip_prefix(&format!("{name}: ")))
-    }
 }

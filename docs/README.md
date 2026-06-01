@@ -26,6 +26,13 @@ Use the CLI to inspect the bundled docs:
 rototo docs
 rototo docs -p quickstart
 rototo docs -s "workspace source"
+rototo docs --export site
 ```
+
+Use `just docs-preview` when you need to review the rendered site over HTTPS
+before merging. The recipe exports the current workspace, deploys it to a
+Cloudflare Pages preview branch, and leaves the production `main` deployment to
+the GitHub workflow. It requires `CLOUDFLARE_ACCOUNT_ID` and
+`CLOUDFLARE_API_TOKEN`; `CLOUDFLARE_PAGES_PROJECT` defaults to `rototo-docs`.
 
 Maintainer-only process documentation belongs in `internal-docs/`.
