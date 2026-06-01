@@ -224,6 +224,9 @@ value = "control"
 [environments]
 values = ["prod"]
 
+[context]
+schema = "schemas/context.schema.json"
+
 [[lint.rule]]
 id = "policy/noop"
 title = "No-op policy"
@@ -253,12 +256,16 @@ value = "default"
 
 [[env.prod.rule]]
 qualifier = "premium"
-value = "default"
+value = "premium"
 "#,
             ),
             (
                 "variables/message-values/default.toml",
                 r#"message = "hello""#,
+            ),
+            (
+                "variables/message-values/premium.toml",
+                r#"message = "premium""#,
             ),
             (
                 "schemas/message.schema.json",
@@ -270,8 +277,32 @@ value = "default"
 }"#,
             ),
             (
+                "schemas/context.schema.json",
+                r#"{
+  "type": "object",
+  "properties": {
+    "account": {
+      "type": "object",
+      "properties": {
+        "tier": { "type": "string" }
+      }
+    }
+  }
+}"#,
+            ),
+            (
                 "lint/noop.lua",
                 r#"function register(lint)
+  lint:on({
+    stage = "policy",
+    entity = "workspace",
+    rule = "policy/noop",
+    handler = "check_workspace",
+  })
+end
+
+function check_workspace(ctx)
+  return {}
 end
 "#,
             ),
@@ -299,7 +330,9 @@ end
             "qualifiers/premium.toml",
             "variables/message.toml",
             "variables/message-values/default.toml",
+            "variables/message-values/premium.toml",
             "schemas/message.schema.json",
+            "schemas/context.schema.json",
             "lint/noop.lua",
         ] {
             assert!(

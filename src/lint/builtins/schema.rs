@@ -1,6 +1,6 @@
 use serde_json::Value as JsonValue;
 
-use crate::diagnostics::{DiagnosticLocation, EntityId, RototoRuleId};
+use crate::diagnostics::{DiagnosticLocation, EntityId, RototoRuleId, Severity};
 
 use super::super::engine::LintContext;
 use super::super::index::*;
@@ -53,6 +53,94 @@ pub(super) fn lint_qualifier_context_schema_attributes(ctx: &mut LintContext) {
             edge.entity.clone(),
             edge.location.clone(),
             format!("context attribute is not declared by the context schema: {attribute}"),
+        );
+    }
+    ctx.diagnostics.extend(diagnostics);
+}
+
+pub(super) fn lint_missing_context_schema_for_qualifier_attributes(ctx: &mut LintContext) {
+    let Some(manifest) = &ctx.index.manifest else {
+        return;
+    };
+    if manifest.context_schema.is_some() {
+        return;
+    }
+    if ctx
+        .diagnostics
+        .iter()
+        .any(|diagnostic| diagnostic.severity == Severity::Error)
+    {
+        return;
+    }
+
+    let referenced = ctx.references.referenced_qualifier_ids();
+    let mut diagnostics = Vec::new();
+    let first_context_attribute = ctx.references.edges().iter().find_map(|edge| {
+        let ReferenceSource::QualifierPredicateContextAttribute { qualifier, .. } = &edge.source
+        else {
+            return None;
+        };
+        if !referenced.contains(qualifier) || qualifier_has_existing_error(ctx, qualifier) {
+            return None;
+        }
+        let ReferenceTarget::ContextAttribute(attribute) = &edge.target else {
+            return None;
+        };
+        Some((attribute, edge))
+    });
+    let Some((attribute, edge)) = first_context_attribute else {
+        return;
+    };
+
+    push_reference_diagnostic(
+        &mut diagnostics,
+        RototoRuleId::WorkspaceContextSchemaMissing,
+        EntityId::Manifest,
+        manifest.location.clone(),
+        format!(
+            "workspace does not declare [context].schema for qualifier context attribute: {attribute}"
+        ),
+    );
+    if let Some(diagnostic) = diagnostics.last_mut() {
+        diagnostic
+            .related
+            .push(crate::diagnostics::RelatedLocation {
+                location: edge.location.clone(),
+                message: format!("context attribute read here: {attribute}"),
+            });
+    }
+    ctx.diagnostics.extend(diagnostics);
+}
+
+fn qualifier_has_existing_error(ctx: &LintContext, qualifier_id: &str) -> bool {
+    ctx.diagnostics.iter().any(|diagnostic| {
+        diagnostic.severity == Severity::Error
+            && match &diagnostic.entity {
+                EntityId::Qualifier { id } => id == qualifier_id,
+                EntityId::Predicate { qualifier, .. } => qualifier == qualifier_id,
+                _ => false,
+            }
+    })
+}
+
+pub(super) fn lint_unreferenced_schemas(ctx: &mut LintContext) {
+    let mut diagnostics = Vec::new();
+    for schema in ctx.index.schemas.values() {
+        if schema.json.is_none() || schema.invalid_message.is_some() {
+            continue;
+        }
+        let target = ReferenceTarget::Schema(schema.path.clone());
+        if ctx.references.has_references(&target) {
+            continue;
+        }
+        push_reference_diagnostic(
+            &mut diagnostics,
+            RototoRuleId::SchemaUnreferenced,
+            EntityId::Schema {
+                path: schema.path.clone(),
+            },
+            schema.location.clone(),
+            format!("schema is not referenced: {}", schema.path),
         );
     }
     ctx.diagnostics.extend(diagnostics);

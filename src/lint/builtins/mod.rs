@@ -21,9 +21,11 @@ pub(super) fn run_project(ctx: &mut LintContext) {
 
 pub(super) fn run_reference(ctx: &mut LintContext) {
     schema::lint_qualifier_context_schema_attributes(ctx);
+    schema::lint_unreferenced_schemas(ctx);
     qualifier::lint_qualifier_references(ctx);
     variable::lint_variable_references(ctx);
     variable::lint_variable_schema_references(ctx);
+    schema::lint_missing_context_schema_for_qualifier_attributes(ctx);
 }
 
 pub(super) fn run_value(ctx: &mut LintContext) {
@@ -33,8 +35,11 @@ pub(super) fn run_value(ctx: &mut LintContext) {
 pub(super) fn run_graph(ctx: &mut LintContext) {
     graph::lint_qualifier_cycles(ctx);
     graph::lint_unreferenced_qualifiers(ctx);
+    graph::lint_unreachable_qualifiers(ctx);
     graph::lint_shadowed_variable_rules(ctx);
+    graph::lint_rules_selecting_default_value(ctx);
     graph::lint_unused_variable_values(ctx);
+    qualifier::lint_duplicate_predicates(ctx);
 }
 
 fn field_is_not_present<T>(field: &ProjectField<T>) -> bool {

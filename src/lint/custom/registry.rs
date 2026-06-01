@@ -1,10 +1,14 @@
 use std::collections::BTreeMap;
 
-use crate::diagnostics::{CustomRuleId, DiagnosticRule, EntityId, LintStage, RototoRuleId};
+use crate::diagnostics::{
+    CustomRuleDefinition, CustomRuleId, DiagnosticRule, EntityId, LintStage, RototoRuleId, Severity,
+};
 use crate::lua_lint;
 
 use super::super::engine::LintContext;
-use super::super::index::{CustomLintRegistration, CustomRuleDefinitionNode, GateEntity};
+use super::super::index::{
+    CustomLintRegistration, CustomRuleCollection, CustomRuleDefinitionNode, GateEntity,
+};
 use super::super::stages::push_register_diagnostic;
 use super::runner;
 use super::{
@@ -69,6 +73,18 @@ pub(crate) async fn register_custom_lints(ctx: &mut LintContext) {
             }
         };
 
+        if registrations.is_empty() {
+            push_register_diagnostic(
+                &mut ctx.diagnostics,
+                RototoRuleId::CustomLintFileUnregistered,
+                EntityId::CustomLint {
+                    path: file.path.clone(),
+                },
+                file.location.clone(),
+                format!("custom lint file registers no handlers: {}", file.path),
+            );
+        }
+
         for registration in registrations {
             match validate_custom_registration(&ctx.index.custom_lints.rules, &registration) {
                 Ok((stage, selector, rule)) => {
@@ -95,6 +111,184 @@ pub(crate) async fn register_custom_lints(ctx: &mut LintContext) {
                 ),
             }
         }
+    }
+
+    lint_unregistered_custom_rules(ctx);
+    lint_duplicate_custom_registrations(ctx);
+}
+
+fn lint_unregistered_custom_rules(ctx: &mut LintContext) {
+    if custom_rule_declarations_have_conflicts(ctx) || custom_lint_registration_has_errors(ctx) {
+        return;
+    }
+
+    let mut registered = std::collections::BTreeSet::new();
+    for registration in &ctx.index.custom_lints.registrations {
+        registered.insert(registration.rule.clone());
+    }
+
+    for rule in ctx.index.custom_lints.rules.values() {
+        if registered.contains(&rule.definition.rule) {
+            continue;
+        }
+        push_register_diagnostic(
+            &mut ctx.diagnostics,
+            RototoRuleId::CustomLintRuleUnregistered,
+            EntityId::Manifest,
+            rule.location.clone(),
+            format!(
+                "custom lint rule is declared but not registered: {}",
+                rule.definition.rule
+            ),
+        );
+    }
+}
+
+fn custom_lint_registration_has_errors(ctx: &LintContext) -> bool {
+    ctx.diagnostics.iter().any(|diagnostic| {
+        diagnostic.severity == Severity::Error
+            && matches!(
+                &diagnostic.rule,
+                DiagnosticRule::Rototo(
+                    RototoRuleId::CustomLintFailed
+                        | RototoRuleId::CustomLintRegistrationInvalid
+                        | RototoRuleId::CustomLintUnknownRule
+                )
+            )
+    })
+}
+
+fn custom_rule_declarations_have_conflicts(ctx: &LintContext) -> bool {
+    let Some(manifest) = &ctx.index.manifest else {
+        return false;
+    };
+    let CustomRuleCollection::Rules(rules) = &manifest.custom_rules else {
+        return false;
+    };
+
+    let mut declared: BTreeMap<CustomRuleId, CustomRuleDefinition> = BTreeMap::new();
+    for rule in rules {
+        let Some(definition) = rule.definition() else {
+            continue;
+        };
+        match declared.get(&definition.rule) {
+            Some(existing) if !existing.same_metadata(&definition) => return true,
+            Some(_) => {}
+            None => {
+                declared.insert(definition.rule.clone(), definition);
+            }
+        }
+    }
+
+    false
+}
+
+fn lint_duplicate_custom_registrations(ctx: &mut LintContext) {
+    let mut seen: BTreeMap<String, &CustomLintRegistration> = BTreeMap::new();
+
+    for registration in &ctx.index.custom_lints.registrations {
+        let key = registration_key(registration);
+        if let Some(first) = seen.get(&key) {
+            push_register_diagnostic(
+                &mut ctx.diagnostics,
+                RototoRuleId::CustomLintRegistrationDuplicate,
+                EntityId::CustomLint {
+                    path: registration.file_path.clone(),
+                },
+                registration.location.clone(),
+                format!(
+                    "custom lint registration duplicates an earlier registration: {}",
+                    registration.handler
+                ),
+            );
+            if let Some(diagnostic) = ctx.diagnostics.last_mut() {
+                diagnostic
+                    .related
+                    .push(crate::diagnostics::RelatedLocation {
+                        location: first.location.clone(),
+                        message: "first matching registration".to_owned(),
+                    });
+            }
+        } else {
+            seen.insert(key, registration);
+        }
+    }
+}
+
+fn registration_key(registration: &CustomLintRegistration) -> String {
+    format!(
+        "{}|{}|{}|{}|{}",
+        registration.file_path,
+        lint_stage_key(registration.stage),
+        selector_key(&registration.selector),
+        registration.rule,
+        registration.handler
+    )
+}
+
+fn lint_stage_key(stage: LintStage) -> &'static str {
+    match stage {
+        LintStage::Discover => "discover",
+        LintStage::Parse => "parse",
+        LintStage::Project => "project",
+        LintStage::Register => "register",
+        LintStage::Reference => "reference",
+        LintStage::Value => "value",
+        LintStage::Graph => "graph",
+        LintStage::Policy => "policy",
+    }
+}
+
+fn selector_key(selector: &RegisteredLintSelector) -> String {
+    format!(
+        "{}:{}",
+        registered_entity_key(selector.entity),
+        selector
+            .field
+            .as_ref()
+            .map(registered_field_key)
+            .unwrap_or_else(|| "*".to_owned())
+    )
+}
+
+fn registered_entity_key(entity: RegisteredLintEntity) -> &'static str {
+    match entity {
+        RegisteredLintEntity::Workspace => "workspace",
+        RegisteredLintEntity::Qualifier => "qualifier",
+        RegisteredLintEntity::Variable => "variable",
+        RegisteredLintEntity::Value => "value",
+        RegisteredLintEntity::Schema => "schema",
+    }
+}
+
+fn registered_field_key(field: &RegisteredLintField) -> String {
+    match field {
+        RegisteredLintField::Workspace(field) => match field {
+            WorkspaceLintField::Environments => "workspace.environments".to_owned(),
+            WorkspaceLintField::ContextSchema => "workspace.context_schema".to_owned(),
+        },
+        RegisteredLintField::Qualifier(field) => match field {
+            QualifierLintField::Id => "qualifier.id".to_owned(),
+            QualifierLintField::Description => "qualifier.description".to_owned(),
+            QualifierLintField::Predicates => "qualifier.predicates".to_owned(),
+        },
+        RegisteredLintField::Variable(field) => match field {
+            VariableLintField::Id => "variable.id".to_owned(),
+            VariableLintField::Description => "variable.description".to_owned(),
+            VariableLintField::Type => "variable.type".to_owned(),
+            VariableLintField::Schema => "variable.schema".to_owned(),
+            VariableLintField::Values => "variable.values".to_owned(),
+            VariableLintField::Environments => "variable.environments".to_owned(),
+        },
+        RegisteredLintField::Value(field) => match field {
+            ValueLintField::Key => "value.key".to_owned(),
+            ValueLintField::Value => "value.value".to_owned(),
+            ValueLintField::JsonPath(path) => format!("value.json_path.{}", path.join(".")),
+        },
+        RegisteredLintField::Schema(field) => match field {
+            SchemaLintField::Json => "schema.json".to_owned(),
+            SchemaLintField::JsonPath(path) => format!("schema.json_path.{}", path.join(".")),
+        },
     }
 }
 

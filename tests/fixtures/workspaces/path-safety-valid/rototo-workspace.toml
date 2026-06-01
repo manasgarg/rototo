@@ -5,3 +5,8 @@ values = ["prod"]
 
 [context]
 schema = "./schemas/context.schema.json"
+
+[[lint.rule]]
+id = "path-safety/noop"
+title = "Path safety no-op"
+help = "No-op rule used to keep the path safety lint fixture registered."

@@ -105,6 +105,13 @@ rototo_rules! {
         title: "Qualifier context attribute is not declared by the resolve context schema",
         help: "Declare the context path in the workspace context schema or update the qualifier.",
     },
+    WorkspaceContextSchemaMissing => {
+        id: "workspace-context-schema-missing",
+        entity: Workspace,
+        title: "Resolve context schema is missing",
+        help: "Declare [context].schema so qualifier context attributes are validated.",
+        severity: Warning,
+    },
     QualifierParseFailed => {
         id: "qualifier-parse-failed",
         entity: Qualifier,
@@ -153,6 +160,13 @@ rototo_rules! {
         title: "Qualifier predicate value is invalid",
         help: "Add a value with the shape required by the predicate operator.",
     },
+    QualifierPredicateDuplicate => {
+        id: "qualifier-predicate-duplicate",
+        entity: Qualifier,
+        title: "Qualifier predicate is duplicated",
+        help: "Remove duplicate predicates that do not change qualifier behavior.",
+        severity: Warning,
+    },
     QualifierCycle => {
         id: "qualifier-cycle",
         entity: Qualifier,
@@ -164,6 +178,13 @@ rototo_rules! {
         entity: Qualifier,
         title: "Qualifier is not referenced",
         help: "Reference the qualifier from another qualifier or variable rule, or remove it.",
+        severity: Warning,
+    },
+    QualifierUnreachable => {
+        id: "qualifier-unreachable",
+        entity: Qualifier,
+        title: "Qualifier cannot affect resolution",
+        help: "Reference the qualifier from a reachable variable rule path, or remove it.",
         severity: Warning,
     },
     VariableParseFailed => {
@@ -257,6 +278,13 @@ rototo_rules! {
         help: "Remove the later duplicate qualifier rule or reorder the environment rules.",
         severity: Warning,
     },
+    VariableRuleSelectsDefaultValue => {
+        id: "variable-rule-selects-default-value",
+        entity: Rule,
+        title: "Variable rule selects the environment default value",
+        help: "Remove the rule or update it to select a value that differs from the environment default.",
+        severity: Warning,
+    },
     VariableValueUnused => {
         id: "variable-value-unused",
         entity: Value,
@@ -318,6 +346,27 @@ rototo_rules! {
         title: "Custom lint rule metadata conflicts",
         help: "Use identical title and help text for repeated custom rule declarations.",
     },
+    CustomLintRuleUnregistered => {
+        id: "custom-lint-rule-unregistered",
+        entity: Workspace,
+        title: "Custom lint rule is not registered",
+        help: "Register a Lua handler for the declared custom lint rule or remove the declaration.",
+        severity: Warning,
+    },
+    CustomLintFileUnregistered => {
+        id: "custom-lint-file-unregistered",
+        entity: Workspace,
+        title: "Custom lint file registers no handlers",
+        help: "Register at least one handler from the Lua file or remove the file.",
+        severity: Warning,
+    },
+    CustomLintRegistrationDuplicate => {
+        id: "custom-lint-registration-duplicate",
+        entity: Workspace,
+        title: "Custom lint registration is duplicated",
+        help: "Remove duplicate custom lint registrations so handlers run once per target.",
+        severity: Warning,
+    },
     SchemaParseFailed => {
         id: "schema-parse-failed",
         entity: Schema,
@@ -329,6 +378,13 @@ rototo_rules! {
         entity: Schema,
         title: "JSON Schema is invalid",
         help: "Update the schema file so it is valid JSON Schema.",
+    },
+    SchemaUnreferenced => {
+        id: "schema-unreferenced",
+        entity: Schema,
+        title: "JSON Schema is not referenced",
+        help: "Reference the schema from [context].schema or a variable schema field, or remove it.",
+        severity: Warning,
     },
 }
 

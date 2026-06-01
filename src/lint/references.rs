@@ -237,6 +237,36 @@ impl ReferenceIndex {
         referenced
     }
 
+    pub(super) fn resolution_reachable_qualifier_ids(&self) -> BTreeSet<String> {
+        let graph = self.qualifier_reference_graph();
+        let mut reachable = BTreeSet::new();
+        let mut stack = Vec::new();
+
+        for edge in &self.edges {
+            if !matches!(edge.source, ReferenceSource::VariableRuleQualifier { .. })
+                || !edge.is_resolved()
+            {
+                continue;
+            }
+            let ReferenceTarget::Qualifier(qualifier) = &edge.target else {
+                continue;
+            };
+            if reachable.insert(qualifier.clone()) {
+                stack.push(qualifier.clone());
+            }
+        }
+
+        while let Some(qualifier) = stack.pop() {
+            for edge in graph.get(&qualifier).into_iter().flatten() {
+                if reachable.insert(edge.to.clone()) {
+                    stack.push(edge.to.clone());
+                }
+            }
+        }
+
+        reachable
+    }
+
     pub(super) fn referenced_variable_value_keys(&self, variable_id: &str) -> BTreeSet<String> {
         self.value_referenced_by
             .keys()
@@ -537,7 +567,7 @@ impl ReferenceIndex {
         });
     }
 
-    fn has_references(&self, target: &ReferenceTarget) -> bool {
+    pub(super) fn has_references(&self, target: &ReferenceTarget) -> bool {
         self.edges.iter().any(|edge| &edge.target == target)
     }
 }

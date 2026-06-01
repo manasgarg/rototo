@@ -2,6 +2,7 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use crate::diagnostics::{
     DiagnosticLocation, EntityId, LintDiagnostic, LintStage, RelatedLocation, RototoRuleId,
+    Severity,
 };
 
 use super::super::engine::{LintContext, variable_values};
@@ -103,6 +104,43 @@ pub(super) fn lint_unreferenced_qualifiers(ctx: &mut LintContext) {
     ctx.diagnostics.extend(diagnostics);
 }
 
+pub(super) fn lint_unreachable_qualifiers(ctx: &mut LintContext) {
+    let reachable = ctx.references.resolution_reachable_qualifier_ids();
+    let referenced = ctx.references.referenced_qualifier_ids();
+    let mut diagnostics = Vec::new();
+    for qualifier in ctx.index.qualifiers.values() {
+        if reachable.contains(&qualifier.id)
+            || !referenced.contains(&qualifier.id)
+            || qualifier_has_existing_error(ctx, &qualifier.id)
+        {
+            continue;
+        }
+
+        push_graph_diagnostic(
+            &mut diagnostics,
+            RototoRuleId::QualifierUnreachable,
+            EntityId::Qualifier {
+                id: qualifier.id.clone(),
+            },
+            qualifier.location.clone(),
+            format!("qualifier cannot affect resolution: {}", qualifier.id),
+        );
+    }
+
+    ctx.diagnostics.extend(diagnostics);
+}
+
+fn qualifier_has_existing_error(ctx: &LintContext, qualifier_id: &str) -> bool {
+    ctx.diagnostics.iter().any(|diagnostic| {
+        diagnostic.severity == Severity::Error
+            && match &diagnostic.entity {
+                EntityId::Qualifier { id } => id == qualifier_id,
+                EntityId::Predicate { qualifier, .. } => qualifier == qualifier_id,
+                _ => false,
+            }
+    })
+}
+
 pub(super) fn lint_shadowed_variable_rules(ctx: &mut LintContext) {
     let mut diagnostics = Vec::new();
 
@@ -147,6 +185,60 @@ pub(super) fn lint_shadowed_variable_rules(ctx: &mut LintContext) {
                     diagnostics.push(diagnostic);
                 } else {
                     seen_qualifiers.insert(qualifier.value.clone(), qualifier.location.clone());
+                }
+            }
+        }
+    }
+
+    ctx.diagnostics.extend(diagnostics);
+}
+
+pub(super) fn lint_rules_selecting_default_value(ctx: &mut LintContext) {
+    let mut diagnostics = Vec::new();
+
+    for variable in ctx.index.variables.values() {
+        let EnvironmentCollection::Environments(environments) = &variable.environments else {
+            continue;
+        };
+
+        for block in environments.values() {
+            let ProjectField::Present(default_value) = &block.value else {
+                continue;
+            };
+            let RuleCollection::Rules(rules) = &block.rules else {
+                continue;
+            };
+
+            for rule in rules {
+                if rule.invalid_shape {
+                    continue;
+                }
+                let ProjectField::Present(rule_value) = &rule.value else {
+                    continue;
+                };
+                if rule_value.value != default_value.value {
+                    continue;
+                }
+
+                push_graph_diagnostic(
+                    &mut diagnostics,
+                    RototoRuleId::VariableRuleSelectsDefaultValue,
+                    EntityId::Rule {
+                        variable: variable.id.clone(),
+                        environment: block.environment.clone(),
+                        index: rule.index,
+                    },
+                    rule_value.location.clone(),
+                    format!(
+                        "rule selects the same value as the environment default: {}",
+                        rule_value.value
+                    ),
+                );
+                if let Some(diagnostic) = diagnostics.last_mut() {
+                    diagnostic.related.push(RelatedLocation {
+                        location: default_value.location.clone(),
+                        message: format!("environment default value: {}", default_value.value),
+                    });
                 }
             }
         }

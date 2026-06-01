@@ -2,6 +2,3 @@ schema_version = 1
 
 [environments]
 values = ["prod"]
-
-[context]
-schema = "schemas/context.schema.json"

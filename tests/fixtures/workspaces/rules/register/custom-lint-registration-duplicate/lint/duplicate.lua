@@ -2,7 +2,13 @@ function register(lint)
   lint:on({
     stage = "policy",
     entity = "workspace",
-    rule = "path-safety/noop",
+    rule = "payments/noop",
+    handler = "check_workspace",
+  })
+  lint:on({
+    stage = "policy",
+    entity = "workspace",
+    rule = "payments/noop",
     handler = "check_workspace",
   })
 end

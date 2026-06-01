@@ -434,6 +434,10 @@ rule = [
         tokio::fs::create_dir_all(root.join("variables"))
             .await
             .unwrap();
+        tokio::fs::create_dir_all(root.join("schemas"))
+            .await
+            .unwrap();
+        tokio::fs::create_dir_all(root.join("lint")).await.unwrap();
         let manifest_path = root.join("rototo-workspace.toml");
         tokio::fs::write(
             &manifest_path,
@@ -446,6 +450,9 @@ values = ["prod"]
 id = "operations/message-not-empty"
 title = "Operational message is empty"
 help = "Set a non-empty message before releasing the workspace."
+
+[context]
+schema = "schemas/context.schema.json"
 "#,
         )
         .await
@@ -478,6 +485,40 @@ value = "control"
         tokio::fs::write(&variable_path, disk_variable)
             .await
             .unwrap();
+        tokio::fs::write(
+            root.join("schemas/context.schema.json"),
+            r#"{
+  "type": "object",
+  "properties": {
+    "account": {
+      "type": "object",
+      "properties": {
+        "tier": { "type": "string" }
+      }
+    }
+  }
+}"#,
+        )
+        .await
+        .unwrap();
+        tokio::fs::write(
+            root.join("lint/message.lua"),
+            r#"function register(lint)
+  lint:on({
+    stage = "policy",
+    entity = "variable",
+    rule = "operations/message-not-empty",
+    handler = "check_variable",
+  })
+end
+
+function check_variable(variable)
+  return {}
+end
+"#,
+        )
+        .await
+        .unwrap();
 
         let mut server = LspServer::new();
         server.workspace_root = Some(tokio::fs::canonicalize(root).await.unwrap());

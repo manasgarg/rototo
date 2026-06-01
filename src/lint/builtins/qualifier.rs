@@ -1,9 +1,13 @@
-use crate::diagnostics::{EntityId, LintDiagnostic, RototoRuleId};
+use std::collections::BTreeMap;
+
+use crate::diagnostics::{EntityId, LintDiagnostic, RelatedLocation, RototoRuleId};
 
 use super::super::engine::LintContext;
 use super::super::index::*;
 use super::super::references::{ReferenceSource, ReferenceTarget};
-use super::super::stages::{push_project_diagnostic, push_reference_diagnostic};
+use super::super::stages::{
+    push_graph_diagnostic, push_project_diagnostic, push_reference_diagnostic,
+};
 use super::{field_is_integer, field_is_not_present, predicate_op_label};
 
 pub(super) fn lint_qualifier_shapes(ctx: &mut LintContext) {
@@ -246,6 +250,76 @@ pub(super) fn lint_qualifier_references(ctx: &mut LintContext) {
             ),
         );
     }
+}
+
+pub(super) fn lint_duplicate_predicates(ctx: &mut LintContext) {
+    let mut diagnostics = Vec::new();
+
+    for qualifier in ctx.index.qualifiers.values() {
+        let PredicateCollection::Predicates(predicates) = &qualifier.predicates else {
+            continue;
+        };
+        let mut seen: BTreeMap<String, &PredicateNode> = BTreeMap::new();
+
+        for predicate in predicates {
+            let Some(key) = predicate_key(predicate) else {
+                continue;
+            };
+            if let Some(first) = seen.get(&key) {
+                push_graph_diagnostic(
+                    &mut diagnostics,
+                    RototoRuleId::QualifierPredicateDuplicate,
+                    EntityId::Predicate {
+                        qualifier: qualifier.id.clone(),
+                        index: predicate.index,
+                    },
+                    predicate.location.clone(),
+                    format!(
+                        "predicate duplicates an earlier predicate: {}",
+                        predicate.index + 1
+                    ),
+                );
+                if let Some(diagnostic) = diagnostics.last_mut() {
+                    diagnostic.related.push(RelatedLocation {
+                        location: first.location.clone(),
+                        message: format!("first matching predicate: {}", first.index + 1),
+                    });
+                }
+            } else {
+                seen.insert(key, predicate);
+            }
+        }
+    }
+
+    ctx.diagnostics.extend(diagnostics);
+}
+
+fn predicate_key(predicate: &PredicateNode) -> Option<String> {
+    let ProjectField::Present(attribute) = &predicate.attribute else {
+        return None;
+    };
+    let ProjectField::Present(op) = &predicate.op else {
+        return None;
+    };
+
+    let mut key = format!("{}|{}", attribute.value, op.value.as_str());
+    if matches!(op.value, PredicateOp::Bucket) {
+        let salt = predicate.salt.as_ref().and_then(|salt| match salt {
+            ProjectField::Present(salt) => Some(salt.value.as_str()),
+            ProjectField::Invalid { .. } | ProjectField::Missing { .. } => None,
+        })?;
+        let range = predicate.range.as_ref()?;
+        key.push_str(&format!(
+            "|salt={salt}|range={:?}:{:?}",
+            range.start, range.end
+        ));
+    } else {
+        let value = predicate.value.as_ref()?;
+        let value = serde_json::to_string(&value.value).ok()?;
+        key.push('|');
+        key.push_str(&value);
+    }
+    Some(key)
 }
 
 fn reference_label(reference: &str) -> &str {
