@@ -1,0 +1,10 @@
+enabled_features = ["basic-reporting"]
+
+[limits]
+projects = 3
+members = 5
+monthly_requests = 10000
+
+[metadata]
+support_tier = "community"
+audit_retention_days = 7

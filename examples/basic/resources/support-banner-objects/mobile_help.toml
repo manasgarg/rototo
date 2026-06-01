@@ -1,0 +1,5 @@
+enabled = true
+tone = "help"
+heading = "Need help?"
+body = "Chat with support without leaving the app."
+cta = "Open chat"

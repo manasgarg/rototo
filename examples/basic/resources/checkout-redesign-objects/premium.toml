@@ -1,0 +1,5 @@
+variant = "premium"
+heading = "Fast checkout for members"
+subheading = "Your saved details are ready"
+image_url = "/images/checkout/premium.png"
+content = "Review and place your order."

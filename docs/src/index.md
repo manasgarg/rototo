@@ -193,9 +193,9 @@ into a selected value.
 If you want to run something, continue with `quickstart`. It is the shortest
 guided path: create a small workspace, lint it, and resolve one variable.
 
-After that, read `production-workflow` for a production workflow with a separate Git
-repository, context schema, qualifier, variable schema, tests, Git URI loading,
-application integration, and observability.
+After that, read `production-workflow` for a production workflow with a separate
+Git repository, context schema, qualifier, resource schema, tests, Git URI
+loading, application integration, and observability.
 
 After that, use the docs by intent:
 
@@ -255,6 +255,7 @@ Reference
   workspace-manifest-reference
   qualifier-reference
   variable-reference
+  resource-reference
   predicate-reference
   context-reference
   environment-reference

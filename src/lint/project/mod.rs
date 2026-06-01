@@ -1,7 +1,7 @@
-mod external_value;
 mod fields;
 mod manifest;
 mod qualifier;
+mod resource;
 mod schema;
 mod variable;
 
@@ -34,30 +34,32 @@ pub(super) fn build_semantic_index(source: &SourceStore, syntax: &SyntaxIndex) -
                 let Some(toml) = syntax.toml.get(&document.id) else {
                     continue;
                 };
-                index.variables.insert(
-                    id.clone(),
-                    variable::project_variable(document, toml, id, source),
-                );
+                index
+                    .variables
+                    .insert(id.clone(), variable::project_variable(document, toml, id));
             }
-            DocumentKind::ExternalValue {
-                variable_id,
-                value_key,
+            DocumentKind::Resource { id } => {
+                let Some(toml) = syntax.toml.get(&document.id) else {
+                    continue;
+                };
+                index
+                    .resources
+                    .insert(id.clone(), resource::project_resource(document, toml, id));
+            }
+            DocumentKind::ResourceObject {
+                resource_id,
+                object_id,
             } => {
                 let Some(toml) = syntax.toml.get(&document.id) else {
                     continue;
                 };
                 index
-                    .external_values
-                    .entry(variable_id.clone())
+                    .resource_objects
+                    .entry(resource_id.clone())
                     .or_default()
                     .insert(
-                        value_key.clone(),
-                        external_value::project_external_value(
-                            document,
-                            toml,
-                            variable_id,
-                            value_key,
-                        ),
+                        object_id.clone(),
+                        resource::project_resource_object(document, toml, resource_id, object_id),
                     );
             }
             DocumentKind::Schema => {

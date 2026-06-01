@@ -31,6 +31,11 @@ config/
     affected-payment-region.toml
   variables/
     checkout-banner.toml
+  resources/
+    checkout-banner.toml
+    checkout-banner-objects/
+      none.toml
+      payment_incident.toml
 ```
 
 ## Qualifier
@@ -56,17 +61,7 @@ Create `variables/checkout-banner.toml`:
 schema_version = 1
 
 description = "Checkout banner shown during operational incidents"
-schema = "../schemas/banner.schema.json"
-
-[values.none]
-enabled = false
-message = ""
-severity = "info"
-
-[values.payment_incident]
-enabled = true
-message = "Some payment methods may be delayed. Card checkout is still available."
-severity = "warning"
+type = "resource:checkout-banner"
 
 [env._]
 value = "none"
@@ -78,6 +73,29 @@ value = "none"
 description = "Show the payment incident banner in affected regions"
 qualifier = "affected-payment-region"
 value = "payment_incident"
+```
+
+Create `resources/checkout-banner.toml`:
+
+```toml
+schema_version = 1
+schema = "../schemas/banner.schema.json"
+```
+
+Create `resources/checkout-banner-objects/none.toml`:
+
+```toml
+enabled = false
+message = ""
+severity = "info"
+```
+
+Create `resources/checkout-banner-objects/payment_incident.toml`:
+
+```toml
+enabled = true
+message = "Some payment methods may be delayed. Card checkout is still available."
+severity = "warning"
 ```
 
 ## Verify the behavior
@@ -121,3 +139,4 @@ localization, approvals beyond code review, or non-engineering editing.
 - `how-to-load-config-from-a-git-repo-in-an-app`
 - `how-to-select-a-value-for-a-runtime-condition`
 - `predicate-reference`
+- `resource-reference`

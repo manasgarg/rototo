@@ -1,21 +1,7 @@
 schema_version = 1
 
 description = "LLM settings for background summarization"
-schema = "../schemas/llm-config.schema.json"
-
-[values.fast]
-model = "gpt-5-nano"
-gateway = "openai"
-prompt = "Summarize operational context in compact bullet points."
-max_output_tokens = 700
-temperature = 0.1
-
-[values.rich]
-model = "gpt-5-mini"
-gateway = "openai"
-prompt = "Summarize operational context with key tradeoffs preserved."
-max_output_tokens = 1600
-temperature = 0.2
+type = "resource:llm-summarizer-config"
 
 [env._]
 value = "fast"

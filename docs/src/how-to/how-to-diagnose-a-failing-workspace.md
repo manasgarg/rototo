@@ -4,7 +4,7 @@ Use this when `rototo lint` fails and you need to turn the diagnostic
 into a concrete fix.
 
 The goal is to identify whether the failure is in the workspace manifest,
-context schema, qualifier, variable, value file, reference, or custom lint
+context schema, qualifier, variable, resource object, reference, or custom lint
 policy.
 
 This page is for load, lint, and validation failures. If resolution succeeded
@@ -64,14 +64,14 @@ workspace manifest failure -> rototo-workspace.toml
 context schema failure     -> schemas/context.schema.json
 qualifier failure          -> qualifiers/<id>.toml
 variable failure           -> variables/<id>.toml
-value validation failure   -> inline values or *-values/*.toml
-custom lint failure        -> lint script and expanded variable values
+resource object failure    -> resources/<id>-objects/<object>.toml
+custom lint failure        -> lint script and targeted workspace files
 ```
 
 Parse failures usually mean syntax. Reference failures usually mean a missing
-environment, qualifier id, value key, schema path, or lint path. Validation
-failures usually mean a value or context field does not match its declared
-contract.
+environment, qualifier id, value key, resource object, schema path, or lint
+path. Validation failures usually mean a primitive value, resource object, or
+context field does not match its declared contract.
 
 ## Inspect the affected object
 
@@ -87,8 +87,8 @@ If lint points at a qualifier, inspect it:
 rototo show config/ --qualifier enterprise-accounts
 ```
 
-Inspection helps confirm what rototo loaded, including expanded variable values
-from external files.
+Inspection helps confirm what rototo loaded. Use `--resource <id>` when lint
+points at a resource object.
 
 ## Re-run the smallest useful check
 
@@ -127,4 +127,5 @@ part of the workspace release gate.
 - `diagnostics` explains diagnostic fields and catalog commands.
 - `cli` lists lint, get, and resolve commands.
 - `workspace-manifest-reference` specifies the manifest.
-- `variable-reference` and `qualifier-reference` specify object validation.
+- `variable-reference`, `resource-reference`, and `qualifier-reference`
+  specify workspace object validation.

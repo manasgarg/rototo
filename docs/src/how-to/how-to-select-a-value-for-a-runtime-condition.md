@@ -53,10 +53,11 @@ standard = 1000
 enterprise = 2000
 ```
 
-For larger structured values, put the value in an external value file such as:
+For larger structured values, make the variable resource-backed and put the
+value in a resource object file such as:
 
 ```text
-variables/llm-agent-config-values/enterprise.toml
+resources/llm-agent-config-objects/enterprise.toml
 ```
 
 The value key is the file stem, so this file defines `enterprise`.
@@ -122,4 +123,5 @@ runtime.
 - `qualifier-reference` specifies qualifier files.
 - `predicate-reference` specifies predicate operators.
 - `variable-reference` specifies environment rules.
+- `resource-reference` specifies structured resource objects.
 - `context-reference` explains context validation.

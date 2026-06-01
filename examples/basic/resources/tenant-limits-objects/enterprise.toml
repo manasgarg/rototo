@@ -1,0 +1,10 @@
+enabled_features = ["basic-reporting", "scheduled-exports", "webhooks", "sso", "audit-log"]
+
+[limits]
+projects = 500
+members = 5000
+monthly_requests = 10000000
+
+[metadata]
+support_tier = "dedicated"
+audit_retention_days = 365

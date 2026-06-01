@@ -1,5 +1,6 @@
 mod graph;
 mod qualifier;
+mod resource;
 mod schema;
 mod variable;
 mod workspace;
@@ -16,6 +17,7 @@ pub(super) fn run_project(ctx: &mut LintContext) {
     schema::lint_schema_documents(ctx);
     workspace::lint_manifest_custom_rule_shapes(ctx);
     qualifier::lint_qualifier_shapes(ctx);
+    resource::lint_resource_shapes(ctx);
     variable::lint_variable_shapes(ctx);
     workspace::lint_custom_rule_conflicts(ctx);
 }
@@ -25,12 +27,13 @@ pub(super) fn run_reference(ctx: &mut LintContext) {
     schema::lint_qualifier_context_schema_types(ctx);
     schema::lint_unreferenced_schemas(ctx);
     qualifier::lint_qualifier_references(ctx);
+    resource::lint_resource_references(ctx);
     variable::lint_variable_references(ctx);
-    variable::lint_variable_schema_references(ctx);
     schema::lint_missing_context_schema_for_qualifier_attributes(ctx);
 }
 
 pub(super) fn run_value(ctx: &mut LintContext) {
+    resource::lint_resource_objects(ctx);
     variable::lint_variable_values(ctx);
 }
 

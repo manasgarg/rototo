@@ -1,21 +1,7 @@
 schema_version = 1
 
 description = "Checkout page content and layout variant"
-schema = "../schemas/checkout-page.schema.json"
-
-[values.control]
-variant = "control"
-heading = "Complete your purchase"
-subheading = "You're almost done"
-image_url = "/images/checkout/control.png"
-content = "Secure checkout in seconds."
-
-[values.premium]
-variant = "premium"
-heading = "Fast checkout for members"
-subheading = "Your saved details are ready"
-image_url = "/images/checkout/premium.png"
-content = "Review and place your order."
+type = "resource:checkout-redesign"
 
 [env._]
 value = "control"

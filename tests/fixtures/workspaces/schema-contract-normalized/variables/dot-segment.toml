@@ -1,9 +1,6 @@
 schema_version = 1
-schema = "./../schemas/value.schema.json"
-description = "Variable with a dot-segment schema reference"
-
-[values]
-default = { enabled = false }
+type = "resource:dot-segment"
+description = "Variable with a dot-segment resource schema reference"
 
 [env._]
 value = "default"

@@ -1,4 +1,4 @@
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::BTreeMap;
 
 use toml_span::Value as TomlValue;
 use toml_span::value::Table;
@@ -6,7 +6,7 @@ use toml_span::value::Table;
 use crate::diagnostics::DiagnosticLocation;
 
 use super::super::index::*;
-use super::super::source::{SourceDocument, SourceStore};
+use super::super::source::SourceDocument;
 use super::super::syntax::{ParsedToml, item_location, value_location};
 use super::fields::{integer_field, json_from_toml_value, optional_string_field, string_field};
 
@@ -14,7 +14,6 @@ pub(crate) fn project_variable(
     document: &SourceDocument,
     toml: &ParsedToml,
     id: &str,
-    source: &SourceStore,
 ) -> VariableNode {
     let root = toml.root_table();
     let location = document.document_location();
@@ -25,7 +24,7 @@ pub(crate) fn project_variable(
         });
     let description = root.and_then(|root| optional_string_field(document, root, "description"));
     let type_source = project_type_source(document, root, location.clone());
-    let values = project_values(document, toml, root, id, source);
+    let values = project_values(document, root, id);
     let environments = project_environments(document, root, id);
 
     VariableNode {
@@ -56,10 +55,20 @@ fn project_type_source(
             location: item_location(document, schema_item),
         },
         (Some(item), None) => match item.as_str() {
-            Some(type_name) => TypeSourceNode::Primitive(Spanned {
-                value: type_name.to_owned(),
-                location: item_location(document, item),
-            }),
+            Some(type_name) => {
+                let location = item_location(document, item);
+                if let Some(resource_id) = type_name.strip_prefix("resource:") {
+                    TypeSourceNode::Resource(Spanned {
+                        value: resource_id.to_owned(),
+                        location,
+                    })
+                } else {
+                    TypeSourceNode::Primitive(Spanned {
+                        value: type_name.to_owned(),
+                        location,
+                    })
+                }
+            }
             None => TypeSourceNode::Invalid {
                 location: item_location(document, item),
             },
@@ -76,29 +85,18 @@ fn project_type_source(
     }
 }
 
-fn project_values(
-    document: &SourceDocument,
-    toml: &ParsedToml,
-    root: Option<&Table<'_>>,
-    id: &str,
-    source: &SourceStore,
-) -> ValuesNode {
-    let external_keys = source.external_value_keys(id);
+fn project_values(document: &SourceDocument, root: Option<&Table<'_>>, id: &str) -> ValuesNode {
     let Some(root) = root else {
         return ValuesNode {
             location: document.document_location(),
-            inline_keys: BTreeSet::new(),
             inline_values: BTreeMap::new(),
-            external_keys,
             invalid_shape: false,
         };
     };
     let Some(item) = root.get("values") else {
         return ValuesNode {
             location: document.document_location(),
-            inline_keys: BTreeSet::new(),
             inline_values: BTreeMap::new(),
-            external_keys,
             invalid_shape: false,
         };
     };
@@ -106,26 +104,21 @@ fn project_values(
     let Some(table) = item.as_table() else {
         return ValuesNode {
             location,
-            inline_keys: BTreeSet::new(),
             inline_values: BTreeMap::new(),
-            external_keys,
             invalid_shape: true,
         };
     };
 
-    let inline_values = project_inline_values(document, toml, id, table);
+    let inline_values = project_inline_values(document, id, table);
     ValuesNode {
         location,
-        inline_keys: inline_values.keys().cloned().collect(),
         inline_values,
-        external_keys,
         invalid_shape: false,
     }
 }
 
 fn project_inline_values(
     document: &SourceDocument,
-    _toml: &ParsedToml,
     variable_id: &str,
     table: &Table<'_>,
 ) -> BTreeMap<String, ValueNode> {

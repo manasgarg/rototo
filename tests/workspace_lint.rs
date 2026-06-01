@@ -24,8 +24,9 @@ fn lints_basic_workspace_as_json_with_documents() {
     assert!(document_paths(&lint).contains(&"rototo-workspace.toml".to_owned()));
     assert!(document_paths(&lint).contains(&"qualifiers/premium-users.toml".to_owned()));
     assert!(document_paths(&lint).contains(&"variables/checkout-redesign.toml".to_owned()));
+    assert!(document_paths(&lint).contains(&"resources/llm-agent-config.toml".to_owned()));
     assert!(
-        document_paths(&lint).contains(&"variables/llm-agent-config-values/local.toml".to_owned())
+        document_paths(&lint).contains(&"resources/llm-agent-config-objects/local.toml".to_owned())
     );
     assert!(document_paths(&lint).contains(&"schemas/context.schema.json".to_owned()));
 }
@@ -268,6 +269,8 @@ fn accepts_path_safety_normalized_refs() {
     assert!(document_paths(&lint).contains(&"schemas/context.schema.json".to_owned()));
     assert!(document_paths(&lint).contains(&"schemas/value.schema.json".to_owned()));
     assert!(document_paths(&lint).contains(&"variables/message.toml".to_owned()));
+    assert!(document_paths(&lint).contains(&"resources/message.toml".to_owned()));
+    assert!(document_paths(&lint).contains(&"resources/message-objects/default.toml".to_owned()));
     assert!(document_paths(&lint).contains(&"lint/ok.lua".to_owned()));
 }
 
@@ -282,8 +285,8 @@ fn rejects_path_safety_escaping_refs_and_lint_files() {
     );
     assert_reference_rule(
         &lint,
-        "rototo/variable-schema-ref",
-        "variables/message.toml",
+        "rototo/resource-schema-ref",
+        "resources/message.toml",
     );
     assert_register_rule(&lint, "rototo/custom-lint-failed", "lint/escape.lua");
 
@@ -348,7 +351,7 @@ fn reports_project_stage_variable_shape_failures() {
     );
     assert_project_rule(
         &lint,
-        "rototo/variable-type-or-schema",
+        "rototo/variable-type-source",
         "variables/type-or-schema.toml",
     );
     assert_project_rule(
@@ -395,37 +398,11 @@ fn reports_project_stage_predicate_failures() {
 }
 
 #[test]
-fn reports_project_stage_external_value_integrity_failures() {
-    let lint = lint_json("tests/fixtures/workspaces/lint-failures", false);
-
-    assert_project_rule(
-        &lint,
-        "rototo/variable-external-value-duplicate",
-        "variables/external-duplicate-values/default.toml",
-    );
-    assert_project_rule(
-        &lint,
-        "rototo/variable-external-values-load-failed",
-        "variables/external-load.toml",
-    );
-
-    let duplicate = diagnostic_for_rule(&lint, "rototo/variable-external-value-duplicate");
-    assert_eq!(duplicate["entity"]["kind"], "value");
-    assert_eq!(duplicate["entity"]["variable"], "external-duplicate");
-    assert_eq!(duplicate["entity"]["key"], "default");
-    assert!(duplicate["location"]["range"].is_object());
-
-    let load_failed = diagnostic_for_rule(&lint, "rototo/variable-external-values-load-failed");
-    assert_eq!(load_failed["entity"]["kind"], "variable");
-    assert_eq!(load_failed["entity"]["id"], "external-load");
-    assert!(load_failed["location"]["range"].is_object());
-}
-
-#[test]
-fn external_value_file_can_represent_object_with_value_key() {
+fn resource_object_file_can_represent_object_with_value_key() {
     let temp = tempfile::TempDir::new().unwrap();
     let root = temp.path();
-    std::fs::create_dir_all(root.join("variables/message-values")).unwrap();
+    std::fs::create_dir_all(root.join("variables")).unwrap();
+    std::fs::create_dir_all(root.join("resources/message-objects")).unwrap();
     std::fs::create_dir_all(root.join("schemas")).unwrap();
     std::fs::write(
         root.join("rototo-workspace.toml"),
@@ -447,9 +424,16 @@ values = ["prod"]
     )
     .unwrap();
     std::fs::write(
-        root.join("variables/message.toml"),
+        root.join("resources/message.toml"),
         r#"schema_version = 1
 schema = "../schemas/message.schema.json"
+"#,
+    )
+    .unwrap();
+    std::fs::write(
+        root.join("variables/message.toml"),
+        r#"schema_version = 1
+type = "resource:message"
 
 [env._]
 value = "default"
@@ -457,7 +441,7 @@ value = "default"
     )
     .unwrap();
     std::fs::write(
-        root.join("variables/message-values/default.toml"),
+        root.join("resources/message-objects/default.toml"),
         r#"value = "literal object field""#,
     )
     .unwrap();
@@ -470,10 +454,12 @@ value = "default"
 }
 
 #[test]
-fn duplicate_external_values_are_not_validated_twice() {
+fn resource_backed_variable_values_are_rejected_before_value_validation() {
     let temp = tempfile::TempDir::new().unwrap();
     let root = temp.path();
-    std::fs::create_dir_all(root.join("variables/message-values")).unwrap();
+    std::fs::create_dir_all(root.join("variables")).unwrap();
+    std::fs::create_dir_all(root.join("resources/message-objects")).unwrap();
+    std::fs::create_dir_all(root.join("schemas")).unwrap();
     std::fs::write(
         root.join("rototo-workspace.toml"),
         r#"schema_version = 1
@@ -484,9 +470,31 @@ values = ["prod"]
     )
     .unwrap();
     std::fs::write(
+        root.join("schemas/message.schema.json"),
+        r#"{
+  "type": "object",
+  "properties": { "value": { "type": "string" } },
+  "required": ["value"],
+  "additionalProperties": false
+}"#,
+    )
+    .unwrap();
+    std::fs::write(
+        root.join("resources/message.toml"),
+        r#"schema_version = 1
+schema = "../schemas/message.schema.json"
+"#,
+    )
+    .unwrap();
+    std::fs::write(
+        root.join("resources/message-objects/default.toml"),
+        r#"value = "resource object""#,
+    )
+    .unwrap();
+    std::fs::write(
         root.join("variables/message.toml"),
         r#"schema_version = 1
-type = "string"
+type = "resource:message"
 
 [values]
 default = "inline"
@@ -496,16 +504,11 @@ value = "default"
 "#,
     )
     .unwrap();
-    std::fs::write(
-        root.join("variables/message-values/default.toml"),
-        "value = 1",
-    )
-    .unwrap();
 
     let lint = lint_json(root.to_str().unwrap(), false);
     let rules = diagnostic_rules(&lint);
 
-    assert!(rules.contains(&"rototo/variable-external-value-duplicate".to_owned()));
+    assert!(rules.contains(&"rototo/variable-values-disallowed".to_owned()));
     assert!(
         !rules.contains(&"rototo/variable-value-type-mismatch".to_owned()),
         "{lint:#}"
@@ -535,6 +538,11 @@ fn reports_reference_stage_failures() {
         &lint,
         "rototo/variable-unknown-value",
         "variables/bad-env.toml",
+    );
+    assert_reference_rule(
+        &lint,
+        "rototo/resource-schema-ref",
+        "resources/bad-schema-ref.toml",
     );
 
     let qualifier = diagnostic_for_rule(&lint, "rototo/qualifier-predicate-unknown-qualifier");
@@ -592,8 +600,8 @@ fn reports_value_stage_failures() {
 
     assert_value_rule(
         &lint,
-        "rototo/variable-value-schema-mismatch",
-        "variables/bad-schema-value.toml",
+        "rototo/resource-object-schema-mismatch",
+        "resources/bad-schema-value-objects/broken.toml",
     );
     assert_value_rule(
         &lint,
@@ -611,9 +619,9 @@ fn reports_value_stage_failures() {
     assert_eq!(unknown_type["entity"]["id"], "unknown-type");
     assert!(unknown_type["location"]["range"].is_object());
 
-    let schema_mismatch = diagnostic_for_rule(&lint, "rototo/variable-value-schema-mismatch");
-    assert_eq!(schema_mismatch["entity"]["kind"], "value");
-    assert_eq!(schema_mismatch["entity"]["variable"], "bad-schema-value");
+    let schema_mismatch = diagnostic_for_rule(&lint, "rototo/resource-object-schema-mismatch");
+    assert_eq!(schema_mismatch["entity"]["kind"], "resource_object");
+    assert_eq!(schema_mismatch["entity"]["resource"], "bad-schema-value");
     assert_eq!(schema_mismatch["entity"]["key"], "broken");
 
     let type_mismatch = diagnostic_for_rule(&lint, "rototo/variable-value-type-mismatch");
@@ -974,12 +982,12 @@ fn reports_registered_custom_lint_targets() {
     );
     assert_value_rule(
         &lint,
-        "targets/variable-schema",
+        "targets/variable-type",
         "variables/agent-config.toml",
     );
     assert_value_rule(
         &lint,
-        "targets/returned-variable-schema",
+        "targets/returned-variable-type",
         "variables/agent-config.toml",
     );
     assert_value_rule(
@@ -1000,13 +1008,13 @@ fn reports_registered_custom_lint_targets() {
     assert_eq!(qualifier["stage"], "project");
     assert!(qualifier["location"]["range"].is_object());
 
-    let variable = diagnostic_for_rule(&lint, "targets/variable-schema");
+    let variable = diagnostic_for_rule(&lint, "targets/variable-type");
     assert_eq!(variable["entity"]["kind"], "variable");
     assert_eq!(variable["entity"]["id"], "agent-config");
     assert_eq!(variable["stage"], "value");
     assert!(variable["location"]["range"].is_object());
 
-    let returned = diagnostic_for_rule(&lint, "targets/returned-variable-schema");
+    let returned = diagnostic_for_rule(&lint, "targets/returned-variable-type");
     assert_eq!(returned["entity"]["kind"], "variable");
     assert_eq!(returned["entity"]["id"], "agent-config");
     assert_eq!(returned["location"]["range"]["start"]["line"], 3);
@@ -1326,30 +1334,6 @@ fn canonical_rule_fixtures() -> &'static [CanonicalRuleFixture] {
             }],
         },
         CanonicalRuleFixture {
-            rule: RototoRuleId::VariableExternalValueParseFailed,
-            workspace: "tests/fixtures/workspaces/rules/parse/variable-external-value-parse-failed",
-            success: false,
-            expected: &[ExpectedDiagnostic {
-                rule: "rototo/variable-external-value-parse-failed",
-                severity: "error",
-                stage: LintStage::Parse,
-                entity: ExpectedEntity::Value {
-                    variable: "external-message",
-                    key: "broken",
-                },
-                primary: ExpectedPrimaryLocation::Document {
-                    path: "variables/external-message-values/broken.toml",
-                    range: Some(ExpectedRange {
-                        start_line: 0,
-                        start_character: 7,
-                        end_line: 1,
-                        end_character: 0,
-                    }),
-                },
-                related: &[],
-            }],
-        },
-        CanonicalRuleFixture {
             rule: RototoRuleId::SchemaParseFailed,
             workspace: "tests/fixtures/workspaces/rules/parse/schema-parse-failed",
             success: false,
@@ -1531,22 +1515,6 @@ fn canonical_rule_fixtures() -> &'static [CanonicalRuleFixture] {
             }],
         },
         CanonicalRuleFixture {
-            rule: RototoRuleId::VariableTypeOrSchema,
-            workspace: "tests/fixtures/workspaces/rules/project/variable-type-or-schema",
-            success: false,
-            expected: &[ExpectedDiagnostic {
-                rule: "rototo/variable-type-or-schema",
-                severity: "error",
-                stage: LintStage::Project,
-                entity: ExpectedEntity::Variable("message"),
-                primary: ExpectedPrimaryLocation::Document {
-                    path: "variables/message.toml",
-                    range: None,
-                },
-                related: &[],
-            }],
-        },
-        CanonicalRuleFixture {
             rule: RototoRuleId::VariableValuesMissing,
             workspace: "tests/fixtures/workspaces/rules/project/variable-values-missing",
             success: false,
@@ -1643,51 +1611,6 @@ fn canonical_rule_fixtures() -> &'static [CanonicalRuleFixture] {
                         start_character: 8,
                         end_line: 8,
                         end_character: 21,
-                    }),
-                },
-                related: &[],
-            }],
-        },
-        CanonicalRuleFixture {
-            rule: RototoRuleId::VariableExternalValuesLoadFailed,
-            workspace: "tests/fixtures/workspaces/rules/project/variable-external-values-load-failed",
-            success: false,
-            expected: &[ExpectedDiagnostic {
-                rule: "rototo/variable-external-values-load-failed",
-                severity: "error",
-                stage: LintStage::Project,
-                entity: ExpectedEntity::Variable("external-message"),
-                primary: ExpectedPrimaryLocation::Document {
-                    path: "variables/external-message.toml",
-                    range: Some(ExpectedRange {
-                        start_line: 2,
-                        start_character: 9,
-                        end_line: 2,
-                        end_character: 22,
-                    }),
-                },
-                related: &[],
-            }],
-        },
-        CanonicalRuleFixture {
-            rule: RototoRuleId::VariableExternalValueDuplicate,
-            workspace: "tests/fixtures/workspaces/rules/project/variable-external-value-duplicate",
-            success: false,
-            expected: &[ExpectedDiagnostic {
-                rule: "rototo/variable-external-value-duplicate",
-                severity: "error",
-                stage: LintStage::Project,
-                entity: ExpectedEntity::Value {
-                    variable: "external-message",
-                    key: "default",
-                },
-                primary: ExpectedPrimaryLocation::Document {
-                    path: "variables/external-message-values/default.toml",
-                    range: Some(ExpectedRange {
-                        start_line: 0,
-                        start_character: 0,
-                        end_line: 1,
-                        end_character: 0,
                     }),
                 },
                 related: &[],
@@ -2084,51 +2007,6 @@ fn canonical_rule_fixtures() -> &'static [CanonicalRuleFixture] {
             }],
         },
         CanonicalRuleFixture {
-            rule: RototoRuleId::VariableValueSchemaMismatch,
-            workspace: "tests/fixtures/workspaces/rules/value/variable-value-schema-mismatch",
-            success: false,
-            expected: &[ExpectedDiagnostic {
-                rule: "rototo/variable-value-schema-mismatch",
-                severity: "error",
-                stage: LintStage::Value,
-                entity: ExpectedEntity::Value {
-                    variable: "message",
-                    key: "control",
-                },
-                primary: ExpectedPrimaryLocation::Document {
-                    path: "variables/message.toml",
-                    range: Some(ExpectedRange {
-                        start_line: 3,
-                        start_character: 0,
-                        end_line: 4,
-                        end_character: 31,
-                    }),
-                },
-                related: &[],
-            }],
-        },
-        CanonicalRuleFixture {
-            rule: RototoRuleId::VariableSchemaRef,
-            workspace: "tests/fixtures/workspaces/rules/reference/variable-schema-ref",
-            success: false,
-            expected: &[ExpectedDiagnostic {
-                rule: "rototo/variable-schema-ref",
-                severity: "error",
-                stage: LintStage::Reference,
-                entity: ExpectedEntity::Variable("message"),
-                primary: ExpectedPrimaryLocation::Document {
-                    path: "variables/message.toml",
-                    range: Some(ExpectedRange {
-                        start_line: 1,
-                        start_character: 9,
-                        end_line: 1,
-                        end_character: 41,
-                    }),
-                },
-                related: &[],
-            }],
-        },
-        CanonicalRuleFixture {
             rule: RototoRuleId::SchemaInvalid,
             workspace: "tests/fixtures/workspaces/rules/project/schema-invalid",
             success: false,
@@ -2496,7 +2374,35 @@ fn canonical_rule_fixtures() -> &'static [CanonicalRuleFixture] {
 }
 
 fn pending_canonical_rule_fixtures() -> &'static [PendingCanonicalRuleFixture] {
-    &[]
+    &[
+        PendingCanonicalRuleFixture {
+            rule: RototoRuleId::VariableTypeSource,
+        },
+        PendingCanonicalRuleFixture {
+            rule: RototoRuleId::VariableUnknownResource,
+        },
+        PendingCanonicalRuleFixture {
+            rule: RototoRuleId::VariableValuesDisallowed,
+        },
+        PendingCanonicalRuleFixture {
+            rule: RototoRuleId::ResourceParseFailed,
+        },
+        PendingCanonicalRuleFixture {
+            rule: RototoRuleId::ResourceObjectParseFailed,
+        },
+        PendingCanonicalRuleFixture {
+            rule: RototoRuleId::ResourceSchemaVersion,
+        },
+        PendingCanonicalRuleFixture {
+            rule: RototoRuleId::ResourceSchemaRef,
+        },
+        PendingCanonicalRuleFixture {
+            rule: RototoRuleId::ResourceObjectSchemaMismatch,
+        },
+        PendingCanonicalRuleFixture {
+            rule: RototoRuleId::ResourceObjectUnknownReference,
+        },
+    ]
 }
 
 fn assert_canonical_fixture(fixture: &CanonicalRuleFixture) {

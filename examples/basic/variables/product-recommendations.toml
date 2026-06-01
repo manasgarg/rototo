@@ -1,25 +1,7 @@
 schema_version = 1
 
 description = "Product recommendation strategy for shopping surfaces"
-schema = "../schemas/recommendation-config.schema.json"
-
-[values.baseline]
-algorithm = "popular"
-slots = 4
-include_sponsored = false
-fallback_collection = "top-sellers"
-
-[values.personalized]
-algorithm = "personalized-v2"
-slots = 6
-include_sponsored = true
-fallback_collection = "trending-now"
-
-[values.enterprise]
-algorithm = "account-affinity"
-slots = 8
-include_sponsored = false
-fallback_collection = "enterprise-staples"
+type = "resource:product-recommendations"
 
 [env._]
 value = "baseline"

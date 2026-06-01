@@ -14,13 +14,13 @@ title = "Qualifier predicates target was checked"
 help = "Update the qualifier predicate policy."
 
 [[lint.rule]]
-id = "targets/variable-schema"
-title = "Variable schema target was checked"
-help = "Update the variable schema policy."
+id = "targets/variable-type"
+title = "Variable type target was checked"
+help = "Update the variable type policy."
 
 [[lint.rule]]
-id = "targets/returned-variable-schema"
-title = "Returned variable schema field was checked"
+id = "targets/returned-variable-type"
+title = "Returned variable type field was checked"
 help = "Update the returned field policy."
 
 [[lint.rule]]

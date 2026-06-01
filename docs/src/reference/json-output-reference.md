@@ -22,6 +22,13 @@ Shape:
       "path": "qualifiers/enterprise-accounts.toml"
     }
   ],
+  "resources": [
+    {
+      "id": "llm-agent-config",
+      "uri": "resource://llm-agent-config",
+      "path": "resources/llm-agent-config.toml"
+    }
+  ],
   "variables": [
     {
       "id": "llm-agent-config",
@@ -71,14 +78,15 @@ span. See `diagnostics`.
 
 ## Show Commands
 
-`show` uses selectors to return variables, qualifiers, lint rules, authorities,
-and linters in one envelope:
+`show` uses selectors to return variables, resources, qualifiers, lint rules,
+authorities, and linters in one envelope:
 
 ```json
 {
   "command": "show",
   "workspace": "/abs/path/config",
   "variables": [],
+  "resources": [],
   "qualifiers": [],
   "lint_rules": [],
   "lint_authorities": [],
@@ -86,8 +94,8 @@ and linters in one envelope:
 }
 ```
 
-Selected variable and qualifier entries include authored TOML when a specific
-id is selected:
+Selected variable, resource, and qualifier entries include authored TOML when a
+specific id is selected:
 
 ```json
 {
@@ -103,6 +111,7 @@ id is selected:
       }
     }
   ],
+  "resources": [],
   "qualifiers": [],
   "lint_rules": [],
   "lint_authorities": [],
@@ -110,8 +119,8 @@ id is selected:
 }
 ```
 
-Variable show returns the expanded variable TOML after external value files have
-been loaded.
+Resource show returns the resource definition with an `objects` table containing
+the parsed object files.
 
 ## Qualifier Resolution
 

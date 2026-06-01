@@ -61,7 +61,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
     let llm_config: LlmConfig = serde_json::from_value(llm_config.value)?;
 
     let message = workspace
-        .resolve_variable("directory-backed-message", &env, &context)
+        .resolve_variable("premium-message", &env, &context)
         .await?;
     let message: String = serde_json::from_value(message.value)?;
 

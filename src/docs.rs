@@ -72,7 +72,7 @@ pub const DOCS: &[DocPage] = &[
     },
     DocPage {
         id: "how-to-move-large-values-out-of-toml",
-        title: "How to Move Large Values Out of TOML",
+        title: "How to Move Large Values Into Resources",
         markdown: include_str!("../docs/src/how-to/how-to-move-large-values-out-of-toml.md"),
     },
     DocPage {
@@ -151,6 +151,11 @@ pub const DOCS: &[DocPage] = &[
         id: "variable-reference",
         title: "Variable File Reference",
         markdown: include_str!("../docs/src/reference/variable-reference.md"),
+    },
+    DocPage {
+        id: "resource-reference",
+        title: "Resource Reference",
+        markdown: include_str!("../docs/src/reference/resource-reference.md"),
     },
     DocPage {
         id: "predicate-reference",
@@ -260,6 +265,7 @@ pub const DOC_NAV_SECTIONS: &[DocNavSection] = &[
             "workspace-manifest-reference",
             "qualifier-reference",
             "variable-reference",
+            "resource-reference",
             "predicate-reference",
             "context-reference",
             "environment-reference",

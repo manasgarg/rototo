@@ -23,6 +23,7 @@ pub(crate) fn hover(
     push_manifest_hover_candidates(&snapshot.index, path, position, &mut candidates);
     push_qualifier_hover_candidates(&snapshot.index, path, position, &mut candidates);
     push_variable_hover_candidates(&snapshot.index, path, position, &mut candidates);
+    push_resource_hover_candidates(&snapshot.index, path, position, &mut candidates);
     sort_hover_candidates(&mut candidates);
     candidates
         .into_iter()
@@ -244,16 +245,47 @@ fn push_variable_hover_candidates(
             }
         }
     }
+}
 
-    for (variable_id, values) in &index.external_values {
-        for value in values.values() {
+fn push_resource_hover_candidates(
+    index: &SemanticIndex,
+    path: &str,
+    position: SourcePosition,
+    candidates: &mut Vec<HoverCandidate>,
+) {
+    for resource in index.resources.values() {
+        if resource.location.path != path {
+            continue;
+        }
+        push_hover_candidate(
+            candidates,
+            path,
+            position,
+            &resource.location,
+            2,
+            resource_hover_contents(resource),
+        );
+        if let Some(ProjectField::Present(description)) = &resource.description {
             push_hover_candidate(
                 candidates,
                 path,
                 position,
-                &value.location,
+                &description.location,
                 2,
-                value_hover_contents(variable_id, value),
+                resource_hover_contents(resource),
+            );
+        }
+    }
+
+    for objects in index.resource_objects.values() {
+        for object in objects.values() {
+            push_hover_candidate(
+                candidates,
+                path,
+                position,
+                &object.location,
+                2,
+                resource_object_hover_contents(object),
             );
         }
     }
@@ -310,17 +342,24 @@ fn file_hover(index: &SemanticIndex, path: &str) -> Option<WorkspaceHover> {
         })
         .or_else(|| {
             index
-                .external_values
-                .iter()
-                .find_map(|(variable_id, values)| {
-                    values
-                        .values()
-                        .find(|value| value.location.path == path)
-                        .map(|value| WorkspaceHover {
-                            contents: value_hover_contents(variable_id, value),
-                            location: value.location.clone(),
-                        })
+                .resources
+                .values()
+                .find(|resource| resource.location.path == path)
+                .map(|resource| WorkspaceHover {
+                    contents: resource_hover_contents(resource),
+                    location: resource.location.clone(),
                 })
+        })
+        .or_else(|| {
+            index.resource_objects.values().find_map(|objects| {
+                objects
+                    .values()
+                    .find(|object| object.location.path == path)
+                    .map(|object| WorkspaceHover {
+                        contents: resource_object_hover_contents(object),
+                        location: object.location.clone(),
+                    })
+            })
         })
 }
 
@@ -454,6 +493,24 @@ fn value_hover_contents(variable_id: &str, value: &ValueNode) -> String {
     )
 }
 
+fn resource_hover_contents(resource: &ResourceNode) -> String {
+    let mut contents = format!("### Resource `{}`", resource.id);
+    if let Some(description) = project_field_string(&resource.description) {
+        contents.push_str("\n\n");
+        contents.push_str(description);
+    }
+    contents
+}
+
+fn resource_object_hover_contents(object: &ResourceObjectNode) -> String {
+    format!(
+        "### Resource object `{}`\n\nResource: `{}`\n\nJSON shape: `{}`",
+        object.key,
+        object.resource_id,
+        json_shape_label(&object.value)
+    )
+}
+
 fn environment_block_hover_contents(
     variable: &VariableNode,
     block: &EnvironmentBlockNode,
@@ -501,19 +558,19 @@ fn variable_rule_summary(rule: &VariableRuleNode) -> String {
 fn type_source_summary(variable: &VariableNode) -> String {
     match &variable.type_source {
         TypeSourceNode::Primitive(type_name) => format!("Type: `{}`", type_name.value),
+        TypeSourceNode::Resource(resource) => format!("Resource type: `{}`", resource.value),
         TypeSourceNode::Schema(schema) => format!("Schema: `{}`", schema.value),
-        TypeSourceNode::Missing { .. } => "Type/schema: missing".to_owned(),
-        TypeSourceNode::Conflict { .. } => "Type/schema: both declared".to_owned(),
-        TypeSourceNode::Invalid { .. } => "Type/schema: invalid".to_owned(),
+        TypeSourceNode::Missing { .. } => "Type: missing".to_owned(),
+        TypeSourceNode::Conflict { .. } => "Type: conflicting declarations".to_owned(),
+        TypeSourceNode::Invalid { .. } => "Type: invalid".to_owned(),
     }
 }
 
 fn variable_value_keys(variable: &VariableNode) -> Vec<String> {
     variable
         .values
-        .inline_keys
-        .iter()
-        .chain(variable.values.external_keys.iter())
+        .inline_values
+        .keys()
         .map(|value| format!("`{value}`"))
         .collect()
 }

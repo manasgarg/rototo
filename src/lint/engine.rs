@@ -84,16 +84,10 @@ impl LintContext {
 }
 
 pub(super) fn variable_values<'a>(
-    ctx: &'a LintContext,
+    _ctx: &'a LintContext,
     variable: &'a VariableNode,
 ) -> impl Iterator<Item = &'a ValueNode> {
-    variable.values.inline_values.values().chain(
-        ctx.index
-            .external_values
-            .get(&variable.id)
-            .into_iter()
-            .flat_map(|values| values.values()),
-    )
+    variable.values.inline_values.values()
 }
 
 #[cfg(test)]
@@ -103,7 +97,7 @@ mod tests {
     use crate::diagnostics::{CustomRuleId, DiagnosticRule, EntityId, RototoRuleId};
 
     use super::super::WORKSPACE_MANIFEST;
-    use super::super::index::{GateEntity, ValueOrigin};
+    use super::super::index::GateEntity;
     use super::super::index::{RegisteredLintEntity, RegisteredLintField, SchemaLintField};
     use super::super::input::OverlayDocument;
     use super::*;
@@ -246,7 +240,7 @@ value = "premium"
             (
                 "variables/message.toml",
                 r#"schema_version = 1
-schema = "../schemas/message.schema.json"
+type = "resource:message"
 
 [env._]
 value = "default"
@@ -260,11 +254,17 @@ value = "premium"
 "#,
             ),
             (
-                "variables/message-values/default.toml",
+                "resources/message.toml",
+                r#"schema_version = 1
+schema = "../schemas/message.schema.json"
+"#,
+            ),
+            (
+                "resources/message-objects/default.toml",
                 r#"message = "hello""#,
             ),
             (
-                "variables/message-values/premium.toml",
+                "resources/message-objects/premium.toml",
                 r#"message = "premium""#,
             ),
             (
@@ -329,8 +329,9 @@ end
             WORKSPACE_MANIFEST,
             "qualifiers/premium.toml",
             "variables/message.toml",
-            "variables/message-values/default.toml",
-            "variables/message-values/premium.toml",
+            "resources/message.toml",
+            "resources/message-objects/default.toml",
+            "resources/message-objects/premium.toml",
             "schemas/message.schema.json",
             "schemas/context.schema.json",
             "lint/noop.lua",
@@ -346,7 +347,7 @@ end
     }
 
     #[tokio::test]
-    async fn snapshot_diagnostic_ranges_cover_references_and_external_values() {
+    async fn snapshot_diagnostic_ranges_cover_references() {
         let reference_snapshot = lint_workspace_snapshot(LintInput::new(PathBuf::from(
             "tests/fixtures/workspaces/rules/reference/variable-rule-unknown-qualifier",
         )))
@@ -361,37 +362,6 @@ end
         assert_eq!(reference.primary.range.unwrap().start.character, 12);
         assert_eq!(reference.primary.range.unwrap().end.line, 14);
         assert_eq!(reference.primary.range.unwrap().end.character, 27);
-
-        let external_value_snapshot = lint_workspace_snapshot(LintInput::new(PathBuf::from(
-            "tests/fixtures/workspaces/rules/project/variable-external-value-duplicate",
-        )))
-        .await
-        .unwrap();
-        let external_value = diagnostic_by_rule(
-            &external_value_snapshot.lint,
-            "rototo/variable-external-value-duplicate",
-        );
-        assert_eq!(
-            external_value.primary.path,
-            "variables/external-message-values/default.toml"
-        );
-        assert_eq!(external_value.primary.range.unwrap().start.line, 0);
-        assert_eq!(external_value.primary.range.unwrap().start.character, 0);
-        assert_eq!(external_value.primary.range.unwrap().end.line, 1);
-        assert_eq!(external_value.primary.range.unwrap().end.character, 0);
-
-        let external_node = external_value_snapshot
-            .index
-            .external_values
-            .get("external-message")
-            .and_then(|values| values.get("default"))
-            .expect("external value node");
-        assert_eq!(external_node.variable_id, "external-message");
-        assert!(matches!(
-            &external_node.origin,
-            ValueOrigin::External { path, .. }
-                if path == "variables/external-message-values/default.toml"
-        ));
     }
 
     #[tokio::test]

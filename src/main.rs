@@ -11,15 +11,19 @@ use serde::Serialize;
 
 use crate::output::{
     print_diagnostic_catalog_entry, print_inspect_report, print_qualifier_get,
-    print_qualifier_list, print_variable_get, print_variable_list, print_workspace_lint,
+    print_qualifier_list, print_resource_get, print_resource_list, print_variable_get,
+    print_variable_list, print_workspace_lint,
 };
 use rototo::diagnostics::{DiagnosticCatalogEntry, EntityId, LintDiagnostic, Severity};
 use rototo::model::{
     DiagnosticCatalog, InspectSelection, LinterInspection, QualifierInspection,
-    QualifierResolutionTrace, SchemaInspection, VariableInspection, VariableResolutionTrace,
-    WorkspaceInspectRequest, WorkspaceInspection, WorkspaceLint,
+    QualifierResolutionTrace, ResourceInspection, SchemaInspection, VariableInspection,
+    VariableResolutionTrace, WorkspaceInspectRequest, WorkspaceInspection, WorkspaceLint,
 };
-use rototo::workspace::{qualifier_for_id, read_toml, read_variable_toml, variable_for_id};
+use rototo::workspace::{
+    qualifier_for_id, read_resource_toml, read_toml, read_variable_toml, resource_for_id,
+    variable_for_id,
+};
 use rototo::{
     Result, RototoError, SourceAuth, SourceOptions, StagedWorkspace, catalog,
     catalog_for_workspace, diagnostic_for_rule, find_workspace_root, inspect_workspace,
@@ -114,6 +118,14 @@ struct SelectorArgs {
     /// Select all variables.
     #[arg(long = "variables", action = ArgAction::SetTrue)]
     all_variables: bool,
+
+    /// Select one resource id. Repeatable.
+    #[arg(long = "resource", value_name = "ID")]
+    resources: Vec<String>,
+
+    /// Select all resources.
+    #[arg(long = "resources", action = ArgAction::SetTrue)]
+    all_resources: bool,
 
     /// Select one qualifier id. Repeatable.
     #[arg(long = "qualifier", value_name = "ID")]
@@ -225,6 +237,7 @@ impl From<CompletionShell> for Shell {
 #[derive(Clone, Debug, Default)]
 struct TargetSelectors {
     variables: Selection<String>,
+    resources: Selection<String>,
     qualifiers: Selection<String>,
     lint_rules: Selection<String>,
     lint_authorities: Selection<String>,
@@ -260,6 +273,7 @@ impl TargetSelectors {
     fn from_args(args: &SelectorArgs) -> Self {
         Self {
             variables: selection(args.all_variables, &args.variables),
+            resources: selection(args.all_resources, &args.resources),
             qualifiers: selection(args.all_qualifiers, &args.qualifiers),
             lint_rules: selection(args.all_lint_rules, &args.lint_rules),
             lint_authorities: selection(args.all_lint_authorities, &args.lint_authorities),
@@ -270,6 +284,7 @@ impl TargetSelectors {
     fn from_resolve_args(args: &ResolveSelectorArgs) -> Self {
         Self {
             variables: selection(args.all_variables, &args.variables),
+            resources: Selection::None,
             qualifiers: selection(args.all_qualifiers, &args.qualifiers),
             lint_rules: Selection::None,
             lint_authorities: Selection::None,
@@ -279,6 +294,7 @@ impl TargetSelectors {
 
     fn is_empty(&self) -> bool {
         self.variables.is_none()
+            && self.resources.is_none()
             && self.qualifiers.is_none()
             && self.lint_rules.is_none()
             && self.lint_authorities.is_none()
@@ -291,6 +307,7 @@ impl TargetSelectors {
 
     fn is_global_catalog_query(&self) -> bool {
         self.variables.is_none()
+            && self.resources.is_none()
             && self.qualifiers.is_none()
             && self.linters.is_none()
             && (self.lint_rules.is_some_or_all() || self.lint_authorities.is_some_or_all())
@@ -444,6 +461,7 @@ async fn run_inspect(
         workspace.path(),
         WorkspaceInspectRequest {
             variables: inspect_selection(&selectors.variables),
+            resources: inspect_selection(&selectors.resources),
             qualifiers: inspect_selection(&selectors.qualifiers),
             lint_rules: inspect_selection(&selectors.lint_rules),
             lint_authorities: inspect_selection(&selectors.lint_authorities),
@@ -666,6 +684,17 @@ fn validate_workspace_selectors(
             )));
         }
     }
+    for id in selectors.resources.explicit_values() {
+        if !inspection
+            .resources
+            .iter()
+            .any(|resource| resource.id == *id)
+        {
+            return Err(RototoError::new(format!(
+                "resource not found: resource://{id}"
+            )));
+        }
+    }
     for id in selectors.qualifiers.explicit_values() {
         if !inspection
             .qualifiers
@@ -715,6 +744,7 @@ fn filter_lint(lint: WorkspaceLint, selectors: &TargetSelectors) -> WorkspaceLin
 
 fn diagnostic_matches_selectors(diagnostic: &LintDiagnostic, selectors: &TargetSelectors) -> bool {
     selection_matches_variable(&selectors.variables, diagnostic)
+        || selection_matches_resource(&selectors.resources, diagnostic)
         || selection_matches_qualifier(&selectors.qualifiers, diagnostic)
         || selection_matches_lint_rule(&selectors.lint_rules, diagnostic)
         || selection_matches_lint_authority(&selectors.lint_authorities, diagnostic)
@@ -738,6 +768,16 @@ fn selection_matches_qualifier(selection: &Selection<String>, diagnostic: &LintD
         Selection::Some(ids) => ids
             .iter()
             .any(|id| diagnostic_belongs_to_qualifier(diagnostic, id)),
+    }
+}
+
+fn selection_matches_resource(selection: &Selection<String>, diagnostic: &LintDiagnostic) -> bool {
+    match selection {
+        Selection::None => false,
+        Selection::All => diagnostic_is_resource_related(diagnostic),
+        Selection::Some(ids) => ids
+            .iter()
+            .any(|id| diagnostic_belongs_to_resource(diagnostic, id)),
     }
 }
 
@@ -783,13 +823,30 @@ fn diagnostic_is_variable_related(diagnostic: &LintDiagnostic) -> bool {
 
 fn diagnostic_belongs_to_variable(diagnostic: &LintDiagnostic, id: &str) -> bool {
     let variable_path = format!("variables/{id}.toml");
-    let external_values_prefix = format!("variables/{id}-values/");
     matches!(&diagnostic.entity, EntityId::Variable { id: diagnostic_id } if diagnostic_id == id)
         || matches!(&diagnostic.entity, EntityId::Value { variable, .. } if variable == id)
         || matches!(&diagnostic.entity, EntityId::EnvironmentBlock { variable, .. } if variable == id)
         || matches!(&diagnostic.entity, EntityId::Rule { variable, .. } if variable == id)
         || diagnostic.primary.path == variable_path
-        || diagnostic.primary.path.starts_with(&external_values_prefix)
+}
+
+fn diagnostic_is_resource_related(diagnostic: &LintDiagnostic) -> bool {
+    matches!(
+        diagnostic.entity,
+        EntityId::Resource { .. } | EntityId::ResourceObject { .. }
+    ) || diagnostic.primary.path.starts_with("resources/")
+}
+
+fn diagnostic_belongs_to_resource(diagnostic: &LintDiagnostic, id: &str) -> bool {
+    let resource_path = format!("resources/{id}.toml");
+    let resource_objects_prefix = format!("resources/{id}-objects/");
+    matches!(&diagnostic.entity, EntityId::Resource { id: diagnostic_id } if diagnostic_id == id)
+        || matches!(&diagnostic.entity, EntityId::ResourceObject { resource, .. } if resource == id)
+        || diagnostic.primary.path == resource_path
+        || diagnostic
+            .primary
+            .path
+            .starts_with(&resource_objects_prefix)
 }
 
 fn diagnostic_is_qualifier_related(diagnostic: &LintDiagnostic) -> bool {
@@ -845,6 +902,16 @@ async fn show_selected_targets(
         }
         Selection::None => {}
     }
+    match &selectors.resources {
+        Selection::All => print_resource_list(inspection, false)?,
+        Selection::Some(ids) => {
+            for id in ordered_selected_ids(ids, inspection.resources.iter().map(|r| r.id.as_str()))
+            {
+                print_resource_get(inspection, &id, false).await?;
+            }
+        }
+        Selection::None => {}
+    }
     match &selectors.qualifiers {
         Selection::All => print_qualifier_list(inspection, false)?,
         Selection::Some(ids) => {
@@ -866,6 +933,7 @@ struct WorkspaceView {
     workspace: String,
     environments: Vec<String>,
     schemas: Vec<SchemaInspection>,
+    resources: Vec<WorkspaceFileView>,
     variables: Vec<WorkspaceFileView>,
     qualifiers: Vec<WorkspaceFileView>,
     lint_rules: Vec<DiagnosticCatalogEntryView>,
@@ -907,6 +975,11 @@ async fn workspace_inventory_view(
         variables.push(variable_view(inspection, variable, false).await?);
     }
 
+    let mut resources = Vec::new();
+    for resource in &inspection.resources {
+        resources.push(resource_view(inspection, resource, false).await?);
+    }
+
     let mut qualifiers = Vec::new();
     for qualifier in &inspection.qualifiers {
         qualifiers.push(qualifier_view(inspection, qualifier, false).await?);
@@ -917,6 +990,7 @@ async fn workspace_inventory_view(
         workspace: inspection.root.display().to_string(),
         environments: inspection.environments.clone(),
         schemas: inspection.schemas.clone(),
+        resources,
         variables,
         qualifiers,
         lint_rules: Vec::new(),
@@ -931,6 +1005,7 @@ async fn selected_workspace_view(
     catalog: &DiagnosticCatalog,
 ) -> Result<WorkspaceView> {
     let mut variables = Vec::new();
+    let mut resources = Vec::new();
     let mut qualifiers = Vec::new();
     let mut lint_rules = selected_lint_rule_entries(catalog, selectors);
     let mut lint_authorities = selected_lint_authorities(catalog, selectors);
@@ -947,6 +1022,21 @@ async fn selected_workspace_view(
             {
                 let variable = variable_for_id(inspection, &id)?;
                 variables.push(variable_view(inspection, variable, true).await?);
+            }
+        }
+        Selection::None => {}
+    }
+    match &selectors.resources {
+        Selection::All => {
+            for resource in &inspection.resources {
+                resources.push(resource_view(inspection, resource, false).await?);
+            }
+        }
+        Selection::Some(ids) => {
+            for id in ordered_selected_ids(ids, inspection.resources.iter().map(|r| r.id.as_str()))
+            {
+                let resource = resource_for_id(inspection, &id)?;
+                resources.push(resource_view(inspection, resource, true).await?);
             }
         }
         Selection::None => {}
@@ -981,6 +1071,7 @@ async fn selected_workspace_view(
         workspace: inspection.root.display().to_string(),
         environments: Vec::new(),
         schemas: Vec::new(),
+        resources,
         variables,
         qualifiers,
         lint_rules,
@@ -1006,6 +1097,27 @@ async fn variable_view(
         id: variable.id.clone(),
         uri: variable.uri.clone(),
         path: variable.path.display().to_string(),
+        value,
+    })
+}
+
+async fn resource_view(
+    inspection: &WorkspaceInspection,
+    resource: &ResourceInspection,
+    include_value: bool,
+) -> Result<WorkspaceFileView> {
+    let value = if include_value {
+        Some(
+            serde_json::to_value(read_resource_toml(&inspection.root, resource).await?)
+                .map_err(|err| RototoError::new(err.to_string()))?,
+        )
+    } else {
+        None
+    };
+    Ok(WorkspaceFileView {
+        id: resource.id.clone(),
+        uri: resource.uri.clone(),
+        path: resource.path.display().to_string(),
         value,
     })
 }
@@ -1065,6 +1177,12 @@ fn print_workspace_view(command: &str, view: &WorkspaceView, json: bool) -> Resu
         println!("qualifiers:");
         for qualifier in &view.qualifiers {
             println!("  {}  {}  {}", qualifier.id, qualifier.uri, qualifier.path);
+        }
+    }
+    if !view.resources.is_empty() {
+        println!("resources:");
+        for resource in &view.resources {
+            println!("  {}  {}  {}", resource.id, resource.uri, resource.path);
         }
     }
     if !view.variables.is_empty() {

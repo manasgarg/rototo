@@ -35,7 +35,7 @@ Create a separate repository for runtime configuration:
 mkdir runtime-config
 cd runtime-config
 git init
-mkdir -p config/qualifiers config/variables config/schemas config/tests config/lint
+mkdir -p config/qualifiers config/variables config/resources config/schemas config/tests
 ```
 
 The workspace lives under `config/`:
@@ -48,7 +48,9 @@ runtime-config/
       enterprise-accounts.toml
     variables/
       llm-agent-config.toml
-      llm-agent-config-values/
+    resources/
+      llm-agent-config.toml
+      llm-agent-config-objects/
         local.toml
         standard.toml
         enterprise.toml
@@ -58,8 +60,6 @@ runtime-config/
     tests/
       prod-enterprise.json
       prod-enterprise.expected.json
-    lint/
-      llm-agent-config.lua
 ```
 
 Keeping the workspace in its own repository lets configuration follow a
@@ -83,16 +83,11 @@ values = ["dev", "stage", "prod"]
 
 [context]
 schema = "schemas/context.schema.json"
-
-[[lint.rule]]
-id = "platform/max-output-token-budget"
-title = "LLM output token budget is too high"
-help = "Use 5000 or fewer output tokens."
 ```
 
-The manifest declares the environments, context schema, and custom rule
-metadata. rototo discovers qualifiers, variables, schemas, and Lua lint files
-from the conventional workspace directories.
+The manifest declares the environments and context schema. rototo discovers
+qualifiers, variables, resources, schemas, and Lua lint files from the
+conventional workspace directories.
 
 The context schema is the input contract between the application and the
 workspace. It defines the JSON attributes the application promises to send at
@@ -186,7 +181,7 @@ Create `config/schemas/llm-config.schema.json`:
     "model": { "type": "string" },
     "gateway": { "type": "string" },
     "prompt": { "type": "string" },
-    "max_output_tokens": { "type": "integer", "minimum": 1 },
+    "max_output_tokens": { "type": "integer", "minimum": 1, "maximum": 5000 },
     "temperature": { "type": "number", "minimum": 0, "maximum": 2 }
   },
   "additionalProperties": false
@@ -196,9 +191,9 @@ Create `config/schemas/llm-config.schema.json`:
 This schema is the output contract between the workspace and the application. It
 validates every configured LLM value before the workspace is used.
 
-The LLM config values are structured and have long prompt text, so keep each
-value in its own file. The variable file owns the application-facing contract
-and selection rules:
+The LLM config values are structured and have long prompt text, so model them
+as a resource. The variable file owns the application-facing id and selection
+rules:
 
 Create `config/variables/llm-agent-config.toml`:
 
@@ -206,7 +201,7 @@ Create `config/variables/llm-agent-config.toml`:
 schema_version = 1
 
 description = "LLM settings for the incident summary agent"
-schema = "../schemas/llm-config.schema.json"
+type = "resource:llm-agent-config"
 
 [env._]
 value = "standard"
@@ -223,10 +218,16 @@ qualifier = "enterprise-accounts"
 value = "enterprise"
 ```
 
-Create `config/variables/llm-agent-config-values/local.toml`:
+Create `config/resources/llm-agent-config.toml`:
 
 ```toml
-[value]
+schema_version = 1
+schema = "../schemas/llm-config.schema.json"
+```
+
+Create `config/resources/llm-agent-config-objects/local.toml`:
+
+```toml
 model = "local-small"
 gateway = "ollama"
 prompt = "Summarize the incident briefly."
@@ -234,10 +235,9 @@ max_output_tokens = 1200
 temperature = 0.2
 ```
 
-Create `config/variables/llm-agent-config-values/standard.toml`:
+Create `config/resources/llm-agent-config-objects/standard.toml`:
 
 ```toml
-[value]
 model = "gpt-5-mini"
 gateway = "openai"
 prompt = "Summarize the incident, customer impact, and next steps."
@@ -245,10 +245,9 @@ max_output_tokens = 2400
 temperature = 0.3
 ```
 
-Create `config/variables/llm-agent-config-values/enterprise.toml`:
+Create `config/resources/llm-agent-config-objects/enterprise.toml`:
 
 ```toml
-[value]
 model = "gpt-5"
 gateway = "openai"
 prompt = "Summarize the incident for an enterprise support workflow. Preserve customer impact, operational risk, and next actions."
@@ -259,41 +258,11 @@ temperature = 0.2
 `llm-agent-config` is the variable id because the file is named
 `llm-agent-config.toml`. The `_` environment is the fallback. `dev` uses
 `local`. `prod` uses `standard`, except when `enterprise-accounts` matches.
-The value keys come from the files in `llm-agent-config-values/`.
+The value keys come from the files in `llm-agent-config-objects/`.
 
-Built-in validation checks the rototo model and the JSON Schema. The workspace
-manifest declares custom rule metadata, and the auto-discovered Lua file
-registers the local policy that is specific to this workspace.
-
-Create `config/lint/llm-agent-config.lua`:
-
-```lua
-function register(lint)
-  lint:on({
-    stage = "value",
-    entity = "value",
-    field = "value.max_output_tokens",
-    rule = "platform/max-output-token-budget",
-    handler = "check_token_budget",
-  })
-end
-
-function check_token_budget(ctx)
-  local config = ctx.target.value
-  if config.max_output_tokens > 5000 then
-    return {
-      {
-        message = "value " .. ctx.target.name .. " exceeds the maximum token budget"
-      }
-    }
-  end
-  return {}
-end
-```
-
-This policy is intentionally separate from the JSON Schema. The schema says the
-field must be an integer. The custom lint says what this team allows for this
-agent.
+Built-in validation checks the rototo model and validates each resource object
+against the JSON Schema. The schema captures both application shape and the
+local token ceiling for this resource.
 
 The workspace now has the whole decision model: context describes the account,
 the qualifier recognizes the enterprise account condition, and the variable
@@ -648,8 +617,8 @@ This tutorial covered the full rototo loop:
 ```text
 workspace repo
   -> define qualifier and variable
-  -> store structured values in value files
-  -> enforce local policy with custom lint
+  -> store structured values in resources
+  -> validate resource objects with JSON Schema
   -> validate locally
   -> test in CI
   -> publish through Git

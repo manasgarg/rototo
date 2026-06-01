@@ -222,7 +222,7 @@ workspace + variable id + environment + context
 ```
 
 This quickstart intentionally kept the example small. It did not use runtime
-context, qualifiers, schemas, external value files, custom lint, tests, Git
-loading, refresh, or observability. Those are the next pieces once the basic
-model is clear. Read `model` for the concepts, then `production-workflow` to
-see the same model applied to a production-style workflow.
+context, qualifiers, resource schemas, custom lint, tests, Git loading,
+refresh, or observability. Those are the next pieces once the basic model is
+clear. Read `model` for the concepts, then `production-workflow` to see the
+same model applied to a production-style workflow.

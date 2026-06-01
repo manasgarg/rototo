@@ -1,9 +1,6 @@
 schema_version = 1
-schema = "../schemas/value.schema.json"
-description = "Variable whose referenced schema cannot compile"
-
-[values]
-default = { enabled = "not a boolean" }
+type = "resource:message"
+description = "Variable whose resource schema cannot compile"
 
 [env._]
 value = "default"

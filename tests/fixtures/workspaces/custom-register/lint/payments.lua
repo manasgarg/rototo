@@ -2,7 +2,7 @@ function register(lint)
   lint:on({
     stage = "value",
     entity = "value",
-    field = "value.max_output_tokens",
+    field = "value",
     rule = "payments/max-token-budget",
     handler = "check_token_budget",
   })
@@ -30,7 +30,7 @@ function register(lint)
 end
 
 function check_token_budget(ctx)
-  local budget = ctx.target.value.max_output_tokens
+  local budget = ctx.target.value[1]
   if budget ~= nil and budget > 5000 then
     return {
       {

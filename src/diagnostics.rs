@@ -8,6 +8,8 @@ pub enum DiagnosticEntity {
     Workspace,
     Qualifier,
     Variable,
+    Resource,
+    ResourceObject,
     Value,
     Rule,
     Schema,
@@ -211,23 +213,35 @@ rototo_rules! {
         title: "Variable schema version is missing or unsupported",
         help: "Declare schema_version = 1 in the variable file.",
     },
-    VariableTypeOrSchema => {
-        id: "variable-type-or-schema",
+    VariableTypeSource => {
+        id: "variable-type-source",
         entity: Variable,
-        title: "Variable must declare exactly one type source",
-        help: "Declare exactly one of type or schema.",
+        title: "Variable type source is invalid",
+        help: "Declare type as a primitive type or resource:<resource-id>.",
     },
     VariableUnknownType => {
         id: "variable-unknown-type",
         entity: Variable,
         title: "Variable type is unknown",
-        help: "Use one of bool, int, number, string, or list.",
+        help: "Use one of bool, int, number, string, list, or resource:<resource-id>.",
+    },
+    VariableUnknownResource => {
+        id: "variable-unknown-resource",
+        entity: Variable,
+        title: "Variable references an unknown resource",
+        help: "Create the referenced resource or update the resource type.",
+    },
+    VariableValuesDisallowed => {
+        id: "variable-values-disallowed",
+        entity: Variable,
+        title: "Variable values are not allowed",
+        help: "Remove [values] from resource-backed variables; resource objects provide the values.",
     },
     VariableValuesMissing => {
         id: "variable-values-missing",
         entity: Variable,
         title: "Variable values are missing",
-        help: "Add [values] entries or external value files.",
+        help: "Add [values] entries to primitive variables.",
     },
     VariableUnknownValue => {
         id: "variable-unknown-value",
@@ -241,17 +255,41 @@ rototo_rules! {
         title: "Variable value does not match type",
         help: "Update the value so it matches the declared primitive type.",
     },
-    VariableValueSchemaMismatch => {
-        id: "variable-value-schema-mismatch",
-        entity: Variable,
-        title: "Variable value does not match schema",
-        help: "Update the value so it matches the variable JSON Schema.",
+    ResourceParseFailed => {
+        id: "resource-parse-failed",
+        entity: Resource,
+        title: "Resource TOML file could not be parsed",
+        help: "Fix the TOML syntax so rototo can parse the resource file.",
     },
-    VariableSchemaRef => {
-        id: "variable-schema-ref",
-        entity: Variable,
-        title: "Variable schema reference is invalid",
+    ResourceObjectParseFailed => {
+        id: "resource-object-parse-failed",
+        entity: ResourceObject,
+        title: "Resource object TOML file could not be parsed",
+        help: "Fix the TOML syntax so rototo can parse the resource object file.",
+    },
+    ResourceSchemaVersion => {
+        id: "resource-schema-version",
+        entity: Resource,
+        title: "Resource schema version is missing or unsupported",
+        help: "Declare schema_version = 1 in the resource file.",
+    },
+    ResourceSchemaRef => {
+        id: "resource-schema-ref",
+        entity: Resource,
+        title: "Resource schema reference is invalid",
         help: "Point schema to a readable valid JSON Schema file.",
+    },
+    ResourceObjectSchemaMismatch => {
+        id: "resource-object-schema-mismatch",
+        entity: ResourceObject,
+        title: "Resource object does not match schema",
+        help: "Update the resource object so it matches the resource JSON Schema.",
+    },
+    ResourceObjectUnknownReference => {
+        id: "resource-object-unknown-reference",
+        entity: ResourceObject,
+        title: "Resource object references an unknown object",
+        help: "Create the referenced resource object or update the x-rototo-resource field.",
     },
     VariableEnvMissingDefault => {
         id: "variable-env-missing-default",
@@ -303,24 +341,6 @@ rototo_rules! {
         title: "Variable value is not used",
         help: "Reference the value from an environment default or rule, or remove it.",
         severity: Warning,
-    },
-    VariableExternalValuesLoadFailed => {
-        id: "variable-external-values-load-failed",
-        entity: Variable,
-        title: "Variable external values could not be loaded",
-        help: "Fix the external values directory or the referenced value files.",
-    },
-    VariableExternalValueParseFailed => {
-        id: "variable-external-value-parse-failed",
-        entity: Variable,
-        title: "Variable external value file could not be parsed",
-        help: "Fix the TOML syntax in the external variable value file.",
-    },
-    VariableExternalValueDuplicate => {
-        id: "variable-external-value-duplicate",
-        entity: Variable,
-        title: "Variable external value duplicates an existing value",
-        help: "Ensure each variable value key is declared exactly once.",
     },
     CustomLintFailed => {
         id: "custom-lint-failed",
@@ -395,7 +415,7 @@ rototo_rules! {
         id: "schema-unreferenced",
         entity: Schema,
         title: "JSON Schema is not referenced",
-        help: "Reference the schema from [context].schema or a variable schema field, or remove it.",
+        help: "Reference the schema from [context].schema or a resource schema field, or remove it.",
         severity: Warning,
     },
 }
@@ -609,6 +629,13 @@ pub enum EntityId {
     },
     Variable {
         id: String,
+    },
+    Resource {
+        id: String,
+    },
+    ResourceObject {
+        resource: String,
+        key: String,
     },
     Value {
         variable: String,
