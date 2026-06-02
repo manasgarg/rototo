@@ -1,19 +1,74 @@
 # rototo
 
-`rototo` is a control plane for runtime configuration in application code.
+Runtime configuration changes production behavior. rototo helps you treat it
+with the same rigor as code while keeping it deployable separately from the
+application binary.
 
-Configuration decides what code path is active, what limits apply, which
-customers receive a rollout, how an AI model is configured, and what operational
-message a user sees. rototo treats those decisions like software: versioned in
-Git, reviewed, tested, released, loaded by services, resolved at runtime, and
-observable in production.
+Most software has two familiar lifecycles.
 
-## The configuration lifecycle
+Code is reviewed, tested, versioned, released, observed, and rolled back when it
+misbehaves. Data is created and changed through the application's runtime data
+model.
 
-The unit of configuration is a workspace. A workspace is a directory in Git with
-a `rototo-workspace.toml` manifest and the files that define runtime behavior.
-It can contain runtime behavior gates, per-environment values, JSON schemas,
-and custom lint policy.
+Runtime configuration looks like data because it is made of values: token
+limits, model names, queue names, support messages, rollout buckets, checkout
+settings, tenant limits, and operational overrides. But those values often act
+like code. They decide which behavior runs in production.
+
+That is the boundary rototo is built for.
+
+## The Problem
+
+A runtime configuration change can alter what users see, which backend a request
+uses, how much budget an operation consumes, which account receives a different
+path, or whether an incident override is active.
+
+Those changes should not be invisible operational data. They need the controls
+teams already rely on for production code:
+
+- reviewable diffs
+- validation before release
+- tests for representative cases
+- clear ownership
+- version history
+- rollback
+- diagnostics when a change is invalid
+- observability when a request receives a surprising value
+
+At the same time, configuration should not require an application rebuild every
+time a reviewed value changes. The application binary can stay fixed while the
+configuration workspace moves through its own release process.
+
+## What rototo Is
+
+rototo is a Git-backed runtime configuration control plane.
+
+A rototo workspace is a directory of configuration files in Git. It declares
+environments, qualifiers, variables, resources, schemas, values, and optional
+custom lint policy. The CLI and SDK load the same workspace, so local debugging,
+CI checks, agents, and running services use the same source of truth.
+
+Applications do not read arbitrary files or loose keys. They ask rototo for a
+named variable in an environment with runtime context:
+
+```text
+workspace version + variable id + environment + runtime context
+  -> validate context
+  -> evaluate qualifiers
+  -> select value key
+  -> validate selected value
+  -> return value and selection metadata
+```
+
+The result is runtime configuration that can change independently from the
+application binary without becoming detached from the software delivery
+process.
+
+## The Lifecycle
+
+The workspace is the control-plane boundary. It can live in the same repository
+as an application during early development, but the production shape is usually
+a separate Git-backed configuration source.
 
 ```text
 workspace files
@@ -22,7 +77,7 @@ workspace files
 Git review
     |
     v
-automated tests: inspect, lint, resolve representative cases
+automated checks: inspect, lint, resolve representative cases
     |
     v
 release workspace from local path, Git source, or archive
@@ -37,70 +92,106 @@ runtime resolution from environment + context
 diagnostics + application telemetry
 ```
 
-The result is configuration that can move quickly without becoming invisible,
-untyped, or detached from the software delivery process.
+Long-running services can refresh from the same workspace source. A successful
+refresh affects future resolutions. A failed refresh keeps the last
+successfully loaded workspace active. Immutable commit refs are reproducible,
+but they do not produce new refresh results because the source does not move.
 
-## What rototo controls
+## What rototo Controls
 
-rototo is for runtime decisions that should not be hardcoded but still need
-strong ownership and validation:
+rototo is for runtime decisions that are too important to scatter across
+constants, deployment variables, dashboards, database rows, and runbooks:
 
-- Set `max-output-tokens` to one value in `dev`, another in `stage`, and a
-  stricter value in `prod`.
-- Route enterprise accounts to a different fraud review queue when cart value is
-  high.
-- Select an LLM agent configuration by environment, tenant tier, and rollout
-  state.
-- Serve a support banner only to users affected by an incident.
+- Use one token budget in `dev`, another in `stage`, and a stricter one in
+  `prod`.
+- Route enterprise accounts to a different fraud review queue when cart value
+  is high.
+- Select an LLM agent configuration by environment, account class, and rollout
+  bucket.
+- Show a support banner only for requests affected by an incident.
 - Validate that a structured recommendation config still matches the schema the
   application expects.
 - Route premium accounts in Germany to a priority payment review queue while
   keeping the standard queue for everyone else.
 
-rototo keeps these decisions outside application binaries while keeping them
-testable, explicit, and owned in source control.
+The point is not to move every value out of application code. The point is to
+give production behavior changes a reviewed, typed, testable place to live when
+they need to move independently from application deployments.
 
-## A concrete example
+## The Model
 
-Suppose a SaaS product has an LLM agent that helps users summarize operational
-incidents.
+rototo uses a small set of concepts.
+
+A workspace is the versioned source of truth. It contains the manifest and the
+files that define runtime behavior.
+
+An environment is the deployment or runtime lane, such as `dev`, `stage`, or
+`prod`. The same variable can resolve differently in each environment while the
+application-facing name stays stable.
+
+Runtime context is the JSON object the application supplies for a request,
+tenant, account, user, or operation. Context keeps request-time facts visible
+instead of hiding them in unrelated systems.
+
+A qualifier is a named condition over runtime context, such as
+`enterprise-accounts` or `eu-users`. Variables can use qualifiers to select
+different values.
+
+A variable is what application code asks for. It declares the logic for
+selecting one value in an environment. Small primitive values can live inline in
+the variable file.
+
+A resource is a structured value catalog that variables can select from. A
+resource-backed variable points at a resource, and its value keys come from
+resource object files. This keeps selection logic in `variables/` while larger
+JSON-shaped values live under `resources/` with their own schema contract.
+
+Schemas validate the contract between the workspace and the application:
+context schemas validate the facts supplied at resolution time, and value
+schemas validate resource objects before application code consumes them.
+
+Diagnostics explain invalid workspace files with stable rule ids. Built-in
+lint catches malformed manifests, unknown environments, missing values, invalid
+qualifier references, type mismatches, schema failures, and other release-time
+problems. Custom lint can add workspace-specific policy.
+
+## A Concrete Example
+
+Suppose a SaaS product has an LLM agent that summarizes operational incidents.
+The application should not hardcode every model, prompt, token limit, and
+gateway setting. Those choices change as budget, product behavior, and account
+contracts change.
 
 The team wants this behavior:
 
-- In `dev`, engineers should use a local model so development does not spend
+- In `dev`, engineers use a local model so development does not spend
   production model budget.
-- In `prod`, most accounts should use the standard hosted model and the normal
+- In `prod`, most accounts use the standard hosted model and the normal
   incident-summary prompt.
-- Enterprise accounts should use the larger model, a more specific prompt, and
-  a higher output token limit.
-- The returned model, gateway, prompt, token, and temperature settings must
-  match the JSON shape expected by the application.
+- Enterprise accounts use the larger model, a more specific prompt, and a
+  higher output token limit.
+- The returned model, gateway, prompt, token, and temperature settings match the
+  JSON shape expected by the application.
 
-Without rototo, this logic usually spreads across application code, deployment
-environment variables, feature flag rules, and undocumented operational
-exceptions. With rototo, the decision is represented as reviewed workspace
-files:
+With rototo, that decision lives in reviewed workspace files:
 
-- `rototo-workspace.toml` declares environments such as `dev`, `stage`, and
-  `prod`.
-- A qualifier such as `enterprise-accounts` answers whether the current context
-  matches an account condition.
-- A variable such as `llm-agent-config` defines named model, gateway, prompt,
-  token, and temperature configurations.
-- A JSON Schema validates the structure of the LLM config.
-- Optional Lua lint can enforce local policy, such as required fields or naming
-  conventions.
-
-The workspace can also define related variables, such as `max-output-tokens`,
-when an application wants to control token budget independently from model and
-prompt selection.
+- `rototo-workspace.toml` declares environments and, when needed, the context
+  schema.
+- `qualifiers/enterprise-accounts.toml` names the account condition.
+- `variables/llm-agent-config.toml` defines the application-facing variable and
+  its environment rules.
+- `resources/llm-agent-config.toml` points at the schema for agent
+  configuration objects.
+- `resources/llm-agent-config-objects/enterprise.toml` stores the larger
+  enterprise object that the variable can select.
+- `schemas/llm-config.schema.json` validates each resource object.
+- Optional Lua lint enforces local policy that belongs to this workspace.
 
 At runtime, the application supplies context:
 
 ```json
 {
   "account": {
-    "tier": "enterprise",
     "plan": "enterprise",
     "seats": 250
   },
@@ -111,107 +202,37 @@ At runtime, the application supplies context:
 ```
 
 rototo evaluates the qualifier rules against that context, selects the matching
-variable value for `prod`, validates the selected value, and returns the JSON
-configuration the agent should use.
+value for `prod`, validates the selected value, and returns the JSON
+configuration the agent should use. Logs and JSON output can include both the
+selected value key and the returned value, which gives operators a way to
+explain production behavior from the workspace version that made the decision.
 
-For the enterprise context above, `llm-agent-config` can resolve to a value like
-this:
-
-```json
-{
-  "model": "gpt-5",
-  "gateway": "openai",
-  "prompt": "You are a precise development assistant for enterprise workflows.",
-  "max_output_tokens": 5000,
-  "temperature": 0.2
-}
-```
-
-## Data model
-
-```text
-workspace
-  |
-  +-- environments
-  |     +-- dev
-  |     +-- stage
-  |     +-- prod
-  |
-  +-- qualifiers
-  |     +-- enterprise-accounts
-  |     +-- eu-users
-  |
-  +-- variables
-  |     +-- llm-agent-config
-  |     |     +-- values: local, standard, enterprise
-  |     |     +-- env rules: dev, stage, prod
-  |     |
-  |     +-- max-output-tokens
-  |           +-- values: low, standard, high
-  |           +-- env rules: dev, stage, prod
-  |
-  +-- schemas
-  |     +-- context schema
-  |     +-- variable value schemas
-  |
-  +-- custom lint
-        +-- workspace-specific policy
-
-runtime input
-  |
-  +-- environment: prod
-  +-- context: account plan, account seats, request country
-        |
-        v
-resolution
-  |
-  +-- validate context
-  +-- evaluate qualifiers
-  +-- select variable value
-  +-- validate selected value
-        |
-        v
-JSON value returned to application
-```
-
-A workspace is the versioned source of truth. Qualifiers describe reusable
-conditions. Variables use environments and qualifiers to select values. Schemas
-validate the contract between configuration and application code. Diagnostics
-explain invalid workspace files with stable rule ids.
-
-The same model is available through the CLI and the Rust SDK.
-
-## Where to go next
+## Where to Go Next
 
 If you are evaluating rototo, start with `why-rototo`. It explains the runtime
 configuration problem rototo is designed for and when the model is a good fit.
 
-If you want the vocabulary before running commands, read `rototo-model`. It explains
-the core objects and how resolution turns workspace, environment, and context
-into a selected value.
+If you want the vocabulary before running commands, read `rototo-model`. It
+explains how workspaces, environments, context, qualifiers, variables,
+resources, schemas, and values compose during resolution.
 
-If you want to run something, continue with `quickstart`. It is the shortest
-guided path: create a small workspace, lint it, and resolve one variable.
+If you want to run something, continue with `quickstart`. It creates a small
+local workspace, lints it, and resolves one variable.
 
-After that, read `production-workflow` for a production workflow with a separate
-Git repository, context schema, qualifier, resource schema, tests, Git URI
-loading, application integration, and observability.
+After that, read `production-workflow` for a Git-backed workflow with schemas,
+qualifiers, variables, tests, app loading, refresh, and observability.
 
-After that, use the docs by intent:
+Use the rest of the docs by intent:
 
-- Concepts explain the model: what rototo is, why it exists, and how resolution
-  works.
+- Concepts explain the model and the runtime architecture.
 - Tutorials walk through complete first-time workflows.
-- How-to guides explain operational tasks, such as adding a config value,
-  selecting a value for a runtime condition, testing a config change, loading a Git
-  workspace from an app, refreshing config, and investigating a resolution.
-  They are grouped by the work you are doing: authoring config, validating
-  changes, integrating an application, and operating production config.
-- Reference pages specify exact CLI, SDK, file format, source URI, and
-  diagnostic behavior.
+- How-to guides cover authoring configuration, validating changes, integrating
+  applications, keeping config fresh, and debugging production selections.
+- Reference pages specify exact file formats, commands, SDK APIs, diagnostics,
+  source URI behavior, and JSON output.
 - Examples show complete production patterns you can adapt: deployment-lane
-  limits, reviewed account conditions, structured LLM config, tenant exceptions,
-  operational overrides, and stable percentage rollouts.
+  limits, reviewed account conditions, structured LLM config, tenant
+  exceptions, operational overrides, and stable percentage rollouts.
 
 ## Bundled documentation
 
