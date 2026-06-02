@@ -8,12 +8,6 @@ The publishable pages live under `docs/src/`:
 ```text
 docs/src/
   index.md
-  concepts/
-  tutorials/
-  how-to/
-  examples/
-  reference/
-  api/
 ```
 
 The CLI embeds the pages registered in `src/docs.rs`. When adding, moving, or
@@ -40,7 +34,7 @@ Use the CLI to inspect the bundled docs:
 
 ```sh
 rototo docs
-rototo docs -p quickstart
+rototo docs -p index
 rototo docs -s "workspace source"
 rototo docs --export site
 ```

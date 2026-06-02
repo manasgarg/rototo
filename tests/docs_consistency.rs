@@ -40,19 +40,8 @@ fn docs_navigation_is_grouped_and_complete() {
         .collect::<Vec<_>>();
     assert_eq!(
         titles,
-        vec![
-            "Start",
-            "Concepts",
-            "Tutorials",
-            "How-to: Authoring",
-            "How-to: Validation",
-            "How-to: Application",
-            "How-to: Operations",
-            "Examples",
-            "Reference",
-            "API",
-        ],
-        "documentation navigation should keep the opinionated grouped order"
+        vec!["Start"],
+        "documentation navigation should match the active docs scaffold"
     );
 
     let registered = registered_page_ids();

@@ -408,11 +408,10 @@ const TOP_LEVEL_HELP: &str = r#"Examples:
   rototo lint examples/basic
   rototo show examples/basic --variables
   rototo resolve examples/basic --variable checkout-redesign --context lane=prod --context user.tier=premium
-  rototo docs -p quickstart
+  rototo docs -p index
 
 Run `rototo <command> --help` for command details.
-Run `rototo docs -p source-uri-reference` for workspace source syntax.
-Run `rototo docs -p context-reference` for context input syntax."#;
+Run `rototo docs` to list bundled documentation."#;
 
 const TOP_LEVEL_HELP_TEMPLATE: &str = r#"{about}
 

@@ -17,249 +17,16 @@ pub struct DocNavSection {
     pub pages: &'static [&'static str],
 }
 
-pub const DOCS: &[DocPage] = &[
-    DocPage {
-        id: "index",
-        title: "rototo introduction",
-        markdown: include_str!("../docs/src/index.md"),
-    },
-    DocPage {
-        id: "why-rototo",
-        title: "Why rototo",
-        markdown: include_str!("../docs/src/concepts/why-rototo.md"),
-    },
-    DocPage {
-        id: "rototo-model",
-        title: "The rototo Model",
-        markdown: include_str!("../docs/src/concepts/rototo-model.md"),
-    },
-    DocPage {
-        id: "quickstart",
-        title: "Quickstart",
-        markdown: include_str!("../docs/src/tutorials/quickstart.md"),
-    },
-    DocPage {
-        id: "production-workflow",
-        title: "Production Workflow",
-        markdown: include_str!("../docs/src/tutorials/production-workflow.md"),
-    },
-    DocPage {
-        id: "how-to-add-a-new-runtime-config-value",
-        title: "How to Add a New Runtime Config Value",
-        markdown: include_str!("../docs/src/how-to/how-to-add-a-new-runtime-config-value.md"),
-    },
-    DocPage {
-        id: "how-to-add-a-new-context-field",
-        title: "How to Add a New Context Field",
-        markdown: include_str!("../docs/src/how-to/how-to-add-a-new-context-field.md"),
-    },
-    DocPage {
-        id: "how-to-select-a-value-for-a-runtime-condition",
-        title: "How to Select a Value for a Runtime Condition",
-        markdown: include_str!(
-            "../docs/src/how-to/how-to-select-a-value-for-a-runtime-condition.md"
-        ),
-    },
-    DocPage {
-        id: "how-to-move-large-values-out-of-toml",
-        title: "How to Move Large Values Into Resources",
-        markdown: include_str!("../docs/src/how-to/how-to-move-large-values-out-of-toml.md"),
-    },
-    DocPage {
-        id: "how-to-test-a-config-change-before-merge",
-        title: "How to Test a Config Change Before Merge",
-        markdown: include_str!("../docs/src/how-to/how-to-test-a-config-change-before-merge.md"),
-    },
-    DocPage {
-        id: "how-to-enforce-a-config-policy",
-        title: "How to Enforce a Config Policy",
-        markdown: include_str!("../docs/src/how-to/how-to-enforce-a-config-policy.md"),
-    },
-    DocPage {
-        id: "how-to-load-config-from-a-git-repo-in-an-app",
-        title: "How to Load Config from a Git Repo in an App",
-        markdown: include_str!(
-            "../docs/src/how-to/how-to-load-config-from-a-git-repo-in-an-app.md"
-        ),
-    },
-    DocPage {
-        id: "how-to-keep-config-fresh-in-a-running-app",
-        title: "How to Keep Config Fresh in a Running App",
-        markdown: include_str!("../docs/src/how-to/how-to-keep-config-fresh-in-a-running-app.md"),
-    },
-    DocPage {
-        id: "how-to-investigate-why-a-value-was-selected",
-        title: "How to Investigate Why a Value Was Selected",
-        markdown: include_str!("../docs/src/how-to/how-to-investigate-why-a-value-was-selected.md"),
-    },
-    DocPage {
-        id: "how-to-diagnose-a-failing-workspace",
-        title: "How to Diagnose a Failing Workspace",
-        markdown: include_str!("../docs/src/how-to/how-to-diagnose-a-failing-workspace.md"),
-    },
-    DocPage {
-        id: "example-reviewed-account-class",
-        title: "Example: Select Behavior for a Reviewed Account Class",
-        markdown: include_str!("../docs/src/examples/example-reviewed-account-class.md"),
-    },
-    DocPage {
-        id: "example-llm-agent-configuration",
-        title: "Example: Control Structured LLM Agent Config Safely",
-        markdown: include_str!("../docs/src/examples/example-llm-agent-configuration.md"),
-    },
-    DocPage {
-        id: "example-tenant-specific-runtime-config",
-        title: "Example: Manage Tenant Exceptions Without App Branches",
-        markdown: include_str!("../docs/src/examples/example-tenant-specific-runtime-config.md"),
-    },
-    DocPage {
-        id: "example-incident-banner",
-        title: "Example: Ship an Operational Override Without Redeploying",
-        markdown: include_str!("../docs/src/examples/example-incident-banner.md"),
-    },
-    DocPage {
-        id: "example-bucketed-rollout",
-        title: "Example: Run a Stable Percentage Rollout from Config",
-        markdown: include_str!("../docs/src/examples/example-bucketed-rollout.md"),
-    },
-    DocPage {
-        id: "workspace-manifest-reference",
-        title: "Workspace Manifest Reference",
-        markdown: include_str!("../docs/src/reference/workspace-manifest-reference.md"),
-    },
-    DocPage {
-        id: "qualifier-reference",
-        title: "Qualifier File Reference",
-        markdown: include_str!("../docs/src/reference/qualifier-reference.md"),
-    },
-    DocPage {
-        id: "variable-reference",
-        title: "Variable File Reference",
-        markdown: include_str!("../docs/src/reference/variable-reference.md"),
-    },
-    DocPage {
-        id: "resource-reference",
-        title: "Resource Reference",
-        markdown: include_str!("../docs/src/reference/resource-reference.md"),
-    },
-    DocPage {
-        id: "predicate-reference",
-        title: "Predicate Reference",
-        markdown: include_str!("../docs/src/reference/predicate-reference.md"),
-    },
-    DocPage {
-        id: "context-reference",
-        title: "Context Reference",
-        markdown: include_str!("../docs/src/reference/context-reference.md"),
-    },
-    DocPage {
-        id: "value-types-reference",
-        title: "Value Types Reference",
-        markdown: include_str!("../docs/src/reference/value-types-reference.md"),
-    },
-    DocPage {
-        id: "source-uri-reference",
-        title: "Source URI Reference",
-        markdown: include_str!("../docs/src/reference/source-uri-reference.md"),
-    },
-    DocPage {
-        id: "cli-reference",
-        title: "rototo CLI reference",
-        markdown: include_str!("../docs/src/api/cli-reference.md"),
-    },
-    DocPage {
-        id: "rust-sdk-reference",
-        title: "rototo Rust SDK",
-        markdown: include_str!("../docs/src/api/rust-sdk-reference.md"),
-    },
-    DocPage {
-        id: "diagnostic-reference",
-        title: "Diagnostic reference",
-        markdown: include_str!("../docs/src/api/diagnostic-reference.md"),
-    },
-    DocPage {
-        id: "json-output-reference",
-        title: "JSON Output Reference",
-        markdown: include_str!("../docs/src/reference/json-output-reference.md"),
-    },
-];
+pub const DOCS: &[DocPage] = &[DocPage {
+    id: "index",
+    title: "rototo docs revamp",
+    markdown: include_str!("../docs/src/index.md"),
+}];
 
-pub const DOC_NAV_SECTIONS: &[DocNavSection] = &[
-    DocNavSection {
-        title: "Start",
-        pages: &["index"],
-    },
-    DocNavSection {
-        title: "Concepts",
-        pages: &["why-rototo", "rototo-model"],
-    },
-    DocNavSection {
-        title: "Tutorials",
-        pages: &["quickstart", "production-workflow"],
-    },
-    DocNavSection {
-        title: "How-to: Authoring",
-        pages: &[
-            "how-to-add-a-new-runtime-config-value",
-            "how-to-add-a-new-context-field",
-            "how-to-select-a-value-for-a-runtime-condition",
-            "how-to-move-large-values-out-of-toml",
-        ],
-    },
-    DocNavSection {
-        title: "How-to: Validation",
-        pages: &[
-            "how-to-test-a-config-change-before-merge",
-            "how-to-enforce-a-config-policy",
-        ],
-    },
-    DocNavSection {
-        title: "How-to: Application",
-        pages: &[
-            "how-to-load-config-from-a-git-repo-in-an-app",
-            "how-to-keep-config-fresh-in-a-running-app",
-        ],
-    },
-    DocNavSection {
-        title: "How-to: Operations",
-        pages: &[
-            "how-to-investigate-why-a-value-was-selected",
-            "how-to-diagnose-a-failing-workspace",
-        ],
-    },
-    DocNavSection {
-        title: "Examples",
-        pages: &[
-            "example-reviewed-account-class",
-            "example-llm-agent-configuration",
-            "example-tenant-specific-runtime-config",
-            "example-incident-banner",
-            "example-bucketed-rollout",
-        ],
-    },
-    DocNavSection {
-        title: "Reference",
-        pages: &[
-            "workspace-manifest-reference",
-            "qualifier-reference",
-            "variable-reference",
-            "resource-reference",
-            "predicate-reference",
-            "context-reference",
-            "value-types-reference",
-            "source-uri-reference",
-        ],
-    },
-    DocNavSection {
-        title: "API",
-        pages: &[
-            "cli-reference",
-            "rust-sdk-reference",
-            "diagnostic-reference",
-            "json-output-reference",
-        ],
-    },
-];
+pub const DOC_NAV_SECTIONS: &[DocNavSection] = &[DocNavSection {
+    title: "Start",
+    pages: &["index"],
+}];
 
 /// Design system stylesheet and brand assets vendored under `docs/theme/`.
 const DOCS_CSS: &str = include_str!("../docs/theme/rototo-docs.css");
@@ -271,12 +38,7 @@ const WORDMARK_SVG: &str = include_str!("../docs/theme/rototo-wordmark.svg");
 const GOOGLE_FONTS_HREF: &str = "https://fonts.googleapis.com/css2?family=Hanken+Grotesk:ital,wght@0,400;0,600;0,700;1,400&family=JetBrains+Mono:ital,wght@0,400;0,600;0,700;1,400&family=Manrope:wght@600;700;800&display=swap";
 
 /// Top navigation bar entries as (label, page id).
-const TOPNAV_PAGES: &[(&str, &str)] = &[
-    ("Docs", "index"),
-    ("Quickstart", "quickstart"),
-    ("CLI", "cli-reference"),
-    ("SDK", "rust-sdk-reference"),
-];
+const TOPNAV_PAGES: &[(&str, &str)] = &[("Docs", "index")];
 
 pub fn get_page(id: &str) -> Result<&'static DocPage> {
     let id = normalize_page_id(id);
@@ -431,6 +193,9 @@ fn render_page_nav(current: &str) -> String {
     }
     if position + 1 < pages.len() {
         push_link("Next", nav_page(pages[position + 1]));
+    }
+    if links.is_empty() {
+        return String::new();
     }
     format!("<nav class=\"page-nav\" aria-label=\"Page\">{links}</nav>\n")
 }
