@@ -7,6 +7,7 @@ use tokio::sync::{Mutex, RwLock, watch};
 use tokio::task::JoinHandle;
 
 use crate::error::{Result, RototoError};
+use crate::layering::WorkspaceLayers;
 use crate::lint::{
     LintInput, RuntimeWorkspace, compile_runtime_workspace_from_snapshot, lint_workspace_snapshot,
 };
@@ -24,6 +25,7 @@ pub struct Workspace {
     runtime: Option<RuntimeWorkspace>,
     source_fingerprint: Option<SourceFingerprint>,
     immutable_source: bool,
+    layers: WorkspaceLayers,
 }
 
 impl Workspace {
@@ -77,6 +79,7 @@ impl Workspace {
     async fn inspect_loaded(loaded: crate::source::LoadedWorkspaceSource) -> Result<Self> {
         let source_fingerprint = loaded.fingerprint().cloned();
         let immutable_source = loaded.immutable();
+        let layers = loaded.layers().clone();
         let staged = loaded.into_staged();
         let root = staged.path().to_path_buf();
 
@@ -88,6 +91,7 @@ impl Workspace {
             runtime: None,
             source_fingerprint,
             immutable_source,
+            layers,
         })
     }
 
@@ -109,6 +113,12 @@ impl Workspace {
 
     pub fn inspection(&self) -> &WorkspaceInspection {
         &self.inspection
+    }
+
+    /// Provenance for the composed workspace, base-first. A workspace that does
+    /// not declare `extends` reports a single layer.
+    pub fn layers(&self) -> &WorkspaceLayers {
+        &self.layers
     }
 
     pub fn context_schema(&self) -> Option<&JsonValue> {

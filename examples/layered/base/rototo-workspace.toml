@@ -1,0 +1,11 @@
+schema_version = 1
+
+# The base workspace holds configuration shared across teams. A more-derived
+# workspace layers on top of it with `extends` and either adds new entities or
+# replaces a base entity by providing a file with the same path.
+
+[environments]
+values = ["dev", "prod"]
+
+[context]
+schema = "schemas/context.schema.json"

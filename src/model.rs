@@ -3,6 +3,7 @@ use std::path::PathBuf;
 use crate::diagnostics::{
     DiagnosticCatalogEntry, DiagnosticLocation, DocId, LintDiagnostic, Severity,
 };
+use crate::layering::WorkspaceLayer;
 
 #[derive(Debug)]
 pub struct WorkspaceInspection {
@@ -219,6 +220,8 @@ impl InspectSelection {
 #[derive(Debug, serde::Serialize)]
 pub struct WorkspaceInspectReport {
     pub workspace: String,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub layers: Vec<WorkspaceLayer>,
     pub environments: Vec<String>,
     pub documents: Vec<SourceDocumentSummary>,
     pub runtime: InspectRuntimeStatus,

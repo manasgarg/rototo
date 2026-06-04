@@ -1,0 +1,5 @@
+schema_version = 1
+extends = 5
+
+[environments]
+values = ["prod"]

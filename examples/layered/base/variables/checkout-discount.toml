@@ -1,0 +1,19 @@
+schema_version = 1
+
+description = "Checkout discount percentage"
+type = "int"
+
+[values]
+none = 0
+premium = 10
+
+[env._]
+value = "none"
+
+[env.prod]
+value = "none"
+
+[[env.prod.rule]]
+description = "Premium users receive a checkout discount"
+qualifier = "premium-users"
+value = "premium"

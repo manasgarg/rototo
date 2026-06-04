@@ -1,0 +1,10 @@
+schema_version = 1
+
+description = "Banner shown on the storefront landing page"
+type = "string"
+
+[values]
+default = "Welcome to our store"
+
+[env._]
+value = "default"

@@ -3,6 +3,7 @@ pub mod diagnostics;
 pub mod docs;
 pub mod error;
 pub mod inspect;
+pub mod layering;
 pub mod lint;
 pub mod lsp;
 pub mod lua_lint;
@@ -14,7 +15,8 @@ pub mod workspace;
 
 pub use catalog::{catalog, catalog_for_workspace, diagnostic_for_rule};
 pub use error::{Result, RototoError};
-pub use inspect::inspect_workspace_report;
+pub use inspect::{inspect_workspace_report, inspect_workspace_report_with_layers};
+pub use layering::{WorkspaceLayer, WorkspaceLayers};
 pub use lint::{lint_qualifier, lint_resource, lint_variable, lint_workspace};
 pub use resolve::{
     resolve_qualifier, resolve_qualifiers, resolve_variable, resolve_variables,
@@ -26,8 +28,8 @@ pub use sdk::{
     RefreshingWorkspace, ResolveContext, ResolveOptions, Workspace,
 };
 pub use source::{
-    SourceAuth, SourceFingerprint, SourceOptions, SourceProbe, StagedWorkspace,
-    probe_workspace_source, stage_workspace_source,
+    LoadedWorkspaceSource, SourceAuth, SourceFingerprint, SourceOptions, SourceProbe,
+    StagedWorkspace, load_workspace_source, probe_workspace_source, stage_workspace_source,
 };
 pub use workspace::{
     find_workspace_root, inspect_workspace, list_qualifiers, list_resources, list_variables,

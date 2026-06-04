@@ -6,6 +6,7 @@ use tokio::io::AsyncWriteExt;
 use tokio::process::Command;
 
 use crate::error::{Result, RototoError};
+use crate::layering::{WorkspaceLayers, compose_workspace_layers};
 
 const WORKSPACE_MANIFEST: &str = "rototo-workspace.toml";
 const DEFAULT_MAX_ARCHIVE_BYTES: u64 = 50 * 1024 * 1024;
@@ -122,9 +123,24 @@ pub struct LoadedWorkspaceSource {
     staged: StagedWorkspace,
     fingerprint: Option<SourceFingerprint>,
     immutable: bool,
+    layers: WorkspaceLayers,
 }
 
 impl LoadedWorkspaceSource {
+    pub(crate) fn new(
+        staged: StagedWorkspace,
+        fingerprint: Option<SourceFingerprint>,
+        immutable: bool,
+        layers: WorkspaceLayers,
+    ) -> Self {
+        Self {
+            staged,
+            fingerprint,
+            immutable,
+            layers,
+        }
+    }
+
     pub fn staged(&self) -> &StagedWorkspace {
         &self.staged
     }
@@ -139,6 +155,10 @@ impl LoadedWorkspaceSource {
 
     pub fn immutable(&self) -> bool {
         self.immutable
+    }
+
+    pub fn layers(&self) -> &WorkspaceLayers {
+        &self.layers
     }
 }
 
@@ -156,7 +176,7 @@ impl StagedWorkspace {
         }
     }
 
-    fn temporary(path: PathBuf, tempdir: TempDir) -> Self {
+    pub(crate) fn temporary(path: PathBuf, tempdir: TempDir) -> Self {
         Self {
             path,
             _tempdir: Some(tempdir),
@@ -192,18 +212,29 @@ pub async fn load_workspace_source(
     options: &SourceOptions,
 ) -> Result<LoadedWorkspaceSource> {
     let source = source.as_ref();
+    let staged = stage_source_once(source, options).await?;
+    compose_workspace_layers(staged, source, options).await
+}
+
+/// Stage a single workspace source without resolving any `extends` chain.
+pub(crate) async fn stage_source_once(
+    source: &str,
+    options: &SourceOptions,
+) -> Result<LoadedWorkspaceSource> {
     match SourceUri::parse(source)? {
-        None => Ok(LoadedWorkspaceSource {
-            staged: stage_local_path(Path::new(source)).await?,
-            fingerprint: None,
-            immutable: false,
-        }),
+        None => Ok(LoadedWorkspaceSource::new(
+            stage_local_path(Path::new(source)).await?,
+            None,
+            false,
+            WorkspaceLayers::single(source),
+        )),
         Some(uri) => match uri.scheme.as_str() {
-            "file" => Ok(LoadedWorkspaceSource {
-                staged: stage_file_uri(&uri).await?,
-                fingerprint: None,
-                immutable: false,
-            }),
+            "file" => Ok(LoadedWorkspaceSource::new(
+                stage_file_uri(&uri).await?,
+                None,
+                false,
+                WorkspaceLayers::single(source),
+            )),
             "https" => stage_https_archive(&uri, source, options).await,
             "http" => Err(RototoError::new(
                 "http:// workspace sources are not supported; use https://",
@@ -221,18 +252,19 @@ pub async fn load_workspace_source_snapshot(
     options: &SourceOptions,
 ) -> Result<LoadedWorkspaceSource> {
     let source = source.as_ref();
-    match SourceUri::parse(source)? {
-        None => snapshot_local_path(Path::new(source)).await,
+    let staged = match SourceUri::parse(source)? {
+        None => snapshot_local_path(Path::new(source)).await?,
         Some(uri) if uri.scheme == "file" => {
             if uri.ref_.is_some() || uri.subdir.is_some() {
                 return Err(RototoError::new(
                     "file:// workspace sources do not support fragments",
                 ));
             }
-            snapshot_local_path(Path::new(&uri.base)).await
+            snapshot_local_path(Path::new(&uri.base)).await?
         }
-        _ => load_workspace_source(source, options).await,
-    }
+        _ => stage_source_once(source, options).await?,
+    };
+    compose_workspace_layers(staged, source, options).await
 }
 
 pub async fn probe_workspace_source(
@@ -265,6 +297,7 @@ async fn stage_local_path(path: &Path) -> Result<StagedWorkspace> {
 
 async fn snapshot_local_path(path: &Path) -> Result<LoadedWorkspaceSource> {
     let source = path.to_path_buf();
+    let label = source.to_string_lossy().into_owned();
     let tempdir = TempDir::new()
         .map_err(|err| RototoError::new(format!("failed to create tempdir: {err}")))?;
     let target = tempdir.path().join("workspace");
@@ -272,11 +305,12 @@ async fn snapshot_local_path(path: &Path) -> Result<LoadedWorkspaceSource> {
     tokio::task::spawn_blocking(move || copy_dir_recursive(&source, &target_for_task))
         .await
         .map_err(|err| RototoError::new(format!("workspace snapshot task failed: {err}")))??;
-    Ok(LoadedWorkspaceSource {
-        staged: StagedWorkspace::temporary(target, tempdir),
-        fingerprint: None,
-        immutable: false,
-    })
+    Ok(LoadedWorkspaceSource::new(
+        StagedWorkspace::temporary(target, tempdir),
+        None,
+        false,
+        WorkspaceLayers::single(label),
+    ))
 }
 
 async fn stage_file_uri(uri: &SourceUri) -> Result<StagedWorkspace> {
@@ -354,11 +388,12 @@ async fn stage_git_repo(
     }
     let commit = git_rev_parse_head(&clone_dir, options).await?;
     let root = select_subdir(&clone_dir, uri.subdir.as_deref(), original).await?;
-    Ok(LoadedWorkspaceSource {
-        staged: StagedWorkspace::temporary(root, tempdir),
-        fingerprint: Some(SourceFingerprint::GitCommit(commit.clone())),
-        immutable: pinned_commit,
-    })
+    Ok(LoadedWorkspaceSource::new(
+        StagedWorkspace::temporary(root, tempdir),
+        Some(SourceFingerprint::GitCommit(commit.clone())),
+        pinned_commit,
+        WorkspaceLayers::single(original),
+    ))
 }
 
 async fn stage_https_archive(
@@ -439,11 +474,12 @@ async fn stage_https_archive(
         Some(subdir) => select_subdir(&extract_dir, Some(subdir), original).await?,
         None => infer_archive_workspace_root(&extract_dir, original).await?,
     };
-    Ok(LoadedWorkspaceSource {
-        staged: StagedWorkspace::temporary(root, tempdir),
+    Ok(LoadedWorkspaceSource::new(
+        StagedWorkspace::temporary(root, tempdir),
         fingerprint,
-        immutable: false,
-    })
+        false,
+        WorkspaceLayers::single(original),
+    ))
 }
 
 async fn probe_git_repo(

@@ -25,10 +25,11 @@ use rototo::workspace::{
     variable_for_id,
 };
 use rototo::{
-    Result, RototoError, SourceAuth, SourceOptions, StagedWorkspace, catalog,
+    LoadedWorkspaceSource, Result, RototoError, SourceAuth, SourceOptions, catalog,
     catalog_for_workspace, diagnostic_for_rule, find_workspace_root, inspect_workspace,
-    inspect_workspace_report, lint_workspace, stage_workspace_source, trace_qualifier_resolution,
-    trace_qualifier_resolutions, trace_variable_resolution, trace_variable_resolutions,
+    inspect_workspace_report_with_layers, lint_workspace, load_workspace_source,
+    trace_qualifier_resolution, trace_qualifier_resolutions, trace_variable_resolution,
+    trace_variable_resolutions,
 };
 
 #[derive(Debug, Parser)]
@@ -434,7 +435,7 @@ async fn run_lint(
     let selectors = TargetSelectors::from_args(&args.selectors);
 
     if selectors.is_empty() {
-        let lint = lint_workspace(workspace.path()).await?;
+        let lint = lint_workspace(workspace.staged().path()).await?;
         let passed = !lint.has_errors();
         print_workspace_lint(&lint, json, quiet)?;
         return Ok(if passed {
@@ -444,11 +445,11 @@ async fn run_lint(
         });
     }
 
-    let inspection = inspect_workspace(workspace.path()).await?;
-    let catalog = catalog_for_workspace(workspace.path()).await?;
+    let inspection = inspect_workspace(workspace.staged().path()).await?;
+    let catalog = catalog_for_workspace(workspace.staged().path()).await?;
     validate_workspace_selectors(&selectors, &inspection, &catalog)?;
 
-    let lint = lint_workspace(workspace.path()).await?;
+    let lint = lint_workspace(workspace.staged().path()).await?;
     let lint = filter_lint(lint, &selectors);
     let passed = !lint.has_errors();
     print_workspace_lint(&lint, json, quiet)?;
@@ -471,8 +472,8 @@ async fn run_inspect(
     } else {
         Some(parse_context(&args.context).await?)
     };
-    let report = inspect_workspace_report(
-        workspace.path(),
+    let report = inspect_workspace_report_with_layers(
+        workspace.staged().path(),
         WorkspaceInspectRequest {
             variables: inspect_selection(&selectors.variables),
             resources: inspect_selection(&selectors.resources),
@@ -483,6 +484,7 @@ async fn run_inspect(
             environment: args.env,
             context,
         },
+        workspace.layers(),
     )
     .await?;
     print_inspect_report(&report, json)?;
@@ -503,8 +505,8 @@ async fn run_show(
     }
 
     let workspace = workspace_source_or_current(args.workspace, source_options).await?;
-    let inspection = inspect_workspace(workspace.path()).await?;
-    let catalog = catalog_for_workspace(workspace.path()).await?;
+    let inspection = inspect_workspace(workspace.staged().path()).await?;
+    let catalog = catalog_for_workspace(workspace.staged().path()).await?;
 
     if selectors.is_empty() {
         let view = workspace_inventory_view(&inspection, &catalog).await?;
@@ -565,8 +567,8 @@ async fn run_resolve(
     }
 
     let workspace = workspace_source_or_current(args.workspace, source_options).await?;
-    let inspection = inspect_workspace(workspace.path()).await?;
-    let catalog = catalog_for_workspace(workspace.path()).await?;
+    let inspection = inspect_workspace(workspace.staged().path()).await?;
+    let catalog = catalog_for_workspace(workspace.staged().path()).await?;
     validate_workspace_selectors(&selectors, &inspection, &catalog)?;
 
     let context = parse_context(&args.context).await?;
@@ -576,13 +578,14 @@ async fn run_resolve(
     if selectors.variables.is_some_or_all() {
         let env = args.env.as_deref().expect("validated above");
         match selected_variable_ids(&inspection, &selectors.variables) {
-            SelectedIds::All => {
-                variables.extend(trace_variable_resolutions(workspace.path(), env, &context).await?)
-            }
+            SelectedIds::All => variables.extend(
+                trace_variable_resolutions(workspace.staged().path(), env, &context).await?,
+            ),
             SelectedIds::Some(ids) => {
                 for id in ids {
                     variables.push(
-                        trace_variable_resolution(workspace.path(), &id, env, &context).await?,
+                        trace_variable_resolution(workspace.staged().path(), &id, env, &context)
+                            .await?,
                     );
                 }
             }
@@ -592,20 +595,21 @@ async fn run_resolve(
 
     if selectors.qualifiers.is_some_or_all() {
         match selected_qualifier_ids(&inspection, &selectors.qualifiers) {
-            SelectedIds::All => {
-                qualifiers.extend(trace_qualifier_resolutions(workspace.path(), &context).await?)
-            }
+            SelectedIds::All => qualifiers
+                .extend(trace_qualifier_resolutions(workspace.staged().path(), &context).await?),
             SelectedIds::Some(ids) => {
                 for id in ids {
-                    qualifiers
-                        .push(trace_qualifier_resolution(workspace.path(), &id, &context).await?);
+                    qualifiers.push(
+                        trace_qualifier_resolution(workspace.staged().path(), &id, &context)
+                            .await?,
+                    );
                 }
             }
             SelectedIds::None => {}
         }
     }
 
-    print_resolutions(workspace.path(), &variables, &qualifiers, json)?;
+    print_resolutions(workspace.staged().path(), &variables, &qualifiers, json)?;
     Ok(ExitCode::SUCCESS)
 }
 
@@ -2012,9 +2016,9 @@ fn merge_context_objects(
 async fn workspace_source_or_current(
     workspace: Option<String>,
     source_options: &SourceOptions,
-) -> Result<StagedWorkspace> {
+) -> Result<LoadedWorkspaceSource> {
     match workspace {
-        Some(workspace) => stage_workspace_source(workspace, source_options).await,
+        Some(workspace) => load_workspace_source(workspace, source_options).await,
         None => {
             let current_dir = tokio::task::spawn_blocking(std::env::current_dir)
                 .await
@@ -2022,9 +2026,8 @@ async fn workspace_source_or_current(
                 .map_err(|err| {
                     RototoError::new(format!("failed to read current directory: {err}"))
                 })?;
-            Ok(StagedWorkspace::local(
-                find_workspace_root(&current_dir).await?,
-            ))
+            let root = find_workspace_root(&current_dir).await?;
+            load_workspace_source(root.to_string_lossy().into_owned(), source_options).await
         }
     }
 }

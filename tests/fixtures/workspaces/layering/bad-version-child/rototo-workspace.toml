@@ -1,0 +1,5 @@
+schema_version = 1
+extends = "../bad-version-base"
+
+[environments]
+values = ["prod"]

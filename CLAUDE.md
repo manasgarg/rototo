@@ -46,6 +46,27 @@ composition, and bucket predicates.
 There is no package model right now. Do not add package scaffolding unless the
 design is reopened.
 
+A workspace manifest may declare `extends = "<source>"` to layer itself on top
+of a parent workspace. `extends` accepts the same source forms as a workspace
+argument (local path, `file://`, `git+*`, `https://` archive), with relative
+local paths resolved against the declaring workspace's directory. A workspace
+has at most one parent; the parent may itself extend another, forming a chain.
+Layering is composed at load time into a single materialized workspace, so
+inspection, lint, and resolution all run against the merged result:
+
+- file-level entities are overlaid by workspace-relative path; a more-derived
+  layer adds a new entity or replaces a parent entity by providing a file with
+  the same path. Layering never removes entities.
+- `[environments]` uses child-overrides semantics (most-derived list wins);
+  `[context]` is inherited unless re-declared; `[[lint.rule]]` declarations are
+  additive across the chain, deduplicated by `id` with the more-derived
+  declaration winning.
+- composition fails before lint on a cycle, an unloadable parent, a
+  `schema_version` other than `1` in any layer, or a non-string `extends`.
+
+Layering provenance is available via `Workspace::layers()` (base-first) and is
+shown by `rototo inspect`. See `examples/layered` for a base + child pair.
+
 ## CLI
 
 The CLI intentionally makes qualifiers and variables first-class:
@@ -147,7 +168,10 @@ async. `Workspace::load(source).await` accepts the same source forms as the CLI,
 lints the loaded workspace, and rejects lint failures.
 `Workspace::inspect(source).await` is the lower-level loader for tools that need
 staged workspace data without running lint. Both APIs own any temporary staged
-checkout/archive extraction needed by remote sources.
+checkout/archive extraction needed by remote sources. When the source declares
+`extends`, both APIs compose the layer chain into one materialized workspace
+before inspecting or linting; `Workspace::layers()` returns the resolved chain
+(base-first).
 
 Returned config types are `QualifierConfig` and `VariableConfig`. Avoid adding a
 generic public "read by kind" API unless there is a concrete app-facing need.

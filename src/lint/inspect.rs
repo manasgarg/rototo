@@ -73,6 +73,7 @@ pub(crate) async fn inspect_snapshot(
 
     Ok(WorkspaceInspectReport {
         workspace: snapshot.lint.root.display().to_string(),
+        layers: Vec::new(),
         environments: workspace_environments(snapshot),
         documents: snapshot.lint.documents.clone(),
         runtime: match runtime_error {

@@ -1,0 +1,8 @@
+schema_version = 1
+
+description = "Carts at or above a spend threshold"
+
+[[predicate]]
+attribute = "cart.total_usd"
+op = "gte"
+value = 250

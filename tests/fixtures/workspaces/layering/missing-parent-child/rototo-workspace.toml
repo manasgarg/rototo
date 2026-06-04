@@ -1,0 +1,5 @@
+schema_version = 1
+extends = "../does-not-exist"
+
+[environments]
+values = ["prod"]

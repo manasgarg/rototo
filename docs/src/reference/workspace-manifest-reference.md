@@ -75,6 +75,50 @@ When a context schema is present:
 Context schema validation prevents malformed runtime context from reaching
 qualifier and variable rule evaluation.
 
+## `extends`
+
+Optional. Layers this workspace on top of a parent workspace so that shared
+configuration can live in one place and more-derived workspaces add to or
+replace it. This is the mechanism teams use to keep an organization-wide base
+workspace separate from their own.
+
+```toml
+schema_version = 1
+extends = "../base"
+
+[environments]
+values = ["dev", "prod", "canary"]
+```
+
+`extends` accepts the same source forms as a workspace argument: a local path,
+`file://`, `git+file://`, `git+https://`, `git+ssh://`, or an `https://` archive
+URL. Relative local paths resolve against the declaring workspace's own
+directory. A workspace declares at most one parent; the parent may itself
+`extends` another workspace, forming a chain.
+
+rototo composes the chain into a single effective workspace before lint and
+resolution run:
+
+- File-level entities are overlaid by their workspace-relative path. A
+  more-derived workspace **adds** an entity by introducing a new file, or
+  **replaces** a parent entity by providing a file with the same path
+  (`variables/checkout-discount.toml` replaces the parent's file of the same
+  name wholesale). Layering never removes a parent entity.
+- `[environments]` uses child-overrides semantics: the most-derived
+  `[environments].values` is authoritative for the composed workspace.
+- `[context]` is inherited from the parent unless the more-derived workspace
+  declares its own.
+- Custom `[[lint.rule]]` declarations are additive across the chain,
+  deduplicated by `id`, with the more-derived declaration winning.
+
+Composition fails (before lint) when the chain forms a cycle, a parent cannot
+be loaded, a layer declares a `schema_version` other than `1`, or `extends` is
+not a string.
+
+`rototo inspect` reports the resolved layer chain, base first, so you can see
+which workspaces contributed to the composed result. The SDK exposes the same
+provenance through `Workspace::layers()`.
+
 ## Discovery
 
 rototo discovers workspace files from conventional directories:
@@ -118,3 +162,6 @@ Workspace manifest lint checks:
 - `_` is not declared as an environment.
 - `[context].schema`, when present, points at a readable valid JSON Schema
   inside the workspace.
+- `extends`, when present, is a string and resolves to a loadable parent
+  workspace, the chain has no cycle, and every layer declares
+  `schema_version = 1`. Lint runs against the composed workspace.

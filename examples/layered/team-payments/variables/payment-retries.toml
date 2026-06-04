@@ -1,0 +1,23 @@
+schema_version = 1
+
+# A new entity that exists only in the payments layer.
+description = "How many times to retry a failed payment authorization"
+type = "int"
+
+[values]
+standard = 2
+aggressive = 4
+
+[env._]
+value = "standard"
+
+[env.prod]
+value = "standard"
+
+[[env.prod.rule]]
+description = "High-value carts retry more aggressively"
+qualifier = "high-value-cart"
+value = "aggressive"
+
+[env.canary]
+value = "aggressive"

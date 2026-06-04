@@ -1,0 +1,11 @@
+schema_version = 1
+
+# The payments team layers on top of the shared base workspace. It inherits the
+# base qualifiers and variables, replaces `checkout-discount` with a tuned
+# version, and adds payments-specific entities. Because environments use
+# child-overrides semantics, this list is authoritative for the composed
+# workspace and adds a `canary` environment on top of the base set.
+extends = "../base"
+
+[environments]
+values = ["dev", "prod", "canary"]

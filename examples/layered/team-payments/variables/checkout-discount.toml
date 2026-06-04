@@ -1,0 +1,25 @@
+schema_version = 1
+
+# Replaces the base `checkout-discount` entity wholesale: same id, this file
+# wins. The payments team offers a larger premium discount and a canary value.
+description = "Checkout discount percentage (payments team tuned)"
+type = "int"
+
+[values]
+none = 0
+premium = 15
+launch = 20
+
+[env._]
+value = "none"
+
+[env.prod]
+value = "none"
+
+[[env.prod.rule]]
+description = "Premium users receive a larger checkout discount"
+qualifier = "premium-users"
+value = "premium"
+
+[env.canary]
+value = "launch"

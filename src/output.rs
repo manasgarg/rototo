@@ -109,6 +109,14 @@ pub(crate) fn print_inspect_report(report: &WorkspaceInspectReport, json: bool) 
     }
 
     println!("workspace: {}", report.workspace);
+    if !report.layers.is_empty() {
+        println!("layers (base first):");
+        let last = report.layers.len().saturating_sub(1);
+        for (index, layer) in report.layers.iter().enumerate() {
+            let marker = if index == last { " (most derived)" } else { "" };
+            println!("  {index}: {}{marker}", layer.source);
+        }
+    }
     match &report.runtime {
         InspectRuntimeStatus::Available => println!("runtime: available"),
         InspectRuntimeStatus::Unavailable { reason } => {
