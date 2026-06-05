@@ -3,7 +3,11 @@ function register(lint)
     stage = "value",
     entity = "value",
     field = "value",
-    rule = "operations/message-not-empty",
+    rule = {
+          id = "operations/message-not-empty",
+          title = "Operational message is empty",
+          help = "Set a non-empty message before releasing the workspace.",
+        },
     handler = "check_message",
   })
 end

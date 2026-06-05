@@ -13,8 +13,8 @@ use super::input::OverlayDocument;
 use line_index::LineIndex;
 use path::{file_uri, path_containment_error};
 
+pub(super) use path::resolve_workspace_relative_path;
 pub(super) use path::workspace_path;
-pub(super) use path::{resolve_workspace_relative_path, resolve_workspace_root_path};
 
 pub(super) struct SourceStore {
     pub(super) root: PathBuf,

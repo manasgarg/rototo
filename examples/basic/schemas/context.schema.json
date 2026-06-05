@@ -3,6 +3,7 @@
   "type": "object",
   "additionalProperties": false,
   "properties": {
+    "env": { "type": "string" },
     "account": {
       "type": "object",
       "additionalProperties": true,

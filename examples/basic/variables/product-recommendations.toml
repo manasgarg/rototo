@@ -3,23 +3,17 @@ schema_version = 1
 description = "Product recommendation strategy for shopping surfaces"
 type = "resource:product-recommendations"
 
-[env._]
-value = "baseline"
+[resolve]
+default = "baseline"
 
-[env.prod]
-value = "baseline"
-
-[[env.prod.rule]]
-description = "EU premium users receive personalized recommendations"
+[[resolve.rule]]
 qualifier = "eu-premium-users"
 value = "personalized"
 
-[[env.prod.rule]]
-description = "Returning users receive personalized recommendations"
+[[resolve.rule]]
 qualifier = "returning-users"
 value = "personalized"
 
-[[env.prod.rule]]
-description = "Enterprise accounts receive account-aware recommendations"
+[[resolve.rule]]
 qualifier = "enterprise-accounts"
 value = "enterprise"

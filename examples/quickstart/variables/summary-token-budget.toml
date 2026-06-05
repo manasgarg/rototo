@@ -6,5 +6,5 @@ type = "int"
 [values]
 standard = 1800
 
-[env._]
-value = "standard"
+[resolve]
+default = "standard"

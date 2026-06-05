@@ -6,5 +6,5 @@ type = "currency"
 [values]
 usd = "USD"
 
-[env._]
-value = "usd"
+[resolve]
+default = "usd"

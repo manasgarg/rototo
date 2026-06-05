@@ -2,8 +2,12 @@ function register(lint)
   lint:on({
     stage = "project",
     entity = "workspace",
-    field = "environments",
-    rule = "targets/workspace-environments",
+    field = "extends",
+    rule = {
+          id = "targets/workspace-extends",
+          title = "Workspace extends target was checked",
+          help = "Update the workspace extends policy.",
+        },
     handler = "check_workspace",
   })
 
@@ -11,7 +15,11 @@ function register(lint)
     stage = "project",
     entity = "qualifier",
     field = "predicates",
-    rule = "targets/qualifier-predicates",
+    rule = {
+          id = "targets/qualifier-predicates",
+          title = "Qualifier predicates target was checked",
+          help = "Update the qualifier predicate policy.",
+        },
     handler = "check_qualifier",
   })
 
@@ -19,21 +27,33 @@ function register(lint)
     stage = "value",
     entity = "variable",
     field = "type",
-    rule = "targets/variable-type",
+    rule = {
+          id = "targets/variable-type",
+          title = "Variable type target was checked",
+          help = "Update the variable type policy.",
+        },
     handler = "check_variable",
   })
 
   lint:on({
     stage = "value",
     entity = "variable",
-    rule = "targets/returned-variable-type",
+    rule = {
+          id = "targets/returned-variable-type",
+          title = "Returned variable type field was checked",
+          help = "Update the returned field policy.",
+        },
     handler = "check_returned_variable_field",
   })
 
   lint:on({
     stage = "value",
     entity = "variable",
-    rule = "targets/invalid-returned-field",
+    rule = {
+          id = "targets/invalid-returned-field",
+          title = "Invalid returned field fell back",
+          help = "Update the invalid returned field policy.",
+        },
     handler = "check_invalid_returned_field",
   })
 
@@ -41,18 +61,19 @@ function register(lint)
     stage = "value",
     entity = "schema",
     field = "json.properties",
-    rule = "targets/schema-json",
+    rule = {
+          id = "targets/schema-json",
+          title = "Schema JSON target was checked",
+          help = "Update the schema JSON policy.",
+        },
     handler = "check_schema",
   })
 end
 
 function check_workspace(ctx)
-  if ctx.target.environments[1] == "prod" then
-    return {
-      { message = "workspace target checked prod environment" },
-    }
-  end
-  return {}
+  return {
+    { message = "workspace target checked extends" },
+  }
 end
 
 function check_qualifier(ctx)

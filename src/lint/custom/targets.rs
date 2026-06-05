@@ -2,7 +2,6 @@ use serde_json::Value as JsonValue;
 
 use crate::diagnostics::{DiagnosticLocation, DocId, EntityId};
 
-use super::super::builtins::declared_workspace_environments;
 use super::super::engine::{LintContext, variable_values};
 use super::super::index::*;
 use super::super::source::{DocumentKind, SourceDocument};
@@ -90,18 +89,15 @@ fn registered_workspace_targets(
         return Vec::new();
     };
 
-    let environments = declared_workspace_environments(ctx)
-        .unwrap_or_default()
-        .into_iter()
-        .collect::<Vec<_>>();
-    let context_schema =
-        manifest
-            .context_schema
-            .as_ref()
-            .and_then(|context| match &context.schema {
-                ProjectField::Present(schema) => Some(schema.value.clone()),
-                _ => None,
-            });
+    let extends = match &manifest.extends {
+        WorkspaceExtendsCollection::Sources { values, .. } => values
+            .iter()
+            .map(|value| value.source.clone())
+            .collect::<Vec<_>>(),
+        WorkspaceExtendsCollection::Missing | WorkspaceExtendsCollection::Invalid { .. } => {
+            Vec::new()
+        }
+    };
 
     vec![RegisteredLintTargetInstance {
         entity: EntityId::Workspace,
@@ -114,8 +110,7 @@ fn registered_workspace_targets(
                 "path": document.path,
                 "toml": parsed_toml_json(ctx, manifest.doc),
             },
-            "environments": environments,
-            "context_schema": context_schema,
+            "extends": extends,
         }),
     }]
 }
@@ -254,15 +249,10 @@ fn registered_workspace_location(
     field: Option<&RegisteredLintField>,
 ) -> DiagnosticLocation {
     match field {
-        Some(RegisteredLintField::Workspace(WorkspaceLintField::Environments)) => {
-            toml_root_item_location(ctx, manifest.doc, "environments")
+        Some(RegisteredLintField::Workspace(WorkspaceLintField::Extends)) => {
+            toml_root_item_location(ctx, manifest.doc, "extends")
                 .unwrap_or_else(|| manifest.location.clone())
         }
-        Some(RegisteredLintField::Workspace(WorkspaceLintField::ContextSchema)) => manifest
-            .context_schema
-            .as_ref()
-            .map(|context| context.location.clone())
-            .unwrap_or_else(|| manifest.location.clone()),
         _ => manifest.location.clone(),
     }
 }
@@ -311,10 +301,9 @@ fn registered_variable_location(
         Some(RegisteredLintField::Variable(VariableLintField::Values)) => {
             variable.values.location.clone()
         }
-        Some(RegisteredLintField::Variable(VariableLintField::Environments)) => {
-            toml_root_item_location(ctx, variable.doc, "env").unwrap_or_else(|| {
-                environment_collection_location(&variable.environments, variable.location.clone())
-            })
+        Some(RegisteredLintField::Variable(VariableLintField::Resolve)) => {
+            toml_root_item_location(ctx, variable.doc, "resolve")
+                .unwrap_or_else(|| variable.resolve.location())
         }
         _ => variable.location.clone(),
     }
@@ -341,15 +330,4 @@ fn toml_root_item_location(ctx: &LintContext, doc: DocId, key: &str) -> Option<D
         .root_table()?
         .get(key)
         .map(|item| item_location(document, item))
-}
-
-fn environment_collection_location(
-    environments: &EnvironmentCollection,
-    fallback: DiagnosticLocation,
-) -> DiagnosticLocation {
-    match environments {
-        EnvironmentCollection::Missing { location }
-        | EnvironmentCollection::Invalid { location } => location.clone(),
-        EnvironmentCollection::Environments(_) => fallback,
-    }
 }

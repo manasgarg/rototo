@@ -2,5 +2,5 @@ schema_version = 1
 type = "resource:direct"
 description = "Variable with a normalized resource schema reference"
 
-[env._]
-value = "default"
+[resolve]
+default = "default"

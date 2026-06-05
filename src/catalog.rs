@@ -1,14 +1,10 @@
-use std::collections::BTreeMap;
 use std::path::Path;
 
-use toml::Value;
-
-use crate::diagnostics::{
-    CustomRuleDefinition, CustomRuleId, DiagnosticCatalogEntry, RototoRuleId, Severity,
-};
+use crate::diagnostics::{DiagnosticCatalogEntry, RototoRuleId};
 use crate::error::{Result, RototoError};
+use crate::lint::{LintInput, lint_workspace_snapshot};
 use crate::model::{DiagnosticCatalog, DiagnosticCatalogScope};
-use crate::workspace::{inspect_workspace, read_toml};
+use crate::workspace::inspect_workspace;
 
 pub fn catalog() -> DiagnosticCatalog {
     let mut diagnostics: Vec<_> = RototoRuleId::iter()
@@ -25,25 +21,8 @@ pub fn catalog() -> DiagnosticCatalog {
 
 pub async fn catalog_for_workspace(workspace_root: &Path) -> Result<DiagnosticCatalog> {
     let workspace = inspect_workspace(workspace_root).await?;
-    let mut diagnostics: Vec<_> = RototoRuleId::iter()
-        .map(DiagnosticCatalogEntry::from_rototo)
-        .collect();
-    let mut custom_rules = BTreeMap::new();
-
-    let manifest_path = workspace.root.join("rototo-workspace.toml");
-    if let Ok(toml) = read_toml(&manifest_path).await {
-        for definition in custom_rule_definitions_from_toml(&toml) {
-            custom_rules
-                .entry(definition.rule.clone())
-                .or_insert(definition);
-        }
-    }
-
-    diagnostics.extend(
-        custom_rules
-            .values()
-            .map(DiagnosticCatalogEntry::from_custom),
-    );
+    let snapshot = lint_workspace_snapshot(LintInput::new(workspace.root.clone())).await?;
+    let mut diagnostics = snapshot.diagnostic_catalog_entries();
     diagnostics.sort_by(|left, right| left.rule.cmp(&right.rule));
 
     Ok(DiagnosticCatalog {
@@ -62,42 +41,4 @@ pub fn diagnostic_for_rule<'a>(
         .iter()
         .find(|diagnostic| diagnostic.rule == rule)
         .ok_or_else(|| RototoError::new(format!("diagnostic not found: {rule}")))
-}
-
-fn custom_rule_definitions_from_toml(toml: &Value) -> Vec<CustomRuleDefinition> {
-    let Some(rules) = toml
-        .get("lint")
-        .and_then(|lint| lint.get("rule"))
-        .and_then(Value::as_array)
-    else {
-        return Vec::new();
-    };
-
-    let mut definitions = Vec::new();
-    for rule in rules {
-        let Some(rule) = rule.as_table() else {
-            continue;
-        };
-        let (Some(id), Some(title), Some(help)) = (
-            rule.get("id").and_then(Value::as_str),
-            rule.get("title").and_then(Value::as_str),
-            rule.get("help").and_then(Value::as_str),
-        ) else {
-            continue;
-        };
-        let Ok(rule_id) = CustomRuleId::parse(id) else {
-            continue;
-        };
-        let Some(severity) = rule
-            .get("severity")
-            .map(|value| value.as_str().and_then(Severity::parse))
-            .unwrap_or(Some(Severity::Error))
-        else {
-            continue;
-        };
-        definitions.push(CustomRuleDefinition::with_severity(
-            rule_id, severity, title, help,
-        ));
-    }
-    definitions
 }

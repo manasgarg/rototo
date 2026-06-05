@@ -4,5 +4,5 @@ schema = "../schemas/message.schema.json"
 [values.control]
 label = "missing required text"
 
-[env._]
-value = "control"
+[resolve]
+default = "control"

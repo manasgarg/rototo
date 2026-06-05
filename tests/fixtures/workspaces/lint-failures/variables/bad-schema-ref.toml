@@ -3,5 +3,5 @@ schema_version = 1
 description = "Variable backed by a resource with an invalid schema reference"
 type = "resource:bad-schema-ref"
 
-[env._]
-value = "default"
+[resolve]
+default = "default"

@@ -2,7 +2,11 @@ function register(lint)
   lint:on({
     stage = "policy",
     entity = "variable",
-    rule = "payments/max-token-budget",
+    rule = {
+          id = "payments/max-token-budget",
+          title = "Token budget exceeds payments policy",
+          help = "Lower max_output_tokens or update the payments policy.",
+        },
     handler = "fail_variable",
   })
 end

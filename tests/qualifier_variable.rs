@@ -60,7 +60,6 @@ fn shows_workspace_inventory_as_json_including_top_level_objects() {
         .args(["show", "examples/basic", "--json"])
         .assert()
         .success()
-        .stdout(predicate::str::contains(r#""environments": ["#))
         .stdout(predicate::str::contains(r#""schemas": ["#))
         .stdout(predicate::str::contains(
             r#""path": "schemas/context.schema.json""#,
@@ -184,7 +183,7 @@ fn resolves_all_qualifiers() {
             "examples/basic",
             "--qualifiers",
             "--context",
-            r#"{"user":{"tier":"premium","id":"user-123","role":"admin","email_domain":"example.com","language":"en","session_count":1},"account":{"plan":"enterprise","seats":250},"cart":{"total_usd":300},"device":{"platform":"web"},"request":{"country":"DE"}}"#,
+            r#"{"env":"prod","user":{"tier":"premium","id":"user-123","role":"admin","email_domain":"example.com","language":"en","session_count":1},"account":{"plan":"enterprise","seats":250},"cart":{"total_usd":300},"device":{"platform":"web"},"request":{"country":"DE"}}"#,
             "--json",
         ])
         .assert()
@@ -242,8 +241,6 @@ fn resolves_variable_by_id() {
             "examples/basic",
             "--variable",
             "checkout-redesign",
-            "--env",
-            "prod",
             "--context",
             r#"{"user":{"tier":"premium"}}"#,
             "--json",
@@ -264,8 +261,6 @@ fn resolves_production_example_enterprise_profile() {
             "examples/production",
             "--variable",
             "agent-config",
-            "--env",
-            "prod",
             "--context",
             "@examples/production/contexts/eu-enterprise.json",
             "--json",
@@ -285,10 +280,10 @@ fn resolves_all_variables() {
             "resolve",
             "examples/basic",
             "--variables",
-            "--env",
-            "prod",
             "--context",
             "@examples/basic/contexts/premium-enterprise.json",
+            "--context",
+            "env=prod",
             "--json",
         ])
         .assert()
@@ -307,8 +302,6 @@ fn resolves_variable_with_context_assignments() {
             "examples/basic",
             "--variable",
             "checkout-redesign",
-            "--env",
-            "prod",
             "--context",
             "user.tier=free",
             "--context",
@@ -329,8 +322,6 @@ fn resolves_variable_with_trace_output() {
             "examples/basic",
             "--variable",
             "checkout-redesign",
-            "--env",
-            "prod",
             "--context",
             "user.tier=premium",
         ])
@@ -339,13 +330,12 @@ fn resolves_variable_with_trace_output() {
     let stdout = String::from_utf8(assert.get_output().stdout.clone()).unwrap();
 
     assert!(stdout.contains("variable: checkout-redesign"));
-    assert!(stdout.contains("environment: prod"));
     assert!(stdout.contains("qualifier: premium-users"));
     assert!(stdout.contains(r#"[0] context user.tier = "premium""#));
     assert!(stdout.contains(r#"test: eq "premium""#));
     assert!(stdout.contains("matched: true"));
     assert!(stdout.contains("rule[0] if premium-users -> premium (matched)"));
-    assert!(stdout.contains("fallback -> control"));
+    assert!(stdout.contains("default -> control"));
     assert!(stdout.contains("value key: premium"));
     assert!(
         stdout.find("qualifiers:").unwrap() < stdout.find("  result:").unwrap(),
@@ -392,7 +382,7 @@ fn resolve_rejects_missing_predicate_context_even_when_schema_allows_it() {
 }
 
 #[test]
-fn resolve_rejects_unknown_environment_before_fallback() {
+fn resolve_accepts_env_as_context() {
     Command::cargo_bin("rototo")
         .unwrap()
         .args([
@@ -400,18 +390,19 @@ fn resolve_rejects_unknown_environment_before_fallback() {
             "examples/basic",
             "--variable",
             "checkout-redesign",
-            "--env",
-            "prd",
             "--context",
-            r#"{"user":{"tier":"premium"}}"#,
+            "env=prd",
+            "--context",
+            "user.tier=premium",
+            "--json",
         ])
         .assert()
-        .failure()
-        .stderr(predicate::str::contains("unknown environment: prd"));
+        .success()
+        .stdout(predicate::str::contains(r#""value_key": "premium""#));
 }
 
 #[test]
-fn resolve_rejects_missing_env_for_variables() {
+fn resolve_rejects_missing_context_for_variable_rules() {
     Command::cargo_bin("rototo")
         .unwrap()
         .args([
@@ -425,7 +416,7 @@ fn resolve_rejects_missing_env_for_variables() {
         .assert()
         .failure()
         .stderr(predicate::str::contains(
-            "--env is required when resolving variables",
+            "missing resolve context attribute: user.tier required by qualifier://premium-users",
         ));
 }
 

@@ -1,5 +1,2 @@
 schema_version = 1
 context = true
-
-[environments]
-values = ["prod"]

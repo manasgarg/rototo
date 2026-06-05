@@ -8,16 +8,13 @@ relaxed = 0.92
 standard = 0.82
 strict = 0.70
 
-[env._]
-value = "standard"
+[resolve]
+default = "standard"
 
-[env.dev]
+[[resolve.rule]]
+qualifier = "env-dev"
 value = "relaxed"
 
-[env.prod]
-value = "standard"
-
-[[env.prod.rule]]
-description = "High-value carts use a stricter threshold"
+[[resolve.rule]]
 qualifier = "high-value-cart"
 value = "strict"

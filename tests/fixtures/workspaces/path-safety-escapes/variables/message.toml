@@ -2,5 +2,5 @@ schema_version = 1
 type = "resource:message"
 description = "Variable with an escaping resource schema reference"
 
-[env._]
-value = "default"
+[resolve]
+default = "default"

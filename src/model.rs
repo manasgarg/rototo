@@ -7,7 +7,6 @@ use crate::diagnostics::{
 #[derive(Debug)]
 pub struct WorkspaceInspection {
     pub root: PathBuf,
-    pub environments: Vec<String>,
     pub schemas: Vec<SchemaInspection>,
     pub resources: Vec<ResourceInspection>,
     pub qualifiers: Vec<QualifierInspection>,
@@ -160,7 +159,6 @@ pub struct QualifierResolution {
 #[derive(Clone, Debug, serde::Serialize)]
 pub struct VariableResolution {
     pub id: String,
-    pub environment: String,
     pub value_key: String,
     pub value: serde_json::Value,
 }
@@ -187,7 +185,6 @@ pub struct WorkspaceInspectRequest {
     pub lint_rules: InspectSelection,
     pub lint_authorities: InspectSelection,
     pub linters: InspectSelection,
-    pub environment: Option<String>,
     pub context: Option<serde_json::Value>,
 }
 
@@ -219,7 +216,6 @@ impl InspectSelection {
 #[derive(Debug, serde::Serialize)]
 pub struct WorkspaceInspectReport {
     pub workspace: String,
-    pub environments: Vec<String>,
     pub documents: Vec<SourceDocumentSummary>,
     pub runtime: InspectRuntimeStatus,
     pub diagnostics: Vec<LintDiagnostic>,
@@ -268,7 +264,7 @@ pub struct VariableInspectReport {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub schema: Option<String>,
     pub values: Vec<ValueInspectReport>,
-    pub environments: Vec<EnvironmentPathwayInspectReport>,
+    pub resolve: ResolveInspectReport,
     pub dependencies: DependencyInspectReport,
     pub diagnostics: Vec<LintDiagnostic>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -285,8 +281,7 @@ pub struct ValueInspectReport {
 }
 
 #[derive(Debug, serde::Serialize)]
-pub struct EnvironmentPathwayInspectReport {
-    pub environment: String,
+pub struct ResolveInspectReport {
     pub default_value: Option<String>,
     pub rules: Vec<RulePathwayInspectReport>,
     #[serde(skip_serializing)]
@@ -429,9 +424,7 @@ pub struct BucketResolutionTrace {
 #[derive(Debug, Clone, serde::Serialize)]
 pub struct VariableResolutionTrace {
     pub resolution: VariableResolution,
-    pub requested_environment: String,
-    pub used_environment: String,
-    pub fallback_value: String,
+    pub default_value: String,
     pub rules: Vec<VariableRuleResolutionTrace>,
     pub qualifier_traces: Vec<QualifierResolutionTrace>,
 }

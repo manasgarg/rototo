@@ -8,18 +8,13 @@ standard = ["card", "paypal"]
 mobile = ["card", "apple_pay", "google_pay"]
 enterprise = ["card", "invoice", "wire_transfer"]
 
-[env._]
-value = "standard"
+[resolve]
+default = "standard"
 
-[env.prod]
-value = "standard"
-
-[[env.prod.rule]]
-description = "Mobile clients get wallet payment methods"
+[[resolve.rule]]
 qualifier = "mobile-users"
 value = "mobile"
 
-[[env.prod.rule]]
-description = "Enterprise accounts can pay by invoice or wire"
+[[resolve.rule]]
 qualifier = "enterprise-accounts"
 value = "enterprise"

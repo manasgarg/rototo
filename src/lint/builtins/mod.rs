@@ -8,18 +8,14 @@ mod workspace;
 use super::engine::LintContext;
 use super::index::{PredicateOp, ProjectField};
 
-pub(super) use workspace::declared_workspace_environments;
-
 pub(super) fn run_project(ctx: &mut LintContext) {
     workspace::lint_manifest_shape(ctx);
     schema::lint_context_schema_reference(ctx);
     schema::lint_context_schema_reserved_fields(ctx);
     schema::lint_schema_documents(ctx);
-    workspace::lint_manifest_custom_rule_shapes(ctx);
     qualifier::lint_qualifier_shapes(ctx);
     resource::lint_resource_shapes(ctx);
     variable::lint_variable_shapes(ctx);
-    workspace::lint_custom_rule_conflicts(ctx);
 }
 
 pub(super) fn run_reference(ctx: &mut LintContext) {

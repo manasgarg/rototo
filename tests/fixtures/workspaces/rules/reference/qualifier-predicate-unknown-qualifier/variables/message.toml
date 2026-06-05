@@ -5,9 +5,9 @@ type = "string"
 control = "control"
 derived = "derived"
 
-[env._]
-value = "control"
+[resolve]
+default = "control"
 
-[[env._.rule]]
+[[resolve.rule]]
 qualifier = "derived"
 value = "derived"

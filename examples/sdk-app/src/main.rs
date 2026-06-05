@@ -1,7 +1,7 @@
 use std::error::Error;
 use std::path::Path;
 
-use rototo::{Environment, ResolveContext, Workspace};
+use rototo::{ResolveContext, Workspace};
 use serde::Deserialize;
 
 #[derive(Debug, Deserialize)]
@@ -26,8 +26,8 @@ struct LlmConfig {
 async fn main() -> Result<(), Box<dyn Error>> {
     let workspace_root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../basic");
     let workspace = Workspace::load(workspace_root.to_string_lossy()).await?;
-    let env = Environment::new("prod");
     let context = ResolveContext::from_json(serde_json::json!({
+        "env": "prod",
         "user": {
             "id": "user-123",
             "tier": "premium",
@@ -51,17 +51,17 @@ async fn main() -> Result<(), Box<dyn Error>> {
         .await?;
 
     let checkout = workspace
-        .resolve_variable("checkout-redesign", &env, &context)
+        .resolve_variable("checkout-redesign", &context)
         .await?;
     let checkout: CheckoutPage = serde_json::from_value(checkout.value)?;
 
     let llm_config = workspace
-        .resolve_variable("llm-agent-config", &env, &context)
+        .resolve_variable("llm-agent-config", &context)
         .await?;
     let llm_config: LlmConfig = serde_json::from_value(llm_config.value)?;
 
     let message = workspace
-        .resolve_variable("premium-message", &env, &context)
+        .resolve_variable("premium-message", &context)
         .await?;
     let message: String = serde_json::from_value(message.value)?;
 

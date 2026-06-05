@@ -124,7 +124,7 @@ fn lists_workspace_level_custom_diagnostics() {
         ])
         .assert()
         .success()
-        .stdout(predicate::str::contains("targets/workspace-environments"))
+        .stdout(predicate::str::contains("targets/variable-type"))
         .stdout(predicate::str::contains("targets/schema-json"));
 }
 

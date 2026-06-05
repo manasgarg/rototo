@@ -3,28 +3,33 @@ function register(lint)
     stage = "value",
     entity = "value",
     field = "value",
-    rule = "payments/max-token-budget",
+    rule = {
+          id = "payments/max-token-budget",
+          title = "Token budget exceeds payments policy",
+          help = "Lower max_output_tokens or update the payments policy.",
+        },
     handler = "check_token_budget",
   })
 
   lint:on({
     stage = "parse",
     entity = "value",
-    rule = "payments/max-token-budget",
+    rule = {
+          id = "payments/max-token-budget",
+          title = "Token budget exceeds payments policy",
+          help = "Lower max_output_tokens or update the payments policy.",
+        },
     handler = "check_token_budget",
   })
 
   lint:on({
     stage = "value",
     entity = "value",
-    rule = "payments/missing-rule",
-    handler = "check_token_budget",
-  })
-
-  lint:on({
-    stage = "value",
-    entity = "value",
-    rule = "payments/max-token-budget",
+    rule = {
+          id = "payments/max-token-budget",
+          title = "Token budget exceeds payments policy",
+          help = "Lower max_output_tokens or update the payments policy.",
+        },
     handler = "missing_handler",
   })
 end

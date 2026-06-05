@@ -5,9 +5,9 @@ type = "string"
 control = "control"
 eu = "eu"
 
-[env._]
-value = "control"
+[resolve]
+default = "control"
 
-[[env._.rule]]
+[[resolve.rule]]
 qualifier = "missing-context"
 value = "eu"

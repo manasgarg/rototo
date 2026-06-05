@@ -9,16 +9,13 @@ first = "first"
 duplicate = "duplicate"
 unused = "unused"
 
-[env._]
-value = "control"
+[resolve]
+default = "control"
 
-[env.prod]
-value = "control"
-
-[[env.prod.rule]]
+[[resolve.rule]]
 qualifier = "self-cycle"
 value = "first"
 
-[[env.prod.rule]]
+[[resolve.rule]]
 qualifier = "self-cycle"
 value = "duplicate"

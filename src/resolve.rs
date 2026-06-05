@@ -113,72 +113,61 @@ pub(crate) async fn trace_qualifier_resolutions_unchecked(
 pub async fn resolve_variable(
     workspace_root: &Path,
     id: &str,
-    environment: &str,
     context: &JsonValue,
 ) -> Result<VariableResolution> {
     let runtime = compile_runtime_workspace(workspace_root).await?;
-    runtime.validate_environment(environment)?;
     runtime.validate_context(context)?;
-    resolve_variable_unchecked(&runtime, id, environment, context).await
+    resolve_variable_unchecked(&runtime, id, context).await
 }
 
 pub async fn trace_variable_resolution(
     workspace_root: &Path,
     id: &str,
-    environment: &str,
     context: &JsonValue,
 ) -> Result<VariableResolutionTrace> {
     let runtime = compile_runtime_workspace(workspace_root).await?;
-    runtime.validate_environment(environment)?;
     runtime.validate_context(context)?;
-    trace_variable_unchecked(&runtime, id, environment, context).await
+    trace_variable_unchecked(&runtime, id, context).await
 }
 
 pub(crate) async fn resolve_variable_unchecked(
     runtime: &RuntimeWorkspace,
     id: &str,
-    environment: &str,
     context: &JsonValue,
 ) -> Result<VariableResolution> {
     let mut state = QualifierState::new(runtime, context);
-    resolve_variable_with_state(runtime, &mut state, id, environment)
+    resolve_variable_with_state(runtime, &mut state, id)
 }
 
 pub(crate) async fn trace_variable_unchecked(
     runtime: &RuntimeWorkspace,
     id: &str,
-    environment: &str,
     context: &JsonValue,
 ) -> Result<VariableResolutionTrace> {
     let mut state = QualifierState::new(runtime, context);
-    resolve_variable_trace_with_state(runtime, &mut state, id, environment)
+    resolve_variable_trace_with_state(runtime, &mut state, id)
 }
 
 pub async fn resolve_variables(
     workspace_root: &Path,
-    environment: &str,
     context: &JsonValue,
 ) -> Result<Vec<VariableResolution>> {
     let runtime = compile_runtime_workspace(workspace_root).await?;
-    runtime.validate_environment(environment)?;
     runtime.validate_context(context)?;
-    resolve_variables_unchecked(&runtime, environment, context).await
+    resolve_variables_unchecked(&runtime, context).await
 }
 
 pub async fn trace_variable_resolutions(
     workspace_root: &Path,
-    environment: &str,
     context: &JsonValue,
 ) -> Result<Vec<VariableResolutionTrace>> {
     let runtime = compile_runtime_workspace(workspace_root).await?;
-    runtime.validate_environment(environment)?;
     runtime.validate_context(context)?;
-    trace_variable_resolutions_unchecked(&runtime, environment, context).await
+    trace_variable_resolutions_unchecked(&runtime, context).await
 }
 
 pub(crate) async fn resolve_variables_unchecked(
     runtime: &RuntimeWorkspace,
-    environment: &str,
     context: &JsonValue,
 ) -> Result<Vec<VariableResolution>> {
     let ids: Vec<String> = runtime.variables.keys().cloned().collect();
@@ -186,19 +175,13 @@ pub(crate) async fn resolve_variables_unchecked(
 
     let mut resolutions = Vec::new();
     for id in ids {
-        resolutions.push(resolve_variable_with_state(
-            runtime,
-            &mut state,
-            &id,
-            environment,
-        )?);
+        resolutions.push(resolve_variable_with_state(runtime, &mut state, &id)?);
     }
     Ok(resolutions)
 }
 
 pub(crate) async fn trace_variable_resolutions_unchecked(
     runtime: &RuntimeWorkspace,
-    environment: &str,
     context: &JsonValue,
 ) -> Result<Vec<VariableResolutionTrace>> {
     let ids: Vec<String> = runtime.variables.keys().cloned().collect();
@@ -206,12 +189,7 @@ pub(crate) async fn trace_variable_resolutions_unchecked(
     let mut traces = Vec::new();
     for id in ids {
         let mut state = QualifierState::new(runtime, context);
-        traces.push(resolve_variable_trace_with_state(
-            runtime,
-            &mut state,
-            &id,
-            environment,
-        )?);
+        traces.push(resolve_variable_trace_with_state(runtime, &mut state, &id)?);
     }
     Ok(traces)
 }
@@ -220,35 +198,23 @@ fn resolve_variable_with_state(
     runtime: &RuntimeWorkspace,
     state: &mut QualifierState<'_>,
     id: &str,
-    environment: &str,
 ) -> Result<VariableResolution> {
-    Ok(resolve_variable_trace_with_state(runtime, state, id, environment)?.resolution)
+    Ok(resolve_variable_trace_with_state(runtime, state, id)?.resolution)
 }
 
 fn resolve_variable_trace_with_state(
     runtime: &RuntimeWorkspace,
     state: &mut QualifierState<'_>,
     id: &str,
-    environment: &str,
 ) -> Result<VariableResolutionTrace> {
     let variable = runtime
         .variables
         .get(id)
         .ok_or_else(|| RototoError::new(format!("variable not found: variable://{id}")))?;
-    let (used_environment, block) = if let Some(block) = variable.environments.get(environment) {
-        (environment.to_owned(), block)
-    } else {
-        (
-            "_".to_owned(),
-            variable.environments.get("_").ok_or_else(|| {
-                RototoError::new(format!("variable has no environment fallback: {id}"))
-            })?,
-        )
-    };
 
     let mut value_key = None;
     let mut rules = Vec::new();
-    for rule in &block.rules {
+    for rule in &variable.rules {
         let matched = state.resolve(&rule.qualifier)?;
         rules.push(VariableRuleResolutionTrace {
             index: rule.index,
@@ -262,14 +228,13 @@ fn resolve_variable_trace_with_state(
         }
     }
 
-    let value_key = value_key.unwrap_or_else(|| block.value.clone());
+    let value_key = value_key.unwrap_or_else(|| variable.default.clone());
     let value = variable.values.get(&value_key).ok_or_else(|| {
         RototoError::new(format!("variable references unknown value: {value_key}"))
     })?;
 
     let resolution = VariableResolution {
         id: id.to_owned(),
-        environment: environment.to_owned(),
         value_key,
         value: value.clone(),
     };
@@ -277,9 +242,7 @@ fn resolve_variable_trace_with_state(
 
     Ok(VariableResolutionTrace {
         resolution,
-        requested_environment: environment.to_owned(),
-        used_environment,
-        fallback_value: block.value.clone(),
+        default_value: variable.default.clone(),
         rules,
         qualifier_traces,
     })
@@ -819,7 +782,7 @@ value = "anything"
     }
 
     #[tokio::test]
-    async fn resolves_variable_environment_fallback_and_fails_closed() {
+    async fn resolves_variable_default_and_fails_closed() {
         let workspace =
             workspace_with_qualifiers(&[("premium", predicate("user.tier", "eq", r#""premium""#))]);
         std::fs::create_dir_all(workspace.path().join("variables")).unwrap();
@@ -832,20 +795,18 @@ type = "string"
 control = "control"
 premium = "premium"
 
-[env._]
-value = "control"
+[resolve]
+default = "control"
 
-[env.prod]
-value = "control"
-rule = [
-  { qualifier = "premium", value = "premium" },
-]
+[[resolve.rule]]
+qualifier = "premium"
+value = "premium"
 "#,
         )
         .unwrap();
         let context = serde_json::json!({ "user": { "tier": "free" } });
 
-        let fallback = resolve_variable(workspace.path(), "message", "stage", &context)
+        let fallback = resolve_variable(workspace.path(), "message", &context)
             .await
             .unwrap();
         assert_eq!(fallback.value_key, "control");
@@ -858,13 +819,13 @@ type = "string"
 [values]
 control = "control"
 
-[env._]
-value = "control"
+[resolve]
+default = "control"
 rule = ["not-a-table"]
 "#,
         )
         .unwrap();
-        let err = resolve_variable(workspace.path(), "bad-rule", "prod", &context)
+        let err = resolve_variable(workspace.path(), "bad-rule", &context)
             .await
             .unwrap_err();
         assert!(err.to_string().contains("rule must be a table"));
@@ -954,9 +915,6 @@ range = [1.5, 2.5]
         std::fs::write(
             workspace.path().join("rototo-workspace.toml"),
             r#"schema_version = 1
-
-[environments]
-values = ["prod", "stage"]
 "#,
         )
         .unwrap();

@@ -54,16 +54,10 @@ fn quiet_suppresses_successful_lint_output() {
 fn quiet_keeps_lint_diagnostics() {
     Command::cargo_bin("rototo")
         .unwrap()
-        .args([
-            "--quiet",
-            "lint",
-            "tests/fixtures/workspaces/missing-environments",
-        ])
+        .args(["--quiet", "lint", "tests/fixtures/workspaces/lint-failures"])
         .assert()
         .failure()
-        .stdout(predicate::str::contains(
-            "error[rototo/workspace-manifest-schema-failed]",
-        ));
+        .stdout(predicate::str::contains("error[rototo/"));
 }
 
 #[test]

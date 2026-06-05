@@ -117,11 +117,6 @@ pub(crate) fn print_inspect_report(report: &WorkspaceInspectReport, json: bool) 
         }
     }
 
-    println!("environments:");
-    for environment in &report.environments {
-        println!("  {}", environment);
-    }
-
     if !report.diagnostics.is_empty() {
         println!("diagnostics:");
         print_diagnostics(&report.diagnostics);
@@ -243,18 +238,19 @@ pub(crate) fn print_inspect_report(report: &WorkspaceInspectReport, json: bool) 
                     );
                 }
             }
-            if !variable.environments.is_empty() {
-                println!("    pathways:");
-                for environment in &variable.environments {
-                    let default = environment.default_value.as_deref().unwrap_or("<missing>");
-                    println!("      {}:", environment.environment);
-                    for rule in &environment.rules {
-                        let qualifier = rule.qualifier.as_deref().unwrap_or("<missing>");
-                        let value = rule.value.as_deref().unwrap_or("<missing>");
-                        println!("        rule[{}] if {} -> {}", rule.index, qualifier, value);
-                    }
-                    println!("        fallback -> {default}");
+            if variable.resolve.default_value.is_some() || !variable.resolve.rules.is_empty() {
+                println!("    resolve:");
+                for rule in &variable.resolve.rules {
+                    let qualifier = rule.qualifier.as_deref().unwrap_or("<missing>");
+                    let value = rule.value.as_deref().unwrap_or("<missing>");
+                    println!("      rule[{}] if {} -> {}", rule.index, qualifier, value);
                 }
+                let default = variable
+                    .resolve
+                    .default_value
+                    .as_deref()
+                    .unwrap_or("<missing>");
+                println!("      default -> {default}");
             }
             print_dependencies(&variable.dependencies, "    ");
             if !variable.diagnostics.is_empty() {
@@ -262,10 +258,7 @@ pub(crate) fn print_inspect_report(report: &WorkspaceInspectReport, json: bool) 
                 print_diagnostics(&variable.diagnostics);
             }
             if let Some(trace) = &variable.trace {
-                println!(
-                    "    trace: {} -> {}",
-                    trace.used_environment, trace.resolution.value_key
-                );
+                println!("    trace: {}", trace.resolution.value_key);
                 for rule in &trace.rules {
                     println!(
                         "      rule[{}] if {} -> {} ({})",

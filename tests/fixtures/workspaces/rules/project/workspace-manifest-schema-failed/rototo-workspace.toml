@@ -1,4 +1,2 @@
 schema_version = 1
-
-[environments]
-values = []
+extends = "bad"

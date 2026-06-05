@@ -1,0 +1,8 @@
+schema_version = 1
+
+description = "Requests resolving against the dev environment"
+
+[[predicate]]
+attribute = "env"
+op = "eq"
+value = "dev"

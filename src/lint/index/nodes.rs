@@ -4,40 +4,32 @@ use std::sync::Arc;
 use serde_json::Value as JsonValue;
 
 use crate::diagnostics::{
-    CustomRuleDefinition, CustomRuleId, DiagnosticLocation, DocId, LintStage, Severity,
+    CustomRuleDefinition, CustomRuleId, DiagnosticLocation, DocId, LintStage,
 };
 
-use super::ids::{EnvironmentId, QualifierId, ResourceId, ValueKey, VariableId, WorkspacePath};
+use super::ids::{QualifierId, ResourceId, ValueKey, VariableId, WorkspacePath};
 use super::targets::RegisteredLintSelector;
 
 pub(in crate::lint) struct ManifestNode {
     pub(in crate::lint) doc: DocId,
     pub(in crate::lint) location: DiagnosticLocation,
-    pub(in crate::lint) environments: WorkspaceEnvironmentCollection,
-    pub(in crate::lint) context_schema: Option<ContextSchemaNode>,
-    pub(in crate::lint) custom_rules: CustomRuleCollection,
+    pub(in crate::lint) extends: WorkspaceExtendsCollection,
 }
 
-pub(in crate::lint) struct WorkspaceEnvironmentNode {
-    pub(in crate::lint) name: EnvironmentId,
+pub(in crate::lint) struct WorkspaceExtendNode {
+    pub(in crate::lint) source: String,
     pub(in crate::lint) location: DiagnosticLocation,
 }
 
-pub(in crate::lint) enum WorkspaceEnvironmentCollection {
+pub(in crate::lint) enum WorkspaceExtendsCollection {
     Missing,
     Invalid {
         location: DiagnosticLocation,
     },
-    Environments {
+    Sources {
         location: DiagnosticLocation,
-        values: Vec<WorkspaceEnvironmentNode>,
+        values: Vec<WorkspaceExtendNode>,
     },
-}
-
-pub(in crate::lint) struct ContextSchemaNode {
-    pub(in crate::lint) location: DiagnosticLocation,
-    pub(in crate::lint) schema: ProjectField<String>,
-    pub(in crate::lint) invalid_shape: bool,
 }
 
 pub(in crate::lint) struct QualifierNode {
@@ -132,7 +124,7 @@ pub(in crate::lint) struct VariableNode {
     pub(in crate::lint) description: Option<ProjectField<String>>,
     pub(in crate::lint) type_source: TypeSourceNode,
     pub(in crate::lint) values: ValuesNode,
-    pub(in crate::lint) environments: EnvironmentCollection,
+    pub(in crate::lint) resolve: ResolveNode,
 }
 
 pub(in crate::lint) enum TypeSourceNode {
@@ -201,41 +193,6 @@ pub(in crate::lint) struct SchemaNode {
     pub(in crate::lint) invalid_message: Option<String>,
 }
 
-pub(in crate::lint) enum CustomRuleCollection {
-    Rules(Vec<CustomRuleDeclarationNode>),
-    Invalid { location: DiagnosticLocation },
-}
-
-pub(in crate::lint) struct CustomRuleDeclarationNode {
-    pub(in crate::lint) location: DiagnosticLocation,
-    pub(in crate::lint) id: ProjectField<String>,
-    pub(in crate::lint) title: ProjectField<String>,
-    pub(in crate::lint) help: ProjectField<String>,
-    pub(in crate::lint) severity: Option<ProjectField<Severity>>,
-}
-
-impl CustomRuleDeclarationNode {
-    pub(in crate::lint) fn definition(&self) -> Option<CustomRuleDefinition> {
-        let (ProjectField::Present(id), ProjectField::Present(title), ProjectField::Present(help)) =
-            (&self.id, &self.title, &self.help)
-        else {
-            return None;
-        };
-        let rule_id = CustomRuleId::parse(&id.value).ok()?;
-        let severity = match &self.severity {
-            Some(ProjectField::Present(severity)) => severity.value,
-            Some(ProjectField::Invalid { .. }) => return None,
-            Some(ProjectField::Missing { .. }) | None => Severity::Error,
-        };
-        Some(CustomRuleDefinition::with_severity(
-            rule_id,
-            severity,
-            title.value.clone(),
-            help.value.clone(),
-        ))
-    }
-}
-
 #[derive(Default)]
 pub(in crate::lint) struct CustomLintRegistry {
     pub(in crate::lint) rules: BTreeMap<CustomRuleId, CustomRuleDefinitionNode>,
@@ -268,17 +225,28 @@ pub(in crate::lint) struct CustomLintRegistration {
     pub(in crate::lint) location: DiagnosticLocation,
 }
 
-pub(in crate::lint) enum EnvironmentCollection {
-    Missing { location: DiagnosticLocation },
-    Invalid { location: DiagnosticLocation },
-    Environments(BTreeMap<EnvironmentId, EnvironmentBlockNode>),
+pub(in crate::lint) enum ResolveNode {
+    Missing {
+        location: DiagnosticLocation,
+    },
+    Invalid {
+        location: DiagnosticLocation,
+    },
+    Resolve {
+        location: DiagnosticLocation,
+        default: Box<ProjectField<String>>,
+        rules: RuleCollection,
+    },
 }
 
-pub(in crate::lint) struct EnvironmentBlockNode {
-    pub(in crate::lint) environment: EnvironmentId,
-    pub(in crate::lint) location: DiagnosticLocation,
-    pub(in crate::lint) value: ProjectField<String>,
-    pub(in crate::lint) rules: RuleCollection,
+impl ResolveNode {
+    pub(in crate::lint) fn location(&self) -> DiagnosticLocation {
+        match self {
+            Self::Missing { location }
+            | Self::Invalid { location }
+            | Self::Resolve { location, .. } => location.clone(),
+        }
+    }
 }
 
 pub(in crate::lint) enum RuleCollection {

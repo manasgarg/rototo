@@ -22,11 +22,11 @@ pub use resolve::{
     trace_variable_resolutions,
 };
 pub use sdk::{
-    Environment, LintMode, LoadOptions, RefreshOptions, RefreshOutcome, RefreshStatus,
-    RefreshingWorkspace, ResolveContext, ResolveOptions, Workspace,
+    LintMode, LoadOptions, RefreshOptions, RefreshOutcome, RefreshStatus, RefreshingWorkspace,
+    ResolveContext, ResolveOptions, Workspace,
 };
 pub use source::{
-    SourceAuth, SourceFingerprint, SourceOptions, SourceProbe, StagedWorkspace,
+    SourceAuth, SourceFingerprint, SourceLayer, SourceOptions, SourceProbe, StagedWorkspace,
     probe_workspace_source, stage_workspace_source,
 };
 pub use workspace::{

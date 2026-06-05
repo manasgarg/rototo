@@ -16,7 +16,7 @@ pub async fn inspect_workspace(workspace_root: &Path) -> Result<WorkspaceInspect
         .await
         .map_err(|err| RototoError::new(format!("workspace not found: {err}")))?;
     let manifest = read_toml(&workspace_root.join(WORKSPACE_MANIFEST)).await?;
-    let environments = workspace_environments(&manifest)?;
+    validate_workspace_manifest(&manifest)?;
     let schemas = discover_schemas(&workspace_root).await?;
     let resources = discover_resources(&workspace_root).await?;
     let qualifiers = discover_qualifiers(&workspace_root).await?;
@@ -25,7 +25,6 @@ pub async fn inspect_workspace(workspace_root: &Path) -> Result<WorkspaceInspect
 
     Ok(WorkspaceInspection {
         root: workspace_root,
-        environments,
         schemas,
         resources,
         qualifiers,
@@ -160,7 +159,7 @@ pub async fn read_resources(workspace_root: &Path) -> Result<Vec<ResourceConfig>
     Ok(configs)
 }
 
-pub fn workspace_environments(manifest: &Value) -> Result<Vec<String>> {
+pub fn validate_workspace_manifest(manifest: &Value) -> Result<()> {
     let schema_version = manifest
         .get("schema_version")
         .and_then(Value::as_integer)
@@ -171,36 +170,37 @@ pub fn workspace_environments(manifest: &Value) -> Result<Vec<String>> {
         )));
     }
 
-    let values = manifest
-        .get("environments")
-        .and_then(|environments| environments.get("values"))
-        .and_then(Value::as_array)
-        .ok_or_else(|| RototoError::new("workspace manifest must declare [environments].values"))?;
+    workspace_extends_sources(manifest)?;
+    Ok(())
+}
 
-    let mut environments = Vec::new();
-    for value in values {
-        let environment = value
-            .as_str()
-            .ok_or_else(|| RototoError::new("environment names must be strings"))?;
-        if environment == "_" {
+pub fn workspace_extends_sources(manifest: &Value) -> Result<Vec<String>> {
+    let Some(extends) = manifest.get("extends") else {
+        return Ok(Vec::new());
+    };
+    let values = extends
+        .as_array()
+        .ok_or_else(|| RototoError::new("workspace extends must be an array of sources"))?;
+    let mut sources = Vec::with_capacity(values.len());
+    for source in values {
+        let Some(source) = source.as_str() else {
             return Err(RototoError::new(
-                "_ is reserved as the catch-all environment",
+                "workspace extends sources must be strings",
+            ));
+        };
+        if source.trim().is_empty() {
+            return Err(RototoError::new(
+                "workspace extends source must not be blank",
             ));
         }
-        if environments.iter().any(|existing| existing == environment) {
-            return Err(RototoError::new(format!(
-                "duplicate environment: {environment}"
-            )));
+        if source.trim() != source {
+            return Err(RototoError::new(
+                "workspace extends source must not contain surrounding whitespace",
+            ));
         }
-        environments.push(environment.to_owned());
+        sources.push(source.to_owned());
     }
-
-    if environments.is_empty() {
-        return Err(RototoError::new(
-            "workspace must declare at least one environment",
-        ));
-    }
-    Ok(environments)
+    Ok(sources)
 }
 
 async fn qualifier_config(

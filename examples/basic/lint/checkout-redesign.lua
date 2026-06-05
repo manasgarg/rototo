@@ -3,7 +3,11 @@ function register(lint)
     stage = "value",
     entity = "value",
     field = "value.heading",
-    rule = "consumer-experience/checkout-heading-required",
+    rule = {
+          id = "consumer-experience/checkout-heading-required",
+          title = "Checkout heading is missing",
+          help = "Set heading to visible checkout copy.",
+        },
     handler = "check_heading",
   })
 
@@ -11,7 +15,11 @@ function register(lint)
     stage = "value",
     entity = "value",
     field = "value.image_url",
-    rule = "consumer-experience/checkout-image-path",
+    rule = {
+          id = "consumer-experience/checkout-image-path",
+          title = "Checkout image path is invalid",
+          help = "Use an image URL under /images/checkout/.",
+        },
     handler = "check_image_path",
   })
 end

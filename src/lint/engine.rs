@@ -112,9 +112,6 @@ mod tests {
         tokio::fs::write(
             root.join(WORKSPACE_MANIFEST),
             r#"schema_version = 1
-
-[environments]
-values = ["prod"]
 "#,
         )
         .await
@@ -125,8 +122,8 @@ type = "string"
 [values]
 control = "hello"
 
-[env._]
-value = "control"
+[resolve]
+default = "control"
 "#;
         tokio::fs::write(root.join("variables/message.toml"), disk_variable)
             .await
@@ -138,8 +135,8 @@ type = "mystery"
 [values]
 control = "hello"
 
-[env._]
-value = "control"
+[resolve]
+default = "control"
 "#;
         let mut input = LintInput::new(root.to_path_buf());
         input.overlays.insert(
@@ -214,17 +211,6 @@ value = "control"
             (
                 WORKSPACE_MANIFEST,
                 r#"schema_version = 1
-
-[environments]
-values = ["prod"]
-
-[context]
-schema = "schemas/context.schema.json"
-
-[[lint.rule]]
-id = "policy/noop"
-title = "No-op policy"
-help = "No-op policy used by tests."
 "#,
             ),
             (
@@ -242,13 +228,10 @@ value = "premium"
                 r#"schema_version = 1
 type = "resource:message"
 
-[env._]
-value = "default"
+[resolve]
+default = "default"
 
-[env.prod]
-value = "default"
-
-[[env.prod.rule]]
+[[resolve.rule]]
 qualifier = "premium"
 value = "premium"
 "#,
@@ -296,7 +279,11 @@ schema = "../schemas/message.schema.json"
   lint:on({
     stage = "policy",
     entity = "workspace",
-    rule = "policy/noop",
+    rule = {
+      id = "policy/noop",
+      title = "No-op policy",
+      help = "No-op policy used by tests.",
+    },
     handler = "check_workspace",
   })
 end
@@ -358,9 +345,9 @@ end
             "rototo/variable-rule-unknown-qualifier",
         );
         assert_eq!(reference.primary.path, "variables/checkout-redesign.toml");
-        assert_eq!(reference.primary.range.unwrap().start.line, 14);
+        assert_eq!(reference.primary.range.unwrap().start.line, 11);
         assert_eq!(reference.primary.range.unwrap().start.character, 12);
-        assert_eq!(reference.primary.range.unwrap().end.line, 14);
+        assert_eq!(reference.primary.range.unwrap().end.line, 11);
         assert_eq!(reference.primary.range.unwrap().end.character, 27);
     }
 
@@ -379,7 +366,7 @@ end
             schema_definition.definition.title,
             "Schema JSON target was checked"
         );
-        assert_eq!(schema_definition.location.path, "rototo-workspace.toml");
+        assert_eq!(schema_definition.location.path, "lint/targets.lua");
 
         let file = registry.files.get("lint/targets.lua").unwrap();
         assert_eq!(file.path, "lint/targets.lua");
@@ -459,12 +446,6 @@ end
         tokio::fs::write(
             root.join(WORKSPACE_MANIFEST),
             r#"schema_version = 1
-
-[environments]
-values = ["prod", "stage"]
-
-[context]
-schema = "schemas/context.schema.json"
 "#,
         )
         .await
@@ -507,20 +488,16 @@ schema = "../schemas/message.schema.json"
 control = "hello"
 treatment = "welcome"
 
-[env._]
-value = "control"
+[resolve]
+default = "missing"
 
-[env.prod]
-value = "control"
-rule = [
-  { qualifier = "premium", value = "treatment" },
-]
+[[resolve.rule]]
+qualifier = "premium"
+value = "treatment"
 
-[env.stage]
-value = "missing"
-rule = [
-  { qualifier = "missing", value = "absent" },
-]
+[[resolve.rule]]
+qualifier = "missing"
+value = "absent"
 "#,
         )
         .await
@@ -542,11 +519,6 @@ rule = [
             .await
             .unwrap();
 
-        assert!(snapshot.references.edges().iter().any(|edge| {
-            matches!(edge.source, ReferenceSource::ManifestContextSchema)
-                && edge.target == ReferenceTarget::Schema("schemas/context.schema.json".to_owned())
-                && edge.is_resolved()
-        }));
         assert!(snapshot.references.edges().iter().any(|edge| {
             matches!(
                 edge.source,
@@ -587,9 +559,8 @@ rule = [
                 site.from,
                 EntityId::Rule {
                     ref variable,
-                    ref environment,
                     index: 0,
-                } if variable == "message" && environment == "prod"
+                } if variable == "message"
                 ) && site.location.path == "variables/message.toml")
         );
         assert!(
@@ -601,9 +572,8 @@ rule = [
                     site.from,
                     EntityId::Rule {
                         ref variable,
-                        ref environment,
                         index: 0,
-                    } if variable == "message" && environment == "prod"
+                    } if variable == "message"
                 ))
         );
         assert!(

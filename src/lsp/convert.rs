@@ -109,8 +109,8 @@ pub(super) fn lsp_reference(reference: &WorkspaceReference) -> LspLocation {
 
 fn lsp_symbol_kind(kind: WorkspaceDocumentSymbolKind) -> u8 {
     match kind {
-        WorkspaceDocumentSymbolKind::WorkspaceEnvironments => 18,
-        WorkspaceDocumentSymbolKind::Environment => 15,
+        WorkspaceDocumentSymbolKind::WorkspaceExtends => 18,
+        WorkspaceDocumentSymbolKind::WorkspaceExtendSource => 15,
         WorkspaceDocumentSymbolKind::Qualifier => 19,
         WorkspaceDocumentSymbolKind::Predicate => 17,
         WorkspaceDocumentSymbolKind::Variable => 13,
@@ -118,14 +118,13 @@ fn lsp_symbol_kind(kind: WorkspaceDocumentSymbolKind) -> u8 {
         WorkspaceDocumentSymbolKind::ResourceObject => 14,
         WorkspaceDocumentSymbolKind::Values => 18,
         WorkspaceDocumentSymbolKind::Value => 14,
-        WorkspaceDocumentSymbolKind::EnvironmentBlock => 3,
+        WorkspaceDocumentSymbolKind::Resolve => 3,
         WorkspaceDocumentSymbolKind::Rule => 8,
     }
 }
 
 pub(super) fn lsp_completion_item_kind(kind: WorkspaceCompletionItemKind) -> u8 {
     match kind {
-        WorkspaceCompletionItemKind::Environment => 12,
         WorkspaceCompletionItemKind::Qualifier => 18,
         WorkspaceCompletionItemKind::Value => 12,
         WorkspaceCompletionItemKind::PredicateOperator => 24,

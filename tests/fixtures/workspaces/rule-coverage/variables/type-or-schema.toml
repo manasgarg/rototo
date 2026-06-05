@@ -7,5 +7,5 @@ schema = "../schemas/missing.schema.json"
 [values]
 default = "default"
 
-[env._]
-value = "default"
+[resolve]
+default = "default"

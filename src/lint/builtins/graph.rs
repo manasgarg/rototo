@@ -145,47 +145,43 @@ pub(super) fn lint_shadowed_variable_rules(ctx: &mut LintContext) {
     let mut diagnostics = Vec::new();
 
     for variable in ctx.index.variables.values() {
-        let EnvironmentCollection::Environments(environments) = &variable.environments else {
+        let ResolveNode::Resolve { rules, .. } = &variable.resolve else {
             continue;
         };
+        let RuleCollection::Rules(rules) = rules else {
+            continue;
+        };
+        let mut seen_qualifiers: BTreeMap<String, DiagnosticLocation> = BTreeMap::new();
 
-        for block in environments.values() {
-            let RuleCollection::Rules(rules) = &block.rules else {
+        for rule in rules {
+            if rule.invalid_shape {
+                continue;
+            }
+            let ProjectField::Present(qualifier) = &rule.qualifier else {
                 continue;
             };
-            let mut seen_qualifiers: BTreeMap<String, DiagnosticLocation> = BTreeMap::new();
 
-            for rule in rules {
-                if rule.invalid_shape {
-                    continue;
-                }
-                let ProjectField::Present(qualifier) = &rule.qualifier else {
-                    continue;
-                };
-
-                if let Some(first_location) = seen_qualifiers.get(&qualifier.value) {
-                    let mut diagnostic = LintDiagnostic::rototo(
-                        RototoRuleId::VariableRuleShadowed,
-                        LintStage::Graph,
-                        EntityId::Rule {
-                            variable: variable.id.clone(),
-                            environment: block.environment.clone(),
-                            index: rule.index,
-                        },
-                        qualifier.location.clone(),
-                        format!(
-                            "rule is shadowed by an earlier rule with qualifier: {}",
-                            qualifier.value
-                        ),
-                    );
-                    diagnostic.related.push(RelatedLocation {
-                        location: first_location.clone(),
-                        message: format!("first rule using qualifier: {}", qualifier.value),
-                    });
-                    diagnostics.push(diagnostic);
-                } else {
-                    seen_qualifiers.insert(qualifier.value.clone(), qualifier.location.clone());
-                }
+            if let Some(first_location) = seen_qualifiers.get(&qualifier.value) {
+                let mut diagnostic = LintDiagnostic::rototo(
+                    RototoRuleId::VariableRuleShadowed,
+                    LintStage::Graph,
+                    EntityId::Rule {
+                        variable: variable.id.clone(),
+                        index: rule.index,
+                    },
+                    qualifier.location.clone(),
+                    format!(
+                        "rule is shadowed by an earlier rule with qualifier: {}",
+                        qualifier.value
+                    ),
+                );
+                diagnostic.related.push(RelatedLocation {
+                    location: first_location.clone(),
+                    message: format!("first rule using qualifier: {}", qualifier.value),
+                });
+                diagnostics.push(diagnostic);
+            } else {
+                seen_qualifiers.insert(qualifier.value.clone(), qualifier.location.clone());
             }
         }
     }
@@ -197,49 +193,45 @@ pub(super) fn lint_rules_selecting_default_value(ctx: &mut LintContext) {
     let mut diagnostics = Vec::new();
 
     for variable in ctx.index.variables.values() {
-        let EnvironmentCollection::Environments(environments) = &variable.environments else {
+        let ResolveNode::Resolve { default, rules, .. } = &variable.resolve else {
+            continue;
+        };
+        let ProjectField::Present(default_value) = default.as_ref() else {
+            continue;
+        };
+        let RuleCollection::Rules(rules) = rules else {
             continue;
         };
 
-        for block in environments.values() {
-            let ProjectField::Present(default_value) = &block.value else {
+        for rule in rules {
+            if rule.invalid_shape {
+                continue;
+            }
+            let ProjectField::Present(rule_value) = &rule.value else {
                 continue;
             };
-            let RuleCollection::Rules(rules) = &block.rules else {
+            if rule_value.value != default_value.value {
                 continue;
-            };
+            }
 
-            for rule in rules {
-                if rule.invalid_shape {
-                    continue;
-                }
-                let ProjectField::Present(rule_value) = &rule.value else {
-                    continue;
-                };
-                if rule_value.value != default_value.value {
-                    continue;
-                }
-
-                push_graph_diagnostic(
-                    &mut diagnostics,
-                    RototoRuleId::VariableRuleSelectsDefaultValue,
-                    EntityId::Rule {
-                        variable: variable.id.clone(),
-                        environment: block.environment.clone(),
-                        index: rule.index,
-                    },
-                    rule_value.location.clone(),
-                    format!(
-                        "rule selects the same value as the environment default: {}",
-                        rule_value.value
-                    ),
-                );
-                if let Some(diagnostic) = diagnostics.last_mut() {
-                    diagnostic.related.push(RelatedLocation {
-                        location: default_value.location.clone(),
-                        message: format!("environment default value: {}", default_value.value),
-                    });
-                }
+            push_graph_diagnostic(
+                &mut diagnostics,
+                RototoRuleId::VariableRuleSelectsDefaultValue,
+                EntityId::Rule {
+                    variable: variable.id.clone(),
+                    index: rule.index,
+                },
+                rule_value.location.clone(),
+                format!(
+                    "rule selects the same value as the resolve default: {}",
+                    rule_value.value
+                ),
+            );
+            if let Some(diagnostic) = diagnostics.last_mut() {
+                diagnostic.related.push(RelatedLocation {
+                    location: default_value.location.clone(),
+                    message: format!("resolve default value: {}", default_value.value),
+                });
             }
         }
     }

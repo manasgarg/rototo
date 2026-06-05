@@ -3,19 +3,9 @@ schema_version = 1
 description = "Nested account limits and enabled tenant features"
 type = "resource:tenant-limits"
 
-[env._]
-value = "growth"
+[resolve]
+default = "growth"
 
-[env.dev]
-value = "enterprise"
-
-[env.stage]
-value = "starter"
-
-[env.prod]
-value = "growth"
-
-[[env.prod.rule]]
-description = "Enterprise accounts get enterprise limits"
+[[resolve.rule]]
 qualifier = "enterprise-accounts"
 value = "enterprise"

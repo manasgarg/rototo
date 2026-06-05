@@ -7,5 +7,5 @@ type = "int"
 ok = 10
 bad = "ten"
 
-[env._]
-value = "ok"
+[resolve]
+default = "ok"

@@ -93,13 +93,13 @@ rototo_rules! {
         id: "workspace-manifest-schema-failed",
         entity: Workspace,
         title: "Workspace manifest does not match schema",
-        help: "Declare schema_version = 1 and [environments].values in rototo-workspace.toml.",
+        help: "Declare schema_version = 1 and optional extends in rototo-workspace.toml.",
     },
     WorkspaceContextSchemaRef => {
         id: "workspace-context-schema-ref",
         entity: Workspace,
-        title: "Resolve context schema reference is invalid",
-        help: "Point [context].schema to a readable valid JSON Schema file.",
+        title: "Resolve context schema is invalid",
+        help: "Fix schemas/context.schema.json or remove it to disable context validation.",
     },
     WorkspaceContextSchemaAttribute => {
         id: "workspace-context-schema-attribute",
@@ -107,18 +107,18 @@ rototo_rules! {
         title: "Qualifier context attribute is not declared by the resolve context schema",
         help: "Declare the context path in the workspace context schema or update the qualifier.",
     },
-    WorkspaceContextSchemaMissing => {
-        id: "workspace-context-schema-missing",
-        entity: Workspace,
-        title: "Resolve context schema is missing",
-        help: "Declare [context].schema so qualifier context attributes are validated.",
-        severity: Warning,
-    },
     WorkspaceContextSchemaReservedField => {
         id: "workspace-context-schema-reserved-field",
         entity: Workspace,
         title: "Resolve context schema declares a reserved field",
         help: "Rename the request context field; qualifier is reserved for qualifier.<id> predicate references.",
+    },
+    WorkspaceContextSchemaMissing => {
+        id: "workspace-context-schema-missing",
+        entity: Workspace,
+        title: "Resolve context schema is missing",
+        help: "Add schemas/context.schema.json to validate context attributes read by qualifiers.",
+        severity: Warning,
     },
     QualifierParseFailed => {
         id: "qualifier-parse-failed",
@@ -291,23 +291,17 @@ rototo_rules! {
         title: "Resource object references an unknown object",
         help: "Create the referenced resource object or update the x-rototo-resource field.",
     },
-    VariableEnvMissingDefault => {
-        id: "variable-env-missing-default",
+    VariableResolveMissingDefault => {
+        id: "variable-resolve-missing-default",
         entity: Variable,
-        title: "Variable default environment is missing",
-        help: "Add [env._] with a value reference.",
+        title: "Variable resolve default is missing",
+        help: "Add [resolve].default with a value reference.",
     },
-    VariableUnknownEnvironment => {
-        id: "variable-unknown-environment",
+    VariableResolveShape => {
+        id: "variable-resolve-shape",
         entity: Variable,
-        title: "Variable references an undeclared environment",
-        help: "Declare the environment in [environments].values or remove the environment block.",
-    },
-    VariableEnvShape => {
-        id: "variable-env-shape",
-        entity: Variable,
-        title: "Variable environment block is invalid",
-        help: "Environment blocks must be tables with a value reference.",
+        title: "Variable resolve block is invalid",
+        help: "Resolve blocks must be tables with default and optional rule references.",
     },
     VariableRuleShape => {
         id: "variable-rule-shape",
@@ -325,21 +319,21 @@ rototo_rules! {
         id: "variable-rule-shadowed",
         entity: Rule,
         title: "Variable rule is shadowed",
-        help: "Remove the later duplicate qualifier rule or reorder the environment rules.",
+        help: "Remove the later duplicate qualifier rule or reorder the resolve rules.",
         severity: Warning,
     },
     VariableRuleSelectsDefaultValue => {
         id: "variable-rule-selects-default-value",
         entity: Rule,
-        title: "Variable rule selects the environment default value",
-        help: "Remove the rule or update it to select a value that differs from the environment default.",
+        title: "Variable rule selects the default value",
+        help: "Remove the rule or update it to select a value that differs from the resolve default.",
         severity: Warning,
     },
     VariableValueUnused => {
         id: "variable-value-unused",
         entity: Value,
         title: "Variable value is not used",
-        help: "Reference the value from an environment default or rule, or remove it.",
+        help: "Reference the value from the resolve default or a rule, or remove it.",
         severity: Warning,
     },
     CustomLintFailed => {
@@ -352,38 +346,13 @@ rototo_rules! {
         id: "custom-lint-registration-invalid",
         entity: Workspace,
         title: "Custom lint registration is invalid",
-        help: "Register custom lint with an allowed stage, entity, field, rule, and handler.",
-    },
-    CustomLintRuleShape => {
-        id: "custom-lint-rule-shape",
-        entity: Workspace,
-        title: "Custom lint rule declaration is invalid",
-        help: "Declare custom lint rules with id, title, and help.",
-    },
-    CustomLintInvalidRule => {
-        id: "custom-lint-invalid-rule",
-        entity: Workspace,
-        title: "Custom lint rule id is invalid",
-        help: "Declare and emit rule ids as <authority>/<rule-id>; rototo is reserved.",
-    },
-    CustomLintUnknownRule => {
-        id: "custom-lint-unknown-rule",
-        entity: Workspace,
-        title: "Custom lint registration references an undeclared rule",
-        help: "Declare the custom rule in the workspace manifest or update the Lua registration.",
+        help: "Register custom lint with an allowed stage, entity, field, rule metadata, and handler.",
     },
     CustomLintRuleConflict => {
         id: "custom-lint-rule-conflict",
         entity: Workspace,
         title: "Custom lint rule metadata conflicts",
         help: "Use identical title and help text for repeated custom rule declarations.",
-    },
-    CustomLintRuleUnregistered => {
-        id: "custom-lint-rule-unregistered",
-        entity: Workspace,
-        title: "Custom lint rule is not registered",
-        help: "Register a Lua handler for the declared custom lint rule or remove the declaration.",
-        severity: Warning,
     },
     CustomLintFileUnregistered => {
         id: "custom-lint-file-unregistered",
@@ -415,7 +384,7 @@ rototo_rules! {
         id: "schema-unreferenced",
         entity: Schema,
         title: "JSON Schema is not referenced",
-        help: "Reference the schema from [context].schema or a resource schema field, or remove it.",
+        help: "Reference the schema as schemas/context.schema.json or from a resource schema field, or remove it.",
         severity: Warning,
     },
 }
@@ -620,42 +589,15 @@ pub enum LintStage {
 pub enum EntityId {
     Workspace,
     Manifest,
-    Qualifier {
-        id: String,
-    },
-    Predicate {
-        qualifier: String,
-        index: usize,
-    },
-    Variable {
-        id: String,
-    },
-    Resource {
-        id: String,
-    },
-    ResourceObject {
-        resource: String,
-        key: String,
-    },
-    Value {
-        variable: String,
-        key: String,
-    },
-    EnvironmentBlock {
-        variable: String,
-        environment: String,
-    },
-    Rule {
-        variable: String,
-        environment: String,
-        index: usize,
-    },
-    CustomLint {
-        path: String,
-    },
-    Schema {
-        path: String,
-    },
+    Qualifier { id: String },
+    Predicate { qualifier: String, index: usize },
+    Variable { id: String },
+    Resource { id: String },
+    ResourceObject { resource: String, key: String },
+    Value { variable: String, key: String },
+    Rule { variable: String, index: usize },
+    CustomLint { path: String },
+    Schema { path: String },
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]

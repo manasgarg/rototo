@@ -3,18 +3,13 @@ schema_version = 1
 description = "Support banner shown in account and checkout flows"
 type = "resource:support-banner"
 
-[env._]
-value = "hidden"
+[resolve]
+default = "hidden"
 
-[env.prod]
-value = "hidden"
-
-[[env.prod.rule]]
-description = "Mobile users get an in-app support prompt"
+[[resolve.rule]]
 qualifier = "mobile-users"
 value = "mobile_help"
 
-[[env.prod.rule]]
-description = "German speakers get localized support copy"
+[[resolve.rule]]
 qualifier = "german-speakers"
 value = "german_hours"

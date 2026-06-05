@@ -8,19 +8,17 @@ classic = "classic"
 semantic = "semantic"
 hybrid = "hybrid"
 
-[env._]
-value = "classic"
+[resolve]
+default = "classic"
 
-[env.dev]
+[[resolve.rule]]
+qualifier = "env-dev"
 value = "semantic"
 
-[env.stage]
+[[resolve.rule]]
+qualifier = "env-stage"
 value = "hybrid"
 
-[env.prod]
-value = "classic"
-
-[[env.prod.rule]]
-description = "Premium users in the beta rollout exercise hybrid ranking"
+[[resolve.rule]]
 qualifier = "premium-beta-users"
 value = "hybrid"

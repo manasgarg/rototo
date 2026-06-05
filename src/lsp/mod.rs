@@ -26,9 +26,6 @@ mod tests {
         tokio::fs::write(
             root.join("rototo-workspace.toml"),
             r#"schema_version = 1
-
-[environments]
-values = ["prod"]
 "#,
         )
         .await
@@ -39,8 +36,8 @@ type = "string"
 [values]
 control = "hello"
 
-[env._]
-value = "control"
+[resolve]
+default = "control"
 "#;
         let variable_path = root.join("variables/message.toml");
         tokio::fs::write(&variable_path, disk_variable)
@@ -61,8 +58,8 @@ type = "missing"
 [values]
 control = "hello"
 
-[env._]
-value = "control"
+[resolve]
+default = "control"
 "#,
                 }
             }))
@@ -128,9 +125,7 @@ value = "control"
         tokio::fs::write(
             &manifest_path,
             r#"schema_version = 1
-
-[environments]
-values = ["prod"]
+extends = ["../base"]
 "#,
         )
         .await
@@ -154,8 +149,8 @@ type = "string"
 [values]
 control = "hello"
 
-[env._]
-value = "control"
+[resolve]
+default = "control"
 "#;
         let variable_path = root.join("variables/message.toml");
         tokio::fs::write(&variable_path, disk_variable)
@@ -190,14 +185,12 @@ type = "string"
 control = "hello"
 treatment = "welcome"
 
-[env._]
-value = "control"
+[resolve]
+default = "control"
 
-[env.prod]
-value = "control"
-rule = [
-  { qualifier = "premium", value = "treatment" },
-]
+[[resolve.rule]]
+qualifier = "premium"
+value = "treatment"
 "#,
                 }
             }))
@@ -211,13 +204,8 @@ rule = [
             }))
             .await
             .unwrap();
-        let environments = child_symbol(&manifest_symbols, "environments");
-        assert!(
-            environments
-                .children
-                .iter()
-                .any(|child| child.name == "prod")
-        );
+        let extends = child_symbol(&manifest_symbols, "extends");
+        assert!(extends.children.iter().any(|child| child.name == "../base"));
 
         let qualifier_symbols = server
             .document_symbols(json!({
@@ -248,9 +236,10 @@ rule = [
         let treatment = child_symbol(&values.children, "treatment");
         assert_eq!(treatment.range.start.line, 5);
 
-        let prod = child_symbol(&variable.children, "env.prod");
+        let resolve = child_symbol(&variable.children, "resolve");
         assert!(
-            prod.children
+            resolve
+                .children
                 .iter()
                 .any(|child| child.name == "rule 1: premium -> treatment")
         );
@@ -283,9 +272,6 @@ rule = [
         tokio::fs::create_dir_all(root.join("lint")).await.unwrap();
         let manifest_path = root.join("rototo-workspace.toml");
         let disk_manifest = r#"schema_version = 1
-
-[environments]
-values = ["prod"]
 "#;
         tokio::fs::write(&manifest_path, disk_manifest)
             .await
@@ -308,8 +294,8 @@ type = "string"
 [values]
 control = "hello"
 
-[env._]
-value = "control"
+[resolve]
+default = "control"
 "#;
         let variable_path = root.join("variables/message.toml");
         tokio::fs::write(&variable_path, disk_variable)
@@ -333,9 +319,7 @@ end
                     "uri": format!("file://{}", manifest_path.display()),
                     "version": 2,
                     "text": r#"schema_version = 1
-
-[environments]
-values = ["prod", "stage"]
+extends = ["../base"]
 "#,
                 }
             }))
@@ -352,14 +336,12 @@ type = "string"
 control = "hello"
 treatment = "welcome"
 
-[env._]
-value = "control"
+[resolve]
+default = "control"
 
-[env.prod]
-value = "control"
-rule = [
-  { qualifier = "premium", value = "treatment" },
-]
+[[resolve.rule]]
+qualifier = "premium"
+value = "treatment"
 "#,
                 }
             }))
@@ -371,18 +353,18 @@ rule = [
                     "uri": format!("file://{}", variable_path.display())
                 },
                 "position": {
-                    "line": 8,
+                    "line": 10,
                     "character": 8
                 }
             }))
             .await
             .unwrap();
 
-        assert_no_completion(&completions, "stage", "workspace environment");
+        assert_no_completion(&completions, "../base", "workspace extend");
         assert_completion(&completions, "premium", "qualifier");
         assert_completion(&completions, "treatment", "variable value");
         assert_no_completion(&completions, "bucket", "predicate operator");
-        assert_no_completion(&completions, "context_schema", "custom lint field selector");
+        assert_no_completion(&completions, "extends", "custom lint field selector");
 
         let qualifier_completions = server
             .completion_items(json!({
@@ -414,7 +396,12 @@ rule = [
             .unwrap();
         assert_completion(
             &custom_lint_completions,
-            "context_schema",
+            "extends",
+            "custom lint field selector",
+        );
+        assert_completion(
+            &custom_lint_completions,
+            "resolve",
             "custom lint field selector",
         );
         assert_completion(
@@ -451,17 +438,6 @@ rule = [
         tokio::fs::write(
             &manifest_path,
             r#"schema_version = 1
-
-[environments]
-values = ["prod"]
-
-[[lint.rule]]
-id = "operations/message-not-empty"
-title = "Operational message is empty"
-help = "Set a non-empty message before releasing the workspace."
-
-[context]
-schema = "schemas/context.schema.json"
 "#,
         )
         .await
@@ -487,8 +463,8 @@ type = "string"
 [values]
 control = "hello"
 
-[env._]
-value = "control"
+[resolve]
+default = "control"
 "#;
         let variable_path = root.join("variables/message.toml");
         tokio::fs::write(&variable_path, disk_variable)
@@ -516,7 +492,11 @@ value = "control"
   lint:on({
     stage = "policy",
     entity = "variable",
-    rule = "operations/message-not-empty",
+    rule = {
+      id = "operations/message-not-empty",
+      title = "Operational message is empty",
+      help = "Set a non-empty message before releasing the workspace.",
+    },
     handler = "check_variable",
   })
 end
@@ -545,14 +525,12 @@ type = "string"
 control = "hello"
 treatment = "welcome"
 
-[env._]
-value = "control"
+[resolve]
+default = "control"
 
-[env.prod]
-value = "control"
-rule = [
-  { qualifier = "premium", value = "treatment" },
-]
+[[resolve.rule]]
+qualifier = "premium"
+value = "treatment"
 "#,
                 }
             }))
@@ -578,14 +556,6 @@ rule = [
             &hover_contents(&server, &qualifier_path, 4, 14).await,
             "Predicate 1",
         );
-        assert_hover_contains(
-            &hover_contents(&server, &manifest_path, 6, 7).await,
-            "Custom rule `operations/message-not-empty`",
-        );
-        assert_hover_contains(
-            &hover_contents(&server, &manifest_path, 6, 7).await,
-            "Operational message is empty",
-        );
 
         server
             .change_document(json!({
@@ -602,8 +572,8 @@ type = "missing"
 [values]
 control = "hello"
 
-[env._]
-value = "control"
+[resolve]
+default = "control"
 "#
                     }
                 ]
@@ -667,9 +637,6 @@ value = "control"
         tokio::fs::write(
             root.join("rototo-workspace.toml"),
             r#"schema_version = 1
-
-[environments]
-values = ["prod"]
 "#,
         )
         .await
@@ -710,8 +677,8 @@ type = "string"
 [values]
 control = "hello"
 
-[env._]
-value = "control"
+[resolve]
+default = "control"
 "#;
         let variable_path = root.join("variables/message.toml");
         tokio::fs::write(&variable_path, disk_variable)
@@ -732,14 +699,12 @@ schema = "../schemas/message.schema.json"
 control = "hello"
 treatment = "welcome"
 
-[env._]
-value = "control"
+[resolve]
+default = "control"
 
-[env.prod]
-value = "control"
-rule = [
-  { qualifier = "premium", value = "treatment" },
-]
+[[resolve.rule]]
+qualifier = "premium"
+value = "treatment"
 "#,
                 }
             }))
@@ -752,14 +717,14 @@ rule = [
                 .ends_with("/schemas/message.schema.json")
         );
 
-        let qualifier_definition = definition_location(&server, &variable_path, 13, 18).await;
+        let qualifier_definition = definition_location(&server, &variable_path, 11, 18).await;
         assert!(
             qualifier_definition
                 .uri
                 .ends_with("/qualifiers/premium.toml")
         );
 
-        let value_definition = definition_location(&server, &variable_path, 13, 39).await;
+        let value_definition = definition_location(&server, &variable_path, 12, 9).await;
         assert!(value_definition.uri.ends_with("/variables/message.toml"));
         assert_eq!(value_definition.range.start.line, 5);
 
@@ -786,16 +751,9 @@ rule = [
         tokio::fs::create_dir_all(root.join("schemas"))
             .await
             .unwrap();
-        let manifest_path = root.join("rototo-workspace.toml");
         tokio::fs::write(
-            &manifest_path,
+            root.join("rototo-workspace.toml"),
             r#"schema_version = 1
-
-[environments]
-values = ["prod"]
-
-[context]
-schema = "schemas/context.schema.json"
 "#,
         )
         .await
@@ -855,8 +813,8 @@ type = "string"
 [values]
 control = "hello"
 
-[env._]
-value = "control"
+[resolve]
+default = "control"
 "#;
         let variable_path = root.join("variables/message.toml");
         tokio::fs::write(&variable_path, disk_variable)
@@ -877,14 +835,12 @@ schema = "../schemas/message.schema.json"
 control = "hello"
 treatment = "welcome"
 
-[env._]
-value = "control"
+[resolve]
+default = "control"
 
-[env.prod]
-value = "control"
-rule = [
-  { qualifier = "premium", value = "treatment" },
-]
+[[resolve.rule]]
+qualifier = "premium"
+value = "treatment"
 "#,
                 }
             }))
@@ -903,7 +859,7 @@ rule = [
                 .any(|location| location.uri.ends_with("/qualifiers/premium.toml"))
         );
 
-        let premium_references = reference_locations(&server, &variable_path, 13, 18, true).await;
+        let premium_references = reference_locations(&server, &variable_path, 11, 18, true).await;
         assert_eq!(premium_references.len(), 2);
         assert!(
             premium_references
@@ -924,20 +880,6 @@ rule = [
                 .filter(|location| location.uri.ends_with("/variables/message.toml"))
                 .count(),
             2
-        );
-
-        let context_schema_references =
-            reference_locations(&server, &manifest_path, 6, 12, true).await;
-        assert_eq!(context_schema_references.len(), 2);
-        assert!(
-            context_schema_references
-                .iter()
-                .any(|location| location.uri.ends_with("/schemas/context.schema.json"))
-        );
-        assert!(
-            context_schema_references
-                .iter()
-                .any(|location| location.uri.ends_with("/rototo-workspace.toml"))
         );
 
         let context_attribute_references =

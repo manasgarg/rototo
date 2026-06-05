@@ -7,7 +7,7 @@ pub(crate) fn document_symbols(index: &SemanticIndex, path: &str) -> Vec<Workspa
 
     if let Some(manifest) = &index.manifest
         && manifest.location.path == path
-        && let Some(symbol) = workspace_environments_symbol(&manifest.environments)
+        && let Some(symbol) = workspace_extends_symbol(&manifest.extends)
     {
         symbols.push(symbol);
     }
@@ -42,29 +42,29 @@ pub(crate) fn document_symbols(index: &SemanticIndex, path: &str) -> Vec<Workspa
     symbols
 }
 
-fn workspace_environments_symbol(
-    environments: &WorkspaceEnvironmentCollection,
+fn workspace_extends_symbol(
+    extends: &WorkspaceExtendsCollection,
 ) -> Option<WorkspaceDocumentSymbol> {
-    match environments {
-        WorkspaceEnvironmentCollection::Missing => None,
-        WorkspaceEnvironmentCollection::Invalid { location } => Some(WorkspaceDocumentSymbol::new(
-            "environments",
-            WorkspaceDocumentSymbolKind::WorkspaceEnvironments,
+    match extends {
+        WorkspaceExtendsCollection::Missing => None,
+        WorkspaceExtendsCollection::Invalid { location } => Some(WorkspaceDocumentSymbol::new(
+            "extends",
+            WorkspaceDocumentSymbolKind::WorkspaceExtends,
             location.clone(),
             Vec::new(),
         )),
-        WorkspaceEnvironmentCollection::Environments { location, values } => {
+        WorkspaceExtendsCollection::Sources { location, values } => {
             Some(WorkspaceDocumentSymbol::new(
-                "environments",
-                WorkspaceDocumentSymbolKind::WorkspaceEnvironments,
+                "extends",
+                WorkspaceDocumentSymbolKind::WorkspaceExtends,
                 location.clone(),
                 values
                     .iter()
-                    .map(|environment| {
+                    .map(|source| {
                         WorkspaceDocumentSymbol::new(
-                            environment.name.clone(),
-                            WorkspaceDocumentSymbolKind::Environment,
-                            environment.location.clone(),
+                            source.source.clone(),
+                            WorkspaceDocumentSymbolKind::WorkspaceExtendSource,
+                            source.location.clone(),
                             Vec::new(),
                         )
                     })
@@ -104,7 +104,9 @@ fn variable_document_symbol(variable: &VariableNode) -> WorkspaceDocumentSymbol 
     if let Some(values) = variable_values_document_symbol(variable) {
         children.push(values);
     }
-    children.extend(variable_environment_document_symbols(variable));
+    if let Some(resolve) = variable_resolve_document_symbol(variable) {
+        children.push(resolve);
+    }
 
     WorkspaceDocumentSymbol::new(
         variable.id.clone(),
@@ -132,29 +134,26 @@ fn variable_values_document_symbol(variable: &VariableNode) -> Option<WorkspaceD
     ))
 }
 
-fn variable_environment_document_symbols(variable: &VariableNode) -> Vec<WorkspaceDocumentSymbol> {
-    let EnvironmentCollection::Environments(environments) = &variable.environments else {
-        return Vec::new();
+fn variable_resolve_document_symbol(variable: &VariableNode) -> Option<WorkspaceDocumentSymbol> {
+    let ResolveNode::Resolve {
+        location, rules, ..
+    } = &variable.resolve
+    else {
+        return None;
     };
-
-    environments
-        .values()
-        .map(|block| {
-            let children = match &block.rules {
-                RuleCollection::Rules(rules) => rules
-                    .iter()
-                    .map(variable_rule_document_symbol)
-                    .collect::<Vec<_>>(),
-                RuleCollection::Invalid { .. } => Vec::new(),
-            };
-            WorkspaceDocumentSymbol::new(
-                format!("env.{}", block.environment),
-                WorkspaceDocumentSymbolKind::EnvironmentBlock,
-                block.location.clone(),
-                children,
-            )
-        })
-        .collect()
+    let children = match rules {
+        RuleCollection::Rules(rules) => rules
+            .iter()
+            .map(variable_rule_document_symbol)
+            .collect::<Vec<_>>(),
+        RuleCollection::Invalid { .. } => Vec::new(),
+    };
+    Some(WorkspaceDocumentSymbol::new(
+        "resolve",
+        WorkspaceDocumentSymbolKind::Resolve,
+        location.clone(),
+        children,
+    ))
 }
 
 fn variable_rule_document_symbol(rule: &VariableRuleNode) -> WorkspaceDocumentSymbol {

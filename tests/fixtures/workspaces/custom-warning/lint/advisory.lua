@@ -3,7 +3,12 @@ function register(lint)
     stage = "policy",
     entity = "variable",
     field = "type",
-    rule = "policy/advisory",
+    rule = {
+          id = "policy/advisory",
+          title = "Workspace policy advisory",
+          help = "Review the advisory before release.",
+          severity = "warning",
+        },
     handler = "check_variable",
   })
 end

@@ -3,5 +3,5 @@ schema_version = 1
 description = "Missing values"
 type = "string"
 
-[env._]
-value = "default"
+[resolve]
+default = "default"

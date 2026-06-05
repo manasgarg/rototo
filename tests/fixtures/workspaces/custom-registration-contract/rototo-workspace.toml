@@ -1,9 +1,1 @@
 schema_version = 1
-
-[environments]
-values = ["prod"]
-
-[[lint.rule]]
-id = "policy/declared"
-title = "Declared custom registration rule"
-help = "Use this rule for registration contract checks."

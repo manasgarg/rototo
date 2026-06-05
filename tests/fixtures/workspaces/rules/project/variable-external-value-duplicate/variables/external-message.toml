@@ -4,5 +4,5 @@ schema = "../schemas/message.schema.json"
 [values.default]
 message = "inline"
 
-[env._]
-value = "default"
+[resolve]
+default = "default"
