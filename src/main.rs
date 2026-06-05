@@ -16,9 +16,10 @@ use crate::output::{
 };
 use rototo::diagnostics::{DiagnosticCatalogEntry, EntityId, LintDiagnostic, Severity};
 use rototo::model::{
-    DiagnosticCatalog, InspectSelection, LinterInspection, QualifierInspection,
-    QualifierResolutionTrace, ResourceInspection, SchemaInspection, VariableInspection,
-    VariableResolutionTrace, WorkspaceInspectRequest, WorkspaceInspection, WorkspaceLint,
+    DiagnosticCatalog, InspectSelection, LinterInspection, PredicateInspectReport,
+    QualifierInspection, QualifierResolutionTrace, ResourceInspection, SchemaInspection,
+    VariableInspection, VariableResolutionTrace, WorkspaceInspectRequest, WorkspaceInspection,
+    WorkspaceLint,
 };
 use rototo::workspace::{
     qualifier_for_id, read_resource_toml, read_toml, read_variable_toml, resource_for_id,
@@ -65,6 +66,8 @@ struct Cli {
 
 #[derive(Debug, Subcommand)]
 enum Command {
+    /// Create workspace and entity templates.
+    Init(InitArgs),
     /// Validate a workspace or selected targets.
     Lint(WorkspaceCommandArgs),
     /// Explain how rototo sees workspace data.
@@ -79,6 +82,37 @@ enum Command {
     Lsp,
     /// Generate shell completion scripts.
     Completions { shell: CompletionShell },
+}
+
+#[derive(Debug, Args)]
+struct InitArgs {
+    /// Local workspace path to initialize or modify.
+    #[arg(value_name = "WORKSPACE")]
+    workspace: PathBuf,
+
+    /// Create a qualifier template with this id.
+    #[arg(long = "qualifier", value_name = "ID")]
+    qualifier: Option<String>,
+
+    /// Create a variable template with this id.
+    #[arg(long = "variable", value_name = "ID")]
+    variable: Option<String>,
+
+    /// Create a resource template with this id.
+    #[arg(long = "resource", value_name = "ID")]
+    resource: Option<String>,
+
+    /// Create or infer the request context schema template.
+    #[arg(long = "context", action = ArgAction::SetTrue)]
+    context: bool,
+
+    /// Overwrite files created by this command.
+    #[arg(long = "force", action = ArgAction::SetTrue)]
+    force: bool,
+
+    /// Print the planned writes without changing the filesystem.
+    #[arg(long = "dry-run", action = ArgAction::SetTrue)]
+    dry_run: bool,
 }
 
 #[derive(Debug, Args)]
@@ -339,6 +373,8 @@ fn inspect_selection(selection: &Selection<String>) -> InspectSelection {
 }
 
 const TOP_LEVEL_HELP: &str = r#"Examples:
+  rototo init config
+  rototo init config --qualifier premium-users
   rototo lint examples/basic
   rototo show examples/basic --variables
   rototo resolve examples/basic --variable checkout-redesign --context lane=prod --context user.tier=premium
@@ -354,6 +390,7 @@ Usage:
   {usage}
 
 Workspace commands:
+  init       Create workspace and entity templates
   lint       Validate a workspace or selected targets
   inspect    Explain how rototo sees workspace data
   show       Display workspace config, variables, qualifiers, and lint metadata
@@ -393,6 +430,7 @@ async fn run() -> Result<ExitCode> {
     let source_options = source_options(&cli);
 
     match cli.command {
+        Command::Init(args) => run_init(args, cli.json, cli.quiet).await,
         Command::Lint(args) => run_lint(args, &source_options, cli.json, cli.quiet).await,
         Command::Inspect(args) => run_inspect(args, &source_options, cli.json).await,
         Command::Show(args) => run_show(args, &source_options, cli.json).await,
@@ -414,6 +452,846 @@ async fn run() -> Result<ExitCode> {
             Ok(ExitCode::SUCCESS)
         }
     }
+}
+
+async fn run_init(args: InitArgs, json: bool, quiet: bool) -> Result<ExitCode> {
+    let workspace = local_init_workspace_path(&args.workspace)?;
+    let target = init_target(&args)?;
+    let plan = build_init_plan(&workspace, target).await?;
+    let report = execute_init_plan(&workspace, &plan, args.force, args.dry_run).await?;
+    print_init_report(&report, json, quiet)?;
+    Ok(ExitCode::SUCCESS)
+}
+
+enum InitTarget {
+    Workspace,
+    Qualifier(String),
+    Variable(String),
+    Resource(String),
+    Context,
+}
+
+fn init_target(args: &InitArgs) -> Result<InitTarget> {
+    let mut count = 0;
+    let mut target = InitTarget::Workspace;
+
+    if let Some(id) = &args.qualifier {
+        count += 1;
+        validate_template_id("qualifier", id)?;
+        target = InitTarget::Qualifier(id.clone());
+    }
+    if let Some(id) = &args.variable {
+        count += 1;
+        validate_template_id("variable", id)?;
+        target = InitTarget::Variable(id.clone());
+    }
+    if let Some(id) = &args.resource {
+        count += 1;
+        validate_template_id("resource", id)?;
+        target = InitTarget::Resource(id.clone());
+    }
+    if args.context {
+        count += 1;
+        target = InitTarget::Context;
+    }
+
+    if count > 1 {
+        return Err(RototoError::new(
+            "init accepts one entity flag at a time: --qualifier, --variable, --resource, or --context",
+        ));
+    }
+
+    Ok(target)
+}
+
+fn validate_template_id(kind: &str, id: &str) -> Result<()> {
+    if id.is_empty() {
+        return Err(RototoError::new(format!("{kind} id must not be empty")));
+    }
+    if id.starts_with('.') || id.split('.').any(str::is_empty) {
+        return Err(RototoError::new(format!(
+            "{kind} id must not start with '.', end with '.', or contain empty '.' segments"
+        )));
+    }
+    if !id
+        .chars()
+        .all(|ch| ch.is_ascii_alphanumeric() || matches!(ch, '-' | '_' | '.'))
+    {
+        return Err(RototoError::new(format!(
+            "{kind} id must use only ASCII letters, digits, '.', '_', or '-'"
+        )));
+    }
+    Ok(())
+}
+
+fn local_init_workspace_path(path: &Path) -> Result<PathBuf> {
+    let source = path.to_string_lossy();
+    if source.contains("://") || source.starts_with("git+") {
+        return Err(RototoError::new(
+            "init requires a local workspace path, not a workspace source URI",
+        ));
+    }
+
+    std::path::absolute(path)
+        .map_err(|err| RototoError::new(format!("failed to resolve workspace path: {err}")))
+}
+
+async fn build_init_plan(workspace: &Path, target: InitTarget) -> Result<Vec<InitPlanEntry>> {
+    let initialized = workspace_initialized(workspace).await?;
+    match target {
+        InitTarget::Workspace => Ok(workspace_init_plan(workspace)),
+        InitTarget::Qualifier(id) => {
+            let mut plan = implicit_workspace_init_plan(workspace, initialized);
+            if initialized {
+                plan.push(InitPlanEntry::directory(workspace.join("qualifiers")));
+            }
+            plan.push(InitPlanEntry::file(
+                "qualifier",
+                workspace.join("qualifiers").join(format!("{id}.toml")),
+                qualifier_template(&id),
+            ));
+            Ok(plan)
+        }
+        InitTarget::Variable(id) => {
+            let mut plan = implicit_workspace_init_plan(workspace, initialized);
+            if initialized {
+                plan.push(InitPlanEntry::directory(workspace.join("variables")));
+            }
+            plan.push(InitPlanEntry::file(
+                "variable",
+                workspace.join("variables").join(format!("{id}.toml")),
+                variable_template(&id),
+            ));
+            Ok(plan)
+        }
+        InitTarget::Resource(id) => {
+            let mut plan = implicit_workspace_init_plan(workspace, initialized);
+            if initialized {
+                plan.push(InitPlanEntry::directory(workspace.join("resources")));
+                plan.push(InitPlanEntry::directory(workspace.join("schemas")));
+            }
+            plan.extend([
+                InitPlanEntry::directory(workspace.join("resources").join(format!("{id}-objects"))),
+                InitPlanEntry::file(
+                    "resource",
+                    workspace.join("resources").join(format!("{id}.toml")),
+                    resource_template(&id),
+                ),
+                InitPlanEntry::file(
+                    "schema",
+                    workspace.join("schemas").join(format!("{id}.schema.json")),
+                    resource_schema_template()?,
+                ),
+                InitPlanEntry::file(
+                    "resource_object",
+                    workspace
+                        .join("resources")
+                        .join(format!("{id}-objects"))
+                        .join("default.toml"),
+                    resource_object_template(),
+                ),
+            ]);
+            Ok(plan)
+        }
+        InitTarget::Context => {
+            let mut plan = implicit_workspace_init_plan(workspace, initialized);
+            if initialized {
+                plan.push(InitPlanEntry::directory(workspace.join("schemas")));
+            }
+            let content = if initialized {
+                context_schema_template(workspace).await?
+            } else {
+                starter_context_schema_template()?
+            };
+            plan.push(InitPlanEntry::file(
+                "context_schema",
+                workspace.join("schemas").join("context.schema.json"),
+                content,
+            ));
+            Ok(plan)
+        }
+    }
+}
+
+fn implicit_workspace_init_plan(workspace: &Path, initialized: bool) -> Vec<InitPlanEntry> {
+    if initialized {
+        Vec::new()
+    } else {
+        workspace_init_plan(workspace)
+    }
+}
+
+fn workspace_init_plan(workspace: &Path) -> Vec<InitPlanEntry> {
+    vec![
+        InitPlanEntry::directory(workspace.to_path_buf()),
+        InitPlanEntry::file(
+            "workspace_manifest",
+            workspace.join("rototo-workspace.toml"),
+            workspace_manifest_template(),
+        ),
+        InitPlanEntry::directory(workspace.join("qualifiers")),
+        InitPlanEntry::directory(workspace.join("variables")),
+        InitPlanEntry::directory(workspace.join("resources")),
+        InitPlanEntry::directory(workspace.join("schemas")),
+        InitPlanEntry::directory(workspace.join("lint")),
+    ]
+}
+
+async fn workspace_initialized(workspace: &Path) -> Result<bool> {
+    path_exists(&workspace.join("rototo-workspace.toml")).await
+}
+
+async fn path_exists(path: &Path) -> Result<bool> {
+    match tokio::fs::metadata(path).await {
+        Ok(_) => Ok(true),
+        Err(err) if err.kind() == std::io::ErrorKind::NotFound => Ok(false),
+        Err(err) => Err(RototoError::new(format!(
+            "failed to inspect {}: {err}",
+            path.display()
+        ))),
+    }
+}
+
+#[derive(Debug)]
+struct InitPlanEntry {
+    kind: &'static str,
+    path: PathBuf,
+    content: Option<String>,
+}
+
+impl InitPlanEntry {
+    fn directory(path: PathBuf) -> Self {
+        Self {
+            kind: "directory",
+            path,
+            content: None,
+        }
+    }
+
+    fn file(kind: &'static str, path: PathBuf, content: String) -> Self {
+        Self {
+            kind,
+            path,
+            content: Some(content),
+        }
+    }
+
+    fn is_directory(&self) -> bool {
+        self.content.is_none()
+    }
+}
+
+#[derive(Debug, Serialize)]
+struct InitReport {
+    command: &'static str,
+    workspace: String,
+    dry_run: bool,
+    files: Vec<InitFileReport>,
+}
+
+#[derive(Debug, Serialize)]
+struct InitFileReport {
+    kind: &'static str,
+    path: String,
+    action: InitAction,
+}
+
+#[derive(Clone, Copy, Debug, Serialize)]
+#[serde(rename_all = "snake_case")]
+enum InitAction {
+    Exists,
+    Created,
+    Overwritten,
+    WouldCreate,
+    WouldOverwrite,
+}
+
+impl InitAction {
+    fn label(self) -> &'static str {
+        match self {
+            Self::Exists => "exists",
+            Self::Created => "created",
+            Self::Overwritten => "overwritten",
+            Self::WouldCreate => "would create",
+            Self::WouldOverwrite => "would overwrite",
+        }
+    }
+}
+
+async fn execute_init_plan(
+    workspace: &Path,
+    plan: &[InitPlanEntry],
+    force: bool,
+    dry_run: bool,
+) -> Result<InitReport> {
+    let mut actions = Vec::with_capacity(plan.len());
+    for entry in plan {
+        actions.push(planned_init_action(entry, force, dry_run).await?);
+    }
+
+    if !dry_run {
+        for entry in plan {
+            if entry.is_directory() {
+                tokio::fs::create_dir_all(&entry.path)
+                    .await
+                    .map_err(|err| {
+                        RototoError::new(format!(
+                            "failed to create directory {}: {err}",
+                            entry.path.display()
+                        ))
+                    })?;
+            } else if let Some(content) = &entry.content {
+                if let Some(parent) = entry.path.parent() {
+                    tokio::fs::create_dir_all(parent).await.map_err(|err| {
+                        RototoError::new(format!(
+                            "failed to create directory {}: {err}",
+                            parent.display()
+                        ))
+                    })?;
+                }
+                tokio::fs::write(&entry.path, content)
+                    .await
+                    .map_err(|err| {
+                        RototoError::new(format!("failed to write {}: {err}", entry.path.display()))
+                    })?;
+            }
+        }
+    }
+
+    Ok(InitReport {
+        command: "init",
+        workspace: workspace.display().to_string(),
+        dry_run,
+        files: plan
+            .iter()
+            .zip(actions)
+            .map(|(entry, action)| InitFileReport {
+                kind: entry.kind,
+                path: init_report_path(workspace, &entry.path),
+                action,
+            })
+            .collect(),
+    })
+}
+
+async fn planned_init_action(
+    entry: &InitPlanEntry,
+    force: bool,
+    dry_run: bool,
+) -> Result<InitAction> {
+    let metadata = match tokio::fs::metadata(&entry.path).await {
+        Ok(metadata) => Some(metadata),
+        Err(err) if err.kind() == std::io::ErrorKind::NotFound => None,
+        Err(err) => {
+            return Err(RototoError::new(format!(
+                "failed to inspect {}: {err}",
+                entry.path.display()
+            )));
+        }
+    };
+
+    if entry.is_directory() {
+        if let Some(metadata) = metadata {
+            if !metadata.is_dir() {
+                return Err(RototoError::new(format!(
+                    "path exists and is not a directory: {}",
+                    entry.path.display()
+                )));
+            }
+            return Ok(InitAction::Exists);
+        }
+        return Ok(if dry_run {
+            InitAction::WouldCreate
+        } else {
+            InitAction::Created
+        });
+    }
+
+    if let Some(metadata) = metadata {
+        if metadata.is_dir() {
+            return Err(RototoError::new(format!(
+                "path exists and is a directory: {}",
+                entry.path.display()
+            )));
+        }
+        if !force {
+            return Err(RototoError::new(format!(
+                "file already exists: {} (use --force to overwrite)",
+                entry.path.display()
+            )));
+        }
+        return Ok(if dry_run {
+            InitAction::WouldOverwrite
+        } else {
+            InitAction::Overwritten
+        });
+    }
+
+    Ok(if dry_run {
+        InitAction::WouldCreate
+    } else {
+        InitAction::Created
+    })
+}
+
+fn init_report_path(workspace: &Path, path: &Path) -> String {
+    match path.strip_prefix(workspace) {
+        Ok(relative) if relative.as_os_str().is_empty() => ".".to_owned(),
+        Ok(relative) => relative.display().to_string(),
+        Err(_) => path.display().to_string(),
+    }
+}
+
+fn print_init_report(report: &InitReport, json: bool, quiet: bool) -> Result<()> {
+    if json {
+        println!(
+            "{}",
+            serde_json::to_string_pretty(report)
+                .map_err(|err| RototoError::new(err.to_string()))?
+        );
+        return Ok(());
+    }
+
+    if quiet {
+        return Ok(());
+    }
+
+    println!("workspace: {}", report.workspace);
+    for file in &report.files {
+        println!(
+            "  {:<15} {}",
+            format!("{}:", file.action.label()),
+            file.path
+        );
+    }
+    Ok(())
+}
+
+fn workspace_manifest_template() -> String {
+    r#"schema_version = 1
+
+# Optional workspace layering:
+#
+# extends = ["../shared-config"]
+#
+# Optional custom lint rules can be declared here and implemented in lint/*.lua.
+#
+# [[lint.rule]]
+# id = "team/rule-id"
+# title = "Rule title"
+# help = "Explain what to change when this rule fails."
+# severity = "warning"
+"#
+    .to_owned()
+}
+
+fn qualifier_template(id: &str) -> String {
+    let description = toml_string(&format!(
+        "Edit this description to explain when {id} should match"
+    ));
+    format!(
+        r#"schema_version = 1
+
+description = {description}
+
+[[predicate]]
+attribute = "user.tier"
+op = "eq"
+value = "premium"
+
+# Additional predicates are ANDed with the predicate above.
+#
+# [[predicate]]
+# attribute = "request.country"
+# op = "in"
+# value = ["DE", "FR", "NL"]
+#
+# Qualifiers can reference other qualifiers.
+#
+# [[predicate]]
+# attribute = "qualifier.beta-rollout"
+# op = "eq"
+# value = true
+#
+# Bucket predicates produce stable rollout membership for a context value.
+#
+# [[predicate]]
+# attribute = "user.id"
+# op = "bucket"
+# salt = "{id}-rollout"
+# range = [0, 1000]
+"#
+    )
+}
+
+fn variable_template(id: &str) -> String {
+    let description = toml_string(&format!(
+        "Edit this description to explain what {id} controls"
+    ));
+    format!(
+        r#"schema_version = 1
+
+description = {description}
+type = "string"
+
+[values]
+control = "control"
+# treatment = "treatment"
+
+[resolve]
+default = "control"
+
+# Rules are evaluated in order. The first matching qualifier selects its value.
+#
+# [[resolve.rule]]
+# qualifier = "premium-users"
+# value = "treatment"
+#
+# For resource-backed values, remove [values] and use a resource type:
+#
+# type = "resource:{id}"
+#
+# Resource object keys become the selectable value keys.
+"#
+    )
+}
+
+fn resource_template(id: &str) -> String {
+    let description = toml_string(&format!(
+        "Edit this description to explain the {id} resource objects"
+    ));
+    let schema = toml_string(&format!("../schemas/{id}.schema.json"));
+    format!(
+        r#"schema_version = 1
+
+description = {description}
+schema = {schema}
+"#
+    )
+}
+
+fn resource_schema_template() -> Result<String> {
+    let schema = serde_json::json!({
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+            "heading": { "type": "string" },
+            "enabled": { "type": "boolean" }
+        },
+        "required": ["heading", "enabled"]
+    });
+    pretty_json(&schema)
+}
+
+fn resource_object_template() -> String {
+    r#"heading = "Edit this heading"
+enabled = false
+"#
+    .to_owned()
+}
+
+async fn context_schema_template(workspace: &Path) -> Result<String> {
+    let report = inspect_workspace_report(
+        workspace,
+        WorkspaceInspectRequest {
+            qualifiers: InspectSelection::All,
+            ..WorkspaceInspectRequest::default()
+        },
+    )
+    .await?;
+
+    let mut builder = ContextSchemaBuilder::default();
+    for qualifier in &report.qualifiers {
+        for predicate in &qualifier.predicates {
+            builder.add_predicate(predicate);
+        }
+    }
+
+    if builder.is_empty() {
+        return starter_context_schema_template();
+    }
+
+    pretty_json(&builder.into_schema())
+}
+
+fn starter_context_schema_template() -> Result<String> {
+    let schema = serde_json::json!({
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "additionalProperties": true,
+        "properties": {
+            "user": {
+                "type": "object",
+                "additionalProperties": true,
+                "properties": {
+                    "tier": { "type": "string" },
+                    "id": { "type": ["string", "number"] }
+                }
+            }
+        }
+    });
+    pretty_json(&schema)
+}
+
+#[derive(Default)]
+struct ContextSchemaBuilder {
+    properties: serde_json::Map<String, serde_json::Value>,
+}
+
+impl ContextSchemaBuilder {
+    fn add_predicate(&mut self, predicate: &PredicateInspectReport) {
+        let Some(attribute) = predicate.attribute.as_deref() else {
+            return;
+        };
+        if attribute.starts_with("qualifier.") {
+            return;
+        }
+
+        let types = infer_context_schema_types(predicate);
+        if types.is_empty() {
+            return;
+        }
+
+        let segments = attribute.split('.').collect::<Vec<_>>();
+        if segments.is_empty() || segments.iter().any(|segment| segment.is_empty()) {
+            return;
+        }
+
+        insert_context_schema_path(&mut self.properties, &segments, &types);
+    }
+
+    fn is_empty(&self) -> bool {
+        self.properties.is_empty()
+    }
+
+    fn into_schema(self) -> serde_json::Value {
+        serde_json::json!({
+            "$schema": "https://json-schema.org/draft/2020-12/schema",
+            "type": "object",
+            "additionalProperties": true,
+            "properties": self.properties
+        })
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
+enum ContextSchemaType {
+    Boolean,
+    Integer,
+    Number,
+    String,
+}
+
+impl ContextSchemaType {
+    fn as_str(self) -> &'static str {
+        match self {
+            Self::Boolean => "boolean",
+            Self::Integer => "integer",
+            Self::Number => "number",
+            Self::String => "string",
+        }
+    }
+}
+
+fn infer_context_schema_types(predicate: &PredicateInspectReport) -> BTreeSet<ContextSchemaType> {
+    let mut types = match predicate.op.as_deref() {
+        Some("eq" | "neq") => predicate
+            .value
+            .as_ref()
+            .map(context_schema_types_from_json)
+            .unwrap_or_default(),
+        Some("in" | "not_in") => {
+            let mut types = BTreeSet::new();
+            if let Some(values) = predicate
+                .value
+                .as_ref()
+                .and_then(serde_json::Value::as_array)
+            {
+                for value in values {
+                    types.extend(context_schema_types_from_json(value));
+                }
+            }
+            types
+        }
+        Some("gt" | "gte" | "lt" | "lte") => BTreeSet::from([ContextSchemaType::Number]),
+        Some("bucket") => BTreeSet::from([
+            ContextSchemaType::Boolean,
+            ContextSchemaType::Integer,
+            ContextSchemaType::Number,
+            ContextSchemaType::String,
+        ]),
+        _ => BTreeSet::new(),
+    };
+    normalize_context_schema_types(&mut types);
+    types
+}
+
+fn context_schema_types_from_json(value: &serde_json::Value) -> BTreeSet<ContextSchemaType> {
+    let mut types = BTreeSet::new();
+    match value {
+        serde_json::Value::Bool(_) => {
+            types.insert(ContextSchemaType::Boolean);
+        }
+        serde_json::Value::Number(number) => {
+            types.insert(if number.is_i64() || number.is_u64() {
+                ContextSchemaType::Integer
+            } else {
+                ContextSchemaType::Number
+            });
+        }
+        serde_json::Value::String(_) => {
+            types.insert(ContextSchemaType::String);
+        }
+        serde_json::Value::Null | serde_json::Value::Array(_) | serde_json::Value::Object(_) => {}
+    }
+    types
+}
+
+fn insert_context_schema_path(
+    properties: &mut serde_json::Map<String, serde_json::Value>,
+    segments: &[&str],
+    types: &BTreeSet<ContextSchemaType>,
+) {
+    let segment = segments[0];
+    if segments.len() == 1 {
+        merge_context_schema_leaf(properties, segment, types);
+        return;
+    }
+
+    let entry = properties
+        .entry(segment.to_owned())
+        .or_insert_with(empty_context_object_schema);
+    ensure_context_object_schema(entry);
+    let child_properties = entry
+        .as_object_mut()
+        .expect("object schema ensured above")
+        .entry("properties")
+        .or_insert_with(|| serde_json::Value::Object(serde_json::Map::new()))
+        .as_object_mut()
+        .expect("properties object inserted above");
+    insert_context_schema_path(child_properties, &segments[1..], types);
+}
+
+fn merge_context_schema_leaf(
+    properties: &mut serde_json::Map<String, serde_json::Value>,
+    segment: &str,
+    types: &BTreeSet<ContextSchemaType>,
+) {
+    let entry = properties
+        .entry(segment.to_owned())
+        .or_insert_with(|| context_schema_leaf(types));
+    if entry
+        .as_object()
+        .is_some_and(|object| object.contains_key("properties"))
+    {
+        return;
+    }
+
+    let mut merged = context_schema_types_from_schema(entry);
+    merged.extend(types.iter().copied());
+    normalize_context_schema_types(&mut merged);
+    *entry = context_schema_leaf(&merged);
+}
+
+fn empty_context_object_schema() -> serde_json::Value {
+    serde_json::json!({
+        "type": "object",
+        "additionalProperties": true,
+        "properties": {}
+    })
+}
+
+fn ensure_context_object_schema(value: &mut serde_json::Value) {
+    if !value.is_object() {
+        *value = empty_context_object_schema();
+        return;
+    }
+
+    let object = value.as_object_mut().expect("object checked above");
+    object.insert(
+        "type".to_owned(),
+        serde_json::Value::String("object".to_owned()),
+    );
+    object.insert(
+        "additionalProperties".to_owned(),
+        serde_json::Value::Bool(true),
+    );
+    let properties = object
+        .entry("properties")
+        .or_insert_with(|| serde_json::Value::Object(serde_json::Map::new()));
+    if !properties.is_object() {
+        *properties = serde_json::Value::Object(serde_json::Map::new());
+    }
+}
+
+fn context_schema_leaf(types: &BTreeSet<ContextSchemaType>) -> serde_json::Value {
+    let mut object = serde_json::Map::new();
+    object.insert("type".to_owned(), context_schema_type_value(types));
+    serde_json::Value::Object(object)
+}
+
+fn context_schema_type_value(types: &BTreeSet<ContextSchemaType>) -> serde_json::Value {
+    let mut types = types.clone();
+    normalize_context_schema_types(&mut types);
+    if types.len() == 1 {
+        return serde_json::Value::String(
+            types.iter().next().expect("one type").as_str().to_owned(),
+        );
+    }
+    serde_json::Value::Array(
+        types
+            .iter()
+            .map(|ty| serde_json::Value::String(ty.as_str().to_owned()))
+            .collect(),
+    )
+}
+
+fn context_schema_types_from_schema(schema: &serde_json::Value) -> BTreeSet<ContextSchemaType> {
+    let mut types = BTreeSet::new();
+    match schema.as_object().and_then(|object| object.get("type")) {
+        Some(serde_json::Value::String(value)) => {
+            if let Some(ty) = context_schema_type_from_str(value) {
+                types.insert(ty);
+            }
+        }
+        Some(serde_json::Value::Array(values)) => {
+            for value in values {
+                if let Some(ty) = value.as_str().and_then(context_schema_type_from_str) {
+                    types.insert(ty);
+                }
+            }
+        }
+        _ => {}
+    }
+    types
+}
+
+fn context_schema_type_from_str(value: &str) -> Option<ContextSchemaType> {
+    match value {
+        "boolean" => Some(ContextSchemaType::Boolean),
+        "integer" => Some(ContextSchemaType::Integer),
+        "number" => Some(ContextSchemaType::Number),
+        "string" => Some(ContextSchemaType::String),
+        _ => None,
+    }
+}
+
+fn normalize_context_schema_types(types: &mut BTreeSet<ContextSchemaType>) {
+    if types.contains(&ContextSchemaType::Number) {
+        types.remove(&ContextSchemaType::Integer);
+    }
+}
+
+fn pretty_json(value: &serde_json::Value) -> Result<String> {
+    let mut text =
+        serde_json::to_string_pretty(value).map_err(|err| RototoError::new(err.to_string()))?;
+    text.push('\n');
+    Ok(text)
+}
+
+fn toml_string(value: &str) -> String {
+    toml::Value::String(value.to_owned()).to_string()
 }
 
 async fn run_lint(
