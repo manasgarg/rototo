@@ -1,6 +1,6 @@
 schema_version = 1
 
-description = "Variable with bad environment, qualifier, and value references"
+description = "Variable with bad qualifier and value references"
 type = "string"
 
 [values]

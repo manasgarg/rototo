@@ -23,7 +23,7 @@ workspace loading or resolution. Do not add new sync public APIs around blocking
 work; use async functions and `spawn_blocking` for sync-only libraries.
 
 Use rototo's domain vocabulary directly. Current first-class concepts are
-workspaces, environments, qualifiers, variables, schemas, and values. Avoid
+workspaces, qualifiers, variables, resources, schemas, and values. Avoid
 reintroducing generic nouns such as package, resource, item, or document in CLI
 commands, public SDK types, docs, tests, or diagnostics unless the product model
 explicitly changes.
@@ -40,8 +40,7 @@ The workspace format is rooted at `rototo-workspace.toml`:
 
 The example workspace at `examples/basic` is intentionally broad and should stay
 lint-clean. It covers primitive variables, schema-backed nested values,
-environment defaults, environment overrides, multiple rules, qualifier
-composition, and bucket predicates.
+default values, override rules, qualifier composition, and bucket predicates.
 
 There is no package model right now. Do not add package scaffolding unless the
 design is reopened.
@@ -78,17 +77,14 @@ Global flags are supported at every level:
 Resolution takes repeatable `--context` inputs in the CLI: raw JSON object,
 `@path/to/context.json`, or `path=value`, merged left to right. Qualifiers are
 ANDed predicates. A predicate can read context paths such as `user.tier` or
-another qualifier via `qualifier.<id>`. Variables resolve for an environment by
-taking the first matching rule value in that environment block, otherwise the
-block's `value`; if the requested environment block is absent, `_` is used.
-
-Use `--env`, not `--environment`, for variable resolution commands:
+another qualifier via `qualifier.<id>`. Variables resolve by taking the first
+matching rule value, otherwise the default value.
 
 ```sh
 rototo qualifier resolve premium-users --workspace examples/basic \
   --context user.tier=premium
 
-rototo variable resolve checkout-redesign --workspace examples/basic --env prod \
+rototo variable resolve checkout-redesign --workspace examples/basic \
   --context @examples/basic/contexts/premium-enterprise.json
 ```
 
@@ -97,17 +93,15 @@ rototo variable resolve checkout-redesign --workspace examples/basic --env prod 
 Lint is core behavior, not just smoke testing. It should validate rototo's own
 workspace structure and files:
 
-- Workspace manifest exists, parses, declares `schema_version = 1`, and declares
-  non-empty `[environments].values`.
+- Workspace manifest exists, parses, and declares `schema_version = 1`.
 - Qualifier files parse, declare `schema_version = 1`, contain at least one
   `[[predicate]]`, reference known qualifiers when
   using `qualifier.<id>`, use known predicate operators, and validate bucket and
   operator value shapes.
 - Variable files parse, declare `schema_version = 1`, declare exactly one of
-  `type` or `schema`, contain inline values under `[values]` and/or external
-  values under a sibling
-  `<variable-id>-values/*.toml` directory, contain `[env._]`, reference
-  declared environments, reference known values, and reference known qualifiers
+  `type`, `schema`, or `resource`, contain inline values under `[values]` and/or
+  external values under a sibling `<variable-id>-values/*.toml` directory,
+  declare `[resolve]`, reference known values, and reference known qualifiers
   from rules.
 - Primitive variable values match `bool`, `int`, `number`, `string`, or `list`.
 - Schema-backed variable values validate against their JSON Schema.
@@ -121,8 +115,8 @@ workspace structure and files:
 
 Diagnostics use one stable `rule` identity. Built-in rototo rules use
 `rototo/<rule-id>` with a flat rule id, for example
-`rototo/variable-unknown-environment`; they must not use nested
-`rototo/*/<rule-id>` paths. Lua/custom lint rules use
+`rototo/variable-unknown-value`; they must not use nested `rototo/*/<rule-id>`
+paths. Lua/custom lint rules use
 `<authority>/<rule-id>` with a non-`rototo` authority, for example
 `payments/max-token-budget`. The diagnostics catalog lists built-in rules
 globally and adds declared custom rules for a workspace-scoped catalog.
@@ -211,11 +205,10 @@ Use this conceptual ordering unless the page has a narrower purpose:
 1. Runtime configuration is a production control problem.
 2. Rototo stores that control plane as a Git-versioned workspace.
 3. Applications load a workspace source rather than embedding config values.
-4. Applications resolve named variables using environment plus runtime context.
+4. Applications resolve named variables using runtime context.
 5. Context schemas validate request-time facts supplied by the app.
 6. Qualifiers turn runtime facts into named reusable conditions.
-7. Variables select configured values using environment defaults and qualifier
-   rules.
+7. Variables select configured values using defaults and qualifier rules.
 8. Value schemas validate the selected value before the application consumes it.
 9. Linting and tests make the workspace releasable.
 10. Long-running services refresh the workspace and keep last-known-good state.
@@ -252,10 +245,10 @@ reader's question, for example:
 > When my application asks for configuration at runtime, what exactly is rototo
 > evaluating?
 
-Then explain the flow: application asks for variable + environment + runtime
-context from a workspace version; rototo validates context, evaluates
-qualifiers, checks environment rules, selects a value, validates the value, and
-returns the result with enough explanation to debug or observe it.
+Then explain the flow: application asks for a variable with runtime context from
+a workspace version; rototo validates context, evaluates qualifiers, checks
+rules, selects a value, validates the value, and returns the result with enough
+explanation to debug or observe it.
 
 Use engineering prose:
 

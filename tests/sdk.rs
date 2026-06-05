@@ -975,10 +975,10 @@ async fn workspace_sdk_rejects_missing_predicate_context_even_when_schema_allows
 }
 
 #[tokio::test]
-async fn workspace_sdk_ignores_environment_as_first_class_input() {
+async fn workspace_sdk_resolves_from_context_only() {
     let workspace = Workspace::load("examples/basic").await.unwrap();
     let context = ResolveContext::from_json(serde_json::json!({
-        "env": "prd",
+        "lane": "prd",
         "user": {
             "tier": "premium"
         }

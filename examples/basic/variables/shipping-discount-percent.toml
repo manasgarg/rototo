@@ -13,7 +13,7 @@ high_value = 25
 default = "none"
 
 [[resolve.rule]]
-qualifier = "env-stage"
+qualifier = "lane-stage"
 value = "small"
 
 [[resolve.rule]]

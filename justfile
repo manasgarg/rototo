@@ -15,7 +15,7 @@ default:
 # Register pre-commit and pre-push hooks. Cheap and idempotent.
 [group('01. setup')]
 setup-min:
-    #!/usr/bin/env bash
+    #!/bin/bash
     set -euo pipefail
     if command -v mise >/dev/null && mise where python >/dev/null 2>&1; then
         py() { mise exec -- python3 "$@"; }
@@ -31,7 +31,7 @@ setup-min:
 # Install/verify the local toolchain and install local hooks.
 [group('01. setup')]
 setup:
-    #!/usr/bin/env bash
+    #!/bin/bash
     set -euo pipefail
     if command -v mise >/dev/null; then
         mise install
@@ -67,7 +67,7 @@ check: lint test
 # Export docs and publish a Cloudflare Pages preview deployment.
 [group('06. docs')]
 docs-preview branch="docs-dev":
-    #!/usr/bin/env bash
+    #!/bin/bash
     set -euo pipefail
 
     if [[ "{{branch}}" == "main" ]]; then

@@ -238,7 +238,7 @@ fn inspect_context_requires_resolution_target() {
 }
 
 #[test]
-fn inspect_variable_context_resolves_without_env() {
+fn inspect_variable_context_resolves_without_extra_input() {
     Command::cargo_bin("rototo")
         .unwrap()
         .args([

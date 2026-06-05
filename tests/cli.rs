@@ -173,7 +173,6 @@ fn exports_bundled_docs_as_static_site() {
 
     let quickstart = fs::read_to_string(site.join("quickstart.html")).unwrap();
     assert!(quickstart.contains(r#"<pre class="code-block language-toml">"#));
-    assert!(quickstart.contains(r#"<span class="sx-section">[environments]</span>"#));
     assert!(quickstart.contains(r#"<span class="sx-key">schema_version</span>"#));
 }
 

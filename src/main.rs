@@ -341,7 +341,7 @@ fn inspect_selection(selection: &Selection<String>) -> InspectSelection {
 const TOP_LEVEL_HELP: &str = r#"Examples:
   rototo lint examples/basic
   rototo show examples/basic --variables
-  rototo resolve examples/basic --variable checkout-redesign --context env=prod --context user.tier=premium
+  rototo resolve examples/basic --variable checkout-redesign --context lane=prod --context user.tier=premium
   rototo docs -p quickstart
 
 Run `rototo <command> --help` for command details.

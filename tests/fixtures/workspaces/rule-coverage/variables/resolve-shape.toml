@@ -1,9 +1,9 @@
 schema_version = 1
 
-description = "Missing default environment"
+description = "Resolve block has wrong shape"
 type = "string"
+
+resolve = "bad"
 
 [values]
 default = "default"
-
-[resolve]

@@ -1,0 +1,9 @@
+schema_version = 1
+
+description = "Missing resolve default"
+type = "string"
+
+[values]
+default = "default"
+
+[resolve]

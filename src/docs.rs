@@ -49,13 +49,6 @@ pub const DOCS: &[DocPage] = &[
         markdown: include_str!("../docs/src/how-to/how-to-add-a-new-runtime-config-value.md"),
     },
     DocPage {
-        id: "how-to-change-a-config-value-for-one-environment",
-        title: "How to Change a Config Value for One Environment",
-        markdown: include_str!(
-            "../docs/src/how-to/how-to-change-a-config-value-for-one-environment.md"
-        ),
-    },
-    DocPage {
         id: "how-to-add-a-new-context-field",
         title: "How to Add a New Context Field",
         markdown: include_str!("../docs/src/how-to/how-to-add-a-new-context-field.md"),
@@ -103,11 +96,6 @@ pub const DOCS: &[DocPage] = &[
         id: "how-to-diagnose-a-failing-workspace",
         title: "How to Diagnose a Failing Workspace",
         markdown: include_str!("../docs/src/how-to/how-to-diagnose-a-failing-workspace.md"),
-    },
-    DocPage {
-        id: "example-environment-specific-limits",
-        title: "Example: Keep Deployment-Lane Limits Out of Application Code",
-        markdown: include_str!("../docs/src/examples/example-environment-specific-limits.md"),
     },
     DocPage {
         id: "example-reviewed-account-class",
@@ -165,11 +153,6 @@ pub const DOCS: &[DocPage] = &[
         markdown: include_str!("../docs/src/reference/context-reference.md"),
     },
     DocPage {
-        id: "environment-reference",
-        title: "Environment Reference",
-        markdown: include_str!("../docs/src/reference/environment-reference.md"),
-    },
-    DocPage {
         id: "value-types-reference",
         title: "Value Types Reference",
         markdown: include_str!("../docs/src/reference/value-types-reference.md"),
@@ -218,7 +201,6 @@ pub const DOC_NAV_SECTIONS: &[DocNavSection] = &[
         title: "How-to: Authoring",
         pages: &[
             "how-to-add-a-new-runtime-config-value",
-            "how-to-change-a-config-value-for-one-environment",
             "how-to-add-a-new-context-field",
             "how-to-select-a-value-for-a-runtime-condition",
             "how-to-move-large-values-out-of-toml",
@@ -248,7 +230,6 @@ pub const DOC_NAV_SECTIONS: &[DocNavSection] = &[
     DocNavSection {
         title: "Examples",
         pages: &[
-            "example-environment-specific-limits",
             "example-reviewed-account-class",
             "example-llm-agent-configuration",
             "example-tenant-specific-runtime-config",
@@ -265,7 +246,6 @@ pub const DOC_NAV_SECTIONS: &[DocNavSection] = &[
             "resource-reference",
             "predicate-reference",
             "context-reference",
-            "environment-reference",
             "value-types-reference",
             "source-uri-reference",
         ],
