@@ -68,6 +68,8 @@ struct Cli {
 enum Command {
     /// Create workspace and entity templates.
     Init(InitArgs),
+    /// Generate readable runtime behavior fixtures.
+    Fixtures(FixturesArgs),
     /// Validate a workspace or selected targets.
     Lint(WorkspaceCommandArgs),
     /// Explain how rototo sees workspace data.
@@ -113,6 +115,33 @@ struct InitArgs {
     /// Print the planned writes without changing the filesystem.
     #[arg(long = "dry-run", action = ArgAction::SetTrue)]
     dry_run: bool,
+}
+
+#[derive(Debug, Args)]
+struct FixturesArgs {
+    /// Workspace source to generate fixtures from.
+    #[arg(value_name = "WORKSPACE_SOURCE")]
+    workspace: String,
+
+    /// Directory where rototo fixture TOML files will be written.
+    #[arg(long = "out", value_name = "DIR")]
+    out: PathBuf,
+
+    /// Select one variable id. Repeatable.
+    #[arg(long = "variable", value_name = "ID")]
+    variables: Vec<String>,
+
+    /// Select all variables.
+    #[arg(long = "variables", action = ArgAction::SetTrue)]
+    all_variables: bool,
+
+    /// Select one qualifier id. Repeatable.
+    #[arg(long = "qualifier", value_name = "ID")]
+    qualifiers: Vec<String>,
+
+    /// Select all qualifiers.
+    #[arg(long = "qualifiers", action = ArgAction::SetTrue)]
+    all_qualifiers: bool,
 }
 
 #[derive(Debug, Args)]
@@ -375,6 +404,7 @@ fn inspect_selection(selection: &Selection<String>) -> InspectSelection {
 const TOP_LEVEL_HELP: &str = r#"Examples:
   rototo init config
   rototo init config --qualifier premium-users
+  rototo fixtures examples/basic --variable max-output-tokens --out tests/fixtures/rototo
   rototo lint examples/basic
   rototo show examples/basic --variables
   rototo resolve examples/basic --variable checkout-redesign --context lane=prod --context user.tier=premium
@@ -391,6 +421,7 @@ Usage:
 
 Workspace commands:
   init       Create workspace and entity templates
+  fixtures   Generate readable runtime behavior fixtures
   lint       Validate a workspace or selected targets
   inspect    Explain how rototo sees workspace data
   show       Display workspace config, variables, qualifiers, and lint metadata
@@ -431,6 +462,7 @@ async fn run() -> Result<ExitCode> {
 
     match cli.command {
         Command::Init(args) => run_init(args, cli.json, cli.quiet).await,
+        Command::Fixtures(args) => run_fixtures(args, &source_options, cli.json, cli.quiet).await,
         Command::Lint(args) => run_lint(args, &source_options, cli.json, cli.quiet).await,
         Command::Inspect(args) => run_inspect(args, &source_options, cli.json).await,
         Command::Show(args) => run_show(args, &source_options, cli.json).await,
@@ -461,6 +493,80 @@ async fn run_init(args: InitArgs, json: bool, quiet: bool) -> Result<ExitCode> {
     let report = execute_init_plan(&workspace, &plan, args.force, args.dry_run).await?;
     print_init_report(&report, json, quiet)?;
     Ok(ExitCode::SUCCESS)
+}
+
+async fn run_fixtures(
+    args: FixturesArgs,
+    source_options: &SourceOptions,
+    json: bool,
+    quiet: bool,
+) -> Result<ExitCode> {
+    let selection = fixture_generate_selection(&args);
+    let suite =
+        rototo::fixtures::generate_fixture_suite(&args.workspace, source_options, selection)
+            .await?;
+    let report = suite.write_to(&args.out).await?;
+    print_fixtures_report(&suite.workspace, &report, json, quiet)?;
+    Ok(ExitCode::SUCCESS)
+}
+
+fn fixture_generate_selection(args: &FixturesArgs) -> rototo::fixtures::FixtureGenerateSelection {
+    rototo::fixtures::FixtureGenerateSelection {
+        variables: fixture_target_selection(args.all_variables, &args.variables),
+        qualifiers: fixture_target_selection(args.all_qualifiers, &args.qualifiers),
+    }
+}
+
+fn fixture_target_selection(
+    all: bool,
+    values: &[String],
+) -> rototo::fixtures::FixtureTargetSelection {
+    if all {
+        rototo::fixtures::FixtureTargetSelection::All
+    } else if values.is_empty() {
+        rototo::fixtures::FixtureTargetSelection::None
+    } else {
+        rototo::fixtures::FixtureTargetSelection::some(values.iter().cloned())
+    }
+}
+
+#[derive(Serialize)]
+struct FixturesReport<'a> {
+    command: &'static str,
+    workspace: &'a str,
+    out: &'a str,
+    files: &'a [String],
+}
+
+fn print_fixtures_report(
+    workspace: &str,
+    report: &rototo::fixtures::FixtureWriteReport,
+    json: bool,
+    quiet: bool,
+) -> Result<()> {
+    if json {
+        println!(
+            "{}",
+            serde_json::to_string_pretty(&FixturesReport {
+                command: "fixtures",
+                workspace,
+                out: &report.out,
+                files: &report.files,
+            })
+            .map_err(|err| RototoError::new(err.to_string()))?
+        );
+        return Ok(());
+    }
+
+    if quiet {
+        return Ok(());
+    }
+
+    println!("fixtures: {}", report.out);
+    for file in &report.files {
+        println!("  wrote {}", file);
+    }
+    Ok(())
 }
 
 enum InitTarget {

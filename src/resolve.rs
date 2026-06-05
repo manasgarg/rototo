@@ -552,7 +552,7 @@ fn exact_f64(number: &serde_json::Number) -> Option<f64> {
     number.as_f64().filter(|value| value.is_finite())
 }
 
-fn bucket_value(salt: &str, value: &JsonValue) -> u16 {
+pub(crate) fn bucket_value(salt: &str, value: &JsonValue) -> u16 {
     let mut hash = 14_695_981_039_346_656_037_u64;
     for byte in salt
         .bytes()
