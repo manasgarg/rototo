@@ -2,6 +2,7 @@ pub mod catalog;
 pub mod diagnostics;
 pub mod docs;
 pub mod error;
+pub mod fixtures;
 pub mod inspect;
 pub mod lint;
 pub mod lsp;
@@ -10,6 +11,7 @@ pub mod model;
 pub mod resolve;
 pub mod sdk;
 pub mod source;
+pub mod testing;
 pub mod workspace;
 
 pub use catalog::{catalog, catalog_for_workspace, diagnostic_for_rule};
