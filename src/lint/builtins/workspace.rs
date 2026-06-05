@@ -21,11 +21,3 @@ pub(super) fn lint_manifest_shape(ctx: &mut LintContext) {
         ));
     }
 }
-
-pub(super) fn lint_manifest_custom_rule_shapes(ctx: &mut LintContext) {
-    let _ = ctx;
-}
-
-pub(super) fn lint_custom_rule_conflicts(ctx: &mut LintContext) {
-    let _ = ctx;
-}

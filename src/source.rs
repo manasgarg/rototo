@@ -8,6 +8,7 @@ use tokio::io::AsyncWriteExt;
 use tokio::process::Command;
 
 use crate::error::{Result, RototoError};
+use crate::workspace::workspace_extends_sources;
 
 const WORKSPACE_MANIFEST: &str = "rototo-workspace.toml";
 const DEFAULT_MAX_ARCHIVE_BYTES: u64 = 50 * 1024 * 1024;
@@ -182,6 +183,12 @@ enum LocalStageMode {
 struct ExtendSourceBase<'a> {
     path: &'a Path,
     temporary: bool,
+}
+
+#[derive(Debug)]
+struct ResolvedExtendSource {
+    source: String,
+    inherited_temporary_base: bool,
 }
 
 #[derive(Debug)]
@@ -553,13 +560,13 @@ fn load_workspace_source_graph<'a>(
         let resolved_source = resolve_extend_source(source, base)?;
         let loaded = match local_mode {
             LocalStageMode::Borrow => {
-                load_single_workspace_source(&resolved_source, options).await?
+                load_single_workspace_source(&resolved_source.source, options).await?
             }
             LocalStageMode::Snapshot => {
-                load_single_workspace_source_snapshot(&resolved_source, options).await?
+                load_single_workspace_source_snapshot(&resolved_source.source, options).await?
             }
         };
-        let layer_key = workspace_source_key(&resolved_source, loaded.staged()).await?;
+        let layer_key = workspace_source_key(&resolved_source.source, loaded.staged()).await?;
         if let Some(cycle_start) = stack.iter().position(|key| key == &layer_key) {
             let mut cycle = stack[cycle_start..].to_vec();
             cycle.push(layer_key);
@@ -570,7 +577,14 @@ fn load_workspace_source_graph<'a>(
         }
 
         stack.push(layer_key);
-        let result = project_workspace_source_graph(loaded, options, local_mode, stack).await;
+        let result = project_workspace_source_graph(
+            loaded,
+            options,
+            local_mode,
+            resolved_source.inherited_temporary_base,
+            stack,
+        )
+        .await;
         stack.pop();
         result
     })
@@ -580,6 +594,7 @@ async fn project_workspace_source_graph(
     loaded: LoadedWorkspaceSource,
     options: &SourceOptions,
     local_mode: LocalStageMode,
+    inherited_temporary_base: bool,
     stack: &mut Vec<String>,
 ) -> Result<LoadedWorkspaceSource> {
     let extends = read_workspace_extends(loaded.staged().path()).await?;
@@ -593,7 +608,8 @@ async fn project_workspace_source_graph(
     let base_path = extend_source_base_path(&loaded);
     let base = ExtendSourceBase {
         path: &base_path,
-        temporary: loaded.staged().is_temporary() && base_path == loaded.staged().path(),
+        temporary: inherited_temporary_base
+            || (loaded.staged().is_temporary() && base_path == loaded.staged().path()),
     };
     let mut layers = Vec::new();
     let mut immutable = true;
@@ -1045,7 +1061,7 @@ async fn copy_workspace_layer(source: &Path, target: &Path, include_manifest: bo
     let source = source.to_path_buf();
     let target = target.to_path_buf();
     tokio::task::spawn_blocking(move || {
-        copy_workspace_layer_recursive(&source, &target, include_manifest)
+        copy_workspace_layer_recursive(&source, &target, include_manifest, true)
     })
     .await
     .map_err(|err| RototoError::new(format!("workspace layer copy task failed: {err}")))?
@@ -1055,6 +1071,7 @@ fn copy_workspace_layer_recursive(
     source: &Path,
     target: &Path,
     include_manifest: bool,
+    root: bool,
 ) -> Result<()> {
     let metadata = std::fs::metadata(source).map_err(|err| {
         RototoError::new(format!(
@@ -1084,7 +1101,7 @@ fn copy_workspace_layer_recursive(
             RototoError::new(format!("failed to read workspace layer entry: {err}"))
         })?;
         let file_name = entry.file_name();
-        if !include_manifest && file_name == WORKSPACE_MANIFEST {
+        if root && !include_manifest && file_name == WORKSPACE_MANIFEST {
             continue;
         }
         let source_path = entry.path();
@@ -1104,7 +1121,7 @@ fn copy_workspace_layer_recursive(
                     ))
                 })?;
             }
-            copy_workspace_layer_recursive(&source_path, &target_path, include_manifest)?;
+            copy_workspace_layer_recursive(&source_path, &target_path, include_manifest, false)?;
         } else if metadata.is_file() {
             if target_path.is_dir() {
                 std::fs::remove_dir_all(&target_path).map_err(|err| {
@@ -1144,42 +1161,60 @@ async fn read_workspace_extends(root: &Path) -> Result<Vec<String>> {
         Ok(text) => text,
         Err(_) => return Ok(Vec::new()),
     };
-    let manifest = match text.parse::<toml::Value>() {
-        Ok(manifest) => manifest,
-        Err(_) => return Ok(Vec::new()),
-    };
-    let Some(extends) = manifest.get("extends") else {
-        return Ok(Vec::new());
-    };
-    let Some(values) = extends.as_array() else {
-        return Ok(Vec::new());
-    };
-    let mut sources = Vec::with_capacity(values.len());
-    for value in values {
-        let Some(source) = value.as_str() else {
-            return Ok(Vec::new());
-        };
-        if source.trim().is_empty() {
-            return Ok(Vec::new());
-        }
-        sources.push(source.to_owned());
-    }
-    Ok(sources)
+    let manifest = text.parse::<toml::Value>().map_err(|err| {
+        RototoError::new(format!(
+            "failed to parse workspace manifest {}: {err}",
+            path.display()
+        ))
+    })?;
+    workspace_extends_sources(&manifest)
 }
 
-fn resolve_extend_source(source: &str, base: Option<ExtendSourceBase<'_>>) -> Result<String> {
-    if SourceUri::parse(source)?.is_some() || Path::new(source).is_absolute() {
-        return Ok(source.to_owned());
+fn resolve_extend_source(
+    source: &str,
+    base: Option<ExtendSourceBase<'_>>,
+) -> Result<ResolvedExtendSource> {
+    let uri = SourceUri::parse(source)?;
+    if let Some(base) = base
+        && base.temporary
+    {
+        if let Some(uri) = uri.as_ref() {
+            if workspace_source_uri_is_local_filesystem(uri) {
+                return Err(RototoError::new(format!(
+                    "workspace extends source escapes a staged workspace: {source}"
+                )));
+            }
+            return Ok(ResolvedExtendSource {
+                source: source.to_owned(),
+                inherited_temporary_base: false,
+            });
+        }
+        if Path::new(source).is_absolute() || !relative_path_is_safe(Path::new(source)) {
+            return Err(RototoError::new(format!(
+                "relative workspace extends source escapes a staged workspace: {source}"
+            )));
+        }
+        return Ok(ResolvedExtendSource {
+            source: base.path.join(source).to_string_lossy().into_owned(),
+            inherited_temporary_base: true,
+        });
+    }
+    if uri.is_some() || Path::new(source).is_absolute() {
+        return Ok(ResolvedExtendSource {
+            source: source.to_owned(),
+            inherited_temporary_base: false,
+        });
     }
     let Some(base) = base else {
-        return Ok(source.to_owned());
+        return Ok(ResolvedExtendSource {
+            source: source.to_owned(),
+            inherited_temporary_base: false,
+        });
     };
-    if base.temporary && !relative_path_is_safe(Path::new(source)) {
-        return Err(RototoError::new(format!(
-            "relative workspace extends source escapes a staged workspace: {source}"
-        )));
-    }
-    Ok(base.path.join(source).to_string_lossy().into_owned())
+    Ok(ResolvedExtendSource {
+        source: base.path.join(source).to_string_lossy().into_owned(),
+        inherited_temporary_base: false,
+    })
 }
 
 async fn workspace_source_key(source: &str, staged: &StagedWorkspace) -> Result<String> {
@@ -1222,6 +1257,10 @@ fn combined_layer_fingerprint(layers: &[SourceLayer]) -> Option<SourceFingerprin
         1 => fingerprints.pop(),
         _ => Some(SourceFingerprint::WorkspaceLayers(fingerprints)),
     }
+}
+
+fn workspace_source_uri_is_local_filesystem(uri: &SourceUri) -> bool {
+    matches!(uri.scheme.as_str(), "file" | "git+file")
 }
 
 async fn infer_archive_workspace_root(extract_dir: &Path, original: &str) -> Result<PathBuf> {
@@ -1405,6 +1444,82 @@ mod tests {
         assert!(SourceUri::parse("://example.com/workspace.tar.gz").is_err());
         assert!(SourceUri::parse("https://").is_err());
         assert!(SourceUri::parse("https://#main").is_err());
+    }
+
+    #[test]
+    fn staged_extend_base_rejects_local_filesystem_escape_sources() {
+        let staged = tempfile::TempDir::new().unwrap();
+        let base = ExtendSourceBase {
+            path: staged.path(),
+            temporary: true,
+        };
+
+        for source in [
+            "/tmp/outside",
+            "../outside",
+            "file:///tmp/outside",
+            "git+file:///tmp/outside.git",
+        ] {
+            let err = resolve_extend_source(source, Some(base)).unwrap_err();
+            assert!(err.to_string().contains("escapes a staged workspace"));
+        }
+
+        let resolved = resolve_extend_source("parent", Some(base)).unwrap();
+        assert_eq!(
+            resolved.source,
+            staged.path().join("parent").display().to_string()
+        );
+        assert!(resolved.inherited_temporary_base);
+    }
+
+    #[tokio::test]
+    async fn read_workspace_extends_rejects_blank_sources() {
+        let temp = tempfile::TempDir::new().unwrap();
+        tokio::fs::write(
+            temp.path().join(WORKSPACE_MANIFEST),
+            r#"schema_version = 1
+extends = ["../base", "  "]
+"#,
+        )
+        .await
+        .unwrap();
+
+        let err = read_workspace_extends(temp.path()).await.unwrap_err();
+        assert!(
+            err.to_string()
+                .contains("workspace extends source must not be blank")
+        );
+    }
+
+    #[tokio::test]
+    async fn parent_layer_copy_skips_only_root_manifest() {
+        let temp = tempfile::TempDir::new().unwrap();
+        let source = temp.path().join("source");
+        let target = temp.path().join("target");
+        tokio::fs::create_dir_all(source.join("resources/config-objects"))
+            .await
+            .unwrap();
+        tokio::fs::write(source.join(WORKSPACE_MANIFEST), "schema_version = 1\n")
+            .await
+            .unwrap();
+        tokio::fs::write(
+            source
+                .join("resources/config-objects")
+                .join(WORKSPACE_MANIFEST),
+            "value = true\n",
+        )
+        .await
+        .unwrap();
+
+        copy_workspace_layer(&source, &target, false).await.unwrap();
+
+        assert!(!target.join(WORKSPACE_MANIFEST).exists());
+        assert!(
+            target
+                .join("resources/config-objects")
+                .join(WORKSPACE_MANIFEST)
+                .is_file()
+        );
     }
 
     #[tokio::test]

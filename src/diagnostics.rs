@@ -113,6 +113,13 @@ rototo_rules! {
         title: "Resolve context schema declares a reserved field",
         help: "Rename the request context field; qualifier is reserved for qualifier.<id> predicate references.",
     },
+    WorkspaceContextSchemaMissing => {
+        id: "workspace-context-schema-missing",
+        entity: Workspace,
+        title: "Resolve context schema is missing",
+        help: "Add schemas/context.schema.json to validate context attributes read by qualifiers.",
+        severity: Warning,
+    },
     QualifierParseFailed => {
         id: "qualifier-parse-failed",
         entity: Qualifier,

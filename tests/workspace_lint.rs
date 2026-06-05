@@ -61,6 +61,64 @@ fn lints_discovered_workspace() {
 }
 
 #[test]
+fn local_lint_applies_workspace_layers() {
+    let temp = tempfile::TempDir::new().unwrap();
+    let base = temp.path().join("base");
+    let child = temp.path().join("child");
+    std::fs::create_dir_all(base.join("variables")).unwrap();
+    std::fs::create_dir_all(&child).unwrap();
+    std::fs::write(base.join("rototo-workspace.toml"), "schema_version = 1\n").unwrap();
+    std::fs::write(
+        base.join("variables/message.toml"),
+        r#"schema_version = 1
+type = "string"
+
+[values]
+default = "hello"
+
+[resolve]
+default = "default"
+"#,
+    )
+    .unwrap();
+    std::fs::write(
+        child.join("rototo-workspace.toml"),
+        r#"schema_version = 1
+extends = ["../base"]
+"#,
+    )
+    .unwrap();
+
+    let lint = lint_json(child.to_str().unwrap(), true);
+    assert!(document_paths(&lint).contains(&"variables/message.toml".to_owned()));
+}
+
+#[test]
+fn local_lint_reports_invalid_extends_sources() {
+    let temp = tempfile::TempDir::new().unwrap();
+    let child = temp.path().join("child");
+    std::fs::create_dir_all(&child).unwrap();
+    std::fs::write(
+        child.join("rototo-workspace.toml"),
+        r#"schema_version = 1
+extends = ["../base", "  "]
+"#,
+    )
+    .unwrap();
+
+    let lint = lint_json(child.to_str().unwrap(), false);
+    let diagnostic = only_diagnostic(&lint);
+    assert_eq!(
+        diagnostic["rule"],
+        "rototo/workspace-manifest-schema-failed"
+    );
+    assert_eq!(
+        diagnostic["message"],
+        "workspace extends source must not be blank"
+    );
+}
+
+#[test]
 fn reports_workspace_manifest_missing() {
     let lint = lint_json("tests/fixtures/workspaces/missing-manifest", false);
     let diagnostic = only_diagnostic(&lint);
@@ -1660,6 +1718,31 @@ fn canonical_rule_fixtures() -> &'static [CanonicalRuleFixture] {
                     }),
                 },
                 related: &[],
+            }],
+        },
+        CanonicalRuleFixture {
+            rule: RototoRuleId::WorkspaceContextSchemaMissing,
+            workspace: "tests/fixtures/workspaces/rules/reference/workspace-context-schema-missing",
+            success: true,
+            expected: &[ExpectedDiagnostic {
+                rule: "rototo/workspace-context-schema-missing",
+                severity: "warning",
+                stage: LintStage::Reference,
+                entity: ExpectedEntity::Manifest,
+                primary: ExpectedPrimaryLocation::Document {
+                    path: "rototo-workspace.toml",
+                    range: None,
+                },
+                related: &[ExpectedRelatedLocation {
+                    path: "qualifiers/premium-users.toml",
+                    range: Some(ExpectedRange {
+                        start_line: 3,
+                        start_character: 12,
+                        end_line: 3,
+                        end_character: 23,
+                    }),
+                    message: "context attribute read here: user.tier",
+                }],
             }],
         },
         CanonicalRuleFixture {

@@ -170,25 +170,37 @@ pub fn validate_workspace_manifest(manifest: &Value) -> Result<()> {
         )));
     }
 
-    let extends = manifest.get("extends");
-    if let Some(extends) = extends {
-        let values = extends
-            .as_array()
-            .ok_or_else(|| RototoError::new("workspace extends must be an array of sources"))?;
-        for source in values {
-            let Some(source) = source.as_str() else {
-                return Err(RototoError::new(
-                    "workspace extends sources must be strings",
-                ));
-            };
-            if source.is_empty() {
-                return Err(RototoError::new(
-                    "workspace extends source must not be empty",
-                ));
-            }
-        }
-    }
+    workspace_extends_sources(manifest)?;
     Ok(())
+}
+
+pub fn workspace_extends_sources(manifest: &Value) -> Result<Vec<String>> {
+    let Some(extends) = manifest.get("extends") else {
+        return Ok(Vec::new());
+    };
+    let values = extends
+        .as_array()
+        .ok_or_else(|| RototoError::new("workspace extends must be an array of sources"))?;
+    let mut sources = Vec::with_capacity(values.len());
+    for source in values {
+        let Some(source) = source.as_str() else {
+            return Err(RototoError::new(
+                "workspace extends sources must be strings",
+            ));
+        };
+        if source.trim().is_empty() {
+            return Err(RototoError::new(
+                "workspace extends source must not be blank",
+            ));
+        }
+        if source.trim() != source {
+            return Err(RototoError::new(
+                "workspace extends source must not contain surrounding whitespace",
+            ));
+        }
+        sources.push(source.to_owned());
+    }
+    Ok(sources)
 }
 
 async fn qualifier_config(

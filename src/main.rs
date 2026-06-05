@@ -22,7 +22,7 @@ use rototo::model::{
 };
 use rototo::workspace::{
     qualifier_for_id, read_resource_toml, read_toml, read_variable_toml, resource_for_id,
-    variable_for_id,
+    variable_for_id, workspace_extends_sources,
 };
 use rototo::{
     Result, RototoError, SourceAuth, SourceOptions, StagedWorkspace, catalog,
@@ -457,10 +457,23 @@ async fn workspace_source_for_lint(
 ) -> Result<StagedWorkspace> {
     match workspace {
         Some(workspace) if !workspace.contains("://") => {
-            Ok(StagedWorkspace::local(PathBuf::from(workspace)))
+            let path = PathBuf::from(&workspace);
+            if local_workspace_has_valid_extends(&path).await {
+                workspace_source_or_current(Some(workspace), source_options).await
+            } else {
+                Ok(StagedWorkspace::local(path))
+            }
         }
         workspace => workspace_source_or_current(workspace, source_options).await,
     }
+}
+
+async fn local_workspace_has_valid_extends(path: &Path) -> bool {
+    let manifest = match read_toml(&path.join("rototo-workspace.toml")).await {
+        Ok(manifest) => manifest,
+        Err(_) => return false,
+    };
+    workspace_extends_sources(&manifest).is_ok_and(|sources| !sources.is_empty())
 }
 
 async fn run_inspect(
