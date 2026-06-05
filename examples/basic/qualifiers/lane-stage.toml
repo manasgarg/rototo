@@ -1,0 +1,8 @@
+schema_version = 1
+
+description = "Requests resolving against the stage lane"
+
+[[predicate]]
+attribute = "lane"
+op = "eq"
+value = "stage"

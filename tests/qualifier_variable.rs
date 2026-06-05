@@ -183,7 +183,7 @@ fn resolves_all_qualifiers() {
             "examples/basic",
             "--qualifiers",
             "--context",
-            r#"{"env":"prod","user":{"tier":"premium","id":"user-123","role":"admin","email_domain":"example.com","language":"en","session_count":1},"account":{"plan":"enterprise","seats":250},"cart":{"total_usd":300},"device":{"platform":"web"},"request":{"country":"DE"}}"#,
+            r#"{"lane":"prod","user":{"tier":"premium","id":"user-123","role":"admin","email_domain":"example.com","language":"en","session_count":1},"account":{"plan":"enterprise","seats":250},"cart":{"total_usd":300},"device":{"platform":"web"},"request":{"country":"DE"}}"#,
             "--json",
         ])
         .assert()
@@ -283,7 +283,7 @@ fn resolves_all_variables() {
             "--context",
             "@examples/basic/contexts/premium-enterprise.json",
             "--context",
-            "env=prod",
+            "lane=prod",
             "--json",
         ])
         .assert()
@@ -382,7 +382,7 @@ fn resolve_rejects_missing_predicate_context_even_when_schema_allows_it() {
 }
 
 #[test]
-fn resolve_accepts_env_as_context() {
+fn resolve_accepts_lane_as_context() {
     Command::cargo_bin("rototo")
         .unwrap()
         .args([
@@ -391,7 +391,7 @@ fn resolve_accepts_env_as_context() {
             "--variable",
             "checkout-redesign",
             "--context",
-            "env=prd",
+            "lane=prd",
             "--context",
             "user.tier=premium",
             "--json",

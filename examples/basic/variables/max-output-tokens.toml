@@ -12,11 +12,11 @@ large = 5000
 default = "standard"
 
 [[resolve.rule]]
-qualifier = "env-stage"
+qualifier = "lane-stage"
 value = "small"
 
 [[resolve.rule]]
-qualifier = "env-dev"
+qualifier = "lane-dev"
 value = "large"
 
 [[resolve.rule]]

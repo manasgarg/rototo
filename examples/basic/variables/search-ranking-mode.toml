@@ -12,11 +12,11 @@ hybrid = "hybrid"
 default = "classic"
 
 [[resolve.rule]]
-qualifier = "env-dev"
+qualifier = "lane-dev"
 value = "semantic"
 
 [[resolve.rule]]
-qualifier = "env-stage"
+qualifier = "lane-stage"
 value = "hybrid"
 
 [[resolve.rule]]

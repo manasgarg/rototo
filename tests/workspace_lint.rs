@@ -193,7 +193,10 @@ fn reports_workspace_manifest_parse_failed() {
 
 #[test]
 fn reports_workspace_manifest_schema_failed() {
-    let lint = lint_json("tests/fixtures/workspaces/missing-environments", false);
+    let lint = lint_json(
+        "tests/fixtures/workspaces/unsupported-schema-version",
+        false,
+    );
     let diagnostic = only_diagnostic(&lint);
 
     assert_eq!(
@@ -263,7 +266,7 @@ fn parse_diagnostics_handle_multibyte_text_near_syntax_errors() {
     std::fs::create_dir_all(&toml_root).unwrap();
     std::fs::write(
         toml_root.join("rototo-workspace.toml"),
-        "schema_version = 1\n[environments]\nvalues = [\"prod\"]\nlabel = \"café\n",
+        "schema_version = 1\n[workspace]\nlabel = \"café\n",
     )
     .unwrap();
     let toml_lint = lint_json(toml_root.to_str().unwrap(), false);
@@ -276,11 +279,7 @@ fn parse_diagnostics_handle_multibyte_text_near_syntax_errors() {
     std::fs::create_dir_all(json_root.join("schemas")).unwrap();
     std::fs::write(
         json_root.join("rototo-workspace.toml"),
-        r#"schema_version = 1
-
-[environments]
-values = ["prod"]
-"#,
+        "schema_version = 1\n",
     )
     .unwrap();
     std::fs::write(
@@ -411,12 +410,12 @@ fn reports_project_stage_variable_shape_failures() {
     assert_project_rule(
         &lint,
         "rototo/variable-resolve-missing-default",
-        "variables/env-missing-default.toml",
+        "variables/resolve-missing-default.toml",
     );
     assert_project_rule(
         &lint,
         "rototo/variable-resolve-shape",
-        "variables/env-shape.toml",
+        "variables/resolve-shape.toml",
     );
     assert_project_rule(
         &lint,
@@ -570,12 +569,12 @@ fn reports_reference_stage_failures() {
     assert_reference_rule(
         &lint,
         "rototo/variable-rule-unknown-qualifier",
-        "variables/bad-env.toml",
+        "variables/bad-resolve.toml",
     );
     assert_reference_rule(
         &lint,
         "rototo/variable-unknown-value",
-        "variables/bad-env.toml",
+        "variables/bad-resolve.toml",
     );
     assert_reference_rule(
         &lint,
@@ -1280,7 +1279,7 @@ fn canonical_rule_fixtures() -> &'static [CanonicalRuleFixture] {
                     path: "rototo-workspace.toml",
                     range: Some(ExpectedRange {
                         start_line: 2,
-                        start_character: 13,
+                        start_character: 10,
                         end_line: 3,
                         end_character: 0,
                     }),
@@ -1322,7 +1321,7 @@ fn canonical_rule_fixtures() -> &'static [CanonicalRuleFixture] {
                     path: "variables/broken.toml",
                     range: Some(ExpectedRange {
                         start_line: 3,
-                        start_character: 6,
+                        start_character: 8,
                         end_line: 4,
                         end_character: 0,
                     }),
@@ -1529,7 +1528,7 @@ fn canonical_rule_fixtures() -> &'static [CanonicalRuleFixture] {
         },
         CanonicalRuleFixture {
             rule: RototoRuleId::VariableResolveMissingDefault,
-            workspace: "tests/fixtures/workspaces/rules/project/variable-env-missing-default",
+            workspace: "tests/fixtures/workspaces/rules/project/variable-resolve-missing-default",
             success: false,
             expected: &[
                 ExpectedDiagnostic {
@@ -1571,7 +1570,7 @@ fn canonical_rule_fixtures() -> &'static [CanonicalRuleFixture] {
         },
         CanonicalRuleFixture {
             rule: RototoRuleId::VariableResolveShape,
-            workspace: "tests/fixtures/workspaces/rules/project/variable-env-shape",
+            workspace: "tests/fixtures/workspaces/rules/project/variable-resolve-shape",
             success: false,
             expected: &[
                 ExpectedDiagnostic {

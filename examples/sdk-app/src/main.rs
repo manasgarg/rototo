@@ -27,7 +27,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
     let workspace_root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../basic");
     let workspace = Workspace::load(workspace_root.to_string_lossy()).await?;
     let context = ResolveContext::from_json(serde_json::json!({
-        "env": "prod",
+        "lane": "prod",
         "user": {
             "id": "user-123",
             "tier": "premium",

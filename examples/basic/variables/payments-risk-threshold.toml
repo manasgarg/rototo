@@ -12,7 +12,7 @@ strict = 0.70
 default = "standard"
 
 [[resolve.rule]]
-qualifier = "env-dev"
+qualifier = "lane-dev"
 value = "relaxed"
 
 [[resolve.rule]]

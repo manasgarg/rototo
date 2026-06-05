@@ -410,7 +410,7 @@ async fn stage_git_repo(
         command.arg("--branch").arg(ref_);
     }
     command.arg(&clone_url).arg(&clone_dir);
-    scrub_git_environment(&mut command);
+    scrub_git_process_variables(&mut command);
 
     let output = tokio::time::timeout(options.git_timeout(), command.output())
         .await
@@ -719,7 +719,7 @@ async fn git_rev_parse_head(repo: &Path, options: &SourceOptions) -> Result<Stri
     let mut command = Command::new("git");
     command.kill_on_drop(true);
     command.current_dir(repo).arg("rev-parse").arg("HEAD");
-    scrub_git_environment(&mut command);
+    scrub_git_process_variables(&mut command);
     let output = tokio::time::timeout(options.git_timeout(), command.output())
         .await
         .map_err(|_| RototoError::new("git rev-parse timed out for workspace source"))?
@@ -743,7 +743,7 @@ async fn git_checkout(repo: &Path, ref_: &str, options: &SourceOptions) -> Resul
         .arg("checkout")
         .arg("--quiet")
         .arg(ref_);
-    scrub_git_environment(&mut command);
+    scrub_git_process_variables(&mut command);
     let output = tokio::time::timeout(options.git_timeout(), command.output())
         .await
         .map_err(|_| RototoError::new("git checkout timed out for workspace source"))?
@@ -772,7 +772,7 @@ async fn git_ls_remote(uri: &SourceUri, original: &str, options: &SourceOptions)
     let mut command = Command::new("git");
     command.kill_on_drop(true);
     command.arg("ls-remote").arg(&clone_url).arg("--").arg(ref_);
-    scrub_git_environment(&mut command);
+    scrub_git_process_variables(&mut command);
     let output = tokio::time::timeout(options.git_timeout(), command.output())
         .await
         .map_err(|_| {
@@ -811,7 +811,7 @@ fn validate_git_ref(ref_: &str) -> Result<()> {
     Ok(())
 }
 
-fn scrub_git_environment(command: &mut Command) {
+fn scrub_git_process_variables(command: &mut Command) {
     for (key, _) in std::env::vars_os() {
         if key.to_string_lossy().starts_with("GIT_") {
             command.env_remove(key);

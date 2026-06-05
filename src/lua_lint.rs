@@ -306,7 +306,7 @@ mod tests {
     use super::*;
 
     #[tokio::test]
-    async fn custom_lint_sandbox_denies_file_process_env_and_require_globals() {
+    async fn custom_lint_sandbox_denies_file_process_state_and_require_globals() {
         let registrations = register_pipeline_lint(RegisterLintInput {
             lint_path: PathBuf::from("lint/sandbox.lua"),
             script: r#"
