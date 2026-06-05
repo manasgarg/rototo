@@ -1,126 +1,95 @@
-# rototo docs revamp
+# Introducing rototo
 
-This page is the clean starting point for the new rototo documentation. The old
-publishable docs have been removed from the active docs tree so the rewrite can
-start from reader needs instead of from the previous page structure.
+rototo is the control plane for runtime configuration of your apps. It is built
+with two key objectives:
 
-## What the docs must do
+- Apply the software lifecycle to runtime configuration: tests, reviews, CI,
+  observability, and rollback.
+- Dynamically refresh runtime configuration without requiring application
+  redeployment or restart.
 
-rototo is about one core idea:
+## Motivation
 
-```text
-Runtime configuration looks like data, but it changes production behavior like
-code.
-```
+Over the last decade, every application I built needed runtime behavior to vary
+by deployment environment, account settings, user context, or system state.
+In this context, the same problem kept recurring: these values changed
+production behavior, but the usual places for storing them did not handle that
+lifecycle well.
 
-The docs should make that idea land at different attention budgets.
+Environment variables force redeploys or restarts. Feature flagging systems
+create a separate release process that drifts from code release. Specialized
+admin systems bring their own surface area: authentication, authorization, audit
+logs, validation, approvals, APIs, migrations, and rollback.
 
-```text
-2 seconds  -> What is this?
-2 minutes  -> Why should I care?
-10 minutes -> Could I adopt this?
-30 minutes -> Can I try it?
-1 day      -> Can I put my first use case on it?
-ongoing    -> Can I operate and debug it?
-```
+Coding agents raise the cost of that drift. Code changes faster, more features
+are in flight at once, and runtime configuration expands with them. Engineers
+and agents both need to know when a configuration change can break behavior, how
+to test it, and how to recover.
 
-The documentation should be layered around those needs, not around an internal
-feature list.
+rototo is the thing I wished existed: runtime configuration that can change
+without redeploying the app, while still going through the discipline of code.
 
-## Reader needs
+## How rototo approaches the runtime configuration problem
 
-Curious readers need the point immediately. They should be able to glance at
-the homepage and understand that rototo gives behavior-changing runtime
-configuration a reviewed, validated lifecycle without requiring an application
-redeploy for every approved change.
+rototo addresses this by treating runtime configuration as both data and code.
+Configuration lives as a set of `TOML` files in a directory tree, versioned in
+git. At runtime, the rototo SDK loads that configuration directly from git.
 
-Evaluators need the problem to feel concrete. They need to see why normal
-constants, environment variables, dashboards, JSON files, and database rows can
-break down once a configuration value becomes a production decision.
+When you change configuration, you follow the regular git process: edit,
+commit, raise a PR, run CI, and merge. Once the git repo is updated, the rototo
+SDK in your app refreshes the configuration without requiring app redeployment or restart.
 
-Conviction seekers need the argument to become memorable. The docs should make
-the code/data/config lifecycle distinction clear enough that they can repeat it
-to another engineer.
+So, how does rototo help?
 
-Adoption checkers need to know the effort is small. They should see that an app
-can start with one workspace source, one variable, one environment, and one
-resolution call before growing into refresh, schemas, policy, and operational
-observability.
+- Code and config are both in git. You can bring them together under the same
+  directory structure, reason about them together, and keep them cohesive as
+  they change.
+- You can enforce a contract on the config data schema and values through
+  JSON Schema documents and custom Lua linters. Syntactic mistakes in config
+  are caught as part of the pre-commit hook.
+- CI jobs for application and config repos can run automated tests across the
+  shapes of runtime context and configuration values. You can test application
+  behavior across the full surface area touched by configuration.
+- git gives you audit logs, validation, approval flows, migrations, and
+  rollback for configuration changes.
+- You can use the same post-deployment observability tools that you have
+  already invested in.
 
-Hands-on users need a low-friction first success. The first tutorial should use
-one primitive variable, a local workspace, lint, and resolve. No resources,
-custom lint, remote Git, or broad vocabulary should appear before the user has
-seen rototo answer one runtime configuration question.
+That model is useful anywhere a configuration value changes application
+behavior and needs release discipline.
 
-First-use-case users need copyable patterns. They are trying to put a real
-decision on rototo: an environment-specific limit, an LLM agent configuration,
-an incident banner, a tenant exception, a bucketed rollout, or operational
-routing.
+## Where rototo fits
 
-Growing users need production guidance. They need help with CI validation,
-workspace release, app loading, refresh, last-known-good behavior, rollback,
-observability, and debugging surprising selections.
+rototo can serve a wide variety of runtime configuration needs. Common examples
+include:
 
-Agents need stable workflows and exact references. They need pages that explain
-what can be changed safely, which commands validate a workspace, how resolution
-works, and where exact syntax lives.
+- Environment and user-specific limits;
+- Operational switches;
+- Account-specific exceptions;
+- Bucketed rollouts;
+- Incident banners;
+- LLM model, prompt, and token settings.
 
-## Proposed structure
+rototo is not meant for ordinary application data. Keep user records,
+transactions, analytics events, and other high-volume mutable data in the
+systems that already own them.
 
-```text
-Start
-  home
-  why-rototo
-  how-it-works
 
-Try
-  quickstart
-  add-runtime-context
-  add-structured-config
+## What adoption looks like
 
-Adopt
-  add-rototo-to-an-app
-  move-one-config-value
-  adoption-checklist
+rototo is designed to be adopted in a small slice. Specifically:
 
-Use Cases
-  environment-specific-limits
-  llm-agent-configuration
-  incident-banner
-  tenant-account-exception
-  bucketed-rollout
-  operational-routing
+- Install a CLI that helps you write correct config, and add an SDK to your app
+  so it can use that config.
+- Represent config as a rototo workspace: a directory tree of `TOML` files. Run
+  `rototo resolve` to ensure the config resolves to the expected values based
+  on environment and other runtime context.
+- Set up pre-commit hooks and CI jobs for app and config repos to ensure they
+  are compatible and demonstrate expected behavior.
+- Wire up the rototo SDK with your existing observability system.
 
-Operate
-  release-config-separately
-  validate-in-ci
-  refresh-in-a-running-service
-  keep-last-known-good-config
-  roll-back-a-config-release
-  observe-selected-values
+After that, the regular develop, test, and release process is applied uniformly
+to code and configuration.
 
-Troubleshoot
-  why-did-this-value-get-selected
-  why-did-lint-fail
-  why-did-context-validation-fail
-  why-did-refresh-not-change-anything
-
-Reference
-  workspace-format
-  variable-format
-  resource-format
-  qualifier-format
-  context-schema
-  source-uris
-  cli
-  sdk
-  diagnostics
-  json-output
-```
-
-## Bundled documentation
-
-```text
-Start
-  index
-```
+You can start with one variable and expand to a full representation of your
+domain.

@@ -5,29 +5,15 @@ use std::path::Path;
 use rototo::docs::{DOC_NAV_SECTIONS, DOCS};
 
 #[test]
-fn docs_index_lists_every_bundled_page() {
-    let index = page("index").markdown;
-    let layout = bundled_documentation_block(index);
-    let listed = layout_page_ids(layout);
-    let registered = registered_page_ids();
-
-    for id in registered.iter().filter(|id| id.as_str() != "index") {
-        assert!(
-            listed.contains(id),
-            "index bundled documentation block does not list `{id}`"
-        );
-    }
-
-    let _ = listed;
-}
-
-#[test]
 fn every_public_docs_source_is_bundled() {
-    let source_ids = source_page_ids();
-    for id in registered_page_ids() {
+    let registered = registered_page_ids();
+    let docs_dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("docs/src");
+    for path in markdown_files(&docs_dir) {
+        let id = path.file_stem().unwrap().to_string_lossy().into_owned();
         assert!(
-            source_ids.contains(&id),
-            "rototo::docs::DOCS registers `{id}` without a matching docs source"
+            registered.contains(&id),
+            "{} exists but is not registered in rototo::docs::DOCS",
+            path.display()
         );
     }
 }
@@ -40,7 +26,7 @@ fn docs_navigation_is_grouped_and_complete() {
         .collect::<Vec<_>>();
     assert_eq!(
         titles,
-        vec!["Start"],
+        vec!["Start", "Try", "Adopt"],
         "documentation navigation should match the active docs scaffold"
     );
 
@@ -121,44 +107,6 @@ fn collect_markdown_files(dir: &Path, files: &mut Vec<std::path::PathBuf>) {
     }
 }
 
-fn page(id: &str) -> &'static rototo::docs::DocPage {
-    DOCS.iter().find(|page| page.id == id).unwrap()
-}
-
 fn registered_page_ids() -> BTreeSet<String> {
     DOCS.iter().map(|page| page.id.to_owned()).collect()
-}
-
-fn source_page_ids() -> BTreeSet<String> {
-    let docs_dir = Path::new("docs/src");
-    markdown_files(docs_dir)
-        .into_iter()
-        .map(|path| path.file_stem().unwrap().to_string_lossy().into_owned())
-        .collect()
-}
-
-fn bundled_documentation_block(index: &str) -> &str {
-    let marker = "## Bundled documentation";
-    let start = index
-        .find(marker)
-        .unwrap_or_else(|| panic!("index is missing `{marker}`"));
-    let after_marker = &index[start + marker.len()..];
-    let fence_start = after_marker
-        .find("```text")
-        .expect("bundled documentation section is missing opening text fence");
-    let after_fence = &after_marker[fence_start + "```text".len()..];
-    let fence_end = after_fence
-        .find("```")
-        .expect("bundled documentation section is missing closing fence");
-    &after_fence[..fence_end]
-}
-
-fn layout_page_ids(layout: &str) -> BTreeSet<String> {
-    layout
-        .lines()
-        .filter_map(|line| line.strip_prefix("  "))
-        .map(str::trim)
-        .filter(|line| !line.is_empty())
-        .map(str::to_owned)
-        .collect()
 }

@@ -17,16 +17,38 @@ pub struct DocNavSection {
     pub pages: &'static [&'static str],
 }
 
-pub const DOCS: &[DocPage] = &[DocPage {
-    id: "index",
-    title: "rototo docs revamp",
-    markdown: include_str!("../docs/src/index.md"),
-}];
+pub const DOCS: &[DocPage] = &[
+    DocPage {
+        id: "index",
+        title: "rototo",
+        markdown: include_str!("../docs/src/index.md"),
+    },
+    DocPage {
+        id: "getting-started",
+        title: "Getting Started",
+        markdown: include_str!("../docs/src/getting-started.md"),
+    },
+    DocPage {
+        id: "production-workflow",
+        title: "Production Workflow",
+        markdown: include_str!("../docs/src/production-workflow.md"),
+    },
+];
 
-pub const DOC_NAV_SECTIONS: &[DocNavSection] = &[DocNavSection {
-    title: "Start",
-    pages: &["index"],
-}];
+pub const DOC_NAV_SECTIONS: &[DocNavSection] = &[
+    DocNavSection {
+        title: "Start",
+        pages: &["index"],
+    },
+    DocNavSection {
+        title: "Try",
+        pages: &["getting-started"],
+    },
+    DocNavSection {
+        title: "Adopt",
+        pages: &["production-workflow"],
+    },
+];
 
 /// Design system stylesheet and brand assets vendored under `docs/theme/`.
 const DOCS_CSS: &str = include_str!("../docs/theme/rototo-docs.css");

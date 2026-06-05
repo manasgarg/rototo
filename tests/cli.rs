@@ -143,7 +143,9 @@ fn shows_bundled_docs_by_prefix_as_markdown() {
         .args(["docs", "-p", "index"])
         .assert()
         .success()
-        .stdout(predicate::str::contains("# rototo docs revamp"));
+        .stdout(predicate::str::contains(
+            "rototo is the control plane for runtime configuration",
+        ));
 }
 
 #[test]
@@ -160,10 +162,12 @@ fn exports_bundled_docs_as_static_site() {
 
     let index = fs::read_to_string(site.join("index.html")).unwrap();
     assert!(index.contains("<!doctype html>"));
-    assert!(index.contains("rototo docs revamp"));
+    assert!(index.contains("rototo is the control plane for runtime configuration"));
     assert!(index.contains(r#"<header class="topbar">"#));
     assert!(index.contains(r#"<aside class="sidenav" aria-label="Documentation">"#));
-    assert!(!index.contains(r#"<nav class="page-nav" aria-label="Page">"#));
+    assert!(index.contains(r#"<nav class="page-nav" aria-label="Page">"#));
+    assert!(site.join("getting-started.html").is_file());
+    assert!(site.join("production-workflow.html").is_file());
     assert!(site.join("assets/rototo-docs.css").is_file());
     assert!(site.join("assets/favicon.svg").is_file());
     assert!(site.join("assets/rototo-wordmark.svg").is_file());
