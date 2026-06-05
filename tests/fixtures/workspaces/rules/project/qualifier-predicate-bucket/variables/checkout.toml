@@ -5,9 +5,9 @@ type = "string"
 control = "control"
 beta = "beta"
 
-[env._]
-value = "control"
+[resolve]
+default = "control"
 
-[[env._.rule]]
+[[resolve.rule]]
 qualifier = "beta-bucket"
 value = "beta"

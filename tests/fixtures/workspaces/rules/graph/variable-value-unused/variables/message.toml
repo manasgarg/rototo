@@ -5,5 +5,5 @@ type = "string"
 control = "hello"
 unused = "not selected"
 
-[env._]
-value = "control"
+[resolve]
+default = "control"

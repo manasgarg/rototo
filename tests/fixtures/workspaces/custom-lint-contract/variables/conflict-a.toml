@@ -6,5 +6,5 @@ type = "string"
 [values]
 default = "default"
 
-[env._]
-value = "default"
+[resolve]
+default = "default"

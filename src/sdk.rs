@@ -12,7 +12,7 @@ use crate::lint::{
 };
 use crate::model::{QualifierResolution, VariableResolution, WorkspaceInspection, WorkspaceLint};
 use crate::source::{
-    SourceAuth, SourceFingerprint, SourceOptions, SourceProbe, StagedWorkspace,
+    SourceAuth, SourceFingerprint, SourceLayer, SourceOptions, SourceProbe, StagedWorkspace,
     load_workspace_source, load_workspace_source_snapshot, probe_workspace_source,
 };
 use crate::workspace::inspect_workspace;
@@ -24,6 +24,7 @@ pub struct Workspace {
     runtime: Option<RuntimeWorkspace>,
     source_fingerprint: Option<SourceFingerprint>,
     immutable_source: bool,
+    source_layers: Vec<SourceLayer>,
 }
 
 impl Workspace {
@@ -77,6 +78,7 @@ impl Workspace {
     async fn inspect_loaded(loaded: crate::source::LoadedWorkspaceSource) -> Result<Self> {
         let source_fingerprint = loaded.fingerprint().cloned();
         let immutable_source = loaded.immutable();
+        let source_layers = loaded.layers().to_vec();
         let staged = loaded.into_staged();
         let root = staged.path().to_path_buf();
 
@@ -88,6 +90,7 @@ impl Workspace {
             runtime: None,
             source_fingerprint,
             immutable_source,
+            source_layers,
         })
     }
 
@@ -125,6 +128,10 @@ impl Workspace {
         self.immutable_source
     }
 
+    pub fn source_layers(&self) -> &[SourceLayer] {
+        &self.source_layers
+    }
+
     pub async fn lint(&self) -> Result<WorkspaceLint> {
         crate::lint_workspace(self.root()).await
     }
@@ -158,31 +165,23 @@ impl Workspace {
     pub async fn resolve_variable(
         &self,
         id: impl AsRef<str>,
-        environment: &Environment,
         context: &ResolveContext,
     ) -> Result<VariableResolution> {
-        self.resolve_variable_with_options(id, environment, context, ResolveOptions::default())
+        self.resolve_variable_with_options(id, context, ResolveOptions::default())
             .await
     }
 
     pub async fn resolve_variable_with_options(
         &self,
         id: impl AsRef<str>,
-        environment: &Environment,
         context: &ResolveContext,
         options: ResolveOptions,
     ) -> Result<VariableResolution> {
-        self.runtime()?.validate_environment(environment.name())?;
         if options.validate_context {
             self.validate_context(context).await?;
         }
-        crate::resolve::resolve_variable_unchecked(
-            self.runtime()?,
-            id.as_ref(),
-            environment.name(),
-            context.value(),
-        )
-        .await
+        crate::resolve::resolve_variable_unchecked(self.runtime()?, id.as_ref(), context.value())
+            .await
     }
 
     fn runtime(&self) -> Result<&RuntimeWorkspace> {
@@ -313,25 +312,23 @@ impl RefreshingWorkspace {
     pub async fn resolve_variable(
         &self,
         id: impl AsRef<str>,
-        environment: &Environment,
         context: &ResolveContext,
     ) -> Result<VariableResolution> {
         self.current()
             .await
-            .resolve_variable(id.as_ref(), environment, context)
+            .resolve_variable(id.as_ref(), context)
             .await
     }
 
     pub async fn resolve_variable_with_options(
         &self,
         id: impl AsRef<str>,
-        environment: &Environment,
         context: &ResolveContext,
         options: ResolveOptions,
     ) -> Result<VariableResolution> {
         self.current()
             .await
-            .resolve_variable_with_options(id.as_ref(), environment, context, options)
+            .resolve_variable_with_options(id.as_ref(), context, options)
             .await
     }
 
@@ -505,8 +502,13 @@ async fn refresh_once_inner(
     load_options: &LoadOptions,
     state: &RefreshState,
 ) -> Result<RefreshOutcome> {
-    let previous = state.current.read().await.source_fingerprint().cloned();
-    match probe_workspace_source(source, load_options.source(), previous.as_ref()).await? {
+    let current = state.current.read().await;
+    let previous = current.source_fingerprint().cloned();
+    let layers = current.source_layers().to_vec();
+    drop(current);
+    match probe_workspace_source_graph(source, load_options.source(), previous.as_ref(), &layers)
+        .await?
+    {
         SourceProbe::Unchanged => {
             tracing::debug!(source = %redacted_source(source), "workspace source is unchanged");
             return Ok(RefreshOutcome::Unchanged);
@@ -550,6 +552,28 @@ async fn refresh_once_inner(
     }
     tracing::info!(source = %redacted_source(source), "workspace refresh succeeded");
     Ok(RefreshOutcome::Refreshed)
+}
+
+async fn probe_workspace_source_graph(
+    source: &str,
+    options: &SourceOptions,
+    previous: Option<&SourceFingerprint>,
+    layers: &[SourceLayer],
+) -> Result<SourceProbe> {
+    if layers.len() <= 1 {
+        return probe_workspace_source(source, options, previous).await;
+    }
+
+    for layer in layers {
+        match probe_workspace_source(layer.source(), options, layer.fingerprint()).await? {
+            SourceProbe::Unchanged => {}
+            SourceProbe::ImmutablePinned(_) if layer.immutable() => {}
+            SourceProbe::ImmutablePinned(_) => return Ok(SourceProbe::Unchanged),
+            SourceProbe::Changed(fingerprint) => return Ok(SourceProbe::Changed(fingerprint)),
+            SourceProbe::Unknown => return Ok(SourceProbe::Unknown),
+        }
+    }
+    Ok(SourceProbe::Unchanged)
 }
 
 fn failure_backoff(failures: u64, options: &RefreshOptions) -> Duration {
@@ -629,21 +653,6 @@ impl Default for ResolveOptions {
         Self {
             validate_context: true,
         }
-    }
-}
-
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct Environment {
-    name: String,
-}
-
-impl Environment {
-    pub fn new(name: impl Into<String>) -> Self {
-        Self { name: name.into() }
-    }
-
-    pub fn name(&self) -> &str {
-        &self.name
     }
 }
 

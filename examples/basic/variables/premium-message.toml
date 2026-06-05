@@ -7,13 +7,9 @@ type = "string"
 control = "Welcome back."
 premium = "Welcome back, premium member."
 
-[env._]
-value = "control"
+[resolve]
+default = "control"
 
-[env.prod]
-value = "control"
-
-[[env.prod.rule]]
-description = "Premium users get the premium message"
+[[resolve.rule]]
 qualifier = "premium-users"
 value = "premium"

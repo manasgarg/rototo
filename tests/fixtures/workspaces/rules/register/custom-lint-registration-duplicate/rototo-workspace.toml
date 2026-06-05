@@ -1,9 +1,1 @@
 schema_version = 1
-
-[environments]
-values = ["prod"]
-
-[[lint.rule]]
-id = "payments/noop"
-title = "No-op rule"
-help = "No-op rule used by tests."

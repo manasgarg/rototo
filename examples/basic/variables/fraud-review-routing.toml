@@ -8,18 +8,13 @@ default = "risk-standard"
 high_value = "risk-priority"
 eu = "risk-eu"
 
-[env._]
-value = "default"
+[resolve]
+default = "default"
 
-[env.prod]
-value = "default"
-
-[[env.prod.rule]]
-description = "High-value carts go to the priority queue"
+[[resolve.rule]]
 qualifier = "high-value-cart"
 value = "high_value"
 
-[[env.prod.rule]]
-description = "EU users go to the regional queue"
+[[resolve.rule]]
 qualifier = "eu-users"
 value = "eu"

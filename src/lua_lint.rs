@@ -24,9 +24,17 @@ pub struct RawCustomLintRegistration {
     pub stage: String,
     pub entity: String,
     pub field: Option<String>,
-    pub rule: String,
+    pub rule: RawCustomLintRule,
     pub handler: String,
     pub handler_exists: bool,
+}
+
+#[derive(Clone, Debug)]
+pub struct RawCustomLintRule {
+    pub id: String,
+    pub title: String,
+    pub help: String,
+    pub severity: Option<String>,
 }
 
 #[derive(Clone, Debug)]
@@ -127,9 +135,21 @@ fn registration_from_lua_table(table: Table) -> mlua::Result<RawCustomLintRegist
         stage: required_registration_string(&table, "stage")?,
         entity: required_registration_string(&table, "entity")?,
         field: table.get::<Option<String>>("field")?,
-        rule: required_registration_string(&table, "rule")?,
+        rule: registration_rule_from_lua_table(&table)?,
         handler: required_registration_string(&table, "handler")?,
         handler_exists: false,
+    })
+}
+
+fn registration_rule_from_lua_table(table: &Table) -> mlua::Result<RawCustomLintRule> {
+    let rule = table
+        .get::<Option<Table>>("rule")?
+        .ok_or_else(|| mlua::Error::external("registration must contain rule metadata"))?;
+    Ok(RawCustomLintRule {
+        id: required_registration_string(&rule, "id")?,
+        title: required_registration_string(&rule, "title")?,
+        help: required_registration_string(&rule, "help")?,
+        severity: rule.get::<Option<String>>("severity")?,
     })
 }
 
@@ -301,7 +321,11 @@ mod tests {
                   lint:on({
                     stage = "policy",
                     entity = "workspace",
-                    rule = "policy/sandbox",
+                    rule = {
+                      id = "policy/sandbox",
+                      title = "Sandbox",
+                      help = "Sandbox policy.",
+                    },
                     handler = "check"
                   })
                 end

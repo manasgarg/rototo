@@ -2,7 +2,11 @@ function register(lint)
   lint:on({
     stage = "parse",
     entity = "workspace",
-    rule = "payments/check",
+    rule = {
+          id = "payments/check",
+          title = "Payments check",
+          help = "Fix the payments policy.",
+        },
     handler = "check",
   })
 end

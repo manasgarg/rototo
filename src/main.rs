@@ -100,10 +100,6 @@ struct InspectArgs {
     #[command(flatten)]
     selectors: SelectorArgs,
 
-    /// Environment name for variable resolution tracing.
-    #[arg(long = "env", value_name = "ENV")]
-    env: Option<String>,
-
     /// Evaluation context: JSON object, @file, or path=value. Repeatable; later values override earlier ones.
     #[arg(long = "context", value_name = "CONTEXT")]
     context: Vec<String>,
@@ -187,10 +183,6 @@ struct ResolveArgs {
 
     #[command(flatten)]
     selectors: ResolveSelectorArgs,
-
-    /// Environment name for variable resolution.
-    #[arg(long = "env", value_name = "ENV")]
-    env: Option<String>,
 
     /// Evaluation context: JSON object, @file, or path=value. Repeatable; later values override earlier ones.
     #[arg(long = "context", value_name = "CONTEXT")]
@@ -349,7 +341,7 @@ fn inspect_selection(selection: &Selection<String>) -> InspectSelection {
 const TOP_LEVEL_HELP: &str = r#"Examples:
   rototo lint examples/basic
   rototo show examples/basic --variables
-  rototo resolve examples/basic --variable checkout-redesign --env prod --context user.tier=premium
+  rototo resolve examples/basic --variable checkout-redesign --context env=prod --context user.tier=premium
   rototo docs -p quickstart
 
 Run `rototo <command> --help` for command details.
@@ -430,7 +422,7 @@ async fn run_lint(
     json: bool,
     quiet: bool,
 ) -> Result<ExitCode> {
-    let workspace = workspace_source_or_current(args.workspace, source_options).await?;
+    let workspace = workspace_source_for_lint(args.workspace, source_options).await?;
     let selectors = TargetSelectors::from_args(&args.selectors);
 
     if selectors.is_empty() {
@@ -459,6 +451,18 @@ async fn run_lint(
     })
 }
 
+async fn workspace_source_for_lint(
+    workspace: Option<String>,
+    source_options: &SourceOptions,
+) -> Result<StagedWorkspace> {
+    match workspace {
+        Some(workspace) if !workspace.contains("://") => {
+            Ok(StagedWorkspace::local(PathBuf::from(workspace)))
+        }
+        workspace => workspace_source_or_current(workspace, source_options).await,
+    }
+}
+
 async fn run_inspect(
     args: InspectArgs,
     source_options: &SourceOptions,
@@ -480,7 +484,6 @@ async fn run_inspect(
             lint_rules: inspect_selection(&selectors.lint_rules),
             lint_authorities: inspect_selection(&selectors.lint_authorities),
             linters: inspect_selection(&selectors.linters),
-            environment: args.env,
             context,
         },
     )
@@ -558,12 +561,6 @@ async fn run_resolve(
             "resolve requires at least one --context value",
         ));
     }
-    if selectors.variables.is_some_or_all() && args.env.is_none() {
-        return Err(RototoError::new(
-            "--env is required when resolving variables",
-        ));
-    }
-
     let workspace = workspace_source_or_current(args.workspace, source_options).await?;
     let inspection = inspect_workspace(workspace.path()).await?;
     let catalog = catalog_for_workspace(workspace.path()).await?;
@@ -574,16 +571,14 @@ async fn run_resolve(
     let mut qualifiers = Vec::new();
 
     if selectors.variables.is_some_or_all() {
-        let env = args.env.as_deref().expect("validated above");
         match selected_variable_ids(&inspection, &selectors.variables) {
             SelectedIds::All => {
-                variables.extend(trace_variable_resolutions(workspace.path(), env, &context).await?)
+                variables.extend(trace_variable_resolutions(workspace.path(), &context).await?)
             }
             SelectedIds::Some(ids) => {
                 for id in ids {
-                    variables.push(
-                        trace_variable_resolution(workspace.path(), &id, env, &context).await?,
-                    );
+                    variables
+                        .push(trace_variable_resolution(workspace.path(), &id, &context).await?);
                 }
             }
             SelectedIds::None => {}
@@ -833,10 +828,7 @@ fn selection_matches_linter(selection: &Selection<String>, diagnostic: &LintDiag
 fn diagnostic_is_variable_related(diagnostic: &LintDiagnostic) -> bool {
     matches!(
         diagnostic.entity,
-        EntityId::Variable { .. }
-            | EntityId::Value { .. }
-            | EntityId::EnvironmentBlock { .. }
-            | EntityId::Rule { .. }
+        EntityId::Variable { .. } | EntityId::Value { .. } | EntityId::Rule { .. }
     ) || diagnostic.primary.path.starts_with("variables/")
 }
 
@@ -844,7 +836,6 @@ fn diagnostic_belongs_to_variable(diagnostic: &LintDiagnostic, id: &str) -> bool
     let variable_path = format!("variables/{id}.toml");
     matches!(&diagnostic.entity, EntityId::Variable { id: diagnostic_id } if diagnostic_id == id)
         || matches!(&diagnostic.entity, EntityId::Value { variable, .. } if variable == id)
-        || matches!(&diagnostic.entity, EntityId::EnvironmentBlock { variable, .. } if variable == id)
         || matches!(&diagnostic.entity, EntityId::Rule { variable, .. } if variable == id)
         || diagnostic.primary.path == variable_path
 }
@@ -950,7 +941,6 @@ async fn show_selected_targets(
 struct WorkspaceView {
     command: String,
     workspace: String,
-    environments: Vec<String>,
     schemas: Vec<SchemaInspection>,
     resources: Vec<WorkspaceFileView>,
     variables: Vec<WorkspaceFileView>,
@@ -1007,7 +997,6 @@ async fn workspace_inventory_view(
     Ok(WorkspaceView {
         command: String::new(),
         workspace: inspection.root.display().to_string(),
-        environments: inspection.environments.clone(),
         schemas: inspection.schemas.clone(),
         resources,
         variables,
@@ -1088,7 +1077,6 @@ async fn selected_workspace_view(
     Ok(WorkspaceView {
         command: String::new(),
         workspace: inspection.root.display().to_string(),
-        environments: Vec::new(),
         schemas: Vec::new(),
         resources,
         variables,
@@ -1180,12 +1168,6 @@ fn print_workspace_view(command: &str, view: &WorkspaceView, json: bool) -> Resu
     }
 
     println!("workspace: {}", view.workspace);
-    if !view.environments.is_empty() {
-        println!("environments:");
-        for environment in &view.environments {
-            println!("  {}", environment);
-        }
-    }
     if !view.schemas.is_empty() {
         println!("schemas:");
         for schema in &view.schemas {
@@ -1489,14 +1471,6 @@ fn print_resolve_separator(index: usize, count: usize) {
 
 fn print_variable_resolution_trace(trace: &VariableResolutionTrace) -> Result<()> {
     println!("variable: {}", trace.resolution.id);
-    if trace.requested_environment == trace.used_environment {
-        println!("  environment: {}", trace.requested_environment);
-    } else {
-        println!(
-            "  environment: {} -> {}",
-            trace.requested_environment, trace.used_environment
-        );
-    }
     if !trace.qualifier_traces.is_empty() {
         println!("  qualifiers:");
         for qualifier in &trace.qualifier_traces {
@@ -1513,7 +1487,7 @@ fn print_variable_resolution_trace(trace: &VariableResolutionTrace) -> Result<()
             if rule.matched { "matched" } else { "skipped" }
         );
     }
-    println!("    fallback -> {}", trace.fallback_value);
+    println!("    default -> {}", trace.default_value);
     println!("  result:");
     println!("    value key: {}", trace.resolution.value_key);
     println!("    value: {}", compact_json(&trace.resolution.value)?);

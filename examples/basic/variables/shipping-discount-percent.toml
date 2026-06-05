@@ -9,21 +9,17 @@ small = 5
 premium = 15
 high_value = 25
 
-[env._]
-value = "none"
+[resolve]
+default = "none"
 
-[env.stage]
+[[resolve.rule]]
+qualifier = "env-stage"
 value = "small"
 
-[env.prod]
-value = "none"
-
-[[env.prod.rule]]
-description = "Premium users receive a shipping discount"
+[[resolve.rule]]
 qualifier = "premium-users"
 value = "premium"
 
-[[env.prod.rule]]
-description = "High-value carts receive the strongest shipping discount"
+[[resolve.rule]]
 qualifier = "high-value-cart"
 value = "high_value"

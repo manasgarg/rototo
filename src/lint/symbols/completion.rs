@@ -1,17 +1,16 @@
 use super::super::index::*;
-use super::common::location_contains_position;
 use super::{WorkspaceCompletionItem, WorkspaceCompletionItemKind};
 use crate::diagnostics::SourcePosition;
 
 const CUSTOM_LINT_FIELD_SELECTORS: &[&str] = &[
-    "context_schema",
     "description",
-    "environments",
+    "extends",
     "id",
     "json",
     "json.",
     "key",
     "predicates",
+    "resolve",
     "schema",
     "type",
     "value",
@@ -27,23 +26,12 @@ pub(crate) fn completion_items(
     let mut items = Vec::new();
 
     match completion_context(index, path, position) {
-        CompletionContext::Manifest => {
-            if let Some(manifest) = &index.manifest {
-                items.extend(workspace_environment_completion_items(
-                    &manifest.environments,
-                ));
-            }
-        }
+        CompletionContext::Manifest => {}
         CompletionContext::Qualifier => {
             items.extend(qualifier_completion_items(index));
             items.extend(predicate_operator_completion_items());
         }
-        CompletionContext::Variable { environment_header } => {
-            if environment_header && let Some(manifest) = &index.manifest {
-                items.extend(workspace_environment_completion_items(
-                    &manifest.environments,
-                ));
-            }
+        CompletionContext::Variable => {
             items.extend(qualifier_completion_items(index));
             items.extend(current_variable_value_completion_items(index, path));
         }
@@ -60,7 +48,7 @@ pub(crate) fn completion_items(
 enum CompletionContext {
     Manifest,
     Qualifier,
-    Variable { environment_header: bool },
+    Variable,
     CustomLint,
     Other,
 }
@@ -68,7 +56,7 @@ enum CompletionContext {
 fn completion_context(
     index: &SemanticIndex,
     path: &str,
-    position: SourcePosition,
+    _position: SourcePosition,
 ) -> CompletionContext {
     if path == super::super::WORKSPACE_MANIFEST {
         return CompletionContext::Manifest;
@@ -89,47 +77,10 @@ fn completion_context(
         return CompletionContext::Qualifier;
     }
     if let Some(variable) = current_variable_for_path(index, path) {
-        return CompletionContext::Variable {
-            environment_header: position_is_environment_header(variable, path, position),
-        };
+        let _ = variable;
+        return CompletionContext::Variable;
     }
     CompletionContext::Other
-}
-
-fn position_is_environment_header(
-    variable: &VariableNode,
-    path: &str,
-    position: SourcePosition,
-) -> bool {
-    let EnvironmentCollection::Environments(environments) = &variable.environments else {
-        return false;
-    };
-    environments.values().any(|environment| {
-        location_contains_position(&environment.location, path, position)
-            && environment
-                .location
-                .range
-                .is_some_and(|range| range.start.line == position.line)
-    })
-}
-
-fn workspace_environment_completion_items(
-    environments: &WorkspaceEnvironmentCollection,
-) -> Vec<WorkspaceCompletionItem> {
-    let WorkspaceEnvironmentCollection::Environments { values, .. } = environments else {
-        return Vec::new();
-    };
-
-    values
-        .iter()
-        .map(|environment| {
-            WorkspaceCompletionItem::new(
-                environment.name.clone(),
-                WorkspaceCompletionItemKind::Environment,
-                "workspace environment",
-            )
-        })
-        .collect()
 }
 
 fn qualifier_completion_items(index: &SemanticIndex) -> Vec<WorkspaceCompletionItem> {
@@ -234,10 +185,9 @@ fn sort_and_deduplicate_workspace_completion_items(items: &mut Vec<WorkspaceComp
 
 fn completion_item_kind_rank(kind: WorkspaceCompletionItemKind) -> u8 {
     match kind {
-        WorkspaceCompletionItemKind::Environment => 0,
-        WorkspaceCompletionItemKind::Qualifier => 1,
-        WorkspaceCompletionItemKind::Value => 2,
-        WorkspaceCompletionItemKind::PredicateOperator => 3,
-        WorkspaceCompletionItemKind::FieldSelector => 4,
+        WorkspaceCompletionItemKind::Qualifier => 0,
+        WorkspaceCompletionItemKind::Value => 1,
+        WorkspaceCompletionItemKind::PredicateOperator => 2,
+        WorkspaceCompletionItemKind::FieldSelector => 3,
     }
 }

@@ -6,16 +6,13 @@ control = "control"
 premium = "premium"
 alternate = "alternate"
 
-[env._]
-value = "control"
+[resolve]
+default = "control"
 
-[env.prod]
-value = "control"
-
-[[env.prod.rule]]
+[[resolve.rule]]
 qualifier = "premium-users"
 value = "premium"
 
-[[env.prod.rule]]
+[[resolve.rule]]
 qualifier = "premium-users"
 value = "alternate"

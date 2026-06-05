@@ -51,49 +51,12 @@ fn push_diagnostic_hover_candidates(
 }
 
 fn push_manifest_hover_candidates(
-    index: &SemanticIndex,
+    _index: &SemanticIndex,
     path: &str,
     position: SourcePosition,
     candidates: &mut Vec<HoverCandidate>,
 ) {
-    let Some(manifest) = &index.manifest else {
-        return;
-    };
-    let CustomRuleCollection::Rules(rules) = &manifest.custom_rules else {
-        return;
-    };
-
-    for rule in rules {
-        let Some(definition) = custom_rule_definition_from_declaration(rule) else {
-            continue;
-        };
-        push_hover_candidate(
-            candidates,
-            path,
-            position,
-            &rule.location,
-            1,
-            custom_rule_hover_contents(&definition),
-        );
-        for location in [
-            Some(rule.id.location()),
-            Some(rule.title.location()),
-            Some(rule.help.location()),
-            rule.severity.as_ref().map(ProjectField::location),
-        ]
-        .into_iter()
-        .flatten()
-        {
-            push_hover_candidate(
-                candidates,
-                path,
-                position,
-                &location,
-                1,
-                custom_rule_hover_contents(&definition),
-            );
-        }
-    }
+    let _ = (path, position, candidates);
 }
 
 fn push_qualifier_hover_candidates(
@@ -202,44 +165,47 @@ fn push_variable_hover_candidates(
             );
         }
 
-        if let EnvironmentCollection::Environments(environments) = &variable.environments {
-            for block in environments.values() {
-                push_hover_candidate(
-                    candidates,
-                    path,
-                    position,
-                    &block.value.location(),
-                    3,
-                    environment_block_hover_contents(variable, block),
-                );
-                push_hover_candidate(
-                    candidates,
-                    path,
-                    position,
-                    &block.location,
-                    4,
-                    environment_block_hover_contents(variable, block),
-                );
-                if let RuleCollection::Rules(rules) = &block.rules {
-                    for rule in rules {
+        if let ResolveNode::Resolve {
+            location,
+            default,
+            rules,
+        } = &variable.resolve
+        {
+            push_hover_candidate(
+                candidates,
+                path,
+                position,
+                &default.location(),
+                3,
+                variable_resolve_hover_contents(variable, default),
+            );
+            push_hover_candidate(
+                candidates,
+                path,
+                position,
+                location,
+                4,
+                variable_resolve_hover_contents(variable, default),
+            );
+            if let RuleCollection::Rules(rules) = rules {
+                for rule in rules {
+                    push_hover_candidate(
+                        candidates,
+                        path,
+                        position,
+                        &rule.location,
+                        3,
+                        variable_rule_hover_contents(variable, rule),
+                    );
+                    for location in [rule.qualifier.location(), rule.value.location()] {
                         push_hover_candidate(
                             candidates,
                             path,
                             position,
-                            &rule.location,
-                            3,
-                            variable_rule_hover_contents(variable, block, rule),
+                            &location,
+                            2,
+                            variable_rule_hover_contents(variable, rule),
                         );
-                        for location in [rule.qualifier.location(), rule.value.location()] {
-                            push_hover_candidate(
-                                candidates,
-                                path,
-                                position,
-                                &location,
-                                2,
-                                variable_rule_hover_contents(variable, block, rule),
-                            );
-                        }
                     }
                 }
             }
@@ -401,19 +367,6 @@ fn custom_rule_definition(
         .map(|rule| rule.definition.clone())
 }
 
-fn custom_rule_definition_from_declaration(
-    rule: &CustomRuleDeclarationNode,
-) -> Option<CustomRuleDefinition> {
-    rule.definition()
-}
-
-fn custom_rule_hover_contents(definition: &CustomRuleDefinition) -> String {
-    format!(
-        "### Custom rule `{}`\n\n{}\n\n{}",
-        definition.rule, definition.title, definition.help
-    )
-}
-
 fn qualifier_hover_contents(qualifier: &QualifierNode) -> String {
     let mut contents = format!("### Qualifier `{}`", qualifier.id);
     if let Some(description) = project_field_string(&qualifier.description) {
@@ -511,32 +464,24 @@ fn resource_object_hover_contents(object: &ResourceObjectNode) -> String {
     )
 }
 
-fn environment_block_hover_contents(
+fn variable_resolve_hover_contents(
     variable: &VariableNode,
-    block: &EnvironmentBlockNode,
+    default: &ProjectField<String>,
 ) -> String {
-    match string_project_field_value(&block.value) {
+    match string_project_field_value(default) {
         Some(value) => format!(
-            "### Environment `{}`\n\nVariable: `{}`\n\nDefault value: `{}`",
-            block.environment, variable.id, value
+            "### Resolve for `{}`\n\nDefault value: `{}`",
+            variable.id, value
         ),
-        None => format!(
-            "### Environment `{}`\n\nVariable: `{}`",
-            block.environment, variable.id
-        ),
+        None => format!("### Resolve for `{}`", variable.id),
     }
 }
 
-fn variable_rule_hover_contents(
-    variable: &VariableNode,
-    block: &EnvironmentBlockNode,
-    rule: &VariableRuleNode,
-) -> String {
+fn variable_rule_hover_contents(variable: &VariableNode, rule: &VariableRuleNode) -> String {
     format!(
-        "### Rule {} for `{}` in `{}`\n\n{}",
+        "### Rule {} for `{}`\n\n{}",
         rule.index + 1,
         variable.id,
-        block.environment,
         variable_rule_summary(rule)
     )
 }

@@ -25,7 +25,7 @@ pub(crate) fn project_variable(
     let description = root.and_then(|root| optional_string_field(document, root, "description"));
     let type_source = project_type_source(document, root, location.clone());
     let values = project_values(document, root, id);
-    let environments = project_environments(document, root, id);
+    let resolve = project_resolve(document, root, id);
 
     VariableNode {
         doc: document.id,
@@ -35,7 +35,7 @@ pub(crate) fn project_variable(
         description,
         type_source,
         values,
-        environments,
+        resolve,
     }
 }
 
@@ -142,70 +142,36 @@ fn project_inline_values(
         .collect()
 }
 
-fn project_environments(
+fn project_resolve(
     document: &SourceDocument,
     root: Option<&Table<'_>>,
     variable_id: &str,
-) -> EnvironmentCollection {
+) -> ResolveNode {
     let Some(root) = root else {
-        return EnvironmentCollection::Missing {
+        return ResolveNode::Missing {
             location: document.document_location(),
         };
     };
-    let Some(item) = root.get("env") else {
-        return EnvironmentCollection::Missing {
+    let Some(item) = root.get("resolve") else {
+        return ResolveNode::Missing {
             location: document.document_location(),
         };
     };
-    let Some(table) = item.as_table() else {
-        return EnvironmentCollection::Invalid {
-            location: item_location(document, item),
-        };
-    };
-
-    EnvironmentCollection::Environments(
-        table
-            .iter()
-            .map(|(environment, item)| {
-                (
-                    environment.name.to_string(),
-                    project_environment_block(document, variable_id, &environment.name, item),
-                )
-            })
-            .collect(),
-    )
-}
-
-fn project_environment_block(
-    document: &SourceDocument,
-    variable_id: &str,
-    environment: &str,
-    item: &TomlValue<'_>,
-) -> EnvironmentBlockNode {
     let location = item_location(document, item);
     let Some(table) = item.as_table() else {
-        return EnvironmentBlockNode {
-            environment: environment.to_owned(),
-            location: location.clone(),
-            value: ProjectField::Invalid {
-                location: location.clone(),
-            },
-            rules: RuleCollection::Rules(Vec::new()),
-        };
+        return ResolveNode::Invalid { location };
     };
 
-    EnvironmentBlockNode {
-        environment: environment.to_owned(),
+    ResolveNode::Resolve {
         location: location.clone(),
-        value: string_field(document, table, "value", location.clone()),
-        rules: project_rules(document, variable_id, environment, table),
+        default: Box::new(string_field(document, table, "default", location.clone())),
+        rules: project_rules(document, variable_id, table),
     }
 }
 
 fn project_rules(
     document: &SourceDocument,
     variable_id: &str,
-    environment: &str,
     table: &Table<'_>,
 ) -> RuleCollection {
     let Some(item) = table.get("rule") else {
@@ -217,9 +183,7 @@ fn project_rules(
             array
                 .iter()
                 .enumerate()
-                .map(|(index, value)| {
-                    project_rule_from_value(document, variable_id, environment, index, value)
-                })
+                .map(|(index, value)| project_rule_from_value(document, variable_id, index, value))
                 .collect(),
         );
     }
@@ -232,7 +196,6 @@ fn project_rules(
 fn project_rule_from_value(
     document: &SourceDocument,
     variable_id: &str,
-    environment: &str,
     index: usize,
     value: &TomlValue<'_>,
 ) -> VariableRuleNode {
@@ -248,21 +211,12 @@ fn project_rule_from_value(
             invalid_shape: true,
         };
     };
-    project_rule_from_table_like(
-        document,
-        variable_id,
-        environment,
-        index,
-        table,
-        location,
-        false,
-    )
+    project_rule_from_table_like(document, variable_id, index, table, location, false)
 }
 
 fn project_rule_from_table_like(
     document: &SourceDocument,
     _variable_id: &str,
-    _environment: &str,
     index: usize,
     table: &Table<'_>,
     location: DiagnosticLocation,

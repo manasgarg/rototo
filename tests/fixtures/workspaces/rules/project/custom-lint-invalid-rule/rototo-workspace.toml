@@ -1,9 +1,1 @@
 schema_version = 1
-
-[environments]
-values = ["prod"]
-
-[[lint.rule]]
-id = "rototo/not-allowed"
-title = "Invalid authority"
-help = "Use a non-rototo authority."

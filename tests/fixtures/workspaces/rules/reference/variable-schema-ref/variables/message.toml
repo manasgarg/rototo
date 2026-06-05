@@ -4,5 +4,5 @@ schema = "../schemas/missing.schema.json"
 [values]
 control = "control"
 
-[env._]
-value = "control"
+[resolve]
+default = "control"

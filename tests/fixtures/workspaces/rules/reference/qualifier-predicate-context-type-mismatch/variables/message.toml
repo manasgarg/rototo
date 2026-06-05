@@ -5,21 +5,21 @@ type = "string"
 control = "control"
 treatment = "treatment"
 
-[env._]
-value = "control"
+[resolve]
+default = "control"
 
-[[env._.rule]]
+[[resolve.rule]]
 qualifier = "boolean-in-string"
 value = "treatment"
 
-[[env._.rule]]
+[[resolve.rule]]
 qualifier = "integer-eq-string"
 value = "treatment"
 
-[[env._.rule]]
+[[resolve.rule]]
 qualifier = "object-bucket"
 value = "treatment"
 
-[[env._.rule]]
+[[resolve.rule]]
 qualifier = "string-gt-number"
 value = "treatment"

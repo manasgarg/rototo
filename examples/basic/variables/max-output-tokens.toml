@@ -8,19 +8,17 @@ small = 1200
 standard = 2400
 large = 5000
 
-[env._]
-value = "standard"
+[resolve]
+default = "standard"
 
-[env.dev]
-value = "large"
-
-[env.stage]
+[[resolve.rule]]
+qualifier = "env-stage"
 value = "small"
 
-[env.prod]
-value = "standard"
+[[resolve.rule]]
+qualifier = "env-dev"
+value = "large"
 
-[[env.prod.rule]]
-description = "Enterprise accounts get a larger token budget"
+[[resolve.rule]]
 qualifier = "enterprise-accounts"
 value = "large"

@@ -1,6 +1,8 @@
 use std::path::Path;
 
-use crate::diagnostics::{EntityId, LintDiagnostic, LintStage, SourcePosition};
+use crate::diagnostics::{
+    DiagnosticCatalogEntry, EntityId, LintDiagnostic, LintStage, RototoRuleId, SourcePosition,
+};
 use crate::error::{Result, RototoError};
 use crate::model::{QualifierLint, ResourceLint, VariableLint, WorkspaceLint};
 
@@ -106,7 +108,6 @@ fn diagnostic_belongs_to_qualifier(diagnostic: &LintDiagnostic, id: &str, path: 
 fn diagnostic_belongs_to_variable(diagnostic: &LintDiagnostic, id: &str, path: &str) -> bool {
     matches!(&diagnostic.entity, EntityId::Variable { id: diagnostic_id } if diagnostic_id == id)
         || matches!(&diagnostic.entity, EntityId::Value { variable, .. } if variable == id)
-        || matches!(&diagnostic.entity, EntityId::EnvironmentBlock { variable, .. } if variable == id)
         || matches!(&diagnostic.entity, EntityId::Rule { variable, .. } if variable == id)
         || diagnostic.primary.path == path
 }
@@ -142,6 +143,21 @@ pub(crate) struct WorkspaceLintSnapshot {
 }
 
 impl WorkspaceLintSnapshot {
+    pub(crate) fn diagnostic_catalog_entries(&self) -> Vec<DiagnosticCatalogEntry> {
+        let mut entries = RototoRuleId::iter()
+            .map(DiagnosticCatalogEntry::from_rototo)
+            .collect::<Vec<_>>();
+        entries.extend(
+            self.index
+                .custom_lints
+                .rules
+                .values()
+                .map(|rule| DiagnosticCatalogEntry::from_custom(&rule.definition)),
+        );
+        entries.sort_by(|left, right| left.rule.cmp(&right.rule));
+        entries
+    }
+
     pub(crate) fn document_symbols(&self, path: &str) -> Vec<WorkspaceDocumentSymbol> {
         symbols::document_symbols(&self.index, path)
     }

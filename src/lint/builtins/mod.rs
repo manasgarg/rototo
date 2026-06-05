@@ -8,8 +8,6 @@ mod workspace;
 use super::engine::LintContext;
 use super::index::{PredicateOp, ProjectField};
 
-pub(super) use workspace::declared_workspace_environments;
-
 pub(super) fn run_project(ctx: &mut LintContext) {
     workspace::lint_manifest_shape(ctx);
     schema::lint_context_schema_reference(ctx);

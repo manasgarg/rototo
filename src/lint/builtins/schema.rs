@@ -2,13 +2,14 @@ use std::collections::BTreeSet;
 
 use serde_json::Value as JsonValue;
 
-use crate::diagnostics::{DiagnosticLocation, EntityId, RototoRuleId, Severity};
+use crate::diagnostics::{DiagnosticLocation, EntityId, RototoRuleId};
 
 use super::super::engine::LintContext;
 use super::super::index::*;
 use super::super::references::{ReferenceSource, ReferenceTarget};
-use super::super::source::resolve_workspace_root_path;
 use super::super::stages::{push_project_diagnostic, push_reference_diagnostic};
+
+const CONTEXT_SCHEMA_PATH: &str = "schemas/context.schema.json";
 
 struct ContextSchemaError {
     location: DiagnosticLocation,
@@ -23,7 +24,9 @@ pub(super) fn lint_context_schema_reference(ctx: &mut LintContext) {
     push_project_diagnostic(
         &mut ctx.diagnostics,
         RototoRuleId::WorkspaceContextSchemaRef,
-        EntityId::Manifest,
+        EntityId::Schema {
+            path: CONTEXT_SCHEMA_PATH.to_owned(),
+        },
         err.location,
         err.message,
     );
@@ -141,74 +144,16 @@ pub(super) fn lint_qualifier_context_schema_types(ctx: &mut LintContext) {
 }
 
 pub(super) fn lint_missing_context_schema_for_qualifier_attributes(ctx: &mut LintContext) {
-    let Some(manifest) = &ctx.index.manifest else {
-        return;
-    };
-    if manifest.context_schema.is_some() {
-        return;
-    }
-    if ctx
-        .diagnostics
-        .iter()
-        .any(|diagnostic| diagnostic.severity == Severity::Error)
-    {
-        return;
-    }
-
-    let referenced = ctx.references.referenced_qualifier_ids();
-    let mut diagnostics = Vec::new();
-    let first_context_attribute = ctx.references.edges().iter().find_map(|edge| {
-        let ReferenceSource::QualifierPredicateContextAttribute { qualifier, .. } = &edge.source
-        else {
-            return None;
-        };
-        if !referenced.contains(qualifier) || qualifier_has_existing_error(ctx, qualifier) {
-            return None;
-        }
-        let ReferenceTarget::ContextAttribute(attribute) = &edge.target else {
-            return None;
-        };
-        Some((attribute, edge))
-    });
-    let Some((attribute, edge)) = first_context_attribute else {
-        return;
-    };
-
-    push_reference_diagnostic(
-        &mut diagnostics,
-        RototoRuleId::WorkspaceContextSchemaMissing,
-        EntityId::Manifest,
-        manifest.location.clone(),
-        format!(
-            "workspace does not declare [context].schema for qualifier context attribute: {attribute}"
-        ),
-    );
-    if let Some(diagnostic) = diagnostics.last_mut() {
-        diagnostic
-            .related
-            .push(crate::diagnostics::RelatedLocation {
-                location: edge.location.clone(),
-                message: format!("context attribute read here: {attribute}"),
-            });
-    }
-    ctx.diagnostics.extend(diagnostics);
-}
-
-fn qualifier_has_existing_error(ctx: &LintContext, qualifier_id: &str) -> bool {
-    ctx.diagnostics.iter().any(|diagnostic| {
-        diagnostic.severity == Severity::Error
-            && match &diagnostic.entity {
-                EntityId::Qualifier { id } => id == qualifier_id,
-                EntityId::Predicate { qualifier, .. } => qualifier == qualifier_id,
-                _ => false,
-            }
-    })
+    let _ = ctx;
 }
 
 pub(super) fn lint_unreferenced_schemas(ctx: &mut LintContext) {
     let mut diagnostics = Vec::new();
     for schema in ctx.index.schemas.values() {
         if schema.json.is_none() || schema.invalid_message.is_some() {
+            continue;
+        }
+        if schema.path == CONTEXT_SCHEMA_PATH {
             continue;
         }
         let target = ReferenceTarget::Schema(schema.path.clone());
@@ -231,61 +176,19 @@ pub(super) fn lint_unreferenced_schemas(ctx: &mut LintContext) {
 fn valid_context_schema(
     ctx: &LintContext,
 ) -> std::result::Result<Option<&SchemaNode>, Box<ContextSchemaError>> {
-    let Some(manifest) = &ctx.index.manifest else {
+    let Some(schema) = ctx.index.schemas.get(CONTEXT_SCHEMA_PATH) else {
         return Ok(None);
     };
-    let Some(context) = &manifest.context_schema else {
-        return Ok(None);
-    };
-
-    if context.invalid_shape {
-        return Err(Box::new(ContextSchemaError {
-            location: context.location.clone(),
-            message: "[context] must be a table".to_owned(),
-        }));
-    }
-
-    let ProjectField::Present(schema_ref) = &context.schema else {
-        return Err(Box::new(ContextSchemaError {
-            location: context.schema.location(),
-            message: "[context] must declare schema".to_owned(),
-        }));
-    };
-
-    let schema_path = resolve_workspace_root_path(&schema_ref.value).ok_or_else(|| {
-        Box::new(ContextSchemaError {
-            location: schema_ref.location.clone(),
-            message: "context schema path must be a relative path inside the workspace".to_owned(),
-        })
-    })?;
-    let _schema_document = ctx.source.document_by_path(&schema_path).ok_or_else(|| {
-        Box::new(ContextSchemaError {
-            location: schema_ref.location.clone(),
-            message: format!("context schema file not found: {schema_path}"),
-        })
-    })?;
-    if !ctx.index.schemas.contains_key(&schema_path) {
-        return Err(Box::new(ContextSchemaError {
-            location: schema_ref.location.clone(),
-            message: format!("context schema path is not a schema document: {schema_path}"),
-        }));
-    }
-    let schema = ctx.index.schemas.get(&schema_path).ok_or_else(|| {
-        Box::new(ContextSchemaError {
-            location: schema_ref.location.clone(),
-            message: format!("context schema file not found: {schema_path}"),
-        })
-    })?;
 
     if schema.json.is_none() {
         return Err(Box::new(ContextSchemaError {
-            location: schema_ref.location.clone(),
-            message: format!("context schema file could not be parsed: {schema_path}"),
+            location: schema.location.clone(),
+            message: format!("context schema file could not be parsed: {CONTEXT_SCHEMA_PATH}"),
         }));
     };
     if schema.validator.is_none() {
         return Err(Box::new(ContextSchemaError {
-            location: schema_ref.location.clone(),
+            location: schema.location.clone(),
             message: format!(
                 "context schema is invalid: {}",
                 schema

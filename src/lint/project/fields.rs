@@ -2,7 +2,7 @@ use serde_json::Value as JsonValue;
 use toml_span::Value as TomlValue;
 use toml_span::value::Table;
 
-use crate::diagnostics::{DiagnosticLocation, Severity};
+use crate::diagnostics::DiagnosticLocation;
 
 use super::super::index::*;
 use super::super::source::SourceDocument;
@@ -61,23 +61,6 @@ pub(super) fn optional_string_field(
     Some(match item.as_str() {
         Some(value) => ProjectField::Present(Spanned {
             value: value.to_owned(),
-            location: item_location(document, item),
-        }),
-        None => ProjectField::Invalid {
-            location: item_location(document, item),
-        },
-    })
-}
-
-pub(super) fn optional_severity_field(
-    document: &SourceDocument,
-    table: &Table<'_>,
-    key: &str,
-) -> Option<ProjectField<Severity>> {
-    let item = table.get(key)?;
-    Some(match item.as_str().and_then(Severity::parse) {
-        Some(value) => ProjectField::Present(Spanned {
-            value,
             location: item_location(document, item),
         }),
         None => ProjectField::Invalid {

@@ -6,5 +6,5 @@ type = "string"
 [values]
 standard = "All systems operational."
 
-[env._]
-value = "standard"
+[resolve]
+default = "standard"

@@ -4,12 +4,12 @@ use std::path::Path;
 use crate::diagnostics::{DiagnosticCatalogEntry, EntityId, LintDiagnostic, RototoRuleId};
 use crate::error::{Result, RototoError};
 use crate::model::{
-    DependencyInspectReport, EnvironmentPathwayInspectReport, InspectRuntimeStatus,
-    InspectSelection, LintAuthorityInspectReport, LintRuleInspectReport, LinterInspectReport,
-    LinterRegistrationInspectReport, PredicateInspectReport, QualifierInspectReport,
-    ReferenceInspectReport, ResourceInspectReport, ResourceObjectInspectReport,
-    RulePathwayInspectReport, SchemaInspectReport, ValueInspectReport, VariableInspectReport,
-    WorkspaceInspectReport, WorkspaceInspectRequest,
+    DependencyInspectReport, InspectRuntimeStatus, InspectSelection, LintAuthorityInspectReport,
+    LintRuleInspectReport, LinterInspectReport, LinterRegistrationInspectReport,
+    PredicateInspectReport, QualifierInspectReport, ReferenceInspectReport, ResolveInspectReport,
+    ResourceInspectReport, ResourceObjectInspectReport, RulePathwayInspectReport,
+    SchemaInspectReport, ValueInspectReport, VariableInspectReport, WorkspaceInspectReport,
+    WorkspaceInspectRequest,
 };
 use crate::resolve::{trace_qualifier_unchecked, trace_variable_unchecked};
 
@@ -73,7 +73,6 @@ pub(crate) async fn inspect_snapshot(
 
     Ok(WorkspaceInspectReport {
         workspace: snapshot.lint.root.display().to_string(),
-        environments: workspace_environments(snapshot),
         documents: snapshot.lint.documents.clone(),
         runtime: match runtime_error {
             Some(reason) => InspectRuntimeStatus::Unavailable { reason },
@@ -97,11 +96,6 @@ fn validate_context_request(request: &WorkspaceInspectRequest) -> Result<()> {
     if !request.variables.is_some_or_all() && !request.qualifiers.is_some_or_all() {
         return Err(RototoError::new(
             "inspect --context requires at least one --variable, --variables, --qualifier, or --qualifiers selector",
-        ));
-    }
-    if request.variables.is_some_or_all() && request.environment.is_none() {
-        return Err(RototoError::new(
-            "--env is required when inspecting variables with --context",
         ));
     }
     Ok(())
@@ -235,11 +229,10 @@ async fn inspect_variable(
         .filter(|diagnostic| diagnostic_belongs_to_variable(diagnostic, id))
         .cloned()
         .collect();
-    let trace = match (runtime, &request.context, request.environment.as_deref()) {
-        (Some(runtime), Some(context), Some(environment)) => {
-            runtime.validate_environment(environment)?;
+    let trace = match (runtime, &request.context) {
+        (Some(runtime), Some(context)) => {
             runtime.validate_context(context)?;
-            Some(trace_variable_unchecked(runtime, id, environment, context).await?)
+            Some(trace_variable_unchecked(runtime, id, context).await?)
         }
         _ => None,
     };
@@ -251,7 +244,7 @@ async fn inspect_variable(
         type_source: variable_type_source_label(variable),
         schema: variable_schema_dependency(snapshot, id),
         values: variable_values(variable, &snapshot.index),
-        environments: variable_pathways(variable, request.environment.as_deref()),
+        resolve: variable_resolve(variable),
         dependencies,
         diagnostics,
         trace,
@@ -339,19 +332,6 @@ fn resource_objects(
             value: object.value.clone(),
             location: object.location.clone(),
         })
-        .collect()
-}
-
-fn workspace_environments(snapshot: &WorkspaceLintSnapshot) -> Vec<String> {
-    let Some(manifest) = &snapshot.index.manifest else {
-        return Vec::new();
-    };
-    let WorkspaceEnvironmentCollection::Environments { values, .. } = &manifest.environments else {
-        return Vec::new();
-    };
-    values
-        .iter()
-        .map(|environment| environment.name.clone())
         .collect()
 }
 
@@ -450,41 +430,36 @@ fn value_report(value: &ValueNode) -> ValueInspectReport {
     }
 }
 
-fn variable_pathways(
-    variable: &VariableNode,
-    environment_filter: Option<&str>,
-) -> Vec<EnvironmentPathwayInspectReport> {
-    let EnvironmentCollection::Environments(environments) = &variable.environments else {
-        return Vec::new();
+fn variable_resolve(variable: &VariableNode) -> ResolveInspectReport {
+    let ResolveNode::Resolve {
+        location,
+        default,
+        rules,
+    } = &variable.resolve
+    else {
+        return ResolveInspectReport {
+            default_value: None,
+            rules: Vec::new(),
+            location: variable.resolve.location(),
+        };
     };
-    environments
-        .values()
-        .filter(|environment| {
-            environment_filter.is_none_or(|filter| {
-                environment.environment == filter || environment.environment == "_"
+    let rules = match rules {
+        RuleCollection::Rules(rules) => rules
+            .iter()
+            .map(|rule| RulePathwayInspectReport {
+                index: rule.index,
+                qualifier: present_string_value(&rule.qualifier),
+                value: present_string_value(&rule.value),
+                location: rule.location.clone(),
             })
-        })
-        .map(|environment| {
-            let rules = match &environment.rules {
-                RuleCollection::Rules(rules) => rules
-                    .iter()
-                    .map(|rule| RulePathwayInspectReport {
-                        index: rule.index,
-                        qualifier: present_string_value(&rule.qualifier),
-                        value: present_string_value(&rule.value),
-                        location: rule.location.clone(),
-                    })
-                    .collect(),
-                RuleCollection::Invalid { .. } => Vec::new(),
-            };
-            EnvironmentPathwayInspectReport {
-                environment: environment.environment.clone(),
-                default_value: present_string_value(&environment.value),
-                rules,
-                location: environment.location.clone(),
-            }
-        })
-        .collect()
+            .collect(),
+        RuleCollection::Invalid { .. } => Vec::new(),
+    };
+    ResolveInspectReport {
+        default_value: present_string_value(default),
+        rules,
+        location: location.clone(),
+    }
 }
 
 fn present_string_value(field: &ProjectField<String>) -> Option<String> {
@@ -710,10 +685,8 @@ fn reference_source_kind(source: &ReferenceSource) -> &'static str {
         ReferenceSource::ResourceSchema { .. } => "resource",
         ReferenceSource::VariableRuleQualifier { .. }
         | ReferenceSource::VariableRuleValue { .. }
-        | ReferenceSource::VariableEnvironment { .. }
-        | ReferenceSource::VariableEnvironmentValue { .. }
+        | ReferenceSource::VariableResolveDefault { .. }
         | ReferenceSource::VariableResource { .. } => "variable",
-        ReferenceSource::ManifestContextSchema => "workspace",
     }
 }
 
@@ -727,27 +700,15 @@ fn reference_source_label(source: &ReferenceSource) -> String {
             qualifier,
             predicate,
         } => format!("qualifier {qualifier} predicate[{predicate}]"),
-        ReferenceSource::VariableRuleQualifier {
-            variable,
-            environment,
-            rule,
+        ReferenceSource::VariableRuleQualifier { variable, rule }
+        | ReferenceSource::VariableRuleValue { variable, rule } => {
+            format!("variable {variable} resolve.rule[{rule}]")
         }
-        | ReferenceSource::VariableRuleValue {
-            variable,
-            environment,
-            rule,
-        } => format!("variable {variable} env.{environment}.rule[{rule}]"),
-        ReferenceSource::VariableEnvironment {
-            variable,
-            environment,
+        ReferenceSource::VariableResolveDefault { variable } => {
+            format!("variable {variable} resolve.default")
         }
-        | ReferenceSource::VariableEnvironmentValue {
-            variable,
-            environment,
-        } => format!("variable {variable} env.{environment}"),
         ReferenceSource::VariableResource { variable } => format!("variable {variable}"),
         ReferenceSource::ResourceSchema { resource } => format!("resource {resource} schema"),
-        ReferenceSource::ManifestContextSchema => "workspace context schema".to_owned(),
     }
 }
 
@@ -843,10 +804,7 @@ fn selection_matches_linter(selection: &InspectSelection, diagnostic: &LintDiagn
 fn diagnostic_is_variable_related(diagnostic: &LintDiagnostic) -> bool {
     matches!(
         diagnostic.entity,
-        EntityId::Variable { .. }
-            | EntityId::Value { .. }
-            | EntityId::EnvironmentBlock { .. }
-            | EntityId::Rule { .. }
+        EntityId::Variable { .. } | EntityId::Value { .. } | EntityId::Rule { .. }
     ) || diagnostic.primary.path.starts_with("variables/")
 }
 
@@ -854,7 +812,6 @@ fn diagnostic_belongs_to_variable(diagnostic: &LintDiagnostic, id: &str) -> bool
     let variable_path = format!("variables/{id}.toml");
     matches!(&diagnostic.entity, EntityId::Variable { id: diagnostic_id } if diagnostic_id == id)
         || matches!(&diagnostic.entity, EntityId::Value { variable, .. } if variable == id)
-        || matches!(&diagnostic.entity, EntityId::EnvironmentBlock { variable, .. } if variable == id)
         || matches!(&diagnostic.entity, EntityId::Rule { variable, .. } if variable == id)
         || diagnostic.primary.path == variable_path
 }
@@ -1122,12 +1079,7 @@ fn registered_entity_label(entity: &RegisteredLintEntity) -> &'static str {
 
 fn registered_field_label(field: &RegisteredLintField) -> String {
     match field {
-        RegisteredLintField::Workspace(WorkspaceLintField::Environments) => {
-            "environments".to_owned()
-        }
-        RegisteredLintField::Workspace(WorkspaceLintField::ContextSchema) => {
-            "context_schema".to_owned()
-        }
+        RegisteredLintField::Workspace(WorkspaceLintField::Extends) => "extends".to_owned(),
         RegisteredLintField::Qualifier(QualifierLintField::Id) => "id".to_owned(),
         RegisteredLintField::Qualifier(QualifierLintField::Description) => "description".to_owned(),
         RegisteredLintField::Qualifier(QualifierLintField::Predicates) => "predicates".to_owned(),
@@ -1136,7 +1088,7 @@ fn registered_field_label(field: &RegisteredLintField) -> String {
         RegisteredLintField::Variable(VariableLintField::Type) => "type".to_owned(),
         RegisteredLintField::Variable(VariableLintField::Schema) => "schema".to_owned(),
         RegisteredLintField::Variable(VariableLintField::Values) => "values".to_owned(),
-        RegisteredLintField::Variable(VariableLintField::Environments) => "environments".to_owned(),
+        RegisteredLintField::Variable(VariableLintField::Resolve) => "resolve".to_owned(),
         RegisteredLintField::Value(ValueLintField::JsonPath(path)) => {
             format!("value.{}", path.join("."))
         }

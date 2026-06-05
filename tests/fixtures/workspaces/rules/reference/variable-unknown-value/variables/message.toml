@@ -4,9 +4,9 @@ type = "string"
 [values]
 control = "control"
 
-[env._]
-value = "missing"
+[resolve]
+default = "missing"
 
-[[env._.rule]]
+[[resolve.rule]]
 qualifier = "always"
 value = "control"

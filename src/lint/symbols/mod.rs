@@ -41,8 +41,8 @@ impl WorkspaceDocumentSymbol {
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum WorkspaceDocumentSymbolKind {
-    WorkspaceEnvironments,
-    Environment,
+    WorkspaceExtends,
+    WorkspaceExtendSource,
     Qualifier,
     Predicate,
     Variable,
@@ -50,7 +50,7 @@ pub(crate) enum WorkspaceDocumentSymbolKind {
     ResourceObject,
     Values,
     Value,
-    EnvironmentBlock,
+    Resolve,
     Rule,
 }
 
@@ -77,7 +77,6 @@ impl WorkspaceCompletionItem {
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum WorkspaceCompletionItemKind {
-    Environment,
     Qualifier,
     Value,
     PredicateOperator,

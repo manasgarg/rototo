@@ -4,5 +4,5 @@ type = "bool"
 [values]
 control = "not a bool"
 
-[env._]
-value = "control"
+[resolve]
+default = "control"

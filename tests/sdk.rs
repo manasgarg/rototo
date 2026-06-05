@@ -4,11 +4,11 @@ use std::process::Stdio;
 use std::time::{Duration, Instant};
 
 use rototo::{
-    Environment, LintMode, LoadOptions, RefreshOptions, RefreshOutcome, RefreshingWorkspace,
-    ResolveContext, ResolveOptions, SourceOptions, Workspace, catalog_for_workspace,
-    diagnostic_for_rule, inspect_workspace, lint_qualifier, lint_workspace, list_resources,
-    list_variables, read_qualifiers, read_resource, read_variable, read_variables,
-    resolve_qualifier, resolve_variable, stage_workspace_source,
+    LintMode, LoadOptions, RefreshOptions, RefreshOutcome, RefreshingWorkspace, ResolveContext,
+    ResolveOptions, SourceOptions, Workspace, catalog_for_workspace, diagnostic_for_rule,
+    inspect_workspace, lint_qualifier, lint_workspace, list_resources, list_variables,
+    read_qualifiers, read_resource, read_variable, read_variables, resolve_qualifier,
+    resolve_variable, stage_workspace_source,
 };
 
 async fn run_git(repo: &std::path::Path, args: &[&str]) {
@@ -57,9 +57,6 @@ async fn write_minimal_workspace_with_message(root: &std::path::Path, message: &
     tokio::fs::write(
         root.join("rototo-workspace.toml"),
         r#"schema_version = 1
-
-[environments]
-values = ["prod"]
 "#,
     )
     .await
@@ -75,8 +72,30 @@ type = "string"
 [values]
 default = "{message}"
 
-[env._]
-value = "default"
+[resolve]
+default = "default"
+"#,
+        ),
+    )
+    .await
+    .unwrap();
+}
+
+async fn write_string_variable(root: &std::path::Path, id: &str, value: &str) {
+    tokio::fs::create_dir_all(root.join("variables"))
+        .await
+        .unwrap();
+    tokio::fs::write(
+        root.join(format!("variables/{id}.toml")),
+        format!(
+            r#"schema_version = 1
+type = "string"
+
+[values]
+default = "{value}"
+
+[resolve]
+default = "default"
 "#,
         ),
     )
@@ -120,7 +139,6 @@ where
 async fn sdk_inspects_workspace() {
     let inspection = inspect_workspace("examples/basic".as_ref()).await.unwrap();
 
-    assert_eq!(inspection.environments, ["dev", "stage", "prod"]);
     assert!(
         inspection
             .qualifiers
@@ -371,7 +389,6 @@ async fn workspace_sdk_loads_git_file_source_with_ref_and_subdir() {
     let resolution = workspace
         .resolve_variable(
             "message",
-            &Environment::new("prod"),
             &ResolveContext::from_json(serde_json::json!({})).unwrap(),
         )
         .await
@@ -394,10 +411,9 @@ async fn refreshing_workspace_manual_refresh_updates_git_source() {
         .await
         .unwrap();
     let context = ResolveContext::from_json(serde_json::json!({})).unwrap();
-    let env = Environment::new("prod");
 
     let resolution = workspace
-        .resolve_variable("message", &env, &context)
+        .resolve_variable("message", &context)
         .await
         .unwrap();
     assert_eq!(resolution.value, "hello");
@@ -410,7 +426,7 @@ async fn refreshing_workspace_manual_refresh_updates_git_source() {
         RefreshOutcome::Refreshed
     );
     let resolution = workspace
-        .resolve_variable("message", &env, &context)
+        .resolve_variable("message", &context)
         .await
         .unwrap();
     assert_eq!(resolution.value, "goodbye");
@@ -432,7 +448,6 @@ async fn refreshing_workspace_failed_refresh_keeps_last_loaded_git_workspace() {
         .await
         .unwrap();
     let context = ResolveContext::from_json(serde_json::json!({})).unwrap();
-    let env = Environment::new("prod");
 
     tokio::fs::write(workspace_root.join("rototo-workspace.toml"), "not = [valid")
         .await
@@ -441,7 +456,7 @@ async fn refreshing_workspace_failed_refresh_keeps_last_loaded_git_workspace() {
 
     assert!(workspace.refresh_now().await.is_err());
     let resolution = workspace
-        .resolve_variable("message", &env, &context)
+        .resolve_variable("message", &context)
         .await
         .unwrap();
     assert_eq!(resolution.value, "hello");
@@ -461,7 +476,6 @@ async fn refreshing_workspace_snapshots_local_source_for_last_known_good_resolut
             .await
             .unwrap();
     let context = ResolveContext::from_json(serde_json::json!({})).unwrap();
-    let env = Environment::new("prod");
 
     tokio::fs::write(workspace_root.join("rototo-workspace.toml"), "not = [valid")
         .await
@@ -469,10 +483,67 @@ async fn refreshing_workspace_snapshots_local_source_for_last_known_good_resolut
 
     assert!(workspace.refresh_now().await.is_err());
     let resolution = workspace
-        .resolve_variable("message", &env, &context)
+        .resolve_variable("message", &context)
         .await
         .unwrap();
     assert_eq!(resolution.value, "hello");
+}
+
+#[tokio::test]
+async fn refreshing_workspace_refreshes_when_parent_layer_changes() {
+    let temp = tempfile::TempDir::new().unwrap();
+    let base = temp.path().join("base");
+    let child = temp.path().join("child");
+
+    tokio::fs::create_dir_all(&base).await.unwrap();
+    tokio::fs::write(
+        base.join("rototo-workspace.toml"),
+        r#"schema_version = 1
+"#,
+    )
+    .await
+    .unwrap();
+    write_string_variable(&base, "base-only", "before").await;
+
+    tokio::fs::create_dir_all(&child).await.unwrap();
+    tokio::fs::write(
+        child.join("rototo-workspace.toml"),
+        r#"schema_version = 1
+extends = ["../base"]
+"#,
+    )
+    .await
+    .unwrap();
+    write_string_variable(&child, "child-only", "child").await;
+
+    let workspace = RefreshingWorkspace::load(child.to_string_lossy(), RefreshOptions::new())
+        .await
+        .unwrap();
+    let context = ResolveContext::from_json(serde_json::json!({})).unwrap();
+
+    assert_eq!(
+        workspace
+            .resolve_variable("base-only", &context)
+            .await
+            .unwrap()
+            .value,
+        "before"
+    );
+
+    write_string_variable(&base, "base-only", "after").await;
+
+    assert_eq!(
+        workspace.refresh_now().await.unwrap(),
+        RefreshOutcome::Refreshed
+    );
+    assert_eq!(
+        workspace
+            .resolve_variable("base-only", &context)
+            .await
+            .unwrap()
+            .value,
+        "after"
+    );
 }
 
 #[tokio::test]
@@ -535,14 +606,13 @@ async fn refreshing_workspace_background_loop_refreshes_local_source() {
     .await
     .unwrap();
     let context = ResolveContext::from_json(serde_json::json!({})).unwrap();
-    let env = Environment::new("prod");
 
     write_minimal_workspace_with_message(&workspace_root, "goodbye").await;
     tokio::task::yield_now().await;
     tokio::time::advance(Duration::from_secs(5)).await;
     wait_for_condition(|| async {
         workspace
-            .resolve_variable("message", &env, &context)
+            .resolve_variable("message", &context)
             .await
             .is_ok_and(|resolution| resolution.value == "goodbye")
     })
@@ -567,7 +637,6 @@ async fn refreshing_workspace_background_failures_back_off_and_keep_snapshot() {
     .await
     .unwrap();
     let context = ResolveContext::from_json(serde_json::json!({})).unwrap();
-    let env = Environment::new("prod");
 
     tokio::fs::write(
         workspace_root.join("variables/message.toml"),
@@ -604,7 +673,7 @@ async fn refreshing_workspace_background_failures_back_off_and_keep_snapshot() {
     })
     .await;
     let resolution = workspace
-        .resolve_variable("message", &env, &context)
+        .resolve_variable("message", &context)
         .await
         .unwrap();
     assert_eq!(resolution.value, "hello");
@@ -644,13 +713,11 @@ async fn refreshing_workspace_resolves_while_manual_refresh_runs() {
             .unwrap(),
     );
     let context = ResolveContext::from_json(serde_json::json!({})).unwrap();
-    let env = Environment::new("prod");
     write_minimal_workspace_with_message(&workspace_root, "goodbye").await;
 
     let refresh_workspace = workspace.clone();
     let resolve_workspace = workspace.clone();
     let resolve_context = context.clone();
-    let resolve_env = env.clone();
     let (refresh, resolves) = tokio::join!(
         async move { refresh_workspace.refresh_now().await },
         async move {
@@ -658,7 +725,7 @@ async fn refreshing_workspace_resolves_while_manual_refresh_runs() {
             for _ in 0..10 {
                 results.push(
                     resolve_workspace
-                        .resolve_variable("message", &resolve_env, &resolve_context)
+                        .resolve_variable("message", &resolve_context)
                         .await
                         .map(|resolution| resolution.value),
                 );
@@ -714,14 +781,9 @@ async fn sdk_resolves_variable() {
         }
     });
 
-    let resolution = resolve_variable(
-        "examples/basic".as_ref(),
-        "checkout-redesign",
-        "prod",
-        &context,
-    )
-    .await
-    .unwrap();
+    let resolution = resolve_variable("examples/basic".as_ref(), "checkout-redesign", &context)
+        .await
+        .unwrap();
 
     assert_eq!(resolution.value_key, "premium");
     assert_eq!(resolution.value["variant"], "premium");
@@ -735,14 +797,9 @@ async fn sdk_resolves_primitive_variable() {
         }
     });
 
-    let resolution = resolve_variable(
-        "examples/basic".as_ref(),
-        "premium-message",
-        "prod",
-        &context,
-    )
-    .await
-    .unwrap();
+    let resolution = resolve_variable("examples/basic".as_ref(), "premium-message", &context)
+        .await
+        .unwrap();
 
     assert_eq!(resolution.value_key, "premium");
     assert_eq!(resolution.value, "Welcome back, premium member.");
@@ -752,10 +809,6 @@ async fn sdk_resolves_primitive_variable() {
 async fn workspace_sdk_loads_linted_workspace() {
     let workspace = Workspace::load("examples/basic").await.unwrap();
 
-    assert_eq!(
-        workspace.inspection().environments,
-        ["dev", "stage", "prod"]
-    );
     assert!(workspace.context_schema().is_some());
 }
 
@@ -768,14 +821,72 @@ async fn workspace_sdk_resolves_from_loaded_runtime_snapshot() {
     let workspace = Workspace::load(root.to_str().unwrap()).await.unwrap();
     write_minimal_workspace_with_message(&root, "changed").await;
 
-    let env = Environment::new("prod");
     let context = ResolveContext::from_json(serde_json::json!({})).unwrap();
     let resolution = workspace
-        .resolve_variable("message", &env, &context)
+        .resolve_variable("message", &context)
         .await
         .unwrap();
 
     assert_eq!(resolution.value, "loaded");
+}
+
+#[tokio::test]
+async fn workspace_sdk_loads_layered_workspace_with_child_overrides() {
+    let temp = tempfile::TempDir::new().unwrap();
+    let base = temp.path().join("base");
+    let child = temp.path().join("child");
+
+    tokio::fs::create_dir_all(&base).await.unwrap();
+    tokio::fs::write(
+        base.join("rototo-workspace.toml"),
+        r#"schema_version = 1
+"#,
+    )
+    .await
+    .unwrap();
+    write_string_variable(&base, "message", "base").await;
+    write_string_variable(&base, "base-only", "base-only").await;
+
+    tokio::fs::create_dir_all(&child).await.unwrap();
+    tokio::fs::write(
+        child.join("rototo-workspace.toml"),
+        r#"schema_version = 1
+extends = ["../base"]
+"#,
+    )
+    .await
+    .unwrap();
+    write_string_variable(&child, "message", "child").await;
+    write_string_variable(&child, "child-only", "child-only").await;
+
+    let workspace = Workspace::load(child.to_str().unwrap()).await.unwrap();
+    let context = ResolveContext::from_json(serde_json::json!({})).unwrap();
+
+    assert_eq!(workspace.source_layers().len(), 2);
+    assert_eq!(
+        workspace
+            .resolve_variable("message", &context)
+            .await
+            .unwrap()
+            .value,
+        "child"
+    );
+    assert_eq!(
+        workspace
+            .resolve_variable("base-only", &context)
+            .await
+            .unwrap()
+            .value,
+        "base-only"
+    );
+    assert_eq!(
+        workspace
+            .resolve_variable("child-only", &context)
+            .await
+            .unwrap()
+            .value,
+        "child-only"
+    );
 }
 
 #[tokio::test]
@@ -806,9 +917,8 @@ async fn workspace_sdk_can_inspect_without_linting() {
 }
 
 #[tokio::test]
-async fn workspace_sdk_resolves_with_environment_and_context_contract() {
+async fn workspace_sdk_resolves_with_context_contract() {
     let workspace = Workspace::load("examples/basic").await.unwrap();
-    let env = Environment::new("prod");
     let context = ResolveContext::from_json(serde_json::json!({
         "user": {
             "tier": "premium"
@@ -817,11 +927,10 @@ async fn workspace_sdk_resolves_with_environment_and_context_contract() {
     .unwrap();
 
     let resolution = workspace
-        .resolve_variable("checkout-redesign", &env, &context)
+        .resolve_variable("checkout-redesign", &context)
         .await
         .unwrap();
 
-    assert_eq!(env.name(), "prod");
     assert_eq!(resolution.value_key, "premium");
 }
 
@@ -866,22 +975,28 @@ async fn workspace_sdk_rejects_missing_predicate_context_even_when_schema_allows
 }
 
 #[tokio::test]
-async fn workspace_sdk_rejects_unknown_environment_before_fallback() {
+async fn workspace_sdk_ignores_environment_as_first_class_input() {
     let workspace = Workspace::load("examples/basic").await.unwrap();
-    let env = Environment::new("prd");
     let context = ResolveContext::from_json(serde_json::json!({
+        "env": "prd",
         "user": {
             "tier": "premium"
         }
     }))
     .unwrap();
 
-    let err = workspace
-        .resolve_variable("checkout-redesign", &env, &context)
+    let resolution = workspace
+        .resolve_variable_with_options(
+            "checkout-redesign",
+            &context,
+            ResolveOptions {
+                validate_context: false,
+            },
+        )
         .await
-        .unwrap_err();
+        .unwrap();
 
-    assert_eq!(err.to_string(), "unknown environment: prd");
+    assert_eq!(resolution.value_key, "premium");
 }
 
 #[tokio::test]
@@ -892,8 +1007,6 @@ async fn workspace_sdk_loads_malformed_context_config_when_lint_is_skipped_for_i
     )
     .await
     .unwrap();
-
-    assert_eq!(workspace.inspection().environments, ["prod"]);
 
     let context = ResolveContext::from_json(serde_json::json!({})).unwrap();
     let err = workspace
@@ -914,12 +1027,6 @@ async fn workspace_sdk_rejects_context_schema_symlink_escape() {
     tokio::fs::write(
         root.join("rototo-workspace.toml"),
         r#"schema_version = 1
-
-[environments]
-values = ["prod"]
-
-[context]
-schema = "schemas/context.schema.json"
 "#,
     )
     .await

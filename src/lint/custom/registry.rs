@@ -6,9 +6,7 @@ use crate::diagnostics::{
 use crate::lua_lint;
 
 use super::super::engine::LintContext;
-use super::super::index::{
-    CustomLintRegistration, CustomRuleCollection, CustomRuleDefinitionNode, GateEntity,
-};
+use super::super::index::{CustomLintRegistration, CustomRuleDefinitionNode, GateEntity};
 use super::super::stages::push_register_diagnostic;
 use super::runner;
 use super::{
@@ -86,8 +84,33 @@ pub(crate) async fn register_custom_lints(ctx: &mut LintContext) {
         }
 
         for registration in registrations {
-            match validate_custom_registration(&ctx.index.custom_lints.rules, &registration) {
-                Ok((stage, selector, rule)) => {
+            match validate_custom_registration(&registration) {
+                Ok((stage, selector, definition)) => {
+                    let rule = definition.rule.clone();
+                    match ctx.index.custom_lints.rules.get(&rule) {
+                        Some(existing) if !existing.definition.same_metadata(&definition) => {
+                            push_register_diagnostic(
+                                &mut ctx.diagnostics,
+                                RototoRuleId::CustomLintRuleConflict,
+                                EntityId::CustomLint {
+                                    path: file.path.clone(),
+                                },
+                                file.location.clone(),
+                                format!("custom lint rule metadata conflicts: {rule}"),
+                            );
+                            continue;
+                        }
+                        Some(_) => {}
+                        None => {
+                            ctx.index.custom_lints.rules.insert(
+                                rule.clone(),
+                                CustomRuleDefinitionNode {
+                                    definition,
+                                    location: file.location.clone(),
+                                },
+                            );
+                        }
+                    }
                     ctx.index
                         .custom_lints
                         .registrations
@@ -113,74 +136,7 @@ pub(crate) async fn register_custom_lints(ctx: &mut LintContext) {
         }
     }
 
-    lint_unregistered_custom_rules(ctx);
     lint_duplicate_custom_registrations(ctx);
-}
-
-fn lint_unregistered_custom_rules(ctx: &mut LintContext) {
-    if custom_rule_declarations_have_conflicts(ctx) || custom_lint_registration_has_errors(ctx) {
-        return;
-    }
-
-    let mut registered = std::collections::BTreeSet::new();
-    for registration in &ctx.index.custom_lints.registrations {
-        registered.insert(registration.rule.clone());
-    }
-
-    for rule in ctx.index.custom_lints.rules.values() {
-        if registered.contains(&rule.definition.rule) {
-            continue;
-        }
-        push_register_diagnostic(
-            &mut ctx.diagnostics,
-            RototoRuleId::CustomLintRuleUnregistered,
-            EntityId::Manifest,
-            rule.location.clone(),
-            format!(
-                "custom lint rule is declared but not registered: {}",
-                rule.definition.rule
-            ),
-        );
-    }
-}
-
-fn custom_lint_registration_has_errors(ctx: &LintContext) -> bool {
-    ctx.diagnostics.iter().any(|diagnostic| {
-        diagnostic.severity == Severity::Error
-            && matches!(
-                &diagnostic.rule,
-                DiagnosticRule::Rototo(
-                    RototoRuleId::CustomLintFailed
-                        | RototoRuleId::CustomLintRegistrationInvalid
-                        | RototoRuleId::CustomLintUnknownRule
-                )
-            )
-    })
-}
-
-fn custom_rule_declarations_have_conflicts(ctx: &LintContext) -> bool {
-    let Some(manifest) = &ctx.index.manifest else {
-        return false;
-    };
-    let CustomRuleCollection::Rules(rules) = &manifest.custom_rules else {
-        return false;
-    };
-
-    let mut declared: BTreeMap<CustomRuleId, CustomRuleDefinition> = BTreeMap::new();
-    for rule in rules {
-        let Some(definition) = rule.definition() else {
-            continue;
-        };
-        match declared.get(&definition.rule) {
-            Some(existing) if !existing.same_metadata(&definition) => return true,
-            Some(_) => {}
-            None => {
-                declared.insert(definition.rule.clone(), definition);
-            }
-        }
-    }
-
-    false
 }
 
 fn lint_duplicate_custom_registrations(ctx: &mut LintContext) {
@@ -264,8 +220,7 @@ fn registered_entity_key(entity: RegisteredLintEntity) -> &'static str {
 fn registered_field_key(field: &RegisteredLintField) -> String {
     match field {
         RegisteredLintField::Workspace(field) => match field {
-            WorkspaceLintField::Environments => "workspace.environments".to_owned(),
-            WorkspaceLintField::ContextSchema => "workspace.context_schema".to_owned(),
+            WorkspaceLintField::Extends => "workspace.extends".to_owned(),
         },
         RegisteredLintField::Qualifier(field) => match field {
             QualifierLintField::Id => "qualifier.id".to_owned(),
@@ -278,7 +233,7 @@ fn registered_field_key(field: &RegisteredLintField) -> String {
             VariableLintField::Type => "variable.type".to_owned(),
             VariableLintField::Schema => "variable.schema".to_owned(),
             VariableLintField::Values => "variable.values".to_owned(),
-            VariableLintField::Environments => "variable.environments".to_owned(),
+            VariableLintField::Resolve => "variable.resolve".to_owned(),
         },
         RegisteredLintField::Value(field) => match field {
             ValueLintField::Key => "value.key".to_owned(),
@@ -308,10 +263,11 @@ pub(super) fn parse_registered_lint_output_field(
 }
 
 fn validate_custom_registration(
-    workspace_rules: &BTreeMap<CustomRuleId, CustomRuleDefinitionNode>,
     registration: &lua_lint::RawCustomLintRegistration,
-) -> std::result::Result<(LintStage, RegisteredLintSelector, CustomRuleId), (RototoRuleId, String)>
-{
+) -> std::result::Result<
+    (LintStage, RegisteredLintSelector, CustomRuleDefinition),
+    (RototoRuleId, String),
+> {
     let stage = parse_registered_lint_stage(&registration.stage)?;
     let selector =
         parse_registered_lint_selector(&registration.entity, registration.field.as_deref())?;
@@ -325,23 +281,33 @@ fn validate_custom_registration(
         ));
     }
 
-    let rule = CustomRuleId::parse(&registration.rule).map_err(|err| {
+    let rule = CustomRuleId::parse(&registration.rule.id).map_err(|err| {
         (
             RototoRuleId::CustomLintRegistrationInvalid,
             format!(
                 "custom lint registration rule id is invalid: {}: {err}",
-                registration.rule
+                registration.rule.id
             ),
         )
     })?;
-    let definition = workspace_rules.get(&rule).cloned().ok_or_else(|| {
-        (
-            RototoRuleId::CustomLintUnknownRule,
-            format!("custom lint registration references undeclared rule: {rule}"),
-        )
-    })?;
+    let severity = match registration.rule.severity.as_deref() {
+        None | Some("error") => Severity::Error,
+        Some("warning") => Severity::Warning,
+        Some(severity) => {
+            return Err((
+                RototoRuleId::CustomLintRegistrationInvalid,
+                format!("custom lint registration rule severity is unsupported: {severity}"),
+            ));
+        }
+    };
+    let definition = CustomRuleDefinition::with_severity(
+        rule,
+        severity,
+        registration.rule.title.clone(),
+        registration.rule.help.clone(),
+    );
 
-    Ok((stage, selector, definition.definition.rule))
+    Ok((stage, selector, definition))
 }
 
 fn parse_registered_lint_stage(
@@ -397,11 +363,8 @@ fn parse_workspace_lint_field(
 ) -> std::result::Result<Option<RegisteredLintField>, (RototoRuleId, String)> {
     match field {
         None => Ok(None),
-        Some("environments") => Ok(Some(RegisteredLintField::Workspace(
-            WorkspaceLintField::Environments,
-        ))),
-        Some("context_schema") => Ok(Some(RegisteredLintField::Workspace(
-            WorkspaceLintField::ContextSchema,
+        Some("extends") => Ok(Some(RegisteredLintField::Workspace(
+            WorkspaceLintField::Extends,
         ))),
         Some(field) => unsupported_registration_field(field),
     }
@@ -439,8 +402,8 @@ fn parse_variable_lint_field(
         Some("values") => Ok(Some(RegisteredLintField::Variable(
             VariableLintField::Values,
         ))),
-        Some("environments") => Ok(Some(RegisteredLintField::Variable(
-            VariableLintField::Environments,
+        Some("resolve") => Ok(Some(RegisteredLintField::Variable(
+            VariableLintField::Resolve,
         ))),
         Some(field) => unsupported_registration_field(field),
     }

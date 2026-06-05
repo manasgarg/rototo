@@ -9,7 +9,6 @@ fn inspects_basic_workspace() {
         .assert()
         .success()
         .stdout(predicate::str::contains("workspace: "))
-        .stdout(predicate::str::contains("environments:"))
         .stdout(predicate::str::contains("schemas:"))
         .stdout(predicate::str::contains("schema: checkout-page.schema"))
         .stdout(predicate::str::contains("qualifiers:"))
@@ -93,7 +92,6 @@ fn inspects_basic_workspace_as_json() {
         .args(["--json", "inspect", "examples/basic"])
         .assert()
         .success()
-        .stdout(predicate::str::contains(r#""environments": ["#))
         .stdout(predicate::str::contains(r#""schemas": ["#))
         .stdout(predicate::str::contains(
             r#""path": "schemas/checkout-page.schema.json""#,
@@ -156,8 +154,6 @@ fn inspects_variable_resolution_trace_as_json() {
             "examples/basic",
             "--variable",
             "checkout-redesign",
-            "--env",
-            "prod",
             "--context",
             r#"{"user":{"tier":"premium"}}"#,
         ])
@@ -184,8 +180,8 @@ fn inspect_broken_workspace_still_shows_partial_model_and_lint() {
         .success()
         .stdout(predicate::str::contains("runtime: unavailable"))
         .stdout(predicate::str::contains("rototo/variable-unknown-value"))
-        .stdout(predicate::str::contains("pathways:"))
-        .stdout(predicate::str::contains("fallback -> missing"));
+        .stdout(predicate::str::contains("resolve:"))
+        .stdout(predicate::str::contains("default -> missing"));
 }
 
 #[test]
@@ -242,7 +238,7 @@ fn inspect_context_requires_resolution_target() {
 }
 
 #[test]
-fn inspect_variable_context_requires_env() {
+fn inspect_variable_context_resolves_without_env() {
     Command::cargo_bin("rototo")
         .unwrap()
         .args([
@@ -254,8 +250,6 @@ fn inspect_variable_context_requires_env() {
             r#"{"user":{"tier":"premium"}}"#,
         ])
         .assert()
-        .failure()
-        .stderr(predicate::str::contains(
-            "--env is required when inspecting variables with --context",
-        ));
+        .success()
+        .stdout(predicate::str::contains("trace: premium"));
 }

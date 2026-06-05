@@ -3,7 +3,11 @@ function register(lint)
     stage = "value",
     entity = "value",
     field = "value",
-    rule = "consumer-experience/message-not-empty",
+    rule = {
+          id = "consumer-experience/message-not-empty",
+          title = "Directory-backed message is empty",
+          help = "Set a non-empty message.",
+        },
     handler = "check_message",
   })
 end

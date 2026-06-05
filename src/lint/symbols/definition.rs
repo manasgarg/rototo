@@ -3,7 +3,7 @@ use crate::diagnostics::{DiagnosticLocation, SourcePosition};
 use super::super::WorkspaceLintSnapshot;
 use super::super::index::*;
 use super::super::references::qualifier_reference;
-use super::super::source::{resolve_workspace_relative_path, resolve_workspace_root_path};
+use super::super::source::resolve_workspace_relative_path;
 use super::WorkspaceDefinition;
 use super::common::{
     location_contains_position, source_range_size, variable_value_definition_location,
@@ -15,7 +15,6 @@ pub(crate) fn definition(
     position: SourcePosition,
 ) -> Option<WorkspaceDefinition> {
     let mut candidates = Vec::new();
-    push_manifest_definition_candidates(&snapshot.index, path, position, &mut candidates);
     push_qualifier_definition_candidates(&snapshot.index, path, position, &mut candidates);
     push_variable_definition_candidates(&snapshot.index, path, position, &mut candidates);
     push_resource_definition_candidates(&snapshot.index, path, position, &mut candidates);
@@ -44,41 +43,6 @@ struct DefinitionCandidate {
     priority: u8,
     span_size: usize,
     location: DiagnosticLocation,
-}
-
-fn push_manifest_definition_candidates(
-    index: &SemanticIndex,
-    path: &str,
-    position: SourcePosition,
-    candidates: &mut Vec<DefinitionCandidate>,
-) {
-    let Some(manifest) = &index.manifest else {
-        return;
-    };
-    let Some(context) = &manifest.context_schema else {
-        return;
-    };
-    let ProjectField::Present(schema) = &context.schema else {
-        return;
-    };
-    if !location_contains_position(&schema.location, path, position) {
-        return;
-    }
-    let Some(schema_path) = resolve_workspace_root_path(&schema.value) else {
-        return;
-    };
-    let Some(schema_node) = index.schemas.get(&schema_path) else {
-        return;
-    };
-    candidates.push(DefinitionCandidate {
-        priority: 2,
-        span_size: schema
-            .location
-            .range
-            .map(source_range_size)
-            .unwrap_or(usize::MAX),
-        location: schema_node.location.clone(),
-    });
 }
 
 fn push_qualifier_definition_candidates(
@@ -160,12 +124,46 @@ fn push_variable_definition_candidates(
             _ => {}
         }
 
-        let EnvironmentCollection::Environments(environments) = &variable.environments else {
+        let ResolveNode::Resolve { default, rules, .. } = &variable.resolve else {
             continue;
         };
 
-        for block in environments.values() {
-            if let ProjectField::Present(value) = &block.value
+        if let ProjectField::Present(value) = default.as_ref()
+            && location_contains_position(&value.location, path, position)
+            && let Some(target) = variable_value_definition_location(index, variable, &value.value)
+        {
+            candidates.push(DefinitionCandidate {
+                priority: 0,
+                span_size: value
+                    .location
+                    .range
+                    .map(source_range_size)
+                    .unwrap_or(usize::MAX),
+                location: target,
+            });
+        }
+
+        let RuleCollection::Rules(rules) = rules else {
+            continue;
+        };
+
+        for rule in rules {
+            if let ProjectField::Present(qualifier) = &rule.qualifier
+                && location_contains_position(&qualifier.location, path, position)
+                && let Some(target) = index.qualifiers.get(&qualifier.value)
+            {
+                candidates.push(DefinitionCandidate {
+                    priority: 0,
+                    span_size: qualifier
+                        .location
+                        .range
+                        .map(source_range_size)
+                        .unwrap_or(usize::MAX),
+                    location: target.location.clone(),
+                });
+            }
+
+            if let ProjectField::Present(value) = &rule.value
                 && location_contains_position(&value.location, path, position)
                 && let Some(target) =
                     variable_value_definition_location(index, variable, &value.value)
@@ -179,43 +177,6 @@ fn push_variable_definition_candidates(
                         .unwrap_or(usize::MAX),
                     location: target,
                 });
-            }
-
-            let RuleCollection::Rules(rules) = &block.rules else {
-                continue;
-            };
-
-            for rule in rules {
-                if let ProjectField::Present(qualifier) = &rule.qualifier
-                    && location_contains_position(&qualifier.location, path, position)
-                    && let Some(target) = index.qualifiers.get(&qualifier.value)
-                {
-                    candidates.push(DefinitionCandidate {
-                        priority: 0,
-                        span_size: qualifier
-                            .location
-                            .range
-                            .map(source_range_size)
-                            .unwrap_or(usize::MAX),
-                        location: target.location.clone(),
-                    });
-                }
-
-                if let ProjectField::Present(value) = &rule.value
-                    && location_contains_position(&value.location, path, position)
-                    && let Some(target) =
-                        variable_value_definition_location(index, variable, &value.value)
-                {
-                    candidates.push(DefinitionCandidate {
-                        priority: 0,
-                        span_size: value
-                            .location
-                            .range
-                            .map(source_range_size)
-                            .unwrap_or(usize::MAX),
-                        location: target,
-                    });
-                }
             }
         }
     }

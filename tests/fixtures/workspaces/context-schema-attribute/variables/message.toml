@@ -5,12 +5,9 @@ type = "string"
 control = "control"
 treatment = "treatment"
 
-[env._]
-value = "control"
+[resolve]
+default = "control"
 
-[env.prod]
-value = "control"
-
-[[env.prod.rule]]
+[[resolve.rule]]
 qualifier = "missing-context-contract"
 value = "treatment"

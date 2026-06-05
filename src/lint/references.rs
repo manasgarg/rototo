@@ -1,13 +1,9 @@
 use std::collections::{BTreeMap, BTreeSet};
 
-use crate::diagnostics::{DiagnosticLocation, EntityId, SourcePosition, SourceRange};
-use crate::workspace::workspace_environments;
-
 use super::index::*;
-use super::source::{
-    DocumentKind, SourceStore, resolve_workspace_relative_path, resolve_workspace_root_path,
-};
+use super::source::{DocumentKind, SourceStore, resolve_workspace_relative_path};
 use super::syntax::SyntaxIndex;
+use crate::diagnostics::{DiagnosticLocation, EntityId, SourcePosition, SourceRange};
 
 #[derive(Default)]
 pub(super) struct ReferenceIndex {
@@ -29,45 +25,18 @@ pub(super) struct ReferenceEdge {
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(super) enum ReferenceSource {
-    ManifestContextSchema,
-    QualifierPredicateQualifier {
-        qualifier: String,
-        predicate: usize,
-    },
-    QualifierPredicateContextAttribute {
-        qualifier: String,
-        predicate: usize,
-    },
-    VariableResource {
-        variable: String,
-    },
-    ResourceSchema {
-        resource: String,
-    },
-    VariableEnvironment {
-        variable: String,
-        environment: String,
-    },
-    VariableEnvironmentValue {
-        variable: String,
-        environment: String,
-    },
-    VariableRuleQualifier {
-        variable: String,
-        environment: String,
-        rule: usize,
-    },
-    VariableRuleValue {
-        variable: String,
-        environment: String,
-        rule: usize,
-    },
+    QualifierPredicateQualifier { qualifier: String, predicate: usize },
+    QualifierPredicateContextAttribute { qualifier: String, predicate: usize },
+    VariableResource { variable: String },
+    ResourceSchema { resource: String },
+    VariableResolveDefault { variable: String },
+    VariableRuleQualifier { variable: String, rule: usize },
+    VariableRuleValue { variable: String, rule: usize },
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub(super) enum ReferenceTarget {
     ContextAttribute(String),
-    Environment(String),
     Qualifier(String),
     Resource(String),
     ResourceObject { resource: String, value: String },
@@ -90,12 +59,15 @@ pub(super) struct ReferenceSite {
 }
 
 impl ReferenceIndex {
-    pub(super) fn build(index: &SemanticIndex, source: &SourceStore, syntax: &SyntaxIndex) -> Self {
+    pub(super) fn build(
+        index: &SemanticIndex,
+        source: &SourceStore,
+        _syntax: &SyntaxIndex,
+    ) -> Self {
         let mut references = Self::default();
         references.add_declarations(index, source);
-        references.add_manifest_references(index);
         references.add_qualifier_references(index);
-        references.add_variable_references(index, syntax);
+        references.add_variable_references(index);
         references
     }
 
@@ -172,7 +144,7 @@ impl ReferenceIndex {
                         target: target.clone(),
                     });
                 }
-                ReferenceTarget::ContextAttribute(_) | ReferenceTarget::Environment(_) => {}
+                ReferenceTarget::ContextAttribute(_) => {}
                 ReferenceTarget::Qualifier(_)
                 | ReferenceTarget::Resource(_)
                 | ReferenceTarget::ResourceObject { .. }
@@ -351,18 +323,6 @@ impl ReferenceIndex {
             }
         }
 
-        if let Some(manifest) = &index.manifest
-            && let WorkspaceEnvironmentCollection::Environments { values, .. } =
-                &manifest.environments
-        {
-            for environment in values {
-                self.declarations.insert(
-                    ReferenceTarget::Environment(environment.name.clone()),
-                    environment.location.clone(),
-                );
-            }
-        }
-
         for document in source.documents.values() {
             match &document.kind {
                 DocumentKind::Schema => {
@@ -379,28 +339,6 @@ impl ReferenceIndex {
                 | DocumentKind::CustomLint => {}
             }
         }
-    }
-
-    fn add_manifest_references(&mut self, index: &SemanticIndex) {
-        let Some(manifest) = &index.manifest else {
-            return;
-        };
-        let Some(context) = &manifest.context_schema else {
-            return;
-        };
-        let ProjectField::Present(schema) = &context.schema else {
-            return;
-        };
-        let Some(schema_path) = resolve_workspace_root_path(&schema.value) else {
-            return;
-        };
-
-        self.push_edge(
-            ReferenceSource::ManifestContextSchema,
-            EntityId::Manifest,
-            schema.location.clone(),
-            ReferenceTarget::Schema(schema_path),
-        );
     }
 
     fn add_qualifier_references(&mut self, index: &SemanticIndex) {
@@ -444,7 +382,7 @@ impl ReferenceIndex {
         }
     }
 
-    fn add_variable_references(&mut self, index: &SemanticIndex, syntax: &SyntaxIndex) {
+    fn add_variable_references(&mut self, index: &SemanticIndex) {
         for variable in index.variables.values() {
             if let TypeSourceNode::Resource(resource) = &variable.type_source {
                 self.push_edge(
@@ -459,79 +397,57 @@ impl ReferenceIndex {
                 );
             }
 
-            let EnvironmentCollection::Environments(environments) = &variable.environments else {
+            let ResolveNode::Resolve { default, rules, .. } = &variable.resolve else {
                 continue;
             };
-            let declared_environments = declared_workspace_environments(index, syntax);
-            for block in environments.values() {
-                if block.environment != "_" && declared_environments.is_some() {
+
+            if let ProjectField::Present(value) = default.as_ref() {
+                let target = variable_value_target(variable, &value.value);
+                self.push_edge(
+                    ReferenceSource::VariableResolveDefault {
+                        variable: variable.id.clone(),
+                    },
+                    EntityId::Variable {
+                        id: variable.id.clone(),
+                    },
+                    value.location.clone(),
+                    target,
+                );
+            }
+
+            let RuleCollection::Rules(rules) = rules else {
+                continue;
+            };
+            for rule in rules {
+                if rule.invalid_shape {
+                    continue;
+                }
+                let entity = EntityId::Rule {
+                    variable: variable.id.clone(),
+                    index: rule.index,
+                };
+                if let ProjectField::Present(qualifier) = &rule.qualifier {
                     self.push_edge(
-                        ReferenceSource::VariableEnvironment {
+                        ReferenceSource::VariableRuleQualifier {
                             variable: variable.id.clone(),
-                            environment: block.environment.clone(),
+                            rule: rule.index,
                         },
-                        EntityId::EnvironmentBlock {
-                            variable: variable.id.clone(),
-                            environment: block.environment.clone(),
-                        },
-                        block.location.clone(),
-                        ReferenceTarget::Environment(block.environment.clone()),
+                        entity.clone(),
+                        qualifier.location.clone(),
+                        ReferenceTarget::Qualifier(qualifier.value.clone()),
                     );
                 }
-
-                if let ProjectField::Present(value) = &block.value {
+                if let ProjectField::Present(value) = &rule.value {
                     let target = variable_value_target(variable, &value.value);
                     self.push_edge(
-                        ReferenceSource::VariableEnvironmentValue {
+                        ReferenceSource::VariableRuleValue {
                             variable: variable.id.clone(),
-                            environment: block.environment.clone(),
+                            rule: rule.index,
                         },
-                        EntityId::EnvironmentBlock {
-                            variable: variable.id.clone(),
-                            environment: block.environment.clone(),
-                        },
+                        entity.clone(),
                         value.location.clone(),
                         target,
                     );
-                }
-
-                let RuleCollection::Rules(rules) = &block.rules else {
-                    continue;
-                };
-                for rule in rules {
-                    if rule.invalid_shape {
-                        continue;
-                    }
-                    let entity = EntityId::Rule {
-                        variable: variable.id.clone(),
-                        environment: block.environment.clone(),
-                        index: rule.index,
-                    };
-                    if let ProjectField::Present(qualifier) = &rule.qualifier {
-                        self.push_edge(
-                            ReferenceSource::VariableRuleQualifier {
-                                variable: variable.id.clone(),
-                                environment: block.environment.clone(),
-                                rule: rule.index,
-                            },
-                            entity.clone(),
-                            qualifier.location.clone(),
-                            ReferenceTarget::Qualifier(qualifier.value.clone()),
-                        );
-                    }
-                    if let ProjectField::Present(value) = &rule.value {
-                        let target = variable_value_target(variable, &value.value);
-                        self.push_edge(
-                            ReferenceSource::VariableRuleValue {
-                                variable: variable.id.clone(),
-                                environment: block.environment.clone(),
-                                rule: rule.index,
-                            },
-                            entity.clone(),
-                            value.location.clone(),
-                            target,
-                        );
-                    }
                 }
             }
         }
@@ -590,7 +506,6 @@ impl ReferenceIndex {
                         .push(site);
                 }
                 ReferenceTarget::ContextAttribute(_)
-                | ReferenceTarget::Environment(_)
                 | ReferenceTarget::Resource(_)
                 | ReferenceTarget::Schema(_) => {}
             }
@@ -643,17 +558,6 @@ struct ReferenceTargetCandidate {
 
 pub(super) fn qualifier_reference(attribute: &str) -> Option<&str> {
     attribute.strip_prefix("qualifier.")
-}
-
-fn declared_workspace_environments(
-    index: &SemanticIndex,
-    syntax: &SyntaxIndex,
-) -> Option<BTreeSet<String>> {
-    let manifest = index.manifest.as_ref()?;
-    let parsed = syntax.toml.get(&manifest.doc)?;
-    workspace_environments(&parsed.to_plain_toml())
-        .ok()
-        .map(|environments| environments.into_iter().collect())
 }
 
 fn location_contains_position(

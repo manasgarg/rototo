@@ -1,4 +1,4 @@
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::BTreeMap;
 use std::path::Path;
 use std::sync::Arc;
 
@@ -9,12 +9,12 @@ use crate::error::{Result, RototoError};
 
 use super::index::*;
 use super::input::LintInput;
-use super::source::resolve_workspace_root_path;
 use super::{WorkspaceLintSnapshot, lint_workspace_snapshot};
+
+const CONTEXT_SCHEMA_PATH: &str = "schemas/context.schema.json";
 
 #[derive(Debug)]
 pub(crate) struct RuntimeWorkspace {
-    pub(crate) environments: Vec<String>,
     pub(crate) context_schema: Option<JsonValue>,
     pub(crate) context_validator: Option<Arc<Validator>>,
     pub(crate) qualifiers: BTreeMap<String, RuntimeQualifier>,
@@ -22,16 +22,6 @@ pub(crate) struct RuntimeWorkspace {
 }
 
 impl RuntimeWorkspace {
-    pub(crate) fn validate_environment(&self, environment: &str) -> Result<()> {
-        if self.environments.iter().any(|known| known == environment) {
-            Ok(())
-        } else {
-            Err(RototoError::new(format!(
-                "unknown environment: {environment}"
-            )))
-        }
-    }
-
     pub(crate) fn validate_context(&self, context: &JsonValue) -> Result<()> {
         let Some(validator) = &self.context_validator else {
             return Ok(());
@@ -85,12 +75,7 @@ pub(crate) enum RuntimeCompareOp {
 #[derive(Debug)]
 pub(crate) struct RuntimeVariable {
     pub(crate) values: BTreeMap<String, JsonValue>,
-    pub(crate) environments: BTreeMap<String, RuntimeEnvironmentBlock>,
-}
-
-#[derive(Debug)]
-pub(crate) struct RuntimeEnvironmentBlock {
-    pub(crate) value: String,
+    pub(crate) default: String,
     pub(crate) rules: Vec<RuntimeRule>,
 }
 
@@ -123,17 +108,15 @@ impl<'a> RuntimeCompiler<'a> {
 
     fn compile(&self) -> Result<RuntimeWorkspace> {
         let index = &self.snapshot.index;
-        let manifest = index
+        let _manifest = index
             .manifest
             .as_ref()
             .ok_or_else(|| RototoError::new("workspace manifest is missing"))?;
-        let environments = self.compile_environments(manifest)?;
-        let (context_schema, context_validator) = self.compile_context_schema(index, manifest)?;
+        let (context_schema, context_validator) = self.compile_context_schema(index)?;
         let qualifiers = self.compile_qualifiers(index)?;
-        let variables = self.compile_variables(index, &environments, &qualifiers)?;
+        let variables = self.compile_variables(index, &qualifiers)?;
 
         Ok(RuntimeWorkspace {
-            environments,
             context_schema,
             context_validator,
             qualifiers,
@@ -141,63 +124,16 @@ impl<'a> RuntimeCompiler<'a> {
         })
     }
 
-    fn compile_environments(&self, manifest: &ManifestNode) -> Result<Vec<String>> {
-        let WorkspaceEnvironmentCollection::Environments { values, .. } = &manifest.environments
-        else {
-            return Err(RototoError::new(
-                "workspace manifest must declare [environments].values",
-            ));
-        };
-
-        let mut environments = Vec::new();
-        let mut seen = BTreeSet::new();
-        for environment in values {
-            if environment.name == "_" {
-                return Err(RototoError::new(
-                    "_ is reserved as the catch-all environment",
-                ));
-            }
-            if !seen.insert(environment.name.clone()) {
-                return Err(RototoError::new(format!(
-                    "duplicate environment: {}",
-                    environment.name
-                )));
-            }
-            environments.push(environment.name.clone());
-        }
-
-        if environments.is_empty() {
-            return Err(RototoError::new(
-                "workspace must declare at least one environment",
-            ));
-        }
-        Ok(environments)
-    }
-
     fn compile_context_schema(
         &self,
         index: &SemanticIndex,
-        manifest: &ManifestNode,
     ) -> Result<(Option<JsonValue>, Option<Arc<Validator>>)> {
-        let Some(context) = &manifest.context_schema else {
+        let Some(schema) = index.schemas.get(CONTEXT_SCHEMA_PATH) else {
             return Ok((None, None));
         };
-        if context.invalid_shape {
-            return Err(RototoError::new("[context] must be a table"));
-        }
-
-        let ProjectField::Present(schema_ref) = &context.schema else {
-            return Err(RototoError::new("[context] must declare schema"));
-        };
-        let schema_path = resolve_workspace_root_path(&schema_ref.value).ok_or_else(|| {
-            RototoError::new("context schema path must be a relative path inside the workspace")
-        })?;
-        let schema = index.schemas.get(&schema_path).ok_or_else(|| {
-            RototoError::new(format!("context schema file not found: {schema_path}"))
-        })?;
         let json = schema.json.clone().ok_or_else(|| {
             RototoError::new(format!(
-                "context schema file could not be parsed: {schema_path}"
+                "context schema file could not be parsed: {CONTEXT_SCHEMA_PATH}"
             ))
         })?;
         let validator = schema.validator.clone().ok_or_else(|| {
@@ -314,10 +250,8 @@ impl<'a> RuntimeCompiler<'a> {
     fn compile_variables(
         &self,
         index: &SemanticIndex,
-        environments: &[String],
         qualifiers: &BTreeMap<String, RuntimeQualifier>,
     ) -> Result<BTreeMap<String, RuntimeVariable>> {
-        let known_environments = environments.iter().cloned().collect::<BTreeSet<_>>();
         let mut variables = BTreeMap::new();
         for variable in index.variables.values() {
             if !integer_field_is(&variable.schema_version, 1) {
@@ -328,18 +262,14 @@ impl<'a> RuntimeCompiler<'a> {
             }
             self.validate_variable_type_source(index, variable)?;
             let values = self.compile_variable_values(index, variable)?;
-            let environments = self.compile_variable_environments(
-                variable,
-                &values,
-                &known_environments,
-                qualifiers,
-            )?;
+            let (default, rules) = self.compile_variable_resolve(variable, &values, qualifiers)?;
 
             variables.insert(
                 variable.id.clone(),
                 RuntimeVariable {
                     values,
-                    environments,
+                    default,
+                    rules,
                 },
             );
         }
@@ -428,59 +358,34 @@ impl<'a> RuntimeCompiler<'a> {
         Ok(values)
     }
 
-    fn compile_variable_environments(
+    fn compile_variable_resolve(
         &self,
         variable: &VariableNode,
         values: &BTreeMap<String, JsonValue>,
-        known_environments: &BTreeSet<String>,
         qualifiers: &BTreeMap<String, RuntimeQualifier>,
-    ) -> Result<BTreeMap<String, RuntimeEnvironmentBlock>> {
-        let EnvironmentCollection::Environments(environments) = &variable.environments else {
+    ) -> Result<(String, Vec<RuntimeRule>)> {
+        let ResolveNode::Resolve { default, rules, .. } = &variable.resolve else {
             return Err(RototoError::new(format!(
-                "variable must contain [env._]: {}",
+                "variable must contain [resolve]: {}",
                 variable.id
             )));
         };
-        if !environments.contains_key("_") {
+        let default = present_string(default, "resolve must reference a default value")?
+            .value
+            .clone();
+        if !values.contains_key(&default) {
             return Err(RototoError::new(format!(
-                "variable must contain [env._]: {}",
-                variable.id
+                "resolve default references unknown value: {default}"
             )));
         }
-
-        let mut compiled = BTreeMap::new();
-        for (environment, block) in environments {
-            if environment != "_" && !known_environments.contains(environment) {
-                return Err(RototoError::new(format!(
-                    "variable references undeclared environment: {environment}"
-                )));
-            }
-
-            let value = present_string(&block.value, "environment block must reference a value")?
-                .value
-                .clone();
-            if !values.contains_key(&value) {
-                return Err(RototoError::new(format!(
-                    "environment references unknown value: {value}"
-                )));
-            }
-
-            let RuleCollection::Rules(rules) = &block.rules else {
-                return Err(RototoError::new(
-                    "rule must use [[env.<id>.rule]] tables or inline rule tables",
-                ));
-            };
-            let rules = rules
-                .iter()
-                .map(|rule| self.compile_variable_rule(rule, values, qualifiers))
-                .collect::<Result<Vec<_>>>()?;
-            compiled.insert(
-                environment.clone(),
-                RuntimeEnvironmentBlock { value, rules },
-            );
-        }
-
-        Ok(compiled)
+        let RuleCollection::Rules(rules) = rules else {
+            return Err(RototoError::new("rule must use [[resolve.rule]] tables"));
+        };
+        let rules = rules
+            .iter()
+            .map(|rule| self.compile_variable_rule(rule, values, qualifiers))
+            .collect::<Result<Vec<_>>>()?;
+        Ok((default, rules))
     }
 
     fn compile_variable_rule(

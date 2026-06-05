@@ -24,8 +24,7 @@ pub(in crate::lint) enum RegisteredLintField {
 
 #[derive(Clone)]
 pub(in crate::lint) enum WorkspaceLintField {
-    Environments,
-    ContextSchema,
+    Extends,
 }
 
 #[derive(Clone)]
@@ -42,7 +41,7 @@ pub(in crate::lint) enum VariableLintField {
     Type,
     Schema,
     Values,
-    Environments,
+    Resolve,
 }
 
 #[derive(Clone)]

@@ -4,5 +4,4 @@ type = "string"
 [values]
 control = "control"
 
-[env.prod]
-value = "control"
+[resolve]

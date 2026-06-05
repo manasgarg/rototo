@@ -3,5 +3,5 @@ schema_version = 1
 description = "Agent config with custom target coverage"
 type = "resource:agent-config"
 
-[env._]
-value = "standard"
+[resolve]
+default = "standard"

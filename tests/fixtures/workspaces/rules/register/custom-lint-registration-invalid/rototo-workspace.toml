@@ -1,9 +1,1 @@
 schema_version = 1
-
-[environments]
-values = ["prod"]
-
-[[lint.rule]]
-id = "payments/check"
-title = "Payments check"
-help = "Fix the payments policy."

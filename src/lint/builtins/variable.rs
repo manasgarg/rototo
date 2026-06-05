@@ -27,7 +27,7 @@ pub(super) fn lint_variable_shapes(ctx: &mut LintContext) {
 
         lint_type_source(diagnostics, variable);
         lint_values_shape(diagnostics, variable);
-        lint_environment_shapes(diagnostics, variable);
+        lint_resolve_shape(diagnostics, variable);
     }
 }
 
@@ -108,85 +108,60 @@ fn lint_values_shape(diagnostics: &mut Vec<LintDiagnostic>, variable: &VariableN
     }
 }
 
-fn lint_environment_shapes(diagnostics: &mut Vec<LintDiagnostic>, variable: &VariableNode) {
-    let environments = match &variable.environments {
-        EnvironmentCollection::Missing { location } => {
+fn lint_resolve_shape(diagnostics: &mut Vec<LintDiagnostic>, variable: &VariableNode) {
+    let (default, rules) = match &variable.resolve {
+        ResolveNode::Missing { location } => {
             push_project_diagnostic(
                 diagnostics,
-                RototoRuleId::VariableEnvMissingDefault,
+                RototoRuleId::VariableResolveMissingDefault,
                 EntityId::Variable {
                     id: variable.id.clone(),
                 },
                 location.clone(),
-                "variable must contain [env._]",
+                "variable must contain [resolve]",
             );
             return;
         }
-        EnvironmentCollection::Invalid { location } => {
+        ResolveNode::Invalid { location } => {
             push_project_diagnostic(
                 diagnostics,
-                RototoRuleId::VariableEnvShape,
+                RototoRuleId::VariableResolveShape,
                 EntityId::Variable {
                     id: variable.id.clone(),
                 },
                 location.clone(),
-                "env must be a table",
+                "resolve must be a table",
             );
             return;
         }
-        EnvironmentCollection::Environments(environments) => environments,
+        ResolveNode::Resolve { default, rules, .. } => (default, rules),
     };
 
-    if !environments.contains_key("_") {
+    if field_is_not_present(default) {
         push_project_diagnostic(
             diagnostics,
-            RototoRuleId::VariableEnvMissingDefault,
+            RototoRuleId::VariableResolveMissingDefault,
             EntityId::Variable {
                 id: variable.id.clone(),
             },
-            variable.location.clone(),
-            "variable must contain [env._]",
+            default.location(),
+            "resolve must reference a default value",
         );
     }
 
-    for block in environments.values() {
-        lint_environment_block_shape(diagnostics, variable, block);
-    }
-}
-
-fn lint_environment_block_shape(
-    diagnostics: &mut Vec<LintDiagnostic>,
-    variable: &VariableNode,
-    block: &EnvironmentBlockNode,
-) {
-    let entity = EntityId::EnvironmentBlock {
-        variable: variable.id.clone(),
-        environment: block.environment.clone(),
-    };
-    if field_is_not_present(&block.value) {
-        push_project_diagnostic(
-            diagnostics,
-            RototoRuleId::VariableEnvShape,
-            entity,
-            block.value.location(),
-            "environment block must reference a value",
-        );
-    }
-
-    match &block.rules {
+    match rules {
         RuleCollection::Invalid { location } => push_project_diagnostic(
             diagnostics,
             RototoRuleId::VariableRuleShape,
-            EntityId::EnvironmentBlock {
-                variable: variable.id.clone(),
-                environment: block.environment.clone(),
+            EntityId::Variable {
+                id: variable.id.clone(),
             },
             location.clone(),
-            "rule must use [[env.<id>.rule]] tables or inline rule tables",
+            "rule must use [[resolve.rule]] tables",
         ),
         RuleCollection::Rules(rules) => {
             for rule in rules {
-                lint_variable_rule_shape(diagnostics, variable, block, rule);
+                lint_variable_rule_shape(diagnostics, variable, rule);
             }
         }
     }
@@ -195,12 +170,10 @@ fn lint_environment_block_shape(
 fn lint_variable_rule_shape(
     diagnostics: &mut Vec<LintDiagnostic>,
     variable: &VariableNode,
-    block: &EnvironmentBlockNode,
     rule: &VariableRuleNode,
 ) {
     let entity = EntityId::Rule {
         variable: variable.id.clone(),
-        environment: block.environment.clone(),
         index: rule.index,
     };
 
@@ -254,23 +227,7 @@ pub(super) fn lint_variable_references(ctx: &mut LintContext) {
                 format!("variable references unknown resource: {resource}"),
             ),
             (
-                ReferenceSource::VariableEnvironment {
-                    variable: _,
-                    environment: _,
-                },
-                ReferenceTarget::Environment(environment_name),
-            ) => push_reference_diagnostic(
-                &mut diagnostics,
-                RototoRuleId::VariableUnknownEnvironment,
-                edge.entity.clone(),
-                edge.location.clone(),
-                format!("variable references undeclared environment: {environment_name}"),
-            ),
-            (
-                ReferenceSource::VariableEnvironmentValue {
-                    variable,
-                    environment: _,
-                },
+                ReferenceSource::VariableResolveDefault { variable },
                 ReferenceTarget::VariableValue { variable: _, value },
             ) => {
                 let Some(variable_node) = ctx.index.variables.get(variable) else {
@@ -284,14 +241,11 @@ pub(super) fn lint_variable_references(ctx: &mut LintContext) {
                     RototoRuleId::VariableUnknownValue,
                     edge.entity.clone(),
                     edge.location.clone(),
-                    format!("environment references unknown value: {value}"),
+                    format!("resolve default references unknown value: {value}"),
                 );
             }
             (
-                ReferenceSource::VariableEnvironmentValue {
-                    variable,
-                    environment: _,
-                },
+                ReferenceSource::VariableResolveDefault { variable },
                 ReferenceTarget::ResourceObject { resource, value },
             ) => {
                 if !ctx.index.resources.contains_key(resource)
@@ -304,13 +258,12 @@ pub(super) fn lint_variable_references(ctx: &mut LintContext) {
                     RototoRuleId::VariableUnknownValue,
                     edge.entity.clone(),
                     edge.location.clone(),
-                    format!("environment references unknown resource object: {value}"),
+                    format!("resolve default references unknown resource object: {value}"),
                 );
             }
             (
                 ReferenceSource::VariableRuleQualifier {
                     variable: _,
-                    environment: _,
                     rule: _,
                 },
                 ReferenceTarget::Qualifier(qualifier),
@@ -322,11 +275,7 @@ pub(super) fn lint_variable_references(ctx: &mut LintContext) {
                 format!("rule references unknown qualifier: {qualifier}"),
             ),
             (
-                ReferenceSource::VariableRuleValue {
-                    variable,
-                    environment: _,
-                    rule: _,
-                },
+                ReferenceSource::VariableRuleValue { variable, rule: _ },
                 ReferenceTarget::VariableValue { variable: _, value },
             ) => {
                 let Some(variable_node) = ctx.index.variables.get(variable) else {
@@ -344,11 +293,7 @@ pub(super) fn lint_variable_references(ctx: &mut LintContext) {
                 );
             }
             (
-                ReferenceSource::VariableRuleValue {
-                    variable,
-                    environment: _,
-                    rule: _,
-                },
+                ReferenceSource::VariableRuleValue { variable, rule: _ },
                 ReferenceTarget::ResourceObject { resource, value },
             ) => {
                 if !ctx.index.resources.contains_key(resource)

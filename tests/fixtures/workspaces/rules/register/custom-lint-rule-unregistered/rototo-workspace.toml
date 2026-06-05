@@ -1,9 +1,1 @@
 schema_version = 1
-
-[environments]
-values = ["prod"]
-
-[[lint.rule]]
-id = "payments/stale-rule"
-title = "Stale rule"
-help = "Stale rule used by tests."

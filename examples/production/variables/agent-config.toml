@@ -3,16 +3,9 @@ schema_version = 1
 description = "LLM agent profile loaded by production services"
 type = "resource:agent-config"
 
-[env._]
-value = "standard"
+[resolve]
+default = "standard"
 
-[env.dev]
-value = "local"
-
-[env.prod]
-value = "standard"
-
-[[env.prod.rule]]
-description = "EU enterprise accounts use the larger production profile"
+[[resolve.rule]]
 qualifier = "eu-enterprise-accounts"
 value = "enterprise"

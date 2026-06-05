@@ -7,16 +7,9 @@ type = "bool"
 hidden = false
 visible = true
 
-[env._]
-value = "hidden"
+[resolve]
+default = "hidden"
 
-[env.dev]
-value = "visible"
-
-[env.prod]
-value = "hidden"
-
-[[env.prod.rule]]
-description = "Only administrators see admin navigation in production"
+[[resolve.rule]]
 qualifier = "admin-users"
 value = "visible"

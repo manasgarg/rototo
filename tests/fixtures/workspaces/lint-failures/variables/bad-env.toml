@@ -7,12 +7,9 @@ type = "string"
 control = "control"
 treatment = "treatment"
 
-[env._]
-value = "control"
+[resolve]
+default = "control"
 
-[env.qa]
-value = "missing-value"
-
-[[env.qa.rule]]
+[[resolve.rule]]
 qualifier = "missing-qualifier"
 value = "another-missing-value"

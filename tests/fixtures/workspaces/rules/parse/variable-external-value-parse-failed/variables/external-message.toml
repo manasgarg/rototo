@@ -1,5 +1,5 @@
 schema_version = 1
 type = "string"
 
-[env._]
-value = "broken"
+[resolve]
+default = "broken"

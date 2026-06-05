@@ -2,14 +2,22 @@ function register(lint)
   lint:on({
     stage = "parse",
     entity = "value",
-    rule = "policy/declared",
+    rule = {
+          id = "policy/declared",
+          title = "Declared custom registration rule",
+          help = "Use this rule for registration contract checks.",
+        },
     handler = "check",
   })
 
   lint:on({
     stage = "value",
     entity = "predicate",
-    rule = "policy/declared",
+    rule = {
+          id = "policy/declared",
+          title = "Declared custom registration rule",
+          help = "Use this rule for registration contract checks.",
+        },
     handler = "check",
   })
 
@@ -17,7 +25,11 @@ function register(lint)
     stage = "value",
     entity = "value",
     field = "value.",
-    rule = "policy/declared",
+    rule = {
+          id = "policy/declared",
+          title = "Declared custom registration rule",
+          help = "Use this rule for registration contract checks.",
+        },
     handler = "check",
   })
 
@@ -25,14 +37,11 @@ function register(lint)
     stage = "value",
     entity = "value",
     field = "value.bad segment",
-    rule = "policy/declared",
-    handler = "check",
-  })
-
-  lint:on({
-    stage = "value",
-    entity = "value",
-    rule = "policy/missing",
+    rule = {
+          id = "policy/declared",
+          title = "Declared custom registration rule",
+          help = "Use this rule for registration contract checks.",
+        },
     handler = "check",
   })
 end

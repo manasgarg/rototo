@@ -2,7 +2,11 @@ function register(lint)
   lint:on({
     stage = "value",
     entity = "value",
-    rule = "fixture/custom-value-rejected",
+    rule = {
+          id = "fixture/custom-value-rejected",
+          title = "Custom value lint rejected a value",
+          help = "Change the fixture value or the Lua lint rule.",
+        },
     handler = "reject_value",
   })
 end

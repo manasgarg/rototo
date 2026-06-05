@@ -5,5 +5,5 @@ description = "Message variable with a custom warning"
 [values]
 default = "hello"
 
-[env._]
-value = "default"
+[resolve]
+default = "default"

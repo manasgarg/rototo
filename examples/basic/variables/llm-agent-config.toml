@@ -3,16 +3,9 @@ schema_version = 1
 description = "LLM settings for the main agent loop"
 type = "resource:llm-agent-config"
 
-[env._]
-value = "standard"
+[resolve]
+default = "standard"
 
-[env.dev]
-value = "local"
-
-[env.prod]
-value = "standard"
-
-[[env.prod.rule]]
-description = "Enterprise accounts get the larger reasoning model"
+[[resolve.rule]]
 qualifier = "enterprise-accounts"
 value = "enterprise"
