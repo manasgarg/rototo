@@ -11,7 +11,7 @@ fn prints_version() {
         .arg("-V")
         .assert()
         .success()
-        .stdout(predicate::str::contains("rototo 0.1.0-alpha.1"));
+        .stdout(predicate::str::contains("rototo 0.1.0-alpha.3"));
 }
 
 #[test]
