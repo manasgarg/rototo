@@ -1,56 +1,37 @@
 # Introducing rototo
 
-rototo is a control plane for runtime configuration. It is built around a small
-idea that I want in every production system: configuration that changes
-behavior should move through the same discipline as code, without requiring the
-application to restart every time a value changes.
+rototo is a control plane for runtime configuration.
 
-That leaves rototo with two jobs:
+It is built around a simple premise: configuration that changes production behavior should move through the same discipline as code, even when the application does not need to be redeployed.
 
-- Keep runtime configuration in the software lifecycle: review, tests, CI,
-  observability, and rollback.
-- Let long-running applications refresh reviewed configuration without
-  redeploying the application binary.
+rototo gives teams two things:
 
-## Motivation
+* Runtime configuration that stays inside the software lifecycle: review, tests, CI, observability, and rollback.
+* Long-running applications that can refresh reviewed configuration without restarting or redeploying the application binary.
 
-Most applications I have worked on eventually need runtime behavior to vary by
-deployment environment, account settings, request context, or system state. The
-values look small at first: a limit, a switch, a model name, a prompt, a rollout
-bucket. Then one of those values changes production behavior, and the storage
-choice starts to matter.
+## Why rototo exists
 
-Environment variables are familiar, but they tend to tie configuration changes
-to redeploys or restarts. Feature flagging systems can solve part of the
-runtime problem, but they often create a release path that drifts away from the
-code and tests that depend on it. Bespoke admin systems bring a larger bill:
-authentication, authorization, audit logs, validation, approvals, APIs,
-migrations, rollback, and the operational habits around all of those pieces.
+Most production systems eventually need behavior to vary by environment, account, request context, rollout state, or operational condition.
 
-Coding agents raise the cost of that drift. Code changes faster, more features
-are in flight at once, and runtime configuration expands with them. Engineers
-and agents both need a place to answer the same questions: can this
-configuration break behavior, how do we test that, who reviewed it, what
-changed, and how do we recover?
+At first, the values look harmless: a limit, a switch, a model name, a prompt, a rollout bucket, an exception for one customer. Then one of those values starts controlling real production behavior, and the place where it lives begins to matter.
 
-rototo is the thing I kept wanting: runtime configuration that can change
-without an app redeploy, but still goes through code review, tests, and
-rollback.
+Environment variables are familiar, but they often couple configuration changes to deploys or restarts. Feature flag systems solve part of the runtime problem, but they can create a release path that drifts away from the code, tests, and review process that depend on them. Bespoke admin systems are even more expensive: authentication, authorization, audit logs, validation, approvals, APIs, migrations, rollback, and the operating habits around all of it.
 
-## The Model
+Coding agents make this drift more costly. Code changes faster. More features are in flight at the same time. Runtime configuration expands with them. Engineers and agents both need the same answers: Can this configuration break behavior? How is it tested? Who reviewed it? What changed? How do we recover?
 
-rototo treats runtime configuration as reviewable workspace files. A workspace
-is a directory tree rooted at `rototo-workspace.toml`, versioned in git, with
-variables, qualifiers, schemas, resources, and custom lint rules living beside
-it.
+rototo is the system I kept wanting: runtime configuration that can change without an application redeploy, but still moves through review, tests, observability, and rollback.
 
-At runtime, the app is deployed with a workspace source URI. The rototo SDK
-loads that source, lints the workspace, and resolves named variables from the
-runtime context the app provides. In long-running services, successful
-refreshes affect future resolutions. Failed refreshes keep the last
-successfully loaded workspace active.
+## The rototo model
 
-That is the core loop I care about:
+rototo treats runtime configuration as reviewable workspace files.
+
+A workspace is a directory tree rooted at `rototo-workspace.toml`. It is versioned in git and contains the variables, qualifiers, schemas, resources, and custom lint rules that define runtime policy.
+
+At runtime, an application is deployed with a workspace source URI. The rototo SDK loads that source, lints the workspace, and resolves named variables using the runtime context provided by the application.
+
+For long-running services, successful refreshes affect future resolutions. Failed refreshes keep the last successfully loaded workspace active.
+
+The core loop is:
 
 1. Edit workspace files.
 2. Review the diff.
@@ -58,95 +39,52 @@ That is the core loop I care about:
 4. Merge the change.
 5. Let applications refresh the workspace source and use the new values.
 
-The configuration moved independently from the application binary, but it did
-not move outside the engineering process.
+The configuration moves independently from the application binary, but it does not move outside the engineering process.
 
-## What rototo Gives You
+## What rototo gives you
 
-The practical benefit is not that configuration lives in TOML. The benefit is
-that everyone can see which files own the runtime policy and which checks must
-pass before the app uses it.
+The point is not that configuration lives in TOML. The point is that runtime policy becomes visible, reviewable, testable, and recoverable.
 
-Code and configuration can both live in git. You can review them together, test
-them together, and use the repository history as the operational record of what
-changed.
+Code and configuration can live in git. Teams can review them together, test them together, and use repository history as the operational record of what changed.
 
-Schemas and custom Lua lint rules let the workspace say what valid
-configuration means. Built-in lint catches malformed workspace structure,
-unknown references, invalid primitive values, context mismatches, and schema
-failures. Custom lint handles the local policy only your team knows.
+Schemas and custom Lua lint rules define what valid configuration means. Built-in lint catches malformed workspace structure, unknown references, invalid primitive values, context mismatches, and schema failures. Custom lint captures the local policy only your team knows.
 
-Application tests can load the same workspace source the service will use and
-assert the values selected for important runtime contexts. That catches the
-failures workspace lint cannot see: the app expects an integer, the workspace
-now selects an object, or the app no longer sends the facts the workspace
-expects.
+Application tests can load the same workspace source the service will use and assert the values selected for important runtime contexts. That catches failures workspace lint cannot see: the app expected an integer, the workspace now selects an object, or the app no longer provides the facts the workspace expects.
 
-And because the SDK runs in the application process, your existing
-observability path can explain what value was selected, from which workspace
-version, and why.
+Because resolution happens through the SDK in the application process, existing observability can explain what value was selected, from which workspace version, and why.
 
-## Where rototo Fits
+## Where rototo fits
 
-rototo fits anywhere a configuration value changes application behavior and
-needs release discipline. The examples I reach for are:
+rototo fits when a configuration value changes application behavior and deserves release discipline.
 
-- Account and environment-specific limits;
-- Operational switches;
-- Account-specific exceptions;
-- Bucketed rollouts;
-- Incident banners;
-- Model, prompt, and provider settings.
+Common examples include:
 
-rototo is not ordinary application storage. User records, transactions,
-analytics events, and high-volume mutable data should stay in the systems that
-already own them.
+* Account and environment-specific limits;
+* Operational switches;
+* Account-specific exceptions;
+* Bucketed rollouts;
+* Incident banners;
+* Model, prompt, and provider settings;
+* Runtime policy for another system.
 
-## What Adoption Looks Like
+rototo is not ordinary application storage. User records, transactions, analytics events, and high-volume mutable data should stay in the systems that already own them.
 
-I would start with one account limit. Pick something that matters enough to
-deserve review, but is small enough that the first loop stays clear.
+## What adoption looks like
 
-First, create a workspace and put that value behind a named variable. Use the
-CLI to lint and resolve it, so the workspace proves it can stand on its own.
+Start with one account limit.
 
-Then load the workspace from the app with the SDK. The app should ask for a
-named variable and provide runtime context; it should not parse workspace files
-or duplicate resolution rules.
+Pick something important enough to deserve review, but small enough that the first loop stays clear. Create a workspace, put the value behind a named variable, and use the CLI to lint and resolve it. The workspace should prove that it can stand on its own.
 
-Once the loop works locally, add the production pieces around it: context
-schemas, qualifiers, custom lint, generated fixtures, app tests, pre-commit,
-CI, and a hosted git workspace source.
+Then load the workspace from the application through the SDK. The application should ask for a named variable and provide runtime context. It should not parse workspace files or duplicate resolution rules.
 
-The learning examples follow that path. Getting started builds the first
-account limit. Operational switches show how reviewed policy changes affect a
-running service during operations. Incident banner shows how to return a
-validated structured payload. Onboarding checklist shows list values,
-qualifier composition, and test-account enablement before a wider change.
-Bucketed rollout shows deterministic percentage rollout for a stable account
-slice. Notification delivery policy shows how rototo can select reviewed policy
-for another runtime system without owning that system's mutable state. Service
-degradation policy shows how reviewed policy and stable buckets help teams try
-recovery variations without redeploying the service. Workspace layering shows
-how product, customer, and team owners can share one configuration model
-without sharing one administrative boundary.
+Once that loop works locally, add the production pieces around it: context schemas, qualifiers, custom lint, generated fixtures, app tests, pre-commit checks, CI, and a hosted git workspace source.
 
-The adoption section comes next because examples are not enough by themselves.
-It turns the model into the habits I would want a team to use in production:
-model the runtime decision first, treat workspaces as administrative
-boundaries, integrate through the SDK, test behavior, release carefully, and
-observe what was selected. Modeling runtime configuration starts there.
-Application integration shows how the app should call rototo. Testing runtime
-configuration shows what to prove before release. Operating runtime
-configuration covers release, observability, and recovery after refresh is
-live. Production workflow ties those pieces together.
+The examples follow that path.
 
-The reference section is last because it specifies the contracts readers need
-once they understand the operating model: workspace layout, source loading,
-layering, context, qualifiers, variables, resources, resolution output, CLI
-commands, SDK loading and refresh, lint, diagnostics, custom Lua lint, and JSON
-output.
+Getting started builds the first account limit. Operational switches show how reviewed policy changes affect a running service. Incident banner returns a validated structured payload. Onboarding checklist demonstrates list values, qualifier composition, and test-account enablement before wider release. Bucketed rollout shows deterministic percentage rollout for a stable account slice. Notification delivery policy shows how rototo can select reviewed policy for another runtime system without owning that system’s mutable state. Service degradation policy shows how reviewed policy and stable buckets help teams try recovery variations without redeploying the service. Workspace layering shows how product, customer, and team owners can share one configuration model without sharing one administrative boundary.
 
-From there, the regular develop, test, review, and release process applies to
-runtime configuration. You can keep expanding the workspace as the domain grows
-without changing the loop that made the first value safe to operate.
+The adoption section turns those examples into production habits: model the runtime decision first, treat workspaces as administrative boundaries, integrate through the SDK, test behavior, release carefully, and observe what was selected.
+
+The reference section comes last. It specifies the contracts readers need once they understand the operating model: workspace layout, source loading, layering, context, qualifiers, variables, resources, resolution output, CLI commands, SDK loading and refresh, lint, diagnostics, custom Lua lint, and JSON output.
+
+From there, the regular develop, test, review, and release process applies to runtime configuration. The workspace can grow with the domain without changing the loop that made the first value safe to operate.
