@@ -1,8 +1,189 @@
 # rototo
 
-`rototo` is a Rust project.
+rototo is a Rust control plane for runtime configuration.
 
-## Setup
+It is built around a small premise: configuration that changes production
+behavior should move through the same discipline as code, even when the
+application does not need to be redeployed.
+
+rototo gives teams two things:
+
+- Runtime configuration that stays inside the software lifecycle: review,
+  tests, CI, observability, and rollback.
+- Long-running applications that can refresh reviewed configuration without
+  restarting or redeploying the application binary.
+
+## Why rototo exists
+
+Most production systems eventually need behavior to vary by environment,
+account, request context, rollout state, or operational condition.
+
+At first, the values look harmless: a limit, a switch, a model name, a prompt,
+a rollout bucket, an exception for one customer. Then one of those values
+starts controlling real production behavior, and the place where it lives
+begins to matter.
+
+Environment variables are familiar, but they often couple configuration changes
+to deploys or restarts. Feature flag systems solve part of the runtime problem,
+but they can create a release path that drifts away from the code, tests, and
+review process that depend on them. Bespoke admin systems are even more
+expensive: authentication, authorization, audit logs, validation, approvals,
+APIs, migrations, rollback, and the operating habits around all of it.
+
+rototo keeps runtime policy in git-backed workspace files. Applications load a
+workspace source, provide runtime context, and resolve named variables through
+the SDK. Long-running services can refresh the same source and keep serving the
+last successfully loaded workspace if a later refresh fails.
+
+## The model
+
+A rototo workspace is a directory tree rooted at `rototo-workspace.toml`:
+
+```text
+account-config/
+  rototo-workspace.toml
+  qualifiers/
+  resources/
+  schemas/
+  variables/
+```
+
+The main concepts are deliberately small:
+
+- Workspaces are the git-versioned control-plane boundary.
+- Context is the runtime facts supplied by the application.
+- Qualifiers turn those facts into named reusable conditions.
+- Variables select typed values using defaults and qualifier rules.
+- Resources hold structured policy objects validated by JSON Schema.
+- Lint and tests make workspace changes releasable.
+
+The core loop is:
+
+1. Edit workspace files.
+2. Review the diff.
+3. Run lint and tests.
+4. Merge the change.
+5. Let applications refresh the workspace source and use the new values.
+
+The configuration moves independently from the application binary, but it does
+not move outside the engineering process.
+
+## Install
+
+Install the CLI from crates.io:
+
+```sh
+cargo install rototo --version 0.1.0-alpha.3
+```
+
+Use the SDK from an application:
+
+```toml
+[dependencies]
+rototo = "0.1.0-alpha.3"
+serde_json = "1"
+tokio = { version = "1", features = ["macros", "rt-multi-thread", "time"] }
+```
+
+## First loop
+
+Start with one value. Create a workspace with one variable:
+
+```sh
+rototo init account-config --variable max-active-projects
+```
+
+Define the variable:
+
+```toml
+schema_version = 1
+
+description = "Maximum active projects for an account"
+type = "int"
+
+[values]
+standard = 3
+
+[resolve]
+default = "standard"
+```
+
+Then prove the workspace can stand on its own:
+
+```sh
+rototo lint account-config
+rototo resolve account-config --variable max-active-projects
+```
+
+With no `--context`, rototo resolves with `{}` context and selects the default
+value.
+
+## SDK sketch
+
+Applications should load a workspace source and ask for named variables. They
+should not parse workspace files or duplicate qualifier logic.
+
+```rust
+use std::{error::Error, time::Duration};
+
+use rototo::{RefreshOptions, RefreshingWorkspace, ResolveContext};
+
+#[tokio::main]
+async fn main() -> Result<(), Box<dyn Error>> {
+    let source = "git+https://github.com/acme/runtime-config.git#main:prod";
+    let refresh = RefreshOptions::new().with_period(Duration::from_secs(30));
+    let workspace = RefreshingWorkspace::load(source, refresh).await?;
+
+    let context = ResolveContext::from_json(serde_json::json!({
+        "account": {
+            "plan": "enterprise"
+        }
+    }))?;
+
+    let resolution = workspace
+        .resolve_variable("max-active-projects", &context)
+        .await?;
+
+    println!(
+        "selected {} from {:?}",
+        resolution.value_key,
+        workspace.source_fingerprint()
+    );
+
+    Ok(())
+}
+```
+
+## Where rototo fits
+
+rototo fits when a configuration value changes application behavior and
+deserves release discipline:
+
+- account and environment-specific limits;
+- operational switches;
+- account-specific exceptions;
+- bucketed rollouts;
+- incident banners;
+- model, prompt, and provider settings;
+- runtime policy for another system.
+
+rototo is not ordinary application storage. User records, transactions,
+analytics events, and high-volume mutable data should stay in the systems that
+already own them.
+
+## Documentation
+
+Read the public docs at <https://docs.rototo.pirogram.com>.
+
+The CLI also ships the same documentation:
+
+```sh
+rototo docs
+rototo docs -p getting-started
+rototo docs --export site
+```
+
+## Development
 
 Install `mise` and `just`, then run:
 
@@ -13,8 +194,6 @@ just setup
 
 Rust is pinned in `rust-toolchain.toml`. Non-Rust local development tools,
 including Python, Node, and Wrangler, are pinned in `.tool-versions`.
-
-## Development
 
 Run the local check gate before pushing:
 
@@ -32,22 +211,7 @@ RUST_LOG=debug cargo run
 RUST_LOG=rototo=trace cargo run
 ```
 
-```sh
-git --git-dir=.bare worktree add -b my-branch my-branch main
-```
-
-## Documentation
-
-The CLI ships bundled Markdown documentation and can export the same pages as
-static HTML:
-
-```sh
-cargo run -- docs
-cargo run -- docs -p getting-started
-cargo run -- docs --export site
-```
-
-To check the rendered site remotely before a production deploy, publish a
+To check the rendered docs site remotely before a production deploy, publish a
 Cloudflare Pages preview:
 
 ```sh
