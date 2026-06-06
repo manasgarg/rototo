@@ -196,6 +196,10 @@ fn exports_bundled_docs_as_static_site() {
     assert!(site.join("reference-diagnostics.html").is_file());
     assert!(site.join("reference-custom-lua-lint.html").is_file());
     assert!(site.join("reference-json-output.html").is_file());
+    assert!(site.join("modeling-runtime-configuration.html").is_file());
+    assert!(site.join("application-integration.html").is_file());
+    assert!(site.join("testing-runtime-configuration.html").is_file());
+    assert!(site.join("operating-runtime-configuration.html").is_file());
     assert!(site.join("production-workflow.html").is_file());
     assert!(site.join("assets/rototo-docs.css").is_file());
     assert!(site.join("assets/favicon.svg").is_file());

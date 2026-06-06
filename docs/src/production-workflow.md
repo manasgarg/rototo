@@ -1,23 +1,24 @@
 # Production Workflow
 
-The local loop from getting started is useful, but it is not enough for
-production. Production configuration needs names for runtime conditions, a
-contract for the context the app sends, policy checks for values, and tests that
-fail when the app and workspace drift apart.
+The Adopt pages before this one define the shape I would want in a production
+system: model the runtime decision, integrate through the SDK, test the
+app-workspace contract, and operate workspace changes as releases.
 
-The useful part is that none of this changes the core shape. We keep the same
-`account-config` workspace and the same `account-app`; we just add the pieces I
-would want before trusting this path in a service.
+This page puts that shape into one concrete path. It continues the
+`account-config` workspace and `account-app` from getting started, then adds
+the pieces that make the loop credible for a service: a named condition, a
+context contract, a hosted workspace source, workspace policy lint, merge
+gates, app contract tests, and runtime observability.
 
-## Add A Runtime Condition
+The important part is that the core boundary does not change. The application
+is still deployed with a workspace source URI. The app still supplies runtime
+facts. The workspace still owns the policy for selecting the value.
 
-The next thing I would add is a named condition. Premium accounts should be
-able to keep more active projects, but I do not want that rule hidden in app
-code. The app should supply facts about the request, and the workspace should
-own the policy for turning those facts into a value.
+## Add The Runtime Condition
 
-That starts with a qualifier: a named predicate over the context the app will
-send at runtime.
+The first production gap is that account limits should vary by account facts.
+Premium accounts should receive a larger `max-active-projects` value, but that
+condition should not be hidden in app code.
 
 Create `account-config/qualifiers/premium-account.toml`:
 
@@ -30,10 +31,6 @@ attribute = "account.plan"
 op = "eq"
 value = "premium"
 ```
-
-That name is important. Once the condition is named, variables can refer to
-`premium-account` instead of copying the `account.plan` predicate into
-every place that needs it.
 
 Update `account-config/variables/max-active-projects.toml`:
 
@@ -55,22 +52,23 @@ qualifier = "premium-account"
 value = "premium"
 ```
 
-Rules are evaluated in order. The first matching qualifier selects its value;
-otherwise the default value is used.
+The qualifier gives the condition a name. The variable rule can now say
+`premium-account -> premium`, and the app does not need to know how premium is
+defined.
 
-Now the workspace has a predicate that reads `account.plan`. This is the
-right time to add the context schema. I like generating the first skeleton from
-the workspace because it avoids a copy-paste trap: the qualifier can read one
-path while a hand-written schema validates another.
+## Add The Context Contract
 
-Generate the context schema:
+The workspace now depends on `account.plan`. That path is part of the contract
+between the app and workspace, so it should be validated.
+
+Generate a context schema skeleton:
 
 ```sh
 rototo init account-config --context
 ```
 
-On this workspace, that writes `account-config/schemas/context.schema.json` from
-the context paths referenced by qualifiers:
+For this workspace, that writes `account-config/schemas/context.schema.json`
+with the context path used by the qualifier:
 
 ```json
 {
@@ -89,38 +87,30 @@ the context paths referenced by qualifiers:
 }
 ```
 
-The generated schema is a starting contract, not a file to ignore. Review it
-with the same care as the qualifier, because it defines the request facts the
-app must provide when it asks rototo to resolve a value.
+Review this file. The generator gives you a starting point; it does not know
+which fields should be required, which values are allowed, or which app boundary
+owns them.
 
-Lint the workspace:
+Run lint:
 
 ```sh
 rototo lint account-config
 ```
 
-Then resolve both paths so the behavior is visible before the app relies on it.
-
-Non-premium requests use the default:
+Then resolve both paths with the same facts the app will send:
 
 ```sh
 rototo resolve account-config \
   --variable max-active-projects \
   --context account.plan=standard
-```
 
-Premium requests select the larger value:
-
-```sh
 rototo resolve account-config \
   --variable max-active-projects \
   --context account.plan=premium
 ```
 
-At this point the app also needs to provide that context when it resolves the
-variable. In `account-app`, replace the empty context with request or account
-facts from your application boundary. For this guide, an environment variable
-is enough:
+The app should now build context from account facts instead of sending an empty
+object:
 
 ```rust
 let account_plan =
@@ -138,18 +128,17 @@ Run the app as a premium account:
 ACCOUNT_PLAN=premium cargo run -- ../account-config
 ```
 
-Now the app owns the facts it knows at runtime, and the workspace owns the
-decision about which configured value those facts select.
+At this point the split is visible: the app supplies facts, and the workspace
+decides which configured value those facts select.
 
-## Publish The Workspace
+## Publish The Workspace Source
 
-A local directory is a good place to learn the loop. A production service needs
-a workspace source it can fetch. Since git is the source of truth, publish
-`account-config` as its own repository and pass the app a git workspace URI.
+A production service should load a source it can fetch from its runtime
+environment. Since git is the source of truth, publish `account-config` as a
+private repository and pass the app a git workspace URI.
 
-The following commands create a private GitHub repository using `gh`. They use
-SSH for runtime access, so the production environment needs an SSH key or deploy
-key that can read the repository.
+The following commands use the GitHub CLI and SSH. The runtime environment needs
+an SSH key or deploy key that can read the repository.
 
 ```sh
 cd /path/to/account-config
@@ -176,20 +165,19 @@ cd /path/to/account-app
 ACCOUNT_PLAN=premium cargo run -- "$WORKSPACE_URI"
 ```
 
-The `#main` ref means refreshes follow the current `main` branch. Pinning the
-source to a full 40-character commit SHA is useful when you need exact
-reproducibility, but it is immutable: the SDK will not discover newer commits
-from that source.
+The `#main` ref means refreshes can discover later reviewed commits on `main`.
+Use a full commit SHA when a job or deployment needs exact reproducibility; that
+source will not discover newer commits through refresh.
 
-## Add Workspace Lint
+## Add Workspace Policy Lint
 
-Built-in lint proves the workspace is structurally valid. Local policy is where
-the team's judgment enters. For this variable, the policy is straightforward:
-account project limits should be positive, stay under an agreed ceiling, and
-keep the standard plan from accidentally getting more than premium.
+Built-in lint protects rototo's structural contracts. The workspace also needs
+local policy: account project limits should be positive, stay under an
+operational ceiling, and keep the standard plan from accidentally exceeding the
+premium plan.
 
-Lua lint is useful here because the rule belongs with the workspace. A reviewer
-can see the value change and the policy that guards it in the same repository.
+That policy belongs with the workspace because reviewers need to see the values
+and the guardrail together.
 
 Create `account-config/lint/max-active-projects.lua`:
 
@@ -241,14 +229,14 @@ Run lint again:
 rototo lint account-config
 ```
 
-Custom rules use their own authority. Here the rule is
-`operations/max-active-projects-policy`; built-in rototo rules stay under the
-`rototo/` authority.
+The custom rule uses the `operations/` authority. Built-in rototo rules stay
+under the `rototo/` authority, which keeps diagnostic ownership clear.
 
-## Protect Changes Before Merge
+## Put Gates Before Merge
 
-The workspace repository should reject bad edits before they reach `main`.
-Pre-commit gives fast local feedback, while CI protects the shared branch.
+The workspace repository should reject bad edits before they reach the branch
+that services refresh from. Use a local hook for fast feedback and CI for the
+shared gate.
 
 Add `.pre-commit-config.yaml` to `account-config`:
 
@@ -293,20 +281,15 @@ jobs:
       - run: rototo lint .
 ```
 
-Now a configuration change follows the same shape as a code change: edit the
-workspace, run lint locally, open a PR, run CI, review the diff, and merge.
+Now the workspace has the same release discipline as code: edit, lint locally,
+open a PR, run CI, review the runtime behavior delta, and merge.
 
 ## Test The App Contract
 
-Workspace lint protects the workspace. App tests protect the contract between
-the workspace and the code that consumes it.
+Workspace lint proves the workspace is valid. App tests prove the application
+can still consume the selected values and apply the policy.
 
-I like generating fixtures at this point because they turn runtime behavior
-into reviewable files. The app test does not need to know how every qualifier
-works; it asserts that the contexts the app depends on still select values the
-app can deserialize and use.
-
-Generate rototo fixtures from the workspace:
+Generate readable behavior fixtures:
 
 ```sh
 rototo fixtures account-config \
@@ -315,11 +298,11 @@ rototo fixtures account-config \
   --out account-app/tests/rototo-fixtures
 ```
 
-Commit the generated `tests/rototo-fixtures` directory in the app repo. The
-fixtures are readable TOML cases, so review can see which contexts and selected
-values the app is asserting.
+Commit the generated `tests/rototo-fixtures` directory with the app tests. The
+fixture diff should be part of review when runtime behavior intentionally
+changes.
 
-Add an app test, for example `account-app/tests/rototo_contract.rs`:
+Add `account-app/tests/rototo_contract.rs`:
 
 ```rust
 use std::error::Error;
@@ -359,6 +342,9 @@ async fn max_active_projects_deserializes_for_app_contexts() -> Result<(), Box<d
         .resolve_variable("max-active-projects", &premium)
         .await?;
 
+    assert_eq!(standard.value_key, "standard");
+    assert_eq!(premium.value_key, "premium");
+
     let standard: i64 = serde_json::from_value(standard.value)?;
     let premium: i64 = serde_json::from_value(premium.value)?;
 
@@ -376,20 +362,75 @@ cd /path/to/account-app
 cargo test
 ```
 
-In CI, set `ROTOTO_WORKSPACE_SOURCE` to the same git source URI the service uses
-when the app repository should test against the hosted workspace.
+In CI, set `ROTOTO_WORKSPACE_SOURCE` to the same git source URI the service
+uses when the app repository should test against the hosted workspace.
+
+## Release And Observe
+
+Before merging a workspace change, the pull request should say what behavior
+can change and how to recover:
+
+```text
+Change max-active-projects:
+- add premium-account rule
+- standard accounts keep value key standard
+- premium accounts select value key premium
+- rototo lint and account-app contract tests passed
+- rollback: revert this workspace commit
+```
+
+After merge, services following the branch source can refresh to the new
+workspace. The application binary does not redeploy, but future resolutions can
+change.
+
+The service should log the selected value key and workspace fingerprint near the
+behavior boundary:
+
+```rust
+let resolution = workspace
+    .resolve_variable("max-active-projects", &context)
+    .await?;
+
+tracing::info!(
+    variable = "max-active-projects",
+    value_key = %resolution.value_key,
+    workspace_fingerprint = ?workspace.current().await.source_fingerprint(),
+    account_plan = %account_plan,
+    "resolved runtime configuration"
+);
+```
+
+It should also expose refresh status:
+
+```rust
+let status = workspace.status().await;
+if status.consecutive_failures > 0 {
+    tracing::warn!(
+        consecutive_failures = status.consecutive_failures,
+        last_error = ?status.last_error,
+        "workspace refresh is failing; serving last-known-good configuration"
+    );
+}
+```
+
+If the policy is wrong, revert the workspace commit. If the app sent the wrong
+context or cannot consume the selected value, fix the app-workspace contract and
+redeploy the app.
 
 ## What This Workflow Gives You
 
-The app is still deployed with a workspace source URI, not embedded
-configuration values. At startup, the SDK loads and lints that source. During
-runtime, the app supplies request context and resolves named variables.
+The final system has one clear path:
 
-For long-running services, successful refreshes affect future resolutions.
-Failed refreshes keep the last successfully loaded workspace active. That is
-the operational shape I want: reviewed configuration can move without an app
-redeploy, and a bad refresh does not take away the last known-good workspace.
+1. The app is deployed with a workspace source URI.
+2. The SDK loads and lints that source at startup.
+3. The app supplies runtime facts as context.
+4. The workspace evaluates named conditions and variables.
+5. Tests prove the workspace and app still agree.
+6. Refresh lets reviewed workspace commits affect future resolutions.
+7. Last-known-good state protects running services from failed refreshes.
+8. Logs and refresh status explain what value was selected and from which
+   workspace version.
 
-The control plane remains reviewable git state: workspace files, custom lint,
-fixtures, and tests all move through the release process before the app observes
-new configuration.
+That is the production bargain rototo is trying to make: runtime configuration
+can move independently from the application binary, while still moving through
+review, validation, tests, observability, and git-backed recovery.

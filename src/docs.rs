@@ -64,6 +64,31 @@ pub const DOCS: &[DocPage] = &[
         markdown: include_str!("../docs/src/workspace-layering.md"),
     },
     DocPage {
+        id: "modeling-runtime-configuration",
+        title: "Modeling Runtime Configuration",
+        markdown: include_str!("../docs/src/modeling-runtime-configuration.md"),
+    },
+    DocPage {
+        id: "application-integration",
+        title: "Application Integration",
+        markdown: include_str!("../docs/src/application-integration.md"),
+    },
+    DocPage {
+        id: "testing-runtime-configuration",
+        title: "Testing Runtime Configuration",
+        markdown: include_str!("../docs/src/testing-runtime-configuration.md"),
+    },
+    DocPage {
+        id: "operating-runtime-configuration",
+        title: "Operating Runtime Configuration",
+        markdown: include_str!("../docs/src/operating-runtime-configuration.md"),
+    },
+    DocPage {
+        id: "production-workflow",
+        title: "Production Workflow",
+        markdown: include_str!("../docs/src/production-workflow.md"),
+    },
+    DocPage {
         id: "reference-workspace-manifest",
         title: "Workspace Manifest",
         markdown: include_str!("../docs/src/reference-workspace-manifest.md"),
@@ -173,11 +198,6 @@ pub const DOCS: &[DocPage] = &[
         title: "JSON Output",
         markdown: include_str!("../docs/src/reference-json-output.md"),
     },
-    DocPage {
-        id: "production-workflow",
-        title: "Production Workflow",
-        markdown: include_str!("../docs/src/production-workflow.md"),
-    },
 ];
 
 pub const DOC_NAV_SECTIONS: &[DocNavSection] = &[
@@ -196,6 +216,16 @@ pub const DOC_NAV_SECTIONS: &[DocNavSection] = &[
             "notification-delivery-policy",
             "service-degradation-policy",
             "workspace-layering",
+        ],
+    },
+    DocNavSection {
+        title: "Adopt",
+        pages: &[
+            "modeling-runtime-configuration",
+            "application-integration",
+            "testing-runtime-configuration",
+            "operating-runtime-configuration",
+            "production-workflow",
         ],
     },
     DocNavSection {
@@ -224,10 +254,6 @@ pub const DOC_NAV_SECTIONS: &[DocNavSection] = &[
             "reference-custom-lua-lint",
             "reference-json-output",
         ],
-    },
-    DocNavSection {
-        title: "Adopt",
-        pages: &["production-workflow"],
     },
 ];
 

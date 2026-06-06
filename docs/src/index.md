@@ -130,12 +130,22 @@ recovery variations without redeploying the service. Workspace layering shows
 how product, customer, and team owners can share one configuration model
 without sharing one administrative boundary.
 
-The reference section starts where example-driven learning stops. It specifies
-the contracts for workspace layout, source loading, layering, context,
-qualifiers, variables, resources, resolution output, CLI commands, SDK loading
-and refresh, lint, diagnostics, custom Lua lint, and JSON output. The
-production workflow then adds the release checks I would want before depending
-on the workspace in a service.
+The adoption section comes next because examples are not enough by themselves.
+It turns the model into the habits I would want a team to use in production:
+model the runtime decision first, treat workspaces as administrative
+boundaries, integrate through the SDK, test behavior, release carefully, and
+observe what was selected. Modeling runtime configuration starts that path.
+Application integration turns the model into service behavior. Testing runtime
+configuration explains the confidence layer between a valid workspace and a
+safe release. Operating runtime configuration covers the release,
+observability, and recovery habits that matter after refresh is live. The
+production workflow is the capstone.
+
+The reference section is last because it specifies the contracts readers need
+once they understand the operating model: workspace layout, source loading,
+layering, context, qualifiers, variables, resources, resolution output, CLI
+commands, SDK loading and refresh, lint, diagnostics, custom Lua lint, and JSON
+output.
 
 From there, the regular develop, test, review, and release process applies to
 runtime configuration. You can keep expanding the workspace as the domain gets

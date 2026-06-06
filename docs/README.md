@@ -16,6 +16,11 @@ docs/src/
   notification-delivery-policy.md
   service-degradation-policy.md
   workspace-layering.md
+  modeling-runtime-configuration.md
+  application-integration.md
+  testing-runtime-configuration.md
+  operating-runtime-configuration.md
+  production-workflow.md
   reference-workspace-manifest.md
   reference-workspace-layout.md
   reference-workspace-sources.md
@@ -38,7 +43,6 @@ docs/src/
   reference-diagnostics.md
   reference-custom-lua-lint.md
   reference-json-output.md
-  production-workflow.md
 ```
 
 The CLI embeds the pages registered in `src/docs.rs`. When adding, moving, or
@@ -46,6 +50,7 @@ renaming a page, update that registry and the bundled documentation list in
 `docs/src/index.md`.
 
 Learning pages explain rototo through representative operational examples.
+Adoption pages turn those examples into production habits and workflow.
 Reference pages specify exact file formats, commands, SDK APIs, and output
 contracts.
 
