@@ -519,6 +519,7 @@ fn render_code_block(language: &str, code: &str) -> String {
     let highlighted = match language {
         "toml" => highlight_toml(code),
         "json" => highlight_json(code),
+        "rust" => highlight_rust(code),
         "sh" => highlight_sh(code),
         _ => escape_html(code),
     };
@@ -711,6 +712,193 @@ fn is_sh_punct(c: char) -> bool {
             | ';'
             | '|'
             | '&'
+            | '<'
+            | '>'
+            | '('
+            | ')'
+            | '['
+            | ']'
+            | '{'
+            | '}'
+    )
+}
+
+fn highlight_rust(code: &str) -> String {
+    let mut out = String::new();
+    let mut rest = code;
+    while let Some(c) = rest.chars().next() {
+        if rest.starts_with("//") {
+            let len = rest.find('\n').unwrap_or(rest.len());
+            push_span(&mut out, "comment", &rest[..len]);
+            rest = &rest[len..];
+        } else if let Some(len) = rust_raw_string_len(rest) {
+            push_span(&mut out, "string", &rest[..len]);
+            rest = &rest[len..];
+        } else if c == '"' {
+            let len = quoted_len(rest, '"');
+            push_span(&mut out, "string", &rest[..len]);
+            rest = &rest[len..];
+        } else if c.is_ascii_digit() {
+            let len = rust_number_len(rest);
+            push_span(&mut out, "number", &rest[..len]);
+            rest = &rest[len..];
+        } else if is_rust_ident_start(c) {
+            let len = rest
+                .find(|d: char| !is_rust_ident_continue(d))
+                .unwrap_or(rest.len());
+            let word = &rest[..len];
+            if is_rust_keyword(word) {
+                push_span(&mut out, "keyword", word);
+            } else if is_rust_literal(word) {
+                push_span(&mut out, "literal", word);
+            } else if is_rust_builtin_type(word) {
+                push_span(&mut out, "key", word);
+            } else {
+                out.push_str(&escape_html(word));
+            }
+            rest = &rest[len..];
+        } else if is_rust_punct(c) {
+            push_span(&mut out, "punct", &rest[..c.len_utf8()]);
+            rest = &rest[c.len_utf8()..];
+        } else {
+            let (chunk, remainder) = rest.split_at(c.len_utf8());
+            out.push_str(&escape_html(chunk));
+            rest = remainder;
+        }
+    }
+    out
+}
+
+fn rust_raw_string_len(text: &str) -> Option<usize> {
+    let mut chars = text.char_indices();
+    if chars.next()?.1 != 'r' {
+        return None;
+    }
+
+    let mut hashes = 0;
+    let mut opening_quote = None;
+    for (idx, c) in text.char_indices().skip(1) {
+        if c == '#' {
+            hashes += 1;
+        } else if c == '"' {
+            opening_quote = Some(idx);
+            break;
+        } else {
+            return None;
+        }
+    }
+
+    let opening_quote = opening_quote?;
+    let closing = format!("\"{}", "#".repeat(hashes));
+    text[opening_quote + 1..]
+        .find(&closing)
+        .map(|idx| opening_quote + 1 + idx + closing.len())
+        .or(Some(text.len()))
+}
+
+fn rust_number_len(text: &str) -> usize {
+    text.find(|c: char| !(c.is_ascii_alphanumeric() || matches!(c, '_' | '.')))
+        .unwrap_or(text.len())
+}
+
+fn is_rust_ident_start(c: char) -> bool {
+    c == '_' || c.is_ascii_alphabetic()
+}
+
+fn is_rust_ident_continue(c: char) -> bool {
+    c == '_' || c.is_ascii_alphanumeric()
+}
+
+fn is_rust_keyword(word: &str) -> bool {
+    matches!(
+        word,
+        "as" | "async"
+            | "await"
+            | "break"
+            | "const"
+            | "continue"
+            | "crate"
+            | "dyn"
+            | "else"
+            | "enum"
+            | "extern"
+            | "fn"
+            | "for"
+            | "if"
+            | "impl"
+            | "in"
+            | "let"
+            | "loop"
+            | "match"
+            | "mod"
+            | "move"
+            | "mut"
+            | "pub"
+            | "ref"
+            | "return"
+            | "self"
+            | "Self"
+            | "static"
+            | "struct"
+            | "super"
+            | "trait"
+            | "type"
+            | "unsafe"
+            | "use"
+            | "where"
+            | "while"
+    )
+}
+
+fn is_rust_literal(word: &str) -> bool {
+    matches!(word, "true" | "false" | "None" | "Some" | "Ok" | "Err")
+}
+
+fn is_rust_builtin_type(word: &str) -> bool {
+    matches!(
+        word,
+        "bool"
+            | "str"
+            | "char"
+            | "f32"
+            | "f64"
+            | "i8"
+            | "i16"
+            | "i32"
+            | "i64"
+            | "i128"
+            | "isize"
+            | "u8"
+            | "u16"
+            | "u32"
+            | "u64"
+            | "u128"
+            | "usize"
+            | "Box"
+            | "Duration"
+            | "Error"
+            | "Option"
+            | "Result"
+            | "String"
+            | "Vec"
+    )
+}
+
+fn is_rust_punct(c: char) -> bool {
+    matches!(
+        c,
+        ':' | ';'
+            | ','
+            | '.'
+            | '!'
+            | '?'
+            | '='
+            | '+'
+            | '-'
+            | '*'
+            | '/'
+            | '&'
+            | '|'
             | '<'
             | '>'
             | '('

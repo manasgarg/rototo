@@ -208,6 +208,13 @@ fn exports_bundled_docs_as_static_site() {
     let css = fs::read_to_string(site.join("assets/rototo-docs.css")).unwrap();
     assert!(css.contains("text-size-adjust: 100%"));
     assert!(!css.contains(".doc pre.language-text"));
+
+    let rust_page = fs::read_to_string(site.join("application-integration.html")).unwrap();
+    assert!(rust_page.contains(r#"<pre class="code-block language-rust">"#));
+    assert!(rust_page.contains(r#"<span class="sx-keyword">use</span>"#));
+    assert!(
+        rust_page.contains(r#"<span class="sx-string">&quot;ROTOTO_WORKSPACE_SOURCE&quot;</span>"#)
+    );
 }
 
 #[test]
