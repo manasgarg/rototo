@@ -204,6 +204,10 @@ fn exports_bundled_docs_as_static_site() {
     assert!(site.join("assets/rototo-docs.css").is_file());
     assert!(site.join("assets/favicon.svg").is_file());
     assert!(site.join("assets/rototo-wordmark.svg").is_file());
+
+    let css = fs::read_to_string(site.join("assets/rototo-docs.css")).unwrap();
+    assert!(css.contains("text-size-adjust: 100%"));
+    assert!(!css.contains(".doc pre.language-text"));
 }
 
 #[test]
