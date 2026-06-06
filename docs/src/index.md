@@ -69,22 +69,12 @@ Common examples include:
 
 rototo is not ordinary application storage. User records, transactions, analytics events, and high-volume mutable data should stay in the systems that already own them.
 
-## What adoption looks like
+## Start here
 
-Start with one account limit.
+Start with Getting Started. It builds one account limit end to end: workspace
+files, CLI resolution, SDK loading, and refresh.
 
-Pick something important enough to deserve review, but small enough that the first loop stays clear. Create a workspace, put the value behind a named variable, and use the CLI to lint and resolve it. The workspace should prove that it can stand on its own.
-
-Then load the workspace from the application through the SDK. The application should ask for a named variable and provide runtime context. It should not parse workspace files or duplicate resolution rules.
-
-Once that loop works locally, add the production pieces around it: context schemas, qualifiers, custom lint, generated fixtures, app tests, pre-commit checks, CI, and a hosted git workspace source.
-
-The examples follow that path.
-
-Getting started builds the first account limit. Operational switches show how reviewed policy changes affect a running service. Incident banner returns a validated structured payload. Onboarding checklist demonstrates list values, qualifier composition, and test-account enablement before wider release. Bucketed rollout shows deterministic percentage rollout for a stable account slice. Notification delivery policy shows how rototo can select reviewed policy for another runtime system without owning that system’s mutable state. Service degradation policy shows how reviewed policy and stable buckets help teams try recovery variations without redeploying the service. Workspace layering shows how product, customer, and team owners can share one configuration model without sharing one administrative boundary.
-
-The adoption section turns those examples into production habits: model the runtime decision first, treat workspaces as administrative boundaries, integrate through the SDK, test behavior, release carefully, and observe what was selected.
-
-The reference section comes last. It specifies the contracts readers need once they understand the operating model: workspace layout, source loading, layering, context, qualifiers, variables, resources, resolution output, CLI commands, SDK loading and refresh, lint, diagnostics, custom Lua lint, and JSON output.
-
-From there, the regular develop, test, review, and release process applies to runtime configuration. The workspace can grow with the domain without changing the loop that made the first value safe to operate.
+Then read the examples when you want to model a similar production case. The
+Adopt pages turn those examples into habits for running rototo in a service.
+The Reference pages are there when you need exact file formats, commands, SDK
+APIs, and JSON output.
