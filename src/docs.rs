@@ -264,7 +264,7 @@ const WORDMARK_SVG: &str = include_str!("../docs/theme/rototo-wordmark.svg");
 
 /// Brand fonts referenced by the stylesheet: Manrope for display headings,
 /// Hanken Grotesk for body text, and JetBrains Mono for code and labels.
-const GOOGLE_FONTS_HREF: &str = "https://fonts.googleapis.com/css2?family=Hanken+Grotesk:ital,wght@0,400;0,600;0,700;1,400&family=JetBrains+Mono:ital,wght@0,400;0,600;0,700;1,400&family=Manrope:wght@600;700;800&display=swap";
+const GOOGLE_FONTS_HREF: &str = "https://fonts.googleapis.com/css2?family=Hanken+Grotesk:ital,wght@0,400..700;1,400..700&family=JetBrains+Mono:ital,wght@0,400..700;1,400..700&family=Manrope:wght@400..800&display=swap";
 
 /// Top navigation bar entries as (label, page id).
 const TOPNAV_PAGES: &[(&str, &str)] = &[("Docs", "index")];

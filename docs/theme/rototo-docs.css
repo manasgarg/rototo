@@ -50,7 +50,10 @@ body {
   margin: 0;
   background: var(--paper-0);
   color: var(--ink-0);
-  font: 16px/1.6 var(--font-body);
+  font-family: var(--font-body);
+  font-size: 16.5px;
+  font-weight: 400;
+  line-height: 1.62;
   -webkit-font-smoothing: antialiased;
 }
 
@@ -196,12 +199,13 @@ main {
 .doc h3 {
   color: var(--ink-0);
   font-family: var(--font-display);
-  letter-spacing: -0.02em;
+  font-weight: 600;
 }
 
 .doc h1 {
   margin: 0 0 22px;
   font-size: 44px;
+  letter-spacing: -0.025em;
   line-height: 1.08;
 }
 
@@ -209,12 +213,14 @@ main {
   margin: 50px 0 14px;
   padding-top: 4px;
   font-size: 28px;
+  letter-spacing: -0.02em;
   line-height: 1.2;
 }
 
 .doc h3 {
   margin: 30px 0 10px;
   font-size: 21px;
+  letter-spacing: -0.015em;
   line-height: 1.25;
 }
 
@@ -222,7 +228,7 @@ main {
 .doc li {
   color: var(--ink-0);
   font-size: 16.5px;
-  line-height: 1.64;
+  line-height: 1.62;
 }
 
 .doc p {
@@ -247,7 +253,7 @@ main {
 }
 
 .doc strong {
-  font-weight: 700;
+  font-weight: 600;
 }
 
 .doc code {
@@ -257,7 +263,7 @@ main {
   color: var(--clay-700);
   font-family: var(--font-mono);
   font-size: 0.88em;
-  font-weight: 400;
+  font-weight: 500;
   padding: 0.08em 0.34em;
 }
 
@@ -272,7 +278,7 @@ main {
   color: var(--ink-0);
   font-family: var(--font-mono);
   font-size: 13.5px;
-  font-weight: 400;
+  font-weight: 500;
   line-height: 1.7;
   padding: 16px 18px;
   tab-size: 2;
@@ -283,7 +289,7 @@ main {
   background: transparent;
   color: inherit;
   font-size: inherit;
-  font-weight: 400;
+  font-weight: 500;
   padding: 0;
 }
 
