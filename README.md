@@ -1,6 +1,6 @@
 # rototo
 
-rototo is a Rust control plane for runtime configuration.
+rototo is a control plane for runtime configuration.
 
 It is built around a small premise: configuration that changes production
 behavior should move through the same discipline as code, even when the
