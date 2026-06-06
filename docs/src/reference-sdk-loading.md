@@ -4,8 +4,8 @@ Applications should not parse workspace files directly. They should load a
 workspace source with the SDK, let rototo lint it, and resolve named variables
 from the loaded workspace.
 
-This page covers loading and workspace handles. Resolution and refresh have
-their own pages.
+The loading API is the boundary that decides whether the app receives a valid
+control plane. Resolution and refresh have their own pages.
 
 ## `Workspace::load`
 

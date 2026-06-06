@@ -3,13 +3,18 @@
 `--json` is the automation surface for the rototo CLI. Human output may change
 to read better. JSON output is the shape CI, agents, and tests should consume.
 
+The rule I use for automation is straightforward: do not parse human output.
+Ask for JSON, assert the fields you depend on, and let human output stay
+readable for operators.
+
 ## Common Rules
 
 JSON output is pretty-printed.
 
 Diagnostics use the shape described in `reference-diagnostics`.
 
-Document summaries use:
+When a command reports workspace documents, each document summary uses this
+shape:
 
 ```json
 {
@@ -34,11 +39,13 @@ documents usually report `null`.
 }
 ```
 
-Use this in CI when you need structured diagnostics.
+Use this in CI when you need structured diagnostics tied to files, ranges, and
+stable rule ids.
 
 ## `show --json`
 
-`show` returns selected config and catalog views:
+`show` returns selected config and catalog views. Use it when automation needs
+to read configured workspace data or the diagnostic catalog:
 
 ```json
 {
@@ -61,7 +68,8 @@ Resource output includes an `objects` table when resource object files exist.
 
 ## `inspect --json`
 
-`inspect` returns the most complete workspace explanation:
+`inspect` returns the most complete workspace explanation. Use it when tooling
+needs dependencies, consumers, runtime status, and optional resolution traces:
 
 ```json
 {
@@ -96,11 +104,14 @@ model. Otherwise it is `unavailable` with a reason.
 }
 ```
 
-See `reference-resolution-output` for trace fields.
+`resolve --json` is the shape to use when automation needs to know what value
+or qualifier result rototo selected. See `reference-resolution-output` for the
+trace fields.
 
 ## `docs --json`
 
-`rototo docs --json` lists navigation sections:
+`rototo docs --json` lists navigation sections. This is mostly useful for docs
+publishers and tools that need to mirror the bundled docs order:
 
 ```json
 {
@@ -120,8 +131,9 @@ returns search hits with page ids, line numbers, and match spans.
 
 ## `fixtures --json`
 
-`fixtures --json` reports the fixture generation result. The generated files
-are TOML fixtures under the directory passed with `--out`.
+`fixtures --json` reports the fixture generation result. Use it when CI or
+scaffolding tools need to know which fixture files were written. The generated
+files are TOML fixtures under the directory passed with `--out`.
 
 ## Error Output
 

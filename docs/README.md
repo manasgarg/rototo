@@ -64,6 +64,9 @@ Before finishing a docs change, check that the page:
 
 - starts from an operational problem;
 - explains why each concept exists before showing syntax;
+- gives reference contracts a production reason before listing fields,
+  commands, or JSON shapes;
+- adds a short causal transition before long command or file-edit sequences;
 - uses first person only when it communicates engineering judgment;
 - avoids marketing adjectives and ambiguous rollout vocabulary;
 - keeps examples runnable against the current CLI and SDK.

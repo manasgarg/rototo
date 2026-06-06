@@ -15,7 +15,7 @@ configuration lives in variables. Structured payloads live in resources.
 Schemas and custom lint protect the boundaries. Workspaces and layers define
 who owns which part of the control plane.
 
-This page is about choosing those boundaries deliberately.
+The rest of this guide is about choosing those boundaries deliberately.
 
 ## Start With The App Boundary
 

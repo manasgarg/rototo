@@ -4,11 +4,11 @@ The Adopt pages before this one define the shape I would want in a production
 system: model the runtime decision, integrate through the SDK, test the
 app-workspace contract, and operate workspace changes as releases.
 
-This page puts that shape into one concrete path. It continues the
-`account-config` workspace and `account-app` from getting started, then adds
-the pieces that make the loop credible for a service: a named condition, a
-context contract, a hosted workspace source, workspace policy lint, merge
-gates, app contract tests, and runtime observability.
+Here is that shape as one concrete path. We continue the `account-config`
+workspace and `account-app` from getting started, then add the pieces that make
+the loop credible for a service: a named condition, a context contract, a
+hosted workspace source, workspace policy lint, merge gates, app contract
+tests, and runtime observability.
 
 The important part is that the core boundary does not change. The application
 is still deployed with a workspace source URI. The app still supplies runtime

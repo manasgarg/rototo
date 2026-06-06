@@ -4,11 +4,14 @@ Every rototo workspace is rooted at `rototo-workspace.toml`. The manifest is
 the file that tells rototo where the workspace boundary starts, which workspace
 format version is in use, and which parent workspaces should be layered in.
 
-This page is the exact manifest contract for schema version 1.
+That makes the manifest small on purpose. It defines the workspace boundary and
+layering, not the application policy inside the workspace. The contract below
+is the exact manifest shape for schema version 1.
 
 ## Minimal Manifest
 
-The smallest valid manifest is:
+The smallest valid manifest says only which workspace format rototo should
+expect:
 
 ```toml
 schema_version = 1
@@ -35,7 +38,8 @@ explicitly owns them.
 
 ## Workspace Layering
 
-`extends` declares parent workspace sources:
+`extends` declares parent workspace sources. Use it when one administrative
+owner needs to build on another owner's workspace without copying every file:
 
 ```toml
 schema_version = 1
@@ -63,13 +67,14 @@ For the ownership model behind layering, see `workspace-layering`.
 
 ## Valid Manifest Examples
 
-A standalone workspace:
+A standalone workspace has one boundary and no parent layers:
 
 ```toml
 schema_version = 1
 ```
 
-A workspace that extends one parent:
+A workspace that extends one parent projects the parent first, then applies the
+child files:
 
 ```toml
 schema_version = 1
@@ -77,6 +82,9 @@ extends = ["../base-config"]
 ```
 
 ## Invalid Manifest Examples
+
+These examples are invalid because they break the boundary contract rototo
+needs before it can inspect the workspace.
 
 `schema_version` must be present:
 

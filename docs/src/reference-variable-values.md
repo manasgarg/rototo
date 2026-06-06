@@ -4,7 +4,8 @@ Variables are only useful if the selected value has a shape the application can
 trust. Rototo validates primitive values directly and validates structured
 objects through resources.
 
-This page covers value storage and validation. Resolution order is covered in
+That split keeps the app boundary clear: primitive values stay inline, while
+structured objects get schemas and object files. Resolution order is covered in
 `reference-variable-resolution`.
 
 ## Primitive Values
@@ -27,6 +28,10 @@ The table key is the value key. The TOML value is converted to JSON and
 returned as the selected value.
 
 ## Primitive Type Rules
+
+Primitive types are intentionally narrow. If the value needs object structure,
+move it to a resource instead of trying to encode an object as a primitive
+value.
 
 | Type | Accepted JSON shape |
 | --- | --- |
@@ -59,7 +64,8 @@ when the value needs object structure.
 
 ## Resource Object Values
 
-Structured values are stored as resource objects:
+Structured values are stored as resource objects so shape validation can happen
+before the application receives the selected payload:
 
 ```text
 resources/
@@ -102,7 +108,8 @@ value = "enterprise"
 
 ## Validation
 
-Primitive values are checked against the declared primitive type during lint.
+Validation is part of the release boundary. Primitive values are checked
+against the declared primitive type during lint.
 
 Resource objects are checked against the resource's JSON Schema during lint.
 If an object does not match its schema, rototo reports

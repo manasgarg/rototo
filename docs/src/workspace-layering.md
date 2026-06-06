@@ -10,8 +10,7 @@ customer. Workspace layering gives us a better boundary: each owner edits the
 workspace they are responsible for, while the final workspace inherits the
 contracts and values below it.
 
-This example uses inference provider routing because the ownership split is
-concrete:
+I use inference provider routing here because the ownership split is concrete:
 
 - the product team defines the policy shape and supported providers;
 - the customer administrator chooses the customer-wide fallback posture;

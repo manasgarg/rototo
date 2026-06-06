@@ -11,7 +11,7 @@ rototo selects a reviewed delivery policy from runtime facts, and the
 notification service enforces that policy while it owns recipients,
 subscriptions, consent, retries, and delivery logs.
 
-This example uses `notification-config` and a variable named
+We will model that as `notification-config`, with one variable named
 `notification-delivery-policy`.
 
 ## Start With The Boundary
@@ -441,7 +441,7 @@ used, which workspace version supplied it, and which runtime facts led there.
 This is the line I would keep coming back to in review: rototo owns reviewed
 delivery rules, not notification state.
 
-Use rototo for:
+At this boundary, rototo should own:
 
 - default delivery modes;
 - channels allowed for a class of notification;

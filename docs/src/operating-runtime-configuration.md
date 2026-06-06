@@ -9,7 +9,8 @@ the behavior changed. I would treat that as a release and operate it with the
 same care: clear review, narrow blast radius, observable selection, and a
 recovery path that people understand before they need it.
 
-This page is about those day-two habits.
+The day-two habits are where the model either keeps paying off or quietly
+turns back into ad hoc configuration.
 
 ## Treat Workspace Changes As Releases
 

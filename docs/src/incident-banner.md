@@ -298,7 +298,7 @@ workspace version and rule that selected it.
 Rototo should not become a content management system. It is useful here because
 the banner changes production behavior and needs release discipline.
 
-Use this pattern when:
+This is a good rototo boundary when:
 
 - the payload is small enough to review in git;
 - bad shape would break or degrade application behavior;

@@ -1,12 +1,17 @@
 # Resources Reference
 
-Resources hold structured configuration objects. They are the path to use when
-a variable needs an object with a schema, not a primitive inline value.
+Resources are for structured configuration that deserves its own schema. Use
+them when the application should receive one reviewed object, not a loose group
+of primitive variables.
 
 Resource files live under `resources/*.toml`. The file stem is the resource id.
 Objects for that resource live under `resources/<resource-id>-objects/*.toml`.
+Variables then select object keys from that resource.
 
 ## Resource File
+
+A resource file declares the schema for a family of objects. It does not hold
+the objects themselves.
 
 ```toml
 schema_version = 1
@@ -29,7 +34,7 @@ inside the workspace and must point to a discovered schema document under
 
 ## Object Files
 
-Objects are TOML files:
+Objects live beside the resource in a directory named for that resource:
 
 ```text
 resources/
@@ -47,7 +52,7 @@ enterprise.toml -> enterprise
 ```
 
 The whole TOML document is converted to JSON and validated against the resource
-schema.
+schema before an app can receive it through a variable.
 
 ```toml
 enabled_features = ["audit-log"]
@@ -59,7 +64,8 @@ members = 250
 
 ## Variable Integration
 
-A variable selects resource object keys with `type = "resource:<resource-id>"`:
+A variable turns resource objects into runtime configuration by selecting
+object keys with `type = "resource:<resource-id>"`:
 
 ```toml
 schema_version = 1
@@ -78,8 +84,9 @@ come from object files.
 
 ## Resource References In Schemas
 
-JSON Schemas may mark string fields as references to other resource objects
-with `x-rototo-resource`:
+Sometimes one structured object needs to point at another reviewed object. JSON
+Schemas may mark string fields as references to other resource objects with
+`x-rototo-resource`:
 
 ```json
 {

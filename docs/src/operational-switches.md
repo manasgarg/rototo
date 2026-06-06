@@ -10,7 +10,7 @@ That is a good fit for rototo. The switch is not user state, queue state, or an
 authorization decision. It is reviewed operational policy that the app can
 refresh and apply at runtime.
 
-This example uses a small workspace named `operations-config` and a service
+I will keep the workspace small: `operations-config`, with one service boundary
 that checks whether project creation is enabled.
 
 ## Start With A Broad Switch
@@ -242,7 +242,7 @@ workspace owns the reviewed decision about what that fact means operationally.
 Operational switches fit rototo when the value should be reviewed, refreshed,
 and explainable. They do not fit every kind of runtime decision.
 
-Use this pattern for:
+Reach for this pattern when the runtime decision is:
 
 - incident controls;
 - temporary operational pauses;
@@ -250,7 +250,7 @@ Use this pattern for:
 - kill switches for risky workflows;
 - reviewed behavior changes that should not require an app redeploy.
 
-Do not use this pattern for:
+Keep these decisions somewhere else:
 
 - per-request authorization;
 - user preferences;

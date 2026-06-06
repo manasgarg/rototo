@@ -9,7 +9,7 @@ The important word is stable. The same account should get the same result on
 every request while the rollout policy is unchanged. Rototo bucket predicates
 give us that shape without putting random selection in app code.
 
-This example uses `rollout-config` and a variable named
+We will model that as `rollout-config`, with one variable named
 `search-ranking-mode`.
 
 ## Start With The Stable Mode

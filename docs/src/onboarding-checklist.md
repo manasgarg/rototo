@@ -11,9 +11,9 @@ for trying the new checklist in production. I prefer putting the reviewed
 policy in the workspace and letting the app render whatever step IDs rototo
 selects.
 
-This example uses `onboarding-config` and a variable named `onboarding-steps`.
-It teaches list values, qualifier composition, rule ordering, and a live test
-path that only affects accounts marked for testing.
+We will model that as `onboarding-config`, with one variable named
+`onboarding-steps`. The example covers list values, qualifier composition, rule
+ordering, and a live test path that only affects accounts marked for testing.
 
 ## Start With The Default Checklist
 

@@ -10,7 +10,7 @@ Rototo fits the policy layer in that loop. The service still owns metrics,
 queues, retries, provider health, and enforcement. Rototo selects the reviewed
 operating policy from the runtime facts the service supplies.
 
-This example uses `degradation-config` and a variable named
+We will model that as `degradation-config`, with one variable named
 `service-degradation-policy`.
 
 ## Start With The Recovery Boundary
@@ -475,7 +475,7 @@ own backpressure and routing behavior.
 
 ## Keep The Control Loop Clear
 
-Use rototo for:
+At this boundary, rototo should own:
 
 - reviewed degradation modes;
 - concurrency and fanout policy;

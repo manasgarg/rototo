@@ -4,9 +4,13 @@ Resolution output is the operational explanation for a selected value. It
 answers three questions: what value was selected, which rule selected it, and
 which qualifier predicates caused that rule to match or skip.
 
-This page describes the stable JSON shape returned by `rototo resolve --json`.
+Use this output when logs, CI, tests, or support tools need to explain runtime
+selection without reimplementing rototo's resolution logic. The shapes below
+are the stable JSON contract returned by `rototo resolve --json`.
 
 ## Top Level
+
+The top level reports the workspace source and the selected target traces:
 
 ```json
 {
@@ -27,6 +31,9 @@ returns variable traces and an empty qualifier array. `--qualifier paid-account`
 does the inverse. Mixed selectors may return both.
 
 ## Variable Trace
+
+A variable trace starts with the selected result, then shows the default and
+the rule outcomes that led to that result:
 
 ```json
 {
@@ -65,6 +72,9 @@ the variable file.
 
 ## Qualifier Trace
 
+A qualifier trace shows the final boolean value and every predicate that
+contributed to it:
+
 ```json
 {
   "id": "enterprise-account",
@@ -94,6 +104,9 @@ tables.
 
 ## Compare Predicate Trace
 
+Compare predicates read either runtime context or another qualifier and compare
+the actual value against the configured expectation:
+
 ```json
 {
   "index": 0,
@@ -121,6 +134,10 @@ When the predicate reads another qualifier, the trace also includes
 ```
 
 ## Bucket Predicate Trace
+
+Bucket predicates are useful only if the assignment is explainable. The trace
+includes the computed bucket value so operators can see why a stable input fell
+inside or outside the configured range:
 
 ```json
 {
