@@ -103,7 +103,7 @@ rototo::resolve_qualifiers(workspace_root, context_json).await?;
 ```
 
 These compile the runtime workspace from a local root for each call. They are
-useful for tests and tools. Long-running services should prefer a loaded
+handy for tests and tools. Long-running services should prefer a loaded
 `Workspace` or `RefreshingWorkspace`.
 
 ## Traces

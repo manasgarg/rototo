@@ -58,7 +58,7 @@ contracts.
 
 Write public docs in the senior-engineer voice defined in `AGENTS.md`: practical,
 experienced, warm, and precise. The docs should feel like an engineer sharing
-the working shape they trust in production, not a feature catalog.
+the production pattern they trust, not a feature catalog.
 
 Before finishing a docs change, check that the page:
 

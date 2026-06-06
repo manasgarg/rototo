@@ -135,7 +135,7 @@ When the predicate reads another qualifier, the trace also includes
 
 ## Bucket Predicate Trace
 
-Bucket predicates are useful only if the assignment is explainable. The trace
+Bucket predicates only help if the assignment is explainable. The trace
 includes the computed bucket value so operators can see why a stable input fell
 inside or outside the configured range:
 

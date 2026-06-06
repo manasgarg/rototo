@@ -6,11 +6,10 @@ that question, but not all of it.
 
 `rototo lint` can prove that the workspace is well-formed: schemas parse,
 qualifiers reference known fields, variable rules point at known values, and
-selected values match their declared shape. That is necessary. It is not the
-same as proving the application still behaves correctly when those values are
-selected.
+selected values match their declared shape. You still need that. It does not
+prove the application still behaves correctly when those values are selected.
 
-The useful testing model is layered:
+I think about the tests in layers:
 
 - workspace lint protects the control-plane files;
 - generated fixtures protect expected resolution behavior;
@@ -101,7 +100,7 @@ These files are part of the app-workspace contract. When the application starts
 sending a new context field, the fixture changes. When the workspace starts
 depending on a new field, the fixture proves the app knows how to provide it.
 
-They are also useful in review because the CLI can resolve with the same input:
+They also help in review because the CLI can resolve with the same input:
 
 ```sh
 rototo resolve account-config \
@@ -156,9 +155,9 @@ record of expected runtime behavior. When a policy change intentionally changes
 selection, regenerate the fixture, review the diff, and make sure the app
 tests still explain why the new behavior is acceptable.
 
-This is especially useful for bucket predicates. A bucket change can look small
-in TOML but move a stable account from one value key to another. The fixture
-diff makes that visible.
+Bucket predicates are a good example. A bucket change can look small in TOML
+but move a stable account from one value key to another. The fixture diff makes
+that visible.
 
 ## Test The App Contract
 
@@ -316,7 +315,7 @@ assert_eq!(status.consecutive_failures, 1);
 ```
 
 The helper names in those snippets are app test helpers, not rototo APIs. The
-important part is the contract: a bad workspace commit must not replace the
+contract is what matters: a bad workspace commit must not replace the
 last-known-good workspace in a running service.
 
 ## Put The Gates In Order
@@ -333,6 +332,6 @@ The exact commands will vary by repository layout, but the order matters. First
 prove the workspace is valid. Then prove expected resolution behavior. Then
 prove the application can consume and apply the selected policy.
 
-That sequence is what makes the production workflow credible. The workspace can
+That order is why the production workflow holds together. The workspace can
 move independently from the application binary, but it still moves through a
 release path that proves the app and control plane agree.

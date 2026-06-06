@@ -6,7 +6,7 @@ message immediately or in a digest, which channels to try, whether quiet hours
 matter, and what fallback channel is allowed.
 
 I do not want those rules scattered across notification code. I also do not
-want rototo to become the notification system. The useful boundary is smaller:
+want rototo to become the notification system. The boundary I want is smaller:
 rototo selects a reviewed delivery policy from runtime facts, and the
 notification service enforces that policy while it owns recipients,
 subscriptions, consent, retries, and delivery logs.
@@ -44,9 +44,8 @@ which recipients are eligible, whether a user has opted out, whether an email
 address is verified, how quiet hours map to the recipient's timezone, and how
 provider retries are handled.
 
-That boundary is the reason this example uses a resource-backed variable. The
-variable owns resolution. The resource owns the validated policy objects the
-app can consume.
+That is why this example uses a resource-backed variable. The variable owns
+resolution. The resource owns the validated policy objects the app can consume.
 
 ## Create The Workspace
 
@@ -78,8 +77,8 @@ description = "Notification delivery policy objects"
 schema = "../schemas/notification-delivery-policy.schema.json"
 ```
 
-The default is a digest policy. That gives the notification service a valid
-answer before any special runtime conditions are introduced.
+The default is a digest policy. The notification service gets a valid answer
+before any special runtime conditions are introduced.
 
 ## Define The Policy Shape
 
@@ -458,6 +457,6 @@ Keep these in the notification system or adjacent operational systems:
 - provider failures and retries;
 - audit logs and customer support history.
 
-That split keeps the policy reviewable without pretending that a configuration
+That keeps the policy reviewable without pretending that a configuration
 workspace is a delivery database. The notification service still owns the live
 work. Rototo gives it a typed, versioned, explainable policy to apply.

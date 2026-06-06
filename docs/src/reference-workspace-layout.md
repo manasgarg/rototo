@@ -100,7 +100,7 @@ custom_lint
 ```
 
 These kinds appear in lint output, inspect output, and editor integrations.
-They are part of the machine-readable surface.
+They are part of the machine-readable contract.
 
 ## What Layout Does Not Do
 

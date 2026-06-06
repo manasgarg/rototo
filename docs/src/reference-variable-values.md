@@ -1,12 +1,12 @@
 # Variable Values Reference
 
-Variables are only useful if the selected value has a shape the application can
+Variables matter only if the selected value has a shape the application can
 trust. Rototo validates primitive values directly and validates structured
 objects through resources.
 
 That split keeps the app boundary clear: primitive values stay inline, while
-structured objects get schemas and object files. Resolution order is covered in
-`reference-variable-resolution`.
+structured objects get schemas and object files. `reference-variable-resolution`
+covers resolution order.
 
 ## Primitive Values
 
@@ -64,7 +64,7 @@ when the value needs object structure.
 
 ## Resource Object Values
 
-Structured values are stored as resource objects so shape validation can happen
+Structured values live as resource objects so rototo can validate the shape
 before the application receives the selected payload:
 
 ```text

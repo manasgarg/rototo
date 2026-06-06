@@ -10,8 +10,9 @@ deployed with a workspace source URI, loads that source through the SDK, builds
 context from facts it owns, and resolves named variables at the boundary where
 runtime behavior is selected.
 
-That shape keeps the control plane in one place and gives production systems a
-way to explain which value was selected from which workspace version.
+That keeps the control plane in one place. It also gives the service a clear
+answer when someone asks which value was selected, and from which workspace
+version.
 
 ## Load A Workspace Source
 
@@ -129,11 +130,10 @@ Initial load must succeed. After that, successful refreshes affect future
 resolutions. Failed refreshes keep the last successfully loaded workspace
 active.
 
-That last-known-good behavior is the operational bargain. A bad workspace
-commit should not automatically take down a running service that already has a
-valid workspace. It should show up as a refresh failure, keep serving the
-previous workspace, and give operators a clear signal to fix or revert the
-workspace change.
+That last-known-good behavior matters in production. A bad workspace commit
+should not take down a running service that already has a valid workspace. It
+should show up as a refresh failure, keep serving the previous workspace, and
+give operators a clear signal to fix or revert the workspace change.
 
 Pinned commit sources are different. If the source is pinned to a full commit
 SHA, refresh is reproducible but it will not discover later commits. Use pinned
@@ -242,7 +242,7 @@ That can be fine if it is the application boundary for account limits. It is a
 problem if dozens of helpers each resolve their own variables and reassemble a
 policy the workspace could have selected as one object.
 
-Prefer an integration shape that makes runtime decisions visible:
+Prefer integration code that makes runtime decisions visible:
 
 ```rust
 let profile = account_limit_policy.resolve(&workspace, &account).await?;

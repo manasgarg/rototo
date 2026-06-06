@@ -1,7 +1,7 @@
 # Incident Banner
 
 The first two examples used scalar values: an integer account limit and a
-boolean operational switch. The next useful modeling move is a structured value.
+boolean operational switch. The next step is a structured value.
 Some runtime configuration is not a single number or true/false decision; it is
 a small object the app needs to trust before it renders it.
 
@@ -47,9 +47,8 @@ description = "Support banner payloads"
 schema = "../schemas/support-banner.schema.json"
 ```
 
-The variable now has a type, but its values live as resource objects. That split
-is useful: resolution stays in the variable, while object validation belongs to
-the resource.
+The variable now has a type, but its values live as resource objects. Resolution
+stays in the variable, while object validation belongs to the resource.
 
 ## Define The Object Shape
 
@@ -235,8 +234,8 @@ value:
   title: Delayed support responses
 ```
 
-The important part is not the text itself. The important part is that the
-selection and the payload are both reviewable, validated, and explainable.
+The text is not the main thing. What matters is that the selection and the
+payload are both reviewable, validated, and explainable.
 
 ## Deserialize In The App
 
@@ -295,8 +294,8 @@ workspace version and rule that selected it.
 
 ## Keep Rendering In The App
 
-Rototo should not become a content management system. It is useful here because
-the banner changes production behavior and needs release discipline.
+Rototo should not become a content management system. It fits here because the
+banner changes production behavior and needs release discipline.
 
 This is a good rototo boundary when:
 
@@ -313,5 +312,5 @@ Keep these concerns in the app:
 - whether a specific page has room to render it;
 - request authorization and user identity.
 
-That split keeps the model practical. The workspace owns the validated
-operational payload. The app owns the product experience around it.
+That keeps the line clear. The workspace owns the validated operational
+payload. The app owns the product experience around it.

@@ -1,7 +1,8 @@
 # Operating Runtime Configuration
 
 Once tests are in place, rototo changes can move independently from the
-application binary. That is the point, but it changes the operating model.
+application binary. That is what we want, but it changes how the team operates
+the system.
 
 A workspace commit can change production behavior as soon as a long-running
 service refreshes its workspace source. The application did not redeploy, but
@@ -9,12 +10,13 @@ the behavior changed. I would treat that as a release and operate it with the
 same care: clear review, narrow blast radius, observable selection, and a
 recovery path that people understand before they need it.
 
-The day-two habits are where the model either keeps paying off or quietly
-turns back into ad hoc configuration.
+The everyday habits matter here. Without them, reviewed runtime configuration
+slowly turns back into ad hoc configuration.
 
 ## Treat Workspace Changes As Releases
 
-The smallest useful review for a runtime configuration change should answer:
+The smallest review I would trust for a runtime configuration change should
+answer:
 
 - which variables can select a different value;
 - which value keys are new, changed, or removed;
@@ -65,10 +67,10 @@ A full commit SHA gives reproducibility:
 ROTOTO_WORKSPACE_SOURCE=git+https://github.com/acme/runtime-config.git#2f3c4d5e6f708192aabbccddeeff001122334455:workspaces/prod
 ```
 
-That is useful for jobs, migrations, audits, and deployments where the exact
-workspace version must not move. It also means refresh will not discover newer
-commits from that source. Pinning is a tradeoff: better reproducibility, no
-ongoing updates.
+That fits jobs, migrations, audits, and deployments where the exact workspace
+version must not move. It also means refresh will not discover newer commits
+from that source. Pinning is a tradeoff: better reproducibility, no ongoing
+updates.
 
 Write that choice down in the app or deployment docs. Operators should not
 have to infer from a URI whether a service is expected to refresh.
@@ -104,9 +106,9 @@ qualifier = "enterprise-account"
 value = "enterprise"
 ```
 
-That shape gives review and rollback a clean handle. If the preview value is
-wrong, remove the preview rule or point it back at `enterprise`. The existing
-default and enterprise paths stay visible and unchanged.
+Review and rollback now have a clean handle. If the preview value is wrong,
+remove the preview rule or point it back at `enterprise`. The existing default
+and enterprise paths stay visible and unchanged.
 
 For bucketed changes, keep the bucket condition stable and change the
 percentage deliberately. A jump from 5 percent to 50 percent is a larger
@@ -129,7 +131,7 @@ For each important resolution, log:
 - selected value key;
 - workspace fingerprint;
 - relevant request, account, or tenant identifier;
-- service deployment identity when useful.
+- service deployment identity when it helps answer the question.
 
 For refresh, expose:
 
@@ -222,7 +224,8 @@ An operated rototo integration has a clean split:
 - observability owns selected value keys, fingerprints, and refresh state;
 - git owns recovery history.
 
-When that split holds, configuration can move quickly without becoming
-mysterious. A workspace change can reach a running service through refresh, and
-the team can still answer the questions that matter: what changed, who reviewed
-it, where did it apply, what did the app select, and how do we recover?
+When those responsibilities stay clear, configuration can move quickly without
+becoming mysterious. A workspace change can reach a running service through
+refresh, and the team can still answer the questions that matter: what changed,
+who reviewed it, where did it apply, what did the app select, and how do we
+recover?

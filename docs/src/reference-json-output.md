@@ -1,7 +1,7 @@
 # JSON Output Reference
 
-`--json` is the automation surface for the rototo CLI. Human output may change
-to read better. JSON output is the shape CI, agents, and tests should consume.
+`--json` is the format automation should use for the rototo CLI. Human output
+may change to read better. CI, agents, and tests should consume JSON output.
 
 The rule I use for automation is straightforward: do not parse human output.
 Ask for JSON, assert the fields you depend on, and let human output stay
@@ -104,13 +104,12 @@ model. Otherwise it is `unavailable` with a reason.
 }
 ```
 
-`resolve --json` is the shape to use when automation needs to know what value
-or qualifier result rototo selected. See `reference-resolution-output` for the
-trace fields.
+Use `resolve --json` when automation needs to know what value or qualifier
+result rototo selected. See `reference-resolution-output` for the trace fields.
 
 ## `docs --json`
 
-`rototo docs --json` lists navigation sections. This is mostly useful for docs
+`rototo docs --json` lists navigation sections. This is mainly for docs
 publishers and tools that need to mirror the bundled docs order:
 
 ```json

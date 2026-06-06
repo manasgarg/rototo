@@ -5,8 +5,8 @@ decision is made. The app sends a few facts, another system turns those facts
 into booleans, a config file holds a few values, and six months later nobody
 can explain why one account received one behavior and another account did not.
 
-Rototo gives you a tighter shape. The useful modeling question is not "which
-TOML files do I need?" It is:
+Rototo puts that decision in one place. The modeling question is not "which TOML
+files do I need?" It is:
 
 > Where should this runtime decision live?
 
@@ -39,7 +39,7 @@ that atomic decision:
 account-limit-profile
 ```
 
-That gives the app one stable contract:
+The app now has one stable call:
 
 ```rust
 let limits = workspace
@@ -51,8 +51,8 @@ The app asks for the policy it needs. Rototo selects the value. The app does
 not reconstruct policy by resolving a pile of loosely related variables.
 
 Splitting variables is still right when the app can change, test, observe, or
-fail the decisions independently. The important part is that the split follows
-the application boundary, not the number of fields in a payload.
+fail the decisions independently. What matters is that the split follows the
+application boundary, not the number of fields in a payload.
 
 ## Treat The Workspace As An Administrative Boundary
 
@@ -158,7 +158,7 @@ op = "eq"
 value = "enterprise"
 ```
 
-That split is the point. The application owns what happened in this request.
+That is the split I want. The application owns what happened in this request.
 The workspace owns what that fact means for runtime behavior.
 
 ## Use Qualifiers To Name Operational Conditions
@@ -166,7 +166,7 @@ The workspace owns what that fact means for runtime behavior.
 Qualifiers are not just reusable predicates. They are the vocabulary that shows
 up in rules, traces, tests, and debugging conversations.
 
-This is useful:
+For example:
 
 ```toml
 # qualifiers/enterprise-account.toml
@@ -308,8 +308,8 @@ selected value and why it wins.
 
 ## Model Buckets Deliberately
 
-Buckets are useful because assignment happens inside the reviewed workspace,
-not in application-side randomization.
+Buckets help because assignment happens inside the reviewed workspace, not in
+application-side randomization.
 
 A bucket qualifier looks like this:
 
@@ -366,9 +366,9 @@ Remember that layered replacement is file-level. If a child layer writes
 `variables/account-limit-profile.toml`, it replaces the inherited file at that
 path. It is not patching individual TOML fields.
 
-That behavior is useful because ownership is visible in the diff. It also means
-teams should keep variable files readable and intentional. A child layer that
-replaces a variable owns the full rule order for that variable.
+I want that because ownership is visible in the diff. It also means teams should
+keep variable files readable and intentional. A child layer that replaces a
+variable owns the full rule order for that variable.
 
 ## Use Schemas For Shape And Lint For Judgment
 
@@ -388,7 +388,7 @@ Use custom lint for judgment:
 - incident banner copy must include a support link;
 - production values must not point at local endpoints.
 
-The distinction is useful:
+The distinction I rely on is:
 
 > Use schemas for shape. Use custom lint for judgment.
 

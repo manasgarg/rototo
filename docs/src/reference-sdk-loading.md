@@ -80,8 +80,8 @@ let immutable = workspace.immutable_source();
 let layers = workspace.source_layers();
 ```
 
-These are useful for observability. A service can log the source fingerprint
-that selected a value, and can expose whether its loaded source is immutable.
+These help with observability. A service can log the source fingerprint that
+selected a value, and can expose whether its loaded source is immutable.
 
 ## Temporary Staging
 

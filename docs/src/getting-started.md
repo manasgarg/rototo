@@ -4,10 +4,9 @@ I like starting with one value because it keeps the whole system honest. If
 `max-active-projects` can live in a workspace, pass lint, resolve from the CLI,
 and update inside a running app, then the core rototo loop is working.
 
-That is what we will build here: one workspace, one variable, one Rust process,
-and one refresh path. The example is small on purpose. Once this loop is clear,
-the production workflow is mostly about adding guardrails around the same
-shape.
+So we will build one workspace, one variable, one Rust process, and one refresh
+path. The example is small on purpose. Once this loop is clear, the production
+workflow is mostly about adding guardrails around the same loop.
 
 You will create two directories next to each other:
 
@@ -52,8 +51,8 @@ For the first pass, we only need one variable. The other directories are not
 ceremony; they are places we will use later for conditions, schemas, resources,
 and custom lint.
 
-Replace `account-config/variables/max-active-projects.toml` with the smallest
-useful variable:
+Replace `account-config/variables/max-active-projects.toml` with one variable
+the app can actually use:
 
 ```toml
 schema_version = 1
@@ -204,10 +203,10 @@ Return to the app terminal. Within a refresh cycle, the new value should appear:
 max-active-projects: 5 (standard)
 ```
 
-That is the first satisfying rototo moment. The app process did not restart. It
-loaded a workspace source at startup, resolved a named variable, refreshed that
-same source in the background, and served the last successfully loaded
-workspace while it kept running.
+That is the first moment the rototo model pays off. The app process did not
+restart. It loaded a workspace source at startup, resolved a named variable,
+refreshed that same source in the background, and served the last successfully
+loaded workspace while it kept running.
 
 Stop the app with `Ctrl-C`.
 
@@ -218,5 +217,5 @@ adds runtime context, named qualifiers, workspace lint rules, tests, and a
 hosted git source so configuration changes move through review and CI.
 
 The production workflow builds those pieces onto this same `account-config`
-workspace. The shape stays the same; we just add the checks I would want before
+workspace. The loop stays the same; we just add the checks I would want before
 trusting this path in a service.

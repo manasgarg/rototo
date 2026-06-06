@@ -19,7 +19,7 @@ The runtime question is not "is the service healthy?" Rototo should not decide
 that. The service and observability system already know queue pressure,
 provider health, error rates, and retry behavior.
 
-The useful runtime question is:
+The runtime question I want is:
 
 ```text
 Given the service state we already measured, which reviewed operating policy
@@ -60,8 +60,8 @@ schema = "../schemas/service-degradation-policy.schema.json"
 ```
 
 The variable chooses a policy key. The resource validates the policy object
-behind that key. That split matters during an incident because the app should
-not have to trust a half-shaped object while operators are making fast changes.
+behind that key. During an incident, the app should not have to trust a
+half-shaped object while operators are making fast changes.
 
 ## Define The Policy Shape
 
@@ -492,7 +492,6 @@ Keep these in the service, observability system, or incident process:
 - metrics that show whether recovery is working;
 - incident ownership and customer communication.
 
-That boundary is what makes the model useful. The service keeps running the
-live control loop. Rototo gives that loop a reviewed policy surface the team can
-change, observe, widen, tighten, and roll back without changing the application
-binary.
+That is the split that keeps recovery sane. The service keeps running the live
+control loop. Rototo gives the team reviewed policy it can change, observe,
+widen, tighten, and roll back without changing the application binary.

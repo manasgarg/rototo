@@ -1,8 +1,8 @@
 # Workspace Layering
 
 Enterprise configuration usually has more than one owner. The product team may
-own the supported shape of a policy. A customer administrator may own the
-customer-wide defaults. A team administrator may own a narrow local preference.
+own the policy contract. A customer administrator may own the customer-wide
+defaults. A team administrator may own a narrow local preference.
 
 Putting all of that in one workspace forces the wrong tradeoff. Either every
 owner can edit too much, or the product has to fork configuration for every
@@ -12,7 +12,7 @@ contracts and values below it.
 
 I use inference provider routing here because the ownership split is concrete:
 
-- the product team defines the policy shape and supported providers;
+- the product team defines the policy contract and supported providers;
 - the customer administrator chooses the customer-wide fallback posture;
 - the team administrator tries a narrower routing policy for summarization;
 - the app loads the team workspace and resolves the final policy.
@@ -25,7 +25,7 @@ does the configuration work after those controls have done theirs: it projects
 the layers into one workspace, lints the result, and resolves variables from
 that final workspace.
 
-The shape looks like this:
+The layers look like this:
 
 ```text
 product-config/

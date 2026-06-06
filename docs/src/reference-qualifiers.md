@@ -95,8 +95,8 @@ All predicates in a qualifier are ANDed. The qualifier resolves to `true` only
 when every predicate resolves to `true`.
 
 Rototo records predicate traces in order. If a predicate is false, the
-qualifier is false. That trace is the debugging surface for why a rule did or
-did not match.
+qualifier is false. That trace is the debugging trail for why a rule did or did
+not match.
 
 ## Duplicate Predicates
 

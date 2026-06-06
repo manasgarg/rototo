@@ -5,7 +5,7 @@ idea that I want in every production system: configuration that changes
 behavior should move through the same discipline as code, without requiring the
 application to restart every time a value changes.
 
-That gives rototo two jobs:
+That leaves rototo with two jobs:
 
 - Keep runtime configuration in the software lifecycle: review, tests, CI,
   observability, and rollback.
@@ -33,8 +33,9 @@ and agents both need a place to answer the same questions: can this
 configuration break behavior, how do we test that, who reviewed it, what
 changed, and how do we recover?
 
-rototo is the shape I kept wanting: runtime configuration that can change
-without an app redeploy, while still moving through the discipline of code.
+rototo is the thing I kept wanting: runtime configuration that can change
+without an app redeploy, but still goes through code review, tests, and
+rollback.
 
 ## The Model
 
@@ -63,8 +64,8 @@ not move outside the engineering process.
 ## What rototo Gives You
 
 The practical benefit is not that configuration lives in TOML. The benefit is
-that the workspace gives configuration a boundary the rest of the process can
-trust.
+that everyone can see which files own the runtime policy and which checks must
+pass before the app uses it.
 
 Code and configuration can both live in git. You can review them together, test
 them together, and use the repository history as the operational record of what
@@ -77,9 +78,9 @@ failures. Custom lint handles the local policy only your team knows.
 
 Application tests can load the same workspace source the service will use and
 assert the values selected for important runtime contexts. That catches the
-contract failures that pure workspace lint cannot see: the app expects an
-integer, the workspace now selects an object, or a context shape no longer
-matches the app boundary.
+failures workspace lint cannot see: the app expects an integer, the workspace
+now selects an object, or the app no longer sends the facts the workspace
+expects.
 
 And because the SDK runs in the application process, your existing
 observability path can explain what value was selected, from which workspace
@@ -134,12 +135,11 @@ The adoption section comes next because examples are not enough by themselves.
 It turns the model into the habits I would want a team to use in production:
 model the runtime decision first, treat workspaces as administrative
 boundaries, integrate through the SDK, test behavior, release carefully, and
-observe what was selected. Modeling runtime configuration starts that path.
-Application integration turns the model into service behavior. Testing runtime
-configuration explains the confidence layer between a valid workspace and a
-safe release. Operating runtime configuration covers the release,
-observability, and recovery habits that matter after refresh is live. The
-production workflow is the capstone.
+observe what was selected. Modeling runtime configuration starts there.
+Application integration shows how the app should call rototo. Testing runtime
+configuration shows what to prove before release. Operating runtime
+configuration covers release, observability, and recovery after refresh is
+live. Production workflow ties those pieces together.
 
 The reference section is last because it specifies the contracts readers need
 once they understand the operating model: workspace layout, source loading,
@@ -148,6 +148,5 @@ commands, SDK loading and refresh, lint, diagnostics, custom Lua lint, and JSON
 output.
 
 From there, the regular develop, test, review, and release process applies to
-runtime configuration. You can keep expanding the workspace as the domain gets
-more interesting, without changing the basic shape that made the first value
-safe to operate.
+runtime configuration. You can keep expanding the workspace as the domain grows
+without changing the loop that made the first value safe to operate.

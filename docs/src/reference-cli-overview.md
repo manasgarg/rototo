@@ -1,9 +1,9 @@
 # CLI Overview Reference
 
-The rototo CLI is the operator and authoring surface for workspaces. It does
-not replace the SDK in an application process; it gives engineers, agents, CI,
-and release tooling a consistent way to inspect, lint, and resolve the same
-workspace an app will load.
+The rototo CLI is where engineers, agents, CI, and release tooling work with
+workspaces. It does not replace the SDK in an application process; it gives
+those tools a consistent way to inspect, lint, and resolve the same workspace
+an app will load.
 
 ## Command Groups
 

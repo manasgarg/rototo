@@ -1,18 +1,18 @@
 # Production Workflow
 
-The Adopt pages before this one define the shape I would want in a production
-system: model the runtime decision, integrate through the SDK, test the
-app-workspace contract, and operate workspace changes as releases.
+The Adopt pages before this one define how I would run rototo in production:
+model the runtime decision, integrate through the SDK, test the app-workspace
+contract, and treat workspace changes as releases.
 
-Here is that shape as one concrete path. We continue the `account-config`
-workspace and `account-app` from getting started, then add the pieces that make
-the loop credible for a service: a named condition, a context contract, a
+Here is that approach as one concrete path. We continue the `account-config`
+workspace and `account-app` from getting started, then add the pieces I would
+want before trusting it in a service: a named condition, a context contract, a
 hosted workspace source, workspace policy lint, merge gates, app contract
 tests, and runtime observability.
 
-The important part is that the core boundary does not change. The application
-is still deployed with a workspace source URI. The app still supplies runtime
-facts. The workspace still owns the policy for selecting the value.
+The core split does not change. The application is still deployed with a
+workspace source URI. The app still supplies runtime facts. The workspace still
+owns the policy for selecting the value.
 
 ## Add The Runtime Condition
 
@@ -431,6 +431,6 @@ The final system has one clear path:
 8. Logs and refresh status explain what value was selected and from which
    workspace version.
 
-That is the production bargain rototo is trying to make: runtime configuration
-can move independently from the application binary, while still moving through
-review, validation, tests, observability, and git-backed recovery.
+That is the production goal: runtime configuration can move independently from
+the application binary, while still going through review, validation, tests,
+observability, and git-backed recovery.

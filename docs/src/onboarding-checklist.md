@@ -61,9 +61,9 @@ value: ["create_project","invite_teammate","configure_profile"]
 ## Add The Conditions
 
 The enterprise checklist should not go straight to every enterprise account.
-First, we want to see it live for accounts marked as test accounts. That gives
-support, sales, and product teams a way to exercise the real runtime path
-without changing the experience for regular accounts.
+First, we want to see it live for accounts marked as test accounts. Support,
+sales, and product teams can exercise the real runtime path without changing
+the experience for regular accounts.
 
 Create `onboarding-config/qualifiers/test-accounts.toml`:
 

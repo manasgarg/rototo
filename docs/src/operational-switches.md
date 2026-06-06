@@ -109,8 +109,8 @@ If you need a global pause, change the selected default:
 default = "disabled"
 ```
 
-Run lint, open the smallest useful PR, and merge it through the same path as a
-code change:
+Run lint, open the smallest PR that explains the change, and merge it through
+the same path as a code change:
 
 ```sh
 rototo lint operations-config
@@ -124,12 +124,12 @@ the workspace source, a successful refresh affects future project creation
 checks. If a refresh fails, the service keeps the last known-good workspace
 active.
 
-Rollback is the same shape: revert the change, or make a new reviewed change
+Rollback follows the same path: revert the change, or make a new reviewed change
 that sets the default back to `enabled`.
 
 ## Scope The Switch
 
-A global switch is useful when the whole system is affected. More often, the
+A global switch helps when the whole system is affected. More often, the
 incident has a boundary: one region, one account class, or one integration. I
 prefer adding that boundary to the workspace instead of scattering `if` checks
 through app code.
@@ -258,6 +258,6 @@ Keep these decisions somewhere else:
 - queue state or workflow state;
 - high-volume mutable data.
 
-That boundary is what keeps the model useful. Rototo gives the app a reviewed
-operational answer. The app still owns identity, permissions, state changes,
-and the domain logic around the request.
+That is the split worth protecting. Rototo gives the app a reviewed operational
+answer. The app still owns identity, permissions, state changes, and the domain
+logic around the request.
