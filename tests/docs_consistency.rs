@@ -26,7 +26,7 @@ fn docs_navigation_is_grouped_and_complete() {
         .collect::<Vec<_>>();
     assert_eq!(
         titles,
-        vec!["Start", "Try", "Adopt"],
+        vec!["Start", "Learn", "Reference", "Adopt"],
         "documentation navigation should match the active docs scaffold"
     );
 

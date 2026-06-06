@@ -43,7 +43,7 @@ static HTML:
 
 ```sh
 cargo run -- docs
-cargo run -- docs -p quickstart
+cargo run -- docs -p getting-started
 cargo run -- docs --export site
 ```
 

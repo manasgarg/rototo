@@ -8,11 +8,60 @@ The publishable pages live under `docs/src/`:
 ```text
 docs/src/
   index.md
+  getting-started.md
+  operational-switches.md
+  incident-banner.md
+  onboarding-checklist.md
+  bucketed-rollout.md
+  notification-delivery-policy.md
+  service-degradation-policy.md
+  workspace-layering.md
+  reference-workspace-manifest.md
+  reference-workspace-layout.md
+  reference-workspace-sources.md
+  reference-workspace-layering.md
+  reference-context.md
+  reference-qualifiers.md
+  reference-predicate-operators.md
+  reference-variables.md
+  reference-variable-values.md
+  reference-resources.md
+  reference-qualifier-resolution.md
+  reference-variable-resolution.md
+  reference-resolution-output.md
+  reference-cli-overview.md
+  reference-cli-commands.md
+  reference-sdk-loading.md
+  reference-sdk-resolution.md
+  reference-sdk-refresh.md
+  reference-lint-overview.md
+  reference-diagnostics.md
+  reference-custom-lua-lint.md
+  reference-json-output.md
+  production-workflow.md
 ```
 
 The CLI embeds the pages registered in `src/docs.rs`. When adding, moving, or
 renaming a page, update that registry and the bundled documentation list in
 `docs/src/index.md`.
+
+Learning pages explain rototo through representative operational examples.
+Reference pages specify exact file formats, commands, SDK APIs, and output
+contracts.
+
+## Writing Voice
+
+Write public docs in the senior-engineer voice defined in `AGENTS.md`: practical,
+experienced, warm, and precise. The docs should feel like an engineer sharing
+the working shape they trust in production, not a feature catalog.
+
+Before finishing a docs change, check that the page:
+
+- starts from an operational problem;
+- explains why each concept exists before showing syntax;
+- uses first person only when it communicates engineering judgment;
+- avoids marketing adjectives and ambiguous rollout vocabulary;
+- keeps examples runnable against the current CLI and SDK.
 
 The exported site's design system lives under `docs/theme/`:
 

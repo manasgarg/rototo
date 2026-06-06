@@ -179,6 +179,52 @@ through `mise` and is used for `pre-commit`.
 Write rototo documentation for engineers and agents who need to understand,
 operate, and modify runtime configuration safely.
 
+### Documentation Voice
+
+Write rototo docs in the voice of a senior engineer sharing work with other
+engineers. The voice should feel practical, experienced, and warm without
+becoming casual or promotional.
+
+The default stance is:
+
+- authored, not anonymous;
+- precise, not sterile;
+- confident from experience, not from hype;
+- empathetic about production risk;
+- excited by working systems, not by feature claims.
+
+Use first person sparingly, when it communicates engineering judgment or
+experience. Do not use it for every instruction. A page should still be about
+the reader's operational problem, not the author.
+
+Good examples:
+
+> I like starting with one value because it keeps the whole system honest.
+
+> That starts with a qualifier. The qualifier gives the runtime condition a name
+> before we wire it into a variable or turn its context path into a schema
+> contract.
+
+> The useful part is that none of this changes the core shape.
+
+> I am using `RefreshingWorkspace` even in the first app because refresh is part
+> of the runtime model.
+
+Avoid empty hype or feature-catalog phrasing:
+
+> rototo makes configuration easy and seamless.
+
+> This powerful feature lets you manage config effortlessly.
+
+> Users can quickly create segments and target cohorts.
+
+Good rototo docs should explain:
+
+1. what production failure mode we are avoiding;
+2. why the next concept exists;
+3. what small working slice to build;
+4. how that slice grows into production practice.
+
 Do not write documentation as a feature catalog. Write each page as a guided
 argument:
 
@@ -230,7 +276,7 @@ Keep page roles distinct:
 
 - `why-rototo`: motivate the problem, current failure modes, rototo's model, and
   runtime architecture.
-- `quickstart`: provide a short first success with one small local example and
+- `getting-started`: provide a short first success with one small local example and
   enough mental model to make it land.
 - `production-workflow`: show a realistic Git-backed workflow with schemas,
   qualifiers, variables, tests, app loading, refresh, and observability.

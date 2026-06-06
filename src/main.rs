@@ -247,7 +247,7 @@ struct ResolveArgs {
     #[command(flatten)]
     selectors: ResolveSelectorArgs,
 
-    /// Evaluation context: JSON object, @file, or path=value. Repeatable; later values override earlier ones.
+    /// Evaluation context: JSON object, @file, or path=value. Repeatable; later values override earlier ones. Defaults to {}.
     #[arg(long = "context", value_name = "CONTEXT")]
     context: Vec<String>,
 }
@@ -404,7 +404,7 @@ fn inspect_selection(selection: &Selection<String>) -> InspectSelection {
 const TOP_LEVEL_HELP: &str = r#"Examples:
   rototo init config
   rototo init config --qualifier premium-users
-  rototo fixtures examples/basic --variable max-output-tokens --out tests/fixtures/rototo
+  rototo fixtures examples/basic --variable tenant-limits --out tests/fixtures/rototo
   rototo lint examples/basic
   rototo show examples/basic --variables
   rototo resolve examples/basic --variable checkout-redesign --context lane=prod --context user.tier=premium
@@ -979,13 +979,7 @@ fn workspace_manifest_template() -> String {
 #
 # extends = ["../shared-config"]
 #
-# Optional custom lint rules can be declared here and implemented in lint/*.lua.
-#
-# [[lint.rule]]
-# id = "team/rule-id"
-# title = "Rule title"
-# help = "Explain what to change when this rule fails."
-# severity = "warning"
+# Custom lint handlers live in lint/*.lua and register their rule metadata there.
 "#
     .to_owned()
 }
@@ -1550,11 +1544,6 @@ async fn run_resolve(
     if !selectors.has_resolvable_targets() {
         return Err(RototoError::new(
             "resolve requires at least one --variable, --variables, --qualifier, or --qualifiers selector",
-        ));
-    }
-    if args.context.is_empty() {
-        return Err(RototoError::new(
-            "resolve requires at least one --context value",
         ));
     }
     let workspace = workspace_source_or_current(args.workspace, source_options).await?;

@@ -253,6 +253,24 @@ fn resolves_variable_by_id() {
 }
 
 #[test]
+fn resolves_variable_without_context_as_empty_object() {
+    Command::cargo_bin("rototo")
+        .unwrap()
+        .args([
+            "resolve",
+            "examples/quickstart",
+            "--variable",
+            "summary-token-budget",
+            "--json",
+        ])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains(r#""id": "summary-token-budget""#))
+        .stdout(predicate::str::contains(r#""value_key": "standard""#))
+        .stdout(predicate::str::contains(r#""value": 1800"#));
+}
+
+#[test]
 fn resolves_production_example_enterprise_profile() {
     Command::cargo_bin("rototo")
         .unwrap()
