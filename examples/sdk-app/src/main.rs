@@ -45,7 +45,9 @@ async fn main() -> Result<(), Box<dyn Error>> {
         }
     }))?;
 
-    let premium_users = workspace.resolve_qualifier("premium-users", &context).await?;
+    let premium_users = workspace
+        .resolve_qualifier("premium-users", &context)
+        .await?;
     let enterprise_accounts = workspace
         .resolve_qualifier("enterprise-accounts", &context)
         .await?;

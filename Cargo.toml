@@ -1,6 +1,6 @@
 [package]
 name = "rototo"
-version = "0.1.0-alpha.3"
+version = "0.1.0-alpha.4"
 edition = "2024"
 description = "Control plane for runtime configuration of your application."
 license = "MIT OR Apache-2.0"
@@ -10,6 +10,10 @@ documentation = "https://docs.rs/rototo"
 readme = "README.md"
 keywords = ["configuration", "feature-flags", "rules", "cli", "sdk"]
 categories = ["command-line-utilities", "config"]
+
+[workspace]
+members = ["examples/sdk-app", "sdks/python"]
+resolver = "3"
 
 [dependencies]
 clap = { version = "4", features = ["derive", "env"] }

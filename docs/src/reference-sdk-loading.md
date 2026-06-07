@@ -7,33 +7,50 @@ from the loaded workspace.
 The loading API is the boundary that decides whether the app receives a valid
 control plane. Resolution and refresh have their own pages.
 
-## `Workspace::load`
+## Load A Workspace
 
+:::sdk-snippet load-workspace
 ```rust
 use rototo::Workspace;
 
 let workspace = Workspace::load("git+https://github.com/acme/config.git#main").await?;
 ```
 
-`Workspace::load` stages the source, inspects the workspace, runs lint, and
-rejects lint failures. It accepts the same source forms as the CLI.
+```python
+import rototo
+
+workspace = await rototo.Workspace.load(
+    "git+https://github.com/acme/config.git#main",
+)
+```
+:::
+
+Loading stages the source, inspects the workspace, runs lint, and rejects lint
+failures. It accepts the same source forms as the CLI.
 
 Use this for services that load configuration once at startup.
 
-## `Workspace::inspect`
+## Inspect A Workspace
 
+:::sdk-snippet inspect-workspace
 ```rust
 let workspace = Workspace::inspect("examples/basic").await?;
 ```
 
-`Workspace::inspect` stages and inspects a workspace without requiring a
-lint-clean runtime. It is the lower-level loader for tools that need to inspect
-broken workspaces, editor state, or staged diagnostics.
+```python
+workspace = await rototo.Workspace.inspect("examples/basic")
+```
+:::
 
-Most application code should use `Workspace::load`.
+Inspection stages and inspects a workspace without requiring a lint-clean
+runtime. It is the lower-level loader for tools that need to inspect broken
+workspaces, editor state, or staged diagnostics.
+
+Most application code should load a runtime workspace instead.
 
 ## Load Options
 
+:::sdk-snippet load-options
 ```rust
 use rototo::{LoadOptions, LintMode, SourceAuth};
 
@@ -44,33 +61,24 @@ let options = LoadOptions::new()
 let workspace = Workspace::load_with_options(source, options).await?;
 ```
 
-`LintMode::Deny` is the default. It rejects lint failures during load.
-
-`LintMode::Skip` is available for tools that need to stage or inspect a
-workspace without enforcing lint. Do not use it as the default in application
-runtime paths.
-
-## Source Options
-
-`LoadOptions` owns `SourceOptions`. Source options control auth and staging
-limits:
-
-```rust
-use rototo::{SourceAuth, SourceOptions};
-use std::time::Duration;
-
-let source_options = SourceOptions::new()
-    .with_auth(SourceAuth::Bearer(token))
-    .with_http_timeout(Duration::from_secs(10));
+```python
+workspace = await rototo.Workspace.load(
+    source,
+    lint="deny",
+    workspace_token=token,
+)
 ```
+:::
 
-Use source options when you need shorter network timeouts, archive limits, or
-Bearer auth for HTTPS archive sources.
+Lint deny is the default. It rejects lint failures during load.
+
+Lint skip is available for tools that need to stage or inspect a workspace
+without enforcing lint. Do not use it as the default in application runtime
+paths.
 
 ## Workspace Metadata
 
-`Workspace` exposes loaded source metadata:
-
+:::sdk-snippet workspace-metadata
 ```rust
 let root = workspace.root();
 let inspection = workspace.inspection();
@@ -80,21 +88,26 @@ let immutable = workspace.immutable_source();
 let layers = workspace.source_layers();
 ```
 
-These help with observability. A service can log the source fingerprint that
-selected a value, and can expose whether its loaded source is immutable.
+```python
+root = workspace.root
+```
+:::
+
+The Rust SDK currently exposes the full loaded source metadata. The first
+Python SDK release exposes the staged root path and keeps the runtime path
+small; more inspection metadata can be added when Python tools need it.
 
 ## Temporary Staging
 
 Remote sources are staged into temporary directories owned by the workspace
-handle. Keep the `Workspace` value alive for as long as the app needs to
-resolve from it.
+handle. Keep the workspace value alive for as long as the app needs to resolve
+from it.
 
-Do not retain paths into the staged root after dropping the `Workspace`.
+Do not retain paths into the staged root after dropping the workspace.
 
 ## Context Schema
 
-When the loaded workspace contains `schemas/context.schema.json`,
-`workspace.context_schema()` returns it. Resolution validates context against
-that schema by default.
+When the loaded workspace contains `schemas/context.schema.json`, resolution
+validates context against that schema by default.
 
 See `reference-context` and `reference-sdk-resolution`.
