@@ -197,6 +197,7 @@ fn exports_bundled_docs_as_static_site() {
     assert!(site.join("reference-sdk-refresh.html").is_file());
     assert!(site.join("reference-sdk-rust.html").is_file());
     assert!(site.join("reference-sdk-python.html").is_file());
+    assert!(site.join("reference-sdk-typescript.html").is_file());
     assert!(site.join("reference-lint-overview.html").is_file());
     assert!(site.join("reference-diagnostics.html").is_file());
     assert!(site.join("reference-custom-lua-lint.html").is_file());
@@ -225,7 +226,9 @@ fn exports_bundled_docs_as_static_site() {
     assert!(sdk_page.contains(r#"<select id="sdk-language" aria-label="SDK language">"#));
     assert!(sdk_page.contains(r#"data-sdk-lang="rust""#));
     assert!(sdk_page.contains(r#"data-sdk-lang="python""#));
+    assert!(sdk_page.contains(r#"data-sdk-lang="typescript""#));
     assert!(sdk_page.contains(r#"<pre class="code-block language-python sdk-snippet""#));
+    assert!(sdk_page.contains(r#"<pre class="code-block language-typescript sdk-snippet""#));
     assert!(sdk_page.contains(r#"<span class="sx-keyword">await</span>"#));
 }
 
@@ -249,6 +252,31 @@ fn generates_python_package_readme_from_docs() {
 
     let actual = fs::read_to_string(readme).unwrap();
     let expected = rototo::docs::render_package_readme("python").unwrap();
+    assert_eq!(actual, expected);
+}
+
+#[test]
+fn generates_typescript_package_readme_from_docs() {
+    let temp = tempfile::tempdir().unwrap();
+    let readme = temp.path().join("README.md");
+
+    Command::cargo_bin("rototo")
+        .unwrap()
+        .args([
+            "docs",
+            "--package-readme",
+            "typescript",
+            "--out",
+            readme.to_str().unwrap(),
+        ])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains(
+            "generated typescript package README",
+        ));
+
+    let actual = fs::read_to_string(readme).unwrap();
+    let expected = rototo::docs::render_package_readme("typescript").unwrap();
     assert_eq!(actual, expected);
 }
 

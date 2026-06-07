@@ -75,9 +75,16 @@ python-sdk-test:
     (cd sdks/python && "$venv/bin/python" -m maturin develop)
     "$venv/bin/python" -m unittest discover -s sdks/python/tests
 
+# Run the TypeScript SDK test suite.
+[group('04. test')]
+typescript-sdk-test:
+    #!/bin/bash
+    set -euo pipefail
+    (cd sdks/typescript && npm ci && npm run check)
+
 # Run the local pre-push gate.
 [group('05. check')]
-check: lint test python-sdk-test
+check: lint test python-sdk-test typescript-sdk-test
 
 # Validate that a release tag version matches all package version surfaces.
 [group('07. release')]
@@ -103,10 +110,13 @@ release-check version:
 
     cargo test --locked --test release_versions
 
-    readme="$(mktemp -t rototo-python-readme.XXXXXX)"
-    trap 'rm -f "$readme"' EXIT
-    cargo run --locked -- docs --package-readme python --out "$readme"
-    diff -u sdks/python/README.md "$readme"
+    python_readme="$(mktemp -t rototo-python-readme.XXXXXX)"
+    typescript_readme="$(mktemp -t rototo-typescript-readme.XXXXXX)"
+    trap 'rm -f "$python_readme" "$typescript_readme"' EXIT
+    cargo run --locked -- docs --package-readme python --out "$python_readme"
+    cargo run --locked -- docs --package-readme typescript --out "$typescript_readme"
+    diff -u sdks/python/README.md "$python_readme"
+    diff -u sdks/typescript/README.md "$typescript_readme"
 
 # Update package versions and generated SDK packaging content for a release.
 [group('07. release')]
@@ -120,12 +130,14 @@ release-prep version:
         exit 1
     fi
 
-    for manifest in Cargo.toml sdks/python/Cargo.toml sdks/python/pyproject.toml; do
+    for manifest in Cargo.toml sdks/python/Cargo.toml sdks/python/pyproject.toml sdks/typescript/Cargo.toml; do
         perl -0pi -e 's/^version = "[^"]+"/version = "'"$version"'"/m' "$manifest"
     done
 
+    (cd sdks/typescript && npm version "$version" --no-git-tag-version --allow-same-version)
     cargo update -w
     cargo run --locked -- docs --package-readme python --out sdks/python/README.md
+    cargo run --locked -- docs --package-readme typescript --out sdks/typescript/README.md
     just release-check "$version"
     just check
 

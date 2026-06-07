@@ -23,6 +23,14 @@ workspace = await rototo.Workspace.load(
     "git+https://github.com/acme/config.git#main",
 )
 ```
+
+```typescript
+import { Workspace } from "rototo";
+
+const workspace = await Workspace.load(
+  "git+https://github.com/acme/config.git#main",
+);
+```
 :::
 
 Loading stages the source, inspects the workspace, runs lint, and rejects lint
@@ -39,6 +47,10 @@ let workspace = Workspace::inspect("examples/basic").await?;
 
 ```python
 workspace = await rototo.Workspace.inspect("examples/basic")
+```
+
+```typescript
+const workspace = await Workspace.inspect("examples/basic");
 ```
 :::
 
@@ -68,6 +80,13 @@ workspace = await rototo.Workspace.load(
     workspace_token=token,
 )
 ```
+
+```typescript
+const workspace = await Workspace.load(source, {
+  lint: "deny",
+  workspaceToken: token,
+});
+```
 :::
 
 Lint deny is the default. It rejects lint failures during load.
@@ -90,6 +109,10 @@ let layers = workspace.source_layers();
 
 ```python
 root = workspace.root
+```
+
+```typescript
+const root = workspace.root;
 ```
 :::
 

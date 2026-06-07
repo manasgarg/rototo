@@ -26,6 +26,14 @@ context = {
     },
 }
 ```
+
+```typescript
+const context = {
+  account: {
+    plan: "enterprise",
+  },
+};
+```
 :::
 
 The JSON value must be an object.
@@ -49,6 +57,15 @@ resolution = await workspace.resolve_variable(
 
 print(f"{resolution.value_key} -> {resolution.value}")
 ```
+
+```typescript
+const resolution = await workspace.resolveVariable(
+  "account-limits",
+  context,
+);
+
+console.log(`${resolution.valueKey} -> ${resolution.value}`);
+```
 :::
 
 `VariableResolution` contains:
@@ -58,6 +75,8 @@ print(f"{resolution.value_key} -> {resolution.value}")
 | `id` | string | Variable id. |
 | `value_key` | string | Selected value key. |
 | `value` | JSON value | Selected value. |
+
+The TypeScript SDK exposes `value_key` as `valueKey`.
 
 ## Resolve A Qualifier
 
@@ -77,6 +96,15 @@ resolution = await workspace.resolve_qualifier(
 )
 
 print(resolution.value)
+```
+
+```typescript
+const resolution = await workspace.resolveQualifier(
+  "enterprise-account",
+  context,
+);
+
+console.log(resolution.value);
 ```
 :::
 
@@ -113,6 +141,14 @@ resolution = await workspace.resolve_variable(
     context,
     validate_context=False,
 )
+```
+
+```typescript
+const resolution = await workspace.resolveVariable(
+  "account-limits",
+  context,
+  { validateContext: false },
+);
 ```
 :::
 
