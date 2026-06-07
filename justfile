@@ -8,6 +8,7 @@
 #   04. test    test runners
 #   05. check   local pre-push gate
 #   06. docs    documentation publishing previews
+#   07. release release preparation and validation
 
 default:
     @just --list --unsorted
@@ -60,9 +61,73 @@ lint:
 test:
     cargo test --workspace --all-targets
 
+# Run the Python SDK test suite.
+[group('04. test')]
+python-sdk-test:
+    #!/bin/bash
+    set -euo pipefail
+    venv="${ROTOTO_PYTHON_SDK_VENV:-/tmp/rototo-python-sdk-venv}"
+    python3 -m venv "$venv"
+    "$venv/bin/python" -m pip install --quiet --upgrade pip
+    "$venv/bin/python" -m pip install --quiet maturin==1.13.3
+    export VIRTUAL_ENV="$venv"
+    export PATH="$venv/bin:$PATH"
+    (cd sdks/python && "$venv/bin/python" -m maturin develop)
+    "$venv/bin/python" -m unittest discover -s sdks/python/tests
+
 # Run the local pre-push gate.
 [group('05. check')]
-check: lint test
+check: lint test python-sdk-test
+
+# Validate that a release tag version matches all package version surfaces.
+[group('07. release')]
+release-check version:
+    #!/bin/bash
+    set -euo pipefail
+    version="{{version}}"
+
+    if [[ "$version" == v* ]]; then
+        echo "release-check expects a version without the leading v tag prefix" >&2
+        exit 1
+    fi
+
+    manifest_version="$(
+        cargo metadata --locked --format-version=1 --no-deps |
+        python3 -c 'import json, sys; data = json.load(sys.stdin); print(next(package["version"] for package in data["packages"] if package["name"] == "rototo"))'
+    )"
+
+    if [[ "$manifest_version" != "$version" ]]; then
+        echo "tag version $version does not match Cargo.toml version $manifest_version" >&2
+        exit 1
+    fi
+
+    cargo test --locked --test release_versions
+
+    readme="$(mktemp -t rototo-python-readme.XXXXXX)"
+    trap 'rm -f "$readme"' EXIT
+    cargo run --locked -- docs --package-readme python --out "$readme"
+    diff -u sdks/python/README.md "$readme"
+
+# Update package versions and generated SDK packaging content for a release.
+[group('07. release')]
+release-prep version:
+    #!/bin/bash
+    set -euo pipefail
+    version="{{version}}"
+
+    if [[ "$version" == v* ]]; then
+        echo "release-prep expects a version without the leading v tag prefix" >&2
+        exit 1
+    fi
+
+    for manifest in Cargo.toml sdks/python/Cargo.toml sdks/python/pyproject.toml; do
+        perl -0pi -e 's/^version = "[^"]+"/version = "'"$version"'"/m' "$manifest"
+    done
+
+    cargo update -w
+    cargo run --locked -- docs --package-readme python --out sdks/python/README.md
+    just release-check "$version"
+    just check
 
 # Export docs and publish a Cloudflare Pages preview deployment.
 [group('06. docs')]

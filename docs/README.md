@@ -39,6 +39,8 @@ docs/src/
   reference-sdk-loading.md
   reference-sdk-resolution.md
   reference-sdk-refresh.md
+  reference-sdk-rust.md
+  reference-sdk-python.md
   reference-lint-overview.md
   reference-diagnostics.md
   reference-custom-lua-lint.md

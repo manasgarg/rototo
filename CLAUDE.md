@@ -148,6 +148,90 @@ generic public "read by kind" API unless there is a concrete app-facing need.
 SDK resolution APIs take a JSON object context directly; the CLI-only
 convenience forms for `--context` are parsed in `src/main.rs`.
 
+### Language-Specific SDKs
+
+Language-specific SDKs should be thin, idiomatic bindings around the Rust SDK.
+Rust remains the semantic authority for workspace loading, lint, source
+staging, refresh, qualifier evaluation, variable resolution, context
+validation, and error behavior. Do not reimplement rototo semantics in Python,
+Node, Go, Java, or other SDKs unless the design is explicitly reopened.
+
+Keep each language SDK's first surface small and runtime-focused:
+
+- load or inspect a workspace source;
+- resolve variables and qualifiers with a JSON object context;
+- expose refresh for long-running services;
+- map Rust errors into the language's normal error type;
+- convert JSON values into the language's native JSON-compatible values;
+- clean up background refresh tasks or native handles.
+
+Add list, read, trace, diagnostics catalog, fixture, or inspection helpers only
+when there is a concrete app or tool need in that language. Prefer adding the
+same concept across SDKs intentionally rather than letting one SDK accumulate
+incidental convenience APIs.
+
+All language SDKs should preserve the async runtime model. If a binding layer
+must cross a sync foreign-function boundary, hide that detail inside the
+binding and keep the public SDK operation awaitable, future-based, promise-based,
+or otherwise idiomatic for that ecosystem.
+
+Use one shared contract suite for cross-language behavior. Shared cases live as
+data, not duplicated language test code. Rust tests should validate the shared
+cases against the Rust SDK. Each language SDK should run the same cases through
+its own public API and keep language-local tests focused on wrapper behavior:
+import/install, option translation, JSON conversion, error mapping, async
+lifecycle, refresh shutdown, and packaging. Rust keeps the exhaustive semantic
+tests for lint, resolution, schemas, bucket behavior, source loading, and
+refresh failure handling.
+
+Package tests should install the SDK as a user would, then run a small smoke
+and contract suite from the installed package. Do not rely only on in-tree
+imports; native extension loading, wheel metadata, and package exports are part
+of the SDK contract.
+
+Use one canonical rototo release version: SemVer, for example
+`0.1.0-alpha.3`. Rust crates, git tags, docs, and SDK runtime version exports
+should use that canonical version. Package registries may require or display an
+ecosystem-native normalized equivalent, such as Python/PyPI's `0.1.0a3`; do
+not switch the canonical version to a registry-specific spelling. Language SDKs
+should expose the canonical rototo version at runtime when the ecosystem has a
+version field such as `__version__`.
+
+Documentation should share prose and switch code snippets by language. Use
+inline SDK snippet groups in Markdown rather than separate duplicated pages for
+the same concept:
+
+````text
+:::sdk-snippet load-workspace
+```rust
+...
+```
+
+```python
+...
+```
+:::
+````
+
+The docs renderer should show the selected SDK language consistently across the
+site. Shared SDK pages explain semantics such as loading, resolution, and
+refresh. Per-language reference pages specify exact install commands, imports,
+types, options, return values, and error behavior.
+
+Do not hand-maintain multiple package READMEs with duplicated prose. Author the
+language-specific package README content once in the docs source, generate the
+packaged README from that source, commit the generated file only when the
+ecosystem requires it for packaging, and add a freshness check so package
+README content cannot drift from the docs.
+
+Release all SDKs from the same tag. A `v<version>` tag should publish every
+supported ecosystem package for that version after all release artifacts have
+been built and checked. Use `just release-prep <version>` before tagging to
+update the canonical version surfaces, refresh generated package READMEs, and
+run the local release gate. Use `just release-check <version>` in CI before any
+publish step so tag names, manifests, and generated package content cannot
+drift.
+
 ## Commands
 
 Use `just` as the project command surface:

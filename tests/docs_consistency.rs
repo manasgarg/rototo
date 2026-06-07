@@ -89,6 +89,19 @@ fn bundled_docs_avoid_ambiguous_audience_terms() {
     }
 }
 
+#[test]
+fn python_package_readme_is_generated_from_sdk_reference() {
+    let expected = rototo::docs::render_package_readme("python").unwrap();
+    let actual =
+        fs::read_to_string(Path::new(env!("CARGO_MANIFEST_DIR")).join("sdks/python/README.md"))
+            .unwrap();
+
+    assert_eq!(
+        actual, expected,
+        "regenerate with `cargo run -- docs --package-readme python --out sdks/python/README.md`"
+    );
+}
+
 fn markdown_files(dir: &Path) -> Vec<std::path::PathBuf> {
     let mut files = Vec::new();
     collect_markdown_files(dir, &mut files);

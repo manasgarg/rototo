@@ -123,6 +123,39 @@ a:focus-visible {
   color: var(--ink-0);
 }
 
+.sdk-language-picker {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  margin-left: auto;
+  color: var(--ink-2);
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.sdk-language-picker select {
+  min-width: 104px;
+  border: 1px solid var(--line-1);
+  border-radius: 7px;
+  background: var(--paper-1);
+  color: var(--ink-0);
+  font-family: var(--font-body);
+  font-size: 13.5px;
+  font-weight: 650;
+  letter-spacing: 0;
+  line-height: 1.2;
+  padding: 7px 28px 7px 10px;
+  text-transform: none;
+}
+
+.sdk-language-picker select:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
+}
+
 .layout {
   display: grid;
   grid-template-columns: 260px minmax(0, 760px);
@@ -298,6 +331,15 @@ main {
   min-width: max-content;
 }
 
+.sdk-snippet {
+  display: none;
+}
+
+html[data-sdk-lang="rust"] .sdk-snippet[data-sdk-lang="rust"],
+html[data-sdk-lang="python"] .sdk-snippet[data-sdk-lang="python"] {
+  display: block;
+}
+
 .sx-comment {
   color: var(--ink-3);
   font-style: italic;
@@ -415,6 +457,20 @@ main {
 @media (max-width: 860px) {
   .topnav {
     display: none;
+  }
+
+  .topbar {
+    gap: 14px;
+    padding: 0 18px;
+  }
+
+  .sdk-language-picker span {
+    display: none;
+  }
+
+  .sdk-language-picker select {
+    min-width: 96px;
+    font-size: 13px;
   }
 
   .layout {

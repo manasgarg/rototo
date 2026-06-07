@@ -280,6 +280,32 @@ struct DocsArgs {
         default_missing_value = "site"
     )]
     export: Option<PathBuf>,
+
+    /// Generate a package README from the SDK reference docs.
+    #[arg(
+        long = "package-readme",
+        value_name = "SDK",
+        value_enum,
+        conflicts_with_all = ["page", "search", "export"]
+    )]
+    package_readme: Option<PackageReadmeTarget>,
+
+    /// Output file for --package-readme.
+    #[arg(long = "out", value_name = "FILE", requires = "package_readme")]
+    out: Option<PathBuf>,
+}
+
+#[derive(Clone, Copy, Debug, ValueEnum)]
+enum PackageReadmeTarget {
+    Python,
+}
+
+impl PackageReadmeTarget {
+    fn id(self) -> &'static str {
+        match self {
+            Self::Python => "python",
+        }
+    }
 }
 
 #[derive(Clone, Copy, Debug, ValueEnum)]
@@ -1590,20 +1616,31 @@ async fn run_resolve(
 }
 
 async fn run_docs(args: DocsArgs, json: bool) -> Result<ExitCode> {
-    match (args.export, args.page, args.search) {
-        (Some(out), None, None) => {
+    match (
+        args.export,
+        args.page,
+        args.search,
+        args.package_readme,
+        args.out,
+    ) {
+        (Some(out), None, None, None, None) => {
             rototo::docs::export_html(&out).await?;
             print_docs_export(&out, json)?;
             Ok(ExitCode::SUCCESS)
         }
-        (None, Some(page), None) => print_docs_page(&page, json),
-        (None, None, Some(search)) => print_docs_search(&search, json),
-        (None, None, None) => {
+        (None, Some(page), None, None, None) => print_docs_page(&page, json),
+        (None, None, Some(search), None, None) => print_docs_search(&search, json),
+        (None, None, None, Some(target), Some(out)) => {
+            write_package_readme(target, &out).await?;
+            print_package_readme_export(target, &out, json)?;
+            Ok(ExitCode::SUCCESS)
+        }
+        (None, None, None, None, None) => {
             print_docs_index(json)?;
             Ok(ExitCode::SUCCESS)
         }
         _ => Err(RototoError::new(
-            "--export, --page, and --search cannot be used together",
+            "--export, --page, --search, and --package-readme cannot be used together",
         )),
     }
 }
@@ -2592,6 +2629,12 @@ struct DocsExportJson {
 }
 
 #[derive(Serialize)]
+struct PackageReadmeExportJson {
+    sdk: &'static str,
+    out: String,
+}
+
+#[derive(Serialize)]
 struct DocsSearchMatch {
     page: &'static str,
     title: &'static str,
@@ -2658,6 +2701,41 @@ fn print_docs_export(out: &Path, json: bool) -> Result<()> {
         );
     } else {
         println!("exported documentation to {out}");
+    }
+    Ok(())
+}
+
+async fn write_package_readme(target: PackageReadmeTarget, out: &Path) -> Result<()> {
+    let readme = rototo::docs::render_package_readme(target.id())?;
+    if let Some(parent) = out.parent() {
+        tokio::fs::create_dir_all(parent).await.map_err(|err| {
+            RototoError::new(format!(
+                "failed to create package README directory {}: {err}",
+                parent.display()
+            ))
+        })?;
+    }
+    tokio::fs::write(out, readme).await.map_err(|err| {
+        RototoError::new(format!(
+            "failed to write package README {}: {err}",
+            out.display()
+        ))
+    })
+}
+
+fn print_package_readme_export(target: PackageReadmeTarget, out: &Path, json: bool) -> Result<()> {
+    let out = out.display().to_string();
+    if json {
+        println!(
+            "{}",
+            serde_json::to_string_pretty(&PackageReadmeExportJson {
+                sdk: target.id(),
+                out
+            })
+            .map_err(|err| RototoError::new(err.to_string()))?
+        );
+    } else {
+        println!("generated {} package README at {out}", target.id());
     }
     Ok(())
 }

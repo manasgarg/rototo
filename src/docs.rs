@@ -17,6 +17,23 @@ pub struct DocNavSection {
     pub pages: &'static [&'static str],
 }
 
+#[derive(Clone, Copy, Debug, serde::Serialize)]
+pub struct SdkLanguage {
+    pub id: &'static str,
+    pub label: &'static str,
+}
+
+pub const SDK_LANGUAGES: &[SdkLanguage] = &[
+    SdkLanguage {
+        id: "rust",
+        label: "Rust",
+    },
+    SdkLanguage {
+        id: "python",
+        label: "Python",
+    },
+];
+
 pub const DOCS: &[DocPage] = &[
     DocPage {
         id: "index",
@@ -179,6 +196,16 @@ pub const DOCS: &[DocPage] = &[
         markdown: include_str!("../docs/src/reference-sdk-refresh.md"),
     },
     DocPage {
+        id: "reference-sdk-rust",
+        title: "Rust SDK",
+        markdown: include_str!("../docs/src/reference-sdk-rust.md"),
+    },
+    DocPage {
+        id: "reference-sdk-python",
+        title: "Python SDK",
+        markdown: include_str!("../docs/src/reference-sdk-python.md"),
+    },
+    DocPage {
         id: "reference-lint-overview",
         title: "Lint",
         markdown: include_str!("../docs/src/reference-lint-overview.md"),
@@ -249,6 +276,8 @@ pub const DOC_NAV_SECTIONS: &[DocNavSection] = &[
             "reference-sdk-loading",
             "reference-sdk-resolution",
             "reference-sdk-refresh",
+            "reference-sdk-rust",
+            "reference-sdk-python",
             "reference-lint-overview",
             "reference-diagnostics",
             "reference-custom-lua-lint",
@@ -282,7 +311,7 @@ pub fn render_page_html(page: &DocPage) -> String {
 
     format!(
         r#"<!doctype html>
-<html lang="en">
+<html lang="en" data-sdk-lang="rust">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -298,6 +327,7 @@ pub fn render_page_html(page: &DocPage) -> String {
   <a class="brand" href="index.html"><img src="assets/rototo-wordmark.svg" alt="rototo"></a>
   <nav class="topnav" aria-label="Primary">
 {topnav}  </nav>
+  {language_picker}
 </header>
 <div class="layout">
   <details class="mobile-nav">
@@ -313,16 +343,19 @@ pub fn render_page_html(page: &DocPage) -> String {
     <div class="crumb">{section}</div>
 {body}{page_nav}  </main>
 </div>
+{language_script}
 </body>
 </html>
 "#,
         title = escape_html(page.title),
         fonts = GOOGLE_FONTS_HREF,
         topnav = render_topnav(page.id),
+        language_picker = render_sdk_language_picker(),
         section = section,
         nav = nav,
         body = render_markdown(page.markdown),
         page_nav = render_page_nav(page.id),
+        language_script = render_sdk_language_script(),
     )
 }
 
@@ -357,6 +390,25 @@ pub async fn export_html(out: &Path) -> Result<()> {
             })?;
     }
     Ok(())
+}
+
+pub fn render_package_readme(sdk: &str) -> Result<String> {
+    let page = match sdk {
+        "python" => get_page("reference-sdk-python")?,
+        other => {
+            return Err(RototoError::new(format!(
+                "unsupported package README SDK: {other}"
+            )));
+        }
+    };
+    let mut markdown = page.markdown.to_owned();
+    if let Some(rest) = markdown.strip_prefix("# Python SDK Reference\n") {
+        markdown = format!("# rototo Python SDK\n{rest}");
+    }
+    Ok(format!(
+        "<!-- Generated from docs/src/{page_id}.md by `rototo docs --package-readme {sdk} --out sdks/{sdk}/README.md`. Do not edit directly. -->\n\n{markdown}",
+        page_id = page.id,
+    ))
 }
 
 fn render_nav(current: &str) -> String {
@@ -398,6 +450,72 @@ fn render_topnav(current: &str) -> String {
         ));
     }
     nav
+}
+
+fn render_sdk_language_picker() -> String {
+    let mut options = String::new();
+    for language in SDK_LANGUAGES {
+        let selected = if language.id == "rust" {
+            " selected"
+        } else {
+            ""
+        };
+        options.push_str(&format!(
+            r#"<option value="{id}"{selected}>{label}</option>"#,
+            id = escape_html(language.id),
+            label = escape_html(language.label),
+        ));
+    }
+    format!(
+        r#"<label class="sdk-language-picker"><span>SDK</span><select id="sdk-language" aria-label="SDK language">{options}</select></label>"#
+    )
+}
+
+fn render_sdk_language_script() -> String {
+    let supported = SDK_LANGUAGES
+        .iter()
+        .map(|language| format!("\"{}\"", language.id))
+        .collect::<Vec<_>>()
+        .join(",");
+    format!(
+        r#"<script>
+(function() {{
+  var supported = [{supported}];
+  var key = "rototo.sdkLanguage";
+  var select = document.getElementById("sdk-language");
+  function stored() {{
+    try {{
+      return window.localStorage.getItem(key);
+    }} catch (_) {{
+      return null;
+    }}
+  }}
+  function remember(language) {{
+    try {{
+      window.localStorage.setItem(key, language);
+    }} catch (_) {{}}
+  }}
+  function preferred() {{
+    var params = new URLSearchParams(window.location.search);
+    return params.get("sdk") || stored() || "rust";
+  }}
+  function setLanguage(value) {{
+    var language = supported.indexOf(value) >= 0 ? value : "rust";
+    document.documentElement.setAttribute("data-sdk-lang", language);
+    remember(language);
+    if (select) {{
+      select.value = language;
+    }}
+  }}
+  setLanguage(preferred());
+  if (select) {{
+    select.addEventListener("change", function(event) {{
+      setLanguage(event.target.value);
+    }});
+  }}
+}})();
+</script>"#
+    )
 }
 
 fn render_page_nav(current: &str) -> String {
@@ -468,6 +586,7 @@ fn escape_html(text: &str) -> String {
 /// Render page markdown to HTML, replacing fenced code blocks with
 /// syntax-highlighted `<pre class="code-block language-*">` blocks.
 fn render_markdown(markdown: &str) -> String {
+    let markdown = expand_sdk_snippet_groups(markdown);
     let mut options = Options::empty();
     options.insert(Options::ENABLE_TABLES);
     options.insert(Options::ENABLE_FOOTNOTES);
@@ -475,7 +594,7 @@ fn render_markdown(markdown: &str) -> String {
 
     let mut events = Vec::new();
     let mut code_block: Option<(String, String)> = None;
-    for event in Parser::new_ext(markdown, options) {
+    for event in Parser::new_ext(&markdown, options) {
         match event {
             Event::Start(Tag::CodeBlock(kind)) => {
                 let language = match &kind {
@@ -516,16 +635,143 @@ fn code_block_language(info: &str) -> String {
 }
 
 fn render_code_block(language: &str, code: &str) -> String {
+    render_code_block_with_attrs(language, code, "", "")
+}
+
+fn render_code_block_with_attrs(
+    language: &str,
+    code: &str,
+    extra_class: &str,
+    extra_attrs: &str,
+) -> String {
     let highlighted = match language {
         "toml" => highlight_toml(code),
         "json" => highlight_json(code),
+        "python" => highlight_python(code),
         "rust" => highlight_rust(code),
         "sh" => highlight_sh(code),
         _ => escape_html(code),
     };
+    let class_suffix = if extra_class.is_empty() {
+        String::new()
+    } else {
+        format!(" {extra_class}")
+    };
     format!(
-        "<pre class=\"code-block language-{language}\"><code class=\"language-{language}\">{highlighted}</code></pre>\n"
+        "<pre class=\"code-block language-{language}{class_suffix}\"{extra_attrs}><code class=\"language-{language}\">{highlighted}</code></pre>\n"
     )
+}
+
+fn expand_sdk_snippet_groups(markdown: &str) -> String {
+    let mut out = String::new();
+    let mut lines = markdown.split_inclusive('\n').peekable();
+    while let Some(line) = lines.next() {
+        let Some(id) = sdk_snippet_start(line) else {
+            out.push_str(line);
+            continue;
+        };
+
+        let mut group = String::new();
+        let mut closed = false;
+        for group_line in lines.by_ref() {
+            if group_line.trim() == ":::" {
+                closed = true;
+                break;
+            }
+            group.push_str(group_line);
+        }
+        assert!(closed, "sdk-snippet group `{id}` is missing closing :::");
+        out.push_str(&render_sdk_snippet_group(id, &group));
+    }
+    out
+}
+
+fn sdk_snippet_start(line: &str) -> Option<&str> {
+    line.trim()
+        .strip_prefix(":::sdk-snippet ")
+        .map(str::trim)
+        .filter(|id| !id.is_empty())
+}
+
+fn render_sdk_snippet_group(id: &str, markdown: &str) -> String {
+    let snippets = parse_sdk_snippet_blocks(id, markdown);
+    let mut out = format!(
+        "<div class=\"sdk-snippet-group\" data-snippet-id=\"{}\">\n",
+        escape_html(id)
+    );
+    for language in SDK_LANGUAGES {
+        let code = snippets
+            .iter()
+            .find(|(snippet_language, _)| snippet_language == language.id)
+            .map(|(_, code)| code.as_str())
+            .unwrap_or_else(|| panic!("sdk-snippet group `{id}` is missing `{}`", language.id));
+        out.push_str(&render_code_block_with_attrs(
+            language.id,
+            code,
+            "sdk-snippet",
+            &format!(
+                r#" data-sdk-lang="{}" aria-label="{} SDK snippet""#,
+                escape_html(language.id),
+                escape_html(language.label),
+            ),
+        ));
+    }
+    out.push_str("</div>\n");
+    out
+}
+
+fn parse_sdk_snippet_blocks(id: &str, markdown: &str) -> Vec<(String, String)> {
+    let mut snippets = Vec::new();
+    let mut lines = markdown.split_inclusive('\n').peekable();
+    while let Some(line) = lines.next() {
+        if line.trim().is_empty() {
+            continue;
+        }
+        let Some(language) = fenced_code_language(line) else {
+            panic!("sdk-snippet group `{id}` contains non-code content: {line}");
+        };
+        assert!(
+            SDK_LANGUAGES
+                .iter()
+                .any(|sdk_language| sdk_language.id == language),
+            "sdk-snippet group `{id}` uses unsupported language `{language}`"
+        );
+        assert!(
+            !snippets
+                .iter()
+                .any(|(existing_language, _)| existing_language == &language),
+            "sdk-snippet group `{id}` repeats language `{language}`"
+        );
+
+        let mut code = String::new();
+        let mut closed = false;
+        for code_line in lines.by_ref() {
+            if code_line.trim() == "```" {
+                closed = true;
+                break;
+            }
+            code.push_str(code_line);
+        }
+        assert!(
+            closed,
+            "sdk-snippet group `{id}` language `{language}` is missing closing fence"
+        );
+        snippets.push((language, code));
+    }
+    assert_eq!(
+        snippets.len(),
+        SDK_LANGUAGES.len(),
+        "sdk-snippet group `{id}` should include every supported SDK language"
+    );
+    snippets
+}
+
+fn fenced_code_language(line: &str) -> Option<String> {
+    let trimmed = line.trim();
+    trimmed
+        .strip_prefix("```")
+        .map(code_block_language)
+        .filter(|language| language != "text")
 }
 
 fn push_span(out: &mut String, class: &str, text: &str) {
@@ -707,6 +953,127 @@ fn is_sh_punct(c: char) -> bool {
         '.' | '/'
             | '='
             | '+'
+            | ':'
+            | ','
+            | ';'
+            | '|'
+            | '&'
+            | '<'
+            | '>'
+            | '('
+            | ')'
+            | '['
+            | ']'
+            | '{'
+            | '}'
+    )
+}
+
+fn highlight_python(code: &str) -> String {
+    let mut out = String::new();
+    let mut rest = code;
+    while let Some(c) = rest.chars().next() {
+        if c == '#' {
+            let len = rest.find('\n').unwrap_or(rest.len());
+            push_span(&mut out, "comment", &rest[..len]);
+            rest = &rest[len..];
+        } else if rest.starts_with("'''") || rest.starts_with("\"\"\"") {
+            let quote = &rest[..3];
+            let len = rest[3..]
+                .find(quote)
+                .map(|index| index + 6)
+                .unwrap_or(rest.len());
+            push_span(&mut out, "string", &rest[..len]);
+            rest = &rest[len..];
+        } else if c == '\'' || c == '"' {
+            let len = quoted_len(rest, c);
+            push_span(&mut out, "string", &rest[..len]);
+            rest = &rest[len..];
+        } else if c.is_ascii_digit() {
+            let len = rest
+                .find(|d: char| !(d.is_ascii_digit() || matches!(d, '.' | '_' | 'e' | 'E')))
+                .unwrap_or(rest.len());
+            push_span(&mut out, "number", &rest[..len]);
+            rest = &rest[len..];
+        } else if is_python_ident_start(c) {
+            let len = rest
+                .find(|d: char| !is_python_ident_continue(d))
+                .unwrap_or(rest.len());
+            let word = &rest[..len];
+            if is_python_keyword(word) {
+                push_span(&mut out, "keyword", word);
+            } else if is_python_literal(word) {
+                push_span(&mut out, "literal", word);
+            } else {
+                out.push_str(&escape_html(word));
+            }
+            rest = &rest[len..];
+        } else if is_python_punct(c) {
+            push_span(&mut out, "punct", &rest[..c.len_utf8()]);
+            rest = &rest[c.len_utf8()..];
+        } else {
+            let (chunk, remainder) = rest.split_at(c.len_utf8());
+            out.push_str(&escape_html(chunk));
+            rest = remainder;
+        }
+    }
+    out
+}
+
+fn is_python_ident_start(c: char) -> bool {
+    c == '_' || c.is_ascii_alphabetic()
+}
+
+fn is_python_ident_continue(c: char) -> bool {
+    c == '_' || c.is_ascii_alphanumeric()
+}
+
+fn is_python_keyword(word: &str) -> bool {
+    matches!(
+        word,
+        "and"
+            | "as"
+            | "assert"
+            | "async"
+            | "await"
+            | "break"
+            | "class"
+            | "continue"
+            | "def"
+            | "elif"
+            | "else"
+            | "except"
+            | "finally"
+            | "for"
+            | "from"
+            | "if"
+            | "import"
+            | "in"
+            | "is"
+            | "lambda"
+            | "not"
+            | "or"
+            | "pass"
+            | "raise"
+            | "return"
+            | "try"
+            | "with"
+            | "while"
+    )
+}
+
+fn is_python_literal(word: &str) -> bool {
+    matches!(word, "False" | "None" | "True")
+}
+
+fn is_python_punct(c: char) -> bool {
+    matches!(
+        c,
+        '.' | '/'
+            | '='
+            | '+'
+            | '-'
+            | '*'
             | ':'
             | ','
             | ';'

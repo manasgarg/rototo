@@ -6,8 +6,9 @@ selection semantics inside rototo instead of copying them into the app.
 
 ## Context
 
-Resolution uses `ResolveContext`:
+Resolution uses a JSON object context:
 
+:::sdk-snippet resolution-context
 ```rust
 use rototo::ResolveContext;
 
@@ -18,10 +19,20 @@ let context = ResolveContext::from_json(serde_json::json!({
 }))?;
 ```
 
+```python
+context = {
+    "account": {
+        "plan": "enterprise",
+    },
+}
+```
+:::
+
 The JSON value must be an object.
 
 ## Resolve A Variable
 
+:::sdk-snippet resolve-variable
 ```rust
 let resolution = workspace
     .resolve_variable("account-limits", &context)
@@ -29,6 +40,16 @@ let resolution = workspace
 
 println!("{} -> {}", resolution.value_key, resolution.value);
 ```
+
+```python
+resolution = await workspace.resolve_variable(
+    "account-limits",
+    context,
+)
+
+print(f"{resolution.value_key} -> {resolution.value}")
+```
+:::
 
 `VariableResolution` contains:
 
@@ -40,6 +61,7 @@ println!("{} -> {}", resolution.value_key, resolution.value);
 
 ## Resolve A Qualifier
 
+:::sdk-snippet resolve-qualifier
 ```rust
 let resolution = workspace
     .resolve_qualifier("enterprise-account", &context)
@@ -47,6 +69,16 @@ let resolution = workspace
 
 println!("{}", resolution.value);
 ```
+
+```python
+resolution = await workspace.resolve_qualifier(
+    "enterprise-account",
+    context,
+)
+
+print(resolution.value)
+```
+:::
 
 `QualifierResolution` contains:
 
@@ -62,6 +94,7 @@ By default, SDK resolution validates context against
 
 To skip validation for a specific call:
 
+:::sdk-snippet context-validation-options
 ```rust
 use rototo::ResolveOptions;
 
@@ -74,26 +107,34 @@ let resolution = workspace
     .await?;
 ```
 
+```python
+resolution = await workspace.resolve_variable(
+    "account-limits",
+    context,
+    validate_context=False,
+)
+```
+:::
+
 Skipping validation does not make missing context paths valid. A qualifier that
 reads a missing path can still fail resolution. This option only skips JSON
 Schema validation of the context object.
 
 ## Workspace Loaded Without Runtime
 
-`Workspace::inspect` and `Workspace::inspect_with_source_options` load a
-workspace without compiling a runtime model. Resolution from those handles
-fails with:
+Inspection loads a workspace without compiling a runtime model. Resolution from
+that handle fails with:
 
 ```text
 workspace was loaded without a runtime model; use Workspace::load with lint enabled
 ```
 
-Use `Workspace::load` or `RefreshingWorkspace::load` for application runtime
+Use loaded runtime workspaces or refreshing workspaces for application runtime
 paths.
 
-## Free Functions
+## Rust Free Functions
 
-The crate also exports filesystem-oriented functions:
+The Rust crate also exports filesystem-oriented functions:
 
 ```rust
 rototo::resolve_variable(workspace_root, "account-limits", context_json).await?;
@@ -103,12 +144,12 @@ rototo::resolve_qualifiers(workspace_root, context_json).await?;
 ```
 
 These compile the runtime workspace from a local root for each call. They are
-handy for tests and tools. Long-running services should prefer a loaded
-`Workspace` or `RefreshingWorkspace`.
+handy for Rust tests and tools. Long-running services should prefer a loaded
+workspace.
 
 ## Traces
 
-The loaded `Workspace` APIs return compact resolutions. The CLI and free trace
+The loaded SDK APIs return compact resolutions. The CLI and Rust free trace
 functions return explanation traces:
 
 ```rust
