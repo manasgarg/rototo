@@ -73,14 +73,14 @@ not move outside the engineering process.
 Install the CLI from crates.io:
 
 ```sh
-cargo install rototo --version 0.1.0-alpha.3
+cargo install rototo --version 0.1.0-alpha.4
 ```
 
 Use the SDK from an application:
 
 ```toml
 [dependencies]
-rototo = "0.1.0-alpha.3"
+rototo = "0.1.0-alpha.4"
 serde_json = "1"
 tokio = { version = "1", features = ["macros", "rt-multi-thread", "time"] }
 ```

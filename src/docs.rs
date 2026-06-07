@@ -32,6 +32,10 @@ pub const SDK_LANGUAGES: &[SdkLanguage] = &[
         id: "python",
         label: "Python",
     },
+    SdkLanguage {
+        id: "typescript",
+        label: "TypeScript",
+    },
 ];
 
 pub const DOCS: &[DocPage] = &[
@@ -206,6 +210,11 @@ pub const DOCS: &[DocPage] = &[
         markdown: include_str!("../docs/src/reference-sdk-python.md"),
     },
     DocPage {
+        id: "reference-sdk-typescript",
+        title: "TypeScript SDK",
+        markdown: include_str!("../docs/src/reference-sdk-typescript.md"),
+    },
+    DocPage {
         id: "reference-lint-overview",
         title: "Lint",
         markdown: include_str!("../docs/src/reference-lint-overview.md"),
@@ -278,6 +287,7 @@ pub const DOC_NAV_SECTIONS: &[DocNavSection] = &[
             "reference-sdk-refresh",
             "reference-sdk-rust",
             "reference-sdk-python",
+            "reference-sdk-typescript",
             "reference-lint-overview",
             "reference-diagnostics",
             "reference-custom-lua-lint",
@@ -395,6 +405,7 @@ pub async fn export_html(out: &Path) -> Result<()> {
 pub fn render_package_readme(sdk: &str) -> Result<String> {
     let page = match sdk {
         "python" => get_page("reference-sdk-python")?,
+        "typescript" => get_page("reference-sdk-typescript")?,
         other => {
             return Err(RototoError::new(format!(
                 "unsupported package README SDK: {other}"
@@ -402,8 +413,15 @@ pub fn render_package_readme(sdk: &str) -> Result<String> {
         }
     };
     let mut markdown = page.markdown.to_owned();
-    if let Some(rest) = markdown.strip_prefix("# Python SDK Reference\n") {
-        markdown = format!("# rototo Python SDK\n{rest}");
+    let readme_title = match sdk {
+        "python" => "rototo Python SDK",
+        "typescript" => "rototo TypeScript SDK",
+        _ => unreachable!("unsupported SDK was rejected above"),
+    };
+    if let Some(rest) = markdown.strip_prefix(&format!("# {} Reference\n", page.title)) {
+        markdown = format!("# {readme_title}\n{rest}");
+    } else if let Some(rest) = markdown.strip_prefix(&format!("# {}\n", page.title)) {
+        markdown = format!("# {readme_title}\n{rest}");
     }
     Ok(format!(
         "<!-- Generated from docs/src/{page_id}.md by `rototo docs --package-readme {sdk} --out sdks/{sdk}/README.md`. Do not edit directly. -->\n\n{markdown}",
@@ -650,6 +668,7 @@ fn render_code_block_with_attrs(
         "python" => highlight_python(code),
         "rust" => highlight_rust(code),
         "sh" => highlight_sh(code),
+        "typescript" => highlight_typescript(code),
         _ => escape_html(code),
     };
     let class_suffix = if extra_class.is_empty() {
@@ -1081,6 +1100,142 @@ fn is_python_punct(c: char) -> bool {
             | '&'
             | '<'
             | '>'
+            | '('
+            | ')'
+            | '['
+            | ']'
+            | '{'
+            | '}'
+    )
+}
+
+fn highlight_typescript(code: &str) -> String {
+    let mut out = String::new();
+    let mut rest = code;
+    while let Some(c) = rest.chars().next() {
+        if rest.starts_with("//") {
+            let len = rest.find('\n').unwrap_or(rest.len());
+            push_span(&mut out, "comment", &rest[..len]);
+            rest = &rest[len..];
+        } else if rest.starts_with("/*") {
+            let len = rest[2..]
+                .find("*/")
+                .map(|index| index + 4)
+                .unwrap_or(rest.len());
+            push_span(&mut out, "comment", &rest[..len]);
+            rest = &rest[len..];
+        } else if c == '\'' || c == '"' || c == '`' {
+            let len = quoted_len(rest, c);
+            push_span(&mut out, "string", &rest[..len]);
+            rest = &rest[len..];
+        } else if c.is_ascii_digit() {
+            let len = rest
+                .find(|d: char| !(d.is_ascii_digit() || matches!(d, '.' | '_' | 'e' | 'E')))
+                .unwrap_or(rest.len());
+            push_span(&mut out, "number", &rest[..len]);
+            rest = &rest[len..];
+        } else if is_typescript_ident_start(c) {
+            let len = rest
+                .find(|d: char| !is_typescript_ident_continue(d))
+                .unwrap_or(rest.len());
+            let word = &rest[..len];
+            if is_typescript_keyword(word) {
+                push_span(&mut out, "keyword", word);
+            } else if is_typescript_literal(word) {
+                push_span(&mut out, "literal", word);
+            } else if is_typescript_builtin_type(word) {
+                push_span(&mut out, "key", word);
+            } else {
+                out.push_str(&escape_html(word));
+            }
+            rest = &rest[len..];
+        } else if is_typescript_punct(c) {
+            push_span(&mut out, "punct", &rest[..c.len_utf8()]);
+            rest = &rest[c.len_utf8()..];
+        } else {
+            let (chunk, remainder) = rest.split_at(c.len_utf8());
+            out.push_str(&escape_html(chunk));
+            rest = remainder;
+        }
+    }
+    out
+}
+
+fn is_typescript_ident_start(c: char) -> bool {
+    c == '_' || c == '$' || c.is_ascii_alphabetic()
+}
+
+fn is_typescript_ident_continue(c: char) -> bool {
+    c == '_' || c == '$' || c.is_ascii_alphanumeric()
+}
+
+fn is_typescript_keyword(word: &str) -> bool {
+    matches!(
+        word,
+        "as" | "async"
+            | "await"
+            | "break"
+            | "catch"
+            | "class"
+            | "const"
+            | "continue"
+            | "else"
+            | "export"
+            | "extends"
+            | "finally"
+            | "for"
+            | "from"
+            | "function"
+            | "if"
+            | "import"
+            | "interface"
+            | "let"
+            | "new"
+            | "return"
+            | "throw"
+            | "try"
+            | "type"
+            | "typeof"
+            | "while"
+    )
+}
+
+fn is_typescript_literal(word: &str) -> bool {
+    matches!(word, "false" | "null" | "true" | "undefined")
+}
+
+fn is_typescript_builtin_type(word: &str) -> bool {
+    matches!(
+        word,
+        "Array"
+            | "Error"
+            | "Promise"
+            | "Record"
+            | "boolean"
+            | "number"
+            | "object"
+            | "string"
+            | "void"
+    )
+}
+
+fn is_typescript_punct(c: char) -> bool {
+    matches!(
+        c,
+        '.' | '/'
+            | '='
+            | '+'
+            | '-'
+            | '*'
+            | ':'
+            | ','
+            | ';'
+            | '|'
+            | '&'
+            | '<'
+            | '>'
+            | '?'
+            | '!'
             | '('
             | ')'
             | '['

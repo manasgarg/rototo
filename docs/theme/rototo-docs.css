@@ -336,7 +336,8 @@ main {
 }
 
 html[data-sdk-lang="rust"] .sdk-snippet[data-sdk-lang="rust"],
-html[data-sdk-lang="python"] .sdk-snippet[data-sdk-lang="python"] {
+html[data-sdk-lang="python"] .sdk-snippet[data-sdk-lang="python"],
+html[data-sdk-lang="typescript"] .sdk-snippet[data-sdk-lang="typescript"] {
   display: block;
 }
 

@@ -298,12 +298,15 @@ struct DocsArgs {
 #[derive(Clone, Copy, Debug, ValueEnum)]
 enum PackageReadmeTarget {
     Python,
+    #[value(name = "typescript")]
+    TypeScript,
 }
 
 impl PackageReadmeTarget {
     fn id(self) -> &'static str {
         match self {
             Self::Python => "python",
+            Self::TypeScript => "typescript",
         }
     }
 }

@@ -29,6 +29,13 @@ jobs:
         with:
           python-version: "3.10"
 
+      - name: Set up Node
+        uses: actions/setup-node@v6
+        with:
+          node-version: "24"
+          cache: npm
+          cache-dependency-path: sdks/typescript/package-lock.json
+
       - name: Install just
         run: cargo install just --locked
 
@@ -124,12 +131,66 @@ jobs:
           path: sdks/python/dist/*.whl
           if-no-files-found: error
 
+  typescript-native:
+    name: Build TypeScript native module (${{ matrix.artifact }})
+    needs: validate
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-24.04
+            target: x86_64-unknown-linux-gnu
+            artifact: linux-x64-gnu
+          - os: ubuntu-24.04-arm
+            target: aarch64-unknown-linux-gnu
+            artifact: linux-arm64-gnu
+          - os: macos-15-intel
+            target: x86_64-apple-darwin
+            artifact: darwin-x64
+          - os: macos-15
+            target: aarch64-apple-darwin
+            artifact: darwin-arm64
+          - os: windows-latest
+            target: x86_64-pc-windows-msvc
+            artifact: win32-x64-msvc
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Set up Node
+        uses: actions/setup-node@v6
+        with:
+          node-version: "24"
+          cache: npm
+          cache-dependency-path: sdks/typescript/package-lock.json
+
+      - name: Install npm dependencies
+        working-directory: sdks/typescript
+        run: npm ci
+
+      - name: Build native module
+        working-directory: sdks/typescript
+        run: npm run build:native -- --target ${{ matrix.target }}
+
+      - name: Upload native module
+        uses: actions/upload-artifact@v4
+        with:
+          name: typescript-native-${{ matrix.artifact }}
+          path: sdks/typescript/rototo.*.node
+          if-no-files-found: error
+
   publish:
-    name: Publish crates.io and PyPI
+    name: Publish crates.io, PyPI, and npm
     needs:
       - validate
       - python-sdist
       - python-wheels
+      - typescript-native
     runs-on: ubuntu-latest
     environment: release
     permissions:
@@ -142,6 +203,34 @@ jobs:
 
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
+
+      - name: Set up Node
+        uses: actions/setup-node@v6
+        with:
+          node-version: "24"
+          registry-url: https://registry.npmjs.org
+          cache: npm
+          cache-dependency-path: sdks/typescript/package-lock.json
+
+      - name: Download TypeScript native modules
+        uses: actions/download-artifact@v4
+        with:
+          pattern: typescript-native-*
+          path: sdks/typescript
+          merge-multiple: true
+
+      - name: Prepare TypeScript SDK package
+        working-directory: sdks/typescript
+        run: |
+          npm ci
+          npm run build:ts
+          ls -la rototo.*.node
+          npm pack --dry-run
+
+      - name: Publish TypeScript SDK
+        if: ${{ vars.ROTOTO_PUBLISH_NPM == 'true' }}
+        working-directory: sdks/typescript
+        run: npm publish --provenance
 
       - name: Authenticate to crates.io
         id: auth
