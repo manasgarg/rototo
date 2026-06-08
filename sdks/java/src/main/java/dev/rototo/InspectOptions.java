@@ -1,4 +1,4 @@
-package com.rototo;
+package dev.rototo;
 
 public final class InspectOptions {
     private static final InspectOptions DEFAULT = new InspectOptions(null);

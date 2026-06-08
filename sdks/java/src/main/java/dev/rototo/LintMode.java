@@ -1,4 +1,4 @@
-package com.rototo;
+package dev.rototo;
 
 public enum LintMode {
     DENY("deny"),

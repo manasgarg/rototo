@@ -1,4 +1,4 @@
-package com.rototo;
+package dev.rototo;
 
 /** Error raised for rototo SDK failures. */
 public class RototoException extends RuntimeException {

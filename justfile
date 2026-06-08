@@ -126,12 +126,12 @@ java-sdk-test:
     esac
     native_path="$PWD/target/debug/$native_file"
 
-    "${JAVA[@]}" -Drototo.native.path="$native_path" -cp "$classes:$test_classes" com.rototo.JavaSdkTest
+    "${JAVA[@]}" -Drototo.native.path="$native_path" -cp "$classes:$test_classes" dev.rototo.JavaSdkTest
 
-    mkdir -p "$resources/com/rototo/native/$resource_platform"
-    cp "$native_path" "$resources/com/rototo/native/$resource_platform/$native_file"
+    mkdir -p "$resources/dev/rototo/native/$resource_platform"
+    cp "$native_path" "$resources/dev/rototo/native/$resource_platform/$native_file"
     "${JAR[@]}" --create --file "$jar_file" -C "$classes" . -C "$resources" .
-    "${JAVA[@]}" -cp "$test_classes:$jar_file" com.rototo.PackageSmokeTest
+    "${JAVA[@]}" -cp "$test_classes:$jar_file" dev.rototo.PackageSmokeTest
 
 # Run the local pre-push gate.
 [group('05. check')]

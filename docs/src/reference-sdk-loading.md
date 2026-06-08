@@ -33,7 +33,7 @@ const workspace = await Workspace.load(
 ```
 
 ```java
-import com.rototo.Workspace;
+import dev.rototo.Workspace;
 
 Workspace workspace = Workspace
     .load("git+https://github.com/acme/config.git#main")
