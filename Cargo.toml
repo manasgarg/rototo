@@ -12,7 +12,7 @@ keywords = ["configuration", "feature-flags", "rules", "cli", "sdk"]
 categories = ["command-line-utilities", "config"]
 
 [workspace]
-members = ["examples/sdk-app", "sdks/python", "sdks/typescript"]
+members = ["examples/sdk-app", "sdks/java", "sdks/python", "sdks/typescript"]
 resolver = "3"
 
 [dependencies]

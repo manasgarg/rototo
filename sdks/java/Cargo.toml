@@ -1,0 +1,18 @@
+[package]
+name = "rototo-java"
+version = "0.1.0-alpha.4"
+edition = "2024"
+description = "Java SDK native binding for rototo runtime configuration workspaces."
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/manasgarg/rototo"
+homepage = "https://docs.rototo.pirogram.com"
+
+[lib]
+name = "rototo_java"
+crate-type = ["cdylib"]
+
+[dependencies]
+jni = "0.21"
+rototo = { path = "../.." }
+serde_json = "1"
+tokio = { version = "1", features = ["rt-multi-thread", "time"] }

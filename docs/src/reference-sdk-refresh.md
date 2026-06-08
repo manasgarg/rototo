@@ -36,6 +36,16 @@ const workspace = await RefreshingWorkspace.load(source, {
   periodSeconds: 30,
 });
 ```
+
+```java
+RefreshingWorkspaceOptions options = RefreshingWorkspaceOptions.builder()
+    .periodSeconds(30.0)
+    .build();
+
+RefreshingWorkspace workspace = RefreshingWorkspace
+    .load(source, options)
+    .get();
+```
 :::
 
 Initial load stages the source, lints it, compiles the runtime model, and makes
@@ -66,6 +76,12 @@ const resolution = await workspace.resolveVariable(
   context,
 );
 ```
+
+```java
+VariableResolution resolution = workspace
+    .resolveVariable("account-limits", context)
+    .get();
+```
 :::
 
 Each call resolves against the current successfully loaded workspace. A
@@ -85,6 +101,10 @@ outcome = await workspace.refresh_now()
 
 ```typescript
 const outcome = await workspace.refreshNow();
+```
+
+```java
+String outcome = workspace.refreshNow().get();
 ```
 :::
 
@@ -119,6 +139,16 @@ const workspace = await RefreshingWorkspace.load(source, {
   periodSeconds: 60,
 });
 ```
+
+```java
+RefreshingWorkspaceOptions options = RefreshingWorkspaceOptions.builder()
+    .periodSeconds(60.0)
+    .build();
+
+RefreshingWorkspace workspace = RefreshingWorkspace
+    .load(source, options)
+    .get();
+```
 :::
 
 On refresh failure, rototo keeps the current workspace active and backs off
@@ -149,6 +179,10 @@ status = await workspace.status()
 ```typescript
 const status = await workspace.status();
 ```
+
+```java
+RefreshStatus status = workspace.status().get();
+```
 :::
 
 `RefreshStatus` contains:
@@ -178,6 +212,10 @@ await workspace.shutdown()
 
 ```typescript
 await workspace.shutdown();
+```
+
+```java
+workspace.shutdown().get();
 ```
 :::
 

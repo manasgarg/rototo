@@ -42,6 +42,7 @@ docs/src/
   reference-sdk-rust.md
   reference-sdk-python.md
   reference-sdk-typescript.md
+  reference-sdk-java.md
   reference-lint-overview.md
   reference-diagnostics.md
   reference-custom-lua-lint.md

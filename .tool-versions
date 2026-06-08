@@ -2,5 +2,6 @@
 #
 # Rust is pinned in rust-toolchain.toml and applied by rustup.
 python 3.13
+java 21.0.2
 node 24
 npm:wrangler 4

@@ -93,6 +93,7 @@ fn bundled_docs_avoid_ambiguous_audience_terms() {
 fn package_readmes_are_generated_from_sdk_reference_docs() {
     assert_package_readme_is_generated("python");
     assert_package_readme_is_generated("typescript");
+    assert_package_readme_is_generated("java");
 }
 
 fn assert_package_readme_is_generated(sdk: &str) {

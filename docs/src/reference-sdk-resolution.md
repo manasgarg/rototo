@@ -34,6 +34,13 @@ const context = {
   },
 };
 ```
+
+```java
+Map<String, Object> context = Map.of(
+    "account",
+    Map.of("plan", "enterprise")
+);
+```
 :::
 
 The JSON value must be an object.
@@ -66,6 +73,14 @@ const resolution = await workspace.resolveVariable(
 
 console.log(`${resolution.valueKey} -> ${resolution.value}`);
 ```
+
+```java
+VariableResolution resolution = workspace
+    .resolveVariable("account-limits", context)
+    .get();
+
+System.out.println(resolution.valueKey() + " -> " + resolution.value());
+```
 :::
 
 `VariableResolution` contains:
@@ -76,7 +91,7 @@ console.log(`${resolution.valueKey} -> ${resolution.value}`);
 | `value_key` | string | Selected value key. |
 | `value` | JSON value | Selected value. |
 
-The TypeScript SDK exposes `value_key` as `valueKey`.
+The TypeScript and Java SDKs expose `value_key` as `valueKey`.
 
 ## Resolve A Qualifier
 
@@ -105,6 +120,14 @@ const resolution = await workspace.resolveQualifier(
 );
 
 console.log(resolution.value);
+```
+
+```java
+QualifierResolution resolution = workspace
+    .resolveQualifier("enterprise-account", context)
+    .get();
+
+System.out.println(resolution.value());
 ```
 :::
 
@@ -149,6 +172,16 @@ const resolution = await workspace.resolveVariable(
   context,
   { validateContext: false },
 );
+```
+
+```java
+VariableResolution resolution = workspace
+    .resolveVariable(
+        "account-limits",
+        context,
+        ResolveOptions.validateContext(false)
+    )
+    .get();
 ```
 :::
 
