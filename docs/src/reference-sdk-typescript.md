@@ -6,21 +6,15 @@ loading, linting, refresh, and resolution behavior in the Rust core.
 
 ## Install
 
-The package is built from the local native binding while rototo is in alpha:
-
-```sh
-cd sdks/typescript
-npm install
-npm run build
-```
-
-After release, install the published package:
+rototo is currently published as an alpha package for Node.js 20 and newer:
 
 ```sh
 npm install rototo@alpha
 ```
 
-The rototo release version stays SemVer, for example `0.1.0-alpha.4`.
+The package includes native modules for Linux, macOS, and Windows on the
+supported x64 and arm64 targets. The rototo release version stays SemVer, for
+example `0.1.0-alpha.4`.
 
 ## Load A Workspace
 
