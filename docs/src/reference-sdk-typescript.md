@@ -17,7 +17,7 @@ npm run build
 After release, install the published package:
 
 ```sh
-npm install rototo
+npm install rototo@alpha
 ```
 
 The rototo release version stays SemVer, for example `0.1.0-alpha.4`.
