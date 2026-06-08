@@ -6,22 +6,22 @@ and resolution behavior in the Rust core.
 
 ## Install
 
-The package is built with maturin while rototo is in alpha:
-
-```sh
-cd sdks/python
-python -m maturin develop
-```
-
-After release, install the published package:
+rototo is currently published as an alpha package for Python 3.10 and newer:
 
 ```sh
 python -m pip install rototo
 ```
 
-The rototo release version stays SemVer, for example `0.1.0-alpha.4`.
-Python packaging tools may display the equivalent PEP 440 spelling
-`0.1.0a4` for the distribution.
+If your package resolver is constrained to stable releases, allow prereleases
+explicitly:
+
+```sh
+python -m pip install --pre rototo
+```
+
+The rototo release version stays SemVer, for example `0.1.0-alpha.4`. Python
+packaging tools may display the equivalent PEP 440 spelling `0.1.0a4` for the
+distribution.
 
 ## Load A Workspace
 
