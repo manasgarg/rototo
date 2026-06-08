@@ -36,6 +36,12 @@ jobs:
           cache: npm
           cache-dependency-path: sdks/typescript/package-lock.json
 
+      - name: Set up Java
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: "21"
+
       - name: Install just
         run: cargo install just --locked
 
@@ -193,6 +199,109 @@ jobs:
           path: sdks/typescript/rototo.*.node
           if-no-files-found: error
 
+  java-native:
+    name: Build Java native library (${{ matrix.artifact }})
+    needs: validate
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-24.04
+            target: x86_64-unknown-linux-gnu
+            artifact: linux-x86_64
+            native_file: librototo_java.so
+          - os: ubuntu-24.04-arm
+            target: aarch64-unknown-linux-gnu
+            artifact: linux-aarch64
+            native_file: librototo_java.so
+          - os: macos-15-intel
+            target: x86_64-apple-darwin
+            artifact: darwin-x86_64
+            native_file: librototo_java.dylib
+          - os: macos-15
+            target: aarch64-apple-darwin
+            artifact: darwin-aarch64
+            native_file: librototo_java.dylib
+          - os: windows-latest
+            target: x86_64-pc-windows-msvc
+            artifact: windows-x86_64
+            native_file: rototo_java.dll
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Build native library
+        run: cargo build --package rototo-java --release --target ${{ matrix.target }} --locked
+
+      - name: Upload native library
+        uses: actions/upload-artifact@v4
+        with:
+          name: java-native-${{ matrix.artifact }}
+          path: target/${{ matrix.target }}/release/${{ matrix.native_file }}
+          if-no-files-found: error
+
+  java-package:
+    name: Build Java SDK package
+    needs:
+      - validate
+      - java-native
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Set up Java
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: "21"
+
+      - name: Download Java native libraries
+        uses: actions/download-artifact@v4
+        with:
+          pattern: java-native-*
+          path: sdks/java/native
+
+      - name: Build Java SDK jar
+        run: |
+          set -euo pipefail
+          version="${GITHUB_REF_NAME#v}"
+          classes="sdks/java/target/classes"
+          resources="sdks/java/target/package-resources"
+          dist="sdks/java/dist"
+          rm -rf "$classes" "$resources" "$dist"
+          mkdir -p "$classes" "$dist"
+
+          find sdks/java/src/main/java -name '*.java' -print > sdks/java/target/main-sources.txt
+          javac --release 11 -d "$classes" @sdks/java/target/main-sources.txt
+
+          mkdir -p "$resources/com/rototo/native/linux-x86_64"
+          mkdir -p "$resources/com/rototo/native/linux-aarch64"
+          mkdir -p "$resources/com/rototo/native/darwin-x86_64"
+          mkdir -p "$resources/com/rototo/native/darwin-aarch64"
+          mkdir -p "$resources/com/rototo/native/windows-x86_64"
+          cp sdks/java/native/java-native-linux-x86_64/librototo_java.so "$resources/com/rototo/native/linux-x86_64/"
+          cp sdks/java/native/java-native-linux-aarch64/librototo_java.so "$resources/com/rototo/native/linux-aarch64/"
+          cp sdks/java/native/java-native-darwin-x86_64/librototo_java.dylib "$resources/com/rototo/native/darwin-x86_64/"
+          cp sdks/java/native/java-native-darwin-aarch64/librototo_java.dylib "$resources/com/rototo/native/darwin-aarch64/"
+          cp sdks/java/native/java-native-windows-x86_64/rototo_java.dll "$resources/com/rototo/native/windows-x86_64/"
+
+          jar --create --file "$dist/rototo-$version.jar" -C "$classes" . -C "$resources" .
+          cp sdks/java/pom.xml "$dist/rototo-$version.pom"
+
+      - name: Upload Java SDK package
+        uses: actions/upload-artifact@v4
+        with:
+          name: java-package
+          path: sdks/java/dist/*
+          if-no-files-found: error
+
   publish:
     name: Publish crates.io, PyPI, and npm
     needs:
@@ -200,6 +309,7 @@ jobs:
       - python-sdist
       - python-wheels
       - typescript-native
+      - java-package
     runs-on: ubuntu-latest
     environment: release
     permissions:

@@ -36,6 +36,10 @@ pub const SDK_LANGUAGES: &[SdkLanguage] = &[
         id: "typescript",
         label: "TypeScript",
     },
+    SdkLanguage {
+        id: "java",
+        label: "Java",
+    },
 ];
 
 pub const DOCS: &[DocPage] = &[
@@ -215,6 +219,11 @@ pub const DOCS: &[DocPage] = &[
         markdown: include_str!("../docs/src/reference-sdk-typescript.md"),
     },
     DocPage {
+        id: "reference-sdk-java",
+        title: "Java SDK",
+        markdown: include_str!("../docs/src/reference-sdk-java.md"),
+    },
+    DocPage {
         id: "reference-lint-overview",
         title: "Lint",
         markdown: include_str!("../docs/src/reference-lint-overview.md"),
@@ -288,6 +297,7 @@ pub const DOC_NAV_SECTIONS: &[DocNavSection] = &[
             "reference-sdk-rust",
             "reference-sdk-python",
             "reference-sdk-typescript",
+            "reference-sdk-java",
             "reference-lint-overview",
             "reference-diagnostics",
             "reference-custom-lua-lint",
@@ -406,6 +416,7 @@ pub fn render_package_readme(sdk: &str) -> Result<String> {
     let page = match sdk {
         "python" => get_page("reference-sdk-python")?,
         "typescript" => get_page("reference-sdk-typescript")?,
+        "java" => get_page("reference-sdk-java")?,
         other => {
             return Err(RototoError::new(format!(
                 "unsupported package README SDK: {other}"
@@ -416,6 +427,7 @@ pub fn render_package_readme(sdk: &str) -> Result<String> {
     let readme_title = match sdk {
         "python" => "rototo Python SDK",
         "typescript" => "rototo TypeScript SDK",
+        "java" => "rototo Java SDK",
         _ => unreachable!("unsupported SDK was rejected above"),
     };
     if let Some(rest) = markdown.strip_prefix(&format!("# {} Reference\n", page.title)) {
@@ -666,6 +678,7 @@ fn render_code_block_with_attrs(
         "toml" => highlight_toml(code),
         "json" => highlight_json(code),
         "python" => highlight_python(code),
+        "java" => highlight_java(code),
         "rust" => highlight_rust(code),
         "sh" => highlight_sh(code),
         "typescript" => highlight_typescript(code),
@@ -1086,6 +1099,131 @@ fn is_python_literal(word: &str) -> bool {
 }
 
 fn is_python_punct(c: char) -> bool {
+    matches!(
+        c,
+        '.' | '/'
+            | '='
+            | '+'
+            | '-'
+            | '*'
+            | ':'
+            | ','
+            | ';'
+            | '|'
+            | '&'
+            | '<'
+            | '>'
+            | '('
+            | ')'
+            | '['
+            | ']'
+            | '{'
+            | '}'
+    )
+}
+
+fn highlight_java(code: &str) -> String {
+    let mut out = String::new();
+    let mut rest = code;
+    while let Some(c) = rest.chars().next() {
+        if rest.starts_with("//") {
+            let len = rest.find('\n').unwrap_or(rest.len());
+            push_span(&mut out, "comment", &rest[..len]);
+            rest = &rest[len..];
+        } else if rest.starts_with("/*") {
+            let len = rest[2..]
+                .find("*/")
+                .map(|index| index + 4)
+                .unwrap_or(rest.len());
+            push_span(&mut out, "comment", &rest[..len]);
+            rest = &rest[len..];
+        } else if c == '\'' || c == '"' {
+            let len = quoted_len(rest, c);
+            push_span(&mut out, "string", &rest[..len]);
+            rest = &rest[len..];
+        } else if c.is_ascii_digit() {
+            let len = rest
+                .find(|d: char| !(d.is_ascii_digit() || matches!(d, '.' | '_' | 'e' | 'E' | 'L')))
+                .unwrap_or(rest.len());
+            push_span(&mut out, "number", &rest[..len]);
+            rest = &rest[len..];
+        } else if is_java_ident_start(c) {
+            let len = rest
+                .find(|d: char| !is_java_ident_continue(d))
+                .unwrap_or(rest.len());
+            let word = &rest[..len];
+            if is_java_keyword(word) {
+                push_span(&mut out, "keyword", word);
+            } else if is_java_literal(word) {
+                push_span(&mut out, "literal", word);
+            } else {
+                out.push_str(&escape_html(word));
+            }
+            rest = &rest[len..];
+        } else if is_java_punct(c) {
+            push_span(&mut out, "punct", &rest[..c.len_utf8()]);
+            rest = &rest[c.len_utf8()..];
+        } else {
+            let (chunk, remainder) = rest.split_at(c.len_utf8());
+            out.push_str(&escape_html(chunk));
+            rest = remainder;
+        }
+    }
+    out
+}
+
+fn is_java_ident_start(c: char) -> bool {
+    c == '_' || c.is_ascii_alphabetic()
+}
+
+fn is_java_ident_continue(c: char) -> bool {
+    c == '_' || c.is_ascii_alphanumeric()
+}
+
+fn is_java_keyword(word: &str) -> bool {
+    matches!(
+        word,
+        "abstract"
+            | "assert"
+            | "break"
+            | "case"
+            | "catch"
+            | "class"
+            | "continue"
+            | "default"
+            | "do"
+            | "else"
+            | "enum"
+            | "extends"
+            | "final"
+            | "finally"
+            | "for"
+            | "if"
+            | "implements"
+            | "import"
+            | "instanceof"
+            | "interface"
+            | "new"
+            | "private"
+            | "protected"
+            | "public"
+            | "return"
+            | "static"
+            | "switch"
+            | "throw"
+            | "throws"
+            | "try"
+            | "var"
+            | "void"
+            | "while"
+    )
+}
+
+fn is_java_literal(word: &str) -> bool {
+    matches!(word, "false" | "null" | "true")
+}
+
+fn is_java_punct(c: char) -> bool {
     matches!(
         c,
         '.' | '/'

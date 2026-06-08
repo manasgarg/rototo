@@ -82,9 +82,60 @@ typescript-sdk-test:
     set -euo pipefail
     (cd sdks/typescript && npm ci && npm run check)
 
+# Run the Java SDK test suite.
+[group('04. test')]
+java-sdk-test:
+    #!/bin/bash
+    set -euo pipefail
+    if command -v javac >/dev/null && command -v java >/dev/null && command -v jar >/dev/null; then
+        JAVAC=(javac)
+        JAVA=(java)
+        JAR=(jar)
+    elif command -v mise >/dev/null && mise exec -- javac -version >/dev/null 2>&1; then
+        JAVAC=(mise exec -- javac)
+        JAVA=(mise exec -- java)
+        JAR=(mise exec -- jar)
+    else
+        echo "Java SDK tests require a JDK; skipping because javac/java/jar is not on PATH" >&2
+        exit 0
+    fi
+
+    cargo build --locked --package rototo-java
+
+    classes="sdks/java/target/classes"
+    test_classes="sdks/java/target/test-classes"
+    resources="sdks/java/target/package-resources"
+    jar_file="sdks/java/target/rototo-java-test.jar"
+    rm -rf "$classes" "$test_classes" "$resources" "$jar_file"
+    mkdir -p "$classes" "$test_classes"
+
+    find sdks/java/src/main/java -name '*.java' -print > sdks/java/target/main-sources.txt
+    find sdks/java/src/test/java -name '*.java' -print > sdks/java/target/test-sources.txt
+    "${JAVAC[@]}" --release 11 -d "$classes" @sdks/java/target/main-sources.txt
+    "${JAVAC[@]}" --release 11 -cp "$classes" -d "$test_classes" @sdks/java/target/test-sources.txt
+
+    case "$(uname -s)" in
+        Linux*) native_file="librototo_java.so"; resource_platform="linux-$(uname -m)" ;;
+        Darwin*) native_file="librototo_java.dylib"; resource_platform="darwin-$(uname -m)" ;;
+        MINGW*|MSYS*|CYGWIN*) native_file="rototo_java.dll"; resource_platform="windows-$(uname -m)" ;;
+        *) echo "unsupported Java SDK test platform: $(uname -s)" >&2; exit 1 ;;
+    esac
+    case "$resource_platform" in
+        *-x86_64|*-amd64) resource_platform="${resource_platform%-*}-x86_64" ;;
+        *-aarch64|*-arm64) resource_platform="${resource_platform%-*}-aarch64" ;;
+    esac
+    native_path="$PWD/target/debug/$native_file"
+
+    "${JAVA[@]}" -Drototo.native.path="$native_path" -cp "$classes:$test_classes" com.rototo.JavaSdkTest
+
+    mkdir -p "$resources/com/rototo/native/$resource_platform"
+    cp "$native_path" "$resources/com/rototo/native/$resource_platform/$native_file"
+    "${JAR[@]}" --create --file "$jar_file" -C "$classes" . -C "$resources" .
+    "${JAVA[@]}" -cp "$test_classes:$jar_file" com.rototo.PackageSmokeTest
+
 # Run the local pre-push gate.
 [group('05. check')]
-check: lint test python-sdk-test typescript-sdk-test
+check: lint test python-sdk-test typescript-sdk-test java-sdk-test
 
 # Validate that a release tag version matches all package version surfaces.
 [group('07. release')]
@@ -112,11 +163,14 @@ release-check version:
 
     python_readme="$(mktemp -t rototo-python-readme.XXXXXX)"
     typescript_readme="$(mktemp -t rototo-typescript-readme.XXXXXX)"
-    trap 'rm -f "$python_readme" "$typescript_readme"' EXIT
+    java_readme="$(mktemp -t rototo-java-readme.XXXXXX)"
+    trap 'rm -f "$python_readme" "$typescript_readme" "$java_readme"' EXIT
     cargo run --locked -- docs --package-readme python --out "$python_readme"
     cargo run --locked -- docs --package-readme typescript --out "$typescript_readme"
+    cargo run --locked -- docs --package-readme java --out "$java_readme"
     diff -u sdks/python/README.md "$python_readme"
     diff -u sdks/typescript/README.md "$typescript_readme"
+    diff -u sdks/java/README.md "$java_readme"
 
 # Update package versions and generated SDK packaging content for a release.
 [group('07. release')]
@@ -130,14 +184,16 @@ release-prep version:
         exit 1
     fi
 
-    for manifest in Cargo.toml sdks/python/Cargo.toml sdks/python/pyproject.toml sdks/typescript/Cargo.toml; do
+    for manifest in Cargo.toml sdks/python/Cargo.toml sdks/python/pyproject.toml sdks/typescript/Cargo.toml sdks/java/Cargo.toml; do
         perl -0pi -e 's/^version = "[^"]+"/version = "'"$version"'"/m' "$manifest"
     done
 
     (cd sdks/typescript && npm version "$version" --no-git-tag-version --allow-same-version)
+    perl -0pi -e 's|<version>[^<]+</version>|<version>'"$version"'</version>|' sdks/java/pom.xml
     cargo update -w
     cargo run --locked -- docs --package-readme python --out sdks/python/README.md
     cargo run --locked -- docs --package-readme typescript --out sdks/typescript/README.md
+    cargo run --locked -- docs --package-readme java --out sdks/java/README.md
     just release-check "$version"
     just check
 

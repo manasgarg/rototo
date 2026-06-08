@@ -31,6 +31,14 @@ const workspace = await Workspace.load(
   "git+https://github.com/acme/config.git#main",
 );
 ```
+
+```java
+import com.rototo.Workspace;
+
+Workspace workspace = Workspace
+    .load("git+https://github.com/acme/config.git#main")
+    .get();
+```
 :::
 
 Loading stages the source, inspects the workspace, runs lint, and rejects lint
@@ -51,6 +59,10 @@ workspace = await rototo.Workspace.inspect("examples/basic")
 
 ```typescript
 const workspace = await Workspace.inspect("examples/basic");
+```
+
+```java
+Workspace workspace = Workspace.inspect("examples/basic").get();
 ```
 :::
 
@@ -87,6 +99,15 @@ const workspace = await Workspace.load(source, {
   workspaceToken: token,
 });
 ```
+
+```java
+LoadOptions options = LoadOptions.builder()
+    .lint(LintMode.DENY)
+    .workspaceToken(token)
+    .build();
+
+Workspace workspace = Workspace.load(source, options).get();
+```
 :::
 
 Lint deny is the default. It rejects lint failures during load.
@@ -113,6 +134,10 @@ root = workspace.root
 
 ```typescript
 const root = workspace.root;
+```
+
+```java
+String root = workspace.root();
 ```
 :::
 
