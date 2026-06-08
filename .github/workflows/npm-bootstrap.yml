@@ -131,4 +131,4 @@ jobs:
         working-directory: sdks/typescript
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
-        run: npm publish --provenance --tag alpha
+        run: npm publish --provenance --tag alpha --access public

@@ -230,7 +230,7 @@ jobs:
       - name: Publish TypeScript SDK
         if: ${{ vars.ROTOTO_PUBLISH_NPM == 'true' }}
         working-directory: sdks/typescript
-        run: npm publish --provenance --tag alpha
+        run: npm publish --provenance --tag alpha --access public
 
       - name: Authenticate to crates.io
         id: auth
