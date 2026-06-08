@@ -9,14 +9,14 @@ linting, refresh, and resolution behavior in the Rust core.
 rototo is currently versioned as an alpha package for Java 11 and newer:
 
 ```gradle
-implementation("com.rototo:rototo:0.1.0-alpha.4")
+implementation("dev.rototo:rototo:0.1.0-alpha.4")
 ```
 
 For Maven:
 
 ```xml
 <dependency>
-  <groupId>com.rototo</groupId>
+  <groupId>dev.rototo</groupId>
   <artifactId>rototo</artifactId>
   <version>0.1.0-alpha.4</version>
 </dependency>
@@ -29,7 +29,7 @@ Windows targets. The rototo release version stays SemVer, for example
 ## Load A Workspace
 
 ```java
-import com.rototo.Workspace;
+import dev.rototo.Workspace;
 
 try (Workspace workspace = Workspace.load("examples/basic").get()) {
     // Resolve variables from this workspace.

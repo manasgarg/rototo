@@ -5,7 +5,7 @@ edition = "2024"
 description = "Java SDK native binding for rototo runtime configuration workspaces."
 license = "MIT OR Apache-2.0"
 repository = "https://github.com/manasgarg/rototo"
-homepage = "https://docs.rototo.pirogram.com"
+homepage = "https://rototo.dev"
 
 [lib]
 name = "rototo_java"

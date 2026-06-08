@@ -19,7 +19,7 @@ struct JavaRefreshingWorkspace {
 static RUNTIME: OnceLock<Runtime> = OnceLock::new();
 
 #[unsafe(no_mangle)]
-pub extern "system" fn Java_com_rototo_Native_versionNative(
+pub extern "system" fn Java_dev_rototo_Native_versionNative(
     mut env: JNIEnv<'_>,
     _class: JClass<'_>,
 ) -> jstring {
@@ -27,7 +27,7 @@ pub extern "system" fn Java_com_rototo_Native_versionNative(
 }
 
 #[unsafe(no_mangle)]
-pub extern "system" fn Java_com_rototo_Native_workspaceLoadNative(
+pub extern "system" fn Java_dev_rototo_Native_workspaceLoadNative(
     mut env: JNIEnv<'_>,
     _class: JClass<'_>,
     source: JString<'_>,
@@ -47,7 +47,7 @@ pub extern "system" fn Java_com_rototo_Native_workspaceLoadNative(
 }
 
 #[unsafe(no_mangle)]
-pub extern "system" fn Java_com_rototo_Native_workspaceInspectNative(
+pub extern "system" fn Java_dev_rototo_Native_workspaceInspectNative(
     mut env: JNIEnv<'_>,
     _class: JClass<'_>,
     source: JString<'_>,
@@ -66,7 +66,7 @@ pub extern "system" fn Java_com_rototo_Native_workspaceInspectNative(
 }
 
 #[unsafe(no_mangle)]
-pub extern "system" fn Java_com_rototo_Native_workspaceRootNative(
+pub extern "system" fn Java_dev_rototo_Native_workspaceRootNative(
     mut env: JNIEnv<'_>,
     _class: JClass<'_>,
     handle: jlong,
@@ -78,7 +78,7 @@ pub extern "system" fn Java_com_rototo_Native_workspaceRootNative(
 }
 
 #[unsafe(no_mangle)]
-pub extern "system" fn Java_com_rototo_Native_workspaceLintNative(
+pub extern "system" fn Java_dev_rototo_Native_workspaceLintNative(
     mut env: JNIEnv<'_>,
     _class: JClass<'_>,
     handle: jlong,
@@ -97,7 +97,7 @@ pub extern "system" fn Java_com_rototo_Native_workspaceLintNative(
 }
 
 #[unsafe(no_mangle)]
-pub extern "system" fn Java_com_rototo_Native_workspaceResolveVariableNative(
+pub extern "system" fn Java_dev_rototo_Native_workspaceResolveVariableNative(
     mut env: JNIEnv<'_>,
     _class: JClass<'_>,
     handle: jlong,
@@ -128,7 +128,7 @@ pub extern "system" fn Java_com_rototo_Native_workspaceResolveVariableNative(
 }
 
 #[unsafe(no_mangle)]
-pub extern "system" fn Java_com_rototo_Native_workspaceResolveQualifierNative(
+pub extern "system" fn Java_dev_rototo_Native_workspaceResolveQualifierNative(
     mut env: JNIEnv<'_>,
     _class: JClass<'_>,
     handle: jlong,
@@ -158,7 +158,7 @@ pub extern "system" fn Java_com_rototo_Native_workspaceResolveQualifierNative(
 }
 
 #[unsafe(no_mangle)]
-pub extern "system" fn Java_com_rototo_Native_workspaceFreeNative(
+pub extern "system" fn Java_dev_rototo_Native_workspaceFreeNative(
     _env: JNIEnv<'_>,
     _class: JClass<'_>,
     handle: jlong,
@@ -171,7 +171,7 @@ pub extern "system" fn Java_com_rototo_Native_workspaceFreeNative(
 }
 
 #[unsafe(no_mangle)]
-pub extern "system" fn Java_com_rototo_Native_refreshingWorkspaceLoadNative(
+pub extern "system" fn Java_dev_rototo_Native_refreshingWorkspaceLoadNative(
     mut env: JNIEnv<'_>,
     _class: JClass<'_>,
     source: JString<'_>,
@@ -200,7 +200,7 @@ pub extern "system" fn Java_com_rototo_Native_refreshingWorkspaceLoadNative(
 }
 
 #[unsafe(no_mangle)]
-pub extern "system" fn Java_com_rototo_Native_refreshingWorkspaceResolveVariableNative(
+pub extern "system" fn Java_dev_rototo_Native_refreshingWorkspaceResolveVariableNative(
     mut env: JNIEnv<'_>,
     _class: JClass<'_>,
     handle: jlong,
@@ -232,7 +232,7 @@ pub extern "system" fn Java_com_rototo_Native_refreshingWorkspaceResolveVariable
 }
 
 #[unsafe(no_mangle)]
-pub extern "system" fn Java_com_rototo_Native_refreshingWorkspaceResolveQualifierNative(
+pub extern "system" fn Java_dev_rototo_Native_refreshingWorkspaceResolveQualifierNative(
     mut env: JNIEnv<'_>,
     _class: JClass<'_>,
     handle: jlong,
@@ -263,7 +263,7 @@ pub extern "system" fn Java_com_rototo_Native_refreshingWorkspaceResolveQualifie
 }
 
 #[unsafe(no_mangle)]
-pub extern "system" fn Java_com_rototo_Native_refreshingWorkspaceRefreshNowNative(
+pub extern "system" fn Java_dev_rototo_Native_refreshingWorkspaceRefreshNowNative(
     mut env: JNIEnv<'_>,
     _class: JClass<'_>,
     handle: jlong,
@@ -280,7 +280,7 @@ pub extern "system" fn Java_com_rototo_Native_refreshingWorkspaceRefreshNowNativ
 }
 
 #[unsafe(no_mangle)]
-pub extern "system" fn Java_com_rototo_Native_refreshingWorkspaceStatusNative(
+pub extern "system" fn Java_dev_rototo_Native_refreshingWorkspaceStatusNative(
     mut env: JNIEnv<'_>,
     _class: JClass<'_>,
     handle: jlong,
@@ -297,7 +297,7 @@ pub extern "system" fn Java_com_rototo_Native_refreshingWorkspaceStatusNative(
 }
 
 #[unsafe(no_mangle)]
-pub extern "system" fn Java_com_rototo_Native_refreshingWorkspaceShutdownNative(
+pub extern "system" fn Java_dev_rototo_Native_refreshingWorkspaceShutdownNative(
     mut env: JNIEnv<'_>,
     _class: JClass<'_>,
     handle: jlong,
@@ -318,7 +318,7 @@ pub extern "system" fn Java_com_rototo_Native_refreshingWorkspaceShutdownNative(
 }
 
 #[unsafe(no_mangle)]
-pub extern "system" fn Java_com_rototo_Native_refreshingWorkspaceFreeNative(
+pub extern "system" fn Java_dev_rototo_Native_refreshingWorkspaceFreeNative(
     _env: JNIEnv<'_>,
     _class: JClass<'_>,
     handle: jlong,
@@ -528,7 +528,7 @@ fn jni_call_unit(
 
 fn throw_rototo(env: &mut JNIEnv<'_>, message: String) {
     if env
-        .throw_new("com/rototo/RototoException", message.as_str())
+        .throw_new("dev/rototo/RototoException", message.as_str())
         .is_err()
     {
         let _ = env.throw_new("java/lang/RuntimeException", message);

@@ -1,36 +1,58 @@
-package com.rototo;
+package dev.rototo;
 
+import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.atomic.AtomicLong;
 
-public final class RefreshingWorkspace implements AutoCloseable {
+public final class Workspace implements AutoCloseable {
     private final AtomicLong handle;
 
-    private RefreshingWorkspace(long handle) {
+    private Workspace(long handle) {
         this.handle = new AtomicLong(handle);
     }
 
-    public static CompletableFuture<RefreshingWorkspace> load(String source) {
-        return load(source, RefreshingWorkspaceOptions.defaults());
+    public static CompletableFuture<Workspace> load(String source) {
+        return load(source, LoadOptions.defaults());
     }
 
-    public static CompletableFuture<RefreshingWorkspace> load(
-            String source,
-            RefreshingWorkspaceOptions options) {
+    public static CompletableFuture<Workspace> load(String source, LoadOptions options) {
         Objects.requireNonNull(source, "source");
-        RefreshingWorkspaceOptions resolved =
-                options == null ? RefreshingWorkspaceOptions.defaults() : options;
-        Double periodSeconds = resolved.periodSeconds();
+        LoadOptions resolved = options == null ? LoadOptions.defaults() : options;
         return CompletableFuture.supplyAsync(
-                () -> new RefreshingWorkspace(Native.refreshingWorkspaceLoadNative(
+                () -> new Workspace(Native.workspaceLoadNative(
                         source,
-                        periodSeconds == null ? 0.0 : periodSeconds,
-                        periodSeconds != null,
                         resolved.workspaceToken(),
                         resolved.lint().wireValue())),
                 Rototo.executor());
+    }
+
+    public static CompletableFuture<Workspace> inspect(String source) {
+        return inspect(source, InspectOptions.defaults());
+    }
+
+    public static CompletableFuture<Workspace> inspect(String source, InspectOptions options) {
+        Objects.requireNonNull(source, "source");
+        InspectOptions resolved = options == null ? InspectOptions.defaults() : options;
+        return CompletableFuture.supplyAsync(
+                () -> new Workspace(Native.workspaceInspectNative(
+                        source,
+                        resolved.workspaceToken())),
+                Rototo.executor());
+    }
+
+    public String root() {
+        return Native.workspaceRootNative(openHandle());
+    }
+
+    public CompletableFuture<WorkspaceLint> lint() {
+        return CompletableFuture.supplyAsync(() -> {
+            Map<String, Object> value = Json.asObject(Json.parse(Native.workspaceLintNative(openHandle())));
+            return new WorkspaceLint(
+                    Json.asString(value.get("root")),
+                    Json.asList(value.get("diagnostics")));
+        }, Rototo.executor());
     }
 
     public CompletableFuture<VariableResolution> resolveVariable(
@@ -47,7 +69,7 @@ public final class RefreshingWorkspace implements AutoCloseable {
         Objects.requireNonNull(context, "context");
         ResolveOptions resolved = options == null ? ResolveOptions.defaults() : options;
         return CompletableFuture.supplyAsync(() -> {
-            String json = Native.refreshingWorkspaceResolveVariableNative(
+            String json = Native.workspaceResolveVariableNative(
                     openHandle(),
                     id,
                     Json.stringify(context),
@@ -74,7 +96,7 @@ public final class RefreshingWorkspace implements AutoCloseable {
         Objects.requireNonNull(context, "context");
         ResolveOptions resolved = options == null ? ResolveOptions.defaults() : options;
         return CompletableFuture.supplyAsync(() -> {
-            String json = Native.refreshingWorkspaceResolveQualifierNative(
+            String json = Native.workspaceResolveQualifierNative(
                     openHandle(),
                     id,
                     Json.stringify(context),
@@ -86,56 +108,18 @@ public final class RefreshingWorkspace implements AutoCloseable {
         }, Rototo.executor());
     }
 
-    public CompletableFuture<String> refreshNow() {
-        return CompletableFuture.supplyAsync(
-                () -> Native.refreshingWorkspaceRefreshNowNative(openHandle()),
-                Rototo.executor());
-    }
-
-    public CompletableFuture<RefreshStatus> status() {
-        return CompletableFuture.supplyAsync(() -> {
-            Map<String, Object> value =
-                    Json.asObject(Json.parse(Native.refreshingWorkspaceStatusNative(openHandle())));
-            return new RefreshStatus(
-                    value.get("currentFingerprint"),
-                    Json.asNullableDouble(value.get("lastSuccess")),
-                    Json.asNullableDouble(value.get("lastAttempt")),
-                    Json.asLong(value.get("consecutiveFailures")),
-                    Json.asNullableString(value.get("lastError")),
-                    Json.asBoolean(value.get("refreshing")),
-                    Json.asBoolean(value.get("immutable")));
-        }, Rototo.executor());
-    }
-
-    public CompletableFuture<Void> shutdown() {
-        return CompletableFuture.runAsync(() -> {
-            long current = handle.getAndSet(0);
-            if (current != 0) {
-                try {
-                    Native.refreshingWorkspaceShutdownNative(current);
-                } finally {
-                    Native.refreshingWorkspaceFreeNative(current);
-                }
-            }
-        }, Rototo.executor());
-    }
-
     @Override
     public void close() {
         long current = handle.getAndSet(0);
         if (current != 0) {
-            try {
-                Native.refreshingWorkspaceShutdownNative(current);
-            } finally {
-                Native.refreshingWorkspaceFreeNative(current);
-            }
+            Native.workspaceFreeNative(current);
         }
     }
 
     private long openHandle() {
         long current = handle.get();
         if (current == 0) {
-            throw new RototoException("refreshing workspace has been closed");
+            throw new RototoException("workspace has been closed");
         }
         return current;
     }

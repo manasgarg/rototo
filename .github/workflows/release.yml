@@ -281,16 +281,16 @@ jobs:
           find sdks/java/src/main/java -name '*.java' -print > sdks/java/target/main-sources.txt
           javac --release 11 -d "$classes" @sdks/java/target/main-sources.txt
 
-          mkdir -p "$resources/com/rototo/native/linux-x86_64"
-          mkdir -p "$resources/com/rototo/native/linux-aarch64"
-          mkdir -p "$resources/com/rototo/native/darwin-x86_64"
-          mkdir -p "$resources/com/rototo/native/darwin-aarch64"
-          mkdir -p "$resources/com/rototo/native/windows-x86_64"
-          cp sdks/java/native/java-native-linux-x86_64/librototo_java.so "$resources/com/rototo/native/linux-x86_64/"
-          cp sdks/java/native/java-native-linux-aarch64/librototo_java.so "$resources/com/rototo/native/linux-aarch64/"
-          cp sdks/java/native/java-native-darwin-x86_64/librototo_java.dylib "$resources/com/rototo/native/darwin-x86_64/"
-          cp sdks/java/native/java-native-darwin-aarch64/librototo_java.dylib "$resources/com/rototo/native/darwin-aarch64/"
-          cp sdks/java/native/java-native-windows-x86_64/rototo_java.dll "$resources/com/rototo/native/windows-x86_64/"
+          mkdir -p "$resources/dev/rototo/native/linux-x86_64"
+          mkdir -p "$resources/dev/rototo/native/linux-aarch64"
+          mkdir -p "$resources/dev/rototo/native/darwin-x86_64"
+          mkdir -p "$resources/dev/rototo/native/darwin-aarch64"
+          mkdir -p "$resources/dev/rototo/native/windows-x86_64"
+          cp sdks/java/native/java-native-linux-x86_64/librototo_java.so "$resources/dev/rototo/native/linux-x86_64/"
+          cp sdks/java/native/java-native-linux-aarch64/librototo_java.so "$resources/dev/rototo/native/linux-aarch64/"
+          cp sdks/java/native/java-native-darwin-x86_64/librototo_java.dylib "$resources/dev/rototo/native/darwin-x86_64/"
+          cp sdks/java/native/java-native-darwin-aarch64/librototo_java.dylib "$resources/dev/rototo/native/darwin-aarch64/"
+          cp sdks/java/native/java-native-windows-x86_64/rototo_java.dll "$resources/dev/rototo/native/windows-x86_64/"
 
           jar --create --file "$dist/rototo-$version.jar" -C "$classes" . -C "$resources" .
           cp sdks/java/pom.xml "$dist/rototo-$version.pom"

@@ -1,4 +1,4 @@
-package com.rototo;
+package dev.rototo;
 
 public final class LoadOptions {
     private static final LoadOptions DEFAULT = new LoadOptions(null, LintMode.DENY);

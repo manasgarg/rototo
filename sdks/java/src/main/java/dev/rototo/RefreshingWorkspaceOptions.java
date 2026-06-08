@@ -1,4 +1,4 @@
-package com.rototo;
+package dev.rototo;
 
 public final class RefreshingWorkspaceOptions {
     private static final RefreshingWorkspaceOptions DEFAULT =

@@ -1,4 +1,4 @@
-package com.rototo;
+package dev.rototo;
 
 import java.util.concurrent.Executor;
 import java.util.concurrent.ExecutorService;

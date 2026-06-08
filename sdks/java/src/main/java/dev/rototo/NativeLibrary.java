@@ -1,4 +1,4 @@
-package com.rototo;
+package dev.rototo;
 
 import java.io.IOException;
 import java.io.InputStream;
@@ -44,7 +44,7 @@ final class NativeLibrary {
     }
 
     private static String nativeResourcePath() {
-        return "/com/rototo/native/" + platform() + "/" + libraryFileName();
+        return "/dev/rototo/native/" + platform() + "/" + libraryFileName();
     }
 
     private static String libraryFileName() {

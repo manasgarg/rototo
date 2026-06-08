@@ -173,7 +173,7 @@ already own them.
 
 ## Documentation
 
-Read the public docs at <https://docs.rototo.pirogram.com>.
+Read the public docs at <https://rototo.dev>.
 
 The CLI also ships the same documentation:
 

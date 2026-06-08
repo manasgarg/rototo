@@ -1,4 +1,4 @@
-package com.rototo;
+package dev.rototo;
 
 final class Native {
     static {

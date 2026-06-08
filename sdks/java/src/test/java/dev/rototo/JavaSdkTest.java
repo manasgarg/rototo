@@ -1,4 +1,4 @@
-package com.rototo;
+package dev.rototo;
 
 import java.nio.file.Files;
 import java.nio.file.Path;

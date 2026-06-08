@@ -1,4 +1,4 @@
-package com.rototo;
+package dev.rototo;
 
 public final class ResolveOptions {
     private static final ResolveOptions DEFAULT = new ResolveOptions(true);
