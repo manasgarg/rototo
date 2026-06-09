@@ -1,7 +1,7 @@
 use std::path::PathBuf;
 
 use crate::diagnostics::{
-    DiagnosticCatalogEntry, DiagnosticLocation, DocId, LintDiagnostic, Severity,
+    DiagnosticCatalogEntry, DiagnosticLocation, DocId, LintDiagnostic, SemanticTarget, Severity,
 };
 
 #[derive(Debug)]
@@ -161,6 +161,36 @@ pub struct VariableResolution {
     pub id: String,
     pub value_key: String,
     pub value: serde_json::Value,
+}
+
+#[derive(Debug, serde::Serialize)]
+pub struct WorkspaceDiff {
+    pub before: String,
+    pub after: String,
+    pub changes: Vec<SemanticChange>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub resolution_impacts: Vec<ResolutionImpact>,
+}
+
+#[derive(Debug, serde::Serialize)]
+pub struct SemanticChange {
+    pub kind: String,
+    pub target: SemanticTarget,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub before: Option<serde_json::Value>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub after: Option<serde_json::Value>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub before_location: Option<DiagnosticLocation>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub after_location: Option<DiagnosticLocation>,
+}
+
+#[derive(Debug, serde::Serialize)]
+pub struct ResolutionImpact {
+    pub variable: String,
+    pub before: VariableResolution,
+    pub after: VariableResolution,
 }
 
 #[derive(Debug)]

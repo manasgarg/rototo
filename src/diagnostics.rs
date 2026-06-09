@@ -586,7 +586,7 @@ pub enum LintStage {
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Serialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
-pub enum EntityId {
+pub enum SemanticEntity {
     Workspace,
     Manifest,
     Qualifier { id: String },
@@ -598,6 +598,62 @@ pub enum EntityId {
     Rule { variable: String, index: usize },
     CustomLint { path: String },
     Schema { path: String },
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Serialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum SemanticField {
+    WorkspaceExtends,
+    SchemaVersion,
+    Description,
+    QualifierPredicates,
+    PredicateAttribute,
+    PredicateOp,
+    PredicateValue,
+    PredicateSalt,
+    PredicateRange,
+    VariableType,
+    VariableSchema,
+    VariableValues,
+    VariableResolve,
+    VariableResolveDefault,
+    VariableRuleQualifier,
+    VariableRuleValue,
+    Value,
+    ValueJsonPath { path: Vec<String> },
+    SchemaJson,
+    SchemaJsonPath { path: Vec<String> },
+    ResourceSchema,
+    ResourceObject,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Serialize)]
+pub struct SemanticTarget {
+    pub entity: SemanticEntity,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub field: Option<SemanticField>,
+}
+
+impl SemanticTarget {
+    pub fn entity(entity: SemanticEntity) -> Self {
+        Self {
+            entity,
+            field: None,
+        }
+    }
+
+    pub fn field(entity: SemanticEntity, field: SemanticField) -> Self {
+        Self {
+            entity,
+            field: Some(field),
+        }
+    }
+}
+
+impl From<SemanticEntity> for SemanticTarget {
+    fn from(entity: SemanticEntity) -> Self {
+        Self::entity(entity)
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
@@ -719,7 +775,7 @@ pub struct LintDiagnostic {
     pub rule: DiagnosticRule,
     pub severity: Severity,
     pub stage: LintStage,
-    pub entity: EntityId,
+    pub target: SemanticTarget,
     pub message: String,
     pub help: String,
     #[serde(rename = "location")]
@@ -731,7 +787,7 @@ impl LintDiagnostic {
     pub fn rototo(
         rule: RototoRuleId,
         stage: LintStage,
-        entity: EntityId,
+        target: impl Into<SemanticTarget>,
         primary: DiagnosticLocation,
         message: impl Into<String>,
     ) -> Self {
@@ -740,7 +796,7 @@ impl LintDiagnostic {
             rule: DiagnosticRule::Rototo(rule),
             severity: meta.severity,
             stage,
-            entity,
+            target: target.into(),
             message: message.into(),
             help: meta.help.to_owned(),
             primary,
@@ -751,7 +807,7 @@ impl LintDiagnostic {
     pub fn custom(
         definition: &CustomRuleDefinition,
         stage: LintStage,
-        entity: EntityId,
+        target: impl Into<SemanticTarget>,
         primary: DiagnosticLocation,
         message: impl Into<String>,
     ) -> Self {
@@ -759,7 +815,7 @@ impl LintDiagnostic {
             rule: DiagnosticRule::Custom(definition.rule.clone()),
             severity: definition.severity,
             stage,
-            entity,
+            target: target.into(),
             message: message.into(),
             help: definition.help.clone(),
             primary,

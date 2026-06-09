@@ -1,6 +1,8 @@
 use serde_json::Value as JsonValue;
 
-use crate::diagnostics::{DiagnosticLocation, DocId, EntityId};
+use crate::diagnostics::{
+    DiagnosticLocation, DocId, SemanticEntity, SemanticField, SemanticTarget,
+};
 
 use super::super::engine::{LintContext, variable_values};
 use super::super::index::*;
@@ -15,7 +17,7 @@ use super::{
 };
 
 pub(super) struct RegisteredLintTargetInstance {
-    pub(super) entity: EntityId,
+    pub(super) target: SemanticTarget,
     pub(super) location: DiagnosticLocation,
     pub(super) data: JsonValue,
 }
@@ -45,36 +47,94 @@ pub(super) fn registered_lint_output_location(
     let Some(field) = field else {
         return target.location.clone();
     };
-    match (&target.entity, field) {
-        (EntityId::Workspace, RegisteredLintField::Workspace(_)) => ctx
+    match (&target.target.entity, field) {
+        (SemanticEntity::Workspace, RegisteredLintField::Workspace(_)) => ctx
             .index
             .manifest
             .as_ref()
             .map(|manifest| registered_workspace_location(ctx, manifest, Some(field)))
             .unwrap_or_else(|| target.location.clone()),
-        (EntityId::Qualifier { id }, RegisteredLintField::Qualifier(_)) => ctx
+        (SemanticEntity::Qualifier { id }, RegisteredLintField::Qualifier(_)) => ctx
             .index
             .qualifiers
             .get(id)
             .map(|qualifier| registered_qualifier_location(ctx, qualifier, Some(field)))
             .unwrap_or_else(|| target.location.clone()),
-        (EntityId::Variable { id }, RegisteredLintField::Variable(_)) => ctx
+        (SemanticEntity::Variable { id }, RegisteredLintField::Variable(_)) => ctx
             .index
             .variables
             .get(id)
             .map(|variable| registered_variable_location(ctx, variable, Some(field)))
             .unwrap_or_else(|| target.location.clone()),
-        (EntityId::Value { variable, key }, RegisteredLintField::Value(_)) => {
+        (SemanticEntity::Value { variable, key }, RegisteredLintField::Value(_)) => {
             find_value(ctx, variable, key)
                 .map(|value| registered_value_location(value, Some(field)))
                 .unwrap_or_else(|| target.location.clone())
         }
-        (EntityId::Schema { path }, RegisteredLintField::Schema(_)) => ctx
+        (SemanticEntity::Schema { path }, RegisteredLintField::Schema(_)) => ctx
             .source
             .document_by_path(path)
             .map(|document| registered_schema_location(document, Some(field)))
             .unwrap_or_else(|| target.location.clone()),
         _ => target.location.clone(),
+    }
+}
+
+pub(super) fn registered_lint_output_target(
+    target: &RegisteredLintTargetInstance,
+    field: Option<&RegisteredLintField>,
+) -> SemanticTarget {
+    let Some(field) = field.and_then(registered_lint_field_target) else {
+        return target.target.clone();
+    };
+    SemanticTarget::field(target.target.entity.clone(), field)
+}
+
+fn registered_lint_target(
+    entity: SemanticEntity,
+    field: Option<&RegisteredLintField>,
+) -> SemanticTarget {
+    match field.and_then(registered_lint_field_target) {
+        Some(field) => SemanticTarget::field(entity, field),
+        None => SemanticTarget::entity(entity),
+    }
+}
+
+fn registered_lint_field_target(field: &RegisteredLintField) -> Option<SemanticField> {
+    match field {
+        RegisteredLintField::Workspace(WorkspaceLintField::Extends) => {
+            Some(SemanticField::WorkspaceExtends)
+        }
+        RegisteredLintField::Qualifier(QualifierLintField::Id) => None,
+        RegisteredLintField::Qualifier(QualifierLintField::Description) => {
+            Some(SemanticField::Description)
+        }
+        RegisteredLintField::Qualifier(QualifierLintField::Predicates) => {
+            Some(SemanticField::QualifierPredicates)
+        }
+        RegisteredLintField::Variable(VariableLintField::Id) => None,
+        RegisteredLintField::Variable(VariableLintField::Description) => {
+            Some(SemanticField::Description)
+        }
+        RegisteredLintField::Variable(VariableLintField::Type) => Some(SemanticField::VariableType),
+        RegisteredLintField::Variable(VariableLintField::Schema) => {
+            Some(SemanticField::VariableSchema)
+        }
+        RegisteredLintField::Variable(VariableLintField::Values) => {
+            Some(SemanticField::VariableValues)
+        }
+        RegisteredLintField::Variable(VariableLintField::Resolve) => {
+            Some(SemanticField::VariableResolve)
+        }
+        RegisteredLintField::Value(ValueLintField::Key) => None,
+        RegisteredLintField::Value(ValueLintField::Value) => Some(SemanticField::Value),
+        RegisteredLintField::Value(ValueLintField::JsonPath(path)) => {
+            Some(SemanticField::ValueJsonPath { path: path.clone() })
+        }
+        RegisteredLintField::Schema(SchemaLintField::Json) => Some(SemanticField::SchemaJson),
+        RegisteredLintField::Schema(SchemaLintField::JsonPath(path)) => {
+            Some(SemanticField::SchemaJsonPath { path: path.clone() })
+        }
     }
 }
 
@@ -100,7 +160,7 @@ fn registered_workspace_targets(
     };
 
     vec![RegisteredLintTargetInstance {
-        entity: EntityId::Workspace,
+        target: registered_lint_target(SemanticEntity::Workspace, field),
         location: registered_workspace_location(ctx, manifest, field),
         data: serde_json::json!({
             "kind": "workspace",
@@ -125,9 +185,12 @@ fn registered_qualifier_targets(
         .filter_map(|qualifier| {
             let document = ctx.source.documents.get(&qualifier.doc)?;
             Some(RegisteredLintTargetInstance {
-                entity: EntityId::Qualifier {
-                    id: qualifier.id.clone(),
-                },
+                target: registered_lint_target(
+                    SemanticEntity::Qualifier {
+                        id: qualifier.id.clone(),
+                    },
+                    field,
+                ),
                 location: registered_qualifier_location(ctx, qualifier, field),
                 data: serde_json::json!({
                     "kind": "qualifier",
@@ -151,9 +214,12 @@ fn registered_variable_targets(
         .filter_map(|variable| {
             let document = ctx.source.documents.get(&variable.doc)?;
             Some(RegisteredLintTargetInstance {
-                entity: EntityId::Variable {
-                    id: variable.id.clone(),
-                },
+                target: registered_lint_target(
+                    SemanticEntity::Variable {
+                        id: variable.id.clone(),
+                    },
+                    field,
+                ),
                 location: registered_variable_location(ctx, variable, field),
                 data: serde_json::json!({
                     "kind": "variable",
@@ -178,10 +244,13 @@ fn registered_value_targets(
         };
         for value in variable_values(ctx, variable) {
             targets.push(RegisteredLintTargetInstance {
-                entity: EntityId::Value {
-                    variable: value.variable_id.clone(),
-                    key: value.key.clone(),
-                },
+                target: registered_lint_target(
+                    SemanticEntity::Value {
+                        variable: value.variable_id.clone(),
+                        key: value.key.clone(),
+                    },
+                    field,
+                ),
                 location: registered_value_location(value, field),
                 data: serde_json::json!({
                     "kind": "value",
@@ -222,9 +291,12 @@ fn registered_schema_targets(
             let schema = ctx.index.schemas.get(&document.path)?;
             let json = schema.json.as_ref()?;
             Some(RegisteredLintTargetInstance {
-                entity: EntityId::Schema {
-                    path: document.path.clone(),
-                },
+                target: registered_lint_target(
+                    SemanticEntity::Schema {
+                        path: document.path.clone(),
+                    },
+                    field,
+                ),
                 location: registered_schema_location(document, field),
                 data: serde_json::json!({
                     "kind": "schema",

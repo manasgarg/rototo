@@ -1,6 +1,6 @@
 use serde_json::Value as JsonValue;
 
-use crate::diagnostics::{EntityId, LintDiagnostic, RototoRuleId};
+use crate::diagnostics::{LintDiagnostic, RototoRuleId, SemanticField};
 
 use super::super::engine::LintContext;
 use super::super::index::*;
@@ -17,9 +17,7 @@ pub(super) fn lint_variable_shapes(ctx: &mut LintContext) {
             push_project_diagnostic(
                 diagnostics,
                 RototoRuleId::VariableSchemaVersion,
-                EntityId::Variable {
-                    id: variable.id.clone(),
-                },
+                variable.field_target(SemanticField::SchemaVersion),
                 variable.schema_version.location(),
                 "variable must declare schema_version = 1",
             );
@@ -37,9 +35,7 @@ fn lint_type_source(diagnostics: &mut Vec<LintDiagnostic>, variable: &VariableNo
         TypeSourceNode::Schema(schema) => push_project_diagnostic(
             diagnostics,
             RototoRuleId::VariableTypeSource,
-            EntityId::Variable {
-                id: variable.id.clone(),
-            },
+            variable.field_target(SemanticField::VariableSchema),
             schema.location.clone(),
             "variable schemas are no longer supported; declare type instead",
         ),
@@ -47,9 +43,7 @@ fn lint_type_source(diagnostics: &mut Vec<LintDiagnostic>, variable: &VariableNo
             push_project_diagnostic(
                 diagnostics,
                 RototoRuleId::VariableTypeSource,
-                EntityId::Variable {
-                    id: variable.id.clone(),
-                },
+                variable.field_target(SemanticField::VariableType),
                 location.clone(),
                 "variable must declare type",
             );
@@ -57,9 +51,7 @@ fn lint_type_source(diagnostics: &mut Vec<LintDiagnostic>, variable: &VariableNo
         TypeSourceNode::Invalid { location } => push_project_diagnostic(
             diagnostics,
             RototoRuleId::VariableTypeSource,
-            EntityId::Variable {
-                id: variable.id.clone(),
-            },
+            variable.field_target(SemanticField::VariableType),
             location.clone(),
             "variable type must be a string",
         ),
@@ -72,9 +64,7 @@ fn lint_values_shape(diagnostics: &mut Vec<LintDiagnostic>, variable: &VariableN
             push_project_diagnostic(
                 diagnostics,
                 RototoRuleId::VariableValuesDisallowed,
-                EntityId::Variable {
-                    id: variable.id.clone(),
-                },
+                variable.field_target(SemanticField::VariableValues),
                 variable.values.location.clone(),
                 "resource-backed variables must not contain [values]",
             );
@@ -86,9 +76,7 @@ fn lint_values_shape(diagnostics: &mut Vec<LintDiagnostic>, variable: &VariableN
         push_project_diagnostic(
             diagnostics,
             RototoRuleId::VariableValuesMissing,
-            EntityId::Variable {
-                id: variable.id.clone(),
-            },
+            variable.field_target(SemanticField::VariableValues),
             variable.values.location.clone(),
             "variable values must be a table",
         );
@@ -99,9 +87,7 @@ fn lint_values_shape(diagnostics: &mut Vec<LintDiagnostic>, variable: &VariableN
         push_project_diagnostic(
             diagnostics,
             RototoRuleId::VariableValuesMissing,
-            EntityId::Variable {
-                id: variable.id.clone(),
-            },
+            variable.field_target(SemanticField::VariableValues),
             variable.values.location.clone(),
             "primitive variable must contain [values]",
         );
@@ -114,9 +100,7 @@ fn lint_resolve_shape(diagnostics: &mut Vec<LintDiagnostic>, variable: &Variable
             push_project_diagnostic(
                 diagnostics,
                 RototoRuleId::VariableResolveMissingDefault,
-                EntityId::Variable {
-                    id: variable.id.clone(),
-                },
+                variable.field_target(SemanticField::VariableResolve),
                 location.clone(),
                 "variable must contain [resolve]",
             );
@@ -126,9 +110,7 @@ fn lint_resolve_shape(diagnostics: &mut Vec<LintDiagnostic>, variable: &Variable
             push_project_diagnostic(
                 diagnostics,
                 RototoRuleId::VariableResolveShape,
-                EntityId::Variable {
-                    id: variable.id.clone(),
-                },
+                variable.field_target(SemanticField::VariableResolve),
                 location.clone(),
                 "resolve must be a table",
             );
@@ -141,9 +123,7 @@ fn lint_resolve_shape(diagnostics: &mut Vec<LintDiagnostic>, variable: &Variable
         push_project_diagnostic(
             diagnostics,
             RototoRuleId::VariableResolveMissingDefault,
-            EntityId::Variable {
-                id: variable.id.clone(),
-            },
+            variable.field_target(SemanticField::VariableResolveDefault),
             default.location(),
             "resolve must reference a default value",
         );
@@ -153,9 +133,7 @@ fn lint_resolve_shape(diagnostics: &mut Vec<LintDiagnostic>, variable: &Variable
         RuleCollection::Invalid { location } => push_project_diagnostic(
             diagnostics,
             RototoRuleId::VariableRuleShape,
-            EntityId::Variable {
-                id: variable.id.clone(),
-            },
+            variable.field_target(SemanticField::VariableResolve),
             location.clone(),
             "rule must use [[resolve.rule]] tables",
         ),
@@ -172,16 +150,11 @@ fn lint_variable_rule_shape(
     variable: &VariableNode,
     rule: &VariableRuleNode,
 ) {
-    let entity = EntityId::Rule {
-        variable: variable.id.clone(),
-        index: rule.index,
-    };
-
     if rule.invalid_shape {
         push_project_diagnostic(
             diagnostics,
             RototoRuleId::VariableRuleShape,
-            entity,
+            rule.target(&variable.id),
             rule.location.clone(),
             "rule must be a table",
         );
@@ -192,7 +165,7 @@ fn lint_variable_rule_shape(
         push_project_diagnostic(
             diagnostics,
             RototoRuleId::VariableRuleShape,
-            entity.clone(),
+            rule.field_target(&variable.id, SemanticField::VariableRuleQualifier),
             rule.qualifier.location(),
             "rule must reference a qualifier",
         );
@@ -201,7 +174,7 @@ fn lint_variable_rule_shape(
         push_project_diagnostic(
             diagnostics,
             RototoRuleId::VariableRuleShape,
-            entity,
+            rule.field_target(&variable.id, SemanticField::VariableRuleValue),
             rule.value.location(),
             "rule must reference a value",
         );
@@ -222,7 +195,7 @@ pub(super) fn lint_variable_references(ctx: &mut LintContext) {
             ) => push_reference_diagnostic(
                 &mut diagnostics,
                 RototoRuleId::VariableUnknownResource,
-                edge.entity.clone(),
+                edge.semantic_target.clone(),
                 edge.location.clone(),
                 format!("variable references unknown resource: {resource}"),
             ),
@@ -239,7 +212,7 @@ pub(super) fn lint_variable_references(ctx: &mut LintContext) {
                 push_reference_diagnostic(
                     &mut diagnostics,
                     RototoRuleId::VariableUnknownValue,
-                    edge.entity.clone(),
+                    edge.semantic_target.clone(),
                     edge.location.clone(),
                     format!("resolve default references unknown value: {value}"),
                 );
@@ -256,7 +229,7 @@ pub(super) fn lint_variable_references(ctx: &mut LintContext) {
                 push_reference_diagnostic(
                     &mut diagnostics,
                     RototoRuleId::VariableUnknownValue,
-                    edge.entity.clone(),
+                    edge.semantic_target.clone(),
                     edge.location.clone(),
                     format!("resolve default references unknown resource object: {value}"),
                 );
@@ -270,7 +243,7 @@ pub(super) fn lint_variable_references(ctx: &mut LintContext) {
             ) => push_reference_diagnostic(
                 &mut diagnostics,
                 RototoRuleId::VariableRuleUnknownQualifier,
-                edge.entity.clone(),
+                edge.semantic_target.clone(),
                 edge.location.clone(),
                 format!("rule references unknown qualifier: {qualifier}"),
             ),
@@ -287,7 +260,7 @@ pub(super) fn lint_variable_references(ctx: &mut LintContext) {
                 push_reference_diagnostic(
                     &mut diagnostics,
                     RototoRuleId::VariableUnknownValue,
-                    edge.entity.clone(),
+                    edge.semantic_target.clone(),
                     edge.location.clone(),
                     format!("rule references unknown value: {value}"),
                 );
@@ -304,7 +277,7 @@ pub(super) fn lint_variable_references(ctx: &mut LintContext) {
                 push_reference_diagnostic(
                     &mut diagnostics,
                     RototoRuleId::VariableUnknownValue,
-                    edge.entity.clone(),
+                    edge.semantic_target.clone(),
                     edge.location.clone(),
                     format!("rule references unknown resource object: {value}"),
                 );
@@ -351,9 +324,7 @@ fn lint_primitive_type(
         push_value_diagnostic(
             diagnostics,
             RototoRuleId::VariableUnknownType,
-            EntityId::Variable {
-                id: variable.id.clone(),
-            },
+            variable.field_target(SemanticField::VariableType),
             type_name.location.clone(),
             format!("variable declares unknown type: {}", type_name.value),
         );
@@ -374,10 +345,7 @@ fn lint_primitive_variable_values(
         push_value_diagnostic(
             diagnostics,
             RototoRuleId::VariableValueTypeMismatch,
-            EntityId::Value {
-                variable: variable.id.clone(),
-                key: value.key.clone(),
-            },
+            value.field_target(SemanticField::Value),
             value.location.clone(),
             format!(
                 "value {} does not match type {}",

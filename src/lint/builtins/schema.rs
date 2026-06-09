@@ -2,7 +2,10 @@ use std::collections::BTreeSet;
 
 use serde_json::Value as JsonValue;
 
-use crate::diagnostics::{DiagnosticLocation, EntityId, RelatedLocation, RototoRuleId, Severity};
+use crate::diagnostics::{
+    DiagnosticLocation, RelatedLocation, RototoRuleId, SemanticEntity, SemanticField,
+    SemanticTarget, Severity,
+};
 
 use super::super::engine::LintContext;
 use super::super::index::*;
@@ -24,9 +27,12 @@ pub(super) fn lint_context_schema_reference(ctx: &mut LintContext) {
     push_project_diagnostic(
         &mut ctx.diagnostics,
         RototoRuleId::WorkspaceContextSchemaRef,
-        EntityId::Schema {
-            path: CONTEXT_SCHEMA_PATH.to_owned(),
-        },
+        SemanticTarget::field(
+            SemanticEntity::Schema {
+                path: CONTEXT_SCHEMA_PATH.to_owned(),
+            },
+            SemanticField::SchemaJson,
+        ),
         err.location,
         err.message,
     );
@@ -42,13 +48,13 @@ pub(super) fn lint_context_schema_reserved_fields(ctx: &mut LintContext) {
     if !context_schema_declares_top_level_property(schema_json, "qualifier") {
         return;
     }
-    let schema_path = schema.path.clone();
+    let schema_target = schema.field_target(SemanticField::SchemaJson);
     let schema_location = schema.location.clone();
 
     push_project_diagnostic(
         &mut ctx.diagnostics,
         RototoRuleId::WorkspaceContextSchemaReservedField,
-        EntityId::Schema { path: schema_path },
+        schema_target,
         schema_location,
         "context schema declares reserved top-level field: qualifier",
     );
@@ -77,7 +83,7 @@ pub(super) fn lint_qualifier_context_schema_attributes(ctx: &mut LintContext) {
         push_reference_diagnostic(
             &mut diagnostics,
             RototoRuleId::WorkspaceContextSchemaAttribute,
-            edge.entity.clone(),
+            edge.semantic_target.clone(),
             edge.location.clone(),
             format!("context attribute is not declared by the context schema: {attribute}"),
         );
@@ -119,7 +125,7 @@ pub(super) fn lint_qualifier_context_schema_types(ctx: &mut LintContext) {
                 continue;
             }
 
-            let Some((location, message)) = predicate_context_type_mismatch(
+            let Some((field, location, message)) = predicate_context_type_mismatch(
                 &attribute.value,
                 &op.value,
                 predicate,
@@ -131,10 +137,7 @@ pub(super) fn lint_qualifier_context_schema_types(ctx: &mut LintContext) {
             push_reference_diagnostic(
                 &mut diagnostics,
                 RototoRuleId::QualifierPredicateContextTypeMismatch,
-                EntityId::Predicate {
-                    qualifier: qualifier.id.clone(),
-                    index: predicate.index,
-                },
+                predicate.field_target(&qualifier.id, field),
                 location,
                 message,
             );
@@ -180,7 +183,7 @@ pub(super) fn lint_missing_context_schema_for_qualifier_attributes(ctx: &mut Lin
     push_reference_diagnostic(
         &mut diagnostics,
         RototoRuleId::WorkspaceContextSchemaMissing,
-        EntityId::Manifest,
+        manifest.target(),
         manifest.location.clone(),
         format!(
             "workspace does not declare {CONTEXT_SCHEMA_PATH} for qualifier context attribute: {attribute}"
@@ -198,9 +201,9 @@ pub(super) fn lint_missing_context_schema_for_qualifier_attributes(ctx: &mut Lin
 fn qualifier_has_existing_error(ctx: &LintContext, qualifier_id: &str) -> bool {
     ctx.diagnostics.iter().any(|diagnostic| {
         diagnostic.severity == Severity::Error
-            && match &diagnostic.entity {
-                EntityId::Qualifier { id } => id == qualifier_id,
-                EntityId::Predicate { qualifier, .. } => qualifier == qualifier_id,
+            && match &diagnostic.target.entity {
+                SemanticEntity::Qualifier { id } => id == qualifier_id,
+                SemanticEntity::Predicate { qualifier, .. } => qualifier == qualifier_id,
                 _ => false,
             }
     })
@@ -222,9 +225,7 @@ pub(super) fn lint_unreferenced_schemas(ctx: &mut LintContext) {
         push_reference_diagnostic(
             &mut diagnostics,
             RototoRuleId::SchemaUnreferenced,
-            EntityId::Schema {
-                path: schema.path.clone(),
-            },
+            schema.target(),
             schema.location.clone(),
             format!("schema is not referenced: {}", schema.path),
         );
@@ -348,7 +349,7 @@ fn predicate_context_type_mismatch(
     op: &PredicateOp,
     predicate: &PredicateNode,
     schema_types: &BTreeSet<JsonSchemaSimpleType>,
-) -> Option<(DiagnosticLocation, String)> {
+) -> Option<(SemanticField, DiagnosticLocation, String)> {
     match op {
         PredicateOp::Eq | PredicateOp::Neq => {
             let value = predicate.value.as_ref()?;
@@ -356,6 +357,7 @@ fn predicate_context_type_mismatch(
                 return None;
             }
             Some((
+                SemanticField::PredicateValue,
                 value.location.clone(),
                 format!(
                     "{} predicate value type {} is incompatible with context attribute {attribute} declared as {}",
@@ -372,6 +374,7 @@ fn predicate_context_type_mismatch(
                 .iter()
                 .find(|value| !value_is_compatible_with_schema(value, schema_types))?;
             Some((
+                SemanticField::PredicateValue,
                 value.location.clone(),
                 format!(
                     "{} predicate contains value type {} incompatible with context attribute {attribute} declared as {}",
@@ -391,6 +394,7 @@ fn predicate_context_type_mismatch(
                 return None;
             }
             Some((
+                SemanticField::PredicateOp,
                 predicate.op.location(),
                 format!(
                     "{} predicate requires numeric context attribute, but {attribute} is declared as {}",
@@ -412,6 +416,7 @@ fn predicate_context_type_mismatch(
                 return None;
             }
             Some((
+                SemanticField::PredicateOp,
                 predicate.op.location(),
                 format!(
                     "bucket predicate requires scalar context attribute, but {attribute} is declared as {}",
@@ -475,9 +480,7 @@ pub(super) fn lint_schema_documents(ctx: &mut LintContext) {
         push_project_diagnostic(
             &mut diagnostics,
             RototoRuleId::SchemaInvalid,
-            EntityId::Schema {
-                path: schema.path.clone(),
-            },
+            schema.field_target(SemanticField::SchemaJson),
             schema.location.clone(),
             format!("schema is invalid: {message}"),
         );

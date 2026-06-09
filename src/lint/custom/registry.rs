@@ -1,7 +1,8 @@
 use std::collections::BTreeMap;
 
 use crate::diagnostics::{
-    CustomRuleDefinition, CustomRuleId, DiagnosticRule, EntityId, LintStage, RototoRuleId, Severity,
+    CustomRuleDefinition, CustomRuleId, DiagnosticRule, LintStage, RototoRuleId, SemanticEntity,
+    Severity,
 };
 use crate::lua_lint;
 
@@ -36,7 +37,7 @@ pub(crate) async fn register_custom_lints(ctx: &mut LintContext) {
             push_register_diagnostic(
                 &mut ctx.diagnostics,
                 RototoRuleId::CustomLintFailed,
-                EntityId::CustomLint {
+                SemanticEntity::CustomLint {
                     path: file.path.clone(),
                 },
                 file.location.clone(),
@@ -61,7 +62,7 @@ pub(crate) async fn register_custom_lints(ctx: &mut LintContext) {
                 push_register_diagnostic(
                     &mut ctx.diagnostics,
                     RototoRuleId::CustomLintFailed,
-                    EntityId::CustomLint {
+                    SemanticEntity::CustomLint {
                         path: file.path.clone(),
                     },
                     file.location.clone(),
@@ -75,7 +76,7 @@ pub(crate) async fn register_custom_lints(ctx: &mut LintContext) {
             push_register_diagnostic(
                 &mut ctx.diagnostics,
                 RototoRuleId::CustomLintFileUnregistered,
-                EntityId::CustomLint {
+                SemanticEntity::CustomLint {
                     path: file.path.clone(),
                 },
                 file.location.clone(),
@@ -92,7 +93,7 @@ pub(crate) async fn register_custom_lints(ctx: &mut LintContext) {
                             push_register_diagnostic(
                                 &mut ctx.diagnostics,
                                 RototoRuleId::CustomLintRuleConflict,
-                                EntityId::CustomLint {
+                                SemanticEntity::CustomLint {
                                     path: file.path.clone(),
                                 },
                                 file.location.clone(),
@@ -126,7 +127,7 @@ pub(crate) async fn register_custom_lints(ctx: &mut LintContext) {
                 Err((rule, message)) => push_register_diagnostic(
                     &mut ctx.diagnostics,
                     rule,
-                    EntityId::CustomLint {
+                    SemanticEntity::CustomLint {
                         path: file.path.clone(),
                     },
                     file.location.clone(),
@@ -148,7 +149,7 @@ fn lint_duplicate_custom_registrations(ctx: &mut LintContext) {
             push_register_diagnostic(
                 &mut ctx.diagnostics,
                 RototoRuleId::CustomLintRegistrationDuplicate,
-                EntityId::CustomLint {
+                SemanticEntity::CustomLint {
                     path: registration.file_path.clone(),
                 },
                 registration.location.clone(),

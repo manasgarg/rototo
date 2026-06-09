@@ -1,10 +1,11 @@
 use serde::Serialize;
 
 use rototo::diagnostics::{
-    DiagnosticCatalogEntry, DiagnosticEntity, DiagnosticLocation, LintDiagnostic, Severity,
+    DiagnosticCatalogEntry, DiagnosticEntity, DiagnosticLocation, LintDiagnostic, SemanticEntity,
+    SemanticField, SemanticTarget, Severity,
 };
 use rototo::error::{Result, RototoError};
-use rototo::model::{InspectRuntimeStatus, WorkspaceInspectReport};
+use rototo::model::{InspectRuntimeStatus, WorkspaceDiff, WorkspaceInspectReport};
 use rototo::model::{
     QualifierInspection, ResourceInspection, VariableInspection, WorkspaceInspection, WorkspaceLint,
 };
@@ -325,6 +326,64 @@ pub(crate) fn print_inspect_report(report: &WorkspaceInspectReport, json: bool) 
     Ok(())
 }
 
+pub(crate) fn print_workspace_diff(diff: &WorkspaceDiff, json: bool) -> Result<()> {
+    if json {
+        println!(
+            "{}",
+            serde_json::to_string_pretty(diff).map_err(|err| RototoError::new(err.to_string()))?
+        );
+        return Ok(());
+    }
+
+    println!("before: {}", diff.before);
+    println!("after: {}", diff.after);
+    if diff.changes.is_empty() {
+        println!("semantic changes: none");
+    } else {
+        println!("semantic changes:");
+        for change in &diff.changes {
+            println!(
+                "  {}  {}",
+                change.kind,
+                semantic_target_label(&change.target)
+            );
+            if let Some(location) = &change.before_location {
+                println!(
+                    "    before location: {}",
+                    diagnostic_location_label_for_location(location)
+                );
+            }
+            if let Some(location) = &change.after_location {
+                println!(
+                    "    after location: {}",
+                    diagnostic_location_label_for_location(location)
+                );
+            }
+            if change.before.is_some() || change.after.is_some() {
+                println!("    before: {}", compact_json_option(&change.before)?);
+                println!("    after: {}", compact_json_option(&change.after)?);
+            }
+        }
+    }
+    if !diff.resolution_impacts.is_empty() {
+        println!("resolution impact:");
+        for impact in &diff.resolution_impacts {
+            println!("  variable: {}", impact.variable);
+            println!(
+                "    before: {} {}",
+                impact.before.value_key,
+                compact_json(&impact.before.value)?
+            );
+            println!(
+                "    after: {} {}",
+                impact.after.value_key,
+                compact_json(&impact.after.value)?
+            );
+        }
+    }
+    Ok(())
+}
+
 fn print_entity_separator(index: usize, count: usize) {
     if count > 1 && index > 0 {
         println!("  ----------------------------------------");
@@ -630,6 +689,73 @@ fn diagnostic_location_label_for_location(location: &DiagnosticLocation) -> Stri
         range.start.line + 1,
         range.start.character + 1
     )
+}
+
+fn semantic_target_label(target: &SemanticTarget) -> String {
+    match &target.field {
+        Some(field) => format!(
+            "{}.{}",
+            semantic_entity_label(&target.entity),
+            semantic_field_label(field)
+        ),
+        None => semantic_entity_label(&target.entity),
+    }
+}
+
+fn semantic_entity_label(entity: &SemanticEntity) -> String {
+    match entity {
+        SemanticEntity::Workspace => "workspace".to_owned(),
+        SemanticEntity::Manifest => "manifest".to_owned(),
+        SemanticEntity::Qualifier { id } => format!("qualifier:{id}"),
+        SemanticEntity::Predicate { qualifier, index } => {
+            format!("qualifier:{qualifier}.predicate[{index}]")
+        }
+        SemanticEntity::Variable { id } => format!("variable:{id}"),
+        SemanticEntity::Resource { id } => format!("resource:{id}"),
+        SemanticEntity::ResourceObject { resource, key } => {
+            format!("resource:{resource}.object:{key}")
+        }
+        SemanticEntity::Value { variable, key } => format!("variable:{variable}.value:{key}"),
+        SemanticEntity::Rule { variable, index } => {
+            format!("variable:{variable}.rule[{index}]")
+        }
+        SemanticEntity::CustomLint { path } => format!("lint:{path}"),
+        SemanticEntity::Schema { path } => format!("schema:{path}"),
+    }
+}
+
+fn semantic_field_label(field: &SemanticField) -> String {
+    match field {
+        SemanticField::WorkspaceExtends => "extends".to_owned(),
+        SemanticField::SchemaVersion => "schema_version".to_owned(),
+        SemanticField::Description => "description".to_owned(),
+        SemanticField::QualifierPredicates => "predicates".to_owned(),
+        SemanticField::PredicateAttribute => "attribute".to_owned(),
+        SemanticField::PredicateOp => "op".to_owned(),
+        SemanticField::PredicateValue => "value".to_owned(),
+        SemanticField::PredicateSalt => "salt".to_owned(),
+        SemanticField::PredicateRange => "range".to_owned(),
+        SemanticField::VariableType => "type".to_owned(),
+        SemanticField::VariableSchema => "schema".to_owned(),
+        SemanticField::VariableValues => "values".to_owned(),
+        SemanticField::VariableResolve => "resolve".to_owned(),
+        SemanticField::VariableResolveDefault => "resolve.default".to_owned(),
+        SemanticField::VariableRuleQualifier => "qualifier".to_owned(),
+        SemanticField::VariableRuleValue => "value".to_owned(),
+        SemanticField::Value => "value".to_owned(),
+        SemanticField::ValueJsonPath { path } => format!("value.{}", path.join(".")),
+        SemanticField::SchemaJson => "json".to_owned(),
+        SemanticField::SchemaJsonPath { path } => format!("json.{}", path.join(".")),
+        SemanticField::ResourceSchema => "schema".to_owned(),
+        SemanticField::ResourceObject => "object".to_owned(),
+    }
+}
+
+fn compact_json_option(value: &Option<serde_json::Value>) -> Result<String> {
+    match value {
+        Some(value) => compact_json(value),
+        None => Ok("<none>".to_owned()),
+    }
 }
 
 fn severity_label(severity: &Severity) -> &'static str {

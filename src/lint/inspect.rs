@@ -1,7 +1,7 @@
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::Path;
 
-use crate::diagnostics::{DiagnosticCatalogEntry, EntityId, LintDiagnostic, RototoRuleId};
+use crate::diagnostics::{DiagnosticCatalogEntry, LintDiagnostic, RototoRuleId, SemanticEntity};
 use crate::error::{Result, RototoError};
 use crate::model::{
     DependencyInspectReport, InspectRuntimeStatus, InspectSelection, LintAuthorityInspectReport,
@@ -803,31 +803,33 @@ fn selection_matches_linter(selection: &InspectSelection, diagnostic: &LintDiagn
 
 fn diagnostic_is_variable_related(diagnostic: &LintDiagnostic) -> bool {
     matches!(
-        diagnostic.entity,
-        EntityId::Variable { .. } | EntityId::Value { .. } | EntityId::Rule { .. }
+        diagnostic.target.entity,
+        SemanticEntity::Variable { .. }
+            | SemanticEntity::Value { .. }
+            | SemanticEntity::Rule { .. }
     ) || diagnostic.primary.path.starts_with("variables/")
 }
 
 fn diagnostic_belongs_to_variable(diagnostic: &LintDiagnostic, id: &str) -> bool {
     let variable_path = format!("variables/{id}.toml");
-    matches!(&diagnostic.entity, EntityId::Variable { id: diagnostic_id } if diagnostic_id == id)
-        || matches!(&diagnostic.entity, EntityId::Value { variable, .. } if variable == id)
-        || matches!(&diagnostic.entity, EntityId::Rule { variable, .. } if variable == id)
+    matches!(&diagnostic.target.entity, SemanticEntity::Variable { id: diagnostic_id } if diagnostic_id == id)
+        || matches!(&diagnostic.target.entity, SemanticEntity::Value { variable, .. } if variable == id)
+        || matches!(&diagnostic.target.entity, SemanticEntity::Rule { variable, .. } if variable == id)
         || diagnostic.primary.path == variable_path
 }
 
 fn diagnostic_is_resource_related(diagnostic: &LintDiagnostic) -> bool {
     matches!(
-        diagnostic.entity,
-        EntityId::Resource { .. } | EntityId::ResourceObject { .. }
+        diagnostic.target.entity,
+        SemanticEntity::Resource { .. } | SemanticEntity::ResourceObject { .. }
     ) || diagnostic.primary.path.starts_with("resources/")
 }
 
 fn diagnostic_belongs_to_resource(diagnostic: &LintDiagnostic, id: &str) -> bool {
     let resource_path = format!("resources/{id}.toml");
     let resource_objects_prefix = format!("resources/{id}-objects/");
-    matches!(&diagnostic.entity, EntityId::Resource { id: diagnostic_id } if diagnostic_id == id)
-        || matches!(&diagnostic.entity, EntityId::ResourceObject { resource, .. } if resource == id)
+    matches!(&diagnostic.target.entity, SemanticEntity::Resource { id: diagnostic_id } if diagnostic_id == id)
+        || matches!(&diagnostic.target.entity, SemanticEntity::ResourceObject { resource, .. } if resource == id)
         || diagnostic.primary.path == resource_path
         || diagnostic
             .primary
@@ -837,32 +839,32 @@ fn diagnostic_belongs_to_resource(diagnostic: &LintDiagnostic, id: &str) -> bool
 
 fn diagnostic_is_qualifier_related(diagnostic: &LintDiagnostic) -> bool {
     matches!(
-        diagnostic.entity,
-        EntityId::Qualifier { .. } | EntityId::Predicate { .. }
+        diagnostic.target.entity,
+        SemanticEntity::Qualifier { .. } | SemanticEntity::Predicate { .. }
     ) || diagnostic.primary.path.starts_with("qualifiers/")
 }
 
 fn diagnostic_belongs_to_qualifier(diagnostic: &LintDiagnostic, id: &str) -> bool {
     let qualifier_path = format!("qualifiers/{id}.toml");
-    matches!(&diagnostic.entity, EntityId::Qualifier { id: diagnostic_id } if diagnostic_id == id)
-        || matches!(&diagnostic.entity, EntityId::Predicate { qualifier, .. } if qualifier == id)
+    matches!(&diagnostic.target.entity, SemanticEntity::Qualifier { id: diagnostic_id } if diagnostic_id == id)
+        || matches!(&diagnostic.target.entity, SemanticEntity::Predicate { qualifier, .. } if qualifier == id)
         || diagnostic.primary.path == qualifier_path
 }
 
 fn diagnostic_is_linter_related(diagnostic: &LintDiagnostic) -> bool {
-    matches!(diagnostic.entity, EntityId::CustomLint { .. })
+    matches!(diagnostic.target.entity, SemanticEntity::CustomLint { .. })
         || diagnostic.primary.path.starts_with("lint/")
         || authority_of(&diagnostic.rule.as_string()).is_some_and(|authority| authority != "rototo")
 }
 
 fn diagnostic_belongs_to_linter(diagnostic: &LintDiagnostic, id: &str) -> bool {
     let path = format!("lint/{id}.lua");
-    matches!(&diagnostic.entity, EntityId::CustomLint { path: diagnostic_path } if diagnostic_path == &path)
+    matches!(&diagnostic.target.entity, SemanticEntity::CustomLint { path: diagnostic_path } if diagnostic_path == &path)
         || diagnostic.primary.path == path
 }
 
 fn diagnostic_belongs_to_schema(diagnostic: &LintDiagnostic, path: &str) -> bool {
-    matches!(&diagnostic.entity, EntityId::Schema { path: diagnostic_path } if diagnostic_path == path)
+    matches!(&diagnostic.target.entity, SemanticEntity::Schema { path: diagnostic_path } if diagnostic_path == path)
         || diagnostic.primary.path == path
 }
 

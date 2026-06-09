@@ -42,6 +42,43 @@ documents usually report `null`.
 Use this in CI when you need structured diagnostics tied to files, ranges, and
 stable rule ids.
 
+## `diff --json`
+
+`diff --json` reports semantic changes between two workspace sources:
+
+```json
+{
+  "before": "/workspace-before",
+  "after": "/workspace-after",
+  "changes": [
+    {
+      "kind": "variable_value_changed",
+      "target": {
+        "entity": {
+          "kind": "value",
+          "variable": "premium-message",
+          "key": "premium"
+        }
+      },
+      "before": "Welcome back, premium member.",
+      "after": "Welcome back, valued premium member.",
+      "before_location": {
+        "path": "variables/premium-message.toml",
+        "range": null
+      },
+      "after_location": {
+        "path": "variables/premium-message.toml",
+        "range": null
+      }
+    }
+  ],
+  "resolution_impacts": []
+}
+```
+
+When `--context` is supplied, `resolution_impacts` lists variables whose
+resolved value changes for that context.
+
 ## `show --json`
 
 `show` returns selected config and catalog views. Use it when automation needs

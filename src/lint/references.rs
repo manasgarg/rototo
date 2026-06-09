@@ -3,7 +3,9 @@ use std::collections::{BTreeMap, BTreeSet};
 use super::index::*;
 use super::source::{DocumentKind, SourceStore, resolve_workspace_relative_path};
 use super::syntax::SyntaxIndex;
-use crate::diagnostics::{DiagnosticLocation, EntityId, SourcePosition, SourceRange};
+use crate::diagnostics::{
+    DiagnosticLocation, SemanticEntity, SemanticField, SemanticTarget, SourcePosition, SourceRange,
+};
 
 #[derive(Default)]
 pub(super) struct ReferenceIndex {
@@ -17,7 +19,7 @@ pub(super) struct ReferenceIndex {
 #[derive(Clone)]
 pub(super) struct ReferenceEdge {
     pub(super) source: ReferenceSource,
-    pub(super) entity: EntityId,
+    pub(super) semantic_target: SemanticTarget,
     pub(super) location: DiagnosticLocation,
     pub(super) target: ReferenceTarget,
     declaration: Option<DiagnosticLocation>,
@@ -54,7 +56,7 @@ pub(super) struct QualifierReferenceEdge {
 #[derive(Clone)]
 #[allow(dead_code)]
 pub(super) struct ReferenceSite {
-    pub(super) from: EntityId,
+    pub(super) from: SemanticEntity,
     pub(super) location: DiagnosticLocation,
 }
 
@@ -357,10 +359,13 @@ impl ReferenceIndex {
                             qualifier: qualifier.id.clone(),
                             predicate: predicate.index,
                         },
-                        EntityId::Predicate {
-                            qualifier: qualifier.id.clone(),
-                            index: predicate.index,
-                        },
+                        SemanticTarget::field(
+                            SemanticEntity::Predicate {
+                                qualifier: qualifier.id.clone(),
+                                index: predicate.index,
+                            },
+                            SemanticField::PredicateAttribute,
+                        ),
                         attribute.location.clone(),
                         ReferenceTarget::Qualifier(target.to_owned()),
                     );
@@ -370,10 +375,13 @@ impl ReferenceIndex {
                             qualifier: qualifier.id.clone(),
                             predicate: predicate.index,
                         },
-                        EntityId::Predicate {
-                            qualifier: qualifier.id.clone(),
-                            index: predicate.index,
-                        },
+                        SemanticTarget::field(
+                            SemanticEntity::Predicate {
+                                qualifier: qualifier.id.clone(),
+                                index: predicate.index,
+                            },
+                            SemanticField::PredicateAttribute,
+                        ),
                         attribute.location.clone(),
                         ReferenceTarget::ContextAttribute(attribute.value.clone()),
                     );
@@ -389,9 +397,12 @@ impl ReferenceIndex {
                     ReferenceSource::VariableResource {
                         variable: variable.id.clone(),
                     },
-                    EntityId::Variable {
-                        id: variable.id.clone(),
-                    },
+                    SemanticTarget::field(
+                        SemanticEntity::Variable {
+                            id: variable.id.clone(),
+                        },
+                        SemanticField::VariableType,
+                    ),
                     resource.location.clone(),
                     ReferenceTarget::Resource(resource.value.clone()),
                 );
@@ -407,9 +418,12 @@ impl ReferenceIndex {
                     ReferenceSource::VariableResolveDefault {
                         variable: variable.id.clone(),
                     },
-                    EntityId::Variable {
-                        id: variable.id.clone(),
-                    },
+                    SemanticTarget::field(
+                        SemanticEntity::Variable {
+                            id: variable.id.clone(),
+                        },
+                        SemanticField::VariableResolveDefault,
+                    ),
                     value.location.clone(),
                     target,
                 );
@@ -422,7 +436,7 @@ impl ReferenceIndex {
                 if rule.invalid_shape {
                     continue;
                 }
-                let entity = EntityId::Rule {
+                let entity = SemanticEntity::Rule {
                     variable: variable.id.clone(),
                     index: rule.index,
                 };
@@ -432,7 +446,7 @@ impl ReferenceIndex {
                             variable: variable.id.clone(),
                             rule: rule.index,
                         },
-                        entity.clone(),
+                        SemanticTarget::field(entity.clone(), SemanticField::VariableRuleQualifier),
                         qualifier.location.clone(),
                         ReferenceTarget::Qualifier(qualifier.value.clone()),
                     );
@@ -444,7 +458,7 @@ impl ReferenceIndex {
                             variable: variable.id.clone(),
                             rule: rule.index,
                         },
-                        entity.clone(),
+                        SemanticTarget::field(entity.clone(), SemanticField::VariableRuleValue),
                         value.location.clone(),
                         target,
                     );
@@ -463,9 +477,12 @@ impl ReferenceIndex {
                     ReferenceSource::ResourceSchema {
                         resource: resource.id.clone(),
                     },
-                    EntityId::Resource {
-                        id: resource.id.clone(),
-                    },
+                    SemanticTarget::field(
+                        SemanticEntity::Resource {
+                            id: resource.id.clone(),
+                        },
+                        SemanticField::ResourceSchema,
+                    ),
                     schema.location.clone(),
                     ReferenceTarget::Schema(schema_path),
                 );
@@ -476,14 +493,15 @@ impl ReferenceIndex {
     fn push_edge(
         &mut self,
         source: ReferenceSource,
-        entity: EntityId,
+        semantic_target: impl Into<SemanticTarget>,
         location: DiagnosticLocation,
         target: ReferenceTarget,
     ) {
+        let semantic_target = semantic_target.into();
         let declaration = self.declarations.get(&target).cloned();
         if declaration.is_some() {
             let site = ReferenceSite {
-                from: entity.clone(),
+                from: semantic_target.entity.clone(),
                 location: location.clone(),
             };
             match &target {
@@ -512,7 +530,7 @@ impl ReferenceIndex {
         }
         self.edges.push(ReferenceEdge {
             source,
-            entity,
+            semantic_target,
             location,
             target,
             declaration,

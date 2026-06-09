@@ -1,5 +1,5 @@
 use crate::diagnostics::RototoRuleId;
-use crate::diagnostics::{EntityId, LintDiagnostic, LintStage};
+use crate::diagnostics::{LintDiagnostic, LintStage, SemanticEntity};
 
 use super::super::source::{DocumentKind, SourceDocument};
 
@@ -88,23 +88,23 @@ fn parse_failed_rule(kind: &DocumentKind) -> RototoRuleId {
     }
 }
 
-fn entity_for_document(document: &SourceDocument) -> EntityId {
+fn entity_for_document(document: &SourceDocument) -> SemanticEntity {
     match &document.kind {
-        DocumentKind::Manifest => EntityId::Manifest,
-        DocumentKind::Qualifier { id } => EntityId::Qualifier { id: id.clone() },
-        DocumentKind::Variable { id } => EntityId::Variable { id: id.clone() },
-        DocumentKind::Resource { id } => EntityId::Resource { id: id.clone() },
+        DocumentKind::Manifest => SemanticEntity::Manifest,
+        DocumentKind::Qualifier { id } => SemanticEntity::Qualifier { id: id.clone() },
+        DocumentKind::Variable { id } => SemanticEntity::Variable { id: id.clone() },
+        DocumentKind::Resource { id } => SemanticEntity::Resource { id: id.clone() },
         DocumentKind::ResourceObject {
             resource_id,
             object_id,
-        } => EntityId::ResourceObject {
+        } => SemanticEntity::ResourceObject {
             resource: resource_id.clone(),
             key: object_id.clone(),
         },
-        DocumentKind::Schema => EntityId::Schema {
+        DocumentKind::Schema => SemanticEntity::Schema {
             path: document.path.clone(),
         },
-        DocumentKind::CustomLint => EntityId::CustomLint {
+        DocumentKind::CustomLint => SemanticEntity::CustomLint {
             path: document.path.clone(),
         },
     }

@@ -12,9 +12,9 @@ use serde::Serialize;
 use crate::output::{
     print_diagnostic_catalog_entry, print_inspect_report, print_qualifier_get,
     print_qualifier_list, print_resource_get, print_resource_list, print_variable_get,
-    print_variable_list, print_workspace_lint,
+    print_variable_list, print_workspace_diff, print_workspace_lint,
 };
-use rototo::diagnostics::{DiagnosticCatalogEntry, EntityId, LintDiagnostic, Severity};
+use rototo::diagnostics::{DiagnosticCatalogEntry, LintDiagnostic, SemanticEntity, Severity};
 use rototo::model::{
     DiagnosticCatalog, InspectSelection, LinterInspection, PredicateInspectReport,
     QualifierInspection, QualifierResolutionTrace, ResourceInspection, SchemaInspection,
@@ -27,9 +27,10 @@ use rototo::workspace::{
 };
 use rototo::{
     Result, RototoError, SourceAuth, SourceOptions, StagedWorkspace, catalog,
-    catalog_for_workspace, diagnostic_for_rule, find_workspace_root, inspect_workspace,
-    inspect_workspace_report, lint_workspace, stage_workspace_source, trace_qualifier_resolution,
-    trace_qualifier_resolutions, trace_variable_resolution, trace_variable_resolutions,
+    catalog_for_workspace, diagnostic_for_rule, diff_workspaces, find_workspace_root,
+    inspect_workspace, inspect_workspace_report, lint_workspace, stage_workspace_source,
+    trace_qualifier_resolution, trace_qualifier_resolutions, trace_variable_resolution,
+    trace_variable_resolutions,
 };
 
 #[derive(Debug, Parser)]
@@ -74,6 +75,8 @@ enum Command {
     Lint(WorkspaceCommandArgs),
     /// Explain how rototo sees workspace data.
     Inspect(InspectArgs),
+    /// Compare two workspaces by rototo concepts.
+    Diff(DiffArgs),
     /// Display workspace config, variables, qualifiers, and lint metadata.
     Show(WorkspaceCommandArgs),
     /// Evaluate variables or qualifiers with runtime context.
@@ -164,6 +167,21 @@ struct InspectArgs {
     selectors: SelectorArgs,
 
     /// Evaluation context: JSON object, @file, or path=value. Repeatable; later values override earlier ones.
+    #[arg(long = "context", value_name = "CONTEXT")]
+    context: Vec<String>,
+}
+
+#[derive(Debug, Args)]
+struct DiffArgs {
+    /// Workspace source used as the before side of the comparison.
+    #[arg(value_name = "BEFORE_WORKSPACE_SOURCE")]
+    before: String,
+
+    /// Workspace source used as the after side of the comparison.
+    #[arg(value_name = "AFTER_WORKSPACE_SOURCE")]
+    after: String,
+
+    /// Evaluation context used to report resolution impact: JSON object, @file, or path=value.
     #[arg(long = "context", value_name = "CONTEXT")]
     context: Vec<String>,
 }
@@ -497,6 +515,7 @@ async fn run() -> Result<ExitCode> {
         Command::Fixtures(args) => run_fixtures(args, &source_options, cli.json, cli.quiet).await,
         Command::Lint(args) => run_lint(args, &source_options, cli.json, cli.quiet).await,
         Command::Inspect(args) => run_inspect(args, &source_options, cli.json).await,
+        Command::Diff(args) => run_diff(args, &source_options, cli.json).await,
         Command::Show(args) => run_show(args, &source_options, cli.json).await,
         Command::Resolve(args) => run_resolve(args, &source_options, cli.json).await,
         Command::Docs(args) => run_docs(args, cli.json).await,
@@ -1515,6 +1534,19 @@ async fn run_inspect(
     Ok(ExitCode::SUCCESS)
 }
 
+async fn run_diff(args: DiffArgs, source_options: &SourceOptions, json: bool) -> Result<ExitCode> {
+    let before = workspace_source_for_lint(Some(args.before), source_options).await?;
+    let after = workspace_source_for_lint(Some(args.after), source_options).await?;
+    let context = if args.context.is_empty() {
+        None
+    } else {
+        Some(parse_context(&args.context).await?)
+    };
+    let diff = diff_workspaces(before.path(), after.path(), context.as_ref()).await?;
+    print_workspace_diff(&diff, json)?;
+    Ok(ExitCode::SUCCESS)
+}
+
 async fn run_show(
     args: WorkspaceCommandArgs,
     source_options: &SourceOptions,
@@ -1856,31 +1888,33 @@ fn selection_matches_linter(selection: &Selection<String>, diagnostic: &LintDiag
 
 fn diagnostic_is_variable_related(diagnostic: &LintDiagnostic) -> bool {
     matches!(
-        diagnostic.entity,
-        EntityId::Variable { .. } | EntityId::Value { .. } | EntityId::Rule { .. }
+        diagnostic.target.entity,
+        SemanticEntity::Variable { .. }
+            | SemanticEntity::Value { .. }
+            | SemanticEntity::Rule { .. }
     ) || diagnostic.primary.path.starts_with("variables/")
 }
 
 fn diagnostic_belongs_to_variable(diagnostic: &LintDiagnostic, id: &str) -> bool {
     let variable_path = format!("variables/{id}.toml");
-    matches!(&diagnostic.entity, EntityId::Variable { id: diagnostic_id } if diagnostic_id == id)
-        || matches!(&diagnostic.entity, EntityId::Value { variable, .. } if variable == id)
-        || matches!(&diagnostic.entity, EntityId::Rule { variable, .. } if variable == id)
+    matches!(&diagnostic.target.entity, SemanticEntity::Variable { id: diagnostic_id } if diagnostic_id == id)
+        || matches!(&diagnostic.target.entity, SemanticEntity::Value { variable, .. } if variable == id)
+        || matches!(&diagnostic.target.entity, SemanticEntity::Rule { variable, .. } if variable == id)
         || diagnostic.primary.path == variable_path
 }
 
 fn diagnostic_is_resource_related(diagnostic: &LintDiagnostic) -> bool {
     matches!(
-        diagnostic.entity,
-        EntityId::Resource { .. } | EntityId::ResourceObject { .. }
+        diagnostic.target.entity,
+        SemanticEntity::Resource { .. } | SemanticEntity::ResourceObject { .. }
     ) || diagnostic.primary.path.starts_with("resources/")
 }
 
 fn diagnostic_belongs_to_resource(diagnostic: &LintDiagnostic, id: &str) -> bool {
     let resource_path = format!("resources/{id}.toml");
     let resource_objects_prefix = format!("resources/{id}-objects/");
-    matches!(&diagnostic.entity, EntityId::Resource { id: diagnostic_id } if diagnostic_id == id)
-        || matches!(&diagnostic.entity, EntityId::ResourceObject { resource, .. } if resource == id)
+    matches!(&diagnostic.target.entity, SemanticEntity::Resource { id: diagnostic_id } if diagnostic_id == id)
+        || matches!(&diagnostic.target.entity, SemanticEntity::ResourceObject { resource, .. } if resource == id)
         || diagnostic.primary.path == resource_path
         || diagnostic
             .primary
@@ -1890,27 +1924,27 @@ fn diagnostic_belongs_to_resource(diagnostic: &LintDiagnostic, id: &str) -> bool
 
 fn diagnostic_is_qualifier_related(diagnostic: &LintDiagnostic) -> bool {
     matches!(
-        diagnostic.entity,
-        EntityId::Qualifier { .. } | EntityId::Predicate { .. }
+        diagnostic.target.entity,
+        SemanticEntity::Qualifier { .. } | SemanticEntity::Predicate { .. }
     ) || diagnostic.primary.path.starts_with("qualifiers/")
 }
 
 fn diagnostic_belongs_to_qualifier(diagnostic: &LintDiagnostic, id: &str) -> bool {
     let qualifier_path = format!("qualifiers/{id}.toml");
-    matches!(&diagnostic.entity, EntityId::Qualifier { id: diagnostic_id } if diagnostic_id == id)
-        || matches!(&diagnostic.entity, EntityId::Predicate { qualifier, .. } if qualifier == id)
+    matches!(&diagnostic.target.entity, SemanticEntity::Qualifier { id: diagnostic_id } if diagnostic_id == id)
+        || matches!(&diagnostic.target.entity, SemanticEntity::Predicate { qualifier, .. } if qualifier == id)
         || diagnostic.primary.path == qualifier_path
 }
 
 fn diagnostic_is_linter_related(diagnostic: &LintDiagnostic) -> bool {
-    matches!(diagnostic.entity, EntityId::CustomLint { .. })
+    matches!(diagnostic.target.entity, SemanticEntity::CustomLint { .. })
         || diagnostic.primary.path.starts_with("lint/")
         || authority_of(&diagnostic.rule.as_string()).is_some_and(|authority| authority != "rototo")
 }
 
 fn diagnostic_belongs_to_linter(diagnostic: &LintDiagnostic, id: &str) -> bool {
     let path = format!("lint/{id}.lua");
-    matches!(&diagnostic.entity, EntityId::CustomLint { path: diagnostic_path } if diagnostic_path == &path)
+    matches!(&diagnostic.target.entity, SemanticEntity::CustomLint { path: diagnostic_path } if diagnostic_path == &path)
         || diagnostic.primary.path == path
 }
 

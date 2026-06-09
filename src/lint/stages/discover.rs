@@ -1,6 +1,8 @@
 use std::path::PathBuf;
 
-use crate::diagnostics::{DiagnosticLocation, EntityId, LintDiagnostic, LintStage, RototoRuleId};
+use crate::diagnostics::{
+    DiagnosticLocation, LintDiagnostic, LintStage, RototoRuleId, SemanticEntity,
+};
 use crate::error::Result;
 
 use super::super::WORKSPACE_MANIFEST;
@@ -14,7 +16,7 @@ pub(super) async fn run(ctx: &mut LintContext) -> Result<()> {
             ctx.diagnostics.push(LintDiagnostic::rototo(
                 RototoRuleId::WorkspaceNotFound,
                 LintStage::Discover,
-                EntityId::Workspace,
+                SemanticEntity::Workspace,
                 DiagnosticLocation::workspace_root(ctx.input.root.display().to_string()),
                 err.to_string(),
             ));
@@ -28,7 +30,7 @@ pub(super) async fn run(ctx: &mut LintContext) -> Result<()> {
             ctx.diagnostics.push(LintDiagnostic::rototo(
                 RototoRuleId::WorkspaceNotFound,
                 LintStage::Discover,
-                EntityId::Workspace,
+                SemanticEntity::Workspace,
                 DiagnosticLocation::workspace_root(root.display().to_string()),
                 err.to_string(),
             ));
@@ -40,7 +42,7 @@ pub(super) async fn run(ctx: &mut LintContext) -> Result<()> {
         ctx.diagnostics.push(LintDiagnostic::rototo(
             RototoRuleId::WorkspaceNotFound,
             LintStage::Discover,
-            EntityId::Workspace,
+            SemanticEntity::Workspace,
             DiagnosticLocation::workspace_root(root.display().to_string()),
             "workspace path is not a directory",
         ));
@@ -61,7 +63,7 @@ pub(super) async fn run(ctx: &mut LintContext) -> Result<()> {
         ctx.diagnostics.push(LintDiagnostic::rototo(
             RototoRuleId::WorkspaceManifestMissing,
             LintStage::Discover,
-            EntityId::Workspace,
+            SemanticEntity::Workspace,
             DiagnosticLocation::workspace_root(ctx.source.root.display().to_string()),
             "workspace manifest is missing",
         ));
