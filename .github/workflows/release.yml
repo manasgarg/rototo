@@ -41,6 +41,7 @@ jobs:
         with:
           distribution: temurin
           java-version: "21"
+          cache: maven
 
       - name: Install just
         run: cargo install just --locked
@@ -168,15 +169,6 @@ jobs:
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
 
-      - name: Authenticate to crates.io
-        id: auth
-        uses: rust-lang/crates-io-auth-action@v1
-
-      - name: Publish Rust crate
-        run: cargo publish --package rototo --locked
-        env:
-          CARGO_REGISTRY_TOKEN: ${{ steps.auth.outputs.token }}
-
       - name: Set up Node
         uses: actions/setup-node@v6
         with:
@@ -261,6 +253,7 @@ jobs:
         with:
           distribution: temurin
           java-version: "21"
+          cache: maven
 
       - name: Download Java native libraries
         uses: actions/download-artifact@v4
@@ -268,42 +261,22 @@ jobs:
           pattern: java-native-*
           path: sdks/java/native
 
-      - name: Build Java SDK jar
-        run: |
-          set -euo pipefail
-          version="${GITHUB_REF_NAME#v}"
-          classes="sdks/java/target/classes"
-          resources="sdks/java/target/package-resources"
-          dist="sdks/java/dist"
-          rm -rf "$classes" "$resources" "$dist"
-          mkdir -p "$classes" "$dist"
+      - name: Prepare Java native resources
+        run: bash scripts/prepare-java-native-resources.sh sdks/java/native sdks/java/target/generated-resources/native
 
-          find sdks/java/src/main/java -name '*.java' -print > sdks/java/target/main-sources.txt
-          javac --release 11 -d "$classes" @sdks/java/target/main-sources.txt
-
-          mkdir -p "$resources/dev/rototo/native/linux-x86_64"
-          mkdir -p "$resources/dev/rototo/native/linux-aarch64"
-          mkdir -p "$resources/dev/rototo/native/darwin-x86_64"
-          mkdir -p "$resources/dev/rototo/native/darwin-aarch64"
-          mkdir -p "$resources/dev/rototo/native/windows-x86_64"
-          cp sdks/java/native/java-native-linux-x86_64/librototo_java.so "$resources/dev/rototo/native/linux-x86_64/"
-          cp sdks/java/native/java-native-linux-aarch64/librototo_java.so "$resources/dev/rototo/native/linux-aarch64/"
-          cp sdks/java/native/java-native-darwin-x86_64/librototo_java.dylib "$resources/dev/rototo/native/darwin-x86_64/"
-          cp sdks/java/native/java-native-darwin-aarch64/librototo_java.dylib "$resources/dev/rototo/native/darwin-aarch64/"
-          cp sdks/java/native/java-native-windows-x86_64/rototo_java.dll "$resources/dev/rototo/native/windows-x86_64/"
-
-          jar --create --file "$dist/rototo-$version.jar" -C "$classes" . -C "$resources" .
-          cp sdks/java/pom.xml "$dist/rototo-$version.pom"
+      - name: Verify Java SDK Maven package
+        working-directory: sdks/java
+        run: mvn -B -Dgpg.skip=true -Dcentral.skipPublishing=true verify
 
       - name: Upload Java SDK package
         uses: actions/upload-artifact@v4
         with:
           name: java-package
-          path: sdks/java/dist/*
+          path: sdks/java/target/rototo-*.jar
           if-no-files-found: error
 
   publish:
-    name: Publish crates.io, PyPI, and npm
+    name: Publish crates.io, PyPI, npm, and Maven Central
     needs:
       - validate
       - python-sdist
@@ -323,6 +296,18 @@ jobs:
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
 
+      - name: Set up Java for Maven Central
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: "21"
+          cache: maven
+          server-id: central
+          server-username: CENTRAL_USERNAME
+          server-password: CENTRAL_PASSWORD
+          gpg-private-key: ${{ secrets.MAVEN_GPG_PRIVATE_KEY }}
+          gpg-passphrase: MAVEN_GPG_PASSPHRASE
+
       - name: Set up Node
         uses: actions/setup-node@v6
         with:
@@ -330,6 +315,15 @@ jobs:
           registry-url: https://registry.npmjs.org
           cache: npm
           cache-dependency-path: sdks/typescript/package-lock.json
+
+      - name: Authenticate to crates.io
+        id: auth
+        uses: rust-lang/crates-io-auth-action@v1
+
+      - name: Publish Rust crate
+        run: cargo publish --package rototo --locked
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ steps.auth.outputs.token }}
 
       - name: Download TypeScript native modules
         uses: actions/download-artifact@v4
@@ -349,6 +343,23 @@ jobs:
       - name: Publish TypeScript SDK
         working-directory: sdks/typescript
         run: npm publish --provenance --tag alpha --access public
+
+      - name: Download Java native libraries
+        uses: actions/download-artifact@v4
+        with:
+          pattern: java-native-*
+          path: sdks/java/native
+
+      - name: Prepare Java native resources
+        run: bash scripts/prepare-java-native-resources.sh sdks/java/native sdks/java/target/generated-resources/native
+
+      - name: Publish Java SDK
+        working-directory: sdks/java
+        run: mvn -B deploy
+        env:
+          CENTRAL_USERNAME: ${{ secrets.CENTRAL_USERNAME }}
+          CENTRAL_PASSWORD: ${{ secrets.CENTRAL_PASSWORD }}
+          MAVEN_GPG_PASSPHRASE: ${{ secrets.MAVEN_GPG_PASSPHRASE }}
 
       - name: Download Python distributions
         uses: actions/download-artifact@v4

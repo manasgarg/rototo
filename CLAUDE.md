@@ -232,6 +232,15 @@ run the local release gate. Use `just release-check <version>` in CI before any
 publish step so tag names, manifests, and generated package content cannot
 drift.
 
+Java SDK releases publish `dev.rototo:rototo` to Maven Central through the
+Central Portal Maven plugin. The published JAR should be built by Maven and
+include generated native-library resources for every supported platform, plus
+the sources JAR, javadoc JAR, POM metadata required by Central, GPG signatures,
+and Central-generated checksums. Do not hand-build the Maven Central artifact in
+the release workflow. Release automation expects Central Portal token secrets
+named `CENTRAL_USERNAME` and `CENTRAL_PASSWORD`, and GPG secrets named
+`MAVEN_GPG_PRIVATE_KEY` and `MAVEN_GPG_PASSPHRASE`.
+
 ## Commands
 
 Use `just` as the project command surface:
