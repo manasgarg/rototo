@@ -10,9 +10,9 @@ qualifiers directly for debugging.
 
 Qualifier resolution needs:
 
-- a loaded, lint-clean workspace;
+- a [loaded, lint-clean workspace](reference-sdk-loading.html);
 - a qualifier id;
-- a JSON object context.
+- a [JSON object context](reference-context.html).
 
 CLI:
 
@@ -69,7 +69,8 @@ error.
 
 ## Trace Shape
 
-CLI `--json` and `inspect --context` expose qualifier traces:
+[CLI `--json`](reference-json-output.html) and `inspect --context` expose
+qualifier traces:
 
 ```json
 {
@@ -114,6 +115,8 @@ what the qualifier needs.
 
 The usual production checks are:
 
-- keep `schemas/context.schema.json` current;
-- exercise important contexts in app tests;
-- log enough trace or selected metadata to explain policy decisions.
+- keep [`schemas/context.schema.json`](reference-context.html) current;
+- exercise important contexts in
+  [app tests](testing-runtime-configuration.html);
+- log enough [trace](reference-resolution-output.html) or selected metadata to
+  explain policy decisions.

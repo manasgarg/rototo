@@ -30,8 +30,9 @@ let resolution = workspace
     .await?;
 ```
 
-Use `Workspace::load` for application runtime paths. Use `Workspace::inspect`
-for tools that need to load a workspace without compiling a runtime model.
+Use [`Workspace::load`](reference-sdk-loading.html) for application runtime
+paths. Use `Workspace::inspect` for tools that need to load a workspace without
+compiling a runtime model.
 
 ## Refreshing Handle
 
@@ -43,8 +44,8 @@ let refresh = RefreshOptions::new().with_period(Duration::from_secs(30));
 let workspace = RefreshingWorkspace::load(source, refresh).await?;
 ```
 
-`RefreshingWorkspace` keeps the last successfully loaded workspace active when
-a later refresh fails.
+[`RefreshingWorkspace`](reference-sdk-refresh.html) keeps the last successfully
+loaded workspace active when a later refresh fails.
 
 ## Error Type
 
@@ -67,4 +68,5 @@ The Rust crate exposes the broadest SDK surface:
 | `RefreshingWorkspace::shutdown` | Stop the refresh loop. |
 
 The crate also exports lower-level list, read, lint, resolve, trace, source,
-catalog, and testing helpers for Rust tools and test suites.
+catalog, and [testing](testing-runtime-configuration.html) helpers for Rust
+tools and test suites.

@@ -6,7 +6,7 @@ serious it is, and what to change.
 
 ## Diagnostic Shape
 
-JSON diagnostics use this shape:
+[JSON diagnostics](reference-json-output.html) use this shape:
 
 ```json
 {
@@ -108,7 +108,8 @@ rototo show examples/basic --lint-authority rototo
 ```
 
 The global catalog contains built-in rototo rules. A workspace-scoped catalog
-also includes custom rules registered by `lint/*.lua`.
+also includes [custom rules](reference-custom-lua-lint.html) registered by
+`lint/*.lua`.
 
 Catalog entries contain:
 

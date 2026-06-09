@@ -18,7 +18,8 @@ rototo-workspace.toml
 ```
 
 The manifest must declare `schema_version = 1`. See
-`reference-workspace-manifest` for the manifest contract.
+[Workspace Manifest](reference-workspace-manifest.html) for the manifest
+contract.
 
 When a CLI command omits the workspace source, rototo walks upward from the
 current directory until it finds `rototo-workspace.toml`.
@@ -79,8 +80,9 @@ If the resource file does not exist, rototo does not treat the matching
 
 ## Special Schema Path
 
-`schemas/context.schema.json` has a reserved meaning. When present, it is the
-schema for the runtime context an application passes during resolution.
+[`schemas/context.schema.json`](reference-context.html) has a reserved meaning.
+When present, it is the schema for the runtime context an application passes
+during resolution.
 
 Other JSON Schemas under `schemas/` validate resource objects when referenced
 from a resource file.
@@ -108,6 +110,6 @@ Workspace layout does not grant ownership. Repository permissions, review
 rules, and CI decide who can change files. Rototo reads the files after a
 workspace source has already been chosen.
 
-Layout also does not define deployment. Applications load a workspace source,
-which may be a local path, git source, or HTTPS archive. See
-`reference-workspace-sources` for that contract.
+Layout also does not define deployment. Applications load a
+[workspace source](reference-workspace-sources.html), which may be a local path,
+git source, or HTTPS archive.

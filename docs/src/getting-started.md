@@ -33,8 +33,9 @@ rototo init account-config --variable max-active-projects
 ```
 
 The workspace is the control-plane boundary. Everything rototo needs to
-understand this configuration starts at `rototo-workspace.toml` and lives in
-the directories beside it:
+understand this configuration starts at
+[`rototo-workspace.toml`](reference-workspace-manifest.html) and lives in the
+[directories beside it](reference-workspace-layout.html):
 
 ```text
 account-config/
@@ -47,9 +48,12 @@ account-config/
     max-active-projects.toml
 ```
 
-For the first pass, we only need one variable. The other directories are not
-ceremony; they are places we will use later for conditions, schemas, resources,
-and custom lint.
+For the first pass, we only need one
+[variable](reference-variables.html). The other directories are not ceremony;
+they are places we will use later for
+[conditions](reference-qualifiers.html), schemas,
+[resources](reference-resources.html), and
+[custom lint](reference-custom-lua-lint.html).
 
 Replace `account-config/variables/max-active-projects.toml` with one variable
 the app can actually use:
@@ -67,8 +71,10 @@ standard = 3
 default = "standard"
 ```
 
-The variable declares one typed value named `standard`. The `[resolve]` block
-says that `standard` is the value to use when no rule selects something else.
+The variable declares one
+[typed value](reference-variable-values.html) named `standard`. The
+`[resolve]` block says that `standard` is the value to use when no
+[rule](reference-variable-resolution.html) selects something else.
 
 Before an application uses the workspace, I want the workspace to prove it is
 valid on its own:
@@ -106,8 +112,9 @@ and resolves before the application is involved.
 ## Load From An App
 
 Now we move the same resolution into a process. The app should not parse TOML,
-walk workspace files, or copy resolution rules. It should load a workspace
-source and ask for a named variable.
+walk workspace files, or copy resolution rules. It should
+[load a workspace source](reference-sdk-loading.html) and
+[ask for a named variable](reference-sdk-resolution.html).
 
 Create the Rust app next to `account-config`:
 
@@ -157,9 +164,10 @@ async fn main() -> Result<(), Box<dyn Error>> {
 }
 ```
 
-I am using `RefreshingWorkspace` even in the first app because refresh is part
-of the runtime model. The service starts with one known-good workspace, then
-future successful refreshes affect future resolutions.
+I am using [`RefreshingWorkspace`](reference-sdk-refresh.html) even in the
+first app because refresh is part of the runtime model. The service starts with
+one known-good workspace, then future successful refreshes affect future
+resolutions.
 
 Run the app with the workspace source:
 
@@ -216,6 +224,6 @@ This first loop used one unconditional account limit. Production work usually
 adds runtime context, named qualifiers, workspace lint rules, tests, and a
 hosted git source so configuration changes move through review and CI.
 
-The production workflow builds those pieces onto this same `account-config`
-workspace. The loop stays the same; we just add the checks I would want before
-trusting this path in a service.
+The [production workflow](production-workflow.html) builds those pieces onto
+this same `account-config` workspace. The loop stays the same; we just add the
+checks I would want before trusting this path in a service.

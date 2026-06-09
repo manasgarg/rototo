@@ -64,9 +64,9 @@ defer workspace.Close(ctx)
 ```
 :::
 
-Initial load stages the source, lints it, compiles the runtime model, and makes
-that workspace current. If initial load fails, the service has no active
-workspace and the call returns an error.
+Initial load [stages the source](reference-sdk-loading.html), lints it,
+compiles the runtime model, and makes that workspace current. If initial load
+fails, the service has no active workspace and the call returns an error.
 
 ## Resolution
 
@@ -109,9 +109,9 @@ resolution, err := workspace.ResolveVariable(
 ```
 :::
 
-Each call resolves against the current successfully loaded workspace. A
-successful refresh affects future resolutions. It does not mutate a resolution
-already returned to application code.
+Each call [resolves](reference-sdk-resolution.html) against the current
+successfully loaded workspace. A successful refresh affects future resolutions.
+It does not mutate a resolution already returned to application code.
 
 ## Manual Refresh
 
@@ -198,9 +198,10 @@ at 300 seconds. The first Python and Go SDK releases use the Rust defaults.
 
 ## Immutable Sources
 
-A git source pinned to a full 40-character commit SHA is immutable. Periodic
-refresh is disabled for immutable sources, because there is no later workspace
-version to discover from that source string.
+A [git source](reference-workspace-sources.html) pinned to a full 40-character
+commit SHA is immutable. Periodic refresh is disabled for immutable sources,
+because there is no later workspace version to discover from that source
+string.
 
 Commit-pinned sources are good for reproducible jobs and tests. Branch or tag
 sources are the usual fit for long-running services that should receive

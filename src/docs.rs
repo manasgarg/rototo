@@ -1,7 +1,9 @@
+use std::collections::BTreeMap;
 use std::path::Path;
 use std::sync::LazyLock;
 
 use pulldown_cmark::{CodeBlockKind, Event, Options, Parser, Tag, TagEnd, html};
+use regex::Regex;
 use syntect::html::{ClassStyle, ClassedHTMLGenerator};
 use syntect::parsing::SyntaxSet;
 use syntect::util::LinesWithEndings;
@@ -323,8 +325,10 @@ pub const DOC_NAV_SECTIONS: &[DocNavSection] = &[
 /// Design system stylesheet and brand assets vendored under `docs/theme/`.
 const DOCS_CSS: &str = include_str!("../docs/theme/rototo-docs.css");
 const FAVICON_SVG: &str = include_str!("../docs/theme/favicon.svg");
+const MARK_SVG: &str = include_str!("../docs/theme/rototo-mark.svg");
 const WORDMARK_SVG: &str = include_str!("../docs/theme/rototo-wordmark.svg");
 static SYNTAX_SET: LazyLock<SyntaxSet> = LazyLock::new(SyntaxSet::load_defaults_newlines);
+pub const DEFAULT_DOCS_BASE_URL: &str = "https://docs.rototo.dev";
 
 /// Brand fonts referenced by the stylesheet: Manrope for display headings,
 /// Hanken Grotesk for body text, and JetBrains Mono for code and labels.
@@ -343,6 +347,9 @@ pub fn get_page(id: &str) -> Result<&'static DocPage> {
 pub fn render_page_html(page: &DocPage) -> String {
     let nav = render_nav(page.id);
     let section = escape_html(section_title_for(page.id));
+    let (markdown, toc_items) = prepare_markdown_for_html(page.markdown);
+    let body = render_markdown(&markdown);
+    let toc = render_toc(&toc_items);
 
     format!(
         r#"<!doctype html>
@@ -359,9 +366,10 @@ pub fn render_page_html(page: &DocPage) -> String {
 </head>
 <body>
 <header class="topbar">
-  <a class="brand" href="index.html"><img src="assets/rototo-wordmark.svg" alt="rototo"></a>
+  <a class="brand" href="index.html"><img class="brand-wordmark" src="assets/rototo-wordmark.svg" alt="rototo"></a>
   <nav class="topnav" aria-label="Primary">
 {topnav}  </nav>
+  <div class="topbar-spacer"></div>
   {language_picker}
 </header>
 <div class="layout">
@@ -371,12 +379,13 @@ pub fn render_page_html(page: &DocPage) -> String {
 {nav}
     </nav>
   </details>
-  <aside class="sidenav" aria-label="Documentation">
+  <aside class="tree sidenav" aria-label="Documentation">
 {nav}
   </aside>
   <main class="doc">
     <div class="crumb">{section}</div>
 {body}{page_nav}  </main>
+{toc}
 </div>
 {language_script}
 </body>
@@ -388,8 +397,9 @@ pub fn render_page_html(page: &DocPage) -> String {
         language_picker = render_sdk_language_picker(),
         section = section,
         nav = nav,
-        body = render_markdown(page.markdown),
+        body = body,
         page_nav = render_page_nav(page.id),
+        toc = toc,
         language_script = render_sdk_language_script(),
     )
 }
@@ -405,6 +415,7 @@ pub async fn export_html(out: &Path) -> Result<()> {
     let asset_files = [
         ("rototo-docs.css", DOCS_CSS),
         ("favicon.svg", FAVICON_SVG),
+        ("rototo-mark.svg", MARK_SVG),
         ("rototo-wordmark.svg", WORDMARK_SVG),
     ];
     for (name, contents) in asset_files {
@@ -428,6 +439,11 @@ pub async fn export_html(out: &Path) -> Result<()> {
 }
 
 pub fn render_package_readme(sdk: &str) -> Result<String> {
+    render_package_readme_with_base_url(sdk, DEFAULT_DOCS_BASE_URL)
+}
+
+pub fn render_package_readme_with_base_url(sdk: &str, docs_base_url: &str) -> Result<String> {
+    let docs_base_url = normalize_docs_base_url(docs_base_url)?;
     let page = match sdk {
         "python" => get_page("reference-sdk-python")?,
         "typescript" => get_page("reference-sdk-typescript")?,
@@ -452,10 +468,203 @@ pub fn render_package_readme(sdk: &str) -> Result<String> {
     } else if let Some(rest) = markdown.strip_prefix(&format!("# {}\n", page.title)) {
         markdown = format!("# {readme_title}\n{rest}");
     }
+    markdown = rewrite_package_readme_doc_links(&markdown, docs_base_url);
     Ok(format!(
         "<!-- Generated from docs/src/{page_id}.md by `rototo docs --package-readme {sdk} --out sdks/{sdk}/README.md`. Do not edit directly. -->\n\n{markdown}",
         page_id = page.id,
     ))
+}
+
+fn normalize_docs_base_url(docs_base_url: &str) -> Result<&str> {
+    let docs_base_url = docs_base_url.trim().trim_end_matches('/');
+    if docs_base_url.is_empty() {
+        return Err(RototoError::new("docs base URL must not be blank"));
+    }
+    Ok(docs_base_url)
+}
+
+fn rewrite_package_readme_doc_links(markdown: &str, docs_base_url: &str) -> String {
+    let link =
+        Regex::new(r"\[([^\]\n]+)\]\(([^)\s]+)\)").expect("documentation link regex is valid");
+    link.replace_all(markdown, |captures: &regex::Captures<'_>| {
+        let text = captures.get(1).expect("capture exists").as_str();
+        let target = captures.get(2).expect("capture exists").as_str();
+        if let Some((page_id, anchor)) = internal_doc_link_target(target) {
+            format!(
+                "[{text}]({docs_base_url}/{}{})",
+                page_href(page_id),
+                anchor.unwrap_or("")
+            )
+        } else {
+            captures.get(0).expect("capture exists").as_str().to_owned()
+        }
+    })
+    .into_owned()
+}
+
+fn internal_doc_link_target(target: &str) -> Option<(&'static str, Option<&str>)> {
+    if target.starts_with("http://")
+        || target.starts_with("https://")
+        || target.starts_with("mailto:")
+        || target.starts_with('#')
+    {
+        return None;
+    }
+    let (target, anchor) = match target.find('#') {
+        Some(index) => (&target[..index], Some(&target[index..])),
+        None => (target, None),
+    };
+    let file_name = Path::new(target).file_name()?.to_str()?;
+    let id = file_name
+        .strip_suffix(".md")
+        .or_else(|| file_name.strip_suffix(".html"))?;
+    DOCS.iter()
+        .find(|page| page.id == id)
+        .map(|page| (page.id, anchor))
+}
+
+#[derive(Debug)]
+struct TocItem {
+    level: u8,
+    id: String,
+    title: String,
+}
+
+fn prepare_markdown_for_html(markdown: &str) -> (String, Vec<TocItem>) {
+    let mut out = String::new();
+    let mut toc = Vec::new();
+    let mut slugs = BTreeMap::new();
+    let mut in_fenced_code = false;
+
+    for line in markdown.split_inclusive('\n') {
+        if line.trim_start().starts_with("```") {
+            in_fenced_code = !in_fenced_code;
+            out.push_str(line);
+            continue;
+        }
+        if in_fenced_code {
+            out.push_str(line);
+            continue;
+        }
+
+        let Some(heading) = parse_markdown_heading(line) else {
+            out.push_str(line);
+            continue;
+        };
+        let base_slug = slugify_heading(&heading.title);
+        let count = slugs.entry(base_slug.clone()).or_insert(0usize);
+        *count += 1;
+        let id = if *count == 1 {
+            base_slug
+        } else {
+            format!("{base_slug}-{count}")
+        };
+
+        if heading.level == 2 || heading.level == 3 {
+            toc.push(TocItem {
+                level: heading.level,
+                id: id.clone(),
+                title: heading.title.clone(),
+            });
+        }
+        out.push_str(&format!(
+            "{prefix}{markers} {title} {{#{id}}}{newline}",
+            prefix = heading.prefix,
+            markers = "#".repeat(heading.level as usize),
+            title = heading.title,
+            newline = heading.newline,
+        ));
+    }
+
+    (out, toc)
+}
+
+#[derive(Debug)]
+struct MarkdownHeading {
+    level: u8,
+    prefix: String,
+    title: String,
+    newline: String,
+}
+
+fn parse_markdown_heading(line: &str) -> Option<MarkdownHeading> {
+    let content = line.trim_end_matches(['\r', '\n']);
+    let newline = &line[content.len()..];
+    let prefix_len = content.len() - content.trim_start_matches(' ').len();
+    if prefix_len > 3 {
+        return None;
+    }
+    let prefix = &content[..prefix_len];
+    let trimmed = &content[prefix_len..];
+    let level = trimmed.chars().take_while(|char| *char == '#').count();
+    if level == 0 || level > 6 {
+        return None;
+    }
+    let rest = &trimmed[level..];
+    if !rest.starts_with(' ') && !rest.starts_with('\t') {
+        return None;
+    }
+    let title = rest.trim().trim_end_matches('#').trim_end().trim();
+    if title.is_empty() || title.contains("{#") {
+        return None;
+    }
+    Some(MarkdownHeading {
+        level: level as u8,
+        prefix: prefix.to_owned(),
+        title: title.to_owned(),
+        newline: newline.to_owned(),
+    })
+}
+
+fn slugify_heading(title: &str) -> String {
+    let mut slug = String::new();
+    let mut pending_dash = false;
+    for char in title.chars() {
+        if char.is_ascii_alphanumeric() {
+            if pending_dash && !slug.is_empty() {
+                slug.push('-');
+            }
+            slug.push(char.to_ascii_lowercase());
+            pending_dash = false;
+        } else if char.is_whitespace() || matches!(char, '-' | '_' | '/' | ':' | '.') {
+            pending_dash = true;
+        }
+    }
+    if slug.is_empty() {
+        "section".to_owned()
+    } else {
+        slug
+    }
+}
+
+fn render_toc(items: &[TocItem]) -> String {
+    if items.is_empty() {
+        return String::new();
+    }
+    let mut toc = String::from(
+        "  <aside class=\"toc\" aria-label=\"On this page\">\n    <div class=\"toc-title\">On this page</div>\n",
+    );
+    for item in items {
+        let class = if item.level == 3 {
+            r#" class="sub""#
+        } else {
+            ""
+        };
+        toc.push_str(&format!(
+            "    <a href=\"#{id}\"{class}>{title}</a>\n",
+            id = escape_html(&item.id),
+            title = escape_html(&plain_heading_title(&item.title)),
+        ));
+    }
+    toc.push_str("  </aside>\n");
+    toc
+}
+
+fn plain_heading_title(title: &str) -> String {
+    title
+        .chars()
+        .filter(|char| !matches!(char, '`' | '*' | '[' | ']' | '(' | ')' | '<' | '>'))
+        .collect()
 }
 
 fn render_nav(current: &str) -> String {
@@ -638,6 +847,7 @@ fn render_markdown(markdown: &str) -> String {
     options.insert(Options::ENABLE_TABLES);
     options.insert(Options::ENABLE_FOOTNOTES);
     options.insert(Options::ENABLE_STRIKETHROUGH);
+    options.insert(Options::ENABLE_HEADING_ATTRIBUTES);
 
     let mut events = Vec::new();
     let mut code_block: Option<(String, String)> = None;
@@ -692,6 +902,7 @@ fn render_code_block_with_attrs(
     extra_attrs: &str,
 ) -> String {
     let highlighted = highlight_code(language, code);
+    let highlighted = fill_blank_html_lines(&highlighted);
     let class_suffix = if extra_class.is_empty() {
         String::new()
     } else {
@@ -705,7 +916,7 @@ fn render_code_block_with_attrs(
 fn highlight_code(language: &str, code: &str) -> String {
     let syntax_set = &*SYNTAX_SET;
     let Some(syntax) = syntax_for_language(syntax_set, language) else {
-        return fallback_highlight_code(language, code);
+        return escape_html(code);
     };
     let mut generator = ClassedHTMLGenerator::new_with_class_style(
         syntax,
@@ -717,7 +928,7 @@ fn highlight_code(language: &str, code: &str) -> String {
             .parse_html_for_line_which_includes_newline(line)
             .is_err()
         {
-            return fallback_highlight_code(language, code);
+            return escape_html(code);
         }
     }
     generator.finalize()
@@ -743,17 +954,19 @@ fn syntax_token(language: &str) -> &str {
     }
 }
 
-fn fallback_highlight_code(language: &str, code: &str) -> String {
-    match language {
-        "toml" => highlight_toml(code),
-        "json" => highlight_json(code),
-        "python" => highlight_python(code),
-        "java" => highlight_java(code),
-        "rust" => highlight_rust(code),
-        "sh" => highlight_sh(code),
-        "typescript" => highlight_typescript(code),
-        _ => escape_html(code),
+fn fill_blank_html_lines(html: &str) -> String {
+    let mut out = String::new();
+    for line in html.split_inclusive('\n') {
+        let content = line.trim_end_matches(['\r', '\n']);
+        let newline = &line[content.len()..];
+        if content.trim().is_empty() {
+            out.push_str("<span class=\"sx-blank-line\">&#8203;</span>");
+            out.push_str(newline);
+        } else {
+            out.push_str(line);
+        }
     }
+    out
 }
 
 fn expand_sdk_snippet_groups(markdown: &str) -> String {
@@ -866,784 +1079,4 @@ fn fenced_code_language(line: &str) -> Option<String> {
         .strip_prefix("```")
         .map(code_block_language)
         .filter(|language| language != "text")
-}
-
-fn push_span(out: &mut String, class: &str, text: &str) {
-    out.push_str("<span class=\"sx-");
-    out.push_str(class);
-    out.push_str("\">");
-    out.push_str(&escape_html(text));
-    out.push_str("</span>");
-}
-
-fn highlight_toml(code: &str) -> String {
-    let mut out = String::new();
-    for line in code.lines() {
-        let trimmed = line.trim_start();
-        out.push_str(&line[..line.len() - trimmed.len()]);
-        if trimmed.starts_with('#') {
-            push_span(&mut out, "comment", trimmed);
-        } else if trimmed.starts_with('[') && trimmed.trim_end().ends_with(']') {
-            push_span(&mut out, "section", trimmed);
-        } else if let Some((key, rest)) = split_toml_key(trimmed) {
-            push_span(&mut out, "key", key);
-            let equals = rest.find('=').expect("toml key line contains `=`");
-            out.push_str(&rest[..equals]);
-            push_span(&mut out, "punct", "=");
-            highlight_toml_value(&mut out, &rest[equals + 1..]);
-        } else {
-            highlight_toml_value(&mut out, trimmed);
-        }
-        out.push('\n');
-    }
-    out
-}
-
-/// Split a `key = value` TOML line into the key and the remainder starting
-/// with the whitespace before `=`. Returns `None` for non-assignment lines.
-fn split_toml_key(line: &str) -> Option<(&str, &str)> {
-    let key_end = line.find(|c: char| c.is_whitespace() || c == '=')?;
-    let (key, rest) = line.split_at(key_end);
-    let is_key_char =
-        |c: char| c.is_ascii_alphanumeric() || matches!(c, '_' | '-' | '.' | '"' | '\'');
-    if key.is_empty() || !rest.trim_start().starts_with('=') || !key.chars().all(is_key_char) {
-        return None;
-    }
-    Some((key, rest))
-}
-
-fn highlight_toml_value(out: &mut String, value: &str) {
-    let mut rest = value;
-    while let Some(c) = rest.chars().next() {
-        if c == '#' {
-            push_span(out, "comment", rest);
-            return;
-        } else if c == '"' || c == '\'' {
-            let len = quoted_len(rest, c);
-            push_span(out, "string", &rest[..len]);
-            rest = &rest[len..];
-        } else if c.is_ascii_digit()
-            || (c == '-' && rest[1..].starts_with(|d: char| d.is_ascii_digit()))
-        {
-            let len = rest
-                .find(|d: char| {
-                    !(d.is_ascii_alphanumeric() || matches!(d, '.' | '_' | '-' | '+' | ':'))
-                })
-                .unwrap_or(rest.len());
-            push_span(out, "number", &rest[..len]);
-            rest = &rest[len..];
-        } else if c.is_ascii_alphabetic() {
-            let len = rest
-                .find(|d: char| !(d.is_ascii_alphanumeric() || matches!(d, '_' | '-')))
-                .unwrap_or(rest.len());
-            let word = &rest[..len];
-            if word == "true" || word == "false" {
-                push_span(out, "literal", word);
-            } else {
-                out.push_str(&escape_html(word));
-            }
-            rest = &rest[len..];
-        } else if matches!(c, '[' | ']' | '{' | '}' | ',' | '=') {
-            push_span(out, "punct", &rest[..c.len_utf8()]);
-            rest = &rest[c.len_utf8()..];
-        } else {
-            let (chunk, remainder) = rest.split_at(c.len_utf8());
-            out.push_str(&escape_html(chunk));
-            rest = remainder;
-        }
-    }
-}
-
-fn highlight_json(code: &str) -> String {
-    let mut out = String::new();
-    let mut rest = code;
-    while let Some(c) = rest.chars().next() {
-        if c == '"' {
-            let len = quoted_len(rest, '"');
-            let class = if rest[len..].trim_start().starts_with(':') {
-                "key"
-            } else {
-                "string"
-            };
-            push_span(&mut out, class, &rest[..len]);
-            rest = &rest[len..];
-        } else if c.is_ascii_digit() || c == '-' {
-            let len = rest
-                .find(|d: char| !(d.is_ascii_digit() || matches!(d, '.' | '-' | '+' | 'e' | 'E')))
-                .unwrap_or(rest.len());
-            push_span(&mut out, "number", &rest[..len]);
-            rest = &rest[len..];
-        } else if c.is_ascii_alphabetic() {
-            let len = rest
-                .find(|d: char| !d.is_ascii_alphabetic())
-                .unwrap_or(rest.len());
-            let word = &rest[..len];
-            if matches!(word, "true" | "false" | "null") {
-                push_span(&mut out, "literal", word);
-            } else {
-                out.push_str(&escape_html(word));
-            }
-            rest = &rest[len..];
-        } else if matches!(c, '{' | '}' | '[' | ']' | ':' | ',') {
-            push_span(&mut out, "punct", &rest[..c.len_utf8()]);
-            rest = &rest[c.len_utf8()..];
-        } else {
-            let (chunk, remainder) = rest.split_at(c.len_utf8());
-            out.push_str(&escape_html(chunk));
-            rest = remainder;
-        }
-    }
-    out
-}
-
-fn highlight_sh(code: &str) -> String {
-    let mut out = String::new();
-    for line in code.lines() {
-        let mut rest = line;
-        let mut at_word_start = true;
-        while let Some(c) = rest.chars().next() {
-            if c == '#' {
-                push_span(&mut out, "comment", rest);
-                break;
-            } else if c == '\'' || c == '"' {
-                let len = quoted_len(rest, c);
-                push_span(&mut out, "string", &rest[..len]);
-                rest = &rest[len..];
-                at_word_start = false;
-            } else if c == '-' && at_word_start {
-                let len = rest
-                    .find(|d: char| !(d.is_ascii_alphanumeric() || matches!(d, '-' | '_')))
-                    .unwrap_or(rest.len());
-                push_span(&mut out, "flag", &rest[..len]);
-                rest = &rest[len..];
-                at_word_start = false;
-            } else if is_sh_punct(c) {
-                push_span(&mut out, "punct", &rest[..c.len_utf8()]);
-                rest = &rest[c.len_utf8()..];
-                at_word_start = false;
-            } else if c.is_whitespace() {
-                out.push(c);
-                rest = &rest[c.len_utf8()..];
-                at_word_start = true;
-            } else {
-                let len = rest
-                    .find(|d: char| {
-                        d.is_whitespace() || is_sh_punct(d) || matches!(d, '#' | '\'' | '"')
-                    })
-                    .unwrap_or(rest.len());
-                out.push_str(&escape_html(&rest[..len]));
-                rest = &rest[len..];
-                at_word_start = false;
-            }
-        }
-        out.push('\n');
-    }
-    out
-}
-
-fn is_sh_punct(c: char) -> bool {
-    matches!(
-        c,
-        '.' | '/'
-            | '='
-            | '+'
-            | ':'
-            | ','
-            | ';'
-            | '|'
-            | '&'
-            | '<'
-            | '>'
-            | '('
-            | ')'
-            | '['
-            | ']'
-            | '{'
-            | '}'
-    )
-}
-
-fn highlight_python(code: &str) -> String {
-    let mut out = String::new();
-    let mut rest = code;
-    while let Some(c) = rest.chars().next() {
-        if c == '#' {
-            let len = rest.find('\n').unwrap_or(rest.len());
-            push_span(&mut out, "comment", &rest[..len]);
-            rest = &rest[len..];
-        } else if rest.starts_with("'''") || rest.starts_with("\"\"\"") {
-            let quote = &rest[..3];
-            let len = rest[3..]
-                .find(quote)
-                .map(|index| index + 6)
-                .unwrap_or(rest.len());
-            push_span(&mut out, "string", &rest[..len]);
-            rest = &rest[len..];
-        } else if c == '\'' || c == '"' {
-            let len = quoted_len(rest, c);
-            push_span(&mut out, "string", &rest[..len]);
-            rest = &rest[len..];
-        } else if c.is_ascii_digit() {
-            let len = rest
-                .find(|d: char| !(d.is_ascii_digit() || matches!(d, '.' | '_' | 'e' | 'E')))
-                .unwrap_or(rest.len());
-            push_span(&mut out, "number", &rest[..len]);
-            rest = &rest[len..];
-        } else if is_python_ident_start(c) {
-            let len = rest
-                .find(|d: char| !is_python_ident_continue(d))
-                .unwrap_or(rest.len());
-            let word = &rest[..len];
-            if is_python_keyword(word) {
-                push_span(&mut out, "keyword", word);
-            } else if is_python_literal(word) {
-                push_span(&mut out, "literal", word);
-            } else {
-                out.push_str(&escape_html(word));
-            }
-            rest = &rest[len..];
-        } else if is_python_punct(c) {
-            push_span(&mut out, "punct", &rest[..c.len_utf8()]);
-            rest = &rest[c.len_utf8()..];
-        } else {
-            let (chunk, remainder) = rest.split_at(c.len_utf8());
-            out.push_str(&escape_html(chunk));
-            rest = remainder;
-        }
-    }
-    out
-}
-
-fn is_python_ident_start(c: char) -> bool {
-    c == '_' || c.is_ascii_alphabetic()
-}
-
-fn is_python_ident_continue(c: char) -> bool {
-    c == '_' || c.is_ascii_alphanumeric()
-}
-
-fn is_python_keyword(word: &str) -> bool {
-    matches!(
-        word,
-        "and"
-            | "as"
-            | "assert"
-            | "async"
-            | "await"
-            | "break"
-            | "class"
-            | "continue"
-            | "def"
-            | "elif"
-            | "else"
-            | "except"
-            | "finally"
-            | "for"
-            | "from"
-            | "if"
-            | "import"
-            | "in"
-            | "is"
-            | "lambda"
-            | "not"
-            | "or"
-            | "pass"
-            | "raise"
-            | "return"
-            | "try"
-            | "with"
-            | "while"
-    )
-}
-
-fn is_python_literal(word: &str) -> bool {
-    matches!(word, "False" | "None" | "True")
-}
-
-fn is_python_punct(c: char) -> bool {
-    matches!(
-        c,
-        '.' | '/'
-            | '='
-            | '+'
-            | '-'
-            | '*'
-            | ':'
-            | ','
-            | ';'
-            | '|'
-            | '&'
-            | '<'
-            | '>'
-            | '('
-            | ')'
-            | '['
-            | ']'
-            | '{'
-            | '}'
-    )
-}
-
-fn highlight_java(code: &str) -> String {
-    let mut out = String::new();
-    let mut rest = code;
-    while let Some(c) = rest.chars().next() {
-        if rest.starts_with("//") {
-            let len = rest.find('\n').unwrap_or(rest.len());
-            push_span(&mut out, "comment", &rest[..len]);
-            rest = &rest[len..];
-        } else if rest.starts_with("/*") {
-            let len = rest[2..]
-                .find("*/")
-                .map(|index| index + 4)
-                .unwrap_or(rest.len());
-            push_span(&mut out, "comment", &rest[..len]);
-            rest = &rest[len..];
-        } else if c == '\'' || c == '"' {
-            let len = quoted_len(rest, c);
-            push_span(&mut out, "string", &rest[..len]);
-            rest = &rest[len..];
-        } else if c.is_ascii_digit() {
-            let len = rest
-                .find(|d: char| !(d.is_ascii_digit() || matches!(d, '.' | '_' | 'e' | 'E' | 'L')))
-                .unwrap_or(rest.len());
-            push_span(&mut out, "number", &rest[..len]);
-            rest = &rest[len..];
-        } else if is_java_ident_start(c) {
-            let len = rest
-                .find(|d: char| !is_java_ident_continue(d))
-                .unwrap_or(rest.len());
-            let word = &rest[..len];
-            if is_java_keyword(word) {
-                push_span(&mut out, "keyword", word);
-            } else if is_java_literal(word) {
-                push_span(&mut out, "literal", word);
-            } else {
-                out.push_str(&escape_html(word));
-            }
-            rest = &rest[len..];
-        } else if is_java_punct(c) {
-            push_span(&mut out, "punct", &rest[..c.len_utf8()]);
-            rest = &rest[c.len_utf8()..];
-        } else {
-            let (chunk, remainder) = rest.split_at(c.len_utf8());
-            out.push_str(&escape_html(chunk));
-            rest = remainder;
-        }
-    }
-    out
-}
-
-fn is_java_ident_start(c: char) -> bool {
-    c == '_' || c.is_ascii_alphabetic()
-}
-
-fn is_java_ident_continue(c: char) -> bool {
-    c == '_' || c.is_ascii_alphanumeric()
-}
-
-fn is_java_keyword(word: &str) -> bool {
-    matches!(
-        word,
-        "abstract"
-            | "assert"
-            | "break"
-            | "case"
-            | "catch"
-            | "class"
-            | "continue"
-            | "default"
-            | "do"
-            | "else"
-            | "enum"
-            | "extends"
-            | "final"
-            | "finally"
-            | "for"
-            | "if"
-            | "implements"
-            | "import"
-            | "instanceof"
-            | "interface"
-            | "new"
-            | "private"
-            | "protected"
-            | "public"
-            | "return"
-            | "static"
-            | "switch"
-            | "throw"
-            | "throws"
-            | "try"
-            | "var"
-            | "void"
-            | "while"
-    )
-}
-
-fn is_java_literal(word: &str) -> bool {
-    matches!(word, "false" | "null" | "true")
-}
-
-fn is_java_punct(c: char) -> bool {
-    matches!(
-        c,
-        '.' | '/'
-            | '='
-            | '+'
-            | '-'
-            | '*'
-            | ':'
-            | ','
-            | ';'
-            | '|'
-            | '&'
-            | '<'
-            | '>'
-            | '('
-            | ')'
-            | '['
-            | ']'
-            | '{'
-            | '}'
-    )
-}
-
-fn highlight_typescript(code: &str) -> String {
-    let mut out = String::new();
-    let mut rest = code;
-    while let Some(c) = rest.chars().next() {
-        if rest.starts_with("//") {
-            let len = rest.find('\n').unwrap_or(rest.len());
-            push_span(&mut out, "comment", &rest[..len]);
-            rest = &rest[len..];
-        } else if rest.starts_with("/*") {
-            let len = rest[2..]
-                .find("*/")
-                .map(|index| index + 4)
-                .unwrap_or(rest.len());
-            push_span(&mut out, "comment", &rest[..len]);
-            rest = &rest[len..];
-        } else if c == '\'' || c == '"' || c == '`' {
-            let len = quoted_len(rest, c);
-            push_span(&mut out, "string", &rest[..len]);
-            rest = &rest[len..];
-        } else if c.is_ascii_digit() {
-            let len = rest
-                .find(|d: char| !(d.is_ascii_digit() || matches!(d, '.' | '_' | 'e' | 'E')))
-                .unwrap_or(rest.len());
-            push_span(&mut out, "number", &rest[..len]);
-            rest = &rest[len..];
-        } else if is_typescript_ident_start(c) {
-            let len = rest
-                .find(|d: char| !is_typescript_ident_continue(d))
-                .unwrap_or(rest.len());
-            let word = &rest[..len];
-            if is_typescript_keyword(word) {
-                push_span(&mut out, "keyword", word);
-            } else if is_typescript_literal(word) {
-                push_span(&mut out, "literal", word);
-            } else if is_typescript_builtin_type(word) {
-                push_span(&mut out, "key", word);
-            } else {
-                out.push_str(&escape_html(word));
-            }
-            rest = &rest[len..];
-        } else if is_typescript_punct(c) {
-            push_span(&mut out, "punct", &rest[..c.len_utf8()]);
-            rest = &rest[c.len_utf8()..];
-        } else {
-            let (chunk, remainder) = rest.split_at(c.len_utf8());
-            out.push_str(&escape_html(chunk));
-            rest = remainder;
-        }
-    }
-    out
-}
-
-fn is_typescript_ident_start(c: char) -> bool {
-    c == '_' || c == '$' || c.is_ascii_alphabetic()
-}
-
-fn is_typescript_ident_continue(c: char) -> bool {
-    c == '_' || c == '$' || c.is_ascii_alphanumeric()
-}
-
-fn is_typescript_keyword(word: &str) -> bool {
-    matches!(
-        word,
-        "as" | "async"
-            | "await"
-            | "break"
-            | "catch"
-            | "class"
-            | "const"
-            | "continue"
-            | "else"
-            | "export"
-            | "extends"
-            | "finally"
-            | "for"
-            | "from"
-            | "function"
-            | "if"
-            | "import"
-            | "interface"
-            | "let"
-            | "new"
-            | "return"
-            | "throw"
-            | "try"
-            | "type"
-            | "typeof"
-            | "while"
-    )
-}
-
-fn is_typescript_literal(word: &str) -> bool {
-    matches!(word, "false" | "null" | "true" | "undefined")
-}
-
-fn is_typescript_builtin_type(word: &str) -> bool {
-    matches!(
-        word,
-        "Array"
-            | "Error"
-            | "Promise"
-            | "Record"
-            | "boolean"
-            | "number"
-            | "object"
-            | "string"
-            | "void"
-    )
-}
-
-fn is_typescript_punct(c: char) -> bool {
-    matches!(
-        c,
-        '.' | '/'
-            | '='
-            | '+'
-            | '-'
-            | '*'
-            | ':'
-            | ','
-            | ';'
-            | '|'
-            | '&'
-            | '<'
-            | '>'
-            | '?'
-            | '!'
-            | '('
-            | ')'
-            | '['
-            | ']'
-            | '{'
-            | '}'
-    )
-}
-
-fn highlight_rust(code: &str) -> String {
-    let mut out = String::new();
-    let mut rest = code;
-    while let Some(c) = rest.chars().next() {
-        if rest.starts_with("//") {
-            let len = rest.find('\n').unwrap_or(rest.len());
-            push_span(&mut out, "comment", &rest[..len]);
-            rest = &rest[len..];
-        } else if let Some(len) = rust_raw_string_len(rest) {
-            push_span(&mut out, "string", &rest[..len]);
-            rest = &rest[len..];
-        } else if c == '"' {
-            let len = quoted_len(rest, '"');
-            push_span(&mut out, "string", &rest[..len]);
-            rest = &rest[len..];
-        } else if c.is_ascii_digit() {
-            let len = rust_number_len(rest);
-            push_span(&mut out, "number", &rest[..len]);
-            rest = &rest[len..];
-        } else if is_rust_ident_start(c) {
-            let len = rest
-                .find(|d: char| !is_rust_ident_continue(d))
-                .unwrap_or(rest.len());
-            let word = &rest[..len];
-            if is_rust_keyword(word) {
-                push_span(&mut out, "keyword", word);
-            } else if is_rust_literal(word) {
-                push_span(&mut out, "literal", word);
-            } else if is_rust_builtin_type(word) {
-                push_span(&mut out, "key", word);
-            } else {
-                out.push_str(&escape_html(word));
-            }
-            rest = &rest[len..];
-        } else if is_rust_punct(c) {
-            push_span(&mut out, "punct", &rest[..c.len_utf8()]);
-            rest = &rest[c.len_utf8()..];
-        } else {
-            let (chunk, remainder) = rest.split_at(c.len_utf8());
-            out.push_str(&escape_html(chunk));
-            rest = remainder;
-        }
-    }
-    out
-}
-
-fn rust_raw_string_len(text: &str) -> Option<usize> {
-    let mut chars = text.char_indices();
-    if chars.next()?.1 != 'r' {
-        return None;
-    }
-
-    let mut hashes = 0;
-    let mut opening_quote = None;
-    for (idx, c) in text.char_indices().skip(1) {
-        if c == '#' {
-            hashes += 1;
-        } else if c == '"' {
-            opening_quote = Some(idx);
-            break;
-        } else {
-            return None;
-        }
-    }
-
-    let opening_quote = opening_quote?;
-    let closing = format!("\"{}", "#".repeat(hashes));
-    text[opening_quote + 1..]
-        .find(&closing)
-        .map(|idx| opening_quote + 1 + idx + closing.len())
-        .or(Some(text.len()))
-}
-
-fn rust_number_len(text: &str) -> usize {
-    text.find(|c: char| !(c.is_ascii_alphanumeric() || matches!(c, '_' | '.')))
-        .unwrap_or(text.len())
-}
-
-fn is_rust_ident_start(c: char) -> bool {
-    c == '_' || c.is_ascii_alphabetic()
-}
-
-fn is_rust_ident_continue(c: char) -> bool {
-    c == '_' || c.is_ascii_alphanumeric()
-}
-
-fn is_rust_keyword(word: &str) -> bool {
-    matches!(
-        word,
-        "as" | "async"
-            | "await"
-            | "break"
-            | "const"
-            | "continue"
-            | "crate"
-            | "dyn"
-            | "else"
-            | "enum"
-            | "extern"
-            | "fn"
-            | "for"
-            | "if"
-            | "impl"
-            | "in"
-            | "let"
-            | "loop"
-            | "match"
-            | "mod"
-            | "move"
-            | "mut"
-            | "pub"
-            | "ref"
-            | "return"
-            | "self"
-            | "Self"
-            | "static"
-            | "struct"
-            | "super"
-            | "trait"
-            | "type"
-            | "unsafe"
-            | "use"
-            | "where"
-            | "while"
-    )
-}
-
-fn is_rust_literal(word: &str) -> bool {
-    matches!(word, "true" | "false" | "None" | "Some" | "Ok" | "Err")
-}
-
-fn is_rust_builtin_type(word: &str) -> bool {
-    matches!(
-        word,
-        "bool"
-            | "str"
-            | "char"
-            | "f32"
-            | "f64"
-            | "i8"
-            | "i16"
-            | "i32"
-            | "i64"
-            | "i128"
-            | "isize"
-            | "u8"
-            | "u16"
-            | "u32"
-            | "u64"
-            | "u128"
-            | "usize"
-            | "Box"
-            | "Duration"
-            | "Error"
-            | "Option"
-            | "Result"
-            | "String"
-            | "Vec"
-    )
-}
-
-fn is_rust_punct(c: char) -> bool {
-    matches!(
-        c,
-        ':' | ';'
-            | ','
-            | '.'
-            | '!'
-            | '?'
-            | '='
-            | '+'
-            | '-'
-            | '*'
-            | '/'
-            | '&'
-            | '|'
-            | '<'
-            | '>'
-            | '('
-            | ')'
-            | '['
-            | ']'
-            | '{'
-            | '}'
-    )
-}
-
-/// Byte length of the quoted string starting at the opening `quote`,
-/// including both quotes. Stops at the line/text end if unterminated.
-fn quoted_len(text: &str, quote: char) -> usize {
-    let mut escaped = false;
-    for (idx, c) in text.char_indices().skip(1) {
-        if escaped {
-            escaped = false;
-        } else if c == '\\' {
-            escaped = true;
-        } else if c == quote {
-            return idx + quote.len_utf8();
-        }
-    }
-    text.len()
 }

@@ -8,7 +8,7 @@ The context is always a JSON object.
 
 ## CLI Context
 
-The CLI accepts repeatable `--context` values:
+The [CLI](reference-cli-overview.html) accepts repeatable `--context` values:
 
 ```sh
 rototo resolve account-config \
@@ -41,7 +41,7 @@ If no context is passed to `rototo resolve`, rototo uses `{}`.
 
 ## SDK Context
 
-The SDK uses `ResolveContext`:
+The [SDK](reference-sdk-resolution.html) uses `ResolveContext`:
 
 ```rust
 use rototo::ResolveContext;
@@ -84,13 +84,15 @@ The schema has two jobs:
 - runtime resolution validates the context object before evaluating
   qualifiers.
 
-SDK callers can disable runtime context validation with `ResolveOptions`, but
-that should be a deliberate app boundary decision.
+SDK callers can disable runtime context validation with
+[`ResolveOptions`](reference-sdk-resolution.html), but that should be a
+deliberate app boundary decision.
 
 ## Reserved Field
 
 The top-level field `qualifier` is reserved. Rototo uses
-`qualifier.<id>` attributes to reference other qualifiers during predicate
+`qualifier.<id>` attributes to
+[reference other qualifiers](reference-qualifiers.html) during predicate
 evaluation.
 
 Do not declare `qualifier` in `schemas/context.schema.json` as an
@@ -105,5 +107,6 @@ fails:
 missing resolve context attribute: account.plan required by qualifier://paid-account
 ```
 
-Use context schemas and app tests to catch those failures before the service
-depends on the workspace.
+Use context schemas and
+[app tests](testing-runtime-configuration.html) to catch those failures before
+the service depends on the workspace.

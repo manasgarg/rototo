@@ -37,7 +37,7 @@ value = "expanded"
 | `resolve` | Yes | table | Default value and ordered qualifier rules. |
 
 The older `schema = "...json"` field is rejected. Structured values should use
-a resource and `type = "resource:<resource-id>"`.
+a [resource](reference-resources.html) and `type = "resource:<resource-id>"`.
 
 ## Supported Types
 
@@ -158,5 +158,6 @@ rule = ["paid-account"]
 
 ## Related Pages
 
-See `reference-variable-values` for value validation, and
-`reference-variable-resolution` for runtime selection semantics.
+See [Variable Values](reference-variable-values.html) for value validation, and
+[Variable Resolution](reference-variable-resolution.html) for runtime selection
+semantics.

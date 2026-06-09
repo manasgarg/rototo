@@ -5,10 +5,11 @@ application binary. That is what we want, but it changes how the team operates
 the system.
 
 A workspace commit can change production behavior as soon as a long-running
-service refreshes its workspace source. The application did not redeploy, but
-the behavior changed. I would treat that as a release and operate it with the
-same care: clear review, narrow blast radius, observable selection, and a
-recovery path that people understand before they need it.
+service [refreshes](reference-sdk-refresh.html) its
+[workspace source](reference-workspace-sources.html). The application did not
+redeploy, but the behavior changed. I would treat that as a release and operate
+it with the same care: clear review, narrow blast radius, observable selection,
+and a recovery path that people understand before they need it.
 
 The everyday habits matter here. Without them, reviewed runtime configuration
 slowly turns back into ad hoc configuration.
@@ -50,8 +51,8 @@ pull request descriptions that explain the runtime decision being changed.
 
 ## Choose Source Refs Deliberately
 
-Application deployments should be explicit about the workspace source they
-load:
+Application deployments should be explicit about the
+[workspace source](reference-workspace-sources.html) they load:
 
 ```text
 ROTOTO_WORKSPACE_SOURCE=git+https://github.com/acme/runtime-config.git#main:workspaces/prod
@@ -110,15 +111,15 @@ Review and rollback now have a clean handle. If the preview value is wrong,
 remove the preview rule or point it back at `enterprise`. The existing default
 and enterprise paths stay visible and unchanged.
 
-For bucketed changes, keep the bucket condition stable and change the
-percentage deliberately. A jump from 5 percent to 50 percent is a larger
-release than it looks in a one-line diff.
+For [bucketed changes](bucketed-rollout.html), keep the bucket condition stable
+and change the percentage deliberately. A jump from 5 percent to 50 percent is
+a larger release than it looks in a one-line diff.
 
-For layered workspaces, use the narrowest administrative boundary that matches
-ownership. A customer-specific override belongs in the customer layer. A
-support-team override belongs in the support-team layer. The application still
-loads one assembled workspace source, but the operational blast radius follows
-the layer that changed.
+For [layered workspaces](workspace-layering.html), use the narrowest
+administrative boundary that matches ownership. A customer-specific override
+belongs in the customer layer. A support-team override belongs in the
+support-team layer. The application still loads one assembled workspace source,
+but the operational blast radius follows the layer that changed.
 
 ## Observe Selection, Refresh, And Freshness
 
@@ -133,7 +134,7 @@ For each important resolution, log:
 - relevant request, account, or tenant identifier;
 - service deployment identity when it helps answer the question.
 
-For refresh, expose:
+For [refresh](reference-sdk-refresh.html), expose:
 
 - current workspace fingerprint;
 - last successful refresh time;

@@ -6,7 +6,8 @@ which qualifier predicates caused that rule to match or skip.
 
 Use this output when logs, CI, tests, or support tools need to explain runtime
 selection without reimplementing rototo's resolution logic. The shapes below
-are the stable JSON contract returned by `rototo resolve --json`.
+are the stable [JSON contract](reference-json-output.html) returned by
+`rototo resolve --json`.
 
 ## Top Level
 
@@ -68,7 +69,7 @@ the rule outcomes that led to that result:
 | `qualifier_traces` | array | Qualifiers evaluated while resolving the variable. |
 
 Rule indexes are zero-based and match the order of `[[resolve.rule]]` tables in
-the variable file.
+the [variable file](reference-variables.html).
 
 ## Qualifier Trace
 
@@ -104,8 +105,10 @@ tables.
 
 ## Compare Predicate Trace
 
-Compare predicates read either runtime context or another qualifier and compare
-the actual value against the configured expectation:
+Compare predicates read either
+[runtime context](reference-context.html) or another
+[qualifier](reference-qualifiers.html) and compare the actual value against the
+configured expectation:
 
 ```json
 {
@@ -135,9 +138,10 @@ When the predicate reads another qualifier, the trace also includes
 
 ## Bucket Predicate Trace
 
-Bucket predicates only help if the assignment is explainable. The trace
-includes the computed bucket value so operators can see why a stable input fell
-inside or outside the configured range:
+[Bucket predicates](reference-predicate-operators.html) only help if the
+assignment is explainable. The trace includes the computed bucket value so
+operators can see why a stable input fell inside or outside the configured
+range:
 
 ```json
 {

@@ -1,8 +1,8 @@
 # Custom Lua Lint Reference
 
-Built-in lint protects rototo's workspace contract. Custom Lua lint protects
-local policy: the constraints that matter in your domain and are worth
-checking before a workspace is released.
+[Built-in lint](reference-lint-overview.html) protects rototo's workspace
+contract. Custom Lua lint protects local policy: the constraints that matter in
+your domain and are worth checking before a workspace is released.
 
 Custom lint files live under `lint/*.lua`.
 
@@ -115,7 +115,7 @@ For `schema` targets, `selected` is the narrowed JSON Schema field when a
 
 ## Handler Return
 
-Handlers return a list of diagnostics:
+Handlers return a list of [diagnostics](reference-diagnostics.html):
 
 ```lua
 return {

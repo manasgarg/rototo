@@ -15,7 +15,7 @@ extends = ["../base-config", "git+ssh://git@example.com/acme/customer.git#main"]
 ```
 
 Each entry must be a nonblank string without surrounding whitespace. Every
-entry is parsed as a workspace source.
+entry is parsed as a [workspace source](reference-workspace-sources.html).
 
 Relative entries are resolved from the workspace that declares them.
 
@@ -95,4 +95,5 @@ and the projected workspace loads and lints successfully.
 If any layer is mutable, the combined source is mutable. If every layer is an
 immutable pinned git commit, the combined source is immutable.
 
-See `reference-sdk-refresh` for how this affects long-running services.
+See [SDK Refresh](reference-sdk-refresh.html) for how this affects
+long-running services.

@@ -311,6 +311,14 @@ struct DocsArgs {
     /// Output file for --package-readme.
     #[arg(long = "out", value_name = "FILE", requires = "package_readme")]
     out: Option<PathBuf>,
+
+    /// Base URL used for internal docs links in generated package READMEs.
+    #[arg(
+        long = "docs-base-url",
+        value_name = "URL",
+        requires = "package_readme"
+    )]
+    docs_base_url: Option<String>,
 }
 
 #[derive(Clone, Copy, Debug, ValueEnum)]
@@ -1655,6 +1663,7 @@ async fn run_resolve(
 }
 
 async fn run_docs(args: DocsArgs, json: bool) -> Result<ExitCode> {
+    let docs_base_url = args.docs_base_url;
     match (
         args.export,
         args.page,
@@ -1670,7 +1679,10 @@ async fn run_docs(args: DocsArgs, json: bool) -> Result<ExitCode> {
         (None, Some(page), None, None, None) => print_docs_page(&page, json),
         (None, None, Some(search), None, None) => print_docs_search(&search, json),
         (None, None, None, Some(target), Some(out)) => {
-            write_package_readme(target, &out).await?;
+            let docs_base_url = docs_base_url
+                .as_deref()
+                .unwrap_or(rototo::docs::DEFAULT_DOCS_BASE_URL);
+            write_package_readme(target, &out, docs_base_url).await?;
             print_package_readme_export(target, &out, json)?;
             Ok(ExitCode::SUCCESS)
         }
@@ -2746,8 +2758,12 @@ fn print_docs_export(out: &Path, json: bool) -> Result<()> {
     Ok(())
 }
 
-async fn write_package_readme(target: PackageReadmeTarget, out: &Path) -> Result<()> {
-    let readme = rototo::docs::render_package_readme(target.id())?;
+async fn write_package_readme(
+    target: PackageReadmeTarget,
+    out: &Path,
+    docs_base_url: &str,
+) -> Result<()> {
+    let readme = rototo::docs::render_package_readme_with_base_url(target.id(), docs_base_url)?;
     if let Some(parent) = out.parent() {
         tokio::fs::create_dir_all(parent).await.map_err(|err| {
             RototoError::new(format!(

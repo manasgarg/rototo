@@ -6,8 +6,10 @@ turns into another config format that application code quietly reimplements.
 
 The application should not parse workspace files. It should not duplicate
 qualifier logic. It should not know how values are arranged on disk. The app is
-deployed with a workspace source URI, loads that source through the SDK, builds
-context from facts it owns, and resolves named variables at the boundary where
+deployed with a [workspace source](reference-workspace-sources.html) URI,
+[loads that source through the SDK](reference-sdk-loading.html), builds context
+from facts it owns, and
+[resolves named variables](reference-sdk-resolution.html) at the boundary where
 runtime behavior is selected.
 
 That keeps the control plane in one place. It also gives the service a clear
@@ -37,8 +39,9 @@ want at application startup: a service should not quietly start from a broken
 control plane.
 
 For tools that need to inspect broken workspaces, use `Workspace::inspect`.
-For application runtime paths, prefer `Workspace::load` or
-`RefreshingWorkspace::load`.
+For application runtime paths, prefer
+[`Workspace::load`](reference-sdk-loading.html) or
+[`RefreshingWorkspace::load`](reference-sdk-refresh.html).
 
 ## Resolve At The Behavior Boundary
 
@@ -102,17 +105,17 @@ Do not precompute rototo policy in the application context:
 That hides the condition rototo is supposed to explain. The app should provide
 facts. The workspace should decide what those facts mean.
 
-`schemas/context.schema.json` is the contract between the app and workspace.
-When the schema exists, SDK resolution validates context by default. If the app
-forgets a required fact or sends the wrong type, the failure happens before
-predicate evaluation.
+[`schemas/context.schema.json`](reference-context.html) is the contract between
+the app and workspace. When the schema exists, SDK resolution validates context
+by default. If the app forgets a required fact or sends the wrong type, the
+failure happens before predicate evaluation.
 
 ## Prefer RefreshingWorkspace For Services
 
 Configuration is deployed separately from the application binary. Long-running
 services usually need to pick up reviewed workspace changes without a restart.
 
-Use `RefreshingWorkspace` for that path:
+Use [`RefreshingWorkspace`](reference-sdk-refresh.html) for that path:
 
 ```rust
 use std::time::Duration;
@@ -172,7 +175,8 @@ with ordinary domain types instead of raw JSON.
 
 If conversion fails, treat it as a contract failure between the app and
 workspace. In most services that should be logged with enough context to
-identify the variable id, value key, and workspace fingerprint.
+identify the variable id, value key, and
+[workspace fingerprint](reference-workspace-sources.html).
 
 ## Log The Selection, Not The Whole Payload
 
@@ -217,7 +221,8 @@ observe it. Do not silently replace rototo with hardcoded defaults in many
 call sites. That makes recovery harder because nobody can tell which boundary
 made the decision.
 
-For refresh failures, keep serving last-known-good and expose status:
+For refresh failures, keep serving last-known-good and
+[expose status](reference-sdk-refresh.html):
 
 ```rust
 let status = workspace.status().await;

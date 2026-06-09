@@ -44,7 +44,8 @@ which recipients are eligible, whether a user has opted out, whether an email
 address is verified, how quiet hours map to the recipient's timezone, and how
 provider retries are handled.
 
-That is why this example uses a resource-backed variable. The variable owns
+That is why this example uses a
+[resource-backed variable](reference-resources.html). The variable owns
 resolution. The resource owns the validated policy objects the app can consume.
 
 ## Create The Workspace
@@ -82,8 +83,9 @@ before any special runtime conditions are introduced.
 
 ## Define The Policy Shape
 
-Before adding policy objects, define what the notification service is willing
-to consume. Replace
+Before adding policy objects, define
+[what the notification service is willing to consume](reference-resources.html).
+Replace
 `notification-config/schemas/notification-delivery-policy.schema.json`:
 
 ```json
@@ -166,7 +168,7 @@ channels.
 
 ## Name The Runtime Conditions
 
-Now add the conditions that select those policies.
+Now add the [conditions](reference-qualifiers.html) that select those policies.
 
 Create `notification-config/qualifiers/security-alerts.toml`:
 
@@ -216,9 +218,9 @@ op = "eq"
 value = "incident_update"
 ```
 
-Those qualifiers name the raw facts. The delivery policy cares about a composed
-condition: enterprise accounts receiving incident updates while an incident is
-active.
+Those qualifiers name the raw facts. The delivery policy cares about a
+[composed condition](reference-qualifiers.html): enterprise accounts receiving
+incident updates while an incident is active.
 
 Create `notification-config/qualifiers/enterprise-incident-updates.toml`:
 
@@ -268,15 +270,16 @@ qualifier = "enterprise-incident-updates"
 value = "enterprise_incident"
 ```
 
-Rule order is part of the policy. Security alerts stay first because they are
-the most direct immediate-delivery path. Enterprise incident updates come next.
-Everything else gets the default digest policy.
+[Rule order](reference-variable-resolution.html) is part of the policy.
+Security alerts stay first because they are the most direct immediate-delivery
+path. Enterprise incident updates come next. Everything else gets the default
+digest policy.
 
 ## Generate The Context Contract
 
 The qualifiers introduced three runtime facts: `account.plan`,
-`incident.active`, and `notification.kind`. Generate the context schema after
-those paths exist:
+`incident.active`, and `notification.kind`. Generate the
+[context schema](reference-context.html) after those paths exist:
 
 ```sh
 rototo init notification-config --context
@@ -379,10 +382,11 @@ changes only for the named condition.
 
 ## Use The Policy In The App
 
-The app should resolve the delivery policy at the boundary where it is about to
-enqueue or send a notification. Rototo returns the reviewed policy. The
-notification service applies recipient preferences, consent, quiet-hour
-calculation, provider routing, retries, and logging.
+The app should [resolve the delivery policy](reference-sdk-resolution.html) at
+the boundary where it is about to enqueue or send a notification. Rototo
+returns the reviewed policy. The notification service applies recipient
+preferences, consent, quiet-hour calculation, provider routing, retries, and
+logging.
 
 ```rust
 use serde::Deserialize;

@@ -1,12 +1,15 @@
 # SDK Resolution Reference
 
-Runtime application code should resolve named variables and qualifiers through a
-loaded workspace handle. That keeps file parsing, lint, context validation, and
-selection semantics inside rototo instead of copying them into the app.
+Runtime application code should resolve named
+[variables](reference-variables.html) and
+[qualifiers](reference-qualifiers.html) through a
+[loaded workspace handle](reference-sdk-loading.html). That keeps file parsing,
+lint, context validation, and selection semantics inside rototo instead of
+copying them into the app.
 
 ## Context
 
-Resolution uses a JSON object context:
+Resolution uses a [JSON object context](reference-context.html):
 
 :::sdk-snippet resolution-context
 ```rust
@@ -231,8 +234,8 @@ resolution, err := workspace.ResolveVariable(
 :::
 
 Skipping validation does not make missing context paths valid. A qualifier that
-reads a missing path can still fail resolution. This option only skips JSON
-Schema validation of the context object.
+reads a missing path can still fail resolution. This option only skips
+[JSON Schema validation](reference-context.html) of the context object.
 
 ## Workspace Loaded Without Runtime
 
@@ -243,7 +246,8 @@ that handle fails with:
 workspace was loaded without a runtime model; use Workspace::load with lint enabled
 ```
 
-Use loaded runtime workspaces or refreshing workspaces for application runtime
+Use loaded runtime workspaces or
+[refreshing workspaces](reference-sdk-refresh.html) for application runtime
 paths.
 
 ## Rust Free Functions
@@ -271,5 +275,5 @@ rototo::trace_variable_resolution(workspace_root, "account-limits", context_json
 rototo::trace_qualifier_resolution(workspace_root, "enterprise-account", context_json).await?;
 ```
 
-Use traces for tests, diagnostics, or observability where you need to explain
-why a value was selected.
+Use [traces](reference-resolution-output.html) for tests, diagnostics, or
+observability where you need to explain why a value was selected.
