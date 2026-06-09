@@ -41,6 +41,14 @@ Map<String, Object> context = Map.of(
     Map.of("plan", "enterprise")
 );
 ```
+
+```go
+resolveContext := map[string]any{
+    "account": map[string]any{
+        "plan": "enterprise",
+    },
+}
+```
 :::
 
 The JSON value must be an object.
@@ -81,6 +89,20 @@ VariableResolution resolution = workspace
 
 System.out.println(resolution.valueKey() + " -> " + resolution.value());
 ```
+
+```go
+resolution, err := workspace.ResolveVariable(
+    ctx,
+    "account-limits",
+    resolveContext,
+    nil,
+)
+if err != nil {
+    return err
+}
+
+fmt.Printf("%s -> %v\n", resolution.ValueKey, resolution.Value)
+```
 :::
 
 `VariableResolution` contains:
@@ -91,7 +113,7 @@ System.out.println(resolution.valueKey() + " -> " + resolution.value());
 | `value_key` | string | Selected value key. |
 | `value` | JSON value | Selected value. |
 
-The TypeScript and Java SDKs expose `value_key` as `valueKey`.
+The TypeScript, Java, and Go SDKs expose `value_key` as `valueKey`.
 
 ## Resolve A Qualifier
 
@@ -128,6 +150,20 @@ QualifierResolution resolution = workspace
     .get();
 
 System.out.println(resolution.value());
+```
+
+```go
+resolution, err := workspace.ResolveQualifier(
+    ctx,
+    "enterprise-account",
+    resolveContext,
+    nil,
+)
+if err != nil {
+    return err
+}
+
+fmt.Println(resolution.Value)
 ```
 :::
 
@@ -182,6 +218,15 @@ VariableResolution resolution = workspace
         ResolveOptions.validateContext(false)
     )
     .get();
+```
+
+```go
+resolution, err := workspace.ResolveVariable(
+    ctx,
+    "account-limits",
+    resolveContext,
+    &rototo.ResolveOptions{SkipContextValidation: true},
+)
 ```
 :::
 

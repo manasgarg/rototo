@@ -4,5 +4,6 @@
 python 3.13
 java 21.0.2
 maven 3.9.11
+go 1.22.12
 node 24
 npm:wrangler 4

@@ -241,6 +241,13 @@ the release workflow. Release automation expects Central Portal token secrets
 named `CENTRAL_USERNAME` and `CENTRAL_PASSWORD`, and GPG secrets named
 `MAVEN_GPG_PRIVATE_KEY` and `MAVEN_GPG_PASSPHRASE`.
 
+The Go SDK lives under the root Go module as
+`github.com/manasgarg/rototo/sdks/go`, so the same root `v<version>` tag is the
+Go module version. The first Go SDK is a cgo binding over the Rust SDK. Local
+tests build the `rototo-go` cdylib and set `ROTOTO_GO_NATIVE_PATH`; future
+packaging may add platform-native assets, but Go wrapper tests should continue
+to run the shared SDK contract through the public Go API.
+
 ## Commands
 
 Use `just` as the project command surface:

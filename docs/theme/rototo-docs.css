@@ -338,7 +338,8 @@ main {
 html[data-sdk-lang="rust"] .sdk-snippet[data-sdk-lang="rust"],
 html[data-sdk-lang="python"] .sdk-snippet[data-sdk-lang="python"],
 html[data-sdk-lang="typescript"] .sdk-snippet[data-sdk-lang="typescript"],
-html[data-sdk-lang="java"] .sdk-snippet[data-sdk-lang="java"] {
+html[data-sdk-lang="java"] .sdk-snippet[data-sdk-lang="java"],
+html[data-sdk-lang="go"] .sdk-snippet[data-sdk-lang="go"] {
   display: block;
 }
 
@@ -348,12 +349,16 @@ html[data-sdk-lang="java"] .sdk-snippet[data-sdk-lang="java"] {
 }
 
 .sx-key,
-.sx-variable {
+.sx-variable,
+.sx-entity,
+.sx-support {
   color: var(--info-700);
 }
 
 .sx-section,
 .sx-keyword,
+.sx-storage,
+.sx-meta,
 .sx-flag {
   color: var(--clay-700);
 }
@@ -363,11 +368,15 @@ html[data-sdk-lang="java"] .sdk-snippet[data-sdk-lang="java"] {
 }
 
 .sx-number,
+.sx-numeric,
+.sx-constant,
 .sx-literal {
   color: var(--warn-700);
 }
 
-.sx-punct {
+.sx-punct,
+.sx-punctuation,
+.sx-operator {
   color: var(--ink-2);
 }
 

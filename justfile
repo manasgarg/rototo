@@ -133,6 +133,32 @@ java-sdk-test:
     "${JAR[@]}" --create --file "$jar_file" -C "$classes" . -C "$resources" .
     "${JAVA[@]}" -cp "$test_classes:$jar_file" dev.rototo.PackageSmokeTest
 
+# Run the Go SDK test suite.
+[group('04. test')]
+go-sdk-test:
+    #!/bin/bash
+    set -euo pipefail
+    if command -v go >/dev/null; then
+        GO=(go)
+    elif command -v mise >/dev/null && mise exec -- go version >/dev/null 2>&1; then
+        GO=(mise exec -- go)
+    else
+        echo "Go SDK tests require Go; skipping because go is not on PATH" >&2
+        exit 0
+    fi
+
+    cargo build --locked --package rototo-go
+
+    case "$(uname -s)" in
+        Linux*) native_file="librototo_go.so" ;;
+        Darwin*) native_file="librototo_go.dylib" ;;
+        MINGW*|MSYS*|CYGWIN*) native_file="rototo_go.dll" ;;
+        *) echo "unsupported Go SDK test platform: $(uname -s)" >&2; exit 1 ;;
+    esac
+
+    export ROTOTO_GO_NATIVE_PATH="$PWD/target/debug/$native_file"
+    "${GO[@]}" test ./sdks/go
+
 # Verify the Java SDK Maven package shape when Maven is available.
 [group('04. test')]
 java-sdk-package-check:
@@ -168,7 +194,7 @@ java-sdk-package-check:
 
 # Run the local pre-push gate.
 [group('05. check')]
-check: lint test python-sdk-test typescript-sdk-test java-sdk-test java-sdk-package-check
+check: lint test python-sdk-test typescript-sdk-test java-sdk-test go-sdk-test java-sdk-package-check
 
 # Validate that a release tag version matches all package version surfaces.
 [group('07. release')]
@@ -197,13 +223,16 @@ release-check version:
     python_readme="$(mktemp -t rototo-python-readme.XXXXXX)"
     typescript_readme="$(mktemp -t rototo-typescript-readme.XXXXXX)"
     java_readme="$(mktemp -t rototo-java-readme.XXXXXX)"
-    trap 'rm -f "$python_readme" "$typescript_readme" "$java_readme"' EXIT
+    go_readme="$(mktemp -t rototo-go-readme.XXXXXX)"
+    trap 'rm -f "$python_readme" "$typescript_readme" "$java_readme" "$go_readme"' EXIT
     cargo run --locked -- docs --package-readme python --out "$python_readme"
     cargo run --locked -- docs --package-readme typescript --out "$typescript_readme"
     cargo run --locked -- docs --package-readme java --out "$java_readme"
+    cargo run --locked -- docs --package-readme go --out "$go_readme"
     diff -u sdks/python/README.md "$python_readme"
     diff -u sdks/typescript/README.md "$typescript_readme"
     diff -u sdks/java/README.md "$java_readme"
+    diff -u sdks/go/README.md "$go_readme"
 
 # Update package versions and generated SDK packaging content for a release.
 [group('07. release')]
@@ -217,7 +246,7 @@ release-prep version:
         exit 1
     fi
 
-    for manifest in Cargo.toml sdks/python/Cargo.toml sdks/python/pyproject.toml sdks/typescript/Cargo.toml sdks/java/Cargo.toml; do
+    for manifest in Cargo.toml sdks/python/Cargo.toml sdks/python/pyproject.toml sdks/typescript/Cargo.toml sdks/java/Cargo.toml sdks/go/Cargo.toml; do
         perl -0pi -e 's/^version = "[^"]+"/version = "'"$version"'"/m' "$manifest"
     done
 
@@ -227,6 +256,7 @@ release-prep version:
     cargo run --locked -- docs --package-readme python --out sdks/python/README.md
     cargo run --locked -- docs --package-readme typescript --out sdks/typescript/README.md
     cargo run --locked -- docs --package-readme java --out sdks/java/README.md
+    cargo run --locked -- docs --package-readme go --out sdks/go/README.md
     just release-check "$version"
     just check
 

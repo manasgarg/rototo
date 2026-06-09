@@ -12,7 +12,7 @@ keywords = ["configuration", "feature-flags", "rules", "cli", "sdk"]
 categories = ["command-line-utilities", "config"]
 
 [workspace]
-members = ["examples/sdk-app", "sdks/java", "sdks/python", "sdks/typescript"]
+members = ["examples/sdk-app", "sdks/go", "sdks/java", "sdks/python", "sdks/typescript"]
 resolver = "3"
 
 [dependencies]
@@ -28,6 +28,7 @@ reqwest = { version = "0.12", default-features = false, features = ["rustls-tls"
 ring = "0.17"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+syntect = { version = "5", default-features = false, features = ["default-syntaxes", "html", "parsing", "regex-fancy"] }
 tar = "0.4"
 tempfile = "3"
 tokio = { version = "1", features = ["fs", "io-std", "io-util", "macros", "process", "rt-multi-thread", "sync", "test-util", "time"] }
