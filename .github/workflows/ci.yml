@@ -39,6 +39,7 @@ jobs:
         with:
           distribution: temurin
           java-version: "21"
+          cache: maven
 
       - name: Install just
         run: cargo install just --locked

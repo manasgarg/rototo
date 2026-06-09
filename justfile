@@ -133,9 +133,42 @@ java-sdk-test:
     "${JAR[@]}" --create --file "$jar_file" -C "$classes" . -C "$resources" .
     "${JAVA[@]}" -cp "$test_classes:$jar_file" dev.rototo.PackageSmokeTest
 
+# Verify the Java SDK Maven package shape when Maven is available.
+[group('04. test')]
+java-sdk-package-check:
+    #!/bin/bash
+    set -euo pipefail
+    if command -v mvn >/dev/null; then
+        MVN=(mvn)
+    else
+        echo "Java SDK Maven package check requires Maven; skipping because mvn is not on PATH" >&2
+        exit 0
+    fi
+
+    cargo build --locked --package rototo-java
+
+    case "$(uname -s)" in
+        Linux*) native_file="librototo_java.so"; resource_platform="linux-$(uname -m)" ;;
+        Darwin*) native_file="librototo_java.dylib"; resource_platform="darwin-$(uname -m)" ;;
+        MINGW*|MSYS*|CYGWIN*) native_file="rototo_java.dll"; resource_platform="windows-$(uname -m)" ;;
+        *) echo "unsupported Java SDK package-check platform: $(uname -s)" >&2; exit 1 ;;
+    esac
+    case "$resource_platform" in
+        *-x86_64|*-amd64) resource_platform="${resource_platform%-*}-x86_64" ;;
+        *-aarch64|*-arm64) resource_platform="${resource_platform%-*}-aarch64" ;;
+    esac
+
+    resources="sdks/java/target/generated-resources/native"
+    native_path="$PWD/target/debug/$native_file"
+    rm -rf "$resources/dev/rototo/native"
+    mkdir -p "$resources/dev/rototo/native/$resource_platform"
+    cp "$native_path" "$resources/dev/rototo/native/$resource_platform/$native_file"
+
+    (cd sdks/java && "${MVN[@]}" -B -Dgpg.skip=true -Dcentral.skipPublishing=true verify)
+
 # Run the local pre-push gate.
 [group('05. check')]
-check: lint test python-sdk-test typescript-sdk-test java-sdk-test
+check: lint test python-sdk-test typescript-sdk-test java-sdk-test java-sdk-package-check
 
 # Validate that a release tag version matches all package version surfaces.
 [group('07. release')]
