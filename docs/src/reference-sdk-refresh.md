@@ -46,6 +46,22 @@ RefreshingWorkspace workspace = RefreshingWorkspace
     .load(source, options)
     .get();
 ```
+
+```go
+periodSeconds := 30.0
+
+workspace, err := rototo.LoadRefreshing(
+    ctx,
+    source,
+    &rototo.RefreshingWorkspaceOptions{
+        PeriodSeconds: &periodSeconds,
+    },
+)
+if err != nil {
+    return err
+}
+defer workspace.Close(ctx)
+```
 :::
 
 Initial load stages the source, lints it, compiles the runtime model, and makes
@@ -82,6 +98,15 @@ VariableResolution resolution = workspace
     .resolveVariable("account-limits", context)
     .get();
 ```
+
+```go
+resolution, err := workspace.ResolveVariable(
+    ctx,
+    "account-limits",
+    resolveContext,
+    nil,
+)
+```
 :::
 
 Each call resolves against the current successfully loaded workspace. A
@@ -105,6 +130,10 @@ const outcome = await workspace.refreshNow();
 
 ```java
 String outcome = workspace.refreshNow().get();
+```
+
+```go
+outcome, err := workspace.RefreshNow(ctx)
 ```
 :::
 
@@ -149,11 +178,23 @@ RefreshingWorkspace workspace = RefreshingWorkspace
     .load(source, options)
     .get();
 ```
+
+```go
+periodSeconds := 60.0
+
+workspace, err := rototo.LoadRefreshing(
+    ctx,
+    source,
+    &rototo.RefreshingWorkspaceOptions{
+        PeriodSeconds: &periodSeconds,
+    },
+)
+```
 :::
 
 On refresh failure, rototo keeps the current workspace active and backs off
 before the next attempt. The default Rust backoff starts at 5 seconds and caps
-at 300 seconds. The first Python SDK release uses the Rust defaults.
+at 300 seconds. The first Python and Go SDK releases use the Rust defaults.
 
 ## Immutable Sources
 
@@ -182,6 +223,10 @@ const status = await workspace.status();
 
 ```java
 RefreshStatus status = workspace.status().get();
+```
+
+```go
+status, err := workspace.Status(ctx)
 ```
 :::
 
@@ -216,6 +261,10 @@ await workspace.shutdown();
 
 ```java
 workspace.shutdown().get();
+```
+
+```go
+err := workspace.Shutdown(ctx)
 ```
 :::
 

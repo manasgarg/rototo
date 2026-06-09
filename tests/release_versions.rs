@@ -28,6 +28,11 @@ fn sdk_package_versions_match_root_package() {
         "sdks/java/Cargo.toml should use the canonical rototo version"
     );
     assert_eq!(
+        manifest_version("sdks/go/Cargo.toml", &["package", "version"]),
+        root_version,
+        "sdks/go/Cargo.toml should use the canonical rototo version"
+    );
+    assert_eq!(
         xml_project_version("sdks/java/pom.xml"),
         root_version,
         "sdks/java/pom.xml should use the canonical rototo version"

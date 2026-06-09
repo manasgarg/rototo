@@ -1,6 +1,10 @@
 use std::path::Path;
+use std::sync::LazyLock;
 
 use pulldown_cmark::{CodeBlockKind, Event, Options, Parser, Tag, TagEnd, html};
+use syntect::html::{ClassStyle, ClassedHTMLGenerator};
+use syntect::parsing::SyntaxSet;
+use syntect::util::LinesWithEndings;
 
 use crate::error::{Result, RototoError};
 
@@ -39,6 +43,10 @@ pub const SDK_LANGUAGES: &[SdkLanguage] = &[
     SdkLanguage {
         id: "java",
         label: "Java",
+    },
+    SdkLanguage {
+        id: "go",
+        label: "Go",
     },
 ];
 
@@ -224,6 +232,11 @@ pub const DOCS: &[DocPage] = &[
         markdown: include_str!("../docs/src/reference-sdk-java.md"),
     },
     DocPage {
+        id: "reference-sdk-go",
+        title: "Go SDK",
+        markdown: include_str!("../docs/src/reference-sdk-go.md"),
+    },
+    DocPage {
         id: "reference-lint-overview",
         title: "Lint",
         markdown: include_str!("../docs/src/reference-lint-overview.md"),
@@ -298,6 +311,7 @@ pub const DOC_NAV_SECTIONS: &[DocNavSection] = &[
             "reference-sdk-python",
             "reference-sdk-typescript",
             "reference-sdk-java",
+            "reference-sdk-go",
             "reference-lint-overview",
             "reference-diagnostics",
             "reference-custom-lua-lint",
@@ -310,6 +324,7 @@ pub const DOC_NAV_SECTIONS: &[DocNavSection] = &[
 const DOCS_CSS: &str = include_str!("../docs/theme/rototo-docs.css");
 const FAVICON_SVG: &str = include_str!("../docs/theme/favicon.svg");
 const WORDMARK_SVG: &str = include_str!("../docs/theme/rototo-wordmark.svg");
+static SYNTAX_SET: LazyLock<SyntaxSet> = LazyLock::new(SyntaxSet::load_defaults_newlines);
 
 /// Brand fonts referenced by the stylesheet: Manrope for display headings,
 /// Hanken Grotesk for body text, and JetBrains Mono for code and labels.
@@ -417,6 +432,7 @@ pub fn render_package_readme(sdk: &str) -> Result<String> {
         "python" => get_page("reference-sdk-python")?,
         "typescript" => get_page("reference-sdk-typescript")?,
         "java" => get_page("reference-sdk-java")?,
+        "go" => get_page("reference-sdk-go")?,
         other => {
             return Err(RototoError::new(format!(
                 "unsupported package README SDK: {other}"
@@ -428,6 +444,7 @@ pub fn render_package_readme(sdk: &str) -> Result<String> {
         "python" => "rototo Python SDK",
         "typescript" => "rototo TypeScript SDK",
         "java" => "rototo Java SDK",
+        "go" => "rototo Go SDK",
         _ => unreachable!("unsupported SDK was rejected above"),
     };
     if let Some(rest) = markdown.strip_prefix(&format!("# {} Reference\n", page.title)) {
@@ -674,16 +691,7 @@ fn render_code_block_with_attrs(
     extra_class: &str,
     extra_attrs: &str,
 ) -> String {
-    let highlighted = match language {
-        "toml" => highlight_toml(code),
-        "json" => highlight_json(code),
-        "python" => highlight_python(code),
-        "java" => highlight_java(code),
-        "rust" => highlight_rust(code),
-        "sh" => highlight_sh(code),
-        "typescript" => highlight_typescript(code),
-        _ => escape_html(code),
-    };
+    let highlighted = highlight_code(language, code);
     let class_suffix = if extra_class.is_empty() {
         String::new()
     } else {
@@ -692,6 +700,60 @@ fn render_code_block_with_attrs(
     format!(
         "<pre class=\"code-block language-{language}{class_suffix}\"{extra_attrs}><code class=\"language-{language}\">{highlighted}</code></pre>\n"
     )
+}
+
+fn highlight_code(language: &str, code: &str) -> String {
+    let syntax_set = &*SYNTAX_SET;
+    let Some(syntax) = syntax_for_language(syntax_set, language) else {
+        return fallback_highlight_code(language, code);
+    };
+    let mut generator = ClassedHTMLGenerator::new_with_class_style(
+        syntax,
+        syntax_set,
+        ClassStyle::SpacedPrefixed { prefix: "sx-" },
+    );
+    for line in LinesWithEndings::from(code) {
+        if generator
+            .parse_html_for_line_which_includes_newline(line)
+            .is_err()
+        {
+            return fallback_highlight_code(language, code);
+        }
+    }
+    generator.finalize()
+}
+
+fn syntax_for_language<'a>(
+    syntax_set: &'a SyntaxSet,
+    language: &str,
+) -> Option<&'a syntect::parsing::SyntaxReference> {
+    let token = syntax_token(language);
+    syntax_set
+        .find_syntax_by_token(token)
+        .or_else(|| syntax_set.find_syntax_by_extension(token))
+        .or_else(|| syntax_set.find_syntax_by_token(language))
+        .or_else(|| syntax_set.find_syntax_by_extension(language))
+}
+
+fn syntax_token(language: &str) -> &str {
+    match language {
+        "sh" => "bash",
+        "typescript" => "ts",
+        other => other,
+    }
+}
+
+fn fallback_highlight_code(language: &str, code: &str) -> String {
+    match language {
+        "toml" => highlight_toml(code),
+        "json" => highlight_json(code),
+        "python" => highlight_python(code),
+        "java" => highlight_java(code),
+        "rust" => highlight_rust(code),
+        "sh" => highlight_sh(code),
+        "typescript" => highlight_typescript(code),
+        _ => escape_html(code),
+    }
 }
 
 fn expand_sdk_snippet_groups(markdown: &str) -> String {

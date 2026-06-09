@@ -39,6 +39,24 @@ Workspace workspace = Workspace
     .load("git+https://github.com/acme/config.git#main")
     .get();
 ```
+
+```go
+import (
+    "context"
+
+    rototo "github.com/manasgarg/rototo/sdks/go"
+)
+
+workspace, err := rototo.Load(
+    context.Background(),
+    "git+https://github.com/acme/config.git#main",
+    nil,
+)
+if err != nil {
+    return err
+}
+defer workspace.Close()
+```
 :::
 
 Loading stages the source, inspects the workspace, runs lint, and rejects lint
@@ -63,6 +81,14 @@ const workspace = await Workspace.inspect("examples/basic");
 
 ```java
 Workspace workspace = Workspace.inspect("examples/basic").get();
+```
+
+```go
+workspace, err := rototo.Inspect(context.Background(), "examples/basic", nil)
+if err != nil {
+    return err
+}
+defer workspace.Close()
 ```
 :::
 
@@ -108,6 +134,16 @@ LoadOptions options = LoadOptions.builder()
 
 Workspace workspace = Workspace.load(source, options).get();
 ```
+
+```go
+workspace, err := rototo.Load(ctx, source, &rototo.LoadOptions{
+    Lint:           rototo.LintDeny,
+    WorkspaceToken: token,
+})
+if err != nil {
+    return err
+}
+```
 :::
 
 Lint deny is the default. It rejects lint failures during load.
@@ -139,11 +175,16 @@ const root = workspace.root;
 ```java
 String root = workspace.root();
 ```
+
+```go
+root, err := workspace.Root()
+```
 :::
 
 The Rust SDK currently exposes the full loaded source metadata. The first
-Python SDK release exposes the staged root path and keeps the runtime path
-small; more inspection metadata can be added when Python tools need it.
+Python, TypeScript, Java, and Go SDK releases expose the staged root path and
+keep the runtime path small; more inspection metadata can be added when
+language-specific tools need it.
 
 ## Temporary Staging
 

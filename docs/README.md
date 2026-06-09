@@ -43,6 +43,7 @@ docs/src/
   reference-sdk-python.md
   reference-sdk-typescript.md
   reference-sdk-java.md
+  reference-sdk-go.md
   reference-lint-overview.md
   reference-diagnostics.md
   reference-custom-lua-lint.md

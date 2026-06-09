@@ -301,6 +301,7 @@ enum PackageReadmeTarget {
     #[value(name = "typescript")]
     TypeScript,
     Java,
+    Go,
 }
 
 impl PackageReadmeTarget {
@@ -309,6 +310,7 @@ impl PackageReadmeTarget {
             Self::Python => "python",
             Self::TypeScript => "typescript",
             Self::Java => "java",
+            Self::Go => "go",
         }
     }
 }
