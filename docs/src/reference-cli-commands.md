@@ -71,6 +71,20 @@ rules, lint authorities, and linters.
 When context is supplied, selected variables and qualifiers include resolution
 traces.
 
+## `rototo diff`
+
+```sh
+rototo diff BEFORE_WORKSPACE_SOURCE AFTER_WORKSPACE_SOURCE [--context CONTEXT]
+```
+
+Use `diff` when you need to understand what changed in rototo terms rather than
+as raw TOML or JSON. It compares projected workspace entities such as variables,
+values, resolve rules, qualifiers, predicates, resources, resource objects, and
+schemas.
+
+When context is supplied, `diff` also reports resolution impact for variables
+whose selected value changes between the before and after workspaces.
+
 ## `rototo show`
 
 ```sh

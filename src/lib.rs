@@ -17,7 +17,7 @@ pub mod workspace;
 pub use catalog::{catalog, catalog_for_workspace, diagnostic_for_rule};
 pub use error::{Result, RototoError};
 pub use inspect::inspect_workspace_report;
-pub use lint::{lint_qualifier, lint_resource, lint_variable, lint_workspace};
+pub use lint::{diff_workspaces, lint_qualifier, lint_resource, lint_variable, lint_workspace};
 pub use resolve::{
     resolve_qualifier, resolve_qualifiers, resolve_variable, resolve_variables,
     trace_qualifier_resolution, trace_qualifier_resolutions, trace_variable_resolution,

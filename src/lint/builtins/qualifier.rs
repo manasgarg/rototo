@@ -1,6 +1,6 @@
 use std::collections::BTreeMap;
 
-use crate::diagnostics::{EntityId, LintDiagnostic, RelatedLocation, RototoRuleId};
+use crate::diagnostics::{LintDiagnostic, RelatedLocation, RototoRuleId, SemanticField};
 
 use super::super::engine::LintContext;
 use super::super::index::*;
@@ -17,9 +17,7 @@ pub(super) fn lint_qualifier_shapes(ctx: &mut LintContext) {
             push_project_diagnostic(
                 diagnostics,
                 RototoRuleId::QualifierSchemaVersion,
-                EntityId::Qualifier {
-                    id: qualifier.id.clone(),
-                },
+                qualifier.field_target(SemanticField::SchemaVersion),
                 qualifier.schema_version.location(),
                 "qualifier must declare schema_version = 1",
             );
@@ -29,18 +27,14 @@ pub(super) fn lint_qualifier_shapes(ctx: &mut LintContext) {
             PredicateCollection::Missing { location } => push_project_diagnostic(
                 diagnostics,
                 RototoRuleId::QualifierPredicateMissing,
-                EntityId::Qualifier {
-                    id: qualifier.id.clone(),
-                },
+                qualifier.field_target(SemanticField::QualifierPredicates),
                 location.clone(),
                 "qualifier must contain at least one [[predicate]]",
             ),
             PredicateCollection::Invalid { location } => push_project_diagnostic(
                 diagnostics,
                 RototoRuleId::QualifierPredicateShape,
-                EntityId::Qualifier {
-                    id: qualifier.id.clone(),
-                },
+                qualifier.field_target(SemanticField::QualifierPredicates),
                 location.clone(),
                 "predicate must use [[predicate]] tables",
             ),
@@ -58,15 +52,11 @@ fn lint_predicate_shape(
     qualifier: &QualifierNode,
     predicate: &PredicateNode,
 ) {
-    let entity = EntityId::Predicate {
-        qualifier: qualifier.id.clone(),
-        index: predicate.index,
-    };
     if field_is_not_present(&predicate.attribute) {
         push_project_diagnostic(
             diagnostics,
             RototoRuleId::QualifierPredicateShape,
-            entity.clone(),
+            predicate.field_target(&qualifier.id, SemanticField::PredicateAttribute),
             predicate.attribute.location(),
             "predicate must contain attribute",
         );
@@ -79,7 +69,7 @@ fn lint_predicate_shape(
             push_project_diagnostic(
                 diagnostics,
                 RototoRuleId::QualifierPredicateShape,
-                entity,
+                predicate.field_target(&qualifier.id, SemanticField::PredicateOp),
                 location.clone(),
                 "predicate must contain op",
             );
@@ -91,23 +81,23 @@ fn lint_predicate_shape(
         push_project_diagnostic(
             diagnostics,
             RototoRuleId::QualifierPredicateUnknownOp,
-            entity.clone(),
+            predicate.field_target(&qualifier.id, SemanticField::PredicateOp),
             predicate.op.location(),
             format!("predicate has unknown op: {op}"),
         );
     }
 
     if matches!(op, PredicateOp::Bucket) {
-        lint_bucket_predicate(diagnostics, predicate, entity);
+        lint_bucket_predicate(diagnostics, qualifier, predicate);
     } else {
-        lint_comparison_predicate(diagnostics, predicate, op, entity);
+        lint_comparison_predicate(diagnostics, qualifier, predicate, op);
     }
 }
 
 fn lint_bucket_predicate(
     diagnostics: &mut Vec<LintDiagnostic>,
+    qualifier: &QualifierNode,
     predicate: &PredicateNode,
-    entity: EntityId,
 ) {
     if predicate.salt.as_ref().is_none_or(field_is_not_present) {
         let location = predicate
@@ -118,7 +108,7 @@ fn lint_bucket_predicate(
         push_project_diagnostic(
             diagnostics,
             RototoRuleId::QualifierPredicateBucket,
-            entity.clone(),
+            predicate.field_target(&qualifier.id, SemanticField::PredicateSalt),
             location,
             "bucket predicate must contain salt",
         );
@@ -128,7 +118,7 @@ fn lint_bucket_predicate(
         push_project_diagnostic(
             diagnostics,
             RototoRuleId::QualifierPredicateBucket,
-            entity.clone(),
+            predicate.field_target(&qualifier.id, SemanticField::PredicateRange),
             predicate.location.clone(),
             "bucket predicate must contain range",
         );
@@ -139,7 +129,7 @@ fn lint_bucket_predicate(
         push_project_diagnostic(
             diagnostics,
             RototoRuleId::QualifierPredicateBucket,
-            entity.clone(),
+            predicate.field_target(&qualifier.id, SemanticField::PredicateRange),
             range.location.clone(),
             "bucket range must be a list",
         );
@@ -147,7 +137,7 @@ fn lint_bucket_predicate(
         push_project_diagnostic(
             diagnostics,
             RototoRuleId::QualifierPredicateBucket,
-            entity.clone(),
+            predicate.field_target(&qualifier.id, SemanticField::PredicateRange),
             range.location.clone(),
             "bucket range must contain two integers",
         );
@@ -157,7 +147,7 @@ fn lint_bucket_predicate(
             _ => push_project_diagnostic(
                 diagnostics,
                 RototoRuleId::QualifierPredicateBucket,
-                entity.clone(),
+                predicate.field_target(&qualifier.id, SemanticField::PredicateRange),
                 range.location.clone(),
                 "bucket range must satisfy 0 <= start < end <= 10000",
             ),
@@ -173,7 +163,7 @@ fn lint_bucket_predicate(
         push_project_diagnostic(
             diagnostics,
             RototoRuleId::QualifierPredicateBucket,
-            entity,
+            predicate.field_target(&qualifier.id, SemanticField::PredicateValue),
             location,
             "bucket predicate must not contain value",
         );
@@ -182,15 +172,15 @@ fn lint_bucket_predicate(
 
 fn lint_comparison_predicate(
     diagnostics: &mut Vec<LintDiagnostic>,
+    qualifier: &QualifierNode,
     predicate: &PredicateNode,
     op: &PredicateOp,
-    entity: EntityId,
 ) {
     let Some(value) = &predicate.value else {
         push_project_diagnostic(
             diagnostics,
             RototoRuleId::QualifierPredicateValue,
-            entity,
+            predicate.field_target(&qualifier.id, SemanticField::PredicateValue),
             predicate.location.clone(),
             "predicate must contain value",
         );
@@ -202,7 +192,7 @@ fn lint_comparison_predicate(
             push_project_diagnostic(
                 diagnostics,
                 RototoRuleId::QualifierPredicateValue,
-                entity,
+                predicate.field_target(&qualifier.id, SemanticField::PredicateValue),
                 value.location.clone(),
                 format!("{} predicate value must be a list", predicate_op_label(op)),
             );
@@ -213,7 +203,7 @@ fn lint_comparison_predicate(
             push_project_diagnostic(
                 diagnostics,
                 RototoRuleId::QualifierPredicateValue,
-                entity,
+                predicate.field_target(&qualifier.id, SemanticField::PredicateValue),
                 value.location.clone(),
                 format!(
                     "{} predicate value must be a number",
@@ -242,7 +232,7 @@ pub(super) fn lint_qualifier_references(ctx: &mut LintContext) {
         push_reference_diagnostic(
             diagnostics,
             RototoRuleId::QualifierPredicateUnknownQualifier,
-            edge.entity.clone(),
+            edge.semantic_target.clone(),
             edge.location.clone(),
             format!(
                 "predicate references unknown qualifier: {}",
@@ -269,10 +259,7 @@ pub(super) fn lint_duplicate_predicates(ctx: &mut LintContext) {
                 push_graph_diagnostic(
                     &mut diagnostics,
                     RototoRuleId::QualifierPredicateDuplicate,
-                    EntityId::Predicate {
-                        qualifier: qualifier.id.clone(),
-                        index: predicate.index,
-                    },
+                    predicate.target(&qualifier.id),
                     predicate.location.clone(),
                     format!(
                         "predicate duplicates an earlier predicate: {}",

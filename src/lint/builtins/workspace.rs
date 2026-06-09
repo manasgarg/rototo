@@ -1,4 +1,4 @@
-use crate::diagnostics::{EntityId, LintDiagnostic, LintStage, RototoRuleId};
+use crate::diagnostics::{LintDiagnostic, LintStage, RototoRuleId};
 use crate::workspace::validate_workspace_manifest;
 
 use super::super::engine::LintContext;
@@ -15,7 +15,7 @@ pub(super) fn lint_manifest_shape(ctx: &mut LintContext) {
         ctx.diagnostics.push(LintDiagnostic::rototo(
             RototoRuleId::WorkspaceManifestSchemaFailed,
             LintStage::Project,
-            EntityId::Manifest,
+            manifest.target(),
             manifest.location.clone(),
             err.to_string(),
         ));

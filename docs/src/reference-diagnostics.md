@@ -13,10 +13,15 @@ JSON diagnostics use this shape:
   "rule": "rototo/variable-unknown-value",
   "severity": "error",
   "stage": "reference",
-  "entity": {
-    "kind": "rule",
-    "variable": "account-limits",
-    "index": 0
+  "target": {
+    "entity": {
+      "kind": "rule",
+      "variable": "account-limits",
+      "index": 0
+    },
+    "field": {
+      "kind": "variable_rule_value"
+    }
   },
   "message": "rule references unknown value: enterprise",
   "help": "Create the referenced value or update the resolve reference.",
@@ -70,7 +75,7 @@ warning
 Warnings are still reported because they often point at confusing or risky
 workspace behavior.
 
-## Entity Kinds
+## Targets
 
 Diagnostics can target:
 
@@ -88,8 +93,9 @@ custom_lint
 schema
 ```
 
-The entity gives tools a stable object to group by. The location gives humans
-the file and range to edit.
+The target gives tools a stable object and optional field to group by or attach
+to a form control. The location gives humans and text editors the file and range
+to edit. Both are part of the diagnostic contract.
 
 ## Catalog
 
@@ -118,8 +124,8 @@ Catalog entries contain:
 
 ## Stability
 
-Treat rule ids as stable automation inputs. CI filters, editor integrations,
-and agents should use `rule`, `severity`, `stage`, and `entity` rather than
-matching diagnostic message text.
+Treat rule ids and targets as stable automation inputs. CI filters, editor
+integrations, and agents should use `rule`, `severity`, `stage`, and `target`
+rather than matching diagnostic message text.
 
 Messages are written for humans and may become more specific over time.

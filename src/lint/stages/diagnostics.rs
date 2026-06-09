@@ -1,14 +1,16 @@
-use crate::diagnostics::{DiagnosticLocation, EntityId, LintDiagnostic, LintStage, RototoRuleId};
+use crate::diagnostics::{
+    DiagnosticLocation, LintDiagnostic, LintStage, RototoRuleId, SemanticTarget,
+};
 
 pub(crate) fn push_stage_diagnostic(
     diagnostics: &mut Vec<LintDiagnostic>,
     stage: LintStage,
     rule: RototoRuleId,
-    entity: EntityId,
+    target: impl Into<SemanticTarget>,
     primary: DiagnosticLocation,
     message: impl Into<String>,
 ) {
     diagnostics.push(LintDiagnostic::rototo(
-        rule, stage, entity, primary, message,
+        rule, stage, target, primary, message,
     ));
 }

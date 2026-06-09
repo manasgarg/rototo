@@ -1,13 +1,14 @@
 use std::path::Path;
 
 use crate::diagnostics::{
-    DiagnosticCatalogEntry, EntityId, LintDiagnostic, LintStage, RototoRuleId, SourcePosition,
+    DiagnosticCatalogEntry, LintDiagnostic, LintStage, RototoRuleId, SemanticEntity, SourcePosition,
 };
 use crate::error::{Result, RototoError};
-use crate::model::{QualifierLint, ResourceLint, VariableLint, WorkspaceLint};
+use crate::model::{QualifierLint, ResourceLint, VariableLint, WorkspaceDiff, WorkspaceLint};
 
 mod builtins;
 mod custom;
+mod diff;
 mod engine;
 mod index;
 pub(crate) mod input;
@@ -37,6 +38,14 @@ pub(crate) use symbols::{
 const WORKSPACE_MANIFEST: &str = "rototo-workspace.toml";
 pub async fn lint_workspace(workspace_root: &Path) -> Result<WorkspaceLint> {
     lint_workspace_with_input(LintInput::new(workspace_root.to_path_buf())).await
+}
+
+pub async fn diff_workspaces(
+    before_root: &Path,
+    after_root: &Path,
+    context: Option<&serde_json::Value>,
+) -> Result<WorkspaceDiff> {
+    diff::diff_workspaces(before_root, after_root, context).await
 }
 
 pub async fn lint_qualifier(workspace_root: &Path, id: &str) -> Result<QualifierLint> {
@@ -100,22 +109,22 @@ pub async fn lint_resource(workspace_root: &Path, id: &str) -> Result<ResourceLi
 }
 
 fn diagnostic_belongs_to_qualifier(diagnostic: &LintDiagnostic, id: &str, path: &str) -> bool {
-    matches!(&diagnostic.entity, EntityId::Qualifier { id: diagnostic_id } if diagnostic_id == id)
-        || matches!(&diagnostic.entity, EntityId::Predicate { qualifier, .. } if qualifier == id)
+    matches!(&diagnostic.target.entity, SemanticEntity::Qualifier { id: diagnostic_id } if diagnostic_id == id)
+        || matches!(&diagnostic.target.entity, SemanticEntity::Predicate { qualifier, .. } if qualifier == id)
         || diagnostic.primary.path == path
 }
 
 fn diagnostic_belongs_to_variable(diagnostic: &LintDiagnostic, id: &str, path: &str) -> bool {
-    matches!(&diagnostic.entity, EntityId::Variable { id: diagnostic_id } if diagnostic_id == id)
-        || matches!(&diagnostic.entity, EntityId::Value { variable, .. } if variable == id)
-        || matches!(&diagnostic.entity, EntityId::Rule { variable, .. } if variable == id)
+    matches!(&diagnostic.target.entity, SemanticEntity::Variable { id: diagnostic_id } if diagnostic_id == id)
+        || matches!(&diagnostic.target.entity, SemanticEntity::Value { variable, .. } if variable == id)
+        || matches!(&diagnostic.target.entity, SemanticEntity::Rule { variable, .. } if variable == id)
         || diagnostic.primary.path == path
 }
 
 fn diagnostic_belongs_to_resource(diagnostic: &LintDiagnostic, id: &str, path: &str) -> bool {
     let objects_prefix = format!("resources/{id}-objects/");
-    matches!(&diagnostic.entity, EntityId::Resource { id: diagnostic_id } if diagnostic_id == id)
-        || matches!(&diagnostic.entity, EntityId::ResourceObject { resource, .. } if resource == id)
+    matches!(&diagnostic.target.entity, SemanticEntity::Resource { id: diagnostic_id } if diagnostic_id == id)
+        || matches!(&diagnostic.target.entity, SemanticEntity::ResourceObject { resource, .. } if resource == id)
         || diagnostic.primary.path == path
         || diagnostic.primary.path.starts_with(&objects_prefix)
 }

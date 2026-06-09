@@ -125,7 +125,7 @@ fn reports_workspace_manifest_missing() {
 
     assert_eq!(diagnostic["rule"], "rototo/workspace-manifest-missing");
     assert_eq!(diagnostic["stage"], "discover");
-    assert_eq!(diagnostic["entity"]["kind"], "workspace");
+    assert_eq!(diagnostic["target"]["entity"]["kind"], "workspace");
     assert!(diagnostic.get("primary").is_none());
     assert!(diagnostic["location"].get("doc").is_none());
     assert!(diagnostic["location"]["range"].is_null());
@@ -186,7 +186,7 @@ fn reports_workspace_manifest_parse_failed() {
 
     assert_eq!(diagnostic["rule"], "rototo/workspace-manifest-parse-failed");
     assert_eq!(diagnostic["stage"], "parse");
-    assert_eq!(diagnostic["entity"]["kind"], "manifest");
+    assert_eq!(diagnostic["target"]["entity"]["kind"], "manifest");
     assert_eq!(diagnostic["location"]["path"], "rototo-workspace.toml");
     assert!(diagnostic["location"]["range"].is_object());
 }
@@ -204,7 +204,7 @@ fn reports_workspace_manifest_schema_failed() {
         "rototo/workspace-manifest-schema-failed"
     );
     assert_eq!(diagnostic["stage"], "project");
-    assert_eq!(diagnostic["entity"]["kind"], "manifest");
+    assert_eq!(diagnostic["target"]["entity"]["kind"], "manifest");
     assert_eq!(diagnostic["location"]["path"], "rototo-workspace.toml");
     assert!(diagnostic["location"]["range"].is_null());
 }
@@ -227,15 +227,15 @@ fn reports_workspace_file_parse_failed() {
 
     let qualifier = diagnostic_for_rule(&lint, "rototo/qualifier-parse-failed");
     assert_eq!(qualifier["stage"], "parse");
-    assert_eq!(qualifier["entity"]["kind"], "qualifier");
-    assert_eq!(qualifier["entity"]["id"], "broken");
+    assert_eq!(qualifier["target"]["entity"]["kind"], "qualifier");
+    assert_eq!(qualifier["target"]["entity"]["id"], "broken");
     assert_eq!(qualifier["location"]["path"], "qualifiers/broken.toml");
     assert!(qualifier["location"]["range"].is_object());
 
     let variable = diagnostic_for_rule(&lint, "rototo/variable-parse-failed");
     assert_eq!(variable["stage"], "parse");
-    assert_eq!(variable["entity"]["kind"], "variable");
-    assert_eq!(variable["entity"]["id"], "broken");
+    assert_eq!(variable["target"]["entity"]["kind"], "variable");
+    assert_eq!(variable["target"]["entity"]["id"], "broken");
     assert_eq!(variable["location"]["path"], "variables/broken.toml");
     assert!(variable["location"]["range"].is_object());
 }
@@ -247,9 +247,9 @@ fn reports_schema_parse_failed() {
 
     assert_eq!(diagnostic["rule"], "rototo/schema-parse-failed");
     assert_eq!(diagnostic["stage"], "parse");
-    assert_eq!(diagnostic["entity"]["kind"], "schema");
+    assert_eq!(diagnostic["target"]["entity"]["kind"], "schema");
     assert_eq!(
-        diagnostic["entity"]["path"],
+        diagnostic["target"]["entity"]["path"],
         "schemas/invalid-json.schema.json"
     );
     assert_eq!(
@@ -308,8 +308,11 @@ fn reports_workspace_context_schema_ref_failures() {
         );
 
         let diagnostic = diagnostic_for_rule(&lint, "rototo/workspace-context-schema-ref");
-        assert_eq!(diagnostic["entity"]["kind"], "schema");
-        assert_eq!(diagnostic["entity"]["path"], "schemas/context.schema.json");
+        assert_eq!(diagnostic["target"]["entity"]["kind"], "schema");
+        assert_eq!(
+            diagnostic["target"]["entity"]["path"],
+            "schemas/context.schema.json"
+        );
     }
 }
 
@@ -339,8 +342,8 @@ fn rejects_path_safety_escaping_refs_and_lint_files() {
     assert_register_rule(&lint, "rototo/custom-lint-failed", "lint/escape.lua");
 
     let lint_file = diagnostic_for_rule(&lint, "rototo/custom-lint-failed");
-    assert_eq!(lint_file["entity"]["kind"], "custom_lint");
-    assert_eq!(lint_file["entity"]["path"], "lint/escape.lua");
+    assert_eq!(lint_file["target"]["entity"]["kind"], "custom_lint");
+    assert_eq!(lint_file["target"]["entity"]["path"], "lint/escape.lua");
     assert!(
         lint_file["message"]
             .as_str()
@@ -359,7 +362,7 @@ fn reports_workspace_context_schema_attribute_failures() {
         "rototo/workspace-context-schema-attribute"
     );
     assert_eq!(diagnostic["stage"], "reference");
-    assert_eq!(diagnostic["entity"]["kind"], "predicate");
+    assert_eq!(diagnostic["target"]["entity"]["kind"], "predicate");
     assert_eq!(
         diagnostic["location"]["path"],
         "qualifiers/missing-context-contract.toml"
@@ -583,9 +586,9 @@ fn reports_reference_stage_failures() {
     );
 
     let qualifier = diagnostic_for_rule(&lint, "rototo/qualifier-predicate-unknown-qualifier");
-    assert_eq!(qualifier["entity"]["kind"], "predicate");
-    assert_eq!(qualifier["entity"]["qualifier"], "bad-reference");
-    assert_eq!(qualifier["entity"]["index"], 0);
+    assert_eq!(qualifier["target"]["entity"]["kind"], "predicate");
+    assert_eq!(qualifier["target"]["entity"]["qualifier"], "bad-reference");
+    assert_eq!(qualifier["target"]["entity"]["index"], 0);
 
     let unknown_value_messages =
         diagnostic_messages_for_rule(&lint, "rototo/variable-unknown-value");
@@ -624,6 +627,11 @@ fn canonical_reference_fixture_reports_variable_rule_unknown_qualifier() {
             related: &[],
         },
     );
+    let diagnostic = only_diagnostic(&lint);
+    assert_eq!(
+        diagnostic["target"]["field"]["kind"],
+        "variable_rule_qualifier"
+    );
 }
 
 #[test]
@@ -647,19 +655,28 @@ fn reports_value_stage_failures() {
     );
 
     let unknown_type = diagnostic_for_rule(&lint, "rototo/variable-unknown-type");
-    assert_eq!(unknown_type["entity"]["kind"], "variable");
-    assert_eq!(unknown_type["entity"]["id"], "unknown-type");
+    assert_eq!(unknown_type["target"]["entity"]["kind"], "variable");
+    assert_eq!(unknown_type["target"]["entity"]["id"], "unknown-type");
     assert!(unknown_type["location"]["range"].is_object());
 
     let schema_mismatch = diagnostic_for_rule(&lint, "rototo/resource-object-schema-mismatch");
-    assert_eq!(schema_mismatch["entity"]["kind"], "resource_object");
-    assert_eq!(schema_mismatch["entity"]["resource"], "bad-schema-value");
-    assert_eq!(schema_mismatch["entity"]["key"], "broken");
+    assert_eq!(
+        schema_mismatch["target"]["entity"]["kind"],
+        "resource_object"
+    );
+    assert_eq!(
+        schema_mismatch["target"]["entity"]["resource"],
+        "bad-schema-value"
+    );
+    assert_eq!(schema_mismatch["target"]["entity"]["key"], "broken");
 
     let type_mismatch = diagnostic_for_rule(&lint, "rototo/variable-value-type-mismatch");
-    assert_eq!(type_mismatch["entity"]["kind"], "value");
-    assert_eq!(type_mismatch["entity"]["variable"], "bad-type-value");
-    assert_eq!(type_mismatch["entity"]["key"], "bad");
+    assert_eq!(type_mismatch["target"]["entity"]["kind"], "value");
+    assert_eq!(
+        type_mismatch["target"]["entity"]["variable"],
+        "bad-type-value"
+    );
+    assert_eq!(type_mismatch["target"]["entity"]["key"], "bad");
     assert!(type_mismatch["location"]["range"].is_object());
 }
 
@@ -683,8 +700,11 @@ fn schema_contract_skips_value_validation_when_schema_cannot_compile() {
     assert_eq!(rules, vec!["rototo/schema-invalid"], "{lint:#}");
     let diagnostic = only_diagnostic(&lint);
     assert_eq!(diagnostic["stage"], "project");
-    assert_eq!(diagnostic["entity"]["kind"], "schema");
-    assert_eq!(diagnostic["entity"]["path"], "schemas/value.schema.json");
+    assert_eq!(diagnostic["target"]["entity"]["kind"], "schema");
+    assert_eq!(
+        diagnostic["target"]["entity"]["path"],
+        "schemas/value.schema.json"
+    );
     assert_eq!(diagnostic["location"]["path"], "schemas/value.schema.json");
 }
 
@@ -698,8 +718,11 @@ fn schema_contract_skips_value_validation_when_schema_cannot_parse() {
 
     assert_eq!(rules, vec!["rototo/schema-parse-failed"], "{lint:#}");
     let diagnostic = only_diagnostic(&lint);
-    assert_eq!(diagnostic["entity"]["kind"], "schema");
-    assert_eq!(diagnostic["entity"]["path"], "schemas/value.schema.json");
+    assert_eq!(diagnostic["target"]["entity"]["kind"], "schema");
+    assert_eq!(
+        diagnostic["target"]["entity"]["path"],
+        "schemas/value.schema.json"
+    );
     assert_eq!(diagnostic["location"]["path"], "schemas/value.schema.json");
 }
 
@@ -730,22 +753,22 @@ fn reports_graph_stage_qualifier_cycles() {
     assert!(
         diagnostics
             .iter()
-            .any(|diagnostic| diagnostic["entity"]["id"] == "self")
+            .any(|diagnostic| diagnostic["target"]["entity"]["id"] == "self")
     );
     assert!(
         diagnostics
             .iter()
-            .any(|diagnostic| diagnostic["entity"]["id"] == "alpha")
+            .any(|diagnostic| diagnostic["target"]["entity"]["id"] == "alpha")
     );
     assert!(
         diagnostics
             .iter()
-            .any(|diagnostic| diagnostic["entity"]["id"] == "beta")
+            .any(|diagnostic| diagnostic["target"]["entity"]["id"] == "beta")
     );
 
     let alpha = diagnostics
         .iter()
-        .find(|diagnostic| diagnostic["entity"]["id"] == "alpha")
+        .find(|diagnostic| diagnostic["target"]["entity"]["id"] == "alpha")
         .unwrap();
     assert_eq!(
         alpha["message"],
@@ -765,8 +788,8 @@ fn reports_graph_stage_qualifier_unreferenced_warning_without_failing() {
     assert_eq!(diagnostic["rule"], "rototo/qualifier-unreferenced");
     assert_eq!(diagnostic["severity"], "warning");
     assert_eq!(diagnostic["stage"], "graph");
-    assert_eq!(diagnostic["entity"]["kind"], "qualifier");
-    assert_eq!(diagnostic["entity"]["id"], "unused");
+    assert_eq!(diagnostic["target"]["entity"]["kind"], "qualifier");
+    assert_eq!(diagnostic["target"]["entity"]["id"], "unused");
 }
 
 #[test]
@@ -809,9 +832,9 @@ fn reports_graph_stage_shadowed_rule_warning_without_failing() {
     assert_eq!(diagnostic["rule"], "rototo/variable-rule-shadowed");
     assert_eq!(diagnostic["severity"], "warning");
     assert_eq!(diagnostic["stage"], "graph");
-    assert_eq!(diagnostic["entity"]["kind"], "rule");
-    assert_eq!(diagnostic["entity"]["variable"], "checkout");
-    assert_eq!(diagnostic["entity"]["index"], 1);
+    assert_eq!(diagnostic["target"]["entity"]["kind"], "rule");
+    assert_eq!(diagnostic["target"]["entity"]["variable"], "checkout");
+    assert_eq!(diagnostic["target"]["entity"]["index"], 1);
     assert_eq!(diagnostic["related"].as_array().unwrap().len(), 1);
 }
 
@@ -826,9 +849,9 @@ fn reports_graph_stage_unused_value_warning_without_failing() {
     assert_eq!(diagnostic["rule"], "rototo/variable-value-unused");
     assert_eq!(diagnostic["severity"], "warning");
     assert_eq!(diagnostic["stage"], "graph");
-    assert_eq!(diagnostic["entity"]["kind"], "value");
-    assert_eq!(diagnostic["entity"]["variable"], "message");
-    assert_eq!(diagnostic["entity"]["key"], "unused");
+    assert_eq!(diagnostic["target"]["entity"]["kind"], "value");
+    assert_eq!(diagnostic["target"]["entity"]["variable"], "message");
+    assert_eq!(diagnostic["target"]["entity"]["key"], "unused");
 }
 
 #[test]
@@ -884,13 +907,13 @@ fn reports_workspace_custom_lint_failures() {
     );
 
     let variable = diagnostic_for_rule(&lint, "fixture/custom-variable-rejected");
-    assert_eq!(variable["entity"]["kind"], "variable");
-    assert_eq!(variable["entity"]["id"], "custom-lint");
+    assert_eq!(variable["target"]["entity"]["kind"], "variable");
+    assert_eq!(variable["target"]["entity"]["id"], "custom-lint");
 
     let value = diagnostic_for_rule(&lint, "fixture/custom-value-rejected");
-    assert_eq!(value["entity"]["kind"], "value");
-    assert_eq!(value["entity"]["variable"], "custom-value-lint");
-    assert_eq!(value["entity"]["key"], "default");
+    assert_eq!(value["target"]["entity"]["kind"], "value");
+    assert_eq!(value["target"]["entity"]["variable"], "custom-value-lint");
+    assert_eq!(value["target"]["entity"]["key"], "default");
 }
 
 #[test]
@@ -925,9 +948,9 @@ fn reports_registered_custom_lint_failures() {
     );
 
     let diagnostic = diagnostic_for_rule(&lint, "payments/max-token-budget");
-    assert_eq!(diagnostic["entity"]["kind"], "value");
-    assert_eq!(diagnostic["entity"]["variable"], "agent-config");
-    assert_eq!(diagnostic["entity"]["key"], "standard");
+    assert_eq!(diagnostic["target"]["entity"]["kind"], "value");
+    assert_eq!(diagnostic["target"]["entity"]["variable"], "agent-config");
+    assert_eq!(diagnostic["target"]["entity"]["key"], "standard");
     assert_eq!(diagnostic["stage"], "value");
     assert!(diagnostic["location"]["range"].is_object());
 }
@@ -993,25 +1016,25 @@ fn reports_registered_custom_lint_targets() {
     assert_value_rule(&lint, "targets/schema-json", "schemas/config.schema.json");
 
     let workspace = diagnostic_for_rule(&lint, "targets/workspace-extends");
-    assert_eq!(workspace["entity"]["kind"], "workspace");
+    assert_eq!(workspace["target"]["entity"]["kind"], "workspace");
     assert_eq!(workspace["stage"], "project");
     assert!(workspace["location"]["range"].is_object());
 
     let qualifier = diagnostic_for_rule(&lint, "targets/qualifier-predicates");
-    assert_eq!(qualifier["entity"]["kind"], "qualifier");
-    assert_eq!(qualifier["entity"]["id"], "premium-users");
+    assert_eq!(qualifier["target"]["entity"]["kind"], "qualifier");
+    assert_eq!(qualifier["target"]["entity"]["id"], "premium-users");
     assert_eq!(qualifier["stage"], "project");
     assert!(qualifier["location"]["range"].is_object());
 
     let variable = diagnostic_for_rule(&lint, "targets/variable-type");
-    assert_eq!(variable["entity"]["kind"], "variable");
-    assert_eq!(variable["entity"]["id"], "agent-config");
+    assert_eq!(variable["target"]["entity"]["kind"], "variable");
+    assert_eq!(variable["target"]["entity"]["id"], "agent-config");
     assert_eq!(variable["stage"], "value");
     assert!(variable["location"]["range"].is_object());
 
     let returned = diagnostic_for_rule(&lint, "targets/returned-variable-type");
-    assert_eq!(returned["entity"]["kind"], "variable");
-    assert_eq!(returned["entity"]["id"], "agent-config");
+    assert_eq!(returned["target"]["entity"]["kind"], "variable");
+    assert_eq!(returned["target"]["entity"]["id"], "agent-config");
     assert_eq!(returned["location"]["range"]["start"]["line"], 3);
     assert!(
         returned["location"]["range"]["start"]["character"]
@@ -1021,13 +1044,16 @@ fn reports_registered_custom_lint_targets() {
     );
 
     let invalid = diagnostic_for_rule(&lint, "targets/invalid-returned-field");
-    assert_eq!(invalid["entity"]["kind"], "variable");
-    assert_eq!(invalid["entity"]["id"], "agent-config");
+    assert_eq!(invalid["target"]["entity"]["kind"], "variable");
+    assert_eq!(invalid["target"]["entity"]["id"], "agent-config");
     assert!(invalid["location"]["range"].is_null());
 
     let schema = diagnostic_for_rule(&lint, "targets/schema-json");
-    assert_eq!(schema["entity"]["kind"], "schema");
-    assert_eq!(schema["entity"]["path"], "schemas/config.schema.json");
+    assert_eq!(schema["target"]["entity"]["kind"], "schema");
+    assert_eq!(
+        schema["target"]["entity"]["path"],
+        "schemas/config.schema.json"
+    );
     assert_eq!(schema["stage"], "value");
 }
 
@@ -1039,8 +1065,8 @@ fn reports_custom_warning_lint_without_failing() {
     assert_eq!(diagnostic["rule"], "policy/advisory");
     assert_eq!(diagnostic["severity"], "warning");
     assert_eq!(diagnostic["stage"], "policy");
-    assert_eq!(diagnostic["entity"]["kind"], "variable");
-    assert_eq!(diagnostic["entity"]["id"], "message");
+    assert_eq!(diagnostic["target"]["entity"]["kind"], "variable");
+    assert_eq!(diagnostic["target"]["entity"]["id"], "message");
     assert_eq!(diagnostic["location"]["path"], "variables/message.toml");
     assert!(diagnostic["location"]["range"].is_object());
 }
@@ -2353,7 +2379,10 @@ fn assert_expected_diagnostic(
     assert_eq!(diagnostic["rule"], expected.rule);
     assert_eq!(diagnostic["severity"], expected.severity);
     assert_eq!(diagnostic["stage"], expected_stage_label(expected.stage));
-    assert_eq!(diagnostic["entity"], expected_entity_value(expected.entity));
+    assert_eq!(
+        diagnostic["target"]["entity"],
+        expected_entity_value(expected.entity)
+    );
     assert!(diagnostic.get("primary").is_none());
     assert_expected_primary_location(lint, &diagnostic["location"], expected.primary);
 
@@ -2402,7 +2431,7 @@ fn diagnostic_contract_value(diagnostic: &serde_json::Value) -> serde_json::Valu
         "rule": diagnostic["rule"],
         "severity": diagnostic["severity"],
         "stage": diagnostic["stage"],
-        "entity": diagnostic["entity"],
+        "entity": diagnostic["target"]["entity"],
         "location": {
             "path": diagnostic["location"]["path"],
             "range": diagnostic["location"]["range"],

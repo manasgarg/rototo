@@ -10,7 +10,9 @@ use super::super::engine::LintContext;
 use super::super::stages::push_stage_diagnostic;
 use super::marshal::{lint_stage_label, registered_lint_entity_label};
 use super::registry::parse_registered_lint_output_field;
-use super::targets::{registered_lint_output_location, registered_lint_targets};
+use super::targets::{
+    registered_lint_output_location, registered_lint_output_target, registered_lint_targets,
+};
 
 pub(super) async fn register_pipeline_lint(
     lint_path: PathBuf,
@@ -91,7 +93,7 @@ pub(crate) async fn run_registered_custom_lints(ctx: &mut LintContext, stage: Li
                         ctx.diagnostics.push(LintDiagnostic::custom(
                             &definition,
                             stage,
-                            target.entity.clone(),
+                            registered_lint_output_target(&target, output_field.as_ref()),
                             location,
                             output.message,
                         ));
@@ -101,7 +103,7 @@ pub(crate) async fn run_registered_custom_lints(ctx: &mut LintContext, stage: Li
                     &mut ctx.diagnostics,
                     stage,
                     RototoRuleId::CustomLintFailed,
-                    target.entity.clone(),
+                    target.target.clone(),
                     target.location.clone(),
                     format!(
                         "custom lint handler failed in {}: {err}",

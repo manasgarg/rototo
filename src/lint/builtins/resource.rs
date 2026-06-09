@@ -1,6 +1,6 @@
 use serde_json::Value as JsonValue;
 
-use crate::diagnostics::{DiagnosticLocation, EntityId, LintDiagnostic, RototoRuleId};
+use crate::diagnostics::{DiagnosticLocation, LintDiagnostic, RototoRuleId, SemanticField};
 
 use super::super::engine::LintContext;
 use super::super::index::*;
@@ -17,9 +17,7 @@ pub(super) fn lint_resource_shapes(ctx: &mut LintContext) {
             push_project_diagnostic(
                 diagnostics,
                 RototoRuleId::ResourceSchemaVersion,
-                EntityId::Resource {
-                    id: resource.id.clone(),
-                },
+                resource.field_target(SemanticField::SchemaVersion),
                 resource.schema_version.location(),
                 "resource must declare schema_version = 1",
             );
@@ -29,9 +27,7 @@ pub(super) fn lint_resource_shapes(ctx: &mut LintContext) {
             push_project_diagnostic(
                 diagnostics,
                 RototoRuleId::ResourceSchemaRef,
-                EntityId::Resource {
-                    id: resource.id.clone(),
-                },
+                resource.field_target(SemanticField::ResourceSchema),
                 resource.schema.location(),
                 "resource must declare schema",
             );
@@ -50,9 +46,7 @@ pub(super) fn lint_resource_references(ctx: &mut LintContext) {
             push_reference_diagnostic(
                 &mut diagnostics,
                 RototoRuleId::ResourceSchemaRef,
-                EntityId::Resource {
-                    id: resource.id.clone(),
-                },
+                resource.field_target(SemanticField::ResourceSchema),
                 err.location,
                 err.message,
             );
@@ -88,10 +82,7 @@ pub(super) fn lint_resource_objects(ctx: &mut LintContext) {
                 push_value_diagnostic(
                     &mut diagnostics,
                     RototoRuleId::ResourceObjectSchemaMismatch,
-                    EntityId::ResourceObject {
-                        resource: resource.id.clone(),
-                        key: object.key.clone(),
-                    },
+                    object.field_target(SemanticField::ResourceObject),
                     object.location.clone(),
                     format!(
                         "resource object {} does not match schema: {err}",
@@ -103,7 +94,6 @@ pub(super) fn lint_resource_objects(ctx: &mut LintContext) {
             lint_rototo_resource_references(
                 &mut diagnostics,
                 ctx,
-                resource,
                 object,
                 schema_json,
                 &object.value,
@@ -117,7 +107,6 @@ pub(super) fn lint_resource_objects(ctx: &mut LintContext) {
 fn lint_rototo_resource_references(
     diagnostics: &mut Vec<LintDiagnostic>,
     ctx: &LintContext,
-    resource: &ResourceNode,
     object: &ResourceObjectNode,
     schema: &JsonValue,
     value: &JsonValue,
@@ -130,10 +119,7 @@ fn lint_rototo_resource_references(
             push_value_diagnostic(
                 diagnostics,
                 RototoRuleId::ResourceObjectUnknownReference,
-                EntityId::ResourceObject {
-                    resource: resource.id.clone(),
-                    key: object.key.clone(),
-                },
+                object.field_target(SemanticField::ResourceObject),
                 object.location.clone(),
                 format!("{path} references unknown resource: {target_resource}"),
             );
@@ -146,10 +132,7 @@ fn lint_rototo_resource_references(
             push_value_diagnostic(
                 diagnostics,
                 RototoRuleId::ResourceObjectUnknownReference,
-                EntityId::ResourceObject {
-                    resource: resource.id.clone(),
-                    key: object.key.clone(),
-                },
+                object.field_target(SemanticField::ResourceObject),
                 object.location.clone(),
                 format!("{path} references unknown {target_resource} object: {target_object}"),
             );
@@ -168,7 +151,6 @@ fn lint_rototo_resource_references(
             lint_rototo_resource_references(
                 diagnostics,
                 ctx,
-                resource,
                 object,
                 subschema,
                 child,
@@ -180,15 +162,7 @@ fn lint_rototo_resource_references(
     if let (Some(items), Some(array)) = (schema.get("items"), value.as_array()) {
         for (index, child) in array.iter().enumerate() {
             let child_path = format!("{path}[{index}]");
-            lint_rototo_resource_references(
-                diagnostics,
-                ctx,
-                resource,
-                object,
-                items,
-                child,
-                &child_path,
-            );
+            lint_rototo_resource_references(diagnostics, ctx, object, items, child, &child_path);
         }
     }
 
@@ -197,15 +171,7 @@ fn lint_rototo_resource_references(
             continue;
         };
         for subschema in schemas {
-            lint_rototo_resource_references(
-                diagnostics,
-                ctx,
-                resource,
-                object,
-                subschema,
-                value,
-                path,
-            );
+            lint_rototo_resource_references(diagnostics, ctx, object, subschema, value, path);
         }
     }
 }

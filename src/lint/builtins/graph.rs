@@ -1,8 +1,8 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use crate::diagnostics::{
-    DiagnosticLocation, EntityId, LintDiagnostic, LintStage, RelatedLocation, RototoRuleId,
-    Severity,
+    DiagnosticLocation, LintDiagnostic, LintStage, RelatedLocation, RototoRuleId, SemanticEntity,
+    SemanticField, Severity,
 };
 
 use super::super::engine::{LintContext, variable_values};
@@ -42,9 +42,7 @@ pub(super) fn lint_qualifier_cycles(ctx: &mut LintContext) {
             let mut diagnostic = LintDiagnostic::rototo(
                 RototoRuleId::QualifierCycle,
                 LintStage::Graph,
-                EntityId::Qualifier {
-                    id: qualifier_id.clone(),
-                },
+                qualifier.target(),
                 primary.clone(),
                 qualifier_cycle_message(qualifier_id, &component),
             );
@@ -93,9 +91,7 @@ pub(super) fn lint_unreferenced_qualifiers(ctx: &mut LintContext) {
         push_graph_diagnostic(
             &mut diagnostics,
             RototoRuleId::QualifierUnreferenced,
-            EntityId::Qualifier {
-                id: qualifier.id.clone(),
-            },
+            qualifier.target(),
             qualifier.location.clone(),
             format!("qualifier is not referenced: {}", qualifier.id),
         );
@@ -119,9 +115,7 @@ pub(super) fn lint_unreachable_qualifiers(ctx: &mut LintContext) {
         push_graph_diagnostic(
             &mut diagnostics,
             RototoRuleId::QualifierUnreachable,
-            EntityId::Qualifier {
-                id: qualifier.id.clone(),
-            },
+            qualifier.target(),
             qualifier.location.clone(),
             format!("qualifier cannot affect resolution: {}", qualifier.id),
         );
@@ -133,9 +127,9 @@ pub(super) fn lint_unreachable_qualifiers(ctx: &mut LintContext) {
 fn qualifier_has_existing_error(ctx: &LintContext, qualifier_id: &str) -> bool {
     ctx.diagnostics.iter().any(|diagnostic| {
         diagnostic.severity == Severity::Error
-            && match &diagnostic.entity {
-                EntityId::Qualifier { id } => id == qualifier_id,
-                EntityId::Predicate { qualifier, .. } => qualifier == qualifier_id,
+            && match &diagnostic.target.entity {
+                SemanticEntity::Qualifier { id } => id == qualifier_id,
+                SemanticEntity::Predicate { qualifier, .. } => qualifier == qualifier_id,
                 _ => false,
             }
     })
@@ -165,10 +159,7 @@ pub(super) fn lint_shadowed_variable_rules(ctx: &mut LintContext) {
                 let mut diagnostic = LintDiagnostic::rototo(
                     RototoRuleId::VariableRuleShadowed,
                     LintStage::Graph,
-                    EntityId::Rule {
-                        variable: variable.id.clone(),
-                        index: rule.index,
-                    },
+                    rule.field_target(&variable.id, SemanticField::VariableRuleQualifier),
                     qualifier.location.clone(),
                     format!(
                         "rule is shadowed by an earlier rule with qualifier: {}",
@@ -217,10 +208,7 @@ pub(super) fn lint_rules_selecting_default_value(ctx: &mut LintContext) {
             push_graph_diagnostic(
                 &mut diagnostics,
                 RototoRuleId::VariableRuleSelectsDefaultValue,
-                EntityId::Rule {
-                    variable: variable.id.clone(),
-                    index: rule.index,
-                },
+                rule.field_target(&variable.id, SemanticField::VariableRuleValue),
                 rule_value.location.clone(),
                 format!(
                     "rule selects the same value as the resolve default: {}",
@@ -252,10 +240,7 @@ pub(super) fn lint_unused_variable_values(ctx: &mut LintContext) {
             push_graph_diagnostic(
                 &mut diagnostics,
                 RototoRuleId::VariableValueUnused,
-                EntityId::Value {
-                    variable: variable.id.clone(),
-                    key: value.key.clone(),
-                },
+                value.target(),
                 value.location.clone(),
                 format!("variable value is not referenced: {}", value.key),
             );

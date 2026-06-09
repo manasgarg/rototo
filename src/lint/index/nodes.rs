@@ -4,7 +4,8 @@ use std::sync::Arc;
 use serde_json::Value as JsonValue;
 
 use crate::diagnostics::{
-    CustomRuleDefinition, CustomRuleId, DiagnosticLocation, DocId, LintStage,
+    CustomRuleDefinition, CustomRuleId, DiagnosticLocation, DocId, LintStage, SemanticEntity,
+    SemanticField, SemanticTarget,
 };
 
 use super::ids::{QualifierId, ResourceId, ValueKey, VariableId, WorkspacePath};
@@ -14,6 +15,17 @@ pub(in crate::lint) struct ManifestNode {
     pub(in crate::lint) doc: DocId,
     pub(in crate::lint) location: DiagnosticLocation,
     pub(in crate::lint) extends: WorkspaceExtendsCollection,
+}
+
+impl ManifestNode {
+    pub(in crate::lint) fn target(&self) -> SemanticTarget {
+        SemanticEntity::Manifest.into()
+    }
+
+    #[allow(dead_code)]
+    pub(in crate::lint) fn field_target(&self, field: SemanticField) -> SemanticTarget {
+        SemanticTarget::field(SemanticEntity::Manifest, field)
+    }
 }
 
 pub(in crate::lint) struct WorkspaceExtendNode {
@@ -41,6 +53,24 @@ pub(in crate::lint) struct QualifierNode {
     pub(in crate::lint) predicates: PredicateCollection,
 }
 
+impl QualifierNode {
+    pub(in crate::lint) fn target(&self) -> SemanticTarget {
+        SemanticEntity::Qualifier {
+            id: self.id.clone(),
+        }
+        .into()
+    }
+
+    pub(in crate::lint) fn field_target(&self, field: SemanticField) -> SemanticTarget {
+        SemanticTarget::field(
+            SemanticEntity::Qualifier {
+                id: self.id.clone(),
+            },
+            field,
+        )
+    }
+}
+
 pub(in crate::lint) struct PredicateNode {
     pub(in crate::lint) index: usize,
     pub(in crate::lint) location: DiagnosticLocation,
@@ -50,6 +80,30 @@ pub(in crate::lint) struct PredicateNode {
     pub(in crate::lint) salt: Option<ProjectField<String>>,
     pub(in crate::lint) range: Option<BucketRangeNode>,
     pub(in crate::lint) has_bucket_value: bool,
+}
+
+impl PredicateNode {
+    pub(in crate::lint) fn target(&self, qualifier_id: &str) -> SemanticTarget {
+        SemanticEntity::Predicate {
+            qualifier: qualifier_id.to_owned(),
+            index: self.index,
+        }
+        .into()
+    }
+
+    pub(in crate::lint) fn field_target(
+        &self,
+        qualifier_id: &str,
+        field: SemanticField,
+    ) -> SemanticTarget {
+        SemanticTarget::field(
+            SemanticEntity::Predicate {
+                qualifier: qualifier_id.to_owned(),
+                index: self.index,
+            },
+            field,
+        )
+    }
 }
 
 pub(in crate::lint) enum PredicateCollection {
@@ -127,6 +181,24 @@ pub(in crate::lint) struct VariableNode {
     pub(in crate::lint) resolve: ResolveNode,
 }
 
+impl VariableNode {
+    pub(in crate::lint) fn target(&self) -> SemanticTarget {
+        SemanticEntity::Variable {
+            id: self.id.clone(),
+        }
+        .into()
+    }
+
+    pub(in crate::lint) fn field_target(&self, field: SemanticField) -> SemanticTarget {
+        SemanticTarget::field(
+            SemanticEntity::Variable {
+                id: self.id.clone(),
+            },
+            field,
+        )
+    }
+}
+
 pub(in crate::lint) enum TypeSourceNode {
     Primitive(Spanned<String>),
     Resource(Spanned<String>),
@@ -158,11 +230,49 @@ pub(in crate::lint) struct ResourceNode {
     pub(in crate::lint) schema: ProjectField<String>,
 }
 
+impl ResourceNode {
+    pub(in crate::lint) fn target(&self) -> SemanticTarget {
+        SemanticEntity::Resource {
+            id: self.id.clone(),
+        }
+        .into()
+    }
+
+    pub(in crate::lint) fn field_target(&self, field: SemanticField) -> SemanticTarget {
+        SemanticTarget::field(
+            SemanticEntity::Resource {
+                id: self.id.clone(),
+            },
+            field,
+        )
+    }
+}
+
 pub(in crate::lint) struct ResourceObjectNode {
     pub(in crate::lint) resource_id: ResourceId,
     pub(in crate::lint) key: ValueKey,
     pub(in crate::lint) location: DiagnosticLocation,
     pub(in crate::lint) value: JsonValue,
+}
+
+impl ResourceObjectNode {
+    pub(in crate::lint) fn target(&self) -> SemanticTarget {
+        SemanticEntity::ResourceObject {
+            resource: self.resource_id.clone(),
+            key: self.key.clone(),
+        }
+        .into()
+    }
+
+    pub(in crate::lint) fn field_target(&self, field: SemanticField) -> SemanticTarget {
+        SemanticTarget::field(
+            SemanticEntity::ResourceObject {
+                resource: self.resource_id.clone(),
+                key: self.key.clone(),
+            },
+            field,
+        )
+    }
 }
 
 pub(in crate::lint) struct ValuesNode {
@@ -179,6 +289,26 @@ pub(in crate::lint) struct ValueNode {
     pub(in crate::lint) origin: ValueOrigin,
 }
 
+impl ValueNode {
+    pub(in crate::lint) fn target(&self) -> SemanticTarget {
+        SemanticEntity::Value {
+            variable: self.variable_id.clone(),
+            key: self.key.clone(),
+        }
+        .into()
+    }
+
+    pub(in crate::lint) fn field_target(&self, field: SemanticField) -> SemanticTarget {
+        SemanticTarget::field(
+            SemanticEntity::Value {
+                variable: self.variable_id.clone(),
+                key: self.key.clone(),
+            },
+            field,
+        )
+    }
+}
+
 pub(in crate::lint) enum ValueOrigin {
     Inline { variable_doc: DocId },
 }
@@ -191,6 +321,24 @@ pub(in crate::lint) struct SchemaNode {
     pub(in crate::lint) json: Option<JsonValue>,
     pub(in crate::lint) validator: Option<Arc<jsonschema::Validator>>,
     pub(in crate::lint) invalid_message: Option<String>,
+}
+
+impl SchemaNode {
+    pub(in crate::lint) fn target(&self) -> SemanticTarget {
+        SemanticEntity::Schema {
+            path: self.path.clone(),
+        }
+        .into()
+    }
+
+    pub(in crate::lint) fn field_target(&self, field: SemanticField) -> SemanticTarget {
+        SemanticTarget::field(
+            SemanticEntity::Schema {
+                path: self.path.clone(),
+            },
+            field,
+        )
+    }
 }
 
 #[derive(Default)]
@@ -212,6 +360,16 @@ pub(in crate::lint) struct CustomLintFileNode {
     pub(in crate::lint) path: WorkspacePath,
     pub(in crate::lint) doc: DocId,
     pub(in crate::lint) location: DiagnosticLocation,
+}
+
+impl CustomLintFileNode {
+    #[allow(dead_code)]
+    pub(in crate::lint) fn target(&self) -> SemanticTarget {
+        SemanticEntity::CustomLint {
+            path: self.path.clone(),
+        }
+        .into()
+    }
 }
 
 #[derive(Clone)]
@@ -260,6 +418,30 @@ pub(in crate::lint) struct VariableRuleNode {
     pub(in crate::lint) qualifier: ProjectField<String>,
     pub(in crate::lint) value: ProjectField<String>,
     pub(in crate::lint) invalid_shape: bool,
+}
+
+impl VariableRuleNode {
+    pub(in crate::lint) fn target(&self, variable_id: &str) -> SemanticTarget {
+        SemanticEntity::Rule {
+            variable: variable_id.to_owned(),
+            index: self.index,
+        }
+        .into()
+    }
+
+    pub(in crate::lint) fn field_target(
+        &self,
+        variable_id: &str,
+        field: SemanticField,
+    ) -> SemanticTarget {
+        SemanticTarget::field(
+            SemanticEntity::Rule {
+                variable: variable_id.to_owned(),
+                index: self.index,
+            },
+            field,
+        )
+    }
 }
 
 #[derive(Clone)]

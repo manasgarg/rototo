@@ -94,7 +94,7 @@ pub(super) fn variable_values<'a>(
 mod tests {
     use std::path::PathBuf;
 
-    use crate::diagnostics::{CustomRuleId, DiagnosticRule, EntityId, RototoRuleId};
+    use crate::diagnostics::{CustomRuleId, DiagnosticRule, RototoRuleId, SemanticEntity};
 
     use super::super::WORKSPACE_MANIFEST;
     use super::super::index::GateEntity;
@@ -557,7 +557,7 @@ value = "absent"
                 .iter()
                 .any(|site| matches!(
                 site.from,
-                EntityId::Rule {
+                SemanticEntity::Rule {
                     ref variable,
                     index: 0,
                 } if variable == "message"
@@ -570,7 +570,7 @@ value = "absent"
                 .iter()
                 .any(|site| matches!(
                     site.from,
-                    EntityId::Rule {
+                    SemanticEntity::Rule {
                         ref variable,
                         index: 0,
                     } if variable == "message"

@@ -1,4 +1,6 @@
-use crate::diagnostics::{DiagnosticLocation, EntityId, LintDiagnostic, LintStage, RototoRuleId};
+use crate::diagnostics::{
+    DiagnosticLocation, LintDiagnostic, LintStage, RototoRuleId, SemanticTarget,
+};
 
 use super::super::builtins;
 use super::super::engine::LintContext;
@@ -10,14 +12,14 @@ pub(super) fn run_builtin(ctx: &mut LintContext) {
 pub(crate) fn push_value_diagnostic(
     diagnostics: &mut Vec<LintDiagnostic>,
     rule: RototoRuleId,
-    entity: EntityId,
+    target: impl Into<SemanticTarget>,
     primary: DiagnosticLocation,
     message: impl Into<String>,
 ) {
     diagnostics.push(LintDiagnostic::rototo(
         rule,
         LintStage::Value,
-        entity,
+        target,
         primary,
         message,
     ));
