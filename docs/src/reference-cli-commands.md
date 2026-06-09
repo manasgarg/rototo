@@ -34,8 +34,10 @@ rototo fixtures <WORKSPACE_SOURCE> --out <DIR> [selectors]
 ```
 
 Use `fixtures` when a runtime behavior should become a reviewable test case.
-It generates readable TOML files for selected variables and qualifiers, so CI
-can preserve expected selections for important contexts.
+It generates readable TOML files for selected
+[variables](reference-variables.html) and
+[qualifiers](reference-qualifiers.html), so CI can preserve expected selections
+for important contexts.
 
 Selectors:
 
@@ -117,7 +119,8 @@ specific context. At least one variable or qualifier selector is required.
 
 `--context` is repeatable. When omitted, rototo uses `{}`.
 
-Use `--json` for stable traces. See `reference-resolution-output`.
+Use `--json` for stable traces. See
+[Resolution Output](reference-resolution-output.html).
 
 ## `rototo docs`
 
@@ -126,12 +129,16 @@ rototo docs
 rototo docs -p <PAGE_PREFIX>
 rototo docs -s <REGEX>
 rototo docs --export [OUT_DIR]
+rototo docs --package-readme <python|typescript> --out <FILE> [--docs-base-url URL]
 ```
 
 Use `docs` when you need the documentation bundled with the current binary. It
 lists pages, renders one Markdown page, searches docs with a regular
-expression, or exports the static HTML site. `--export` defaults to `site` when
-no directory is supplied.
+expression, exports the static HTML site, or generates packaged SDK README
+content from the SDK reference pages. `--export` defaults to `site` when no
+directory is supplied. `--docs-base-url` controls the public docs host used for
+internal links in generated package READMEs and defaults to
+`https://docs.rototo.dev`.
 
 ## `rototo lsp`
 

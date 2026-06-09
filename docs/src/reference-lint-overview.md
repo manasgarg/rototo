@@ -25,7 +25,7 @@ printed but do not fail the command by themselves.
 
 With `--quiet`, successful lint prints nothing. Diagnostics still print.
 
-With `--json`, lint returns:
+With [`--json`](reference-json-output.html), lint returns:
 
 ```json
 {
@@ -100,8 +100,9 @@ diagnostics.
 
 ## Custom Policy
 
-Built-in lint knows rototo's structural contract. Custom Lua lint handles local
-policy: naming conventions, copy rules, allowed account classes, or domain
-limits only your team understands.
+Built-in lint knows rototo's structural contract.
+[Custom Lua lint](reference-custom-lua-lint.html) handles local policy: naming
+conventions, copy rules, allowed account classes, or domain limits only your
+team understands.
 
-See `reference-custom-lua-lint`.
+See [Custom Lua Lint](reference-custom-lua-lint.html).

@@ -5,8 +5,9 @@ trust. Rototo validates primitive values directly and validates structured
 objects through resources.
 
 That split keeps the app boundary clear: primitive values stay inline, while
-structured objects get schemas and object files. `reference-variable-resolution`
-covers resolution order.
+structured objects get schemas and object files.
+[Variable Resolution](reference-variable-resolution.html) covers resolution
+order.
 
 ## Primitive Values
 
@@ -59,8 +60,9 @@ standard = ["email"]
 expanded = ["email", "sms"]
 ```
 
-Objects are not accepted as primitive values. Use a resource-backed variable
-when the value needs object structure.
+Objects are not accepted as primitive values. Use a
+[resource-backed variable](reference-resources.html) when the value needs
+object structure.
 
 ## Resource Object Values
 

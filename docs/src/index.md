@@ -6,8 +6,11 @@ It is built around a simple premise: configuration that changes production behav
 
 rototo gives teams two things:
 
-* Runtime configuration that stays inside the software lifecycle: review, tests, CI, observability, and rollback.
-* Long-running applications that can refresh reviewed configuration without restarting or redeploying the application binary.
+* Runtime configuration that stays inside the software lifecycle: review,
+  tests, CI, observability, and rollback.
+* Long-running applications that can [refresh](reference-sdk-refresh.html)
+  reviewed configuration without restarting or redeploying the application
+  binary.
 
 ## Why rototo exists
 
@@ -25,11 +28,21 @@ rototo is the system I kept wanting: runtime configuration that can change witho
 
 rototo treats runtime configuration as reviewable workspace files.
 
-A workspace is a directory tree rooted at `rototo-workspace.toml`. It is versioned in git and contains the variables, qualifiers, schemas, resources, and custom lint rules that define runtime policy.
+A [workspace](reference-workspace-layout.html) is a directory tree rooted at
+`rototo-workspace.toml`. It is versioned in git and contains the
+[variables](reference-variables.html), [qualifiers](reference-qualifiers.html),
+schemas, [resources](reference-resources.html), and
+[custom lint rules](reference-custom-lua-lint.html) that define runtime policy.
 
-At runtime, an application is deployed with a workspace source URI. The rototo SDK loads that source, lints the workspace, and resolves named variables using the runtime context provided by the application.
+At runtime, an application is deployed with a
+[workspace source](reference-workspace-sources.html) URI. The
+[rototo SDK](reference-sdk-loading.html) loads that source, lints the
+workspace, and [resolves named variables](reference-sdk-resolution.html) using
+the [runtime context](reference-context.html) provided by the application.
 
-For long-running services, successful refreshes affect future resolutions. Failed refreshes keep the last successfully loaded workspace active.
+For long-running services, successful
+[refreshes](reference-sdk-refresh.html) affect future resolutions. Failed
+refreshes keep the last successfully loaded workspace active.
 
 The core loop is:
 
@@ -47,9 +60,18 @@ The point is not that configuration lives in TOML. The point is that runtime pol
 
 Code and configuration can live in git. Teams can review them together, test them together, and use repository history as the operational record of what changed.
 
-Schemas and custom Lua lint rules define what valid configuration means. Built-in lint catches malformed workspace structure, unknown references, invalid primitive values, context mismatches, and schema failures. Custom lint captures the local policy only your team knows.
+Schemas and [custom Lua lint rules](reference-custom-lua-lint.html) define
+what valid configuration means. [Built-in lint](reference-lint-overview.html)
+catches malformed workspace structure, unknown references, invalid primitive
+values, context mismatches, and schema failures. Custom lint captures the local
+policy only your team knows.
 
-Application tests can load the same workspace source the service will use and assert the values selected for important runtime contexts. That catches failures workspace lint cannot see: the app expected an integer, the workspace now selects an object, or the app no longer provides the facts the workspace expects.
+Application tests can load the same workspace source the service will use and
+assert the values selected for important runtime contexts. That catches
+failures workspace lint cannot see: the app expected an integer, the workspace
+now selects an object, or the app no longer provides the facts the workspace
+expects. [Testing Runtime Configuration](testing-runtime-configuration.html)
+covers that app-workspace contract.
 
 Because resolution happens through the SDK in the application process, existing observability can explain what value was selected, from which workspace version, and why.
 
@@ -60,21 +82,27 @@ rototo fits when a configuration value changes application behavior and deserves
 Common examples include:
 
 * Account and environment-specific limits;
-* Operational switches;
+* [Operational switches](operational-switches.html);
+* [Onboarding checklists](onboarding-checklist.html) that vary by account state;
 * Account-specific exceptions;
-* Bucketed rollouts;
-* Incident banners;
+* [Bucketed rollouts](bucketed-rollout.html);
+* [Incident banners](incident-banner.html);
+* [Service degradation policies](service-degradation-policy.html);
 * Model, prompt, and provider settings;
-* Runtime policy for another system.
+* [Runtime policy for another system](notification-delivery-policy.html).
 
 rototo is not ordinary application storage. User records, transactions, analytics events, and high-volume mutable data should stay in the systems that already own them.
 
 ## Start here
 
-Start with Getting Started. It builds one account limit end to end: workspace
-files, CLI resolution, SDK loading, and refresh.
+Start with [Getting Started](getting-started.html). It builds one account
+limit end to end: workspace files, CLI resolution, SDK loading, and refresh.
 
-Then read the examples when you want to model a similar production case. The
-Adopt pages turn those examples into habits for running rototo in a service.
-The Reference pages are there when you need exact file formats, commands, SDK
-APIs, and JSON output.
+Then read the examples when you want to model a similar production case.
+[Modeling Runtime Configuration](modeling-runtime-configuration.html),
+[Application Integration](application-integration.html),
+[Testing Runtime Configuration](testing-runtime-configuration.html), and
+[Operating Runtime Configuration](operating-runtime-configuration.html) turn
+those examples into habits for running rototo in a service. The reference pages
+are there when you need exact file formats, commands, SDK APIs, and
+[JSON output](reference-json-output.html).

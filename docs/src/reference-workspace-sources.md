@@ -5,7 +5,9 @@ filesystem. They load a workspace source. That source is the deployment handle:
 it says which reviewed configuration tree should be staged, linted, and used
 for future resolutions.
 
-The same source forms are used by the CLI and SDK.
+The same source forms are used by the [CLI](reference-cli-overview.html),
+[SDK loading](reference-sdk-loading.html), and
+[workspace layering](reference-workspace-layering.html).
 
 ## Supported Forms
 
@@ -93,7 +95,7 @@ After staging, rototo records a source fingerprint when it can:
 | `WorkspaceLayers` | Layered workspace composed from multiple sources. |
 
 Refresh compares fingerprints before replacing the active workspace. See
-`reference-sdk-refresh`.
+[SDK Refresh](reference-sdk-refresh.html).
 
 ## Unsupported Forms
 

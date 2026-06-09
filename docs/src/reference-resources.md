@@ -6,7 +6,8 @@ of primitive variables.
 
 Resource files live under `resources/*.toml`. The file stem is the resource id.
 Objects for that resource live under `resources/<resource-id>-objects/*.toml`.
-Variables then select object keys from that resource.
+[Variables](reference-variables.html) then select object keys from that
+resource.
 
 ## Resource File
 
@@ -64,8 +65,9 @@ members = 250
 
 ## Variable Integration
 
-A variable turns resource objects into runtime configuration by selecting
-object keys with `type = "resource:<resource-id>"`:
+A variable turns resource objects into runtime configuration by
+[selecting object keys](reference-variable-resolution.html) with
+`type = "resource:<resource-id>"`:
 
 ```toml
 schema_version = 1

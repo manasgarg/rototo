@@ -67,9 +67,9 @@ attribute = "account.plan"
 During resolution, rototo reads `context.account.plan`. Missing paths fail
 resolution.
 
-If `schemas/context.schema.json` exists, lint checks that context attributes
-are declared in that schema and that predicate values are compatible with the
-declared types.
+If [`schemas/context.schema.json`](reference-context.html) exists, lint checks
+that context attributes are declared in that schema and that predicate values
+are compatible with the declared types.
 
 ## Qualifier References
 
@@ -106,5 +106,6 @@ was copied without changing the attribute, operator, or value.
 
 ## Related Pages
 
-See `reference-predicate-operators` for operator semantics and
-`reference-qualifier-resolution` for trace behavior.
+See [Predicate Operators](reference-predicate-operators.html) for operator
+semantics and [Qualifier Resolution](reference-qualifier-resolution.html) for
+trace behavior.

@@ -6,8 +6,9 @@ test accounts first, then a small percentage of real accounts, then a wider
 range after the team has observed the behavior.
 
 The important word is stable. The same account should get the same result on
-every request while the rollout policy is unchanged. Rototo bucket predicates
-give us that behavior without putting random selection in app code.
+every request while the rollout policy is unchanged. Rototo
+[bucket predicates](reference-predicate-operators.html) give us that behavior
+without putting random selection in app code.
 
 We will model that as `rollout-config`, with one variable named
 `search-ranking-mode`.
@@ -58,7 +59,7 @@ path. Test accounts exercise the same SDK call and the same production
 workspace source as regular accounts, but they do not change the regular
 account experience.
 
-Create `rollout-config/qualifiers/test-accounts.toml`:
+Create [`rollout-config/qualifiers/test-accounts.toml`](reference-qualifiers.html):
 
 ```toml
 schema_version = 1
@@ -93,7 +94,7 @@ value = "hybrid"
 This is the first PR I would ship. The service can refresh the workspace, and
 test accounts can use `hybrid` while every regular account stays on `stable`.
 
-Generate the first context schema:
+Generate the first [context schema](reference-context.html):
 
 ```sh
 rototo init rollout-config --context
@@ -166,7 +167,8 @@ range = [0, 500]
 
 The bucket range is on a 0 to 10000 scale, so `[0, 500]` is five percent. The
 salt names this rollout. Keep it stable while you widen the range; changing the
-salt reshuffles account assignment.
+salt reshuffles account assignment. The exact operator rules are in
+[Predicate Operators](reference-predicate-operators.html).
 
 Now update the variable:
 
@@ -192,9 +194,9 @@ qualifier = "hybrid-ranking-bucket"
 value = "hybrid"
 ```
 
-Rules are evaluated in order. Test accounts stay first because they are an
-explicit operator-controlled path. The bucket covers regular accounts after
-that.
+[Rules are evaluated in order](reference-variable-resolution.html). Test
+accounts stay first because they are an explicit operator-controlled path. The
+bucket covers regular accounts after that.
 
 ## Regenerate The Context Contract
 
@@ -267,8 +269,8 @@ value key: hybrid
 ```
 
 The bucket value is deterministic, not sampled per request. That means logs,
-support investigations, and app tests can explain why an account received
-`hybrid`.
+support investigations, and app tests can
+[explain why an account received](reference-resolution-output.html) `hybrid`.
 
 ## Widen Through Review
 
@@ -297,9 +299,9 @@ the bucket rule while leaving the test-account path in place.
 
 ## Use The Mode In The App
 
-The app should resolve the mode near the code path that needs it. Rototo
-selects the reviewed rollout policy; the app owns both ranking implementations
-and the metrics that compare them.
+The app should [resolve the mode](reference-sdk-resolution.html) near the code
+path that needs it. Rototo selects the reviewed rollout policy; the app owns
+both ranking implementations and the metrics that compare them.
 
 ```rust
 use rototo::{ResolveContext, Workspace};

@@ -11,7 +11,8 @@ readable for operators.
 
 JSON output is pretty-printed.
 
-Diagnostics use the shape described in `reference-diagnostics`.
+Diagnostics use the shape described in
+[Diagnostics](reference-diagnostics.html).
 
 When a command reports workspace documents, each document summary uses this
 shape:
@@ -142,7 +143,8 @@ model. Otherwise it is `unavailable` with a reason.
 ```
 
 Use `resolve --json` when automation needs to know what value or qualifier
-result rototo selected. See `reference-resolution-output` for the trace fields.
+result rototo selected. See
+[Resolution Output](reference-resolution-output.html) for the trace fields.
 
 ## `docs --json`
 

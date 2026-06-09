@@ -8,7 +8,7 @@
     "url": "git+https://github.com/manasgarg/rototo.git",
     "directory": "sdks/typescript"
   },
-  "homepage": "https://rototo.dev",
+  "homepage": "https://docs.rototo.dev",
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",

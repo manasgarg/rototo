@@ -1,7 +1,8 @@
 # Incident Banner
 
 The first two examples used scalar values: an integer account limit and a
-boolean operational switch. The next step is a structured value.
+boolean [operational switch](operational-switches.html). The next step is a
+structured value.
 Some runtime configuration is not a single number or true/false decision; it is
 a small object the app needs to trust before it renders it.
 
@@ -16,7 +17,8 @@ render a banner at all.
 
 ## Start With A Resource-Backed Variable
 
-Create a workspace with a variable and a resource template:
+Create a workspace with a [variable](reference-variables.html) and a
+[resource](reference-resources.html) template:
 
 ```sh
 rototo init communications-config --variable support-banner
@@ -52,7 +54,8 @@ stays in the variable, while object validation belongs to the resource.
 
 ## Define The Object Shape
 
-Before writing banner objects, define the shape the app is willing to consume.
+Before writing banner objects, define the
+[shape the app is willing to consume](reference-resources.html).
 Replace `communications-config/schemas/support-banner.schema.json`:
 
 ```json
@@ -107,8 +110,9 @@ message = "Support response times are slower than usual in your region."
 link = "https://status.example.com"
 ```
 
-These file stems, `none` and `eu-incident`, are the value keys the variable can
-select. Rototo validates both objects against the resource schema during lint.
+These file stems, `none` and `eu-incident`, are the
+[value keys](reference-variable-values.html) the variable can select. Rototo
+validates both objects against the resource schema during lint.
 
 Run lint and resolve the default path:
 
@@ -130,8 +134,8 @@ receive a valid object, even when there is nothing to show.
 
 ## Name The Affected Condition
 
-Now add the runtime condition. In this incident, only accounts operating in the
-European region should see the banner.
+Now add the [runtime condition](reference-qualifiers.html). In this incident,
+only accounts operating in the European region should see the banner.
 
 Create `communications-config/qualifiers/eu-accounts.toml`:
 
@@ -166,8 +170,8 @@ show the incident banner for the affected account region.
 
 ## Generate The Context Contract
 
-The qualifier introduced a context path, `account.region`. Generate the context
-schema after that path exists:
+The qualifier introduced a context path, `account.region`. Generate the
+[context schema](reference-context.html) after that path exists:
 
 ```sh
 rototo init communications-config --context
@@ -241,7 +245,8 @@ payload are both reviewable, validated, and explainable.
 
 The app should deserialize the selected value into the type it renders. That
 keeps the boundary crisp: rototo returns a validated JSON value, and the app
-turns that value into application behavior.
+turns that value into application behavior. The broader integration pattern is
+covered in [Application Integration](application-integration.html).
 
 ```rust
 use serde::Deserialize;

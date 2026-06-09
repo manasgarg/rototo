@@ -26,8 +26,10 @@ import { Workspace } from "rototo";
 const workspace = await Workspace.load("examples/basic");
 ```
 
-`Workspace.load` accepts the same source strings as the CLI. It lints the
-workspace and rejects lint failures before returning.
+`Workspace.load` accepts the same
+[source strings](https://docs.rototo.dev/reference-workspace-sources.html) as the CLI. It
+[lints](https://docs.rototo.dev/reference-lint-overview.html) the workspace and rejects lint failures
+before returning.
 
 ## Resolve A Variable
 
@@ -64,8 +66,9 @@ console.log(resolution.value);
 
 ## Context Validation
 
-Resolution validates context against `schemas/context.schema.json` by default.
-Skip validation for one call when a tool needs to evaluate partial context:
+Resolution validates [context](https://docs.rototo.dev/reference-context.html) against
+`schemas/context.schema.json` by default. Skip validation for one call when a
+tool needs to evaluate partial context:
 
 ```typescript
 const resolution = await workspace.resolveVariable(
@@ -84,8 +87,9 @@ const workspace = await Workspace.inspect("examples/basic");
 const lint = await workspace.lint();
 ```
 
-Inspection is for tools. A workspace loaded through `inspect` cannot resolve
-variables or qualifiers because it does not compile the runtime model.
+Inspection is for tools. A workspace loaded through `inspect` cannot
+[resolve variables or qualifiers](https://docs.rototo.dev/reference-sdk-resolution.html) because it
+does not compile the runtime model.
 
 ## Refreshing Workspace
 
@@ -101,9 +105,10 @@ const status = await workspace.status();
 await workspace.shutdown();
 ```
 
-`RefreshingWorkspace` keeps serving the last successfully loaded workspace when
-refresh fails. `status` returns a `RefreshStatus` object with fingerprint,
-success, attempt, failure, error, refreshing, and immutable fields.
+[`RefreshingWorkspace`](https://docs.rototo.dev/reference-sdk-refresh.html) keeps serving the last
+successfully loaded workspace when refresh fails. `status` returns a
+`RefreshStatus` object with fingerprint, success, attempt, failure, error,
+refreshing, and immutable fields.
 
 ## Errors
 

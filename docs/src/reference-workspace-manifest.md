@@ -47,9 +47,10 @@ extends = ["../product-config", "git+ssh://git@example.com/customer-config.git#m
 ```
 
 Each `extends` entry must be a nonblank string without surrounding whitespace.
-The value is parsed as a workspace source. It can use the same source forms as
-ordinary workspace loading, including local paths, `file://`, `git+file://`,
-`git+https://`, `git+ssh://`, and supported HTTPS archive sources.
+The value is parsed as a [workspace source](reference-workspace-sources.html).
+It can use the same source forms as ordinary workspace loading, including local
+paths, `file://`, `git+file://`, `git+https://`, `git+ssh://`, and supported
+HTTPS archive sources.
 
 Relative `extends` entries are resolved from the workspace that declares them.
 When a workspace source is staged into a temporary directory, relative parent
@@ -63,7 +64,8 @@ manifest.
 
 Rototo rejects layering graphs that exceed 32 layers or contain a cycle.
 
-For the ownership model behind layering, see `workspace-layering`.
+For the ownership model behind layering, see
+[Workspace Layering](workspace-layering.html).
 
 ## Valid Manifest Examples
 
@@ -127,7 +129,7 @@ lint/
 ```
 
 Custom lint handlers and their rule metadata live in `lint/*.lua`; see
-`reference-custom-lua-lint`.
+[Custom Lua Lint](reference-custom-lua-lint.html).
 
 The manifest also does not grant edit permission. Repository permissions,
 review rules, CI, and deployment policy decide who may change a workspace.

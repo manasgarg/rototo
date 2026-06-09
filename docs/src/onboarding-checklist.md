@@ -12,8 +12,10 @@ policy in the workspace and letting the app render whatever step IDs rototo
 selects.
 
 We will model that as `onboarding-config`, with one variable named
-`onboarding-steps`. The example covers list values, qualifier composition, rule
-ordering, and a live test path that only affects accounts marked for testing.
+`onboarding-steps`. The example covers
+[list values](reference-variable-values.html),
+[qualifier composition](reference-qualifiers.html), rule ordering, and a live
+test path that only affects accounts marked for testing.
 
 ## Start With The Default Checklist
 
@@ -65,7 +67,8 @@ First, we want to see it live for accounts marked as test accounts. Support,
 sales, and product teams can exercise the real runtime path without changing
 the experience for regular accounts.
 
-Create `onboarding-config/qualifiers/test-accounts.toml`:
+Create
+[`onboarding-config/qualifiers/test-accounts.toml`](reference-qualifiers.html):
 
 ```toml
 schema_version = 1
@@ -101,8 +104,9 @@ op = "eq"
 value = "eu"
 ```
 
-Those qualifiers name raw runtime facts. Now compose them into the conditions
-the checklist actually cares about.
+Those qualifiers name raw runtime facts. Now
+[compose them](reference-qualifiers.html) into the conditions the checklist
+actually cares about.
 
 Create `onboarding-config/qualifiers/test-enterprise-accounts.toml`:
 
@@ -196,7 +200,8 @@ the default checklist until the team is ready to widen the rule.
 ## Generate The Context Contract
 
 The qualifiers introduced three runtime facts: `account.kind`, `account.plan`,
-and `account.region`. Generate the context schema after those paths exist:
+and `account.region`. Generate the
+[context schema](reference-context.html) after those paths exist:
 
 ```sh
 rototo init onboarding-config --context
@@ -319,10 +324,11 @@ qualifier = "enterprise-accounts"
 value = "enterprise"
 ```
 
-Rules are evaluated in order. The more specific conditions come first because
-an EU enterprise account also matches `enterprise-accounts`. If the general
-enterprise rule came first, rototo would select `enterprise` and never reach the
-EU-specific checklist. The same ordering protects the test-account canary path.
+[Rules are evaluated in order](reference-variable-resolution.html). The more
+specific conditions come first because an EU enterprise account also matches
+`enterprise-accounts`. If the general enterprise rule came first, rototo would
+select `enterprise` and never reach the EU-specific checklist. The same
+ordering protects the test-account canary path.
 
 Resolve the promoted paths:
 
@@ -355,8 +361,8 @@ the team had a production-shaped test path before widening the policy.
 
 ## Use The Step IDs In The App
 
-The app should deserialize the selected list and map each step ID to app-owned
-content and completion state.
+The app should [deserialize the selected list](application-integration.html)
+and map each step ID to app-owned content and completion state.
 
 ```rust
 use rototo::{ResolveContext, Workspace};

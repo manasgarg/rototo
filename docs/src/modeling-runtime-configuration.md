@@ -10,10 +10,13 @@ files do I need?" It is:
 
 > Where should this runtime decision live?
 
-In rototo, facts live in context. Named conditions live in qualifiers. Selected
-configuration lives in variables. Structured payloads live in resources.
-Schemas and custom lint protect the boundaries. Workspaces and layers define
-who owns which part of the control plane.
+In rototo, facts live in [context](reference-context.html). Named conditions
+live in [qualifiers](reference-qualifiers.html). Selected configuration lives
+in [variables](reference-variables.html). Structured payloads live in
+[resources](reference-resources.html). Schemas and
+[custom lint](reference-custom-lua-lint.html) protect the boundaries.
+Workspaces and [layers](reference-workspace-layering.html) define who owns
+which part of the control plane.
 
 The rest of this guide is about choosing those boundaries deliberately.
 
@@ -59,7 +62,8 @@ application boundary, not the number of fields in a payload.
 A workspace is an administrative boundary, not an application deployment
 boundary.
 
-That distinction matters. A workspace answers:
+That distinction matters. A [workspace](reference-workspace-layout.html)
+answers:
 
 - who owns this configuration;
 - who reviews changes;
@@ -67,7 +71,8 @@ That distinction matters. A workspace answers:
 - which files form one control-plane unit.
 
 An application deployment answers a different question: which binary is
-running, and which workspace source URI is that binary configured to load?
+running, and which [workspace source](reference-workspace-sources.html) URI is
+that binary configured to load?
 
 Those boundaries often overlap, but they are not the same. A single workspace
 can be loaded by multiple application deployments. A single application
@@ -163,8 +168,9 @@ The workspace owns what that fact means for runtime behavior.
 
 ## Use Qualifiers To Name Operational Conditions
 
-Qualifiers are not just reusable predicates. They are the vocabulary that shows
-up in rules, traces, tests, and debugging conversations.
+[Qualifiers](reference-qualifiers.html) are not just reusable predicates. They
+are the vocabulary that shows up in rules, traces, tests, and debugging
+conversations.
 
 For example:
 
@@ -230,7 +236,8 @@ expanded = 25
 default = "standard"
 ```
 
-Resources are the better fit when the selected value is a policy object:
+[Resources](reference-resources.html) are the better fit when the selected
+value is a policy object:
 
 ```text
 account-limit-profile
@@ -294,8 +301,8 @@ qualifier = "free-account"
 value = "starter"
 ```
 
-Rules use first-match semantics. Put narrower or higher-priority rules before
-broader rules.
+[Rules use first-match semantics](reference-variable-resolution.html). Put
+narrower or higher-priority rules before broader rules.
 
 Two patterns are worth treating as model smells:
 
@@ -311,7 +318,7 @@ selected value and why it wins.
 Buckets help because assignment happens inside the reviewed workspace, not in
 application-side randomization.
 
-A bucket qualifier looks like this:
+A [bucket qualifier](reference-predicate-operators.html) looks like this:
 
 ```toml
 schema_version = 1
@@ -339,7 +346,8 @@ reshuffle, not as an incidental rename.
 
 ## Decide Which Workspace Owns The File
 
-In a layered workspace, ownership is part of the model.
+In a [layered workspace](workspace-layering.html), ownership is part of the
+model.
 
 A common shape is:
 
@@ -372,7 +380,8 @@ variable owns the full rule order for that variable.
 
 ## Use Schemas For Shape And Lint For Judgment
 
-Schemas and custom lint protect different kinds of mistakes.
+Schemas and [custom lint](reference-custom-lua-lint.html) protect different
+kinds of mistakes.
 
 Use schemas for structure:
 
@@ -409,7 +418,8 @@ checklist:
 - Does any local policy need custom lint?
 - Which workspace layer should own this file?
 
-If those answers are clear, the production workflow becomes much easier. The
-next step is to wire the model into an application so the service loads a
-workspace source, resolves named variables, refreshes safely, and reports what
-it selected.
+If those answers are clear, the
+[production workflow](production-workflow.html) becomes much easier. The next
+step is to wire the model into an application so the service loads a workspace
+source, resolves named variables, refreshes safely, and reports what it
+selected.

@@ -1,6 +1,7 @@
 # Predicate Operators Reference
 
-Predicate operators define how a qualifier compares runtime context against the
+Predicate operators define how a
+[qualifier](reference-qualifiers.html) compares runtime context against the
 policy written in the workspace. They are intentionally small, because every
 operator needs clear lint behavior and clear runtime traces.
 
@@ -88,7 +89,8 @@ The range must satisfy:
 
 ## Context Schema Compatibility
 
-When `schemas/context.schema.json` exists, lint checks operator compatibility:
+When [`schemas/context.schema.json`](reference-context.html) exists, lint checks
+operator compatibility:
 
 - `eq` and `neq` values must match the declared context attribute type;
 - `in` and `not_in` list members must match the declared type;
@@ -96,7 +98,8 @@ When `schemas/context.schema.json` exists, lint checks operator compatibility:
 - `bucket` requires a scalar context attribute: boolean, integer, number, or string.
 
 The runtime context is also validated against the context schema before
-resolution unless SDK options disable context validation.
+resolution unless [SDK options](reference-sdk-resolution.html) disable context
+validation.
 
 ## Qualifier Attributes
 

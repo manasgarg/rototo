@@ -8,7 +8,8 @@ adjustment during recovery.
 
 Rototo fits the policy layer in that loop. The service still owns metrics,
 queues, retries, provider health, and enforcement. Rototo selects the reviewed
-operating policy from the runtime facts the service supplies.
+operating policy from the
+[runtime facts](reference-context.html) the service supplies.
 
 We will model that as `degradation-config`, with one variable named
 `service-degradation-policy`.
@@ -31,7 +32,8 @@ normal, and reduce load when queue pressure is high.
 
 ## Create The Workspace
 
-Create the workspace with a variable and a resource template:
+Create the workspace with a [variable](reference-variables.html) and a
+[resource](reference-resources.html) template:
 
 ```sh
 rototo init degradation-config --variable service-degradation-policy
@@ -92,8 +94,9 @@ Replace `degradation-config/schemas/service-degradation-policy.schema.json`:
 
 The schema is deliberately operational. It says which fields the service will
 honor, which modes are allowed, and how far concurrency can be pushed. If
-someone tries to set `max_concurrency = 0` during an incident, lint catches
-that before the workspace is released.
+someone tries to set `max_concurrency = 0` during an incident,
+[lint](reference-lint-overview.html) catches that before the workspace is
+released.
 
 ## Add The First Policies
 
@@ -138,7 +141,8 @@ it under pressure.
 
 ## Select Degraded During High Pressure
 
-Now add the condition that moves the service from normal to degraded mode.
+Now add the [condition](reference-qualifiers.html) that moves the service from
+normal to degraded mode.
 
 Create `degradation-config/qualifiers/high-queue-pressure.toml`:
 
@@ -173,8 +177,8 @@ runtime fact into the reviewed policy object.
 
 ## Generate The First Context Contract
 
-The qualifier introduced `service.queue_pressure`. Generate the context schema
-after that path exists:
+The qualifier introduced `service.queue_pressure`. Generate the
+[context schema](reference-context.html) after that path exists:
 
 ```sh
 rototo init degradation-config --context
@@ -244,9 +248,9 @@ primary provider stays slow, or deferred work is still taking too much capacity.
 The next move might be `severe`, but applying it to every account at once can
 be more disruption than the team needs.
 
-A bucket gives us a stable trial path. The same account stays in or out of the
-trial while the salt and range stay the same, so logs and support cases remain
-explainable.
+A [bucket](reference-predicate-operators.html) gives us a stable trial path.
+The same account stays in or out of the trial while the salt and range stay the
+same, so logs and support cases remain explainable.
 
 Create `degradation-config/qualifiers/degradation-trial-bucket.toml`:
 
@@ -302,14 +306,14 @@ qualifier = "high-queue-pressure"
 value = "degraded"
 ```
 
-Rule order carries the recovery intent. High-pressure requests in the trial
-bucket get `severe`; the rest of the high-pressure traffic stays on
-`degraded`.
+[Rule order](reference-variable-resolution.html) carries the recovery intent.
+High-pressure requests in the trial bucket get `severe`; the rest of the
+high-pressure traffic stays on `degraded`.
 
 ## Regenerate The Context Contract
 
-The bucket introduced `account.id`. Regenerate the context schema and review
-the diff:
+The bucket introduced `account.id`. Regenerate the
+[context schema](reference-context.html) and review the diff:
 
 ```sh
 rototo init degradation-config --context --force
@@ -412,9 +416,10 @@ fallback_provider = "secondary"
 ```
 
 To roll back the trial, remove the `severe-recovery-trial` rule or move the
-bucket range back down. The service can refresh the workspace and apply the new
-policy to future resolutions while the last successfully loaded workspace
-stays active if a refresh fails.
+bucket range back down. The service can
+[refresh](reference-sdk-refresh.html) the workspace and apply the new policy to
+future resolutions while the last successfully loaded workspace stays active if
+a refresh fails.
 
 Rototo does not decide whether the variation worked. The service metrics,
 alerts, dashboards, and incident process still answer that. Rototo makes the
@@ -422,9 +427,10 @@ policy change reviewed, typed, reproducible, and reversible.
 
 ## Use The Policy In The App
 
-The app should resolve the policy where it is about to apply concurrency,
-fanout, background work, or provider routing. It should pass facts it already
-knows: current service pressure and the account ID used for stable assignment.
+The app should [resolve the policy](reference-sdk-resolution.html) where it is
+about to apply concurrency, fanout, background work, or provider routing. It
+should pass facts it already knows: current service pressure and the account ID
+used for stable assignment.
 
 ```rust
 use serde::Deserialize;

@@ -6,9 +6,9 @@ defaults. A team administrator may own a narrow local preference.
 
 Putting all of that in one workspace forces the wrong tradeoff. Either every
 owner can edit too much, or the product has to fork configuration for every
-customer. Workspace layering gives us a better boundary: each owner edits the
-workspace they are responsible for, while the final workspace inherits the
-contracts and values below it.
+customer. [Workspace layering](reference-workspace-layering.html) gives us a
+better boundary: each owner edits the workspace they are responsible for, while
+the final workspace inherits the contracts and values below it.
 
 I use inference provider routing here because the ownership split is concrete:
 
@@ -47,14 +47,16 @@ team-config/
   schemas/
 ```
 
-The application should load the most specific workspace source it is allowed to
-use. In this example, that is `team-config`. Rototo follows the `extends` chain
-and builds the inherited workspace before lint and resolution.
+The application should load the most specific
+[workspace source](reference-workspace-sources.html) it is allowed to use. In
+this example, that is `team-config`. Rototo follows the `extends` chain and
+builds the inherited workspace before lint and resolution.
 
 ## Product Owns The Contract
 
-The product layer owns the policy schema, the resource declaration, and the
-product default. Create `product-config/rototo-workspace.toml`:
+The product layer owns the policy schema, the
+[resource declaration](reference-resources.html), and the product default.
+Create `product-config/rototo-workspace.toml`:
 
 ```toml
 schema_version = 1
@@ -137,7 +139,8 @@ or team-specific rule exists yet.
 
 ## Customer Owns The Default
 
-Now create a customer workspace that extends the product layer:
+Now create a customer workspace that
+[extends](reference-workspace-manifest.html) the product layer:
 
 ```toml
 # customer-config/rototo-workspace.toml
@@ -173,9 +176,10 @@ default = "customer_default"
 ```
 
 This file replaces the inherited variable file. That is an important rule of
-thumb for layered workspaces: when a later layer writes the same path, it owns
-the whole file at that path. Reviewers should read that as an ownership change,
-not as a tiny patch to a hidden parent file.
+thumb for [layered workspaces](reference-workspace-layering.html): when a later
+layer writes the same path, it owns the whole file at that path. Reviewers
+should read that as an ownership change, not as a tiny patch to a hidden parent
+file.
 
 Lint and resolve the customer layer:
 
@@ -214,7 +218,7 @@ allowed_tasks = ["summarization"]
 timeout_ms = 2500
 ```
 
-Then they name the runtime condition:
+Then they name the [runtime condition](reference-qualifiers.html):
 
 ```toml
 # team-config/qualifiers/summarization-trial.toml
@@ -228,7 +232,7 @@ value = "summarization"
 ```
 
 Because the qualifier introduced `task.kind`, the team workspace needs the
-context contract for that fact:
+[context contract](reference-context.html) for that fact:
 
 ```json
 {
@@ -303,7 +307,7 @@ variable from the final workspace.
 
 ## What The App Loads
 
-The app should load the most specific workspace source:
+The app should [load the most specific workspace source](reference-sdk-loading.html):
 
 ```rust
 use rototo::{ResolveContext, Workspace};
@@ -333,10 +337,10 @@ the customer workspace, which can extend the product workspace. Rototo loads
 the graph, projects the inherited files, lints the projected workspace, and
 then resolves from that result.
 
-Refresh follows the same model. If the product schema or customer default
-changes, a long-running service that refreshes the team workspace can pick up
-the new projected workspace after a successful refresh. If refresh fails, the
-last successfully loaded workspace stays active.
+[Refresh](reference-sdk-refresh.html) follows the same model. If the product
+schema or customer default changes, a long-running service that refreshes the
+team workspace can pick up the new projected workspace after a successful
+refresh. If refresh fails, the last successfully loaded workspace stays active.
 
 ## Keep The Boundaries Honest
 

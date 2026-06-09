@@ -1,11 +1,17 @@
 # SDK Loading Reference
 
 Applications should not parse workspace files directly. They should load a
-workspace source with the SDK, let rototo lint it, and resolve named variables
-from the loaded workspace.
+[workspace source](reference-workspace-sources.html) with the SDK, let rototo
+lint it, and [resolve named variables](reference-sdk-resolution.html) from the
+loaded workspace.
 
 The loading API is the boundary that decides whether the app receives a valid
-control plane. Resolution and refresh have their own pages.
+control plane. Resolution and [refresh](reference-sdk-refresh.html) have their
+own pages.
+
+For install commands, imports, and exact language-specific types, see the
+[Rust](reference-sdk-rust.html), [Python](reference-sdk-python.html), and
+[TypeScript](reference-sdk-typescript.html) SDK references.
 
 ## Load A Workspace
 
@@ -59,8 +65,9 @@ defer workspace.Close()
 ```
 :::
 
-Loading stages the source, inspects the workspace, runs lint, and rejects lint
-failures. It accepts the same source forms as the CLI.
+Loading stages the source, inspects the workspace, runs
+[lint](reference-lint-overview.html), and rejects lint failures. It accepts the
+same [source forms](reference-workspace-sources.html) as the CLI.
 
 Use this for services that load configuration once at startup.
 
@@ -196,7 +203,9 @@ Do not retain paths into the staged root after dropping the workspace.
 
 ## Context Schema
 
-When the loaded workspace contains `schemas/context.schema.json`, resolution
-validates context against that schema by default.
+When the loaded workspace contains `schemas/context.schema.json`,
+[resolution](reference-sdk-resolution.html) validates context against that
+schema by default.
 
-See `reference-context` and `reference-sdk-resolution`.
+See [Resolve Context](reference-context.html) and
+[SDK Resolution](reference-sdk-resolution.html).

@@ -148,7 +148,11 @@ fn shows_bundled_docs_by_prefix_as_markdown() {
         .success()
         .stdout(predicate::str::contains(
             "rototo is a control plane for runtime configuration",
-        ));
+        ))
+        .stdout(predicate::str::contains(
+            "refresh (rototo docs -p reference-sdk-refresh)",
+        ))
+        .stdout(predicate::str::contains("[refresh](reference-sdk-refresh.html)").not());
 }
 
 #[test]
@@ -167,7 +171,14 @@ fn exports_bundled_docs_as_static_site() {
     assert!(index.contains("<!doctype html>"));
     assert!(index.contains("rototo is a control plane for runtime configuration"));
     assert!(index.contains(r#"<header class="topbar">"#));
-    assert!(index.contains(r#"<aside class="sidenav" aria-label="Documentation">"#));
+    assert!(
+        index.contains(
+            r#"<img class="brand-wordmark" src="assets/rototo-wordmark.svg" alt="rototo">"#
+        )
+    );
+    assert!(index.contains(r#"<aside class="tree sidenav" aria-label="Documentation">"#));
+    assert!(index.contains(r#"<aside class="toc" aria-label="On this page">"#));
+    assert!(index.contains(r#"<h2 id="why-rototo-exists">Why rototo exists</h2>"#));
     assert!(index.contains(r#"<nav class="page-nav" aria-label="Page">"#));
     assert!(site.join("getting-started.html").is_file());
     assert!(site.join("operational-switches.html").is_file());
@@ -211,10 +222,13 @@ fn exports_bundled_docs_as_static_site() {
     assert!(site.join("production-workflow.html").is_file());
     assert!(site.join("assets/rototo-docs.css").is_file());
     assert!(site.join("assets/favicon.svg").is_file());
+    assert!(site.join("assets/rototo-mark.svg").is_file());
     assert!(site.join("assets/rototo-wordmark.svg").is_file());
 
     let css = fs::read_to_string(site.join("assets/rototo-docs.css")).unwrap();
     assert!(css.contains("text-size-adjust: 100%"));
+    assert!(css.contains("--sea-500"));
+    assert!(!css.contains("--clay-500"));
     assert!(!css.contains(".doc pre.language-text"));
 
     let rust_page = fs::read_to_string(site.join("application-integration.html")).unwrap();
@@ -237,6 +251,7 @@ fn exports_bundled_docs_as_static_site() {
     assert!(sdk_page.contains(r#"<pre class="code-block language-go sdk-snippet""#));
     assert!(sdk_page.contains("sx-keyword"));
     assert!(sdk_page.contains(">await</span>"));
+    assert!(!sdk_page.contains(r#"<p><span class="sx-"#));
 }
 
 #[test]
@@ -260,6 +275,7 @@ fn generates_python_package_readme_from_docs() {
     let actual = fs::read_to_string(readme).unwrap();
     let expected = rototo::docs::render_package_readme("python").unwrap();
     assert_eq!(actual, expected);
+    assert!(actual.contains("https://docs.rototo.dev/reference-workspace-sources.html"));
 }
 
 #[test]
@@ -285,6 +301,38 @@ fn generates_typescript_package_readme_from_docs() {
     let actual = fs::read_to_string(readme).unwrap();
     let expected = rototo::docs::render_package_readme("typescript").unwrap();
     assert_eq!(actual, expected);
+    assert!(actual.contains("https://docs.rototo.dev/reference-workspace-sources.html"));
+}
+
+#[test]
+fn generates_package_readme_with_custom_docs_base_url() {
+    let temp = tempfile::tempdir().unwrap();
+    let readme = temp.path().join("README.md");
+
+    Command::cargo_bin("rototo")
+        .unwrap()
+        .args([
+            "docs",
+            "--package-readme",
+            "python",
+            "--docs-base-url",
+            "https://docs.example.test/base/",
+            "--out",
+            readme.to_str().unwrap(),
+        ])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("generated python package README"));
+
+    let actual = fs::read_to_string(readme).unwrap();
+    let expected = rototo::docs::render_package_readme_with_base_url(
+        "python",
+        "https://docs.example.test/base/",
+    )
+    .unwrap();
+    assert_eq!(actual, expected);
+    assert!(actual.contains("https://docs.example.test/base/reference-workspace-sources.html"));
+    assert!(!actual.contains("https://docs.rototo.dev/"));
 }
 
 #[test]

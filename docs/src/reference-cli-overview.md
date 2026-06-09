@@ -30,6 +30,9 @@ Utility commands:
 | `lsp` | Run the language server over stdio. |
 | `completions` | Generate shell completion scripts. |
 
+See [CLI Commands](reference-cli-commands.html) for exact command forms and
+option placement.
+
 ## Global Options
 
 | Option | Meaning |
@@ -56,7 +59,8 @@ rototo show git+https://github.com/acme/config.git#main --variables
 When omitted, rototo searches upward from the current directory for
 `rototo-workspace.toml`.
 
-See `reference-workspace-sources` for supported source forms.
+See [Workspace Sources](reference-workspace-sources.html) for supported source
+forms.
 
 ## Selectors
 
@@ -88,7 +92,7 @@ JSON object, `@file`, or `path=value`.
 For `resolve`, missing context defaults to `{}`. For `inspect`, traces are
 included only when context is supplied.
 
-See `reference-context`.
+See [Resolve Context](reference-context.html).
 
 ## Exit Codes
 
@@ -102,7 +106,8 @@ errors return non-zero exit codes.
 
 ## Choosing A Command
 
-Use `show` when you need the configured files or diagnostic catalog.
+Use `show` when you need the configured files or
+[diagnostic catalog](reference-diagnostics.html).
 
 Use `inspect` when you need dependencies, consumers, runtime availability, or a
 trace attached to workspace structure.

@@ -9,9 +9,9 @@ by the app.
 
 Variable resolution needs:
 
-- a loaded, lint-clean workspace;
+- a [loaded, lint-clean workspace](reference-sdk-loading.html);
 - a variable id;
-- a JSON object context.
+- a [JSON object context](reference-context.html).
 
 CLI:
 
@@ -57,11 +57,12 @@ The default is always the fallback. It is not evaluated as a qualifier.
 
 ## Value Selection
 
-For primitive variables, selected values come from `[values]`.
+For [primitive variables](reference-variable-values.html), selected values come
+from `[values]`.
 
-For resource-backed variables, selected values come from
-`resources/<resource-id>-objects/*.toml` and are validated against the resource
-schema.
+For [resource-backed variables](reference-resources.html), selected values come
+from `resources/<resource-id>-objects/*.toml` and are validated against the
+resource schema.
 
 The resolution result includes both:
 
@@ -81,7 +82,7 @@ guess whether a later rule is meaningful.
 
 ## Trace Shape
 
-CLI `--json` returns a variable trace:
+[CLI `--json`](reference-json-output.html) returns a variable trace:
 
 ```json
 {
@@ -117,9 +118,10 @@ variable. Use it to explain why the selected value won.
 
 ## Context Validation
 
-If `schemas/context.schema.json` exists, rototo validates context before
-resolution. SDK callers can disable that with `ResolveOptions`, but the default
-is validation on.
+If [`schemas/context.schema.json`](reference-context.html) exists, rototo
+validates context before resolution. SDK callers can disable that with
+[`ResolveOptions`](reference-sdk-resolution.html), but the default is validation
+on.
 
 ## Multiple Variables
 

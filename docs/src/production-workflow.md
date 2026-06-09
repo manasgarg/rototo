@@ -1,8 +1,10 @@
 # Production Workflow
 
 The Adopt pages before this one define how I would run rototo in production:
-model the runtime decision, integrate through the SDK, test the app-workspace
-contract, and treat workspace changes as releases.
+[model the runtime decision](modeling-runtime-configuration.html),
+[integrate through the SDK](application-integration.html),
+[test the app-workspace contract](testing-runtime-configuration.html), and
+[treat workspace changes as releases](operating-runtime-configuration.html).
 
 Here is that approach as one concrete path. We continue the `account-config`
 workspace and `account-app` from getting started, then add the pieces I would
@@ -18,7 +20,7 @@ owns the policy for selecting the value.
 
 The first production gap is that account limits should vary by account facts.
 Premium accounts should receive a larger `max-active-projects` value, but that
-condition should not be hidden in app code.
+[condition](reference-qualifiers.html) should not be hidden in app code.
 
 Create `account-config/qualifiers/premium-account.toml`:
 
@@ -58,8 +60,9 @@ defined.
 
 ## Add The Context Contract
 
-The workspace now depends on `account.plan`. That path is part of the contract
-between the app and workspace, so it should be validated.
+The workspace now depends on `account.plan`. That path is part of the
+[context contract](reference-context.html) between the app and workspace, so it
+should be validated.
 
 Generate a context schema skeleton:
 
@@ -133,7 +136,8 @@ decides which configured value those facts select.
 
 ## Publish The Workspace Source
 
-A production service should load a source it can fetch from its runtime
+A production service should load a
+[source](reference-workspace-sources.html) it can fetch from its runtime
 environment. Since git is the source of truth, publish `account-config` as a
 private repository and pass the app a git workspace URI.
 
@@ -171,10 +175,10 @@ source will not discover newer commits through refresh.
 
 ## Add Workspace Policy Lint
 
-Built-in lint protects rototo's structural contracts. The workspace also needs
-local policy: account project limits should be positive, stay under an
-operational ceiling, and keep the standard plan from accidentally exceeding the
-premium plan.
+[Built-in lint](reference-lint-overview.html) protects rototo's structural
+contracts. The workspace also needs local policy: account project limits should
+be positive, stay under an operational ceiling, and keep the standard plan from
+accidentally exceeding the premium plan.
 
 That policy belongs with the workspace because reviewers need to see the values
 and the guardrail together.
@@ -286,8 +290,9 @@ open a PR, run CI, review the runtime behavior delta, and merge.
 
 ## Test The App Contract
 
-Workspace lint proves the workspace is valid. App tests prove the application
-can still consume the selected values and apply the policy.
+Workspace lint proves the workspace is valid.
+[App tests](testing-runtime-configuration.html) prove the application can still
+consume the selected values and apply the policy.
 
 Generate readable behavior fixtures:
 
@@ -379,9 +384,9 @@ Change max-active-projects:
 - rollback: revert this workspace commit
 ```
 
-After merge, services following the branch source can refresh to the new
-workspace. The application binary does not redeploy, but future resolutions can
-change.
+After merge, services following the branch source can
+[refresh](reference-sdk-refresh.html) to the new workspace. The application
+binary does not redeploy, but future resolutions can change.
 
 The service should log the selected value key and workspace fingerprint near the
 behavior boundary:

@@ -18,7 +18,7 @@ that checks whether project creation is enabled.
 The first version does not need runtime context. Either project creation is
 enabled for everyone, or it is disabled for everyone.
 
-Create a workspace with one variable:
+Create a workspace with one [variable](reference-variables.html):
 
 ```sh
 rototo init operations-config --variable project-creation-enabled
@@ -40,9 +40,9 @@ disabled = false
 default = "enabled"
 ```
 
-The variable has two named values, but only one is selected. That naming matters
-more than it may seem at first. In logs, traces, and reviews, `disabled` says
-more than a bare `false`.
+The variable has two [named values](reference-variable-values.html), but only
+one is selected. That naming matters more than it may seem at first. In logs,
+traces, and reviews, `disabled` says more than a bare `false`.
 
 Lint and resolve the switch:
 
@@ -65,10 +65,10 @@ variable: project-creation-enabled
 
 ## Check The Switch In The App
 
-The app should ask rototo for the switch at the boundary where it matters. In
-this case, that is the project creation path. The app still owns authorization,
-request validation, and database writes; rototo only answers the operational
-policy question.
+The app should [ask rototo for the switch](reference-sdk-resolution.html) at
+the boundary where it matters. In this case, that is the project creation path.
+The app still owns authorization, request validation, and database writes;
+rototo only answers the operational policy question.
 
 ```rust
 use rototo::{ResolveContext, Workspace};
@@ -118,7 +118,8 @@ git add operations-config
 git commit -m "Disable project creation during incident"
 ```
 
-Long-running services that use `RefreshingWorkspace` keep serving the last
+Long-running services that use
+[`RefreshingWorkspace`](reference-sdk-refresh.html) keep serving the last
 successfully loaded workspace until a refresh succeeds. After the merge reaches
 the workspace source, a successful refresh affects future project creation
 checks. If a refresh fails, the service keeps the last known-good workspace
@@ -135,7 +136,7 @@ prefer adding that boundary to the workspace instead of scattering `if` checks
 through app code.
 
 Restore the default to `enabled`, then create
-`operations-config/qualifiers/eu-accounts.toml`:
+[`operations-config/qualifiers/eu-accounts.toml`](reference-qualifiers.html):
 
 ```toml
 schema_version = 1
@@ -174,7 +175,7 @@ creation for accounts in the European region; keep the default open.
 ## Generate The Context Contract
 
 The qualifier now reads `account.region`. That is the right moment to generate
-the context schema skeleton from the workspace:
+the [context schema](reference-context.html) skeleton from the workspace:
 
 ```sh
 rototo init operations-config --context

@@ -4,10 +4,11 @@ After the application can load a workspace and resolve variables, the next
 question is whether a workspace change is safe to release. Lint answers part of
 that question, but not all of it.
 
-`rototo lint` can prove that the workspace is well-formed: schemas parse,
-qualifiers reference known fields, variable rules point at known values, and
-selected values match their declared shape. You still need that. It does not
-prove the application still behaves correctly when those values are selected.
+[`rototo lint`](reference-lint-overview.html) can prove that the workspace is
+well-formed: schemas parse, qualifiers reference known fields, variable rules
+point at known values, and selected values match their declared shape. You
+still need that. It does not prove the application still behaves correctly when
+those values are selected.
 
 I think about the tests in layers:
 
@@ -60,10 +61,10 @@ Use built-in lint for rototo's own contracts:
 - context schema compatibility;
 - custom Lua lint registration.
 
-Use custom Lua lint for local policy that belongs with the workspace. For
-example, if account limits must stay below an operational ceiling, that rule
-belongs in the workspace because it constrains the values reviewers are
-approving.
+Use [custom Lua lint](reference-custom-lua-lint.html) for local policy that
+belongs with the workspace. For example, if account limits must stay below an
+operational ceiling, that rule belongs in the workspace because it constrains
+the values reviewers are approving.
 
 Do not use app tests for that kind of file-level policy. App tests are slower,
 farther away from the policy author, and usually worse at explaining which
@@ -96,9 +97,10 @@ For example:
 }
 ```
 
-These files are part of the app-workspace contract. When the application starts
-sending a new context field, the fixture changes. When the workspace starts
-depending on a new field, the fixture proves the app knows how to provide it.
+These files are part of the app-workspace
+[context](reference-context.html) contract. When the application starts sending
+a new context field, the fixture changes. When the workspace starts depending
+on a new field, the fixture proves the app knows how to provide it.
 
 They also help in review because the CLI can resolve with the same input:
 
@@ -109,11 +111,13 @@ rototo resolve account-config \
 ```
 
 That command gives the reviewer a direct way to inspect the selected value key
-and resolution trace before reading application code.
+and [resolution trace](reference-resolution-output.html) before reading
+application code.
 
 ## Generate Resolution Fixtures
 
-Rototo can generate readable TOML fixtures for variables and qualifiers:
+Rototo can generate readable TOML
+[fixtures](reference-cli-commands.html) for variables and qualifiers:
 
 ```sh
 rototo fixtures account-config \
@@ -268,8 +272,8 @@ boundaries. The application still consumes one runtime control plane.
 
 ## Test Refresh Behavior
 
-Refresh is part of rototo's runtime model, so long-running services need tests
-for refresh behavior too.
+[Refresh](reference-sdk-refresh.html) is part of rototo's runtime model, so
+long-running services need tests for refresh behavior too.
 
 At minimum, cover these cases:
 
@@ -332,6 +336,7 @@ The exact commands will vary by repository layout, but the order matters. First
 prove the workspace is valid. Then prove expected resolution behavior. Then
 prove the application can consume and apply the selected policy.
 
-That order is why the production workflow holds together. The workspace can
-move independently from the application binary, but it still moves through a
-release path that proves the app and control plane agree.
+That order is why the [production workflow](production-workflow.html) holds
+together. The workspace can move independently from the application binary, but
+it still moves through a release path that proves the app and control plane
+agree.
