@@ -4,7 +4,7 @@ description = "Whether to show administrator navigation affordances"
 type = "bool"
 
 [values]
-hidden = false
+hidden = true
 visible = true
 
 [resolve]
