@@ -5,7 +5,7 @@ type = "int"
 
 [values]
 small = 1200
-standard = 2400
+standard = 2405
 large = 5000
 
 [resolve]
