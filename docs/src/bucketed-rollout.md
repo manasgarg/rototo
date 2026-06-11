@@ -303,6 +303,7 @@ The app should [resolve the mode](reference-sdk-resolution.html) near the code
 path that needs it. Rototo selects the reviewed rollout policy; the app owns
 both ranking implementations and the metrics that compare them.
 
+:::sdk-snippet bucketed-rollout-app
 ```rust
 use rototo::{ResolveContext, Workspace};
 
@@ -333,6 +334,92 @@ async fn search_ranking_mode(
     Ok(mode)
 }
 ```
+
+```python
+async def search_ranking_mode(
+    workspace: rototo.Workspace,
+    account_kind: str,
+    account_id: str,
+) -> str:
+    context = {
+        "account": {
+            "kind": account_kind,
+            "id": account_id,
+        },
+    }
+    resolution = await workspace.resolve_variable("search-ranking-mode", context)
+    mode = str(resolution.value)
+
+    print(f"selected search-ranking-mode `{resolution.value_key}`")
+    return mode
+```
+
+```typescript
+async function searchRankingMode(
+  workspace: Workspace,
+  accountKind: string,
+  accountId: string,
+): Promise<string> {
+  const resolution = await workspace.resolveVariable(
+    "search-ranking-mode",
+    { account: { kind: accountKind, id: accountId } },
+  );
+  const mode = String(resolution.value);
+
+  console.log(`selected search-ranking-mode \`${resolution.valueKey}\``);
+  return mode;
+}
+```
+
+```java
+String searchRankingMode(
+    Workspace workspace,
+    String accountKind,
+    String accountId
+) throws Exception {
+    VariableResolution resolution = workspace
+        .resolveVariable(
+            "search-ranking-mode",
+            Map.of("account", Map.of(
+                "kind", accountKind,
+                "id", accountId
+            ))
+        )
+        .get();
+
+    System.out.printf("selected search-ranking-mode `%s`%n", resolution.valueKey());
+    return (String) resolution.value();
+}
+```
+
+```go
+func searchRankingMode(
+    ctx context.Context,
+    workspace *rototo.Workspace,
+    accountKind string,
+    accountID string,
+) (string, error) {
+    resolution, err := workspace.ResolveVariable(
+        ctx,
+        "search-ranking-mode",
+        map[string]any{
+            "account": map[string]any{
+                "kind": accountKind,
+                "id":   accountID,
+            },
+        },
+        nil,
+    )
+    if err != nil {
+        return "", err
+    }
+
+    mode, _ := resolution.Value.(string)
+    fmt.Printf("selected search-ranking-mode `%s`\n", resolution.ValueKey)
+    return mode, nil
+}
+```
+:::
 
 Keep the implementation boundary clear. Rototo should not choose search
 results, store account history, or own ranking metrics. It should answer which

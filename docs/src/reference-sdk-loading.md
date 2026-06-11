@@ -10,8 +10,10 @@ control plane. Resolution and [refresh](reference-sdk-refresh.html) have their
 own pages.
 
 For install commands, imports, and exact language-specific types, see the
-[Rust](reference-sdk-rust.html), [Python](reference-sdk-python.html), and
-[TypeScript](reference-sdk-typescript.html) SDK references.
+[Rust](reference-sdk-rust.html), [Python](reference-sdk-python.html),
+[TypeScript](reference-sdk-typescript.html),
+[Java](reference-sdk-java.html), and [Go](reference-sdk-go.html) SDK
+references.
 
 ## Load A Workspace
 

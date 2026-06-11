@@ -24,11 +24,36 @@ rototo resolve account-config \
 
 SDK:
 
+:::sdk-snippet qualifier-resolution-sdk
 ```rust
 let result = workspace
     .resolve_qualifier("paid-account", &context)
     .await?;
 ```
+
+```python
+result = await workspace.resolve_qualifier("paid-account", context)
+```
+
+```typescript
+const result = await workspace.resolveQualifier("paid-account", context);
+```
+
+```java
+QualifierResolution result = workspace
+    .resolveQualifier("paid-account", context)
+    .get();
+```
+
+```go
+result, err := workspace.ResolveQualifier(
+    ctx,
+    "paid-account",
+    resolveContext,
+    nil,
+)
+```
+:::
 
 ## Evaluation
 

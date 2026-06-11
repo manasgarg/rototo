@@ -227,19 +227,76 @@ fn exports_bundled_docs_as_static_site() {
 
     let css = fs::read_to_string(site.join("assets/rototo-docs.css")).unwrap();
     assert!(css.contains("text-size-adjust: 100%"));
-    assert!(css.contains("--sea-500"));
+    assert!(css.contains("--sea-500: oklch(0.572 0.148 178);"));
+    assert!(css.contains("--cyan-500: oklch(0.640 0.152 205);"));
+    assert!(css.contains("--ok-500: oklch(0.625 0.165 150);"));
+    assert!(css.contains("--term-violet"));
+    assert!(css.contains("--text-6xl"));
+    assert!(css.contains("--leading-normal"));
+    assert!(css.contains("--shadow-4"));
+    assert!(css.contains("--grid-line"));
+    assert!(css.contains("--ct-keyword"));
+    assert!(css.contains(".doc :not(pre) > code"));
+    assert!(css.contains(".hljs-keyword"));
+    assert!(css.contains(".hljs-title.function_"));
+    assert!(css.contains(".hljs-string"));
+    assert!(css.contains(".hljs-addition"));
+    assert!(css.contains(".token.comment"));
+    assert!(css.contains(".token.inserted-sign"));
+    assert!(!css.contains(".sx-"));
     assert!(!css.contains("--clay-500"));
     assert!(!css.contains(".doc pre.language-text"));
 
-    let rust_page = fs::read_to_string(site.join("application-integration.html")).unwrap();
-    assert!(rust_page.contains(r#"<pre class="code-block language-rust">"#));
-    assert!(rust_page.contains("sx-keyword"));
-    assert!(rust_page.contains(">use</span>"));
-    assert!(rust_page.contains("sx-string"));
-    assert!(rust_page.contains("ROTOTO_WORKSPACE_SOURCE"));
+    let app_page = fs::read_to_string(site.join("application-integration.html")).unwrap();
+    assert!(app_page.contains(r#"<pre class="code-block language-rust sdk-snippet""#));
+    assert!(app_page.contains(r#"<pre class="code-block language-python sdk-snippet""#));
+    assert!(app_page.contains(r#"<pre class="code-block language-typescript sdk-snippet""#));
+    assert!(app_page.contains(r#"<pre class="code-block language-java sdk-snippet""#));
+    assert!(app_page.contains(r#"<pre class="code-block language-go sdk-snippet""#));
+    assert!(app_page.contains(r#"<code class="language-rust">use rototo::"#));
+    assert!(app_page.contains(
+        r#"<code class="language-typescript">import { Workspace } from &quot;rototo&quot;;"#
+    ));
+    assert!(app_page.contains(r#"<code class="language-plaintext">ROTOTO_WORKSPACE_SOURCE="#));
+    assert!(app_page.contains("ROTOTO_WORKSPACE_SOURCE"));
+    assert!(!app_page.contains(r#"<span class="sx-"#));
+
+    let getting_started_page = fs::read_to_string(site.join("getting-started.html")).unwrap();
+    assert!(getting_started_page.contains(
+        r#"<pre class="code-block language-sh"><code class="language-bash">cargo install rototo"#
+    ));
+    assert!(getting_started_page.contains(
+        r#"<pre class="code-block language-toml"><code class="language-ini">schema_version = 1"#
+    ));
+    assert!(!getting_started_page.contains(r#"<span class="sx-"#));
+
+    let wordmark = fs::read_to_string(site.join("assets/rototo-wordmark.svg")).unwrap();
+    assert!(wordmark.contains("#006252"));
+    assert!(!wordmark.contains("#008572"));
+
+    let favicon = fs::read_to_string(site.join("assets/favicon.svg")).unwrap();
+    assert!(favicon.contains("#006252"));
+    assert!(!favicon.contains("#008572"));
 
     let sdk_page = fs::read_to_string(site.join("reference-sdk-resolution.html")).unwrap();
-    assert!(sdk_page.contains(r#"<select id="sdk-language" aria-label="SDK language">"#));
+    assert!(sdk_page.contains("https://unpkg.com/@highlightjs/cdn-assets@11.9.0/highlight.min.js"));
+    assert!(
+        sdk_page.contains("https://unpkg.com/@highlightjs/cdn-assets@11.9.0/languages/bash.min.js")
+    );
+    assert!(
+        sdk_page
+            .contains("https://unpkg.com/@highlightjs/cdn-assets@11.9.0/languages/gradle.min.js")
+    );
+    assert!(
+        sdk_page
+            .contains(r#"window.hljs.registerAliases(["sh", "shell"], { languageName: "bash" });"#)
+    );
+    assert!(sdk_page.contains("window.hljs.highlightAll();"));
+    assert!(!sdk_page.contains(r#"id="sdk-language""#));
+    assert!(sdk_page.contains(r#"<div class="sdk-snippet-toolbar">"#));
+    assert!(sdk_page.contains(
+        r#"<select class="sdk-language-select" aria-label="SDK language for this code sample">"#
+    ));
     assert!(sdk_page.contains(r#"data-sdk-lang="rust""#));
     assert!(sdk_page.contains(r#"data-sdk-lang="python""#));
     assert!(sdk_page.contains(r#"data-sdk-lang="typescript""#));
@@ -249,9 +306,10 @@ fn exports_bundled_docs_as_static_site() {
     assert!(sdk_page.contains(r#"<pre class="code-block language-typescript sdk-snippet""#));
     assert!(sdk_page.contains(r#"<pre class="code-block language-java sdk-snippet""#));
     assert!(sdk_page.contains(r#"<pre class="code-block language-go sdk-snippet""#));
-    assert!(sdk_page.contains("sx-keyword"));
-    assert!(sdk_page.contains(">await</span>"));
+    assert!(sdk_page.contains(r#"<code class="language-typescript">const context = {"#));
+    assert!(sdk_page.contains("await workspace.resolveVariable"));
     assert!(!sdk_page.contains(r#"<p><span class="sx-"#));
+    assert!(!sdk_page.contains(r#"<span class="sx-"#));
 }
 
 #[test]

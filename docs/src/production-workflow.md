@@ -115,6 +115,7 @@ rototo resolve account-config \
 The app should now build context from account facts instead of sending an empty
 object:
 
+:::sdk-snippet production-context-facts
 ```rust
 let account_plan =
     std::env::var("ACCOUNT_PLAN").unwrap_or_else(|_| "standard".to_owned());
@@ -124,6 +125,48 @@ let context = ResolveContext::from_json(serde_json::json!({
     }
 }))?;
 ```
+
+```python
+account_plan = os.environ.get("ACCOUNT_PLAN", "standard")
+context = {
+    "account": {
+        "plan": account_plan,
+    },
+}
+```
+
+```typescript
+const accountPlan = process.env.ACCOUNT_PLAN ?? "standard";
+const context = {
+  account: {
+    plan: accountPlan,
+  },
+};
+```
+
+```java
+String accountPlan = System.getenv().getOrDefault(
+    "ACCOUNT_PLAN",
+    "standard"
+);
+Map<String, Object> context = Map.of(
+    "account",
+    Map.of("plan", accountPlan)
+);
+```
+
+```go
+accountPlan := os.Getenv("ACCOUNT_PLAN")
+if accountPlan == "" {
+    accountPlan = "standard"
+}
+resolveContext := map[string]any{
+    "account": map[string]any{
+        "plan": accountPlan,
+    },
+}
+```
+:::
 
 Run the app as a premium account:
 
@@ -307,8 +350,9 @@ Commit the generated `tests/rototo-fixtures` directory with the app tests. The
 fixture diff should be part of review when runtime behavior intentionally
 changes.
 
-Add `account-app/tests/rototo_contract.rs`:
+Add an app contract test in the app's test framework:
 
+:::sdk-snippet production-app-contract-test
 ```rust
 use std::error::Error;
 
@@ -360,6 +404,128 @@ async fn max_active_projects_deserializes_for_app_contexts() -> Result<(), Box<d
 }
 ```
 
+```python
+import os
+import rototo
+
+
+async def test_max_active_projects_deserializes_for_app_contexts():
+    source = os.environ.get("ROTOTO_WORKSPACE_SOURCE", "../account-config")
+    workspace = await rototo.Workspace.load(source)
+
+    standard = await workspace.resolve_variable(
+        "max-active-projects",
+        {"account": {"plan": "standard"}},
+    )
+    premium = await workspace.resolve_variable(
+        "max-active-projects",
+        {"account": {"plan": "premium"}},
+    )
+
+    assert standard.value_key == "standard"
+    assert premium.value_key == "premium"
+    assert standard.value == 3
+    assert premium.value == 25
+```
+
+```typescript
+import assert from "node:assert/strict";
+import test from "node:test";
+import { Workspace } from "rototo";
+
+test("max-active-projects deserializes for app contexts", async () => {
+  const source = process.env.ROTOTO_WORKSPACE_SOURCE ?? "../account-config";
+  const workspace = await Workspace.load(source);
+
+  const standard = await workspace.resolveVariable(
+    "max-active-projects",
+    { account: { plan: "standard" } },
+  );
+  const premium = await workspace.resolveVariable(
+    "max-active-projects",
+    { account: { plan: "premium" } },
+  );
+
+  assert.equal(standard.valueKey, "standard");
+  assert.equal(premium.valueKey, "premium");
+  assert.equal(standard.value, 3);
+  assert.equal(premium.value, 25);
+});
+```
+
+```java
+@Test
+void maxActiveProjectsDeserializesForAppContexts() throws Exception {
+    String source = System.getenv().getOrDefault(
+        "ROTOTO_WORKSPACE_SOURCE",
+        "../account-config"
+    );
+
+    try (Workspace workspace = Workspace.load(source).get()) {
+        VariableResolution standard = workspace
+            .resolveVariable(
+                "max-active-projects",
+                Map.of("account", Map.of("plan", "standard"))
+            )
+            .get();
+        VariableResolution premium = workspace
+            .resolveVariable(
+                "max-active-projects",
+                Map.of("account", Map.of("plan", "premium"))
+            )
+            .get();
+
+        assertEquals("standard", standard.valueKey());
+        assertEquals("premium", premium.valueKey());
+        assertEquals(3L, ((Number) standard.value()).longValue());
+        assertEquals(25L, ((Number) premium.value()).longValue());
+    }
+}
+```
+
+```go
+func TestMaxActiveProjectsDeserializesForAppContexts(t *testing.T) {
+    source := os.Getenv("ROTOTO_WORKSPACE_SOURCE")
+    if source == "" {
+        source = "../account-config"
+    }
+
+    ctx := context.Background()
+    workspace, err := rototo.Load(ctx, source, nil)
+    if err != nil {
+        t.Fatal(err)
+    }
+    defer workspace.Close()
+
+    standard, err := workspace.ResolveVariable(
+        ctx,
+        "max-active-projects",
+        map[string]any{"account": map[string]any{"plan": "standard"}},
+        nil,
+    )
+    if err != nil {
+        t.Fatal(err)
+    }
+    premium, err := workspace.ResolveVariable(
+        ctx,
+        "max-active-projects",
+        map[string]any{"account": map[string]any{"plan": "premium"}},
+        nil,
+    )
+    if err != nil {
+        t.Fatal(err)
+    }
+
+    if standard.ValueKey != "standard" || premium.ValueKey != "premium" {
+        t.Fatalf("unexpected value keys: %s, %s", standard.ValueKey, premium.ValueKey)
+    }
+    if standard.Value != float64(3) || premium.Value != float64(25) {
+        t.Fatalf("unexpected values: %v, %v", standard.Value, premium.Value)
+    }
+}
+```
+:::
+
 Run the app tests against the local workspace:
 
 ```sh
@@ -391,6 +557,7 @@ binary does not redeploy, but future resolutions can change.
 The service should log the selected value key and workspace fingerprint near the
 behavior boundary:
 
+:::sdk-snippet production-log-selection
 ```rust
 let resolution = workspace
     .resolve_variable("max-active-projects", &context)
@@ -405,8 +572,67 @@ tracing::info!(
 );
 ```
 
+```python
+resolution = await workspace.resolve_variable(
+    "max-active-projects",
+    context,
+)
+logger.info(
+    "resolved runtime configuration",
+    extra={
+        "variable": "max-active-projects",
+        "value_key": resolution.value_key,
+        "account_plan": account_plan,
+    },
+)
+```
+
+```typescript
+const resolution = await workspace.resolveVariable(
+  "max-active-projects",
+  context,
+);
+logger.info("resolved runtime configuration", {
+  variable: "max-active-projects",
+  valueKey: resolution.valueKey,
+  accountPlan,
+});
+```
+
+```java
+VariableResolution resolution = workspace
+    .resolveVariable("max-active-projects", context)
+    .get();
+logger.info(
+    "resolved runtime configuration variable={} valueKey={} accountPlan={}",
+    "max-active-projects",
+    resolution.valueKey(),
+    accountPlan
+);
+```
+
+```go
+resolution, err := workspace.ResolveVariable(
+    ctx,
+    "max-active-projects",
+    resolveContext,
+    nil,
+)
+if err != nil {
+    return err
+}
+slog.Info(
+    "resolved runtime configuration",
+    "variable", "max-active-projects",
+    "value_key", resolution.ValueKey,
+    "account_plan", accountPlan,
+)
+```
+:::
+
 It should also expose refresh status:
 
+:::sdk-snippet production-refresh-status
 ```rust
 let status = workspace.status().await;
 if status.consecutive_failures > 0 {
@@ -417,6 +643,58 @@ if status.consecutive_failures > 0 {
     );
 }
 ```
+
+```python
+status = await workspace.status()
+if status.consecutive_failures > 0:
+    logger.warning(
+        "workspace refresh is failing; serving last-known-good configuration",
+        extra={
+            "consecutive_failures": status.consecutive_failures,
+            "last_error": status.last_error,
+        },
+    )
+```
+
+```typescript
+const status = await workspace.status();
+if (status.consecutiveFailures > 0) {
+  logger.warn(
+    "workspace refresh is failing; serving last-known-good configuration",
+    {
+      consecutiveFailures: status.consecutiveFailures,
+      lastError: status.lastError,
+    },
+  );
+}
+```
+
+```java
+RefreshStatus status = workspace.status().get();
+if (status.consecutiveFailures() > 0) {
+    logger.warn(
+        "workspace refresh is failing; serving last-known-good configuration " +
+            "consecutiveFailures={} lastError={}",
+        status.consecutiveFailures(),
+        status.lastError()
+    );
+}
+```
+
+```go
+status, err := workspace.Status(ctx)
+if err != nil {
+    return err
+}
+if status.ConsecutiveFailures > 0 {
+    slog.Warn(
+        "workspace refresh is failing; serving last-known-good configuration",
+        "consecutive_failures", status.ConsecutiveFailures,
+        "last_error", status.LastError,
+    )
+}
+```
+:::
 
 If the policy is wrong, revert the workspace commit. If the app sent the wrong
 context or cannot consume the selected value, fix the app-workspace contract and

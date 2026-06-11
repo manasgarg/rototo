@@ -432,6 +432,7 @@ about to apply concurrency, fanout, background work, or provider routing. It
 should pass facts it already knows: current service pressure and the account ID
 used for stable assignment.
 
+:::sdk-snippet service-degradation-app
 ```rust
 use serde::Deserialize;
 
@@ -475,6 +476,150 @@ async fn degradation_policy(
     Ok(policy)
 }
 ```
+
+```python
+from dataclasses import dataclass
+
+
+@dataclass
+class DegradationPolicy:
+    mode: str
+    max_concurrency: int
+    background_jobs_enabled: bool
+    non_critical_fanout: str
+    fallback_provider: str
+
+
+async def degradation_policy(
+    workspace: rototo.Workspace,
+    queue_pressure: str,
+    account_id: str,
+) -> DegradationPolicy:
+    context = {
+        "service": {"queue_pressure": queue_pressure},
+        "account": {"id": account_id},
+    }
+    resolution = await workspace.resolve_variable(
+        "service-degradation-policy",
+        context,
+    )
+    policy = DegradationPolicy(**resolution.value)
+
+    print(f"selected service-degradation-policy `{resolution.value_key}`")
+    return policy
+```
+
+```typescript
+type DegradationPolicy = {
+  mode: string;
+  max_concurrency: number;
+  background_jobs_enabled: boolean;
+  non_critical_fanout: string;
+  fallback_provider: string;
+};
+
+async function degradationPolicy(
+  workspace: Workspace,
+  queuePressure: string,
+  accountId: string,
+): Promise<DegradationPolicy> {
+  const resolution = await workspace.resolveVariable(
+    "service-degradation-policy",
+    {
+      service: { queue_pressure: queuePressure },
+      account: { id: accountId },
+    },
+  );
+
+  console.log(`selected service-degradation-policy \`${resolution.valueKey}\``);
+  return resolution.value as DegradationPolicy;
+}
+```
+
+```java
+record DegradationPolicy(
+    String mode,
+    long maxConcurrency,
+    boolean backgroundJobsEnabled,
+    String nonCriticalFanout,
+    String fallbackProvider
+) {}
+
+DegradationPolicy degradationPolicy(
+    Workspace workspace,
+    String queuePressure,
+    String accountId
+) throws Exception {
+    VariableResolution resolution = workspace
+        .resolveVariable(
+            "service-degradation-policy",
+            Map.of(
+                "service", Map.of("queue_pressure", queuePressure),
+                "account", Map.of("id", accountId)
+            )
+        )
+        .get();
+
+    @SuppressWarnings("unchecked")
+    Map<String, Object> value = (Map<String, Object>) resolution.value();
+
+    System.out.printf(
+        "selected service-degradation-policy `%s`%n",
+        resolution.valueKey()
+    );
+    return new DegradationPolicy(
+        (String) value.get("mode"),
+        ((Number) value.get("max_concurrency")).longValue(),
+        (Boolean) value.get("background_jobs_enabled"),
+        (String) value.get("non_critical_fanout"),
+        (String) value.get("fallback_provider")
+    );
+}
+```
+
+```go
+type DegradationPolicy struct {
+    Mode                  string `json:"mode"`
+    MaxConcurrency        uint64 `json:"max_concurrency"`
+    BackgroundJobsEnabled bool   `json:"background_jobs_enabled"`
+    NonCriticalFanout     string `json:"non_critical_fanout"`
+    FallbackProvider      string `json:"fallback_provider"`
+}
+
+func degradationPolicy(
+    ctx context.Context,
+    workspace *rototo.Workspace,
+    queuePressure string,
+    accountID string,
+) (DegradationPolicy, error) {
+    resolution, err := workspace.ResolveVariable(
+        ctx,
+        "service-degradation-policy",
+        map[string]any{
+            "service": map[string]any{"queue_pressure": queuePressure},
+            "account": map[string]any{"id": accountID},
+        },
+        nil,
+    )
+    if err != nil {
+        return DegradationPolicy{}, err
+    }
+
+    payload, err := json.Marshal(resolution.Value)
+    if err != nil {
+        return DegradationPolicy{}, err
+    }
+
+    var policy DegradationPolicy
+    if err := json.Unmarshal(payload, &policy); err != nil {
+        return DegradationPolicy{}, err
+    }
+
+    fmt.Printf("selected service-degradation-policy `%s`\n", resolution.ValueKey)
+    return policy, nil
+}
+```
+:::
 
 The selected policy is not the incident state. It is one input to the service's
 own backpressure and routing behavior.

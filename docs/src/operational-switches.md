@@ -70,6 +70,7 @@ the boundary where it matters. In this case, that is the project creation path.
 The app still owns authorization, request validation, and database writes;
 rototo only answers the operational policy question.
 
+:::sdk-snippet operational-switch-app
 ```rust
 use rototo::{ResolveContext, Workspace};
 
@@ -95,6 +96,89 @@ async fn create_project(workspace: &Workspace) -> Result<(), Box<dyn std::error:
     Ok(())
 }
 ```
+
+```python
+async def create_project(workspace: rototo.Workspace) -> None:
+    resolution = await workspace.resolve_variable(
+        "project-creation-enabled",
+        {},
+    )
+    creation_enabled = bool(resolution.value)
+
+    if not creation_enabled:
+        print(
+            "project creation blocked by rototo "
+            f"value `{resolution.value_key}`"
+        )
+        return
+
+    # Validate the request, authorize the account, and create the project.
+```
+
+```typescript
+async function createProject(workspace: Workspace): Promise<void> {
+  const resolution = await workspace.resolveVariable(
+    "project-creation-enabled",
+    {},
+  );
+  const creationEnabled = Boolean(resolution.value);
+
+  if (!creationEnabled) {
+    console.log(
+      `project creation blocked by rototo value \`${resolution.valueKey}\``,
+    );
+    return;
+  }
+
+  // Validate the request, authorize the account, and create the project.
+}
+```
+
+```java
+void createProject(Workspace workspace) throws Exception {
+    VariableResolution resolution = workspace
+        .resolveVariable("project-creation-enabled", Map.of())
+        .get();
+    boolean creationEnabled = (Boolean) resolution.value();
+
+    if (!creationEnabled) {
+        System.out.printf(
+            "project creation blocked by rototo value `%s`%n",
+            resolution.valueKey()
+        );
+        return;
+    }
+
+    // Validate the request, authorize the account, and create the project.
+}
+```
+
+```go
+func createProject(ctx context.Context, workspace *rototo.Workspace) error {
+    resolution, err := workspace.ResolveVariable(
+        ctx,
+        "project-creation-enabled",
+        map[string]any{},
+        nil,
+    )
+    if err != nil {
+        return err
+    }
+
+    creationEnabled, _ := resolution.Value.(bool)
+    if !creationEnabled {
+        fmt.Printf(
+            "project creation blocked by rototo value `%s`\n",
+            resolution.ValueKey,
+        )
+        return nil
+    }
+
+    // Validate the request, authorize the account, and create the project.
+    return nil
+}
+```
+:::
 
 I like this placement because the app code stays honest about the boundary.
 Rototo is not deciding who the user is or whether they have permission. It is

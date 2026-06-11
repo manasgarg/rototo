@@ -4,7 +4,7 @@ I like starting with one value because it keeps the whole system honest. If
 `max-active-projects` can live in a workspace, pass lint, resolve from the CLI,
 and update inside a running app, then the core rototo loop is working.
 
-So we will build one workspace, one variable, one Rust process, and one refresh
+So we will build one workspace, one variable, one app process, and one refresh
 path. The example is small on purpose. Once this loop is clear, the production
 workflow is mostly about adding guardrails around the same loop.
 
@@ -15,7 +15,7 @@ account-config/
 account-app/
 ```
 
-`account-config` is the rototo workspace. `account-app` is a Rust process that
+`account-config` is the rototo workspace. `account-app` is a process that
 loads that workspace as its runtime configuration source.
 
 ## Create A Workspace
@@ -116,7 +116,7 @@ walk workspace files, or copy resolution rules. It should
 [load a workspace source](reference-sdk-loading.html) and
 [ask for a named variable](reference-sdk-resolution.html).
 
-Create the Rust app next to `account-config`:
+If you are following the Rust path, create the app next to `account-config`:
 
 ```sh
 cargo new account-app
@@ -132,8 +132,11 @@ serde_json = "1"
 tokio = { version = "1", features = ["macros", "rt-multi-thread", "time"] }
 ```
 
-Replace `src/main.rs`:
+The app loop is the same in each SDK: load a refreshing workspace, resolve the
+same variable repeatedly, and let successful refreshes affect later
+resolutions.
 
+:::sdk-snippet getting-started-app-loop
 ```rust
 use std::{error::Error, time::Duration};
 
@@ -163,6 +166,129 @@ async fn main() -> Result<(), Box<dyn Error>> {
     }
 }
 ```
+
+```python
+import asyncio
+import sys
+import rototo
+
+
+async def main() -> None:
+    if len(sys.argv) != 2:
+        raise SystemExit("usage: account-app <workspace-source>")
+
+    workspace = await rototo.RefreshingWorkspace.load(
+        sys.argv[1],
+        period_seconds=5,
+    )
+
+    try:
+        while True:
+            resolution = await workspace.resolve_variable(
+                "max-active-projects",
+                {},
+            )
+            print(
+                f"max-active-projects: "
+                f"{resolution.value} ({resolution.value_key})"
+            )
+            await asyncio.sleep(5)
+    finally:
+        await workspace.shutdown()
+
+
+asyncio.run(main())
+```
+
+```typescript
+import { RefreshingWorkspace } from "rototo";
+
+const source = process.argv[2];
+if (!source) {
+  throw new Error("usage: account-app <workspace-source>");
+}
+
+const workspace = await RefreshingWorkspace.load(source, {
+  periodSeconds: 5,
+});
+
+try {
+  while (true) {
+    const resolution = await workspace.resolveVariable(
+      "max-active-projects",
+      {},
+    );
+    console.log(
+      `max-active-projects: ${resolution.value} (${resolution.valueKey})`,
+    );
+    await new Promise((resolve) => setTimeout(resolve, 5000));
+  }
+} finally {
+  await workspace.shutdown();
+}
+```
+
+```java
+RefreshingWorkspaceOptions options = RefreshingWorkspaceOptions.builder()
+    .periodSeconds(5.0)
+    .build();
+
+RefreshingWorkspace workspace = RefreshingWorkspace
+    .load(args[0], options)
+    .get();
+
+try {
+    while (true) {
+        VariableResolution resolution = workspace
+            .resolveVariable("max-active-projects", Map.of())
+            .get();
+
+        System.out.printf(
+            "max-active-projects: %s (%s)%n",
+            resolution.value(),
+            resolution.valueKey()
+        );
+        Thread.sleep(5_000);
+    }
+} finally {
+    workspace.shutdown().get();
+}
+```
+
+```go
+periodSeconds := 5.0
+workspace, err := rototo.LoadRefreshing(
+    context.Background(),
+    os.Args[1],
+    &rototo.RefreshingWorkspaceOptions{
+        PeriodSeconds: &periodSeconds,
+    },
+)
+if err != nil {
+    return err
+}
+defer workspace.Close(context.Background())
+
+for {
+    resolution, err := workspace.ResolveVariable(
+        context.Background(),
+        "max-active-projects",
+        map[string]any{},
+        nil,
+    )
+    if err != nil {
+        return err
+    }
+
+    fmt.Printf(
+        "max-active-projects: %v (%s)\n",
+        resolution.Value,
+        resolution.ValueKey,
+    )
+    time.Sleep(5 * time.Second)
+}
+```
+:::
 
 I am using [`RefreshingWorkspace`](reference-sdk-refresh.html) even in the
 first app because refresh is part of the runtime model. The service starts with

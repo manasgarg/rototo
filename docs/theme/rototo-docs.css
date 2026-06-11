@@ -10,40 +10,66 @@
   --line-1: oklch(0.908 0.010 178);
   --line-2: oklch(0.862 0.012 178);
   --line-strong: oklch(0.244 0.022 188 / 0.14);
-  --sea-50: oklch(0.960 0.024 178);
-  --sea-100: oklch(0.912 0.042 178);
-  --sea-200: oklch(0.835 0.062 178);
-  --sea-300: oklch(0.730 0.082 178);
-  --sea-400: oklch(0.640 0.095 178);
-  --sea-500: oklch(0.552 0.102 178);
-  --sea-600: oklch(0.482 0.094 179);
-  --sea-700: oklch(0.418 0.082 180);
+  --sea-50: oklch(0.962 0.040 178);
+  --sea-100: oklch(0.918 0.070 178);
+  --sea-200: oklch(0.842 0.100 178);
+  --sea-300: oklch(0.742 0.125 178);
+  --sea-400: oklch(0.655 0.140 178);
+  --sea-500: oklch(0.572 0.148 178);
+  --sea-600: oklch(0.498 0.134 179);
+  --sea-700: oklch(0.428 0.116 180);
   --sea-on: oklch(0.990 0.008 178);
-  --cyan-50: oklch(0.962 0.024 205);
-  --cyan-200: oklch(0.860 0.072 205);
-  --cyan-500: oklch(0.625 0.108 205);
-  --cyan-700: oklch(0.462 0.088 208);
-  --ok-500: oklch(0.585 0.122 150);
-  --ok-700: oklch(0.455 0.105 152);
-  --ok-bg: oklch(0.945 0.038 150);
-  --warn-500: oklch(0.745 0.135 78);
-  --warn-700: oklch(0.560 0.110 70);
-  --warn-bg: oklch(0.955 0.050 84);
-  --err-500: oklch(0.575 0.180 25);
-  --err-700: oklch(0.470 0.160 26);
-  --err-bg: oklch(0.952 0.035 28);
-  --info-500: oklch(0.560 0.100 205);
-  --info-700: oklch(0.445 0.088 207);
-  --info-bg: oklch(0.950 0.028 205);
+  --cyan-50: oklch(0.964 0.040 205);
+  --cyan-100: oklch(0.924 0.072 205);
+  --cyan-200: oklch(0.866 0.108 205);
+  --cyan-300: oklch(0.782 0.135 205);
+  --cyan-400: oklch(0.708 0.148 205);
+  --cyan-500: oklch(0.640 0.152 205);
+  --cyan-600: oklch(0.558 0.140 207);
+  --cyan-700: oklch(0.472 0.122 208);
+  --cyan-on: oklch(0.992 0.006 205);
+  --ok-500: oklch(0.625 0.165 150);
+  --ok-700: oklch(0.480 0.135 152);
+  --ok-bg: oklch(0.945 0.060 150);
+  --warn-500: oklch(0.770 0.165 80);
+  --warn-700: oklch(0.585 0.135 70);
+  --warn-bg: oklch(0.958 0.075 84);
+  --err-500: oklch(0.600 0.215 27);
+  --err-700: oklch(0.490 0.188 26);
+  --err-bg: oklch(0.954 0.052 28);
+  --info-500: oklch(0.585 0.150 233);
+  --info-700: oklch(0.465 0.130 235);
+  --info-bg: oklch(0.952 0.045 233);
   --term-bg: oklch(0.228 0.018 188);
   --term-bg-2: oklch(0.288 0.018 188);
   --term-fg: oklch(0.905 0.010 180);
   --term-dim: oklch(0.640 0.012 184);
   --term-line: oklch(0.380 0.014 186);
-  --term-sea: oklch(0.715 0.105 178);
-  --font-display: Manrope, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-  --font-body: "Hanken Grotesk", ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-  --font-mono: "JetBrains Mono", "SF Mono", ui-monospace, Menlo, Consolas, monospace;
+  --term-sea: oklch(0.760 0.150 178);
+  --term-ok: oklch(0.800 0.185 150);
+  --term-warn: oklch(0.850 0.175 88);
+  --term-err: oklch(0.730 0.205 26);
+  --term-info: oklch(0.775 0.150 235);
+  --term-cyan: oklch(0.820 0.130 200);
+  --term-violet: oklch(0.770 0.150 305);
+  --ct-fg: var(--ink-0);
+  --ct-comment: oklch(0.605 0.018 215);
+  --ct-keyword: oklch(0.490 0.170 286);
+  --ct-string: oklch(0.495 0.130 150);
+  --ct-number: oklch(0.560 0.140 60);
+  --ct-function: oklch(0.505 0.160 252);
+  --ct-type: oklch(0.560 0.100 205);
+  --ct-property: oklch(0.470 0.092 212);
+  --ct-variable: oklch(0.510 0.158 350);
+  --ct-symbol: oklch(0.530 0.130 30);
+  --ct-punct: oklch(0.560 0.035 220);
+  --font-display: 'Manrope', ui-sans-serif, system-ui, sans-serif;
+  --font-body: 'Hanken Grotesk', ui-sans-serif, system-ui, -apple-system, sans-serif;
+  --font-mono: 'JetBrains Mono', ui-monospace, 'SF Mono', Menlo, monospace;
+  --weight-regular: 400;
+  --weight-medium: 500;
+  --weight-semi: 600;
+  --weight-bold: 700;
   --text-2xs: 11px;
   --text-xs: 12px;
   --text-sm: 13px;
@@ -52,6 +78,20 @@
   --text-lg: 21px;
   --text-xl: 25px;
   --text-2xl: 31px;
+  --text-3xl: 39px;
+  --text-4xl: 52px;
+  --text-5xl: 68px;
+  --text-6xl: 88px;
+  --leading-tight: 1.08;
+  --leading-snug: 1.28;
+  --leading-normal: 1.55;
+  --leading-relaxed: 1.72;
+  --tracking-tight: -0.02em;
+  --tracking-snug: -0.01em;
+  --tracking-normal: 0;
+  --tracking-wide: 0.04em;
+  --tracking-caps: 0.10em;
+  --space-0: 0;
   --space-1: 4px;
   --space-2: 8px;
   --space-3: 12px;
@@ -62,16 +102,29 @@
   --space-10: 40px;
   --space-12: 48px;
   --space-16: 64px;
+  --space-20: 80px;
+  --space-24: 96px;
+  --space-32: 128px;
+  --radius-0: 0px;
   --radius-1: 3px;
   --radius-2: 6px;
   --radius-3: 10px;
   --radius-4: 16px;
+  --radius-full: 999px;
+  --shadow-0: none;
   --shadow-1: 0 1px 2px oklch(0.244 0.022 188 / 0.05);
   --shadow-2: 0 1px 2px oklch(0.244 0.022 188 / 0.05), 0 2px 6px oklch(0.244 0.022 188 / 0.06);
-  --focus-ring: 0 0 0 3px oklch(0.552 0.102 178 / 0.30);
+  --shadow-3: 0 2px 4px oklch(0.244 0.022 188 / 0.05), 0 8px 24px oklch(0.244 0.022 188 / 0.08);
+  --shadow-4: 0 4px 8px oklch(0.244 0.022 188 / 0.06), 0 16px 48px oklch(0.244 0.022 188 / 0.12);
+  --focus-ring: 0 0 0 3px oklch(0.572 0.148 178 / 0.35);
+  --ease-out: cubic-bezier(0.22, 0.61, 0.36, 1);
+  --ease-inout: cubic-bezier(0.65, 0, 0.35, 1);
+  --ease-spring: cubic-bezier(0.34, 1.56, 0.64, 1);
+  --ease-back: cubic-bezier(0.5, -0.4, 0.5, 1.4);
   --dur-fast: 120ms;
   --dur-base: 180ms;
-  --ease-out: cubic-bezier(0.22, 0.61, 0.36, 1);
+  --dur-slow: 280ms;
+  --grid-line: oklch(0.244 0.022 188 / 0.035);
 }
 
 * {
@@ -89,9 +142,9 @@ body {
   background: var(--paper-0);
   color: var(--ink-0);
   font-family: var(--font-body);
-  font-size: 16px;
-  font-weight: 400;
-  line-height: 1.55;
+  font-size: var(--text-base);
+  font-weight: var(--weight-regular);
+  line-height: var(--leading-normal);
   -webkit-font-smoothing: antialiased;
 }
 
@@ -101,7 +154,7 @@ body {
 
 a {
   color: var(--sea-700);
-  font-weight: 500;
+  font-weight: var(--weight-medium);
   text-decoration-color: var(--sea-200);
   text-underline-offset: 0.18em;
 }
@@ -168,10 +221,6 @@ summary:focus-visible {
 .topnav a[aria-current="page"] {
   background: var(--sea-50);
   color: var(--sea-700);
-}
-
-.topbar-spacer {
-  flex: 1;
 }
 
 .sdk-language-picker {
@@ -345,44 +394,59 @@ summary:focus-visible {
   font-weight: 600;
 }
 
-.doc code {
-  border: 1px solid var(--line-1);
-  border-radius: var(--radius-1);
-  background: var(--paper-2);
-  color: var(--sea-700);
-  font-family: var(--font-mono);
-  font-size: 0.88em;
-  font-weight: 500;
-  padding: 0.1em 0.38em;
-}
-
 .doc pre {
   max-width: 78ch;
   margin: 10px 0 24px;
-  overflow-x: auto;
-  border: 1px solid var(--line-1);
-  border-radius: 9px;
-  background: var(--paper-1);
-  box-shadow: var(--shadow-1);
-  color: var(--ink-0);
   font-family: var(--font-mono);
-  font-size: 13.5px;
+  font-size: var(--text-sm);
   font-weight: 400;
   font-synthesis-weight: none;
   line-height: 1.7;
-  padding: 15px 16px;
+  background: var(--paper-2);
+  border: 1px solid var(--line-1);
+  border-radius: var(--radius-2);
+  padding: var(--space-4) var(--space-5);
+  color: var(--ink-0);
+  overflow: auto;
   tab-size: 2;
 }
 
 .doc pre code {
   display: block;
   min-width: max-content;
-  border: 0;
-  background: transparent;
-  color: inherit;
-  font-size: inherit;
   font-weight: 400;
+  font-synthesis-weight: none;
+  background: none;
+  border: 0;
   padding: 0;
+  font-size: 1em;
+  color: inherit;
+}
+
+.doc :not(pre) > code {
+  font-family: var(--font-mono);
+  font-size: 0.88em;
+  font-weight: var(--weight-medium);
+  background: var(--paper-2);
+  border: 1px solid var(--line-1);
+  border-radius: var(--radius-1);
+  padding: 0.1em 0.38em;
+  color: var(--sea-700);
+}
+
+.sdk-snippet-group {
+  max-width: 78ch;
+  margin: 10px 0 24px;
+}
+
+.sdk-snippet-toolbar {
+  display: flex;
+  justify-content: flex-end;
+  margin-bottom: var(--space-2);
+}
+
+.sdk-snippet-group .sdk-snippet {
+  margin: 0;
 }
 
 .sdk-snippet {
@@ -397,41 +461,188 @@ html[data-sdk-lang="go"] .sdk-snippet[data-sdk-lang="go"] {
   display: block;
 }
 
-.sx-comment {
-  color: var(--ink-2);
+.hljs {
+  color: var(--ct-fg);
+  background: transparent;
+}
+
+.hljs-comment,
+.hljs-quote {
+  color: var(--ct-comment);
   font-style: italic;
 }
 
-.sx-key,
-.sx-variable,
-.sx-entity,
-.sx-support {
-  color: var(--info-700);
+.hljs-keyword,
+.hljs-selector-tag {
+  color: var(--ct-keyword);
 }
 
-.sx-section,
-.sx-keyword,
-.sx-storage,
-.sx-meta,
-.sx-flag {
-  color: var(--info-700);
+.hljs-section,
+.hljs-name,
+.hljs-selector-id,
+.hljs-selector-class {
+  color: var(--ct-keyword);
+  font-weight: 500;
 }
 
-.sx-string {
+.hljs-string,
+.hljs-regexp,
+.hljs-meta .hljs-string {
+  color: var(--ct-string);
+}
+
+.hljs-number,
+.hljs-literal {
+  color: var(--ct-number);
+}
+
+.hljs-title,
+.hljs-title.function_ {
+  color: var(--ct-function);
+}
+
+.hljs-title.class_,
+.hljs-type,
+.hljs-built_in,
+.hljs-class .hljs-title {
+  color: var(--ct-type);
+}
+
+.hljs-attr,
+.hljs-attribute,
+.hljs-property {
+  color: var(--ct-property);
+}
+
+.hljs-variable,
+.hljs-template-variable,
+.hljs-variable.language_,
+.hljs-params {
+  color: var(--ct-variable);
+}
+
+.hljs-bullet,
+.hljs-symbol,
+.hljs-link {
+  color: var(--ct-symbol);
+}
+
+.hljs-meta,
+.hljs-meta .hljs-keyword {
+  color: var(--ct-symbol);
+}
+
+.hljs-punctuation,
+.hljs-operator {
+  color: var(--ct-punct);
+}
+
+.hljs-tag {
+  color: var(--ct-punct);
+}
+
+.hljs-tag .hljs-name {
+  color: var(--ct-keyword);
+}
+
+.hljs-tag .hljs-attr {
+  color: var(--ct-property);
+}
+
+.hljs-emphasis {
+  font-style: italic;
+}
+
+.hljs-strong {
+  font-weight: 600;
+}
+
+.token.comment,
+.token.prolog,
+.token.doctype,
+.token.cdata {
+  color: var(--ct-comment);
+  font-style: italic;
+}
+
+.token.keyword,
+.token.selector,
+.token.atrule,
+.token.section,
+.token.tag,
+.token.namespace {
+  color: var(--ct-keyword);
+}
+
+.token.property,
+.token.attr-name,
+.token.key {
+  color: var(--ct-property);
+}
+
+.token.string,
+.token.attr-value,
+.token.char,
+.token.regex,
+.token.inserted {
+  color: var(--ct-string);
+}
+
+.token.number,
+.token.boolean,
+.token.constant {
+  color: var(--ct-number);
+}
+
+.token.function,
+.token.method {
+  color: var(--ct-function);
+}
+
+.token.class-name,
+.token.builtin {
+  color: var(--ct-type);
+}
+
+.token.variable,
+.token.parameter {
+  color: var(--ct-variable);
+}
+
+.token.symbol,
+.token.important {
+  color: var(--ct-symbol);
+}
+
+.token.operator,
+.token.punctuation {
+  color: var(--ct-punct);
+}
+
+.token.deleted {
+  color: var(--err-700);
+}
+
+.token.bold {
+  font-weight: 600;
+}
+
+.token.italic {
+  font-style: italic;
+}
+
+.hljs-addition,
+.token.inserted-sign {
+  display: block;
+  background: var(--ok-bg);
   color: var(--ok-700);
 }
 
-.sx-number,
-.sx-numeric,
-.sx-constant,
-.sx-literal {
-  color: var(--sea-700);
-}
-
-.sx-punct,
-.sx-punctuation,
-.sx-operator {
-  color: var(--ink-2);
+.hljs-deletion,
+.token.deleted-sign {
+  display: block;
+  background: var(--err-bg);
+  color: var(--err-700);
 }
 
 .doc table {

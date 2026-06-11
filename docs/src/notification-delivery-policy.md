@@ -388,6 +388,7 @@ returns the reviewed policy. The notification service applies recipient
 preferences, consent, quiet-hour calculation, provider routing, retries, and
 logging.
 
+:::sdk-snippet notification-policy-app
 ```rust
 use serde::Deserialize;
 
@@ -435,6 +436,163 @@ async fn delivery_policy(
     Ok(policy)
 }
 ```
+
+```python
+from dataclasses import dataclass
+
+
+@dataclass
+class DeliveryPolicy:
+    delivery: str
+    channels: list[str]
+    digest_interval_hours: int | None
+    respect_quiet_hours: bool
+    fallback_channel: str
+
+
+async def delivery_policy(
+    workspace: rototo.Workspace,
+    account_plan: str,
+    notification_kind: str,
+    incident_active: bool,
+) -> DeliveryPolicy:
+    context = {
+        "account": {"plan": account_plan},
+        "notification": {"kind": notification_kind},
+        "incident": {"active": incident_active},
+    }
+    resolution = await workspace.resolve_variable(
+        "notification-delivery-policy",
+        context,
+    )
+    policy = DeliveryPolicy(**resolution.value)
+
+    print(f"selected notification-delivery-policy `{resolution.value_key}`")
+    return policy
+```
+
+```typescript
+type DeliveryPolicy = {
+  delivery: string;
+  channels: string[];
+  digest_interval_hours?: number;
+  respect_quiet_hours: boolean;
+  fallback_channel: string;
+};
+
+async function deliveryPolicy(
+  workspace: Workspace,
+  accountPlan: string,
+  notificationKind: string,
+  incidentActive: boolean,
+): Promise<DeliveryPolicy> {
+  const resolution = await workspace.resolveVariable(
+    "notification-delivery-policy",
+    {
+      account: { plan: accountPlan },
+      notification: { kind: notificationKind },
+      incident: { active: incidentActive },
+    },
+  );
+
+  console.log(
+    `selected notification-delivery-policy \`${resolution.valueKey}\``,
+  );
+  return resolution.value as DeliveryPolicy;
+}
+```
+
+```java
+record DeliveryPolicy(
+    String delivery,
+    List<String> channels,
+    Long digestIntervalHours,
+    boolean respectQuietHours,
+    String fallbackChannel
+) {}
+
+DeliveryPolicy deliveryPolicy(
+    Workspace workspace,
+    String accountPlan,
+    String notificationKind,
+    boolean incidentActive
+) throws Exception {
+    VariableResolution resolution = workspace
+        .resolveVariable(
+            "notification-delivery-policy",
+            Map.of(
+                "account", Map.of("plan", accountPlan),
+                "notification", Map.of("kind", notificationKind),
+                "incident", Map.of("active", incidentActive)
+            )
+        )
+        .get();
+
+    @SuppressWarnings("unchecked")
+    Map<String, Object> value = (Map<String, Object>) resolution.value();
+    @SuppressWarnings("unchecked")
+    List<String> channels = (List<String>) value.get("channels");
+    Number digestHours = (Number) value.get("digest_interval_hours");
+
+    System.out.printf(
+        "selected notification-delivery-policy `%s`%n",
+        resolution.valueKey()
+    );
+    return new DeliveryPolicy(
+        (String) value.get("delivery"),
+        channels,
+        digestHours == null ? null : digestHours.longValue(),
+        (Boolean) value.get("respect_quiet_hours"),
+        (String) value.get("fallback_channel")
+    );
+}
+```
+
+```go
+type DeliveryPolicy struct {
+    Delivery             string   `json:"delivery"`
+    Channels             []string `json:"channels"`
+    DigestIntervalHours  *uint64  `json:"digest_interval_hours"`
+    RespectQuietHours    bool     `json:"respect_quiet_hours"`
+    FallbackChannel      string   `json:"fallback_channel"`
+}
+
+func deliveryPolicy(
+    ctx context.Context,
+    workspace *rototo.Workspace,
+    accountPlan string,
+    notificationKind string,
+    incidentActive bool,
+) (DeliveryPolicy, error) {
+    resolution, err := workspace.ResolveVariable(
+        ctx,
+        "notification-delivery-policy",
+        map[string]any{
+            "account":      map[string]any{"plan": accountPlan},
+            "notification": map[string]any{"kind": notificationKind},
+            "incident":     map[string]any{"active": incidentActive},
+        },
+        nil,
+    )
+    if err != nil {
+        return DeliveryPolicy{}, err
+    }
+
+    payload, err := json.Marshal(resolution.Value)
+    if err != nil {
+        return DeliveryPolicy{}, err
+    }
+
+    var policy DeliveryPolicy
+    if err := json.Unmarshal(payload, &policy); err != nil {
+        return DeliveryPolicy{}, err
+    }
+
+    fmt.Printf("selected notification-delivery-policy `%s`\n", resolution.ValueKey)
+    return policy, nil
+}
+```
+:::
 
 The selected value is observable. Logs and traces can show which policy key was
 used, which workspace version supplied it, and which runtime facts led there.
