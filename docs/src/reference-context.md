@@ -41,8 +41,9 @@ If no context is passed to `rototo resolve`, rototo uses `{}`.
 
 ## SDK Context
 
-The [SDK](reference-sdk-resolution.html) uses `ResolveContext`:
+The [SDK](reference-sdk-resolution.html) uses a JSON object context:
 
+:::sdk-snippet reference-context-sdk
 ```rust
 use rototo::ResolveContext;
 
@@ -53,7 +54,39 @@ let context = ResolveContext::from_json(serde_json::json!({
 }))?;
 ```
 
-`ResolveContext::from_json` rejects non-object JSON.
+```python
+context = {
+    "account": {
+        "plan": "enterprise",
+    },
+}
+```
+
+```typescript
+const context = {
+  account: {
+    plan: "enterprise",
+  },
+};
+```
+
+```java
+Map<String, Object> context = Map.of(
+    "account",
+    Map.of("plan", "enterprise")
+);
+```
+
+```go
+resolveContext := map[string]any{
+    "account": map[string]any{
+        "plan": "enterprise",
+    },
+}
+```
+:::
+
+SDK resolution rejects non-object JSON context.
 
 ## Context Schema
 

@@ -1,12 +1,8 @@
 use std::collections::BTreeMap;
 use std::path::Path;
-use std::sync::LazyLock;
 
 use pulldown_cmark::{CodeBlockKind, Event, Options, Parser, Tag, TagEnd, html};
 use regex::Regex;
-use syntect::html::{ClassStyle, ClassedHTMLGenerator};
-use syntect::parsing::SyntaxSet;
-use syntect::util::LinesWithEndings;
 
 use crate::error::{Result, RototoError};
 
@@ -327,8 +323,8 @@ const DOCS_CSS: &str = include_str!("../docs/theme/rototo-docs.css");
 const FAVICON_SVG: &str = include_str!("../docs/theme/favicon.svg");
 const MARK_SVG: &str = include_str!("../docs/theme/rototo-mark.svg");
 const WORDMARK_SVG: &str = include_str!("../docs/theme/rototo-wordmark.svg");
-static SYNTAX_SET: LazyLock<SyntaxSet> = LazyLock::new(SyntaxSet::load_defaults_newlines);
 pub const DEFAULT_DOCS_BASE_URL: &str = "https://docs.rototo.dev";
+const HIGHLIGHT_JS_VERSION: &str = "11.9.0";
 
 /// Brand fonts referenced by the stylesheet: Manrope for display headings,
 /// Hanken Grotesk for body text, and JetBrains Mono for code and labels.
@@ -369,8 +365,6 @@ pub fn render_page_html(page: &DocPage) -> String {
   <a class="brand" href="index.html"><img class="brand-wordmark" src="assets/rototo-wordmark.svg" alt="rototo"></a>
   <nav class="topnav" aria-label="Primary">
 {topnav}  </nav>
-  <div class="topbar-spacer"></div>
-  {language_picker}
 </header>
 <div class="layout">
   <details class="mobile-nav">
@@ -388,19 +382,20 @@ pub fn render_page_html(page: &DocPage) -> String {
 {toc}
 </div>
 {language_script}
+{highlight_script}
 </body>
 </html>
 "#,
         title = escape_html(page.title),
         fonts = GOOGLE_FONTS_HREF,
         topnav = render_topnav(page.id),
-        language_picker = render_sdk_language_picker(),
         section = section,
         nav = nav,
         body = body,
         page_nav = render_page_nav(page.id),
         toc = toc,
         language_script = render_sdk_language_script(),
+        highlight_script = render_syntax_highlight_script(),
     )
 }
 
@@ -708,7 +703,7 @@ fn render_topnav(current: &str) -> String {
     nav
 }
 
-fn render_sdk_language_picker() -> String {
+fn render_sdk_language_options() -> String {
     let mut options = String::new();
     for language in SDK_LANGUAGES {
         let selected = if language.id == "rust" {
@@ -722,8 +717,13 @@ fn render_sdk_language_picker() -> String {
             label = escape_html(language.label),
         ));
     }
+    options
+}
+
+fn render_sdk_language_picker() -> String {
     format!(
-        r#"<label class="sdk-language-picker"><span>SDK</span><select id="sdk-language" aria-label="SDK language">{options}</select></label>"#
+        r#"<label class="sdk-language-picker sdk-snippet-picker"><span>SDK</span><select class="sdk-language-select" aria-label="SDK language for this code sample">{options}</select></label>"#,
+        options = render_sdk_language_options(),
     )
 }
 
@@ -738,7 +738,7 @@ fn render_sdk_language_script() -> String {
 (function() {{
   var supported = [{supported}];
   var key = "rototo.sdkLanguage";
-  var select = document.getElementById("sdk-language");
+  var selects = Array.prototype.slice.call(document.querySelectorAll(".sdk-language-select"));
   function stored() {{
     try {{
       return window.localStorage.getItem(key);
@@ -759,18 +759,42 @@ fn render_sdk_language_script() -> String {
     var language = supported.indexOf(value) >= 0 ? value : "rust";
     document.documentElement.setAttribute("data-sdk-lang", language);
     remember(language);
-    if (select) {{
+    selects.forEach(function(select) {{
       select.value = language;
-    }}
+    }});
   }}
   setLanguage(preferred());
-  if (select) {{
+  selects.forEach(function(select) {{
     select.addEventListener("change", function(event) {{
       setLanguage(event.target.value);
     }});
-  }}
+  }});
 }})();
 </script>"#
+    )
+}
+
+fn render_syntax_highlight_script() -> String {
+    format!(
+        r#"<script src="https://unpkg.com/@highlightjs/cdn-assets@{version}/highlight.min.js"></script>
+<script src="https://unpkg.com/@highlightjs/cdn-assets@{version}/languages/bash.min.js"></script>
+<script src="https://unpkg.com/@highlightjs/cdn-assets@{version}/languages/gradle.min.js"></script>
+<script>
+(function() {{
+  if (!window.hljs) {{
+    return;
+  }}
+  if (window.hljs.getLanguage("bash")) {{
+    window.hljs.registerAliases(["sh", "shell"], {{ languageName: "bash" }});
+  }}
+  if (window.hljs.getLanguage("ini")) {{
+    window.hljs.registerAliases(["toml"], {{ languageName: "ini" }});
+  }}
+  window.hljs.configure({{ ignoreUnescapedHTML: true }});
+  window.hljs.highlightAll();
+}})();
+</script>"#,
+        version = HIGHLIGHT_JS_VERSION,
     )
 }
 
@@ -901,72 +925,25 @@ fn render_code_block_with_attrs(
     extra_class: &str,
     extra_attrs: &str,
 ) -> String {
-    let highlighted = highlight_code(language, code);
-    let highlighted = fill_blank_html_lines(&highlighted);
+    let code_language = highlight_js_language(language);
+    let code = escape_html(code);
     let class_suffix = if extra_class.is_empty() {
         String::new()
     } else {
         format!(" {extra_class}")
     };
     format!(
-        "<pre class=\"code-block language-{language}{class_suffix}\"{extra_attrs}><code class=\"language-{language}\">{highlighted}</code></pre>\n"
+        "<pre class=\"code-block language-{language}{class_suffix}\"{extra_attrs}><code class=\"language-{code_language}\">{code}</code></pre>\n"
     )
 }
 
-fn highlight_code(language: &str, code: &str) -> String {
-    let syntax_set = &*SYNTAX_SET;
-    let Some(syntax) = syntax_for_language(syntax_set, language) else {
-        return escape_html(code);
-    };
-    let mut generator = ClassedHTMLGenerator::new_with_class_style(
-        syntax,
-        syntax_set,
-        ClassStyle::SpacedPrefixed { prefix: "sx-" },
-    );
-    for line in LinesWithEndings::from(code) {
-        if generator
-            .parse_html_for_line_which_includes_newline(line)
-            .is_err()
-        {
-            return escape_html(code);
-        }
-    }
-    generator.finalize()
-}
-
-fn syntax_for_language<'a>(
-    syntax_set: &'a SyntaxSet,
-    language: &str,
-) -> Option<&'a syntect::parsing::SyntaxReference> {
-    let token = syntax_token(language);
-    syntax_set
-        .find_syntax_by_token(token)
-        .or_else(|| syntax_set.find_syntax_by_extension(token))
-        .or_else(|| syntax_set.find_syntax_by_token(language))
-        .or_else(|| syntax_set.find_syntax_by_extension(language))
-}
-
-fn syntax_token(language: &str) -> &str {
+fn highlight_js_language(language: &str) -> &str {
     match language {
         "sh" => "bash",
-        "typescript" => "ts",
+        "text" => "plaintext",
+        "toml" => "ini",
         other => other,
     }
-}
-
-fn fill_blank_html_lines(html: &str) -> String {
-    let mut out = String::new();
-    for line in html.split_inclusive('\n') {
-        let content = line.trim_end_matches(['\r', '\n']);
-        let newline = &line[content.len()..];
-        if content.trim().is_empty() {
-            out.push_str("<span class=\"sx-blank-line\">&#8203;</span>");
-            out.push_str(newline);
-        } else {
-            out.push_str(line);
-        }
-    }
-    out
 }
 
 fn expand_sdk_snippet_groups(markdown: &str) -> String {
@@ -1006,6 +983,9 @@ fn render_sdk_snippet_group(id: &str, markdown: &str) -> String {
         "<div class=\"sdk-snippet-group\" data-snippet-id=\"{}\">\n",
         escape_html(id)
     );
+    out.push_str("  <div class=\"sdk-snippet-toolbar\">");
+    out.push_str(&render_sdk_language_picker());
+    out.push_str("</div>\n");
     for language in SDK_LANGUAGES {
         let code = snippets
             .iter()

@@ -364,6 +364,7 @@ the team had a production-shaped test path before widening the policy.
 The app should [deserialize the selected list](application-integration.html)
 and map each step ID to app-owned content and completion state.
 
+:::sdk-snippet onboarding-checklist-app
 ```rust
 use rototo::{ResolveContext, Workspace};
 
@@ -396,6 +397,112 @@ async fn onboarding_steps_for_account(
     Ok(steps)
 }
 ```
+
+```python
+async def onboarding_steps_for_account(
+    workspace: rototo.Workspace,
+    kind: str,
+    plan: str,
+    region: str,
+) -> list[str]:
+    context = {
+        "account": {
+            "kind": kind,
+            "plan": plan,
+            "region": region,
+        },
+    }
+    resolution = await workspace.resolve_variable("onboarding-steps", context)
+    steps = list(resolution.value)
+
+    print(f"selected onboarding-steps `{resolution.value_key}`")
+    return steps
+```
+
+```typescript
+async function onboardingStepsForAccount(
+  workspace: Workspace,
+  kind: string,
+  plan: string,
+  region: string,
+): Promise<string[]> {
+  const context = {
+    account: { kind, plan, region },
+  };
+  const resolution = await workspace.resolveVariable(
+    "onboarding-steps",
+    context,
+  );
+
+  console.log(`selected onboarding-steps \`${resolution.valueKey}\``);
+  return resolution.value as string[];
+}
+```
+
+```java
+List<String> onboardingStepsForAccount(
+    Workspace workspace,
+    String kind,
+    String plan,
+    String region
+) throws Exception {
+    VariableResolution resolution = workspace
+        .resolveVariable(
+            "onboarding-steps",
+            Map.of("account", Map.of(
+                "kind", kind,
+                "plan", plan,
+                "region", region
+            ))
+        )
+        .get();
+
+    @SuppressWarnings("unchecked")
+    List<String> steps = (List<String>) resolution.value();
+    System.out.printf("selected onboarding-steps `%s`%n", resolution.valueKey());
+    return steps;
+}
+```
+
+```go
+func onboardingStepsForAccount(
+    ctx context.Context,
+    workspace *rototo.Workspace,
+    kind string,
+    plan string,
+    region string,
+) ([]string, error) {
+    resolution, err := workspace.ResolveVariable(
+        ctx,
+        "onboarding-steps",
+        map[string]any{
+            "account": map[string]any{
+                "kind":   kind,
+                "plan":   plan,
+                "region": region,
+            },
+        },
+        nil,
+    )
+    if err != nil {
+        return nil, err
+    }
+
+    payload, err := json.Marshal(resolution.Value)
+    if err != nil {
+        return nil, err
+    }
+
+    var steps []string
+    if err := json.Unmarshal(payload, &steps); err != nil {
+        return nil, err
+    }
+
+    fmt.Printf("selected onboarding-steps `%s`\n", resolution.ValueKey)
+    return steps, nil
+}
+```
+:::
 
 Rototo selects a reviewed list of step IDs. The app still owns the step labels,
 the UI, completion state, and whether a user has already finished a step.

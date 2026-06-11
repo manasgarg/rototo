@@ -168,6 +168,7 @@ that visible.
 The application should still have tests that deserialize the selected value and
 exercise the behavior boundary that uses it.
 
+:::sdk-snippet testing-app-contract
 ```rust
 use std::error::Error;
 use serde::Deserialize;
@@ -203,6 +204,142 @@ async fn enterprise_account_receives_enterprise_limits() -> Result<(), Box<dyn E
 }
 ```
 
+```python
+from dataclasses import dataclass
+import rototo
+
+
+@dataclass
+class AccountLimitProfile:
+    max_projects: int
+    audit_retention_days: int
+
+
+async def test_enterprise_account_receives_enterprise_limits():
+    workspace = await rototo.Workspace.load("account-config")
+    resolution = await workspace.resolve_variable(
+        "account-limit-profile",
+        {
+            "account": {
+                "id": "acct_enterprise",
+                "plan": "enterprise",
+                "seats": 120,
+            },
+        },
+    )
+
+    assert resolution.value_key == "enterprise"
+    profile = AccountLimitProfile(**resolution.value)
+    assert profile.max_projects == 100
+    assert profile.audit_retention_days == 365
+```
+
+```typescript
+import assert from "node:assert/strict";
+import test from "node:test";
+import { Workspace } from "rototo";
+
+type AccountLimitProfile = {
+  max_projects: number;
+  audit_retention_days: number;
+};
+
+test("enterprise account receives enterprise limits", async () => {
+  const workspace = await Workspace.load("account-config");
+  const resolution = await workspace.resolveVariable(
+    "account-limit-profile",
+    {
+      account: {
+        id: "acct_enterprise",
+        plan: "enterprise",
+        seats: 120,
+      },
+    },
+  );
+
+  assert.equal(resolution.valueKey, "enterprise");
+  const profile = resolution.value as AccountLimitProfile;
+  assert.equal(profile.max_projects, 100);
+  assert.equal(profile.audit_retention_days, 365);
+});
+```
+
+```java
+@Test
+void enterpriseAccountReceivesEnterpriseLimits() throws Exception {
+    try (Workspace workspace = Workspace.load("account-config").get()) {
+        VariableResolution resolution = workspace
+            .resolveVariable(
+                "account-limit-profile",
+                Map.of("account", Map.of(
+                    "id", "acct_enterprise",
+                    "plan", "enterprise",
+                    "seats", 120
+                ))
+            )
+            .get();
+
+        @SuppressWarnings("unchecked")
+        Map<String, Object> profile =
+            (Map<String, Object>) resolution.value();
+
+        assertEquals("enterprise", resolution.valueKey());
+        assertEquals(100L, ((Number) profile.get("max_projects")).longValue());
+        assertEquals(
+            365L,
+            ((Number) profile.get("audit_retention_days")).longValue()
+        );
+    }
+}
+```
+
+```go
+func TestEnterpriseAccountReceivesEnterpriseLimits(t *testing.T) {
+    ctx := context.Background()
+    workspace, err := rototo.Load(ctx, "account-config", nil)
+    if err != nil {
+        t.Fatal(err)
+    }
+    defer workspace.Close()
+
+    resolution, err := workspace.ResolveVariable(
+        ctx,
+        "account-limit-profile",
+        map[string]any{
+            "account": map[string]any{
+                "id":    "acct_enterprise",
+                "plan":  "enterprise",
+                "seats": 120,
+            },
+        },
+        nil,
+    )
+    if err != nil {
+        t.Fatal(err)
+    }
+
+    payload, err := json.Marshal(resolution.Value)
+    if err != nil {
+        t.Fatal(err)
+    }
+    var profile struct {
+        MaxProjects        uint64 `json:"max_projects"`
+        AuditRetentionDays uint64 `json:"audit_retention_days"`
+    }
+    if err := json.Unmarshal(payload, &profile); err != nil {
+        t.Fatal(err)
+    }
+
+    if resolution.ValueKey != "enterprise" {
+        t.Fatalf("unexpected value key: %s", resolution.ValueKey)
+    }
+    if profile.MaxProjects != 100 || profile.AuditRetentionDays != 365 {
+        t.Fatalf("unexpected profile: %#v", profile)
+    }
+}
+```
+:::
+
 This test catches a different class of failure from lint. The workspace may
 select a schema-valid value, but the application may no longer be able to
 deserialize or use it. That is an app contract failure, and it should fail in
@@ -225,6 +362,7 @@ Every important variable should have tests for its default path. Defaults are
 not just fallback syntax. They are production behavior for any request that
 does not match a rule.
 
+:::sdk-snippet testing-default-path
 ```rust
 let standard = ResolveContext::from_json(serde_json::json!({
     "account": {
@@ -238,6 +376,71 @@ let resolution = workspace
     .await?;
 assert_eq!(resolution.value_key, "standard");
 ```
+
+```python
+standard = {
+    "account": {
+        "id": "acct_standard",
+        "plan": "standard",
+    },
+}
+
+resolution = await workspace.resolve_variable(
+    "account-limit-profile",
+    standard,
+)
+assert resolution.value_key == "standard"
+```
+
+```typescript
+const standard = {
+  account: {
+    id: "acct_standard",
+    plan: "standard",
+  },
+};
+
+const resolution = await workspace.resolveVariable(
+  "account-limit-profile",
+  standard,
+);
+assert.equal(resolution.valueKey, "standard");
+```
+
+```java
+Map<String, Object> standard = Map.of(
+    "account",
+    Map.of("id", "acct_standard", "plan", "standard")
+);
+
+VariableResolution resolution = workspace
+    .resolveVariable("account-limit-profile", standard)
+    .get();
+assertEquals("standard", resolution.valueKey());
+```
+
+```go
+standard := map[string]any{
+    "account": map[string]any{
+        "id":   "acct_standard",
+        "plan": "standard",
+    },
+}
+
+resolution, err := workspace.ResolveVariable(
+    ctx,
+    "account-limit-profile",
+    standard,
+    nil,
+)
+if err != nil {
+    t.Fatal(err)
+}
+if resolution.ValueKey != "standard" {
+    t.Fatalf("unexpected value key: %s", resolution.ValueKey)
+}
+```
+:::
 
 Also test the failures you expect the app to handle deliberately:
 
@@ -284,6 +487,7 @@ At minimum, cover these cases:
 
 The core assertion looks like this:
 
+:::sdk-snippet testing-refresh-success
 ```rust
 let workspace = RefreshingWorkspace::load(source, RefreshOptions::new()).await?;
 let context = ResolveContext::from_json(serde_json::json!({}))?;
@@ -302,8 +506,97 @@ let after = workspace
 assert_eq!(after.value_key, "on");
 ```
 
+```python
+workspace = await rototo.RefreshingWorkspace.load(source)
+context = {}
+
+before = await workspace.resolve_variable("support-banner", context)
+assert before.value_key == "off"
+
+await publish_workspace_change_that_turns_banner_on()
+await workspace.refresh_now()
+
+after = await workspace.resolve_variable("support-banner", context)
+assert after.value_key == "on"
+```
+
+```typescript
+const workspace = await RefreshingWorkspace.load(source);
+const context = {};
+
+const before = await workspace.resolveVariable("support-banner", context);
+assert.equal(before.valueKey, "off");
+
+await publishWorkspaceChangeThatTurnsBannerOn();
+await workspace.refreshNow();
+
+const after = await workspace.resolveVariable("support-banner", context);
+assert.equal(after.valueKey, "on");
+```
+
+```java
+RefreshingWorkspace workspace = RefreshingWorkspace
+    .load(source)
+    .get();
+Map<String, Object> context = Map.of();
+
+VariableResolution before = workspace
+    .resolveVariable("support-banner", context)
+    .get();
+assertEquals("off", before.valueKey());
+
+publishWorkspaceChangeThatTurnsBannerOn();
+workspace.refreshNow().get();
+
+VariableResolution after = workspace
+    .resolveVariable("support-banner", context)
+    .get();
+assertEquals("on", after.valueKey());
+```
+
+```go
+workspace, err := rototo.LoadRefreshing(ctx, source, nil)
+if err != nil {
+    t.Fatal(err)
+}
+defer workspace.Close(ctx)
+
+before, err := workspace.ResolveVariable(
+    ctx,
+    "support-banner",
+    map[string]any{},
+    nil,
+)
+if err != nil {
+    t.Fatal(err)
+}
+if before.ValueKey != "off" {
+    t.Fatalf("unexpected value key before refresh: %s", before.ValueKey)
+}
+
+publishWorkspaceChangeThatTurnsBannerOn(t)
+if _, err := workspace.RefreshNow(ctx); err != nil {
+    t.Fatal(err)
+}
+
+after, err := workspace.ResolveVariable(
+    ctx,
+    "support-banner",
+    map[string]any{},
+    nil,
+)
+if err != nil {
+    t.Fatal(err)
+}
+if after.ValueKey != "on" {
+    t.Fatalf("unexpected value key after refresh: %s", after.ValueKey)
+}
+```
+:::
+
 And the failure path should prove last-known-good behavior:
 
+:::sdk-snippet testing-refresh-failure
 ```rust
 publish_broken_workspace_change().await?;
 assert!(workspace.refresh_now().await.is_err());
@@ -317,6 +610,76 @@ let status = workspace.status().await;
 assert!(status.last_error.is_some());
 assert_eq!(status.consecutive_failures, 1);
 ```
+
+```python
+await publish_broken_workspace_change()
+try:
+    await workspace.refresh_now()
+except rototo.RototoError:
+    pass
+
+still_valid = await workspace.resolve_variable("support-banner", context)
+assert still_valid.value_key == "on"
+
+status = await workspace.status()
+assert status.last_error is not None
+assert status.consecutive_failures == 1
+```
+
+```typescript
+await publishBrokenWorkspaceChange();
+await assert.rejects(() => workspace.refreshNow());
+
+const stillValid = await workspace.resolveVariable("support-banner", context);
+assert.equal(stillValid.valueKey, "on");
+
+const status = await workspace.status();
+assert.ok(status.lastError);
+assert.equal(status.consecutiveFailures, 1);
+```
+
+```java
+publishBrokenWorkspaceChange();
+assertThrows(ExecutionException.class, () -> workspace.refreshNow().get());
+
+VariableResolution stillValid = workspace
+    .resolveVariable("support-banner", context)
+    .get();
+assertEquals("on", stillValid.valueKey());
+
+RefreshStatus status = workspace.status().get();
+assertNotNull(status.lastError());
+assertEquals(1, status.consecutiveFailures());
+```
+
+```go
+publishBrokenWorkspaceChange(t)
+if _, err := workspace.RefreshNow(ctx); err == nil {
+    t.Fatal("expected refresh failure")
+}
+
+stillValid, err := workspace.ResolveVariable(
+    ctx,
+    "support-banner",
+    map[string]any{},
+    nil,
+)
+if err != nil {
+    t.Fatal(err)
+}
+if stillValid.ValueKey != "on" {
+    t.Fatalf("unexpected value key after failed refresh: %s", stillValid.ValueKey)
+}
+
+status, err := workspace.Status(ctx)
+if err != nil {
+    t.Fatal(err)
+}
+if status.LastError == nil || status.ConsecutiveFailures != 1 {
+    t.Fatalf("unexpected refresh status: %#v", status)
+}
+```
+:::
 
 The helper names in those snippets are app test helpers, not rototo APIs. The
 contract is what matters: a bad workspace commit must not replace the

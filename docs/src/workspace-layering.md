@@ -309,6 +309,7 @@ variable from the final workspace.
 
 The app should [load the most specific workspace source](reference-sdk-loading.html):
 
+:::sdk-snippet workspace-layering-app
 ```rust
 use rototo::{ResolveContext, Workspace};
 
@@ -330,6 +331,73 @@ async fn route_for_task(
     Ok(resolution.value)
 }
 ```
+
+```python
+async def route_for_task(
+    workspace_source: str,
+    task_kind: str,
+) -> object:
+    workspace = await rototo.Workspace.load(workspace_source)
+    resolution = await workspace.resolve_variable(
+        "inference-routing-policy",
+        {"task": {"kind": task_kind}},
+    )
+    return resolution.value
+```
+
+```typescript
+async function routeForTask(
+  workspaceSource: string,
+  taskKind: string,
+): Promise<unknown> {
+  const workspace = await Workspace.load(workspaceSource);
+  const resolution = await workspace.resolveVariable(
+    "inference-routing-policy",
+    { task: { kind: taskKind } },
+  );
+  return resolution.value;
+}
+```
+
+```java
+Object routeForTask(String workspaceSource, String taskKind) throws Exception {
+    try (Workspace workspace = Workspace.load(workspaceSource).get()) {
+        VariableResolution resolution = workspace
+            .resolveVariable(
+                "inference-routing-policy",
+                Map.of("task", Map.of("kind", taskKind))
+            )
+            .get();
+        return resolution.value();
+    }
+}
+```
+
+```go
+func routeForTask(
+    ctx context.Context,
+    workspaceSource string,
+    taskKind string,
+) (any, error) {
+    workspace, err := rototo.Load(ctx, workspaceSource, nil)
+    if err != nil {
+        return nil, err
+    }
+    defer workspace.Close()
+
+    resolution, err := workspace.ResolveVariable(
+        ctx,
+        "inference-routing-policy",
+        map[string]any{"task": map[string]any{"kind": taskKind}},
+        nil,
+    )
+    if err != nil {
+        return nil, err
+    }
+    return resolution.Value, nil
+}
+```
+:::
 
 For this example, `workspace_source` would point at `team-config`. In a hosted
 setup, it could be a git source for the team workspace. That source can extend

@@ -23,11 +23,36 @@ rototo resolve account-config \
 
 SDK:
 
+:::sdk-snippet variable-resolution-sdk
 ```rust
 let resolution = workspace
     .resolve_variable("account-limits", &context)
     .await?;
 ```
+
+```python
+resolution = await workspace.resolve_variable("account-limits", context)
+```
+
+```typescript
+const resolution = await workspace.resolveVariable("account-limits", context);
+```
+
+```java
+VariableResolution resolution = workspace
+    .resolveVariable("account-limits", context)
+    .get();
+```
+
+```go
+resolution, err := workspace.ResolveVariable(
+    ctx,
+    "account-limits",
+    resolveContext,
+    nil,
+)
+```
+:::
 
 ## Rule Evaluation
 

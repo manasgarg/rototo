@@ -248,6 +248,7 @@ keeps the boundary crisp: rototo returns a validated JSON value, and the app
 turns that value into application behavior. The broader integration pattern is
 covered in [Application Integration](application-integration.html).
 
+:::sdk-snippet incident-banner-app
 ```rust
 use serde::Deserialize;
 
@@ -291,6 +292,135 @@ async fn support_banner_for_request(
     }
 }
 ```
+
+```python
+from dataclasses import dataclass
+
+
+@dataclass
+class SupportBanner:
+    enabled: bool
+    severity: str | None = None
+    title: str | None = None
+    message: str | None = None
+    link: str | None = None
+
+
+async def support_banner_for_request(
+    workspace: rototo.Workspace,
+    account_region: str,
+) -> SupportBanner | None:
+    resolution = await workspace.resolve_variable(
+        "support-banner",
+        {"account": {"region": account_region}},
+    )
+    banner = SupportBanner(**resolution.value)
+
+    print(f"selected support-banner `{resolution.value_key}`")
+    return banner if banner.enabled else None
+```
+
+```typescript
+type SupportBanner = {
+  enabled: boolean;
+  severity?: string;
+  title?: string;
+  message?: string;
+  link?: string;
+};
+
+async function supportBannerForRequest(
+  workspace: Workspace,
+  accountRegion: string,
+): Promise<SupportBanner | undefined> {
+  const resolution = await workspace.resolveVariable(
+    "support-banner",
+    { account: { region: accountRegion } },
+  );
+  const banner = resolution.value as SupportBanner;
+
+  console.log(`selected support-banner \`${resolution.valueKey}\``);
+  return banner.enabled ? banner : undefined;
+}
+```
+
+```java
+record SupportBanner(
+    boolean enabled,
+    String severity,
+    String title,
+    String message,
+    String link
+) {}
+
+Optional<SupportBanner> supportBannerForRequest(
+    Workspace workspace,
+    String accountRegion
+) throws Exception {
+    VariableResolution resolution = workspace
+        .resolveVariable(
+            "support-banner",
+            Map.of("account", Map.of("region", accountRegion))
+        )
+        .get();
+
+    @SuppressWarnings("unchecked")
+    Map<String, Object> value = (Map<String, Object>) resolution.value();
+    SupportBanner banner = new SupportBanner(
+        (Boolean) value.get("enabled"),
+        (String) value.get("severity"),
+        (String) value.get("title"),
+        (String) value.get("message"),
+        (String) value.get("link")
+    );
+
+    System.out.printf("selected support-banner `%s`%n", resolution.valueKey());
+    return banner.enabled() ? Optional.of(banner) : Optional.empty();
+}
+```
+
+```go
+type SupportBanner struct {
+    Enabled  bool    `json:"enabled"`
+    Severity *string `json:"severity"`
+    Title    *string `json:"title"`
+    Message  *string `json:"message"`
+    Link     *string `json:"link"`
+}
+
+func supportBannerForRequest(
+    ctx context.Context,
+    workspace *rototo.Workspace,
+    accountRegion string,
+) (*SupportBanner, error) {
+    resolution, err := workspace.ResolveVariable(
+        ctx,
+        "support-banner",
+        map[string]any{"account": map[string]any{"region": accountRegion}},
+        nil,
+    )
+    if err != nil {
+        return nil, err
+    }
+
+    payload, err := json.Marshal(resolution.Value)
+    if err != nil {
+        return nil, err
+    }
+
+    var banner SupportBanner
+    if err := json.Unmarshal(payload, &banner); err != nil {
+        return nil, err
+    }
+
+    fmt.Printf("selected support-banner `%s`\n", resolution.ValueKey)
+    if !banner.Enabled {
+        return nil, nil
+    }
+    return &banner, nil
+}
+```
+:::
 
 In a real service, I would emit the selected value key and workspace
 fingerprint through the same observability path I use for the request. When a

@@ -86,17 +86,43 @@ diagnostics are reported.
 
 ## SDK
 
-The SDK exposes:
+The SDK can lint an inspected workspace handle:
 
+:::sdk-snippet lint-workspace-sdk
 ```rust
-rototo::lint_workspace(workspace_root).await?;
-rototo::lint_variable(workspace_root, "account-limits").await?;
-rototo::lint_qualifier(workspace_root, "paid-account").await?;
-rototo::lint_resource(workspace_root, "account-limit-profile").await?;
+let workspace = Workspace::inspect(workspace_root).await?;
+let lint = workspace.lint().await?;
 ```
 
-`Workspace::load` also runs lint by default and rejects workspaces with error
-diagnostics.
+```python
+workspace = await rototo.Workspace.inspect(workspace_root)
+lint = await workspace.lint()
+```
+
+```typescript
+const workspace = await Workspace.inspect(workspaceRoot);
+const lint = await workspace.lint();
+```
+
+```java
+try (Workspace workspace = Workspace.inspect(workspaceRoot).get()) {
+    WorkspaceLint lint = workspace.lint().get();
+}
+```
+
+```go
+workspace, err := rototo.Inspect(ctx, workspaceRoot, nil)
+if err != nil {
+    return err
+}
+defer workspace.Close()
+
+lint, err := workspace.Lint(ctx)
+```
+:::
+
+`Workspace::load` and the equivalent language SDK load calls also run lint by
+default and reject workspaces with error diagnostics.
 
 ## Custom Policy
 

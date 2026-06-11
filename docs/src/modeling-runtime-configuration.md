@@ -44,11 +44,42 @@ account-limit-profile
 
 The app now has one stable call:
 
+:::sdk-snippet modeling-runtime-app-call
 ```rust
 let limits = workspace
     .resolve_variable("account-limit-profile", &context)
     .await?;
 ```
+
+```python
+limits = await workspace.resolve_variable(
+    "account-limit-profile",
+    context,
+)
+```
+
+```typescript
+const limits = await workspace.resolveVariable(
+  "account-limit-profile",
+  context,
+);
+```
+
+```java
+VariableResolution limits = workspace
+    .resolveVariable("account-limit-profile", context)
+    .get();
+```
+
+```go
+limits, err := workspace.ResolveVariable(
+    ctx,
+    "account-limit-profile",
+    resolveContext,
+    nil,
+)
+```
+:::
 
 The app asks for the policy it needs. Rototo selects the value. The app does
 not reconstruct policy by resolving a pile of loosely related variables.

@@ -26,12 +26,56 @@ ROTOTO_WORKSPACE_SOURCE=git+https://github.com/acme/runtime-config.git#main:work
 
 The app should load that source through the SDK:
 
+:::sdk-snippet application-load-workspace
 ```rust
 use rototo::Workspace;
 
 let source = std::env::var("ROTOTO_WORKSPACE_SOURCE")?;
 let workspace = Workspace::load(source).await?;
 ```
+
+```python
+import os
+import rototo
+
+source = os.environ["ROTOTO_WORKSPACE_SOURCE"]
+workspace = await rototo.Workspace.load(source)
+```
+
+```typescript
+import { Workspace } from "rototo";
+
+const source = process.env.ROTOTO_WORKSPACE_SOURCE;
+if (!source) {
+  throw new Error("ROTOTO_WORKSPACE_SOURCE is required");
+}
+
+const workspace = await Workspace.load(source);
+```
+
+```java
+import dev.rototo.Workspace;
+
+String source = System.getenv("ROTOTO_WORKSPACE_SOURCE");
+Workspace workspace = Workspace.load(source).get();
+```
+
+```go
+import (
+    "context"
+    "os"
+
+    rototo "github.com/manasgarg/rototo/sdks/go"
+)
+
+source := os.Getenv("ROTOTO_WORKSPACE_SOURCE")
+workspace, err := rototo.Load(context.Background(), source, nil)
+if err != nil {
+    return err
+}
+defer workspace.Close()
+```
+:::
 
 `Workspace::load` stages the source, inspects the workspace, runs lint, and
 compiles the runtime model. If lint fails, load fails. That is the behavior I
@@ -51,6 +95,7 @@ behavior selection.
 For an HTTP service, that is often near the handler, use-case, or policy
 boundary:
 
+:::sdk-snippet application-resolve-boundary
 ```rust
 let context = ResolveContext::from_json(serde_json::json!({
     "account": {
@@ -68,6 +113,83 @@ let resolution = workspace
     .await?;
 ```
 
+```python
+context = {
+    "account": {
+        "id": account.id,
+        "plan": account.plan,
+        "seats": account.seats,
+    },
+    "request": {
+        "country": request.country,
+    },
+}
+
+resolution = await workspace.resolve_variable(
+    "account-limit-profile",
+    context,
+)
+```
+
+```typescript
+const context = {
+  account: {
+    id: account.id,
+    plan: account.plan,
+    seats: account.seats,
+  },
+  request: {
+    country: request.country,
+  },
+};
+
+const resolution = await workspace.resolveVariable(
+  "account-limit-profile",
+  context,
+);
+```
+
+```java
+Map<String, Object> context = Map.of(
+    "account", Map.of(
+        "id", account.id(),
+        "plan", account.plan(),
+        "seats", account.seats()
+    ),
+    "request", Map.of(
+        "country", request.country()
+    )
+);
+
+VariableResolution resolution = workspace
+    .resolveVariable("account-limit-profile", context)
+    .get();
+```
+
+```go
+resolveContext := map[string]any{
+    "account": map[string]any{
+        "id":    account.ID,
+        "plan":  account.Plan,
+        "seats": account.Seats,
+    },
+    "request": map[string]any{
+        "country": request.Country,
+    },
+}
+
+resolution, err := workspace.ResolveVariable(
+    ctx,
+    "account-limit-profile",
+    resolveContext,
+    nil,
+)
+if err != nil {
+    return err
+}
+```
+:::
+
 That placement matters. If resolution is scattered through low-level helpers,
 it becomes hard to see which runtime decisions a request can make. If the app
 resolves too early and passes selected values everywhere, it can become hard to
@@ -81,6 +203,7 @@ selected JSON value into an app type, and pass the typed policy inward.
 The application owns the runtime facts. It should build context from request,
 account, environment, and service state it already trusts:
 
+:::sdk-snippet application-build-context
 ```rust
 let context = ResolveContext::from_json(serde_json::json!({
     "account": {
@@ -93,6 +216,59 @@ let context = ResolveContext::from_json(serde_json::json!({
     }
 }))?;
 ```
+
+```python
+context = {
+    "account": {
+        "id": account.id,
+        "plan": account.plan,
+        "seats": account.seats,
+    },
+    "service": {
+        "lane": deployment.lane,
+    },
+}
+```
+
+```typescript
+const context = {
+  account: {
+    id: account.id,
+    plan: account.plan,
+    seats: account.seats,
+  },
+  service: {
+    lane: deployment.lane,
+  },
+};
+```
+
+```java
+Map<String, Object> context = Map.of(
+    "account", Map.of(
+        "id", account.id(),
+        "plan", account.plan(),
+        "seats", account.seats()
+    ),
+    "service", Map.of(
+        "lane", deployment.lane()
+    )
+);
+```
+
+```go
+resolveContext := map[string]any{
+    "account": map[string]any{
+        "id":    account.ID,
+        "plan":  account.Plan,
+        "seats": account.Seats,
+    },
+    "service": map[string]any{
+        "lane": deployment.Lane,
+    },
+}
+```
+:::
 
 Do not precompute rototo policy in the application context:
 
@@ -117,17 +293,69 @@ services usually need to pick up reviewed workspace changes without a restart.
 
 Use [`RefreshingWorkspace`](reference-sdk-refresh.html) for that path:
 
+:::sdk-snippet application-refreshing-workspace
 ```rust
 use std::time::Duration;
 use rototo::{RefreshOptions, RefreshingWorkspace};
 
 let source = std::env::var("ROTOTO_WORKSPACE_SOURCE")?;
-let refresh = RefreshOptions::new()
-    .with_period(Duration::from_secs(30))
-    .with_failure_backoff(Duration::from_secs(5), Duration::from_secs(300));
+let refresh = RefreshOptions::new().with_period(Duration::from_secs(30));
 
 let workspace = RefreshingWorkspace::load(source, refresh).await?;
 ```
+
+```python
+import os
+import rototo
+
+source = os.environ["ROTOTO_WORKSPACE_SOURCE"]
+workspace = await rototo.RefreshingWorkspace.load(
+    source,
+    period_seconds=30,
+)
+```
+
+```typescript
+import { RefreshingWorkspace } from "rototo";
+
+const source = process.env.ROTOTO_WORKSPACE_SOURCE;
+if (!source) {
+  throw new Error("ROTOTO_WORKSPACE_SOURCE is required");
+}
+
+const workspace = await RefreshingWorkspace.load(source, {
+  periodSeconds: 30,
+});
+```
+
+```java
+RefreshingWorkspaceOptions options = RefreshingWorkspaceOptions.builder()
+    .periodSeconds(30.0)
+    .build();
+
+String source = System.getenv("ROTOTO_WORKSPACE_SOURCE");
+RefreshingWorkspace workspace = RefreshingWorkspace
+    .load(source, options)
+    .get();
+```
+
+```go
+periodSeconds := 30.0
+source := os.Getenv("ROTOTO_WORKSPACE_SOURCE")
+
+workspace, err := rototo.LoadRefreshing(
+    ctx,
+    source,
+    &rototo.RefreshingWorkspaceOptions{
+        PeriodSeconds: &periodSeconds,
+    },
+)
+if err != nil {
+    return err
+}
+defer workspace.Close(ctx)
+```
+:::
 
 Initial load must succeed. After that, successful refreshes affect future
 resolutions. Failed refreshes keep the last successfully loaded workspace
@@ -149,6 +377,7 @@ URI.
 Rototo returns JSON values because the workspace is language-neutral. The app
 should convert those values into app-native types at a narrow edge:
 
+:::sdk-snippet application-convert-value
 ```rust
 use serde::Deserialize;
 
@@ -168,6 +397,90 @@ struct AccountLimits {
 let profile: AccountLimitProfile =
     serde_json::from_value(resolution.value.clone())?;
 ```
+
+```python
+from dataclasses import dataclass
+
+@dataclass
+class AccountLimits:
+    projects: int
+    members: int
+    monthly_requests: int
+
+@dataclass
+class AccountLimitProfile:
+    enabled_features: list[str]
+    limits: AccountLimits
+
+payload = resolution.value
+profile = AccountLimitProfile(
+    enabled_features=list(payload["enabled_features"]),
+    limits=AccountLimits(**payload["limits"]),
+)
+```
+
+```typescript
+type AccountLimitProfile = {
+  enabled_features: string[];
+  limits: {
+    projects: number;
+    members: number;
+    monthly_requests: number;
+  };
+};
+
+const profile = resolution.value as AccountLimitProfile;
+```
+
+```java
+record AccountLimits(
+    long projects,
+    long members,
+    long monthlyRequests
+) {}
+
+record AccountLimitProfile(
+    List<String> enabledFeatures,
+    AccountLimits limits
+) {}
+
+@SuppressWarnings("unchecked")
+Map<String, Object> payload = (Map<String, Object>) resolution.value();
+Map<String, Object> limits = (Map<String, Object>) payload.get("limits");
+
+AccountLimitProfile profile = new AccountLimitProfile(
+    (List<String>) payload.get("enabled_features"),
+    new AccountLimits(
+        ((Number) limits.get("projects")).longValue(),
+        ((Number) limits.get("members")).longValue(),
+        ((Number) limits.get("monthly_requests")).longValue()
+    )
+);
+```
+
+```go
+type AccountLimitProfile struct {
+    EnabledFeatures []string      `json:"enabled_features"`
+    Limits          AccountLimits `json:"limits"`
+}
+
+type AccountLimits struct {
+    Projects        uint64 `json:"projects"`
+    Members         uint64 `json:"members"`
+    MonthlyRequests uint64 `json:"monthly_requests"`
+}
+
+payload, err := json.Marshal(resolution.Value)
+if err != nil {
+    return err
+}
+
+var profile AccountLimitProfile
+if err := json.Unmarshal(payload, &profile); err != nil {
+    return err
+}
+```
+:::
 
 Keep that conversion close to the resolution call. It gives tests one place to
 assert the app's expectations, and it keeps the rest of the codebase working
@@ -190,6 +503,7 @@ For most production debugging, the important fields are:
 
 For example:
 
+:::sdk-snippet application-log-selection
 ```rust
 tracing::info!(
     variable = "account-limit-profile",
@@ -199,6 +513,44 @@ tracing::info!(
     "resolved runtime configuration"
 );
 ```
+
+```python
+logger.info(
+    "resolved runtime configuration",
+    extra={
+        "variable": "account-limit-profile",
+        "value_key": resolution.value_key,
+        "account_id": account.id,
+    },
+)
+```
+
+```typescript
+logger.info("resolved runtime configuration", {
+  variable: "account-limit-profile",
+  valueKey: resolution.valueKey,
+  accountId: account.id,
+});
+```
+
+```java
+logger.info(
+    "resolved runtime configuration variable={} valueKey={} accountId={}",
+    "account-limit-profile",
+    resolution.valueKey(),
+    account.id()
+);
+```
+
+```go
+slog.Info(
+    "resolved runtime configuration",
+    "variable", "account-limit-profile",
+    "value_key", resolution.ValueKey,
+    "account_id", account.ID,
+)
+```
+:::
 
 Do not log full selected payloads by default. Some configuration is sensitive,
 and even non-sensitive payloads make logs noisy. The value key and fingerprint
@@ -224,6 +576,7 @@ made the decision.
 For refresh failures, keep serving last-known-good and
 [expose status](reference-sdk-refresh.html):
 
+:::sdk-snippet application-refresh-status
 ```rust
 let status = workspace.status().await;
 if status.stale(Duration::from_secs(300)) {
@@ -235,12 +588,60 @@ if status.stale(Duration::from_secs(300)) {
 }
 ```
 
+```python
+status = await workspace.status()
+if status.consecutive_failures > 0:
+    logger.warning(
+        "workspace refresh is stale",
+        extra={
+            "consecutive_failures": status.consecutive_failures,
+            "last_error": status.last_error,
+        },
+    )
+```
+
+```typescript
+const status = await workspace.status();
+if (status.consecutiveFailures > 0) {
+  logger.warn("workspace refresh is stale", {
+    consecutiveFailures: status.consecutiveFailures,
+    lastError: status.lastError,
+  });
+}
+```
+
+```java
+RefreshStatus status = workspace.status().get();
+if (status.consecutiveFailures() > 0) {
+    logger.warn(
+        "workspace refresh is stale consecutiveFailures={} lastError={}",
+        status.consecutiveFailures(),
+        status.lastError()
+    );
+}
+```
+
+```go
+status, err := workspace.Status(ctx)
+if err != nil {
+    return err
+}
+if status.ConsecutiveFailures > 0 {
+    slog.Warn(
+        "workspace refresh is stale",
+        "consecutive_failures", status.ConsecutiveFailures,
+        "last_error", status.LastError,
+    )
+}
+```
+:::
+
 ## Keep Policy Out Of Low-Level Helpers
 
 It is tempting to hide resolution behind helpers like:
 
-```rust
-async fn max_projects(account: &Account) -> u64
+```text
+max_projects(account) -> number
 ```
 
 That can be fine if it is the application boundary for account limits. It is a
@@ -249,9 +650,9 @@ policy the workspace could have selected as one object.
 
 Prefer integration code that makes runtime decisions visible:
 
-```rust
-let profile = account_limit_policy.resolve(&workspace, &account).await?;
-project_service.create_project(account, profile).await?;
+```text
+profile = account_limit_policy.resolve(workspace, account)
+project_service.create_project(account, profile)
 ```
 
 The service gets a typed policy. The rototo-facing boundary remains small,
