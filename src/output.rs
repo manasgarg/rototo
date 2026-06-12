@@ -137,19 +137,31 @@ pub(crate) fn print_inspect_report(report: &WorkspaceInspectReport, json: bool) 
         for (index, schema) in report.schemas.iter().enumerate() {
             print_entity_separator(index, count);
             println!("  {} {}", style::dim("schema:"), style::sea(&schema.id));
-            println!("    path: {}", schema.path);
-            println!("    status: {}", schema.status);
+            println!("    {} {}", style::dim("path:"), style::dim(&schema.path));
+            println!(
+                "    {} {}",
+                style::dim("status:"),
+                if schema.status == "valid" {
+                    style::ok(&schema.status)
+                } else {
+                    style::err(&schema.status)
+                }
+            );
             if let Some(error) = &schema.error {
                 println!("    error: {error}");
             }
             if !schema.consumers.is_empty() {
-                println!("    consumed by:");
+                println!("    {}", style::dim("consumed by:"));
                 for consumer in &schema.consumers {
-                    println!("      {}  {}", consumer.label, consumer.location.path);
+                    println!(
+                        "      {}  {}",
+                        style::sea(&consumer.label),
+                        style::dim(&consumer.location.path)
+                    );
                 }
             }
             if !schema.diagnostics.is_empty() {
-                println!("    diagnostics:");
+                println!("    {}", style::dim("diagnostics:"));
                 print_diagnostics(&schema.diagnostics);
             }
         }
@@ -166,34 +178,56 @@ pub(crate) fn print_inspect_report(report: &WorkspaceInspectReport, json: bool) 
                 style::sea(&qualifier.id)
             );
             if !qualifier.predicates.is_empty() {
-                println!("    predicates:");
+                println!("    {}", style::dim("predicates:"));
                 for predicate in &qualifier.predicates {
                     let attribute = predicate.attribute.as_deref().unwrap_or("<missing>");
                     let op = predicate.op.as_deref().unwrap_or("<missing>");
                     let predicate_value = predicate_value_label(predicate)?;
                     println!(
-                        "      [{}] {} {}{}",
-                        predicate.index, attribute, op, predicate_value
+                        "      {} {} {}{}",
+                        style::dim(&format!("[{}]", predicate.index)),
+                        style::info(attribute),
+                        style::bold(op),
+                        predicate_value
                     );
                 }
             }
             print_dependencies(&qualifier.dependencies, "    ");
             if !qualifier.consumers.is_empty() {
-                println!("    consumed by:");
+                println!("    {}", style::dim("consumed by:"));
                 for consumer in &qualifier.consumers {
-                    println!("      {}  {}", consumer.label, consumer.location.path);
+                    println!(
+                        "      {}  {}",
+                        style::sea(&consumer.label),
+                        style::dim(&consumer.location.path)
+                    );
                 }
             }
             if !qualifier.diagnostics.is_empty() {
-                println!("    diagnostics:");
+                println!("    {}", style::dim("diagnostics:"));
                 print_diagnostics(&qualifier.diagnostics);
             }
             if let Some(trace) = &qualifier.trace {
-                println!("    trace: {}", trace.value);
+                println!(
+                    "    {} {}",
+                    style::dim("trace:"),
+                    if trace.value {
+                        style::ok("true")
+                    } else {
+                        style::dim("false")
+                    }
+                );
                 for predicate in &trace.predicates {
                     println!(
-                        "      [{}] {} -> {}",
-                        predicate.index, predicate.attribute, predicate.result
+                        "      {} {} {} {}",
+                        style::dim(&format!("[{}]", predicate.index)),
+                        style::info(&predicate.attribute),
+                        style::arrow(),
+                        if predicate.result {
+                            style::ok("true")
+                        } else {
+                            style::dim("false")
+                        }
                     );
                 }
             }
@@ -206,25 +240,33 @@ pub(crate) fn print_inspect_report(report: &WorkspaceInspectReport, json: bool) 
         for (index, resource) in report.resources.iter().enumerate() {
             print_entity_separator(index, count);
             println!("  {} {}", style::dim("resource:"), style::sea(&resource.id));
-            println!("    path: {}", resource.path);
+            println!("    {} {}", style::dim("path:"), style::dim(&resource.path));
             if let Some(schema) = &resource.schema {
-                println!("    schema: {schema}");
+                println!("    {} {}", style::dim("schema:"), style::info(schema));
             }
             if !resource.objects.is_empty() {
-                println!("    objects:");
+                println!("    {}", style::dim("objects:"));
                 for object in &resource.objects {
-                    println!("      {} = {}", object.key, compact_json(&object.value)?);
+                    println!(
+                        "      {} = {}",
+                        style::sea(&object.key),
+                        compact_json(&object.value)?
+                    );
                 }
             }
             print_dependencies(&resource.dependencies, "    ");
             if !resource.consumers.is_empty() {
-                println!("    consumed by:");
+                println!("    {}", style::dim("consumed by:"));
                 for consumer in &resource.consumers {
-                    println!("      {}  {}", consumer.label, consumer.location.path);
+                    println!(
+                        "      {}  {}",
+                        style::sea(&consumer.label),
+                        style::dim(&consumer.location.path)
+                    );
                 }
             }
             if !resource.diagnostics.is_empty() {
-                println!("    diagnostics:");
+                println!("    {}", style::dim("diagnostics:"));
                 print_diagnostics(&resource.diagnostics);
             }
         }
@@ -236,23 +278,27 @@ pub(crate) fn print_inspect_report(report: &WorkspaceInspectReport, json: bool) 
         for (index, variable) in report.variables.iter().enumerate() {
             print_entity_separator(index, count);
             println!("  {} {}", style::dim("variable:"), style::sea(&variable.id));
-            println!("    type: {}", variable.type_source);
+            println!(
+                "    {} {}",
+                style::dim("type:"),
+                style::info(&variable.type_source)
+            );
             if let Some(schema) = &variable.schema {
-                println!("    schema: {schema}");
+                println!("    {} {}", style::dim("schema:"), style::info(schema));
             }
             if !variable.values.is_empty() {
-                println!("    values:");
+                println!("    {}", style::dim("values:"));
                 for value in &variable.values {
                     println!(
-                        "      {} ({}) = {}",
-                        value.key,
-                        value.origin,
+                        "      {} {} = {}",
+                        style::sea(&value.key),
+                        style::dim(&format!("({})", value.origin)),
                         compact_json(&value.value)?
                     );
                 }
             }
             if variable.resolve.default_value.is_some() || !variable.resolve.rules.is_empty() {
-                println!("    resolve:");
+                println!("    {}", style::dim("resolve:"));
                 for rule in &variable.resolve.rules {
                     let qualifier = rule.qualifier.as_deref().unwrap_or("<missing>");
                     let value = rule.value.as_deref().unwrap_or("<missing>");
@@ -277,7 +323,7 @@ pub(crate) fn print_inspect_report(report: &WorkspaceInspectReport, json: bool) 
             }
             print_dependencies(&variable.dependencies, "    ");
             if !variable.diagnostics.is_empty() {
-                println!("    diagnostics:");
+                println!("    {}", style::dim("diagnostics:"));
                 print_diagnostics(&variable.diagnostics);
             }
             if let Some(trace) = &variable.trace {
@@ -338,7 +384,7 @@ pub(crate) fn print_inspect_report(report: &WorkspaceInspectReport, json: bool) 
             println!("  {} {}", style::dim("linter:"), style::sea(&linter.id));
             println!("    path: {}", linter.path);
             if !linter.registrations.is_empty() {
-                println!("    registrations:");
+                println!("    {}", style::dim("registrations:"));
             }
             for (registration_index, registration) in linter.registrations.iter().enumerate() {
                 println!("      [{}] {}", registration_index, registration.rule);
@@ -465,18 +511,30 @@ fn print_dependencies(dependencies: &rototo::model::DependencyInspectReport, ind
     {
         return;
     }
-    println!("{indent}depends on:");
+    println!("{indent}{}", style::dim("depends on:"));
     for qualifier in &dependencies.qualifiers {
-        println!("{indent}  qualifier {qualifier}");
+        println!(
+            "{indent}  {} {}",
+            style::dim("qualifier"),
+            style::sea(qualifier)
+        );
     }
     for context_path in &dependencies.context_paths {
-        println!("{indent}  context {context_path}");
+        println!(
+            "{indent}  {} {}",
+            style::dim("context"),
+            style::info(context_path)
+        );
     }
     for schema in &dependencies.schemas {
-        println!("{indent}  schema {schema}");
+        println!("{indent}  {} {}", style::dim("schema"), style::sea(schema));
     }
     for resource in &dependencies.resources {
-        println!("{indent}  resource {resource}");
+        println!(
+            "{indent}  {} {}",
+            style::dim("resource"),
+            style::sea(resource)
+        );
     }
 }
 

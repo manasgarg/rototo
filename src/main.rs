@@ -39,9 +39,10 @@ use rototo::{
     name = "rototo",
     version,
     about = "Control Git-backed runtime configuration workspaces",
-    after_help = TOP_LEVEL_HELP,
+    after_help = top_level_help(),
     override_usage = "rototo <command> [options]",
-    help_template = TOP_LEVEL_HELP_TEMPLATE
+    help_template = top_level_help_template(),
+    styles = help_styles()
 )]
 struct Cli {
     /// Emit machine-readable JSON.
@@ -461,46 +462,93 @@ fn inspect_selection(selection: &Selection<String>) -> InspectSelection {
     }
 }
 
-const TOP_LEVEL_HELP: &str = r#"Examples:
-  rototo init config
-  rototo init config --qualifier premium-users
-  rototo fixtures examples/basic --variable tenant-limits --out tests/fixtures/rototo
-  rototo lint examples/basic
-  rototo show examples/basic --variables
-  rototo resolve examples/basic --variable checkout-redesign --context lane=prod --context user.tier=premium
-  rototo docs -p index
+fn help_styles() -> clap::builder::Styles {
+    use clap::builder::styling::{Ansi256Color, Style};
+    clap::builder::Styles::styled()
+        .header(Style::new().bold())
+        .usage(Style::new().bold())
+        .literal(Style::new().fg_color(Some(Ansi256Color(43).into())))
+        .placeholder(Style::new().fg_color(Some(Ansi256Color(245).into())))
+}
 
-Run `rototo <command> --help` for command details.
-Run `rototo docs` to list bundled documentation."#;
+fn top_level_help() -> String {
+    let mut out = String::new();
+    out.push_str(&style::bold("Examples:"));
+    out.push('\n');
+    for example in [
+        "init config",
+        "init config --qualifier premium-users",
+        "fixtures examples/basic --variable tenant-limits --out tests/fixtures/rototo",
+        "lint examples/basic",
+        "show examples/basic --variables",
+        "resolve examples/basic --variable checkout-redesign --context lane=prod --context user.tier=premium",
+        "docs -p index",
+    ] {
+        out.push_str(&format!("  {} {}\n", style::sea("rototo"), example));
+    }
+    out.push('\n');
+    out.push_str(&format!(
+        "Run {} for command details.\n",
+        style::cyan("rototo <command> --help")
+    ));
+    out.push_str(&format!(
+        "Run {} to list bundled documentation.",
+        style::cyan("rototo docs")
+    ));
+    out
+}
 
-const TOP_LEVEL_HELP_TEMPLATE: &str = r#"{about}
-
-Usage:
-  {usage}
-
-Workspace commands:
-  init       Create workspace and entity templates
-  fixtures   Generate readable runtime behavior fixtures
-  lint       Validate a workspace or selected targets
-  inspect    Explain how rototo sees workspace data
-  show       Display workspace config, variables, qualifiers, and lint metadata
-  resolve    Evaluate variables or qualifiers with runtime context
-
-Utility commands:
-  docs       Read bundled documentation
-  lsp        Run the language server over stdio
-  completions Generate shell completions
-  help       Print this message or the help of the given subcommand(s)
-
-Global options:
-  --json
-  --quiet
-  --workspace-token <token>
-  -V, --version
-  -h, --help
-
-{after-help}
-"#;
+fn top_level_help_template() -> String {
+    // Pad before coloring so ANSI escapes do not break column alignment.
+    let command =
+        |name: &str, help: &str| format!("  {} {help}\n", style::sea(&format!("{name:<11}")));
+    let flag = |name: &str| format!("  {}\n", style::sea(name));
+    let mut out = String::new();
+    out.push_str("{about}\n\n");
+    out.push_str(&style::bold("Usage:"));
+    out.push_str("\n  {usage}\n\n");
+    out.push_str(&style::bold("Workspace commands:"));
+    out.push('\n');
+    out.push_str(&command("init", "Create workspace and entity templates"));
+    out.push_str(&command(
+        "fixtures",
+        "Generate readable runtime behavior fixtures",
+    ));
+    out.push_str(&command("lint", "Validate a workspace or selected targets"));
+    out.push_str(&command(
+        "inspect",
+        "Explain how rototo sees workspace data",
+    ));
+    out.push_str(&command(
+        "show",
+        "Display workspace config, variables, qualifiers, and lint metadata",
+    ));
+    out.push_str(&command(
+        "resolve",
+        "Evaluate variables or qualifiers with runtime context",
+    ));
+    out.push('\n');
+    out.push_str(&style::bold("Utility commands:"));
+    out.push('\n');
+    out.push_str(&command("docs", "Read bundled documentation"));
+    out.push_str(&command("lsp", "Run the language server over stdio"));
+    out.push_str(&command("completions", "Generate shell completions"));
+    out.push_str(&command(
+        "help",
+        "Print this message or the help of the given subcommand(s)",
+    ));
+    out.push('\n');
+    out.push_str(&style::bold("Global options:"));
+    out.push('\n');
+    out.push_str(&flag("--json"));
+    out.push_str(&flag("--quiet"));
+    out.push_str(&flag("--workspace-token <token>"));
+    out.push_str(&flag("-V, --version"));
+    out.push_str(&flag("-h, --help"));
+    out.push('\n');
+    out.push_str("{after-help}\n");
+    out
+}
 
 #[tokio::main]
 async fn main() -> ExitCode {
@@ -2585,12 +2633,12 @@ fn print_variable_resolution_trace(trace: &VariableResolutionTrace) -> Result<()
         style::sea(&trace.resolution.id)
     );
     if !trace.qualifier_traces.is_empty() {
-        println!("  qualifiers:");
+        println!("  {}", style::dim("qualifiers:"));
         for qualifier in &trace.qualifier_traces {
             print_nested_qualifier_resolution_trace(qualifier)?;
         }
     }
-    println!("  pathway:");
+    println!("  {}", style::dim("pathway:"));
     for rule in &trace.rules {
         println!(
             "    {} if {} {} {} ({})",
@@ -2611,16 +2659,24 @@ fn print_variable_resolution_trace(trace: &VariableResolutionTrace) -> Result<()
         style::arrow(),
         trace.default_value
     );
-    println!("  result:");
-    println!("    value key: {}", style::sea(&trace.resolution.value_key));
-    println!("    value: {}", compact_json(&trace.resolution.value)?);
+    println!("  {}", style::dim("result:"));
+    println!(
+        "    {} {}",
+        style::dim("value key:"),
+        style::sea_bold(&trace.resolution.value_key)
+    );
+    println!(
+        "    {} {}",
+        style::dim("value:"),
+        compact_json(&trace.resolution.value)?
+    );
     Ok(())
 }
 
 fn print_qualifier_resolution_trace(trace: &QualifierResolutionTrace) -> Result<()> {
     println!("{} {}", style::dim("qualifier:"), style::sea(&trace.id));
     if !trace.predicates.is_empty() {
-        println!("  predicates:");
+        println!("  {}", style::dim("predicates:"));
         for predicate in &trace.predicates {
             print_predicate_resolution(predicate, "    ")?;
         }
@@ -2639,7 +2695,7 @@ fn print_qualifier_resolution_trace(trace: &QualifierResolutionTrace) -> Result<
 fn print_nested_qualifier_resolution_trace(trace: &QualifierResolutionTrace) -> Result<()> {
     println!("    {} {}", style::dim("qualifier:"), style::sea(&trace.id));
     if !trace.predicates.is_empty() {
-        println!("      predicates:");
+        println!("      {}", style::dim("predicates:"));
         for predicate in &trace.predicates {
             print_predicate_resolution(predicate, "        ")?;
         }
@@ -2804,9 +2860,14 @@ fn print_docs_index(json: bool) -> Result<()> {
     }
 
     for section in sections {
-        println!("{}", section.title);
+        println!("{}", style::label(section.title));
         for page in section.pages {
-            println!("  {:<42} {}", page.id, page.title);
+            // Pad before coloring so ANSI escapes do not break alignment.
+            println!(
+                "  {} {}",
+                style::sea(&format!("{:<42}", page.id)),
+                page.title
+            );
         }
         println!();
     }
@@ -2822,7 +2883,10 @@ fn print_docs_export(out: &Path, json: bool) -> Result<()> {
                 .map_err(|err| RototoError::new(err.to_string()))?
         );
     } else {
-        println!("exported documentation to {out}");
+        println!(
+            "{}",
+            style::ok_line(&format!("exported documentation to {out}"))
+        );
     }
     Ok(())
 }
@@ -2881,7 +2945,7 @@ fn print_docs_page(prefix: &str, json: bool) -> Result<ExitCode> {
                     .map_err(|err| RototoError::new(err.to_string()))?
                 );
             } else {
-                print!("{markdown}");
+                print!("{}", style::render_markdown(&markdown));
             }
             Ok(ExitCode::SUCCESS)
         }
