@@ -5,7 +5,7 @@
   "type": "module",
   "scripts": {
     "build": "npm run rototo:build && next build --webpack",
-    "dev": "npm run rototo:build && next dev --webpack",
+    "dev": "npm run rototo:build && node scripts/dev-native-watch.mjs",
     "dev:next": "next dev --webpack",
     "lint": "npm run typecheck",
     "rototo:build": "npm --prefix ../../sdks/typescript ci && npm --prefix ../../sdks/typescript run build",
