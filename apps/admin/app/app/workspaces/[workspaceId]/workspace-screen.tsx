@@ -503,8 +503,8 @@ function WorkspaceSection({
                 <div className="card-head-text">
                   <h3>Entity graph</h3>
                   <p className="hint">
-                    How qualifiers, variables, objects, schemas, and linters connect. Hover a
-                    node to trace its references; click to open it.
+                    How qualifiers, variables, resources, and objects connect. Hover a node to
+                    trace its references; click to open it.
                   </p>
                 </div>
                 <WorkspaceGraph data={graphData} />
@@ -1274,19 +1274,6 @@ async function workspaceGraphData(
       object.key,
     );
   }
-  for (const schema of model.schemas) {
-    const file = schema.path.split("/").pop() ?? schema.path;
-    if (file === "context.schema.json") {
-      continue;
-    }
-    pushNode(`schemas:${file}`, "schema", file.replace(/\.schema\.json$/, ""));
-  }
-  for (const node of nodes) {
-    if (node.kind === "linter") {
-      pushNode(node.targetKey, "linter", node.id);
-    }
-  }
-
   const edges: WorkspaceGraphData["edges"] = [];
   const seenEdges = new Set<string>();
   const pushEdge = (
@@ -1327,10 +1314,6 @@ async function workspaceGraphData(
         (variableNode.related ??= []).push(objectKey);
       }
     }
-    if (via.kind === "resourceSchema" && from.kind === "resource" && to.kind === "schema") {
-      const file = to.path.split("/").pop() ?? to.path;
-      pushEdge(`resources:${from.id}`, `schemas:${file}`, "validates");
-    }
   }
   for (const object of model.resourceObjects) {
     pushEdge(
@@ -1338,12 +1321,6 @@ async function workspaceGraphData(
       `resource_objects:${object.resource}:${object.key}`,
       "contains",
     );
-  }
-  for (const variable of model.variables) {
-    if (variable.declaration.kind === "schema" && variable.declaration.value) {
-      const file = variable.declaration.value.split("/").pop() ?? variable.declaration.value;
-      pushEdge(`variables:${variable.id}`, `schemas:${file}`, "validates");
-    }
   }
   return { nodes: graphNodes, edges };
 }
