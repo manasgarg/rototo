@@ -1513,10 +1513,6 @@ select.input {
   overflow-x: auto;
 }
 
-.graph-scroll svg {
-  min-width: 720px;
-}
-
 .graph-body {
   display: flex;
   gap: 16px;
@@ -1526,6 +1522,7 @@ select.input {
 .graph-scroll {
   flex: 1;
   min-width: 0;
+  overflow-x: auto;
 }
 
 .graph-inspector {

@@ -94,8 +94,10 @@ export function ColumnsGraph({
       <svg
         role="img"
         aria-label="Workspace entity graph"
-        style={{ width: "100%", height: "auto", display: "block" }}
+        height={layout.height}
+        style={{ display: "block" }}
         viewBox={`0 0 ${layout.width} ${layout.height}`}
+        width={layout.width}
       >
         {data.edges.map((edge, index) => {
           const from = layout.positions.get(edge.from);
