@@ -1,9 +1,7 @@
 "use client";
 
-import Link from "next/link";
 import { Search } from "lucide-react";
 import { useMemo, useState, type ComponentType } from "react";
-import { ReadOnlySource } from "../read-only-source";
 import { ColumnsGraph } from "./columns";
 import type { GraphNode, WorkspaceGraphData } from "./types";
 
@@ -26,7 +24,6 @@ const CONCEPTS: Array<{
 export function WorkspaceGraph({ data }: { data: WorkspaceGraphData }) {
   const [conceptId, setConceptId] = useState(CONCEPTS[0].id);
   const [query, setQuery] = useState("");
-  const [inspected, setInspected] = useState<GraphNode | null>(null);
   const concept = CONCEPTS.find((candidate) => candidate.id === conceptId) ?? CONCEPTS[0];
   const Active = concept.Component;
 
@@ -83,40 +80,8 @@ export function WorkspaceGraph({ data }: { data: WorkspaceGraphData }) {
           No entities match that filter.
         </p>
       ) : (
-        <div className="graph-body">
-          <div className="graph-scroll">
-            <Active data={filtered} onInspect={setInspected} />
-          </div>
-          <aside className="graph-inspector">
-            {inspected ? (
-              <>
-                <div className="graph-inspector-head">
-                  <span className="label">{inspected.kind}</span>
-                  <span className="mono graph-inspector-name">{inspected.label}</span>
-                  <Link className="graph-inspector-open" href={inspected.href}>
-                    open →
-                  </Link>
-                </div>
-                {inspected.source ? (
-                  <div className="graph-inspector-source">
-                    <ReadOnlySource
-                      language={inspected.language ?? "text"}
-                      marks={[]}
-                      text={inspected.source}
-                    />
-                  </div>
-                ) : (
-                  <p className="muted" style={{ fontSize: 13 }}>
-                    No source preview for this entity.
-                  </p>
-                )}
-              </>
-            ) : (
-              <p className="muted graph-inspector-empty">
-                Hover an entity to preview its source here without leaving the graph.
-              </p>
-            )}
-          </aside>
+        <div className="graph-scroll">
+          <Active data={filtered} />
         </div>
       )}
     </div>

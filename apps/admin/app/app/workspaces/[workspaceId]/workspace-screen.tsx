@@ -504,7 +504,7 @@ function WorkspaceSection({
                   <h3>Entity graph</h3>
                   <p className="hint">
                     How qualifiers, variables, objects, schemas, and linters connect. Hover a
-                    node to trace its references and preview its source; click to open it.
+                    node to trace its references; click to open it.
                   </p>
                 </div>
                 <WorkspaceGraph data={graphData} />
@@ -1336,28 +1336,6 @@ async function workspaceGraphData(
       pushEdge(`variables:${variable.id}`, `schemas:${file}`, "validates");
     }
   }
-  // Source previews for hover tooltips, truncated to keep the page light.
-  await Promise.all(
-    graphNodes.map(async (graphNode) => {
-      const node = nodeByKey.get(graphNode.id);
-      if (!node) {
-        return;
-      }
-      try {
-        const definition = await readWorkspaceDefinition({
-          workspace,
-          root: stagedRoot,
-          path: node.path,
-        });
-        const lines = definition.text.split("\n");
-        const preview = lines.slice(0, 160).join("\n");
-        graphNode.source = lines.length > 160 ? `${preview}\n…` : preview;
-        graphNode.language = definition.language;
-      } catch {
-        // no preview for unreadable files
-      }
-    }),
-  );
   return { nodes: graphNodes, edges };
 }
 
