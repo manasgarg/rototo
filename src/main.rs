@@ -2627,18 +2627,14 @@ fn print_resolve_separator(index: usize, count: usize) {
 }
 
 fn print_variable_resolution_trace(trace: &VariableResolutionTrace) -> Result<()> {
-    println!(
-        "{} {}",
-        style::dim("variable:"),
-        style::sea(&trace.resolution.id)
-    );
+    println!("variable: {}", style::sea(&trace.resolution.id));
     if !trace.qualifier_traces.is_empty() {
-        println!("  {}", style::dim("qualifiers:"));
+        println!("  {}", style::subhead("qualifiers"));
         for qualifier in &trace.qualifier_traces {
             print_nested_qualifier_resolution_trace(qualifier)?;
         }
     }
-    println!("  {}", style::dim("pathway:"));
+    println!("  {}", style::subhead("pathway"));
     for rule in &trace.rules {
         println!(
             "    {} if {} {} {} ({})",
@@ -2659,24 +2655,19 @@ fn print_variable_resolution_trace(trace: &VariableResolutionTrace) -> Result<()
         style::arrow(),
         trace.default_value
     );
-    println!("  {}", style::dim("result:"));
+    println!("  {}", style::subhead("result"));
     println!(
-        "    {} {}",
-        style::dim("value key:"),
+        "    value key: {}",
         style::sea_bold(&trace.resolution.value_key)
     );
-    println!(
-        "    {} {}",
-        style::dim("value:"),
-        compact_json(&trace.resolution.value)?
-    );
+    println!("    value: {}", compact_json(&trace.resolution.value)?);
     Ok(())
 }
 
 fn print_qualifier_resolution_trace(trace: &QualifierResolutionTrace) -> Result<()> {
-    println!("{} {}", style::dim("qualifier:"), style::sea(&trace.id));
+    println!("qualifier: {}", style::sea(&trace.id));
     if !trace.predicates.is_empty() {
-        println!("  {}", style::dim("predicates:"));
+        println!("  {}", style::subhead("predicates"));
         for predicate in &trace.predicates {
             print_predicate_resolution(predicate, "    ")?;
         }
@@ -2693,9 +2684,9 @@ fn print_qualifier_resolution_trace(trace: &QualifierResolutionTrace) -> Result<
 }
 
 fn print_nested_qualifier_resolution_trace(trace: &QualifierResolutionTrace) -> Result<()> {
-    println!("    {} {}", style::dim("qualifier:"), style::sea(&trace.id));
+    println!("    qualifier: {}", style::sea(&trace.id));
     if !trace.predicates.is_empty() {
-        println!("      {}", style::dim("predicates:"));
+        println!("      {}", style::subhead("predicates"));
         for predicate in &trace.predicates {
             print_predicate_resolution(predicate, "        ")?;
         }

@@ -143,13 +143,23 @@ pub(crate) fn bold(text: &str) -> String {
     format!("\x1b[1m{text}\x1b[0m")
 }
 
-/// The uppercase mono micro-label motif for section headers. Plain output
-/// keeps the original lowercase `name:` form.
+/// The uppercase micro-label motif for section headers — amber in the CLI
+/// kit, like USAGE and COMMANDS in its terminal spec. Plain output keeps the
+/// original lowercase `name:` form.
 pub(crate) fn label(text: &str) -> String {
     if !enabled() {
         return format!("{text}:");
     }
-    paint(&DIM, &text.to_uppercase())
+    paint(&WARN, &text.to_uppercase())
+}
+
+/// A nested section key (`predicates:`, `pathway:`), amber like labels but
+/// kept lowercase at its original indent.
+pub(crate) fn subhead(text: &str) -> String {
+    if !enabled() {
+        return format!("{text}:");
+    }
+    paint(&WARN, &format!("{text}:"))
 }
 
 /// `✓ <text>` on a terminal; `ok: <text>` when plain.
