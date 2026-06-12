@@ -36,9 +36,11 @@ const PADDING = 6;
 export function ColumnsGraph({
   data,
   onInspect,
+  query = "",
 }: {
   data: WorkspaceGraphData;
   onInspect?: (node: GraphNode | null) => void;
+  query?: string;
 }) {
   const router = useRouter();
   const [active, setActive] = useState<string | null>(null);
@@ -76,8 +78,22 @@ export function ColumnsGraph({
     return map;
   }, [data]);
 
+  // Search highlights matches; everything else stays on the canvas, faded
+  // but fully functional.
+  const matches = useMemo(() => {
+    if (!query) {
+      return null;
+    }
+    return new Set(
+      data.nodes
+        .filter((node) => node.label.toLowerCase().includes(query))
+        .map((node) => node.id),
+    );
+  }, [data, query]);
+
   const isDimmed = (id: string) =>
-    active !== null && active !== id && !(neighbors.get(active)?.has(id) ?? false);
+    (active !== null && active !== id && !(neighbors.get(active)?.has(id) ?? false)) ||
+    (matches !== null && !matches.has(id));
 
   const handleHover = (id: string | null) => {
     setActive(id);
@@ -106,6 +122,8 @@ export function ColumnsGraph({
             return null;
           }
           const lit = active === edge.from || active === edge.to;
+          const offSearch =
+            matches !== null && !matches.has(edge.from) && !matches.has(edge.to);
           const y1 = from.y + NODE_HEIGHT / 2;
           const y2 = to.y + NODE_HEIGHT / 2;
           let path: string;
@@ -131,7 +149,7 @@ export function ColumnsGraph({
               key={index}
               stroke={lit ? "var(--sea-500)" : "var(--line-2)"}
               strokeWidth={lit ? 1.8 : 1}
-              opacity={active !== null && !lit ? 0.25 : 1}
+              opacity={(active !== null && !lit) || offSearch ? 0.25 : 1}
             />
           );
         })}
@@ -156,6 +174,7 @@ export function ColumnsGraph({
             return (
               <GraphNodeBox
                 dimmed={isDimmed(node.id)}
+                highlighted={matches?.has(node.id) ?? false}
                 key={node.id}
                 node={node}
                 onHover={handleHover}
@@ -173,6 +192,7 @@ export function ColumnsGraph({
 
 function GraphNodeBox({
   dimmed,
+  highlighted,
   node,
   onHover,
   onOpen,
@@ -180,6 +200,7 @@ function GraphNodeBox({
   y,
 }: {
   dimmed: boolean;
+  highlighted: boolean;
   node: GraphNode;
   onHover: (id: string | null) => void;
   onOpen: () => void;
@@ -196,10 +217,11 @@ function GraphNodeBox({
       style={{ cursor: "pointer" }}
     >
       <rect
-        fill="var(--paper-1)"
+        fill={highlighted ? "var(--sea-50)" : "var(--paper-1)"}
         height={NODE_HEIGHT}
         rx={5}
-        stroke="var(--line-2)"
+        stroke={highlighted ? "var(--sea-400)" : "var(--line-2)"}
+        strokeWidth={highlighted ? 1.4 : 1}
         width={COL_WIDTH}
         x={x}
         y={y}
