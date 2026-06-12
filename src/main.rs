@@ -1,4 +1,5 @@
 mod output;
+mod style;
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
@@ -504,11 +505,12 @@ Global options:
 #[tokio::main]
 async fn main() -> ExitCode {
     init_tracing();
+    style::init();
 
     match run().await {
         Ok(status) => status,
         Err(err) => {
-            eprintln!("error: {err}");
+            eprintln!("{}", style::err_line(&err.to_string()));
             ExitCode::FAILURE
         }
     }
@@ -621,9 +623,9 @@ fn print_fixtures_report(
         return Ok(());
     }
 
-    println!("fixtures: {}", report.out);
+    println!("{} {}", style::label("fixtures"), style::bold(&report.out));
     for file in &report.files {
-        println!("  wrote {}", file);
+        println!("  {} {}", style::ok("wrote"), file);
     }
     Ok(())
 }
@@ -2242,43 +2244,71 @@ fn print_workspace_view(command: &str, view: &WorkspaceView, json: bool) -> Resu
         return Ok(());
     }
 
-    println!("workspace: {}", view.workspace);
+    println!(
+        "{} {}",
+        style::label("workspace"),
+        style::bold(&view.workspace)
+    );
     if !view.schemas.is_empty() {
-        println!("schemas:");
+        println!("{}", style::label("schemas"));
         for schema in &view.schemas {
-            println!("  {}  {}", schema.id, schema.path.display());
+            println!(
+                "  {}  {}",
+                style::sea(&schema.id),
+                style::dim(&schema.path.display().to_string())
+            );
         }
     }
     if !view.qualifiers.is_empty() {
-        println!("qualifiers:");
+        println!("{}", style::label("qualifiers"));
         for qualifier in &view.qualifiers {
-            println!("  {}  {}  {}", qualifier.id, qualifier.uri, qualifier.path);
+            println!(
+                "  {}  {}  {}",
+                style::sea(&qualifier.id),
+                style::dim(&qualifier.uri),
+                style::dim(&qualifier.path)
+            );
         }
     }
     if !view.resources.is_empty() {
-        println!("resources:");
+        println!("{}", style::label("resources"));
         for resource in &view.resources {
-            println!("  {}  {}  {}", resource.id, resource.uri, resource.path);
+            println!(
+                "  {}  {}  {}",
+                style::sea(&resource.id),
+                style::dim(&resource.uri),
+                style::dim(&resource.path)
+            );
         }
     }
     if !view.variables.is_empty() {
-        println!("variables:");
+        println!("{}", style::label("variables"));
         for variable in &view.variables {
-            println!("  {}  {}  {}", variable.id, variable.uri, variable.path);
+            println!(
+                "  {}  {}  {}",
+                style::sea(&variable.id),
+                style::dim(&variable.uri),
+                style::dim(&variable.path)
+            );
         }
     }
     if !view.lint_rules.is_empty() {
-        println!("lint rules:");
+        println!("{}", style::label("lint rules"));
         for rule in &view.lint_rules {
-            println!("  {}  {}  {}", rule.rule, rule.severity_label(), rule.title);
+            println!(
+                "  {}  {}  {}",
+                style::sea(&rule.rule),
+                rule.severity_label(),
+                rule.title
+            );
         }
     }
     if !view.lint_authorities.is_empty() {
-        println!("lint authorities:");
+        println!("{}", style::label("lint authorities"));
         for authority in &view.lint_authorities {
-            println!("  {}", authority.authority);
+            println!("  {}", style::sea(&authority.authority));
             for rule in &authority.rules {
-                println!("    {}  {}", rule.rule, rule.title);
+                println!("    {}  {}", style::sea(&rule.rule), rule.title);
             }
         }
     }
@@ -2522,7 +2552,11 @@ fn print_resolutions(
         return Ok(());
     }
 
-    println!("workspace: {}", workspace.display());
+    println!(
+        "{} {}",
+        style::label("workspace"),
+        style::bold(&workspace.display().to_string())
+    );
     let count = variables.len() + qualifiers.len();
     let mut index = 0;
     for trace in variables {
@@ -2540,12 +2574,16 @@ fn print_resolutions(
 
 fn print_resolve_separator(index: usize, count: usize) {
     if count > 1 && index > 0 {
-        println!("----------------------------------------");
+        println!("{}", style::hairline());
     }
 }
 
 fn print_variable_resolution_trace(trace: &VariableResolutionTrace) -> Result<()> {
-    println!("variable: {}", trace.resolution.id);
+    println!(
+        "{} {}",
+        style::dim("variable:"),
+        style::sea(&trace.resolution.id)
+    );
     if !trace.qualifier_traces.is_empty() {
         println!("  qualifiers:");
         for qualifier in &trace.qualifier_traces {
@@ -2555,41 +2593,65 @@ fn print_variable_resolution_trace(trace: &VariableResolutionTrace) -> Result<()
     println!("  pathway:");
     for rule in &trace.rules {
         println!(
-            "    rule[{}] if {} -> {} ({})",
-            rule.index,
-            rule.qualifier,
+            "    {} if {} {} {} ({})",
+            style::dim(&format!("rule[{}]", rule.index)),
+            style::sea(&rule.qualifier),
+            style::arrow(),
             rule.value,
-            if rule.matched { "matched" } else { "skipped" }
+            if rule.matched {
+                style::ok("matched")
+            } else {
+                style::dim("skipped")
+            }
         );
     }
-    println!("    default -> {}", trace.default_value);
+    println!(
+        "    {} {} {}",
+        style::dim("default"),
+        style::arrow(),
+        trace.default_value
+    );
     println!("  result:");
-    println!("    value key: {}", trace.resolution.value_key);
+    println!("    value key: {}", style::sea(&trace.resolution.value_key));
     println!("    value: {}", compact_json(&trace.resolution.value)?);
     Ok(())
 }
 
 fn print_qualifier_resolution_trace(trace: &QualifierResolutionTrace) -> Result<()> {
-    println!("qualifier: {}", trace.id);
+    println!("{} {}", style::dim("qualifier:"), style::sea(&trace.id));
     if !trace.predicates.is_empty() {
         println!("  predicates:");
         for predicate in &trace.predicates {
             print_predicate_resolution(predicate, "    ")?;
         }
     }
-    println!("  result: {}", trace.value);
+    println!(
+        "  result: {}",
+        if trace.value {
+            style::ok("true")
+        } else {
+            style::dim("false")
+        }
+    );
     Ok(())
 }
 
 fn print_nested_qualifier_resolution_trace(trace: &QualifierResolutionTrace) -> Result<()> {
-    println!("    qualifier: {}", trace.id);
+    println!("    {} {}", style::dim("qualifier:"), style::sea(&trace.id));
     if !trace.predicates.is_empty() {
         println!("      predicates:");
         for predicate in &trace.predicates {
             print_predicate_resolution(predicate, "        ")?;
         }
     }
-    println!("      result: {}", trace.value);
+    println!(
+        "      result: {}",
+        if trace.value {
+            style::ok("true")
+        } else {
+            style::dim("false")
+        }
+    );
     Ok(())
 }
 
@@ -2624,7 +2686,14 @@ fn print_predicate_resolution(
             println!("{indent}    test: {op} {expected}");
         }
     }
-    println!("{indent}    matched: {}", predicate.result);
+    println!(
+        "{indent}    matched: {}",
+        if predicate.result {
+            style::ok("true")
+        } else {
+            style::dim("false")
+        }
+    );
     Ok(())
 }
 

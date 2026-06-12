@@ -1,5 +1,7 @@
 use serde::Serialize;
 
+use crate::style;
+
 use rototo::diagnostics::{
     DiagnosticCatalogEntry, DiagnosticEntity, DiagnosticLocation, LintDiagnostic, SemanticEntity,
     SemanticField, SemanticTarget, Severity,
@@ -91,7 +93,7 @@ pub(crate) fn print_workspace_lint(lint: &WorkspaceLint, json: bool, quiet: bool
         if quiet {
             return Ok(());
         }
-        println!("ok: {}", lint.root.display());
+        println!("{}", style::ok_line(&lint.root.display().to_string()));
         return Ok(());
     }
 
@@ -109,26 +111,32 @@ pub(crate) fn print_inspect_report(report: &WorkspaceInspectReport, json: bool) 
         return Ok(());
     }
 
-    println!("workspace: {}", report.workspace);
+    println!(
+        "{} {}",
+        style::label("workspace"),
+        style::bold(&report.workspace)
+    );
     match &report.runtime {
-        InspectRuntimeStatus::Available => println!("runtime: available"),
+        InspectRuntimeStatus::Available => {
+            println!("{} {}", style::label("runtime"), style::ok("available"))
+        }
         InspectRuntimeStatus::Unavailable { reason } => {
-            println!("runtime: unavailable");
+            println!("{} {}", style::label("runtime"), style::warn("unavailable"));
             println!("  reason: {reason}");
         }
     }
 
     if !report.diagnostics.is_empty() {
-        println!("diagnostics:");
+        println!("{}", style::label("diagnostics"));
         print_diagnostics(&report.diagnostics);
     }
 
     if !report.schemas.is_empty() {
-        println!("schemas:");
+        println!("{}", style::label("schemas"));
         let count = report.schemas.len();
         for (index, schema) in report.schemas.iter().enumerate() {
             print_entity_separator(index, count);
-            println!("  schema: {}", schema.id);
+            println!("  {} {}", style::dim("schema:"), style::sea(&schema.id));
             println!("    path: {}", schema.path);
             println!("    status: {}", schema.status);
             if let Some(error) = &schema.error {
@@ -148,11 +156,15 @@ pub(crate) fn print_inspect_report(report: &WorkspaceInspectReport, json: bool) 
     }
 
     if !report.qualifiers.is_empty() {
-        println!("qualifiers:");
+        println!("{}", style::label("qualifiers"));
         let count = report.qualifiers.len();
         for (index, qualifier) in report.qualifiers.iter().enumerate() {
             print_entity_separator(index, count);
-            println!("  qualifier: {}", qualifier.id);
+            println!(
+                "  {} {}",
+                style::dim("qualifier:"),
+                style::sea(&qualifier.id)
+            );
             if !qualifier.predicates.is_empty() {
                 println!("    predicates:");
                 for predicate in &qualifier.predicates {
@@ -189,11 +201,11 @@ pub(crate) fn print_inspect_report(report: &WorkspaceInspectReport, json: bool) 
     }
 
     if !report.resources.is_empty() {
-        println!("resources:");
+        println!("{}", style::label("resources"));
         let count = report.resources.len();
         for (index, resource) in report.resources.iter().enumerate() {
             print_entity_separator(index, count);
-            println!("  resource: {}", resource.id);
+            println!("  {} {}", style::dim("resource:"), style::sea(&resource.id));
             println!("    path: {}", resource.path);
             if let Some(schema) = &resource.schema {
                 println!("    schema: {schema}");
@@ -219,11 +231,11 @@ pub(crate) fn print_inspect_report(report: &WorkspaceInspectReport, json: bool) 
     }
 
     if !report.variables.is_empty() {
-        println!("variables:");
+        println!("{}", style::label("variables"));
         let count = report.variables.len();
         for (index, variable) in report.variables.iter().enumerate() {
             print_entity_separator(index, count);
-            println!("  variable: {}", variable.id);
+            println!("  {} {}", style::dim("variable:"), style::sea(&variable.id));
             println!("    type: {}", variable.type_source);
             if let Some(schema) = &variable.schema {
                 println!("    schema: {schema}");
@@ -244,14 +256,24 @@ pub(crate) fn print_inspect_report(report: &WorkspaceInspectReport, json: bool) 
                 for rule in &variable.resolve.rules {
                     let qualifier = rule.qualifier.as_deref().unwrap_or("<missing>");
                     let value = rule.value.as_deref().unwrap_or("<missing>");
-                    println!("      rule[{}] if {} -> {}", rule.index, qualifier, value);
+                    println!(
+                        "      {} if {} {} {}",
+                        style::dim(&format!("rule[{}]", rule.index)),
+                        style::sea(qualifier),
+                        style::arrow(),
+                        value
+                    );
                 }
                 let default = variable
                     .resolve
                     .default_value
                     .as_deref()
                     .unwrap_or("<missing>");
-                println!("      default -> {default}");
+                println!(
+                    "      {} {} {default}",
+                    style::dim("default"),
+                    style::arrow()
+                );
             }
             print_dependencies(&variable.dependencies, "    ");
             if !variable.diagnostics.is_empty() {
@@ -262,11 +284,16 @@ pub(crate) fn print_inspect_report(report: &WorkspaceInspectReport, json: bool) 
                 println!("    trace: {}", trace.resolution.value_key);
                 for rule in &trace.rules {
                     println!(
-                        "      rule[{}] if {} -> {} ({})",
-                        rule.index,
-                        rule.qualifier,
+                        "      {} if {} {} {} ({})",
+                        style::dim(&format!("rule[{}]", rule.index)),
+                        style::sea(&rule.qualifier),
+                        style::arrow(),
                         rule.value,
-                        if rule.matched { "matched" } else { "skipped" }
+                        if rule.matched {
+                            style::ok("matched")
+                        } else {
+                            style::dim("skipped")
+                        }
                     );
                 }
             }
@@ -274,11 +301,11 @@ pub(crate) fn print_inspect_report(report: &WorkspaceInspectReport, json: bool) 
     }
 
     if !report.lint_rules.is_empty() {
-        println!("lint rules:");
+        println!("{}", style::label("lint rules"));
         let count = report.lint_rules.len();
         for (index, rule) in report.lint_rules.iter().enumerate() {
             print_entity_separator(index, count);
-            println!("  lint rule: {}", rule.rule);
+            println!("  {} {}", style::dim("lint rule:"), style::sea(&rule.rule));
             println!("    severity: {}", severity_label(&rule.severity));
             println!("    title: {}", rule.title);
             if !rule.diagnostics.is_empty() {
@@ -288,11 +315,15 @@ pub(crate) fn print_inspect_report(report: &WorkspaceInspectReport, json: bool) 
     }
 
     if !report.lint_authorities.is_empty() {
-        println!("lint authorities:");
+        println!("{}", style::label("lint authorities"));
         let count = report.lint_authorities.len();
         for (index, authority) in report.lint_authorities.iter().enumerate() {
             print_entity_separator(index, count);
-            println!("  lint authority: {}", authority.authority);
+            println!(
+                "  {} {}",
+                style::dim("lint authority:"),
+                style::sea(&authority.authority)
+            );
             for rule in &authority.rules {
                 println!("    {}  {}", rule.rule, rule.title);
             }
@@ -300,11 +331,11 @@ pub(crate) fn print_inspect_report(report: &WorkspaceInspectReport, json: bool) 
     }
 
     if !report.linters.is_empty() {
-        println!("linters:");
+        println!("{}", style::label("linters"));
         let count = report.linters.len();
         for (index, linter) in report.linters.iter().enumerate() {
             print_entity_separator(index, count);
-            println!("  linter: {}", linter.id);
+            println!("  {} {}", style::dim("linter:"), style::sea(&linter.id));
             println!("    path: {}", linter.path);
             if !linter.registrations.is_empty() {
                 println!("    registrations:");
@@ -386,7 +417,7 @@ pub(crate) fn print_workspace_diff(diff: &WorkspaceDiff, json: bool) -> Result<(
 
 fn print_entity_separator(index: usize, count: usize) {
     if count > 1 && index > 0 {
-        println!("  ----------------------------------------");
+        println!("{}", style::hairline());
     }
 }
 
@@ -658,17 +689,17 @@ async fn print_workspace_file(path: &std::path::Path) -> Result<()> {
 fn print_diagnostics(diagnostics: &[LintDiagnostic]) {
     for diagnostic in diagnostics {
         println!(
-            "{}[{}]: {}: {}",
-            severity_label(&diagnostic.severity),
-            diagnostic.rule.as_string(),
-            diagnostic_location_label(diagnostic),
+            "{}: {}: {}",
+            style::severity_prefix(&diagnostic.severity, &diagnostic.rule.as_string()),
+            style::info(&diagnostic_location_label(diagnostic)),
             diagnostic.message
         );
-        println!("  help: {}", diagnostic.help);
+        println!("  {} {}", style::dim("help:"), style::dim(&diagnostic.help));
         for related in &diagnostic.related {
             println!(
-                "  note: {}: {}",
-                diagnostic_location_label_for_location(&related.location),
+                "  {} {}: {}",
+                style::dim("note:"),
+                style::info(&diagnostic_location_label_for_location(&related.location)),
                 related.message
             );
         }
