@@ -145,10 +145,21 @@ export type ModelEntityRef =
   | { kind: "value"; variable: string; key: string }
   | { kind: "contextAttribute"; name: string };
 
+export type ModelReferenceVia =
+  | { kind: "predicateQualifier"; index: number }
+  | { kind: "predicateContextAttribute"; index: number }
+  | { kind: "variableResource" }
+  | { kind: "resourceSchema" }
+  | { kind: "resolveDefault" }
+  | { kind: "ruleQualifier"; index: number }
+  | { kind: "ruleValue"; index: number };
+
 export type ReferenceModel = {
   from: ModelEntityRef;
   to: ModelEntityRef;
   location: ModelLocation;
+  /* Where in the source entity the reference sits, for semantic display. */
+  via: ModelReferenceVia;
 };
 
 /* The serializable projection of rototo's semantic and reference indexes.

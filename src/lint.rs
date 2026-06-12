@@ -33,7 +33,7 @@ pub(crate) use runtime::{
 };
 pub use semantic_model::{
     DeclarationModel, LinterModel, LinterRuleModel, ModelEntityRef, ModelField, ModelLocation,
-    PredicateModel, QualifierModel, ReferenceModel, ResolveModel, ResourceModel,
+    ModelReferenceVia, PredicateModel, QualifierModel, ReferenceModel, ResolveModel, ResourceModel,
     ResourceObjectModel, RuleModel, SchemaModel, ValueModel, VariableModel, WorkspaceSemanticModel,
 };
 pub(crate) use symbols::{
