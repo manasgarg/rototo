@@ -234,7 +234,8 @@ export function FriendlyEntityEditor({
         <div className="action-row">
           {hasDelta ? (
             <button
-              className={showChanges ? "btn btn-secondary btn-sm" : "btn btn-ghost btn-sm"}
+              className="btn btn-sm btn-changes"
+              data-on={showChanges}
               onClick={() => setShowChanges((value) => !value)}
               type="button"
             >

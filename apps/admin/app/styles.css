@@ -1516,6 +1516,25 @@ select.input {
   width: 4px;
 }
 
+/* The changed-on-this-branch affordance: amber, like the drift role */
+.btn-changes {
+  background: var(--warn-bg);
+  border: 1px solid oklch(0.77 0.165 80 / 0.55);
+  color: var(--warn-700);
+  font-weight: 600;
+}
+
+.btn-changes:hover {
+  background: oklch(0.93 0.1 84);
+  border-color: var(--warn-500);
+}
+
+.btn-changes[data-on="true"] {
+  background: var(--warn-500);
+  border-color: var(--warn-500);
+  color: oklch(0.99 0.01 84);
+}
+
 .delta-panel {
   display: flex;
   flex-direction: column;
