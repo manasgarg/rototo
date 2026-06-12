@@ -1497,17 +1497,57 @@ select.input {
   overflow: hidden;
 }
 
-.graph-frame {
+.graph-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 12px;
+}
+
+.graph-search {
+  max-width: 280px;
+  flex: 1;
+}
+
+.graph-scroll {
   overflow-x: auto;
 }
 
-.graph-frame svg {
+.graph-scroll svg {
   min-width: 720px;
 }
 
-.graph-switcher {
-  margin-bottom: 10px;
-  width: fit-content;
+.graph-tooltip {
+  position: absolute;
+  z-index: 30;
+  max-width: 380px;
+  max-height: 280px;
+  overflow: hidden;
+  padding: 10px 12px;
+  border: 1px solid var(--line-2);
+  border-radius: var(--radius-2);
+  background: var(--paper-0);
+  box-shadow: var(--shadow-3);
+  pointer-events: none;
+}
+
+.graph-tooltip-title {
+  font-family: var(--font-mono), ui-monospace, monospace;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--ink-2);
+  margin-bottom: 6px;
+}
+
+.graph-tooltip pre {
+  margin: 0;
+  font-family: var(--font-mono), ui-monospace, monospace;
+  font-size: 11px;
+  line-height: 1.55;
+  color: var(--ink-0);
+  white-space: pre;
 }
 
 /* Object pills inside a resource row */

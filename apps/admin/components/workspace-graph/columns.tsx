@@ -1,14 +1,14 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { useMemo, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import type { GraphNode, GraphNodeKind, WorkspaceGraphData } from "./types";
 
 /* Concept: layered columns. Entities group into columns by kind in
    resolution order — qualifiers feed variables, variables select objects,
    objects and variables validate against schemas — with linters alongside.
-   Hovering a node lights up its edges and neighbors; clicking opens the
-   entity. */
+   Hovering a node lights up its edges and neighbors and previews its source;
+   clicking opens the entity. */
 
 const COLUMNS: Array<{ kind: GraphNodeKind; title: string }> = [
   { kind: "qualifier", title: "qualifiers" },
@@ -31,10 +31,13 @@ const COL_GAP = 56;
 const ROW_HEIGHT = 30;
 const HEADER_HEIGHT = 34;
 const NODE_HEIGHT = 22;
+const PADDING = 6;
 
 export function ColumnsGraph({ data }: { data: WorkspaceGraphData }) {
   const router = useRouter();
+  const frameRef = useRef<HTMLDivElement>(null);
   const [active, setActive] = useState<string | null>(null);
+  const [pointer, setPointer] = useState<{ x: number; y: number } | null>(null);
 
   const layout = useMemo(() => {
     const columns = COLUMNS.map((column) => ({
@@ -45,7 +48,7 @@ export function ColumnsGraph({ data }: { data: WorkspaceGraphData }) {
     columns.forEach((column, columnIndex) => {
       column.nodes.forEach((node, rowIndex) => {
         positions.set(node.id, {
-          x: columnIndex * (COL_WIDTH + COL_GAP),
+          x: PADDING + columnIndex * (COL_WIDTH + COL_GAP),
           y: HEADER_HEIGHT + rowIndex * ROW_HEIGHT,
           column: columnIndex,
         });
@@ -55,7 +58,7 @@ export function ColumnsGraph({ data }: { data: WorkspaceGraphData }) {
     return {
       columns,
       positions,
-      width: columns.length * COL_WIDTH + (columns.length - 1) * COL_GAP,
+      width: PADDING * 2 + columns.length * COL_WIDTH + (columns.length - 1) * COL_GAP,
       height: HEADER_HEIGHT + rows * ROW_HEIGHT + 8,
     };
   }, [data]);
@@ -72,84 +75,121 @@ export function ColumnsGraph({ data }: { data: WorkspaceGraphData }) {
   const isDimmed = (id: string) =>
     active !== null && active !== id && !(neighbors.get(active)?.has(id) ?? false);
 
+  const activeNode = active ? data.nodes.find((node) => node.id === active) ?? null : null;
+
+  const handleHover = (id: string | null, event?: React.MouseEvent) => {
+    setActive(id);
+    if (id && event && frameRef.current) {
+      const bounds = frameRef.current.getBoundingClientRect();
+      setPointer({ x: event.clientX - bounds.left, y: event.clientY - bounds.top });
+    } else {
+      setPointer(null);
+    }
+  };
+
   return (
-    <svg
-      role="img"
-      aria-label="Workspace entity graph"
-      style={{ width: "100%", height: "auto", display: "block" }}
-      viewBox={`0 0 ${layout.width} ${layout.height}`}
-    >
-      {data.edges.map((edge, index) => {
-        const from = layout.positions.get(edge.from);
-        const to = layout.positions.get(edge.to);
-        if (!from || !to) {
-          return null;
-        }
-        const lit = active === edge.from || active === edge.to;
-        const leftToRight = from.column <= to.column;
-        const x1 = leftToRight ? from.x + COL_WIDTH : from.x;
-        const x2 = leftToRight ? to.x : to.x + COL_WIDTH;
-        const y1 = from.y + NODE_HEIGHT / 2;
-        const y2 = to.y + NODE_HEIGHT / 2;
-        const bend = Math.max(24, Math.abs(x2 - x1) / 2);
-        return (
-          <path
-            d={`M ${x1} ${y1} C ${x1 + bend} ${y1}, ${x2 - bend} ${y2}, ${x2} ${y2}`}
-            fill="none"
-            key={index}
-            stroke={lit ? "var(--sea-500)" : "var(--line-2)"}
-            strokeWidth={lit ? 1.8 : 1}
-            opacity={active !== null && !lit ? 0.25 : 1}
-          />
-        );
-      })}
-      {layout.columns.map((column, columnIndex) => (
-        <text
-          className="graph-column-title"
-          fill="var(--ink-2)"
-          fontSize={11}
-          key={column.kind}
-          letterSpacing="0.1em"
-          x={columnIndex * (COL_WIDTH + COL_GAP)}
-          y={14}
-        >
-          {column.title.toUpperCase()}
-        </text>
-      ))}
-      {layout.columns.flatMap((column) =>
-        column.nodes.map((node) => {
-          const position = layout.positions.get(node.id);
-          if (!position) {
+    <div ref={frameRef} style={{ position: "relative" }}>
+      <svg
+        role="img"
+        aria-label="Workspace entity graph"
+        style={{ width: "100%", height: "auto", display: "block" }}
+        viewBox={`0 0 ${layout.width} ${layout.height}`}
+      >
+        {data.edges.map((edge, index) => {
+          const from = layout.positions.get(edge.from);
+          const to = layout.positions.get(edge.to);
+          if (!from || !to) {
             return null;
           }
+          const lit = active === edge.from || active === edge.to;
+          const y1 = from.y + NODE_HEIGHT / 2;
+          const y2 = to.y + NODE_HEIGHT / 2;
+          let path: string;
+          if (from.column === to.column) {
+            // Same-column references loop through the gap on the right so
+            // they never leave the viewport.
+            const x = from.x + COL_WIDTH;
+            const bend = Math.min(COL_GAP - 6, 22 + Math.abs(y2 - y1) / 6);
+            path = `M ${x} ${y1} C ${x + bend} ${y1}, ${x + bend} ${y2}, ${x} ${y2}`;
+          } else {
+            const leftToRight = from.column < to.column;
+            const x1 = leftToRight ? from.x + COL_WIDTH : from.x;
+            const x2 = leftToRight ? to.x : to.x + COL_WIDTH;
+            const bend = Math.max(24, Math.abs(x2 - x1) / 2);
+            path = `M ${x1} ${y1} C ${x1 + (leftToRight ? bend : -bend)} ${y1}, ${
+              x2 + (leftToRight ? -bend : bend)
+            } ${y2}, ${x2} ${y2}`;
+          }
           return (
-            <GraphNodeBox
-              dimmed={isDimmed(node.id)}
-              key={node.id}
-              node={node}
-              onActivate={setActive}
-              onOpen={() => router.push(node.href)}
-              x={position.x}
-              y={position.y}
+            <path
+              d={path}
+              fill="none"
+              key={index}
+              stroke={lit ? "var(--sea-500)" : "var(--line-2)"}
+              strokeWidth={lit ? 1.8 : 1}
+              opacity={active !== null && !lit ? 0.25 : 1}
             />
           );
-        }),
-      )}
-    </svg>
+        })}
+        {layout.columns.map((column, columnIndex) => (
+          <text
+            fill="var(--ink-2)"
+            fontSize={11}
+            key={column.kind}
+            letterSpacing="0.1em"
+            x={PADDING + columnIndex * (COL_WIDTH + COL_GAP)}
+            y={14}
+          >
+            {column.title.toUpperCase()}
+          </text>
+        ))}
+        {layout.columns.flatMap((column) =>
+          column.nodes.map((node) => {
+            const position = layout.positions.get(node.id);
+            if (!position) {
+              return null;
+            }
+            return (
+              <GraphNodeBox
+                dimmed={isDimmed(node.id)}
+                key={node.id}
+                node={node}
+                onHover={handleHover}
+                onOpen={() => router.push(node.href)}
+                x={position.x}
+                y={position.y}
+              />
+            );
+          }),
+        )}
+      </svg>
+      {activeNode?.source && pointer ? (
+        <div
+          className="graph-tooltip"
+          style={{
+            left: Math.min(pointer.x + 14, Math.max(0, (frameRef.current?.clientWidth ?? 600) - 380)),
+            top: pointer.y + 14,
+          }}
+        >
+          <div className="graph-tooltip-title">{activeNode.label}</div>
+          <pre>{activeNode.source}</pre>
+        </div>
+      ) : null}
+    </div>
   );
 }
 
 function GraphNodeBox({
   dimmed,
   node,
-  onActivate,
+  onHover,
   onOpen,
   x,
   y,
 }: {
   dimmed: boolean;
   node: GraphNode;
-  onActivate: (id: string | null) => void;
+  onHover: (id: string | null, event?: React.MouseEvent) => void;
   onOpen: () => void;
   x: number;
   y: number;
@@ -158,12 +198,12 @@ function GraphNodeBox({
   return (
     <g
       onClick={onOpen}
-      onMouseEnter={() => onActivate(node.id)}
-      onMouseLeave={() => onActivate(null)}
+      onMouseEnter={(event) => onHover(node.id, event)}
+      onMouseMove={(event) => onHover(node.id, event)}
+      onMouseLeave={() => onHover(null)}
       opacity={dimmed ? 0.3 : 1}
       style={{ cursor: "pointer" }}
     >
-      <title>{node.label}</title>
       <rect
         fill="var(--paper-1)"
         height={NODE_HEIGHT}

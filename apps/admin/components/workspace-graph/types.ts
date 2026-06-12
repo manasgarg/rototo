@@ -11,6 +11,8 @@ export type GraphNode = {
   kind: GraphNodeKind;
   label: string;
   href: string;
+  /* The entity's source text, for hover previews. May be truncated. */
+  source?: string;
 };
 
 export type GraphEdgeKind = "checks" | "selects" | "validates" | "requires";

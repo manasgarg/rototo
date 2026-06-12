@@ -207,6 +207,12 @@ export async function WorkspaceScreen({
       contextResolutions = [];
     }
   }
+  // Graph data for the overview: built server-side with entity sources for
+  // hover previews.
+  let graphData: WorkspaceGraphData | null = null;
+  if (selectedSection === "overview" && !selectedNode && model !== null && stagedRoot !== null) {
+    graphData = await workspaceGraphData(model, nodes, workspace, stagedRoot);
+  }
   // For qualifiers: evaluate the qualifier (and any nested qualifiers it
   // references) against each saved request context.
   let qualifierEvaluations: QualifierContextEvaluation[] = [];
@@ -406,10 +412,10 @@ export async function WorkspaceScreen({
         <WorkspaceSection
           diagnosticCount={diagnosticCount}
           drafts={drafts}
+          graphData={graphData}
           inventory={inventory}
           inventoryError={inventoryError}
           lint={lint}
-          model={model}
           nodes={nodes}
           section={selectedSection}
           workspace={workspace}
@@ -422,20 +428,20 @@ export async function WorkspaceScreen({
 function WorkspaceSection({
   diagnosticCount,
   drafts,
+  graphData,
   inventory,
   inventoryError,
   lint,
-  model,
   nodes,
   section,
   workspace,
 }: {
   diagnosticCount: number;
   drafts: DraftSessionRecord[];
+  graphData: WorkspaceGraphData | null;
   inventory: WorkspaceInventory;
   inventoryError: string | null;
   lint: WorkspaceLintView | { root: string; diagnostics: []; error: string };
-  model: WorkspaceSemanticModel | null;
   nodes: EntityNode[];
   section: SectionId;
   workspace: {
@@ -492,20 +498,18 @@ function WorkspaceSection({
               openDrafts={openDrafts}
               workspaceId={workspace.slug}
             />
-            {model ? (
+            {graphData ? (
               <div className="card graph-card">
                 <div className="card-head-text">
                   <h3>Entity graph</h3>
                   <p className="hint">
                     How qualifiers, variables, objects, schemas, and linters connect. Hover a
-                    node to trace its references; click to open it.
+                    node to trace its references and preview its source; click to open it.
                   </p>
                 </div>
-                <WorkspaceGraph data={workspaceGraphData(model, nodes, workspace.slug)} />
+                <WorkspaceGraph data={graphData} />
               </div>
             ) : null}
-            <div className="label">declared entities — most referenced first</div>
-            <OverviewEntityCards nodes={nodes} workspaceId={workspace.slug} />
           </>
         )}
       </section>
@@ -1232,11 +1236,13 @@ function QualifierEvaluationRows({
 
 /* Builds the graph data contract from the semantic model. Rendering concepts
    live in components/workspace-graph. */
-function workspaceGraphData(
+async function workspaceGraphData(
   model: WorkspaceSemanticModel,
   nodes: EntityNode[],
-  workspaceId: string,
-): WorkspaceGraphData {
+  workspace: Parameters<typeof readWorkspaceDefinition>[0]["workspace"] & { slug: string },
+  stagedRoot: string,
+): Promise<WorkspaceGraphData> {
+  const workspaceId = workspace.slug;
   const nodeByKey = new Map(nodes.map((node) => [node.targetKey, node]));
   const graphNodes: WorkspaceGraphData["nodes"] = [];
   const seenNodes = new Set<string>();
@@ -1330,6 +1336,27 @@ function workspaceGraphData(
       pushEdge(`variables:${variable.id}`, `schemas:${file}`, "validates");
     }
   }
+  // Source previews for hover tooltips, truncated to keep the page light.
+  await Promise.all(
+    graphNodes.map(async (graphNode) => {
+      const node = nodeByKey.get(graphNode.id);
+      if (!node) {
+        return;
+      }
+      try {
+        const definition = await readWorkspaceDefinition({
+          workspace,
+          root: stagedRoot,
+          path: node.path,
+        });
+        const lines = definition.text.split("\n");
+        const preview = lines.slice(0, 30).join("\n");
+        graphNode.source = lines.length > 30 ? `${preview}\n…` : preview;
+      } catch {
+        // no preview for unreadable files
+      }
+    }),
+  );
   return { nodes: graphNodes, edges };
 }
 
@@ -1682,69 +1709,6 @@ const OVERVIEW_CARD_SECTIONS: SectionId[] = [
   "linters",
   "context",
 ];
-
-function OverviewEntityCards({
-  nodes,
-  workspaceId,
-}: {
-  nodes: EntityNode[];
-  workspaceId: string;
-}) {
-  const inboundCounts = new Map<string, number>();
-  for (const node of nodes) {
-    for (const key of node.outboundKeys) {
-      inboundCounts.set(key, (inboundCounts.get(key) ?? 0) + 1);
-    }
-  }
-  const inbound = (node: EntityNode) => inboundCounts.get(node.targetKey) ?? 0;
-
-  return (
-    <div className="entity-cards">
-      {OVERVIEW_CARD_SECTIONS.map((section) => {
-        const sectionNodes = nodes.filter(
-          (node) =>
-            node.section === section && (section !== "resources" || node.kind === "resource"),
-        );
-        if (sectionNodes.length === 0) {
-          return null;
-        }
-        const top = [...sectionNodes]
-          .sort((left, right) => inbound(right) - inbound(left) || left.id.localeCompare(right.id))
-          .slice(0, 5);
-        return (
-          <div className="card entity-card" key={section}>
-            <div className="entity-card-head">
-              <span className="label">{SECTION_TITLES[section].toLowerCase()}</span>
-              <span className="nav-count">{sectionNodes.length}</span>
-            </div>
-            <div className="entity-card-list">
-              {top.map((node) => (
-                <Link
-                  className="entity-card-link"
-                  href={entityHref(workspaceId, node.path)}
-                  key={node.path}
-                  title={node.description ?? node.id}
-                >
-                  <span className="entity-card-id">{node.id}</span>
-                  {inbound(node) > 0 ? (
-                    <span className="entity-card-refs">
-                      {inbound(node)} {inbound(node) === 1 ? "ref" : "refs"}
-                    </span>
-                  ) : null}
-                </Link>
-              ))}
-            </div>
-            {sectionNodes.length > top.length ? (
-              <Link className="entity-card-more" href={sectionHref(workspaceId, section)}>
-                … all {sectionNodes.length}
-              </Link>
-            ) : null}
-          </div>
-        );
-      })}
-    </div>
-  );
-}
 
 function sectionIcon(section: SectionId, size: number): ReactNode {
   switch (section) {
