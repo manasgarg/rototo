@@ -6,12 +6,25 @@ import type { WorkspaceRecord } from "./db";
    bounds the handle's lifetime. */
 const semanticModelCache = new WeakMap<RototoWorkspace, Promise<WorkspaceSemanticModel>>();
 
+/* The model shape this admin build consumes. A lower version from the native
+   module means the dev server is holding a stale binary. */
+const EXPECTED_SEMANTIC_MODEL_VERSION = 2;
+
 export function semanticModelFor(
   inspected: RototoWorkspace,
 ): Promise<WorkspaceSemanticModel> {
   let model = semanticModelCache.get(inspected);
   if (!model) {
-    model = inspected.semanticModel();
+    model = inspected.semanticModel().then((loaded) => {
+      if ((loaded.version ?? 0) < EXPECTED_SEMANTIC_MODEL_VERSION) {
+        throw new Error(
+          `the loaded rototo native module produces semantic model v${loaded.version}, ` +
+            `but this admin build needs v${EXPECTED_SEMANTIC_MODEL_VERSION} — ` +
+            "restart the admin server so Node reloads the rebuilt module",
+        );
+      }
+      return loaded;
+    });
     semanticModelCache.set(inspected, model);
     model.catch(() => semanticModelCache.delete(inspected));
   }

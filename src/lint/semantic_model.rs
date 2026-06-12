@@ -16,7 +16,7 @@ use super::index::{
 };
 use super::references::{ReferenceSource, ReferenceTarget};
 
-pub const SEMANTIC_MODEL_VERSION: u32 = 1;
+pub const SEMANTIC_MODEL_VERSION: u32 = 2;
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
