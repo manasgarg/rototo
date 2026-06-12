@@ -24,6 +24,8 @@ export type GraphNode = {
      selected objects); hover highlighting includes them and the drawn edges
      that connect into them. */
   related?: string[];
+  /* Marked when the entity differs from the base ref in the current draft. */
+  edited?: boolean;
 };
 
 export type GraphEdgeKind = "checks" | "selects" | "contains" | "validates" | "requires";

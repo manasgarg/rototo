@@ -275,16 +275,31 @@ function GraphNodeBox({
       style={{ cursor: "pointer" }}
     >
       <rect
-        fill={highlighted ? "var(--sea-50)" : "var(--paper-1)"}
+        fill={highlighted ? "var(--sea-50)" : node.edited ? "var(--warn-bg)" : "var(--paper-1)"}
         height={NODE_HEIGHT}
         rx={5}
-        stroke={highlighted ? "var(--sea-400)" : "var(--line-2)"}
-        strokeWidth={highlighted ? 1.4 : 1}
+        stroke={
+          highlighted ? "var(--sea-400)" : node.edited ? "var(--warn-500)" : "var(--line-2)"
+        }
+        strokeWidth={highlighted || node.edited ? 1.4 : 1}
         width={width}
         x={x}
         y={y}
       />
       <circle cx={x + 11} cy={y + NODE_HEIGHT / 2} fill={KIND_COLOR[node.kind]} r={3} />
+      {node.edited ? (
+        <text
+          fill="var(--warn-700)"
+          fontFamily="var(--font-mono), ui-monospace, monospace"
+          fontSize={12}
+          fontWeight={700}
+          textAnchor="end"
+          x={x + width - 8}
+          y={y + NODE_HEIGHT / 2 + 4}
+        >
+          ~
+        </text>
+      ) : null}
       <text
         fill="var(--ink-0)"
         fontFamily="var(--font-mono), ui-monospace, monospace"

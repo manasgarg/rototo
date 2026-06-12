@@ -69,7 +69,9 @@ import {
   type WorkspaceInventory,
 } from "@/lib/workspace-inventory";
 import { draftLintTarget } from "@/lib/workspace-edit";
-import { encodeEntityPath } from "../../workspace-screen";
+import { encodeEntityPath, workspaceGraphData } from "../../workspace-screen";
+import { WorkspaceGraph, type WorkspaceGraphData } from "@/components/workspace-graph";
+import { compareGitHubRefs } from "@/lib/github";
 
 export type DraftScreenId = "overview" | "edit" | "changes" | "validate" | "publish";
 
@@ -236,6 +238,69 @@ export async function DraftScreen({
           workspace,
         })
       : [];
+  // Editing-mode entity graph: same graph as the workspace overview, built
+  // from the draft branch, with edited entities marked.
+  let draftGraphData: WorkspaceGraphData | null = null;
+  if (selectedScreen === "overview" && draftModel !== null) {
+    const pathForKey = new Map<string, string>();
+    for (const entity of editableEntities) {
+      if (entity.section === "variables") {
+        pathForKey.set(`variables:${entity.id}`, entity.path);
+      } else if (entity.section === "qualifiers") {
+        pathForKey.set(`qualifiers:${entity.id}`, entity.path);
+      } else if (entity.kind === "resource") {
+        pathForKey.set(`resources:${entity.id}`, entity.path);
+      } else if (entity.kind === "resource object" && entity.resourceId && entity.objectKey) {
+        pathForKey.set(
+          `resource_objects:${entity.resourceId}:${entity.objectKey}`,
+          entity.path,
+        );
+      }
+    }
+    const editedPaths = new Set<string>();
+    for (const change of changes) {
+      editedPaths.add(change.filePath);
+    }
+    for (const event of events) {
+      if (event.detailJson) {
+        try {
+          const detail = JSON.parse(event.detailJson) as { filePath?: string; files?: string[] };
+          if (detail.filePath) {
+            editedPaths.add(detail.filePath);
+          }
+          for (const file of detail.files ?? []) {
+            editedPaths.add(file);
+          }
+        } catch {
+          // not file detail
+        }
+      }
+    }
+    // The branch may carry commits made outside this session; the ref
+    // comparison is the truth when the source is remote.
+    if (workspace.source.includes("://")) {
+      try {
+        const comparison = await compareGitHubRefs({
+          token: user.githubToken,
+          owner: workspace.owner,
+          name: workspace.name,
+          base: draft.baseRef,
+          head: draft.branch,
+        });
+        for (const file of comparison.files) {
+          editedPaths.add(file);
+        }
+      } catch {
+        // keep the session-derived set
+      }
+    }
+    draftGraphData = workspaceGraphData({
+      model: draftModel,
+      pathForKey,
+      hrefFor: (entityPath) => editEntityHref(workspace.slug, draft.id, entityPath),
+      editedPaths,
+    });
+  }
   const editableEntityCounts = editKindCounts(editableEntities);
   const contextAttributes = contextAttributeSuggestions(editableEntities);
   const schemaPathSuggestions = editableEntities
@@ -416,6 +481,7 @@ export async function DraftScreen({
           activity={activity}
           changesCount={changes.length}
           draft={draft}
+          graphData={draftGraphData}
           workspaceId={workspace.slug}
         />
       ) : null}
@@ -471,11 +537,13 @@ function DraftOverview({
   activity,
   changesCount,
   draft,
+  graphData,
   workspaceId,
 }: {
   activity: DraftEventRecord[];
   changesCount: number;
   draft: DraftSessionRecord;
+  graphData: WorkspaceGraphData | null;
   workspaceId: string;
 }) {
   const newestFirst = [...activity].sort(
@@ -525,6 +593,21 @@ function DraftOverview({
           workspaceId={workspaceId}
         />
       </div>
+      {graphData ? (
+        <div className="card graph-card">
+          <div className="card-head-text">
+            <h3>Entity graph</h3>
+            <p className="hint">
+              The workspace as this draft sees it. Entities edited on this branch are marked{" "}
+              <span className="mono" style={{ color: "var(--warn-700)" }}>
+                ~
+              </span>
+              ; hover to trace references, click to edit.
+            </p>
+          </div>
+          <WorkspaceGraph data={graphData} />
+        </div>
+      ) : null}
       <div className="section-header" style={{ marginTop: 8 }}>
         <div className="section-header-text">
           <h2>Activity</h2>

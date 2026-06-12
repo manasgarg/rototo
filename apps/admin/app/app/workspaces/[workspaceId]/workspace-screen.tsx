@@ -210,8 +210,12 @@ export async function WorkspaceScreen({
   // Graph data for the overview: built server-side with entity sources for
   // hover previews.
   let graphData: WorkspaceGraphData | null = null;
-  if (selectedSection === "overview" && !selectedNode && model !== null && stagedRoot !== null) {
-    graphData = await workspaceGraphData(model, nodes, workspace, stagedRoot);
+  if (selectedSection === "overview" && !selectedNode && model !== null) {
+    graphData = workspaceGraphData({
+      model,
+      pathForKey: new Map(nodes.map((node) => [node.targetKey, node.path])),
+      hrefFor: (entityPath) => entityHref(workspace.slug, entityPath),
+    });
   }
   // For qualifiers: evaluate the qualifier (and any nested qualifiers it
   // references) against each saved request context.
@@ -1235,15 +1239,15 @@ function QualifierEvaluationRows({
 }
 
 /* Builds the graph data contract from the semantic model. Rendering concepts
-   live in components/workspace-graph. */
-async function workspaceGraphData(
-  model: WorkspaceSemanticModel,
-  nodes: EntityNode[],
-  workspace: Parameters<typeof readWorkspaceDefinition>[0]["workspace"] & { slug: string },
-  stagedRoot: string,
-): Promise<WorkspaceGraphData> {
-  const workspaceId = workspace.slug;
-  const nodeByKey = new Map(nodes.map((node) => [node.targetKey, node]));
+   live in components/workspace-graph. Callers supply entity paths per target
+   key, the href builder, and optionally the set of paths edited in a draft. */
+export function workspaceGraphData(input: {
+  model: WorkspaceSemanticModel;
+  pathForKey: Map<string, string>;
+  hrefFor: (path: string) => string;
+  editedPaths?: Set<string>;
+}): WorkspaceGraphData {
+  const { model, pathForKey, hrefFor, editedPaths } = input;
   const graphNodes: WorkspaceGraphData["nodes"] = [];
   const seenNodes = new Set<string>();
   const pushNode = (
@@ -1251,12 +1255,18 @@ async function workspaceGraphData(
     kind: WorkspaceGraphData["nodes"][number]["kind"],
     label: string,
   ) => {
-    const node = nodeByKey.get(key);
-    if (!node || seenNodes.has(key)) {
+    const path = pathForKey.get(key);
+    if (!path || seenNodes.has(key)) {
       return;
     }
     seenNodes.add(key);
-    graphNodes.push({ id: key, kind, label, href: entityHref(workspaceId, node.path) });
+    graphNodes.push({
+      id: key,
+      kind,
+      label,
+      href: hrefFor(path),
+      edited: editedPaths?.has(path) || undefined,
+    });
   };
   for (const qualifier of model.qualifiers) {
     pushNode(`qualifiers:${qualifier.id}`, "qualifier", qualifier.id);
