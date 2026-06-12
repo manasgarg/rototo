@@ -5,6 +5,7 @@ const require = createRequire(import.meta.url);
 type NativeWorkspace = {
   root(): string;
   lint(): Promise<WorkspaceLintJson>;
+  semanticModel(): Promise<JsonValue>;
   resolveVariable(
     id: string,
     context: JsonValue,

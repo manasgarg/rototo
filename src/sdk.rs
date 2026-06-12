@@ -136,6 +136,13 @@ impl Workspace {
         crate::lint_workspace(self.root()).await
     }
 
+    /// The semantic model of this workspace: entities, references, and source
+    /// ranges as rototo parses the staged files. Tools should consume this
+    /// instead of parsing workspace files themselves.
+    pub async fn semantic_model(&self) -> Result<crate::lint::WorkspaceSemanticModel> {
+        crate::lint::workspace_semantic_model(self.root()).await
+    }
+
     pub async fn validate_context(&self, context: &ResolveContext) -> Result<()> {
         self.runtime()?.validate_context(context.value())
     }

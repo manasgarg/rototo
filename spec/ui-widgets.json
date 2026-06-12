@@ -1,0 +1,76 @@
+{
+  "version": 1,
+  "widgets": {
+    "checkbox": {
+      "types": ["boolean"],
+      "params": {}
+    },
+    "code": {
+      "types": ["string"],
+      "params": { "language": "string", "rows": "integer" }
+    },
+    "color": {
+      "types": ["string"],
+      "params": {}
+    },
+    "date": {
+      "types": ["string"],
+      "params": {}
+    },
+    "datetime": {
+      "types": ["string"],
+      "params": {}
+    },
+    "email": {
+      "types": ["string"],
+      "params": {}
+    },
+    "markdown": {
+      "types": ["string"],
+      "params": { "rows": "integer" }
+    },
+    "multiselect": {
+      "types": ["array"],
+      "params": {},
+      "requires_enum": true
+    },
+    "number": {
+      "types": ["integer", "number"],
+      "params": { "min": "number", "max": "number", "step": "number" }
+    },
+    "percent": {
+      "types": ["integer", "number"],
+      "params": { "min": "number", "max": "number", "step": "number" }
+    },
+    "radio": {
+      "types": ["string"],
+      "params": {},
+      "requires_enum": true
+    },
+    "slider": {
+      "types": ["integer", "number"],
+      "params": { "min": "number", "max": "number", "step": "number" },
+      "requires_bounds": true
+    },
+    "tags": {
+      "types": ["array"],
+      "params": {}
+    },
+    "textarea": {
+      "types": ["string"],
+      "params": { "rows": "integer" }
+    },
+    "time": {
+      "types": ["string"],
+      "params": {}
+    },
+    "toggle": {
+      "types": ["boolean"],
+      "params": {}
+    },
+    "url": {
+      "types": ["string"],
+      "params": {}
+    }
+  }
+}

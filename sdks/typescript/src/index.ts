@@ -64,6 +64,106 @@ export type WorkspaceLint = {
   diagnostics: JsonValue[];
 };
 
+export type ModelPosition = { line: number; character: number };
+
+export type ModelRange = { start: ModelPosition; end: ModelPosition };
+
+export type ModelLocation = { path: string; range?: ModelRange };
+
+/* A scalar field as rototo parsed it: `value` is present only when the field
+   had the expected shape; the location always points at the field. */
+export type ModelField = { value?: string; location: ModelLocation };
+
+export type QualifierModel = {
+  id: string;
+  location: ModelLocation;
+  description?: string;
+  predicates: Array<{
+    index: number;
+    location: ModelLocation;
+    attribute?: ModelField;
+    op?: ModelField;
+    value?: JsonValue;
+  }>;
+};
+
+export type VariableModel = {
+  id: string;
+  location: ModelLocation;
+  description?: string;
+  declaration: {
+    kind: "primitive" | "resource" | "schema" | "missing" | "conflict" | "invalid";
+    value?: string;
+    location: ModelLocation;
+  };
+  values: Array<{ key: string; location: ModelLocation; value: JsonValue }>;
+  valuesSection?: ModelLocation;
+  resolve?: {
+    location: ModelLocation;
+    default?: ModelField;
+    rules: Array<{
+      index: number;
+      location: ModelLocation;
+      qualifier?: ModelField;
+      value?: ModelField;
+    }>;
+  };
+};
+
+export type ResourceModel = {
+  id: string;
+  location: ModelLocation;
+  description?: string;
+  schema?: ModelField;
+};
+
+export type ResourceObjectModel = {
+  resource: string;
+  key: string;
+  location: ModelLocation;
+  value: JsonValue;
+};
+
+export type SchemaModel = {
+  path: string;
+  location: ModelLocation;
+  json?: JsonValue;
+};
+
+export type LinterModel = {
+  path: string;
+  location: ModelLocation;
+  rules: Array<{ id: string; title: string; help: string }>;
+};
+
+export type ModelEntityRef =
+  | { kind: "qualifier"; id: string }
+  | { kind: "variable"; id: string }
+  | { kind: "resource"; id: string }
+  | { kind: "resourceObject"; resource: string; key: string }
+  | { kind: "schema"; path: string }
+  | { kind: "value"; variable: string; key: string }
+  | { kind: "contextAttribute"; name: string };
+
+export type ReferenceModel = {
+  from: ModelEntityRef;
+  to: ModelEntityRef;
+  location: ModelLocation;
+};
+
+/* The serializable projection of rototo's semantic and reference indexes.
+   Tools consume this instead of parsing workspace files themselves. */
+export type WorkspaceSemanticModel = {
+  version: number;
+  qualifiers: QualifierModel[];
+  variables: VariableModel[];
+  resources: ResourceModel[];
+  resourceObjects: ResourceObjectModel[];
+  schemas: SchemaModel[];
+  linters: LinterModel[];
+  references: ReferenceModel[];
+};
+
 export class RototoError extends Error {
   constructor(message: string, options?: ErrorOptions) {
     super(message, options);
@@ -116,6 +216,14 @@ export class Workspace {
   async lint(): Promise<WorkspaceLint> {
     try {
       return await this.inner.lint();
+    } catch (error) {
+      throw toRototoError(error);
+    }
+  }
+
+  async semanticModel(): Promise<WorkspaceSemanticModel> {
+    try {
+      return (await this.inner.semanticModel()) as WorkspaceSemanticModel;
     } catch (error) {
       throw toRototoError(error);
     }

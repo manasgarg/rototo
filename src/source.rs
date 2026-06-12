@@ -16,6 +16,7 @@ const DEFAULT_MAX_DECOMPRESSED_ARCHIVE_BYTES: u64 = 200 * 1024 * 1024;
 const DEFAULT_MAX_ARCHIVE_ENTRIES: u64 = 10_000;
 const ERROR_BODY_PREVIEW_BYTES: u64 = 4096;
 const MAX_WORKSPACE_EXTENDS_DEPTH: usize = 32;
+const HTTP_USER_AGENT: &str = concat!("rototo/", env!("CARGO_PKG_VERSION"));
 
 #[derive(Clone, Debug)]
 pub struct SourceOptions {
@@ -465,11 +466,7 @@ async fn stage_https_archive(
     }
 
     let url = format!("{}://{}", uri.scheme, uri.base);
-    let client = reqwest::Client::builder()
-        .timeout(options.http_timeout())
-        .redirect(https_only_redirect_policy())
-        .build()
-        .map_err(|err| RototoError::new(format!("failed to build HTTP client: {err}")))?;
+    let client = https_archive_client(options)?;
     let mut request = client.get(&url);
     if let SourceAuth::Bearer(token) = options.auth() {
         request = request.bearer_auth(token);
@@ -528,7 +525,7 @@ async fn stage_https_archive(
     .map_err(|err| RototoError::new(format!("archive extraction task failed: {err}")))??;
 
     let root = match uri.subdir.as_deref() {
-        Some(subdir) => select_subdir(&extract_dir, Some(subdir), original).await?,
+        Some(subdir) => select_archive_subdir(&extract_dir, subdir, original).await?,
         None => infer_archive_workspace_root(&extract_dir, original).await?,
     };
     Ok(LoadedWorkspaceSource {
@@ -686,11 +683,7 @@ async fn probe_https_archive(
         ));
     }
     let url = format!("{}://{}", uri.scheme, uri.base);
-    let client = reqwest::Client::builder()
-        .timeout(options.http_timeout())
-        .redirect(https_only_redirect_policy())
-        .build()
-        .map_err(|err| RototoError::new(format!("failed to build HTTP client: {err}")))?;
+    let client = https_archive_client(options)?;
     let mut request = client.head(&url);
     if let SourceAuth::Bearer(token) = options.auth() {
         request = request.bearer_auth(token);
@@ -841,6 +834,15 @@ fn https_only_redirect_policy() -> reqwest::redirect::Policy {
     })
 }
 
+fn https_archive_client(options: &SourceOptions) -> Result<reqwest::Client> {
+    reqwest::Client::builder()
+        .timeout(options.http_timeout())
+        .redirect(https_only_redirect_policy())
+        .user_agent(HTTP_USER_AGENT)
+        .build()
+        .map_err(|err| RototoError::new(format!("failed to build HTTP client: {err}")))
+}
+
 fn response_fingerprint(response: &reqwest::Response) -> Option<SourceFingerprint> {
     http_validator_fingerprint(response.headers())
 }
@@ -960,6 +962,7 @@ fn extract_archive(
     {
         let mut entry = entry
             .map_err(|err| RototoError::new(format!("failed to read archive entry: {err}")))?;
+        let entry_type = entry.header().entry_type();
         entry_count = entry_count
             .checked_add(1)
             .ok_or_else(|| RototoError::new("workspace archive contains too many entries"))?;
@@ -967,6 +970,9 @@ fn extract_archive(
             return Err(RototoError::new(format!(
                 "workspace archive contains too many entries: exceeded limit of {max_entries}"
             )));
+        }
+        if archive_skipped_entry(entry_type) {
+            continue;
         }
         let path = entry
             .path()
@@ -977,7 +983,6 @@ fn extract_archive(
                 path.display()
             )));
         }
-        let entry_type = entry.header().entry_type();
         if !(entry_type.is_file() || entry_type.is_dir()) {
             return Err(RototoError::new(format!(
                 "workspace archive contains unsupported entry type at: {}",
@@ -1001,6 +1006,15 @@ fn extract_archive(
         })?;
     }
     Ok(())
+}
+
+fn archive_skipped_entry(entry_type: tar::EntryType) -> bool {
+    entry_type.is_pax_global_extensions()
+        || entry_type.is_pax_local_extensions()
+        || entry_type.is_gnu_longname()
+        || entry_type.is_gnu_longlink()
+        || entry_type.is_symlink()
+        || entry_type.is_hard_link()
 }
 
 fn copy_dir_recursive(source: &Path, target: &Path) -> Result<()> {
@@ -1295,6 +1309,54 @@ async fn infer_archive_workspace_root(extract_dir: &Path, original: &str) -> Res
     )))
 }
 
+async fn select_archive_subdir(
+    extract_dir: &Path,
+    subdir: &str,
+    original: &str,
+) -> Result<PathBuf> {
+    if !relative_path_is_safe(Path::new(subdir)) {
+        return Err(RototoError::new(format!(
+            "workspace source subdir is unsafe: {subdir}"
+        )));
+    }
+
+    match select_subdir(extract_dir, Some(subdir), original).await {
+        Ok(root) => Ok(root),
+        Err(err) => {
+            let Some(wrapper) = single_archive_directory(extract_dir).await? else {
+                return Err(err);
+            };
+            match select_subdir(&wrapper, Some(subdir), original).await {
+                Ok(root) => Ok(root),
+                Err(_) => Err(err),
+            }
+        }
+    }
+}
+
+async fn single_archive_directory(extract_dir: &Path) -> Result<Option<PathBuf>> {
+    let mut dirs = Vec::new();
+    let mut entries = tokio::fs::read_dir(extract_dir)
+        .await
+        .map_err(|err| RototoError::new(format!("failed to inspect workspace archive: {err}")))?;
+    while let Some(entry) = entries
+        .next_entry()
+        .await
+        .map_err(|err| RototoError::new(format!("failed to inspect workspace archive: {err}")))?
+    {
+        let path = entry.path();
+        if entry
+            .metadata()
+            .await
+            .map_err(|err| RototoError::new(format!("failed to inspect workspace archive: {err}")))?
+            .is_dir()
+        {
+            dirs.push(path);
+        }
+    }
+    Ok((dirs.len() == 1).then(|| dirs.remove(0)))
+}
+
 async fn async_is_file(path: &Path) -> bool {
     tokio::fs::metadata(path)
         .await
@@ -1492,6 +1554,22 @@ extends = ["../base", "  "]
     }
 
     #[tokio::test]
+    async fn select_archive_subdir_falls_back_to_single_wrapper_directory() {
+        let temp = tempfile::TempDir::new().unwrap();
+        let workspace = temp.path().join("repo-root").join("examples/basic");
+        tokio::fs::create_dir_all(&workspace).await.unwrap();
+        tokio::fs::write(workspace.join(WORKSPACE_MANIFEST), "schema_version = 1\n")
+            .await
+            .unwrap();
+
+        let root = select_archive_subdir(temp.path(), "examples/basic", "test.tar.gz")
+            .await
+            .unwrap();
+
+        assert_eq!(root, tokio::fs::canonicalize(workspace).await.unwrap());
+    }
+
+    #[tokio::test]
     async fn parent_layer_copy_skips_only_root_manifest() {
         let temp = tempfile::TempDir::new().unwrap();
         let source = temp.path().join("source");
@@ -1586,6 +1664,120 @@ extends = ["../base", "  "]
         .unwrap_err();
 
         assert!(err.to_string().contains("unsupported entry type"));
+    }
+
+    #[test]
+    fn extract_archive_skips_metadata_entries() {
+        let temp = tempfile::TempDir::new().unwrap();
+        let archive_path = temp.path().join("workspace.tar.gz");
+        {
+            let file = std::fs::File::create(&archive_path).unwrap();
+            let encoder = flate2::write::GzEncoder::new(file, flate2::Compression::default());
+            let mut archive = tar::Builder::new(encoder);
+
+            let mut metadata_header = tar::Header::new_gnu();
+            metadata_header.set_entry_type(tar::EntryType::XGlobalHeader);
+            metadata_header.set_size(0);
+            metadata_header.set_mode(0o644);
+            metadata_header.set_cksum();
+            archive
+                .append_data(
+                    &mut metadata_header,
+                    "pax_global_header",
+                    Cursor::new(Vec::<u8>::new()),
+                )
+                .unwrap();
+
+            let contents = b"schema_version = 1\n";
+            let mut file_header = tar::Header::new_gnu();
+            file_header.set_entry_type(tar::EntryType::Regular);
+            file_header.set_size(contents.len() as u64);
+            file_header.set_mode(0o644);
+            file_header.set_cksum();
+            archive
+                .append_data(
+                    &mut file_header,
+                    "workspace/rototo-workspace.toml",
+                    Cursor::new(contents),
+                )
+                .unwrap();
+
+            archive.finish().unwrap();
+        }
+
+        let extract_dir = temp.path().join("extract");
+        std::fs::create_dir_all(&extract_dir).unwrap();
+        extract_archive(
+            &archive_path,
+            &extract_dir,
+            DEFAULT_MAX_DECOMPRESSED_ARCHIVE_BYTES,
+            DEFAULT_MAX_ARCHIVE_ENTRIES,
+        )
+        .unwrap();
+
+        assert!(
+            extract_dir
+                .join("workspace/rototo-workspace.toml")
+                .is_file()
+        );
+    }
+
+    #[test]
+    fn extract_archive_skips_link_entries() {
+        let temp = tempfile::TempDir::new().unwrap();
+        let archive_path = temp.path().join("workspace.tar.gz");
+        {
+            let file = std::fs::File::create(&archive_path).unwrap();
+            let encoder = flate2::write::GzEncoder::new(file, flate2::Compression::default());
+            let mut archive = tar::Builder::new(encoder);
+
+            let mut link_header = tar::Header::new_gnu();
+            link_header.set_entry_type(tar::EntryType::Symlink);
+            link_header.set_size(0);
+            link_header.set_mode(0o777);
+            link_header.set_link_name("target").unwrap();
+            link_header.set_cksum();
+            archive
+                .append_data(
+                    &mut link_header,
+                    "workspace/ignored-link",
+                    Cursor::new(Vec::<u8>::new()),
+                )
+                .unwrap();
+
+            let contents = b"schema_version = 1\n";
+            let mut file_header = tar::Header::new_gnu();
+            file_header.set_entry_type(tar::EntryType::Regular);
+            file_header.set_size(contents.len() as u64);
+            file_header.set_mode(0o644);
+            file_header.set_cksum();
+            archive
+                .append_data(
+                    &mut file_header,
+                    "workspace/rototo-workspace.toml",
+                    Cursor::new(contents),
+                )
+                .unwrap();
+
+            archive.finish().unwrap();
+        }
+
+        let extract_dir = temp.path().join("extract");
+        std::fs::create_dir_all(&extract_dir).unwrap();
+        extract_archive(
+            &archive_path,
+            &extract_dir,
+            DEFAULT_MAX_DECOMPRESSED_ARCHIVE_BYTES,
+            DEFAULT_MAX_ARCHIVE_ENTRIES,
+        )
+        .unwrap();
+
+        assert!(!extract_dir.join("workspace/ignored-link").exists());
+        assert!(
+            extract_dir
+                .join("workspace/rototo-workspace.toml")
+                .is_file()
+        );
     }
 
     #[test]

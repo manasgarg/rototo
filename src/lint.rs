@@ -17,6 +17,7 @@ mod output;
 mod project;
 mod references;
 mod runtime;
+mod semantic_model;
 mod source;
 mod stages;
 mod symbols;
@@ -30,12 +31,24 @@ pub(crate) use runtime::{
     RuntimeAttribute, RuntimeCompareOp, RuntimePredicate, RuntimeWorkspace,
     compile_runtime_workspace, compile_runtime_workspace_from_snapshot,
 };
+pub use semantic_model::{
+    DeclarationModel, LinterModel, LinterRuleModel, ModelEntityRef, ModelField, ModelLocation,
+    PredicateModel, QualifierModel, ReferenceModel, ResolveModel, ResourceModel,
+    ResourceObjectModel, RuleModel, SchemaModel, ValueModel, VariableModel, WorkspaceSemanticModel,
+};
 pub(crate) use symbols::{
     WorkspaceCompletionItem, WorkspaceCompletionItemKind, WorkspaceDefinition,
     WorkspaceDocumentSymbol, WorkspaceDocumentSymbolKind, WorkspaceHover, WorkspaceReference,
 };
 
 const WORKSPACE_MANIFEST: &str = "rototo-workspace.toml";
+/// Lints the workspace and projects its semantic and reference indexes into
+/// the serializable model that tools consume instead of parsing files.
+pub async fn workspace_semantic_model(workspace_root: &Path) -> Result<WorkspaceSemanticModel> {
+    let snapshot = lint_workspace_snapshot(LintInput::new(workspace_root.to_path_buf())).await?;
+    Ok(snapshot.semantic_model())
+}
+
 pub async fn lint_workspace(workspace_root: &Path) -> Result<WorkspaceLint> {
     lint_workspace_with_input(LintInput::new(workspace_root.to_path_buf())).await
 }

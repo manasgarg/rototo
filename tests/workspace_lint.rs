@@ -260,6 +260,55 @@ fn reports_schema_parse_failed() {
 }
 
 #[test]
+fn reports_schema_ui_hint_rules() {
+    let lint = lint_json("tests/fixtures/workspaces/lint-failures", false);
+
+    let unknown = diagnostic_for_rule(&lint, "rototo/schema-ui-unknown-widget");
+    assert_eq!(unknown["severity"], "warning");
+    assert_eq!(
+        unknown["target"]["entity"]["path"],
+        "schemas/bad-ui-hints.schema.json"
+    );
+    assert!(
+        unknown["message"]
+            .as_str()
+            .unwrap()
+            .contains("#/properties/title"),
+        "{unknown:#}"
+    );
+
+    let mismatch = diagnostic_for_rule(&lint, "rototo/schema-ui-widget-type-mismatch");
+    assert!(
+        mismatch["message"]
+            .as_str()
+            .unwrap()
+            .contains("ui widget textarea supports string"),
+        "{mismatch:#}"
+    );
+
+    let params = diagnostic_messages_for_rule(&lint, "rototo/schema-ui-widget-params");
+    assert_eq!(params.len(), 4, "{lint:#}");
+    assert!(
+        params
+            .iter()
+            .any(|message| message.contains("unknown x-rototo-ui parameter rows"))
+    );
+    assert!(
+        params
+            .iter()
+            .any(|message| message.contains("needs bounds"))
+    );
+    assert!(
+        params
+            .iter()
+            .any(|message| message.contains("requires an enum"))
+    );
+    assert!(params.iter().any(|message| {
+        message.contains("parameter language for widget code must be a string")
+    }));
+}
+
+#[test]
 fn parse_diagnostics_handle_multibyte_text_near_syntax_errors() {
     let temp = tempfile::TempDir::new().unwrap();
     let toml_root = temp.path().join("toml");
@@ -2303,6 +2352,54 @@ fn canonical_rule_fixtures() -> &'static [CanonicalRuleFixture] {
                 entity: ExpectedEntity::CustomLintFile("lint/invalid.lua"),
                 primary: ExpectedPrimaryLocation::Document {
                     path: "lint/invalid.lua",
+                    range: None,
+                },
+                related: &[],
+            }],
+        },
+        CanonicalRuleFixture {
+            rule: RototoRuleId::SchemaUiUnknownWidget,
+            workspace: "tests/fixtures/workspaces/rules/project/schema-ui-unknown-widget",
+            success: true,
+            expected: &[ExpectedDiagnostic {
+                rule: "rototo/schema-ui-unknown-widget",
+                severity: "warning",
+                stage: LintStage::Project,
+                entity: ExpectedEntity::Schema("schemas/value.schema.json"),
+                primary: ExpectedPrimaryLocation::Document {
+                    path: "schemas/value.schema.json",
+                    range: None,
+                },
+                related: &[],
+            }],
+        },
+        CanonicalRuleFixture {
+            rule: RototoRuleId::SchemaUiWidgetTypeMismatch,
+            workspace: "tests/fixtures/workspaces/rules/project/schema-ui-widget-type-mismatch",
+            success: true,
+            expected: &[ExpectedDiagnostic {
+                rule: "rototo/schema-ui-widget-type-mismatch",
+                severity: "warning",
+                stage: LintStage::Project,
+                entity: ExpectedEntity::Schema("schemas/value.schema.json"),
+                primary: ExpectedPrimaryLocation::Document {
+                    path: "schemas/value.schema.json",
+                    range: None,
+                },
+                related: &[],
+            }],
+        },
+        CanonicalRuleFixture {
+            rule: RototoRuleId::SchemaUiWidgetParams,
+            workspace: "tests/fixtures/workspaces/rules/project/schema-ui-widget-params",
+            success: true,
+            expected: &[ExpectedDiagnostic {
+                rule: "rototo/schema-ui-widget-params",
+                severity: "warning",
+                stage: LintStage::Project,
+                entity: ExpectedEntity::Schema("schemas/value.schema.json"),
+                primary: ExpectedPrimaryLocation::Document {
+                    path: "schemas/value.schema.json",
                     range: None,
                 },
                 related: &[],

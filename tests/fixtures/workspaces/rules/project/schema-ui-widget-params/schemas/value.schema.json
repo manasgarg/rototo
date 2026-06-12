@@ -1,0 +1,12 @@
+{
+  "type": "object",
+  "required": ["level"],
+  "properties": {
+    "level": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 100,
+      "x-rototo-ui": { "widget": "slider", "steps": 5 }
+    }
+  }
+}

@@ -1,0 +1,6 @@
+schema_version = 1
+type = "resource:panel"
+description = "Panel variable"
+
+[resolve]
+default = "default"
