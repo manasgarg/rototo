@@ -1,7 +1,7 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type { GraphNode, GraphNodeKind, WorkspaceGraphData } from "./types";
 
 /* Concept: layered columns. Entities group into columns by kind in
@@ -28,12 +28,13 @@ const KIND_COLOR: Record<GraphNodeKind, string> = {
   linter: "var(--warn-700)",
 };
 
-const COL_WIDTH = 200;
-const COL_GAP = 56;
 const ROW_HEIGHT = 30;
 const HEADER_HEIGHT = 34;
 const NODE_HEIGHT = 22;
 const PADDING = 6;
+const MAX_COL_WIDTH = 220;
+const MIN_COL_WIDTH = 110;
+const CHAR_WIDTH = 6.6;
 
 export function ColumnsGraph({
   data,
@@ -45,18 +46,43 @@ export function ColumnsGraph({
   query?: string;
 }) {
   const router = useRouter();
+  const containerRef = useRef<HTMLDivElement>(null);
   const [active, setActive] = useState<string | null>(null);
+  const [containerWidth, setContainerWidth] = useState(980);
+
+  // Fit the columns to the container so the canvas never scrolls
+  // horizontally; only the geometry adapts, the type size stays fixed.
+  useEffect(() => {
+    const element = containerRef.current;
+    if (!element) {
+      return;
+    }
+    const observer = new ResizeObserver((entries) => {
+      const width = entries[0]?.contentRect.width;
+      if (width) {
+        setContainerWidth(width);
+      }
+    });
+    observer.observe(element);
+    return () => observer.disconnect();
+  }, []);
 
   const layout = useMemo(() => {
     const columns = COLUMNS.map((column) => ({
       ...column,
       nodes: data.nodes.filter((node) => node.kind === column.kind),
     })).filter((column) => column.nodes.length > 0);
+    const count = Math.max(columns.length, 1);
+    const gap = Math.max(28, Math.min(56, containerWidth * 0.04));
+    const colWidth = Math.max(
+      MIN_COL_WIDTH,
+      Math.min(MAX_COL_WIDTH, (containerWidth - PADDING * 2 - (count - 1) * gap) / count),
+    );
     const positions = new Map<string, { x: number; y: number; column: number }>();
     columns.forEach((column, columnIndex) => {
       column.nodes.forEach((node, rowIndex) => {
         positions.set(node.id, {
-          x: PADDING + columnIndex * (COL_WIDTH + COL_GAP),
+          x: PADDING + columnIndex * (colWidth + gap),
           y: HEADER_HEIGHT + rowIndex * ROW_HEIGHT,
           column: columnIndex,
         });
@@ -66,10 +92,13 @@ export function ColumnsGraph({
     return {
       columns,
       positions,
-      width: PADDING * 2 + columns.length * COL_WIDTH + (columns.length - 1) * COL_GAP,
+      colWidth,
+      gap,
+      maxLabelChars: Math.max(8, Math.floor((colWidth - 30) / CHAR_WIDTH)),
+      width: PADDING * 2 + count * colWidth + (count - 1) * gap,
       height: HEADER_HEIGHT + rows * ROW_HEIGHT + 8,
     };
-  }, [data]);
+  }, [containerWidth, data]);
 
   const neighbors = useMemo(() => {
     const map = new Map<string, Set<string>>();
@@ -125,12 +154,12 @@ export function ColumnsGraph({
   };
 
   return (
-    <div style={{ position: "relative" }}>
+    <div ref={containerRef} style={{ position: "relative" }}>
       <svg
         role="img"
         aria-label="Workspace entity graph"
         height={layout.height}
-        style={{ display: "block" }}
+        style={{ display: "block", maxWidth: "100%" }}
         viewBox={`0 0 ${layout.width} ${layout.height}`}
         width={layout.width}
       >
@@ -150,13 +179,13 @@ export function ColumnsGraph({
           if (from.column === to.column) {
             // Same-column references loop through the gap on the right so
             // they never leave the viewport.
-            const x = from.x + COL_WIDTH;
-            const bend = Math.min(COL_GAP - 6, 22 + Math.abs(y2 - y1) / 6);
+            const x = from.x + layout.colWidth;
+            const bend = Math.min(layout.gap - 6, 22 + Math.abs(y2 - y1) / 6);
             path = `M ${x} ${y1} C ${x + bend} ${y1}, ${x + bend} ${y2}, ${x} ${y2}`;
           } else {
             const leftToRight = from.column < to.column;
-            const x1 = leftToRight ? from.x + COL_WIDTH : from.x;
-            const x2 = leftToRight ? to.x : to.x + COL_WIDTH;
+            const x1 = leftToRight ? from.x + layout.colWidth : from.x;
+            const x2 = leftToRight ? to.x : to.x + layout.colWidth;
             const bend = Math.max(24, Math.abs(x2 - x1) / 2);
             path = `M ${x1} ${y1} C ${x1 + (leftToRight ? bend : -bend)} ${y1}, ${
               x2 + (leftToRight ? -bend : bend)
@@ -179,7 +208,7 @@ export function ColumnsGraph({
             fontSize={11}
             key={column.kind}
             letterSpacing="0.1em"
-            x={PADDING + columnIndex * (COL_WIDTH + COL_GAP)}
+            x={PADDING + columnIndex * (layout.colWidth + layout.gap)}
             y={14}
           >
             {column.title.toUpperCase()}
@@ -196,9 +225,11 @@ export function ColumnsGraph({
                 dimmed={isDimmed(node.id)}
                 highlighted={matches?.has(node.id) ?? false}
                 key={node.id}
+                maxLabelChars={layout.maxLabelChars}
                 node={node}
                 onHover={handleHover}
                 onOpen={() => router.push(node.href)}
+                width={layout.colWidth}
                 x={position.x}
                 y={position.y}
               />
@@ -213,21 +244,28 @@ export function ColumnsGraph({
 function GraphNodeBox({
   dimmed,
   highlighted,
+  maxLabelChars,
   node,
   onHover,
   onOpen,
+  width,
   x,
   y,
 }: {
   dimmed: boolean;
   highlighted: boolean;
+  maxLabelChars: number;
   node: GraphNode;
   onHover: (id: string | null) => void;
   onOpen: () => void;
+  width: number;
   x: number;
   y: number;
 }) {
-  const label = node.label.length > 24 ? `${node.label.slice(0, 23)}…` : node.label;
+  const label =
+    node.label.length > maxLabelChars
+      ? `${node.label.slice(0, Math.max(1, maxLabelChars - 1))}…`
+      : node.label;
   return (
     <g
       onClick={onOpen}
@@ -242,7 +280,7 @@ function GraphNodeBox({
         rx={5}
         stroke={highlighted ? "var(--sea-400)" : "var(--line-2)"}
         strokeWidth={highlighted ? 1.4 : 1}
-        width={COL_WIDTH}
+        width={width}
         x={x}
         y={y}
       />

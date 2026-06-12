@@ -1510,11 +1510,11 @@ select.input {
 }
 
 .graph-scroll {
-  overflow-x: auto;
+  overflow: hidden;
 }
 
 .graph-scroll {
-  overflow-x: auto;
+  overflow: hidden;
 }
 
 /* Object pills inside a resource row */
