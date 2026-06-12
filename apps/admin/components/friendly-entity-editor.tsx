@@ -1,7 +1,7 @@
 "use client";
 
 import { FormEvent, ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { CircleAlert, GripVertical, ListPlus, Plus, Save, X } from "lucide-react";
+import { CircleAlert, GitCompareArrows, GripVertical, ListPlus, Plus, Save, X } from "lucide-react";
 import { useRouter } from "next/navigation";
 import type { LintDiagnostic } from "@/lib/rototo";
 import widgetSpec from "../../../spec/ui-widgets.json";
@@ -83,6 +83,7 @@ const DECLARATION_HINTS: Record<VariableDeclarationKind, string> = {
 };
 
 export function FriendlyEntityEditor({
+  baseText = null,
   contextAttributes = [],
   diagnostics = [],
   disabled,
@@ -95,6 +96,9 @@ export function FriendlyEntityEditor({
   sourceMarks = [],
   workspaceId,
 }: {
+  /* The entity's text at the draft's base ref, when known. Enables the
+     changes view in both form and source modes. */
+  baseText?: string | null;
   contextAttributes?: string[];
   diagnostics?: LintDiagnostic[];
   disabled?: boolean;
@@ -124,6 +128,8 @@ export function FriendlyEntityEditor({
     schemaPaths,
   });
   const [activeTab, setActiveTab] = useState<EditorTab>(form ? "form" : "source");
+  const [showChanges, setShowChanges] = useState(false);
+  const hasDelta = baseText !== null && baseText !== content;
   const skeleton = useMemo(
     () => skeletonContent({ content, entity, resourceSchema }),
     [content, entity, resourceSchema],
@@ -226,6 +232,16 @@ export function FriendlyEntityEditor({
           </p>
         </div>
         <div className="action-row">
+          {hasDelta ? (
+            <button
+              className={showChanges ? "btn btn-secondary btn-sm" : "btn btn-ghost btn-sm"}
+              onClick={() => setShowChanges((value) => !value)}
+              type="button"
+            >
+              <GitCompareArrows aria-hidden size={14} />
+              {showChanges ? "Hide changes" : "Show changes"}
+            </button>
+          ) : null}
           <div className="segmented-control" role="tablist" aria-label="Editor mode">
             {hasForm ? (
               <button
@@ -268,10 +284,25 @@ export function FriendlyEntityEditor({
         </div>
       ) : null}
       {activeTab === "form" && form ? (
-        <div role="tabpanel">{form}</div>
+        <div role="tabpanel">
+          {showChanges && hasDelta ? (
+            <div className="delta-panel">
+              <span className="label">changes on this branch</span>
+              <CodeEditor
+                diffBase={baseText}
+                disabled
+                language={entity.language}
+                onChange={() => {}}
+                value={content}
+              />
+            </div>
+          ) : null}
+          {form}
+        </div>
       ) : (
         <div role="tabpanel">
           <CodeEditor
+            diffBase={showChanges && hasDelta ? baseText : undefined}
             disabled={disabled || pending}
             language={entity.language}
             lsp={lsp}

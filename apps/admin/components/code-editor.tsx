@@ -13,6 +13,7 @@ import { tags } from "@lezer/highlight";
 import { lua } from "@codemirror/legacy-modes/mode/lua";
 import { toml } from "@codemirror/legacy-modes/mode/toml";
 import { setDiagnostics, type Diagnostic } from "@codemirror/lint";
+import { unifiedMergeView } from "@codemirror/merge";
 import { RangeSetBuilder, StateEffect, StateField, type Extension, type Text } from "@codemirror/state";
 import {
   Decoration,
@@ -74,6 +75,7 @@ export type CodeEditorLsp = {
 };
 
 export function CodeEditor({
+  diffBase,
   disabled,
   language,
   lsp,
@@ -81,6 +83,9 @@ export function CodeEditor({
   onChange,
   value,
 }: {
+  /* When set, the editor shows the live delta against this original text
+     (unified merge view) while staying editable. */
+  diffBase?: string | null;
   disabled?: boolean;
   language: CodeEditorLanguage;
   lsp?: CodeEditorLsp;
@@ -94,8 +99,11 @@ export function CodeEditor({
       syntaxHighlighting(rototoHighlight),
       ...((marks && marks.length > 0) || lsp ? [diagnosticLineField(marks ?? [])] : []),
       ...(lsp ? lspExtensions(lsp) : []),
+      ...(diffBase !== undefined && diffBase !== null
+        ? [unifiedMergeView({ original: diffBase, mergeControls: false })]
+        : []),
     ],
-    [language, marks, lsp],
+    [language, marks, lsp, diffBase],
   );
 
   return (

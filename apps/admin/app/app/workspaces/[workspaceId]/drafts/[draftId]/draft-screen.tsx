@@ -71,7 +71,9 @@ import {
 import { draftLintTarget } from "@/lib/workspace-edit";
 import { encodeEntityPath, workspaceGraphData } from "../../workspace-screen";
 import { WorkspaceGraph, type WorkspaceGraphData } from "@/components/workspace-graph";
-import { compareGitHubRefs } from "@/lib/github";
+import { compareGitHubRefs, getGitHubFile } from "@/lib/github";
+import { execFile } from "node:child_process";
+import { promisify } from "node:util";
 
 export type DraftScreenId = "overview" | "edit" | "changes" | "validate" | "publish";
 
@@ -227,6 +229,13 @@ export async function DraftScreen({
         )
       : [];
   const selectedEditKind = selectedEntity?.section ?? requestedEditKind;
+  // The base-ref version of the selected entity, for showing the draft's
+  // delta in the editor. Null when the entity is new on this branch or the
+  // base text is unavailable.
+  let selectedEntityBaseText: string | null = null;
+  if (selectedEntity) {
+    selectedEntityBaseText = await baseEntityText(workspace, draft, selectedEntity.path, user.githubToken);
+  }
   // Editing a variable: pre-evaluate every qualifier against each saved
   // request context so the form can preview resolution pathways live.
   const contextPreviews: EditContextPreview[] =
@@ -487,6 +496,7 @@ export async function DraftScreen({
       ) : null}
       {selectedScreen === "edit" ? (
         <DraftEditScreen
+          baseText={selectedEntityBaseText}
           contextAttributes={contextAttributes}
           contextPreviews={contextPreviews}
           draft={draft}
@@ -637,6 +647,7 @@ function DraftOverview({
 }
 
 function DraftEditScreen({
+  baseText,
   contextAttributes,
   contextPreviews,
   draft,
@@ -650,6 +661,7 @@ function DraftEditScreen({
   selectedKind,
   workspaceId,
 }: {
+  baseText: string | null;
   contextAttributes: string[];
   contextPreviews: EditContextPreview[];
   draft: DraftSessionRecord;
@@ -676,6 +688,7 @@ function DraftEditScreen({
       {selectedEntity ? (
         <EditableEntityDetail
           allEntities={editableEntities}
+          baseText={baseText}
           contextAttributes={contextAttributes}
           contextPreviews={contextPreviews}
           diagnostics={entityDiagnostics}
@@ -762,6 +775,7 @@ function EditableEntityList({
 
 function EditableEntityDetail({
   allEntities,
+  baseText,
   contextAttributes,
   contextPreviews,
   diagnostics,
@@ -773,6 +787,7 @@ function EditableEntityDetail({
   workspaceId,
 }: {
   allEntities: EditableEntity[];
+  baseText: string | null;
   contextAttributes: string[];
   contextPreviews: EditContextPreview[];
   diagnostics: LintDiagnostic[];
@@ -870,6 +885,7 @@ function EditableEntityDetail({
         </div>
       ) : null}
       <FriendlyEntityEditor
+        baseText={baseText}
         contextAttributes={contextAttributes}
         diagnostics={diagnostics}
         disabled={draft.status !== "open"}
@@ -1321,6 +1337,40 @@ async function draftContextPreviews(input: {
     previews.push({ name: context.id, qualifierTruth });
   }
   return previews;
+}
+
+const execFileAsync = promisify(execFile);
+
+/* The entity's text at the draft's base ref: GitHub contents for remote
+   sources, git show for local dev workspaces. Null when unavailable (new
+   files, missing refs). */
+async function baseEntityText(
+  workspace: WorkspaceRecord,
+  draft: DraftSessionRecord,
+  path: string,
+  githubToken: string,
+): Promise<string | null> {
+  try {
+    if (workspace.source.includes("://")) {
+      const file = await getGitHubFile({
+        token: githubToken,
+        owner: workspace.owner,
+        name: workspace.name,
+        path,
+        ref: draft.baseRef,
+      });
+      return file.content;
+    }
+    const relative = workspaceRelativePath(workspace.path, path);
+    const { stdout } = await execFileAsync(
+      "git",
+      ["-C", workspace.source, "show", `${draft.baseRef}:./${relative}`],
+      { maxBuffer: 4 * 1024 * 1024 },
+    );
+    return stdout;
+  } catch {
+    return null;
+  }
 }
 
 function draftActivity(

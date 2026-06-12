@@ -1492,6 +1492,37 @@ select.input {
   cursor: grabbing;
 }
 
+/* Draft delta view: unified merge chunks in semantic tints */
+.code-editor-shell .cm-deletedChunk {
+  background: var(--err-bg);
+}
+
+.code-editor-shell .cm-deletedChunk del,
+.code-editor-shell .cm-deletedText {
+  background: oklch(0.954 0.052 28 / 0.9);
+  text-decoration: line-through;
+  text-decoration-color: var(--err-500);
+}
+
+.code-editor-shell .cm-changedLine {
+  background: var(--ok-bg);
+}
+
+.code-editor-shell .cm-changedText {
+  background: oklch(0.945 0.06 150);
+}
+
+.code-editor-shell .cm-changeGutter {
+  width: 4px;
+}
+
+.delta-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-bottom: 14px;
+}
+
 /* Workspace entity graph */
 .graph-card {
   overflow: hidden;
