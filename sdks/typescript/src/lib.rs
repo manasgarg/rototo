@@ -62,6 +62,12 @@ impl JsWorkspace {
         }))
     }
 
+    #[napi(js_name = "semanticModel")]
+    pub async fn semantic_model(&self) -> Result<JsonValue> {
+        let model = self.inner.semantic_model().await.map_err(js_err)?;
+        serde_json::to_value(model).map_err(|err| js_err(rototo::RototoError::new(err.to_string())))
+    }
+
     #[napi(js_name = "resolveVariable")]
     pub async fn resolve_variable(
         &self,

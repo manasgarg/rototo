@@ -1,0 +1,39 @@
+{
+  "name": "@rototo/admin",
+  "version": "0.1.0-alpha.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "npm run rototo:build && next build --webpack",
+    "dev": "npm run rototo:build && next dev --webpack",
+    "dev:next": "next dev --webpack",
+    "lint": "npm run typecheck",
+    "rototo:build": "npm --prefix ../../sdks/typescript ci && npm --prefix ../../sdks/typescript run build",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@codemirror/autocomplete": "^6.20.3",
+    "@codemirror/lang-json": "^6.0.2",
+    "@codemirror/lint": "^6.9.7",
+    "@lezer/highlight": "^1.2.3",
+    "@codemirror/language": "^6.12.3",
+    "@codemirror/legacy-modes": "^6.5.3",
+    "@codemirror/state": "^6.6.0",
+    "@codemirror/view": "^6.43.1",
+    "@uiw/react-codemirror": "^4.25.10",
+    "lucide-react": "0.556.0",
+    "next": "16.2.7",
+    "react": "19.2.1",
+    "react-dom": "19.2.1",
+    "rototo": "file:../../sdks/typescript"
+  },
+  "overrides": {
+    "postcss": "8.5.10"
+  },
+  "devDependencies": {
+    "@types/node": "24.10.2",
+    "@types/react": "19.2.7",
+    "@types/react-dom": "19.2.3",
+    "typescript": "6.0.3"
+  }
+}

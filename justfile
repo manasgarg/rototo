@@ -45,6 +45,16 @@ setup:
     just setup-min
     echo "Done. Run 'just check' to verify."
 
+# Install the admin UI dependencies.
+[group('01. setup')]
+admin-setup:
+    npm --prefix apps/admin install
+
+# Run the hosted admin UI in development mode.
+[group('04. test')]
+admin-dev:
+    npm --prefix apps/admin run dev
+
 # Format Rust code.
 [group('02. format')]
 fmt:

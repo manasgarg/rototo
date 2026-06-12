@@ -387,6 +387,27 @@ rototo_rules! {
         help: "Reference the schema as schemas/context.schema.json or from a resource schema field, or remove it.",
         severity: Warning,
     },
+    SchemaUiUnknownWidget => {
+        id: "schema-ui-unknown-widget",
+        entity: Schema,
+        title: "UI widget hint names an unknown widget",
+        help: "Use a widget from the x-rototo-ui vocabulary: color, slider, textarea.",
+        severity: Warning,
+    },
+    SchemaUiWidgetTypeMismatch => {
+        id: "schema-ui-widget-type-mismatch",
+        entity: Schema,
+        title: "UI widget hint does not fit the property type",
+        help: "Pick a widget that supports the property's declared type, or change the type.",
+        severity: Warning,
+    },
+    SchemaUiWidgetParams => {
+        id: "schema-ui-widget-params",
+        entity: Schema,
+        title: "UI widget hint parameters are invalid",
+        help: "Fix the x-rototo-ui object: declare a widget string, use only the widget's parameters, and give sliders bounds.",
+        severity: Warning,
+    },
 }
 
 impl Serialize for RototoRuleId {
