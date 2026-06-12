@@ -1845,6 +1845,23 @@ select.input {
   background: var(--paper-0);
 }
 
+/* iOS Safari font-boosts long scrollable code lines even with
+   text-size-adjust pinned at the root: pin it on the editor elements
+   directly, and give the content a definite max-height — the boosting
+   heuristic skips elements with one. */
+.code-editor-shell,
+.code-editor-shell .cm-editor,
+.code-editor-shell .cm-scroller,
+.code-editor-shell .cm-content,
+.code-editor-shell .cm-gutters {
+  -webkit-text-size-adjust: 100%;
+  text-size-adjust: 100%;
+}
+
+.code-editor-shell .cm-content {
+  max-height: 1000000px;
+}
+
 .code-editor-shell .cm-scroller {
   font-family: var(--font-mono), ui-monospace, monospace;
   line-height: 1.6;
