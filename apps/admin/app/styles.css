@@ -1492,6 +1492,32 @@ select.input {
   cursor: grabbing;
 }
 
+/* Workspace entity graph */
+.graph-card {
+  overflow: hidden;
+}
+
+.graph-frame {
+  overflow-x: auto;
+}
+
+.graph-frame svg {
+  min-width: 720px;
+}
+
+.graph-switcher {
+  margin-bottom: 10px;
+  width: fit-content;
+}
+
+/* Object pills inside a resource row */
+.row-objects {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 7px;
+}
+
 .rule-word {
   flex: none;
   font-family: var(--font-mono), ui-monospace, monospace;

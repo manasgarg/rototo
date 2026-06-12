@@ -39,7 +39,7 @@ import {
   loadWorkspaceRuntime,
   semanticModelFor,
 } from "@/lib/rototo";
-import type { VariableModel, WorkspaceSemanticModel } from "rototo";
+import type { ReferenceModel, VariableModel, WorkspaceSemanticModel } from "rototo";
 import {
   inspectWorkspaceInventory,
   readWorkspaceDefinition,
@@ -47,6 +47,8 @@ import {
   type WorkspaceInventory,
 } from "@/lib/workspace-inventory";
 import { schemaSummary } from "@/lib/entity-summary";
+import { WorkspaceGraph } from "@/components/workspace-graph";
+import type { WorkspaceGraphData } from "@/components/workspace-graph/types";
 
 export type SectionId =
   | "overview"
@@ -152,7 +154,7 @@ export async function WorkspaceScreen({
   const entityCounts = {
     variables: inventory.variables.length,
     qualifiers: inventory.qualifiers.length,
-    resources: inventory.resources.length + inventory.resourceObjects.length,
+    resources: inventory.resources.length,
     schemas: inventory.schemas.length,
     linters: inventory.linters.length,
     context: inventory.context.exampleCount + (inventory.context.schemaPath ? 1 : 0),
@@ -407,6 +409,7 @@ export async function WorkspaceScreen({
           inventory={inventory}
           inventoryError={inventoryError}
           lint={lint}
+          model={model}
           nodes={nodes}
           section={selectedSection}
           workspace={workspace}
@@ -422,6 +425,7 @@ function WorkspaceSection({
   inventory,
   inventoryError,
   lint,
+  model,
   nodes,
   section,
   workspace,
@@ -431,6 +435,7 @@ function WorkspaceSection({
   inventory: WorkspaceInventory;
   inventoryError: string | null;
   lint: WorkspaceLintView | { root: string; diagnostics: []; error: string };
+  model: WorkspaceSemanticModel | null;
   nodes: EntityNode[];
   section: SectionId;
   workspace: {
@@ -487,6 +492,18 @@ function WorkspaceSection({
               openDrafts={openDrafts}
               workspaceId={workspace.slug}
             />
+            {model ? (
+              <div className="card graph-card">
+                <div className="card-head-text">
+                  <h3>Entity graph</h3>
+                  <p className="hint">
+                    How qualifiers, variables, objects, schemas, and linters connect. Hover a
+                    node to trace its references; click to open it.
+                  </p>
+                </div>
+                <WorkspaceGraph data={workspaceGraphData(model, nodes, workspace.slug)} />
+              </div>
+            ) : null}
             <div className="label">declared entities — most referenced first</div>
             <OverviewEntityCards nodes={nodes} workspaceId={workspace.slug} />
           </>
@@ -576,7 +593,11 @@ function WorkspaceSection({
     );
   }
 
-  const sectionNodes = nodes.filter((node) => node.section === section);
+  // The resources section lists resource types only; each type carries its
+  // objects inline.
+  const sectionNodes = nodes.filter(
+    (node) => node.section === section && (section !== "resources" || node.kind === "resource"),
+  );
 
   return (
     <section className="section">
@@ -598,24 +619,75 @@ function WorkspaceSection({
           label={`Search ${SECTION_TITLES[section].toLowerCase()}`}
           placeholder={`Search ${SECTION_TITLES[section].toLowerCase()}`}
         >
-          {sectionNodes.map((node) => (
-            <Link
-              className="row"
-              data-search={entitySearchText(node)}
-              href={entityHref(workspace.slug, node.path)}
-              key={node.path}
-            >
-              <span className="row-icon">{sectionIcon(node.section, 16)}</span>
-              <span className="row-text">
-                <span className="row-title mono">{node.id}</span>
-                <span className="row-sub">{node.description ?? node.path}</span>
-              </span>
-              <span className="row-side">
-                {node.badge ? <span className="tag">{node.badge}</span> : null}
-                <ChevronRight aria-hidden className="muted" size={15} />
-              </span>
-            </Link>
-          ))}
+          {sectionNodes.map((node) => {
+            const objects =
+              node.kind === "resource"
+                ? nodes.filter(
+                    (candidate) =>
+                      candidate.kind === "resource object" && candidate.badge === node.id,
+                  )
+                : [];
+            if (objects.length === 0) {
+              return (
+                <Link
+                  className="row"
+                  data-search={entitySearchText(node)}
+                  href={entityHref(workspace.slug, node.path)}
+                  key={node.path}
+                >
+                  <span className="row-icon">{sectionIcon(node.section, 16)}</span>
+                  <span className="row-text">
+                    <span className="row-title mono">{node.id}</span>
+                    <span className="row-sub">{node.description ?? node.path}</span>
+                  </span>
+                  <span className="row-side">
+                    {node.badge ? <span className="tag">{node.badge}</span> : null}
+                    <ChevronRight aria-hidden className="muted" size={15} />
+                  </span>
+                </Link>
+              );
+            }
+            return (
+              <div
+                className="row"
+                data-search={`${entitySearchText(node)} ${objects
+                  .map((object) => object.id)
+                  .join(" ")}`}
+                key={node.path}
+              >
+                <span className="row-icon">{sectionIcon(node.section, 16)}</span>
+                <span className="row-text">
+                  <Link className="row-title mono row-link" href={entityHref(workspace.slug, node.path)}>
+                    {node.id}
+                  </Link>
+                  <span className="row-sub">{node.description ?? node.path}</span>
+                  <span className="row-objects">
+                    {objects.map((object) => (
+                      <Link
+                        className="pill pill-neutral"
+                        href={entityHref(workspace.slug, object.path)}
+                        key={object.path}
+                      >
+                        {object.id.split("/").pop()}
+                      </Link>
+                    ))}
+                  </span>
+                </span>
+                <span className="row-side">
+                  <span className="tag">
+                    {objects.length} {objects.length === 1 ? "object" : "objects"}
+                  </span>
+                  <Link
+                    aria-label={`Open resource ${node.id}`}
+                    className="muted"
+                    href={entityHref(workspace.slug, node.path)}
+                  >
+                    <ChevronRight aria-hidden size={15} />
+                  </Link>
+                </span>
+              </div>
+            );
+          })}
         </SearchableList>
       )}
     </section>
@@ -647,13 +719,7 @@ function EntityDefinition({
   qualifierEvaluations: QualifierContextEvaluation[];
   workspaceId: string;
 }) {
-  const inboundReferences = allNodes.filter(
-    (candidate) =>
-      candidate.targetKey !== node.targetKey && candidate.outboundKeys.includes(node.targetKey),
-  );
-  const outboundReferences = node.outboundKeys
-    .map((key) => allNodes.find((candidate) => candidate.targetKey === key))
-    .filter((candidate): candidate is EntityNode => candidate !== undefined);
+  const relations = entityRelations({ allNodes, model, node, workspaceId });
   const editHref = openDraft
     ? `/app/workspaces/${workspaceId}/drafts/${openDraft.id}/tree/${encodeEntityPath(node.path)}`
     : null;
@@ -717,17 +783,15 @@ function EntityDefinition({
         />
       ) : null}
       <div className="reference-grid">
-        <ReferenceList
+        <RelationList
           emptyLabel="References nothing else."
           label="references"
-          nodes={outboundReferences}
-          workspaceId={workspaceId}
+          relations={relations.outbound}
         />
-        <ReferenceList
+        <RelationList
           emptyLabel="Nothing references this entity."
           label="referenced by"
-          nodes={inboundReferences}
-          workspaceId={workspaceId}
+          relations={relations.inbound}
         />
       </div>
       {error ? (
@@ -970,9 +1034,7 @@ function EntitySummary({
   }
 
   if (node.kind === "resource") {
-    const objects = allNodes.filter(
-      (candidate) => candidate.kind === "resource object" && candidate.badge === node.id,
-    );
+    const objects = model?.resourceObjects.filter((object) => object.resource === node.id) ?? [];
     if (objects.length === 0) {
       return null;
     }
@@ -982,15 +1044,45 @@ function EntitySummary({
           <h3>Objects</h3>
           <p className="hint">Variable values reference these objects by key.</p>
         </div>
-        <div className="spec">
-          {objects.map((object) => (
-            <div className="spec-row" key={object.path}>
-              <span className="g">·</span>
-              <span>
-                <Link href={entityHref(workspaceId, object.path)}>{object.id}</Link>
-              </span>
-            </div>
-          ))}
+        <div className="row-list">
+          {objects.map((object) => {
+            const objectNode = allNodes.find(
+              (candidate) => candidate.targetKey === `resource_objects:${node.id}:${object.key}`,
+            );
+            const fields =
+              typeof object.value === "object" &&
+              object.value !== null &&
+              !Array.isArray(object.value)
+                ? Object.entries(object.value as Record<string, unknown>)
+                : [];
+            return (
+              <Link
+                className="row"
+                href={objectNode ? entityHref(workspaceId, objectNode.path) : "#"}
+                key={object.key}
+              >
+                <span className="row-icon">
+                  <Database aria-hidden size={16} />
+                </span>
+                <span className="row-text">
+                  <span className="row-title mono">{object.key}</span>
+                  <span className="row-sub mono">
+                    {fields
+                      .slice(0, 4)
+                      .map(([key, value]) => `${key} = ${JSON.stringify(value)}`)
+                      .join("  ·  ")}
+                    {fields.length > 4 ? `  ·  +${fields.length - 4} more` : ""}
+                  </span>
+                </span>
+                <span className="row-side">
+                  <span className="tag">
+                    {fields.length} {fields.length === 1 ? "field" : "fields"}
+                  </span>
+                  <ChevronRight aria-hidden className="muted" size={15} />
+                </span>
+              </Link>
+            );
+          })}
         </div>
       </div>
     );
@@ -1138,39 +1230,359 @@ function QualifierEvaluationRows({
   );
 }
 
-function ReferenceList({
+/* Builds the graph data contract from the semantic model. Rendering concepts
+   live in components/workspace-graph. */
+function workspaceGraphData(
+  model: WorkspaceSemanticModel,
+  nodes: EntityNode[],
+  workspaceId: string,
+): WorkspaceGraphData {
+  const nodeByKey = new Map(nodes.map((node) => [node.targetKey, node]));
+  const graphNodes: WorkspaceGraphData["nodes"] = [];
+  const seenNodes = new Set<string>();
+  const pushNode = (
+    key: string,
+    kind: WorkspaceGraphData["nodes"][number]["kind"],
+    label: string,
+  ) => {
+    const node = nodeByKey.get(key);
+    if (!node || seenNodes.has(key)) {
+      return;
+    }
+    seenNodes.add(key);
+    graphNodes.push({ id: key, kind, label, href: entityHref(workspaceId, node.path) });
+  };
+  for (const qualifier of model.qualifiers) {
+    pushNode(`qualifiers:${qualifier.id}`, "qualifier", qualifier.id);
+  }
+  for (const variable of model.variables) {
+    pushNode(`variables:${variable.id}`, "variable", variable.id);
+  }
+  for (const object of model.resourceObjects) {
+    pushNode(
+      `resource_objects:${object.resource}:${object.key}`,
+      "resourceObject",
+      object.key,
+    );
+  }
+  for (const schema of model.schemas) {
+    const file = schema.path.split("/").pop() ?? schema.path;
+    if (file === "context.schema.json") {
+      continue;
+    }
+    pushNode(`schemas:${file}`, "schema", file.replace(/\.schema\.json$/, ""));
+  }
+  for (const node of nodes) {
+    if (node.kind === "linter") {
+      pushNode(node.targetKey, "linter", node.id);
+    }
+  }
+
+  const edges: WorkspaceGraphData["edges"] = [];
+  const seenEdges = new Set<string>();
+  const pushEdge = (
+    from: string,
+    to: string,
+    kind: WorkspaceGraphData["edges"][number]["kind"],
+  ) => {
+    const key = `${from}->${to}:${kind}`;
+    if (seenEdges.has(key) || !seenNodes.has(from) || !seenNodes.has(to)) {
+      return;
+    }
+    seenEdges.add(key);
+    edges.push({ from, to, kind });
+  };
+  const objectsByResource = new Map<string, string[]>();
+  for (const object of model.resourceObjects) {
+    const keys = objectsByResource.get(object.resource) ?? [];
+    keys.push(object.key);
+    objectsByResource.set(object.resource, keys);
+  }
+  for (const reference of model.references) {
+    const { from, to, via } = reference;
+    if (via.kind === "predicateQualifier" && from.kind === "qualifier" && to.kind === "qualifier") {
+      pushEdge(`qualifiers:${to.id}`, `qualifiers:${from.id}`, "requires");
+    }
+    if (via.kind === "ruleQualifier" && from.kind === "variable" && to.kind === "qualifier") {
+      pushEdge(`qualifiers:${to.id}`, `variables:${from.id}`, "checks");
+    }
+    if (
+      (via.kind === "ruleValue" || via.kind === "resolveDefault") &&
+      from.kind === "variable" &&
+      to.kind === "resourceObject"
+    ) {
+      pushEdge(
+        `variables:${from.id}`,
+        `resource_objects:${to.resource}:${to.key}`,
+        "selects",
+      );
+    }
+    if (via.kind === "resourceSchema" && from.kind === "resource" && to.kind === "schema") {
+      const file = to.path.split("/").pop() ?? to.path;
+      for (const key of objectsByResource.get(from.id) ?? []) {
+        pushEdge(`resource_objects:${from.id}:${key}`, `schemas:${file}`, "validates");
+      }
+    }
+  }
+  for (const variable of model.variables) {
+    if (variable.declaration.kind === "schema" && variable.declaration.value) {
+      const file = variable.declaration.value.split("/").pop() ?? variable.declaration.value;
+      pushEdge(`variables:${variable.id}`, `schemas:${file}`, "validates");
+    }
+  }
+  return { nodes: graphNodes, edges };
+}
+
+type EntityRelation = { key: string; content: ReactNode };
+
+function RelationList({
   emptyLabel,
   label,
-  nodes,
-  workspaceId,
+  relations,
 }: {
   emptyLabel: string;
   label: string;
-  nodes: EntityNode[];
-  workspaceId: string;
+  relations: EntityRelation[];
 }) {
   return (
     <div className="card">
       <span className="label">{label}</span>
-      {nodes.length === 0 ? (
+      {relations.length === 0 ? (
         <p className="muted" style={{ fontSize: 13 }}>
           {emptyLabel}
         </p>
       ) : (
-        <div className="reference-links">
-          {nodes.map((node) => (
-            <Link
-              className="pill pill-neutral"
-              href={entityHref(workspaceId, node.path)}
-              key={node.path}
-            >
-              {node.kind}: {node.id}
-            </Link>
+        <div className="spec">
+          {relations.map((relation) => (
+            <div className="spec-row" key={relation.key}>
+              <span>{relation.content}</span>
+            </div>
           ))}
         </div>
       )}
     </div>
   );
+}
+
+/* Relation sentences for the reference panels, derived from the semantic
+   model's edges so each reference names its site: "rule[1] checks ...",
+   "default selects ...". */
+function entityRelations(input: {
+  allNodes: EntityNode[];
+  model: WorkspaceSemanticModel | null;
+  node: EntityNode;
+  workspaceId: string;
+}): { outbound: EntityRelation[]; inbound: EntityRelation[] } {
+  const { allNodes, model, node, workspaceId } = input;
+  if (!model) {
+    return { outbound: [], inbound: [] };
+  }
+  const targetKeyForRef = (ref: ReferenceModel["from"]): string | null => {
+    switch (ref.kind) {
+      case "qualifier":
+        return `qualifiers:${ref.id}`;
+      case "variable":
+        return `variables:${ref.id}`;
+      case "resource":
+        return `resources:${ref.id}`;
+      case "resourceObject":
+        return `resource_objects:${ref.resource}:${ref.key}`;
+      case "schema":
+        return `schemas:${ref.path.split("/").pop() ?? ref.path}`;
+      case "value":
+        return `variables:${ref.variable}`;
+      default:
+        return null;
+    }
+  };
+  const entityLink = (ref: ReferenceModel["from"]): ReactNode => {
+    const key = targetKeyForRef(ref);
+    const match = key ? allNodes.find((candidate) => candidate.targetKey === key) : undefined;
+    const text =
+      ref.kind === "resourceObject"
+        ? ref.key
+        : ref.kind === "schema"
+          ? (ref.path.split("/").pop() ?? ref.path)
+          : ref.kind === "value"
+            ? ref.variable
+            : ref.kind === "contextAttribute"
+              ? ref.name
+              : ref.id;
+    return match ? <Link href={entityHref(workspaceId, match.path)}>{text}</Link> : text;
+  };
+  const g = (text: string) => <span className="g">{text}</span>;
+  const matchesNode = (ref: ReferenceModel["from"]): boolean =>
+    targetKeyForRef(ref) === node.targetKey;
+
+  const outbound: EntityRelation[] = [];
+  const inbound: EntityRelation[] = [];
+  for (const [index, reference] of model.references.entries()) {
+    const { from, to, via } = reference;
+    if (to.kind === "contextAttribute") {
+      continue;
+    }
+    // Internal references (a variable's rules naming its own values) are
+    // declaration detail, not cross-entity references.
+    if (targetKeyForRef(from) === targetKeyForRef(to)) {
+      continue;
+    }
+    if (matchesNode(from)) {
+      const link = entityLink(to);
+      switch (via.kind) {
+        case "ruleQualifier":
+          outbound.push({
+            key: `out:${index}`,
+            content: (
+              <>
+                {g(`rule[${via.index}]`)} checks {link}
+              </>
+            ),
+          });
+          break;
+        case "ruleValue":
+          if (to.kind === "resourceObject") {
+            outbound.push({
+              key: `out:${index}`,
+              content: (
+                <>
+                  {g(`rule[${via.index}]`)} selects object {link}
+                </>
+              ),
+            });
+          }
+          break;
+        case "resolveDefault":
+          if (to.kind === "resourceObject") {
+            outbound.push({
+              key: `out:${index}`,
+              content: <>{g("default")} selects object {link}</>,
+            });
+          }
+          break;
+        case "variableResource":
+          outbound.push({
+            key: `out:${index}`,
+            content: <>values come from resource {link}</>,
+          });
+          break;
+        case "resourceSchema":
+          outbound.push({
+            key: `out:${index}`,
+            content: <>objects validate against {link}</>,
+          });
+          break;
+        case "predicateQualifier":
+          outbound.push({
+            key: `out:${index}`,
+            content: (
+              <>
+                {g(`predicate[${via.index}]`)} requires {link}
+              </>
+            ),
+          });
+          break;
+        default:
+          break;
+      }
+    }
+    if (matchesNode(to)) {
+      const link = entityLink(from);
+      switch (via.kind) {
+        case "ruleQualifier":
+          inbound.push({
+            key: `in:${index}`,
+            content: (
+              <>
+                {link} checks this {g(`in rule[${via.index}]`)}
+              </>
+            ),
+          });
+          break;
+        case "ruleValue":
+          inbound.push({
+            key: `in:${index}`,
+            content: (
+              <>
+                {link} selects this {g(`in rule[${via.index}]`)}
+              </>
+            ),
+          });
+          break;
+        case "resolveDefault":
+          inbound.push({
+            key: `in:${index}`,
+            content: <>{link} selects this {g("as default")}</>,
+          });
+          break;
+        case "variableResource":
+          inbound.push({
+            key: `in:${index}`,
+            content: <>{link} takes its values from this resource</>,
+          });
+          break;
+        case "resourceSchema":
+          inbound.push({
+            key: `in:${index}`,
+            content: <>{link} validates its objects against this</>,
+          });
+          break;
+        case "predicateQualifier":
+          inbound.push({
+            key: `in:${index}`,
+            content: (
+              <>
+                {link} requires this {g(`in predicate[${via.index}]`)}
+              </>
+            ),
+          });
+          break;
+        default:
+          break;
+      }
+    }
+  }
+
+  // Declaration-derived relations the edge list does not carry.
+  if (node.kind === "variable") {
+    const variable = model.variables.find((candidate) => candidate.id === node.id);
+    if (variable?.declaration.kind === "schema" && variable.declaration.value) {
+      const schemaRef = {
+        kind: "schema",
+        path: variable.declaration.value,
+      } as const;
+      outbound.push({
+        key: "out:declaration-schema",
+        content: <>values validate against {entityLink(schemaRef)}</>,
+      });
+    }
+  }
+  if (node.kind === "schema") {
+    for (const variable of model.variables) {
+      if (
+        variable.declaration.kind === "schema" &&
+        (variable.declaration.value?.split("/").pop() ?? "") === node.id
+      ) {
+        inbound.push({
+          key: `in:declaration:${variable.id}`,
+          content: (
+            <>
+              {entityLink({ kind: "variable", id: variable.id })} validates its values against
+              this
+            </>
+          ),
+        });
+      }
+    }
+  }
+  if (node.kind === "resource object") {
+    const resourceId = node.badge ?? "";
+    outbound.push({
+      key: "out:membership",
+      content: <>object of resource {entityLink({ kind: "resource", id: resourceId })}</>,
+    });
+  }
+
+  return { outbound, inbound };
 }
 
 function OverviewAttention({
