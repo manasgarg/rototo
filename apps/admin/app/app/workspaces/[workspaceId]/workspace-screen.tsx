@@ -1314,6 +1314,19 @@ async function workspaceGraphData(
     if (via.kind === "variableResource" && from.kind === "variable" && to.kind === "resource") {
       pushEdge(`variables:${from.id}`, `resources:${to.id}`, "selects");
     }
+    // Selected objects are not drawn as edges (the path goes through the
+    // resource) but hover highlighting should reach them.
+    if (
+      (via.kind === "ruleValue" || via.kind === "resolveDefault") &&
+      from.kind === "variable" &&
+      to.kind === "resourceObject"
+    ) {
+      const variableNode = graphNodes.find((node) => node.id === `variables:${from.id}`);
+      const objectKey = `resource_objects:${to.resource}:${to.key}`;
+      if (variableNode && seenNodes.has(objectKey)) {
+        (variableNode.related ??= []).push(objectKey);
+      }
+    }
     if (via.kind === "resourceSchema" && from.kind === "resource" && to.kind === "schema") {
       const file = to.path.split("/").pop() ?? to.path;
       pushEdge(`resources:${from.id}`, `schemas:${file}`, "validates");

@@ -20,6 +20,10 @@ export type GraphNode = {
   /* The entity's source text, for hover previews. May be truncated. */
   source?: string;
   language?: "json" | "lua" | "toml" | "text";
+  /* Entities semantically tied to this one beyond drawn edges (a variable's
+     selected objects); hover highlighting includes them and the drawn edges
+     that connect into them. */
+  related?: string[];
 };
 
 export type GraphEdgeKind = "checks" | "selects" | "contains" | "validates" | "requires";

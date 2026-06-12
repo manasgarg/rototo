@@ -73,12 +73,29 @@ export function ColumnsGraph({
 
   const neighbors = useMemo(() => {
     const map = new Map<string, Set<string>>();
+    const connect = (a: string, b: string) => {
+      (map.get(a) ?? map.set(a, new Set()).get(a))?.add(b);
+      (map.get(b) ?? map.set(b, new Set()).get(b))?.add(a);
+    };
     for (const edge of data.edges) {
-      (map.get(edge.from) ?? map.set(edge.from, new Set()).get(edge.from))?.add(edge.to);
-      (map.get(edge.to) ?? map.set(edge.to, new Set()).get(edge.to))?.add(edge.from);
+      connect(edge.from, edge.to);
+    }
+    for (const node of data.nodes) {
+      for (const related of node.related ?? []) {
+        connect(node.id, related);
+      }
     }
     return map;
   }, [data]);
+
+  // Everything lit by the hovered node: itself, its edge neighbors, and its
+  // related entities (a variable's selected objects).
+  const litNodes = useMemo(() => {
+    if (!active) {
+      return null;
+    }
+    return new Set([active, ...(neighbors.get(active) ?? [])]);
+  }, [active, neighbors]);
 
   // Search highlights matches; everything else stays on the canvas, faded
   // but fully functional.
@@ -123,7 +140,8 @@ export function ColumnsGraph({
           if (!from || !to) {
             return null;
           }
-          const lit = active === edge.from || active === edge.to;
+          const lit =
+            litNodes !== null && litNodes.has(edge.from) && litNodes.has(edge.to);
           const offSearch =
             matches !== null && !matches.has(edge.from) && !matches.has(edge.to);
           const y1 = from.y + NODE_HEIGHT / 2;
