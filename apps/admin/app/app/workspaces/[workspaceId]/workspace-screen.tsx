@@ -1350,8 +1350,9 @@ async function workspaceGraphData(
           path: node.path,
         });
         const lines = definition.text.split("\n");
-        const preview = lines.slice(0, 30).join("\n");
-        graphNode.source = lines.length > 30 ? `${preview}\n…` : preview;
+        const preview = lines.slice(0, 160).join("\n");
+        graphNode.source = lines.length > 160 ? `${preview}\n…` : preview;
+        graphNode.language = definition.language;
       } catch {
         // no preview for unreadable files
       }

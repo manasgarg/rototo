@@ -1,7 +1,7 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { useMemo, useRef, useState } from "react";
+import { useMemo, useState } from "react";
 import type { GraphNode, GraphNodeKind, WorkspaceGraphData } from "./types";
 
 /* Concept: layered columns. Entities group into columns by kind in
@@ -33,11 +33,15 @@ const HEADER_HEIGHT = 34;
 const NODE_HEIGHT = 22;
 const PADDING = 6;
 
-export function ColumnsGraph({ data }: { data: WorkspaceGraphData }) {
+export function ColumnsGraph({
+  data,
+  onInspect,
+}: {
+  data: WorkspaceGraphData;
+  onInspect?: (node: GraphNode | null) => void;
+}) {
   const router = useRouter();
-  const frameRef = useRef<HTMLDivElement>(null);
   const [active, setActive] = useState<string | null>(null);
-  const [pointer, setPointer] = useState<{ x: number; y: number } | null>(null);
 
   const layout = useMemo(() => {
     const columns = COLUMNS.map((column) => ({
@@ -75,20 +79,18 @@ export function ColumnsGraph({ data }: { data: WorkspaceGraphData }) {
   const isDimmed = (id: string) =>
     active !== null && active !== id && !(neighbors.get(active)?.has(id) ?? false);
 
-  const activeNode = active ? data.nodes.find((node) => node.id === active) ?? null : null;
-
-  const handleHover = (id: string | null, event?: React.MouseEvent) => {
+  const handleHover = (id: string | null) => {
     setActive(id);
-    if (id && event && frameRef.current) {
-      const bounds = frameRef.current.getBoundingClientRect();
-      setPointer({ x: event.clientX - bounds.left, y: event.clientY - bounds.top });
-    } else {
-      setPointer(null);
+    if (id) {
+      const node = data.nodes.find((candidate) => candidate.id === id);
+      if (node) {
+        onInspect?.(node);
+      }
     }
   };
 
   return (
-    <div ref={frameRef} style={{ position: "relative" }}>
+    <div style={{ position: "relative" }}>
       <svg
         role="img"
         aria-label="Workspace entity graph"
@@ -163,18 +165,6 @@ export function ColumnsGraph({ data }: { data: WorkspaceGraphData }) {
           }),
         )}
       </svg>
-      {activeNode?.source && pointer ? (
-        <div
-          className="graph-tooltip"
-          style={{
-            left: Math.min(pointer.x + 14, Math.max(0, (frameRef.current?.clientWidth ?? 600) - 380)),
-            top: pointer.y + 14,
-          }}
-        >
-          <div className="graph-tooltip-title">{activeNode.label}</div>
-          <pre>{activeNode.source}</pre>
-        </div>
-      ) : null}
     </div>
   );
 }
@@ -189,7 +179,7 @@ function GraphNodeBox({
 }: {
   dimmed: boolean;
   node: GraphNode;
-  onHover: (id: string | null, event?: React.MouseEvent) => void;
+  onHover: (id: string | null) => void;
   onOpen: () => void;
   x: number;
   y: number;
@@ -198,8 +188,7 @@ function GraphNodeBox({
   return (
     <g
       onClick={onOpen}
-      onMouseEnter={(event) => onHover(node.id, event)}
-      onMouseMove={(event) => onHover(node.id, event)}
+      onMouseEnter={() => onHover(node.id)}
       onMouseLeave={() => onHover(null)}
       opacity={dimmed ? 0.3 : 1}
       style={{ cursor: "pointer" }}

@@ -1,25 +1,32 @@
 "use client";
 
+import Link from "next/link";
 import { Search } from "lucide-react";
 import { useMemo, useState, type ComponentType } from "react";
+import { ReadOnlySource } from "../read-only-source";
 import { ColumnsGraph } from "./columns";
-import type { WorkspaceGraphData } from "./types";
+import type { GraphNode, WorkspaceGraphData } from "./types";
 
 export type { WorkspaceGraphData } from "./types";
 
 /* The concept registry. A graph concept is a client component taking
-   WorkspaceGraphData — add an entry here to try a new visualization; with
-   more than one registered, the card grows a switcher so concepts can be
-   compared live. */
+   WorkspaceGraphData (plus an optional onInspect callback for the docked
+   source preview) — add an entry here to try a new visualization; with more
+   than one registered, the card grows a switcher so concepts can be compared
+   live. */
 const CONCEPTS: Array<{
   id: string;
   label: string;
-  Component: ComponentType<{ data: WorkspaceGraphData }>;
+  Component: ComponentType<{
+    data: WorkspaceGraphData;
+    onInspect?: (node: GraphNode | null) => void;
+  }>;
 }> = [{ id: "columns", label: "Columns", Component: ColumnsGraph }];
 
 export function WorkspaceGraph({ data }: { data: WorkspaceGraphData }) {
   const [conceptId, setConceptId] = useState(CONCEPTS[0].id);
   const [query, setQuery] = useState("");
+  const [inspected, setInspected] = useState<GraphNode | null>(null);
   const concept = CONCEPTS.find((candidate) => candidate.id === conceptId) ?? CONCEPTS[0];
   const Active = concept.Component;
 
@@ -76,8 +83,40 @@ export function WorkspaceGraph({ data }: { data: WorkspaceGraphData }) {
           No entities match that filter.
         </p>
       ) : (
-        <div className="graph-scroll">
-          <Active data={filtered} />
+        <div className="graph-body">
+          <div className="graph-scroll">
+            <Active data={filtered} onInspect={setInspected} />
+          </div>
+          <aside className="graph-inspector">
+            {inspected ? (
+              <>
+                <div className="graph-inspector-head">
+                  <span className="label">{inspected.kind}</span>
+                  <span className="mono graph-inspector-name">{inspected.label}</span>
+                  <Link className="graph-inspector-open" href={inspected.href}>
+                    open →
+                  </Link>
+                </div>
+                {inspected.source ? (
+                  <div className="graph-inspector-source">
+                    <ReadOnlySource
+                      language={inspected.language ?? "text"}
+                      marks={[]}
+                      text={inspected.source}
+                    />
+                  </div>
+                ) : (
+                  <p className="muted" style={{ fontSize: 13 }}>
+                    No source preview for this entity.
+                  </p>
+                )}
+              </>
+            ) : (
+              <p className="muted graph-inspector-empty">
+                Hover an entity to preview its source here without leaving the graph.
+              </p>
+            )}
+          </aside>
         </div>
       )}
     </div>
