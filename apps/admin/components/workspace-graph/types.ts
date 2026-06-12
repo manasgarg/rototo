@@ -3,7 +3,13 @@
    concepts are plug-and-play — a concept is just a client component taking
    WorkspaceGraphData. */
 
-export type GraphNodeKind = "qualifier" | "variable" | "resourceObject" | "schema" | "linter";
+export type GraphNodeKind =
+  | "qualifier"
+  | "variable"
+  | "resource"
+  | "resourceObject"
+  | "schema"
+  | "linter";
 
 export type GraphNode = {
   /* Stable unique id (the entity target key). */
@@ -16,7 +22,7 @@ export type GraphNode = {
   language?: "json" | "lua" | "toml" | "text";
 };
 
-export type GraphEdgeKind = "checks" | "selects" | "validates" | "requires";
+export type GraphEdgeKind = "checks" | "selects" | "contains" | "validates" | "requires";
 
 export type GraphEdge = {
   from: string;

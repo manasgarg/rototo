@@ -1264,6 +1264,9 @@ async function workspaceGraphData(
   for (const variable of model.variables) {
     pushNode(`variables:${variable.id}`, "variable", variable.id);
   }
+  for (const resource of model.resources) {
+    pushNode(`resources:${resource.id}`, "resource", resource.id);
+  }
   for (const object of model.resourceObjects) {
     pushNode(
       `resource_objects:${object.resource}:${object.key}`,
@@ -1298,12 +1301,6 @@ async function workspaceGraphData(
     seenEdges.add(key);
     edges.push({ from, to, kind });
   };
-  const objectsByResource = new Map<string, string[]>();
-  for (const object of model.resourceObjects) {
-    const keys = objectsByResource.get(object.resource) ?? [];
-    keys.push(object.key);
-    objectsByResource.set(object.resource, keys);
-  }
   for (const reference of model.references) {
     const { from, to, via } = reference;
     if (via.kind === "predicateQualifier" && from.kind === "qualifier" && to.kind === "qualifier") {
@@ -1312,23 +1309,22 @@ async function workspaceGraphData(
     if (via.kind === "ruleQualifier" && from.kind === "variable" && to.kind === "qualifier") {
       pushEdge(`qualifiers:${to.id}`, `variables:${from.id}`, "checks");
     }
-    if (
-      (via.kind === "ruleValue" || via.kind === "resolveDefault") &&
-      from.kind === "variable" &&
-      to.kind === "resourceObject"
-    ) {
-      pushEdge(
-        `variables:${from.id}`,
-        `resource_objects:${to.resource}:${to.key}`,
-        "selects",
-      );
+    // Variables connect to resources; resources fan out to their objects and
+    // pair with their schema.
+    if (via.kind === "variableResource" && from.kind === "variable" && to.kind === "resource") {
+      pushEdge(`variables:${from.id}`, `resources:${to.id}`, "selects");
     }
     if (via.kind === "resourceSchema" && from.kind === "resource" && to.kind === "schema") {
       const file = to.path.split("/").pop() ?? to.path;
-      for (const key of objectsByResource.get(from.id) ?? []) {
-        pushEdge(`resource_objects:${from.id}:${key}`, `schemas:${file}`, "validates");
-      }
+      pushEdge(`resources:${from.id}`, `schemas:${file}`, "validates");
     }
+  }
+  for (const object of model.resourceObjects) {
+    pushEdge(
+      `resources:${object.resource}`,
+      `resource_objects:${object.resource}:${object.key}`,
+      "contains",
+    );
   }
   for (const variable of model.variables) {
     if (variable.declaration.kind === "schema" && variable.declaration.value) {

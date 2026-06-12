@@ -13,6 +13,7 @@ import type { GraphNode, GraphNodeKind, WorkspaceGraphData } from "./types";
 const COLUMNS: Array<{ kind: GraphNodeKind; title: string }> = [
   { kind: "qualifier", title: "qualifiers" },
   { kind: "variable", title: "variables" },
+  { kind: "resource", title: "resources" },
   { kind: "resourceObject", title: "objects" },
   { kind: "schema", title: "schemas" },
   { kind: "linter", title: "linters" },
@@ -21,6 +22,7 @@ const COLUMNS: Array<{ kind: GraphNodeKind; title: string }> = [
 const KIND_COLOR: Record<GraphNodeKind, string> = {
   qualifier: "var(--cyan-600)",
   variable: "var(--sea-600)",
+  resource: "var(--ok-700)",
   resourceObject: "var(--ink-1)",
   schema: "var(--info-700)",
   linter: "var(--warn-700)",
