@@ -1,6 +1,7 @@
 use std::time::Duration;
 
 use axum::Json;
+use axum::body::Bytes;
 use axum::extract::{Path, Query, State};
 use axum::http::HeaderMap;
 use axum::routing::{get, patch, post};
@@ -56,6 +57,10 @@ pub fn routes() -> axum::Router<SharedState> {
             post(draft_publish),
         )
         .route(
+            "/workspaces/{workspace_id}/drafts/{draft_id}/abandon",
+            post(draft_abandon),
+        )
+        .route(
             "/workspaces/{workspace_id}/drafts/{draft_id}/variables",
             post(draft_variable_save),
         )
@@ -94,7 +99,7 @@ async fn load_draft(
         .await?
         .ok_or_else(|| ApiError::not_found("draft not found"))?;
     if require_open && draft.status != DraftStatus::Open {
-        return Err(ApiError::bad_request("draft is already published"));
+        return Err(ApiError::bad_request("draft is not open"));
     }
     Ok(DraftContext {
         user,
@@ -125,12 +130,12 @@ async fn draft_create(
     State(state): State<SharedState>,
     headers: HeaderMap,
     Path(workspace_id): Path<String>,
-    body: Option<Json<DraftCreateBody>>,
+    body: Bytes,
 ) -> ApiResult<Json<JsonValue>> {
     let user = require_user(&state, &headers).await?;
     let workspace = load_workspace(&state, &user, &workspace_id).await?;
-    let requested_branch = body
-        .and_then(|Json(body)| body.branch)
+    let requested_branch = parse_draft_create_body(&body)?
+        .branch
         .map(|branch| branch.trim().to_owned())
         .filter(|branch| !branch.is_empty());
 
@@ -213,6 +218,14 @@ async fn draft_create(
             .await?
     };
     Ok(Json(json!({ "draft": draft })))
+}
+
+fn parse_draft_create_body(body: &[u8]) -> ApiResult<DraftCreateBody> {
+    if body.iter().all(|byte| byte.is_ascii_whitespace()) {
+        return Ok(DraftCreateBody::default());
+    }
+    serde_json::from_slice(body)
+        .map_err(|err| ApiError::bad_request(format!("invalid JSON body: {err}")))
 }
 
 #[derive(serde::Deserialize)]
@@ -381,6 +394,21 @@ async fn draft_publish(
             "merged_at": pr.merged_at,
         }
     })))
+}
+
+async fn draft_abandon(
+    State(state): State<SharedState>,
+    headers: HeaderMap,
+    Path((workspace_id, draft_id)): Path<(String, String)>,
+) -> ApiResult<Json<JsonValue>> {
+    let context = load_draft(&state, &headers, &workspace_id, &draft_id, true).await?;
+    let draft = state
+        .store
+        .mark_draft_abandoned(&context.draft.id)
+        .await
+        .map_err(|err| ApiError::bad_request(err.to_string()))?;
+    state.lsp.drop_sessions_for_draft(&context.draft.id).await;
+    Ok(Json(json!({ "draft": draft })))
 }
 
 #[derive(serde::Deserialize)]
@@ -1249,6 +1277,34 @@ fn pull_request_state(state: Option<&str>, merged_at: Option<&str>) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn draft_create_body_accepts_empty_request() {
+        let body = parse_draft_create_body(b"")
+            .unwrap_or_else(|err| panic!("empty request body should be allowed: {}", err.message));
+        assert_eq!(body.branch, None);
+
+        let body = parse_draft_create_body(b"  \n").unwrap_or_else(|err| {
+            panic!("whitespace request body should be allowed: {}", err.message)
+        });
+        assert_eq!(body.branch, None);
+    }
+
+    #[test]
+    fn draft_create_body_parses_requested_branch() {
+        let body = parse_draft_create_body(br#"{"branch":"rototo/draft"}"#)
+            .unwrap_or_else(|err| panic!("valid request body should parse: {}", err.message));
+        assert_eq!(body.branch.as_deref(), Some("rototo/draft"));
+    }
+
+    #[test]
+    fn draft_create_body_rejects_invalid_json() {
+        let Err(err) = parse_draft_create_body(b"not-json") else {
+            panic!("invalid body should fail");
+        };
+        assert_eq!(err.status, axum::http::StatusCode::BAD_REQUEST);
+        assert!(err.message.contains("invalid JSON body"));
+    }
 
     #[test]
     fn pull_request_numbers_parse_from_urls() {

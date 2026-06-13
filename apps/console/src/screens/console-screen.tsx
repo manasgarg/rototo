@@ -26,6 +26,7 @@ import type {
     RepoWithWorkspaces,
     WorkspaceRecord,
     WorkspaceSummary,
+    WorkspaceSummariesData,
 } from "@/lib/types";
 
 export type AppScreen = "repositories" | "workspaces" | "drafts" | "activity";
@@ -52,46 +53,66 @@ export function ConsoleScreen({ screen }: { screen: AppScreen }) {
     const selectedScreen = screen;
 
     // The workspaces screen decorates each row with inventory counts; those
-    // stage remote sources, so they load lazily and fill in as they arrive.
+    // stage remote sources, so one batched API request keeps browser fan-out
+    // and layout shifts under control.
     useEffect(() => {
         if (selectedScreen !== "workspaces" || !data) {
             return;
         }
         let cancelled = false;
-        for (const workspace of data.workspaces) {
-            void api<WorkspaceSummary>(
-                `/api/workspaces/${workspace.slug}/summary`,
-            ).then(
-                (summary) => {
-                    if (!cancelled) {
-                        setWorkspaceSummaries((current) =>
-                            new Map(current).set(workspace.id, summary),
-                        );
-                    }
-                },
-                (failure: unknown) => {
-                    if (!cancelled) {
-                        const summary: WorkspaceSummary = {
-                            variables: 0,
-                            qualifiers: 0,
-                            catalogs: 0,
-                            schemas: 0,
-                            error:
-                                failure instanceof Error
-                                    ? failure.message
-                                    : String(failure),
-                        };
-                        setWorkspaceSummaries((current) =>
-                            new Map(current).set(workspace.id, summary),
-                        );
-                    }
-                },
-            );
-        }
+        const activeRepoId =
+            repoFilterId && data.repos.some((repo) => repo.id === repoFilterId)
+                ? repoFilterId
+                : null;
+        const visibleWorkspaces = activeRepoId
+            ? data.workspaces.filter(
+                  (workspace) => workspace.repoId === activeRepoId,
+              )
+            : data.workspaces;
+        const path = activeRepoId
+            ? `/api/workspaces/summaries?repoId=${encodeURIComponent(activeRepoId)}`
+            : "/api/workspaces/summaries";
+        setWorkspaceSummaries(new Map());
+        void api<WorkspaceSummariesData>(path).then(
+            ({ summaries }) => {
+                if (!cancelled) {
+                    setWorkspaceSummaries(
+                        new Map(
+                            summaries.map((summary) => [
+                                summary.workspaceId,
+                                summary,
+                            ]),
+                        ),
+                    );
+                }
+            },
+            (failure: unknown) => {
+                if (!cancelled) {
+                    const message =
+                        failure instanceof Error
+                            ? failure.message
+                            : String(failure);
+                    setWorkspaceSummaries(
+                        new Map(
+                            visibleWorkspaces.map((workspace) => [
+                                workspace.id,
+                                {
+                                    variables: 0,
+                                    qualifiers: 0,
+                                    catalogs: 0,
+                                    schemas: 0,
+                                    error: message,
+                                },
+                            ]),
+                        ),
+                    );
+                }
+            },
+        );
         return () => {
             cancelled = true;
         };
-    }, [selectedScreen, data]);
+    }, [selectedScreen, data, repoFilterId]);
 
     if (loading && !data) {
         return <LoadingScreen />;
@@ -405,9 +426,12 @@ function WorkspaceRow({
                 <span className="row-sub">
                     {workspace.owner}/{workspace.name}
                 </span>
-                {summary ? (
-                    <span className="kv">
-                        {summary.error ? (
+                <span
+                    aria-busy={summary ? undefined : true}
+                    className="kv workspace-summary-line"
+                >
+                    {summary ? (
+                        summary.error ? (
                             <span>inventory unavailable</span>
                         ) : (
                             <>
@@ -427,9 +451,28 @@ function WorkspaceRow({
                                     {countLabel(summary.schemas, "schema")}
                                 </span>
                             </>
-                        )}
-                    </span>
-                ) : null}
+                        )
+                    ) : (
+                        <>
+                            <span
+                                aria-hidden="true"
+                                className="skeleton workspace-summary-chip"
+                            />
+                            <span
+                                aria-hidden="true"
+                                className="skeleton workspace-summary-chip"
+                            />
+                            <span
+                                aria-hidden="true"
+                                className="skeleton workspace-summary-chip"
+                            />
+                            <span
+                                aria-hidden="true"
+                                className="skeleton workspace-summary-chip"
+                            />
+                        </>
+                    )}
+                </span>
             </span>
             <span className="row-side">
                 {opening ? (

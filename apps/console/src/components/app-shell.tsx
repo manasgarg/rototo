@@ -37,7 +37,6 @@ export function AppShell({
                         <RototoMark />
                     </span>
                     <span className="brand-name">rototo</span>
-                    <span className="brand-tag label">admin</span>
                 </Link>
                 <nav className="side-nav">{nav}</nav>
                 <div className="side-user">
@@ -64,7 +63,7 @@ export function AppShell({
                     <Link
                         className="topbar-brand"
                         href="/app"
-                        title="rototo admin"
+                        title="rototo console"
                     >
                         <RototoMark size={24} />
                     </Link>

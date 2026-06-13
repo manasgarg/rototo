@@ -3,18 +3,15 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import type { GraphNode, GraphNodeKind, WorkspaceGraphData } from "./types";
 
 /* Concept: layered columns. Entities group into columns by kind in
-   resolution order — qualifiers feed variables, variables select entries,
-   entries and variables validate against schemas — with linters alongside.
-   Hovering a node lights up its edges and neighbors and previews its source;
-   clicking opens the entity. */
+   resolution order — qualifiers feed variables, variables select catalogs,
+   and catalogs contain entries. Hovering a node lights up its edges and
+   neighbors and previews its source; clicking opens the entity. */
 
 const COLUMNS: Array<{ kind: GraphNodeKind; title: string }> = [
     { kind: "qualifier", title: "qualifiers" },
     { kind: "variable", title: "variables" },
     { kind: "catalog", title: "catalogs" },
     { kind: "catalogEntry", title: "entries" },
-    { kind: "schema", title: "schemas" },
-    { kind: "linter", title: "linters" },
 ];
 
 const KIND_COLOR: Record<GraphNodeKind, string> = {
@@ -22,8 +19,6 @@ const KIND_COLOR: Record<GraphNodeKind, string> = {
     variable: "var(--sea-600)",
     catalog: "var(--ok-700)",
     catalogEntry: "var(--ink-1)",
-    schema: "var(--info-700)",
-    linter: "var(--warn-700)",
 };
 
 const ROW_HEIGHT = 30;

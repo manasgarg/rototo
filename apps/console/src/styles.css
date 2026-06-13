@@ -1095,6 +1095,17 @@ a.row:hover {
     white-space: nowrap;
 }
 
+.workspace-summary-line {
+    min-height: 20px;
+    align-items: center;
+}
+
+.workspace-summary-chip {
+    display: inline-block;
+    width: 74px;
+    height: 12px;
+}
+
 .row-side {
     display: flex;
     align-items: center;

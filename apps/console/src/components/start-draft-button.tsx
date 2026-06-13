@@ -16,6 +16,7 @@ export function StartDraftButton({ workspaceId }: { workspaceId: string }) {
                 `/api/workspaces/${workspaceId}/drafts`,
                 {
                     method: "POST",
+                    body: "{}",
                 },
             );
             const body = (await response.json()) as {
