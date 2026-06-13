@@ -1,6 +1,6 @@
 schema_version = 1
-type = "resource:message"
-description = "Variable with a resource value"
+type = "catalog:message"
+description = "Variable with a catalog value"
 
 [resolve]
 default = "default"

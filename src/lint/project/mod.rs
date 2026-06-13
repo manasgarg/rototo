@@ -1,7 +1,7 @@
+mod catalog;
 mod fields;
 mod manifest;
 mod qualifier;
-mod resource;
 mod schema;
 mod variable;
 
@@ -38,28 +38,28 @@ pub(super) fn build_semantic_index(source: &SourceStore, syntax: &SyntaxIndex) -
                     .variables
                     .insert(id.clone(), variable::project_variable(document, toml, id));
             }
-            DocumentKind::Resource { id } => {
+            DocumentKind::Catalog { id } => {
                 let Some(toml) = syntax.toml.get(&document.id) else {
                     continue;
                 };
                 index
-                    .resources
-                    .insert(id.clone(), resource::project_resource(document, toml, id));
+                    .catalogs
+                    .insert(id.clone(), catalog::project_catalog(document, toml, id));
             }
-            DocumentKind::ResourceObject {
-                resource_id,
-                object_id,
+            DocumentKind::CatalogEntry {
+                catalog_id,
+                entry_id,
             } => {
                 let Some(toml) = syntax.toml.get(&document.id) else {
                     continue;
                 };
                 index
-                    .resource_objects
-                    .entry(resource_id.clone())
+                    .catalog_entries
+                    .entry(catalog_id.clone())
                     .or_default()
                     .insert(
-                        object_id.clone(),
-                        resource::project_resource_object(document, toml, resource_id, object_id),
+                        entry_id.clone(),
+                        catalog::project_catalog_entry(document, toml, catalog_id, entry_id),
                     );
             }
             DocumentKind::Schema => {

@@ -124,8 +124,8 @@ pub fn belongs_to_workspace(workspace_path: &str, file_path: &str) -> bool {
 pub enum EntityKind {
     Variables,
     Qualifiers,
-    Resources,
-    ResourceObjects,
+    Catalogs,
+    CatalogEntries,
     Schemas,
     Context,
     Linters,
@@ -136,8 +136,8 @@ impl EntityKind {
         match self {
             Self::Variables => "variable",
             Self::Qualifiers => "qualifier",
-            Self::Resources => "resource",
-            Self::ResourceObjects => "resource object",
+            Self::Catalogs => "catalog",
+            Self::CatalogEntries => "catalog entry",
             Self::Schemas => "schema",
             Self::Context => "context example",
             Self::Linters => "linter",
@@ -173,7 +173,7 @@ pub fn parse_variable_type(value: Option<&str>) -> &'static str {
 pub fn entity_template_files(
     kind: EntityKind,
     id: &str,
-    resource_id: Option<&str>,
+    catalog_id: Option<&str>,
     workspace_path: &str,
     variable_type: &str,
 ) -> Vec<PlannedFile> {
@@ -187,25 +187,25 @@ pub fn entity_template_files(
             path: path(&format!("qualifiers/{id}.toml")),
             content: qualifier_template(id),
         }],
-        EntityKind::Resources => vec![
+        EntityKind::Catalogs => vec![
             PlannedFile {
-                path: path(&format!("resources/{id}.toml")),
-                content: resource_template(id),
+                path: path(&format!("catalogs/{id}.toml")),
+                content: catalog_template(id),
             },
             PlannedFile {
                 path: path(&format!("schemas/{id}.schema.json")),
-                content: resource_schema_template(),
+                content: catalog_schema_template(),
             },
             PlannedFile {
-                path: path(&format!("resources/{id}-objects/default.toml")),
-                content: resource_object_template().to_owned(),
+                path: path(&format!("catalogs/{id}-entries/default.toml")),
+                content: catalog_entry_template().to_owned(),
             },
         ],
-        EntityKind::ResourceObjects => {
-            let resource_id = resource_id.expect("resource object creation requires resourceId");
+        EntityKind::CatalogEntries => {
+            let catalog_id = catalog_id.expect("catalog entry creation requires catalogId");
             vec![PlannedFile {
-                path: path(&format!("resources/{resource_id}-objects/{id}.toml")),
-                content: resource_object_template().to_owned(),
+                path: path(&format!("catalogs/{catalog_id}-entries/{id}.toml")),
+                content: catalog_entry_template().to_owned(),
             }]
         }
         EntityKind::Schemas => vec![PlannedFile {
@@ -259,19 +259,19 @@ fn qualifier_template(id: &str) -> String {
     )
 }
 
-fn resource_template(id: &str) -> String {
+fn catalog_template(id: &str) -> String {
     format!(
         "schema_version = 1\n\n\
          description = {description}\n\
          schema = {schema}\n",
         description = toml_string(&format!(
-            "Edit this description to explain the {id} resource objects"
+            "Edit this description to explain the {id} catalog entries"
         )),
         schema = toml_string(&format!("../schemas/{id}.schema.json")),
     )
 }
 
-fn resource_schema_template() -> String {
+fn catalog_schema_template() -> String {
     let schema = serde_json::json!({
         "$schema": "https://json-schema.org/draft/2020-12/schema",
         "type": "object",
@@ -288,7 +288,7 @@ fn resource_schema_template() -> String {
     )
 }
 
-fn resource_object_template() -> &'static str {
+fn catalog_entry_template() -> &'static str {
     "heading = \"Edit this heading\"\nenabled = false\n"
 }
 
@@ -388,19 +388,19 @@ mod tests {
     }
 
     #[test]
-    fn entity_templates_cover_resource_bundle() {
-        let files = entity_template_files(EntityKind::Resources, "banner", None, ".", "string");
+    fn entity_templates_cover_catalog_bundle() {
+        let files = entity_template_files(EntityKind::Catalogs, "banner", None, ".", "string");
         let paths: Vec<&str> = files.iter().map(|file| file.path.as_str()).collect();
         assert_eq!(
             paths,
             [
-                "resources/banner.toml",
+                "catalogs/banner.toml",
                 "schemas/banner.schema.json",
-                "resources/banner-objects/default.toml",
+                "catalogs/banner-entries/default.toml",
             ]
         );
         let nested = entity_template_files(
-            EntityKind::ResourceObjects,
+            EntityKind::CatalogEntries,
             "summer",
             Some("banner"),
             "payments",
@@ -408,7 +408,7 @@ mod tests {
         );
         assert_eq!(
             nested[0].path,
-            "payments/resources/banner-objects/summer.toml"
+            "payments/catalogs/banner-entries/summer.toml"
         );
     }
 

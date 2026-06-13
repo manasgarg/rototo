@@ -4,7 +4,7 @@ use crate::diagnostics::{
     DiagnosticCatalogEntry, LintDiagnostic, LintStage, RototoRuleId, SemanticEntity, SourcePosition,
 };
 use crate::error::{Result, RototoError};
-use crate::model::{QualifierLint, ResourceLint, VariableLint, WorkspaceDiff, WorkspaceLint};
+use crate::model::{CatalogLint, QualifierLint, VariableLint, WorkspaceDiff, WorkspaceLint};
 
 mod builtins;
 mod custom;
@@ -32,9 +32,10 @@ pub(crate) use runtime::{
     compile_runtime_workspace, compile_runtime_workspace_from_snapshot,
 };
 pub use semantic_model::{
-    DeclarationModel, LinterModel, LinterRuleModel, ModelEntityRef, ModelField, ModelLocation,
-    ModelReferenceVia, PredicateModel, QualifierModel, ReferenceModel, ResolveModel, ResourceModel,
-    ResourceObjectModel, RuleModel, SchemaModel, ValueModel, VariableModel, WorkspaceSemanticModel,
+    CatalogEntryModel, CatalogModel, DeclarationModel, LinterModel, LinterRuleModel,
+    ModelEntityRef, ModelField, ModelLocation, ModelReferenceVia, PredicateModel, QualifierModel,
+    ReferenceModel, ResolveModel, RuleModel, SchemaModel, ValueModel, VariableModel,
+    WorkspaceSemanticModel,
 };
 pub(crate) use symbols::{
     WorkspaceCompletionItem, WorkspaceCompletionItemKind, WorkspaceDefinition,
@@ -101,22 +102,22 @@ pub async fn lint_variable(workspace_root: &Path, id: &str) -> Result<VariableLi
     })
 }
 
-pub async fn lint_resource(workspace_root: &Path, id: &str) -> Result<ResourceLint> {
+pub async fn lint_catalog(workspace_root: &Path, id: &str) -> Result<CatalogLint> {
     let lint = lint_workspace(workspace_root).await?;
-    let path = format!("resources/{id}.toml");
+    let path = format!("catalogs/{id}.toml");
     if !lint.documents.iter().any(|document| document.path == path) {
         return Err(RototoError::new(format!(
-            "resource not found: resource://{id}"
+            "catalog not found: catalog://{id}"
         )));
     }
 
-    Ok(ResourceLint {
+    Ok(CatalogLint {
         root: lint.root,
         id: id.to_owned(),
         diagnostics: lint
             .diagnostics
             .into_iter()
-            .filter(|diagnostic| diagnostic_belongs_to_resource(diagnostic, id, &path))
+            .filter(|diagnostic| diagnostic_belongs_to_catalog(diagnostic, id, &path))
             .collect(),
     })
 }
@@ -134,12 +135,12 @@ fn diagnostic_belongs_to_variable(diagnostic: &LintDiagnostic, id: &str, path: &
         || diagnostic.primary.path == path
 }
 
-fn diagnostic_belongs_to_resource(diagnostic: &LintDiagnostic, id: &str, path: &str) -> bool {
-    let objects_prefix = format!("resources/{id}-objects/");
-    matches!(&diagnostic.target.entity, SemanticEntity::Resource { id: diagnostic_id } if diagnostic_id == id)
-        || matches!(&diagnostic.target.entity, SemanticEntity::ResourceObject { resource, .. } if resource == id)
+fn diagnostic_belongs_to_catalog(diagnostic: &LintDiagnostic, id: &str, path: &str) -> bool {
+    let entries_prefix = format!("catalogs/{id}-entries/");
+    matches!(&diagnostic.target.entity, SemanticEntity::Catalog { id: diagnostic_id } if diagnostic_id == id)
+        || matches!(&diagnostic.target.entity, SemanticEntity::CatalogEntry { catalog, .. } if catalog == id)
         || diagnostic.primary.path == path
-        || diagnostic.primary.path.starts_with(&objects_prefix)
+        || diagnostic.primary.path.starts_with(&entries_prefix)
 }
 
 pub(crate) async fn lint_workspace_with_input(input: LintInput) -> Result<WorkspaceLint> {

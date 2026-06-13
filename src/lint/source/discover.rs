@@ -38,31 +38,31 @@ impl SourceStore {
                 DocumentCollection::Variables => DocumentKind::Variable {
                     id: stem.to_owned(),
                 },
-                DocumentCollection::Resources => DocumentKind::Resource {
+                DocumentCollection::Catalogs => DocumentKind::Catalog {
                     id: stem.to_owned(),
                 },
             };
             self.add_disk_document(relative_path, kind).await;
-            if matches!(collection, DocumentCollection::Resources) {
-                self.add_resource_object_documents(stem).await?;
+            if matches!(collection, DocumentCollection::Catalogs) {
+                self.add_catalog_entry_documents(stem).await?;
             }
         }
 
         Ok(())
     }
 
-    pub(crate) async fn add_resource_object_documents(&mut self, resource_id: &str) -> Result<()> {
-        let objects_dir = self
+    pub(crate) async fn add_catalog_entry_documents(&mut self, catalog_id: &str) -> Result<()> {
+        let entries_dir = self
             .root
-            .join("resources")
-            .join(format!("{resource_id}-objects"));
-        let entries = match sorted_directory_entries(&objects_dir).await {
+            .join("catalogs")
+            .join(format!("{catalog_id}-entries"));
+        let entries = match sorted_directory_entries(&entries_dir).await {
             Ok(entries) => entries,
             Err(err) if err.kind() == std::io::ErrorKind::NotFound => return Ok(()),
             Err(err) => {
                 return Err(RototoError::new(format!(
                     "failed to read {}: {err}",
-                    objects_dir.display()
+                    entries_dir.display()
                 )));
             }
         };
@@ -71,23 +71,23 @@ impl SourceStore {
             if path.extension().and_then(|extension| extension.to_str()) != Some("toml") {
                 continue;
             }
-            let Some(object_id) = path.file_stem().and_then(|stem| stem.to_str()) else {
+            let Some(entry_id) = path.file_stem().and_then(|stem| stem.to_str()) else {
                 continue;
             };
-            let relative_path = PathBuf::from("resources")
-                .join(format!("{resource_id}-objects"))
+            let relative_path = PathBuf::from("catalogs")
+                .join(format!("{catalog_id}-entries"))
                 .join(path.file_name().expect("entry has filename"));
             self.add_disk_document(
                 relative_path,
-                DocumentKind::ResourceObject {
-                    resource_id: resource_id.to_owned(),
-                    object_id: object_id.to_owned(),
+                DocumentKind::CatalogEntry {
+                    catalog_id: catalog_id.to_owned(),
+                    entry_id: entry_id.to_owned(),
                 },
             )
             .await;
         }
 
-        let overlay_prefix = format!("resources/{resource_id}-objects/");
+        let overlay_prefix = format!("catalogs/{catalog_id}-entries/");
         let overlay_paths = self
             .overlays
             .keys()
@@ -95,14 +95,14 @@ impl SourceStore {
             .cloned()
             .collect::<Vec<_>>();
         for path in overlay_paths {
-            let Some(object_id) = overlay_object_id(&path, &overlay_prefix) else {
+            let Some(entry_id) = overlay_entry_id(&path, &overlay_prefix) else {
                 continue;
             };
             self.add_disk_document(
                 PathBuf::from(&path),
-                DocumentKind::ResourceObject {
-                    resource_id: resource_id.to_owned(),
-                    object_id,
+                DocumentKind::CatalogEntry {
+                    catalog_id: catalog_id.to_owned(),
+                    entry_id,
                 },
             )
             .await;
@@ -172,13 +172,13 @@ impl SourceStore {
             let Some(kind) = overlay_document_kind(&path) else {
                 continue;
             };
-            let resource_id = match &kind {
-                DocumentKind::Resource { id } => Some(id.clone()),
+            let catalog_id = match &kind {
+                DocumentKind::Catalog { id } => Some(id.clone()),
                 _ => None,
             };
             self.add_disk_document(PathBuf::from(&path), kind).await;
-            if let Some(resource_id) = resource_id {
-                self.add_resource_object_documents(&resource_id).await?;
+            if let Some(catalog_id) = catalog_id {
+                self.add_catalog_entry_documents(&catalog_id).await?;
             }
         }
         Ok(())
@@ -199,18 +199,16 @@ fn overlay_document_kind(path: &str) -> Option<DocumentKind> {
             let id = file.strip_suffix(".toml")?;
             (!id.is_empty()).then(|| DocumentKind::Variable { id: id.to_owned() })
         }
-        ["resources", file] if file.ends_with(".toml") => {
+        ["catalogs", file] if file.ends_with(".toml") => {
             let id = file.strip_suffix(".toml")?;
-            (!id.is_empty()).then(|| DocumentKind::Resource { id: id.to_owned() })
+            (!id.is_empty()).then(|| DocumentKind::Catalog { id: id.to_owned() })
         }
-        ["resources", dir, file] if dir.ends_with("-objects") && file.ends_with(".toml") => {
-            let resource_id = dir.strip_suffix("-objects")?;
-            let object_id = file.strip_suffix(".toml")?;
-            (!resource_id.is_empty() && !object_id.is_empty()).then(|| {
-                DocumentKind::ResourceObject {
-                    resource_id: resource_id.to_owned(),
-                    object_id: object_id.to_owned(),
-                }
+        ["catalogs", dir, file] if dir.ends_with("-entries") && file.ends_with(".toml") => {
+            let catalog_id = dir.strip_suffix("-entries")?;
+            let entry_id = file.strip_suffix(".toml")?;
+            (!catalog_id.is_empty() && !entry_id.is_empty()).then(|| DocumentKind::CatalogEntry {
+                catalog_id: catalog_id.to_owned(),
+                entry_id: entry_id.to_owned(),
             })
         }
         ["schemas", file] if file.ends_with(".json") => Some(DocumentKind::Schema),
@@ -219,7 +217,7 @@ fn overlay_document_kind(path: &str) -> Option<DocumentKind> {
     }
 }
 
-fn overlay_object_id(path: &str, prefix: &str) -> Option<String> {
+fn overlay_entry_id(path: &str, prefix: &str) -> Option<String> {
     let file = path.strip_prefix(prefix)?;
     if file.contains('/') {
         return None;

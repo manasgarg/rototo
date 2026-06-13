@@ -104,12 +104,12 @@ pub(super) enum DocumentKind {
     Variable {
         id: String,
     },
-    Resource {
+    Catalog {
         id: String,
     },
-    ResourceObject {
-        resource_id: String,
-        object_id: String,
+    CatalogEntry {
+        catalog_id: String,
+        entry_id: String,
     },
     Schema,
     CustomLint,
@@ -121,8 +121,8 @@ impl DocumentKind {
             Self::Manifest => SourceKind::Manifest,
             Self::Qualifier { .. } => SourceKind::Qualifier,
             Self::Variable { .. } => SourceKind::Variable,
-            Self::Resource { .. } => SourceKind::Resource,
-            Self::ResourceObject { .. } => SourceKind::ResourceObject,
+            Self::Catalog { .. } => SourceKind::Catalog,
+            Self::CatalogEntry { .. } => SourceKind::CatalogEntry,
             Self::Schema => SourceKind::Schema,
             Self::CustomLint => SourceKind::CustomLint,
         }
@@ -161,5 +161,5 @@ impl SourceDocument {
 pub(super) enum DocumentCollection {
     Qualifiers,
     Variables,
-    Resources,
+    Catalogs,
 }

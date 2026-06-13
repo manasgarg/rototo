@@ -16,7 +16,7 @@ use super::index::{
 };
 use super::references::{ReferenceSource, ReferenceTarget};
 
-pub const SEMANTIC_MODEL_VERSION: u32 = 2;
+pub const SEMANTIC_MODEL_VERSION: u32 = 3;
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -24,8 +24,8 @@ pub struct WorkspaceSemanticModel {
     pub version: u32,
     pub qualifiers: Vec<QualifierModel>,
     pub variables: Vec<VariableModel>,
-    pub resources: Vec<ResourceModel>,
-    pub resource_objects: Vec<ResourceObjectModel>,
+    pub catalogs: Vec<CatalogModel>,
+    pub catalog_entries: Vec<CatalogEntryModel>,
     pub schemas: Vec<SchemaModel>,
     pub linters: Vec<LinterModel>,
     pub references: Vec<ReferenceModel>,
@@ -91,7 +91,7 @@ pub struct VariableModel {
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct DeclarationModel {
-    /// "primitive", "resource", "schema", "missing", "conflict", or "invalid".
+    /// "primitive", "catalog", "schema", "missing", "conflict", or "invalid".
     pub kind: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub value: Option<String>,
@@ -128,7 +128,7 @@ pub struct RuleModel {
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
-pub struct ResourceModel {
+pub struct CatalogModel {
     pub id: String,
     pub location: ModelLocation,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -139,8 +139,8 @@ pub struct ResourceModel {
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
-pub struct ResourceObjectModel {
-    pub resource: String,
+pub struct CatalogEntryModel {
+    pub catalog: String,
     pub key: String,
     pub location: ModelLocation,
     pub value: JsonValue,
@@ -187,8 +187,8 @@ pub struct ReferenceModel {
 pub enum ModelReferenceVia {
     PredicateQualifier { index: usize },
     PredicateContextAttribute { index: usize },
-    VariableResource,
-    ResourceSchema,
+    VariableCatalog,
+    CatalogSchema,
     ResolveDefault,
     RuleQualifier { index: usize },
     RuleValue { index: usize },
@@ -199,8 +199,8 @@ pub enum ModelReferenceVia {
 pub enum ModelEntityRef {
     Qualifier { id: String },
     Variable { id: String },
-    Resource { id: String },
-    ResourceObject { resource: String, key: String },
+    Catalog { id: String },
+    CatalogEntry { catalog: String, key: String },
     Schema { path: String },
     Value { variable: String, key: String },
     ContextAttribute { name: String },
@@ -250,8 +250,8 @@ impl WorkspaceLintSnapshot {
                         value: Some(value.value.clone()),
                         location: model_location(&value.location),
                     },
-                    TypeSourceNode::Resource(value) => DeclarationModel {
-                        kind: "resource".to_owned(),
+                    TypeSourceNode::Catalog(value) => DeclarationModel {
+                        kind: "catalog".to_owned(),
                         value: Some(value.value.clone()),
                         location: model_location(&value.location),
                     },
@@ -320,10 +320,10 @@ impl WorkspaceLintSnapshot {
             })
             .collect();
 
-        let resources = index
-            .resources
+        let catalogs = index
+            .catalogs
             .values()
-            .map(|node| ResourceModel {
+            .map(|node| CatalogModel {
                 id: node.id.clone(),
                 location: model_location(&node.location),
                 description: present_string(&node.description),
@@ -331,12 +331,12 @@ impl WorkspaceLintSnapshot {
             })
             .collect();
 
-        let resource_objects = index
-            .resource_objects
+        let catalog_entries = index
+            .catalog_entries
             .values()
-            .flat_map(|objects| objects.values())
-            .map(|node| ResourceObjectModel {
-                resource: node.resource_id.clone(),
+            .flat_map(|entries| entries.values())
+            .map(|node| CatalogEntryModel {
+                catalog: node.catalog_id.clone(),
                 key: node.key.clone(),
                 location: model_location(&node.location),
                 value: node.value.clone(),
@@ -396,8 +396,8 @@ impl WorkspaceLintSnapshot {
             version: SEMANTIC_MODEL_VERSION,
             qualifiers,
             variables,
-            resources,
-            resource_objects,
+            catalogs,
+            catalog_entries,
             schemas,
             linters,
             references,
@@ -437,8 +437,8 @@ fn reference_via(source: &ReferenceSource) -> ModelReferenceVia {
         ReferenceSource::QualifierPredicateContextAttribute { predicate, .. } => {
             ModelReferenceVia::PredicateContextAttribute { index: *predicate }
         }
-        ReferenceSource::VariableResource { .. } => ModelReferenceVia::VariableResource,
-        ReferenceSource::ResourceSchema { .. } => ModelReferenceVia::ResourceSchema,
+        ReferenceSource::VariableCatalog { .. } => ModelReferenceVia::VariableCatalog,
+        ReferenceSource::CatalogSchema { .. } => ModelReferenceVia::CatalogSchema,
         ReferenceSource::VariableResolveDefault { .. } => ModelReferenceVia::ResolveDefault,
         ReferenceSource::VariableRuleQualifier { rule, .. } => {
             ModelReferenceVia::RuleQualifier { index: *rule }
@@ -457,14 +457,14 @@ fn reference_source_ref(source: &ReferenceSource) -> ModelEntityRef {
                 id: qualifier.clone(),
             }
         }
-        ReferenceSource::VariableResource { variable }
+        ReferenceSource::VariableCatalog { variable }
         | ReferenceSource::VariableResolveDefault { variable }
         | ReferenceSource::VariableRuleQualifier { variable, .. }
         | ReferenceSource::VariableRuleValue { variable, .. } => ModelEntityRef::Variable {
             id: variable.clone(),
         },
-        ReferenceSource::ResourceSchema { resource } => ModelEntityRef::Resource {
-            id: resource.clone(),
+        ReferenceSource::CatalogSchema { catalog } => ModelEntityRef::Catalog {
+            id: catalog.clone(),
         },
     }
 }
@@ -475,9 +475,9 @@ fn reference_target_ref(target: &ReferenceTarget) -> ModelEntityRef {
             ModelEntityRef::ContextAttribute { name: name.clone() }
         }
         ReferenceTarget::Qualifier(id) => ModelEntityRef::Qualifier { id: id.clone() },
-        ReferenceTarget::Resource(id) => ModelEntityRef::Resource { id: id.clone() },
-        ReferenceTarget::ResourceObject { resource, value } => ModelEntityRef::ResourceObject {
-            resource: resource.clone(),
+        ReferenceTarget::Catalog(id) => ModelEntityRef::Catalog { id: id.clone() },
+        ReferenceTarget::CatalogEntry { catalog, value } => ModelEntityRef::CatalogEntry {
+            catalog: catalog.clone(),
             key: value.clone(),
         },
         ReferenceTarget::Schema(path) => ModelEntityRef::Schema { path: path.clone() },

@@ -1,7 +1,7 @@
 schema_version = 1
 
 description = "Support banner shown in account and checkout flows"
-type = "resource:support-banner"
+type = "catalog:support-banner"
 
 [resolve]
 default = "hidden"

@@ -176,15 +176,15 @@ export type VariableModel = {
   resolve?: ResolveModel;
 };
 
-export type ResourceModel = {
+export type CatalogModel = {
   id: string;
   location: ModelLocation;
   description?: string;
   schema?: ModelField;
 };
 
-export type ResourceObjectModel = {
-  resource: string;
+export type CatalogEntryModel = {
+  catalog: string;
   key: string;
   location: ModelLocation;
   value: unknown;
@@ -205,8 +205,8 @@ export type LinterModel = {
 export type ModelEntityRef =
   | { kind: "qualifier"; id: string }
   | { kind: "variable"; id: string }
-  | { kind: "resource"; id: string }
-  | { kind: "resourceObject"; resource: string; key: string }
+  | { kind: "catalog"; id: string }
+  | { kind: "catalogEntry"; catalog: string; key: string }
   | { kind: "schema"; path: string }
   | { kind: "value"; variable: string; key: string }
   | { kind: "contextAttribute"; name: string };
@@ -214,8 +214,8 @@ export type ModelEntityRef =
 export type ModelReferenceVia =
   | { kind: "predicateQualifier"; index: number }
   | { kind: "predicateContextAttribute"; index: number }
-  | { kind: "variableResource" }
-  | { kind: "resourceSchema" }
+  | { kind: "variableCatalog" }
+  | { kind: "catalogSchema" }
   | { kind: "resolveDefault" }
   | { kind: "ruleQualifier"; index: number }
   | { kind: "ruleValue"; index: number };
@@ -231,8 +231,8 @@ export type WorkspaceSemanticModel = {
   version: number;
   qualifiers: QualifierModel[];
   variables: VariableModel[];
-  resources: ResourceModel[];
-  resourceObjects: ResourceObjectModel[];
+  catalogs: CatalogModel[];
+  catalogEntries: CatalogEntryModel[];
   schemas: SchemaModel[];
   linters: LinterModel[];
   references: ReferenceModel[];
@@ -248,7 +248,7 @@ export type VariableInventoryItem = {
   ruleCount: number;
   qualifierReferences: string[];
   ruleValueKeys: string[];
-  resourceReference: string | null;
+  catalogReference: string | null;
   schemaReference: string | null;
 };
 
@@ -260,17 +260,17 @@ export type QualifierInventoryItem = {
   qualifierReferences: string[];
 };
 
-export type ResourceInventoryItem = {
+export type CatalogInventoryItem = {
   id: string;
   path: string;
   description: string | null;
   schema: string | null;
   schemaReference: string | null;
-  objectCount: number;
+  entryCount: number;
 };
 
-export type ResourceObjectInventoryItem = {
-  resourceId: string;
+export type CatalogEntryInventoryItem = {
+  catalogId: string;
   key: string;
   id: string;
   path: string;
@@ -298,8 +298,8 @@ export type ContextInventory = {
 export type WorkspaceInventory = {
   variables: VariableInventoryItem[];
   qualifiers: QualifierInventoryItem[];
-  resources: ResourceInventoryItem[];
-  resourceObjects: ResourceObjectInventoryItem[];
+  catalogs: CatalogInventoryItem[];
+  catalogEntries: CatalogEntryInventoryItem[];
   schemas: SchemaInventoryItem[];
   linters: LinterInventoryItem[];
   context: ContextInventory;
@@ -355,7 +355,7 @@ export type EditContextPreview = {
 
 /* Draft editing: each editable entity arrives with its draft-branch text. */
 export type EditableEntity = {
-  section: "variables" | "qualifiers" | "resources" | "schemas" | "context" | "linters";
+  section: "variables" | "qualifiers" | "catalogs" | "schemas" | "context" | "linters";
   id: string;
   kind: string;
   path: string;
@@ -363,8 +363,8 @@ export type EditableEntity = {
   badge: string | null;
   text: string;
   language: WorkspaceDefinition["language"];
-  resourceId?: string | null;
-  objectKey?: string | null;
+  catalogId?: string | null;
+  entryKey?: string | null;
 };
 
 /* Screen payloads. */
@@ -377,7 +377,7 @@ export type ConsoleData = {
 export type WorkspaceSummary = {
   variables: number;
   qualifiers: number;
-  resources: number;
+  catalogs: number;
   schemas: number;
   error: string | null;
 };

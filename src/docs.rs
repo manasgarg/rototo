@@ -170,9 +170,9 @@ pub const DOCS: &[DocPage] = &[
         markdown: include_str!("../docs/src/reference-variable-values.md"),
     },
     DocPage {
-        id: "reference-resources",
-        title: "Resources",
-        markdown: include_str!("../docs/src/reference-resources.md"),
+        id: "reference-catalogs",
+        title: "Catalogs",
+        markdown: include_str!("../docs/src/reference-catalogs.md"),
     },
     DocPage {
         id: "reference-qualifier-resolution",
@@ -302,7 +302,7 @@ pub const DOC_NAV_SECTIONS: &[DocNavSection] = &[
             "reference-predicate-operators",
             "reference-variables",
             "reference-variable-values",
-            "reference-resources",
+            "reference-catalogs",
             "reference-qualifier-resolution",
             "reference-variable-resolution",
             "reference-resolution-output",

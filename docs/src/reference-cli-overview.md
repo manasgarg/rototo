@@ -19,7 +19,7 @@ Workspace commands:
 | `fixtures` | Generate readable runtime behavior fixtures. |
 | `lint` | Validate a workspace or selected targets. |
 | `inspect` | Explain how rototo sees workspace data. |
-| `show` | Display workspace config, variables, qualifiers, resources, and lint metadata. |
+| `show` | Display workspace config, variables, qualifiers, catalogs, and lint metadata. |
 | `resolve` | Evaluate variables or qualifiers with runtime context. |
 
 Utility commands:
@@ -68,7 +68,7 @@ forms.
 
 ```text
 --variable <ID>        --variables
---resource <ID>        --resources
+--catalog <ID>        --catalogs
 --qualifier <ID>       --qualifiers
 --lint-rule <ID>       --lint-rules
 --lint-authority <ID>  --lint-authorities

@@ -23,7 +23,7 @@ pub(crate) fn hover(
     push_manifest_hover_candidates(&snapshot.index, path, position, &mut candidates);
     push_qualifier_hover_candidates(&snapshot.index, path, position, &mut candidates);
     push_variable_hover_candidates(&snapshot.index, path, position, &mut candidates);
-    push_resource_hover_candidates(&snapshot.index, path, position, &mut candidates);
+    push_catalog_hover_candidates(&snapshot.index, path, position, &mut candidates);
     sort_hover_candidates(&mut candidates);
     candidates
         .into_iter()
@@ -213,45 +213,45 @@ fn push_variable_hover_candidates(
     }
 }
 
-fn push_resource_hover_candidates(
+fn push_catalog_hover_candidates(
     index: &SemanticIndex,
     path: &str,
     position: SourcePosition,
     candidates: &mut Vec<HoverCandidate>,
 ) {
-    for resource in index.resources.values() {
-        if resource.location.path != path {
+    for catalog in index.catalogs.values() {
+        if catalog.location.path != path {
             continue;
         }
         push_hover_candidate(
             candidates,
             path,
             position,
-            &resource.location,
+            &catalog.location,
             2,
-            resource_hover_contents(resource),
+            catalog_hover_contents(catalog),
         );
-        if let Some(ProjectField::Present(description)) = &resource.description {
+        if let Some(ProjectField::Present(description)) = &catalog.description {
             push_hover_candidate(
                 candidates,
                 path,
                 position,
                 &description.location,
                 2,
-                resource_hover_contents(resource),
+                catalog_hover_contents(catalog),
             );
         }
     }
 
-    for objects in index.resource_objects.values() {
-        for object in objects.values() {
+    for entries in index.catalog_entries.values() {
+        for entry in entries.values() {
             push_hover_candidate(
                 candidates,
                 path,
                 position,
-                &object.location,
+                &entry.location,
                 2,
-                resource_object_hover_contents(object),
+                catalog_entry_hover_contents(entry),
             );
         }
     }
@@ -308,22 +308,22 @@ fn file_hover(index: &SemanticIndex, path: &str) -> Option<WorkspaceHover> {
         })
         .or_else(|| {
             index
-                .resources
+                .catalogs
                 .values()
-                .find(|resource| resource.location.path == path)
-                .map(|resource| WorkspaceHover {
-                    contents: resource_hover_contents(resource),
-                    location: resource.location.clone(),
+                .find(|catalog| catalog.location.path == path)
+                .map(|catalog| WorkspaceHover {
+                    contents: catalog_hover_contents(catalog),
+                    location: catalog.location.clone(),
                 })
         })
         .or_else(|| {
-            index.resource_objects.values().find_map(|objects| {
-                objects
+            index.catalog_entries.values().find_map(|entries| {
+                entries
                     .values()
-                    .find(|object| object.location.path == path)
-                    .map(|object| WorkspaceHover {
-                        contents: resource_object_hover_contents(object),
-                        location: object.location.clone(),
+                    .find(|entry| entry.location.path == path)
+                    .map(|entry| WorkspaceHover {
+                        contents: catalog_entry_hover_contents(entry),
+                        location: entry.location.clone(),
                     })
             })
         })
@@ -446,21 +446,21 @@ fn value_hover_contents(variable_id: &str, value: &ValueNode) -> String {
     )
 }
 
-fn resource_hover_contents(resource: &ResourceNode) -> String {
-    let mut contents = format!("### Resource `{}`", resource.id);
-    if let Some(description) = project_field_string(&resource.description) {
+fn catalog_hover_contents(catalog: &CatalogNode) -> String {
+    let mut contents = format!("### Catalog `{}`", catalog.id);
+    if let Some(description) = project_field_string(&catalog.description) {
         contents.push_str("\n\n");
         contents.push_str(description);
     }
     contents
 }
 
-fn resource_object_hover_contents(object: &ResourceObjectNode) -> String {
+fn catalog_entry_hover_contents(entry: &CatalogEntryNode) -> String {
     format!(
-        "### Resource object `{}`\n\nResource: `{}`\n\nJSON shape: `{}`",
-        object.key,
-        object.resource_id,
-        json_shape_label(&object.value)
+        "### Catalog entry `{}`\n\nCatalog: `{}`\n\nJSON shape: `{}`",
+        entry.key,
+        entry.catalog_id,
+        json_shape_label(&entry.value)
     )
 }
 
@@ -503,7 +503,7 @@ fn variable_rule_summary(rule: &VariableRuleNode) -> String {
 fn type_source_summary(variable: &VariableNode) -> String {
     match &variable.type_source {
         TypeSourceNode::Primitive(type_name) => format!("Type: `{}`", type_name.value),
-        TypeSourceNode::Resource(resource) => format!("Resource type: `{}`", resource.value),
+        TypeSourceNode::Catalog(catalog) => format!("Catalog type: `{}`", catalog.value),
         TypeSourceNode::Schema(schema) => format!("Schema: `{}`", schema.value),
         TypeSourceNode::Missing { .. } => "Type: missing".to_owned(),
         TypeSourceNode::Conflict { .. } => "Type: conflicting declarations".to_owned(),

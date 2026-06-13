@@ -600,8 +600,8 @@ async fn draft_file_delete(
 struct EntityCreateBody {
     kind: Option<String>,
     id: Option<String>,
-    #[serde(rename = "resourceId")]
-    resource_id: Option<String>,
+    #[serde(rename = "catalogId")]
+    catalog_id: Option<String>,
     #[serde(rename = "variableType")]
     variable_type: Option<String>,
 }
@@ -615,18 +615,18 @@ async fn draft_entity_create(
     let context = load_draft(&state, &headers, &workspace_id, &draft_id, true).await?;
     let kind = body.kind.as_deref().and_then(parse_kind);
     let id = parse_entity_id(body.id.as_deref());
-    let resource_id = parse_entity_id(body.resource_id.as_deref());
+    let catalog_id = parse_entity_id(body.catalog_id.as_deref());
     let (Some(kind), Some(id)) = (kind, id) else {
         return Err(invalid_entity_request());
     };
-    if kind == EntityKind::ResourceObjects && resource_id.is_none() {
+    if kind == EntityKind::CatalogEntries && catalog_id.is_none() {
         return Err(invalid_entity_request());
     }
 
     let files = entity_template_files(
         kind,
         &id,
-        resource_id.as_deref(),
+        catalog_id.as_deref(),
         &context.workspace.path,
         parse_variable_type(body.variable_type.as_deref()),
     );
@@ -645,15 +645,15 @@ async fn draft_entity_create(
         .filter(|entry| entry.entry_type == "blob")
         .map(|entry| entry.path.as_str())
         .collect();
-    if kind == EntityKind::ResourceObjects {
-        let resource_id = resource_id.as_deref().expect("validated above");
-        let resource_path = workspace_repo_path(
+    if kind == EntityKind::CatalogEntries {
+        let catalog_id = catalog_id.as_deref().expect("validated above");
+        let catalog_path = workspace_repo_path(
             &context.workspace.path,
-            &format!("resources/{resource_id}.toml"),
+            &format!("catalogs/{catalog_id}.toml"),
         );
-        if !existing.contains(resource_path.as_str()) {
+        if !existing.contains(catalog_path.as_str()) {
             return Err(ApiError::not_found(format!(
-                "resource does not exist: {resource_id}"
+                "catalog does not exist: {catalog_id}"
             )));
         }
     }
@@ -703,8 +703,8 @@ fn parse_kind(value: &str) -> Option<EntityKind> {
     match value {
         "variables" => Some(EntityKind::Variables),
         "qualifiers" => Some(EntityKind::Qualifiers),
-        "resources" => Some(EntityKind::Resources),
-        "resource_objects" => Some(EntityKind::ResourceObjects),
+        "catalogs" => Some(EntityKind::Catalogs),
+        "catalog_entries" => Some(EntityKind::CatalogEntries),
         "schemas" => Some(EntityKind::Schemas),
         "context" => Some(EntityKind::Context),
         "linters" => Some(EntityKind::Linters),
@@ -716,8 +716,8 @@ fn kind_wire_name(kind: EntityKind) -> &'static str {
     match kind {
         EntityKind::Variables => "variables",
         EntityKind::Qualifiers => "qualifiers",
-        EntityKind::Resources => "resources",
-        EntityKind::ResourceObjects => "resource_objects",
+        EntityKind::Catalogs => "catalogs",
+        EntityKind::CatalogEntries => "catalog_entries",
         EntityKind::Schemas => "schemas",
         EntityKind::Context => "context",
         EntityKind::Linters => "linters",
@@ -726,7 +726,7 @@ fn kind_wire_name(kind: EntityKind) -> &'static str {
 
 fn invalid_entity_request() -> ApiError {
     ApiError::bad_request(
-        "kind and id are required; resource object creation also requires resourceId. ids may \
+        "kind and id are required; catalog entry creation also requires catalogId. ids may \
          contain letters, numbers, dot, dash, and underscore",
     )
 }
@@ -1076,8 +1076,8 @@ async fn editable_entities(
         path: String,
         description: Option<String>,
         badge: Option<String>,
-        resource_id: Option<String>,
-        object_key: Option<String>,
+        catalog_id: Option<String>,
+        entry_key: Option<String>,
     }
 
     let mut nodes = Vec::new();
@@ -1089,8 +1089,8 @@ async fn editable_entities(
             path: item.path.clone(),
             description: item.description.clone(),
             badge: Some(item.declaration.clone()),
-            resource_id: None,
-            object_key: None,
+            catalog_id: None,
+            entry_key: None,
         });
     }
     for item in &inventory.qualifiers {
@@ -1101,35 +1101,35 @@ async fn editable_entities(
             path: item.path.clone(),
             description: item.description.clone(),
             badge: Some(format!("{} predicates", item.predicate_count)),
-            resource_id: None,
-            object_key: None,
+            catalog_id: None,
+            entry_key: None,
         });
     }
-    for item in &inventory.resources {
+    for item in &inventory.catalogs {
         nodes.push(Node {
-            section: "resources",
+            section: "catalogs",
             id: item.id.clone(),
-            kind: "resource",
+            kind: "catalog",
             path: item.path.clone(),
             description: item.description.clone(),
-            badge: Some(format!("{} objects", item.object_count)),
-            resource_id: None,
-            object_key: None,
+            badge: Some(format!("{} entries", item.entry_count)),
+            catalog_id: None,
+            entry_key: None,
         });
     }
-    for item in &inventory.resource_objects {
+    for item in &inventory.catalog_entries {
         nodes.push(Node {
-            section: "resources",
+            section: "catalogs",
             id: item.id.clone(),
-            kind: "resource object",
+            kind: "catalog entry",
             path: item.path.clone(),
             description: Some(format!(
-                "Object {} for resource {}",
-                item.key, item.resource_id
+                "Entry {} for catalog {}",
+                item.key, item.catalog_id
             )),
-            badge: Some(item.resource_id.clone()),
-            resource_id: Some(item.resource_id.clone()),
-            object_key: Some(item.key.clone()),
+            badge: Some(item.catalog_id.clone()),
+            catalog_id: Some(item.catalog_id.clone()),
+            entry_key: Some(item.key.clone()),
         });
     }
     for item in &inventory.schemas {
@@ -1140,8 +1140,8 @@ async fn editable_entities(
             path: item.path.clone(),
             description: item.title.clone(),
             badge: Some("json".to_owned()),
-            resource_id: None,
-            object_key: None,
+            catalog_id: None,
+            entry_key: None,
         });
     }
     for item in &inventory.linters {
@@ -1155,8 +1155,8 @@ async fn editable_entities(
             path,
             description: item.title.clone(),
             badge: Some(item.kind.to_owned()),
-            resource_id: None,
-            object_key: None,
+            catalog_id: None,
+            entry_key: None,
         });
     }
     if let Some(schema_path) = &inventory.context.schema_path {
@@ -1167,8 +1167,8 @@ async fn editable_entities(
             path: schema_path.clone(),
             description: Some("Workspace context schema".to_owned()),
             badge: Some("schema".to_owned()),
-            resource_id: None,
-            object_key: None,
+            catalog_id: None,
+            entry_key: None,
         });
     }
     for path in &inventory.context.examples {
@@ -1179,8 +1179,8 @@ async fn editable_entities(
             path: path.clone(),
             description: Some("Example resolution context".to_owned()),
             badge: Some("example".to_owned()),
-            resource_id: None,
-            object_key: None,
+            catalog_id: None,
+            entry_key: None,
         });
     }
 
@@ -1196,8 +1196,8 @@ async fn editable_entities(
             "badge": node.badge,
             "text": definition.text,
             "language": language_for_path(&node.path),
-            "resourceId": node.resource_id,
-            "objectKey": node.object_key,
+            "catalogId": node.catalog_id,
+            "entryKey": node.entry_key,
         }));
     }
     Ok(entities)

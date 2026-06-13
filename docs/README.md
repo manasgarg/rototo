@@ -30,7 +30,7 @@ docs/src/
   reference-predicate-operators.md
   reference-variables.md
   reference-variable-values.md
-  reference-resources.md
+  reference-catalogs.md
   reference-qualifier-resolution.md
   reference-variable-resolution.md
   reference-resolution-output.md

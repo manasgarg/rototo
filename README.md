@@ -43,7 +43,7 @@ A rototo workspace is a directory tree rooted at `rototo-workspace.toml`:
 account-config/
   rototo-workspace.toml
   qualifiers/
-  resources/
+  catalogs/
   schemas/
   variables/
 ```
@@ -54,7 +54,7 @@ The main concepts are deliberately small:
 - Context is the runtime facts supplied by the application.
 - Qualifiers turn those facts into named reusable conditions.
 - Variables select typed values using defaults and qualifier rules.
-- Resources hold structured policy objects validated by JSON Schema.
+- Catalogs hold structured policy entries validated by JSON Schema.
 - Lint and tests make workspace changes releasable.
 
 The core loop is:

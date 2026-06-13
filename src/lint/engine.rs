@@ -226,7 +226,7 @@ value = "premium"
             (
                 "variables/message.toml",
                 r#"schema_version = 1
-type = "resource:message"
+type = "catalog:message"
 
 [resolve]
 default = "default"
@@ -237,17 +237,17 @@ value = "premium"
 "#,
             ),
             (
-                "resources/message.toml",
+                "catalogs/message.toml",
                 r#"schema_version = 1
 schema = "../schemas/message.schema.json"
 "#,
             ),
             (
-                "resources/message-objects/default.toml",
+                "catalogs/message-entries/default.toml",
                 r#"message = "hello""#,
             ),
             (
-                "resources/message-objects/premium.toml",
+                "catalogs/message-entries/premium.toml",
                 r#"message = "premium""#,
             ),
             (
@@ -316,9 +316,9 @@ end
             WORKSPACE_MANIFEST,
             "qualifiers/premium.toml",
             "variables/message.toml",
-            "resources/message.toml",
-            "resources/message-objects/default.toml",
-            "resources/message-objects/premium.toml",
+            "catalogs/message.toml",
+            "catalogs/message-entries/default.toml",
+            "catalogs/message-entries/premium.toml",
             "schemas/message.schema.json",
             "schemas/context.schema.json",
             "lint/noop.lua",

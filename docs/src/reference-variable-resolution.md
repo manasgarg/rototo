@@ -85,9 +85,9 @@ The default is always the fallback. It is not evaluated as a qualifier.
 For [primitive variables](reference-variable-values.html), selected values come
 from `[values]`.
 
-For [resource-backed variables](reference-resources.html), selected values come
-from `resources/<resource-id>-objects/*.toml` and are validated against the
-resource schema.
+For [catalog-backed variables](reference-catalogs.html), selected values come
+from `catalogs/<catalog-id>-entries/*.toml` and are validated against the
+catalog schema.
 
 The resolution result includes both:
 

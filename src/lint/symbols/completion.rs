@@ -106,16 +106,16 @@ fn current_variable_value_completion_items(
     };
 
     match &variable.type_source {
-        TypeSourceNode::Resource(resource) => index
-            .resource_objects
-            .get(&resource.value)
+        TypeSourceNode::Catalog(catalog) => index
+            .catalog_entries
+            .get(&catalog.value)
             .into_iter()
-            .flat_map(|objects| objects.keys())
+            .flat_map(|entries| entries.keys())
             .map(|value| {
                 WorkspaceCompletionItem::new(
                     value.clone(),
                     WorkspaceCompletionItemKind::Value,
-                    "resource object",
+                    "catalog entry",
                 )
             })
             .collect(),

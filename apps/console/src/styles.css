@@ -1572,8 +1572,8 @@ select.input {
   overflow: hidden;
 }
 
-/* Object pills inside a resource row */
-.row-objects {
+/* Entry pills inside a catalog row */
+.row-entries {
   display: flex;
   flex-wrap: wrap;
   gap: 6px;

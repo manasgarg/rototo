@@ -5,10 +5,10 @@ use std::time::{Duration, Instant};
 
 use rototo::{
     LintMode, LoadOptions, RefreshOptions, RefreshOutcome, RefreshingWorkspace, ResolveContext,
-    ResolveOptions, SourceOptions, Workspace, catalog_for_workspace, diagnostic_for_rule,
-    inspect_workspace, lint_qualifier, lint_workspace, list_resources, list_variables,
-    read_qualifiers, read_resource, read_variable, read_variables, resolve_qualifier,
-    resolve_variable, stage_workspace_source,
+    ResolveOptions, SourceOptions, Workspace, diagnostic_for_rule,
+    diagnostics_catalog_for_workspace, inspect_workspace, lint_qualifier, lint_workspace,
+    list_catalogs, list_variables, read_catalog, read_qualifiers, read_variable, read_variables,
+    resolve_qualifier, resolve_variable, stage_workspace_source,
 };
 
 async fn run_git(repo: &std::path::Path, args: &[&str]) {
@@ -194,14 +194,14 @@ async fn sdk_lists_variables_for_apps() {
 }
 
 #[tokio::test]
-async fn sdk_lists_resources_for_apps() {
-    let resources = list_resources("examples/basic".as_ref()).await.unwrap();
+async fn sdk_lists_catalogs_for_apps() {
+    let catalogs = list_catalogs("examples/basic".as_ref()).await.unwrap();
 
-    assert!(resources.len() > 2);
+    assert!(catalogs.len() > 2);
     assert!(
-        resources
+        catalogs
             .iter()
-            .any(|resource| resource.uri == "resource://checkout-redesign")
+            .any(|catalog| catalog.uri == "catalog://checkout-redesign")
     );
 }
 
@@ -219,13 +219,13 @@ async fn sdk_reads_variable_config() {
 }
 
 #[tokio::test]
-async fn sdk_reads_resource_config() {
-    let resource = read_resource("examples/basic".as_ref(), "checkout-redesign")
+async fn sdk_reads_catalog_config() {
+    let catalog = read_catalog("examples/basic".as_ref(), "checkout-redesign")
         .await
         .unwrap();
 
-    assert_eq!(resource.id, "checkout-redesign");
-    assert_eq!(resource.value["objects"]["premium"]["variant"], "premium");
+    assert_eq!(catalog.id, "checkout-redesign");
+    assert_eq!(catalog.value["entries"]["premium"]["variant"], "premium");
 }
 
 #[tokio::test]
@@ -248,7 +248,7 @@ async fn sdk_reads_all_basic_variable_configs_with_declared_sources() {
     assert!(variables.len() > 10);
     for variable in variables {
         let type_name = variable.value["type"].as_str().unwrap_or_default();
-        if type_name.starts_with("resource:") {
+        if type_name.starts_with("catalog:") {
             assert!(
                 variable.value.get("values").is_none(),
                 "variable://{} should not declare inline values",
@@ -267,16 +267,16 @@ async fn sdk_reads_all_basic_variable_configs_with_declared_sources() {
 }
 
 #[tokio::test]
-async fn resource_object_files_are_whole_toml_objects() {
-    let resources_dir = std::path::Path::new("examples/basic/resources");
-    for entry in std::fs::read_dir(resources_dir).unwrap() {
+async fn catalog_entry_files_are_whole_toml_objects() {
+    let catalogs_dir = std::path::Path::new("examples/basic/catalogs");
+    for entry in std::fs::read_dir(catalogs_dir).unwrap() {
         let entry = entry.unwrap();
         let path = entry.path();
         if !path.is_dir()
             || !path
                 .file_name()
                 .and_then(|name| name.to_str())
-                .is_some_and(|name| name.ends_with("-objects"))
+                .is_some_and(|name| name.ends_with("-entries"))
         {
             continue;
         }
@@ -345,7 +345,7 @@ async fn sdk_reads_all_qualifier_configs() {
 
 #[tokio::test]
 async fn sdk_reads_diagnostic_catalog() {
-    let catalog = catalog_for_workspace("examples/basic".as_ref())
+    let catalog = diagnostics_catalog_for_workspace("examples/basic".as_ref())
         .await
         .unwrap();
     let diagnostic = diagnostic_for_rule(&catalog, "rototo/qualifier-parse-failed").unwrap();

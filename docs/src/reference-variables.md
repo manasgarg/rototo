@@ -32,12 +32,12 @@ value = "expanded"
 | --- | --- | --- | --- |
 | `schema_version` | Yes | integer | Variable format version. The only supported value is `1`. |
 | `description` | No | string | Human description shown by inspect and editor tooling. |
-| `type` | Yes | string | Primitive type or `resource:<resource-id>`. |
+| `type` | Yes | string | Primitive type or `catalog:<catalog-id>`. |
 | `values` | Primitive only | table | Inline values keyed by value name. |
 | `resolve` | Yes | table | Default value and ordered qualifier rules. |
 
 The older `schema = "...json"` field is rejected. Structured values should use
-a [resource](reference-resources.html) and `type = "resource:<resource-id>"`.
+a [catalog](reference-catalogs.html) and `type = "catalog:<catalog-id>"`.
 
 ## Supported Types
 
@@ -51,16 +51,16 @@ string
 list
 ```
 
-Resource-backed variable types use:
+Catalog-backed variable types use:
 
 ```text
-resource:<resource-id>
+catalog:<catalog-id>
 ```
 
 For example:
 
 ```toml
-type = "resource:account-limit-profile"
+type = "catalog:account-limit-profile"
 ```
 
 ## Primitive Values
@@ -76,19 +76,19 @@ control = "standard"
 priority = "priority"
 ```
 
-Primitive variables without values are invalid. Resource-backed variables with
+Primitive variables without values are invalid. Catalog-backed variables with
 `[values]` are invalid.
 
-## Resource-Backed Variables
+## Catalog-Backed Variables
 
-Resource-backed variables select object keys from the matching resource object
+Catalog-backed variables select entry keys from the matching catalog entry
 directory:
 
 ```toml
 schema_version = 1
 
 description = "Account limit profile"
-type = "resource:account-limit-profile"
+type = "catalog:account-limit-profile"
 
 [resolve]
 default = "growth"
@@ -101,10 +101,10 @@ value = "enterprise"
 The `default` and rule `value` fields reference files under:
 
 ```text
-resources/account-limit-profile-objects/
+catalogs/account-limit-profile-entries/
 ```
 
-Every selected object is validated against the resource schema before an
+Every selected entry is validated against the catalog schema before an
 application can consume it.
 
 ## Resolve Block
@@ -121,7 +121,7 @@ value = "expanded"
 ```
 
 `default` is required. It must reference a known primitive value key or a known
-resource object key.
+catalog entry key.
 
 Rules are evaluated in file order. Each rule references one qualifier and one
 value. The first rule whose qualifier resolves to `true` selects its value. If
@@ -142,8 +142,8 @@ schema = "../schemas/value.schema.json"
 ```
 
 ```toml
-# Resource-backed variables must not contain [values]
-type = "resource:account-limit-profile"
+# Catalog-backed variables must not contain [values]
+type = "catalog:account-limit-profile"
 
 [values]
 growth = {}

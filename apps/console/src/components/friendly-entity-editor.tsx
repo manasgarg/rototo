@@ -22,7 +22,7 @@ const WIDGET_SPEC = widgetSpec as {
   >;
 };
 
-type EntitySection = "variables" | "qualifiers" | "resources" | "schemas" | "context" | "linters";
+type EntitySection = "variables" | "qualifiers" | "catalogs" | "schemas" | "context" | "linters";
 
 type FriendlyEntity = {
   id: string;
@@ -35,7 +35,7 @@ type FriendlyEntity = {
 
 type EditorTab = "form" | "source";
 
-type VariableDeclarationKind = "primitive" | "resource" | "schema";
+type VariableDeclarationKind = "primitive" | "catalog" | "schema";
 
 /* Optional context harvested from sibling entities and related schemas:
    descriptions explain a field, examples show values already in use. */
@@ -43,10 +43,10 @@ export type FormGuidance = {
   contextAttributeDocs?: Record<string, string>;
   attributeValueExamples?: Record<string, string[]>;
   schemaDocs?: Record<string, string>;
-  resourceDocs?: Record<string, string>;
+  catalogDocs?: Record<string, string>;
   propertyExamples?: Record<string, string[]>;
   qualifierIds?: string[];
-  resourceObjectKeys?: Record<string, string[]>;
+  catalogEntryKeys?: Record<string, string[]>;
   contextPreviews?: EditContextPreview[];
 };
 
@@ -77,7 +77,7 @@ const PRIMITIVE_TYPES = ["bool", "int", "number", "string", "list"];
 
 const DECLARATION_HINTS: Record<VariableDeclarationKind, string> = {
   primitive: "Values below must match this primitive type.",
-  resource: "Values select objects of this resource by key.",
+  catalog: "Values select entries of this catalog by key.",
   schema: "Values must validate against this JSON Schema.",
 };
 
@@ -89,8 +89,8 @@ export function FriendlyEntityEditor({
   draftId,
   entity,
   guidance = {},
-  resourceIds = [],
-  resourceSchema = null,
+  catalogIds = [],
+  catalogSchema = null,
   schemaPaths = [],
   sourceMarks = [],
   workspaceId,
@@ -104,8 +104,8 @@ export function FriendlyEntityEditor({
   draftId: string;
   entity: FriendlyEntity;
   guidance?: FormGuidance;
-  resourceIds?: string[];
-  resourceSchema?: string | null;
+  catalogIds?: string[];
+  catalogSchema?: string | null;
   schemaPaths?: string[];
   sourceMarks?: CodeEditorMark[];
   workspaceId: string;
@@ -122,16 +122,16 @@ export function FriendlyEntityEditor({
     entity,
     guidance,
     onChange: setContent,
-    resourceIds,
-    resourceSchema,
+    catalogIds,
+    catalogSchema,
     schemaPaths,
   });
   const [activeTab, setActiveTab] = useState<EditorTab>(form ? "form" : "source");
   const [showChanges, setShowChanges] = useState(false);
   const hasDelta = baseText !== null && baseText !== content;
   const skeleton = useMemo(
-    () => skeletonContent({ content, entity, resourceSchema }),
-    [content, entity, resourceSchema],
+    () => skeletonContent({ content, entity, catalogSchema }),
+    [content, entity, catalogSchema],
   );
 
   const formRef = useRef<HTMLFormElement>(null);
@@ -185,8 +185,8 @@ export function FriendlyEntityEditor({
       disabled,
       entity,
       onChange: setContent,
-      resourceIds,
-      resourceSchema,
+      catalogIds,
+      catalogSchema,
       schemaPaths,
     }) ? "form" : "source");
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -335,8 +335,8 @@ function editorForm({
   entity,
   guidance = {},
   onChange,
-  resourceIds = [],
-  resourceSchema,
+  catalogIds = [],
+  catalogSchema,
   schemaPaths = [],
 }: {
   content: string;
@@ -346,8 +346,8 @@ function editorForm({
   entity: FriendlyEntity;
   guidance?: FormGuidance;
   onChange: (content: string) => void;
-  resourceIds?: string[];
-  resourceSchema?: string | null;
+  catalogIds?: string[];
+  catalogSchema?: string | null;
   schemaPaths?: string[];
 }): ReactNode | null {
   if (entity.language !== "toml") {
@@ -362,7 +362,7 @@ function editorForm({
         disabled={disabled}
         guidance={guidance}
         onChange={onChange}
-        resourceIds={resourceIds}
+        catalogIds={catalogIds}
         schemaPaths={schemaPaths}
       />
     );
@@ -380,9 +380,9 @@ function editorForm({
       />
     );
   }
-  if (entity.kind === "resource") {
+  if (entity.kind === "catalog") {
     return (
-      <ResourceFields
+      <CatalogFields
         content={content}
         diagnostics={diagnostics}
         disabled={disabled}
@@ -392,18 +392,18 @@ function editorForm({
       />
     );
   }
-  if (entity.kind === "resource object") {
-    const objectNotes = diagnostics.filter(
-      (diagnostic) => targetEntityKind(diagnostic) === "resource_object",
+  if (entity.kind === "catalog entry") {
+    const entryNotes = diagnostics.filter(
+      (diagnostic) => targetEntityKind(diagnostic) === "catalog_entry",
     );
-    const schema = parseObjectSchema(resourceSchema);
+    const schema = parseObjectSchema(catalogSchema);
     if (schema) {
       return (
         <SchemaObjectFields
           content={content}
           disabled={disabled}
           examples={guidance.propertyExamples ?? {}}
-          notes={objectNotes}
+          notes={entryNotes}
           onChange={onChange}
           schema={schema}
         />
@@ -411,7 +411,7 @@ function editorForm({
     }
     return (
       <>
-        <FieldNotes items={objectNotes} />
+        <FieldNotes items={entryNotes} />
         <TopLevelTomlFields content={content} disabled={disabled} onChange={onChange} />
       </>
     );
@@ -429,9 +429,9 @@ const SKELETON_MARKER =
 function skeletonContent(input: {
   content: string;
   entity: FriendlyEntity;
-  resourceSchema?: string | null;
+  catalogSchema?: string | null;
 }): string | null {
-  const { content, entity, resourceSchema } = input;
+  const { content, entity, catalogSchema } = input;
   if (entity.language !== "toml" || content.includes(SKELETON_MARKER)) {
     return null;
   }
@@ -454,7 +454,7 @@ function skeletonContent(input: {
     }
     const fields = variableFields(content);
     if (
-      fields.declarationKind !== "resource" &&
+      fields.declarationKind !== "catalog" &&
       sectionLines(content, "[values]").length === 0
     ) {
       missing.push("[values]", 'default = ""');
@@ -476,7 +476,7 @@ function skeletonContent(input: {
     if (!hasSection("[[predicate]]")) {
       missing.push("[[predicate]]", 'attribute = "user.tier"', 'op = "eq"', 'value = "premium"');
     }
-  } else if (entity.kind === "resource") {
+  } else if (entity.kind === "catalog") {
     if (!has("schema_version")) {
       missing.push("schema_version = 1");
     }
@@ -486,8 +486,8 @@ function skeletonContent(input: {
     if (!has("schema")) {
       missing.push(`schema = "../schemas/${entity.id}.schema.json"`);
     }
-  } else if (entity.kind === "resource object") {
-    const schema = parseObjectSchema(resourceSchema);
+  } else if (entity.kind === "catalog entry") {
+    const schema = parseObjectSchema(catalogSchema);
     if (!schema) {
       return null;
     }
@@ -569,7 +569,7 @@ function VariableFields({
   disabled,
   guidance = {},
   onChange,
-  resourceIds,
+  catalogIds,
   schemaPaths,
 }: {
   content: string;
@@ -577,20 +577,20 @@ function VariableFields({
   disabled?: boolean;
   guidance?: FormGuidance;
   onChange: (content: string) => void;
-  resourceIds: string[];
+  catalogIds: string[];
   schemaPaths: string[];
 }) {
   const fields = useMemo(() => variableFields(content), [content]);
   const model = useMemo(() => variableModel(content), [content]);
   const defaultOptions =
-    fields.declarationKind === "resource"
-      ? guidance.resourceObjectKeys?.[fields.declarationValue] ?? []
+    fields.declarationKind === "catalog"
+      ? guidance.catalogEntryKeys?.[fields.declarationValue] ?? []
       : model.values.map((value) => value.key);
   const declarationDoc =
     fields.declarationKind === "schema"
       ? guidance.schemaDocs?.[fields.declarationValue.split("/").pop() ?? ""]
-      : fields.declarationKind === "resource"
-        ? guidance.resourceDocs?.[fields.declarationValue]
+      : fields.declarationKind === "catalog"
+        ? guidance.catalogDocs?.[fields.declarationValue]
         : undefined;
   const declarationNotes = diagnostics.filter((diagnostic) => {
     const kind = targetFieldKind(diagnostic);
@@ -608,8 +608,8 @@ function VariableFields({
     text = removeTopLevelField(text, "schema");
     if (kind === "schema") {
       onChange(setTopLevelStringField(text, "schema", value));
-    } else if (kind === "resource") {
-      onChange(setTopLevelStringField(text, "type", `resource:${value}`));
+    } else if (kind === "catalog") {
+      onChange(setTopLevelStringField(text, "type", `catalog:${value}`));
     } else {
       onChange(setTopLevelStringField(text, "type", value));
     }
@@ -621,8 +621,8 @@ function VariableFields({
     }
     if (kind === "primitive") {
       updateDeclaration(kind, "string");
-    } else if (kind === "resource") {
-      updateDeclaration(kind, resourceIds[0] ?? "");
+    } else if (kind === "catalog") {
+      updateDeclaration(kind, catalogIds[0] ?? "");
     } else {
       updateDeclaration(kind, schemaPaths[0] ?? "");
     }
@@ -646,8 +646,8 @@ function VariableFields({
     );
   } else {
     const listId =
-      fields.declarationKind === "resource" ? "variable-resource-ids" : "variable-schema-paths";
-    const suggestions = fields.declarationKind === "resource" ? resourceIds : schemaPaths;
+      fields.declarationKind === "catalog" ? "variable-catalog-ids" : "variable-schema-paths";
+    const suggestions = fields.declarationKind === "catalog" ? catalogIds : schemaPaths;
     declarationControl = (
       <>
         <input
@@ -690,7 +690,7 @@ function VariableFields({
             value={fields.declarationKind}
           >
             <option value="primitive">primitive type</option>
-            <option value="resource">resource type</option>
+            <option value="catalog">catalog type</option>
             <option value="schema">schema path</option>
           </select>
         </label>
@@ -704,7 +704,7 @@ function VariableFields({
         {DECLARATION_HINTS[fields.declarationKind]}
         {declarationDoc ? ` — ${declarationDoc}` : ""}
       </span>
-      {fields.declarationKind !== "resource" ? (
+      {fields.declarationKind !== "catalog" ? (
         <VariableValuesEditor
           content={content}
           diagnostics={diagnostics}
@@ -742,8 +742,8 @@ function VariableFields({
         </select>
         <FieldNotes items={defaultNotes} />
         <span className="field-hint">
-          {fields.declarationKind === "resource"
-            ? "Selects which object of the resource applies when no rule matches."
+          {fields.declarationKind === "catalog"
+            ? "Selects which entry of the catalog applies when no rule matches."
             : "Applies when no rule matches."}
         </span>
       </label>
@@ -962,7 +962,7 @@ function VariableValueControl({
   if (declarationKind === "primitive" && declarationValue === "list") {
     return <ListLiteralEditor disabled={disabled} literal={literal} onUpdate={onUpdate} />;
   }
-  // schema-backed objects and anything unrecognized: raw TOML literal
+  // schema-backed entries and anything unrecognized: raw TOML literal
   return (
     <input
       className="input mono"
@@ -1335,7 +1335,7 @@ function QualifierFields({
   );
 }
 
-function ResourceFields({
+function CatalogFields({
   content,
   diagnostics = [],
   disabled,
@@ -1350,9 +1350,9 @@ function ResourceFields({
   onChange: (content: string) => void;
   schemaPaths: string[];
 }) {
-  const fields = useMemo(() => resourceFields(content), [content]);
+  const fields = useMemo(() => catalogFields(content), [content]);
   const schemaNotes = diagnostics.filter(
-    (diagnostic) => targetFieldKind(diagnostic) === "resource_schema",
+    (diagnostic) => targetFieldKind(diagnostic) === "catalog_schema",
   );
   const schemaDoc = guidance.schemaDocs?.[fields.schema.split("/").pop() ?? ""];
 
@@ -1364,7 +1364,7 @@ function ResourceFields({
           className="input"
           disabled={disabled}
           onChange={(event) => onChange(setTopLevelStringField(content, "description", event.target.value))}
-          placeholder="What these objects represent"
+          placeholder="What these entries represent"
           value={fields.description}
         />
       </label>
@@ -1373,18 +1373,18 @@ function ResourceFields({
         <input
           className="input mono"
           disabled={disabled}
-          list="resource-schema-paths"
+          list="catalog-schema-paths"
           onChange={(event) => onChange(setTopLevelStringField(content, "schema", event.target.value))}
           value={fields.schema}
         />
-        <datalist id="resource-schema-paths">
+        <datalist id="catalog-schema-paths">
           {schemaPaths.map((path) => (
             <option key={path} value={`../${path}`} />
           ))}
         </datalist>
         <FieldNotes items={schemaNotes} />
         <span className="field-hint">
-          Every object of this resource must validate against this schema. The path is
+          Every entry of this catalog must validate against this schema. The path is
           relative to this file.
           {schemaDoc ? ` — ${schemaDoc}` : ""}
         </span>
@@ -2159,11 +2159,11 @@ function variableFields(text: string) {
       declarationValue: schema,
     };
   }
-  if (type?.startsWith("resource:")) {
+  if (type?.startsWith("catalog:")) {
     return {
       ...base,
-      declarationKind: "resource" as VariableDeclarationKind,
-      declarationValue: type.slice("resource:".length),
+      declarationKind: "catalog" as VariableDeclarationKind,
+      declarationValue: type.slice("catalog:".length),
     };
   }
   return {
@@ -2182,7 +2182,7 @@ function qualifierFields(text: string) {
   };
 }
 
-function resourceFields(text: string) {
+function catalogFields(text: string) {
   return {
     description: topLevelStringField(text, "description"),
     schema: topLevelStringField(text, "schema"),
@@ -2190,8 +2190,8 @@ function resourceFields(text: string) {
 }
 
 function declarationLabel(kind: VariableDeclarationKind): string {
-  if (kind === "resource") {
-    return "resource id";
+  if (kind === "catalog") {
+    return "catalog id";
   }
   if (kind === "schema") {
     return "schema path";

@@ -69,7 +69,7 @@ export function ConsoleScreen({ screen }: { screen: AppScreen }) {
             const summary: WorkspaceSummary = {
               variables: 0,
               qualifiers: 0,
-              resources: 0,
+              catalogs: 0,
               schemas: 0,
               error: failure instanceof Error ? failure.message : String(failure),
             };
@@ -330,7 +330,7 @@ function WorkspacesScreen({
                         <>
                           <span>{countLabel(summary.variables, "variable")}</span>
                           <span>{countLabel(summary.qualifiers, "qualifier")}</span>
-                          <span>{countLabel(summary.resources, "resource")}</span>
+                          <span>{countLabel(summary.catalogs, "catalog")}</span>
                           <span>{countLabel(summary.schemas, "schema")}</span>
                         </>
                       )}

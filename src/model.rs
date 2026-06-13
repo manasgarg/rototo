@@ -8,7 +8,7 @@ use crate::diagnostics::{
 pub struct WorkspaceInspection {
     pub root: PathBuf,
     pub schemas: Vec<SchemaInspection>,
-    pub resources: Vec<ResourceInspection>,
+    pub catalogs: Vec<CatalogInspection>,
     pub qualifiers: Vec<QualifierInspection>,
     pub variables: Vec<VariableInspection>,
     pub linters: Vec<LinterInspection>,
@@ -35,7 +35,7 @@ pub struct VariableInspection {
 }
 
 #[derive(Clone, Debug)]
-pub struct ResourceInspection {
+pub struct CatalogInspection {
     pub id: String,
     pub uri: String,
     pub path: PathBuf,
@@ -64,7 +64,7 @@ pub struct VariableConfig {
 }
 
 #[derive(Debug)]
-pub struct ResourceConfig {
+pub struct CatalogConfig {
     pub id: String,
     pub uri: String,
     pub path: PathBuf,
@@ -123,8 +123,8 @@ pub enum SourceKind {
     Manifest,
     Qualifier,
     Variable,
-    Resource,
-    ResourceObject,
+    Catalog,
+    CatalogEntry,
     Schema,
     CustomLint,
 }
@@ -144,7 +144,7 @@ pub struct VariableLint {
 }
 
 #[derive(Debug)]
-pub struct ResourceLint {
+pub struct CatalogLint {
     pub root: PathBuf,
     pub id: String,
     pub diagnostics: Vec<LintDiagnostic>,
@@ -210,7 +210,7 @@ pub enum DiagnosticCatalogScope {
 #[derive(Clone, Debug, Default)]
 pub struct WorkspaceInspectRequest {
     pub variables: InspectSelection,
-    pub resources: InspectSelection,
+    pub catalogs: InspectSelection,
     pub qualifiers: InspectSelection,
     pub lint_rules: InspectSelection,
     pub lint_authorities: InspectSelection,
@@ -250,7 +250,7 @@ pub struct WorkspaceInspectReport {
     pub runtime: InspectRuntimeStatus,
     pub diagnostics: Vec<LintDiagnostic>,
     pub schemas: Vec<SchemaInspectReport>,
-    pub resources: Vec<ResourceInspectReport>,
+    pub catalogs: Vec<CatalogInspectReport>,
     pub variables: Vec<VariableInspectReport>,
     pub qualifiers: Vec<QualifierInspectReport>,
     pub lint_rules: Vec<LintRuleInspectReport>,
@@ -259,19 +259,19 @@ pub struct WorkspaceInspectReport {
 }
 
 #[derive(Debug, serde::Serialize)]
-pub struct ResourceInspectReport {
+pub struct CatalogInspectReport {
     pub id: String,
     pub uri: String,
     pub path: String,
     pub schema: Option<String>,
-    pub objects: Vec<ResourceObjectInspectReport>,
+    pub entries: Vec<CatalogEntryInspectReport>,
     pub dependencies: DependencyInspectReport,
     pub consumers: Vec<ReferenceInspectReport>,
     pub diagnostics: Vec<LintDiagnostic>,
 }
 
 #[derive(Debug, serde::Serialize)]
-pub struct ResourceObjectInspectReport {
+pub struct CatalogEntryInspectReport {
     pub key: String,
     pub value: serde_json::Value,
     #[serde(skip_serializing)]
@@ -332,7 +332,7 @@ pub struct DependencyInspectReport {
     pub qualifiers: Vec<String>,
     pub context_paths: Vec<String>,
     pub schemas: Vec<String>,
-    pub resources: Vec<String>,
+    pub catalogs: Vec<String>,
 }
 
 #[derive(Debug, serde::Serialize)]

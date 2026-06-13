@@ -43,9 +43,9 @@ Built-in lint validates:
 - qualifier syntax, schema version, predicates, operators, bucket ranges, and
   referenced qualifiers;
 - variable syntax, type source, primitive values, resolve defaults, resolve
-  rules, resource references, and value references;
-- resource syntax, schema references, object schema validation, and
-  `x-rototo-resource` references;
+  rules, catalog references, and value references;
+- catalog syntax, schema references, entry schema validation, and
+  `x-rototo-catalog` references;
 - standalone JSON Schema parsing and compilation;
 - context schema path declarations and predicate type compatibility;
 - custom Lua lint registration and handler execution;
@@ -60,8 +60,8 @@ Built-in lint validates:
 | `parse` | TOML, JSON, and Lua file parsing. |
 | `project` | File content shape and required fields. |
 | `register` | Custom Lua lint registration. |
-| `reference` | Links between variables, qualifiers, resources, schemas, and context paths. |
-| `value` | Primitive values, schemas, resource objects, and custom value rules. |
+| `reference` | Links between variables, qualifiers, catalogs, schemas, and context paths. |
+| `value` | Primitive values, schemas, catalog entries, and custom value rules. |
 | `graph` | Relationships that are valid syntax but suspicious behavior. |
 | `policy` | Custom policy checks. |
 
@@ -74,7 +74,7 @@ Custom lint handlers can run in `project`, `reference`, `value`, `graph`, or
 
 ```text
 --variable <ID>        --variables
---resource <ID>        --resources
+--catalog <ID>        --catalogs
 --qualifier <ID>       --qualifiers
 --lint-rule <ID>       --lint-rules
 --lint-authority <ID>  --lint-authorities

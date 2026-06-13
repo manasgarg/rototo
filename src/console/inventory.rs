@@ -19,8 +19,8 @@ contexts/ directory, which is file listing, not parsing. */
 pub struct WorkspaceInventory {
     pub variables: Vec<VariableInventoryItem>,
     pub qualifiers: Vec<QualifierInventoryItem>,
-    pub resources: Vec<ResourceInventoryItem>,
-    pub resource_objects: Vec<ResourceObjectInventoryItem>,
+    pub catalogs: Vec<CatalogInventoryItem>,
+    pub catalog_entries: Vec<CatalogEntryInventoryItem>,
     pub schemas: Vec<SchemaInventoryItem>,
     pub linters: Vec<LinterInventoryItem>,
     pub context: ContextInventory,
@@ -36,10 +36,10 @@ pub struct VariableInventoryItem {
     pub default_value_key: Option<String>,
     pub rule_count: usize,
     pub qualifier_references: Vec<String>,
-    /// Distinct value keys selected by rules; for resource-typed variables
-    /// these name resource objects.
+    /// Distinct value keys selected by rules; for catalog-typed variables
+    /// these name catalog entries.
     pub rule_value_keys: Vec<String>,
-    pub resource_reference: Option<String>,
+    pub catalog_reference: Option<String>,
     pub schema_reference: Option<String>,
 }
 
@@ -55,19 +55,19 @@ pub struct QualifierInventoryItem {
 
 #[derive(Clone, Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
-pub struct ResourceInventoryItem {
+pub struct CatalogInventoryItem {
     pub id: String,
     pub path: String,
     pub description: Option<String>,
     pub schema: Option<String>,
     pub schema_reference: Option<String>,
-    pub object_count: usize,
+    pub entry_count: usize,
 }
 
 #[derive(Clone, Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
-pub struct ResourceObjectInventoryItem {
-    pub resource_id: String,
+pub struct CatalogEntryInventoryItem {
+    pub catalog_id: String,
     pub key: String,
     pub id: String,
     pub path: String,
@@ -170,7 +170,7 @@ fn inventory_from_model(
                         .filter_map(|rule| rule.value.as_ref())
                         .filter_map(|value| value.value.clone()),
                 ),
-                resource_reference: (variable.declaration.kind == "resource")
+                catalog_reference: (variable.declaration.kind == "catalog")
                     .then(|| variable.declaration.value.clone())
                     .flatten(),
                 schema_reference: (variable.declaration.kind == "schema")
@@ -215,43 +215,43 @@ fn inventory_from_model(
         })
         .collect();
 
-    let mut object_counts: BTreeMap<&str, usize> = BTreeMap::new();
-    for object in &model.resource_objects {
-        *object_counts.entry(object.resource.as_str()).or_default() += 1;
+    let mut entry_counts: BTreeMap<&str, usize> = BTreeMap::new();
+    for entry in &model.catalog_entries {
+        *entry_counts.entry(entry.catalog.as_str()).or_default() += 1;
     }
-    let resources = model
-        .resources
+    let catalogs = model
+        .catalogs
         .iter()
-        .map(|resource| {
-            let schema = resource
+        .map(|catalog| {
+            let schema = catalog
                 .schema
                 .as_ref()
                 .and_then(|schema| schema.value.clone());
-            ResourceInventoryItem {
-                id: resource.id.clone(),
-                path: repo_path(&resource.location.path),
-                description: resource.description.clone(),
+            CatalogInventoryItem {
+                id: catalog.id.clone(),
+                path: repo_path(&catalog.location.path),
+                description: catalog.description.clone(),
                 schema_reference: schema
                     .as_ref()
                     .and_then(|value| value.rsplit('/').next())
                     .map(str::to_owned),
                 schema,
-                object_count: object_counts
-                    .get(resource.id.as_str())
+                entry_count: entry_counts
+                    .get(catalog.id.as_str())
                     .copied()
                     .unwrap_or_default(),
             }
         })
         .collect();
 
-    let resource_objects = model
-        .resource_objects
+    let catalog_entries = model
+        .catalog_entries
         .iter()
-        .map(|object| ResourceObjectInventoryItem {
-            resource_id: object.resource.clone(),
-            key: object.key.clone(),
-            id: format!("{}/{}", object.resource, object.key),
-            path: repo_path(&object.location.path),
+        .map(|entry| CatalogEntryInventoryItem {
+            catalog_id: entry.catalog.clone(),
+            key: entry.key.clone(),
+            id: format!("{}/{}", entry.catalog, entry.key),
+            path: repo_path(&entry.location.path),
         })
         .collect();
 
@@ -308,8 +308,8 @@ fn inventory_from_model(
     WorkspaceInventory {
         variables,
         qualifiers,
-        resources,
-        resource_objects,
+        catalogs,
+        catalog_entries,
         schemas,
         linters,
         context,
@@ -322,7 +322,7 @@ fn declaration_label(declaration: &crate::lint::DeclarationModel) -> String {
             .value
             .clone()
             .unwrap_or_else(|| "undeclared".to_owned()),
-        "resource" => format!("resource:{}", declaration.value.as_deref().unwrap_or("?")),
+        "catalog" => format!("catalog:{}", declaration.value.as_deref().unwrap_or("?")),
         "schema" => format!("schema:{}", declaration.value.as_deref().unwrap_or("?")),
         "missing" => "undeclared".to_owned(),
         other => other.to_owned(),

@@ -24,16 +24,16 @@ pub(crate) fn document_symbols(index: &SemanticIndex, path: &str) -> Vec<Workspa
         }
     }
 
-    for resource in index.resources.values() {
-        if resource.location.path == path {
-            symbols.push(resource_document_symbol(resource));
+    for catalog in index.catalogs.values() {
+        if catalog.location.path == path {
+            symbols.push(catalog_document_symbol(catalog));
         }
     }
 
-    for objects in index.resource_objects.values() {
-        for object in objects.values() {
-            if object.location.path == path {
-                symbols.push(resource_object_document_symbol(object));
+    for entries in index.catalog_entries.values() {
+        for entry in entries.values() {
+            if entry.location.path == path {
+                symbols.push(catalog_entry_document_symbol(entry));
             }
         }
     }
@@ -165,20 +165,20 @@ fn variable_rule_document_symbol(rule: &VariableRuleNode) -> WorkspaceDocumentSy
     )
 }
 
-fn resource_document_symbol(resource: &ResourceNode) -> WorkspaceDocumentSymbol {
+fn catalog_document_symbol(catalog: &CatalogNode) -> WorkspaceDocumentSymbol {
     WorkspaceDocumentSymbol::new(
-        resource.id.clone(),
-        WorkspaceDocumentSymbolKind::Resource,
-        resource.location.clone(),
+        catalog.id.clone(),
+        WorkspaceDocumentSymbolKind::Catalog,
+        catalog.location.clone(),
         Vec::new(),
     )
 }
 
-fn resource_object_document_symbol(object: &ResourceObjectNode) -> WorkspaceDocumentSymbol {
+fn catalog_entry_document_symbol(entry: &CatalogEntryNode) -> WorkspaceDocumentSymbol {
     WorkspaceDocumentSymbol::new(
-        format!("{}.{}", object.resource_id, object.key),
-        WorkspaceDocumentSymbolKind::ResourceObject,
-        object.location.clone(),
+        format!("{}.{}", entry.catalog_id, entry.key),
+        WorkspaceDocumentSymbolKind::CatalogEntry,
+        entry.location.clone(),
         Vec::new(),
     )
 }

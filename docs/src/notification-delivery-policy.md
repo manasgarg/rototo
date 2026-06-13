@@ -39,22 +39,22 @@ The app will supply context like this:
 }
 ```
 
-Rototo will return a policy object. The notification service still decides
+Rototo will return a policy entry. The notification service still decides
 which recipients are eligible, whether a user has opted out, whether an email
 address is verified, how quiet hours map to the recipient's timezone, and how
 provider retries are handled.
 
 That is why this example uses a
-[resource-backed variable](reference-resources.html). The variable owns
-resolution. The resource owns the validated policy objects the app can consume.
+[catalog-backed variable](reference-catalogs.html). The variable owns
+resolution. The catalog owns the validated policy entries the app can consume.
 
 ## Create The Workspace
 
-Create the workspace with a variable and a resource template:
+Create the workspace with a variable and a catalog template:
 
 ```sh
 rototo init notification-config --variable notification-delivery-policy
-rototo init notification-config --resource notification-delivery-policy
+rototo init notification-config --catalog notification-delivery-policy
 ```
 
 Replace `notification-config/variables/notification-delivery-policy.toml`:
@@ -63,18 +63,18 @@ Replace `notification-config/variables/notification-delivery-policy.toml`:
 schema_version = 1
 
 description = "Delivery policy selected for outbound notifications"
-type = "resource:notification-delivery-policy"
+type = "catalog:notification-delivery-policy"
 
 [resolve]
 default = "product_digest"
 ```
 
-Replace `notification-config/resources/notification-delivery-policy.toml`:
+Replace `notification-config/catalogs/notification-delivery-policy.toml`:
 
 ```toml
 schema_version = 1
 
-description = "Notification delivery policy objects"
+description = "Notification delivery policy entries"
 schema = "../schemas/notification-delivery-policy.schema.json"
 ```
 
@@ -83,8 +83,8 @@ before any special runtime conditions are introduced.
 
 ## Define The Policy Shape
 
-Before adding policy objects, define
-[what the notification service is willing to consume](reference-resources.html).
+Before adding policy entries, define
+[what the notification service is willing to consume](reference-catalogs.html).
 Replace
 `notification-config/schemas/notification-delivery-policy.schema.json`:
 
@@ -122,15 +122,15 @@ Replace
 
 The schema is doing production work. A digest policy must say how often the
 digest runs. Every policy must declare channels, quiet-hours behavior, and a
-fallback channel. Rototo validates those objects during lint, before the app
+fallback channel. Rototo validates those entries during lint, before the app
 loads them.
 
-## Add The Policy Objects
+## Add The Policy Entries
 
-Rename the generated object file from
-`notification-config/resources/notification-delivery-policy-objects/default.toml`
+Rename the generated entry file from
+`notification-config/catalogs/notification-delivery-policy-entries/default.toml`
 to
-`notification-config/resources/notification-delivery-policy-objects/product_digest.toml`,
+`notification-config/catalogs/notification-delivery-policy-entries/product_digest.toml`,
 then replace its contents:
 
 ```toml
@@ -142,7 +142,7 @@ fallback_channel = "in_app"
 ```
 
 Create
-`notification-config/resources/notification-delivery-policy-objects/security_alert.toml`:
+`notification-config/catalogs/notification-delivery-policy-entries/security_alert.toml`:
 
 ```toml
 delivery = "immediate"
@@ -152,7 +152,7 @@ fallback_channel = "email"
 ```
 
 Create
-`notification-config/resources/notification-delivery-policy-objects/enterprise_incident.toml`:
+`notification-config/catalogs/notification-delivery-policy-entries/enterprise_incident.toml`:
 
 ```toml
 delivery = "immediate"
@@ -256,7 +256,7 @@ Update `notification-config/variables/notification-delivery-policy.toml`:
 schema_version = 1
 
 description = "Delivery policy selected for outbound notifications"
-type = "resource:notification-delivery-policy"
+type = "catalog:notification-delivery-policy"
 
 [resolve]
 default = "product_digest"
@@ -326,7 +326,7 @@ rototo lint notification-config
 ```
 
 Lint checks both contracts: the context facts the app must send, and the
-delivery policy objects the app may receive.
+delivery policy entries the app may receive.
 
 ## Resolve The Policy Paths
 

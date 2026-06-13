@@ -53,12 +53,12 @@ pub(super) fn variable_value_definition_location(
     variable: &VariableNode,
     value: &str,
 ) -> Option<DiagnosticLocation> {
-    if let TypeSourceNode::Resource(resource) = &variable.type_source {
+    if let TypeSourceNode::Catalog(catalog) = &variable.type_source {
         return index
-            .resource_objects
-            .get(&resource.value)
-            .and_then(|objects| objects.get(value))
-            .map(|object| object.location.clone());
+            .catalog_entries
+            .get(&catalog.value)
+            .and_then(|entries| entries.get(value))
+            .map(|entry| entry.location.clone());
     }
     variable
         .values

@@ -1,7 +1,7 @@
 schema_version = 1
 
-description = "Variable backed by a resource with an invalid schema reference"
-type = "resource:bad-schema-ref"
+description = "Variable backed by a catalog with an invalid schema reference"
+type = "catalog:bad-schema-ref"
 
 [resolve]
 default = "default"

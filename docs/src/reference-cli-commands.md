@@ -11,7 +11,7 @@ running.
 ## `rototo init`
 
 ```sh
-rototo init <WORKSPACE> [--qualifier ID] [--variable ID] [--resource ID] [--context] [--force] [--dry-run]
+rototo init <WORKSPACE> [--qualifier ID] [--variable ID] [--catalog ID] [--context] [--force] [--dry-run]
 ```
 
 Use `init` when you want rototo to create the workspace paths and templates it
@@ -22,7 +22,7 @@ workspace or adds templates to an existing workspace.
 | --- | --- |
 | `--qualifier <ID>` | Create `qualifiers/<ID>.toml`. |
 | `--variable <ID>` | Create `variables/<ID>.toml`. |
-| `--resource <ID>` | Create `resources/<ID>.toml` and a schema template. |
+| `--catalog <ID>` | Create `catalogs/<ID>.toml` and a schema template. |
 | `--context` | Create or infer `schemas/context.schema.json`. |
 | `--force` | Overwrite files the command creates. |
 | `--dry-run` | Print planned writes without changing files. |
@@ -55,7 +55,7 @@ rototo lint [WORKSPACE_SOURCE] [selectors]
 Use `lint` before a workspace can be trusted by an app, CI job, or reviewer. It
 validates the workspace or selected targets. Without selectors, lint reports
 workspace-wide diagnostics. With selectors, lint filters output to selected
-variables, resources, qualifiers, lint rules, authorities, or Lua linters.
+variables, catalogs, qualifiers, lint rules, authorities, or Lua linters.
 
 `--quiet` suppresses the successful `ok:` line, but diagnostics still print.
 
@@ -67,7 +67,7 @@ rototo inspect [WORKSPACE_SOURCE] [selectors] [--context CONTEXT]
 
 Use `inspect` when you need to understand how rototo sees the workspace after
 source loading and layering. It explains the projected workspace: documents,
-runtime status, diagnostics, schemas, resources, variables, qualifiers, lint
+runtime status, diagnostics, schemas, catalogs, variables, qualifiers, lint
 rules, lint authorities, and linters.
 
 When context is supplied, selected variables and qualifiers include resolution
@@ -81,7 +81,7 @@ rototo diff BEFORE_WORKSPACE_SOURCE AFTER_WORKSPACE_SOURCE [--context CONTEXT]
 
 Use `diff` when you need to understand what changed in rototo terms rather than
 as raw TOML or JSON. It compares projected workspace entities such as variables,
-values, resolve rules, qualifiers, predicates, resources, resource objects, and
+values, resolve rules, qualifiers, predicates, catalogs, catalog entries, and
 schemas.
 
 When context is supplied, `diff` also reports resolution impact for variables

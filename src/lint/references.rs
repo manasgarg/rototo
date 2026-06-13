@@ -13,7 +13,7 @@ pub(super) struct ReferenceIndex {
     edges: Vec<ReferenceEdge>,
     qualifier_referenced_by: BTreeMap<QualifierId, Vec<ReferenceSite>>,
     value_referenced_by: BTreeMap<(VariableId, ValueKey), Vec<ReferenceSite>>,
-    resource_object_referenced_by: BTreeMap<(ResourceId, ValueKey), Vec<ReferenceSite>>,
+    catalog_entry_referenced_by: BTreeMap<(CatalogId, ValueKey), Vec<ReferenceSite>>,
 }
 
 #[derive(Clone)]
@@ -29,8 +29,8 @@ pub(super) struct ReferenceEdge {
 pub(super) enum ReferenceSource {
     QualifierPredicateQualifier { qualifier: String, predicate: usize },
     QualifierPredicateContextAttribute { qualifier: String, predicate: usize },
-    VariableResource { variable: String },
-    ResourceSchema { resource: String },
+    VariableCatalog { variable: String },
+    CatalogSchema { catalog: String },
     VariableResolveDefault { variable: String },
     VariableRuleQualifier { variable: String, rule: usize },
     VariableRuleValue { variable: String, rule: usize },
@@ -40,8 +40,8 @@ pub(super) enum ReferenceSource {
 pub(super) enum ReferenceTarget {
     ContextAttribute(String),
     Qualifier(String),
-    Resource(String),
-    ResourceObject { resource: String, value: String },
+    Catalog(String),
+    CatalogEntry { catalog: String, value: String },
     Schema(String),
     VariableValue { variable: String, value: String },
 }
@@ -137,7 +137,7 @@ impl ReferenceIndex {
                         target: target.clone(),
                     });
                 }
-                ReferenceTarget::ResourceObject { .. }
+                ReferenceTarget::CatalogEntry { .. }
                     if location_contains_position(location, path, position) =>
                 {
                     candidates.push(ReferenceTargetCandidate {
@@ -148,8 +148,8 @@ impl ReferenceIndex {
                 }
                 ReferenceTarget::ContextAttribute(_) => {}
                 ReferenceTarget::Qualifier(_)
-                | ReferenceTarget::Resource(_)
-                | ReferenceTarget::ResourceObject { .. }
+                | ReferenceTarget::Catalog(_)
+                | ReferenceTarget::CatalogEntry { .. }
                 | ReferenceTarget::Schema(_)
                 | ReferenceTarget::VariableValue { .. } => {}
             }
@@ -306,21 +306,21 @@ impl ReferenceIndex {
             }
         }
 
-        for resource in index.resources.values() {
+        for catalog in index.catalogs.values() {
             self.declarations.insert(
-                ReferenceTarget::Resource(resource.id.clone()),
-                resource.location.clone(),
+                ReferenceTarget::Catalog(catalog.id.clone()),
+                catalog.location.clone(),
             );
         }
 
-        for (resource_id, objects) in &index.resource_objects {
-            for object in objects.values() {
+        for (catalog_id, entries) in &index.catalog_entries {
+            for entry in entries.values() {
                 self.declarations.insert(
-                    ReferenceTarget::ResourceObject {
-                        resource: resource_id.clone(),
-                        value: object.key.clone(),
+                    ReferenceTarget::CatalogEntry {
+                        catalog: catalog_id.clone(),
+                        value: entry.key.clone(),
                     },
-                    object.location.clone(),
+                    entry.location.clone(),
                 );
             }
         }
@@ -336,8 +336,8 @@ impl ReferenceIndex {
                 DocumentKind::Manifest
                 | DocumentKind::Qualifier { .. }
                 | DocumentKind::Variable { .. }
-                | DocumentKind::Resource { .. }
-                | DocumentKind::ResourceObject { .. }
+                | DocumentKind::Catalog { .. }
+                | DocumentKind::CatalogEntry { .. }
                 | DocumentKind::CustomLint => {}
             }
         }
@@ -392,9 +392,9 @@ impl ReferenceIndex {
 
     fn add_variable_references(&mut self, index: &SemanticIndex) {
         for variable in index.variables.values() {
-            if let TypeSourceNode::Resource(resource) = &variable.type_source {
+            if let TypeSourceNode::Catalog(catalog) = &variable.type_source {
                 self.push_edge(
-                    ReferenceSource::VariableResource {
+                    ReferenceSource::VariableCatalog {
                         variable: variable.id.clone(),
                     },
                     SemanticTarget::field(
@@ -403,8 +403,8 @@ impl ReferenceIndex {
                         },
                         SemanticField::VariableType,
                     ),
-                    resource.location.clone(),
-                    ReferenceTarget::Resource(resource.value.clone()),
+                    catalog.location.clone(),
+                    ReferenceTarget::Catalog(catalog.value.clone()),
                 );
             }
 
@@ -466,22 +466,22 @@ impl ReferenceIndex {
             }
         }
 
-        for resource in index.resources.values() {
-            let ProjectField::Present(schema) = &resource.schema else {
+        for catalog in index.catalogs.values() {
+            let ProjectField::Present(schema) = &catalog.schema else {
                 continue;
             };
             if let Some(schema_path) =
-                resolve_workspace_relative_path(&resource.location.path, &schema.value)
+                resolve_workspace_relative_path(&catalog.location.path, &schema.value)
             {
                 self.push_edge(
-                    ReferenceSource::ResourceSchema {
-                        resource: resource.id.clone(),
+                    ReferenceSource::CatalogSchema {
+                        catalog: catalog.id.clone(),
                     },
                     SemanticTarget::field(
-                        SemanticEntity::Resource {
-                            id: resource.id.clone(),
+                        SemanticEntity::Catalog {
+                            id: catalog.id.clone(),
                         },
-                        SemanticField::ResourceSchema,
+                        SemanticField::CatalogSchema,
                     ),
                     schema.location.clone(),
                     ReferenceTarget::Schema(schema_path),
@@ -517,14 +517,14 @@ impl ReferenceIndex {
                         .or_default()
                         .push(site);
                 }
-                ReferenceTarget::ResourceObject { resource, value } => {
-                    self.resource_object_referenced_by
-                        .entry((resource.clone(), value.clone()))
+                ReferenceTarget::CatalogEntry { catalog, value } => {
+                    self.catalog_entry_referenced_by
+                        .entry((catalog.clone(), value.clone()))
                         .or_default()
                         .push(site);
                 }
                 ReferenceTarget::ContextAttribute(_)
-                | ReferenceTarget::Resource(_)
+                | ReferenceTarget::Catalog(_)
                 | ReferenceTarget::Schema(_) => {}
             }
         }
@@ -542,17 +542,17 @@ impl ReferenceIndex {
     }
 }
 
-fn variable_resource_id(variable: &VariableNode) -> Option<&str> {
+fn variable_catalog_id(variable: &VariableNode) -> Option<&str> {
     match &variable.type_source {
-        TypeSourceNode::Resource(resource) => Some(&resource.value),
+        TypeSourceNode::Catalog(catalog) => Some(&catalog.value),
         _ => None,
     }
 }
 
 fn variable_value_target(variable: &VariableNode, value: &str) -> ReferenceTarget {
-    match variable_resource_id(variable) {
-        Some(resource) => ReferenceTarget::ResourceObject {
-            resource: resource.to_owned(),
+    match variable_catalog_id(variable) {
+        Some(catalog) => ReferenceTarget::CatalogEntry {
+            catalog: catalog.to_owned(),
             value: value.to_owned(),
         },
         None => ReferenceTarget::VariableValue {

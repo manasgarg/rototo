@@ -4,7 +4,7 @@ use toml::Value;
 
 use crate::error::{Result, RototoError};
 use crate::model::{
-    LinterInspection, QualifierConfig, QualifierInspection, ResourceConfig, ResourceInspection,
+    CatalogConfig, CatalogInspection, LinterInspection, QualifierConfig, QualifierInspection,
     SchemaInspection, VariableConfig, VariableInspection, WorkspaceInspection,
 };
 
@@ -18,7 +18,7 @@ pub async fn inspect_workspace(workspace_root: &Path) -> Result<WorkspaceInspect
     let manifest = read_toml(&workspace_root.join(WORKSPACE_MANIFEST)).await?;
     validate_workspace_manifest(&manifest)?;
     let schemas = discover_schemas(&workspace_root).await?;
-    let resources = discover_resources(&workspace_root).await?;
+    let catalogs = discover_catalogs(&workspace_root).await?;
     let qualifiers = discover_qualifiers(&workspace_root).await?;
     let variables = discover_variables(&workspace_root).await?;
     let linters = discover_linters(&workspace_root).await?;
@@ -26,7 +26,7 @@ pub async fn inspect_workspace(workspace_root: &Path) -> Result<WorkspaceInspect
     Ok(WorkspaceInspection {
         root: workspace_root,
         schemas,
-        resources,
+        catalogs,
         qualifiers,
         variables,
         linters,
@@ -91,15 +91,15 @@ pub fn variable_for_id<'a>(
         .ok_or_else(|| RototoError::new(format!("variable not found: variable://{id}")))
 }
 
-pub fn resource_for_id<'a>(
+pub fn catalog_for_id<'a>(
     inspection: &'a WorkspaceInspection,
     id: &str,
-) -> Result<&'a ResourceInspection> {
+) -> Result<&'a CatalogInspection> {
     inspection
-        .resources
+        .catalogs
         .iter()
-        .find(|resource| resource.id == id)
-        .ok_or_else(|| RototoError::new(format!("resource not found: resource://{id}")))
+        .find(|catalog| catalog.id == id)
+        .ok_or_else(|| RototoError::new(format!("catalog not found: catalog://{id}")))
 }
 
 pub async fn list_qualifiers(workspace_root: &Path) -> Result<Vec<QualifierInspection>> {
@@ -110,8 +110,8 @@ pub async fn list_variables(workspace_root: &Path) -> Result<Vec<VariableInspect
     Ok(inspect_workspace(workspace_root).await?.variables)
 }
 
-pub async fn list_resources(workspace_root: &Path) -> Result<Vec<ResourceInspection>> {
-    Ok(inspect_workspace(workspace_root).await?.resources)
+pub async fn list_catalogs(workspace_root: &Path) -> Result<Vec<CatalogInspection>> {
+    Ok(inspect_workspace(workspace_root).await?.catalogs)
 }
 
 pub async fn read_qualifier(workspace_root: &Path, id: &str) -> Result<QualifierConfig> {
@@ -126,10 +126,10 @@ pub async fn read_variable(workspace_root: &Path, id: &str) -> Result<VariableCo
     variable_config(&inspection.root, variable).await
 }
 
-pub async fn read_resource(workspace_root: &Path, id: &str) -> Result<ResourceConfig> {
+pub async fn read_catalog(workspace_root: &Path, id: &str) -> Result<CatalogConfig> {
     let inspection = inspect_workspace(workspace_root).await?;
-    let resource = resource_for_id(&inspection, id)?;
-    resource_config(&inspection.root, resource).await
+    let catalog = catalog_for_id(&inspection, id)?;
+    catalog_config(&inspection.root, catalog).await
 }
 
 pub async fn read_qualifiers(workspace_root: &Path) -> Result<Vec<QualifierConfig>> {
@@ -150,11 +150,11 @@ pub async fn read_variables(workspace_root: &Path) -> Result<Vec<VariableConfig>
     Ok(configs)
 }
 
-pub async fn read_resources(workspace_root: &Path) -> Result<Vec<ResourceConfig>> {
+pub async fn read_catalogs(workspace_root: &Path) -> Result<Vec<CatalogConfig>> {
     let inspection = inspect_workspace(workspace_root).await?;
     let mut configs = Vec::new();
-    for resource in &inspection.resources {
-        configs.push(resource_config(&inspection.root, resource).await?);
+    for catalog in &inspection.catalogs {
+        configs.push(catalog_config(&inspection.root, catalog).await?);
     }
     Ok(configs)
 }
@@ -233,50 +233,50 @@ async fn variable_config(
     })
 }
 
-async fn resource_config(
+async fn catalog_config(
     workspace_root: &Path,
-    resource: &ResourceInspection,
-) -> Result<ResourceConfig> {
-    let value = serde_json::to_value(read_resource_toml(workspace_root, resource).await?)
+    catalog: &CatalogInspection,
+) -> Result<CatalogConfig> {
+    let value = serde_json::to_value(read_catalog_toml(workspace_root, catalog).await?)
         .map_err(|err| RototoError::new(err.to_string()))?;
 
-    Ok(ResourceConfig {
-        id: resource.id.clone(),
-        uri: resource.uri.clone(),
-        path: resource.path.clone(),
+    Ok(CatalogConfig {
+        id: catalog.id.clone(),
+        uri: catalog.uri.clone(),
+        path: catalog.path.clone(),
         value,
     })
 }
 
-pub async fn read_resource_toml(
+pub async fn read_catalog_toml(
     workspace_root: &Path,
-    resource: &ResourceInspection,
+    catalog: &CatalogInspection,
 ) -> Result<Value> {
-    let mut toml = read_toml(&workspace_root.join(&resource.path)).await?;
-    let objects = read_resource_objects_toml(workspace_root, resource).await?;
-    if objects.is_empty() {
+    let mut toml = read_toml(&workspace_root.join(&catalog.path)).await?;
+    let entries = read_catalog_entries_toml(workspace_root, catalog).await?;
+    if entries.is_empty() {
         return Ok(toml);
     }
     let Some(root_table) = toml.as_table_mut() else {
         return Ok(toml);
     };
-    root_table.insert("objects".to_owned(), Value::Table(objects));
+    root_table.insert("entries".to_owned(), Value::Table(entries));
     Ok(toml)
 }
 
-async fn read_resource_objects_toml(
+async fn read_catalog_entries_toml(
     workspace_root: &Path,
-    resource: &ResourceInspection,
+    catalog: &CatalogInspection,
 ) -> Result<toml::map::Map<String, Value>> {
-    let objects_dir = workspace_root
-        .join("resources")
-        .join(format!("{}-objects", resource.id));
-    let mut objects = toml::map::Map::new();
-    let Ok(mut entries) = tokio::fs::read_dir(&objects_dir).await else {
-        return Ok(objects);
+    let entries_dir = workspace_root
+        .join("catalogs")
+        .join(format!("{}-entries", catalog.id));
+    let mut catalog_entries = toml::map::Map::new();
+    let Ok(mut entries) = tokio::fs::read_dir(&entries_dir).await else {
+        return Ok(catalog_entries);
     };
     while let Some(entry) = entries.next_entry().await.map_err(|err| {
-        RototoError::new(format!("failed to read {}: {err}", objects_dir.display()))
+        RototoError::new(format!("failed to read {}: {err}", entries_dir.display()))
     })? {
         let path = entry.path();
         if path.extension().and_then(|extension| extension.to_str()) != Some("toml")
@@ -287,9 +287,9 @@ async fn read_resource_objects_toml(
             continue;
         }
         let id = id_from_path(&path)?;
-        objects.insert(id, read_toml(&path).await?);
+        catalog_entries.insert(id, read_toml(&path).await?);
     }
-    Ok(objects)
+    Ok(catalog_entries)
 }
 
 async fn discover_qualifiers(workspace_root: &Path) -> Result<Vec<QualifierInspection>> {
@@ -322,19 +322,19 @@ async fn discover_variables(workspace_root: &Path) -> Result<Vec<VariableInspect
     Ok(variables)
 }
 
-async fn discover_resources(workspace_root: &Path) -> Result<Vec<ResourceInspection>> {
-    let mut resources = Vec::new();
-    for path in discover_named_toml_files(workspace_root, "resources").await? {
+async fn discover_catalogs(workspace_root: &Path) -> Result<Vec<CatalogInspection>> {
+    let mut catalogs = Vec::new();
+    for path in discover_named_toml_files(workspace_root, "catalogs").await? {
         let id = id_from_path(&path)?;
         let relative_path = relative_path(workspace_root, &path)?;
-        resources.push(ResourceInspection {
-            uri: format!("resource://{id}"),
+        catalogs.push(CatalogInspection {
+            uri: format!("catalog://{id}"),
             id,
             path: relative_path,
         });
     }
-    resources.sort_by(|left, right| left.uri.cmp(&right.uri));
-    Ok(resources)
+    catalogs.sort_by(|left, right| left.uri.cmp(&right.uri));
+    Ok(catalogs)
 }
 
 async fn discover_schemas(workspace_root: &Path) -> Result<Vec<SchemaInspection>> {

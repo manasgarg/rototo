@@ -23,7 +23,7 @@ pub(crate) async fn diff_workspaces(
     let mut changes = Vec::new();
     diff_variables(&before_model, &after_model, &mut changes);
     diff_qualifiers(&before_model, &after_model, &mut changes);
-    diff_resources(&before_model, &after_model, &mut changes);
+    diff_catalogs(&before_model, &after_model, &mut changes);
     diff_schemas(&before_model, &after_model, &mut changes);
 
     let resolution_impacts = match context {
@@ -43,8 +43,8 @@ pub(crate) async fn diff_workspaces(
 struct WorkspaceSemanticModel {
     variables: BTreeMap<String, VariableSemantic>,
     qualifiers: BTreeMap<String, QualifierSemantic>,
-    resources: BTreeMap<String, ResourceSemantic>,
-    resource_objects: BTreeMap<(String, String), ResourceObjectSemantic>,
+    catalogs: BTreeMap<String, CatalogSemantic>,
+    catalog_entries: BTreeMap<(String, String), CatalogEntrySemantic>,
     schemas: BTreeMap<String, SchemaSemantic>,
 }
 
@@ -68,21 +68,21 @@ impl WorkspaceSemanticModel {
                     )
                 })
                 .collect(),
-            resources: snapshot
+            catalogs: snapshot
                 .index
-                .resources
+                .catalogs
                 .values()
-                .map(|resource| (resource.id.clone(), ResourceSemantic::from_node(resource)))
+                .map(|catalog| (catalog.id.clone(), CatalogSemantic::from_node(catalog)))
                 .collect(),
-            resource_objects: snapshot
+            catalog_entries: snapshot
                 .index
-                .resource_objects
+                .catalog_entries
                 .values()
-                .flat_map(|objects| objects.values())
-                .map(|object| {
+                .flat_map(|entries| entries.values())
+                .map(|entry| {
                     (
-                        (object.resource_id.clone(), object.key.clone()),
-                        ResourceObjectSemantic::from_node(object),
+                        (entry.catalog_id.clone(), entry.key.clone()),
+                        CatalogEntrySemantic::from_node(entry),
                     )
                 })
                 .collect(),
@@ -181,37 +181,37 @@ impl QualifierSemantic {
     }
 }
 
-struct ResourceSemantic {
+struct CatalogSemantic {
     target: SemanticTarget,
     location: DiagnosticLocation,
     schema: Option<FieldSemantic<String>>,
 }
 
-impl ResourceSemantic {
-    fn from_node(resource: &ResourceNode) -> Self {
+impl CatalogSemantic {
+    fn from_node(catalog: &CatalogNode) -> Self {
         Self {
-            target: resource.target(),
-            location: resource.location.clone(),
+            target: catalog.target(),
+            location: catalog.location.clone(),
             schema: present_string_field(
-                &resource.schema,
-                resource.field_target(SemanticField::ResourceSchema),
+                &catalog.schema,
+                catalog.field_target(SemanticField::CatalogSchema),
             ),
         }
     }
 }
 
-struct ResourceObjectSemantic {
+struct CatalogEntrySemantic {
     target: SemanticTarget,
     location: DiagnosticLocation,
     value: JsonValue,
 }
 
-impl ResourceObjectSemantic {
-    fn from_node(object: &ResourceObjectNode) -> Self {
+impl CatalogEntrySemantic {
+    fn from_node(entry: &CatalogEntryNode) -> Self {
         Self {
-            target: object.target(),
-            location: object.location.clone(),
-            value: object.value.clone(),
+            target: entry.target(),
+            location: entry.location.clone(),
+            value: entry.value.clone(),
         }
     }
 }
@@ -515,26 +515,23 @@ fn diff_predicates(
     }
 }
 
-fn diff_resources(
+fn diff_catalogs(
     before: &WorkspaceSemanticModel,
     after: &WorkspaceSemanticModel,
     changes: &mut Vec<SemanticChange>,
 ) {
-    for id in sorted_keys(before.resources.keys(), after.resources.keys()) {
-        match (before.resources.get(&id), after.resources.get(&id)) {
+    for id in sorted_keys(before.catalogs.keys(), after.catalogs.keys()) {
+        match (before.catalogs.get(&id), after.catalogs.get(&id)) {
             (None, Some(after)) => {
-                push_added(changes, "resource_added", &after.target, &after.location)
+                push_added(changes, "catalog_added", &after.target, &after.location)
             }
-            (Some(before), None) => push_removed(
-                changes,
-                "resource_removed",
-                &before.target,
-                &before.location,
-            ),
+            (Some(before), None) => {
+                push_removed(changes, "catalog_removed", &before.target, &before.location)
+            }
             (Some(before), Some(after)) => {
                 diff_optional_field(
                     changes,
-                    "resource_schema_changed",
+                    "catalog_schema_changed",
                     &before.schema,
                     &after.schema,
                 );
@@ -542,24 +539,21 @@ fn diff_resources(
             (None, None) => {}
         }
     }
-    for key in sorted_keys(
-        before.resource_objects.keys(),
-        after.resource_objects.keys(),
-    ) {
+    for key in sorted_keys(before.catalog_entries.keys(), after.catalog_entries.keys()) {
         match (
-            before.resource_objects.get(&key),
-            after.resource_objects.get(&key),
+            before.catalog_entries.get(&key),
+            after.catalog_entries.get(&key),
         ) {
             (None, Some(after)) => push_added_value(
                 changes,
-                "resource_object_added",
+                "catalog_entry_added",
                 &after.target,
                 &after.location,
                 &after.value,
             ),
             (Some(before), None) => push_removed_value(
                 changes,
-                "resource_object_removed",
+                "catalog_entry_removed",
                 &before.target,
                 &before.location,
                 &before.value,
@@ -577,7 +571,7 @@ fn diff_resources(
                     value: &after.value,
                 },
                 Vec::new(),
-                "resource_object_changed",
+                "catalog_entry_changed",
             ),
             (None, None) => {}
         }
@@ -769,7 +763,7 @@ fn target_with_json_path(target: &SemanticTarget, path: Vec<String>) -> Semantic
     }
 
     match &target.entity {
-        SemanticEntity::Value { .. } | SemanticEntity::ResourceObject { .. } => {
+        SemanticEntity::Value { .. } | SemanticEntity::CatalogEntry { .. } => {
             SemanticTarget::field(target.entity.clone(), SemanticField::ValueJsonPath { path })
         }
         SemanticEntity::Schema { .. } => SemanticTarget::field(
@@ -836,12 +830,12 @@ fn variable_type_source(
             type_name.location.clone(),
             SemanticField::VariableType,
         ),
-        TypeSourceNode::Resource(resource) => (
+        TypeSourceNode::Catalog(catalog) => (
             Some(serde_json::json!({
-                "kind": "resource",
-                "resource": resource.value,
+                "kind": "catalog",
+                "catalog": catalog.value,
             })),
-            resource.location.clone(),
+            catalog.location.clone(),
             SemanticField::VariableType,
         ),
         TypeSourceNode::Schema(schema) => (

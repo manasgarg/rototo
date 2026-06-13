@@ -57,9 +57,9 @@ fn project_type_source(
         (Some(item), None) => match item.as_str() {
             Some(type_name) => {
                 let location = item_location(document, item);
-                if let Some(resource_id) = type_name.strip_prefix("resource:") {
-                    TypeSourceNode::Resource(Spanned {
-                        value: resource_id.to_owned(),
+                if let Some(catalog_id) = type_name.strip_prefix("catalog:") {
+                    TypeSourceNode::Catalog(Spanned {
+                        value: catalog_id.to_owned(),
                         location,
                     })
                 } else {

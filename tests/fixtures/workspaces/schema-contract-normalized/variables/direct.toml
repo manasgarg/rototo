@@ -1,6 +1,6 @@
 schema_version = 1
-type = "resource:direct"
-description = "Variable with a normalized resource schema reference"
+type = "catalog:direct"
+description = "Variable with a normalized catalog schema reference"
 
 [resolve]
 default = "default"

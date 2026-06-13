@@ -58,7 +58,7 @@ export type SectionId =
   | "overview"
   | "variables"
   | "qualifiers"
-  | "resources"
+  | "catalogs"
   | "schemas"
   | "linters"
   | "context"
@@ -82,7 +82,7 @@ const SECTION_TITLES: Record<SectionId, string> = {
   overview: "Overview",
   variables: "Variables",
   qualifiers: "Qualifiers",
-  resources: "Resources",
+  catalogs: "Catalogs",
   schemas: "Schemas",
   linters: "Linters",
   context: "Context",
@@ -93,7 +93,7 @@ const SECTION_TITLES: Record<SectionId, string> = {
 const SECTION_HINTS: Partial<Record<SectionId, string>> = {
   variables: "Named values the application resolves at runtime, with defaults and rules.",
   qualifiers: "Named runtime conditions. Rules reference them to select values.",
-  resources: "Typed objects that schema-backed variables can point at.",
+  catalogs: "Typed entries that schema-backed variables can point at.",
   schemas: "JSON Schemas that validate context and selected values.",
   linters: "Custom lint rules this workspace declares beyond the built-ins.",
   context: "The context contract: schema plus example resolution contexts.",
@@ -160,7 +160,7 @@ export function WorkspaceScreen({
   const entityCounts = {
     variables: inventory.variables.length,
     qualifiers: inventory.qualifiers.length,
-    resources: inventory.resources.length,
+    catalogs: inventory.catalogs.length,
     schemas: inventory.schemas.length,
     linters: inventory.linters.length,
     context: inventory.context.exampleCount + (inventory.context.schemaPath ? 1 : 0),
@@ -187,9 +187,9 @@ export function WorkspaceScreen({
     });
   }
   const diagnosticCount = "error" in lint ? 0 : lint.diagnostics.length;
-  const parentResourceNode =
-    selectedNode?.kind === "resource object"
-      ? (nodes.find((node) => node.targetKey === `resources:${selectedNode.badge}`) ?? null)
+  const parentCatalogNode =
+    selectedNode?.kind === "catalog entry"
+      ? (nodes.find((node) => node.targetKey === `catalogs:${selectedNode.badge}`) ?? null)
       : null;
   const entityDiagnostics =
     selectedNode && !("error" in lint)
@@ -199,8 +199,8 @@ export function WorkspaceScreen({
       : [];
   const workspaceName = `${workspace.owner}/${workspace.name}`;
   const entityCrumbLabel = selectedNode
-    ? parentResourceNode && selectedNode.id.startsWith(`${parentResourceNode.id}/`)
-      ? selectedNode.id.slice(parentResourceNode.id.length + 1)
+    ? parentCatalogNode && selectedNode.id.startsWith(`${parentCatalogNode.id}/`)
+      ? selectedNode.id.slice(parentCatalogNode.id.length + 1)
       : selectedNode.id
     : "";
   // Crumbs are ancestors only; the topbar title names the current screen.
@@ -216,11 +216,11 @@ export function WorkspaceScreen({
             label: SECTION_TITLES[selectedNode.section].toLowerCase(),
             href: sectionHref(workspace.slug, selectedNode.section),
           },
-          ...(parentResourceNode
+          ...(parentCatalogNode
             ? [
                 {
-                  label: parentResourceNode.id,
-                  href: entityHref(workspace.slug, parentResourceNode.path),
+                  label: parentCatalogNode.id,
+                  href: entityHref(workspace.slug, parentCatalogNode.path),
                 },
               ]
             : []),
@@ -286,11 +286,11 @@ export function WorkspaceScreen({
             label="Qualifiers"
           />
           <NavLink
-            active={selectedSection === "resources"}
-            count={entityCounts.resources}
-            href={sectionHref(workspace.slug, "resources")}
+            active={selectedSection === "catalogs"}
+            count={entityCounts.catalogs}
+            href={sectionHref(workspace.slug, "catalogs")}
             icon={<Database aria-hidden size={16} />}
-            label="Resources"
+            label="Catalogs"
           />
           <NavLink
             active={selectedSection === "schemas"}
@@ -343,7 +343,7 @@ export function WorkspaceScreen({
           model={model}
           node={selectedNode}
           openDraft={drafts.find((draft) => draft.status === "open") ?? null}
-          parentResource={parentResourceNode}
+          parentCatalog={parentCatalogNode}
           qualifierEvaluations={qualifierEvaluations}
           workspaceId={workspace.slug}
         />
@@ -443,7 +443,7 @@ function WorkspaceSection({
                 <div className="card-head-text">
                   <h3>Entity graph</h3>
                   <p className="hint">
-                    How qualifiers, variables, resources, and objects connect. Hover a node to
+                    How qualifiers, variables, catalogs, and entries connect. Hover a node to
                     trace its references; click to open it.
                   </p>
                 </div>
@@ -537,10 +537,10 @@ function WorkspaceSection({
     );
   }
 
-  // The resources section lists resource types only; each type carries its
-  // objects inline.
+  // The catalogs section lists catalog types only; each type carries its
+  // entries inline.
   const sectionNodes = nodes.filter(
-    (node) => node.section === section && (section !== "resources" || node.kind === "resource"),
+    (node) => node.section === section && (section !== "catalogs" || node.kind === "catalog"),
   );
 
   return (
@@ -564,14 +564,14 @@ function WorkspaceSection({
           placeholder={`Search ${SECTION_TITLES[section].toLowerCase()}`}
         >
           {sectionNodes.map((node) => {
-            const objects =
-              node.kind === "resource"
+            const entries =
+              node.kind === "catalog"
                 ? nodes.filter(
                     (candidate) =>
-                      candidate.kind === "resource object" && candidate.badge === node.id,
+                      candidate.kind === "catalog entry" && candidate.badge === node.id,
                   )
                 : [];
-            if (objects.length === 0) {
+            if (entries.length === 0) {
               return (
                 <Link
                   className="row"
@@ -594,8 +594,8 @@ function WorkspaceSection({
             return (
               <div
                 className="row"
-                data-search={`${entitySearchText(node)} ${objects
-                  .map((object) => object.id)
+                data-search={`${entitySearchText(node)} ${entries
+                  .map((entry) => entry.id)
                   .join(" ")}`}
                 key={node.path}
               >
@@ -605,24 +605,24 @@ function WorkspaceSection({
                     {node.id}
                   </Link>
                   <span className="row-sub">{node.description ?? node.path}</span>
-                  <span className="row-objects">
-                    {objects.map((object) => (
+                  <span className="row-entries">
+                    {entries.map((entry) => (
                       <Link
                         className="pill pill-neutral"
-                        href={entityHref(workspace.slug, object.path)}
-                        key={object.path}
+                        href={entityHref(workspace.slug, entry.path)}
+                        key={entry.path}
                       >
-                        {object.id.split("/").pop()}
+                        {entry.id.split("/").pop()}
                       </Link>
                     ))}
                   </span>
                 </span>
                 <span className="row-side">
                   <span className="tag">
-                    {objects.length} {objects.length === 1 ? "object" : "objects"}
+                    {entries.length} {entries.length === 1 ? "entry" : "entries"}
                   </span>
                   <Link
-                    aria-label={`Open resource ${node.id}`}
+                    aria-label={`Open catalog ${node.id}`}
                     className="muted"
                     href={entityHref(workspace.slug, node.path)}
                   >
@@ -647,7 +647,7 @@ function EntityDefinition({
   model,
   node,
   openDraft,
-  parentResource,
+  parentCatalog,
   qualifierEvaluations,
   workspaceId,
 }: {
@@ -659,7 +659,7 @@ function EntityDefinition({
   model: WorkspaceSemanticModel | null;
   node: EntityNode;
   openDraft: DraftSessionRecord | null;
-  parentResource: EntityNode | null;
+  parentCatalog: EntityNode | null;
   qualifierEvaluations: QualifierContextEvaluation[];
   workspaceId: string;
 }) {
@@ -674,21 +674,21 @@ function EntityDefinition({
         <div className="section-header-text">
           <span className="label">{node.kind}</span>
           <h1 className="mono">
-            {parentResource && node.id.startsWith(`${parentResource.id}/`)
-              ? node.id.slice(parentResource.id.length + 1)
+            {parentCatalog && node.id.startsWith(`${parentCatalog.id}/`)
+              ? node.id.slice(parentCatalog.id.length + 1)
               : node.id}
           </h1>
           {node.description ? <p className="hint">{node.description}</p> : null}
         </div>
         <div className="action-row">
-          {node.badge && !parentResource ? <span className="tag">{node.badge}</span> : null}
-          {parentResource ? (
+          {node.badge && !parentCatalog ? <span className="tag">{node.badge}</span> : null}
+          {parentCatalog ? (
             <Link
               className="btn btn-secondary btn-sm"
-              href={entityHref(workspaceId, parentResource.path)}
+              href={entityHref(workspaceId, parentCatalog.path)}
             >
               <ArrowLeft aria-hidden size={14} />
-              Resource {parentResource.id}
+              Catalog {parentCatalog.id}
             </Link>
           ) : (
             <Link className="btn btn-secondary btn-sm" href={sectionHref(workspaceId, node.section)}>
@@ -797,20 +797,20 @@ function EntitySummary({
     if (rules.length === 0 && !defaultKey && variable.values.length === 0) {
       return null;
     }
-    // Resource-typed variables select objects by key; link each value key to
-    // the object it names.
-    const resourceId =
-      variable.declaration.kind === "resource" ? variable.declaration.value ?? null : null;
+    // Catalog-typed variables select entries by key; link each value key to
+    // the entry it names.
+    const catalogId =
+      variable.declaration.kind === "catalog" ? variable.declaration.value ?? null : null;
     const valueKeyLabel = (key: string | null): ReactNode => {
       if (!key) {
         return "?";
       }
-      const objectNode = resourceId
+      const entryNode = catalogId
         ? allNodes.find(
-            (candidate) => candidate.targetKey === `resource_objects:${resourceId}:${key}`,
+            (candidate) => candidate.targetKey === `catalog_entries:${catalogId}:${key}`,
           )
         : undefined;
-      return objectNode ? <Link href={entityHref(workspaceId, objectNode.path)}>{key}</Link> : key;
+      return entryNode ? <Link href={entityHref(workspaceId, entryNode.path)}>{key}</Link> : key;
     };
     return (
       <div className="card">
@@ -977,39 +977,39 @@ function EntitySummary({
     );
   }
 
-  if (node.kind === "resource") {
-    const objects = model?.resourceObjects.filter((object) => object.resource === node.id) ?? [];
-    if (objects.length === 0) {
+  if (node.kind === "catalog") {
+    const entries = model?.catalogEntries.filter((entry) => entry.catalog === node.id) ?? [];
+    if (entries.length === 0) {
       return null;
     }
     return (
       <div className="card">
         <div className="card-head-text">
-          <h3>Objects</h3>
-          <p className="hint">Variable values reference these objects by key.</p>
+          <h3>Entries</h3>
+          <p className="hint">Variable values reference these entries by key.</p>
         </div>
         <div className="row-list">
-          {objects.map((object) => {
-            const objectNode = allNodes.find(
-              (candidate) => candidate.targetKey === `resource_objects:${node.id}:${object.key}`,
+          {entries.map((entry) => {
+            const entryNode = allNodes.find(
+              (candidate) => candidate.targetKey === `catalog_entries:${node.id}:${entry.key}`,
             );
             const fields =
-              typeof object.value === "object" &&
-              object.value !== null &&
-              !Array.isArray(object.value)
-                ? Object.entries(object.value as Record<string, unknown>)
+              typeof entry.value === "object" &&
+              entry.value !== null &&
+              !Array.isArray(entry.value)
+                ? Object.entries(entry.value as Record<string, unknown>)
                 : [];
             return (
               <Link
                 className="row"
-                href={objectNode ? entityHref(workspaceId, objectNode.path) : "#"}
-                key={object.key}
+                href={entryNode ? entityHref(workspaceId, entryNode.path) : "#"}
+                key={entry.key}
               >
                 <span className="row-icon">
                   <Database aria-hidden size={16} />
                 </span>
                 <span className="row-text">
-                  <span className="row-title mono">{object.key}</span>
+                  <span className="row-title mono">{entry.key}</span>
                   <span className="row-sub mono">
                     {fields
                       .slice(0, 4)
@@ -1210,14 +1210,14 @@ export function workspaceGraphData(input: {
   for (const variable of model.variables) {
     pushNode(`variables:${variable.id}`, "variable", variable.id);
   }
-  for (const resource of model.resources) {
-    pushNode(`resources:${resource.id}`, "resource", resource.id);
+  for (const catalog of model.catalogs) {
+    pushNode(`catalogs:${catalog.id}`, "catalog", catalog.id);
   }
-  for (const object of model.resourceObjects) {
+  for (const entry of model.catalogEntries) {
     pushNode(
-      `resource_objects:${object.resource}:${object.key}`,
-      "resourceObject",
-      object.key,
+      `catalog_entries:${entry.catalog}:${entry.key}`,
+      "catalogEntry",
+      entry.key,
     );
   }
   const edges: WorkspaceGraphData["edges"] = [];
@@ -1242,29 +1242,29 @@ export function workspaceGraphData(input: {
     if (via.kind === "ruleQualifier" && from.kind === "variable" && to.kind === "qualifier") {
       pushEdge(`qualifiers:${to.id}`, `variables:${from.id}`, "checks");
     }
-    // Variables connect to resources; resources fan out to their objects and
+    // Variables connect to catalogs; catalogs fan out to their entries and
     // pair with their schema.
-    if (via.kind === "variableResource" && from.kind === "variable" && to.kind === "resource") {
-      pushEdge(`variables:${from.id}`, `resources:${to.id}`, "selects");
+    if (via.kind === "variableCatalog" && from.kind === "variable" && to.kind === "catalog") {
+      pushEdge(`variables:${from.id}`, `catalogs:${to.id}`, "selects");
     }
-    // Selected objects are not drawn as edges (the path goes through the
-    // resource) but hover highlighting should reach them.
+    // Selected entries are not drawn as edges (the path goes through the
+    // catalog) but hover highlighting should reach them.
     if (
       (via.kind === "ruleValue" || via.kind === "resolveDefault") &&
       from.kind === "variable" &&
-      to.kind === "resourceObject"
+      to.kind === "catalogEntry"
     ) {
       const variableNode = graphNodes.find((node) => node.id === `variables:${from.id}`);
-      const objectKey = `resource_objects:${to.resource}:${to.key}`;
-      if (variableNode && seenNodes.has(objectKey)) {
-        (variableNode.related ??= []).push(objectKey);
+      const entryKey = `catalog_entries:${to.catalog}:${to.key}`;
+      if (variableNode && seenNodes.has(entryKey)) {
+        (variableNode.related ??= []).push(entryKey);
       }
     }
   }
-  for (const object of model.resourceObjects) {
+  for (const entry of model.catalogEntries) {
     pushEdge(
-      `resources:${object.resource}`,
-      `resource_objects:${object.resource}:${object.key}`,
+      `catalogs:${entry.catalog}`,
+      `catalog_entries:${entry.catalog}:${entry.key}`,
       "contains",
     );
   }
@@ -1321,10 +1321,10 @@ function entityRelations(input: {
         return `qualifiers:${ref.id}`;
       case "variable":
         return `variables:${ref.id}`;
-      case "resource":
-        return `resources:${ref.id}`;
-      case "resourceObject":
-        return `resource_objects:${ref.resource}:${ref.key}`;
+      case "catalog":
+        return `catalogs:${ref.id}`;
+      case "catalogEntry":
+        return `catalog_entries:${ref.catalog}:${ref.key}`;
       case "schema":
         return `schemas:${ref.path.split("/").pop() ?? ref.path}`;
       case "value":
@@ -1337,7 +1337,7 @@ function entityRelations(input: {
     const key = targetKeyForRef(ref);
     const match = key ? allNodes.find((candidate) => candidate.targetKey === key) : undefined;
     const text =
-      ref.kind === "resourceObject"
+      ref.kind === "catalogEntry"
         ? ref.key
         : ref.kind === "schema"
           ? (ref.path.split("/").pop() ?? ref.path)
@@ -1378,35 +1378,35 @@ function entityRelations(input: {
           });
           break;
         case "ruleValue":
-          if (to.kind === "resourceObject") {
+          if (to.kind === "catalogEntry") {
             outbound.push({
               key: `out:${index}`,
               content: (
                 <>
-                  {g(`rule[${via.index}]`)} selects object {link}
+                  {g(`rule[${via.index}]`)} selects entry {link}
                 </>
               ),
             });
           }
           break;
         case "resolveDefault":
-          if (to.kind === "resourceObject") {
+          if (to.kind === "catalogEntry") {
             outbound.push({
               key: `out:${index}`,
-              content: <>{g("default")} selects object {link}</>,
+              content: <>{g("default")} selects entry {link}</>,
             });
           }
           break;
-        case "variableResource":
+        case "variableCatalog":
           outbound.push({
             key: `out:${index}`,
-            content: <>values come from resource {link}</>,
+            content: <>values come from catalog {link}</>,
           });
           break;
-        case "resourceSchema":
+        case "catalogSchema":
           outbound.push({
             key: `out:${index}`,
-            content: <>objects validate against {link}</>,
+            content: <>entries validate against {link}</>,
           });
           break;
         case "predicateQualifier":
@@ -1452,16 +1452,16 @@ function entityRelations(input: {
             content: <>{link} selects this {g("as default")}</>,
           });
           break;
-        case "variableResource":
+        case "variableCatalog":
           inbound.push({
             key: `in:${index}`,
-            content: <>{link} takes its values from this resource</>,
+            content: <>{link} takes its values from this catalog</>,
           });
           break;
-        case "resourceSchema":
+        case "catalogSchema":
           inbound.push({
             key: `in:${index}`,
-            content: <>{link} validates its objects against this</>,
+            content: <>{link} validates its entries against this</>,
           });
           break;
         case "predicateQualifier":
@@ -1512,11 +1512,11 @@ function entityRelations(input: {
       }
     }
   }
-  if (node.kind === "resource object") {
-    const resourceId = node.badge ?? "";
+  if (node.kind === "catalog entry") {
+    const catalogId = node.badge ?? "";
     outbound.push({
       key: "out:membership",
-      content: <>object of resource {entityLink({ kind: "resource", id: resourceId })}</>,
+      content: <>entry of catalog {entityLink({ kind: "catalog", id: catalogId })}</>,
     });
   }
 
@@ -1615,7 +1615,7 @@ function OverviewAttention({
 const OVERVIEW_CARD_SECTIONS: SectionId[] = [
   "variables",
   "qualifiers",
-  "resources",
+  "catalogs",
   "schemas",
   "linters",
   "context",
@@ -1627,7 +1627,7 @@ function sectionIcon(section: SectionId, size: number): ReactNode {
       return <FileCode2 aria-hidden size={size} />;
     case "qualifiers":
       return <Tags aria-hidden size={size} />;
-    case "resources":
+    case "catalogs":
       return <Database aria-hidden size={size} />;
     case "schemas":
       return <FileJson2 aria-hidden size={size} />;
@@ -1678,12 +1678,12 @@ function entityNodes(inventory: WorkspaceInventory): EntityNode[] {
       targetKey: `variables:${item.id}`,
       outboundKeys: [
         ...item.qualifierReferences.map((id) => `qualifiers:${id}`),
-        item.resourceReference ? `resources:${item.resourceReference}` : null,
-        // Resource-typed variables select objects by value key, so each
-        // selected object is a reference too.
-        ...(item.resourceReference
+        item.catalogReference ? `catalogs:${item.catalogReference}` : null,
+        // Catalog-typed variables select entries by value key, so each
+        // selected entry is a reference too.
+        ...(item.catalogReference
           ? [...new Set([...item.ruleValueKeys, ...(item.defaultValueKey ? [item.defaultValueKey] : [])])].map(
-              (key) => `resource_objects:${item.resourceReference}:${key}`,
+              (key) => `catalog_entries:${item.catalogReference}:${key}`,
             )
           : []),
         item.schemaReference ? `schemas:${item.schemaReference}` : null,
@@ -1699,25 +1699,25 @@ function entityNodes(inventory: WorkspaceInventory): EntityNode[] {
       targetKey: `qualifiers:${item.id}`,
       outboundKeys: item.qualifierReferences.map((id) => `qualifiers:${id}`),
     })),
-    ...inventory.resources.map((item) => ({
-      section: "resources" as const,
-      kind: "resource",
+    ...inventory.catalogs.map((item) => ({
+      section: "catalogs" as const,
+      kind: "catalog",
       id: item.id,
       path: item.path,
       description: item.description,
-      badge: `${item.objectCount} objects`,
-      targetKey: `resources:${item.id}`,
+      badge: `${item.entryCount} entries`,
+      targetKey: `catalogs:${item.id}`,
       outboundKeys: item.schemaReference ? [`schemas:${item.schemaReference}`] : [],
     })),
-    ...inventory.resourceObjects.map((item) => ({
-      section: "resources" as const,
-      kind: "resource object",
+    ...inventory.catalogEntries.map((item) => ({
+      section: "catalogs" as const,
+      kind: "catalog entry",
       id: item.id,
       path: item.path,
-      description: `Object ${item.key} for resource ${item.resourceId}`,
-      badge: item.resourceId,
-      targetKey: `resource_objects:${item.resourceId}:${item.key}`,
-      outboundKeys: [`resources:${item.resourceId}`],
+      description: `Entry ${item.key} for catalog ${item.catalogId}`,
+      badge: item.catalogId,
+      targetKey: `catalog_entries:${item.catalogId}:${item.key}`,
+      outboundKeys: [`catalogs:${item.catalogId}`],
     })),
     ...inventory.schemas.map((item) => ({
       section: "schemas" as const,
@@ -1786,13 +1786,13 @@ function semanticTargetKey(entity: Record<string, unknown>): string | null {
   if (entity.kind === "predicate" && typeof entity.qualifier === "string") {
     return `qualifiers:${entity.qualifier}`;
   }
-  if (entity.kind === "resource" && typeof entity.id === "string") {
-    return `resources:${entity.id}`;
+  if (entity.kind === "catalog" && typeof entity.id === "string") {
+    return `catalogs:${entity.id}`;
   }
-  if (entity.kind === "resource_object" && typeof entity.resource === "string") {
+  if (entity.kind === "catalog_entry" && typeof entity.catalog === "string") {
     return typeof entity.key === "string"
-      ? `resource_objects:${entity.resource}:${entity.key}`
-      : `resource_objects:${entity.resource}:*`;
+      ? `catalog_entries:${entity.catalog}:${entity.key}`
+      : `catalog_entries:${entity.catalog}:*`;
   }
   return null;
 }
@@ -1841,7 +1841,7 @@ export function normalizeSection(value: string | null): SectionId | null {
     value === "overview" ||
     value === "variables" ||
     value === "qualifiers" ||
-    value === "resources" ||
+    value === "catalogs" ||
     value === "schemas" ||
     value === "linters" ||
     value === "context" ||

@@ -4,29 +4,29 @@ The first two examples used scalar values: an integer account limit and a
 boolean [operational switch](operational-switches.html). The next step is a
 structured value.
 Some runtime configuration is not a single number or true/false decision; it is
-a small object the app needs to trust before it renders it.
+a small entry the app needs to trust before it renders it.
 
 An incident banner is a good example. During a regional support incident, the
 service may need to show a banner to affected accounts. A malformed banner is
-user-visible, so I want the workspace to validate the object before the app
+user-visible, so I want the workspace to validate the entry before the app
 ever loads it.
 
 In this example, rototo owns the reviewed decision and selected payload. The
 app still owns placement, styling, localization, and whether a given page should
 render a banner at all.
 
-## Start With A Resource-Backed Variable
+## Start With A Catalog-Backed Variable
 
 Create a workspace with a [variable](reference-variables.html) and a
-[resource](reference-resources.html) template:
+[catalog](reference-catalogs.html) template:
 
 ```sh
 rototo init communications-config --variable support-banner
-rototo init communications-config --resource support-banner
+rototo init communications-config --catalog support-banner
 ```
 
-The variable will select a named banner object. The resource will define the
-schema and hold the objects the variable can select.
+The variable will select a named banner entry. The catalog will define the
+schema and hold the entries the variable can select.
 
 Replace `communications-config/variables/support-banner.toml`:
 
@@ -34,13 +34,13 @@ Replace `communications-config/variables/support-banner.toml`:
 schema_version = 1
 
 description = "Support banner shown during operational incidents"
-type = "resource:support-banner"
+type = "catalog:support-banner"
 
 [resolve]
 default = "none"
 ```
 
-Then replace `communications-config/resources/support-banner.toml`:
+Then replace `communications-config/catalogs/support-banner.toml`:
 
 ```toml
 schema_version = 1
@@ -49,13 +49,13 @@ description = "Support banner payloads"
 schema = "../schemas/support-banner.schema.json"
 ```
 
-The variable now has a type, but its values live as resource objects. Resolution
-stays in the variable, while object validation belongs to the resource.
+The variable now has a type, but its values live as catalog entries. Resolution
+stays in the variable, while entry validation belongs to the catalog.
 
-## Define The Object Shape
+## Define The Entry Shape
 
-Before writing banner objects, define the
-[shape the app is willing to consume](reference-resources.html).
+Before writing banner entries, define the
+[shape the app is willing to consume](reference-catalogs.html).
 Replace `communications-config/schemas/support-banner.schema.json`:
 
 ```json
@@ -89,18 +89,18 @@ The schema makes two production expectations explicit. A disabled banner can be
 small. An enabled banner must include the fields the app needs to render
 something coherent.
 
-## Add The Banner Objects
+## Add The Banner Entries
 
-Rename the generated object file from
-`communications-config/resources/support-banner-objects/default.toml` to
-`communications-config/resources/support-banner-objects/none.toml`, then replace
+Rename the generated entry file from
+`communications-config/catalogs/support-banner-entries/default.toml` to
+`communications-config/catalogs/support-banner-entries/none.toml`, then replace
 its contents:
 
 ```toml
 enabled = false
 ```
 
-Create `communications-config/resources/support-banner-objects/eu-incident.toml`:
+Create `communications-config/catalogs/support-banner-entries/eu-incident.toml`:
 
 ```toml
 enabled = true
@@ -112,7 +112,7 @@ link = "https://status.example.com"
 
 These file stems, `none` and `eu-incident`, are the
 [value keys](reference-variable-values.html) the variable can select. Rototo
-validates both objects against the resource schema during lint.
+validates both entries against the catalog schema during lint.
 
 Run lint and resolve the default path:
 
@@ -130,7 +130,7 @@ value:
 ```
 
 That default matters. The app can ask for `support-banner` on every request and
-receive a valid object, even when there is nothing to show.
+receive a valid entry, even when there is nothing to show.
 
 ## Name The Affected Condition
 
@@ -155,7 +155,7 @@ Then update the variable so the named condition selects the incident payload:
 schema_version = 1
 
 description = "Support banner shown during operational incidents"
-type = "resource:support-banner"
+type = "catalog:support-banner"
 
 [resolve]
 default = "none"
@@ -204,7 +204,7 @@ rototo lint communications-config
 ```
 
 This catches both sides of the contract: the app context shape used by the
-qualifier, and the selected banner object shape used by the app.
+qualifier, and the selected banner entry shape used by the app.
 
 ## Resolve The Two Paths
 

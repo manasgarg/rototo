@@ -17,14 +17,14 @@ fn init_creates_workspace_skeleton() {
         .stdout(predicate::str::contains("rototo-workspace.toml"))
         .stdout(predicate::str::contains("qualifiers"))
         .stdout(predicate::str::contains("variables"))
-        .stdout(predicate::str::contains("resources"))
+        .stdout(predicate::str::contains("catalogs"))
         .stdout(predicate::str::contains("schemas"))
         .stdout(predicate::str::contains("lint"));
 
     assert!(workspace.join("rototo-workspace.toml").is_file());
     assert!(workspace.join("qualifiers").is_dir());
     assert!(workspace.join("variables").is_dir());
-    assert!(workspace.join("resources").is_dir());
+    assert!(workspace.join("catalogs").is_dir());
     assert!(workspace.join("schemas").is_dir());
     assert!(workspace.join("lint").is_dir());
 
@@ -56,7 +56,7 @@ fn init_entity_implicitly_creates_workspace_skeleton() {
     assert!(workspace.join("rototo-workspace.toml").is_file());
     assert!(workspace.join("qualifiers").is_dir());
     assert!(workspace.join("variables").is_dir());
-    assert!(workspace.join("resources").is_dir());
+    assert!(workspace.join("catalogs").is_dir());
     assert!(workspace.join("schemas").is_dir());
     assert!(workspace.join("lint").is_dir());
     assert!(workspace.join("variables/max-output-tokens.toml").is_file());
@@ -114,7 +114,7 @@ fn init_qualifier_and_context_templates() {
 }
 
 #[test]
-fn init_variable_and_resource_templates() {
+fn init_variable_and_catalog_templates() {
     let temp = tempfile::tempdir().unwrap();
     let workspace = temp.path().join("config");
     init_workspace(&workspace);
@@ -135,7 +135,7 @@ fn init_variable_and_resource_templates() {
         .args([
             "init",
             workspace.to_str().unwrap(),
-            "--resource",
+            "--catalog",
             "checkout-redesign",
         ])
         .assert()
@@ -146,11 +146,11 @@ fn init_variable_and_resource_templates() {
     assert!(variable.contains("[resolve]"));
     assert!(!variable.contains("[env."));
 
-    let resource = fs::read_to_string(workspace.join("resources/checkout-redesign.toml")).unwrap();
-    assert!(resource.contains("schema = \"../schemas/checkout-redesign.schema.json\""));
+    let catalog = fs::read_to_string(workspace.join("catalogs/checkout-redesign.toml")).unwrap();
+    assert!(catalog.contains("schema = \"../schemas/checkout-redesign.schema.json\""));
     assert!(
         workspace
-            .join("resources/checkout-redesign-objects/default.toml")
+            .join("catalogs/checkout-redesign-entries/default.toml")
             .is_file()
     );
 

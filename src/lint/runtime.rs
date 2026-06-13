@@ -287,12 +287,12 @@ impl<'a> RuntimeCompiler<'a> {
                 "variable declares unknown type: {}",
                 type_name.value
             ))),
-            TypeSourceNode::Resource(resource) if index.resources.contains_key(&resource.value) => {
+            TypeSourceNode::Catalog(catalog) if index.catalogs.contains_key(&catalog.value) => {
                 Ok(())
             }
-            TypeSourceNode::Resource(resource) => Err(RototoError::new(format!(
-                "variable references unknown resource: {}",
-                resource.value
+            TypeSourceNode::Catalog(catalog) => Err(RototoError::new(format!(
+                "variable references unknown catalog: {}",
+                catalog.value
             ))),
             TypeSourceNode::Schema(_) => Err(RototoError::new(format!(
                 "variable schemas are no longer supported: {}",
@@ -312,29 +312,29 @@ impl<'a> RuntimeCompiler<'a> {
         index: &SemanticIndex,
         variable: &VariableNode,
     ) -> Result<BTreeMap<String, JsonValue>> {
-        if let TypeSourceNode::Resource(resource) = &variable.type_source {
+        if let TypeSourceNode::Catalog(catalog) = &variable.type_source {
             if variable.values.invalid_shape || !variable.values.inline_values.is_empty() {
                 return Err(RototoError::new(format!(
-                    "resource-backed variable must not contain values: {}",
+                    "catalog-backed variable must not contain values: {}",
                     variable.id
                 )));
             }
 
-            let objects = index.resource_objects.get(&resource.value).ok_or_else(|| {
+            let entries = index.catalog_entries.get(&catalog.value).ok_or_else(|| {
                 RototoError::new(format!(
-                    "resource has no objects for variable {}: {}",
-                    variable.id, resource.value
+                    "catalog has no entries for variable {}: {}",
+                    variable.id, catalog.value
                 ))
             })?;
-            if objects.is_empty() {
+            if entries.is_empty() {
                 return Err(RototoError::new(format!(
-                    "resource has no objects for variable {}: {}",
-                    variable.id, resource.value
+                    "catalog has no entries for variable {}: {}",
+                    variable.id, catalog.value
                 )));
             }
-            return Ok(objects
+            return Ok(entries
                 .iter()
-                .map(|(key, object)| (key.clone(), object.value.clone()))
+                .map(|(key, entry)| (key.clone(), entry.value.clone()))
                 .collect());
         }
 

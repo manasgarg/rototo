@@ -50,7 +50,7 @@ Examples:
 rototo/workspace-manifest-missing
 rototo/qualifier-predicate-unknown-op
 rototo/variable-unknown-value
-rototo/resource-object-schema-mismatch
+rototo/catalog-entry-schema-mismatch
 ```
 
 Custom rules use:
@@ -85,8 +85,8 @@ manifest
 qualifier
 predicate
 variable
-resource
-resource_object
+catalog
+catalog_entry
 value
 rule
 custom_lint

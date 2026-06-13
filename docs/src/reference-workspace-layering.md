@@ -50,21 +50,21 @@ into the projected workspace root.
 The child workspace's `rototo-workspace.toml` remains the manifest of the final
 projected workspace.
 
-## Resource Object Layers
+## Catalog Entry Layers
 
-Resource object files layer by path:
+Catalog entry files layer by path:
 
 ```text
-resources/banner-objects/default.toml
-resources/banner-objects/incident.toml
+catalogs/banner-entries/default.toml
+catalogs/banner-entries/incident.toml
 ```
 
-A child can add a new object by adding a new file. It can replace an inherited
-object by writing the same object path. It cannot partially merge fields within
-an object file.
+A child can add a new entry by adding a new file. It can replace an inherited
+entry by writing the same entry path. It cannot partially merge fields within
+an entry file.
 
-The resource declaration still has to exist in the projected workspace, and
-every object still has to match the resource schema after projection.
+The catalog declaration still has to exist in the projected workspace, and
+every entry still has to match the catalog schema after projection.
 
 ## Safety Limits
 

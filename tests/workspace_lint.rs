@@ -24,9 +24,9 @@ fn lints_basic_workspace_as_json_with_documents() {
     assert!(document_paths(&lint).contains(&"rototo-workspace.toml".to_owned()));
     assert!(document_paths(&lint).contains(&"qualifiers/premium-users.toml".to_owned()));
     assert!(document_paths(&lint).contains(&"variables/checkout-redesign.toml".to_owned()));
-    assert!(document_paths(&lint).contains(&"resources/llm-agent-config.toml".to_owned()));
+    assert!(document_paths(&lint).contains(&"catalogs/llm-agent-config.toml".to_owned()));
     assert!(
-        document_paths(&lint).contains(&"resources/llm-agent-config-objects/local.toml".to_owned())
+        document_paths(&lint).contains(&"catalogs/llm-agent-config-entries/local.toml".to_owned())
     );
     assert!(document_paths(&lint).contains(&"schemas/context.schema.json".to_owned()));
 }
@@ -374,8 +374,8 @@ fn accepts_path_safety_normalized_refs() {
     assert!(document_paths(&lint).contains(&"schemas/context.schema.json".to_owned()));
     assert!(document_paths(&lint).contains(&"schemas/value.schema.json".to_owned()));
     assert!(document_paths(&lint).contains(&"variables/message.toml".to_owned()));
-    assert!(document_paths(&lint).contains(&"resources/message.toml".to_owned()));
-    assert!(document_paths(&lint).contains(&"resources/message-objects/default.toml".to_owned()));
+    assert!(document_paths(&lint).contains(&"catalogs/message.toml".to_owned()));
+    assert!(document_paths(&lint).contains(&"catalogs/message-entries/default.toml".to_owned()));
     assert!(document_paths(&lint).contains(&"lint/ok.lua".to_owned()));
 }
 
@@ -383,11 +383,7 @@ fn accepts_path_safety_normalized_refs() {
 fn rejects_path_safety_escaping_refs_and_lint_files() {
     let lint = lint_json("tests/fixtures/workspaces/path-safety-escapes", false);
 
-    assert_reference_rule(
-        &lint,
-        "rototo/resource-schema-ref",
-        "resources/message.toml",
-    );
+    assert_reference_rule(&lint, "rototo/catalog-schema-ref", "catalogs/message.toml");
     assert_register_rule(&lint, "rototo/custom-lint-failed", "lint/escape.lua");
 
     let lint_file = diagnostic_for_rule(&lint, "rototo/custom-lint-failed");
@@ -498,11 +494,11 @@ fn reports_project_stage_predicate_failures() {
 }
 
 #[test]
-fn resource_object_file_can_represent_object_with_value_key() {
+fn catalog_entry_file_can_represent_object_with_value_key() {
     let temp = tempfile::TempDir::new().unwrap();
     let root = temp.path();
     std::fs::create_dir_all(root.join("variables")).unwrap();
-    std::fs::create_dir_all(root.join("resources/message-objects")).unwrap();
+    std::fs::create_dir_all(root.join("catalogs/message-entries")).unwrap();
     std::fs::create_dir_all(root.join("schemas")).unwrap();
     std::fs::write(
         root.join("rototo-workspace.toml"),
@@ -521,7 +517,7 @@ fn resource_object_file_can_represent_object_with_value_key() {
     )
     .unwrap();
     std::fs::write(
-        root.join("resources/message.toml"),
+        root.join("catalogs/message.toml"),
         r#"schema_version = 1
 schema = "../schemas/message.schema.json"
 "#,
@@ -530,7 +526,7 @@ schema = "../schemas/message.schema.json"
     std::fs::write(
         root.join("variables/message.toml"),
         r#"schema_version = 1
-type = "resource:message"
+type = "catalog:message"
 
 [resolve]
 default = "default"
@@ -538,7 +534,7 @@ default = "default"
     )
     .unwrap();
     std::fs::write(
-        root.join("resources/message-objects/default.toml"),
+        root.join("catalogs/message-entries/default.toml"),
         r#"value = "literal object field""#,
     )
     .unwrap();
@@ -551,11 +547,11 @@ default = "default"
 }
 
 #[test]
-fn resource_backed_variable_values_are_rejected_before_value_validation() {
+fn catalog_backed_variable_values_are_rejected_before_value_validation() {
     let temp = tempfile::TempDir::new().unwrap();
     let root = temp.path();
     std::fs::create_dir_all(root.join("variables")).unwrap();
-    std::fs::create_dir_all(root.join("resources/message-objects")).unwrap();
+    std::fs::create_dir_all(root.join("catalogs/message-entries")).unwrap();
     std::fs::create_dir_all(root.join("schemas")).unwrap();
     std::fs::write(
         root.join("rototo-workspace.toml"),
@@ -574,21 +570,21 @@ fn resource_backed_variable_values_are_rejected_before_value_validation() {
     )
     .unwrap();
     std::fs::write(
-        root.join("resources/message.toml"),
+        root.join("catalogs/message.toml"),
         r#"schema_version = 1
 schema = "../schemas/message.schema.json"
 "#,
     )
     .unwrap();
     std::fs::write(
-        root.join("resources/message-objects/default.toml"),
-        r#"value = "resource object""#,
+        root.join("catalogs/message-entries/default.toml"),
+        r#"value = "catalog entry""#,
     )
     .unwrap();
     std::fs::write(
         root.join("variables/message.toml"),
         r#"schema_version = 1
-type = "resource:message"
+type = "catalog:message"
 
 [values]
 default = "inline"
@@ -630,8 +626,8 @@ fn reports_reference_stage_failures() {
     );
     assert_reference_rule(
         &lint,
-        "rototo/resource-schema-ref",
-        "resources/bad-schema-ref.toml",
+        "rototo/catalog-schema-ref",
+        "catalogs/bad-schema-ref.toml",
     );
 
     let qualifier = diagnostic_for_rule(&lint, "rototo/qualifier-predicate-unknown-qualifier");
@@ -689,8 +685,8 @@ fn reports_value_stage_failures() {
 
     assert_value_rule(
         &lint,
-        "rototo/resource-object-schema-mismatch",
-        "resources/bad-schema-value-objects/broken.toml",
+        "rototo/catalog-entry-schema-mismatch",
+        "catalogs/bad-schema-value-entries/broken.toml",
     );
     assert_value_rule(
         &lint,
@@ -708,13 +704,10 @@ fn reports_value_stage_failures() {
     assert_eq!(unknown_type["target"]["entity"]["id"], "unknown-type");
     assert!(unknown_type["location"]["range"].is_object());
 
-    let schema_mismatch = diagnostic_for_rule(&lint, "rototo/resource-object-schema-mismatch");
+    let schema_mismatch = diagnostic_for_rule(&lint, "rototo/catalog-entry-schema-mismatch");
+    assert_eq!(schema_mismatch["target"]["entity"]["kind"], "catalog_entry");
     assert_eq!(
-        schema_mismatch["target"]["entity"]["kind"],
-        "resource_object"
-    );
-    assert_eq!(
-        schema_mismatch["target"]["entity"]["resource"],
+        schema_mismatch["target"]["entity"]["catalog"],
         "bad-schema-value"
     );
     assert_eq!(schema_mismatch["target"]["entity"]["key"], "broken");
@@ -2414,28 +2407,28 @@ fn pending_canonical_rule_fixtures() -> &'static [PendingCanonicalRuleFixture] {
             rule: RototoRuleId::VariableTypeSource,
         },
         PendingCanonicalRuleFixture {
-            rule: RototoRuleId::VariableUnknownResource,
+            rule: RototoRuleId::VariableUnknownCatalog,
         },
         PendingCanonicalRuleFixture {
             rule: RototoRuleId::VariableValuesDisallowed,
         },
         PendingCanonicalRuleFixture {
-            rule: RototoRuleId::ResourceParseFailed,
+            rule: RototoRuleId::CatalogParseFailed,
         },
         PendingCanonicalRuleFixture {
-            rule: RototoRuleId::ResourceObjectParseFailed,
+            rule: RototoRuleId::CatalogEntryParseFailed,
         },
         PendingCanonicalRuleFixture {
-            rule: RototoRuleId::ResourceSchemaVersion,
+            rule: RototoRuleId::CatalogSchemaVersion,
         },
         PendingCanonicalRuleFixture {
-            rule: RototoRuleId::ResourceSchemaRef,
+            rule: RototoRuleId::CatalogSchemaRef,
         },
         PendingCanonicalRuleFixture {
-            rule: RototoRuleId::ResourceObjectSchemaMismatch,
+            rule: RototoRuleId::CatalogEntrySchemaMismatch,
         },
         PendingCanonicalRuleFixture {
-            rule: RototoRuleId::ResourceObjectUnknownReference,
+            rule: RototoRuleId::CatalogEntryUnknownReference,
         },
     ]
 }
