@@ -53,8 +53,8 @@ request is attributed to the person who made it, not to a shared bot.
 Team mode turns on when OAuth credentials are configured:
 
 ```sh
-GITHUB_CLIENT_ID=… \
-GITHUB_CLIENT_SECRET=… \
+ROTOTO_GITHUB_CLIENT_ID=… \
+ROTOTO_GITHUB_CLIENT_SECRET=… \
 ROTOTO_CONSOLE_TOKEN_ENCRYPTION_KEY=base64:… \
 ROTOTO_CONSOLE_PUBLIC_URL=https://console.internal.example.com \
 rototo console --bind 127.0.0.1:7686

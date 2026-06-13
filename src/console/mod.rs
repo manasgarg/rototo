@@ -26,7 +26,9 @@ use std::sync::Arc;
 use crate::error::{Result, RototoError};
 
 use self::api::ConsoleState;
-use self::auth::{AuthMode, LocalAuth, resolve_ambient_token};
+use self::auth::{
+    AuthMode, GITHUB_CLIENT_ID_ENV, GITHUB_CLIENT_SECRET_ENV, LocalAuth, resolve_ambient_token,
+};
 use self::github::GitHubClient;
 use self::lsp::LspSessions;
 use self::observability::DevObservability;
@@ -151,6 +153,16 @@ pub async fn run(options: ConsoleOptions) -> Result<()> {
 }
 
 fn resolve_mode(options: &ConsoleOptions) -> Result<AuthMode> {
+    let client_id = std::env::var(GITHUB_CLIENT_ID_ENV).unwrap_or_default();
+    let client_secret = std::env::var(GITHUB_CLIENT_SECRET_ENV).unwrap_or_default();
+    resolve_mode_from_env(options, &client_id, &client_secret)
+}
+
+fn resolve_mode_from_env(
+    options: &ConsoleOptions,
+    client_id: &str,
+    client_secret: &str,
+) -> Result<AuthMode> {
     if options.read_only {
         if options.workspace.as_deref().unwrap_or("").trim().is_empty() {
             return Err(RototoError::new(
@@ -159,13 +171,12 @@ fn resolve_mode(options: &ConsoleOptions) -> Result<AuthMode> {
         }
         return Ok(AuthMode::ReadOnly);
     }
-    let client_id = std::env::var("GITHUB_CLIENT_ID").unwrap_or_default();
-    let client_secret = std::env::var("GITHUB_CLIENT_SECRET").unwrap_or_default();
     match (client_id.trim(), client_secret.trim()) {
         ("", "") => Ok(AuthMode::Local),
-        ("", _) | (_, "") => Err(RototoError::new(
-            "team mode needs both GITHUB_CLIENT_ID and GITHUB_CLIENT_SECRET (set neither for local mode)",
-        )),
+        (_, "") => Ok(AuthMode::Local),
+        ("", _) => Err(RototoError::new(format!(
+            "team mode needs both {GITHUB_CLIENT_ID_ENV} and {GITHUB_CLIENT_SECRET_ENV}; set {GITHUB_CLIENT_ID_ENV} alone only for local device-flow sign-in"
+        ))),
         (client_id, client_secret) => Ok(AuthMode::Team {
             client_id: client_id.to_owned(),
             client_secret: client_secret.to_owned(),
@@ -337,6 +348,48 @@ fn synthetic_registration(source: &str) -> (String, String, String, String) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn options() -> ConsoleOptions {
+        ConsoleOptions {
+            bind: DEFAULT_BIND.to_owned(),
+            public_url: None,
+            data_dir: None,
+            read_only: false,
+            workspace: None,
+            workspace_token: None,
+        }
+    }
+
+    #[test]
+    fn resolve_mode_stays_local_with_only_github_client_id() {
+        let mode =
+            resolve_mode_from_env(&options(), "device-client-id", "").expect("mode should resolve");
+
+        assert_eq!(mode, AuthMode::Local);
+    }
+
+    #[test]
+    fn resolve_mode_uses_team_when_namespaced_github_oauth_pair_is_set() {
+        let mode = resolve_mode_from_env(&options(), "oauth-client-id", "oauth-secret")
+            .expect("mode should resolve");
+
+        assert_eq!(
+            mode,
+            AuthMode::Team {
+                client_id: "oauth-client-id".to_owned(),
+                client_secret: "oauth-secret".to_owned(),
+            }
+        );
+    }
+
+    #[test]
+    fn resolve_mode_rejects_github_client_secret_without_client_id() {
+        let err = resolve_mode_from_env(&options(), "", "oauth-secret")
+            .expect_err("mode should reject a secret without a client id");
+
+        assert!(err.to_string().contains(GITHUB_CLIENT_ID_ENV));
+        assert!(err.to_string().contains(GITHUB_CLIENT_SECRET_ENV));
+    }
 
     #[test]
     fn synthetic_registration_parses_source_forms() {

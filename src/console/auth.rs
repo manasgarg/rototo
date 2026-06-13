@@ -8,6 +8,8 @@ use crate::error::{Result, RototoError};
 use super::github::{self, GitHubClient};
 use super::store::{SessionUser, Store};
 
+pub const GITHUB_CLIENT_ID_ENV: &str = "ROTOTO_GITHUB_CLIENT_ID";
+pub const GITHUB_CLIENT_SECRET_ENV: &str = "ROTOTO_GITHUB_CLIENT_SECRET";
 pub const SESSION_COOKIE: &str = "rototo_console_session";
 pub const OAUTH_STATE_COOKIE: &str = "rototo_console_oauth_state";
 pub const GITHUB_OAUTH_SCOPES: &str = "read:user repo";
@@ -137,7 +139,7 @@ impl LocalAuth {
 }
 
 fn device_client_id() -> Option<String> {
-    let from_env = std::env::var("ROTOTO_GITHUB_CLIENT_ID").ok();
+    let from_env = std::env::var(GITHUB_CLIENT_ID_ENV).ok();
     let id = from_env.unwrap_or_else(|| BAKED_DEVICE_CLIENT_ID.to_owned());
     let id = id.trim().to_owned();
     (!id.is_empty()).then_some(id)

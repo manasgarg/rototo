@@ -35,8 +35,8 @@ Useful environment variables:
   defaults to `.rototo/dev/observability` when using `just console-dev`.
 - `ROTOTO_CONSOLE_TOKEN_ENCRYPTION_KEY`: required for team-mode console token
   encryption.
-- `GITHUB_CLIENT_ID` and `GITHUB_CLIENT_SECRET`: enable the console GitHub OAuth
-  web flow.
+- `ROTOTO_GITHUB_CLIENT_ID` and `ROTOTO_GITHUB_CLIENT_SECRET`: enable the
+  console GitHub OAuth web flow.
 
 ## Checks
 
@@ -123,8 +123,8 @@ Common console failures:
   the browser is using the same origin expected by `ROTOTO_CONSOLE_DEV_PUBLIC_URL`.
 - GitHub operations fail: verify `ROTOTO_WORKSPACE_TOKEN`, the stored
   device-flow sign-in, or `gh auth token`.
-- OAuth/team mode fails: verify `GITHUB_CLIENT_ID`,
-  `GITHUB_CLIENT_SECRET`, and `ROTOTO_CONSOLE_TOKEN_ENCRYPTION_KEY`.
+- OAuth/team mode fails: verify `ROTOTO_GITHUB_CLIENT_ID`,
+  `ROTOTO_GITHUB_CLIENT_SECRET`, and `ROTOTO_CONSOLE_TOKEN_ENCRYPTION_KEY`.
 
 ## Releasing
 

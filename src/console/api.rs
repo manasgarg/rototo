@@ -15,8 +15,8 @@ use serde_json::{Value as JsonValue, json};
 use crate::error::RototoError;
 
 use super::auth::{
-    AuthMode, GITHUB_OAUTH_SCOPES, LocalAuth, OAUTH_STATE_COOKIE, SESSION_COOKIE, cookie_value,
-    session_from_headers, set_cookie,
+    AuthMode, GITHUB_CLIENT_ID_ENV, GITHUB_CLIENT_SECRET_ENV, GITHUB_OAUTH_SCOPES, LocalAuth,
+    OAUTH_STATE_COOKIE, SESSION_COOKIE, cookie_value, session_from_headers, set_cookie,
 };
 use super::github::{self, GitHubClient, GitHubError};
 use super::lsp::LspSessions;
@@ -382,9 +382,9 @@ async fn logout(State(state): State<SharedState>, headers: HeaderMap) -> ApiResu
 
 async fn oauth_start(State(state): State<SharedState>) -> ApiResult<Response> {
     let AuthMode::Team { client_id, .. } = &state.mode else {
-        return Err(ApiError::internal(
-            "GITHUB_CLIENT_ID and GITHUB_CLIENT_SECRET are required",
-        ));
+        return Err(ApiError::internal(format!(
+            "{GITHUB_CLIENT_ID_ENV} and {GITHUB_CLIENT_SECRET_ENV} are required",
+        )));
     };
 
     let state_token = random_token(24)?;

@@ -102,13 +102,13 @@ static SPA with no server runtime; it talks only to `/api/*` and its built
 
 Auth modes are resolved at startup: local (default — no login; ambient GitHub
 token from `--workspace-token`/`ROTOTO_WORKSPACE_TOKEN`, a stored device-flow
-sign-in, or `gh auth token`), team (`GITHUB_CLIENT_ID` + `GITHUB_CLIENT_SECRET`
-turn on the GitHub OAuth web flow with per-user tokens encrypted via
-`ROTOTO_CONSOLE_TOKEN_ENCRYPTION_KEY`), and read-only (`--read-only
---workspace <source>`, no auth, writes rejected). Mutating routes require the
-`x-rototo-console` header plus an Origin check; keep that invariant when
-adding routes. Console writes go through the GitHub API only — do not add a
-generic git write backend without reopening the design.
+sign-in, or `gh auth token`), team (`ROTOTO_GITHUB_CLIENT_ID` +
+`ROTOTO_GITHUB_CLIENT_SECRET` turn on the GitHub OAuth web flow with per-user
+tokens encrypted via `ROTOTO_CONSOLE_TOKEN_ENCRYPTION_KEY`), and read-only
+(`--read-only --workspace <source>`, no auth, writes rejected). Mutating routes
+require the `x-rototo-console` header plus an Origin check; keep that invariant
+when adding routes. Console writes go through the GitHub API only — do not add
+a generic git write backend without reopening the design.
 
 Wire shapes are serde camelCase and mirrored in
 `apps/console/src/lib/types.ts`; the Rust server is the source of truth.
