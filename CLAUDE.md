@@ -300,7 +300,8 @@ commit with `--no-verify` after `just check` passes and the reason is clear.
 Rust is pinned by `rust-toolchain.toml`. Python is pinned by `.tool-versions`
 through `mise` and is used for `pre-commit`.
 
-`just setup-min` installs the local pre-commit and pre-push hooks.
+`just setup` installs the pinned local tools, console dependencies, and local
+pre-commit and pre-push hooks.
 
 ## Documentation Guidance
 

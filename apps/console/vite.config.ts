@@ -6,36 +6,37 @@ import { defineConfig } from "vite";
 // server embeds and serves. In development, Vite proxies /api to a locally
 // running `rototo console` (default bind 127.0.0.1:7686).
 export default defineConfig({
-  plugins: [react()],
-  resolve: {
-    alias: {
-      "@": fileURLToPath(new URL("./src", import.meta.url)),
+    plugins: [react()],
+    resolve: {
+        alias: {
+            "@": fileURLToPath(new URL("./src", import.meta.url)),
+        },
     },
-  },
-  server: {
-    host: "127.0.0.1",
-    port: 5173,
-    strictPort: true,
-    allowedHosts: ["dev.rototo.dev"],
-    warmup: {
-      clientFiles: [
-        "./src/main.tsx",
-        "./src/screens/console-screen.tsx",
-        "./src/components/app-shell.tsx",
-        "./src/components/repo-registration-form.tsx",
-        "./src/lib/api.ts",
-        "./src/lib/me.tsx",
-      ],
+    server: {
+        host: "127.0.0.1",
+        port: 5173,
+        strictPort: true,
+        allowedHosts: ["dev.rototo.dev"],
+        warmup: {
+            clientFiles: [
+                "./src/main.tsx",
+                "./src/screens/console-screen.tsx",
+                "./src/components/app-shell.tsx",
+                "./src/components/repo-registration-form.tsx",
+                "./src/lib/api.ts",
+                "./src/lib/me.tsx",
+            ],
+        },
+        proxy: {
+            "/api": {
+                target:
+                    process.env.ROTOTO_CONSOLE_API ?? "http://127.0.0.1:7686",
+                changeOrigin: false,
+            },
+        },
     },
-    proxy: {
-      "/api": {
-        target: process.env.ROTOTO_CONSOLE_API ?? "http://127.0.0.1:7686",
-        changeOrigin: false,
-      },
+    build: {
+        outDir: "dist",
+        emptyOutDir: true,
     },
-  },
-  build: {
-    outDir: "dist",
-    emptyOutDir: true,
-  },
 });

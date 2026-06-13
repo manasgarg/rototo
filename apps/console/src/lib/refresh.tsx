@@ -5,15 +5,19 @@ import { type ReactNode, createContext, useContext } from "react";
 const RefreshContext = createContext<() => void>(() => {});
 
 export function RefreshScope({
-  children,
-  onRefresh,
+    children,
+    onRefresh,
 }: {
-  children: ReactNode;
-  onRefresh: () => void;
+    children: ReactNode;
+    onRefresh: () => void;
 }) {
-  return <RefreshContext.Provider value={onRefresh}>{children}</RefreshContext.Provider>;
+    return (
+        <RefreshContext.Provider value={onRefresh}>
+            {children}
+        </RefreshContext.Provider>
+    );
 }
 
 export function useRefresh(): () => void {
-  return useContext(RefreshContext);
+    return useContext(RefreshContext);
 }

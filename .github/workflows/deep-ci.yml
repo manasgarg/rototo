@@ -1,0 +1,43 @@
+name: Deep CI
+
+on:
+  schedule:
+    - cron: "41 8 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  deep-check:
+    name: weekly deep check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.10"
+      - uses: actions/setup-node@v6
+        with:
+          node-version: "24"
+          cache: npm
+          cache-dependency-path: |
+            apps/console/package-lock.json
+            sdks/typescript/package-lock.json
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: "21"
+          cache: maven
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+      - name: Install just
+        run: cargo install just --locked
+      - name: Run full local gate
+        run: just check
+      - name: Run release package dry run
+        run: |
+          version="$(cargo metadata --locked --format-version=1 --no-deps | python3 -c 'import json, sys; data=json.load(sys.stdin); print(next(package["version"] for package in data["packages"] if package["name"]=="rototo"))')"
+          just release-package-dry-run "$version"

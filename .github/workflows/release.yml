@@ -330,6 +330,9 @@ jobs:
           npm --prefix apps/console ci
           npm --prefix apps/console run build
 
+      - name: Build Rust crate package for manifest
+        run: cargo package --package rototo --locked
+
       - name: Authenticate to crates.io
         id: auth
         uses: rust-lang/crates-io-auth-action@v1
@@ -389,3 +392,16 @@ jobs:
         uses: pypa/gh-action-pypi-publish@release/v1
         with:
           packages-dir: python-dist
+
+      - name: Generate release artifact manifest
+        run: node scripts/release-artifact-manifest.mjs "${GITHUB_REF_NAME#v}"
+
+      - name: Upload release artifact manifest
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-artifact-manifest
+          path: target/release-artifacts/manifest.json
+          if-no-files-found: error
+
+      - name: Post-publish smoke links
+        run: bash scripts/release-smoke.sh "${GITHUB_REF_NAME#v}"

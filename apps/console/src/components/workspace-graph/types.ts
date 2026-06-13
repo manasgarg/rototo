@@ -4,39 +4,44 @@
    WorkspaceGraphData. */
 
 export type GraphNodeKind =
-  | "qualifier"
-  | "variable"
-  | "catalog"
-  | "catalogEntry"
-  | "schema"
-  | "linter";
+    | "qualifier"
+    | "variable"
+    | "catalog"
+    | "catalogEntry"
+    | "schema"
+    | "linter";
 
 export type GraphNode = {
-  /* Stable unique id (the entity target key). */
-  id: string;
-  kind: GraphNodeKind;
-  label: string;
-  href: string;
-  /* The entity's source text, for hover previews. May be truncated. */
-  source?: string;
-  language?: "json" | "lua" | "toml" | "text";
-  /* Entities semantically tied to this one beyond drawn edges (a variable's
+    /* Stable unique id (the entity target key). */
+    id: string;
+    kind: GraphNodeKind;
+    label: string;
+    href: string;
+    /* The entity's source text, for hover previews. May be truncated. */
+    source?: string;
+    language?: "json" | "lua" | "toml" | "text";
+    /* Entities semantically tied to this one beyond drawn edges (a variable's
      selected entries); hover highlighting includes them and the drawn edges
      that connect into them. */
-  related?: string[];
-  /* Marked when the entity differs from the base ref in the current draft. */
-  edited?: boolean;
+    related?: string[];
+    /* Marked when the entity differs from the base ref in the current draft. */
+    edited?: boolean;
 };
 
-export type GraphEdgeKind = "checks" | "selects" | "contains" | "validates" | "requires";
+export type GraphEdgeKind =
+    | "checks"
+    | "selects"
+    | "contains"
+    | "validates"
+    | "requires";
 
 export type GraphEdge = {
-  from: string;
-  to: string;
-  kind: GraphEdgeKind;
+    from: string;
+    to: string;
+    kind: GraphEdgeKind;
 };
 
 export type WorkspaceGraphData = {
-  nodes: GraphNode[];
-  edges: GraphEdge[];
+    nodes: GraphNode[];
+    edges: GraphEdge[];
 };

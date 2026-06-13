@@ -2,6 +2,7 @@ use assert_cmd::Command;
 use predicates::prelude::*;
 use rototo::diagnostics::{LintStage, RototoRuleId};
 use std::collections::BTreeSet;
+use std::path::Path;
 
 #[test]
 fn lints_basic_workspace() {
@@ -177,6 +178,55 @@ fn canonical_rule_fixture_table_covers_every_rototo_rule() {
         .map(|rule| rule.meta().rule)
         .collect::<BTreeSet<_>>();
     assert_eq!(covered, expected);
+}
+
+#[test]
+fn builtin_diagnostic_rule_ids_are_flat_rototo_ids() {
+    for rule in RototoRuleId::iter() {
+        let id = rule.meta().rule;
+        assert!(
+            id.starts_with("rototo/"),
+            "built-in diagnostic id must start with rototo/: {id}"
+        );
+        assert_eq!(
+            id.matches('/').count(),
+            1,
+            "built-in diagnostic id must be flat, for example rototo/variable-unknown-value: {id}"
+        );
+    }
+}
+
+#[test]
+fn lint_failures_fixture_reports_expected_rule_ids() {
+    let lint = lint_json("tests/fixtures/workspaces/lint-failures", false);
+    let actual = lint["diagnostics"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|diagnostic| diagnostic["rule"].as_str().unwrap().to_owned())
+        .collect::<BTreeSet<_>>();
+    let expected = lint_failures_expected_rule_ids()
+        .iter()
+        .map(|rule| (*rule).to_owned())
+        .collect::<BTreeSet<_>>();
+
+    assert_eq!(actual, expected, "unexpected lint-failures rules\n{lint:#}");
+}
+
+#[test]
+fn workspace_fixture_parse_failures_are_intentional() {
+    let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/workspaces");
+    let expected = intentionally_malformed_fixture_files()
+        .iter()
+        .map(|path| (*path).to_owned())
+        .collect::<BTreeSet<_>>();
+    let mut actual = BTreeSet::new();
+    collect_fixture_parse_failures(&root, &root, &expected, &mut actual);
+
+    assert_eq!(
+        actual, expected,
+        "fixture TOML/JSON parse failures should be explicit; update intentionally_malformed_fixture_files() for new parse-failure fixtures"
+    );
 }
 
 #[test]
@@ -2660,4 +2710,109 @@ fn document_paths(lint: &serde_json::Value) -> Vec<String> {
         .iter()
         .map(|document| document["path"].as_str().unwrap().to_owned())
         .collect()
+}
+
+fn lint_failures_expected_rule_ids() -> &'static [&'static str] {
+    &[
+        "fixture/custom-value-rejected",
+        "fixture/custom-variable-rejected",
+        "rototo/catalog-entry-schema-mismatch",
+        "rototo/catalog-schema-ref",
+        "rototo/qualifier-cycle",
+        "rototo/qualifier-predicate-bucket",
+        "rototo/qualifier-predicate-unknown-op",
+        "rototo/qualifier-predicate-unknown-qualifier",
+        "rototo/qualifier-predicate-value",
+        "rototo/qualifier-unreferenced",
+        "rototo/schema-invalid",
+        "rototo/schema-parse-failed",
+        "rototo/schema-ui-unknown-widget",
+        "rototo/schema-ui-widget-params",
+        "rototo/schema-ui-widget-type-mismatch",
+        "rototo/schema-unreferenced",
+        "rototo/variable-rule-shadowed",
+        "rototo/variable-rule-unknown-qualifier",
+        "rototo/variable-unknown-type",
+        "rototo/variable-unknown-value",
+        "rototo/variable-value-type-mismatch",
+        "rototo/variable-value-unused",
+    ]
+}
+
+fn intentionally_malformed_fixture_files() -> &'static [&'static str] {
+    &[
+        "context-schema-invalid-json/schemas/context.schema.json",
+        "invalid-workspace-file-toml/qualifiers/broken.toml",
+        "invalid-workspace-file-toml/variables/broken.toml",
+        "invalid-workspace-toml/rototo-workspace.toml",
+        "lint-failures/schemas/invalid-json.schema.json",
+        "rules/parse/qualifier-parse-failed/qualifiers/broken.toml",
+        "rules/parse/schema-parse-failed/schemas/broken.schema.json",
+        "rules/parse/variable-external-value-parse-failed/variables/external-message-values/broken.toml",
+        "rules/parse/variable-parse-failed/variables/broken.toml",
+        "rules/parse/workspace-manifest-parse-failed/rototo-workspace.toml",
+        "schema-contract-parse-failed/schemas/value.schema.json",
+    ]
+}
+
+fn collect_fixture_parse_failures(
+    root: &Path,
+    dir: &Path,
+    expected: &BTreeSet<String>,
+    failures: &mut BTreeSet<String>,
+) {
+    for entry in std::fs::read_dir(dir).unwrap() {
+        let path = entry.unwrap().path();
+        if path.is_dir() {
+            collect_fixture_parse_failures(root, &path, expected, failures);
+            continue;
+        }
+        match path.extension().and_then(|extension| extension.to_str()) {
+            Some("toml") => {
+                if let Err(err) = std::fs::read_to_string(&path)
+                    .map_err(|err| err.to_string())
+                    .and_then(|text| {
+                        toml::from_str::<toml::Value>(&text).map_err(|err| err.to_string())
+                    })
+                {
+                    let relative = relative_fixture_path(root, &path);
+                    assert!(
+                        expected.contains(&relative),
+                        "unexpected TOML parse failure in {relative}: {err}"
+                    );
+                    failures.insert(relative);
+                }
+            }
+            Some("json") => {
+                if let Err(err) = std::fs::read_to_string(&path)
+                    .map_err(|err| err.to_string())
+                    .and_then(|text| {
+                        serde_json::from_str::<serde_json::Value>(&text)
+                            .map_err(|err| err.to_string())
+                    })
+                {
+                    let relative = relative_fixture_path(root, &path);
+                    assert!(
+                        expected.contains(&relative),
+                        "unexpected JSON parse failure in {relative}: {err}"
+                    );
+                    failures.insert(relative);
+                }
+            }
+            _ => {}
+        }
+    }
+}
+
+fn relative_fixture_path(root: &Path, path: &Path) -> String {
+    let relative = path
+        .strip_prefix(root)
+        .unwrap()
+        .to_string_lossy()
+        .replace('\\', "/");
+    assert!(
+        !relative.is_empty(),
+        "fixture parser reported an empty path for {path:?}"
+    );
+    relative
 }

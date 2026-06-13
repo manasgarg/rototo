@@ -768,7 +768,9 @@ async fn draft_lsp(
         .await
         .map_err(|err| ApiError::bad_request(err.to_string()))?;
 
-    let result = match (body.op.as_deref(), body.position) {
+    let op = body.op.as_deref().unwrap_or("unknown").to_owned();
+    let lsp_started = std::time::Instant::now();
+    let result: ApiResult<JsonValue> = match (body.op.as_deref(), body.position) {
         (Some("update"), _) => {
             let diagnostics = state
                 .lsp
@@ -782,7 +784,7 @@ async fn draft_lsp(
                 )
                 .await
                 .map_err(|err| ApiError::bad_request(err.to_string()))?;
-            json!({ "diagnostics": diagnostics })
+            Ok(json!({ "diagnostics": diagnostics }))
         }
         (Some("completion"), Some(position)) => {
             let items = state
@@ -798,7 +800,7 @@ async fn draft_lsp(
                 )
                 .await
                 .map_err(|err| ApiError::bad_request(err.to_string()))?;
-            json!({ "items": items })
+            Ok(json!({ "items": items }))
         }
         (Some("hover"), Some(position)) => {
             let hover = state
@@ -814,10 +816,25 @@ async fn draft_lsp(
                 )
                 .await
                 .map_err(|err| ApiError::bad_request(err.to_string()))?;
-            json!({ "hover": hover })
+            Ok(json!({ "hover": hover }))
         }
-        _ => return Err(ApiError::bad_request("unknown lsp op")),
+        _ => Err(ApiError::bad_request("unknown lsp op")),
     };
+    if let Some(observability) = &state.observability {
+        observability
+            .record_operation(
+                &format!("lsp.{op}"),
+                lsp_started.elapsed().as_millis(),
+                result.is_ok(),
+                json!({
+                    "workspace_id": workspace_id,
+                    "draft_id": draft_id,
+                    "path": path,
+                }),
+            )
+            .await;
+    }
+    let result = result?;
     Ok(Json(result))
 }
 

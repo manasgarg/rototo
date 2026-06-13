@@ -1509,6 +1509,22 @@ mod tests {
     }
 
     #[test]
+    fn source_uri_accepts_supported_source_forms() {
+        for source in [
+            "file:///tmp/workspace",
+            "git+file:///tmp/workspace.git#main:rototo",
+            "git+https://github.com/example/config.git#main:rototo",
+            "git+ssh://git@github.com/example/config.git#main:rototo",
+            "https://example.com/workspace.tar.gz#:rototo",
+        ] {
+            assert!(
+                SourceUri::parse(source).unwrap().is_some(),
+                "source should parse: {source}"
+            );
+        }
+    }
+
+    #[test]
     fn staged_extend_base_rejects_local_filesystem_escape_sources() {
         let staged = tempfile::TempDir::new().unwrap();
         let base = ExtendSourceBase {

@@ -10,7 +10,27 @@ Development:
 
 ```sh
 just setup          # one-time repo bootstrap, including console dependencies
-just console-dev    # Rust API plus Vite UI for https://dev.rototo.dev
+just console-dev    # auto-reloading Rust API plus Vite UI for https://dev.rototo.dev
+```
+
+`just console-dev` writes local observability data to
+`.rototo/dev/observability/`:
+
+- `console-api.ndjson` for API latency, status, and operation events;
+- `console-ui.ndjson` for browser API timing, route load, and error events;
+- `console-dev.log` for raw Rust/Vite process output.
+
+After exercising the console, run:
+
+```sh
+just console-observe
+```
+
+To fail when the current observability data has actionable findings above the
+configured local thresholds:
+
+```sh
+just console-observe-check
 ```
 
 When you only want one side of the stack:
