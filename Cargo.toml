@@ -10,6 +10,21 @@ documentation = "https://docs.rs/rototo"
 readme = "README.md"
 keywords = ["configuration", "feature-flags", "rules", "cli", "sdk"]
 categories = ["command-line-utilities", "config"]
+# Published crates carry the built console UI bundle (apps/console/dist) so
+# `cargo install rototo` ships the console; run `just console-build` before
+# publishing. Frontend sources, SDKs, and tests stay out of the package.
+include = [
+    "/build.rs",
+    "/Cargo.toml",
+    "/LICENSE-APACHE",
+    "/LICENSE-MIT",
+    "/README.md",
+    "/apps/console/dist/**",
+    "/docs/src/**",
+    "/docs/theme/**",
+    "/spec/**",
+    "/src/**",
+]
 
 [workspace]
 members = ["examples/sdk-app", "sdks/go", "sdks/java", "sdks/python", "sdks/typescript"]
@@ -45,7 +60,7 @@ regex = "1"
 reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
 ring = "0.17"
 rusqlite = { version = "0.32", features = ["bundled"], optional = true }
-rust-embed = { version = "8", optional = true }
+rust-embed = { version = "8", features = ["interpolate-folder-path"], optional = true }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 tar = "0.4"

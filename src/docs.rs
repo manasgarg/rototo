@@ -431,9 +431,7 @@ pub async fn export_html(out: &Path) -> Result<()> {
             tokio::fs::write(assets.join(name), contents)
                 .await
                 .map_err(|err| {
-                    RototoError::new(format!(
-                        "failed to write documentation asset {name}: {err}"
-                    ))
+                    RototoError::new(format!("failed to write documentation asset {name}: {err}"))
                 })?;
         }
     }

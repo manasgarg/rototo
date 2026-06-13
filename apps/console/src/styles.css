@@ -1,14 +1,19 @@
 /* ============================================================================
-   rototo admin — stylesheet
+   rototo console — stylesheet
    Built on the rototo design system: cool sea-mist paper/ink neutrals in
    oklch, one sea-green accent, a sparing cyan secondary, hairline borders,
    and the uppercase-monospace micro-label motif.
-   Fonts (Manrope / Hanken Grotesk / JetBrains Mono) load via next/font and
-   arrive as --font-display / --font-body / --font-mono.
+   Fonts (Manrope / Hanken Grotesk / JetBrains Mono) load from Google Fonts
+   in index.html; the family variables are defined here.
    ========================================================================== */
 
 :root {
   color-scheme: light;
+
+  /* Brand fonts */
+  --font-display: "Manrope";
+  --font-body: "Hanken Grotesk";
+  --font-mono: "JetBrains Mono";
 
   /* Paper — cool sea-mist surfaces, lightest → deepest */
   --paper-0: oklch(0.994 0.004 178);

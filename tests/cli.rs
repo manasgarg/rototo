@@ -196,21 +196,39 @@ fn exports_bundled_docs_as_static_site() {
     assert!(site.join("docs/incident-banner.html").is_file());
     assert!(site.join("docs/onboarding-checklist.html").is_file());
     assert!(site.join("docs/bucketed-rollout.html").is_file());
-    assert!(site.join("docs/notification-delivery-policy.html").is_file());
+    assert!(
+        site.join("docs/notification-delivery-policy.html")
+            .is_file()
+    );
     assert!(site.join("docs/service-degradation-policy.html").is_file());
     assert!(site.join("docs/workspace-layering.html").is_file());
-    assert!(site.join("docs/reference-workspace-manifest.html").is_file());
+    assert!(
+        site.join("docs/reference-workspace-manifest.html")
+            .is_file()
+    );
     assert!(site.join("docs/reference-workspace-layout.html").is_file());
     assert!(site.join("docs/reference-workspace-sources.html").is_file());
-    assert!(site.join("docs/reference-workspace-layering.html").is_file());
+    assert!(
+        site.join("docs/reference-workspace-layering.html")
+            .is_file()
+    );
     assert!(site.join("docs/reference-context.html").is_file());
     assert!(site.join("docs/reference-qualifiers.html").is_file());
-    assert!(site.join("docs/reference-predicate-operators.html").is_file());
+    assert!(
+        site.join("docs/reference-predicate-operators.html")
+            .is_file()
+    );
     assert!(site.join("docs/reference-variables.html").is_file());
     assert!(site.join("docs/reference-variable-values.html").is_file());
     assert!(site.join("docs/reference-resources.html").is_file());
-    assert!(site.join("docs/reference-qualifier-resolution.html").is_file());
-    assert!(site.join("docs/reference-variable-resolution.html").is_file());
+    assert!(
+        site.join("docs/reference-qualifier-resolution.html")
+            .is_file()
+    );
+    assert!(
+        site.join("docs/reference-variable-resolution.html")
+            .is_file()
+    );
     assert!(site.join("docs/reference-resolution-output.html").is_file());
     assert!(site.join("docs/reference-cli-overview.html").is_file());
     assert!(site.join("docs/reference-cli-commands.html").is_file());
@@ -226,10 +244,19 @@ fn exports_bundled_docs_as_static_site() {
     assert!(site.join("docs/reference-diagnostics.html").is_file());
     assert!(site.join("docs/reference-custom-lua-lint.html").is_file());
     assert!(site.join("docs/reference-json-output.html").is_file());
-    assert!(site.join("docs/modeling-runtime-configuration.html").is_file());
+    assert!(
+        site.join("docs/modeling-runtime-configuration.html")
+            .is_file()
+    );
     assert!(site.join("docs/application-integration.html").is_file());
-    assert!(site.join("docs/testing-runtime-configuration.html").is_file());
-    assert!(site.join("docs/operating-runtime-configuration.html").is_file());
+    assert!(
+        site.join("docs/testing-runtime-configuration.html")
+            .is_file()
+    );
+    assert!(
+        site.join("docs/operating-runtime-configuration.html")
+            .is_file()
+    );
     assert!(site.join("docs/production-workflow.html").is_file());
     assert!(site.join("docs/self-hosting-console.html").is_file());
     assert!(site.join("assets/rototo-docs.css").is_file());

@@ -1,11 +1,13 @@
 use axum::http::{StatusCode, Uri, header};
 use axum::response::{Html, IntoResponse, Response};
 
-/// Console UI assets built by `just console-build`. Release builds embed the
-/// files; debug builds read them from disk so frontend rebuilds show up
-/// without recompiling.
+/// Console UI assets built by `just console-build` and staged into OUT_DIR
+/// by build.rs, so the crate builds (and publishes) even when the bundle is
+/// absent — the console then serves the instructions page below. For live
+/// frontend work use `just console-dev`, which serves the UI from Vite and
+/// proxies /api here.
 #[derive(rust_embed::Embed)]
-#[folder = "apps/console/dist"]
+#[folder = "$OUT_DIR/console-dist"]
 struct ConsoleAssets;
 
 const ASSETS_MISSING_PAGE: &str = r#"<!doctype html>
