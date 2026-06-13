@@ -171,6 +171,22 @@ rototo is not ordinary application storage. User records, transactions,
 analytics events, and high-volume mutable data should stay in the systems that
 already own them.
 
+## Console
+
+The same binary serves a web console for browsing workspaces, tracing how
+variables resolve against saved contexts, editing drafts on real branches,
+and publishing pull requests:
+
+```sh
+rototo console
+```
+
+It starts on `http://127.0.0.1:7686` with no sign-in, using your ambient
+GitHub token (`ROTOTO_WORKSPACE_TOKEN` or `gh auth token`). Team deployments
+configure GitHub OAuth; demo deployments run `--read-only` against one
+workspace source. See the self-hosting guide in the docs for all three
+shapes.
+
 ## Documentation
 
 Read the public docs at <https://docs.rototo.dev>.

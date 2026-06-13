@@ -16,7 +16,7 @@ use super::index::{
 };
 use super::references::{ReferenceSource, ReferenceTarget};
 
-pub const SEMANTIC_MODEL_VERSION: u32 = 1;
+pub const SEMANTIC_MODEL_VERSION: u32 = 2;
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -177,6 +177,21 @@ pub struct ReferenceModel {
     pub from: ModelEntityRef,
     pub to: ModelEntityRef,
     pub location: ModelLocation,
+    /// Where in the source entity the reference sits, so tools can render
+    /// the relation semantically ("rule[1] checks ...").
+    pub via: ModelReferenceVia,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase", tag = "kind")]
+pub enum ModelReferenceVia {
+    PredicateQualifier { index: usize },
+    PredicateContextAttribute { index: usize },
+    VariableResource,
+    ResourceSchema,
+    ResolveDefault,
+    RuleQualifier { index: usize },
+    RuleValue { index: usize },
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -373,6 +388,7 @@ impl WorkspaceLintSnapshot {
                 from: reference_source_ref(&edge.source),
                 to: reference_target_ref(&edge.target),
                 location: model_location(&edge.location),
+                via: reference_via(&edge.source),
             })
             .collect();
 
@@ -410,6 +426,26 @@ fn present_string(field: &Option<ProjectField<String>>) -> Option<String> {
     match field {
         Some(ProjectField::Present(value)) => Some(value.value.clone()),
         _ => None,
+    }
+}
+
+fn reference_via(source: &ReferenceSource) -> ModelReferenceVia {
+    match source {
+        ReferenceSource::QualifierPredicateQualifier { predicate, .. } => {
+            ModelReferenceVia::PredicateQualifier { index: *predicate }
+        }
+        ReferenceSource::QualifierPredicateContextAttribute { predicate, .. } => {
+            ModelReferenceVia::PredicateContextAttribute { index: *predicate }
+        }
+        ReferenceSource::VariableResource { .. } => ModelReferenceVia::VariableResource,
+        ReferenceSource::ResourceSchema { .. } => ModelReferenceVia::ResourceSchema,
+        ReferenceSource::VariableResolveDefault { .. } => ModelReferenceVia::ResolveDefault,
+        ReferenceSource::VariableRuleQualifier { rule, .. } => {
+            ModelReferenceVia::RuleQualifier { index: *rule }
+        }
+        ReferenceSource::VariableRuleValue { rule, .. } => {
+            ModelReferenceVia::RuleValue { index: *rule }
+        }
     }
 }
 

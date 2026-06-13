@@ -34,7 +34,9 @@ jobs:
         with:
           node-version: "24"
           cache: npm
-          cache-dependency-path: sdks/typescript/package-lock.json
+          cache-dependency-path: |
+            sdks/typescript/package-lock.json
+            apps/console/package-lock.json
 
       - name: Set up Java
         uses: actions/setup-java@v5
@@ -319,7 +321,14 @@ jobs:
           node-version: "24"
           registry-url: https://registry.npmjs.org
           cache: npm
-          cache-dependency-path: sdks/typescript/package-lock.json
+          cache-dependency-path: |
+            sdks/typescript/package-lock.json
+            apps/console/package-lock.json
+
+      - name: Build console UI bundle for the published crate
+        run: |
+          npm --prefix apps/console ci
+          npm --prefix apps/console run build
 
       - name: Authenticate to crates.io
         id: auth

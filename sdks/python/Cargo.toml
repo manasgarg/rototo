@@ -12,6 +12,6 @@ crate-type = ["cdylib", "rlib"]
 pyo3 = { version = "0.28", features = ["extension-module", "abi3-py310"] }
 pyo3-async-runtimes = { version = "0.28", features = ["tokio-runtime"] }
 pythonize = "0.28"
-rototo = { path = "../.." }
+rototo = { path = "../..", default-features = false }
 serde_json = "1"
 tokio = { version = "1", features = ["sync"] }

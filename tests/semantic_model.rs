@@ -8,7 +8,7 @@ async fn semantic_model_projects_entities_references_and_ranges() {
         .await
         .expect("examples/basic should produce a semantic model");
 
-    assert_eq!(model.version, 1);
+    assert_eq!(model.version, 2);
     assert!(!model.qualifiers.is_empty());
     assert!(!model.schemas.is_empty());
     assert!(!model.linters.is_empty());

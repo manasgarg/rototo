@@ -45,15 +45,25 @@ setup:
     just setup-min
     echo "Done. Run 'just check' to verify."
 
-# Install the admin UI dependencies.
+# Install the console UI dependencies.
 [group('01. setup')]
-admin-setup:
-    npm --prefix apps/admin install
+console-setup:
+    npm --prefix apps/console install
 
-# Run the hosted admin UI in development mode.
+# Run the console UI dev server (proxies /api to a running `rototo console`).
 [group('04. test')]
-admin-dev:
-    npm --prefix apps/admin run dev
+console-dev:
+    npm --prefix apps/console run dev
+
+# Build the console UI bundle that release binaries embed.
+[group('04. test')]
+console-build:
+    npm --prefix apps/console ci
+    npm --prefix apps/console run build
+
+# Typecheck and build the console UI.
+[group('04. test')]
+console-test: console-build
 
 # Format Rust code.
 [group('02. format')]
@@ -204,7 +214,7 @@ java-sdk-package-check:
 
 # Run the local pre-push gate.
 [group('05. check')]
-check: lint test python-sdk-test typescript-sdk-test java-sdk-test go-sdk-test java-sdk-package-check
+check: lint test console-test python-sdk-test typescript-sdk-test java-sdk-test go-sdk-test java-sdk-package-check
 
 # Validate that a release tag version matches all package version surfaces.
 [group('07. release')]

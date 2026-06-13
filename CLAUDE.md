@@ -88,6 +88,33 @@ rototo variable resolve checkout-redesign --workspace examples/basic \
   --context @examples/basic/contexts/premium-enterprise.json
 ```
 
+## Console
+
+`rototo console` serves the web console and its JSON API from the same binary
+as the CLI. The Rust server lives in `src/console/` and owns all data access:
+workspace staging, lint, the semantic model, resolution previews, the GitHub
+REST write path (draft branches, file commits, pull requests), an in-process
+LSP bridge, and a SQLite store for repos/workspaces/drafts/sessions under the
+console data directory. The frontend in `apps/console` is a Vite + React
+static SPA with no server runtime; it talks only to `/api/*` and its built
+`dist/` bundle is embedded into the binary (staged via `build.rs`, served by
+`rust-embed`).
+
+Auth modes are resolved at startup: local (default — no login; ambient GitHub
+token from `--workspace-token`/`ROTOTO_WORKSPACE_TOKEN`, a stored device-flow
+sign-in, or `gh auth token`), team (`GITHUB_CLIENT_ID` + `GITHUB_CLIENT_SECRET`
+turn on the GitHub OAuth web flow with per-user tokens encrypted via
+`ROTOTO_CONSOLE_TOKEN_ENCRYPTION_KEY`), and read-only (`--read-only
+--workspace <source>`, no auth, writes rejected). Mutating routes require the
+`x-rototo-console` header plus an Origin check; keep that invariant when
+adding routes. Console writes go through the GitHub API only — do not add a
+generic git write backend without reopening the design.
+
+Wire shapes are serde camelCase and mirrored in
+`apps/console/src/lib/types.ts`; the Rust server is the source of truth.
+Keep the console feature flag in Cargo.toml: SDK binding crates build with
+`default-features = false` so the server stack stays out of their artifacts.
+
 ## Lint Expectations
 
 Lint is core behavior, not just smoke testing. It should validate rototo's own
@@ -257,6 +284,7 @@ just setup
 just fmt
 just lint
 just test
+just console-build
 just check
 ```
 

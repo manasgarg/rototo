@@ -120,6 +120,11 @@ pub const DOCS: &[DocPage] = &[
         markdown: include_str!("../docs/src/production-workflow.md"),
     },
     DocPage {
+        id: "self-hosting-console",
+        title: "Self-Hosting the Console",
+        markdown: include_str!("../docs/src/self-hosting-console.md"),
+    },
+    DocPage {
         id: "reference-workspace-manifest",
         title: "Workspace Manifest",
         markdown: include_str!("../docs/src/reference-workspace-manifest.md"),
@@ -282,6 +287,7 @@ pub const DOC_NAV_SECTIONS: &[DocNavSection] = &[
             "testing-runtime-configuration",
             "operating-runtime-configuration",
             "production-workflow",
+            "self-hosting-console",
         ],
     },
     DocNavSection {
@@ -330,8 +336,12 @@ const HIGHLIGHT_JS_VERSION: &str = "11.9.0";
 /// Hanken Grotesk for body text, and JetBrains Mono for code and labels.
 const GOOGLE_FONTS_HREF: &str = "https://fonts.googleapis.com/css2?family=Hanken+Grotesk:ital,wght@0,400..700;1,400..700&family=JetBrains+Mono:ital,wght@0,400..700;1,400..700&family=Manrope:wght@400..800&display=swap";
 
-/// Top navigation bar entries as (label, page id).
-const TOPNAV_PAGES: &[(&str, &str)] = &[("Docs", "index")];
+/// Top navigation bar entries as (label, href relative to the docs pages).
+/// The homepage lives one level above the docs directory.
+const TOPNAV_LINKS: &[(&str, &str)] = &[("Home", "../index.html"), ("Docs", "index.html")];
+
+/// The rototo GitHub repository, linked from the public site.
+const GITHUB_URL: &str = "https://github.com/manasgarg/rototo";
 
 pub fn get_page(id: &str) -> Result<&'static DocPage> {
     let id = normalize_page_id(id);
@@ -399,29 +409,34 @@ pub fn render_page_html(page: &DocPage) -> String {
     )
 }
 
+/// Exports the public site: the homepage at the root and the documentation
+/// under docs/, each with its own copy of the shared assets so every page
+/// keeps relative links and the export stays browsable from file://.
 pub async fn export_html(out: &Path) -> Result<()> {
-    let assets = out.join("assets");
-    tokio::fs::create_dir_all(&assets).await.map_err(|err| {
-        RototoError::new(format!(
-            "failed to create documentation directory {}: {err}",
-            assets.display()
-        ))
-    })?;
-    let asset_files = [
-        ("rototo-docs.css", DOCS_CSS),
-        ("favicon.svg", FAVICON_SVG),
-        ("rototo-mark.svg", MARK_SVG),
-        ("rototo-wordmark.svg", WORDMARK_SVG),
-    ];
-    for (name, contents) in asset_files {
-        tokio::fs::write(assets.join(name), contents)
-            .await
-            .map_err(|err| {
-                RototoError::new(format!("failed to write documentation asset {name}: {err}"))
-            })?;
+    let docs_dir = out.join("docs");
+    for assets in [out.join("assets"), docs_dir.join("assets")] {
+        tokio::fs::create_dir_all(&assets).await.map_err(|err| {
+            RototoError::new(format!(
+                "failed to create documentation directory {}: {err}",
+                assets.display()
+            ))
+        })?;
+        let asset_files = [
+            ("rototo-docs.css", DOCS_CSS),
+            ("favicon.svg", FAVICON_SVG),
+            ("rototo-mark.svg", MARK_SVG),
+            ("rototo-wordmark.svg", WORDMARK_SVG),
+        ];
+        for (name, contents) in asset_files {
+            tokio::fs::write(assets.join(name), contents)
+                .await
+                .map_err(|err| {
+                    RototoError::new(format!("failed to write documentation asset {name}: {err}"))
+                })?;
+        }
     }
     for page in DOCS {
-        tokio::fs::write(out.join(page_href(page.id)), render_page_html(page))
+        tokio::fs::write(docs_dir.join(page_href(page.id)), render_page_html(page))
             .await
             .map_err(|err| {
                 RototoError::new(format!(
@@ -430,7 +445,194 @@ pub async fn export_html(out: &Path) -> Result<()> {
                 ))
             })?;
     }
+    tokio::fs::write(out.join("index.html"), render_homepage_html())
+        .await
+        .map_err(|err| RototoError::new(format!("failed to write homepage: {err}")))?;
+    tokio::fs::write(out.join("_redirects"), render_redirects())
+        .await
+        .map_err(|err| RototoError::new(format!("failed to write redirects: {err}")))?;
     Ok(())
+}
+
+/// Cloudflare Pages redirects: documentation used to live at the site root,
+/// so every old page URL forwards to its docs/ location.
+fn render_redirects() -> String {
+    let mut redirects = String::new();
+    for page in DOCS {
+        if page.id == "index" {
+            continue;
+        }
+        redirects.push_str(&format!(
+            "/{href} /docs/{href} 301\n",
+            href = page_href(page.id)
+        ));
+    }
+    redirects
+}
+
+/// The rototo.dev homepage. Copy here is an initial draft pending the
+/// product content outline; structure (hero, model, snippet, SDKs, console)
+/// is the stable part.
+pub fn render_homepage_html() -> String {
+    let snippet = render_code_block(
+        "toml",
+        r#"# variables/checkout-redesign.toml
+schema_version = 1
+type = "string"
+
+[values]
+control = "classic"
+treatment = "redesign"
+
+[resolve]
+default = "control"
+
+[[resolve.rule]]
+qualifier = "premium-users"
+value = "treatment"
+"#,
+    );
+    let resolve_snippet = render_code_block(
+        "sh",
+        r#"rototo variable resolve checkout-redesign \
+  --workspace git+https://github.com/acme/config#main \
+  --context user.tier=premium
+"#,
+    );
+
+    format!(
+        r#"<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>rototo — Git-backed runtime configuration</title>
+<meta name="description" content="rototo keeps runtime configuration in a Git workspace: linted, reviewed in pull requests, and resolved at runtime with typed values.">
+<link rel="icon" href="assets/favicon.svg" type="image/svg+xml">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="{fonts}" rel="stylesheet">
+<link rel="stylesheet" href="assets/rototo-docs.css">
+<style>
+.home {{ max-width: 64rem; margin: 0 auto; padding: 0 1.5rem 4rem; }}
+.home-hero {{ padding: 4.5rem 0 3rem; }}
+.home-hero h1 {{ font-size: clamp(2rem, 5vw, 3.1rem); line-height: 1.1; margin: 0 0 1rem; max-width: 36rem; }}
+.home-hero p {{ font-size: 1.1rem; max-width: 40rem; }}
+.home-cta {{ display: flex; gap: 0.75rem; flex-wrap: wrap; margin-top: 1.75rem; }}
+.home-cta a {{ display: inline-block; padding: 0.6rem 1.1rem; border-radius: 8px; text-decoration: none; font-weight: 600; }}
+.home-cta .primary {{ background: var(--ink, #16242c); color: var(--paper, #fdfbf7); }}
+.home-cta .secondary {{ border: 1px solid currentColor; }}
+.home-grid {{ display: grid; grid-template-columns: repeat(auto-fit, minmax(15rem, 1fr)); gap: 1.25rem; margin: 2.5rem 0; }}
+.home-card {{ border: 1px solid rgba(22, 36, 44, 0.14); border-radius: 12px; padding: 1.25rem; }}
+.home-card h3 {{ margin-top: 0; }}
+.home-split {{ display: grid; grid-template-columns: repeat(auto-fit, minmax(20rem, 1fr)); gap: 1.25rem; align-items: start; }}
+.home h2 {{ margin-top: 3rem; }}
+.home-sdks {{ display: flex; gap: 0.6rem; flex-wrap: wrap; margin-top: 1rem; }}
+.home-sdks a {{ border: 1px solid rgba(22, 36, 44, 0.2); border-radius: 999px; padding: 0.35rem 0.9rem; text-decoration: none; font-weight: 600; }}
+.home-footer {{ margin-top: 4rem; padding-top: 1.5rem; border-top: 1px solid rgba(22, 36, 44, 0.14); display: flex; gap: 1.25rem; flex-wrap: wrap; }}
+</style>
+</head>
+<body>
+<header class="topbar">
+  <a class="brand" href="index.html"><img class="brand-wordmark" src="assets/rototo-wordmark.svg" alt="rototo"></a>
+  <nav class="topnav" aria-label="Primary">
+    <a href="docs/index.html">Docs</a>
+    <a href="{github}">GitHub</a>
+  </nav>
+</header>
+<main class="home">
+  <section class="home-hero">
+    <h1>Runtime configuration, reviewed like code.</h1>
+    <p>
+      rototo keeps your application's runtime configuration in a Git workspace:
+      validated by lint, changed through pull requests, and resolved at runtime
+      into typed values your services can trust. No config database, no side
+      channel around review — the repository is the control plane.
+    </p>
+    <div class="home-cta">
+      <a class="primary" href="docs/getting-started.html">Get started</a>
+      <a class="secondary" href="docs/index.html">Read the docs</a>
+    </div>
+  </section>
+
+  <section>
+    <h2>One workspace, three guarantees</h2>
+    <div class="home-grid">
+      <div class="home-card">
+        <h3>Declared</h3>
+        <p>
+          Variables, qualifiers, and JSON Schemas live as files under
+          <code>rototo-workspace.toml</code>. Every change has an author, a
+          diff, and a history.
+        </p>
+      </div>
+      <div class="home-card">
+        <h3>Validated</h3>
+        <p>
+          Lint understands the workspace semantically: unknown qualifiers,
+          values that break their schema, and rules that can never match are
+          caught before merge, not in production.
+        </p>
+      </div>
+      <div class="home-card">
+        <h3>Resolved</h3>
+        <p>
+          Applications load the workspace by source URI and resolve named
+          variables with runtime context. Long-running services refresh from
+          the same source and keep last-known-good state when a fetch fails.
+        </p>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <h2>What it looks like</h2>
+    <div class="home-split">
+      <div>{snippet}</div>
+      <div>{resolve_snippet}</div>
+    </div>
+  </section>
+
+  <section>
+    <h2>SDKs that share one engine</h2>
+    <p>
+      The Rust core owns loading, lint, evaluation, and refresh; every SDK is a
+      thin binding over it, so resolution behaves identically in every
+      language.
+    </p>
+    <div class="home-sdks">
+      <a href="docs/reference-sdk-rust.html">Rust</a>
+      <a href="docs/reference-sdk-python.html">Python</a>
+      <a href="docs/reference-sdk-typescript.html">TypeScript</a>
+      <a href="docs/reference-sdk-java.html">Java</a>
+      <a href="docs/reference-sdk-go.html">Go</a>
+    </div>
+  </section>
+
+  <section>
+    <h2>Operate it from the console</h2>
+    <p>
+      <code>rototo console</code> serves a web console from the same binary as
+      the CLI: browse workspaces, trace how a variable resolves against saved
+      contexts, edit drafts on real branches, and publish pull requests. Run it
+      on your laptop with your own GitHub token, or behind your proxy with
+      GitHub OAuth for the whole team.
+    </p>
+    <p><a href="docs/self-hosting-console.html">Self-hosting the console →</a></p>
+  </section>
+
+  <footer class="home-footer">
+    <a href="docs/index.html">Documentation</a>
+    <a href="{github}">GitHub</a>
+    <span>MIT or Apache-2.0</span>
+  </footer>
+</main>
+</body>
+</html>
+"#,
+        fonts = GOOGLE_FONTS_HREF,
+        github = GITHUB_URL,
+    )
 }
 
 pub fn render_package_readme(sdk: &str) -> Result<String> {
@@ -689,15 +891,14 @@ fn render_nav(current: &str) -> String {
 
 fn render_topnav(current: &str) -> String {
     let mut nav = String::new();
-    for (label, page_id) in TOPNAV_PAGES {
-        let current_attr = if *page_id == current {
+    for (label, href) in TOPNAV_LINKS {
+        let current_attr = if *label == "Docs" && current == "index" {
             r#" aria-current="page""#
         } else {
             ""
         };
         nav.push_str(&format!(
-            "    <a href=\"{href}\"{current_attr}>{label}</a>\n",
-            href = page_href(page_id),
+            "    <a href=\"{href}\"{current_attr}>{label}</a>\n"
         ));
     }
     nav
