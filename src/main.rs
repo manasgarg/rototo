@@ -563,6 +563,8 @@ fn top_level_help_template() -> String {
     out.push_str(&style::bold("Utility commands:"));
     out.push('\n');
     out.push_str(&command("docs", "Read bundled documentation"));
+    #[cfg(feature = "console")]
+    out.push_str(&command("console", "Serve the web console and JSON API"));
     out.push_str(&command("lsp", "Run the language server over stdio"));
     out.push_str(&command("completions", "Generate shell completions"));
     out.push_str(&command(
