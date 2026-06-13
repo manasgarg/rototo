@@ -70,13 +70,7 @@ npm publish uses the workflow's npm registry configuration.
 
 ## Verify
 
-After publish, run:
-
-```sh
-just release-smoke 0.1.0-alpha.4
-```
-
-Check each registry link printed by the command:
+After publish, check each registry page:
 
 - crates.io
 - PyPI

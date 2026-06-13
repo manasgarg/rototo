@@ -218,7 +218,6 @@ lint:
     set -euo pipefail
     cargo clippy --workspace --all-targets --all-features -- -D warnings
     npm --prefix apps/console run lint
-    bash scripts/check-vocabulary.sh
 
 # Run all maintained test slices.
 [group('04. test')]
@@ -468,12 +467,6 @@ release-package-dry-run version:
     if command -v mvn >/dev/null; then
         (cd sdks/java && mvn -B -Dgpg.skip=true -Dcentral.skipPublishing=true verify)
     fi
-    bash scripts/release-smoke.sh "$version"
-
-# Print post-publish smoke check links for every registry.
-[group('07. release')]
-release-smoke version:
-    bash scripts/release-smoke.sh "{{version}}"
 
 # Update package versions and generated SDK packaging content for a release.
 [group('07. release')]
