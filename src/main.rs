@@ -11,24 +11,24 @@ use regex::Regex;
 use serde::Serialize;
 
 use crate::output::{
-    print_diagnostic_catalog_entry, print_inspect_report, print_qualifier_get,
-    print_qualifier_list, print_resource_get, print_resource_list, print_variable_get,
-    print_variable_list, print_workspace_diff, print_workspace_lint,
+    print_catalog_get, print_catalog_list, print_diagnostic_catalog_entry, print_inspect_report,
+    print_qualifier_get, print_qualifier_list, print_variable_get, print_variable_list,
+    print_workspace_diff, print_workspace_lint,
 };
 use rototo::diagnostics::{DiagnosticCatalogEntry, LintDiagnostic, SemanticEntity, Severity};
 use rototo::model::{
-    DiagnosticCatalog, InspectSelection, LinterInspection, PredicateInspectReport,
-    QualifierInspection, QualifierResolutionTrace, ResourceInspection, SchemaInspection,
+    CatalogInspection, DiagnosticCatalog, InspectSelection, LinterInspection,
+    PredicateInspectReport, QualifierInspection, QualifierResolutionTrace, SchemaInspection,
     VariableInspection, VariableResolutionTrace, WorkspaceInspectRequest, WorkspaceInspection,
     WorkspaceLint,
 };
 use rototo::workspace::{
-    qualifier_for_id, read_resource_toml, read_toml, read_variable_toml, resource_for_id,
+    catalog_for_id, qualifier_for_id, read_catalog_toml, read_toml, read_variable_toml,
     variable_for_id, workspace_extends_sources,
 };
 use rototo::{
-    Result, RototoError, SourceAuth, SourceOptions, StagedWorkspace, catalog,
-    catalog_for_workspace, diagnostic_for_rule, diff_workspaces, find_workspace_root,
+    Result, RototoError, SourceAuth, SourceOptions, StagedWorkspace, diagnostic_for_rule,
+    diagnostics_catalog, diagnostics_catalog_for_workspace, diff_workspaces, find_workspace_root,
     inspect_workspace, inspect_workspace_report, lint_workspace, stage_workspace_source,
     trace_qualifier_resolution, trace_qualifier_resolutions, trace_variable_resolution,
     trace_variable_resolutions,
@@ -108,9 +108,9 @@ struct InitArgs {
     #[arg(long = "variable", value_name = "ID")]
     variable: Option<String>,
 
-    /// Create a resource template with this id.
-    #[arg(long = "resource", value_name = "ID")]
-    resource: Option<String>,
+    /// Create a catalog template with this id.
+    #[arg(long = "catalog", value_name = "ID")]
+    catalog: Option<String>,
 
     /// Create or infer the request context schema template.
     #[arg(long = "context", action = ArgAction::SetTrue)]
@@ -201,13 +201,13 @@ struct SelectorArgs {
     #[arg(long = "variables", action = ArgAction::SetTrue)]
     all_variables: bool,
 
-    /// Select one resource id. Repeatable.
-    #[arg(long = "resource", value_name = "ID")]
-    resources: Vec<String>,
+    /// Select one catalog id. Repeatable.
+    #[arg(long = "catalog", value_name = "ID")]
+    catalogs: Vec<String>,
 
-    /// Select all resources.
-    #[arg(long = "resources", action = ArgAction::SetTrue)]
-    all_resources: bool,
+    /// Select all catalogs.
+    #[arg(long = "catalogs", action = ArgAction::SetTrue)]
+    all_catalogs: bool,
 
     /// Select one qualifier id. Repeatable.
     #[arg(long = "qualifier", value_name = "ID")]
@@ -399,7 +399,7 @@ impl From<CompletionShell> for Shell {
 #[derive(Clone, Debug, Default)]
 struct TargetSelectors {
     variables: Selection<String>,
-    resources: Selection<String>,
+    catalogs: Selection<String>,
     qualifiers: Selection<String>,
     lint_rules: Selection<String>,
     lint_authorities: Selection<String>,
@@ -435,7 +435,7 @@ impl TargetSelectors {
     fn from_args(args: &SelectorArgs) -> Self {
         Self {
             variables: selection(args.all_variables, &args.variables),
-            resources: selection(args.all_resources, &args.resources),
+            catalogs: selection(args.all_catalogs, &args.catalogs),
             qualifiers: selection(args.all_qualifiers, &args.qualifiers),
             lint_rules: selection(args.all_lint_rules, &args.lint_rules),
             lint_authorities: selection(args.all_lint_authorities, &args.lint_authorities),
@@ -446,7 +446,7 @@ impl TargetSelectors {
     fn from_resolve_args(args: &ResolveSelectorArgs) -> Self {
         Self {
             variables: selection(args.all_variables, &args.variables),
-            resources: Selection::None,
+            catalogs: Selection::None,
             qualifiers: selection(args.all_qualifiers, &args.qualifiers),
             lint_rules: Selection::None,
             lint_authorities: Selection::None,
@@ -456,7 +456,7 @@ impl TargetSelectors {
 
     fn is_empty(&self) -> bool {
         self.variables.is_none()
-            && self.resources.is_none()
+            && self.catalogs.is_none()
             && self.qualifiers.is_none()
             && self.lint_rules.is_none()
             && self.lint_authorities.is_none()
@@ -469,7 +469,7 @@ impl TargetSelectors {
 
     fn is_global_catalog_query(&self) -> bool {
         self.variables.is_none()
-            && self.resources.is_none()
+            && self.catalogs.is_none()
             && self.qualifiers.is_none()
             && self.linters.is_none()
             && (self.lint_rules.is_some_or_all() || self.lint_authorities.is_some_or_all())
@@ -729,7 +729,7 @@ enum InitTarget {
     Workspace,
     Qualifier(String),
     Variable(String),
-    Resource(String),
+    Catalog(String),
     Context,
 }
 
@@ -747,10 +747,10 @@ fn init_target(args: &InitArgs) -> Result<InitTarget> {
         validate_template_id("variable", id)?;
         target = InitTarget::Variable(id.clone());
     }
-    if let Some(id) = &args.resource {
+    if let Some(id) = &args.catalog {
         count += 1;
-        validate_template_id("resource", id)?;
-        target = InitTarget::Resource(id.clone());
+        validate_template_id("catalog", id)?;
+        target = InitTarget::Catalog(id.clone());
     }
     if args.context {
         count += 1;
@@ -759,7 +759,7 @@ fn init_target(args: &InitArgs) -> Result<InitTarget> {
 
     if count > 1 {
         return Err(RototoError::new(
-            "init accepts one entity flag at a time: --qualifier, --variable, --resource, or --context",
+            "init accepts one entity flag at a time: --qualifier, --variable, --catalog, or --context",
         ));
     }
 
@@ -826,31 +826,31 @@ async fn build_init_plan(workspace: &Path, target: InitTarget) -> Result<Vec<Ini
             ));
             Ok(plan)
         }
-        InitTarget::Resource(id) => {
+        InitTarget::Catalog(id) => {
             let mut plan = implicit_workspace_init_plan(workspace, initialized);
             if initialized {
-                plan.push(InitPlanEntry::directory(workspace.join("resources")));
+                plan.push(InitPlanEntry::directory(workspace.join("catalogs")));
                 plan.push(InitPlanEntry::directory(workspace.join("schemas")));
             }
             plan.extend([
-                InitPlanEntry::directory(workspace.join("resources").join(format!("{id}-objects"))),
+                InitPlanEntry::directory(workspace.join("catalogs").join(format!("{id}-entries"))),
                 InitPlanEntry::file(
-                    "resource",
-                    workspace.join("resources").join(format!("{id}.toml")),
-                    resource_template(&id),
+                    "catalog",
+                    workspace.join("catalogs").join(format!("{id}.toml")),
+                    catalog_template(&id),
                 ),
                 InitPlanEntry::file(
                     "schema",
                     workspace.join("schemas").join(format!("{id}.schema.json")),
-                    resource_schema_template()?,
+                    catalog_schema_template()?,
                 ),
                 InitPlanEntry::file(
-                    "resource_object",
+                    "catalog_entry",
                     workspace
-                        .join("resources")
-                        .join(format!("{id}-objects"))
+                        .join("catalogs")
+                        .join(format!("{id}-entries"))
                         .join("default.toml"),
-                    resource_object_template(),
+                    catalog_entry_template(),
                 ),
             ]);
             Ok(plan)
@@ -893,7 +893,7 @@ fn workspace_init_plan(workspace: &Path) -> Vec<InitPlanEntry> {
         ),
         InitPlanEntry::directory(workspace.join("qualifiers")),
         InitPlanEntry::directory(workspace.join("variables")),
-        InitPlanEntry::directory(workspace.join("resources")),
+        InitPlanEntry::directory(workspace.join("catalogs")),
         InitPlanEntry::directory(workspace.join("schemas")),
         InitPlanEntry::directory(workspace.join("lint")),
     ]
@@ -1203,18 +1203,18 @@ default = "control"
 # qualifier = "premium-users"
 # value = "treatment"
 #
-# For resource-backed values, remove [values] and use a resource type:
+# For catalog-backed values, remove [values] and use a catalog type:
 #
-# type = "resource:{id}"
+# type = "catalog:{id}"
 #
-# Resource object keys become the selectable value keys.
+# Catalog entry keys become the selectable value keys.
 "#
     )
 }
 
-fn resource_template(id: &str) -> String {
+fn catalog_template(id: &str) -> String {
     let description = toml_string(&format!(
-        "Edit this description to explain the {id} resource objects"
+        "Edit this description to explain the {id} catalog entries"
     ));
     let schema = toml_string(&format!("../schemas/{id}.schema.json"));
     format!(
@@ -1226,7 +1226,7 @@ schema = {schema}
     )
 }
 
-fn resource_schema_template() -> Result<String> {
+fn catalog_schema_template() -> Result<String> {
     let schema = serde_json::json!({
         "$schema": "https://json-schema.org/draft/2020-12/schema",
         "type": "object",
@@ -1240,7 +1240,7 @@ fn resource_schema_template() -> Result<String> {
     pretty_json(&schema)
 }
 
-fn resource_object_template() -> String {
+fn catalog_entry_template() -> String {
     r#"heading = "Edit this heading"
 enabled = false
 "#
@@ -1571,7 +1571,7 @@ async fn run_lint(
     }
 
     let inspection = inspect_workspace(workspace.path()).await?;
-    let catalog = catalog_for_workspace(workspace.path()).await?;
+    let catalog = diagnostics_catalog_for_workspace(workspace.path()).await?;
     validate_workspace_selectors(&selectors, &inspection, &catalog)?;
 
     let lint = lint_workspace(workspace.path()).await?;
@@ -1626,7 +1626,7 @@ async fn run_inspect(
         workspace.path(),
         WorkspaceInspectRequest {
             variables: inspect_selection(&selectors.variables),
-            resources: inspect_selection(&selectors.resources),
+            catalogs: inspect_selection(&selectors.catalogs),
             qualifiers: inspect_selection(&selectors.qualifiers),
             lint_rules: inspect_selection(&selectors.lint_rules),
             lint_authorities: inspect_selection(&selectors.lint_authorities),
@@ -1659,7 +1659,7 @@ async fn run_show(
 ) -> Result<ExitCode> {
     let selectors = TargetSelectors::from_args(&args.selectors);
     if args.workspace.is_none() && selectors.is_global_catalog_query() {
-        let catalog = catalog();
+        let catalog = diagnostics_catalog();
         validate_global_catalog_selectors(&selectors, &catalog)?;
         print_selected_lint_rules(&catalog, &selectors, json)?;
         return Ok(ExitCode::SUCCESS);
@@ -1667,7 +1667,7 @@ async fn run_show(
 
     let workspace = workspace_source_or_current(args.workspace, source_options).await?;
     let inspection = inspect_workspace(workspace.path()).await?;
-    let catalog = catalog_for_workspace(workspace.path()).await?;
+    let catalog = diagnostics_catalog_for_workspace(workspace.path()).await?;
 
     if selectors.is_empty() {
         let view = workspace_inventory_view(&inspection, &catalog).await?;
@@ -1718,7 +1718,7 @@ async fn run_resolve(
     }
     let workspace = workspace_source_or_current(args.workspace, source_options).await?;
     let inspection = inspect_workspace(workspace.path()).await?;
-    let catalog = catalog_for_workspace(workspace.path()).await?;
+    let catalog = diagnostics_catalog_for_workspace(workspace.path()).await?;
     validate_workspace_selectors(&selectors, &inspection, &catalog)?;
 
     let context = parse_context(&args.context).await?;
@@ -1868,14 +1868,10 @@ fn validate_workspace_selectors(
             )));
         }
     }
-    for id in selectors.resources.explicit_values() {
-        if !inspection
-            .resources
-            .iter()
-            .any(|resource| resource.id == *id)
-        {
+    for id in selectors.catalogs.explicit_values() {
+        if !inspection.catalogs.iter().any(|catalog| catalog.id == *id) {
             return Err(RototoError::new(format!(
-                "resource not found: resource://{id}"
+                "catalog not found: catalog://{id}"
             )));
         }
     }
@@ -1928,7 +1924,7 @@ fn filter_lint(lint: WorkspaceLint, selectors: &TargetSelectors) -> WorkspaceLin
 
 fn diagnostic_matches_selectors(diagnostic: &LintDiagnostic, selectors: &TargetSelectors) -> bool {
     selection_matches_variable(&selectors.variables, diagnostic)
-        || selection_matches_resource(&selectors.resources, diagnostic)
+        || selection_matches_catalog(&selectors.catalogs, diagnostic)
         || selection_matches_qualifier(&selectors.qualifiers, diagnostic)
         || selection_matches_lint_rule(&selectors.lint_rules, diagnostic)
         || selection_matches_lint_authority(&selectors.lint_authorities, diagnostic)
@@ -1955,13 +1951,13 @@ fn selection_matches_qualifier(selection: &Selection<String>, diagnostic: &LintD
     }
 }
 
-fn selection_matches_resource(selection: &Selection<String>, diagnostic: &LintDiagnostic) -> bool {
+fn selection_matches_catalog(selection: &Selection<String>, diagnostic: &LintDiagnostic) -> bool {
     match selection {
         Selection::None => false,
-        Selection::All => diagnostic_is_resource_related(diagnostic),
+        Selection::All => diagnostic_is_catalog_related(diagnostic),
         Selection::Some(ids) => ids
             .iter()
-            .any(|id| diagnostic_belongs_to_resource(diagnostic, id)),
+            .any(|id| diagnostic_belongs_to_catalog(diagnostic, id)),
     }
 }
 
@@ -2012,23 +2008,20 @@ fn diagnostic_belongs_to_variable(diagnostic: &LintDiagnostic, id: &str) -> bool
         || diagnostic.primary.path == variable_path
 }
 
-fn diagnostic_is_resource_related(diagnostic: &LintDiagnostic) -> bool {
+fn diagnostic_is_catalog_related(diagnostic: &LintDiagnostic) -> bool {
     matches!(
         diagnostic.target.entity,
-        SemanticEntity::Resource { .. } | SemanticEntity::ResourceObject { .. }
-    ) || diagnostic.primary.path.starts_with("resources/")
+        SemanticEntity::Catalog { .. } | SemanticEntity::CatalogEntry { .. }
+    ) || diagnostic.primary.path.starts_with("catalogs/")
 }
 
-fn diagnostic_belongs_to_resource(diagnostic: &LintDiagnostic, id: &str) -> bool {
-    let resource_path = format!("resources/{id}.toml");
-    let resource_objects_prefix = format!("resources/{id}-objects/");
-    matches!(&diagnostic.target.entity, SemanticEntity::Resource { id: diagnostic_id } if diagnostic_id == id)
-        || matches!(&diagnostic.target.entity, SemanticEntity::ResourceObject { resource, .. } if resource == id)
-        || diagnostic.primary.path == resource_path
-        || diagnostic
-            .primary
-            .path
-            .starts_with(&resource_objects_prefix)
+fn diagnostic_belongs_to_catalog(diagnostic: &LintDiagnostic, id: &str) -> bool {
+    let catalog_path = format!("catalogs/{id}.toml");
+    let catalog_entries_prefix = format!("catalogs/{id}-entries/");
+    matches!(&diagnostic.target.entity, SemanticEntity::Catalog { id: diagnostic_id } if diagnostic_id == id)
+        || matches!(&diagnostic.target.entity, SemanticEntity::CatalogEntry { catalog, .. } if catalog == id)
+        || diagnostic.primary.path == catalog_path
+        || diagnostic.primary.path.starts_with(&catalog_entries_prefix)
 }
 
 fn diagnostic_is_qualifier_related(diagnostic: &LintDiagnostic) -> bool {
@@ -2084,12 +2077,11 @@ async fn show_selected_targets(
         }
         Selection::None => {}
     }
-    match &selectors.resources {
-        Selection::All => print_resource_list(inspection, false)?,
+    match &selectors.catalogs {
+        Selection::All => print_catalog_list(inspection, false)?,
         Selection::Some(ids) => {
-            for id in ordered_selected_ids(ids, inspection.resources.iter().map(|r| r.id.as_str()))
-            {
-                print_resource_get(inspection, &id, false).await?;
+            for id in ordered_selected_ids(ids, inspection.catalogs.iter().map(|r| r.id.as_str())) {
+                print_catalog_get(inspection, &id, false).await?;
             }
         }
         Selection::None => {}
@@ -2114,7 +2106,7 @@ struct WorkspaceView {
     command: String,
     workspace: String,
     schemas: Vec<SchemaInspection>,
-    resources: Vec<WorkspaceFileView>,
+    catalogs: Vec<WorkspaceFileView>,
     variables: Vec<WorkspaceFileView>,
     qualifiers: Vec<WorkspaceFileView>,
     lint_rules: Vec<DiagnosticCatalogEntryView>,
@@ -2156,9 +2148,9 @@ async fn workspace_inventory_view(
         variables.push(variable_view(inspection, variable, false).await?);
     }
 
-    let mut resources = Vec::new();
-    for resource in &inspection.resources {
-        resources.push(resource_view(inspection, resource, false).await?);
+    let mut catalogs = Vec::new();
+    for catalog in &inspection.catalogs {
+        catalogs.push(catalog_view(inspection, catalog, false).await?);
     }
 
     let mut qualifiers = Vec::new();
@@ -2170,7 +2162,7 @@ async fn workspace_inventory_view(
         command: String::new(),
         workspace: inspection.root.display().to_string(),
         schemas: inspection.schemas.clone(),
-        resources,
+        catalogs,
         variables,
         qualifiers,
         lint_rules: Vec::new(),
@@ -2185,7 +2177,7 @@ async fn selected_workspace_view(
     catalog: &DiagnosticCatalog,
 ) -> Result<WorkspaceView> {
     let mut variables = Vec::new();
-    let mut resources = Vec::new();
+    let mut catalogs = Vec::new();
     let mut qualifiers = Vec::new();
     let mut lint_rules = selected_lint_rule_entries(catalog, selectors);
     let mut lint_authorities = selected_lint_authorities(catalog, selectors);
@@ -2206,17 +2198,16 @@ async fn selected_workspace_view(
         }
         Selection::None => {}
     }
-    match &selectors.resources {
+    match &selectors.catalogs {
         Selection::All => {
-            for resource in &inspection.resources {
-                resources.push(resource_view(inspection, resource, false).await?);
+            for catalog in &inspection.catalogs {
+                catalogs.push(catalog_view(inspection, catalog, false).await?);
             }
         }
         Selection::Some(ids) => {
-            for id in ordered_selected_ids(ids, inspection.resources.iter().map(|r| r.id.as_str()))
-            {
-                let resource = resource_for_id(inspection, &id)?;
-                resources.push(resource_view(inspection, resource, true).await?);
+            for id in ordered_selected_ids(ids, inspection.catalogs.iter().map(|r| r.id.as_str())) {
+                let catalog = catalog_for_id(inspection, &id)?;
+                catalogs.push(catalog_view(inspection, catalog, true).await?);
             }
         }
         Selection::None => {}
@@ -2250,7 +2241,7 @@ async fn selected_workspace_view(
         command: String::new(),
         workspace: inspection.root.display().to_string(),
         schemas: Vec::new(),
-        resources,
+        catalogs,
         variables,
         qualifiers,
         lint_rules,
@@ -2280,23 +2271,23 @@ async fn variable_view(
     })
 }
 
-async fn resource_view(
+async fn catalog_view(
     inspection: &WorkspaceInspection,
-    resource: &ResourceInspection,
+    catalog: &CatalogInspection,
     include_value: bool,
 ) -> Result<WorkspaceFileView> {
     let value = if include_value {
         Some(
-            serde_json::to_value(read_resource_toml(&inspection.root, resource).await?)
+            serde_json::to_value(read_catalog_toml(&inspection.root, catalog).await?)
                 .map_err(|err| RototoError::new(err.to_string()))?,
         )
     } else {
         None
     };
     Ok(WorkspaceFileView {
-        id: resource.id.clone(),
-        uri: resource.uri.clone(),
-        path: resource.path.display().to_string(),
+        id: catalog.id.clone(),
+        uri: catalog.uri.clone(),
+        path: catalog.path.display().to_string(),
         value,
     })
 }
@@ -2365,14 +2356,14 @@ fn print_workspace_view(command: &str, view: &WorkspaceView, json: bool) -> Resu
             );
         }
     }
-    if !view.resources.is_empty() {
-        println!("{}", style::label("resources"));
-        for resource in &view.resources {
+    if !view.catalogs.is_empty() {
+        println!("{}", style::label("catalogs"));
+        for catalog in &view.catalogs {
             println!(
                 "  {}  {}  {}",
-                style::sea(&resource.id),
-                style::dim(&resource.uri),
-                style::dim(&resource.path)
+                style::sea(&catalog.id),
+                style::dim(&catalog.uri),
+                style::dim(&catalog.path)
             );
         }
     }

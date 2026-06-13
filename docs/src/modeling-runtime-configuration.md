@@ -13,7 +13,7 @@ files do I need?" It is:
 In rototo, facts live in [context](reference-context.html). Named conditions
 live in [qualifiers](reference-qualifiers.html). Selected configuration lives
 in [variables](reference-variables.html). Structured payloads live in
-[resources](reference-resources.html). Schemas and
+[catalogs](reference-catalogs.html). Schemas and
 [custom lint](reference-custom-lua-lint.html) protect the boundaries.
 Workspaces and [layers](reference-workspace-layering.html) define who owns
 which part of the control plane.
@@ -250,7 +250,7 @@ Avoid chains where a reader has to open five files to understand one rule. A
 qualifier should reduce cognitive load. If the name no longer helps explain
 the decision, the model is probably too indirect.
 
-## Choose Primitive Values Or Resources By Contract Shape
+## Choose Primitive Values Or Catalogs By Contract Shape
 
 Primitive values are right when the selected configuration is truly one
 scalar or one list:
@@ -267,8 +267,8 @@ expanded = 25
 default = "standard"
 ```
 
-[Resources](reference-resources.html) are the better fit when the selected
-value is a policy object:
+[Catalogs](reference-catalogs.html) are the better fit when the selected
+value is a policy entry:
 
 ```text
 account-limit-profile
@@ -277,12 +277,12 @@ inference-routing-policy
 service-degradation-policy
 ```
 
-For account limits, a resource-backed variable can select one validated object:
+For account limits, a catalog-backed variable can select one validated entry:
 
 ```toml
 # variables/account-limit-profile.toml
 schema_version = 1
-type = "resource:account-limit-profile"
+type = "catalog:account-limit-profile"
 
 [resolve]
 default = "growth"
@@ -292,10 +292,10 @@ qualifier = "enterprise-account"
 value = "enterprise"
 ```
 
-The object can carry the whole profile:
+The entry can carry the whole profile:
 
 ```toml
-# resources/account-limit-profile-objects/enterprise.toml
+# catalogs/account-limit-profile-entries/enterprise.toml
 enabled_features = ["audit-log", "priority-support"]
 
 [limits]
@@ -304,9 +304,9 @@ members = 250
 monthly_requests = 1000000
 ```
 
-The resource schema validates the selected object before the app consumes it.
-That is the practical reason to use resources: the workspace can prove the
-policy object has the shape the app expects.
+The catalog schema validates the selected entry before the app consumes it.
+That is the practical reason to use catalogs: the workspace can prove the
+policy entry has the shape the app expects.
 
 Without that, shape errors move back into application code. The app becomes
 the first place to discover that a field is missing or a value has the wrong
@@ -385,16 +385,16 @@ A common shape is:
 ```text
 product-defaults
   schemas/account-limit-profile.schema.json
-  resources/account-limit-profile.toml
+  catalogs/account-limit-profile.toml
   variables/account-limit-profile.toml
 
 customer-acme-config
-  resources/account-limit-profile-objects/acme_default.toml
+  catalogs/account-limit-profile-entries/acme_default.toml
   variables/account-limit-profile.toml
 
 acme-support-team-config
   qualifiers/support-pilot-account.toml
-  resources/account-limit-profile-objects/support_pilot.toml
+  catalogs/account-limit-profile-entries/support_pilot.toml
   variables/account-limit-profile.toml
 ```
 
@@ -417,7 +417,7 @@ kinds of mistakes.
 Use schemas for structure:
 
 - the app must provide `account.plan` as a string;
-- a resource object must include `limits.projects`;
+- a catalog entry must include `limits.projects`;
 - a field must be an integer within a JSON Schema range;
 - unknown fields should be rejected.
 
@@ -445,7 +445,7 @@ checklist:
 - Which facts must the app provide as context?
 - Which qualifiers explain why behavior changes?
 - Is the selected value primitive or structured?
-- What schema validates the app boundary or selected object?
+- What schema validates the app boundary or selected entry?
 - Does any local policy need custom lint?
 - Which workspace layer should own this file?
 

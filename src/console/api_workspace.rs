@@ -85,14 +85,14 @@ async fn workspace_summary(
         Ok((_, inventory)) => Ok(Json(json!({
             "variables": inventory.variables.len(),
             "qualifiers": inventory.qualifiers.len(),
-            "resources": inventory.resources.len() + inventory.resource_objects.len(),
+            "catalogs": inventory.catalogs.len() + inventory.catalog_entries.len(),
             "schemas": inventory.schemas.len(),
             "error": JsonValue::Null,
         }))),
         Err(error) => Ok(Json(json!({
             "variables": 0,
             "qualifiers": 0,
-            "resources": 0,
+            "catalogs": 0,
             "schemas": 0,
             "error": error,
         }))),

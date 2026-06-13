@@ -17,7 +17,7 @@ pub(crate) fn definition(
     let mut candidates = Vec::new();
     push_qualifier_definition_candidates(&snapshot.index, path, position, &mut candidates);
     push_variable_definition_candidates(&snapshot.index, path, position, &mut candidates);
-    push_resource_definition_candidates(&snapshot.index, path, position, &mut candidates);
+    push_catalog_definition_candidates(&snapshot.index, path, position, &mut candidates);
     sort_definition_candidates(&mut candidates);
     candidates
         .into_iter()
@@ -90,18 +90,18 @@ fn push_variable_definition_candidates(
 ) {
     for variable in index.variables.values() {
         match &variable.type_source {
-            TypeSourceNode::Resource(resource)
-                if location_contains_position(&resource.location, path, position) =>
+            TypeSourceNode::Catalog(catalog)
+                if location_contains_position(&catalog.location, path, position) =>
             {
-                if let Some(resource_node) = index.resources.get(&resource.value) {
+                if let Some(catalog_node) = index.catalogs.get(&catalog.value) {
                     candidates.push(DefinitionCandidate {
                         priority: 1,
-                        span_size: resource
+                        span_size: catalog
                             .location
                             .range
                             .map(source_range_size)
                             .unwrap_or(usize::MAX),
-                        location: resource_node.location.clone(),
+                        location: catalog_node.location.clone(),
                     });
                 }
             }
@@ -182,21 +182,21 @@ fn push_variable_definition_candidates(
     }
 }
 
-fn push_resource_definition_candidates(
+fn push_catalog_definition_candidates(
     index: &SemanticIndex,
     path: &str,
     position: SourcePosition,
     candidates: &mut Vec<DefinitionCandidate>,
 ) {
-    for resource in index.resources.values() {
-        let ProjectField::Present(schema) = &resource.schema else {
+    for catalog in index.catalogs.values() {
+        let ProjectField::Present(schema) = &catalog.schema else {
             continue;
         };
         if !location_contains_position(&schema.location, path, position) {
             continue;
         }
         let Some(schema_path) =
-            resolve_workspace_relative_path(&resource.location.path, &schema.value)
+            resolve_workspace_relative_path(&catalog.location.path, &schema.value)
         else {
             continue;
         };

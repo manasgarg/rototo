@@ -160,15 +160,15 @@ function diagnosticEntityName(
       return text(entity.qualifier)
         ? { kind: "qualifier", name: entity.qualifier as string }
         : null;
-    case "resource":
-      return text(entity.id) ? { kind: "resource", name: entity.id as string } : null;
-    case "resource_object":
-      return text(entity.resource)
+    case "catalog":
+      return text(entity.id) ? { kind: "catalog", name: entity.id as string } : null;
+    case "catalog_entry":
+      return text(entity.catalog)
         ? {
-            kind: "resource object",
+            kind: "catalog entry",
             name: text(entity.key)
-              ? `${entity.resource as string}/${entity.key as string}`
-              : (entity.resource as string),
+              ? `${entity.catalog as string}/${entity.key as string}`
+              : (entity.catalog as string),
           }
         : null;
     case "schema":
@@ -224,11 +224,11 @@ function diagnosticTargetLabel(diagnostic: LintDiagnostic): string {
   if (kind === "predicate" && typeof entity.qualifier === "string") {
     return `qualifier:${entity.qualifier}.predicate`;
   }
-  if (kind === "resource" && typeof entity.id === "string") {
-    return `resource:${entity.id}`;
+  if (kind === "catalog" && typeof entity.id === "string") {
+    return `catalog:${entity.id}`;
   }
-  if (kind === "resource_object" && typeof entity.resource === "string") {
-    return `resource:${entity.resource}.object`;
+  if (kind === "catalog_entry" && typeof entity.catalog === "string") {
+    return `catalog:${entity.catalog}.entry`;
   }
   if (kind === "schema" && typeof entity.path === "string") {
     return `schema:${entity.path}`;

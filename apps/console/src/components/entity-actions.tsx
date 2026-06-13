@@ -3,7 +3,7 @@ import { Plus, Trash2 } from "lucide-react";
 import { useRouter } from "@/lib/navigation";
 import { apiFetch } from "@/lib/api";
 
-type EntityKind = "variables" | "qualifiers" | "resources" | "schemas" | "context" | "linters";
+type EntityKind = "variables" | "qualifiers" | "catalogs" | "schemas" | "context" | "linters";
 
 type FormNote = { tone: "ok" | "err"; text: string };
 
@@ -108,15 +108,15 @@ export function AddEntityForm({
   );
 }
 
-export function AddResourceObjectForm({
+export function AddCatalogEntryForm({
   disabled,
   draftId,
-  resourceId,
+  catalogId,
   workspaceId,
 }: {
   disabled?: boolean;
   draftId: string;
-  resourceId: string;
+  catalogId: string;
   workspaceId: string;
 }) {
   const router = useRouter();
@@ -132,14 +132,14 @@ export function AddResourceObjectForm({
       const response = await apiFetch(`/api/workspaces/${workspaceId}/drafts/${draftId}/entities`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ kind: "resource_objects", id, resourceId }),
+        body: JSON.stringify({ kind: "catalog_entries", id, catalogId }),
       });
       const body = (await response.json()) as {
         error?: string;
         files?: Array<{ path: string }>;
       };
       if (!response.ok) {
-        throw new Error(body.error ?? "failed to add resource object");
+        throw new Error(body.error ?? "failed to add catalog entry");
       }
       setId("");
       setNote({ tone: "ok", text: "Added to the draft branch." });
@@ -157,19 +157,19 @@ export function AddResourceObjectForm({
   return (
     <form className="card" onSubmit={submit}>
       <div className="card-head-text">
-        <h3>Add a resource object</h3>
+        <h3>Add a catalog entry</h3>
         <p className="hint">
-          Creates an object under{" "}
-          <span className="mono">resources/{resourceId}-objects</span>.
+          Creates an entry under{" "}
+          <span className="mono">catalogs/{catalogId}-entries</span>.
         </p>
       </div>
       <label className="field-stack">
-        <span className="label">object key</span>
+        <span className="label">entry key</span>
         <input
           className="input mono"
           disabled={disabled || pending}
           onChange={(event) => setId(event.target.value)}
-          placeholder="new-object"
+          placeholder="new-entry"
           value={id}
         />
       </label>
@@ -180,7 +180,7 @@ export function AddResourceObjectForm({
           type="submit"
         >
           {pending ? <span className="spin" /> : <Plus aria-hidden size={15} />}
-          {pending ? "Adding" : "Add object"}
+          {pending ? "Adding" : "Add entry"}
         </button>
         {note ? (
           <p className="form-note" data-tone={note.tone}>
@@ -262,8 +262,8 @@ function kindLabel(kind: EntityKind): string {
 }
 
 function addHelp(kind: EntityKind): string {
-  if (kind === "resources") {
-    return "Creates a resource file, its schema, and a default resource object.";
+  if (kind === "catalogs") {
+    return "Creates a catalog file, its schema, and a default catalog entry.";
   }
   if (kind === "context") {
     return "Creates a JSON context example.";

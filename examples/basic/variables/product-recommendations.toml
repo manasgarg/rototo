@@ -1,7 +1,7 @@
 schema_version = 1
 
 description = "Product recommendation strategy for shopping surfaces"
-type = "resource:product-recommendations"
+type = "catalog:product-recommendations"
 
 [resolve]
 default = "baseline"

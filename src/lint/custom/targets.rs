@@ -360,7 +360,7 @@ fn registered_variable_location(
         Some(RegisteredLintField::Variable(VariableLintField::Type))
             if matches!(
                 &variable.type_source,
-                TypeSourceNode::Primitive(_) | TypeSourceNode::Resource(_)
+                TypeSourceNode::Primitive(_) | TypeSourceNode::Catalog(_)
             ) =>
         {
             variable.type_source.location()

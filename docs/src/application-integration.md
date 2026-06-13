@@ -662,7 +662,7 @@ testable, and observable.
 
 Avoid these patterns:
 
-- parsing `variables/*.toml` or `resources/*.toml` from application code;
+- parsing `variables/*.toml` or `catalogs/*.toml` from application code;
 - duplicating qualifier predicates in app conditionals;
 - putting policy decisions into context booleans;
 - caching selected values forever when refresh is part of the runtime model;

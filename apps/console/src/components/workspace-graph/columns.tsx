@@ -3,16 +3,16 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import type { GraphNode, GraphNodeKind, WorkspaceGraphData } from "./types";
 
 /* Concept: layered columns. Entities group into columns by kind in
-   resolution order — qualifiers feed variables, variables select objects,
-   objects and variables validate against schemas — with linters alongside.
+   resolution order — qualifiers feed variables, variables select entries,
+   entries and variables validate against schemas — with linters alongside.
    Hovering a node lights up its edges and neighbors and previews its source;
    clicking opens the entity. */
 
 const COLUMNS: Array<{ kind: GraphNodeKind; title: string }> = [
   { kind: "qualifier", title: "qualifiers" },
   { kind: "variable", title: "variables" },
-  { kind: "resource", title: "resources" },
-  { kind: "resourceObject", title: "objects" },
+  { kind: "catalog", title: "catalogs" },
+  { kind: "catalogEntry", title: "entries" },
   { kind: "schema", title: "schemas" },
   { kind: "linter", title: "linters" },
 ];
@@ -20,8 +20,8 @@ const COLUMNS: Array<{ kind: GraphNodeKind; title: string }> = [
 const KIND_COLOR: Record<GraphNodeKind, string> = {
   qualifier: "var(--cyan-600)",
   variable: "var(--sea-600)",
-  resource: "var(--ok-700)",
-  resourceObject: "var(--ink-1)",
+  catalog: "var(--ok-700)",
+  catalogEntry: "var(--ink-1)",
   schema: "var(--info-700)",
   linter: "var(--warn-700)",
 };
@@ -116,7 +116,7 @@ export function ColumnsGraph({
   }, [data]);
 
   // Everything lit by the hovered node: itself, its edge neighbors, and its
-  // related entities (a variable's selected objects).
+  // related entities (a variable's selected entries).
   const litNodes = useMemo(() => {
     if (!active) {
       return null;

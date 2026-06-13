@@ -6,8 +6,8 @@
 export type GraphNodeKind =
   | "qualifier"
   | "variable"
-  | "resource"
-  | "resourceObject"
+  | "catalog"
+  | "catalogEntry"
   | "schema"
   | "linter";
 
@@ -21,7 +21,7 @@ export type GraphNode = {
   source?: string;
   language?: "json" | "lua" | "toml" | "text";
   /* Entities semantically tied to this one beyond drawn edges (a variable's
-     selected objects); hover highlighting includes them and the drawn edges
+     selected entries); hover highlighting includes them and the drawn edges
      that connect into them. */
   related?: string[];
   /* Marked when the entity differs from the base ref in the current draft. */

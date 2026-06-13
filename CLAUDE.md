@@ -23,8 +23,8 @@ workspace loading or resolution. Do not add new sync public APIs around blocking
 work; use async functions and `spawn_blocking` for sync-only libraries.
 
 Use rototo's domain vocabulary directly. Current first-class concepts are
-workspaces, qualifiers, variables, resources, schemas, and values. Avoid
-reintroducing generic nouns such as package, resource, item, or document in CLI
+workspaces, qualifiers, variables, catalogs, schemas, and values. Avoid
+reintroducing generic nouns such as package, catalog, item, or document in CLI
 commands, public SDK types, docs, tests, or diagnostics unless the product model
 explicitly changes.
 
@@ -65,7 +65,7 @@ sources support `#ref:subdir`; archive URLs support `#:subdir`. Bearer auth for
 HTTPS archive sources comes from `--workspace-token` or
 `ROTOTO_WORKSPACE_TOKEN`.
 
-Do not add `rototo resource ...`. Qualifier and variable command enums are kept
+Do not add `rototo catalog ...`. Qualifier and variable command enums are kept
 separate in `src/main.rs` even when they currently share verbs, so each noun can
 evolve independently.
 
@@ -126,7 +126,7 @@ workspace structure and files:
   using `qualifier.<id>`, use known predicate operators, and validate bucket and
   operator value shapes.
 - Variable files parse, declare `schema_version = 1`, declare exactly one of
-  `type`, `schema`, or `resource`, contain inline values under `[values]` and/or
+  `type`, `schema`, or `catalog`, contain inline values under `[values]` and/or
   external values under a sibling `<variable-id>-values/*.toml` directory,
   declare `[resolve]`, reference known values, and reference known qualifiers
   from rules.
@@ -261,7 +261,7 @@ drift.
 
 Java SDK releases publish `dev.rototo:rototo` to Maven Central through the
 Central Portal Maven plugin. The published JAR should be built by Maven and
-include generated native-library resources for every supported platform, plus
+include generated native-library catalogs for every supported platform, plus
 the sources JAR, javadoc JAR, POM metadata required by Central, GPG signatures,
 and Central-generated checksums. Do not hand-build the Maven Central artifact in
 the release workflow. Release automation expects Central Portal token secrets

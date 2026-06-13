@@ -31,7 +31,7 @@ pub(super) fn lint_variable_shapes(ctx: &mut LintContext) {
 
 fn lint_type_source(diagnostics: &mut Vec<LintDiagnostic>, variable: &VariableNode) {
     match &variable.type_source {
-        TypeSourceNode::Primitive(_) | TypeSourceNode::Resource(_) => {}
+        TypeSourceNode::Primitive(_) | TypeSourceNode::Catalog(_) => {}
         TypeSourceNode::Schema(schema) => push_project_diagnostic(
             diagnostics,
             RototoRuleId::VariableTypeSource,
@@ -59,14 +59,14 @@ fn lint_type_source(diagnostics: &mut Vec<LintDiagnostic>, variable: &VariableNo
 }
 
 fn lint_values_shape(diagnostics: &mut Vec<LintDiagnostic>, variable: &VariableNode) {
-    if is_resource_backed(variable) {
+    if is_catalog_backed(variable) {
         if variable.values.invalid_shape || !variable.values.inline_values.is_empty() {
             push_project_diagnostic(
                 diagnostics,
                 RototoRuleId::VariableValuesDisallowed,
                 variable.field_target(SemanticField::VariableValues),
                 variable.values.location.clone(),
-                "resource-backed variables must not contain [values]",
+                "catalog-backed variables must not contain [values]",
             );
         }
         return;
@@ -190,14 +190,14 @@ pub(super) fn lint_variable_references(ctx: &mut LintContext) {
         }
         match (&edge.source, &edge.target) {
             (
-                ReferenceSource::VariableResource { variable: _ },
-                ReferenceTarget::Resource(resource),
+                ReferenceSource::VariableCatalog { variable: _ },
+                ReferenceTarget::Catalog(catalog),
             ) => push_reference_diagnostic(
                 &mut diagnostics,
-                RototoRuleId::VariableUnknownResource,
+                RototoRuleId::VariableUnknownCatalog,
                 edge.semantic_target.clone(),
                 edge.location.clone(),
-                format!("variable references unknown resource: {resource}"),
+                format!("variable references unknown catalog: {catalog}"),
             ),
             (
                 ReferenceSource::VariableResolveDefault { variable },
@@ -219,10 +219,10 @@ pub(super) fn lint_variable_references(ctx: &mut LintContext) {
             }
             (
                 ReferenceSource::VariableResolveDefault { variable },
-                ReferenceTarget::ResourceObject { resource, value },
+                ReferenceTarget::CatalogEntry { catalog, value },
             ) => {
-                if !ctx.index.resources.contains_key(resource)
-                    || variable_resource_id(ctx, variable).is_none_or(|id| id != resource)
+                if !ctx.index.catalogs.contains_key(catalog)
+                    || variable_catalog_id(ctx, variable).is_none_or(|id| id != catalog)
                 {
                     continue;
                 }
@@ -231,7 +231,7 @@ pub(super) fn lint_variable_references(ctx: &mut LintContext) {
                     RototoRuleId::VariableUnknownValue,
                     edge.semantic_target.clone(),
                     edge.location.clone(),
-                    format!("resolve default references unknown resource object: {value}"),
+                    format!("resolve default references unknown catalog entry: {value}"),
                 );
             }
             (
@@ -267,10 +267,10 @@ pub(super) fn lint_variable_references(ctx: &mut LintContext) {
             }
             (
                 ReferenceSource::VariableRuleValue { variable, rule: _ },
-                ReferenceTarget::ResourceObject { resource, value },
+                ReferenceTarget::CatalogEntry { catalog, value },
             ) => {
-                if !ctx.index.resources.contains_key(resource)
-                    || variable_resource_id(ctx, variable).is_none_or(|id| id != resource)
+                if !ctx.index.catalogs.contains_key(catalog)
+                    || variable_catalog_id(ctx, variable).is_none_or(|id| id != catalog)
                 {
                     continue;
                 }
@@ -279,7 +279,7 @@ pub(super) fn lint_variable_references(ctx: &mut LintContext) {
                     RototoRuleId::VariableUnknownValue,
                     edge.semantic_target.clone(),
                     edge.location.clone(),
-                    format!("rule references unknown resource object: {value}"),
+                    format!("rule references unknown catalog entry: {value}"),
                 );
             }
             _ => {}
@@ -304,7 +304,7 @@ pub(super) fn lint_variable_values(ctx: &mut LintContext) {
                 };
                 lint_primitive_variable_values(&mut diagnostics, variable, primitive);
             }
-            TypeSourceNode::Resource(_)
+            TypeSourceNode::Catalog(_)
             | TypeSourceNode::Schema(_)
             | TypeSourceNode::Missing { .. }
             | TypeSourceNode::Conflict { .. }
@@ -356,14 +356,14 @@ fn lint_primitive_variable_values(
     }
 }
 
-fn is_resource_backed(variable: &VariableNode) -> bool {
-    matches!(variable.type_source, TypeSourceNode::Resource(_))
+fn is_catalog_backed(variable: &VariableNode) -> bool {
+    matches!(variable.type_source, TypeSourceNode::Catalog(_))
 }
 
-fn variable_resource_id<'a>(ctx: &'a LintContext, variable: &str) -> Option<&'a str> {
+fn variable_catalog_id<'a>(ctx: &'a LintContext, variable: &str) -> Option<&'a str> {
     let variable = ctx.index.variables.get(variable)?;
     match &variable.type_source {
-        TypeSourceNode::Resource(resource) => Some(resource.value.as_str()),
+        TypeSourceNode::Catalog(catalog) => Some(catalog.value.as_str()),
         _ => None,
     }
 }

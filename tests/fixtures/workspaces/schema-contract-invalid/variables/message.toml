@@ -1,6 +1,6 @@
 schema_version = 1
-type = "resource:message"
-description = "Variable whose resource schema cannot compile"
+type = "catalog:message"
+description = "Variable whose catalog schema cannot compile"
 
 [resolve]
 default = "default"

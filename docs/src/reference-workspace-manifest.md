@@ -116,14 +116,14 @@ extends = [" ../base-config "]
 
 ## What The Manifest Does Not Define
 
-The manifest does not define variables, qualifiers, resources, schemas, or
-resource objects. It also does not declare custom Lua lint rule metadata. Those
+The manifest does not define variables, qualifiers, catalogs, schemas, or
+catalog entries. It also does not declare custom Lua lint rule metadata. Those
 contracts live in the workspace directories:
 
 ```text
 qualifiers/
 variables/
-resources/
+catalogs/
 schemas/
 lint/
 ```

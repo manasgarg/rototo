@@ -92,7 +92,7 @@ export type VariableModel = {
   location: ModelLocation;
   description?: string;
   declaration: {
-    kind: "primitive" | "resource" | "schema" | "missing" | "conflict" | "invalid";
+    kind: "primitive" | "catalog" | "schema" | "missing" | "conflict" | "invalid";
     value?: string;
     location: ModelLocation;
   };
@@ -110,15 +110,15 @@ export type VariableModel = {
   };
 };
 
-export type ResourceModel = {
+export type CatalogModel = {
   id: string;
   location: ModelLocation;
   description?: string;
   schema?: ModelField;
 };
 
-export type ResourceObjectModel = {
-  resource: string;
+export type CatalogEntryModel = {
+  catalog: string;
   key: string;
   location: ModelLocation;
   value: JsonValue;
@@ -139,8 +139,8 @@ export type LinterModel = {
 export type ModelEntityRef =
   | { kind: "qualifier"; id: string }
   | { kind: "variable"; id: string }
-  | { kind: "resource"; id: string }
-  | { kind: "resourceObject"; resource: string; key: string }
+  | { kind: "catalog"; id: string }
+  | { kind: "catalogEntry"; catalog: string; key: string }
   | { kind: "schema"; path: string }
   | { kind: "value"; variable: string; key: string }
   | { kind: "contextAttribute"; name: string };
@@ -148,8 +148,8 @@ export type ModelEntityRef =
 export type ModelReferenceVia =
   | { kind: "predicateQualifier"; index: number }
   | { kind: "predicateContextAttribute"; index: number }
-  | { kind: "variableResource" }
-  | { kind: "resourceSchema" }
+  | { kind: "variableCatalog" }
+  | { kind: "catalogSchema" }
   | { kind: "resolveDefault" }
   | { kind: "ruleQualifier"; index: number }
   | { kind: "ruleValue"; index: number };
@@ -168,8 +168,8 @@ export type WorkspaceSemanticModel = {
   version: number;
   qualifiers: QualifierModel[];
   variables: VariableModel[];
-  resources: ResourceModel[];
-  resourceObjects: ResourceObjectModel[];
+  catalogs: CatalogModel[];
+  catalogEntries: CatalogEntryModel[];
   schemas: SchemaModel[];
   linters: LinterModel[];
   references: ReferenceModel[];

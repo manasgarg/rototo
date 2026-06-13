@@ -1,0 +1,4 @@
+schema_version = 1
+
+description = "LLM agent profile entries loaded by production services"
+schema = "../schemas/agent-config.schema.json"

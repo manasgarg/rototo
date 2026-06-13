@@ -1,0 +1,4 @@
+schema_version = 1
+
+description = "Support banner entries shown in account and checkout flows"
+schema = "../schemas/support-banner.schema.json"

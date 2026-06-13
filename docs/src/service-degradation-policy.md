@@ -33,11 +33,11 @@ normal, and reduce load when queue pressure is high.
 ## Create The Workspace
 
 Create the workspace with a [variable](reference-variables.html) and a
-[resource](reference-resources.html) template:
+[catalog](reference-catalogs.html) template:
 
 ```sh
 rototo init degradation-config --variable service-degradation-policy
-rototo init degradation-config --resource service-degradation-policy
+rototo init degradation-config --catalog service-degradation-policy
 ```
 
 Replace `degradation-config/variables/service-degradation-policy.toml`:
@@ -46,24 +46,24 @@ Replace `degradation-config/variables/service-degradation-policy.toml`:
 schema_version = 1
 
 description = "Operating policy selected while the service is under pressure"
-type = "resource:service-degradation-policy"
+type = "catalog:service-degradation-policy"
 
 [resolve]
 default = "normal"
 ```
 
-Replace `degradation-config/resources/service-degradation-policy.toml`:
+Replace `degradation-config/catalogs/service-degradation-policy.toml`:
 
 ```toml
 schema_version = 1
 
-description = "Service degradation policy objects"
+description = "Service degradation policy entries"
 schema = "../schemas/service-degradation-policy.schema.json"
 ```
 
-The variable chooses a policy key. The resource validates the policy object
+The variable chooses a policy key. The catalog validates the policy entry
 behind that key. During an incident, the app should not have to trust a
-half-shaped object while operators are making fast changes.
+half-shaped entry while operators are making fast changes.
 
 ## Define The Policy Shape
 
@@ -100,9 +100,9 @@ released.
 
 ## Add The First Policies
 
-Rename the generated object file from
-`degradation-config/resources/service-degradation-policy-objects/default.toml`
-to `degradation-config/resources/service-degradation-policy-objects/normal.toml`,
+Rename the generated entry file from
+`degradation-config/catalogs/service-degradation-policy-entries/default.toml`
+to `degradation-config/catalogs/service-degradation-policy-entries/normal.toml`,
 then replace its contents:
 
 ```toml
@@ -114,7 +114,7 @@ fallback_provider = "primary"
 ```
 
 Create
-`degradation-config/resources/service-degradation-policy-objects/degraded.toml`:
+`degradation-config/catalogs/service-degradation-policy-entries/degraded.toml`:
 
 ```toml
 mode = "degraded"
@@ -125,7 +125,7 @@ fallback_provider = "primary"
 ```
 
 Create
-`degradation-config/resources/service-degradation-policy-objects/severe.toml`:
+`degradation-config/catalogs/service-degradation-policy-entries/severe.toml`:
 
 ```toml
 mode = "severe"
@@ -162,7 +162,7 @@ Update `degradation-config/variables/service-degradation-policy.toml`:
 schema_version = 1
 
 description = "Operating policy selected while the service is under pressure"
-type = "resource:service-degradation-policy"
+type = "catalog:service-degradation-policy"
 
 [resolve]
 default = "normal"
@@ -173,7 +173,7 @@ value = "degraded"
 ```
 
 The app still decides when queue pressure is high. Rototo only turns that
-runtime fact into the reviewed policy object.
+runtime fact into the reviewed policy entry.
 
 ## Generate The First Context Contract
 
@@ -292,7 +292,7 @@ Update the variable so the severe trial wins before the broader degraded rule:
 schema_version = 1
 
 description = "Operating policy selected while the service is under pressure"
-type = "resource:service-degradation-policy"
+type = "catalog:service-degradation-policy"
 
 [resolve]
 default = "normal"
@@ -405,7 +405,7 @@ range = [0, 3000]
 ```
 
 To make the severe policy stronger without widening it, change the policy
-object:
+entry:
 
 ```toml
 mode = "severe"

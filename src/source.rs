@@ -1574,7 +1574,7 @@ extends = ["../base", "  "]
         let temp = tempfile::TempDir::new().unwrap();
         let source = temp.path().join("source");
         let target = temp.path().join("target");
-        tokio::fs::create_dir_all(source.join("resources/config-objects"))
+        tokio::fs::create_dir_all(source.join("catalogs/config-entries"))
             .await
             .unwrap();
         tokio::fs::write(source.join(WORKSPACE_MANIFEST), "schema_version = 1\n")
@@ -1582,7 +1582,7 @@ extends = ["../base", "  "]
             .unwrap();
         tokio::fs::write(
             source
-                .join("resources/config-objects")
+                .join("catalogs/config-entries")
                 .join(WORKSPACE_MANIFEST),
             "value = true\n",
         )
@@ -1594,7 +1594,7 @@ extends = ["../base", "  "]
         assert!(!target.join(WORKSPACE_MANIFEST).exists());
         assert!(
             target
-                .join("resources/config-objects")
+                .join("catalogs/config-entries")
                 .join(WORKSPACE_MANIFEST)
                 .is_file()
         );

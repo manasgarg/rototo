@@ -1,7 +1,7 @@
 schema_version = 1
 
-description = "Resource-backed variable with an object that does not match"
-type = "resource:bad-schema-value"
+description = "Catalog-backed variable with an entry that does not match"
+type = "catalog:bad-schema-value"
 
 [resolve]
 default = "default"

@@ -54,7 +54,7 @@ fn shows_workspace_inventory_including_linters() {
 }
 
 #[test]
-fn shows_workspace_inventory_as_json_including_top_level_objects() {
+fn shows_workspace_inventory_as_json_including_top_level_entries() {
     Command::cargo_bin("rototo")
         .unwrap()
         .args(["show", "examples/basic", "--json"])
@@ -111,13 +111,13 @@ fn gets_variable_from_discovered_workspace() {
 }
 
 #[test]
-fn gets_resource_with_objects() {
+fn gets_catalog_with_entries() {
     Command::cargo_bin("rototo")
         .unwrap()
-        .args(["show", "examples/basic", "--resource", "llm-agent-config"])
+        .args(["show", "examples/basic", "--catalog", "llm-agent-config"])
         .assert()
         .success()
-        .stdout(predicate::str::contains("[objects.local]"))
+        .stdout(predicate::str::contains("[entries.local]"))
         .stdout(predicate::str::contains("model = \"local-small\""))
         .stdout(predicate::str::contains("model = \"gpt-5\""));
 }

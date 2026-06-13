@@ -90,7 +90,7 @@ to read configured workspace data or the diagnostic catalog:
   "command": "show",
   "workspace": "/workspace",
   "schemas": [],
-  "resources": [],
+  "catalogs": [],
   "variables": [],
   "qualifiers": [],
   "lint_rules": [],
@@ -99,10 +99,10 @@ to read configured workspace data or the diagnostic catalog:
 }
 ```
 
-Selected variables, qualifiers, and resources include `id`, `uri`, `path`, and
+Selected variables, qualifiers, and catalogs include `id`, `uri`, `path`, and
 their TOML content converted to JSON.
 
-Resource output includes an `objects` table when resource object files exist.
+Catalog output includes an `entries` table when catalog entry files exist.
 
 ## `inspect --json`
 
@@ -116,7 +116,7 @@ needs dependencies, consumers, runtime status, and optional resolution traces:
   "runtime": { "status": "available" },
   "diagnostics": [],
   "schemas": [],
-  "resources": [],
+  "catalogs": [],
   "variables": [],
   "qualifiers": [],
   "lint_rules": [],
@@ -125,7 +125,7 @@ needs dependencies, consumers, runtime status, and optional resolution traces:
 }
 ```
 
-Selected variables, resources, qualifiers, and schemas include dependencies,
+Selected variables, catalogs, qualifiers, and schemas include dependencies,
 consumers, and diagnostics. When `--context` is supplied, selected variables
 and qualifiers can include `trace`.
 

@@ -72,10 +72,10 @@ fn inspect_human_predicates_show_values() {
 fn inspect_human_values_show_config_values() {
     Command::cargo_bin("rototo")
         .unwrap()
-        .args(["inspect", "examples/basic", "--resource", "tenant-limits"])
+        .args(["inspect", "examples/basic", "--catalog", "tenant-limits"])
         .assert()
         .success()
-        .stdout(predicate::str::contains("resource: tenant-limits"))
+        .stdout(predicate::str::contains("catalog: tenant-limits"))
         .stdout(predicate::str::contains("enterprise = {"))
         .stdout(predicate::str::contains(r#""support_tier":"dedicated""#))
         .stdout(predicate::str::contains(

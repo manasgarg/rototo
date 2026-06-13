@@ -32,9 +32,9 @@ Rototo discovers these workspace paths:
 | --- | --- | --- | --- |
 | `qualifiers/*.toml` | TOML | File stem | Named runtime conditions. |
 | `variables/*.toml` | TOML | File stem | Named values resolved by applications. |
-| `resources/*.toml` | TOML | File stem | Schemas for structured resource objects. |
-| `resources/<resource-id>-objects/*.toml` | TOML | File stem | Objects selectable by `resource:<resource-id>` variables. |
-| `schemas/*.json` | JSON | File stem | JSON Schemas used for context and resource validation. |
+| `catalogs/*.toml` | TOML | File stem | Schemas for structured catalog entries. |
+| `catalogs/<catalog-id>-entries/*.toml` | TOML | File stem | Entries selectable by `catalog:<catalog-id>` variables. |
+| `schemas/*.json` | JSON | File stem | JSON Schemas used for context and catalog validation. |
 | `lint/*.lua` | Lua | File stem | Custom lint handlers. |
 
 Only files with the listed extensions are discovered. Other files may live in
@@ -42,7 +42,7 @@ the repository for humans or local tooling, but rototo does not treat them as
 workspace documents.
 
 Directories are optional. A workspace can start with only `variables/` and add
-`qualifiers/`, `resources/`, `schemas/`, or `lint/` later.
+`qualifiers/`, `catalogs/`, `schemas/`, or `lint/` later.
 
 ## Ids
 
@@ -51,32 +51,32 @@ The file stem is the id:
 ```text
 variables/account-limits.toml       -> variable://account-limits
 qualifiers/paid-account.toml        -> qualifier://paid-account
-resources/banner.toml               -> resource://banner
-resources/banner-objects/hidden.toml -> resource object key hidden
+catalogs/banner.toml               -> catalog://banner
+catalogs/banner-entries/hidden.toml -> catalog entry key hidden
 ```
 
 Ids are references in other files, CLI selectors, SDK calls, diagnostics, and
 resolution traces. Rename files deliberately, because a rename changes the
 public id.
 
-## Resource Objects
+## Catalog Entries
 
-Resource objects are discovered only under a directory named for an existing
-resource:
+Catalog entries are discovered only under a directory named for an existing
+catalog:
 
 ```text
-resources/
+catalogs/
   banner.toml
-  banner-objects/
+  banner-entries/
     hidden.toml
     incident.toml
 ```
 
-Here `banner.toml` declares the resource and its schema. The two object files
-define object keys `hidden` and `incident`.
+Here `banner.toml` declares the catalog and its schema. The two entry files
+define entry keys `hidden` and `incident`.
 
-If the resource file does not exist, rototo does not treat the matching
-`*-objects/` directory as an independent resource family.
+If the catalog file does not exist, rototo does not treat the matching
+`*-entries/` directory as an independent catalog family.
 
 ## Special Schema Path
 
@@ -84,8 +84,8 @@ If the resource file does not exist, rototo does not treat the matching
 When present, it is the schema for the runtime context an application passes
 during resolution.
 
-Other JSON Schemas under `schemas/` validate resource objects when referenced
-from a resource file.
+Other JSON Schemas under `schemas/` validate catalog entries when referenced
+from a catalog file.
 
 ## Document Kinds
 
@@ -95,8 +95,8 @@ JSON output reports discovered documents with a `kind` value:
 manifest
 qualifier
 variable
-resource
-resource_object
+catalog
+catalog_entry
 schema
 custom_lint
 ```

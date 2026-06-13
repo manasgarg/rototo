@@ -7,12 +7,12 @@ use rototo::diagnostics::{
     SemanticField, SemanticTarget, Severity,
 };
 use rototo::error::{Result, RototoError};
-use rototo::model::{InspectRuntimeStatus, WorkspaceDiff, WorkspaceInspectReport};
 use rototo::model::{
-    QualifierInspection, ResourceInspection, VariableInspection, WorkspaceInspection, WorkspaceLint,
+    CatalogInspection, QualifierInspection, VariableInspection, WorkspaceInspection, WorkspaceLint,
 };
+use rototo::model::{InspectRuntimeStatus, WorkspaceDiff, WorkspaceInspectReport};
 use rototo::workspace::{
-    qualifier_for_id, read_resource_toml, read_toml, read_variable_toml, resource_for_id,
+    catalog_for_id, qualifier_for_id, read_catalog_toml, read_toml, read_variable_toml,
     variable_for_id,
 };
 
@@ -43,9 +43,9 @@ struct VariableListJson<'a> {
 }
 
 #[derive(Debug, Serialize)]
-struct ResourceListJson<'a> {
+struct CatalogListJson<'a> {
     workspace: String,
-    resources: Vec<WorkspaceFileJson<'a>>,
+    catalogs: Vec<WorkspaceFileJson<'a>>,
 }
 
 #[derive(Debug, Serialize)]
@@ -67,7 +67,7 @@ struct VariableGetJson {
 }
 
 #[derive(Debug, Serialize)]
-struct ResourceGetJson {
+struct CatalogGetJson {
     workspace: String,
     id: String,
     uri: String,
@@ -230,30 +230,30 @@ pub(crate) fn print_inspect_report(report: &WorkspaceInspectReport, json: bool) 
         }
     }
 
-    if !report.resources.is_empty() {
-        println!("{}", style::label("resources"));
-        let count = report.resources.len();
-        for (index, resource) in report.resources.iter().enumerate() {
+    if !report.catalogs.is_empty() {
+        println!("{}", style::label("catalogs"));
+        let count = report.catalogs.len();
+        for (index, catalog) in report.catalogs.iter().enumerate() {
             print_entity_separator(index, count);
-            println!("  resource: {}", style::sea(&resource.id));
-            println!("    {} {}", style::dim("path:"), style::dim(&resource.path));
-            if let Some(schema) = &resource.schema {
+            println!("  catalog: {}", style::sea(&catalog.id));
+            println!("    {} {}", style::dim("path:"), style::dim(&catalog.path));
+            if let Some(schema) = &catalog.schema {
                 println!("    schema: {}", style::info(schema));
             }
-            if !resource.objects.is_empty() {
-                println!("    {}", style::subhead("objects"));
-                for object in &resource.objects {
+            if !catalog.entries.is_empty() {
+                println!("    {}", style::subhead("entries"));
+                for entry in &catalog.entries {
                     println!(
                         "      {} = {}",
-                        style::sea(&object.key),
-                        compact_json(&object.value)?
+                        style::sea(&entry.key),
+                        compact_json(&entry.value)?
                     );
                 }
             }
-            print_dependencies(&resource.dependencies, "    ");
-            if !resource.consumers.is_empty() {
+            print_dependencies(&catalog.dependencies, "    ");
+            if !catalog.consumers.is_empty() {
                 println!("    {}", style::subhead("consumed by"));
-                for consumer in &resource.consumers {
+                for consumer in &catalog.consumers {
                     println!(
                         "      {}  {}",
                         style::sea(&consumer.label),
@@ -261,9 +261,9 @@ pub(crate) fn print_inspect_report(report: &WorkspaceInspectReport, json: bool) 
                     );
                 }
             }
-            if !resource.diagnostics.is_empty() {
+            if !catalog.diagnostics.is_empty() {
                 println!("    {}", style::subhead("diagnostics"));
-                print_diagnostics(&resource.diagnostics);
+                print_diagnostics(&catalog.diagnostics);
             }
         }
     }
@@ -499,7 +499,7 @@ fn print_dependencies(dependencies: &rototo::model::DependencyInspectReport, ind
     if dependencies.qualifiers.is_empty()
         && dependencies.context_paths.is_empty()
         && dependencies.schemas.is_empty()
-        && dependencies.resources.is_empty()
+        && dependencies.catalogs.is_empty()
     {
         return;
     }
@@ -521,11 +521,11 @@ fn print_dependencies(dependencies: &rototo::model::DependencyInspectReport, ind
     for schema in &dependencies.schemas {
         println!("{indent}  {} {}", style::dim("schema"), style::sea(schema));
     }
-    for resource in &dependencies.resources {
+    for catalog in &dependencies.catalogs {
         println!(
             "{indent}  {} {}",
-            style::dim("resource"),
-            style::sea(resource)
+            style::dim("catalog"),
+            style::sea(catalog)
         );
     }
 }
@@ -568,21 +568,21 @@ pub(crate) fn print_variable_list(inspection: &WorkspaceInspection, json: bool) 
     Ok(())
 }
 
-pub(crate) fn print_resource_list(inspection: &WorkspaceInspection, json: bool) -> Result<()> {
+pub(crate) fn print_catalog_list(inspection: &WorkspaceInspection, json: bool) -> Result<()> {
     if json {
         println!(
             "{}",
-            serde_json::to_string_pretty(&ResourceListJson {
+            serde_json::to_string_pretty(&CatalogListJson {
                 workspace: inspection.root.display().to_string(),
-                resources: inspection.resources.iter().map(resource_json).collect(),
+                catalogs: inspection.catalogs.iter().map(catalog_json).collect(),
             })
             .map_err(|err| RototoError::new(err.to_string()))?
         );
         return Ok(());
     }
 
-    for resource in &inspection.resources {
-        println!("{}", resource.id);
+    for catalog in &inspection.catalogs {
+        println!("{}", catalog.id);
     }
     Ok(())
 }
@@ -647,23 +647,23 @@ pub(crate) async fn print_variable_get(
     Ok(())
 }
 
-pub(crate) async fn print_resource_get(
+pub(crate) async fn print_catalog_get(
     inspection: &WorkspaceInspection,
     id: &str,
     json: bool,
 ) -> Result<()> {
-    let resource = resource_for_id(inspection, id)?;
+    let catalog = catalog_for_id(inspection, id)?;
 
     if json {
-        let value = serde_json::to_value(read_resource_toml(&inspection.root, resource).await?)
+        let value = serde_json::to_value(read_catalog_toml(&inspection.root, catalog).await?)
             .map_err(|err| RototoError::new(err.to_string()))?;
         println!(
             "{}",
-            serde_json::to_string_pretty(&ResourceGetJson {
+            serde_json::to_string_pretty(&CatalogGetJson {
                 workspace: inspection.root.display().to_string(),
-                id: resource.id.clone(),
-                uri: resource.uri.clone(),
-                path: resource.path.display().to_string(),
+                id: catalog.id.clone(),
+                uri: catalog.uri.clone(),
+                path: catalog.path.display().to_string(),
                 value,
             })
             .map_err(|err| RototoError::new(err.to_string()))?
@@ -671,7 +671,7 @@ pub(crate) async fn print_resource_get(
         return Ok(());
     }
 
-    let value = read_resource_toml(&inspection.root, resource).await?;
+    let value = read_catalog_toml(&inspection.root, catalog).await?;
     print!(
         "{}",
         toml::to_string_pretty(&value).map_err(|err| RototoError::new(err.to_string()))?
@@ -718,11 +718,11 @@ fn variable_json(variable: &VariableInspection) -> WorkspaceFileJson<'_> {
     }
 }
 
-fn resource_json(resource: &ResourceInspection) -> WorkspaceFileJson<'_> {
+fn catalog_json(catalog: &CatalogInspection) -> WorkspaceFileJson<'_> {
     WorkspaceFileJson {
-        id: &resource.id,
-        uri: &resource.uri,
-        path: resource.path.display().to_string(),
+        id: &catalog.id,
+        uri: &catalog.uri,
+        path: catalog.path.display().to_string(),
     }
 }
 
@@ -792,10 +792,8 @@ fn semantic_entity_label(entity: &SemanticEntity) -> String {
             format!("qualifier:{qualifier}.predicate[{index}]")
         }
         SemanticEntity::Variable { id } => format!("variable:{id}"),
-        SemanticEntity::Resource { id } => format!("resource:{id}"),
-        SemanticEntity::ResourceObject { resource, key } => {
-            format!("resource:{resource}.object:{key}")
-        }
+        SemanticEntity::Catalog { id } => format!("catalog:{id}"),
+        SemanticEntity::CatalogEntry { catalog, key } => format!("catalog:{catalog}.entry:{key}"),
         SemanticEntity::Value { variable, key } => format!("variable:{variable}.value:{key}"),
         SemanticEntity::Rule { variable, index } => {
             format!("variable:{variable}.rule[{index}]")
@@ -827,8 +825,8 @@ fn semantic_field_label(field: &SemanticField) -> String {
         SemanticField::ValueJsonPath { path } => format!("value.{}", path.join(".")),
         SemanticField::SchemaJson => "json".to_owned(),
         SemanticField::SchemaJsonPath { path } => format!("json.{}", path.join(".")),
-        SemanticField::ResourceSchema => "schema".to_owned(),
-        SemanticField::ResourceObject => "object".to_owned(),
+        SemanticField::CatalogSchema => "schema".to_owned(),
+        SemanticField::CatalogEntry => "entry".to_owned(),
     }
 }
 
@@ -851,8 +849,8 @@ fn diagnostic_entity_label(entity: &DiagnosticEntity) -> &'static str {
         DiagnosticEntity::Workspace => "workspace",
         DiagnosticEntity::Qualifier => "qualifier",
         DiagnosticEntity::Variable => "variable",
-        DiagnosticEntity::Resource => "resource",
-        DiagnosticEntity::ResourceObject => "resource_object",
+        DiagnosticEntity::Catalog => "catalog",
+        DiagnosticEntity::CatalogEntry => "catalog_entry",
         DiagnosticEntity::Value => "value",
         DiagnosticEntity::Rule => "rule",
         DiagnosticEntity::Schema => "schema",

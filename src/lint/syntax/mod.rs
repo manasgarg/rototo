@@ -68,8 +68,8 @@ pub(super) fn parse_sources(
             DocumentKind::Manifest
             | DocumentKind::Qualifier { .. }
             | DocumentKind::Variable { .. }
-            | DocumentKind::Resource { .. }
-            | DocumentKind::ResourceObject { .. } => {
+            | DocumentKind::Catalog { .. }
+            | DocumentKind::CatalogEntry { .. } => {
                 toml::parse_toml_document(document, &mut syntax, diagnostics);
             }
             DocumentKind::Schema => {

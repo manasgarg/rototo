@@ -1,7 +1,7 @@
 schema_version = 1
 
 description = "LLM settings for background summarization"
-type = "resource:llm-summarizer-config"
+type = "catalog:llm-summarizer-config"
 
 [resolve]
 default = "fast"

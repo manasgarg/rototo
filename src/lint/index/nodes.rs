@@ -8,7 +8,7 @@ use crate::diagnostics::{
     SemanticField, SemanticTarget,
 };
 
-use super::ids::{QualifierId, ResourceId, ValueKey, VariableId, WorkspacePath};
+use super::ids::{CatalogId, QualifierId, ValueKey, VariableId, WorkspacePath};
 use super::targets::RegisteredLintSelector;
 
 pub(in crate::lint) struct ManifestNode {
@@ -201,7 +201,7 @@ impl VariableNode {
 
 pub(in crate::lint) enum TypeSourceNode {
     Primitive(Spanned<String>),
-    Resource(Spanned<String>),
+    Catalog(Spanned<String>),
     Schema(Spanned<String>),
     Missing { location: DiagnosticLocation },
     Conflict { location: DiagnosticLocation },
@@ -212,7 +212,7 @@ impl TypeSourceNode {
     pub(in crate::lint) fn location(&self) -> DiagnosticLocation {
         match self {
             Self::Primitive(type_name) => type_name.location.clone(),
-            Self::Resource(resource) => resource.location.clone(),
+            Self::Catalog(catalog) => catalog.location.clone(),
             Self::Schema(schema) => schema.location.clone(),
             Self::Missing { location }
             | Self::Conflict { location }
@@ -221,18 +221,18 @@ impl TypeSourceNode {
     }
 }
 
-pub(in crate::lint) struct ResourceNode {
+pub(in crate::lint) struct CatalogNode {
     pub(in crate::lint) doc: DocId,
-    pub(in crate::lint) id: ResourceId,
+    pub(in crate::lint) id: CatalogId,
     pub(in crate::lint) location: DiagnosticLocation,
     pub(in crate::lint) schema_version: ProjectField<i64>,
     pub(in crate::lint) description: Option<ProjectField<String>>,
     pub(in crate::lint) schema: ProjectField<String>,
 }
 
-impl ResourceNode {
+impl CatalogNode {
     pub(in crate::lint) fn target(&self) -> SemanticTarget {
-        SemanticEntity::Resource {
+        SemanticEntity::Catalog {
             id: self.id.clone(),
         }
         .into()
@@ -240,7 +240,7 @@ impl ResourceNode {
 
     pub(in crate::lint) fn field_target(&self, field: SemanticField) -> SemanticTarget {
         SemanticTarget::field(
-            SemanticEntity::Resource {
+            SemanticEntity::Catalog {
                 id: self.id.clone(),
             },
             field,
@@ -248,17 +248,17 @@ impl ResourceNode {
     }
 }
 
-pub(in crate::lint) struct ResourceObjectNode {
-    pub(in crate::lint) resource_id: ResourceId,
+pub(in crate::lint) struct CatalogEntryNode {
+    pub(in crate::lint) catalog_id: CatalogId,
     pub(in crate::lint) key: ValueKey,
     pub(in crate::lint) location: DiagnosticLocation,
     pub(in crate::lint) value: JsonValue,
 }
 
-impl ResourceObjectNode {
+impl CatalogEntryNode {
     pub(in crate::lint) fn target(&self) -> SemanticTarget {
-        SemanticEntity::ResourceObject {
-            resource: self.resource_id.clone(),
+        SemanticEntity::CatalogEntry {
+            catalog: self.catalog_id.clone(),
             key: self.key.clone(),
         }
         .into()
@@ -266,8 +266,8 @@ impl ResourceObjectNode {
 
     pub(in crate::lint) fn field_target(&self, field: SemanticField) -> SemanticTarget {
         SemanticTarget::field(
-            SemanticEntity::ResourceObject {
-                resource: self.resource_id.clone(),
+            SemanticEntity::CatalogEntry {
+                catalog: self.catalog_id.clone(),
                 key: self.key.clone(),
             },
             field,

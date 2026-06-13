@@ -29,7 +29,7 @@ import {
 import { DraftBranchEditor } from "@/components/draft-branch-editor";
 import {
   AddEntityForm,
-  AddResourceObjectForm,
+  AddCatalogEntryForm,
   DeleteEntityButton,
 } from "@/components/entity-actions";
 import {
@@ -66,7 +66,7 @@ export type DraftScreenId = "overview" | "edit" | "changes" | "validate" | "publ
 export type EditKind =
   | "variables"
   | "qualifiers"
-  | "resources"
+  | "catalogs"
   | "schemas"
   | "context"
   | "linters";
@@ -80,7 +80,7 @@ type DraftLintLoad =
 const EDIT_KIND_TITLES: Record<EditKind, string> = {
   variables: "Variables",
   qualifiers: "Qualifiers",
-  resources: "Resources",
+  catalogs: "Catalogs",
   schemas: "Schemas",
   context: "Context",
   linters: "Linters",
@@ -174,11 +174,11 @@ export function DraftScreen({
         pathForKey.set(`variables:${entity.id}`, entity.path);
       } else if (entity.section === "qualifiers") {
         pathForKey.set(`qualifiers:${entity.id}`, entity.path);
-      } else if (entity.kind === "resource") {
-        pathForKey.set(`resources:${entity.id}`, entity.path);
-      } else if (entity.kind === "resource object" && entity.resourceId && entity.objectKey) {
+      } else if (entity.kind === "catalog") {
+        pathForKey.set(`catalogs:${entity.id}`, entity.path);
+      } else if (entity.kind === "catalog entry" && entity.catalogId && entity.entryKey) {
         pathForKey.set(
-          `resource_objects:${entity.resourceId}:${entity.objectKey}`,
+          `catalog_entries:${entity.catalogId}:${entity.entryKey}`,
           entity.path,
         );
       }
@@ -195,20 +195,20 @@ export function DraftScreen({
   const schemaPathSuggestions = editableEntities
     .filter((entity) => entity.section === "schemas")
     .map((entity) => workspaceRelativePath(workspace.path, entity.path));
-  const resourceIdSuggestions = editableEntities
-    .filter((entity) => entity.kind === "resource")
+  const catalogIdSuggestions = editableEntities
+    .filter((entity) => entity.kind === "catalog")
     .map((entity) => entity.id);
   const workspaceName = `${workspace.owner}/${workspace.name}`;
-  const parentResourceEntity =
-    selectedEntity?.kind === "resource object"
+  const parentCatalogEntity =
+    selectedEntity?.kind === "catalog entry"
       ? (editableEntities.find(
           (candidate) =>
-            candidate.kind === "resource" && candidate.id === selectedEntity.resourceId,
+            candidate.kind === "catalog" && candidate.id === selectedEntity.catalogId,
         ) ?? null)
       : null;
   const entityCrumbLabel = selectedEntity
-    ? parentResourceEntity && selectedEntity.id.startsWith(`${parentResourceEntity.id}/`)
-      ? selectedEntity.id.slice(parentResourceEntity.id.length + 1)
+    ? parentCatalogEntity && selectedEntity.id.startsWith(`${parentCatalogEntity.id}/`)
+      ? selectedEntity.id.slice(parentCatalogEntity.id.length + 1)
       : selectedEntity.id
     : "";
   // Crumbs are ancestors only; the topbar title names the current screen.
@@ -225,11 +225,11 @@ export function DraftScreen({
             label: EDIT_KIND_TITLES[selectedEditKind].toLowerCase(),
             href: editKindHref(workspace.slug, draft.id, selectedEditKind),
           },
-          ...(parentResourceEntity
+          ...(parentCatalogEntity
             ? [
                 {
-                  label: parentResourceEntity.id,
-                  href: editEntityHref(workspace.slug, draft.id, parentResourceEntity.path),
+                  label: parentCatalogEntity.id,
+                  href: editEntityHref(workspace.slug, draft.id, parentCatalogEntity.path),
                 },
               ]
             : []),
@@ -339,11 +339,11 @@ export function DraftScreen({
             label="Qualifiers"
           />
           <NavLink
-            active={selectedScreen === "edit" && selectedEditKind === "resources"}
-            count={editableEntityCounts.resources}
-            href={editKindHref(workspace.slug, draft.id, "resources")}
+            active={selectedScreen === "edit" && selectedEditKind === "catalogs"}
+            count={editableEntityCounts.catalogs}
+            href={editKindHref(workspace.slug, draft.id, "catalogs")}
             icon={<Database aria-hidden size={16} />}
-            label="Resources"
+            label="Catalogs"
           />
           <NavLink
             active={selectedScreen === "edit" && selectedEditKind === "schemas"}
@@ -390,7 +390,7 @@ export function DraftScreen({
           editableEntities={editableEntities}
           entityDiagnostics={selectedEntityDiagnostics}
           loadError={editLoadError}
-          resourceIds={resourceIdSuggestions}
+          catalogIds={catalogIdSuggestions}
           schemaPaths={schemaPathSuggestions}
           selectedEntity={selectedEntity}
           selectedKind={selectedEditKind}
@@ -542,7 +542,7 @@ function DraftEditScreen({
   entityDiagnostics,
   loadError,
   model,
-  resourceIds,
+  catalogIds,
   schemaPaths,
   selectedEntity,
   selectedKind,
@@ -556,7 +556,7 @@ function DraftEditScreen({
   entityDiagnostics: LintDiagnostic[];
   loadError: string | null;
   model: WorkspaceSemanticModel | null;
-  resourceIds: string[];
+  catalogIds: string[];
   schemaPaths: string[];
   selectedEntity: EditableEntity | null;
   selectedKind: EditKind;
@@ -582,7 +582,7 @@ function DraftEditScreen({
           draft={draft}
           entity={selectedEntity}
           model={model}
-          resourceIds={resourceIds}
+          catalogIds={catalogIds}
           schemaPaths={schemaPaths}
           workspaceId={workspaceId}
         />
@@ -669,7 +669,7 @@ function EditableEntityDetail({
   draft,
   entity,
   model,
-  resourceIds,
+  catalogIds,
   schemaPaths,
   workspaceId,
 }: {
@@ -681,21 +681,21 @@ function EditableEntityDetail({
   draft: DraftSessionRecord;
   entity: EditableEntity;
   model: WorkspaceSemanticModel | null;
-  resourceIds: string[];
+  catalogIds: string[];
   schemaPaths: string[];
   workspaceId: string;
 }) {
-  const resourceObjects =
-    entity.kind === "resource"
+  const catalogEntries =
+    entity.kind === "catalog"
       ? allEntities.filter(
           (candidate) =>
-            candidate.kind === "resource object" && candidate.resourceId === entity.id,
+            candidate.kind === "catalog entry" && candidate.catalogId === entity.id,
         )
       : [];
-  const parentResource =
-    entity.kind === "resource object"
+  const parentCatalog =
+    entity.kind === "catalog entry"
       ? allEntities.find(
-          (candidate) => candidate.kind === "resource" && candidate.id === entity.resourceId,
+          (candidate) => candidate.kind === "catalog" && candidate.id === entity.catalogId,
         ) ?? null
       : null;
   const sourceMarks = diagnostics.flatMap((diagnostic) => {
@@ -725,27 +725,27 @@ function EditableEntityDetail({
         <div className="section-header-text">
           <span className="label">{entity.kind}</span>
           <h1 className="mono">
-            {parentResource && entity.id.startsWith(`${parentResource.id}/`)
-              ? entity.id.slice(parentResource.id.length + 1)
+            {parentCatalog && entity.id.startsWith(`${parentCatalog.id}/`)
+              ? entity.id.slice(parentCatalog.id.length + 1)
               : entity.id}
           </h1>
           {entity.description ? <p className="hint">{entity.description}</p> : null}
         </div>
         <div className="action-row">
-          {entity.badge && !parentResource ? <span className="tag">{entity.badge}</span> : null}
+          {entity.badge && !parentCatalog ? <span className="tag">{entity.badge}</span> : null}
           <Link
             className="btn btn-ghost btn-sm"
             href={`/app/workspaces/${workspaceId}/tree/${encodeEntityPath(entity.path)}`}
           >
             View on {draft.baseRef}
           </Link>
-          {parentResource ? (
+          {parentCatalog ? (
             <Link
               className="btn btn-secondary btn-sm"
-              href={editEntityHref(workspaceId, draft.id, parentResource.path)}
+              href={editEntityHref(workspaceId, draft.id, parentCatalog.path)}
             >
               <ArrowLeft aria-hidden size={14} />
-              Resource {parentResource.id}
+              Catalog {parentCatalog.id}
             </Link>
           ) : (
             <Link
@@ -779,34 +779,34 @@ function EditableEntityDetail({
         draftId={draft.id}
         entity={entity}
         guidance={{ ...buildFormGuidance(entity, allEntities, model), contextPreviews }}
-        resourceIds={resourceIds}
-        resourceSchema={resourceObjectSchemaText(entity, allEntities)}
+        catalogIds={catalogIds}
+        catalogSchema={catalogEntrySchemaText(entity, allEntities)}
         schemaPaths={schemaPaths}
         sourceMarks={sourceMarks}
         workspaceId={workspaceId}
       />
-      {entity.kind === "resource" ? (
-        <AddResourceObjectForm
+      {entity.kind === "catalog" ? (
+        <AddCatalogEntryForm
           disabled={draft.status !== "open"}
           draftId={draft.id}
-          resourceId={entity.id}
+          catalogId={entity.id}
           workspaceId={workspaceId}
         />
       ) : null}
-      {resourceObjects.length > 0 ? (
+      {catalogEntries.length > 0 ? (
         <div className="card">
           <div className="card-head-text">
-            <h3>Resource objects</h3>
-            <p className="hint">Objects available for this resource.</p>
+            <h3>Catalog entries</h3>
+            <p className="hint">Entries available for this catalog.</p>
           </div>
           <div className="reference-links">
-            {resourceObjects.map((object) => (
+            {catalogEntries.map((entry) => (
               <Link
                 className="pill pill-neutral"
-                href={editEntityHref(workspaceId, draft.id, object.path)}
-                key={object.path}
+                href={editEntityHref(workspaceId, draft.id, entry.path)}
+                key={entry.path}
               >
-                {object.objectKey ?? object.id}
+                {entry.entryKey ?? entry.id}
               </Link>
             ))}
           </div>
@@ -1046,7 +1046,7 @@ function editKindIcon(kind: EditKind, size: number): ReactNode {
       return <FileCode2 aria-hidden size={size} />;
     case "qualifiers":
       return <Tags aria-hidden size={size} />;
-    case "resources":
+    case "catalogs":
       return <Database aria-hidden size={size} />;
     case "schemas":
       return <FileJson2 aria-hidden size={size} />;
@@ -1142,7 +1142,7 @@ export function normalizeEditKind(value: string | null): EditKind | null {
   if (
     value === "variables" ||
     value === "qualifiers" ||
-    value === "resources" ||
+    value === "catalogs" ||
     value === "schemas" ||
     value === "context" ||
     value === "linters"
@@ -1162,7 +1162,7 @@ function editKindCounts(entities: EditableEntity[]): Record<EditKind, number> {
   const counts: Record<EditKind, number> = {
     variables: 0,
     qualifiers: 0,
-    resources: 0,
+    catalogs: 0,
     schemas: 0,
     context: 0,
     linters: 0,
@@ -1238,15 +1238,15 @@ function buildFormGuidance(
     guidance.qualifierIds = entities
       .filter((candidate) => candidate.section === "qualifiers")
       .map((candidate) => candidate.id);
-    const objectKeys: Record<string, string[]> = {};
+    const entryKeys: Record<string, string[]> = {};
     for (const candidate of entities) {
-      if (candidate.kind === "resource object" && candidate.resourceId && candidate.objectKey) {
-        (objectKeys[candidate.resourceId] ??= []).push(candidate.objectKey);
+      if (candidate.kind === "catalog entry" && candidate.catalogId && candidate.entryKey) {
+        (entryKeys[candidate.catalogId] ??= []).push(candidate.entryKey);
       }
     }
-    guidance.resourceObjectKeys = objectKeys;
+    guidance.catalogEntryKeys = entryKeys;
   }
-  if (entity.section === "variables" || entity.kind === "resource") {
+  if (entity.section === "variables" || entity.kind === "catalog") {
     guidance.schemaDocs = Object.fromEntries(
       entities
         .filter((candidate) => candidate.section === "schemas" && candidate.description)
@@ -1255,16 +1255,16 @@ function buildFormGuidance(
           candidate.description as string,
         ]),
     );
-    guidance.resourceDocs = Object.fromEntries(
+    guidance.catalogDocs = Object.fromEntries(
       entities
-        .filter((candidate) => candidate.kind === "resource" && candidate.description)
+        .filter((candidate) => candidate.kind === "catalog" && candidate.description)
         .map((candidate) => [candidate.id, candidate.description as string]),
     );
   }
-  if (entity.kind === "resource object") {
+  if (entity.kind === "catalog entry") {
     const examples: Record<string, string[]> = {};
-    for (const sibling of model?.resourceObjects ?? []) {
-      if (sibling.resource !== entity.resourceId || sibling.key === entity.objectKey) {
+    for (const sibling of model?.catalogEntries ?? []) {
+      if (sibling.catalog !== entity.catalogId || sibling.key === entity.entryKey) {
         continue;
       }
       const fields =
@@ -1325,20 +1325,20 @@ function workspaceRelativePath(workspacePath: string, path: string): string {
   return prefix && path.startsWith(prefix) ? path.slice(prefix.length) : path;
 }
 
-function resourceObjectSchemaText(
+function catalogEntrySchemaText(
   entity: EditableEntity,
   entities: EditableEntity[],
 ): string | null {
-  if (entity.kind !== "resource object" || !entity.resourceId) {
+  if (entity.kind !== "catalog entry" || !entity.catalogId) {
     return null;
   }
-  const resource = entities.find(
-    (candidate) => candidate.kind === "resource" && candidate.id === entity.resourceId,
+  const catalog = entities.find(
+    (candidate) => candidate.kind === "catalog" && candidate.id === entity.catalogId,
   );
-  if (!resource) {
+  if (!catalog) {
     return null;
   }
-  const schemaRef = /^\s*schema\s*=\s*"([^"]+)"\s*$/m.exec(resource.text)?.[1];
+  const schemaRef = /^\s*schema\s*=\s*"([^"]+)"\s*$/m.exec(catalog.text)?.[1];
   const basename = schemaRef?.split("/").pop();
   if (!basename) {
     return null;
@@ -1420,16 +1420,16 @@ function entityFromSemanticTarget(
   if (entity.kind === "predicate" && typeof entity.qualifier === "string") {
     return entities.find((candidate) => candidate.section === "qualifiers" && candidate.id === entity.qualifier) ?? null;
   }
-  if (entity.kind === "resource" && typeof entity.id === "string") {
-    return entities.find((candidate) => candidate.kind === "resource" && candidate.id === entity.id) ?? null;
+  if (entity.kind === "catalog" && typeof entity.id === "string") {
+    return entities.find((candidate) => candidate.kind === "catalog" && candidate.id === entity.id) ?? null;
   }
-  if (entity.kind === "resource_object" && typeof entity.resource === "string") {
+  if (entity.kind === "catalog_entry" && typeof entity.catalog === "string") {
     return (
       entities.find(
         (candidate) =>
-          candidate.kind === "resource object" &&
-          candidate.resourceId === entity.resource &&
-          (typeof entity.key !== "string" || candidate.objectKey === entity.key),
+          candidate.kind === "catalog entry" &&
+          candidate.catalogId === entity.catalog &&
+          (typeof entity.key !== "string" || candidate.entryKey === entity.key),
       ) ?? null
     );
   }

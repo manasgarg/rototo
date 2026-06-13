@@ -119,7 +119,7 @@ default = "control"
         tokio::fs::create_dir_all(root.join("variables"))
             .await
             .unwrap();
-        tokio::fs::create_dir_all(root.join("resources/message-objects"))
+        tokio::fs::create_dir_all(root.join("catalogs/message-entries"))
             .await
             .unwrap();
         tokio::fs::create_dir_all(root.join("lint")).await.unwrap();
@@ -158,17 +158,17 @@ default = "control"
         tokio::fs::write(&variable_path, disk_variable)
             .await
             .unwrap();
-        let resource_path = root.join("resources/message.toml");
+        let catalog_path = root.join("catalogs/message.toml");
         tokio::fs::write(
-            &resource_path,
+            &catalog_path,
             r#"schema_version = 1
 schema = "../schemas/message.schema.json"
 "#,
         )
         .await
         .unwrap();
-        let resource_object_path = root.join("resources/message-objects/external.toml");
-        tokio::fs::write(&resource_object_path, r#"value = "external""#)
+        let catalog_entry_path = root.join("catalogs/message-entries/external.toml");
+        tokio::fs::write(&catalog_entry_path, r#"value = "external""#)
             .await
             .unwrap();
 
@@ -250,15 +250,15 @@ value = "treatment"
             disk_variable
         );
 
-        let resource_object_symbols = server
+        let catalog_entry_symbols = server
             .document_symbols(json!({
                 "textDocument": {
-                    "uri": format!("file://{}", resource_object_path.display())
+                    "uri": format!("file://{}", catalog_entry_path.display())
                 }
             }))
             .await
             .unwrap();
-        child_symbol(&resource_object_symbols, "message.external");
+        child_symbol(&catalog_entry_symbols, "message.external");
     }
 
     #[tokio::test]

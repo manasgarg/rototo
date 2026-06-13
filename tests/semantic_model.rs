@@ -8,7 +8,7 @@ async fn semantic_model_projects_entities_references_and_ranges() {
         .await
         .expect("examples/basic should produce a semantic model");
 
-    assert_eq!(model.version, 2);
+    assert_eq!(model.version, 3);
     assert!(!model.qualifiers.is_empty());
     assert!(!model.schemas.is_empty());
     assert!(!model.linters.is_empty());
@@ -18,7 +18,7 @@ async fn semantic_model_projects_entities_references_and_ranges() {
         .iter()
         .find(|variable| variable.id == "support-banner")
         .expect("support-banner variable");
-    assert_eq!(variable.declaration.kind, "resource");
+    assert_eq!(variable.declaration.kind, "catalog");
     assert_eq!(
         variable.declaration.value.as_deref(),
         Some("support-banner")
@@ -53,13 +53,13 @@ async fn semantic_model_projects_entities_references_and_ranges() {
     );
 
     let object = model
-        .resource_objects
+        .catalog_entries
         .iter()
-        .find(|object| object.resource == "support-banner" && object.key == "mobile_help")
+        .find(|object| object.catalog == "support-banner" && object.key == "mobile_help")
         .expect("support-banner/mobile_help object");
     assert!(object.value.is_object());
 
-    // The reference graph covers rule qualifiers and selected resource objects.
+    // The reference graph covers rule qualifiers and selected catalog entries.
     let rule_qualifier_edge = model.references.iter().any(|reference| {
         matches!(&reference.from, ModelEntityRef::Variable { id } if id == "support-banner")
             && matches!(&reference.to, ModelEntityRef::Qualifier { id } if id == "mobile-users")
@@ -69,14 +69,14 @@ async fn semantic_model_projects_entities_references_and_ranges() {
         matches!(&reference.from, ModelEntityRef::Variable { id } if id == "support-banner")
             && matches!(
                 &reference.to,
-                ModelEntityRef::ResourceObject { resource, key }
-                    if resource == "support-banner" && key == "mobile_help"
+                ModelEntityRef::CatalogEntry { catalog, key }
+                    if catalog == "support-banner" && key == "mobile_help"
             )
     });
-    assert!(object_edge, "variable value -> resource object edge");
+    assert!(object_edge, "variable value -> catalog entry edge");
 
     // The model serializes with camelCase keys and tagged entity refs.
     let json = serde_json::to_value(&model).expect("model serializes");
-    assert!(json["resourceObjects"].is_array());
+    assert!(json["catalogEntries"].is_array());
     assert_eq!(json["references"][0]["from"]["kind"], "qualifier");
 }

@@ -81,8 +81,8 @@ fn parse_failed_rule(kind: &DocumentKind) -> RototoRuleId {
         DocumentKind::Manifest => RototoRuleId::WorkspaceManifestParseFailed,
         DocumentKind::Qualifier { .. } => RototoRuleId::QualifierParseFailed,
         DocumentKind::Variable { .. } => RototoRuleId::VariableParseFailed,
-        DocumentKind::Resource { .. } => RototoRuleId::ResourceParseFailed,
-        DocumentKind::ResourceObject { .. } => RototoRuleId::ResourceObjectParseFailed,
+        DocumentKind::Catalog { .. } => RototoRuleId::CatalogParseFailed,
+        DocumentKind::CatalogEntry { .. } => RototoRuleId::CatalogEntryParseFailed,
         DocumentKind::Schema => RototoRuleId::SchemaParseFailed,
         DocumentKind::CustomLint => RototoRuleId::CustomLintFailed,
     }
@@ -93,13 +93,13 @@ fn entity_for_document(document: &SourceDocument) -> SemanticEntity {
         DocumentKind::Manifest => SemanticEntity::Manifest,
         DocumentKind::Qualifier { id } => SemanticEntity::Qualifier { id: id.clone() },
         DocumentKind::Variable { id } => SemanticEntity::Variable { id: id.clone() },
-        DocumentKind::Resource { id } => SemanticEntity::Resource { id: id.clone() },
-        DocumentKind::ResourceObject {
-            resource_id,
-            object_id,
-        } => SemanticEntity::ResourceObject {
-            resource: resource_id.clone(),
-            key: object_id.clone(),
+        DocumentKind::Catalog { id } => SemanticEntity::Catalog { id: id.clone() },
+        DocumentKind::CatalogEntry {
+            catalog_id,
+            entry_id,
+        } => SemanticEntity::CatalogEntry {
+            catalog: catalog_id.clone(),
+            key: entry_id.clone(),
         },
         DocumentKind::Schema => SemanticEntity::Schema {
             path: document.path.clone(),

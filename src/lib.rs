@@ -1,7 +1,7 @@
-pub mod catalog;
 #[cfg(feature = "console")]
 pub mod console;
 pub mod diagnostics;
+pub mod diagnostics_catalog;
 pub mod docs;
 pub mod error;
 pub mod fixtures;
@@ -16,10 +16,12 @@ pub mod source;
 pub mod testing;
 pub mod workspace;
 
-pub use catalog::{catalog, catalog_for_workspace, diagnostic_for_rule};
+pub use diagnostics_catalog::{
+    diagnostic_for_rule, diagnostics_catalog, diagnostics_catalog_for_workspace,
+};
 pub use error::{Result, RototoError};
 pub use inspect::inspect_workspace_report;
-pub use lint::{diff_workspaces, lint_qualifier, lint_resource, lint_variable, lint_workspace};
+pub use lint::{diff_workspaces, lint_catalog, lint_qualifier, lint_variable, lint_workspace};
 pub use resolve::{
     resolve_qualifier, resolve_qualifiers, resolve_variable, resolve_variables,
     trace_qualifier_resolution, trace_qualifier_resolutions, trace_variable_resolution,
@@ -34,6 +36,6 @@ pub use source::{
     probe_workspace_source, stage_workspace_source,
 };
 pub use workspace::{
-    find_workspace_root, inspect_workspace, list_qualifiers, list_resources, list_variables,
-    read_qualifier, read_qualifiers, read_resource, read_resources, read_variable, read_variables,
+    find_workspace_root, inspect_workspace, list_catalogs, list_qualifiers, list_variables,
+    read_catalog, read_catalogs, read_qualifier, read_qualifiers, read_variable, read_variables,
 };

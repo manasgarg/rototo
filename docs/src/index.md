@@ -31,7 +31,7 @@ rototo treats runtime configuration as reviewable workspace files.
 A [workspace](reference-workspace-layout.html) is a directory tree rooted at
 `rototo-workspace.toml`. It is versioned in git and contains the
 [variables](reference-variables.html), [qualifiers](reference-qualifiers.html),
-schemas, [resources](reference-resources.html), and
+schemas, [catalogs](reference-catalogs.html), and
 [custom lint rules](reference-custom-lua-lint.html) that define runtime policy.
 
 At runtime, an application is deployed with a
@@ -69,7 +69,7 @@ policy only your team knows.
 Application tests can load the same workspace source the service will use and
 assert the values selected for important runtime contexts. That catches
 failures workspace lint cannot see: the app expected an integer, the workspace
-now selects an object, or the app no longer provides the facts the workspace
+now selects a structured entry, or the app no longer provides the facts the workspace
 expects. [Testing Runtime Configuration](testing-runtime-configuration.html)
 covers that app-workspace contract.
 

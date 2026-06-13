@@ -4,12 +4,11 @@ use std::path::Path;
 use crate::diagnostics::{DiagnosticCatalogEntry, LintDiagnostic, RototoRuleId, SemanticEntity};
 use crate::error::{Result, RototoError};
 use crate::model::{
-    DependencyInspectReport, InspectRuntimeStatus, InspectSelection, LintAuthorityInspectReport,
-    LintRuleInspectReport, LinterInspectReport, LinterRegistrationInspectReport,
-    PredicateInspectReport, QualifierInspectReport, ReferenceInspectReport, ResolveInspectReport,
-    ResourceInspectReport, ResourceObjectInspectReport, RulePathwayInspectReport,
-    SchemaInspectReport, ValueInspectReport, VariableInspectReport, WorkspaceInspectReport,
-    WorkspaceInspectRequest,
+    CatalogEntryInspectReport, CatalogInspectReport, DependencyInspectReport, InspectRuntimeStatus,
+    InspectSelection, LintAuthorityInspectReport, LintRuleInspectReport, LinterInspectReport,
+    LinterRegistrationInspectReport, PredicateInspectReport, QualifierInspectReport,
+    ReferenceInspectReport, ResolveInspectReport, RulePathwayInspectReport, SchemaInspectReport,
+    ValueInspectReport, VariableInspectReport, WorkspaceInspectReport, WorkspaceInspectRequest,
 };
 use crate::resolve::{trace_qualifier_unchecked, trace_variable_unchecked};
 
@@ -29,7 +28,7 @@ pub(crate) async fn inspect_snapshot(
     validate_request(snapshot, request, &catalog)?;
 
     let inventory = request.variables.is_none()
-        && request.resources.is_none()
+        && request.catalogs.is_none()
         && request.qualifiers.is_none()
         && request.lint_rules.is_none()
         && request.lint_authorities.is_none()
@@ -44,9 +43,9 @@ pub(crate) async fn inspect_snapshot(
         snapshot.index.qualifiers.keys().map(String::as_str),
         inventory,
     );
-    let resource_ids = selected_ids(
-        &request.resources,
-        snapshot.index.resources.keys().map(String::as_str),
+    let catalog_ids = selected_ids(
+        &request.catalogs,
+        snapshot.index.catalogs.keys().map(String::as_str),
         inventory,
     );
 
@@ -60,9 +59,9 @@ pub(crate) async fn inspect_snapshot(
         qualifiers.push(inspect_qualifier(snapshot, runtime, request, &id).await?);
     }
 
-    let mut resources = Vec::new();
-    for id in resource_ids {
-        resources.push(inspect_resource(snapshot, &id)?);
+    let mut catalogs = Vec::new();
+    for id in catalog_ids {
+        catalogs.push(inspect_catalog(snapshot, &id)?);
     }
 
     let schemas = selected_schemas(snapshot, inventory);
@@ -80,7 +79,7 @@ pub(crate) async fn inspect_snapshot(
         },
         diagnostics,
         schemas,
-        resources,
+        catalogs,
         variables,
         qualifiers,
         lint_rules,
@@ -120,10 +119,10 @@ fn validate_request(
             )));
         }
     }
-    for id in request.resources.explicit_values() {
-        if !snapshot.index.resources.contains_key(id) {
+    for id in request.catalogs.explicit_values() {
+        if !snapshot.index.catalogs.contains_key(id) {
             return Err(RototoError::new(format!(
-                "resource not found: resource://{id}"
+                "catalog not found: catalog://{id}"
             )));
         }
     }
@@ -290,47 +289,44 @@ async fn inspect_qualifier(
     })
 }
 
-fn inspect_resource(snapshot: &WorkspaceLintSnapshot, id: &str) -> Result<ResourceInspectReport> {
-    let resource = snapshot
+fn inspect_catalog(snapshot: &WorkspaceLintSnapshot, id: &str) -> Result<CatalogInspectReport> {
+    let catalog = snapshot
         .index
-        .resources
+        .catalogs
         .get(id)
-        .ok_or_else(|| RototoError::new(format!("resource not found: resource://{id}")))?;
-    let (_source_uri, path) = document_uri_path(snapshot, resource.doc);
+        .ok_or_else(|| RototoError::new(format!("catalog not found: catalog://{id}")))?;
+    let (_source_uri, path) = document_uri_path(snapshot, catalog.doc);
     let diagnostics = snapshot
         .lint
         .diagnostics
         .iter()
-        .filter(|diagnostic| diagnostic_belongs_to_resource(diagnostic, id))
+        .filter(|diagnostic| diagnostic_belongs_to_catalog(diagnostic, id))
         .cloned()
         .collect();
 
-    Ok(ResourceInspectReport {
+    Ok(CatalogInspectReport {
         id: id.to_owned(),
-        uri: format!("resource://{id}"),
+        uri: format!("catalog://{id}"),
         path,
-        schema: resource_schema_dependency(snapshot, id),
-        objects: resource_objects(snapshot, id),
-        dependencies: resource_dependencies(snapshot, id),
-        consumers: resource_consumers(snapshot, id),
+        schema: catalog_schema_dependency(snapshot, id),
+        entries: catalog_entries(snapshot, id),
+        dependencies: catalog_dependencies(snapshot, id),
+        consumers: catalog_consumers(snapshot, id),
         diagnostics,
     })
 }
 
-fn resource_objects(
-    snapshot: &WorkspaceLintSnapshot,
-    id: &str,
-) -> Vec<ResourceObjectInspectReport> {
+fn catalog_entries(snapshot: &WorkspaceLintSnapshot, id: &str) -> Vec<CatalogEntryInspectReport> {
     snapshot
         .index
-        .resource_objects
+        .catalog_entries
         .get(id)
         .into_iter()
-        .flat_map(|objects| objects.values())
-        .map(|object| ResourceObjectInspectReport {
-            key: object.key.clone(),
-            value: object.value.clone(),
-            location: object.location.clone(),
+        .flat_map(|entries| entries.values())
+        .map(|entry| CatalogEntryInspectReport {
+            key: entry.key.clone(),
+            value: entry.value.clone(),
+            location: entry.location.clone(),
         })
         .collect()
 }
@@ -378,7 +374,7 @@ fn selected_ids<'a>(
 fn variable_type_source_label(variable: &VariableNode) -> String {
     match &variable.type_source {
         TypeSourceNode::Primitive(type_name) => type_name.value.clone(),
-        TypeSourceNode::Resource(resource) => format!("resource:{}", resource.value),
+        TypeSourceNode::Catalog(catalog) => format!("catalog:{}", catalog.value),
         TypeSourceNode::Schema(schema) => format!("schema {}", schema.value),
         TypeSourceNode::Missing { .. } => "missing".to_owned(),
         TypeSourceNode::Conflict { .. } => "conflict".to_owned(),
@@ -393,18 +389,18 @@ fn variable_schema_dependency(
     None
 }
 
-fn resource_schema_dependency(snapshot: &WorkspaceLintSnapshot, resource: &str) -> Option<String> {
+fn catalog_schema_dependency(snapshot: &WorkspaceLintSnapshot, catalog: &str) -> Option<String> {
     snapshot
         .references
         .edges()
         .iter()
         .find_map(|edge| match (&edge.source, &edge.target) {
             (
-                ReferenceSource::ResourceSchema {
-                    resource: source_resource,
+                ReferenceSource::CatalogSchema {
+                    catalog: source_catalog,
                 },
                 ReferenceTarget::Schema(schema),
-            ) if source_resource == resource => Some(schema.clone()),
+            ) if source_catalog == catalog => Some(schema.clone()),
             _ => None,
         })
 }
@@ -475,7 +471,7 @@ fn variable_dependencies(
 ) -> DependencyInspectReport {
     let mut qualifiers = BTreeSet::new();
     let mut context_paths = BTreeSet::new();
-    let mut resources = BTreeSet::new();
+    let mut catalogs = BTreeSet::new();
 
     for edge in snapshot.references.edges() {
         match (&edge.source, &edge.target) {
@@ -495,12 +491,12 @@ fn variable_dependencies(
                 );
             }
             (
-                ReferenceSource::VariableResource {
+                ReferenceSource::VariableCatalog {
                     variable: source_variable,
                 },
-                ReferenceTarget::Resource(resource),
+                ReferenceTarget::Catalog(catalog),
             ) if source_variable == variable && edge.is_resolved() => {
-                resources.insert(resource.clone());
+                catalogs.insert(catalog.clone());
             }
             _ => {}
         }
@@ -510,24 +506,24 @@ fn variable_dependencies(
         qualifiers: qualifiers.into_iter().collect(),
         context_paths: context_paths.into_iter().collect(),
         schemas: Vec::new(),
-        resources: resources.into_iter().collect(),
+        catalogs: catalogs.into_iter().collect(),
     }
 }
 
-fn resource_dependencies(
+fn catalog_dependencies(
     snapshot: &WorkspaceLintSnapshot,
-    resource: &str,
+    catalog: &str,
 ) -> DependencyInspectReport {
     let mut schemas = BTreeSet::new();
 
     for edge in snapshot.references.edges() {
         match (&edge.source, &edge.target) {
             (
-                ReferenceSource::ResourceSchema {
-                    resource: source_resource,
+                ReferenceSource::CatalogSchema {
+                    catalog: source_catalog,
                 },
                 ReferenceTarget::Schema(schema),
-            ) if source_resource == resource && edge.is_resolved() => {
+            ) if source_catalog == catalog && edge.is_resolved() => {
                 schemas.insert(schema.clone());
             }
             _ => {}
@@ -538,7 +534,7 @@ fn resource_dependencies(
         qualifiers: Vec::new(),
         context_paths: Vec::new(),
         schemas: schemas.into_iter().collect(),
-        resources: Vec::new(),
+        catalogs: Vec::new(),
     }
 }
 
@@ -560,7 +556,7 @@ fn qualifier_dependencies(
         qualifiers: qualifiers.into_iter().collect(),
         context_paths: context_paths.into_iter().collect(),
         schemas: Vec::new(),
-        resources: Vec::new(),
+        catalogs: Vec::new(),
     }
 }
 
@@ -654,19 +650,19 @@ fn qualifier_consumers(
         .collect()
 }
 
-fn resource_consumers(
+fn catalog_consumers(
     snapshot: &WorkspaceLintSnapshot,
-    resource: &str,
+    catalog: &str,
 ) -> Vec<ReferenceInspectReport> {
     snapshot
         .references
         .edges()
         .iter()
         .filter_map(|edge| {
-            let ReferenceTarget::Resource(target) = &edge.target else {
+            let ReferenceTarget::Catalog(target) = &edge.target else {
                 return None;
             };
-            if target != resource {
+            if target != catalog {
                 return None;
             }
             Some(ReferenceInspectReport {
@@ -682,11 +678,11 @@ fn reference_source_kind(source: &ReferenceSource) -> &'static str {
     match source {
         ReferenceSource::QualifierPredicateQualifier { .. }
         | ReferenceSource::QualifierPredicateContextAttribute { .. } => "qualifier",
-        ReferenceSource::ResourceSchema { .. } => "resource",
+        ReferenceSource::CatalogSchema { .. } => "catalog",
         ReferenceSource::VariableRuleQualifier { .. }
         | ReferenceSource::VariableRuleValue { .. }
         | ReferenceSource::VariableResolveDefault { .. }
-        | ReferenceSource::VariableResource { .. } => "variable",
+        | ReferenceSource::VariableCatalog { .. } => "variable",
     }
 }
 
@@ -707,8 +703,8 @@ fn reference_source_label(source: &ReferenceSource) -> String {
         ReferenceSource::VariableResolveDefault { variable } => {
             format!("variable {variable} resolve.default")
         }
-        ReferenceSource::VariableResource { variable } => format!("variable {variable}"),
-        ReferenceSource::ResourceSchema { resource } => format!("resource {resource} schema"),
+        ReferenceSource::VariableCatalog { variable } => format!("variable {variable}"),
+        ReferenceSource::CatalogSchema { catalog } => format!("catalog {catalog} schema"),
     }
 }
 
@@ -734,7 +730,7 @@ fn diagnostic_matches_request(
     request: &WorkspaceInspectRequest,
 ) -> bool {
     selection_matches_variable(&request.variables, diagnostic)
-        || selection_matches_resource(&request.resources, diagnostic)
+        || selection_matches_catalog(&request.catalogs, diagnostic)
         || selection_matches_qualifier(&request.qualifiers, diagnostic)
         || selection_matches_lint_rule(&request.lint_rules, diagnostic)
         || selection_matches_lint_authority(&request.lint_authorities, diagnostic)
@@ -761,13 +757,13 @@ fn selection_matches_qualifier(selection: &InspectSelection, diagnostic: &LintDi
     }
 }
 
-fn selection_matches_resource(selection: &InspectSelection, diagnostic: &LintDiagnostic) -> bool {
+fn selection_matches_catalog(selection: &InspectSelection, diagnostic: &LintDiagnostic) -> bool {
     match selection {
         InspectSelection::None => false,
-        InspectSelection::All => diagnostic_is_resource_related(diagnostic),
+        InspectSelection::All => diagnostic_is_catalog_related(diagnostic),
         InspectSelection::Some(ids) => ids
             .iter()
-            .any(|id| diagnostic_belongs_to_resource(diagnostic, id)),
+            .any(|id| diagnostic_belongs_to_catalog(diagnostic, id)),
     }
 }
 
@@ -818,23 +814,20 @@ fn diagnostic_belongs_to_variable(diagnostic: &LintDiagnostic, id: &str) -> bool
         || diagnostic.primary.path == variable_path
 }
 
-fn diagnostic_is_resource_related(diagnostic: &LintDiagnostic) -> bool {
+fn diagnostic_is_catalog_related(diagnostic: &LintDiagnostic) -> bool {
     matches!(
         diagnostic.target.entity,
-        SemanticEntity::Resource { .. } | SemanticEntity::ResourceObject { .. }
-    ) || diagnostic.primary.path.starts_with("resources/")
+        SemanticEntity::Catalog { .. } | SemanticEntity::CatalogEntry { .. }
+    ) || diagnostic.primary.path.starts_with("catalogs/")
 }
 
-fn diagnostic_belongs_to_resource(diagnostic: &LintDiagnostic, id: &str) -> bool {
-    let resource_path = format!("resources/{id}.toml");
-    let resource_objects_prefix = format!("resources/{id}-objects/");
-    matches!(&diagnostic.target.entity, SemanticEntity::Resource { id: diagnostic_id } if diagnostic_id == id)
-        || matches!(&diagnostic.target.entity, SemanticEntity::ResourceObject { resource, .. } if resource == id)
-        || diagnostic.primary.path == resource_path
-        || diagnostic
-            .primary
-            .path
-            .starts_with(&resource_objects_prefix)
+fn diagnostic_belongs_to_catalog(diagnostic: &LintDiagnostic, id: &str) -> bool {
+    let catalog_path = format!("catalogs/{id}.toml");
+    let catalog_entries_prefix = format!("catalogs/{id}-entries/");
+    matches!(&diagnostic.target.entity, SemanticEntity::Catalog { id: diagnostic_id } if diagnostic_id == id)
+        || matches!(&diagnostic.target.entity, SemanticEntity::CatalogEntry { catalog, .. } if catalog == id)
+        || diagnostic.primary.path == catalog_path
+        || diagnostic.primary.path.starts_with(&catalog_entries_prefix)
 }
 
 fn diagnostic_is_qualifier_related(diagnostic: &LintDiagnostic) -> bool {

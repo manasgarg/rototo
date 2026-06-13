@@ -220,7 +220,7 @@ fn exports_bundled_docs_as_static_site() {
     );
     assert!(site.join("docs/reference-variables.html").is_file());
     assert!(site.join("docs/reference-variable-values.html").is_file());
-    assert!(site.join("docs/reference-resources.html").is_file());
+    assert!(site.join("docs/reference-catalogs.html").is_file());
     assert!(
         site.join("docs/reference-qualifier-resolution.html")
             .is_file()

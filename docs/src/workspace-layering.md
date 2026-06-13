@@ -31,18 +31,18 @@ The layers look like this:
 product-config/
   rototo-workspace.toml
   schemas/
-  resources/
+  catalogs/
   variables/
 
 customer-config/
   rototo-workspace.toml  # extends product-config
-  resources/
+  catalogs/
   variables/
 
 team-config/
   rototo-workspace.toml  # extends customer-config
   qualifiers/
-  resources/
+  catalogs/
   variables/
   schemas/
 ```
@@ -55,7 +55,7 @@ builds the inherited workspace before lint and resolution.
 ## Product Owns The Contract
 
 The product layer owns the policy schema, the
-[resource declaration](reference-resources.html), and the product default.
+[catalog declaration](reference-catalogs.html), and the product default.
 Create `product-config/rototo-workspace.toml`:
 
 ```toml
@@ -68,18 +68,18 @@ Create `product-config/variables/inference-routing-policy.toml`:
 schema_version = 1
 
 description = "Inference provider routing policy"
-type = "resource:inference-routing-policy"
+type = "catalog:inference-routing-policy"
 
 [resolve]
 default = "product_default"
 ```
 
-Create `product-config/resources/inference-routing-policy.toml`:
+Create `product-config/catalogs/inference-routing-policy.toml`:
 
 ```toml
 schema_version = 1
 
-description = "Inference routing policy objects"
+description = "Inference routing policy entries"
 schema = "../schemas/inference-routing-policy.schema.json"
 ```
 
@@ -107,12 +107,12 @@ Create `product-config/schemas/inference-routing-policy.schema.json`:
 ```
 
 This schema is the product team's guardrail. Customer and team layers can add
-their own policy objects, but those objects still have to use supported
+their own policy entries, but those entries still have to use supported
 providers, supported task names, and a timeout range the product is prepared to
 operate.
 
 Create
-`product-config/resources/inference-routing-policy-objects/product_default.toml`:
+`product-config/catalogs/inference-routing-policy-entries/product_default.toml`:
 
 ```toml
 mode = "primary"
@@ -149,11 +149,11 @@ extends = ["../product-config"]
 ```
 
 The customer administrator wants a fallback provider for the whole account.
-They do not need to copy the product schema or resource declaration. They add a
-new policy object and override the variable default.
+They do not need to copy the product schema or catalog declaration. They add a
+new policy entry and override the variable default.
 
 Create
-`customer-config/resources/inference-routing-policy-objects/customer_default.toml`:
+`customer-config/catalogs/inference-routing-policy-entries/customer_default.toml`:
 
 ```toml
 mode = "fallback"
@@ -169,7 +169,7 @@ Create `customer-config/variables/inference-routing-policy.toml`:
 schema_version = 1
 
 description = "Customer-owned inference provider routing policy"
-type = "resource:inference-routing-policy"
+type = "catalog:inference-routing-policy"
 
 [resolve]
 default = "customer_default"
@@ -193,7 +193,7 @@ value key: customer_default
 value: {"allowed_tasks":["summarization","classification"],"fallback_provider":"anthropic","mode":"fallback","primary_provider":"openai","timeout_ms":5000}
 ```
 
-The selected value changed, but the policy object still passed the product
+The selected value changed, but the policy entry still passed the product
 schema inherited from the base layer.
 
 ## Team Owns A Narrow Rule
@@ -207,10 +207,10 @@ extends = ["../customer-config"]
 ```
 
 The team wants to try a faster route only for summarization. They can add a
-team policy object:
+team policy entry:
 
 ```toml
-# team-config/resources/inference-routing-policy-objects/team_fast_summarization.toml
+# team-config/catalogs/inference-routing-policy-entries/team_fast_summarization.toml
 mode = "primary"
 primary_provider = "anthropic"
 fallback_provider = "openai"
@@ -259,7 +259,7 @@ customer default while adding the team rule:
 schema_version = 1
 
 description = "Team-owned inference provider routing policy"
-type = "resource:inference-routing-policy"
+type = "catalog:inference-routing-policy"
 
 [resolve]
 default = "customer_default"
