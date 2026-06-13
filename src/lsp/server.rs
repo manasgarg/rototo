@@ -27,7 +27,7 @@ pub async fn serve_stdio() -> Result<()> {
     serve(BufReader::new(stdin), stdout).await
 }
 
-pub(super) async fn serve<R, W>(mut reader: R, mut writer: W) -> Result<()>
+pub(crate) async fn serve<R, W>(mut reader: R, mut writer: W) -> Result<()>
 where
     R: AsyncBufRead + Unpin,
     W: AsyncWrite + Unpin,

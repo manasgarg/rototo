@@ -1,4 +1,6 @@
 pub mod catalog;
+#[cfg(feature = "console")]
+pub mod console;
 pub mod diagnostics;
 pub mod docs;
 pub mod error;

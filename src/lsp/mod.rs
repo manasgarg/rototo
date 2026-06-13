@@ -4,7 +4,9 @@ mod server;
 mod transport;
 mod uri;
 
+pub(crate) use server::serve;
 pub use server::serve_stdio;
+pub(crate) use transport::{read_message, write_notification, write_request};
 
 #[cfg(test)]
 mod tests {

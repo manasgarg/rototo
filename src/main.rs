@@ -85,6 +85,9 @@ enum Command {
     Resolve(ResolveArgs),
     /// Read bundled documentation.
     Docs(DocsArgs),
+    /// Serve the rototo console: web UI plus JSON API over a workspace.
+    #[cfg(feature = "console")]
+    Console(ConsoleArgs),
     /// Run the rototo Language Server Protocol server over stdio.
     Lsp,
     /// Generate shell completion scripts.
@@ -321,6 +324,35 @@ struct DocsArgs {
         requires = "package_readme"
     )]
     docs_base_url: Option<String>,
+}
+
+#[cfg(feature = "console")]
+#[derive(Debug, Args)]
+struct ConsoleArgs {
+    /// Address to listen on.
+    #[arg(long = "bind", value_name = "ADDR", default_value = rototo::console::DEFAULT_BIND)]
+    bind: String,
+
+    /// Public origin for OAuth redirects and cookies, for deployments behind
+    /// a reverse proxy.
+    #[arg(
+        long = "public-url",
+        value_name = "URL",
+        env = "ROTOTO_CONSOLE_PUBLIC_URL"
+    )]
+    public_url: Option<String>,
+
+    /// Directory for console state (sessions, drafts, credentials).
+    #[arg(long = "data-dir", value_name = "DIR", env = "ROTOTO_CONSOLE_DATA_DIR")]
+    data_dir: Option<PathBuf>,
+
+    /// Serve one workspace without auth and reject every write.
+    #[arg(long = "read-only", action = ArgAction::SetTrue)]
+    read_only: bool,
+
+    /// Workspace source for --read-only deployments.
+    #[arg(long = "workspace", value_name = "WORKSPACE_SOURCE")]
+    workspace: Option<String>,
 }
 
 #[derive(Clone, Copy, Debug, ValueEnum)]
@@ -577,6 +609,19 @@ async fn run() -> Result<ExitCode> {
         Command::Show(args) => run_show(args, &source_options, cli.json).await,
         Command::Resolve(args) => run_resolve(args, &source_options, cli.json).await,
         Command::Docs(args) => run_docs(args, cli.json).await,
+        #[cfg(feature = "console")]
+        Command::Console(args) => {
+            rototo::console::run(rototo::console::ConsoleOptions {
+                bind: args.bind,
+                public_url: args.public_url,
+                data_dir: args.data_dir,
+                read_only: args.read_only,
+                workspace: args.workspace,
+                workspace_token: cli.workspace_token.clone(),
+            })
+            .await?;
+            Ok(ExitCode::SUCCESS)
+        }
         Command::Lsp => {
             rototo::lsp::serve_stdio().await?;
             Ok(ExitCode::SUCCESS)

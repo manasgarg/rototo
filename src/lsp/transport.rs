@@ -6,7 +6,7 @@ use crate::error::{Result, RototoError};
 const JSONRPC_VERSION: &str = "2.0";
 const MAX_CONTENT_LENGTH: usize = 4 * 1024 * 1024;
 
-pub(super) async fn read_message<R>(reader: &mut R) -> Result<Option<JsonValue>>
+pub(crate) async fn read_message<R>(reader: &mut R) -> Result<Option<JsonValue>>
 where
     R: AsyncBufRead + Unpin,
 {
@@ -94,7 +94,7 @@ where
     .await
 }
 
-pub(super) async fn write_notification<W>(
+pub(crate) async fn write_notification<W>(
     writer: &mut W,
     method: &str,
     params: JsonValue,
@@ -106,6 +106,27 @@ where
         writer,
         json!({
             "jsonrpc": JSONRPC_VERSION,
+            "method": method,
+            "params": params,
+        }),
+    )
+    .await
+}
+
+pub(crate) async fn write_request<W>(
+    writer: &mut W,
+    id: i64,
+    method: &str,
+    params: JsonValue,
+) -> Result<()>
+where
+    W: AsyncWrite + Unpin,
+{
+    write_message(
+        writer,
+        json!({
+            "jsonrpc": JSONRPC_VERSION,
+            "id": id,
             "method": method,
             "params": params,
         }),
