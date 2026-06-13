@@ -552,16 +552,10 @@ async fn console_data(
         .store
         .list_workspaces_for_user(&user.github_user_id)
         .await?;
-    let mut drafts = Vec::new();
-    for workspace in &workspaces {
-        for draft in state
-            .store
-            .list_draft_sessions_for_workspace(&workspace.id, &user.github_user_id)
-            .await?
-        {
-            drafts.push(json!({ "draft": draft, "workspace": workspace }));
-        }
-    }
+    let drafts = state
+        .store
+        .list_draft_sessions_for_user(&user.github_user_id)
+        .await?;
     Ok(Json(json!({
         "repos": repos,
         "workspaces": workspaces,

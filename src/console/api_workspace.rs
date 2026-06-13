@@ -14,11 +14,22 @@ use super::resolve_preview::{
 use super::store::{SessionUser, WorkspaceRecord};
 
 const MAX_PREVIEW_CONTEXTS: usize = 4;
+const WORKSPACE_SUMMARY_CONCURRENCY: usize = 4;
 /// Compare calls are one GitHub request per branch; keep the scan bounded.
 const MAX_COMPARED_BRANCHES: usize = 25;
+const DRAFT_CANDIDATE_COMPARE_CONCURRENCY: usize = 8;
+
+type WorkspaceSummaryResult = (usize, JsonValue);
+
+type DraftCandidateCompareResult = (
+    usize,
+    String,
+    super::github::GitHubResult<super::github::RefComparison>,
+);
 
 pub fn routes() -> axum::Router<SharedState> {
     axum::Router::new()
+        .route("/workspaces/summaries", get(workspace_summaries))
         .route("/workspaces/{workspace_id}/lint", get(workspace_lint))
         .route("/workspaces/{workspace_id}/summary", get(workspace_summary))
         .route("/workspaces/{workspace_id}/data", get(workspace_data))
@@ -74,6 +85,50 @@ async fn workspace_lint(
     ))
 }
 
+#[derive(serde::Deserialize, Default)]
+struct WorkspaceSummariesQuery {
+    #[serde(rename = "repoId")]
+    repo_id: Option<String>,
+}
+
+async fn workspace_summaries(
+    State(state): State<SharedState>,
+    headers: HeaderMap,
+    Query(query): Query<WorkspaceSummariesQuery>,
+) -> ApiResult<Json<JsonValue>> {
+    let user = require_user(&state, &headers).await?;
+    let mut workspaces = state
+        .store
+        .list_workspaces_for_user(&user.github_user_id)
+        .await?;
+    if let Some(repo_id) = query.repo_id.as_deref() {
+        workspaces.retain(|workspace| workspace.repo_id == repo_id);
+    }
+
+    let mut summaries = Vec::new();
+    let mut jobs = tokio::task::JoinSet::new();
+    for (index, workspace) in workspaces.into_iter().enumerate() {
+        let state = state.clone();
+        let user = user.clone();
+        jobs.spawn(async move {
+            (
+                index,
+                workspace_summary_json(&state, &user, &workspace).await,
+            )
+        });
+        if jobs.len() >= WORKSPACE_SUMMARY_CONCURRENCY {
+            collect_workspace_summary(&mut jobs, &mut summaries).await;
+        }
+    }
+    while !jobs.is_empty() {
+        collect_workspace_summary(&mut jobs, &mut summaries).await;
+    }
+    summaries.sort_by_key(|(index, _)| *index);
+    let summaries: Vec<JsonValue> = summaries.into_iter().map(|(_, summary)| summary).collect();
+
+    Ok(Json(json!({ "summaries": summaries })))
+}
+
 async fn workspace_summary(
     State(state): State<SharedState>,
     headers: HeaderMap,
@@ -81,22 +136,55 @@ async fn workspace_summary(
 ) -> ApiResult<Json<JsonValue>> {
     let user = require_user(&state, &headers).await?;
     let workspace = load_workspace(&state, &user, &workspace_id).await?;
-    match workspace_inventory(&state, &user, &workspace).await {
-        Ok((_, inventory)) => Ok(Json(json!({
-            "variables": inventory.variables.len(),
-            "qualifiers": inventory.qualifiers.len(),
-            "catalogs": inventory.catalogs.len() + inventory.catalog_entries.len(),
-            "schemas": inventory.schemas.len(),
-            "error": JsonValue::Null,
-        }))),
-        Err(error) => Ok(Json(json!({
+    Ok(Json(
+        workspace_summary_json(&state, &user, &workspace).await,
+    ))
+}
+
+async fn collect_workspace_summary(
+    jobs: &mut tokio::task::JoinSet<WorkspaceSummaryResult>,
+    summaries: &mut Vec<WorkspaceSummaryResult>,
+) {
+    let Some(joined) = jobs.join_next().await else {
+        return;
+    };
+    if let Ok(summary) = joined {
+        summaries.push(summary);
+    }
+}
+
+async fn workspace_summary_json(
+    state: &super::api::ConsoleState,
+    user: &SessionUser,
+    workspace: &WorkspaceRecord,
+) -> JsonValue {
+    match workspace_inventory(state, user, workspace).await {
+        Ok((_, inventory)) => workspace_summary_success_json(workspace, &inventory),
+        Err(error) => json!({
+            "workspaceId": workspace.id,
+            "workspaceSlug": workspace.slug,
             "variables": 0,
             "qualifiers": 0,
             "catalogs": 0,
             "schemas": 0,
             "error": error,
-        }))),
+        }),
     }
+}
+
+fn workspace_summary_success_json(
+    workspace: &WorkspaceRecord,
+    inventory: &WorkspaceInventory,
+) -> JsonValue {
+    json!({
+        "workspaceId": workspace.id,
+        "workspaceSlug": workspace.slug,
+        "variables": inventory.variables.len(),
+        "qualifiers": inventory.qualifiers.len(),
+        "catalogs": inventory.catalogs.len(),
+        "schemas": inventory.schemas.len(),
+        "error": JsonValue::Null,
+    })
 }
 
 async fn workspace_data(
@@ -272,41 +360,75 @@ async fn draft_candidates(
     };
 
     let mut candidates = Vec::new();
-    for branch in compared {
-        // A branch that cannot be compared is not a candidate.
-        let Ok(comparison) = state
-            .github
-            .compare_refs(
-                &user.github_token,
-                &workspace.owner,
-                &workspace.name,
-                &workspace.git_ref,
-                branch,
-            )
-            .await
-        else {
-            continue;
-        };
-        let workspace_only = comparison.ahead_by > 0
-            && !comparison.files.is_empty()
-            && comparison
-                .files
-                .iter()
-                .all(|file| file.starts_with(&prefix));
-        if workspace_only {
-            candidates.push(json!({
-                "branch": branch,
-                "aheadBy": comparison.ahead_by,
-                "filesChanged": comparison.files.len(),
-            }));
+    let mut comparisons = tokio::task::JoinSet::new();
+    for (index, branch) in compared.iter().cloned().enumerate() {
+        let github = state.github.clone();
+        let token = user.github_token.clone();
+        let owner = workspace.owner.clone();
+        let name = workspace.name.clone();
+        let base = workspace.git_ref.clone();
+        comparisons.spawn(async move {
+            let comparison = github
+                .compare_refs(&token, &owner, &name, &base, &branch)
+                .await;
+            (index, branch, comparison)
+        });
+        if comparisons.len() >= DRAFT_CANDIDATE_COMPARE_CONCURRENCY {
+            collect_draft_candidate(&mut comparisons, &prefix, &mut candidates).await;
         }
     }
+    while !comparisons.is_empty() {
+        collect_draft_candidate(&mut comparisons, &prefix, &mut candidates).await;
+    }
+    candidates.sort_by_key(|(index, _)| *index);
+    let candidates: Vec<JsonValue> = candidates
+        .into_iter()
+        .map(|(_, candidate)| candidate)
+        .collect();
 
     Ok(Json(json!({
         "candidates": candidates,
         "scanned": compared.len(),
         "skipped": branches.len() - compared.len(),
     })))
+}
+
+async fn collect_draft_candidate(
+    comparisons: &mut tokio::task::JoinSet<DraftCandidateCompareResult>,
+    prefix: &str,
+    candidates: &mut Vec<(usize, JsonValue)>,
+) {
+    let Some(joined) = comparisons.join_next().await else {
+        return;
+    };
+    // A branch that cannot be compared is not a candidate.
+    let Ok((index, branch, Ok(comparison))) = joined else {
+        return;
+    };
+    if let Some(candidate) = draft_candidate_json(index, branch, comparison, prefix) {
+        candidates.push(candidate);
+    }
+}
+
+fn draft_candidate_json(
+    index: usize,
+    branch: String,
+    comparison: super::github::RefComparison,
+    prefix: &str,
+) -> Option<(usize, JsonValue)> {
+    let workspace_only = comparison.ahead_by > 0
+        && !comparison.files.is_empty()
+        && comparison.files.iter().all(|file| file.starts_with(prefix));
+    workspace_only.then(|| {
+        (
+            index,
+            json!({
+                "branch": branch,
+                "aheadBy": comparison.ahead_by,
+                "filesChanged": comparison.files.len(),
+            }),
+        )
+    })
 }
 
 pub async fn workspace_inventory(
@@ -350,4 +472,118 @@ pub async fn load_saved_contexts(
         });
     }
     contexts
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn workspace() -> WorkspaceRecord {
+        WorkspaceRecord {
+            id: "workspace-id".to_owned(),
+            slug: "configs".to_owned(),
+            repo_id: "repo-id".to_owned(),
+            owner: "octo".to_owned(),
+            name: "configs".to_owned(),
+            path: ".".to_owned(),
+            git_ref: "main".to_owned(),
+            source: "https://api.github.com/repos/octo/configs/tarball/main".to_owned(),
+            discovered_at: "2026-06-13T00:00:00Z".to_owned(),
+        }
+    }
+
+    fn catalog(id: &str) -> super::super::inventory::CatalogInventoryItem {
+        super::super::inventory::CatalogInventoryItem {
+            id: id.to_owned(),
+            path: format!("catalogs/{id}.toml"),
+            description: None,
+            schema: None,
+            schema_reference: None,
+            entry_count: 0,
+        }
+    }
+
+    fn catalog_entry(
+        catalog_id: &str,
+        key: &str,
+    ) -> super::super::inventory::CatalogEntryInventoryItem {
+        super::super::inventory::CatalogEntryInventoryItem {
+            catalog_id: catalog_id.to_owned(),
+            key: key.to_owned(),
+            id: format!("{catalog_id}/{key}"),
+            path: format!("catalogs/{catalog_id}-values/{key}.toml"),
+        }
+    }
+
+    fn comparison(ahead_by: i64, files: &[&str]) -> super::super::github::RefComparison {
+        super::super::github::RefComparison {
+            ahead_by,
+            files: files.iter().map(|file| (*file).to_owned()).collect(),
+        }
+    }
+
+    #[test]
+    fn workspace_summary_counts_catalogs_without_entries() {
+        let inventory = WorkspaceInventory {
+            catalogs: vec![catalog("plans"), catalog("limits")],
+            catalog_entries: vec![
+                catalog_entry("plans", "free"),
+                catalog_entry("plans", "pro"),
+                catalog_entry("limits", "enterprise"),
+            ],
+            ..WorkspaceInventory::default()
+        };
+
+        let summary = workspace_summary_success_json(&workspace(), &inventory);
+
+        assert_eq!(summary["catalogs"].as_u64(), Some(2));
+    }
+
+    #[test]
+    fn draft_candidate_accepts_root_workspace_changes() {
+        let candidate = draft_candidate_json(
+            2,
+            "feature".to_owned(),
+            comparison(3, &["variables/checkout.toml", "README.md"]),
+            "",
+        );
+
+        assert_eq!(
+            candidate,
+            Some((
+                2,
+                serde_json::json!({
+                    "branch": "feature",
+                    "aheadBy": 3,
+                    "filesChanged": 2,
+                })
+            ))
+        );
+    }
+
+    #[test]
+    fn draft_candidate_rejects_empty_or_unrelated_changes() {
+        assert!(
+            draft_candidate_json(
+                0,
+                "empty".to_owned(),
+                comparison(0, &["examples/basic/variables/checkout.toml"]),
+                "examples/basic/",
+            )
+            .is_none()
+        );
+        assert!(
+            draft_candidate_json(0, "empty".to_owned(), comparison(1, &[]), "examples/basic/",)
+                .is_none()
+        );
+        assert!(
+            draft_candidate_json(
+                0,
+                "mixed".to_owned(),
+                comparison(1, &["examples/basic/variables/checkout.toml", "README.md"],),
+                "examples/basic/",
+            )
+            .is_none()
+        );
+    }
 }

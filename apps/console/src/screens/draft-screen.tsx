@@ -27,6 +27,7 @@ import {
     NavGroupLabel,
     NavLink,
 } from "@/components/app-shell";
+import { AbandonDraftButton } from "@/components/abandon-draft-button";
 import {
     DiagnosticCard,
     DiagnosticList,
@@ -190,21 +191,9 @@ export function DraftScreen({
     if (selectedScreen === "overview" && draftModel !== null) {
         const pathForKey = new Map<string, string>();
         for (const entity of editableEntities) {
-            if (entity.section === "variables") {
-                pathForKey.set(`variables:${entity.id}`, entity.path);
-            } else if (entity.section === "qualifiers") {
-                pathForKey.set(`qualifiers:${entity.id}`, entity.path);
-            } else if (entity.kind === "catalog") {
-                pathForKey.set(`catalogs:${entity.id}`, entity.path);
-            } else if (
-                entity.kind === "catalog entry" &&
-                entity.catalogId &&
-                entity.entryKey
-            ) {
-                pathForKey.set(
-                    `catalog_entries:${entity.catalogId}:${entity.entryKey}`,
-                    entity.path,
-                );
+            const targetKey = editableEntityTargetKey(entity);
+            if (targetKey) {
+                pathForKey.set(targetKey, entity.path);
             }
         }
         draftGraphData = workspaceGraphData({
@@ -336,7 +325,9 @@ export function DraftScreen({
                     detail:
                         draft.status === "open"
                             ? "Saves commit to this branch — nothing reaches the base ref without review."
-                            : "This draft is published; editing is locked.",
+                            : draft.status === "published"
+                              ? "This draft is published; editing is locked."
+                              : "This draft was let go; editing is locked.",
                 }}
                 nav={
                     <>
@@ -1220,37 +1211,56 @@ function DraftPublishScreen({
                     ) : null}
                 </div>
             ) : (
-                <div className="card">
-                    <div className="card-head-text">
-                        <h3>Ready to publish?</h3>
+                <>
+                    <div className="card">
+                        <div className="card-head-text">
+                            <h3>Ready to publish?</h3>
+                        </div>
+                        <PublishCheck ok={changesCount > 0}>
+                            {changesCount > 0
+                                ? `${changesCount} tracked ${changesCount === 1 ? "change" : "changes"} to publish`
+                                : "No tracked changes yet — save an edit first"}
+                        </PublishCheck>
+                        <PublishCheck ok={!lintHasErrors}>
+                            {lintHasErrors
+                                ? "Lint reports errors — fix them on the validate screen"
+                                : "Lint is clean"}
+                        </PublishCheck>
+                        <PublishCheck ok={draft.status === "open"}>
+                            {draft.status === "open"
+                                ? "Draft is open"
+                                : `Draft is ${draft.status}`}
+                        </PublishCheck>
+                        <div className="action-row">
+                            <PublishDraftButton
+                                disabled={
+                                    draft.status !== "open" ||
+                                    changesCount === 0 ||
+                                    lintHasErrors
+                                }
+                                draftId={draft.id}
+                                workspaceId={workspaceId}
+                            />
+                        </div>
                     </div>
-                    <PublishCheck ok={changesCount > 0}>
-                        {changesCount > 0
-                            ? `${changesCount} tracked ${changesCount === 1 ? "change" : "changes"} to publish`
-                            : "No tracked changes yet — save an edit first"}
-                    </PublishCheck>
-                    <PublishCheck ok={!lintHasErrors}>
-                        {lintHasErrors
-                            ? "Lint reports errors — fix them on the validate screen"
-                            : "Lint is clean"}
-                    </PublishCheck>
-                    <PublishCheck ok={draft.status === "open"}>
-                        {draft.status === "open"
-                            ? "Draft is open"
-                            : `Draft is ${draft.status}`}
-                    </PublishCheck>
-                    <div className="action-row">
-                        <PublishDraftButton
-                            disabled={
-                                draft.status !== "open" ||
-                                changesCount === 0 ||
-                                lintHasErrors
-                            }
+                    <div className="card">
+                        <div className="card-head-text">
+                            <h3>Let go of this branch</h3>
+                            <p className="hint">
+                                Close this console draft without opening a pull
+                                request. The GitHub branch stays in the
+                                repository, so it can be opened again later if
+                                needed.
+                            </p>
+                        </div>
+                        <AbandonDraftButton
+                            branch={draft.branch}
+                            disabled={draft.status !== "open"}
                             draftId={draft.id}
                             workspaceId={workspaceId}
                         />
                     </div>
-                </div>
+                </>
             )}
         </section>
     );
@@ -1433,6 +1443,25 @@ function editKindCounts(entities: EditableEntity[]): Record<EditKind, number> {
         counts[entity.section] += 1;
     }
     return counts;
+}
+
+function editableEntityTargetKey(entity: EditableEntity): string | null {
+    if (entity.section === "variables") {
+        return `variables:${entity.id}`;
+    }
+    if (entity.section === "qualifiers") {
+        return `qualifiers:${entity.id}`;
+    }
+    if (entity.kind === "catalog") {
+        return `catalogs:${entity.id}`;
+    }
+    if (entity.kind === "catalog entry" && entity.catalogId) {
+        const entryKey = entity.entryKey ?? entity.id.split("/").pop();
+        return entryKey
+            ? `catalog_entries:${entity.catalogId}:${entryKey}`
+            : null;
+    }
+    return null;
 }
 
 function contextAttributeSuggestions(entities: EditableEntity[]): string[] {

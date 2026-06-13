@@ -71,6 +71,7 @@ pub struct RepoWithWorkspaces {
 pub enum DraftStatus {
     Open,
     Published,
+    Abandoned,
 }
 
 #[derive(Clone, Debug, Serialize)]
@@ -90,6 +91,13 @@ pub struct DraftSessionRecord {
     pub created_at: String,
     pub updated_at: String,
     pub published_at: Option<String>,
+}
+
+#[derive(Clone, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DraftWithWorkspaceRecord {
+    pub draft: DraftSessionRecord,
+    pub workspace: WorkspaceRecord,
 }
 
 #[derive(Clone, Debug, Serialize)]
@@ -637,11 +645,47 @@ impl Store {
                             created_at, updated_at, published_at
                      FROM draft_sessions
                      WHERE workspace_id = ?1 AND github_user_id = ?2
+                       AND status != 'abandoned'
                      ORDER BY updated_at DESC",
                 )
                 .map_err(db_err)?;
             let drafts = statement
                 .query_map(params![workspace_id, github_user_id], draft_from_row)
+                .map_err(db_err)?
+                .collect::<rusqlite::Result<_>>()
+                .map_err(db_err)?;
+            Ok(drafts)
+        })
+        .await
+    }
+
+    pub async fn list_draft_sessions_for_user(
+        &self,
+        github_user_id: &str,
+    ) -> Result<Vec<DraftWithWorkspaceRecord>> {
+        let github_user_id = github_user_id.to_owned();
+        self.with_conn(move |conn, _| {
+            let mut statement = conn
+                .prepare(
+                    "SELECT d.id, d.workspace_id, d.github_user_id, d.branch, d.base_ref, d.status,
+                            d.pr_url, d.pr_number, d.pr_state, d.pr_merged_at, d.pr_synced_at,
+                            d.created_at, d.updated_at, d.published_at,
+                            w.id, w.repo_id, w.owner, w.name, w.path, w.ref_, w.source, w.discovered_at
+                     FROM draft_sessions d
+                     INNER JOIN workspaces w ON w.id = d.workspace_id
+                     INNER JOIN repos r ON r.id = w.repo_id
+                     WHERE d.github_user_id = ?1 AND r.github_user_id = ?1
+                       AND d.status != 'abandoned'
+                     ORDER BY d.updated_at DESC",
+                )
+                .map_err(db_err)?;
+            let drafts = statement
+                .query_map(params![github_user_id], |row| {
+                    Ok(DraftWithWorkspaceRecord {
+                        draft: draft_from_row(row)?,
+                        workspace: workspace_from_row_at(row, 14)?,
+                    })
+                })
                 .map_err(db_err)?
                 .collect::<rusqlite::Result<_>>()
                 .map_err(db_err)?;
@@ -866,6 +910,39 @@ impl Store {
                 },
             )?;
             Ok(())
+        })
+        .await
+    }
+
+    pub async fn mark_draft_abandoned(&self, draft_id: &str) -> Result<DraftSessionRecord> {
+        let draft_id = draft_id.to_owned();
+        self.with_conn(move |conn, _| {
+            let now = now_iso();
+            conn.execute(
+                "UPDATE draft_sessions
+                 SET status = 'abandoned', updated_at = ?1
+                 WHERE id = ?2 AND status = 'open'",
+                params![now, draft_id],
+            )
+            .map_err(db_err)?;
+            let draft = draft_session_by_id(conn, &draft_id)?
+                .ok_or_else(|| RototoError::new("draft session update failed"))?;
+            if draft.status != DraftStatus::Abandoned {
+                return Err(RototoError::new("draft is not open"));
+            }
+            record_draft_event_sync(
+                conn,
+                &DraftEventInput {
+                    draft_id: draft.id.clone(),
+                    kind: "draft.abandoned".to_owned(),
+                    summary: format!("Let go of draft branch {}", draft.branch),
+                    detail: Some(serde_json::json!({
+                        "branch": draft.branch,
+                    })),
+                },
+            )?;
+            draft_session_by_id(conn, &draft_id)?
+                .ok_or_else(|| RototoError::new("draft session update failed"))
         })
         .await
     }
@@ -1155,18 +1232,25 @@ fn record_draft_event_sync(conn: &Connection, input: &DraftEventInput) -> Result
 }
 
 fn workspace_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<WorkspaceRecord> {
-    let name: String = row.get(3)?;
-    let path: String = row.get(4)?;
+    workspace_from_row_at(row, 0)
+}
+
+fn workspace_from_row_at(
+    row: &rusqlite::Row<'_>,
+    offset: usize,
+) -> rusqlite::Result<WorkspaceRecord> {
+    let name: String = row.get(offset + 3)?;
+    let path: String = row.get(offset + 4)?;
     Ok(WorkspaceRecord {
-        id: row.get(0)?,
+        id: row.get(offset)?,
         slug: workspace_slug(&name, &path),
-        repo_id: row.get(1)?,
-        owner: row.get(2)?,
+        repo_id: row.get(offset + 1)?,
+        owner: row.get(offset + 2)?,
         name,
         path,
-        git_ref: row.get(5)?,
-        source: row.get(6)?,
-        discovered_at: row.get(7)?,
+        git_ref: row.get(offset + 5)?,
+        source: row.get(offset + 6)?,
+        discovered_at: row.get(offset + 7)?,
     })
 }
 
@@ -1178,10 +1262,10 @@ fn draft_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<DraftSessionRecor
         github_user_id: row.get(2)?,
         branch: row.get(3)?,
         base_ref: row.get(4)?,
-        status: if status == "published" {
-            DraftStatus::Published
-        } else {
-            DraftStatus::Open
+        status: match status.as_str() {
+            "published" => DraftStatus::Published,
+            "abandoned" => DraftStatus::Abandoned,
+            _ => DraftStatus::Open,
         },
         pr_url: row.get(6)?,
         pr_number: row.get(7)?,
@@ -1354,6 +1438,75 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn lists_user_drafts_with_workspaces() {
+        let store = test_store().await;
+        let repo = store
+            .upsert_repo_with_workspaces(
+                "42".to_owned(),
+                "octo".to_owned(),
+                "configs".to_owned(),
+                "main".to_owned(),
+                vec![discovered("."), discovered("payments/flags")],
+            )
+            .await
+            .unwrap();
+        let root = repo.workspaces[0].clone();
+        let flags = repo.workspaces[1].clone();
+        store
+            .create_draft_session(NewDraftSession {
+                workspace_id: root.id.clone(),
+                github_user_id: "42".to_owned(),
+                branch: "draft-root".to_owned(),
+                base_ref: "main".to_owned(),
+            })
+            .await
+            .unwrap();
+        store
+            .create_draft_session(NewDraftSession {
+                workspace_id: flags.id.clone(),
+                github_user_id: "42".to_owned(),
+                branch: "draft-flags".to_owned(),
+                base_ref: "main".to_owned(),
+            })
+            .await
+            .unwrap();
+        store
+            .create_draft_session(NewDraftSession {
+                workspace_id: root.id.clone(),
+                github_user_id: "99".to_owned(),
+                branch: "other-user".to_owned(),
+                base_ref: "main".to_owned(),
+            })
+            .await
+            .unwrap();
+
+        let drafts = store.list_draft_sessions_for_user("42").await.unwrap();
+        assert_eq!(drafts.len(), 2);
+
+        let mut branches: Vec<&str> = drafts
+            .iter()
+            .map(|entry| entry.draft.branch.as_str())
+            .collect();
+        branches.sort_unstable();
+        assert_eq!(branches, ["draft-flags", "draft-root"]);
+
+        let mut paths: Vec<&str> = drafts
+            .iter()
+            .map(|entry| entry.workspace.path.as_str())
+            .collect();
+        paths.sort_unstable();
+        assert_eq!(paths, [".", "payments/flags"]);
+
+        assert!(
+            store
+                .list_draft_sessions_for_user("99")
+                .await
+                .unwrap()
+                .is_empty()
+        );
+    }
+
+    #[tokio::test]
     async fn draft_change_revert_deletes_row() {
         let store = test_store().await;
         let repo = store
@@ -1424,6 +1577,65 @@ mod tests {
             kinds,
             ["draft.created", "change.created", "change.reverted"]
         );
+    }
+
+    #[tokio::test]
+    async fn abandoned_drafts_leave_active_lists() {
+        let store = test_store().await;
+        let repo = store
+            .upsert_repo_with_workspaces(
+                "42".to_owned(),
+                "octo".to_owned(),
+                "configs".to_owned(),
+                "main".to_owned(),
+                vec![discovered(".")],
+            )
+            .await
+            .unwrap();
+        let workspace = repo.workspaces[0].clone();
+        let draft = store
+            .create_draft_session(NewDraftSession {
+                workspace_id: workspace.id.clone(),
+                github_user_id: "42".to_owned(),
+                branch: "draft-branch".to_owned(),
+                base_ref: "main".to_owned(),
+            })
+            .await
+            .unwrap();
+
+        let abandoned = store.mark_draft_abandoned(&draft.id).await.unwrap();
+        assert_eq!(abandoned.status, DraftStatus::Abandoned);
+        assert_eq!(abandoned.branch, "draft-branch");
+
+        let fetched = store
+            .get_draft_session_for_user(&draft.id, &workspace.id, "42")
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(fetched.status, DraftStatus::Abandoned);
+        assert!(
+            store
+                .list_draft_sessions_for_workspace(&workspace.id, "42")
+                .await
+                .unwrap()
+                .is_empty()
+        );
+        assert!(
+            store
+                .list_draft_sessions_for_user("42")
+                .await
+                .unwrap()
+                .is_empty()
+        );
+
+        let kinds: Vec<String> = store
+            .list_draft_events(&draft.id)
+            .await
+            .unwrap()
+            .into_iter()
+            .map(|event| event.kind)
+            .collect();
+        assert_eq!(kinds, ["draft.created", "draft.abandoned"]);
     }
 
     #[tokio::test]

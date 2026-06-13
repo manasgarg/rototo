@@ -4,6 +4,9 @@ type DraftLike = {
 };
 
 export function DraftStatusPill({ draft }: { draft: DraftLike }) {
+    if (draft.status === "abandoned") {
+        return <Pill label="let go" tone="neutral" />;
+    }
     if (draft.status === "published") {
         const state = draft.prState ?? "published";
         if (state === "merged") {

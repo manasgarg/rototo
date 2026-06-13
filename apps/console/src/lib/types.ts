@@ -51,7 +51,7 @@ export type DraftSessionRecord = {
     githubUserId: string;
     branch: string;
     baseRef: string;
-    status: "open" | "published";
+    status: "open" | "published" | "abandoned";
     prUrl: string | null;
     prNumber: number | null;
     prState: string | null;
@@ -386,6 +386,15 @@ export type WorkspaceSummary = {
     catalogs: number;
     schemas: number;
     error: string | null;
+};
+
+export type WorkspaceSummaryEntry = WorkspaceSummary & {
+    workspaceId: string;
+    workspaceSlug: string;
+};
+
+export type WorkspaceSummariesData = {
+    summaries: WorkspaceSummaryEntry[];
 };
 
 export type WorkspaceData = {

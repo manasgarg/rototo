@@ -9,7 +9,6 @@ export function LoadingScreen() {
                         <RototoMark />
                     </span>
                     <span className="brand-name">rototo</span>
-                    <span className="brand-tag label">admin</span>
                 </div>
                 <div className="side-nav">
                     <div

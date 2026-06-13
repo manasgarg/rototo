@@ -1498,8 +1498,7 @@ export function workspaceGraphData(input: {
         ) {
             pushEdge(`qualifiers:${to.id}`, `variables:${from.id}`, "checks");
         }
-        // Variables connect to catalogs; catalogs fan out to their entries and
-        // pair with their schema.
+        // Variables connect to catalogs; catalogs fan out to their entries.
         if (
             via.kind === "variableCatalog" &&
             from.kind === "variable" &&

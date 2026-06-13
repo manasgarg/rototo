@@ -7,9 +7,7 @@ export type GraphNodeKind =
     | "qualifier"
     | "variable"
     | "catalog"
-    | "catalogEntry"
-    | "schema"
-    | "linter";
+    | "catalogEntry";
 
 export type GraphNode = {
     /* Stable unique id (the entity target key). */
@@ -28,12 +26,7 @@ export type GraphNode = {
     edited?: boolean;
 };
 
-export type GraphEdgeKind =
-    | "checks"
-    | "selects"
-    | "contains"
-    | "validates"
-    | "requires";
+export type GraphEdgeKind = "checks" | "selects" | "contains" | "requires";
 
 export type GraphEdge = {
     from: string;
