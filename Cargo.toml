@@ -52,7 +52,7 @@ clap = { version = "4", features = ["derive", "env"] }
 clap_complete = "4"
 flate2 = "1"
 glob = "0.3"
-jsonschema = { version = "0.33", default-features = false }
+jsonschema = { version = "0.46", default-features = false }
 mime_guess = { version = "2", optional = true }
 mlua = { version = "0.10", default-features = false, features = ["lua54", "serialize", "vendored"] }
 pulldown-cmark = "0.13"
