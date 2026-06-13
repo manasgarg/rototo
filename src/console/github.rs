@@ -601,6 +601,8 @@ impl GitHubClient {
         path: &str,
         body: Option<JsonValue>,
     ) -> GitHubResult<T> {
+        let started = std::time::Instant::now();
+        let method_label = method.as_str().to_owned();
         let mut request = self
             .http
             .request(method, format!("{GITHUB_API}{path}"))
@@ -615,6 +617,14 @@ impl GitHubClient {
         let response = request.send().await.map_err(GitHubError::other)?;
         let status = response.status();
         let text = response.text().await.map_err(GitHubError::other)?;
+        tracing::info!(
+            operation = "github.rest",
+            method = %method_label,
+            path = %github_path_pattern(path),
+            status = status.as_u16(),
+            latency_ms = started.elapsed().as_millis(),
+            "console GitHub REST call completed"
+        );
         if !status.is_success() {
             return Err(GitHubError::Api(GitHubApiError {
                 status: status.as_u16(),
@@ -623,6 +633,21 @@ impl GitHubClient {
         }
         serde_json::from_str(&text).map_err(GitHubError::other)
     }
+}
+
+fn github_path_pattern(path: &str) -> String {
+    path.split('/')
+        .map(|segment| {
+            if segment.chars().all(|ch| ch.is_ascii_digit()) {
+                ":number"
+            } else if segment.len() >= 32 && segment.chars().all(|ch| ch.is_ascii_hexdigit()) {
+                ":sha"
+            } else {
+                segment
+            }
+        })
+        .collect::<Vec<_>>()
+        .join("/")
 }
 
 /// GitHub OAuth web-flow code exchange.

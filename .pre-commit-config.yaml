@@ -1,4 +1,4 @@
-# Local pre-commit hooks for rototo. `just setup-min` installs pre-commit
+# Local pre-commit hooks for rototo. `just setup` installs pre-commit
 # from requirements-dev.txt and registers both commit and push hooks.
 repos:
   - repo: https://github.com/pre-commit/pre-commit-hooks

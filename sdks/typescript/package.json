@@ -1,52 +1,55 @@
 {
-  "name": "rototo",
-  "version": "0.1.0-alpha.4",
-  "description": "TypeScript SDK for rototo runtime configuration workspaces.",
-  "license": "MIT OR Apache-2.0",
-  "repository": {
-    "type": "git",
-    "url": "git+https://github.com/manasgarg/rototo.git",
-    "directory": "sdks/typescript"
-  },
-  "homepage": "https://docs.rototo.dev",
-  "type": "module",
-  "main": "./dist/index.js",
-  "types": "./dist/index.d.ts",
-  "exports": {
-    ".": {
-      "types": "./dist/index.d.ts",
-      "import": "./dist/index.js"
+    "name": "rototo",
+    "version": "0.1.0-alpha.4",
+    "description": "TypeScript SDK for rototo runtime configuration workspaces.",
+    "license": "MIT OR Apache-2.0",
+    "repository": {
+        "type": "git",
+        "url": "git+https://github.com/manasgarg/rototo.git",
+        "directory": "sdks/typescript"
+    },
+    "homepage": "https://docs.rototo.dev",
+    "type": "module",
+    "main": "./dist/index.js",
+    "types": "./dist/index.d.ts",
+    "exports": {
+        ".": {
+            "types": "./dist/index.d.ts",
+            "import": "./dist/index.js"
+        }
+    },
+    "files": [
+        "dist/",
+        "*.node",
+        "README.md"
+    ],
+    "engines": {
+        "node": ">=20"
+    },
+    "scripts": {
+        "build": "npm run build:native && npm run build:ts",
+        "build:native": "napi build --platform --release",
+        "build:ts": "tsc -p tsconfig.json",
+        "check": "npm run build && npm test && npm run test:package",
+        "format": "prettier --write \"package*.json\" \"tsconfig.json\" \"src/**/*.ts\" \"tests/**/*.js\"",
+        "format:check": "prettier --check \"package*.json\" \"tsconfig.json\" \"src/**/*.ts\" \"tests/**/*.js\"",
+        "test": "node --test tests/*.test.js",
+        "test:package": "node tests/package-smoke.mjs"
+    },
+    "napi": {
+        "binaryName": "rototo",
+        "targets": [
+            "x86_64-unknown-linux-gnu",
+            "aarch64-unknown-linux-gnu",
+            "x86_64-apple-darwin",
+            "aarch64-apple-darwin",
+            "x86_64-pc-windows-msvc"
+        ]
+    },
+    "devDependencies": {
+        "@napi-rs/cli": "3.7.0",
+        "@types/node": "24.10.2",
+        "prettier": "^3.8.4",
+        "typescript": "6.0.3"
     }
-  },
-  "files": [
-    "dist/",
-    "*.node",
-    "README.md"
-  ],
-  "engines": {
-    "node": ">=20"
-  },
-  "scripts": {
-    "build": "npm run build:native && npm run build:ts",
-    "build:native": "napi build --platform --release",
-    "build:ts": "tsc -p tsconfig.json",
-    "check": "npm run build && npm test && npm run test:package",
-    "test": "node --test tests/*.test.js",
-    "test:package": "node tests/package-smoke.mjs"
-  },
-  "napi": {
-    "binaryName": "rototo",
-    "targets": [
-      "x86_64-unknown-linux-gnu",
-      "aarch64-unknown-linux-gnu",
-      "x86_64-apple-darwin",
-      "aarch64-apple-darwin",
-      "x86_64-pc-windows-msvc"
-    ]
-  },
-  "devDependencies": {
-    "@napi-rs/cli": "3.7.0",
-    "@types/node": "24.10.2",
-    "typescript": "6.0.3"
-  }
 }

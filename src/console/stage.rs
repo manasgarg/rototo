@@ -54,10 +54,16 @@ impl StageCache {
         source: &str,
     ) -> Result<(Arc<Workspace>, Arc<WorkspaceSemanticModel>)> {
         let (workspace, model_cell) = self.inspect_entry(token, source).await?;
+        let started = Instant::now();
         let model = model_cell
             .get_or_try_init(|| async { workspace.semantic_model().await.map(Arc::new) })
             .await?
             .clone();
+        tracing::info!(
+            operation = "workspace.semantic_model",
+            latency_ms = started.elapsed().as_millis(),
+            "console workspace semantic model ready"
+        );
         Ok((workspace, model))
     }
 
@@ -159,12 +165,26 @@ impl StageCache {
                     }
                 });
             }
+            tracing::info!(
+                operation = "workspace.stage",
+                stage_kind = kind,
+                cache = "hit",
+                "console workspace stage cache hit"
+            );
             return Ok((entry.workspace.clone(), entry.model.clone()));
         }
 
         // First staging for this key: other callers queue on the slot lock,
         // so a burst of requests stages the source once.
+        let started = Instant::now();
         let (workspace, keep_alive) = stage().await?;
+        tracing::info!(
+            operation = "workspace.stage",
+            stage_kind = kind,
+            cache = "miss",
+            latency_ms = started.elapsed().as_millis(),
+            "console workspace staged"
+        );
         let model = Arc::new(tokio::sync::OnceCell::new());
         *guard = Some(Entry {
             workspace: workspace.clone(),

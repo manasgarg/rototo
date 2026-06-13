@@ -371,6 +371,7 @@ async fn request(session: &mut LspSession, method: &str, params: JsonValue) -> R
     if session.closed {
         return Err(RototoError::new("rototo lsp session is closed"));
     }
+    let started = std::time::Instant::now();
     let (sender, receiver) = oneshot::channel();
     let id = {
         let mut pending = session.shared.pending.lock().await;
@@ -385,7 +386,7 @@ async fn request(session: &mut LspSession, method: &str, params: JsonValue) -> R
         return Err(err);
     }
     let _ = session.writer.flush().await;
-    match tokio::time::timeout(REQUEST_TIMEOUT, receiver).await {
+    let result = match tokio::time::timeout(REQUEST_TIMEOUT, receiver).await {
         Ok(Ok(Ok(result))) => Ok(result),
         Ok(Ok(Err(message))) => Err(RototoError::new(message)),
         Ok(Err(_)) => {
@@ -396,7 +397,15 @@ async fn request(session: &mut LspSession, method: &str, params: JsonValue) -> R
             session.shared.pending.lock().await.by_id.remove(&id);
             Err(RototoError::new(format!("rototo lsp {method} timed out")))
         }
-    }
+    };
+    tracing::info!(
+        operation = "lsp.request",
+        method = %method,
+        ok = result.is_ok(),
+        latency_ms = started.elapsed().as_millis(),
+        "console LSP request completed"
+    );
+    result
 }
 
 async fn sync_document(

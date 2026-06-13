@@ -6,4 +6,5 @@ java 21.0.2
 maven 3.9.11
 go 1.22.12
 node 24
+cargo:cargo-watch 8.5.3
 npm:wrangler 4

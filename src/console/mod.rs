@@ -10,6 +10,7 @@ mod auth;
 mod github;
 mod inventory;
 mod lsp;
+mod observability;
 mod resolve_preview;
 mod stage;
 mod static_assets;
@@ -28,6 +29,7 @@ use self::api::ConsoleState;
 use self::auth::{AuthMode, LocalAuth, resolve_ambient_token};
 use self::github::GitHubClient;
 use self::lsp::LspSessions;
+use self::observability::DevObservability;
 use self::stage::StageCache;
 use self::store::{DiscoveredWorkspaceInput, Store};
 use self::token_crypto::TokenCrypto;
@@ -58,6 +60,7 @@ pub async fn run(options: ConsoleOptions) -> Result<()> {
     })?;
 
     let mode = resolve_mode(&options)?;
+    let observability = DevObservability::from_env().await?;
     let crypto = resolve_token_crypto(&mode, &data_dir).await?;
     let store = Store::open(&data_dir.join("console.db"), crypto)?;
 
@@ -96,6 +99,7 @@ pub async fn run(options: ConsoleOptions) -> Result<()> {
         allowed_origins,
         secure_cookies,
         read_only_user_id: READ_ONLY_USER_ID.to_owned(),
+        observability,
     });
 
     if mode == AuthMode::ReadOnly {
@@ -131,6 +135,9 @@ pub async fn run(options: ConsoleOptions) -> Result<()> {
         AuthMode::ReadOnly => {
             println!("read-only mode: write routes are disabled");
         }
+    }
+    if let Some(observability) = &state.observability {
+        println!("dev observability: {}", observability.dir().display());
     }
 
     let app = api::router(state).fallback(static_assets::serve_spa);

@@ -1,4 +1,5 @@
 use std::sync::Arc;
+use std::time::Instant;
 
 use axum::Json;
 use axum::extract::{Request, State};
@@ -19,6 +20,7 @@ use super::auth::{
 };
 use super::github::{self, GitHubClient, GitHubError};
 use super::lsp::LspSessions;
+use super::observability::DevObservability;
 use super::stage::StageCache;
 use super::store::{NewSession, SessionUser, Store};
 
@@ -35,6 +37,7 @@ pub struct ConsoleState {
     pub secure_cookies: bool,
     /// The synthetic user id read-only deployments register workspaces under.
     pub read_only_user_id: String,
+    pub observability: Option<DevObservability>,
 }
 
 pub type SharedState = Arc<ConsoleState>;
@@ -95,7 +98,7 @@ impl IntoResponse for ApiError {
 pub type ApiResult<T> = std::result::Result<T, ApiError>;
 
 pub fn router(state: SharedState) -> axum::Router {
-    let api = axum::Router::new()
+    let mut api = axum::Router::new()
         .route("/me", get(me))
         .route("/auth/logout", post(logout))
         .route("/auth/github/start", get(oauth_start))
@@ -107,6 +110,9 @@ pub fn router(state: SharedState) -> axum::Router {
         .route("/repos/{repo_id}", axum::routing::delete(repo_delete))
         .merge(super::api_workspace::routes())
         .merge(super::api_draft::routes());
+    if state.observability.is_some() {
+        api = api.route("/dev/observability/events", post(dev_observability_event));
+    }
 
     axum::Router::new()
         .nest("/api", api)
@@ -122,25 +128,32 @@ pub fn router(state: SharedState) -> axum::Router {
 /// Custom headers cannot be attached cross-site without a CORS preflight,
 /// which this server never grants.
 async fn request_guard(State(state): State<SharedState>, request: Request, next: Next) -> Response {
+    let started = Instant::now();
+    let method = request.method().clone();
+    let path = request.uri().path().to_owned();
     let mutating = !matches!(
         *request.method(),
         Method::GET | Method::HEAD | Method::OPTIONS
     );
     if mutating && request.uri().path().starts_with("/api") {
         if state.mode == AuthMode::ReadOnly {
-            return ApiError {
+            let response = ApiError {
                 status: StatusCode::FORBIDDEN,
                 message: "this console is read-only".to_owned(),
             }
             .into_response();
+            record_api_request(&state, started, &method, &path, response.status()).await;
+            return response;
         }
         let headers = request.headers();
         if !headers.contains_key("x-rototo-console") {
-            return ApiError {
+            let response = ApiError {
                 status: StatusCode::FORBIDDEN,
                 message: "missing x-rototo-console request header".to_owned(),
             }
             .into_response();
+            record_api_request(&state, started, &method, &path, response.status()).await;
+            return response;
         }
         if let Some(origin) = headers.get(header::ORIGIN).and_then(|v| v.to_str().ok())
             && !state
@@ -148,14 +161,112 @@ async fn request_guard(State(state): State<SharedState>, request: Request, next:
                 .iter()
                 .any(|allowed| allowed == origin)
         {
-            return ApiError {
+            let response = ApiError {
                 status: StatusCode::FORBIDDEN,
                 message: format!("origin {origin} is not allowed"),
             }
             .into_response();
+            record_api_request(&state, started, &method, &path, response.status()).await;
+            return response;
         }
     }
-    next.run(request).await
+    let response = next.run(request).await;
+    record_api_request(&state, started, &method, &path, response.status()).await;
+    response
+}
+
+async fn record_api_request(
+    state: &ConsoleState,
+    started: Instant,
+    method: &Method,
+    path: &str,
+    status: StatusCode,
+) {
+    let Some(observability) = &state.observability else {
+        return;
+    };
+    let route = route_observability(path);
+    observability
+        .record_api_request(json!({
+            "method": method.as_str(),
+            "path": path,
+            "route": route.pattern,
+            "status": status.as_u16(),
+            "status_class": status_class(status),
+            "latency_ms": started.elapsed().as_millis(),
+            "auth_mode": state.mode.label(),
+            "workspace_id": route.workspace_id,
+            "draft_id": route.draft_id,
+            "error_class": error_class(status),
+        }))
+        .await;
+}
+
+struct RouteObservability {
+    pattern: String,
+    workspace_id: Option<String>,
+    draft_id: Option<String>,
+}
+
+fn route_observability(path: &str) -> RouteObservability {
+    let segments = path
+        .trim_matches('/')
+        .split('/')
+        .filter(|segment| !segment.is_empty())
+        .collect::<Vec<_>>();
+    let mut pattern = Vec::new();
+    let mut workspace_id = None;
+    let mut draft_id = None;
+    let mut index = 0;
+    while index < segments.len() {
+        let segment = segments[index];
+        pattern.push(segment.to_owned());
+        if segment == "workspaces" && index + 1 < segments.len() {
+            workspace_id = Some(segments[index + 1].to_owned());
+            pattern.push(":workspace_id".to_owned());
+            index += 2;
+            continue;
+        }
+        if segment == "drafts" && index + 1 < segments.len() {
+            draft_id = Some(segments[index + 1].to_owned());
+            pattern.push(":draft_id".to_owned());
+            index += 2;
+            continue;
+        }
+        if segment == "repos" && index + 1 < segments.len() {
+            pattern.push(":repo_id".to_owned());
+            index += 2;
+            continue;
+        }
+        index += 1;
+    }
+    RouteObservability {
+        pattern: format!("/{}", pattern.join("/")),
+        workspace_id,
+        draft_id,
+    }
+}
+
+fn status_class(status: StatusCode) -> &'static str {
+    if status.is_server_error() {
+        "server_error"
+    } else if status.is_client_error() {
+        "client_error"
+    } else if status.is_redirection() {
+        "redirect"
+    } else {
+        "success"
+    }
+}
+
+fn error_class(status: StatusCode) -> Option<&'static str> {
+    if status.is_server_error() {
+        Some("server_error")
+    } else if status.is_client_error() {
+        Some("client_error")
+    } else {
+        None
+    }
 }
 
 /// The authenticated user for a request, per auth mode.
@@ -188,6 +299,17 @@ pub fn read_only_user(state: &ConsoleState) -> SessionUser {
         github_avatar_url: None,
         github_token: String::new(),
     }
+}
+
+async fn dev_observability_event(
+    State(state): State<SharedState>,
+    Json(event): Json<JsonValue>,
+) -> ApiResult<Json<JsonValue>> {
+    let Some(observability) = &state.observability else {
+        return Err(ApiError::not_found("dev observability is disabled"));
+    };
+    observability.record_ui_event(event).await;
+    Ok(Json(json!({ "ok": true })))
 }
 
 async fn me(State(state): State<SharedState>, headers: HeaderMap) -> Response {
@@ -546,4 +668,30 @@ pub fn url_encode(value: &str) -> String {
         }
     }
     out
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn observability_route_extracts_workspace_and_draft_ids() {
+        let route = route_observability("/api/workspaces/ws-1/drafts/draft-2/lsp");
+
+        assert_eq!(
+            route.pattern,
+            "/api/workspaces/:workspace_id/drafts/:draft_id/lsp"
+        );
+        assert_eq!(route.workspace_id.as_deref(), Some("ws-1"));
+        assert_eq!(route.draft_id.as_deref(), Some("draft-2"));
+    }
+
+    #[test]
+    fn observability_route_replaces_repo_ids() {
+        let route = route_observability("/api/repos/repo-1");
+
+        assert_eq!(route.pattern, "/api/repos/:repo_id");
+        assert_eq!(route.workspace_id, None);
+        assert_eq!(route.draft_id, None);
+    }
 }
