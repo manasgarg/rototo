@@ -5,6 +5,8 @@ import { apiFetch } from "@/lib/api";
 
 type FormNote = { tone: "ok" | "err"; text: string };
 
+const REPO_SPEC_ERROR = "repository must be owner/repo or a GitHub repository URL";
+
 export function RepoRegistrationForm() {
   const router = useRouter();
   const [open, setOpen] = useState(false);
@@ -18,10 +20,17 @@ export function RepoRegistrationForm() {
     setPending(true);
     setNote(null);
     try {
+      const normalizedRepo = normalizeRepoInput(repo);
+      if (!normalizedRepo) {
+        throw new Error("repository is required");
+      }
+      const normalizedRef = ref.trim();
       const response = await apiFetch("/api/repos", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ repo, ref: ref || undefined }),
+        body: JSON.stringify({
+          repo: normalizedRepo,
+          ref: normalizedRef || undefined,
+        }),
       });
       const body = (await response.json()) as { error?: string };
       if (!response.ok) {
@@ -118,4 +127,23 @@ export function RepoRegistrationForm() {
       </div>
     </form>
   );
+}
+
+function normalizeRepoInput(value: string): string {
+  let normalized = value.trim();
+  normalized = normalized.replace(/^git@github\.com:/i, "");
+  normalized = normalized.replace(/^ssh:\/\/git@github\.com\//i, "");
+  normalized = normalized.replace(/^https?:\/\/github\.com\//i, "");
+  normalized = normalized.replace(/^github\.com\//i, "");
+  normalized = normalized.split(/[?#]/, 1)[0]?.replace(/\/+$/, "") ?? "";
+  if (!normalized) {
+    return "";
+  }
+  const [owner, name, ...extra] = normalized.split("/");
+  const repoName = name?.replace(/\.git$/i, "");
+  const valid = (part: string | undefined) => !!part && /^[A-Za-z0-9_.-]+$/.test(part);
+  if (extra.length > 0 || !valid(owner) || !valid(repoName)) {
+    throw new Error(REPO_SPEC_ERROR);
+  }
+  return `${owner}/${repoName}`;
 }

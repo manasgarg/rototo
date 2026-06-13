@@ -37,6 +37,7 @@ import { schemaSummary } from "@/lib/entity-summary";
 import { Link } from "@/lib/link";
 import { useShellUser } from "@/lib/me";
 import { RefreshScope } from "@/lib/refresh";
+import type { SectionId } from "@/lib/route-normalizers";
 import type {
   DraftSessionRecord,
   LintDiagnostic,
@@ -53,17 +54,6 @@ import type {
   WorkspaceSemanticModel,
 } from "@/lib/types";
 import { NotFound } from "@/screens/not-found";
-
-export type SectionId =
-  | "overview"
-  | "variables"
-  | "qualifiers"
-  | "catalogs"
-  | "schemas"
-  | "linters"
-  | "context"
-  | "diagnostics"
-  | "drafts";
 
 type EntityNode = {
   section: SectionId;
@@ -1566,17 +1556,32 @@ function OverviewAttention({
         <>
           {shown.map((diagnostic, index) => {
             const match = nodes.find((node) => diagnosticMatchesNode(diagnostic, node, nodes));
-            return (
+            const entity = attentionEntity(match, diagnostic);
+            const content = (
+              <>
+                <span className="attn-entity">
+                  <span className="attn-entity-kind">{entity.kind}</span>
+                  <span className="attn-entity-id mono">{entity.id}</span>
+                </span>
+                <span className="attn-diagnostic">
+                  <span className="attn-severity">{diagnostic.severity ?? "warning"}</span>
+                  <span className="attn-message">{diagnostic.message ?? "Diagnostic"}</span>
+                </span>
+              </>
+            );
+            return match ? (
+              <Link
+                aria-label={`Open ${match.kind} ${match.id}: ${diagnostic.message ?? "Diagnostic"}`}
+                className={`attn-row attn-link ${diagnostic.severity ?? ""}`}
+                href={entityHref(workspaceId, match.path)}
+                key={index}
+              >
+                {content}
+                <ChevronRight aria-hidden className="attn-arrow" size={15} />
+              </Link>
+            ) : (
               <div className={`attn-row ${diagnostic.severity ?? ""}`} key={index}>
-                <span className="attn-text">{diagnostic.message ?? "Diagnostic"}</span>
-                {match ? (
-                  <Link
-                    className="btn btn-ghost btn-sm"
-                    href={entityHref(workspaceId, match.path)}
-                  >
-                    Open {match.kind} / {match.id}
-                  </Link>
-                ) : null}
+                {content}
               </div>
             );
           })}
@@ -1836,21 +1841,17 @@ function entitySearchText(node: EntityNode): string {
   return [node.id, node.kind, node.path, node.description, node.badge].filter(Boolean).join(" ");
 }
 
-export function normalizeSection(value: string | null): SectionId | null {
-  if (
-    value === "overview" ||
-    value === "variables" ||
-    value === "qualifiers" ||
-    value === "catalogs" ||
-    value === "schemas" ||
-    value === "linters" ||
-    value === "context" ||
-    value === "diagnostics" ||
-    value === "drafts"
-  ) {
-    return value;
+function attentionEntity(
+  node: EntityNode | undefined,
+  diagnostic: LintDiagnostic,
+): { kind: string; id: string } {
+  if (node) {
+    return { kind: node.kind, id: node.id };
   }
-  return null;
+  return {
+    kind: "workspace",
+    id: diagnostic.location?.path ?? "lint diagnostic",
+  };
 }
 
 function formatDate(value: string): string {

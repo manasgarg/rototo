@@ -47,6 +47,7 @@ import { useApi } from "@/lib/api";
 import { Link } from "@/lib/link";
 import { useShellUser } from "@/lib/me";
 import { RefreshScope } from "@/lib/refresh";
+import type { EditKind } from "@/lib/route-normalizers";
 import type {
   DraftChangeRecord,
   DraftData,
@@ -62,14 +63,6 @@ import { NotFound } from "@/screens/not-found";
 import { encodeEntityPath, workspaceGraphData } from "@/screens/workspace-screen";
 
 export type DraftScreenId = "overview" | "edit" | "changes" | "validate" | "publish";
-
-export type EditKind =
-  | "variables"
-  | "qualifiers"
-  | "catalogs"
-  | "schemas"
-  | "context"
-  | "linters";
 
 type EditableEntity = ApiEditableEntity;
 
@@ -1132,20 +1125,6 @@ export function normalizeDraftScreen(value: string | null): DraftScreenId | null
     value === "changes" ||
     value === "validate" ||
     value === "publish"
-  ) {
-    return value;
-  }
-  return null;
-}
-
-export function normalizeEditKind(value: string | null): EditKind | null {
-  if (
-    value === "variables" ||
-    value === "qualifiers" ||
-    value === "catalogs" ||
-    value === "schemas" ||
-    value === "context" ||
-    value === "linters"
   ) {
     return value;
   }

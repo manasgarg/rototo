@@ -219,6 +219,17 @@ just check
 
 `just check` is also what CI runs.
 
+For console work, `just setup` installs the frontend dependencies too. Run the
+full local stack with:
+
+```sh
+just console-dev
+```
+
+With the local Caddy setup, `https://dev.rototo.dev` points at that dev stack.
+Use `just console-demo` when you want `https://demo.rototo.dev` to point at the
+embedded frontend served from the Rust binary.
+
 Logging uses `tracing` and reads `RUST_LOG`:
 
 ```sh

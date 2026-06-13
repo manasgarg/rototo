@@ -1044,6 +1044,17 @@ a.row:hover {
   box-shadow: var(--shadow-2);
 }
 
+.row[data-loading="true"] {
+  border-color: var(--sea-400);
+  box-shadow: var(--shadow-2);
+  cursor: progress;
+}
+
+.row[data-loading="true"] .row-icon {
+  background: var(--sea-50);
+  border-color: var(--sea-200);
+}
+
 .row-icon {
   display: grid;
   place-items: center;
@@ -1084,6 +1095,16 @@ a.row:hover {
   align-items: center;
   gap: 8px;
   flex: none;
+}
+
+.row-loading {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--sea-700);
+  font-size: 12.5px;
+  font-weight: 600;
+  white-space: nowrap;
 }
 
 .card-grid {
@@ -1740,25 +1761,70 @@ select.input {
 
 /* overview: needs-attention rows */
 .attn-row {
-  display: flex;
+  display: grid;
+  grid-template-columns: minmax(0, 0.9fr) minmax(0, 1.35fr) auto;
   align-items: center;
   gap: 12px;
-  padding: 8px 13px;
+  padding: 10px 13px;
   border: 1px solid var(--line-1);
   border-left: 3px solid var(--warn-500);
   border-radius: var(--radius-2);
   background: var(--paper-0);
+  color: inherit;
   font-size: 13px;
+  text-decoration: none;
 }
 
 .attn-row.error {
   border-left-color: var(--err-500);
 }
 
-.attn-text {
-  flex: 1;
+.attn-link:hover {
+  border-color: var(--line-2);
+  background: var(--paper-1);
+  box-shadow: var(--shadow-1);
+}
+
+.attn-entity,
+.attn-diagnostic {
   min-width: 0;
+  display: grid;
+  gap: 3px;
+}
+
+.attn-entity-kind,
+.attn-severity {
+  color: var(--ink-3);
+  font-size: 11.5px;
+  font-weight: 600;
+}
+
+.attn-entity-id,
+.attn-message {
   overflow-wrap: anywhere;
+}
+
+.attn-entity-id {
+  color: var(--ink-0);
+  font-weight: 650;
+}
+
+.attn-message {
+  color: var(--ink-1);
+}
+
+.attn-arrow {
+  color: var(--ink-3);
+}
+
+@media (max-width: 760px) {
+  .attn-row {
+    grid-template-columns: minmax(0, 1fr) auto;
+  }
+
+  .attn-diagnostic {
+    grid-column: 1 / -1;
+  }
 }
 
 /* overview: per-type entity cards, most referenced first */
