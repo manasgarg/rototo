@@ -9,6 +9,7 @@
 #   05. check   local pre-push gate
 #   06. docs    documentation publishing previews
 #   07. release release preparation and validation
+#   08. console local console development
 
 default:
     @just --list --unsorted
@@ -29,7 +30,7 @@ setup-min:
     py -m pip install --quiet -r requirements-dev.txt
     py -m pre_commit install -t pre-commit -t pre-push
 
-# Install/verify the local toolchain and install local hooks.
+# Install/verify the local toolchain, frontend dependencies, and local hooks.
 [group('01. setup')]
 setup:
     #!/bin/bash
@@ -43,27 +44,71 @@ setup:
     cargo fmt --version
     cargo clippy --version
     just setup-min
+    just console-install
     echo "Done. Run 'just check' to verify."
 
 # Install the console UI dependencies.
 [group('01. setup')]
-console-setup:
-    npm --prefix apps/console install
+console-install:
+    npm --prefix apps/console ci
 
-# Run the console UI dev server (proxies /api to a running `rototo console`).
-[group('04. test')]
+# Run the full console development stack: Rust API plus Vite UI.
+[group('08. console')]
 console-dev:
-    npm --prefix apps/console run dev
+    #!/bin/bash
+    set -euo pipefail
+    public_url="${ROTOTO_CONSOLE_DEV_PUBLIC_URL:-https://dev.rototo.dev}"
+    cargo run -- console --public-url "$public_url" &
+    api_pid=$!
+    trap 'kill "$api_pid" 2>/dev/null || true' EXIT
+    for _ in $(seq 1 120); do
+        if curl --silent --output /dev/null --max-time 1 http://127.0.0.1:7686/api/me; then
+            break
+        fi
+        if ! kill -0 "$api_pid" 2>/dev/null; then
+            wait "$api_pid"
+        fi
+        sleep 0.25
+    done
+    npm --prefix apps/console run dev -- --force
+
+# Run only the console API server for the dev.rototo.dev Caddy target.
+[group('08. console')]
+console-api:
+    #!/bin/bash
+    set -euo pipefail
+    public_url="${ROTOTO_CONSOLE_DEV_PUBLIC_URL:-https://dev.rototo.dev}"
+    cargo run -- console --public-url "$public_url"
+
+# Run only the console UI dev server, proxying /api to ROTOTO_CONSOLE_API or 127.0.0.1:7686.
+[group('08. console')]
+console-ui:
+    npm --prefix apps/console run dev -- --force
+
+# Run the embedded console behind demo.rototo.dev.
+[group('08. console')]
+console-demo: console-build
+    #!/bin/bash
+    set -euo pipefail
+    bind="${ROTOTO_CONSOLE_DEMO_BIND:-127.0.0.1:7687}"
+    public_url="${ROTOTO_CONSOLE_DEMO_PUBLIC_URL:-https://demo.rototo.dev}"
+    cargo run -- console --bind "$bind" --public-url "$public_url"
+
+# Run a production-like local console with embedded frontend assets.
+[group('08. console')]
+console-preview: console-build
+    cargo run -- console
 
 # Build the console UI bundle that release binaries embed.
-[group('04. test')]
+[group('08. console')]
 console-build:
-    npm --prefix apps/console ci
     npm --prefix apps/console run build
 
-# Typecheck and build the console UI.
+# Install dependencies from the lockfile, typecheck, and build the console UI.
 [group('04. test')]
-console-test: console-build
+console-ci:
+    npm --prefix apps/console ci
+    npm --prefix apps/console run build
 
 # Format Rust code.
 [group('02. format')]
@@ -214,7 +259,7 @@ java-sdk-package-check:
 
 # Run the local pre-push gate.
 [group('05. check')]
-check: lint test console-test python-sdk-test typescript-sdk-test java-sdk-test go-sdk-test java-sdk-package-check
+check: lint test console-ci python-sdk-test typescript-sdk-test java-sdk-test go-sdk-test java-sdk-package-check
 
 # Validate that a release tag version matches all package version surfaces.
 [group('07. release')]

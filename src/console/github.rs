@@ -129,11 +129,25 @@ pub fn github_error_message(error: &GitHubError, action: &str) -> String {
     }
 }
 
+const REPO_SPEC_ERROR: &str = "repo must be owner/name or a GitHub repository URL";
+
 pub fn parse_repo_spec(value: &str) -> Result<(String, String)> {
     let trimmed = value.trim();
-    let Some((owner, name)) = trimmed.split_once('/') else {
-        return Err(RototoError::new("repo must be in owner/name form"));
+    let mut candidate = strip_prefix_ignore_ascii_case(trimmed, "git@github.com:")
+        .or_else(|| strip_prefix_ignore_ascii_case(trimmed, "ssh://git@github.com/"))
+        .or_else(|| strip_prefix_ignore_ascii_case(trimmed, "https://github.com/"))
+        .or_else(|| strip_prefix_ignore_ascii_case(trimmed, "http://github.com/"))
+        .or_else(|| strip_prefix_ignore_ascii_case(trimmed, "github.com/"))
+        .unwrap_or(trimmed);
+    candidate = candidate
+        .split(['?', '#'])
+        .next()
+        .unwrap_or("")
+        .trim_end_matches('/');
+    let Some((owner, mut name)) = candidate.split_once('/') else {
+        return Err(RototoError::new(REPO_SPEC_ERROR));
     };
+    name = name.strip_suffix(".git").unwrap_or(name);
     let valid = |part: &str| {
         !part.is_empty()
             && part
@@ -141,9 +155,18 @@ pub fn parse_repo_spec(value: &str) -> Result<(String, String)> {
                 .all(|c| c.is_ascii_alphanumeric() || matches!(c, '_' | '.' | '-'))
     };
     if !valid(owner) || !valid(name) || name.contains('/') {
-        return Err(RototoError::new("repo must be in owner/name form"));
+        return Err(RototoError::new(REPO_SPEC_ERROR));
     }
     Ok((owner.to_owned(), name.to_owned()))
+}
+
+fn strip_prefix_ignore_ascii_case<'a>(value: &'a str, prefix: &str) -> Option<&'a str> {
+    let head = value.get(..prefix.len())?;
+    if head.eq_ignore_ascii_case(prefix) {
+        value.get(prefix.len()..)
+    } else {
+        None
+    }
 }
 
 #[derive(Clone)]
@@ -821,8 +844,22 @@ mod tests {
             parse_repo_spec(" octo/configs ").unwrap(),
             ("octo".to_owned(), "configs".to_owned())
         );
+        assert_eq!(
+            parse_repo_spec("https://github.com/octo/configs.git").unwrap(),
+            ("octo".to_owned(), "configs".to_owned())
+        );
+        assert_eq!(
+            parse_repo_spec("git@github.com:octo/configs.git").unwrap(),
+            ("octo".to_owned(), "configs".to_owned())
+        );
+        assert_eq!(
+            parse_repo_spec("ssh://git@github.com/octo/configs.git").unwrap(),
+            ("octo".to_owned(), "configs".to_owned())
+        );
         assert!(parse_repo_spec("octo").is_err());
         assert!(parse_repo_spec("octo/configs/extra").is_err());
+        assert!(parse_repo_spec("https://example.com/octo/configs").is_err());
+        assert!(parse_repo_spec("https://github.com/octo/configs/tree/main").is_err());
         assert!(parse_repo_spec("octo/with space").is_err());
     }
 

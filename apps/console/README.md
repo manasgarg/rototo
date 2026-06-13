@@ -9,13 +9,22 @@ of the `rototo` binary.
 Development:
 
 ```sh
-just console-setup     # npm install
-just console-dev       # vite dev server, proxies /api to 127.0.0.1:7686
-cargo run -- console   # the API the dev server proxies to
+just setup          # one-time repo bootstrap, including console dependencies
+just console-dev    # Rust API plus Vite UI for https://dev.rototo.dev
 ```
 
-Build for embedding:
+When you only want one side of the stack:
 
 ```sh
-just console-build     # typecheck + vite build into dist/
+just console-api    # Rust API at 127.0.0.1:7686 for dev.rototo.dev
+just console-ui     # Vite UI at 127.0.0.1:5173
 ```
+
+Build and run the embedded production shape:
+
+```sh
+just console-demo    # https://demo.rototo.dev via Caddy, API/UI at 127.0.0.1:7687
+```
+
+`just console-preview` still runs the embedded console on its default local
+bind when you do not want the Caddy-hosted demo domain.

@@ -13,6 +13,20 @@ export default defineConfig({
     },
   },
   server: {
+    host: "127.0.0.1",
+    port: 5173,
+    strictPort: true,
+    allowedHosts: ["dev.rototo.dev"],
+    warmup: {
+      clientFiles: [
+        "./src/main.tsx",
+        "./src/screens/console-screen.tsx",
+        "./src/components/app-shell.tsx",
+        "./src/components/repo-registration-form.tsx",
+        "./src/lib/api.ts",
+        "./src/lib/me.tsx",
+      ],
+    },
     proxy: {
       "/api": {
         target: process.env.ROTOTO_CONSOLE_API ?? "http://127.0.0.1:7686",

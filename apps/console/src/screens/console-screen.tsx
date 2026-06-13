@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { type MouseEvent, useEffect, useState } from "react";
 import {
   Boxes,
   ChevronRight,
@@ -8,7 +8,7 @@ import {
   Layers,
   TriangleAlert,
 } from "lucide-react";
-import { useSearchParams } from "react-router";
+import { useNavigate, useSearchParams } from "react-router";
 
 import { AppShell, NavGroupLabel, NavLink } from "@/components/app-shell";
 import { LoadingScreen } from "@/components/loading-screen";
@@ -302,55 +302,108 @@ function WorkspacesScreen({
           label="Search workspaces"
           placeholder="Search workspaces"
         >
-          {workspaces.map((workspace) => {
-            const summary = workspaceSummaries.get(workspace.id);
-            const draftsCount = drafts.filter(
-              (entry) => entry.workspace.id === workspace.id,
-            ).length;
-            return (
-              <Link
-                className="row"
-                data-search={`${workspace.owner}/${workspace.name} ${workspace.path} ${workspace.ref}`}
-                href={`/app/workspaces/${workspace.slug}`}
-                key={workspace.id}
-              >
-                <span className="row-icon">
-                  <Boxes aria-hidden size={16} />
-                </span>
-                <span className="row-text">
-                  <span className="row-title mono">{workspace.path}</span>
-                  <span className="row-sub">
-                    {workspace.owner}/{workspace.name}
-                  </span>
-                  {summary ? (
-                    <span className="kv">
-                      {summary.error ? (
-                        <span>inventory unavailable</span>
-                      ) : (
-                        <>
-                          <span>{countLabel(summary.variables, "variable")}</span>
-                          <span>{countLabel(summary.qualifiers, "qualifier")}</span>
-                          <span>{countLabel(summary.catalogs, "catalog")}</span>
-                          <span>{countLabel(summary.schemas, "schema")}</span>
-                        </>
-                      )}
-                    </span>
-                  ) : null}
-                </span>
-                <span className="row-side">
-                  {draftsCount > 0 ? (
-                    <span className="pill pill-neutral">
-                      {draftsCount} {draftsCount === 1 ? "draft" : "drafts"}
-                    </span>
-                  ) : null}
-                  <ChevronRight aria-hidden className="muted" size={15} />
-                </span>
-              </Link>
-            );
-          })}
+          {workspaces.map((workspace) => (
+            <WorkspaceRow
+              data-search={`${workspace.owner}/${workspace.name} ${workspace.path} ${workspace.ref}`}
+              draftsCount={
+                drafts.filter((entry) => entry.workspace.id === workspace.id).length
+              }
+              key={workspace.id}
+              summary={workspaceSummaries.get(workspace.id)}
+              workspace={workspace}
+            />
+          ))}
         </SearchableList>
       )}
     </section>
+  );
+}
+
+function WorkspaceRow({
+  draftsCount,
+  summary,
+  workspace,
+  "data-search": dataSearch,
+}: {
+  draftsCount: number;
+  summary: WorkspaceSummary | undefined;
+  workspace: WorkspaceRecord;
+  "data-search": string;
+}) {
+  const navigate = useNavigate();
+  const [opening, setOpening] = useState(false);
+  const href = `/app/workspaces/${workspace.slug}`;
+
+  function openWorkspace(event: MouseEvent<HTMLAnchorElement>) {
+    if (!shouldHandleClientNavigation(event)) {
+      return;
+    }
+    event.preventDefault();
+    setOpening(true);
+    window.requestAnimationFrame(() => navigate(href));
+  }
+
+  return (
+    <Link
+      aria-busy={opening}
+      className="row"
+      data-loading={opening ? "true" : undefined}
+      data-search={dataSearch}
+      href={href}
+      onClick={openWorkspace}
+    >
+      <span className="row-icon">
+        <Boxes aria-hidden size={16} />
+      </span>
+      <span className="row-text">
+        <span className="row-title mono">{workspace.path}</span>
+        <span className="row-sub">
+          {workspace.owner}/{workspace.name}
+        </span>
+        {summary ? (
+          <span className="kv">
+            {summary.error ? (
+              <span>inventory unavailable</span>
+            ) : (
+              <>
+                <span>{countLabel(summary.variables, "variable")}</span>
+                <span>{countLabel(summary.qualifiers, "qualifier")}</span>
+                <span>{countLabel(summary.catalogs, "catalog")}</span>
+                <span>{countLabel(summary.schemas, "schema")}</span>
+              </>
+            )}
+          </span>
+        ) : null}
+      </span>
+      <span className="row-side">
+        {opening ? (
+          <span className="row-loading">
+            <span className="spin" />
+            Opening
+          </span>
+        ) : (
+          <>
+            {draftsCount > 0 ? (
+              <span className="pill pill-neutral">
+                {draftsCount} {draftsCount === 1 ? "draft" : "drafts"}
+              </span>
+            ) : null}
+            <ChevronRight aria-hidden className="muted" size={15} />
+          </>
+        )}
+      </span>
+    </Link>
+  );
+}
+
+function shouldHandleClientNavigation(event: MouseEvent<HTMLAnchorElement>): boolean {
+  return (
+    !event.defaultPrevented &&
+    event.button === 0 &&
+    !event.metaKey &&
+    !event.altKey &&
+    !event.ctrlKey &&
+    !event.shiftKey
   );
 }
 

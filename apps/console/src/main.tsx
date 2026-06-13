@@ -1,4 +1,4 @@
-import { StrictMode } from "react";
+import { StrictMode, Suspense, lazy } from "react";
 import { createRoot } from "react-dom/client";
 import { BrowserRouter, Navigate, Route, Routes, useParams } from "react-router";
 
@@ -7,11 +7,20 @@ import "./styles.css";
 import { LoadingScreen } from "@/components/loading-screen";
 import { useMe } from "@/lib/me";
 import { MeProvider } from "@/lib/me";
+import { normalizeEditKind, normalizeSection } from "@/lib/route-normalizers";
 import { ConsoleScreen } from "@/screens/console-screen";
-import { DraftScreen, normalizeEditKind } from "@/screens/draft-screen";
 import { LoginScreen } from "@/screens/login-screen";
 import { NotFound } from "@/screens/not-found";
-import { WorkspaceScreen, normalizeSection } from "@/screens/workspace-screen";
+
+const DraftScreen = lazy(async () => {
+  const screen = await import("@/screens/draft-screen");
+  return { default: screen.DraftScreen };
+});
+
+const WorkspaceScreen = lazy(async () => {
+  const screen = await import("@/screens/workspace-screen");
+  return { default: screen.WorkspaceScreen };
+});
 
 function RequireAuth({ children }: { children: React.ReactNode }) {
   const { me, error, loading } = useMe();
@@ -86,61 +95,60 @@ function decodeEntityPath(splat: string): string {
 function App() {
   return (
     <MeProvider>
-      <Routes>
-        <Route element={<Navigate replace to="/app" />} path="/" />
-        <Route element={<LoginScreen />} path="/login" />
-        <Route
-          element={
-            <RequireAuth>
-              <Routes>
-                <Route element={<ConsoleScreen screen="repositories" />} path="/" />
-                <Route element={<ConsoleScreen screen="activity" />} path="activity" />
-                <Route element={<ConsoleScreen screen="drafts" />} path="drafts" />
-                <Route element={<ConsoleScreen screen="workspaces" />} path="workspaces" />
-                <Route
-                  element={<WorkspaceScreenRoute />}
-                  path="workspaces/:workspaceId"
-                />
-                <Route
-                  element={<WorkspaceEntityRoute />}
-                  path="workspaces/:workspaceId/tree/*"
-                />
-                <Route
-                  element={<DraftRoute />}
-                  path="workspaces/:workspaceId/drafts/:draftId"
-                />
-                <Route
-                  element={<DraftRoute screen="changes" />}
-                  path="workspaces/:workspaceId/drafts/:draftId/changes"
-                />
-                <Route
-                  element={<DraftRoute screen="validate" />}
-                  path="workspaces/:workspaceId/drafts/:draftId/validate"
-                />
-                <Route
-                  element={<DraftRoute screen="publish" />}
-                  path="workspaces/:workspaceId/drafts/:draftId/publish"
-                />
-                <Route
-                  element={<DraftEditKindRoute />}
-                  path="workspaces/:workspaceId/drafts/:draftId/edit/:kind"
-                />
-                <Route
-                  element={<DraftEntityRoute />}
-                  path="workspaces/:workspaceId/drafts/:draftId/tree/*"
-                />
-                <Route
-                  element={<WorkspaceSectionRoute />}
-                  path="workspaces/:workspaceId/:section"
-                />
-                <Route element={<NotFound />} path="*" />
-              </Routes>
-            </RequireAuth>
-          }
-          path="/app/*"
-        />
-        <Route element={<NotFound />} path="*" />
-      </Routes>
+      <Suspense fallback={<LoadingScreen />}>
+        <Routes>
+          <Route element={<Navigate replace to="/app" />} path="/" />
+          <Route element={<LoginScreen />} path="/login" />
+          <Route
+            element={
+              <RequireAuth>
+                <Routes>
+                  <Route element={<ConsoleScreen screen="repositories" />} path="/" />
+                  <Route element={<ConsoleScreen screen="activity" />} path="activity" />
+                  <Route element={<ConsoleScreen screen="drafts" />} path="drafts" />
+                  <Route element={<ConsoleScreen screen="workspaces" />} path="workspaces" />
+                  <Route element={<WorkspaceScreenRoute />} path="workspaces/:workspaceId" />
+                  <Route
+                    element={<WorkspaceEntityRoute />}
+                    path="workspaces/:workspaceId/tree/*"
+                  />
+                  <Route
+                    element={<DraftRoute />}
+                    path="workspaces/:workspaceId/drafts/:draftId"
+                  />
+                  <Route
+                    element={<DraftRoute screen="changes" />}
+                    path="workspaces/:workspaceId/drafts/:draftId/changes"
+                  />
+                  <Route
+                    element={<DraftRoute screen="validate" />}
+                    path="workspaces/:workspaceId/drafts/:draftId/validate"
+                  />
+                  <Route
+                    element={<DraftRoute screen="publish" />}
+                    path="workspaces/:workspaceId/drafts/:draftId/publish"
+                  />
+                  <Route
+                    element={<DraftEditKindRoute />}
+                    path="workspaces/:workspaceId/drafts/:draftId/edit/:kind"
+                  />
+                  <Route
+                    element={<DraftEntityRoute />}
+                    path="workspaces/:workspaceId/drafts/:draftId/tree/*"
+                  />
+                  <Route
+                    element={<WorkspaceSectionRoute />}
+                    path="workspaces/:workspaceId/:section"
+                  />
+                  <Route element={<NotFound />} path="*" />
+                </Routes>
+              </RequireAuth>
+            }
+            path="/app/*"
+          />
+          <Route element={<NotFound />} path="*" />
+        </Routes>
+      </Suspense>
     </MeProvider>
   );
 }
