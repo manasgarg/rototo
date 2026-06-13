@@ -140,6 +140,25 @@ directory is supplied. `--docs-base-url` controls the public docs host used for
 internal links in generated package READMEs and defaults to
 `https://docs.rototo.dev`.
 
+## `rototo console`
+
+```sh
+rototo console
+rototo console --bind <ADDR> [--public-url <URL>] [--data-dir <DIR>]
+rototo console --read-only --workspace <WORKSPACE_SOURCE>
+```
+
+Use `console` to serve the rototo web console and its JSON API from this
+binary. With no configuration it runs in local mode on
+`http://127.0.0.1:7686`: no sign-in, using your ambient GitHub token
+(`--workspace-token` / `ROTOTO_WORKSPACE_TOKEN`, a stored device-flow sign-in,
+or `gh auth token`). Setting `GITHUB_CLIENT_ID` and `GITHUB_CLIENT_SECRET`
+switches it to team mode with GitHub OAuth sign-in;
+`ROTOTO_CONSOLE_TOKEN_ENCRYPTION_KEY` is then required so stored tokens are
+encrypted at rest. `--read-only` serves one workspace without auth and rejects
+every write. See [Self-Hosting the Console](self-hosting-console.md) for
+deployment shapes.
+
 ## `rototo lsp`
 
 ```sh

@@ -167,7 +167,13 @@ fn exports_bundled_docs_as_static_site() {
         .success()
         .stdout(predicate::str::contains("exported documentation to"));
 
-    let index = fs::read_to_string(site.join("index.html")).unwrap();
+    let homepage = fs::read_to_string(site.join("index.html")).unwrap();
+    assert!(homepage.contains("<!doctype html>"));
+    assert!(homepage.contains("Runtime configuration, reviewed like code."));
+    assert!(homepage.contains(r#"<a class="primary" href="docs/getting-started.html">"#));
+    assert!(homepage.contains(r#"href="docs/self-hosting-console.html""#));
+
+    let index = fs::read_to_string(site.join("docs/index.html")).unwrap();
     assert!(index.contains("<!doctype html>"));
     assert!(index.contains("rototo is a control plane for runtime configuration"));
     assert!(index.contains(r#"<header class="topbar">"#));
@@ -176,54 +182,62 @@ fn exports_bundled_docs_as_static_site() {
             r#"<img class="brand-wordmark" src="assets/rototo-wordmark.svg" alt="rototo">"#
         )
     );
+    assert!(index.contains(r#"<a href="../index.html">Home</a>"#));
     assert!(index.contains(r#"<aside class="tree sidenav" aria-label="Documentation">"#));
     assert!(index.contains(r#"<aside class="toc" aria-label="On this page">"#));
     assert!(index.contains(r#"<h2 id="why-rototo-exists">Why rototo exists</h2>"#));
     assert!(index.contains(r#"<nav class="page-nav" aria-label="Page">"#));
-    assert!(site.join("getting-started.html").is_file());
-    assert!(site.join("operational-switches.html").is_file());
-    assert!(site.join("incident-banner.html").is_file());
-    assert!(site.join("onboarding-checklist.html").is_file());
-    assert!(site.join("bucketed-rollout.html").is_file());
-    assert!(site.join("notification-delivery-policy.html").is_file());
-    assert!(site.join("service-degradation-policy.html").is_file());
-    assert!(site.join("workspace-layering.html").is_file());
-    assert!(site.join("reference-workspace-manifest.html").is_file());
-    assert!(site.join("reference-workspace-layout.html").is_file());
-    assert!(site.join("reference-workspace-sources.html").is_file());
-    assert!(site.join("reference-workspace-layering.html").is_file());
-    assert!(site.join("reference-context.html").is_file());
-    assert!(site.join("reference-qualifiers.html").is_file());
-    assert!(site.join("reference-predicate-operators.html").is_file());
-    assert!(site.join("reference-variables.html").is_file());
-    assert!(site.join("reference-variable-values.html").is_file());
-    assert!(site.join("reference-resources.html").is_file());
-    assert!(site.join("reference-qualifier-resolution.html").is_file());
-    assert!(site.join("reference-variable-resolution.html").is_file());
-    assert!(site.join("reference-resolution-output.html").is_file());
-    assert!(site.join("reference-cli-overview.html").is_file());
-    assert!(site.join("reference-cli-commands.html").is_file());
-    assert!(site.join("reference-sdk-loading.html").is_file());
-    assert!(site.join("reference-sdk-resolution.html").is_file());
-    assert!(site.join("reference-sdk-refresh.html").is_file());
-    assert!(site.join("reference-sdk-rust.html").is_file());
-    assert!(site.join("reference-sdk-python.html").is_file());
-    assert!(site.join("reference-sdk-typescript.html").is_file());
-    assert!(site.join("reference-sdk-java.html").is_file());
-    assert!(site.join("reference-sdk-go.html").is_file());
-    assert!(site.join("reference-lint-overview.html").is_file());
-    assert!(site.join("reference-diagnostics.html").is_file());
-    assert!(site.join("reference-custom-lua-lint.html").is_file());
-    assert!(site.join("reference-json-output.html").is_file());
-    assert!(site.join("modeling-runtime-configuration.html").is_file());
-    assert!(site.join("application-integration.html").is_file());
-    assert!(site.join("testing-runtime-configuration.html").is_file());
-    assert!(site.join("operating-runtime-configuration.html").is_file());
-    assert!(site.join("production-workflow.html").is_file());
+
+    let redirects = fs::read_to_string(site.join("_redirects")).unwrap();
+    assert!(redirects.contains("/getting-started.html /docs/getting-started.html 301"));
+    assert!(!redirects.contains("/index.html /docs/index.html"));
+    assert!(site.join("docs/getting-started.html").is_file());
+    assert!(site.join("docs/operational-switches.html").is_file());
+    assert!(site.join("docs/incident-banner.html").is_file());
+    assert!(site.join("docs/onboarding-checklist.html").is_file());
+    assert!(site.join("docs/bucketed-rollout.html").is_file());
+    assert!(site.join("docs/notification-delivery-policy.html").is_file());
+    assert!(site.join("docs/service-degradation-policy.html").is_file());
+    assert!(site.join("docs/workspace-layering.html").is_file());
+    assert!(site.join("docs/reference-workspace-manifest.html").is_file());
+    assert!(site.join("docs/reference-workspace-layout.html").is_file());
+    assert!(site.join("docs/reference-workspace-sources.html").is_file());
+    assert!(site.join("docs/reference-workspace-layering.html").is_file());
+    assert!(site.join("docs/reference-context.html").is_file());
+    assert!(site.join("docs/reference-qualifiers.html").is_file());
+    assert!(site.join("docs/reference-predicate-operators.html").is_file());
+    assert!(site.join("docs/reference-variables.html").is_file());
+    assert!(site.join("docs/reference-variable-values.html").is_file());
+    assert!(site.join("docs/reference-resources.html").is_file());
+    assert!(site.join("docs/reference-qualifier-resolution.html").is_file());
+    assert!(site.join("docs/reference-variable-resolution.html").is_file());
+    assert!(site.join("docs/reference-resolution-output.html").is_file());
+    assert!(site.join("docs/reference-cli-overview.html").is_file());
+    assert!(site.join("docs/reference-cli-commands.html").is_file());
+    assert!(site.join("docs/reference-sdk-loading.html").is_file());
+    assert!(site.join("docs/reference-sdk-resolution.html").is_file());
+    assert!(site.join("docs/reference-sdk-refresh.html").is_file());
+    assert!(site.join("docs/reference-sdk-rust.html").is_file());
+    assert!(site.join("docs/reference-sdk-python.html").is_file());
+    assert!(site.join("docs/reference-sdk-typescript.html").is_file());
+    assert!(site.join("docs/reference-sdk-java.html").is_file());
+    assert!(site.join("docs/reference-sdk-go.html").is_file());
+    assert!(site.join("docs/reference-lint-overview.html").is_file());
+    assert!(site.join("docs/reference-diagnostics.html").is_file());
+    assert!(site.join("docs/reference-custom-lua-lint.html").is_file());
+    assert!(site.join("docs/reference-json-output.html").is_file());
+    assert!(site.join("docs/modeling-runtime-configuration.html").is_file());
+    assert!(site.join("docs/application-integration.html").is_file());
+    assert!(site.join("docs/testing-runtime-configuration.html").is_file());
+    assert!(site.join("docs/operating-runtime-configuration.html").is_file());
+    assert!(site.join("docs/production-workflow.html").is_file());
+    assert!(site.join("docs/self-hosting-console.html").is_file());
     assert!(site.join("assets/rototo-docs.css").is_file());
     assert!(site.join("assets/favicon.svg").is_file());
-    assert!(site.join("assets/rototo-mark.svg").is_file());
-    assert!(site.join("assets/rototo-wordmark.svg").is_file());
+    assert!(site.join("docs/assets/rototo-docs.css").is_file());
+    assert!(site.join("docs/assets/favicon.svg").is_file());
+    assert!(site.join("docs/assets/rototo-mark.svg").is_file());
+    assert!(site.join("docs/assets/rototo-wordmark.svg").is_file());
 
     let css = fs::read_to_string(site.join("assets/rototo-docs.css")).unwrap();
     assert!(css.contains("text-size-adjust: 100%"));
@@ -247,7 +261,7 @@ fn exports_bundled_docs_as_static_site() {
     assert!(!css.contains("--clay-500"));
     assert!(!css.contains(".doc pre.language-text"));
 
-    let app_page = fs::read_to_string(site.join("application-integration.html")).unwrap();
+    let app_page = fs::read_to_string(site.join("docs/application-integration.html")).unwrap();
     assert!(app_page.contains(r#"<pre class="code-block language-rust sdk-snippet""#));
     assert!(app_page.contains(r#"<pre class="code-block language-python sdk-snippet""#));
     assert!(app_page.contains(r#"<pre class="code-block language-typescript sdk-snippet""#));
@@ -261,7 +275,7 @@ fn exports_bundled_docs_as_static_site() {
     assert!(app_page.contains("ROTOTO_WORKSPACE_SOURCE"));
     assert!(!app_page.contains(r#"<span class="sx-"#));
 
-    let getting_started_page = fs::read_to_string(site.join("getting-started.html")).unwrap();
+    let getting_started_page = fs::read_to_string(site.join("docs/getting-started.html")).unwrap();
     assert!(getting_started_page.contains(
         r#"<pre class="code-block language-sh"><code class="language-bash">cargo install rototo"#
     ));
@@ -278,7 +292,7 @@ fn exports_bundled_docs_as_static_site() {
     assert!(favicon.contains("#006252"));
     assert!(!favicon.contains("#008572"));
 
-    let sdk_page = fs::read_to_string(site.join("reference-sdk-resolution.html")).unwrap();
+    let sdk_page = fs::read_to_string(site.join("docs/reference-sdk-resolution.html")).unwrap();
     assert!(sdk_page.contains("https://unpkg.com/@highlightjs/cdn-assets@11.9.0/highlight.min.js"));
     assert!(
         sdk_page.contains("https://unpkg.com/@highlightjs/cdn-assets@11.9.0/languages/bash.min.js")
