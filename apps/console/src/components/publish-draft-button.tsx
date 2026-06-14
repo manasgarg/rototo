@@ -7,15 +7,18 @@ export function PublishDraftButton({
     workspaceId,
     draftId,
     disabled,
+    writeKind = "pullRequest",
 }: {
     workspaceId: string;
     draftId: string;
     disabled?: boolean;
+    writeKind?: "disabled" | "pullRequest" | "directPush";
 }) {
     const router = useRouter();
     const [pending, setPending] = useState(false);
     const [message, setMessage] = useState<string | null>(null);
     const [pullRequestUrl, setPullRequestUrl] = useState<string | null>(null);
+    const [directPublished, setDirectPublished] = useState(false);
 
     if (pullRequestUrl) {
         return (
@@ -35,6 +38,15 @@ export function PublishDraftButton({
             </div>
         );
     }
+    if (directPublished) {
+        return (
+            <div className="applied-row">
+                <p className="form-note" data-tone="ok">
+                    Published by direct push.
+                </p>
+            </div>
+        );
+    }
 
     async function publish() {
         setPending(true);
@@ -48,12 +60,17 @@ export function PublishDraftButton({
             );
             const body = (await response.json()) as {
                 pullRequest?: { html_url: string };
+                directPush?: unknown;
                 error?: string;
             };
-            if (!response.ok || !body.pullRequest) {
+            if (!response.ok || (!body.pullRequest && !body.directPush)) {
                 throw new Error(body.error ?? "failed to publish draft");
             }
-            setPullRequestUrl(body.pullRequest.html_url);
+            if (body.pullRequest) {
+                setPullRequestUrl(body.pullRequest.html_url);
+            } else {
+                setDirectPublished(true);
+            }
             router.refresh();
         } catch (error) {
             setMessage(error instanceof Error ? error.message : String(error));
@@ -75,7 +92,11 @@ export function PublishDraftButton({
                 ) : (
                     <GitPullRequest aria-hidden size={15} />
                 )}
-                {pending ? "Publishing" : "Publish as pull request"}
+                {pending
+                    ? "Publishing"
+                    : writeKind === "directPush"
+                      ? "Publish by direct push"
+                      : "Publish as pull request"}
             </button>
             {message ? (
                 <p className="form-note" data-tone="err">

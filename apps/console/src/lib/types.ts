@@ -1,26 +1,72 @@
 /* Wire types for the rototo console API. The Rust server is the source of
    truth (src/console/); these mirror its serde camelCase output. */
 
-export type ConsoleMode = "local" | "team" | "read-only";
+export type ConsoleDeployment = "local" | "hosted";
+export type ConsoleWritePolicy = "disabled" | "pull-request" | "direct-push";
+export type GitHubTokenSource =
+    | "flag"
+    | "environment"
+    | "device-flow"
+    | "gh-cli"
+    | "oauth-session";
+
+export type ActorIdentity =
+    | {
+          kind: "gitConfig";
+          name: string | null;
+          email: string | null;
+      }
+    | {
+          kind: "gitHub";
+          id: string;
+          login: string;
+          name: string | null;
+          avatarUrl: string | null;
+      };
 
 export type MeResponse = {
-    mode: ConsoleMode;
+    deployment: ConsoleDeployment;
+    writePolicy: ConsoleWritePolicy;
     deviceFlow: boolean;
-    tokenSource: "flag" | "environment" | "device-flow" | "gh-cli" | null;
+    tokenSource: GitHubTokenSource | null;
     authError: string | null;
     user: SessionUser | null;
 };
 
 export type SessionUser = {
-    githubUserId: string;
-    githubLogin: string;
-    githubName: string | null;
-    githubAvatarUrl: string | null;
+    principalId: string;
+    identity: ActorIdentity;
+    displayName: string;
+    avatarUrl: string | null;
+    hasGithubToken: boolean;
+};
+
+export type WorkspaceSourceKind =
+    | "localPath"
+    | "fileUrl"
+    | "gitFile"
+    | "gitHubArchive"
+    | "gitHubGit"
+    | "httpsArchive"
+    | "genericGitRemote";
+
+export type WorkspaceCapability =
+    | { status: "allowed" }
+    | { status: "missingCredential"; reason: string };
+
+export type WorkspaceWriteCapability =
+    | { kind: "disabled"; reason: string }
+    | { kind: "pullRequest"; backend: "gitHubApi" | "localGit" }
+    | { kind: "directPush"; backend: "gitHubApi" | "localGit" };
+
+export type WorkspaceCapabilities = {
+    read: WorkspaceCapability;
+    write: WorkspaceWriteCapability;
 };
 
 export type RepoRecord = {
     id: string;
-    githubUserId: string;
+    principalId: string;
     owner: string;
     name: string;
     defaultRef: string;
@@ -48,7 +94,7 @@ export type WorkspaceRecord = {
 export type DraftSessionRecord = {
     id: string;
     workspaceId: string;
-    githubUserId: string;
+    principalId: string;
     branch: string;
     baseRef: string;
     status: "open" | "published" | "abandoned";
@@ -404,6 +450,8 @@ export type WorkspaceData = {
     inventoryError: string | null;
     lint: WorkspaceLintLoad;
     model: WorkspaceSemanticModel | null;
+    sourceKind: WorkspaceSourceKind;
+    capabilities: WorkspaceCapabilities;
 };
 
 export type WorkspaceEntityData = {
@@ -424,6 +472,8 @@ export type DraftData = {
     entities: EditableEntity[];
     editLoadError: string | null;
     editedPaths: string[];
+    sourceKind: WorkspaceSourceKind;
+    capabilities: WorkspaceCapabilities;
 };
 
 export type DraftEntityData = {

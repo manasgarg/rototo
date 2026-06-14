@@ -181,11 +181,13 @@ and publishing pull requests:
 rototo console
 ```
 
-It starts on `http://127.0.0.1:7686` with no sign-in, using your ambient
-GitHub token (`ROTOTO_WORKSPACE_TOKEN` or `gh auth token`). Team deployments
-configure GitHub OAuth; demo deployments run `--read-only` against one
-workspace source. See the self-hosting guide in the docs for all three
-shapes.
+It starts on `http://127.0.0.1:7686` with no sign-in. Local workspaces can be
+read from disk, and GitHub workspaces use your ambient GitHub token
+(`ROTOTO_WORKSPACE_TOKEN` or `gh auth token`) when a credential is needed.
+Hosted deployments configure GitHub OAuth. Fixed-source deployments use
+`--workspace <source>` and choose writes with
+`--write disabled|pull-request|direct-push`. See the self-hosting guide for
+the deployment and write-policy shapes.
 
 ## Documentation
 

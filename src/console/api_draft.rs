@@ -1,3 +1,4 @@
+use std::collections::BTreeSet;
 use std::time::Duration;
 
 use axum::Json;
@@ -9,19 +10,25 @@ use serde_json::{Value as JsonValue, json};
 
 use crate::error::Result;
 
-use super::api::{ApiError, ApiResult, ConsoleState, SharedState, require_user};
+use super::api::{
+    ApiError, ApiResult, ConsoleState, SharedState, require_github_token, require_user,
+    source_token,
+};
 use super::api_workspace::{
     EntityQuery, lint_error_json, lint_json, load_saved_contexts, load_workspace,
+    workspace_capabilities_json,
 };
+use super::capabilities::{WorkspaceSourceKind, WritePolicy, classify_workspace_source};
 use super::github::workspace_repo_path;
 use super::inventory::{
     WorkspaceInventory, inspect_workspace_inventory, language_for_path, read_workspace_definition,
     workspace_local_path,
 };
+use super::local_git;
 use super::resolve_preview::edit_context_previews;
 use super::store::{
-    DraftChangeInput, DraftEventInput, DraftSessionRecord, DraftStatus, NewDraftSession,
-    PullRequestStateInput, SessionUser, WorkspaceRecord,
+    DraftChangeInput, DraftChangeRecord, DraftEventInput, DraftEventRecord, DraftSessionRecord,
+    DraftStatus, NewDraftSession, PullRequestStateInput, SessionUser, WorkspaceRecord,
 };
 use super::variable_toml::update_primitive_variable_default;
 use super::workspace_edit::{
@@ -84,6 +91,59 @@ struct DraftContext {
     draft: DraftSessionRecord,
 }
 
+enum DraftBackend<'a> {
+    GitHub { token: &'a str, direct: bool },
+    LocalGit,
+}
+
+fn draft_backend<'a>(
+    state: &ConsoleState,
+    user: &'a SessionUser,
+    workspace: &WorkspaceRecord,
+    action: &str,
+) -> ApiResult<DraftBackend<'a>> {
+    let kind = classify_workspace_source(&workspace.source);
+    match state.write_policy {
+        WritePolicy::Disabled => Err(ApiError::bad_request(format!(
+            "{action} is disabled for this console"
+        ))),
+        WritePolicy::PullRequest => match kind {
+            WorkspaceSourceKind::GitHubArchive | WorkspaceSourceKind::GitHubGit => {
+                let token = require_github_token(user, action)?;
+                Ok(DraftBackend::GitHub {
+                    token,
+                    direct: false,
+                })
+            }
+            _ => Err(ApiError::bad_request(
+                "pull-request writes are only implemented for GitHub workspaces",
+            )),
+        },
+        WritePolicy::DirectPush => match kind {
+            WorkspaceSourceKind::LocalPath | WorkspaceSourceKind::FileUrl => {
+                Ok(DraftBackend::LocalGit)
+            }
+            WorkspaceSourceKind::GitHubArchive | WorkspaceSourceKind::GitHubGit => {
+                let token = require_github_token(user, action)?;
+                Ok(DraftBackend::GitHub {
+                    token,
+                    direct: true,
+                })
+            }
+            _ => Err(ApiError::bad_request(
+                "direct-push writes are not implemented for this workspace source",
+            )),
+        },
+    }
+}
+
+fn context_is_github_workspace(workspace: &WorkspaceRecord) -> bool {
+    matches!(
+        classify_workspace_source(&workspace.source),
+        WorkspaceSourceKind::GitHubArchive | WorkspaceSourceKind::GitHubGit
+    )
+}
+
 async fn load_draft(
     state: &ConsoleState,
     headers: &HeaderMap,
@@ -95,7 +155,7 @@ async fn load_draft(
     let workspace = load_workspace(state, &user, workspace_id).await?;
     let draft = state
         .store
-        .get_draft_session_for_user(draft_id, &workspace.id, &user.github_user_id)
+        .get_draft_session_for_user(draft_id, &workspace.id, &user.principal_id)
         .await?
         .ok_or_else(|| ApiError::not_found("draft not found"))?;
     if require_open && draft.status != DraftStatus::Open {
@@ -140,82 +200,135 @@ async fn draft_create(
         .filter(|branch| !branch.is_empty());
 
     let base_ref = workspace.git_ref.clone();
-    if requested_branch.as_deref() == Some(base_ref.as_str()) {
-        return Err(ApiError::bad_request(format!(
-            "Editing {base_ref} directly would skip review. Pick another branch, or start a new draft."
-        )));
-    }
-    if let Some(branch) = &requested_branch {
+    let backend = draft_backend(&state, &user, &workspace, "Starting a draft")?;
+    let target_branch = match backend {
+        DraftBackend::LocalGit => {
+            let branch = local_git::current_branch(&workspace.source)
+                .await
+                .map_err(|err| ApiError::bad_request(err.to_string()))?;
+            if let Some(requested) = requested_branch.as_deref()
+                && requested != branch
+            {
+                return Err(ApiError::bad_request(format!(
+                    "local workspace is on branch {branch}, not {requested}"
+                )));
+            }
+            branch
+        }
+        DraftBackend::GitHub { direct: true, .. } => {
+            if let Some(requested) = requested_branch.as_deref()
+                && requested != base_ref
+            {
+                return Err(ApiError::bad_request(format!(
+                    "direct-push drafts write to configured ref {base_ref}, not {requested}"
+                )));
+            }
+            base_ref.clone()
+        }
+        DraftBackend::GitHub { direct: false, .. } => {
+            if requested_branch.as_deref() == Some(base_ref.as_str()) {
+                return Err(ApiError::bad_request(format!(
+                    "Editing {base_ref} directly would skip review. Pick another branch, or start a new draft."
+                )));
+            }
+            requested_branch.clone().unwrap_or_default()
+        }
+    };
+    if !target_branch.is_empty() {
         let existing = state
             .store
-            .list_draft_sessions_for_workspace(&workspace.id, &user.github_user_id)
+            .list_draft_sessions_for_workspace(&workspace.id, &user.principal_id)
             .await?
             .into_iter()
-            .find(|draft| draft.branch == *branch && draft.status == DraftStatus::Open);
+            .find(|draft| draft.branch == target_branch && draft.status == DraftStatus::Open);
         if let Some(existing) = existing {
             return Ok(Json(json!({ "draft": existing })));
         }
     }
 
-    state
-        .github
-        .assert_repo_write_access(&user.github_token, &workspace.owner, &workspace.name)
-        .await
-        .map_err(|err| ApiError::github(&err, "Starting a draft"))?;
-
-    let draft = if let Some(branch) = requested_branch {
-        // Confirms the branch exists; surfaces a not-found error otherwise.
-        state
-            .github
-            .branch_head_sha(
-                &user.github_token,
-                &workspace.owner,
-                &workspace.name,
-                &branch,
-            )
-            .await
-            .map_err(|err| ApiError::github(&err, "Starting a draft"))?;
-        state
-            .store
-            .create_draft_session(NewDraftSession {
-                workspace_id: workspace.id.clone(),
-                github_user_id: user.github_user_id.clone(),
-                branch,
-                base_ref,
-            })
-            .await?
-    } else {
-        let base_sha = state
-            .github
-            .branch_head_sha(
-                &user.github_token,
-                &workspace.owner,
-                &workspace.name,
-                &base_ref,
-            )
-            .await
-            .map_err(|err| ApiError::github(&err, "Starting a draft"))?;
-        let branch = draft_branch_name(&user.github_login, &workspace);
-        state
-            .github
-            .create_branch(
-                &user.github_token,
-                &workspace.owner,
-                &workspace.name,
-                &branch,
-                &base_sha,
-            )
-            .await
-            .map_err(|err| ApiError::github(&err, "Starting a draft"))?;
-        state
-            .store
-            .create_draft_session(NewDraftSession {
-                workspace_id: workspace.id.clone(),
-                github_user_id: user.github_user_id.clone(),
-                branch,
-                base_ref,
-            })
-            .await?
+    let draft = match backend {
+        DraftBackend::LocalGit => {
+            state
+                .store
+                .create_draft_session(NewDraftSession {
+                    workspace_id: workspace.id.clone(),
+                    principal_id: user.principal_id.clone(),
+                    branch: target_branch,
+                    base_ref,
+                })
+                .await?
+        }
+        DraftBackend::GitHub {
+            token,
+            direct: true,
+        } => {
+            state
+                .github
+                .assert_repo_write_access(token, &workspace.owner, &workspace.name)
+                .await
+                .map_err(|err| ApiError::github(&err, "Starting a draft"))?;
+            state
+                .github
+                .branch_head_sha(token, &workspace.owner, &workspace.name, &base_ref)
+                .await
+                .map_err(|err| ApiError::github(&err, "Starting a draft"))?;
+            state
+                .store
+                .create_draft_session(NewDraftSession {
+                    workspace_id: workspace.id.clone(),
+                    principal_id: user.principal_id.clone(),
+                    branch: target_branch,
+                    base_ref,
+                })
+                .await?
+        }
+        DraftBackend::GitHub {
+            token,
+            direct: false,
+        } => {
+            state
+                .github
+                .assert_repo_write_access(token, &workspace.owner, &workspace.name)
+                .await
+                .map_err(|err| ApiError::github(&err, "Starting a draft"))?;
+            if let Some(branch) = requested_branch {
+                state
+                    .github
+                    .branch_head_sha(token, &workspace.owner, &workspace.name, &branch)
+                    .await
+                    .map_err(|err| ApiError::github(&err, "Starting a draft"))?;
+                state
+                    .store
+                    .create_draft_session(NewDraftSession {
+                        workspace_id: workspace.id.clone(),
+                        principal_id: user.principal_id.clone(),
+                        branch,
+                        base_ref,
+                    })
+                    .await?
+            } else {
+                let base_sha = state
+                    .github
+                    .branch_head_sha(token, &workspace.owner, &workspace.name, &base_ref)
+                    .await
+                    .map_err(|err| ApiError::github(&err, "Starting a draft"))?;
+                let branch = draft_branch_name(&user.identity.display_login(), &workspace);
+                state
+                    .github
+                    .create_branch(token, &workspace.owner, &workspace.name, &branch, &base_sha)
+                    .await
+                    .map_err(|err| ApiError::github(&err, "Starting a draft"))?;
+                state
+                    .store
+                    .create_draft_session(NewDraftSession {
+                        workspace_id: workspace.id.clone(),
+                        principal_id: user.principal_id.clone(),
+                        branch,
+                        base_ref,
+                    })
+                    .await?
+            }
+        }
     };
     Ok(Json(json!({ "draft": draft })))
 }
@@ -250,10 +363,24 @@ async fn draft_rename(
     if branch == context.draft.branch {
         return Ok(Json(json!({ "draft": context.draft })));
     }
+    let DraftBackend::GitHub {
+        token,
+        direct: false,
+    } = draft_backend(
+        &state,
+        &context.user,
+        &context.workspace,
+        "Renaming the draft branch",
+    )?
+    else {
+        return Err(ApiError::bad_request(
+            "branch rename only applies to GitHub pull-request drafts",
+        ));
+    };
     let renamed = state
         .github
         .rename_branch(
-            &context.user.github_token,
+            token,
             &context.workspace.owner,
             &context.workspace.name,
             &context.draft.branch,
@@ -274,6 +401,20 @@ async fn draft_sync_pr(
     Path((workspace_id, draft_id)): Path<(String, String)>,
 ) -> ApiResult<Json<JsonValue>> {
     let context = load_draft(&state, &headers, &workspace_id, &draft_id, false).await?;
+    let DraftBackend::GitHub {
+        token: _,
+        direct: false,
+    } = draft_backend(
+        &state,
+        &context.user,
+        &context.workspace,
+        "Syncing the pull request",
+    )?
+    else {
+        return Err(ApiError::bad_request(
+            "pull request sync only applies to GitHub pull-request drafts",
+        ));
+    };
     let Some(pr_number) = context
         .draft
         .pr_number
@@ -300,14 +441,13 @@ async fn sync_pull_request(
     draft: &DraftSessionRecord,
     pr_number: i64,
 ) -> std::result::Result<DraftSessionRecord, String> {
+    let token = user
+        .github_token
+        .as_deref()
+        .ok_or_else(|| "Syncing the pull request requires a GitHub credential".to_owned())?;
     let pr = state
         .github
-        .pull_request(
-            &user.github_token,
-            &workspace.owner,
-            &workspace.name,
-            pr_number,
-        )
+        .pull_request(token, &workspace.owner, &workspace.name, pr_number)
         .await
         .map_err(|err| super::github::github_error_message(&err, "Syncing the pull request"))?;
     state
@@ -323,6 +463,35 @@ async fn sync_pull_request(
         .map_err(|err| err.to_string())
 }
 
+fn tracked_draft_paths(
+    changes: &[DraftChangeRecord],
+    events: &[DraftEventRecord],
+) -> BTreeSet<String> {
+    let mut paths: BTreeSet<String> = changes
+        .iter()
+        .map(|change| change.file_path.clone())
+        .collect();
+    for event in events {
+        if let Some(detail) = event
+            .detail_json
+            .as_deref()
+            .and_then(|detail| serde_json::from_str::<JsonValue>(detail).ok())
+        {
+            if let Some(file_path) = detail.get("filePath").and_then(JsonValue::as_str) {
+                paths.insert(file_path.to_owned());
+            }
+            if let Some(files) = detail.get("files").and_then(JsonValue::as_array) {
+                for file in files {
+                    if let Some(file) = file.as_str() {
+                        paths.insert(file.to_owned());
+                    }
+                }
+            }
+        }
+    }
+    paths
+}
+
 async fn draft_publish(
     State(state): State<SharedState>,
     headers: HeaderMap,
@@ -330,14 +499,16 @@ async fn draft_publish(
 ) -> ApiResult<Json<JsonValue>> {
     let context = load_draft(&state, &headers, &workspace_id, &draft_id, true).await?;
     let changes = state.store.list_draft_changes(&context.draft.id).await?;
-    if changes.is_empty() {
+    let events = state.store.list_draft_events(&context.draft.id).await?;
+    let tracked_paths = tracked_draft_paths(&changes, &events);
+    if tracked_paths.is_empty() {
         return Err(ApiError::bad_request("draft has no tracked changes"));
     }
 
     let source = draft_source(&context.workspace, &context.draft);
     let lint = match state
         .stage
-        .inspect(&context.user.github_token, &source)
+        .inspect(source_token(&context.user), &source)
         .await
     {
         Ok(inspected) => inspected
@@ -358,42 +529,104 @@ async fn draft_publish(
     }
     let warnings = lint.diagnostics.len() - errors;
 
-    let pr = state
-        .github
-        .create_pull_request(
-            &context.user.github_token,
-            &context.workspace.owner,
-            &context.workspace.name,
-            &draft_pr_title(&context.workspace),
-            &draft_pr_body(
-                &context.workspace,
-                &context.draft,
-                &changes,
-                errors,
-                warnings,
-            ),
-            &context.draft.branch,
-            &context.draft.base_ref,
-        )
-        .await
-        .map_err(|err| ApiError::github(&err, "Publishing the draft"))?;
-    let pr_state = if pr.merged_at.is_some() {
-        "merged".to_owned()
-    } else {
-        pr.state.clone().unwrap_or_else(|| "open".to_owned())
-    };
-    state
-        .store
-        .mark_draft_published(&context.draft.id, pr.number, &pr_state, &pr.html_url)
-        .await?;
-    Ok(Json(json!({
-        "pullRequest": {
-            "html_url": pr.html_url,
-            "number": pr.number,
-            "state": pr.state,
-            "merged_at": pr.merged_at,
+    match draft_backend(
+        &state,
+        &context.user,
+        &context.workspace,
+        "Publishing the draft",
+    )? {
+        DraftBackend::GitHub {
+            token,
+            direct: false,
+        } => {
+            let pr = state
+                .github
+                .create_pull_request(
+                    token,
+                    &context.workspace.owner,
+                    &context.workspace.name,
+                    &draft_pr_title(&context.workspace),
+                    &draft_pr_body(
+                        &context.workspace,
+                        &context.draft,
+                        &changes,
+                        errors,
+                        warnings,
+                    ),
+                    &context.draft.branch,
+                    &context.draft.base_ref,
+                )
+                .await
+                .map_err(|err| ApiError::github(&err, "Publishing the draft"))?;
+            let pr_state = if pr.merged_at.is_some() {
+                "merged".to_owned()
+            } else {
+                pr.state.clone().unwrap_or_else(|| "open".to_owned())
+            };
+            state
+                .store
+                .mark_draft_published(&context.draft.id, pr.number, &pr_state, &pr.html_url)
+                .await?;
+            Ok(Json(json!({
+                "pullRequest": {
+                    "html_url": pr.html_url,
+                    "number": pr.number,
+                    "state": pr.state,
+                    "merged_at": pr.merged_at,
+                }
+            })))
         }
-    })))
+        DraftBackend::GitHub {
+            token: _,
+            direct: true,
+        } => {
+            let draft = state
+                .store
+                .mark_draft_direct_published(
+                    &context.draft.id,
+                    format!("Direct-pushed {}", context.draft.branch),
+                    json!({
+                        "backend": "githubApi",
+                        "branch": context.draft.branch,
+                    }),
+                )
+                .await?;
+            Ok(Json(json!({
+                "draft": draft,
+                "directPush": { "backend": "githubApi" },
+            })))
+        }
+        DraftBackend::LocalGit => {
+            let paths: Vec<String> = tracked_paths.into_iter().collect();
+            let result = local_git::commit_and_push(
+                &context.workspace,
+                &paths,
+                &draft_pr_title(&context.workspace),
+            )
+            .await
+            .map_err(|err| ApiError::bad_request(err.to_string()))?;
+            let draft = state
+                .store
+                .mark_draft_direct_published(
+                    &context.draft.id,
+                    if result.pushed {
+                        format!("Committed and pushed {}", context.draft.branch)
+                    } else {
+                        format!("Committed {}", context.draft.branch)
+                    },
+                    json!({
+                        "backend": "localGit",
+                        "branch": context.draft.branch,
+                        "commit": result.commit,
+                        "pushed": result.pushed,
+                        "upstream": result.upstream,
+                        "pushError": result.push_error,
+                    }),
+                )
+                .await?;
+            Ok(Json(json!({ "draft": draft, "directPush": result })))
+        }
+    }
 }
 
 async fn draft_abandon(
@@ -448,35 +681,66 @@ async fn draft_variable_save(
         ));
     }
 
-    let file = state
-        .github
-        .file(
-            &context.user.github_token,
-            &context.workspace.owner,
-            &context.workspace.name,
-            &file_path,
-            &context.draft.branch,
-        )
-        .await
-        .map_err(|err| ApiError::github(&err, "Saving the draft change"))?;
-    let update = update_primitive_variable_default(&file.content, &value)
+    let backend = draft_backend(
+        &state,
+        &context.user,
+        &context.workspace,
+        "Saving the draft change",
+    )?;
+    let (current_text, sha) = match backend {
+        DraftBackend::GitHub { token, .. } => {
+            let file = state
+                .github
+                .file(
+                    token,
+                    &context.workspace.owner,
+                    &context.workspace.name,
+                    &file_path,
+                    &context.draft.branch,
+                )
+                .await
+                .map_err(|err| ApiError::github(&err, "Saving the draft change"))?;
+            (file.content, Some(file.sha))
+        }
+        DraftBackend::LocalGit => (
+            local_git::read_file(&context.workspace, &file_path)
+                .await
+                .map_err(|err| ApiError::bad_request(err.to_string()))?,
+            None,
+        ),
+    };
+    let update = update_primitive_variable_default(&current_text, &value)
         .map_err(|err| ApiError::bad_request(err.to_string()))?;
 
     if update.before_literal != update.after_literal {
-        state
-            .github
-            .update_file(
-                &context.user.github_token,
-                &context.workspace.owner,
-                &context.workspace.name,
-                &file_path,
-                &context.draft.branch,
-                &file.sha,
-                &update.text,
-                &format!("Update {variable_id} default value"),
-            )
-            .await
-            .map_err(|err| ApiError::github(&err, "Saving the draft change"))?;
+        match draft_backend(
+            &state,
+            &context.user,
+            &context.workspace,
+            "Saving the draft change",
+        )? {
+            DraftBackend::GitHub { token, .. } => {
+                state
+                    .github
+                    .update_file(
+                        token,
+                        &context.workspace.owner,
+                        &context.workspace.name,
+                        &file_path,
+                        &context.draft.branch,
+                        sha.as_deref().expect("GitHub file reads include a sha"),
+                        &update.text,
+                        &format!("Update {variable_id} default value"),
+                    )
+                    .await
+                    .map_err(|err| ApiError::github(&err, "Saving the draft change"))?;
+            }
+            DraftBackend::LocalGit => {
+                local_git::write_file(&context.workspace, &file_path, &update.text)
+                    .await
+                    .map_err(|err| ApiError::bad_request(err.to_string()))?;
+            }
+        }
         invalidate_draft(&state, &context.workspace, &context.draft).await;
     }
 
@@ -521,32 +785,63 @@ async fn draft_file_save(
         ));
     }
 
-    let file = state
-        .github
-        .file(
-            &context.user.github_token,
-            &context.workspace.owner,
-            &context.workspace.name,
-            &file_path,
-            &context.draft.branch,
-        )
-        .await
-        .map_err(|err| ApiError::github(&err, "Saving the draft file"))?;
-    if file.content != content {
-        state
-            .github
-            .update_file(
-                &context.user.github_token,
-                &context.workspace.owner,
-                &context.workspace.name,
-                &file_path,
-                &context.draft.branch,
-                &file.sha,
-                &content,
-                &format!("Update {file_path}"),
-            )
-            .await
-            .map_err(|err| ApiError::github(&err, "Saving the draft file"))?;
+    let backend = draft_backend(
+        &state,
+        &context.user,
+        &context.workspace,
+        "Saving the draft file",
+    )?;
+    let (current_text, sha) = match backend {
+        DraftBackend::GitHub { token, .. } => {
+            let file = state
+                .github
+                .file(
+                    token,
+                    &context.workspace.owner,
+                    &context.workspace.name,
+                    &file_path,
+                    &context.draft.branch,
+                )
+                .await
+                .map_err(|err| ApiError::github(&err, "Saving the draft file"))?;
+            (file.content, Some(file.sha))
+        }
+        DraftBackend::LocalGit => (
+            local_git::read_file(&context.workspace, &file_path)
+                .await
+                .map_err(|err| ApiError::bad_request(err.to_string()))?,
+            None,
+        ),
+    };
+    if current_text != content {
+        match draft_backend(
+            &state,
+            &context.user,
+            &context.workspace,
+            "Saving the draft file",
+        )? {
+            DraftBackend::GitHub { token, .. } => {
+                state
+                    .github
+                    .update_file(
+                        token,
+                        &context.workspace.owner,
+                        &context.workspace.name,
+                        &file_path,
+                        &context.draft.branch,
+                        sha.as_deref().expect("GitHub file reads include a sha"),
+                        &content,
+                        &format!("Update {file_path}"),
+                    )
+                    .await
+                    .map_err(|err| ApiError::github(&err, "Saving the draft file"))?;
+            }
+            DraftBackend::LocalGit => {
+                local_git::write_file(&context.workspace, &file_path, &content)
+                    .await
+                    .map_err(|err| ApiError::bad_request(err.to_string()))?;
+            }
+        }
         state
             .store
             .record_draft_event(DraftEventInput {
@@ -587,30 +882,44 @@ async fn draft_file_delete(
         ));
     }
 
-    let file = state
-        .github
-        .file(
-            &context.user.github_token,
-            &context.workspace.owner,
-            &context.workspace.name,
-            &file_path,
-            &context.draft.branch,
-        )
-        .await
-        .map_err(|err| ApiError::github(&err, "Deleting the draft file"))?;
-    state
-        .github
-        .delete_file(
-            &context.user.github_token,
-            &context.workspace.owner,
-            &context.workspace.name,
-            &file_path,
-            &context.draft.branch,
-            &file.sha,
-            &format!("Delete {file_path}"),
-        )
-        .await
-        .map_err(|err| ApiError::github(&err, "Deleting the draft file"))?;
+    match draft_backend(
+        &state,
+        &context.user,
+        &context.workspace,
+        "Deleting the draft file",
+    )? {
+        DraftBackend::GitHub { token, .. } => {
+            let file = state
+                .github
+                .file(
+                    token,
+                    &context.workspace.owner,
+                    &context.workspace.name,
+                    &file_path,
+                    &context.draft.branch,
+                )
+                .await
+                .map_err(|err| ApiError::github(&err, "Deleting the draft file"))?;
+            state
+                .github
+                .delete_file(
+                    token,
+                    &context.workspace.owner,
+                    &context.workspace.name,
+                    &file_path,
+                    &context.draft.branch,
+                    &file.sha,
+                    &format!("Delete {file_path}"),
+                )
+                .await
+                .map_err(|err| ApiError::github(&err, "Deleting the draft file"))?;
+        }
+        DraftBackend::LocalGit => {
+            local_git::delete_file(&context.workspace, &file_path)
+                .await
+                .map_err(|err| ApiError::bad_request(err.to_string()))?;
+        }
+    }
     state
         .store
         .record_draft_event(DraftEventInput {
@@ -658,57 +967,101 @@ async fn draft_entity_create(
         &context.workspace.path,
         parse_variable_type(body.variable_type.as_deref()),
     );
-    let tree = state
-        .github
-        .tree(
-            &context.user.github_token,
-            &context.workspace.owner,
-            &context.workspace.name,
-            &context.draft.branch,
-        )
-        .await
-        .map_err(|err| ApiError::github(&err, "Creating the draft entity"))?;
-    let existing: std::collections::HashSet<&str> = tree
-        .iter()
-        .filter(|entry| entry.entry_type == "blob")
-        .map(|entry| entry.path.as_str())
-        .collect();
+    let backend = draft_backend(
+        &state,
+        &context.user,
+        &context.workspace,
+        "Creating the draft entity",
+    )?;
+    let existing: std::collections::HashSet<String> = match backend {
+        DraftBackend::GitHub { token, .. } => state
+            .github
+            .tree(
+                token,
+                &context.workspace.owner,
+                &context.workspace.name,
+                &context.draft.branch,
+            )
+            .await
+            .map_err(|err| ApiError::github(&err, "Creating the draft entity"))?
+            .into_iter()
+            .filter(|entry| entry.entry_type == "blob")
+            .map(|entry| entry.path)
+            .collect(),
+        DraftBackend::LocalGit => {
+            let mut existing = std::collections::HashSet::new();
+            for file in &files {
+                if local_git::file_exists(&context.workspace, &file.path)
+                    .await
+                    .map_err(|err| ApiError::bad_request(err.to_string()))?
+                {
+                    existing.insert(file.path.clone());
+                }
+            }
+            if let Some(catalog_id) = catalog_id.as_deref() {
+                let catalog_path = workspace_repo_path(
+                    &context.workspace.path,
+                    &format!("catalogs/{catalog_id}.toml"),
+                );
+                if local_git::file_exists(&context.workspace, &catalog_path)
+                    .await
+                    .map_err(|err| ApiError::bad_request(err.to_string()))?
+                {
+                    existing.insert(catalog_path);
+                }
+            }
+            existing
+        }
+    };
     if kind == EntityKind::CatalogEntries {
         let catalog_id = catalog_id.as_deref().expect("validated above");
         let catalog_path = workspace_repo_path(
             &context.workspace.path,
             &format!("catalogs/{catalog_id}.toml"),
         );
-        if !existing.contains(catalog_path.as_str()) {
+        if !existing.contains(&catalog_path) {
             return Err(ApiError::not_found(format!(
                 "catalog does not exist: {catalog_id}"
             )));
         }
     }
-    if let Some(conflict) = files
-        .iter()
-        .find(|file| existing.contains(file.path.as_str()))
-    {
+    if let Some(conflict) = files.iter().find(|file| existing.contains(&file.path)) {
         return Err(ApiError {
             status: axum::http::StatusCode::CONFLICT,
             message: format!("file already exists: {}", conflict.path),
         });
     }
 
-    for file in &files {
-        state
-            .github
-            .create_file(
-                &context.user.github_token,
-                &context.workspace.owner,
-                &context.workspace.name,
-                &file.path,
-                &context.draft.branch,
-                &file.content,
-                &format!("Create {}", file.path),
-            )
-            .await
-            .map_err(|err| ApiError::github(&err, "Creating the draft entity"))?;
+    match draft_backend(
+        &state,
+        &context.user,
+        &context.workspace,
+        "Creating the draft entity",
+    )? {
+        DraftBackend::GitHub { token, .. } => {
+            for file in &files {
+                state
+                    .github
+                    .create_file(
+                        token,
+                        &context.workspace.owner,
+                        &context.workspace.name,
+                        &file.path,
+                        &context.draft.branch,
+                        &file.content,
+                        &format!("Create {}", file.path),
+                    )
+                    .await
+                    .map_err(|err| ApiError::github(&err, "Creating the draft entity"))?;
+            }
+        }
+        DraftBackend::LocalGit => {
+            for file in &files {
+                local_git::write_file(&context.workspace, &file.path, &file.content)
+                    .await
+                    .map_err(|err| ApiError::bad_request(err.to_string()))?;
+            }
+        }
     }
     state
         .store
@@ -790,7 +1143,7 @@ async fn draft_lsp(
     let staged = state
         .stage
         .inspect(
-            &context.user.github_token,
+            source_token(&context.user),
             &draft_source(&context.workspace, &context.draft),
         )
         .await
@@ -803,7 +1156,7 @@ async fn draft_lsp(
             let diagnostics = state
                 .lsp
                 .update(
-                    &context.user.github_user_id,
+                    &context.user.principal_id,
                     &context.draft.id,
                     staged,
                     &context.workspace,
@@ -818,7 +1171,7 @@ async fn draft_lsp(
             let items = state
                 .lsp
                 .completion(
-                    &context.user.github_user_id,
+                    &context.user.principal_id,
                     &context.draft.id,
                     staged,
                     &context.workspace,
@@ -834,7 +1187,7 @@ async fn draft_lsp(
             let hover = state
                 .lsp
                 .hover(
-                    &context.user.github_user_id,
+                    &context.user.principal_id,
                     &context.draft.id,
                     staged,
                     &context.workspace,
@@ -902,7 +1255,7 @@ async fn draft_data(
     let source = draft_source(&workspace, &draft);
     let staged = state
         .stage
-        .semantic_model(&user.github_token, &source)
+        .semantic_model(source_token(&user), &source)
         .await;
     let (entities, edit_load_error, lint, model, staged_root) = match &staged {
         Ok((inspected, model)) => {
@@ -954,33 +1307,13 @@ async fn draft_data(
     // Paths touched on this branch: session changes and events, plus the ref
     // comparison when the source is remote — the branch may carry commits
     // made outside this session.
-    let mut edited_paths: std::collections::BTreeSet<String> = changes
-        .iter()
-        .map(|change| change.file_path.clone())
-        .collect();
-    for event in &events {
-        if let Some(detail) = event
-            .detail_json
-            .as_deref()
-            .and_then(|detail| serde_json::from_str::<JsonValue>(detail).ok())
-        {
-            if let Some(file_path) = detail.get("filePath").and_then(JsonValue::as_str) {
-                edited_paths.insert(file_path.to_owned());
-            }
-            if let Some(files) = detail.get("files").and_then(JsonValue::as_array) {
-                for file in files {
-                    if let Some(file) = file.as_str() {
-                        edited_paths.insert(file.to_owned());
-                    }
-                }
-            }
-        }
-    }
-    if workspace.source.contains("://")
+    let mut edited_paths = tracked_draft_paths(&changes, &events);
+    if context_is_github_workspace(&workspace)
+        && let Some(token) = user.github_token.as_deref()
         && let Ok(comparison) = state
             .github
             .compare_refs(
-                &user.github_token,
+                token,
                 &workspace.owner,
                 &workspace.name,
                 &draft.base_ref,
@@ -991,6 +1324,7 @@ async fn draft_data(
         edited_paths.extend(comparison.files);
     }
 
+    let capabilities = workspace_capabilities_json(&state, &user, &workspace);
     Ok(Json(json!({
         "workspace": workspace,
         "draft": draft,
@@ -1002,6 +1336,8 @@ async fn draft_data(
         "entities": entities,
         "editLoadError": edit_load_error,
         "editedPaths": edited_paths,
+        "sourceKind": capabilities["sourceKind"].clone(),
+        "capabilities": capabilities["capabilities"].clone(),
     })))
 }
 
@@ -1023,7 +1359,7 @@ async fn draft_entity(
     let source = draft_source(&context.workspace, &context.draft);
     if let Ok((inspected, model)) = state
         .stage
-        .semantic_model(&context.user.github_token, &source)
+        .semantic_model(source_token(&context.user), &source)
         .await
         && let Ok(inventory) =
             inspect_workspace_inventory(&context.workspace, &model, inspected.root()).await
@@ -1034,13 +1370,13 @@ async fn draft_entity(
     {
         let runtime = match state
             .stage
-            .runtime(&context.user.github_token, &source)
+            .runtime(source_token(&context.user), &source)
             .await
         {
             Ok(runtime) => Some(runtime),
             Err(_) => state
                 .stage
-                .runtime(&context.user.github_token, &context.workspace.source)
+                .runtime(source_token(&context.user), &context.workspace.source)
                 .await
                 .ok(),
         };
@@ -1078,11 +1414,12 @@ async fn base_entity_text(
     context: &DraftContext,
     path: &str,
 ) -> Option<String> {
-    if context.workspace.source.contains("://") {
+    if context_is_github_workspace(&context.workspace) {
+        let token = context.user.github_token.as_deref()?;
         return state
             .github
             .file(
-                &context.user.github_token,
+                token,
                 &context.workspace.owner,
                 &context.workspace.name,
                 path,

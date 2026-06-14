@@ -106,7 +106,9 @@ export function LoginScreen() {
                 </div>
                 <div className="section-header-text">
                     <h1 className="login-title">
-                        {me?.mode === "team" ? "Sign in" : "Connect GitHub"}
+                        {me?.deployment === "hosted"
+                            ? "Sign in"
+                            : "Connect GitHub"}
                     </h1>
                     <p className="hint">
                         The rototo console reads workspaces from the GitHub
@@ -129,7 +131,7 @@ export function LoginScreen() {
                     </div>
                 ) : null}
 
-                {me?.mode === "team" ? (
+                {me?.deployment === "hosted" ? (
                     <a
                         className="btn btn-primary"
                         href="/api/auth/github/start"
@@ -139,7 +141,7 @@ export function LoginScreen() {
                     </a>
                 ) : null}
 
-                {me?.mode === "local" ? (
+                {me?.deployment === "local" ? (
                     device ? (
                         <div className="card">
                             <div className="card-head-text">
@@ -210,12 +212,6 @@ export function LoginScreen() {
                             </div>
                         </>
                     )
-                ) : null}
-
-                {me?.mode === "read-only" ? (
-                    <p className="hint">
-                        This console is read-only; no sign-in is needed.
-                    </p>
                 ) : null}
             </section>
         </main>

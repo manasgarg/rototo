@@ -1,14 +1,17 @@
 //! The rototo console: an HTTP server that serves the embedded console UI and
 //! a JSON API over the same workspace, lint, and resolution machinery the CLI
-//! and SDK use. Git stays the source of truth — the console edits draft
-//! branches through the GitHub API and publishes pull requests.
+//! and SDK use. Git stays the source of truth: the console writes through the
+//! configured GitHub API or local-git policy for the workspace source.
 
 mod api;
 mod api_draft;
 mod api_workspace;
 mod auth;
+mod capabilities;
 mod github;
+mod identity;
 mod inventory;
+mod local_git;
 mod lsp;
 mod observability;
 mod resolve_preview;
@@ -27,8 +30,9 @@ use crate::error::{Result, RototoError};
 
 use self::api::ConsoleState;
 use self::auth::{
-    AuthMode, GITHUB_CLIENT_ID_ENV, GITHUB_CLIENT_SECRET_ENV, LocalAuth, resolve_ambient_token,
+    GITHUB_CLIENT_ID_ENV, GITHUB_CLIENT_SECRET_ENV, HostedOAuth, LocalAuth, resolve_ambient_token,
 };
+use self::capabilities::{DeploymentType, WritePolicy};
 use self::github::GitHubClient;
 use self::lsp::LspSessions;
 use self::observability::DevObservability;
@@ -37,15 +41,15 @@ use self::store::{DiscoveredWorkspaceInput, Store};
 use self::token_crypto::TokenCrypto;
 
 pub const DEFAULT_BIND: &str = "127.0.0.1:7686";
-const READ_ONLY_USER_ID: &str = "read-only";
+pub use self::capabilities::WritePolicy as ConsoleWritePolicy;
 
 /// Options resolved by the CLI layer; the console itself stays clap-free.
 pub struct ConsoleOptions {
     pub bind: String,
     pub public_url: Option<String>,
     pub data_dir: Option<PathBuf>,
-    pub read_only: bool,
     pub workspace: Option<String>,
+    pub write_policy: WritePolicy,
     pub workspace_token: Option<String>,
 }
 
@@ -61,18 +65,18 @@ pub async fn run(options: ConsoleOptions) -> Result<()> {
         ))
     })?;
 
-    let mode = resolve_mode(&options)?;
+    let (deployment, oauth) = resolve_deployment(&options)?;
     let observability = DevObservability::from_env().await?;
-    let crypto = resolve_token_crypto(&mode, &data_dir).await?;
+    let crypto = resolve_token_crypto(&deployment, &data_dir).await?;
     let store = Store::open(&data_dir.join("console.db"), crypto)?;
 
-    let local = match mode {
-        AuthMode::Local => {
+    let local = match deployment {
+        DeploymentType::Local => {
             let ambient =
                 resolve_ambient_token(options.workspace_token.as_deref(), &data_dir).await;
             Some(LocalAuth::new(ambient, &data_dir))
         }
-        _ => None,
+        DeploymentType::Hosted => None,
     };
 
     let listener = tokio::net::TcpListener::bind(&options.bind)
@@ -91,7 +95,10 @@ pub async fn run(options: ConsoleOptions) -> Result<()> {
     let allowed_origins = allowed_origins(&public_url, bound.port());
 
     let state = Arc::new(ConsoleState {
-        mode: mode.clone(),
+        deployment: deployment.clone(),
+        oauth,
+        write_policy: options.write_policy,
+        fixed_workspace_source: options.workspace.clone(),
         store,
         github: GitHubClient::new(),
         stage: StageCache::new(),
@@ -100,28 +107,27 @@ pub async fn run(options: ConsoleOptions) -> Result<()> {
         public_url: public_url.clone(),
         allowed_origins,
         secure_cookies,
-        read_only_user_id: READ_ONLY_USER_ID.to_owned(),
         observability,
     });
 
-    if mode == AuthMode::ReadOnly {
-        let source = options
-            .workspace
-            .as_deref()
-            .expect("read-only mode validated a workspace source");
-        register_read_only_workspace(&state, source).await?;
+    if deployment == DeploymentType::Local
+        && let Some(source) = options.workspace.as_deref()
+    {
+        let actor = local_actor(&state, source).await?;
+        register_fixed_workspace(&state, &actor.principal_id, source).await?;
     }
 
     println!(
-        "rototo console ({}) listening on {public_url}",
-        mode.label()
+        "rototo console ({}, write: {}) listening on {public_url}",
+        deployment.label(),
+        options.write_policy.label()
     );
-    match &mode {
-        AuthMode::Local => {
+    match &deployment {
+        DeploymentType::Local => {
             let has_token = state
                 .local
                 .as_ref()
-                .expect("local mode has local auth")
+                .expect("local deployment has local auth")
                 .token()
                 .await
                 .is_some();
@@ -131,11 +137,8 @@ pub async fn run(options: ConsoleOptions) -> Result<()> {
                 );
             }
         }
-        AuthMode::Team { .. } => {
-            println!("team mode: users sign in with GitHub OAuth at {public_url}/login");
-        }
-        AuthMode::ReadOnly => {
-            println!("read-only mode: write routes are disabled");
+        DeploymentType::Hosted => {
+            println!("hosted deployment: users sign in with GitHub OAuth at {public_url}/login");
         }
     }
     if let Some(observability) = &state.observability {
@@ -152,50 +155,48 @@ pub async fn run(options: ConsoleOptions) -> Result<()> {
     Ok(())
 }
 
-fn resolve_mode(options: &ConsoleOptions) -> Result<AuthMode> {
+fn resolve_deployment(options: &ConsoleOptions) -> Result<(DeploymentType, Option<HostedOAuth>)> {
     let client_id = std::env::var(GITHUB_CLIENT_ID_ENV).unwrap_or_default();
     let client_secret = std::env::var(GITHUB_CLIENT_SECRET_ENV).unwrap_or_default();
-    resolve_mode_from_env(options, &client_id, &client_secret)
+    resolve_deployment_from_env(options, &client_id, &client_secret)
 }
 
-fn resolve_mode_from_env(
-    options: &ConsoleOptions,
+fn resolve_deployment_from_env(
+    _options: &ConsoleOptions,
     client_id: &str,
     client_secret: &str,
-) -> Result<AuthMode> {
-    if options.read_only {
-        if options.workspace.as_deref().unwrap_or("").trim().is_empty() {
-            return Err(RototoError::new(
-                "read-only mode requires --workspace <source>",
-            ));
-        }
-        return Ok(AuthMode::ReadOnly);
-    }
+) -> Result<(DeploymentType, Option<HostedOAuth>)> {
     match (client_id.trim(), client_secret.trim()) {
-        ("", "") => Ok(AuthMode::Local),
-        (_, "") => Ok(AuthMode::Local),
+        ("", "") => Ok((DeploymentType::Local, None)),
+        (_, "") => Ok((DeploymentType::Local, None)),
         ("", _) => Err(RototoError::new(format!(
-            "team mode needs both {GITHUB_CLIENT_ID_ENV} and {GITHUB_CLIENT_SECRET_ENV}; set {GITHUB_CLIENT_ID_ENV} alone only for local device-flow sign-in"
+            "hosted deployment needs both {GITHUB_CLIENT_ID_ENV} and {GITHUB_CLIENT_SECRET_ENV}; set {GITHUB_CLIENT_ID_ENV} alone only for local device-flow sign-in"
         ))),
-        (client_id, client_secret) => Ok(AuthMode::Team {
-            client_id: client_id.to_owned(),
-            client_secret: client_secret.to_owned(),
-        }),
+        (client_id, client_secret) => Ok((
+            DeploymentType::Hosted,
+            Some(HostedOAuth {
+                client_id: client_id.to_owned(),
+                client_secret: client_secret.to_owned(),
+            }),
+        )),
     }
 }
 
-async fn resolve_token_crypto(mode: &AuthMode, data_dir: &std::path::Path) -> Result<TokenCrypto> {
+async fn resolve_token_crypto(
+    deployment: &DeploymentType,
+    data_dir: &std::path::Path,
+) -> Result<TokenCrypto> {
     if let Ok(raw) = std::env::var(token_crypto::KEY_ENV) {
         return TokenCrypto::from_env_value(&raw);
     }
-    if matches!(mode, AuthMode::Team { .. }) {
+    if matches!(deployment, DeploymentType::Hosted) {
         return Err(RototoError::new(format!(
-            "{} is required for team mode so stored GitHub tokens survive restarts",
+            "{} is required for hosted deployment so stored GitHub tokens survive restarts",
             token_crypto::KEY_ENV
         )));
     }
-    // Local and read-only consoles get a generated key persisted next to the
-    // database; the database only holds tokens in team mode, but the store
+    // Local consoles get a generated key persisted next to the database. The
+    // database only holds OAuth tokens in hosted deployment, but the store
     // always needs a key to run.
     let key_path = data_dir.join("token.key");
     if let Ok(existing) = tokio::fs::read_to_string(&key_path).await
@@ -259,14 +260,41 @@ fn allowed_origins(public_url: &str, port: u16) -> Vec<String> {
     origins
 }
 
-/// Read-only deployments serve one configured workspace source. Register it
-/// under the synthetic read-only user so every store-scoped query works.
-async fn register_read_only_workspace(state: &ConsoleState, source: &str) -> Result<()> {
-    let (owner, name, git_ref, path) = synthetic_registration(source);
+async fn local_actor(state: &ConsoleState, source: &str) -> Result<store::SessionUser> {
+    if let Some(local) = state.local.as_ref()
+        && let Ok(Some(user)) = local.identity(&state.github).await
+    {
+        return Ok(user);
+    }
+    let local_root = local_git::workspace_root(source).ok();
+    let identity = identity::resolve_git_config_identity(local_root.as_deref()).await?;
+    Ok(store::SessionUser {
+        session_hash: "local-git".to_owned(),
+        principal_id: identity.principal_id(),
+        identity,
+        github_token: None,
+    })
+}
+
+/// Fixed workspace deployments register the configured source under the
+/// request actor so the existing store-scoped workspace queries still work.
+pub(crate) async fn register_fixed_workspace(
+    state: &ConsoleState,
+    principal_id: &str,
+    source: &str,
+) -> Result<()> {
+    let (owner, name, mut git_ref, path) = synthetic_registration(source);
+    if matches!(
+        capabilities::classify_workspace_source(source),
+        capabilities::WorkspaceSourceKind::LocalPath | capabilities::WorkspaceSourceKind::FileUrl
+    ) && let Ok(branch) = local_git::current_branch(source).await
+    {
+        git_ref = branch;
+    }
     state
         .store
         .upsert_repo_with_workspaces(
-            READ_ONLY_USER_ID.to_owned(),
+            principal_id.to_owned(),
             owner,
             name,
             git_ref.clone(),
@@ -354,38 +382,41 @@ mod tests {
             bind: DEFAULT_BIND.to_owned(),
             public_url: None,
             data_dir: None,
-            read_only: false,
             workspace: None,
+            write_policy: WritePolicy::PullRequest,
             workspace_token: None,
         }
     }
 
     #[test]
-    fn resolve_mode_stays_local_with_only_github_client_id() {
-        let mode =
-            resolve_mode_from_env(&options(), "device-client-id", "").expect("mode should resolve");
+    fn resolve_deployment_stays_local_with_only_github_client_id() {
+        let (deployment, oauth) = resolve_deployment_from_env(&options(), "device-client-id", "")
+            .expect("deployment should resolve");
 
-        assert_eq!(mode, AuthMode::Local);
+        assert_eq!(deployment, DeploymentType::Local);
+        assert!(oauth.is_none());
     }
 
     #[test]
-    fn resolve_mode_uses_team_when_namespaced_github_oauth_pair_is_set() {
-        let mode = resolve_mode_from_env(&options(), "oauth-client-id", "oauth-secret")
-            .expect("mode should resolve");
+    fn resolve_deployment_uses_hosted_when_namespaced_github_oauth_pair_is_set() {
+        let (deployment, oauth) =
+            resolve_deployment_from_env(&options(), "oauth-client-id", "oauth-secret")
+                .expect("deployment should resolve");
 
+        assert_eq!(deployment, DeploymentType::Hosted);
         assert_eq!(
-            mode,
-            AuthMode::Team {
+            oauth,
+            Some(HostedOAuth {
                 client_id: "oauth-client-id".to_owned(),
                 client_secret: "oauth-secret".to_owned(),
-            }
+            })
         );
     }
 
     #[test]
-    fn resolve_mode_rejects_github_client_secret_without_client_id() {
-        let err = resolve_mode_from_env(&options(), "", "oauth-secret")
-            .expect_err("mode should reject a secret without a client id");
+    fn resolve_deployment_rejects_github_client_secret_without_client_id() {
+        let err = resolve_deployment_from_env(&options(), "", "oauth-secret")
+            .expect_err("deployment should reject a secret without a client id");
 
         assert!(err.to_string().contains(GITHUB_CLIENT_ID_ENV));
         assert!(err.to_string().contains(GITHUB_CLIENT_SECRET_ENV));

@@ -10,9 +10,9 @@ import {
 import { apiFetch } from "./api";
 import type { MeResponse } from "./types";
 
-/* Session identity for the whole app. /api/me returns 200 with mode metadata
-   in local and read-only modes even when no user is connected; team mode
-   returns 401 when signed out — both land here as a MeResponse. */
+/* Session identity for the whole app. /api/me returns deployment metadata even
+   when hosted deployment is signed out, so both 200 and 401 land here as a
+   MeResponse. */
 
 type MeState = {
     me: MeResponse | null;
@@ -39,7 +39,7 @@ export function MeProvider({ children }: { children: ReactNode }) {
         setLoading(true);
         apiFetch("/api/me")
             .then(async (response) => {
-                // 401 still carries the mode payload (team mode, signed out).
+                // 401 still carries deployment metadata for signed-out hosted users.
                 const body = (await response.json()) as MeResponse;
                 if (!cancelled) {
                     setMe(body);
@@ -85,7 +85,7 @@ export function useShellUser(): {
 } {
     const { me } = useMe();
     return {
-        githubLogin: me?.user?.githubLogin ?? "…",
-        githubAvatarUrl: me?.user?.githubAvatarUrl ?? null,
+        githubLogin: me?.user?.displayName ?? "…",
+        githubAvatarUrl: me?.user?.avatarUrl ?? null,
     };
 }

@@ -55,6 +55,7 @@ import type {
     WorkspaceData,
     WorkspaceDefinition,
     WorkspaceEntityData,
+    WorkspaceCapabilities,
     WorkspaceInventory,
     WorkspaceLintView,
     WorkspaceSemanticModel,
@@ -139,8 +140,20 @@ export function WorkspaceScreen({
         );
     }
 
-    const { workspace, drafts, inventory, inventoryError, model } = data.data;
+    const {
+        workspace,
+        drafts,
+        inventory,
+        inventoryError,
+        model,
+        capabilities,
+    } = data.data;
     const lint = data.data.lint as LintLoad;
+    const writeDisabled = capabilities.write.kind === "disabled";
+    const writeDisabledReason =
+        capabilities.write.kind === "disabled"
+            ? capabilities.write.reason
+            : undefined;
 
     // Canonical URLs use the friendly slug; id URLs redirect to it.
     if (workspaceId !== workspace.slug) {
@@ -274,7 +287,11 @@ export function WorkspaceScreen({
                                 />
                             )}
                         </Link>
-                        <StartDraftButton workspaceId={workspace.slug} />
+                        <StartDraftButton
+                            disabled={writeDisabled}
+                            disabledReason={writeDisabledReason}
+                            workspaceId={workspace.slug}
+                        />
                     </>
                 }
                 crumbs={crumbs}
@@ -391,6 +408,7 @@ export function WorkspaceScreen({
                         diagnosticCount={diagnosticCount}
                         drafts={drafts}
                         graphData={graphData}
+                        capabilities={capabilities}
                         inventory={inventory}
                         inventoryError={inventoryError}
                         lint={lint}
@@ -405,6 +423,7 @@ export function WorkspaceScreen({
 }
 
 function WorkspaceSection({
+    capabilities,
     diagnosticCount,
     drafts,
     graphData,
@@ -415,6 +434,7 @@ function WorkspaceSection({
     section,
     workspace,
 }: {
+    capabilities: WorkspaceCapabilities;
     diagnosticCount: number;
     drafts: DraftSessionRecord[];
     graphData: WorkspaceGraphData | null;
@@ -543,13 +563,23 @@ function WorkspaceSection({
                 <div className="section-header-text">
                     <h1>Drafts</h1>
                     <p className="hint">
-                        Each draft is a branch created from{" "}
-                        <span className="mono">{workspace.ref}</span>. Edits
-                        commit to the branch; publishing opens a pull request.
+                        {capabilities.write.kind === "pullRequest"
+                            ? "Each draft is a branch created from "
+                            : "Each draft edits "}
+                        <span className="mono">{workspace.ref}</span>
+                        {capabilities.write.kind === "pullRequest"
+                            ? ". Edits commit to the branch; publishing opens a pull request."
+                            : ". Publishing applies the configured direct-push workflow."}
                     </p>
                 </div>
-                <DraftCandidates workspaceId={workspace.slug} />
-                <StartDraftFromBranchForm workspaceId={workspace.slug} />
+                {capabilities.write.kind === "pullRequest" ? (
+                    <>
+                        <DraftCandidates workspaceId={workspace.slug} />
+                        <StartDraftFromBranchForm
+                            workspaceId={workspace.slug}
+                        />
+                    </>
+                ) : null}
                 {drafts.length === 0 ? (
                     <div className="empty-state">
                         <span className="empty-puck">

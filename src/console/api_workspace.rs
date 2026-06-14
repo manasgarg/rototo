@@ -4,7 +4,10 @@ use axum::http::HeaderMap;
 use axum::routing::get;
 use serde_json::{Value as JsonValue, json};
 
-use super::api::{ApiError, ApiResult, SharedState, require_user};
+use super::api::{
+    ApiError, ApiResult, SharedState, require_github_token, require_user, source_token,
+};
+use super::capabilities::{classify_workspace_source, workspace_capabilities};
 use super::inventory::{
     WorkspaceInventory, inspect_workspace_inventory, read_workspace_definition,
 };
@@ -45,9 +48,12 @@ pub async fn load_workspace(
     user: &SessionUser,
     workspace_id: &str,
 ) -> ApiResult<WorkspaceRecord> {
+    if let Some(source) = state.fixed_workspace_source.as_deref() {
+        super::register_fixed_workspace(state, &user.principal_id, source).await?;
+    }
     state
         .store
-        .get_workspace_for_user(workspace_id, &user.github_user_id)
+        .get_workspace_for_user(workspace_id, &user.principal_id)
         .await?
         .ok_or_else(|| ApiError::not_found("workspace not found"))
 }
@@ -64,6 +70,22 @@ pub fn lint_error_json(root: &str, error: &str) -> JsonValue {
     json!({ "root": root, "diagnostics": [], "error": error })
 }
 
+pub fn workspace_capabilities_json(
+    state: &super::api::ConsoleState,
+    user: &SessionUser,
+    workspace: &WorkspaceRecord,
+) -> JsonValue {
+    let source_kind = classify_workspace_source(&workspace.source);
+    json!({
+        "sourceKind": source_kind,
+        "capabilities": workspace_capabilities(
+            source_kind,
+            state.write_policy,
+            user.github_token.is_some(),
+        ),
+    })
+}
+
 async fn workspace_lint(
     State(state): State<SharedState>,
     headers: HeaderMap,
@@ -73,7 +95,7 @@ async fn workspace_lint(
     let workspace = load_workspace(&state, &user, &workspace_id).await?;
     let inspected = state
         .stage
-        .inspect(&user.github_token, &workspace.source)
+        .inspect(source_token(&user), &workspace.source)
         .await
         .map_err(|err| ApiError::internal(err.to_string()))?;
     let lint = inspected
@@ -99,7 +121,7 @@ async fn workspace_summaries(
     let user = require_user(&state, &headers).await?;
     let mut workspaces = state
         .store
-        .list_workspaces_for_user(&user.github_user_id)
+        .list_workspaces_for_user(&user.principal_id)
         .await?;
     if let Some(repo_id) = query.repo_id.as_deref() {
         workspaces.retain(|workspace| workspace.repo_id == repo_id);
@@ -196,12 +218,12 @@ async fn workspace_data(
     let workspace = load_workspace(&state, &user, &workspace_id).await?;
     let drafts = state
         .store
-        .list_draft_sessions_for_workspace(&workspace.id, &user.github_user_id)
+        .list_draft_sessions_for_workspace(&workspace.id, &user.principal_id)
         .await?;
 
     let staged = state
         .stage
-        .semantic_model(&user.github_token, &workspace.source)
+        .semantic_model(source_token(&user), &workspace.source)
         .await;
     let (inventory, inventory_error, lint, model) = match staged {
         Ok((inspected, model)) => {
@@ -237,6 +259,7 @@ async fn workspace_data(
         }
     };
 
+    let capabilities = workspace_capabilities_json(&state, &user, &workspace);
     Ok(Json(json!({
         "workspace": workspace,
         "drafts": drafts,
@@ -244,6 +267,8 @@ async fn workspace_data(
         "inventoryError": inventory_error,
         "lint": lint,
         "model": model,
+        "sourceKind": capabilities["sourceKind"].clone(),
+        "capabilities": capabilities["capabilities"].clone(),
     })))
 }
 
@@ -262,7 +287,7 @@ async fn workspace_entity(
     let workspace = load_workspace(&state, &user, &workspace_id).await?;
     let (inspected, model) = state
         .stage
-        .semantic_model(&user.github_token, &workspace.source)
+        .semantic_model(source_token(&user), &workspace.source)
         .await
         .map_err(|err| ApiError::internal(err.to_string()))?;
     let inventory = inspect_workspace_inventory(&workspace, &model, inspected.root())
@@ -296,7 +321,7 @@ async fn workspace_entity(
         && !contexts.is_empty()
         && let Ok(runtime) = state
             .stage
-            .runtime(&user.github_token, &workspace.source)
+            .runtime(source_token(&user), &workspace.source)
             .await
     {
         let resolutions = resolve_saved_contexts(&runtime, &model, &variable.id, &contexts).await;
@@ -313,7 +338,7 @@ async fn workspace_entity(
         && !contexts.is_empty()
         && let Ok(runtime) = state
             .stage
-            .runtime(&user.github_token, &workspace.source)
+            .runtime(source_token(&user), &workspace.source)
             .await
     {
         let evaluations =
@@ -336,17 +361,18 @@ async fn draft_candidates(
 ) -> ApiResult<Json<JsonValue>> {
     let user = require_user(&state, &headers).await?;
     let workspace = load_workspace(&state, &user, &workspace_id).await?;
+    let token = require_github_token(&user, "Scanning branches")?;
 
     let known_branches: std::collections::HashSet<String> = state
         .store
-        .list_draft_sessions_for_workspace(&workspace.id, &user.github_user_id)
+        .list_draft_sessions_for_workspace(&workspace.id, &user.principal_id)
         .await?
         .into_iter()
         .map(|draft| draft.branch)
         .collect();
     let branches: Vec<String> = state
         .github
-        .list_branches(&user.github_token, &workspace.owner, &workspace.name)
+        .list_branches(token, &workspace.owner, &workspace.name)
         .await
         .map_err(|err| ApiError::github(&err, "Scanning branches"))?
         .into_iter()
@@ -363,7 +389,7 @@ async fn draft_candidates(
     let mut comparisons = tokio::task::JoinSet::new();
     for (index, branch) in compared.iter().cloned().enumerate() {
         let github = state.github.clone();
-        let token = user.github_token.clone();
+        let token = token.to_owned();
         let owner = workspace.owner.clone();
         let name = workspace.name.clone();
         let base = workspace.git_ref.clone();
@@ -438,7 +464,7 @@ pub async fn workspace_inventory(
 ) -> std::result::Result<(std::sync::Arc<crate::sdk::Workspace>, WorkspaceInventory), String> {
     let (inspected, model) = state
         .stage
-        .semantic_model(&user.github_token, &workspace.source)
+        .semantic_model(source_token(user), &workspace.source)
         .await
         .map_err(|err| err.to_string())?;
     let inventory = inspect_workspace_inventory(workspace, &model, inspected.root())

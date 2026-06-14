@@ -6,6 +6,7 @@ use tokio::sync::{Mutex, RwLock};
 use crate::error::{Result, RototoError};
 
 use super::github::{self, GitHubClient};
+use super::identity::ActorIdentity;
 use super::store::{SessionUser, Store};
 
 pub const GITHUB_CLIENT_ID_ENV: &str = "ROTOTO_GITHUB_CLIENT_ID";
@@ -20,42 +21,26 @@ pub const GITHUB_OAUTH_SCOPES: &str = "read:user repo";
 const BAKED_DEVICE_CLIENT_ID: &str = "";
 
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub enum AuthMode {
-    /// Single user on a trusted machine: no login, ambient GitHub token.
-    Local,
-    /// Shared deployment: GitHub OAuth web flow, per-user encrypted tokens.
-    Team {
-        client_id: String,
-        client_secret: String,
-    },
-    /// Demo deployment: no auth, fixed workspace source, mutations rejected.
-    ReadOnly,
-}
-
-impl AuthMode {
-    pub fn label(&self) -> &'static str {
-        match self {
-            Self::Local => "local",
-            Self::Team { .. } => "team",
-            Self::ReadOnly => "read-only",
-        }
-    }
+pub struct HostedOAuth {
+    pub client_id: String,
+    pub client_secret: String,
 }
 
 /// Where the local-mode GitHub token came from, for the /api/me explanation.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize)]
 #[serde(rename_all = "kebab-case")]
-pub enum TokenSource {
+pub enum GitHubCredentialSource {
     Flag,
     Environment,
     DeviceFlow,
     GhCli,
+    OAuthSession,
 }
 
 #[derive(Clone)]
 pub struct AmbientToken {
     pub token: String,
-    pub source: TokenSource,
+    pub source: GitHubCredentialSource,
 }
 
 pub struct DeviceFlowState {
@@ -100,7 +85,7 @@ impl LocalAuth {
         write_private_file(&self.credentials_path, &credentials.to_string()).await?;
         *self.token.write().await = Some(AmbientToken {
             token,
-            source: TokenSource::DeviceFlow,
+            source: GitHubCredentialSource::DeviceFlow,
         });
         *self.identity.write().await = None;
         Ok(())
@@ -127,11 +112,14 @@ impl LocalAuth {
         })?;
         let user = SessionUser {
             session_hash: "local".to_owned(),
-            github_user_id: viewer.id.to_string(),
-            github_login: viewer.login,
-            github_name: viewer.name,
-            github_avatar_url: viewer.avatar_url,
-            github_token: ambient.token.clone(),
+            principal_id: format!("github:{}", viewer.id),
+            identity: ActorIdentity::GitHub {
+                id: viewer.id.to_string(),
+                login: viewer.login,
+                name: viewer.name,
+                avatar_url: viewer.avatar_url,
+            },
+            github_token: Some(ambient.token.clone()),
         };
         *self.identity.write().await = Some((ambient.token, user.clone()));
         Ok(Some(user))
@@ -157,9 +145,9 @@ pub async fn resolve_ambient_token(
             // clap fills the flag from ROTOTO_WORKSPACE_TOKEN too; report the
             // narrower source only when the flag came from the environment.
             let source = if std::env::args().any(|arg| arg == "--workspace-token") {
-                TokenSource::Flag
+                GitHubCredentialSource::Flag
             } else {
-                TokenSource::Environment
+                GitHubCredentialSource::Environment
             };
             return Some(AmbientToken {
                 token: token.to_owned(),
@@ -178,7 +166,7 @@ pub async fn resolve_ambient_token(
     {
         return Some(AmbientToken {
             token: token.trim().to_owned(),
-            source: TokenSource::DeviceFlow,
+            source: GitHubCredentialSource::DeviceFlow,
         });
     }
 
@@ -192,7 +180,7 @@ pub async fn resolve_ambient_token(
         if !token.is_empty() {
             return Some(AmbientToken {
                 token,
-                source: TokenSource::GhCli,
+                source: GitHubCredentialSource::GhCli,
             });
         }
     }

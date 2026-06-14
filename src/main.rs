@@ -346,13 +346,32 @@ struct ConsoleArgs {
     #[arg(long = "data-dir", value_name = "DIR", env = "ROTOTO_CONSOLE_DATA_DIR")]
     data_dir: Option<PathBuf>,
 
-    /// Serve one workspace without auth and reject every write.
-    #[arg(long = "read-only", action = ArgAction::SetTrue)]
-    read_only: bool,
-
-    /// Workspace source for --read-only deployments.
+    /// Workspace source to register at startup.
     #[arg(long = "workspace", value_name = "WORKSPACE_SOURCE")]
     workspace: Option<String>,
+
+    /// Write behavior for console drafts.
+    #[arg(long = "write", value_enum, default_value_t = ConsoleWriteArg::PullRequest)]
+    write: ConsoleWriteArg,
+}
+
+#[cfg(feature = "console")]
+#[derive(Clone, Copy, Debug, ValueEnum)]
+enum ConsoleWriteArg {
+    Disabled,
+    PullRequest,
+    DirectPush,
+}
+
+#[cfg(feature = "console")]
+impl From<ConsoleWriteArg> for rototo::console::ConsoleWritePolicy {
+    fn from(value: ConsoleWriteArg) -> Self {
+        match value {
+            ConsoleWriteArg::Disabled => Self::Disabled,
+            ConsoleWriteArg::PullRequest => Self::PullRequest,
+            ConsoleWriteArg::DirectPush => Self::DirectPush,
+        }
+    }
 }
 
 #[derive(Clone, Copy, Debug, ValueEnum)]
@@ -617,8 +636,8 @@ async fn run() -> Result<ExitCode> {
                 bind: args.bind,
                 public_url: args.public_url,
                 data_dir: args.data_dir,
-                read_only: args.read_only,
                 workspace: args.workspace,
+                write_policy: args.write.into(),
                 workspace_token: cli.workspace_token.clone(),
             })
             .await?;

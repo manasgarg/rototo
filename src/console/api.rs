@@ -15,17 +15,23 @@ use serde_json::{Value as JsonValue, json};
 use crate::error::RototoError;
 
 use super::auth::{
-    AuthMode, GITHUB_CLIENT_ID_ENV, GITHUB_CLIENT_SECRET_ENV, GITHUB_OAUTH_SCOPES, LocalAuth,
-    OAUTH_STATE_COOKIE, SESSION_COOKIE, cookie_value, session_from_headers, set_cookie,
+    GITHUB_OAUTH_SCOPES, GitHubCredentialSource, HostedOAuth, LocalAuth, OAUTH_STATE_COOKIE,
+    SESSION_COOKIE, cookie_value, session_from_headers, set_cookie,
 };
+use super::capabilities::{DeploymentType, WritePolicy};
 use super::github::{self, GitHubClient, GitHubError};
+use super::identity::{ActorIdentity, resolve_git_config_identity};
+use super::local_git;
 use super::lsp::LspSessions;
 use super::observability::DevObservability;
 use super::stage::StageCache;
 use super::store::{NewSession, SessionUser, Store};
 
 pub struct ConsoleState {
-    pub mode: AuthMode,
+    pub deployment: DeploymentType,
+    pub oauth: Option<HostedOAuth>,
+    pub write_policy: WritePolicy,
+    pub fixed_workspace_source: Option<String>,
     pub store: Store,
     pub github: GitHubClient,
     pub stage: StageCache,
@@ -35,8 +41,6 @@ pub struct ConsoleState {
     pub public_url: String,
     pub allowed_origins: Vec<String>,
     pub secure_cookies: bool,
-    /// The synthetic user id read-only deployments register workspaces under.
-    pub read_only_user_id: String,
     pub observability: Option<DevObservability>,
 }
 
@@ -123,8 +127,8 @@ pub fn router(state: SharedState) -> axum::Router {
         .with_state(state)
 }
 
-/// Mutation guard: read-only deployments reject writes, and cross-site
-/// requests are blocked by requiring a custom header plus an Origin check.
+/// Mutation guard: cross-site requests are blocked by requiring a custom header
+/// plus an Origin check.
 /// Custom headers cannot be attached cross-site without a CORS preflight,
 /// which this server never grants.
 async fn request_guard(State(state): State<SharedState>, request: Request, next: Next) -> Response {
@@ -136,15 +140,6 @@ async fn request_guard(State(state): State<SharedState>, request: Request, next:
         Method::GET | Method::HEAD | Method::OPTIONS
     );
     if mutating && request.uri().path().starts_with("/api") {
-        if state.mode == AuthMode::ReadOnly {
-            let response = ApiError {
-                status: StatusCode::FORBIDDEN,
-                message: "this console is read-only".to_owned(),
-            }
-            .into_response();
-            record_api_request(&state, started, &method, &path, response.status()).await;
-            return response;
-        }
         let headers = request.headers();
         if !headers.contains_key("x-rototo-console") {
             let response = ApiError {
@@ -194,7 +189,7 @@ async fn record_api_request(
             "status": status.as_u16(),
             "status_class": status_class(status),
             "latency_ms": started.elapsed().as_millis(),
-            "auth_mode": state.mode.label(),
+            "deployment": state.deployment.label(),
             "workspace_id": route.workspace_id,
             "draft_id": route.draft_id,
             "error_class": error_class(status),
@@ -269,36 +264,65 @@ fn error_class(status: StatusCode) -> Option<&'static str> {
     }
 }
 
-/// The authenticated user for a request, per auth mode.
+/// The actor for a request, per deployment type.
 pub async fn require_user(state: &ConsoleState, headers: &HeaderMap) -> ApiResult<SessionUser> {
-    match &state.mode {
-        AuthMode::Team { .. } => session_from_headers(&state.store, headers)
+    match state.deployment {
+        DeploymentType::Hosted => session_from_headers(&state.store, headers)
             .await
             .ok_or_else(ApiError::unauthorized),
-        AuthMode::Local => {
-            let local = state.local.as_ref().expect("local mode has local auth");
-            local
-                .identity(&state.github)
-                .await
-                .map_err(|err| ApiError {
-                    status: StatusCode::UNAUTHORIZED,
-                    message: err.to_string(),
-                })?
-                .ok_or_else(ApiError::unauthorized)
+        DeploymentType::Local => {
+            let local = state
+                .local
+                .as_ref()
+                .expect("local deployment has local auth");
+            match local.identity(&state.github).await {
+                Ok(Some(user)) => Ok(user),
+                Ok(None) => {
+                    let local_root = state
+                        .fixed_workspace_source
+                        .as_deref()
+                        .and_then(|source| local_git::workspace_root(source).ok());
+                    let identity = resolve_git_config_identity(local_root.as_deref())
+                        .await
+                        .map_err(ApiError::from)?;
+                    Ok(SessionUser {
+                        session_hash: "local-git".to_owned(),
+                        principal_id: identity.principal_id(),
+                        identity,
+                        github_token: None,
+                    })
+                }
+                Err(err) => {
+                    let local_root = state
+                        .fixed_workspace_source
+                        .as_deref()
+                        .and_then(|source| local_git::workspace_root(source).ok());
+                    let identity = resolve_git_config_identity(local_root.as_deref())
+                        .await
+                        .map_err(|_| ApiError {
+                            status: StatusCode::UNAUTHORIZED,
+                            message: err.to_string(),
+                        })?;
+                    Ok(SessionUser {
+                        session_hash: "local-git".to_owned(),
+                        principal_id: identity.principal_id(),
+                        identity,
+                        github_token: None,
+                    })
+                }
+            }
         }
-        AuthMode::ReadOnly => Ok(read_only_user(state)),
     }
 }
 
-pub fn read_only_user(state: &ConsoleState) -> SessionUser {
-    SessionUser {
-        session_hash: "read-only".to_owned(),
-        github_user_id: state.read_only_user_id.clone(),
-        github_login: "read-only".to_owned(),
-        github_name: None,
-        github_avatar_url: None,
-        github_token: String::new(),
-    }
+pub fn require_github_token<'a>(user: &'a SessionUser, action: &str) -> ApiResult<&'a str> {
+    user.github_token
+        .as_deref()
+        .ok_or_else(|| ApiError::bad_request(format!("{action} requires a GitHub credential")))
+}
+
+pub fn source_token(user: &SessionUser) -> &str {
+    user.github_token.as_deref().unwrap_or("")
 }
 
 async fn dev_observability_event(
@@ -313,45 +337,88 @@ async fn dev_observability_event(
 }
 
 async fn me(State(state): State<SharedState>, headers: HeaderMap) -> Response {
-    let mode = state.mode.label();
+    let deployment = state.deployment.label();
     let device_flow = state
         .local
         .as_ref()
         .map(|local| local.device_flow_available())
         .unwrap_or(false);
-    let token_source = match state.local.as_ref() {
-        Some(local) => local.token().await.map(|ambient| ambient.source),
-        None => None,
-    };
-
-    let (status, auth_error, user) = match &state.mode {
-        AuthMode::Team { .. } => match session_from_headers(&state.store, &headers).await {
+    let (status, auth_error, user) = match state.deployment {
+        DeploymentType::Hosted => match session_from_headers(&state.store, &headers).await {
             Some(user) => (StatusCode::OK, None, Some(user)),
             None => (StatusCode::UNAUTHORIZED, None, None),
         },
-        AuthMode::Local => {
-            let local = state.local.as_ref().expect("local mode has local auth");
+        DeploymentType::Local => {
+            let local = state
+                .local
+                .as_ref()
+                .expect("local deployment has local auth");
             match local.identity(&state.github).await {
                 Ok(Some(user)) => (StatusCode::OK, None, Some(user)),
-                Ok(None) => (StatusCode::OK, None, None),
-                Err(err) => (StatusCode::OK, Some(err.to_string()), None),
+                Ok(None) => {
+                    let local_root = state
+                        .fixed_workspace_source
+                        .as_deref()
+                        .and_then(|source| local_git::workspace_root(source).ok());
+                    match resolve_git_config_identity(local_root.as_deref()).await {
+                        Ok(identity) => (
+                            StatusCode::OK,
+                            None,
+                            Some(SessionUser {
+                                session_hash: "local-git".to_owned(),
+                                principal_id: identity.principal_id(),
+                                identity,
+                                github_token: None,
+                            }),
+                        ),
+                        Err(err) => (StatusCode::OK, Some(err.to_string()), None),
+                    }
+                }
+                Err(err) => {
+                    let local_root = state
+                        .fixed_workspace_source
+                        .as_deref()
+                        .and_then(|source| local_git::workspace_root(source).ok());
+                    let user = resolve_git_config_identity(local_root.as_deref())
+                        .await
+                        .ok()
+                        .map(|identity| SessionUser {
+                            session_hash: "local-git".to_owned(),
+                            principal_id: identity.principal_id(),
+                            identity,
+                            github_token: None,
+                        });
+                    (StatusCode::OK, Some(err.to_string()), user)
+                }
             }
         }
-        AuthMode::ReadOnly => (StatusCode::OK, None, Some(read_only_user(&state))),
+    };
+    let token_source = match state.deployment {
+        DeploymentType::Local => match state.local.as_ref() {
+            Some(local) => local.token().await.map(|ambient| ambient.source),
+            None => None,
+        },
+        DeploymentType::Hosted => user
+            .as_ref()
+            .and_then(|user| user.github_token.as_ref())
+            .map(|_| GitHubCredentialSource::OAuthSession),
     };
 
     let user_json = user.map(|user| {
+        let identity = user.identity.clone();
         json!({
-            "githubUserId": user.github_user_id,
-            "githubLogin": user.github_login,
-            "githubName": user.github_name,
-            "githubAvatarUrl": user.github_avatar_url,
+            "principalId": user.principal_id,
+            "identity": identity,
+            "displayName": user.identity.display_login(),
+            "avatarUrl": user.identity.avatar_url(),
+            "hasGithubToken": user.github_token.is_some(),
         })
     });
     (
         status,
         Json(json!({
-            "mode": mode,
+            "deployment": deployment,
+            "writePolicy": state.write_policy.label(),
             "deviceFlow": device_flow,
             "tokenSource": token_source,
             "authError": auth_error,
@@ -362,9 +429,9 @@ async fn me(State(state): State<SharedState>, headers: HeaderMap) -> Response {
 }
 
 async fn logout(State(state): State<SharedState>, headers: HeaderMap) -> ApiResult<Response> {
-    if !matches!(state.mode, AuthMode::Team { .. }) {
+    if state.deployment != DeploymentType::Hosted {
         return Err(ApiError::bad_request(
-            "logout only applies to team-mode consoles",
+            "logout only applies to hosted consoles",
         ));
     }
     if let Some(token) = cookie_value(&headers, SESSION_COOKIE) {
@@ -381,10 +448,10 @@ async fn logout(State(state): State<SharedState>, headers: HeaderMap) -> ApiResu
 }
 
 async fn oauth_start(State(state): State<SharedState>) -> ApiResult<Response> {
-    let AuthMode::Team { client_id, .. } = &state.mode else {
-        return Err(ApiError::internal(format!(
-            "{GITHUB_CLIENT_ID_ENV} and {GITHUB_CLIENT_SECRET_ENV} are required",
-        )));
+    let Some(oauth) = &state.oauth else {
+        return Err(ApiError::internal(
+            "GitHub OAuth client id and secret are required".to_owned(),
+        ));
     };
 
     let state_token = random_token(24)?;
@@ -393,7 +460,7 @@ async fn oauth_start(State(state): State<SharedState>) -> ApiResult<Response> {
     let redirect_uri = format!("{}/api/auth/github/callback", state.public_url);
     let authorize_url = format!(
         "https://github.com/login/oauth/authorize?client_id={}&redirect_uri={}&scope={}&state={}",
-        url_encode(client_id),
+        url_encode(&oauth.client_id),
         url_encode(&redirect_uri),
         url_encode(GITHUB_OAUTH_SCOPES),
         url_encode(&state_token),
@@ -424,11 +491,7 @@ async fn oauth_callback(
     axum::extract::Query(query): axum::extract::Query<OAuthCallbackQuery>,
     headers: HeaderMap,
 ) -> ApiResult<Response> {
-    let AuthMode::Team {
-        client_id,
-        client_secret,
-    } = &state.mode
-    else {
+    let Some(oauth) = &state.oauth else {
         return Err(ApiError::bad_request("GitHub OAuth is not configured"));
     };
 
@@ -444,7 +507,7 @@ async fn oauth_callback(
     }
 
     let code = query.code.expect("validated above");
-    let token = github::exchange_github_code(client_id, client_secret, &code)
+    let token = github::exchange_github_code(&oauth.client_id, &oauth.client_secret, &code)
         .await
         .map_err(|err| ApiError::bad_request(err.to_string()))?;
     let viewer =
@@ -454,10 +517,12 @@ async fn oauth_callback(
     let session_token = state
         .store
         .create_session(NewSession {
-            github_user_id: viewer.id.to_string(),
-            github_login: viewer.login,
-            github_name: viewer.name,
-            github_avatar_url: viewer.avatar_url,
+            identity: ActorIdentity::GitHub {
+                id: viewer.id.to_string(),
+                login: viewer.login,
+                name: viewer.name,
+                avatar_url: viewer.avatar_url,
+            },
             github_token: token,
         })
         .await?;
@@ -544,17 +609,17 @@ async fn console_data(
     headers: HeaderMap,
 ) -> ApiResult<Json<JsonValue>> {
     let user = require_user(&state, &headers).await?;
-    let repos = state
-        .store
-        .list_repos_for_user(&user.github_user_id)
-        .await?;
+    if let Some(source) = state.fixed_workspace_source.as_deref() {
+        super::register_fixed_workspace(&state, &user.principal_id, source).await?;
+    }
+    let repos = state.store.list_repos_for_user(&user.principal_id).await?;
     let workspaces = state
         .store
-        .list_workspaces_for_user(&user.github_user_id)
+        .list_workspaces_for_user(&user.principal_id)
         .await?;
     let drafts = state
         .store
-        .list_draft_sessions_for_user(&user.github_user_id)
+        .list_draft_sessions_for_user(&user.principal_id)
         .await?;
     Ok(Json(json!({
         "repos": repos,
@@ -568,10 +633,7 @@ async fn repos_list(
     headers: HeaderMap,
 ) -> ApiResult<Json<JsonValue>> {
     let user = require_user(&state, &headers).await?;
-    let repos = state
-        .store
-        .list_repos_for_user(&user.github_user_id)
-        .await?;
+    let repos = state.store.list_repos_for_user(&user.principal_id).await?;
     Ok(Json(json!({ "repos": repos })))
 }
 
@@ -588,11 +650,12 @@ async fn repos_register(
     Json(body): Json<RegisterRepoBody>,
 ) -> ApiResult<Json<JsonValue>> {
     let user = require_user(&state, &headers).await?;
+    let token = require_github_token(&user, "Registering the repository")?;
     let (owner, name) = github::parse_repo_spec(body.repo.as_deref().unwrap_or(""))
         .map_err(|err| ApiError::bad_request(err.to_string()))?;
     let repo = state
         .github
-        .repo(&user.github_token, &owner, &name)
+        .repo(token, &owner, &name)
         .await
         .map_err(|err| ApiError::github(&err, "Registering the repository"))?;
     let git_ref = body
@@ -604,13 +667,13 @@ async fn repos_register(
         .to_owned();
     let workspaces = state
         .github
-        .discover_workspaces(&user.github_token, &owner, &name, &git_ref)
+        .discover_workspaces(token, &owner, &name, &git_ref)
         .await
         .map_err(|err| ApiError::github(&err, "Discovering workspaces"))?;
     let stored = state
         .store
         .upsert_repo_with_workspaces(
-            user.github_user_id.clone(),
+            user.principal_id.clone(),
             repo.owner.login,
             repo.name,
             git_ref,
@@ -635,7 +698,7 @@ async fn repo_delete(
     let user = require_user(&state, &headers).await?;
     let removed = state
         .store
-        .delete_repo_for_user(&repo_id, &user.github_user_id)
+        .delete_repo_for_user(&repo_id, &user.principal_id)
         .await?;
     if !removed {
         return Err(ApiError::not_found("repository not found"));

@@ -10,6 +10,7 @@ use serde::Serialize;
 
 use crate::error::{Result, RototoError};
 
+use super::identity::ActorIdentity;
 use super::time::{now_iso, now_iso_plus};
 use super::token_crypto::TokenCrypto;
 
@@ -21,19 +22,17 @@ const SESSION_TOKEN_BYTES: usize = 32;
 #[serde(rename_all = "camelCase")]
 pub struct SessionUser {
     pub session_hash: String,
-    pub github_user_id: String,
-    pub github_login: String,
-    pub github_name: Option<String>,
-    pub github_avatar_url: Option<String>,
+    pub principal_id: String,
+    pub identity: ActorIdentity,
     #[serde(skip)]
-    pub github_token: String,
+    pub github_token: Option<String>,
 }
 
 #[derive(Clone, Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct RepoRecord {
     pub id: String,
-    pub github_user_id: String,
+    pub principal_id: String,
     pub owner: String,
     pub name: String,
     pub default_ref: String,
@@ -79,7 +78,7 @@ pub enum DraftStatus {
 pub struct DraftSessionRecord {
     pub id: String,
     pub workspace_id: String,
-    pub github_user_id: String,
+    pub principal_id: String,
     pub branch: String,
     pub base_ref: String,
     pub status: DraftStatus,
@@ -125,16 +124,13 @@ pub struct DraftEventRecord {
 }
 
 pub struct NewSession {
-    pub github_user_id: String,
-    pub github_login: String,
-    pub github_name: Option<String>,
-    pub github_avatar_url: Option<String>,
+    pub identity: ActorIdentity,
     pub github_token: String,
 }
 
 pub struct NewDraftSession {
     pub workspace_id: String,
-    pub github_user_id: String,
+    pub principal_id: String,
     pub branch: String,
     pub base_ref: String,
 }
@@ -201,7 +197,7 @@ impl Store {
 
             CREATE TABLE IF NOT EXISTS sessions (
               id TEXT PRIMARY KEY,
-              github_user_id TEXT NOT NULL,
+              principal_id TEXT NOT NULL,
               github_login TEXT NOT NULL,
               github_name TEXT,
               github_avatar_url TEXT,
@@ -217,14 +213,14 @@ impl Store {
 
             CREATE TABLE IF NOT EXISTS repos (
               id TEXT PRIMARY KEY,
-              github_user_id TEXT NOT NULL,
+              principal_id TEXT NOT NULL,
               owner TEXT NOT NULL,
               name TEXT NOT NULL,
               default_ref TEXT NOT NULL,
               created_at TEXT NOT NULL,
               updated_at TEXT NOT NULL,
               last_discovered_at TEXT,
-              UNIQUE(github_user_id, owner, name)
+              UNIQUE(principal_id, owner, name)
             );
 
             CREATE TABLE IF NOT EXISTS workspaces (
@@ -243,7 +239,7 @@ impl Store {
             CREATE TABLE IF NOT EXISTS draft_sessions (
               id TEXT PRIMARY KEY,
               workspace_id TEXT NOT NULL,
-              github_user_id TEXT NOT NULL,
+              principal_id TEXT NOT NULL,
               branch TEXT NOT NULL,
               base_ref TEXT NOT NULL,
               status TEXT NOT NULL,
@@ -311,17 +307,29 @@ impl Store {
             let session_token = new_session_token()?;
             let now = now_iso();
             let expires_at = now_iso_plus(SESSION_TTL);
+            let ActorIdentity::GitHub {
+                id,
+                login,
+                name,
+                avatar_url,
+            } = input.identity
+            else {
+                return Err(RototoError::new(
+                    "GitHub OAuth sessions require a GitHub identity",
+                ));
+            };
+            let principal_id = format!("github:{id}");
             conn.execute(
                 "INSERT INTO sessions (
-                   id, github_user_id, github_login, github_name, github_avatar_url,
+                   id, principal_id, github_login, github_name, github_avatar_url,
                    github_token_ciphertext, created_at, expires_at
                  ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
                 params![
                     session_token_hash(&session_token),
-                    input.github_user_id,
-                    input.github_login,
-                    input.github_name,
-                    input.github_avatar_url,
+                    principal_id,
+                    login,
+                    name,
+                    avatar_url,
                     crypto.encrypt(&input.github_token)?,
                     now,
                     expires_at,
@@ -339,7 +347,7 @@ impl Store {
             let hash = session_token_hash(&session_token);
             let row = conn
                 .query_row(
-                    "SELECT id, github_user_id, github_login, github_name, github_avatar_url,
+                    "SELECT id, principal_id, github_login, github_name, github_avatar_url,
                             github_token_ciphertext, expires_at
                      FROM sessions WHERE id = ?1",
                     params![hash],
@@ -357,7 +365,8 @@ impl Store {
                 )
                 .optional()
                 .map_err(db_err)?;
-            let Some((id, user_id, login, name, avatar, ciphertext, expires_at)) = row else {
+            let Some((session_id, principal_id, login, name, avatar, ciphertext, expires_at)) = row
+            else {
                 return Ok(None);
             };
             if expires_at.as_str() <= now_iso().as_str() {
@@ -368,13 +377,20 @@ impl Store {
             let Ok(github_token) = crypto.decrypt(&ciphertext) else {
                 return Ok(None);
             };
+            let github_id = principal_id
+                .strip_prefix("github:")
+                .unwrap_or(principal_id.as_str())
+                .to_owned();
             Ok(Some(SessionUser {
-                session_hash: id,
-                github_user_id: user_id,
-                github_login: login,
-                github_name: name,
-                github_avatar_url: avatar,
-                github_token,
+                session_hash: session_id,
+                principal_id,
+                identity: ActorIdentity::GitHub {
+                    id: github_id,
+                    login,
+                    name,
+                    avatar_url: avatar,
+                },
+                github_token: Some(github_token),
             }))
         })
         .await
@@ -429,7 +445,7 @@ impl Store {
 
     pub async fn upsert_repo_with_workspaces(
         &self,
-        github_user_id: String,
+        principal_id: String,
         owner: String,
         name: String,
         default_ref: String,
@@ -439,8 +455,8 @@ impl Store {
             let now = now_iso();
             let existing: Option<String> = conn
                 .query_row(
-                    "SELECT id FROM repos WHERE github_user_id = ?1 AND owner = ?2 AND name = ?3",
-                    params![github_user_id, owner, name],
+                    "SELECT id FROM repos WHERE principal_id = ?1 AND owner = ?2 AND name = ?3",
+                    params![principal_id, owner, name],
                     |row| row.get(0),
                 )
                 .optional()
@@ -459,12 +475,12 @@ impl Store {
                     let repo_id = new_id();
                     conn.execute(
                         "INSERT INTO repos (
-                           id, github_user_id, owner, name, default_ref,
+                           id, principal_id, owner, name, default_ref,
                            created_at, updated_at, last_discovered_at
                          ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
                         params![
                             repo_id,
-                            github_user_id,
+                            principal_id,
                             owner,
                             name,
                             default_ref,
@@ -502,32 +518,29 @@ impl Store {
                 .map_err(db_err)?;
             }
 
-            repo_with_workspaces_by_id(conn, &repo_id, &github_user_id)?
+            repo_with_workspaces_by_id(conn, &repo_id, &principal_id)?
                 .ok_or_else(|| RototoError::new("repo registration failed"))
         })
         .await
     }
 
-    pub async fn list_repos_for_user(
-        &self,
-        github_user_id: &str,
-    ) -> Result<Vec<RepoWithWorkspaces>> {
-        let github_user_id = github_user_id.to_owned();
+    pub async fn list_repos_for_user(&self, principal_id: &str) -> Result<Vec<RepoWithWorkspaces>> {
+        let principal_id = principal_id.to_owned();
         self.with_conn(move |conn, _| {
             let mut statement = conn
                 .prepare(
-                    "SELECT id FROM repos WHERE github_user_id = ?1
+                    "SELECT id FROM repos WHERE principal_id = ?1
                      ORDER BY updated_at DESC, owner ASC, name ASC",
                 )
                 .map_err(db_err)?;
             let ids: Vec<String> = statement
-                .query_map(params![github_user_id], |row| row.get(0))
+                .query_map(params![principal_id], |row| row.get(0))
                 .map_err(db_err)?
                 .collect::<rusqlite::Result<_>>()
                 .map_err(db_err)?;
             ids.iter()
                 .map(|id| {
-                    repo_with_workspaces_by_id(conn, id, &github_user_id)?
+                    repo_with_workspaces_by_id(conn, id, &principal_id)?
                         .ok_or_else(|| RototoError::new("repo listing failed"))
                 })
                 .collect()
@@ -535,11 +548,11 @@ impl Store {
         .await
     }
 
-    pub async fn delete_repo_for_user(&self, repo_id: &str, github_user_id: &str) -> Result<bool> {
+    pub async fn delete_repo_for_user(&self, repo_id: &str, principal_id: &str) -> Result<bool> {
         let repo_id = repo_id.to_owned();
-        let github_user_id = github_user_id.to_owned();
+        let principal_id = principal_id.to_owned();
         self.with_conn(move |conn, _| {
-            if repo_with_workspaces_by_id(conn, &repo_id, &github_user_id)?.is_none() {
+            if repo_with_workspaces_by_id(conn, &repo_id, &principal_id)?.is_none() {
                 return Ok(false);
             }
             // ON DELETE CASCADE clears workspaces, draft sessions, changes,
@@ -553,10 +566,10 @@ impl Store {
 
     pub async fn list_workspaces_for_user(
         &self,
-        github_user_id: &str,
+        principal_id: &str,
     ) -> Result<Vec<WorkspaceRecord>> {
-        let github_user_id = github_user_id.to_owned();
-        self.with_conn(move |conn, _| list_workspaces_for_user_sync(conn, &github_user_id))
+        let principal_id = principal_id.to_owned();
+        self.with_conn(move |conn, _| list_workspaces_for_user_sync(conn, &principal_id))
             .await
     }
 
@@ -565,18 +578,18 @@ impl Store {
     pub async fn get_workspace_for_user(
         &self,
         workspace_handle: &str,
-        github_user_id: &str,
+        principal_id: &str,
     ) -> Result<Option<WorkspaceRecord>> {
         let workspace_handle = workspace_handle.to_owned();
-        let github_user_id = github_user_id.to_owned();
+        let principal_id = principal_id.to_owned();
         self.with_conn(move |conn, _| {
             let by_id = conn
                 .query_row(
                     "SELECT w.id, w.repo_id, w.owner, w.name, w.path, w.ref_, w.source, w.discovered_at
                      FROM workspaces w
                      INNER JOIN repos r ON r.id = w.repo_id
-                     WHERE w.id = ?1 AND r.github_user_id = ?2",
-                    params![workspace_handle, github_user_id],
+                     WHERE w.id = ?1 AND r.principal_id = ?2",
+                    params![workspace_handle, principal_id],
                     workspace_from_row,
                 )
                 .optional()
@@ -584,7 +597,7 @@ impl Store {
             if by_id.is_some() {
                 return Ok(by_id);
             }
-            Ok(list_workspaces_for_user_sync(conn, &github_user_id)?
+            Ok(list_workspaces_for_user_sync(conn, &principal_id)?
                 .into_iter()
                 .find(|workspace| workspace.slug == workspace_handle))
         })
@@ -597,13 +610,13 @@ impl Store {
             let id = new_id();
             conn.execute(
                 "INSERT INTO draft_sessions (
-                   id, workspace_id, github_user_id, branch, base_ref, status,
+                   id, workspace_id, principal_id, branch, base_ref, status,
                    created_at, updated_at
                  ) VALUES (?1, ?2, ?3, ?4, ?5, 'open', ?6, ?7)",
                 params![
                     id,
                     input.workspace_id,
-                    input.github_user_id,
+                    input.principal_id,
                     input.branch,
                     input.base_ref,
                     now,
@@ -633,24 +646,24 @@ impl Store {
     pub async fn list_draft_sessions_for_workspace(
         &self,
         workspace_id: &str,
-        github_user_id: &str,
+        principal_id: &str,
     ) -> Result<Vec<DraftSessionRecord>> {
         let workspace_id = workspace_id.to_owned();
-        let github_user_id = github_user_id.to_owned();
+        let principal_id = principal_id.to_owned();
         self.with_conn(move |conn, _| {
             let mut statement = conn
                 .prepare(
-                    "SELECT id, workspace_id, github_user_id, branch, base_ref, status,
+                    "SELECT id, workspace_id, principal_id, branch, base_ref, status,
                             pr_url, pr_number, pr_state, pr_merged_at, pr_synced_at,
                             created_at, updated_at, published_at
                      FROM draft_sessions
-                     WHERE workspace_id = ?1 AND github_user_id = ?2
+                     WHERE workspace_id = ?1 AND principal_id = ?2
                        AND status != 'abandoned'
                      ORDER BY updated_at DESC",
                 )
                 .map_err(db_err)?;
             let drafts = statement
-                .query_map(params![workspace_id, github_user_id], draft_from_row)
+                .query_map(params![workspace_id, principal_id], draft_from_row)
                 .map_err(db_err)?
                 .collect::<rusqlite::Result<_>>()
                 .map_err(db_err)?;
@@ -661,26 +674,26 @@ impl Store {
 
     pub async fn list_draft_sessions_for_user(
         &self,
-        github_user_id: &str,
+        principal_id: &str,
     ) -> Result<Vec<DraftWithWorkspaceRecord>> {
-        let github_user_id = github_user_id.to_owned();
+        let principal_id = principal_id.to_owned();
         self.with_conn(move |conn, _| {
             let mut statement = conn
                 .prepare(
-                    "SELECT d.id, d.workspace_id, d.github_user_id, d.branch, d.base_ref, d.status,
+                    "SELECT d.id, d.workspace_id, d.principal_id, d.branch, d.base_ref, d.status,
                             d.pr_url, d.pr_number, d.pr_state, d.pr_merged_at, d.pr_synced_at,
                             d.created_at, d.updated_at, d.published_at,
                             w.id, w.repo_id, w.owner, w.name, w.path, w.ref_, w.source, w.discovered_at
                      FROM draft_sessions d
                      INNER JOIN workspaces w ON w.id = d.workspace_id
                      INNER JOIN repos r ON r.id = w.repo_id
-                     WHERE d.github_user_id = ?1 AND r.github_user_id = ?1
+                     WHERE d.principal_id = ?1 AND r.principal_id = ?1
                        AND d.status != 'abandoned'
                      ORDER BY d.updated_at DESC",
                 )
                 .map_err(db_err)?;
             let drafts = statement
-                .query_map(params![github_user_id], |row| {
+                .query_map(params![principal_id], |row| {
                     Ok(DraftWithWorkspaceRecord {
                         draft: draft_from_row(row)?,
                         workspace: workspace_from_row_at(row, 14)?,
@@ -698,19 +711,19 @@ impl Store {
         &self,
         draft_id: &str,
         workspace_id: &str,
-        github_user_id: &str,
+        principal_id: &str,
     ) -> Result<Option<DraftSessionRecord>> {
         let draft_id = draft_id.to_owned();
         let workspace_id = workspace_id.to_owned();
-        let github_user_id = github_user_id.to_owned();
+        let principal_id = principal_id.to_owned();
         self.with_conn(move |conn, _| {
             conn.query_row(
-                "SELECT id, workspace_id, github_user_id, branch, base_ref, status,
+                "SELECT id, workspace_id, principal_id, branch, base_ref, status,
                         pr_url, pr_number, pr_state, pr_merged_at, pr_synced_at,
                         created_at, updated_at, published_at
                  FROM draft_sessions
-                 WHERE id = ?1 AND workspace_id = ?2 AND github_user_id = ?3",
-                params![draft_id, workspace_id, github_user_id],
+                 WHERE id = ?1 AND workspace_id = ?2 AND principal_id = ?3",
+                params![draft_id, workspace_id, principal_id],
                 draft_from_row,
             )
             .optional()
@@ -910,6 +923,38 @@ impl Store {
                 },
             )?;
             Ok(())
+        })
+        .await
+    }
+
+    pub async fn mark_draft_direct_published(
+        &self,
+        draft_id: &str,
+        summary: String,
+        detail: serde_json::Value,
+    ) -> Result<DraftSessionRecord> {
+        let draft_id = draft_id.to_owned();
+        self.with_conn(move |conn, _| {
+            let now = now_iso();
+            conn.execute(
+                "UPDATE draft_sessions
+                 SET status = 'published', pr_url = NULL, pr_number = NULL, pr_state = NULL,
+                     pr_merged_at = NULL, pr_synced_at = NULL, updated_at = ?1, published_at = ?2
+                 WHERE id = ?3",
+                params![now, now, draft_id],
+            )
+            .map_err(db_err)?;
+            record_draft_event_sync(
+                conn,
+                &DraftEventInput {
+                    draft_id: draft_id.clone(),
+                    kind: "direct_push.published".to_owned(),
+                    summary,
+                    detail: Some(detail),
+                },
+            )?;
+            draft_session_by_id(conn, &draft_id)?
+                .ok_or_else(|| RototoError::new("draft direct publish update failed"))
         })
         .await
     }
@@ -1129,19 +1174,19 @@ pub fn workspace_slug(name: &str, path: &str) -> String {
 
 fn list_workspaces_for_user_sync(
     conn: &Connection,
-    github_user_id: &str,
+    principal_id: &str,
 ) -> Result<Vec<WorkspaceRecord>> {
     let mut statement = conn
         .prepare(
             "SELECT w.id, w.repo_id, w.owner, w.name, w.path, w.ref_, w.source, w.discovered_at
              FROM workspaces w
              INNER JOIN repos r ON r.id = w.repo_id
-             WHERE r.github_user_id = ?1
+             WHERE r.principal_id = ?1
              ORDER BY w.owner ASC, w.name ASC, w.path ASC",
         )
         .map_err(db_err)?;
     let workspaces = statement
-        .query_map(params![github_user_id], workspace_from_row)
+        .query_map(params![principal_id], workspace_from_row)
         .map_err(db_err)?
         .collect::<rusqlite::Result<_>>()
         .map_err(db_err)?;
@@ -1151,18 +1196,18 @@ fn list_workspaces_for_user_sync(
 fn repo_with_workspaces_by_id(
     conn: &Connection,
     repo_id: &str,
-    github_user_id: &str,
+    principal_id: &str,
 ) -> Result<Option<RepoWithWorkspaces>> {
     let repo = conn
         .query_row(
-            "SELECT id, github_user_id, owner, name, default_ref,
+            "SELECT id, principal_id, owner, name, default_ref,
                     created_at, updated_at, last_discovered_at
-             FROM repos WHERE id = ?1 AND github_user_id = ?2",
-            params![repo_id, github_user_id],
+             FROM repos WHERE id = ?1 AND principal_id = ?2",
+            params![repo_id, principal_id],
             |row| {
                 Ok(RepoRecord {
                     id: row.get(0)?,
-                    github_user_id: row.get(1)?,
+                    principal_id: row.get(1)?,
                     owner: row.get(2)?,
                     name: row.get(3)?,
                     default_ref: row.get(4)?,
@@ -1193,7 +1238,7 @@ fn repo_with_workspaces_by_id(
 
 fn draft_session_by_id(conn: &Connection, draft_id: &str) -> Result<Option<DraftSessionRecord>> {
     conn.query_row(
-        "SELECT id, workspace_id, github_user_id, branch, base_ref, status,
+        "SELECT id, workspace_id, principal_id, branch, base_ref, status,
                 pr_url, pr_number, pr_state, pr_merged_at, pr_synced_at,
                 created_at, updated_at, published_at
          FROM draft_sessions WHERE id = ?1",
@@ -1259,7 +1304,7 @@ fn draft_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<DraftSessionRecor
     Ok(DraftSessionRecord {
         id: row.get(0)?,
         workspace_id: row.get(1)?,
-        github_user_id: row.get(2)?,
+        principal_id: row.get(2)?,
         branch: row.get(3)?,
         base_ref: row.get(4)?,
         status: match status.as_str() {
@@ -1361,17 +1406,29 @@ mod tests {
         let store = test_store().await;
         let token = store
             .create_session(NewSession {
-                github_user_id: "42".to_owned(),
-                github_login: "octocat".to_owned(),
-                github_name: Some("Octo Cat".to_owned()),
-                github_avatar_url: None,
+                identity: ActorIdentity::GitHub {
+                    id: "42".to_owned(),
+                    login: "octocat".to_owned(),
+                    name: Some("Octo Cat".to_owned()),
+                    avatar_url: None,
+                },
                 github_token: "gho_secret".to_owned(),
             })
             .await
             .unwrap();
         let user = store.get_session(&token).await.unwrap().unwrap();
-        assert_eq!(user.github_login, "octocat");
-        assert_eq!(user.github_token, "gho_secret");
+        assert_eq!(user.principal_id, "github:42");
+        assert_eq!(user.github_token.as_deref(), Some("gho_secret"));
+        match user.identity {
+            ActorIdentity::GitHub {
+                id, login, name, ..
+            } => {
+                assert_eq!(id, "42");
+                assert_eq!(login, "octocat");
+                assert_eq!(name.as_deref(), Some("Octo Cat"));
+            }
+            ActorIdentity::GitConfig { .. } => panic!("expected GitHub identity"),
+        }
         store.delete_session(&token).await.unwrap();
         assert!(store.get_session(&token).await.unwrap().is_none());
     }
@@ -1455,7 +1512,7 @@ mod tests {
         store
             .create_draft_session(NewDraftSession {
                 workspace_id: root.id.clone(),
-                github_user_id: "42".to_owned(),
+                principal_id: "42".to_owned(),
                 branch: "draft-root".to_owned(),
                 base_ref: "main".to_owned(),
             })
@@ -1464,7 +1521,7 @@ mod tests {
         store
             .create_draft_session(NewDraftSession {
                 workspace_id: flags.id.clone(),
-                github_user_id: "42".to_owned(),
+                principal_id: "42".to_owned(),
                 branch: "draft-flags".to_owned(),
                 base_ref: "main".to_owned(),
             })
@@ -1473,7 +1530,7 @@ mod tests {
         store
             .create_draft_session(NewDraftSession {
                 workspace_id: root.id.clone(),
-                github_user_id: "99".to_owned(),
+                principal_id: "99".to_owned(),
                 branch: "other-user".to_owned(),
                 base_ref: "main".to_owned(),
             })
@@ -1523,7 +1580,7 @@ mod tests {
         let draft = store
             .create_draft_session(NewDraftSession {
                 workspace_id: workspace.id.clone(),
-                github_user_id: "42".to_owned(),
+                principal_id: "42".to_owned(),
                 branch: "rototo-console/octocat/abc/20260613000000".to_owned(),
                 base_ref: "main".to_owned(),
             })
@@ -1596,7 +1653,7 @@ mod tests {
         let draft = store
             .create_draft_session(NewDraftSession {
                 workspace_id: workspace.id.clone(),
-                github_user_id: "42".to_owned(),
+                principal_id: "42".to_owned(),
                 branch: "draft-branch".to_owned(),
                 base_ref: "main".to_owned(),
             })
@@ -1654,7 +1711,7 @@ mod tests {
         let draft = store
             .create_draft_session(NewDraftSession {
                 workspace_id: repo.workspaces[0].id.clone(),
-                github_user_id: "42".to_owned(),
+                principal_id: "42".to_owned(),
                 branch: "draft-branch".to_owned(),
                 base_ref: "main".to_owned(),
             })

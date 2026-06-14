@@ -145,19 +145,23 @@ internal links in generated package READMEs and defaults to
 ```sh
 rototo console
 rototo console --bind <ADDR> [--public-url <URL>] [--data-dir <DIR>]
-rototo console --read-only --workspace <WORKSPACE_SOURCE>
+rototo console --workspace <WORKSPACE_SOURCE> --write disabled
+rototo console --workspace <WORKSPACE_SOURCE> --write pull-request
+rototo console --workspace <WORKSPACE_SOURCE> --write direct-push
 ```
 
 Use `console` to serve the rototo web console and its JSON API from this
-binary. With no configuration it runs in local mode on
-`http://127.0.0.1:7686`: no sign-in, using your ambient GitHub token
-(`--workspace-token` / `ROTOTO_WORKSPACE_TOKEN`, a stored device-flow sign-in,
-or `gh auth token`). Setting `ROTOTO_GITHUB_CLIENT_ID` and
-`ROTOTO_GITHUB_CLIENT_SECRET` switches it to team mode with GitHub OAuth sign-in;
-`ROTOTO_CONSOLE_TOKEN_ENCRYPTION_KEY` is then required so stored tokens are
-encrypted at rest. `--read-only` serves one workspace without auth and rejects
-every write. See [Self-Hosting the Console](self-hosting-console.md) for
-deployment shapes.
+binary. With no OAuth secret configured it runs as a local deployment on
+`http://127.0.0.1:7686`: no browser sign-in, using git config identity for
+local workspaces and an ambient GitHub token (`--workspace-token` /
+`ROTOTO_WORKSPACE_TOKEN`, a stored device-flow sign-in, or `gh auth token`)
+when GitHub credentials are needed. Setting `ROTOTO_GITHUB_CLIENT_ID` and
+`ROTOTO_GITHUB_CLIENT_SECRET` switches it to hosted deployment with GitHub
+OAuth sign-in; `ROTOTO_CONSOLE_TOKEN_ENCRYPTION_KEY` is then required so
+stored tokens are encrypted at rest. `--workspace` registers one fixed source
+at startup, and `--write` controls whether drafts are disabled, published as
+pull requests, or direct-pushed. See
+[Self-Hosting the Console](self-hosting-console.md) for deployment shapes.
 
 ## `rototo lsp`
 

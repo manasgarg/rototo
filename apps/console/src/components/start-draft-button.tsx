@@ -3,7 +3,15 @@ import { useState } from "react";
 import { GitBranchPlus } from "lucide-react";
 import { apiFetch } from "@/lib/api";
 
-export function StartDraftButton({ workspaceId }: { workspaceId: string }) {
+export function StartDraftButton({
+    workspaceId,
+    disabled,
+    disabledReason,
+}: {
+    workspaceId: string;
+    disabled?: boolean;
+    disabledReason?: string;
+}) {
     const router = useRouter();
     const [pending, setPending] = useState(false);
     const [message, setMessage] = useState<string | null>(null);
@@ -44,7 +52,7 @@ export function StartDraftButton({ workspaceId }: { workspaceId: string }) {
             ) : null}
             <button
                 className="btn btn-primary btn-sm"
-                disabled={pending}
+                disabled={disabled || pending}
                 onClick={startDraft}
                 type="button"
             >
@@ -55,6 +63,9 @@ export function StartDraftButton({ workspaceId }: { workspaceId: string }) {
                 )}
                 {pending ? "Starting draft" : "Edit workspace"}
             </button>
+            {disabled && disabledReason ? (
+                <p className="form-note">{disabledReason}</p>
+            ) : null}
         </div>
     );
 }

@@ -343,7 +343,7 @@ mod tests {
         DraftSessionRecord {
             id: "d1".to_owned(),
             workspace_id: "w1".to_owned(),
-            github_user_id: "42".to_owned(),
+            principal_id: "42".to_owned(),
             branch: branch.to_owned(),
             base_ref: "main".to_owned(),
             status: super::super::store::DraftStatus::Open,

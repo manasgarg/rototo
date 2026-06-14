@@ -20,37 +20,47 @@ rototo console
 
 That starts the console on `http://127.0.0.1:7686`, bound to localhost.
 
-## Local mode: one engineer, one laptop
+## Local Deployment: One Engineer, One Laptop
 
-By default the console runs in local mode: no login screen, no user accounts.
-It needs exactly one credential — a GitHub token — because reading private
-repositories and committing to draft branches both go through the GitHub API
-as you. The console looks for that token in order:
+By default the console runs as a local deployment: no login screen, no user
+database, and no requirement that every workspace live on GitHub. Local folder
+workspaces can be read from disk with the identity already present in the git
+checkout (`user.name` and `user.email`). That keeps the laptop workflow close
+to normal git: if you are working in a local clone, rototo does not make you
+authenticate to GitHub just to inspect or edit files.
+
+A GitHub token still matters when the workspace source or write path needs
+GitHub. Private GitHub repositories need credentials to read, pull-request
+writes need credentials to create branches and PRs, and GitHub direct-push
+writes need credentials to commit to the target branch. In local deployment the
+console looks for that token in order:
 
 1. `--workspace-token` / `ROTOTO_WORKSPACE_TOKEN`, the same token surface
    every other rototo command uses;
 2. a token stored by a previous device-flow sign-in in the console UI;
 3. the GitHub CLI, via `gh auth token`.
 
-If none of those produce a token, the console starts anyway and the UI walks
-you through connecting one. Edits you publish are attributed to your GitHub
-account, because they are made with your token — the console adds no machinery
-on top of GitHub's own permissions.
+If none of those produce a token, the console starts anyway. Local folder
+workspaces still work; GitHub operations remain unavailable until a token is
+present. Edits made through GitHub are attributed to your GitHub account,
+because they are made with your token. Local direct-push edits are committed
+with the git identity configured for that checkout.
 
 Console state defaults to the platform data directory (for example
 `~/.local/share/rototo/console`); point `ROTOTO_CONSOLE_DATA_DIR` or
 `--data-dir` somewhere else to keep per-project state separate.
 
-## Team mode: one console, GitHub sign-in
+## Hosted Deployment: One Console, GitHub Sign-In
 
-A shared console deployment changes one thing: identity. Instead of a single
-ambient token, each user signs in with GitHub OAuth and the console keeps
-their token encrypted at rest, scoped to their session. Authorization stays
-where it already lives — GitHub repository permissions. A user who cannot
-push to the repository cannot edit drafts through the console, and every pull
-request is attributed to the person who made it, not to a shared bot.
+A shared console deployment changes how identity and credentials are
+established. Instead of deriving them from a laptop environment, each user
+signs in with GitHub OAuth and the console keeps their token encrypted at rest,
+scoped to their session. Authorization stays where it already lives: GitHub
+repository permissions. A user who cannot push to the repository cannot edit
+drafts through the console, and every pull request is attributed to the person
+who made it, not to a shared bot.
 
-Team mode turns on when OAuth credentials are configured:
+Hosted deployment turns on when both OAuth credentials are configured:
 
 ```sh
 ROTOTO_GITHUB_CLIENT_ID=… \
@@ -75,25 +85,34 @@ reverse proxy in front of it for TLS and network exposure, the same way you
 would for Prometheus or any other internal tool. The console does not try to
 be your TLS terminator or your VPN.
 
-## Read-only mode: a console anyone can look at
+## Fixed Workspace and Write Policy
 
-A read-only console serves one workspace with no sign-in and rejects every
-write. It is the right shape for demos and for "what is configured right
-now?" dashboards on a team TV:
+Deployment is separate from the workspace source and from the write policy.
+`--workspace` fixes the console to one workspace source. `--write` says what
+the console is allowed to do with that source:
 
 ```sh
-rototo console --read-only \
-  --workspace https://api.github.com/repos/acme/config/tarball/main
+rototo console --workspace examples/basic --write disabled
+rototo console --workspace examples/basic --write direct-push
+rototo console \
+  --workspace https://api.github.com/repos/acme/config/tarball/main \
+  --write pull-request
 ```
 
 Workspace sources here are the same sources every rototo command accepts —
 local paths, `git+https://`, or archive URLs, with `#ref:subdir` selection.
 
+- `--write disabled` turns the console into an inspection surface. It can load
+  and lint the workspace, but draft creation and publishing are rejected.
+- `--write pull-request` creates draft branches and pull requests for GitHub
+  workspaces.
+- `--write direct-push` commits directly to a local checkout or to the
+  configured GitHub ref, depending on where the workspace lives.
+
 ## The boundary worth knowing
 
-The console writes through the GitHub API: draft branches, file commits, and
-pull requests. Reading workspaces works from any source rototo supports, but
-editing currently requires the workspace to live on GitHub. If your
-configuration repository lives elsewhere, the CLI and SDK workflows work
-today; console editing for other git hosts is a deliberate, separate piece of
-work rather than something half-supported.
+Reading workspaces works from any source rototo supports. Editing is narrower:
+the console can write GitHub workspaces through the GitHub API, and it can
+write local folder workspaces through local git when direct-push is enabled.
+Other hosted forges are a deliberate, separate piece of work rather than
+something half-supported behind a generic mode flag.

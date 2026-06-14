@@ -68,6 +68,7 @@ import type {
     LintDiagnostic,
     WorkspaceDefinition,
     WorkspaceSemanticModel,
+    WorkspaceWriteCapability,
 } from "@/lib/types";
 import { NotFound } from "@/screens/not-found";
 import {
@@ -153,6 +154,7 @@ export function DraftScreen({
         entities: editableEntities,
         editLoadError,
         editedPaths,
+        capabilities,
     } = load.data;
     const lint = load.data.lint as DraftLintLoad;
 
@@ -544,6 +546,7 @@ export function DraftScreen({
                         draft={draft}
                         lintHasErrors={lintHasErrors}
                         prSyncError={prSyncError}
+                        writeCapability={capabilities.write}
                         workspaceId={workspace.slug}
                     />
                 ) : null}
@@ -1152,24 +1155,36 @@ function DraftPublishScreen({
     draft,
     lintHasErrors,
     prSyncError,
+    writeCapability,
     workspaceId,
 }: {
     changesCount: number;
     draft: DraftSessionRecord;
     lintHasErrors: boolean;
     prSyncError: string | null;
+    writeCapability: WorkspaceWriteCapability;
     workspaceId: string;
 }) {
     const published = Boolean(draft.prUrl);
+    const directPush = writeCapability.kind === "directPush";
     return (
         <section className="section">
             <div className="section-header-text">
                 <h1>Publish</h1>
                 <p className="hint">
-                    Publishing opens a pull request from{" "}
-                    <span className="mono">{draft.branch}</span> to{" "}
-                    <span className="mono">{draft.baseRef}</span>. Nothing
-                    reaches the base ref without review.
+                    {directPush
+                        ? "Publishing applies the configured direct-push workflow for "
+                        : "Publishing opens a pull request from "}
+                    <span className="mono">{draft.branch}</span>
+                    {directPush ? (
+                        "."
+                    ) : (
+                        <>
+                            {" "}
+                            to <span className="mono">{draft.baseRef}</span>.
+                            Nothing reaches the base ref without review.
+                        </>
+                    )}
                 </p>
             </div>
             {published ? (
@@ -1239,6 +1254,7 @@ function DraftPublishScreen({
                                     lintHasErrors
                                 }
                                 draftId={draft.id}
+                                writeKind={writeCapability.kind}
                                 workspaceId={workspaceId}
                             />
                         </div>
