@@ -2,6 +2,12 @@ use serde::Serialize;
 
 use crate::console::identity::ActorIdentity;
 
+/// Authenticated console user loaded from the `sessions` table.
+///
+/// This exists so request handlers can authorize a principal and, when writes
+/// are allowed, use the user's GitHub token without sending that token back to
+/// the browser. Sessions are created after OAuth sign-in, deleted on logout,
+/// and lazily removed when a lookup finds that the stored expiry has passed.
 #[derive(Clone, Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SessionUser {
@@ -12,6 +18,13 @@ pub struct SessionUser {
     pub github_token: Option<String>,
 }
 
+/// Repository registered for one console principal.
+///
+/// This is the parent record for workspace discovery and draft ownership. It is
+/// inserted the first time discovery sees a repo for a principal, refreshed by
+/// later discovery runs to update the default ref and discovery timestamps, and
+/// deleted explicitly by the user; deleting it cascades to workspaces, drafts,
+/// draft changes, and draft events.
 #[derive(Clone, Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct RepoRecord {
@@ -25,6 +38,13 @@ pub struct RepoRecord {
     pub last_discovered_at: Option<String>,
 }
 
+/// Discovered rototo workspace inside a repository.
+///
+/// This exists so the console can address a workspace by id or slug, reconstruct
+/// the workspace source, and scope lint, preview, and draft operations. Discovery
+/// inserts new rows, refreshes rows it still finds, deletes rows that no longer
+/// exist when no draft references them, and otherwise marks missing rows
+/// inactive so existing draft links can still resolve.
 #[derive(Clone, Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct WorkspaceRecord {
@@ -42,6 +62,12 @@ pub struct WorkspaceRecord {
     pub discovered_at: String,
 }
 
+/// Repository response with its currently active workspaces.
+///
+/// This exists as an API projection for repo navigation and discovery responses.
+/// It is not stored independently; each value is rebuilt from one `repos` row
+/// and that repo's active `workspaces` rows, so its lifecycle follows those
+/// underlying records.
 #[derive(Clone, Debug, Serialize)]
 pub struct RepoWithWorkspaces {
     #[serde(flatten)]
@@ -57,6 +83,14 @@ pub enum DraftStatus {
     Abandoned,
 }
 
+/// Editable draft branch for a workspace and principal.
+///
+/// This exists to group proposed workspace edits, their activity history, and
+/// any GitHub pull request state under one branch. Drafts start open, become
+/// published after a direct push or pull request creation, can reopen when a
+/// pull request is closed without merging, and become abandoned when the user
+/// discards them. Deleting the parent workspace or repository cascades to the
+/// draft and its child records.
 #[derive(Clone, Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct DraftSessionRecord {
@@ -76,6 +110,12 @@ pub struct DraftSessionRecord {
     pub published_at: Option<String>,
 }
 
+/// Draft list item paired with the workspace it edits.
+///
+/// This exists for user-level draft views that need workspace metadata beside
+/// the draft state. It is not stored independently; each value is rebuilt from a
+/// `draft_sessions` row joined to its `workspaces` row, and normal lists omit
+/// abandoned drafts.
 #[derive(Clone, Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct DraftWithWorkspaceRecord {
@@ -83,6 +123,13 @@ pub struct DraftWithWorkspaceRecord {
     pub workspace: WorkspaceRecord,
 }
 
+/// Net semantic change inside a draft.
+///
+/// This exists so the console can render pending edits, rebuild workspace files,
+/// and describe changes in a pull request without committing each keystroke.
+/// There is at most one row per draft, variable, and value key; it is inserted
+/// on first divergence from the original value, updated as the user edits, and
+/// deleted when the value is reverted. Draft deletion cascades to its changes.
 #[derive(Clone, Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct DraftChangeRecord {
@@ -96,6 +143,12 @@ pub struct DraftChangeRecord {
     pub updated_at: String,
 }
 
+/// Append-only activity entry for a draft.
+///
+/// This exists to preserve the console timeline for draft creation, edits,
+/// publication, abandonment, and pull request sync events. Events are inserted
+/// as side effects of those operations and are not updated; deleting the parent
+/// draft cascades to its event history.
 #[derive(Clone, Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct DraftEventRecord {
