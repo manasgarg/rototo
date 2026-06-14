@@ -1,15 +1,65 @@
-use rusqlite::Connection;
+use rusqlite::{Connection, Transaction, TransactionBehavior};
 
 use crate::error::{Result, RototoError};
 
 use super::util::db_err;
 
+const CURRENT_SCHEMA_VERSION: i32 = 1;
+const BASELINE_SCHEMA_VERSION: i32 = 1;
+
 pub(super) fn initialize_schema(conn: &Connection) -> Result<()> {
+    configure_connection(conn)?;
+    migrate_schema(conn)
+}
+
+fn configure_connection(conn: &Connection) -> Result<()> {
     conn.execute_batch(
         r#"
         PRAGMA journal_mode = WAL;
         PRAGMA foreign_keys = ON;
+        "#,
+    )
+    .map_err(|err| RototoError::new(format!("failed to configure console database: {err}")))
+}
 
+fn migrate_schema(conn: &Connection) -> Result<()> {
+    let version = schema_version(conn)?;
+    if version > CURRENT_SCHEMA_VERSION {
+        return Err(RototoError::new(format!(
+            "console database schema version {version} is newer than this rototo binary supports ({CURRENT_SCHEMA_VERSION})"
+        )));
+    }
+    if version == CURRENT_SCHEMA_VERSION {
+        return Ok(());
+    }
+
+    let tx = Transaction::new_unchecked(conn, TransactionBehavior::Immediate).map_err(db_err)?;
+    let mut version = schema_version(&tx)?;
+    if version > CURRENT_SCHEMA_VERSION {
+        return Err(RototoError::new(format!(
+            "console database schema version {version} is newer than this rototo binary supports ({CURRENT_SCHEMA_VERSION})"
+        )));
+    }
+
+    if version == 0 {
+        create_schema_v1(&tx)?;
+        baseline_legacy_schema(&tx)?;
+        set_schema_version(&tx, BASELINE_SCHEMA_VERSION)?;
+        version = BASELINE_SCHEMA_VERSION;
+    }
+
+    while version < CURRENT_SCHEMA_VERSION {
+        version = migrate_one_schema_version(&tx, version)?;
+        set_schema_version(&tx, version)?;
+    }
+
+    tx.commit().map_err(db_err)?;
+    Ok(())
+}
+
+fn create_schema_v1(conn: &Connection) -> Result<()> {
+    conn.execute_batch(
+        r#"
         CREATE TABLE IF NOT EXISTS sessions (
           id TEXT PRIMARY KEY,
           principal_id TEXT NOT NULL,
@@ -94,9 +144,33 @@ pub(super) fn initialize_schema(conn: &Connection) -> Result<()> {
         );
         "#,
     )
-    .map_err(|err| RototoError::new(format!("failed to initialize console database: {err}")))?;
+    .map_err(|err| {
+        RototoError::new(format!(
+            "failed to initialize console database schema: {err}"
+        ))
+    })?;
+    Ok(())
+}
+
+fn baseline_legacy_schema(conn: &Connection) -> Result<()> {
     ensure_column(conn, "workspaces", "active", "INTEGER NOT NULL DEFAULT 1")?;
     Ok(())
+}
+
+fn migrate_one_schema_version(_conn: &Connection, version: i32) -> Result<i32> {
+    Err(RototoError::new(format!(
+        "missing console database migration from schema version {version}"
+    )))
+}
+
+fn schema_version(conn: &Connection) -> Result<i32> {
+    conn.query_row("PRAGMA user_version", [], |row| row.get(0))
+        .map_err(db_err)
+}
+
+fn set_schema_version(conn: &Connection, version: i32) -> Result<()> {
+    conn.execute_batch(&format!("PRAGMA user_version = {version}"))
+        .map_err(db_err)
 }
 
 fn ensure_column(conn: &Connection, table: &str, column: &str, ddl: &str) -> Result<()> {

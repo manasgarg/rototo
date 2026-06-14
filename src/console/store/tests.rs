@@ -1,6 +1,8 @@
 use crate::console::identity::ActorIdentity;
 use crate::console::token_crypto::TokenCrypto;
 
+use rusqlite::Connection;
+
 use super::*;
 
 async fn test_store() -> Store {
@@ -13,6 +15,106 @@ fn discovered(path: &str) -> DiscoveredWorkspaceInput {
         git_ref: "main".to_owned(),
         source: format!("https://api.github.com/repos/o/r/tarball/main#:{path}"),
     }
+}
+
+fn user_version(conn: &Connection) -> i32 {
+    conn.query_row("PRAGMA user_version", [], |row| row.get(0))
+        .unwrap()
+}
+
+fn table_columns(conn: &Connection, table: &str) -> Vec<String> {
+    let mut statement = conn
+        .prepare(&format!("PRAGMA table_info({table})"))
+        .unwrap();
+    statement
+        .query_map([], |row| row.get::<_, String>(1))
+        .unwrap()
+        .collect::<rusqlite::Result<Vec<_>>>()
+        .unwrap()
+}
+
+#[test]
+fn schema_initialization_sets_store_schema_version() {
+    let conn = Connection::open_in_memory().unwrap();
+    schema::initialize_schema(&conn).unwrap();
+
+    assert_eq!(user_version(&conn), 1);
+}
+
+#[test]
+fn schema_initialization_baselines_legacy_version_zero_stores() {
+    let conn = Connection::open_in_memory().unwrap();
+    conn.execute_batch(
+        r#"
+        CREATE TABLE repos (
+          id TEXT PRIMARY KEY,
+          principal_id TEXT NOT NULL,
+          owner TEXT NOT NULL,
+          name TEXT NOT NULL,
+          default_ref TEXT NOT NULL,
+          created_at TEXT NOT NULL,
+          updated_at TEXT NOT NULL,
+          last_discovered_at TEXT,
+          UNIQUE(principal_id, owner, name)
+        );
+
+        CREATE TABLE workspaces (
+          id TEXT PRIMARY KEY,
+          repo_id TEXT NOT NULL,
+          owner TEXT NOT NULL,
+          name TEXT NOT NULL,
+          path TEXT NOT NULL,
+          ref_ TEXT NOT NULL,
+          source TEXT NOT NULL,
+          discovered_at TEXT NOT NULL,
+          UNIQUE(repo_id, path, ref_),
+          FOREIGN KEY(repo_id) REFERENCES repos(id) ON DELETE CASCADE
+        );
+
+        INSERT INTO repos (
+          id, principal_id, owner, name, default_ref,
+          created_at, updated_at, last_discovered_at
+        ) VALUES (
+          'repo-1', '42', 'octo', 'configs', 'main',
+          '2026-06-14T00:00:00Z', '2026-06-14T00:00:00Z', NULL
+        );
+
+        INSERT INTO workspaces (
+          id, repo_id, owner, name, path, ref_, source, discovered_at
+        ) VALUES (
+          'workspace-1', 'repo-1', 'octo', 'configs', '.', 'main',
+          'git+https://github.com/octo/configs#main:.', '2026-06-14T00:00:00Z'
+        );
+        "#,
+    )
+    .unwrap();
+
+    schema::initialize_schema(&conn).unwrap();
+
+    assert_eq!(user_version(&conn), 1);
+    assert!(
+        table_columns(&conn, "workspaces")
+            .iter()
+            .any(|column| column == "active")
+    );
+    let active: i32 = conn
+        .query_row(
+            "SELECT active FROM workspaces WHERE id = 'workspace-1'",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap();
+    assert_eq!(active, 1);
+}
+
+#[test]
+fn schema_initialization_rejects_newer_store_schema() {
+    let conn = Connection::open_in_memory().unwrap();
+    conn.execute_batch("PRAGMA user_version = 99").unwrap();
+
+    let err = schema::initialize_schema(&conn).unwrap_err();
+
+    assert!(err.to_string().contains("newer than this rototo binary"));
 }
 
 #[tokio::test]
