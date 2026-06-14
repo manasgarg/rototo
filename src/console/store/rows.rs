@@ -1,7 +1,21 @@
 use super::repos::workspace_slug;
 use super::types::{
-    DraftChangeRecord, DraftEventRecord, DraftSessionRecord, DraftStatus, WorkspaceRecord,
+    DraftChangeRecord, DraftEventRecord, DraftSessionRecord, DraftStatus, RepoRecord,
+    WorkspaceRecord,
 };
+
+pub(super) fn repo_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<RepoRecord> {
+    Ok(RepoRecord {
+        id: row.get(0)?,
+        principal_id: row.get(1)?,
+        owner: row.get(2)?,
+        name: row.get(3)?,
+        default_ref: row.get(4)?,
+        created_at: row.get(5)?,
+        updated_at: row.get(6)?,
+        last_discovered_at: row.get(7)?,
+    })
+}
 
 pub(super) fn workspace_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<WorkspaceRecord> {
     workspace_from_row_at(row, 0)
