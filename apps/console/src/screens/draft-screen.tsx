@@ -1077,7 +1077,7 @@ function DraftChangesScreen({
                     {changes.map((change) => (
                         <article
                             className="diffcard"
-                            data-search={`${change.variableId} ${change.valueKey} ${change.filePath} ${change.beforeJson} ${change.afterJson}`}
+                            data-search={`${change.filePath} ${change.targetPath ?? ""} ${change.beforeJson} ${change.afterJson}`}
                             key={change.id}
                         >
                             <div className="diffhead">
@@ -1090,14 +1090,15 @@ function DraftChangesScreen({
                                                 ) as string
                                             }
                                         >
-                                            {change.variableId}
+                                            {change.filePath}
                                         </Link>
                                     ) : (
-                                        change.variableId
-                                    )}{" "}
-                                    · {change.filePath}
+                                        change.filePath
+                                    )}
                                 </span>
-                                <span className="tag">{change.valueKey}</span>
+                                <span className="tag">
+                                    {change.targetPath ?? "file"}
+                                </span>
                             </div>
                             <div className="diffbody">
                                 <div className="dl dl-del">

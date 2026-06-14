@@ -4,7 +4,7 @@ use crate::error::{Result, RototoError};
 
 use super::util::db_err;
 
-const CURRENT_SCHEMA_VERSION: i32 = 1;
+const CURRENT_SCHEMA_VERSION: i32 = 2;
 const BASELINE_SCHEMA_VERSION: i32 = 1;
 
 pub(super) fn initialize_schema(conn: &Connection) -> Result<()> {
@@ -157,10 +157,95 @@ fn baseline_legacy_schema(conn: &Connection) -> Result<()> {
     Ok(())
 }
 
-fn migrate_one_schema_version(_conn: &Connection, version: i32) -> Result<i32> {
-    Err(RototoError::new(format!(
-        "missing console database migration from schema version {version}"
-    )))
+fn migrate_one_schema_version(conn: &Connection, version: i32) -> Result<i32> {
+    match version {
+        1 => {
+            migrate_schema_v2(conn)?;
+            Ok(2)
+        }
+        _ => Err(RototoError::new(format!(
+            "missing console database migration from schema version {version}"
+        ))),
+    }
+}
+
+fn migrate_schema_v2(conn: &Connection) -> Result<()> {
+    struct LegacyDraftChange {
+        id: String,
+        draft_id: String,
+        file_path: String,
+        value_key: String,
+        before_json: String,
+        after_json: String,
+        updated_at: String,
+    }
+
+    let changes = {
+        let mut statement = conn
+            .prepare(
+                "SELECT id, draft_id, file_path, value_key, before_json, after_json, updated_at
+                 FROM draft_changes",
+            )
+            .map_err(db_err)?;
+        statement
+            .query_map([], |row| {
+                Ok(LegacyDraftChange {
+                    id: row.get(0)?,
+                    draft_id: row.get(1)?,
+                    file_path: row.get(2)?,
+                    value_key: row.get(3)?,
+                    before_json: row.get(4)?,
+                    after_json: row.get(5)?,
+                    updated_at: row.get(6)?,
+                })
+            })
+            .map_err(db_err)?
+            .collect::<rusqlite::Result<Vec<_>>>()
+            .map_err(db_err)?
+    };
+
+    conn.execute_batch(
+        r#"
+        ALTER TABLE draft_changes RENAME TO draft_changes_v1;
+
+        CREATE TABLE draft_changes (
+          id TEXT PRIMARY KEY,
+          draft_id TEXT NOT NULL,
+          file_path TEXT NOT NULL,
+          target_path TEXT,
+          before_json TEXT NOT NULL,
+          after_json TEXT NOT NULL,
+          updated_at TEXT NOT NULL,
+          FOREIGN KEY(draft_id) REFERENCES draft_sessions(id) ON DELETE CASCADE
+        );
+
+        CREATE UNIQUE INDEX draft_changes_target_idx
+        ON draft_changes(draft_id, file_path, COALESCE(target_path, ''));
+        "#,
+    )
+    .map_err(db_err)?;
+
+    for change in changes {
+        conn.execute(
+            "INSERT INTO draft_changes (
+               id, draft_id, file_path, target_path, before_json, after_json, updated_at
+             ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+            rusqlite::params![
+                change.id,
+                change.draft_id,
+                change.file_path,
+                value_target_path(&change.value_key),
+                change.before_json,
+                change.after_json,
+                change.updated_at,
+            ],
+        )
+        .map_err(db_err)?;
+    }
+
+    conn.execute_batch("DROP TABLE draft_changes_v1")
+        .map_err(db_err)?;
+    Ok(())
 }
 
 fn schema_version(conn: &Connection) -> Result<i32> {
@@ -191,4 +276,12 @@ fn ensure_column(conn: &Connection, table: &str, column: &str, ddl: &str) -> Res
     )
     .map_err(db_err)?;
     Ok(())
+}
+
+fn value_target_path(value_key: &str) -> String {
+    format!("/values/{}", json_pointer_escape(value_key))
+}
+
+fn json_pointer_escape(segment: &str) -> String {
+    segment.replace('~', "~0").replace('/', "~1")
 }

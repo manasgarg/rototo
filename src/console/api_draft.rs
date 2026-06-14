@@ -34,7 +34,7 @@ use super::variable_toml::update_primitive_variable_default;
 use super::workspace_edit::{
     EntityKind, belongs_to_workspace, draft_branch_name, draft_pr_body, draft_pr_title,
     draft_source, entity_template_files, expected_variable_file_path, parse_entity_id,
-    parse_variable_type,
+    parse_variable_type, variable_value_target_path,
 };
 
 const PR_SYNC_FRESH: Duration = Duration::from_secs(60);
@@ -749,8 +749,7 @@ async fn draft_variable_save(
         .record_draft_change(DraftChangeInput {
             draft_id: context.draft.id.clone(),
             file_path,
-            variable_id,
-            value_key: update.value_key,
+            target_path: Some(variable_value_target_path(&update.value_key)),
             before: update.before,
             after: update.after,
         })
@@ -844,11 +843,12 @@ async fn draft_file_save(
         }
         state
             .store
-            .record_draft_event(DraftEventInput {
+            .record_draft_change(DraftChangeInput {
                 draft_id: context.draft.id.clone(),
-                kind: "file.updated".to_owned(),
-                summary: format!("Updated {file_path}"),
-                detail: Some(json!({ "filePath": file_path })),
+                file_path,
+                target_path: None,
+                before: json!(current_text),
+                after: json!(content),
             })
             .await?;
         invalidate_draft(&state, &context.workspace, &context.draft).await;

@@ -22,6 +22,10 @@ pub fn expected_variable_file_path(workspace: &WorkspaceRecord, variable_id: &st
     workspace_repo_path(&workspace.path, &format!("variables/{variable_id}.toml"))
 }
 
+pub fn variable_value_target_path(value_key: &str) -> String {
+    format!("/values/{}", json_pointer_escape_segment(value_key))
+}
+
 pub fn draft_branch_name(login: &str, workspace: &WorkspaceRecord) -> String {
     let login: String = {
         let mut cleaned = String::new();
@@ -75,10 +79,14 @@ pub fn draft_pr_body(
         changes
             .iter()
             .map(|change| {
+                let target = match change.target_path.as_deref() {
+                    Some(target_path) if !target_path.is_empty() => {
+                        format!("`{}` `{}`", change.file_path, target_path)
+                    }
+                    _ => format!("`{}`", change.file_path),
+                };
                 format!(
-                    "- variable `{}` value `{}`: `{}` -> `{}`",
-                    change.variable_id,
-                    change.value_key,
+                    "- {target}: `{}` -> `{}`",
                     json_summary(&change.before_json),
                     json_summary(&change.after_json),
                 )
@@ -108,6 +116,10 @@ fn json_summary(value: &str) -> String {
     serde_json::from_str::<JsonValue>(value)
         .map(|parsed| parsed.to_string())
         .unwrap_or_else(|_| value.to_owned())
+}
+
+fn json_pointer_escape_segment(segment: &str) -> String {
+    segment.replace('~', "~0").replace('/', "~1")
 }
 
 /// File paths must stay inside the workspace: no absolute paths, no `..`
@@ -431,8 +443,7 @@ mod tests {
                 id: "c1".to_owned(),
                 draft_id: "d1".to_owned(),
                 file_path: "variables/banner.toml".to_owned(),
-                variable_id: "banner".to_owned(),
-                value_key: "control".to_owned(),
+                target_path: Some("/values/control".to_owned()),
                 before_json: "false".to_owned(),
                 after_json: "true".to_owned(),
                 updated_at: "2026-01-01T00:00:00.000Z".to_owned(),
@@ -442,6 +453,6 @@ mod tests {
         );
         assert!(body.starts_with("## Rototo Console"));
         assert!(body.contains("Lint status: 2 warning(s)"));
-        assert!(body.contains("- variable `banner` value `control`: `false` -> `true`"));
+        assert!(body.contains("- `variables/banner.toml` `/values/control`: `false` -> `true`"));
     }
 }

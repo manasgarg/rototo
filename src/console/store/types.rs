@@ -123,21 +123,21 @@ pub struct DraftWithWorkspaceRecord {
     pub workspace: WorkspaceRecord,
 }
 
-/// Net semantic change inside a draft.
+/// Net change inside a draft.
 ///
 /// This exists so the console can render pending edits, rebuild workspace files,
 /// and describe changes in a pull request without committing each keystroke.
-/// There is at most one row per draft, variable, and value key; it is inserted
-/// on first divergence from the original value, updated as the user edits, and
-/// deleted when the value is reverted. Draft deletion cascades to its changes.
+/// There is at most one row per draft, file path, and optional target path; it
+/// is inserted on first divergence from the original value, updated as the user
+/// edits, and deleted when the value is reverted. Draft deletion cascades to its
+/// changes.
 #[derive(Clone, Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct DraftChangeRecord {
     pub id: String,
     pub draft_id: String,
     pub file_path: String,
-    pub variable_id: String,
-    pub value_key: String,
+    pub target_path: Option<String>,
     pub before_json: String,
     pub after_json: String,
     pub updated_at: String,
@@ -175,8 +175,7 @@ pub struct NewDraftSession {
 pub struct DraftChangeInput {
     pub draft_id: String,
     pub file_path: String,
-    pub variable_id: String,
-    pub value_key: String,
+    pub target_path: Option<String>,
     pub before: serde_json::Value,
     pub after: serde_json::Value,
 }

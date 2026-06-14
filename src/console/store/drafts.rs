@@ -148,13 +148,20 @@ impl Store {
     ) -> Result<Option<DraftChangeRecord>> {
         self.with_conn(move |conn, _| {
             let now = now_iso();
+            let target_path = input
+                .target_path
+                .clone()
+                .filter(|target| !target.is_empty());
+            let target_label = draft_change_target_label(&input.file_path, target_path.as_deref());
             let existing = conn
                 .query_row(
-                    "SELECT id, draft_id, file_path, variable_id, value_key,
-                        before_json, after_json, updated_at
+                    "SELECT id, draft_id, file_path, target_path, before_json, after_json,
+                        updated_at
                  FROM draft_changes
-                 WHERE draft_id = ?1 AND variable_id = ?2 AND value_key = ?3",
-                    params![input.draft_id, input.variable_id, input.value_key],
+                 WHERE draft_id = ?1
+                   AND file_path = ?2
+                   AND COALESCE(target_path, '') = COALESCE(?3, '')",
+                    params![input.draft_id, input.file_path, target_path.as_deref()],
                     change_from_row,
                 )
                 .optional()
@@ -168,8 +175,10 @@ impl Store {
                 if existing.is_some() {
                     conn.execute(
                         "DELETE FROM draft_changes
-                     WHERE draft_id = ?1 AND variable_id = ?2 AND value_key = ?3",
-                        params![input.draft_id, input.variable_id, input.value_key],
+                     WHERE draft_id = ?1
+                       AND file_path = ?2
+                       AND COALESCE(target_path, '') = COALESCE(?3, '')",
+                        params![input.draft_id, input.file_path, target_path.as_deref()],
                     )
                     .map_err(db_err)?;
                     conn.execute(
@@ -182,11 +191,10 @@ impl Store {
                         &DraftEventInput {
                             draft_id: input.draft_id.clone(),
                             kind: "change.reverted".to_owned(),
-                            summary: format!("Reverted {} {}", input.variable_id, input.value_key),
+                            summary: format!("Reverted {target_label}"),
                             detail: Some(serde_json::json!({
                                 "filePath": input.file_path,
-                                "variableId": input.variable_id,
-                                "valueKey": input.value_key,
+                                "targetPath": target_path,
                             })),
                         },
                     )?;
@@ -197,30 +205,30 @@ impl Store {
             if existing.is_some() {
                 conn.execute(
                     "UPDATE draft_changes
-                 SET file_path = ?1, after_json = ?2, updated_at = ?3
-                 WHERE draft_id = ?4 AND variable_id = ?5 AND value_key = ?6",
+                 SET after_json = ?1, updated_at = ?2
+                 WHERE draft_id = ?3
+                   AND file_path = ?4
+                   AND COALESCE(target_path, '') = COALESCE(?5, '')",
                     params![
-                        input.file_path,
                         input.after.to_string(),
                         now,
                         input.draft_id,
-                        input.variable_id,
-                        input.value_key,
+                        input.file_path,
+                        target_path.as_deref(),
                     ],
                 )
                 .map_err(db_err)?;
             } else {
                 conn.execute(
                     "INSERT INTO draft_changes (
-                   id, draft_id, file_path, variable_id, value_key,
-                   before_json, after_json, updated_at
-                 ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+                   id, draft_id, file_path, target_path, before_json, after_json,
+                   updated_at
+                 ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
                     params![
                         new_id(),
                         input.draft_id,
                         input.file_path,
-                        input.variable_id,
-                        input.value_key,
+                        target_path.as_deref(),
                         input.before.to_string(),
                         input.after.to_string(),
                         now,
@@ -230,11 +238,13 @@ impl Store {
             }
             let change = conn
                 .query_row(
-                    "SELECT id, draft_id, file_path, variable_id, value_key,
-                        before_json, after_json, updated_at
+                    "SELECT id, draft_id, file_path, target_path, before_json, after_json,
+                        updated_at
                  FROM draft_changes
-                 WHERE draft_id = ?1 AND variable_id = ?2 AND value_key = ?3",
-                    params![input.draft_id, input.variable_id, input.value_key],
+                 WHERE draft_id = ?1
+                   AND file_path = ?2
+                   AND COALESCE(target_path, '') = COALESCE(?3, '')",
+                    params![input.draft_id, input.file_path, target_path.as_deref()],
                     change_from_row,
                 )
                 .map_err(db_err)?;
@@ -254,19 +264,16 @@ impl Store {
                     }
                     .to_owned(),
                     summary: format!(
-                        "{} {} {}",
+                        "{} {target_label}",
                         if existing.is_some() {
                             "Updated"
                         } else {
                             "Changed"
                         },
-                        input.variable_id,
-                        input.value_key
                     ),
                     detail: Some(serde_json::json!({
                         "filePath": input.file_path,
-                        "variableId": input.variable_id,
-                        "valueKey": input.value_key,
+                        "targetPath": target_path,
                     })),
                 },
             )?;
@@ -280,11 +287,11 @@ impl Store {
         self.with_conn(move |conn, _| {
             let mut statement = conn
                 .prepare(
-                    "SELECT id, draft_id, file_path, variable_id, value_key,
-                        before_json, after_json, updated_at
+                    "SELECT id, draft_id, file_path, target_path, before_json, after_json,
+                        updated_at
                  FROM draft_changes
                  WHERE draft_id = ?1
-                 ORDER BY updated_at ASC, variable_id ASC",
+                 ORDER BY updated_at ASC, file_path ASC, target_path ASC",
                 )
                 .map_err(db_err)?;
             let changes: Vec<DraftChangeRecord> = statement
@@ -604,5 +611,12 @@ fn is_net_draft_change(change: &DraftChangeRecord) -> bool {
     match (before, after) {
         (Some(before), Some(after)) => before != after,
         _ => true,
+    }
+}
+
+fn draft_change_target_label(file_path: &str, target_path: Option<&str>) -> String {
+    match target_path {
+        Some(target_path) if !target_path.is_empty() => format!("{file_path}:{target_path}"),
+        _ => file_path.to_owned(),
     }
 }

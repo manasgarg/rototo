@@ -38,7 +38,7 @@ fn schema_initialization_sets_store_schema_version() {
     let conn = Connection::open_in_memory().unwrap();
     schema::initialize_schema(&conn).unwrap();
 
-    assert_eq!(user_version(&conn), 1);
+    assert_eq!(user_version(&conn), 2);
 }
 
 #[test]
@@ -91,7 +91,7 @@ fn schema_initialization_baselines_legacy_version_zero_stores() {
 
     schema::initialize_schema(&conn).unwrap();
 
-    assert_eq!(user_version(&conn), 1);
+    assert_eq!(user_version(&conn), 2);
     assert!(
         table_columns(&conn, "workspaces")
             .iter()
@@ -105,6 +105,77 @@ fn schema_initialization_baselines_legacy_version_zero_stores() {
         )
         .unwrap();
     assert_eq!(active, 1);
+}
+
+#[test]
+fn schema_migration_v2_generalizes_draft_change_targets() {
+    let conn = Connection::open_in_memory().unwrap();
+    conn.execute_batch(
+        r#"
+        CREATE TABLE draft_sessions (
+          id TEXT PRIMARY KEY,
+          workspace_id TEXT NOT NULL,
+          principal_id TEXT NOT NULL,
+          branch TEXT NOT NULL,
+          base_ref TEXT NOT NULL,
+          status TEXT NOT NULL,
+          pr_url TEXT,
+          pr_number INTEGER,
+          pr_state TEXT,
+          pr_merged_at TEXT,
+          pr_synced_at TEXT,
+          created_at TEXT NOT NULL,
+          updated_at TEXT NOT NULL,
+          published_at TEXT
+        );
+
+        CREATE TABLE draft_changes (
+          id TEXT PRIMARY KEY,
+          draft_id TEXT NOT NULL,
+          file_path TEXT NOT NULL,
+          variable_id TEXT NOT NULL,
+          value_key TEXT NOT NULL,
+          before_json TEXT NOT NULL,
+          after_json TEXT NOT NULL,
+          updated_at TEXT NOT NULL,
+          UNIQUE(draft_id, variable_id, value_key)
+        );
+
+        INSERT INTO draft_sessions (
+          id, workspace_id, principal_id, branch, base_ref, status,
+          created_at, updated_at
+        ) VALUES (
+          'draft-1', 'workspace-1', '42', 'draft-branch', 'main', 'open',
+          '2026-06-14T00:00:00Z', '2026-06-14T00:00:00Z'
+        );
+
+        INSERT INTO draft_changes (
+          id, draft_id, file_path, variable_id, value_key,
+          before_json, after_json, updated_at
+        ) VALUES (
+          'change-1', 'draft-1', 'variables/banner.toml', 'banner', 'control/test~key',
+          'false', 'true', '2026-06-14T00:00:00Z'
+        );
+
+        PRAGMA user_version = 1;
+        "#,
+    )
+    .unwrap();
+
+    schema::initialize_schema(&conn).unwrap();
+
+    assert_eq!(user_version(&conn), 2);
+    let columns = table_columns(&conn, "draft_changes");
+    assert!(columns.iter().any(|column| column == "target_path"));
+    assert!(!columns.iter().any(|column| column == "variable_id"));
+    let target_path: String = conn
+        .query_row(
+            "SELECT target_path FROM draft_changes WHERE id = 'change-1'",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap();
+    assert_eq!(target_path, "/values/control~1test~0key");
 }
 
 #[test]
@@ -436,23 +507,24 @@ async fn draft_change_revert_deletes_row() {
         .record_draft_change(DraftChangeInput {
             draft_id: draft.id.clone(),
             file_path: "variables/banner.toml".to_owned(),
-            variable_id: "banner".to_owned(),
-            value_key: "control".to_owned(),
+            target_path: Some("/values/control".to_owned()),
             before: serde_json::json!(false),
             after: serde_json::json!(true),
         })
         .await
         .unwrap();
     assert!(change.is_some());
-    assert_eq!(store.list_draft_changes(&draft.id).await.unwrap().len(), 1);
+    let changes = store.list_draft_changes(&draft.id).await.unwrap();
+    assert_eq!(changes.len(), 1);
+    assert_eq!(changes[0].file_path, "variables/banner.toml");
+    assert_eq!(changes[0].target_path.as_deref(), Some("/values/control"));
 
     // Reverting back to the original value clears the tracked change.
     let reverted = store
         .record_draft_change(DraftChangeInput {
             draft_id: draft.id.clone(),
             file_path: "variables/banner.toml".to_owned(),
-            variable_id: "banner".to_owned(),
-            value_key: "control".to_owned(),
+            target_path: Some("/values/control".to_owned()),
             before: serde_json::json!(true),
             after: serde_json::json!(false),
         })
@@ -477,6 +549,78 @@ async fn draft_change_revert_deletes_row() {
     assert_eq!(
         kinds,
         ["draft.created", "change.created", "change.reverted"]
+    );
+}
+
+#[tokio::test]
+async fn whole_file_draft_change_revert_deletes_row() {
+    let store = test_store().await;
+    let repo = store
+        .upsert_repo_with_workspaces(
+            "42".to_owned(),
+            "octo".to_owned(),
+            "configs".to_owned(),
+            "main".to_owned(),
+            vec![discovered(".")],
+        )
+        .await
+        .unwrap();
+    let workspace = repo.workspaces[0].clone();
+    let draft = store
+        .create_draft_session(NewDraftSession {
+            workspace_id: workspace.id.clone(),
+            principal_id: "42".to_owned(),
+            branch: "draft-branch".to_owned(),
+            base_ref: "main".to_owned(),
+        })
+        .await
+        .unwrap();
+
+    store
+        .record_draft_change(DraftChangeInput {
+            draft_id: draft.id.clone(),
+            file_path: "lint/max-token-budget.lua".to_owned(),
+            target_path: None,
+            before: serde_json::json!("old"),
+            after: serde_json::json!("new"),
+        })
+        .await
+        .unwrap();
+    let updated = store
+        .record_draft_change(DraftChangeInput {
+            draft_id: draft.id.clone(),
+            file_path: "lint/max-token-budget.lua".to_owned(),
+            target_path: None,
+            before: serde_json::json!("new"),
+            after: serde_json::json!("newer"),
+        })
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(updated.target_path, None);
+
+    let changes = store.list_draft_changes(&draft.id).await.unwrap();
+    assert_eq!(changes.len(), 1);
+    assert_eq!(changes[0].before_json, "\"old\"");
+    assert_eq!(changes[0].after_json, "\"newer\"");
+
+    let reverted = store
+        .record_draft_change(DraftChangeInput {
+            draft_id: draft.id.clone(),
+            file_path: "lint/max-token-budget.lua".to_owned(),
+            target_path: None,
+            before: serde_json::json!("newer"),
+            after: serde_json::json!("old"),
+        })
+        .await
+        .unwrap();
+    assert!(reverted.is_none());
+    assert!(
+        store
+            .list_draft_changes(&draft.id)
+            .await
+            .unwrap()
+            .is_empty()
     );
 }
 

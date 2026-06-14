@@ -55,11 +55,10 @@ pub(super) fn change_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<Draft
         id: row.get(0)?,
         draft_id: row.get(1)?,
         file_path: row.get(2)?,
-        variable_id: row.get(3)?,
-        value_key: row.get(4)?,
-        before_json: row.get(5)?,
-        after_json: row.get(6)?,
-        updated_at: row.get(7)?,
+        target_path: row.get(3)?,
+        before_json: row.get(4)?,
+        after_json: row.get(5)?,
+        updated_at: row.get(6)?,
     })
 }
 

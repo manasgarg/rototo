@@ -112,8 +112,7 @@ export type DraftChangeRecord = {
     id: string;
     draftId: string;
     filePath: string;
-    variableId: string;
-    valueKey: string;
+    targetPath: string | null;
     beforeJson: string;
     afterJson: string;
     updatedAt: string;
