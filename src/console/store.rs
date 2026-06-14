@@ -1,3 +1,4 @@
+use std::collections::HashSet;
 use std::path::Path;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
@@ -232,6 +233,7 @@ impl Store {
               ref_ TEXT NOT NULL,
               source TEXT NOT NULL,
               discovered_at TEXT NOT NULL,
+              active INTEGER NOT NULL DEFAULT 1,
               UNIQUE(repo_id, path, ref_),
               FOREIGN KEY(repo_id) REFERENCES repos(id) ON DELETE CASCADE
             );
@@ -279,6 +281,7 @@ impl Store {
             "#,
         )
         .map_err(|err| RototoError::new(format!("failed to initialize console database: {err}")))?;
+        ensure_column(&conn, "workspaces", "active", "INTEGER NOT NULL DEFAULT 1")?;
         Ok(Self {
             conn: Arc::new(Mutex::new(conn)),
             crypto,
@@ -453,40 +456,46 @@ impl Store {
     ) -> Result<RepoWithWorkspaces> {
         self.with_conn(move |conn, _| {
             let now = now_iso();
-            let existing: Option<String> = conn
+            let tx = conn.unchecked_transaction().map_err(db_err)?;
+            let existing: Option<String> = tx
                 .query_row(
                     "SELECT id FROM repos WHERE principal_id = ?1 AND owner = ?2 AND name = ?3",
-                    params![principal_id, owner, name],
+                    params![principal_id.as_str(), owner.as_str(), name.as_str()],
                     |row| row.get(0),
                 )
                 .optional()
                 .map_err(db_err)?;
             let repo_id = match existing {
                 Some(repo_id) => {
-                    conn.execute(
+                    tx.execute(
                         "UPDATE repos SET default_ref = ?1, updated_at = ?2, last_discovered_at = ?3
                          WHERE id = ?4",
-                        params![default_ref, now, now, repo_id],
+                        params![
+                            default_ref.as_str(),
+                            now.as_str(),
+                            now.as_str(),
+                            repo_id.as_str()
+                        ],
                     )
                     .map_err(db_err)?;
                     repo_id
                 }
                 None => {
                     let repo_id = new_id();
-                    conn.execute(
+                    tx.execute(
                         "INSERT INTO repos (
                            id, principal_id, owner, name, default_ref,
                            created_at, updated_at, last_discovered_at
                          ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
                         params![
-                            repo_id,
-                            principal_id,
-                            owner,
-                            name,
-                            default_ref,
-                            now,
-                            now,
-                            now
+                            repo_id.as_str(),
+                            principal_id.as_str(),
+                            owner.as_str(),
+                            name.as_str(),
+                            default_ref.as_str(),
+                            now.as_str(),
+                            now.as_str(),
+                            now.as_str()
                         ],
                     )
                     .map_err(db_err)?;
@@ -494,29 +503,82 @@ impl Store {
                 }
             };
 
-            conn.execute(
-                "DELETE FROM workspaces WHERE repo_id = ?1",
-                params![repo_id],
-            )
-            .map_err(db_err)?;
+            let mut discovered_keys = HashSet::new();
             for workspace in workspaces {
-                conn.execute(
-                    "INSERT INTO workspaces (
-                       id, repo_id, owner, name, path, ref_, source, discovered_at
-                     ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
-                    params![
-                        new_id(),
-                        repo_id,
-                        owner,
-                        name,
-                        workspace.path,
-                        workspace.git_ref,
-                        workspace.source,
-                        now,
-                    ],
+                discovered_keys.insert((workspace.path.clone(), workspace.git_ref.clone()));
+                let updated = tx
+                    .execute(
+                        "UPDATE workspaces
+                         SET owner = ?1, name = ?2, source = ?3, discovered_at = ?4, active = 1
+                         WHERE repo_id = ?5 AND path = ?6 AND ref_ = ?7",
+                        params![
+                            owner.as_str(),
+                            name.as_str(),
+                            workspace.source.as_str(),
+                            now.as_str(),
+                            repo_id.as_str(),
+                            workspace.path.as_str(),
+                            workspace.git_ref.as_str(),
+                        ],
+                    )
+                    .map_err(db_err)?;
+                if updated == 0 {
+                    let workspace_id = new_id();
+                    tx.execute(
+                        "INSERT INTO workspaces (
+                           id, repo_id, owner, name, path, ref_, source, discovered_at
+                         ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+                        params![
+                            workspace_id.as_str(),
+                            repo_id.as_str(),
+                            owner.as_str(),
+                            name.as_str(),
+                            workspace.path.as_str(),
+                            workspace.git_ref.as_str(),
+                            workspace.source.as_str(),
+                            now.as_str(),
+                        ],
+                    )
+                    .map_err(db_err)?;
+                }
+            }
+
+            let existing_workspaces = {
+                let mut statement = tx
+                    .prepare("SELECT id, path, ref_ FROM workspaces WHERE repo_id = ?1")
+                    .map_err(db_err)?;
+                statement
+                    .query_map(params![repo_id.as_str()], |row| {
+                        Ok((
+                            row.get::<_, String>(0)?,
+                            row.get::<_, String>(1)?,
+                            row.get::<_, String>(2)?,
+                        ))
+                    })
+                    .map_err(db_err)?
+                    .collect::<rusqlite::Result<Vec<_>>>()
+                    .map_err(db_err)?
+            };
+            for (workspace_id, path, git_ref) in existing_workspaces {
+                if discovered_keys.contains(&(path, git_ref)) {
+                    continue;
+                }
+                tx.execute(
+                    "DELETE FROM workspaces
+                     WHERE id = ?1
+                       AND NOT EXISTS (
+                         SELECT 1 FROM draft_sessions WHERE workspace_id = ?1
+                       )",
+                    params![workspace_id.as_str()],
+                )
+                .map_err(db_err)?;
+                tx.execute(
+                    "UPDATE workspaces SET active = 0 WHERE id = ?1",
+                    params![workspace_id.as_str()],
                 )
                 .map_err(db_err)?;
             }
+            tx.commit().map_err(db_err)?;
 
             repo_with_workspaces_by_id(conn, &repo_id, &principal_id)?
                 .ok_or_else(|| RototoError::new("repo registration failed"))
@@ -597,7 +659,13 @@ impl Store {
             if by_id.is_some() {
                 return Ok(by_id);
             }
-            Ok(list_workspaces_for_user_sync(conn, &principal_id)?
+            let active_match = list_workspaces_for_user_sync(conn, &principal_id)?
+                .into_iter()
+                .find(|workspace| workspace.slug == workspace_handle);
+            if active_match.is_some() {
+                return Ok(active_match);
+            }
+            Ok(list_all_workspaces_for_user_sync(conn, &principal_id)?
                 .into_iter()
                 .find(|workspace| workspace.slug == workspace_handle))
         })
@@ -1172,7 +1240,49 @@ pub fn workspace_slug(name: &str, path: &str) -> String {
     slug
 }
 
+fn ensure_column(conn: &Connection, table: &str, column: &str, ddl: &str) -> Result<()> {
+    let mut statement = conn
+        .prepare(&format!("PRAGMA table_info({table})"))
+        .map_err(db_err)?;
+    let columns = statement
+        .query_map([], |row| row.get::<_, String>(1))
+        .map_err(db_err)?
+        .collect::<rusqlite::Result<Vec<_>>>()
+        .map_err(db_err)?;
+    if columns.iter().any(|existing| existing == column) {
+        return Ok(());
+    }
+    conn.execute(
+        &format!("ALTER TABLE {table} ADD COLUMN {column} {ddl}"),
+        [],
+    )
+    .map_err(db_err)?;
+    Ok(())
+}
+
 fn list_workspaces_for_user_sync(
+    conn: &Connection,
+    principal_id: &str,
+) -> Result<Vec<WorkspaceRecord>> {
+    let mut statement = conn
+        .prepare(
+            "SELECT w.id, w.repo_id, w.owner, w.name, w.path, w.ref_, w.source, w.discovered_at
+             FROM workspaces w
+             INNER JOIN repos r ON r.id = w.repo_id
+             WHERE r.principal_id = ?1
+               AND w.active = 1
+             ORDER BY w.owner ASC, w.name ASC, w.path ASC",
+        )
+        .map_err(db_err)?;
+    let workspaces = statement
+        .query_map(params![principal_id], workspace_from_row)
+        .map_err(db_err)?
+        .collect::<rusqlite::Result<_>>()
+        .map_err(db_err)?;
+    Ok(workspaces)
+}
+
+fn list_all_workspaces_for_user_sync(
     conn: &Connection,
     principal_id: &str,
 ) -> Result<Vec<WorkspaceRecord>> {
@@ -1225,7 +1335,9 @@ fn repo_with_workspaces_by_id(
     let mut statement = conn
         .prepare(
             "SELECT id, repo_id, owner, name, path, ref_, source, discovered_at
-             FROM workspaces WHERE repo_id = ?1 ORDER BY path ASC",
+             FROM workspaces
+             WHERE repo_id = ?1 AND active = 1
+             ORDER BY path ASC",
         )
         .map_err(db_err)?;
     let workspaces = statement
@@ -1492,6 +1604,134 @@ mod tests {
                 .unwrap()
                 .is_empty()
         );
+    }
+
+    #[tokio::test]
+    async fn repo_upsert_preserves_existing_workspace_rows() {
+        let store = test_store().await;
+        let repo = store
+            .upsert_repo_with_workspaces(
+                "42".to_owned(),
+                "octo".to_owned(),
+                "configs".to_owned(),
+                "main".to_owned(),
+                vec![discovered("."), discovered("payments/flags")],
+            )
+            .await
+            .unwrap();
+        let root_id = repo.workspaces[0].id.clone();
+        let flags_id = repo.workspaces[1].id.clone();
+        let draft = store
+            .create_draft_session(NewDraftSession {
+                workspace_id: flags_id.clone(),
+                principal_id: "42".to_owned(),
+                branch: "draft-flags".to_owned(),
+                base_ref: "main".to_owned(),
+            })
+            .await
+            .unwrap();
+
+        let rediscovered = store
+            .upsert_repo_with_workspaces(
+                "42".to_owned(),
+                "octo".to_owned(),
+                "configs".to_owned(),
+                "main".to_owned(),
+                vec![discovered("payments/flags"), discovered("support")],
+            )
+            .await
+            .unwrap();
+
+        let paths: Vec<&str> = rediscovered
+            .workspaces
+            .iter()
+            .map(|workspace| workspace.path.as_str())
+            .collect();
+        assert_eq!(paths, ["payments/flags", "support"]);
+        let flags = rediscovered
+            .workspaces
+            .iter()
+            .find(|workspace| workspace.path == "payments/flags")
+            .unwrap();
+        assert_eq!(flags.id, flags_id);
+        assert_ne!(flags.id, root_id);
+
+        let drafts = store
+            .list_draft_sessions_for_workspace(&flags_id, "42")
+            .await
+            .unwrap();
+        assert_eq!(drafts.len(), 1);
+        assert_eq!(drafts[0].id, draft.id);
+        assert!(
+            store
+                .get_workspace_for_user(&root_id, "42")
+                .await
+                .unwrap()
+                .is_none()
+        );
+    }
+
+    #[tokio::test]
+    async fn repo_upsert_hides_missing_workspace_but_keeps_drafts() {
+        let store = test_store().await;
+        let repo = store
+            .upsert_repo_with_workspaces(
+                "42".to_owned(),
+                "octo".to_owned(),
+                "configs".to_owned(),
+                "main".to_owned(),
+                vec![discovered(".")],
+            )
+            .await
+            .unwrap();
+        let workspace = repo.workspaces[0].clone();
+        let draft = store
+            .create_draft_session(NewDraftSession {
+                workspace_id: workspace.id.clone(),
+                principal_id: "42".to_owned(),
+                branch: "draft-root".to_owned(),
+                base_ref: "main".to_owned(),
+            })
+            .await
+            .unwrap();
+
+        let rediscovered = store
+            .upsert_repo_with_workspaces(
+                "42".to_owned(),
+                "octo".to_owned(),
+                "configs".to_owned(),
+                "main".to_owned(),
+                vec![],
+            )
+            .await
+            .unwrap();
+
+        assert!(rediscovered.workspaces.is_empty());
+        assert!(
+            store
+                .list_workspaces_for_user("42")
+                .await
+                .unwrap()
+                .is_empty()
+        );
+        assert!(
+            store
+                .get_workspace_for_user(&workspace.id, "42")
+                .await
+                .unwrap()
+                .is_some()
+        );
+        assert!(
+            store
+                .get_workspace_for_user(&workspace.slug, "42")
+                .await
+                .unwrap()
+                .is_some()
+        );
+        let drafts = store.list_draft_sessions_for_user("42").await.unwrap();
+        assert_eq!(drafts.len(), 1);
+        assert_eq!(drafts[0].draft.id, draft.id);
+        assert_eq!(drafts[0].workspace.id, workspace.id);
     }
 
     #[tokio::test]
