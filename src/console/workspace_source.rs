@@ -1,6 +1,8 @@
 use super::api::{ApiError, ApiResult, ConsoleState};
 use super::stage::{CachedWorkspaceSource, SemanticWorkspace, WorkspaceSourceInput};
 use super::store::WorkspaceRecord;
+use crate::sdk::Workspace;
+use std::sync::Arc;
 
 pub(crate) async fn workspace_source_for_base(
     state: &ConsoleState,
@@ -31,6 +33,20 @@ pub(crate) async fn semantic_workspace_for_base(
     state
         .stage
         .get_semantic_workspace(workspace_source, token)
+        .await
+        .map_err(|err| ApiError::internal(err.to_string()))
+}
+
+pub(crate) async fn runtime_workspace_for_base(
+    state: &ConsoleState,
+    principal_id: &str,
+    token: &str,
+    workspace: &WorkspaceRecord,
+) -> ApiResult<Arc<Workspace>> {
+    let workspace_source = workspace_source_for_base(state, principal_id, token, workspace).await?;
+    state
+        .stage
+        .get_runtime_workspace(workspace_source, token)
         .await
         .map_err(|err| ApiError::internal(err.to_string()))
 }

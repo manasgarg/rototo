@@ -5,6 +5,7 @@ mod discovery;
 mod identity;
 mod load;
 mod records;
+mod runtime;
 mod semantic;
 mod workspace_source;
 

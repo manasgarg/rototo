@@ -15,7 +15,9 @@ use super::resolve_preview::{
     SavedContextInput, qualifier_context_evaluations, resolve_saved_contexts,
 };
 use super::store::{SessionUser, WorkspaceRecord};
-use super::workspace_source::{semantic_workspace_for_base, workspace_source_for_base};
+use super::workspace_source::{
+    runtime_workspace_for_base, semantic_workspace_for_base, workspace_source_for_base,
+};
 
 const MAX_PREVIEW_CONTEXTS: usize = 4;
 const WORKSPACE_SUMMARY_CONCURRENCY: usize = 4;
@@ -340,10 +342,9 @@ async fn workspace_entity(
         .iter()
         .find(|variable| variable.path == query.path)
         && !contexts.is_empty()
-        && let Ok(runtime) = state
-            .stage
-            .runtime(source_token(&user), &workspace.source)
-            .await
+        && let Ok(runtime) =
+            runtime_workspace_for_base(&state, &user.principal_id, source_token(&user), &workspace)
+                .await
     {
         let resolutions =
             resolve_saved_contexts(&runtime, &semantic.model, &variable.id, &contexts).await;
@@ -358,10 +359,9 @@ async fn workspace_entity(
         .iter()
         .find(|qualifier| qualifier.path == query.path)
         && !contexts.is_empty()
-        && let Ok(runtime) = state
-            .stage
-            .runtime(source_token(&user), &workspace.source)
-            .await
+        && let Ok(runtime) =
+            runtime_workspace_for_base(&state, &user.principal_id, source_token(&user), &workspace)
+                .await
     {
         let evaluations =
             qualifier_context_evaluations(&runtime, &semantic.model, &qualifier.id, &contexts)

@@ -1825,10 +1825,12 @@ Once the console has selected a concrete workspace root inside a staged tree,
 inspected workspaces should be loaded with
 `Workspace::inspect_with_source_options(root, options)`.
 
-Runtime workspaces should be loaded from the inspected staged root with
-`Workspace::load(...)` or the equivalent lint-deny SDK path. Loading from the
-staged root avoids fetching the source twice and keeps runtime preview tied to
-the same files the console used for inventory and semantic analysis.
+Runtime workspaces should be loaded from the inspected staged root with the
+lint-deny SDK path. When the inspected root is temporary, the runtime handle
+must own a snapshot of that root rather than borrowing a path that may disappear
+when the inspected handle is dropped. Loading from the inspected files avoids
+fetching the source twice and keeps runtime preview tied to the same workspace
+state the console used for inventory and semantic analysis.
 
 This preserves the boundary: console stage owns source-tree manifestation and
 workspace-path selection; the SDK owns workspace inspection, lint, runtime
@@ -1973,9 +1975,10 @@ With that shape:
 2. `get_semantic_workspace` initializes `workspace.semantic` from the inspected
    workspace. On a cold cache, it passes the raw source token through to
    inspection; the semantic model is still built from the inspected root.
-3. `get_runtime_workspace` initializes `workspace.runtime` from
-   `Workspace::load(workspace.inspected.root())` and keeps the inspected
-   backing alive.
+3. `get_runtime_workspace` initializes `workspace.runtime` from a lint-deny
+   SDK load of `workspace.inspected.root()`. If runtime loading cannot keep the
+   inspected handle alive directly, it must snapshot the inspected root so the
+   returned runtime workspace owns its files.
 4. after the freshness window, a request returns the current source
    tree/workspace and starts one background revalidation task if no
    revalidation is already running.

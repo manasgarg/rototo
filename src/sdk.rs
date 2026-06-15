@@ -40,7 +40,7 @@ impl Workspace {
         Ok(workspace)
     }
 
-    async fn load_snapshot_with_options(
+    pub(crate) async fn load_snapshot_with_options(
         source: impl AsRef<str>,
         options: LoadOptions,
     ) -> Result<Self> {
