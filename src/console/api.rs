@@ -720,7 +720,45 @@ async fn repos_register(
                 .collect(),
         )
         .await?;
+    warm_registered_workspaces(state.clone(), token.to_owned(), stored.workspaces.clone());
     Ok(Json(json!({ "repo": stored })))
+}
+
+fn warm_registered_workspaces(
+    state: SharedState,
+    token: String,
+    workspaces: Vec<super::store::WorkspaceRecord>,
+) {
+    if workspaces.is_empty() {
+        return;
+    }
+
+    tokio::spawn(async move {
+        for workspace in workspaces {
+            let started = Instant::now();
+            match state.stage.semantic_model(&token, &workspace.source).await {
+                Ok(_) => {
+                    tracing::debug!(
+                        operation = "workspace.warm",
+                        workspace_id = %workspace.id,
+                        source = %workspace.source,
+                        latency_ms = started.elapsed().as_millis(),
+                        "console workspace warm-up completed"
+                    );
+                }
+                Err(err) => {
+                    tracing::debug!(
+                        operation = "workspace.warm",
+                        workspace_id = %workspace.id,
+                        source = %workspace.source,
+                        error = %err,
+                        latency_ms = started.elapsed().as_millis(),
+                        "console workspace warm-up failed"
+                    );
+                }
+            }
+        }
+    });
 }
 
 async fn repo_delete(
