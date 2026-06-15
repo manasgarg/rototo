@@ -261,6 +261,9 @@ fn delete_or_deactivate_workspace(tx: &Transaction<'_>, workspace_id: &str) -> R
          WHERE id = ?1
            AND NOT EXISTS (
              SELECT 1 FROM draft_sessions WHERE workspace_id = ?1
+           )
+           AND NOT EXISTS (
+             SELECT 1 FROM draft_workspaces WHERE workspace_id = ?1
            )",
         params![workspace_id],
     )

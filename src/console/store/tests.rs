@@ -38,7 +38,7 @@ fn schema_initialization_sets_store_schema_version() {
     let conn = Connection::open_in_memory().unwrap();
     schema::initialize_schema(&conn).unwrap();
 
-    assert_eq!(user_version(&conn), 2);
+    assert_eq!(user_version(&conn), 3);
 }
 
 #[test]
@@ -91,7 +91,7 @@ fn schema_initialization_baselines_legacy_version_zero_stores() {
 
     schema::initialize_schema(&conn).unwrap();
 
-    assert_eq!(user_version(&conn), 2);
+    assert_eq!(user_version(&conn), 3);
     assert!(
         table_columns(&conn, "workspaces")
             .iter()
@@ -129,6 +129,30 @@ fn schema_migration_v2_generalizes_draft_change_targets() {
           published_at TEXT
         );
 
+        CREATE TABLE repos (
+          id TEXT PRIMARY KEY,
+          principal_id TEXT NOT NULL,
+          owner TEXT NOT NULL,
+          name TEXT NOT NULL,
+          default_ref TEXT NOT NULL,
+          created_at TEXT NOT NULL,
+          updated_at TEXT NOT NULL,
+          last_discovered_at TEXT
+        );
+
+        CREATE TABLE workspaces (
+          id TEXT PRIMARY KEY,
+          repo_id TEXT NOT NULL,
+          owner TEXT NOT NULL,
+          name TEXT NOT NULL,
+          path TEXT NOT NULL,
+          ref_ TEXT NOT NULL,
+          source TEXT NOT NULL,
+          discovered_at TEXT NOT NULL,
+          active INTEGER NOT NULL DEFAULT 1,
+          FOREIGN KEY(repo_id) REFERENCES repos(id) ON DELETE CASCADE
+        );
+
         CREATE TABLE draft_changes (
           id TEXT PRIMARY KEY,
           draft_id TEXT NOT NULL,
@@ -149,6 +173,21 @@ fn schema_migration_v2_generalizes_draft_change_targets() {
           '2026-06-14T00:00:00Z', '2026-06-14T00:00:00Z'
         );
 
+        INSERT INTO repos (
+          id, principal_id, owner, name, default_ref,
+          created_at, updated_at, last_discovered_at
+        ) VALUES (
+          'repo-1', '42', 'octo', 'configs', 'main',
+          '2026-06-14T00:00:00Z', '2026-06-14T00:00:00Z', NULL
+        );
+
+        INSERT INTO workspaces (
+          id, repo_id, owner, name, path, ref_, source, discovered_at, active
+        ) VALUES (
+          'workspace-1', 'repo-1', 'octo', 'configs', '.', 'main',
+          'git+https://github.com/octo/configs.git#main', '2026-06-14T00:00:00Z', 1
+        );
+
         INSERT INTO draft_changes (
           id, draft_id, file_path, variable_id, value_key,
           before_json, after_json, updated_at
@@ -164,10 +203,15 @@ fn schema_migration_v2_generalizes_draft_change_targets() {
 
     schema::initialize_schema(&conn).unwrap();
 
-    assert_eq!(user_version(&conn), 2);
+    assert_eq!(user_version(&conn), 3);
     let columns = table_columns(&conn, "draft_changes");
     assert!(columns.iter().any(|column| column == "target_path"));
     assert!(!columns.iter().any(|column| column == "variable_id"));
+    assert!(
+        table_columns(&conn, "draft_workspaces")
+            .iter()
+            .any(|column| column == "workspace_id")
+    );
     let target_path: String = conn
         .query_row(
             "SELECT target_path FROM draft_changes WHERE id = 'change-1'",
@@ -407,6 +451,61 @@ async fn repo_upsert_hides_missing_workspace_but_keeps_drafts() {
     assert_eq!(drafts.len(), 1);
     assert_eq!(drafts[0].draft.id, draft.id);
     assert_eq!(drafts[0].workspace.id, workspace.id);
+}
+
+#[tokio::test]
+async fn repo_draft_can_include_multiple_workspaces() {
+    let store = test_store().await;
+    let repo = store
+        .upsert_repo_with_workspaces(
+            "42".to_owned(),
+            "octo".to_owned(),
+            "configs".to_owned(),
+            "main".to_owned(),
+            vec![discovered("."), discovered("payments/flags")],
+        )
+        .await
+        .unwrap();
+    let root = repo.workspaces[0].clone();
+    let flags = repo.workspaces[1].clone();
+    let draft = store
+        .create_draft_session(NewDraftSession {
+            workspace_id: root.id.clone(),
+            principal_id: "42".to_owned(),
+            branch: "draft-config".to_owned(),
+            base_ref: "main".to_owned(),
+        })
+        .await
+        .unwrap();
+
+    let existing = store
+        .find_open_draft_for_repo_branch(&flags.id, "42", "draft-config")
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(existing.id, draft.id);
+
+    store
+        .ensure_draft_workspace(&draft.id, &flags.id)
+        .await
+        .unwrap();
+
+    let root_drafts = store
+        .list_draft_sessions_for_workspace(&root.id, "42")
+        .await
+        .unwrap();
+    let flags_drafts = store
+        .list_draft_sessions_for_workspace(&flags.id, "42")
+        .await
+        .unwrap();
+    assert_eq!(root_drafts[0].id, draft.id);
+    assert_eq!(flags_drafts[0].id, draft.id);
+    let workspaces = store.list_workspaces_for_draft(&draft.id).await.unwrap();
+    let paths: Vec<&str> = workspaces
+        .iter()
+        .map(|workspace| workspace.path.as_str())
+        .collect();
+    assert_eq!(paths, [".", "payments/flags"]);
 }
 
 #[tokio::test]

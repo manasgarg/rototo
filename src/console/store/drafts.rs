@@ -7,7 +7,7 @@ use super::Store;
 use super::rows::{change_from_row, draft_from_row, event_from_row, workspace_from_row_at};
 use super::types::{
     DraftChangeInput, DraftChangeRecord, DraftEventInput, DraftEventRecord, DraftSessionRecord,
-    DraftStatus, DraftWithWorkspaceRecord, NewDraftSession, PullRequestStateInput,
+    DraftStatus, DraftWithWorkspaceRecord, NewDraftSession, PullRequestStateInput, WorkspaceRecord,
 };
 use super::util::{db_err, new_id};
 
@@ -32,6 +32,7 @@ impl Store {
                 ],
             )
             .map_err(db_err)?;
+            insert_draft_workspace_sync(conn, &id, &input.workspace_id, &now)?;
             let draft = draft_session_by_id(conn, &id)?
                 .ok_or_else(|| RototoError::new("draft session creation failed"))?;
             record_draft_event_sync(
@@ -61,13 +62,14 @@ impl Store {
         self.with_conn(move |conn, _| {
             let mut statement = conn
                 .prepare(
-                    "SELECT id, workspace_id, principal_id, branch, base_ref, status,
-                        pr_url, pr_number, pr_state, pr_merged_at, pr_synced_at,
-                        created_at, updated_at, published_at
-                 FROM draft_sessions
-                 WHERE workspace_id = ?1 AND principal_id = ?2
-                   AND status != 'abandoned'
-                 ORDER BY updated_at DESC",
+                    "SELECT d.id, d.workspace_id, d.principal_id, d.branch, d.base_ref, d.status,
+                        d.pr_url, d.pr_number, d.pr_state, d.pr_merged_at, d.pr_synced_at,
+                        d.created_at, d.updated_at, d.published_at
+                 FROM draft_sessions d
+                 INNER JOIN draft_workspaces dw ON dw.draft_id = d.id
+                 WHERE dw.workspace_id = ?1 AND d.principal_id = ?2
+                   AND d.status != 'abandoned'
+                 ORDER BY d.updated_at DESC",
                 )
                 .map_err(db_err)?;
             let drafts = statement
@@ -126,16 +128,112 @@ impl Store {
         let principal_id = principal_id.to_owned();
         self.with_conn(move |conn, _| {
             conn.query_row(
-                "SELECT id, workspace_id, principal_id, branch, base_ref, status,
-                    pr_url, pr_number, pr_state, pr_merged_at, pr_synced_at,
-                    created_at, updated_at, published_at
-             FROM draft_sessions
-             WHERE id = ?1 AND workspace_id = ?2 AND principal_id = ?3",
+                "SELECT d.id, d.workspace_id, d.principal_id, d.branch, d.base_ref, d.status,
+                    d.pr_url, d.pr_number, d.pr_state, d.pr_merged_at, d.pr_synced_at,
+                    d.created_at, d.updated_at, d.published_at
+             FROM draft_sessions d
+             INNER JOIN draft_workspaces dw ON dw.draft_id = d.id
+             WHERE d.id = ?1 AND dw.workspace_id = ?2 AND d.principal_id = ?3",
                 params![draft_id, workspace_id, principal_id],
                 draft_from_row,
             )
             .optional()
             .map_err(db_err)
+        })
+        .await
+    }
+
+    pub async fn find_open_draft_for_repo_branch(
+        &self,
+        workspace_id: &str,
+        principal_id: &str,
+        branch: &str,
+    ) -> Result<Option<DraftSessionRecord>> {
+        let workspace_id = workspace_id.to_owned();
+        let principal_id = principal_id.to_owned();
+        let branch = branch.to_owned();
+        self.with_conn(move |conn, _| {
+            conn.query_row(
+                "SELECT d.id, d.workspace_id, d.principal_id, d.branch, d.base_ref, d.status,
+                    d.pr_url, d.pr_number, d.pr_state, d.pr_merged_at, d.pr_synced_at,
+                    d.created_at, d.updated_at, d.published_at
+                 FROM draft_sessions d
+                 INNER JOIN workspaces draft_workspace ON draft_workspace.id = d.workspace_id
+                 INNER JOIN workspaces requested_workspace ON requested_workspace.id = ?1
+                 WHERE draft_workspace.repo_id = requested_workspace.repo_id
+                   AND d.principal_id = ?2
+                   AND d.branch = ?3
+                   AND d.status = 'open'
+                 ORDER BY d.updated_at DESC
+                 LIMIT 1",
+                params![workspace_id, principal_id, branch],
+                draft_from_row,
+            )
+            .optional()
+            .map_err(db_err)
+        })
+        .await
+    }
+
+    pub async fn ensure_draft_workspace(
+        &self,
+        draft_id: &str,
+        workspace_id: &str,
+    ) -> Result<DraftSessionRecord> {
+        let draft_id = draft_id.to_owned();
+        let workspace_id = workspace_id.to_owned();
+        self.with_conn(move |conn, _| {
+            let now = now_iso();
+            let inserted = insert_draft_workspace_sync(conn, &draft_id, &workspace_id, &now)?;
+            if inserted {
+                conn.execute(
+                    "UPDATE draft_sessions SET updated_at = ?1 WHERE id = ?2",
+                    params![now, draft_id],
+                )
+                .map_err(db_err)?;
+                let workspace_path: String = conn
+                    .query_row(
+                        "SELECT path FROM workspaces WHERE id = ?1",
+                        params![workspace_id],
+                        |row| row.get(0),
+                    )
+                    .map_err(db_err)?;
+                record_draft_event_sync(
+                    conn,
+                    &DraftEventInput {
+                        draft_id: draft_id.clone(),
+                        kind: "draft.workspace_added".to_owned(),
+                        summary: format!("Added workspace {workspace_path} to draft"),
+                        detail: Some(serde_json::json!({
+                            "workspaceId": workspace_id,
+                            "workspacePath": workspace_path,
+                        })),
+                    },
+                )?;
+            }
+            draft_session_by_id(conn, &draft_id)?
+                .ok_or_else(|| RototoError::new("draft workspace membership update failed"))
+        })
+        .await
+    }
+
+    pub async fn list_workspaces_for_draft(&self, draft_id: &str) -> Result<Vec<WorkspaceRecord>> {
+        let draft_id = draft_id.to_owned();
+        self.with_conn(move |conn, _| {
+            let mut statement = conn
+                .prepare(
+                    "SELECT w.id, w.repo_id, w.owner, w.name, w.path, w.ref_, w.source, w.discovered_at
+                     FROM draft_workspaces dw
+                     INNER JOIN workspaces w ON w.id = dw.workspace_id
+                     WHERE dw.draft_id = ?1
+                     ORDER BY w.path ASC",
+                )
+                .map_err(db_err)?;
+            statement
+                .query_map(params![draft_id], |row| workspace_from_row_at(row, 0))
+                .map_err(db_err)?
+                .collect::<rusqlite::Result<Vec<_>>>()
+                .map_err(db_err)
         })
         .await
     }
@@ -576,6 +674,22 @@ fn draft_session_by_id(conn: &Connection, draft_id: &str) -> Result<Option<Draft
     )
     .optional()
     .map_err(db_err)
+}
+
+fn insert_draft_workspace_sync(
+    conn: &Connection,
+    draft_id: &str,
+    workspace_id: &str,
+    added_at: &str,
+) -> Result<bool> {
+    let inserted = conn
+        .execute(
+            "INSERT OR IGNORE INTO draft_workspaces (draft_id, workspace_id, added_at)
+             VALUES (?1, ?2, ?3)",
+            params![draft_id, workspace_id, added_at],
+        )
+        .map_err(db_err)?;
+    Ok(inserted != 0)
 }
 
 fn record_draft_event_sync(conn: &Connection, input: &DraftEventInput) -> Result<DraftEventRecord> {

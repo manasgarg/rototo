@@ -225,7 +225,7 @@ impl GitHubClient {
             .map(|entry| {
                 let path = manifest_workspace_path(&entry.path);
                 DiscoveredWorkspace {
-                    source: workspace_archive_source(owner, name, git_ref, &path),
+                    source: workspace_git_source(owner, name, git_ref, &path),
                     path,
                     git_ref: git_ref.to_owned(),
                 }
@@ -794,6 +794,15 @@ pub fn workspace_archive_source(owner: &str, name: &str, git_ref: &str, path: &s
     }
 }
 
+pub fn workspace_git_source(owner: &str, name: &str, git_ref: &str, path: &str) -> String {
+    let remote = format!("git+https://github.com/{}/{}.git", enc(owner), enc(name));
+    if path == "." {
+        format!("{remote}#{git_ref}")
+    } else {
+        format!("{remote}#{git_ref}:{path}")
+    }
+}
+
 pub fn stable_workspace_key(owner: &str, name: &str, path: &str) -> String {
     let digest = ring::digest::digest(
         &ring::digest::SHA256,
@@ -897,6 +906,18 @@ mod tests {
         assert_eq!(
             workspace_archive_source("o", "r", "main", "payments/flags"),
             "https://api.github.com/repos/o/r/tarball/main#:payments/flags"
+        );
+    }
+
+    #[test]
+    fn git_source_appends_ref_and_subdir_fragment() {
+        assert_eq!(
+            workspace_git_source("o", "r", "main", "."),
+            "git+https://github.com/o/r.git#main"
+        );
+        assert_eq!(
+            workspace_git_source("o", "r", "main", "payments/flags"),
+            "git+https://github.com/o/r.git#main:payments/flags"
         );
     }
 

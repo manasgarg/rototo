@@ -10,12 +10,46 @@ pub fn draft_source(workspace: &WorkspaceRecord, draft: &DraftSessionRecord) -> 
     if !workspace.source.contains("://") {
         return workspace.source.clone();
     }
+    if let Some(source) = replace_git_source_ref(&workspace.source, &draft.branch, &workspace.path)
+    {
+        return source;
+    }
+    if workspace
+        .source
+        .starts_with("https://api.github.com/repos/")
+    {
+        return workspace_archive_source(
+            &workspace.owner,
+            &workspace.name,
+            &draft.branch,
+            &workspace.path,
+        );
+    }
     workspace_archive_source(
         &workspace.owner,
         &workspace.name,
         &draft.branch,
         &workspace.path,
     )
+}
+
+fn replace_git_source_ref(source: &str, git_ref: &str, workspace_path: &str) -> Option<String> {
+    if !source.starts_with("git+") {
+        return None;
+    }
+    let (base, fragment) = source
+        .split_once('#')
+        .map(|(base, fragment)| (base, Some(fragment)))
+        .unwrap_or((source, None));
+    let subdir = fragment
+        .and_then(|fragment| fragment.split_once(':').map(|(_, subdir)| subdir))
+        .filter(|subdir| !subdir.is_empty())
+        .unwrap_or(workspace_path);
+    if subdir == "." {
+        Some(format!("{base}#{git_ref}"))
+    } else {
+        Some(format!("{base}#{git_ref}:{subdir}"))
+    }
 }
 
 pub fn expected_variable_file_path(workspace: &WorkspaceRecord, variable_id: &str) -> String {
@@ -384,6 +418,18 @@ mod tests {
         assert_eq!(
             draft_source(&local, &draft("feature")),
             "/tmp/local-workspace"
+        );
+    }
+
+    #[test]
+    fn draft_source_preserves_git_source_shape() {
+        let remote = workspace(
+            "payments",
+            "git+https://github.com/octo/configs.git#main:payments",
+        );
+        assert_eq!(
+            draft_source(&remote, &draft("feature")),
+            "git+https://github.com/octo/configs.git#feature:payments"
         );
     }
 

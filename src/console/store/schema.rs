@@ -4,7 +4,7 @@ use crate::error::{Result, RototoError};
 
 use super::util::db_err;
 
-const CURRENT_SCHEMA_VERSION: i32 = 2;
+const CURRENT_SCHEMA_VERSION: i32 = 3;
 const BASELINE_SCHEMA_VERSION: i32 = 1;
 
 pub(super) fn initialize_schema(conn: &Connection) -> Result<()> {
@@ -163,10 +163,35 @@ fn migrate_one_schema_version(conn: &Connection, version: i32) -> Result<i32> {
             migrate_schema_v2(conn)?;
             Ok(2)
         }
+        2 => {
+            migrate_schema_v3(conn)?;
+            Ok(3)
+        }
         _ => Err(RototoError::new(format!(
             "missing console database migration from schema version {version}"
         ))),
     }
+}
+
+fn migrate_schema_v3(conn: &Connection) -> Result<()> {
+    conn.execute_batch(
+        r#"
+        CREATE TABLE IF NOT EXISTS draft_workspaces (
+          draft_id TEXT NOT NULL,
+          workspace_id TEXT NOT NULL,
+          added_at TEXT NOT NULL,
+          PRIMARY KEY(draft_id, workspace_id),
+          FOREIGN KEY(draft_id) REFERENCES draft_sessions(id) ON DELETE CASCADE,
+          FOREIGN KEY(workspace_id) REFERENCES workspaces(id) ON DELETE CASCADE
+        );
+
+        INSERT OR IGNORE INTO draft_workspaces (draft_id, workspace_id, added_at)
+        SELECT id, workspace_id, created_at
+        FROM draft_sessions;
+        "#,
+    )
+    .map_err(db_err)?;
+    Ok(())
 }
 
 fn migrate_schema_v2(conn: &Connection) -> Result<()> {

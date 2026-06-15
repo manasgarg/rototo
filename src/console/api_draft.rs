@@ -237,11 +237,13 @@ async fn draft_create(
     if !target_branch.is_empty() {
         let existing = state
             .store
-            .list_draft_sessions_for_workspace(&workspace.id, &user.principal_id)
-            .await?
-            .into_iter()
-            .find(|draft| draft.branch == target_branch && draft.status == DraftStatus::Open);
+            .find_open_draft_for_repo_branch(&workspace.id, &user.principal_id, &target_branch)
+            .await?;
         if let Some(existing) = existing {
+            let existing = state
+                .store
+                .ensure_draft_workspace(&existing.id, &workspace.id)
+                .await?;
             return Ok(Json(json!({ "draft": existing })));
         }
     }
@@ -505,29 +507,45 @@ async fn draft_publish(
         return Err(ApiError::bad_request("draft has no tracked changes"));
     }
 
-    let source = draft_source(&context.workspace, &context.draft);
-    let lint = match state
-        .stage
-        .inspect(source_token(&context.user), &source)
-        .await
-    {
-        Ok(inspected) => inspected
-            .lint()
+    let mut lint_workspaces = state
+        .store
+        .list_workspaces_for_draft(&context.draft.id)
+        .await?;
+    if lint_workspaces.is_empty() {
+        lint_workspaces.push(context.workspace.clone());
+    }
+    let mut errors = 0;
+    let mut warnings = 0;
+    for workspace in &lint_workspaces {
+        let source = draft_source(workspace, &context.draft);
+        let lint = match state
+            .stage
+            .inspect(source_token(&context.user), &source)
             .await
-            .map_err(|err| ApiError::bad_request(err.to_string()))?,
-        Err(err) => return Err(ApiError::bad_request(err.to_string())),
-    };
-    let errors = lint
-        .diagnostics
-        .iter()
-        .filter(|diagnostic| diagnostic.severity == crate::diagnostics::Severity::Error)
-        .count();
+        {
+            Ok(inspected) => inspected
+                .lint()
+                .await
+                .map_err(|err| ApiError::bad_request(err.to_string()))?,
+            Err(err) => return Err(ApiError::bad_request(err.to_string())),
+        };
+        errors += lint
+            .diagnostics
+            .iter()
+            .filter(|diagnostic| diagnostic.severity == crate::diagnostics::Severity::Error)
+            .count();
+        warnings += lint.diagnostics.len()
+            - lint
+                .diagnostics
+                .iter()
+                .filter(|diagnostic| diagnostic.severity == crate::diagnostics::Severity::Error)
+                .count();
+    }
     if errors > 0 {
         return Err(ApiError::bad_request(format!(
-            "draft has {errors} lint error(s); fix lint before publishing"
+            "draft has {errors} lint error(s) across included workspace(s); fix lint before publishing"
         )));
     }
-    let warnings = lint.diagnostics.len() - errors;
 
     match draft_backend(
         &state,
