@@ -104,43 +104,32 @@ export type WorkspaceRecord = {
     discoveredAt: string;
 };
 
-/** Persisted draft branch session for one user and workspace. */
-export type DraftSessionRecord = {
+/** Repository branch selected by one console user. */
+export type BranchRecord = {
     id: string;
-    workspaceId: string;
+    repoId: string;
     principalId: string;
     branch: string;
     baseRef: string;
-    status: "open" | "published" | "abandoned";
+    baseCommit: string | null;
     prUrl: string | null;
     prNumber: number | null;
     prState: string | null;
     prMergedAt: string | null;
     prSyncedAt: string | null;
+    lastSelectedWorkspacePath: string | null;
+    lastSeenCommit: string | null;
+    status: "active" | "recent" | "archived";
     createdAt: string;
-    updatedAt: string;
-    publishedAt: string | null;
+    lastOpenedAt: string;
+    lastEditedAt: string | null;
+    archivedAt: string | null;
 };
 
-/** Persisted net file/value change tracked inside a draft. */
-export type DraftChangeRecord = {
+/** Changed file derived from comparing a branch with its base ref. */
+export type BranchChangeRecord = {
     id: string;
-    draftId: string;
     filePath: string;
-    targetPath: string | null;
-    beforeJson: string;
-    afterJson: string;
-    updatedAt: string;
-};
-
-/** Append-only draft timeline entry persisted by the store. */
-export type DraftEventRecord = {
-    id: string;
-    draftId: string;
-    kind: string;
-    summary: string;
-    detailJson: string | null;
-    createdAt: string;
 };
 
 /* Lint diagnostics arrive as the Rust LintDiagnostic serde output; the
@@ -441,14 +430,14 @@ export type QualifierContextEvaluation = {
     error?: string;
 };
 
-/** Draft edit preview truth table for one saved request context. */
+/** Branch edit preview truth table for one saved request context. */
 export type EditContextPreview = {
     name: string;
     qualifierTruth: Record<string, boolean>;
 };
 
-/* Draft editing: each editable entity arrives with its draft-branch text. */
-/** Draft-branch entity text and metadata used by the editor screens. */
+/* Branch editing: each editable entity arrives with its branch text. */
+/** Branch-branch entity text and metadata used by the editor screens. */
 export type EditableEntity = {
     section:
         | "variables"
@@ -469,11 +458,11 @@ export type EditableEntity = {
 };
 
 /* Screen payloads. */
-/** App shell payload: repos, workspaces, and active draft rows. */
+/** App shell payload: repos, workspaces, and active branch rows. */
 export type ConsoleData = {
     repos: RepoWithWorkspaces[];
     workspaces: WorkspaceRecord[];
-    drafts: Array<{ draft: DraftSessionRecord; workspace: WorkspaceRecord }>;
+    branches: Array<{ branch: BranchRecord; workspace: WorkspaceRecord }>;
 };
 
 /** Count/error summary for one staged workspace. */
@@ -499,7 +488,7 @@ export type WorkspaceSummariesData = {
 /** Full workspace screen payload for a persisted workspace record. */
 export type WorkspaceData = {
     workspace: WorkspaceRecord;
-    drafts: DraftSessionRecord[];
+    branches: BranchRecord[];
     inventory: WorkspaceInventory;
     inventoryError: string | null;
     lint: WorkspaceLintLoad;
@@ -516,13 +505,12 @@ export type WorkspaceEntityData = {
     qualifierEvaluations: QualifierContextEvaluation[];
 };
 
-/** Full draft screen payload, including branch state and editable entities. */
-export type DraftData = {
+/** Full branch screen payload, including branch state and editable entities. */
+export type BranchData = {
     workspace: WorkspaceRecord;
-    draft: DraftSessionRecord;
+    branch: BranchRecord;
     prSyncError: string | null;
-    changes: DraftChangeRecord[];
-    events: DraftEventRecord[];
+    changes: BranchChangeRecord[];
     lint: WorkspaceLintLoad;
     model: WorkspaceSemanticModel | null;
     entities: EditableEntity[];
@@ -532,8 +520,8 @@ export type DraftData = {
     capabilities: WorkspaceCapabilities;
 };
 
-/** Extra compare/preview payload for one draft entity editor. */
-export type DraftEntityData = {
+/** Extra compare/preview payload for one branch entity editor. */
+export type BranchEntityData = {
     baseText: string | null;
     contextPreviews: EditContextPreview[];
 };

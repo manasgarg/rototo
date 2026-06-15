@@ -3,7 +3,7 @@ import { useState } from "react";
 import { GitBranchPlus } from "lucide-react";
 import { apiFetch } from "@/lib/api";
 
-export function StartDraftButton({
+export function StartBranchButton({
     workspaceId,
     disabled,
     disabledReason,
@@ -16,26 +16,26 @@ export function StartDraftButton({
     const [pending, setPending] = useState(false);
     const [message, setMessage] = useState<string | null>(null);
 
-    async function startDraft() {
+    async function startBranch() {
         setPending(true);
         setMessage(null);
         try {
             const response = await apiFetch(
-                `/api/workspaces/${workspaceId}/drafts`,
+                `/api/workspaces/${workspaceId}/branches`,
                 {
                     method: "POST",
                     body: "{}",
                 },
             );
             const body = (await response.json()) as {
-                draft?: { id: string };
+                branch?: { id: string };
                 error?: string;
             };
-            if (!response.ok || !body.draft) {
-                throw new Error(body.error ?? "failed to start draft");
+            if (!response.ok || !body.branch) {
+                throw new Error(body.error ?? "failed to start branch");
             }
             router.push(
-                `/app/workspaces/${workspaceId}/drafts/${body.draft.id}`,
+                `/app/workspaces/${workspaceId}/branches/${body.branch.id}`,
             );
         } catch (error) {
             setMessage(error instanceof Error ? error.message : String(error));
@@ -53,7 +53,7 @@ export function StartDraftButton({
             <button
                 className="btn btn-primary btn-sm"
                 disabled={disabled || pending}
-                onClick={startDraft}
+                onClick={startBranch}
                 type="button"
             >
                 {pending ? (
@@ -61,7 +61,7 @@ export function StartDraftButton({
                 ) : (
                     <GitBranchPlus aria-hidden size={15} />
                 )}
-                {pending ? "Starting draft" : "Edit workspace"}
+                {pending ? "Starting branch" : "Edit workspace"}
             </button>
             {disabled && disabledReason ? (
                 <p className="form-note">{disabledReason}</p>

@@ -31,11 +31,11 @@ import {
 } from "@/components/diagnostic-list";
 import { LoadingScreen } from "@/components/loading-screen";
 import { SearchableList } from "@/components/searchable-list";
-import { DraftCandidates } from "@/components/draft-candidates";
+import { BranchCandidates } from "@/components/branch-candidates";
 import { ReadOnlySource } from "@/components/read-only-source";
-import { DraftStatusPill } from "@/components/status-pills";
-import { StartDraftButton } from "@/components/start-draft-button";
-import { StartDraftFromBranchForm } from "@/components/start-draft-from-branch-form";
+import { BranchStatusPill } from "@/components/status-pills";
+import { StartBranchButton } from "@/components/start-branch-button";
+import { OpenBranchForm } from "@/components/open-branch-form";
 import { WorkspaceGraph } from "@/components/workspace-graph";
 import type { WorkspaceGraphData } from "@/components/workspace-graph/types";
 import { useApi } from "@/lib/api";
@@ -45,7 +45,7 @@ import { useShellUser } from "@/lib/me";
 import { RefreshScope } from "@/lib/refresh";
 import type { SectionId } from "@/lib/route-normalizers";
 import type {
-    DraftSessionRecord,
+    BranchRecord,
     LintDiagnostic,
     QualifierContextEvaluation,
     QualifierEvaluation,
@@ -88,7 +88,7 @@ const SECTION_TITLES: Record<SectionId, string> = {
     linters: "Linters",
     context: "Context",
     diagnostics: "Diagnostics",
-    drafts: "Drafts",
+    branches: "Branches",
 };
 
 const SECTION_HINTS: Partial<Record<SectionId, string>> = {
@@ -144,7 +144,7 @@ export function WorkspaceScreen({
 
     const {
         workspace,
-        drafts,
+        branches,
         inventory,
         inventoryError,
         model,
@@ -289,7 +289,7 @@ export function WorkspaceScreen({
                                 />
                             )}
                         </Link>
-                        <StartDraftButton
+                        <StartBranchButton
                             disabled={writeDisabled}
                             disabledReason={writeDisabledReason}
                             workspaceId={workspace.slug}
@@ -372,12 +372,12 @@ export function WorkspaceScreen({
                         />
                         <NavLink
                             active={
-                                !selectedNode && selectedSection === "drafts"
+                                !selectedNode && selectedSection === "branches"
                             }
-                            count={drafts.length}
-                            href={sectionHref(workspace.slug, "drafts")}
+                            count={branches.length}
+                            href={sectionHref(workspace.slug, "branches")}
                             icon={<GitBranch aria-hidden size={16} />}
-                            label="Drafts"
+                            label="Branches"
                         />
                     </>
                 }
@@ -397,8 +397,8 @@ export function WorkspaceScreen({
                         error={definitionError}
                         model={model}
                         node={selectedNode}
-                        openDraft={
-                            drafts.find((draft) => draft.status === "open") ??
+                        activeBranch={
+                            branches.find((branch) => branch.status === "active") ??
                             null
                         }
                         parentCatalog={parentCatalogNode}
@@ -408,7 +408,7 @@ export function WorkspaceScreen({
                 ) : (
                     <WorkspaceSection
                         diagnosticCount={diagnosticCount}
-                        drafts={drafts}
+                        branches={branches}
                         graphData={graphData}
                         capabilities={capabilities}
                         inventory={inventory}
@@ -427,7 +427,7 @@ export function WorkspaceScreen({
 function WorkspaceSection({
     capabilities,
     diagnosticCount,
-    drafts,
+    branches,
     graphData,
     inventory,
     inventoryError,
@@ -438,7 +438,7 @@ function WorkspaceSection({
 }: {
     capabilities: WorkspaceCapabilities;
     diagnosticCount: number;
-    drafts: DraftSessionRecord[];
+    branches: BranchRecord[];
     graphData: WorkspaceGraphData | null;
     inventory: WorkspaceInventory;
     inventoryError: string | null;
@@ -456,7 +456,9 @@ function WorkspaceSection({
     };
 }) {
     if (section === "overview") {
-        const openDrafts = drafts.filter((draft) => draft.status === "open");
+        const activeBranches = branches.filter(
+            (branch) => branch.status === "active",
+        );
         return (
             <section className="section">
                 <div className="section-header">
@@ -506,7 +508,7 @@ function WorkspaceSection({
                             }
                             lintError={"error" in lint ? lint.error : null}
                             nodes={nodes}
-                            openDrafts={openDrafts}
+                            activeBranches={activeBranches}
                             workspaceId={workspace.slug}
                         />
                         {graphData ? (
@@ -559,15 +561,15 @@ function WorkspaceSection({
         );
     }
 
-    if (section === "drafts") {
+    if (section === "branches") {
         return (
             <section className="section">
                 <div className="section-header-text">
-                    <h1>Drafts</h1>
+                    <h1>Branches</h1>
                     <p className="hint">
                         {capabilities.write.kind === "pullRequest"
-                            ? "Each draft is a branch created from "
-                            : "Each draft edits "}
+                            ? "Each branch is a branch created from "
+                            : "Each branch edits "}
                         <span className="mono">{workspace.ref}</span>
                         {capabilities.write.kind === "pullRequest"
                             ? ". Edits commit to the branch; publishing opens a pull request."
@@ -576,49 +578,49 @@ function WorkspaceSection({
                 </div>
                 {capabilities.write.kind === "pullRequest" ? (
                     <>
-                        <DraftCandidates workspaceId={workspace.slug} />
-                        <StartDraftFromBranchForm
+                        <BranchCandidates workspaceId={workspace.slug} />
+                        <OpenBranchForm
                             workspaceId={workspace.slug}
                         />
                     </>
                 ) : null}
-                {drafts.length === 0 ? (
+                {branches.length === 0 ? (
                     <div className="empty-state">
                         <span className="empty-puck">
                             <GitBranch aria-hidden size={18} />
                         </span>
                         <p>
-                            No draft branches yet. Use “Edit workspace” to start
+                            No branches yet. Use “Edit workspace” to start
                             one, or open an existing branch above.
                         </p>
                     </div>
                 ) : (
                     <SearchableList
                         className="row-list"
-                        emptyLabel="No drafts match that search."
-                        label="Search drafts"
-                        placeholder="Search drafts"
+                        emptyLabel="No branches match that search."
+                        label="Search branches"
+                        placeholder="Search branches"
                     >
-                        {drafts.map((draft) => (
+                        {branches.map((branch) => (
                             <Link
                                 className="row"
-                                data-search={`${draft.branch} ${draft.status} ${draft.prState ?? ""} ${draft.prUrl ?? ""}`}
-                                href={`/app/workspaces/${workspace.slug}/drafts/${draft.id}`}
-                                key={draft.id}
+                                data-search={`${branch.branch} ${branch.status} ${branch.prState ?? ""} ${branch.prUrl ?? ""}`}
+                                href={`/app/workspaces/${workspace.slug}/branches/${branch.id}`}
+                                key={branch.id}
                             >
                                 <span className="row-icon">
                                     <GitBranch aria-hidden size={16} />
                                 </span>
                                 <span className="row-text">
                                     <span className="row-title mono">
-                                        {draft.branch}
+                                        {branch.branch}
                                     </span>
                                     <span className="row-sub">
-                                        updated {formatDate(draft.updatedAt)}
+                                        updated {formatDate(branchUpdatedAt(branch))}
                                     </span>
                                 </span>
                                 <span className="row-side">
-                                    <DraftStatusPill draft={draft} />
+                                    <BranchStatusPill branch={branch} />
                                     <ChevronRight
                                         aria-hidden
                                         className="muted"
@@ -784,7 +786,7 @@ function EntityDefinition({
     error,
     model,
     node,
-    openDraft,
+    activeBranch,
     parentCatalog,
     qualifierEvaluations,
     workspaceId,
@@ -796,14 +798,14 @@ function EntityDefinition({
     error: string | null;
     model: WorkspaceSemanticModel | null;
     node: EntityNode;
-    openDraft: DraftSessionRecord | null;
+    activeBranch: BranchRecord | null;
     parentCatalog: EntityNode | null;
     qualifierEvaluations: QualifierContextEvaluation[];
     workspaceId: string;
 }) {
     const relations = entityRelations({ allNodes, model, node, workspaceId });
-    const editHref = openDraft
-        ? `/app/workspaces/${workspaceId}/drafts/${openDraft.id}/tree/${encodeEntityPath(node.path)}`
+    const editHref = activeBranch
+        ? `/app/workspaces/${workspaceId}/branches/${activeBranch.id}/tree/${encodeEntityPath(node.path)}`
         : null;
 
     return (
@@ -848,7 +850,7 @@ function EntityDefinition({
                             href={editHref}
                         >
                             <Pencil aria-hidden size={13} />
-                            Edit in draft
+                            Edit in branch
                         </Link>
                     ) : null}
                 </div>
@@ -1452,7 +1454,7 @@ function QualifierEvaluationRows({
 
 /* Builds the graph data contract from the semantic model. Rendering concepts
    live in components/workspace-graph. Callers supply entity paths per target
-   key, the href builder, and optionally the set of paths edited in a draft. */
+   key, the href builder, and optionally the set of paths edited in a branch. */
 export function workspaceGraphData(input: {
     model: WorkspaceSemanticModel;
     pathForKey: Map<string, string>;
@@ -1847,13 +1849,13 @@ function OverviewAttention({
     diagnostics,
     lintError,
     nodes,
-    openDrafts,
+    activeBranches,
     workspaceId,
 }: {
     diagnostics: LintDiagnostic[];
     lintError: string | null;
     nodes: EntityNode[];
-    openDrafts: DraftSessionRecord[];
+    activeBranches: BranchRecord[];
     workspaceId: string;
 }) {
     const ranked = [
@@ -1862,7 +1864,7 @@ function OverviewAttention({
     ];
     const shown = ranked.slice(0, 5);
     const allClear =
-        lintError === null && ranked.length === 0 && openDrafts.length === 0;
+        lintError === null && ranked.length === 0 && activeBranches.length === 0;
 
     return (
         <div className="card">
@@ -1885,7 +1887,7 @@ function OverviewAttention({
                     <CheckCircle2 aria-hidden size={16} />
                     <span>
                         Nothing needs you right now — lint is clean and there
-                        are no open drafts.
+                        are no active branches.
                     </span>
                 </div>
             ) : (
@@ -1946,26 +1948,26 @@ function OverviewAttention({
                             … all {ranked.length} diagnostics
                         </Link>
                     ) : null}
-                    {openDrafts.map((draft) => (
+                    {activeBranches.map((branch) => (
                         <Link
                             className="row"
-                            href={`/app/workspaces/${workspaceId}/drafts/${draft.id}`}
-                            key={draft.id}
+                            href={`/app/workspaces/${workspaceId}/branches/${branch.id}`}
+                            key={branch.id}
                         >
                             <span className="row-icon">
                                 <GitBranch aria-hidden size={16} />
                             </span>
                             <span className="row-text">
                                 <span className="row-title mono">
-                                    {draft.branch}
+                                    {branch.branch}
                                 </span>
                                 <span className="row-sub">
-                                    open draft · updated{" "}
-                                    {formatDate(draft.updatedAt)}
+                                    active branch · updated{" "}
+                                    {formatDate(branchUpdatedAt(branch))}
                                 </span>
                             </span>
                             <span className="row-side">
-                                <DraftStatusPill draft={draft} />
+                                <BranchStatusPill branch={branch} />
                                 <ChevronRight
                                     aria-hidden
                                     className="muted"
@@ -2244,4 +2246,8 @@ function formatDate(value: string): string {
         dateStyle: "medium",
         timeStyle: "short",
     }).format(new Date(value));
+}
+
+function branchUpdatedAt(branch: BranchRecord): string {
+    return branch.lastEditedAt ?? branch.lastOpenedAt ?? branch.createdAt;
 }

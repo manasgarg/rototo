@@ -3,18 +3,18 @@ import { GitBranch } from "lucide-react";
 import { useRouter } from "@/lib/navigation";
 import { apiFetch } from "@/lib/api";
 
-/** Transient submit result shown while renaming a draft branch. */
+/** Transient submit result shown while renaming a branch. */
 type FormNote = { tone: "ok" | "err"; text: string };
 
-export function DraftBranchEditor({
+export function BranchNameEditor({
     branch,
     disabled,
-    draftId,
+    branchId,
     workspaceId,
 }: {
     branch: string;
     disabled?: boolean;
-    draftId: string;
+    branchId: string;
     workspaceId: string;
 }) {
     const router = useRouter();
@@ -28,7 +28,7 @@ export function DraftBranchEditor({
         setNote(null);
         try {
             const response = await apiFetch(
-                `/api/workspaces/${workspaceId}/drafts/${draftId}`,
+                `/api/workspaces/${workspaceId}/branches/${branchId}`,
                 {
                     method: "PATCH",
                     headers: { "Content-Type": "application/json" },
@@ -37,13 +37,13 @@ export function DraftBranchEditor({
             );
             const body = (await response.json()) as {
                 error?: string;
-                draft?: { branch?: string };
+                branch?: { branch?: string };
             };
             if (!response.ok) {
                 throw new Error(body.error ?? "failed to update branch");
             }
-            if (body.draft?.branch) {
-                setValue(body.draft.branch);
+            if (body.branch?.branch) {
+                setValue(body.branch.branch);
             }
             setNote({ tone: "ok", text: "Branch renamed." });
             router.refresh();
@@ -60,7 +60,7 @@ export function DraftBranchEditor({
     return (
         <form className="inline-form" onSubmit={submit}>
             <input
-                aria-label="Draft branch name"
+                aria-label="Branch name"
                 className="input mono"
                 disabled={disabled || pending}
                 onChange={(event) => setValue(event.target.value)}

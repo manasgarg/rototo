@@ -10,13 +10,13 @@ type Candidate = {
     filesChanged: number;
 };
 
-/** Component-local lifecycle for the draft candidate branch scan. */
+/** Component-local lifecycle for the branch candidate branch scan. */
 type ScanState =
     | { kind: "loading" }
     | { kind: "error"; message: string }
     | { kind: "done"; candidates: Candidate[]; skipped: number };
 
-export function DraftCandidates({ workspaceId }: { workspaceId: string }) {
+export function BranchCandidates({ workspaceId }: { workspaceId: string }) {
     const router = useRouter();
     const [scan, setScan] = useState<ScanState>({ kind: "loading" });
     const [openingBranch, setOpeningBranch] = useState<string | null>(null);
@@ -27,7 +27,7 @@ export function DraftCandidates({ workspaceId }: { workspaceId: string }) {
         (async () => {
             try {
                 const response = await apiFetch(
-                    `/api/workspaces/${workspaceId}/draft-candidates`,
+                    `/api/workspaces/${workspaceId}/branch-candidates`,
                 );
                 const body = (await response.json()) as {
                     candidates?: Candidate[];
@@ -62,12 +62,12 @@ export function DraftCandidates({ workspaceId }: { workspaceId: string }) {
         };
     }, [workspaceId]);
 
-    async function openDraft(branch: string) {
+    async function activeBranch(branch: string) {
         setOpeningBranch(branch);
         setOpenError(null);
         try {
             const response = await apiFetch(
-                `/api/workspaces/${workspaceId}/drafts`,
+                `/api/workspaces/${workspaceId}/branches`,
                 {
                     method: "POST",
                     headers: { "Content-Type": "application/json" },
@@ -75,16 +75,16 @@ export function DraftCandidates({ workspaceId }: { workspaceId: string }) {
                 },
             );
             const body = (await response.json()) as {
-                draft?: { id: string };
+                branch?: { id: string };
                 error?: string;
             };
-            if (!response.ok || !body.draft) {
+            if (!response.ok || !body.branch) {
                 throw new Error(
-                    body.error ?? "failed to open the branch as a draft",
+                    body.error ?? "failed to open the branch as a branch",
                 );
             }
             router.push(
-                `/app/workspaces/${workspaceId}/drafts/${body.draft.id}`,
+                `/app/workspaces/${workspaceId}/branches/${body.branch.id}`,
             );
         } catch (error) {
             setOpenError(
@@ -143,7 +143,7 @@ export function DraftCandidates({ workspaceId }: { workspaceId: string }) {
                                         className="btn btn-secondary btn-sm"
                                         disabled={openingBranch !== null}
                                         onClick={() =>
-                                            openDraft(candidate.branch)
+                                            activeBranch(candidate.branch)
                                         }
                                         type="button"
                                     >
@@ -155,7 +155,7 @@ export function DraftCandidates({ workspaceId }: { workspaceId: string }) {
                                                 size={14}
                                             />
                                         )}
-                                        Open draft
+                                        Open branch
                                     </button>
                                 </span>
                             </div>

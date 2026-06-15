@@ -15,14 +15,14 @@ import { LoadingScreen } from "@/components/loading-screen";
 import { RemoveRepoButton } from "@/components/remove-repo-button";
 import { RepoRegistrationForm } from "@/components/repo-registration-form";
 import { SearchableList } from "@/components/searchable-list";
-import { DraftStatusPill } from "@/components/status-pills";
+import { BranchStatusPill } from "@/components/status-pills";
 import { api, useApi } from "@/lib/api";
 import { Link } from "@/lib/link";
 import { useShellUser } from "@/lib/me";
 import { RefreshScope } from "@/lib/refresh";
 import type {
     ConsoleData,
-    DraftSessionRecord,
+    BranchRecord,
     RepoWithWorkspaces,
     WorkspaceRecord,
     WorkspaceSummary,
@@ -30,15 +30,15 @@ import type {
 } from "@/lib/types";
 
 /** App shell tab id accepted from route state. */
-export type AppScreen = "repositories" | "workspaces" | "drafts" | "activity";
+export type AppScreen = "repositories" | "workspaces" | "branches" | "activity";
 
-/** Active draft row paired with workspace metadata for dashboard lists. */
-type DraftEntry = { draft: DraftSessionRecord; workspace: WorkspaceRecord };
+/** Active branch row paired with workspace metadata for dashboard lists. */
+type BranchEntry = { branch: BranchRecord; workspace: WorkspaceRecord };
 
 const SCREEN_TITLES: Record<AppScreen, string> = {
     repositories: "Repositories",
     workspaces: "Workspaces",
-    drafts: "Drafts",
+    branches: "Branches",
     activity: "Activity",
 };
 
@@ -142,10 +142,12 @@ export function ConsoleScreen({ screen }: { screen: AppScreen }) {
     const visibleWorkspaces = filterRepo
         ? workspaces.filter((workspace) => workspace.repoId === filterRepo.id)
         : workspaces;
-    const drafts = data.drafts;
-    const openDrafts = drafts.filter(({ draft }) => draft.status === "open");
-    const publishedDrafts = drafts.filter(
-        ({ draft }) => draft.status === "published",
+    const branches = data.branches;
+    const activeBranches = branches.filter(
+        ({ branch }) => branch.status === "active",
+    );
+    const branchesWithPullRequests = branches.filter(
+        ({ branch }) => branch.prUrl !== null,
     );
 
     return (
@@ -181,11 +183,11 @@ export function ConsoleScreen({ screen }: { screen: AppScreen }) {
                             label="Workspaces"
                         />
                         <NavLink
-                            active={selectedScreen === "drafts"}
-                            count={drafts.length}
-                            href={appScreenHref("drafts")}
+                            active={selectedScreen === "branches"}
+                            count={branches.length}
+                            href={appScreenHref("branches")}
                             icon={<GitBranch aria-hidden size={16} />}
-                            label="Drafts"
+                            label="Branches"
                         />
                         <NavLink
                             active={selectedScreen === "activity"}
@@ -203,20 +205,20 @@ export function ConsoleScreen({ screen }: { screen: AppScreen }) {
                 ) : null}
                 {selectedScreen === "workspaces" ? (
                     <WorkspacesScreen
-                        drafts={drafts}
+                        branches={branches}
                         filterRepo={filterRepo}
                         workspaceSummaries={workspaceSummaries}
                         workspaces={visibleWorkspaces}
                     />
                 ) : null}
-                {selectedScreen === "drafts" ? (
-                    <DraftsScreen drafts={drafts} />
+                {selectedScreen === "branches" ? (
+                    <BranchesScreen branches={branches} />
                 ) : null}
                 {selectedScreen === "activity" ? (
                     <ActivityScreen
-                        drafts={drafts}
-                        openDraftsCount={openDrafts.length}
-                        publishedDraftsCount={publishedDrafts.length}
+                        branches={branches}
+                        activeBranchesCount={activeBranches.length}
+                        branchesWithPullRequestsCount={branchesWithPullRequests.length}
                         reposCount={repos.length}
                     />
                 ) : null}
@@ -314,12 +316,12 @@ function RepositoriesScreen({ repos }: { repos: RepoWithWorkspaces[] }) {
 }
 
 function WorkspacesScreen({
-    drafts,
+    branches,
     filterRepo,
     workspaceSummaries,
     workspaces,
 }: {
-    drafts: DraftEntry[];
+    branches: BranchEntry[];
     filterRepo: RepoWithWorkspaces | null;
     workspaceSummaries: Map<string, WorkspaceSummary>;
     workspaces: WorkspaceRecord[];
@@ -370,8 +372,8 @@ function WorkspacesScreen({
                     {workspaces.map((workspace) => (
                         <WorkspaceRow
                             data-search={`${workspace.owner}/${workspace.name} ${workspace.path} ${workspace.ref}`}
-                            draftsCount={
-                                drafts.filter(
+                            branchesCount={
+                                branches.filter(
                                     (entry) =>
                                         entry.workspace.id === workspace.id,
                                 ).length
@@ -388,12 +390,12 @@ function WorkspacesScreen({
 }
 
 function WorkspaceRow({
-    draftsCount,
+    branchesCount,
     summary,
     workspace,
     "data-search": dataSearch,
 }: {
-    draftsCount: number;
+    branchesCount: number;
     summary: WorkspaceSummary | undefined;
     workspace: WorkspaceRecord;
     "data-search": string;
@@ -484,10 +486,10 @@ function WorkspaceRow({
                     </span>
                 ) : (
                     <>
-                        {draftsCount > 0 ? (
+                        {branchesCount > 0 ? (
                             <span className="pill pill-neutral">
-                                {draftsCount}{" "}
-                                {draftsCount === 1 ? "draft" : "drafts"}
+                                {branchesCount}{" "}
+                                {branchesCount === 1 ? "branch" : "branches"}
                             </span>
                         ) : null}
                         <ChevronRight aria-hidden className="muted" size={15} />
@@ -511,38 +513,38 @@ function shouldHandleClientNavigation(
     );
 }
 
-function DraftsScreen({ drafts }: { drafts: DraftEntry[] }) {
+function BranchesScreen({ branches }: { branches: BranchEntry[] }) {
     return (
         <section className="section">
             <div className="section-header-text">
-                <h1>Drafts</h1>
+                <h1>Branches</h1>
                 <p className="hint">
-                    Every draft is a real branch in the workspace repository.
+                    Every branch is a real branch in the workspace repository.
                     Edits commit to the branch; publishing opens a pull request.
                 </p>
             </div>
-            {drafts.length === 0 ? (
+            {branches.length === 0 ? (
                 <div className="empty-state">
                     <span className="empty-puck">
                         <GitBranch aria-hidden size={18} />
                     </span>
                     <p>
-                        No draft branches yet. Open a workspace and start
+                        No branches yet. Open a workspace and start
                         editing to create one.
                     </p>
                 </div>
             ) : (
                 <SearchableList
                     className="row-list"
-                    emptyLabel="No drafts match that search."
-                    label="Search drafts"
-                    placeholder="Search drafts"
+                    emptyLabel="No branches match that search."
+                    label="Search branches"
+                    placeholder="Search branches"
                 >
-                    {drafts.map(({ draft, workspace }) => (
+                    {branches.map(({ branch, workspace }) => (
                         <div
                             className="row"
-                            data-search={`${workspace.owner}/${workspace.name} ${workspace.path} ${draft.branch} ${draft.status} ${draft.prState ?? ""}`}
-                            key={draft.id}
+                            data-search={`${workspace.owner}/${workspace.name} ${workspace.path} ${branch.branch} ${branch.status} ${branch.prState ?? ""}`}
+                            key={branch.id}
                         >
                             <span className="row-icon">
                                 <GitBranch aria-hidden size={16} />
@@ -550,9 +552,9 @@ function DraftsScreen({ drafts }: { drafts: DraftEntry[] }) {
                             <span className="row-text">
                                 <Link
                                     className="row-title mono row-link"
-                                    href={`/app/workspaces/${workspace.slug}/drafts/${draft.id}`}
+                                    href={`/app/workspaces/${workspace.slug}/branches/${branch.id}`}
                                 >
-                                    {draft.branch}
+                                    {branch.branch}
                                 </Link>
                                 <span className="row-sub">
                                     <Link
@@ -564,11 +566,11 @@ function DraftsScreen({ drafts }: { drafts: DraftEntry[] }) {
                                 </span>
                             </span>
                             <span className="row-side">
-                                <DraftStatusPill draft={draft} />
+                                <BranchStatusPill branch={branch} />
                                 <Link
-                                    aria-label={`Open draft ${draft.branch}`}
+                                    aria-label={`Open branch ${branch.branch}`}
                                     className="muted"
-                                    href={`/app/workspaces/${workspace.slug}/drafts/${draft.id}`}
+                                    href={`/app/workspaces/${workspace.slug}/branches/${branch.id}`}
                                 >
                                     <ChevronRight aria-hidden size={15} />
                                 </Link>
@@ -582,38 +584,38 @@ function DraftsScreen({ drafts }: { drafts: DraftEntry[] }) {
 }
 
 function ActivityScreen({
-    drafts,
-    openDraftsCount,
-    publishedDraftsCount,
+    branches,
+    activeBranchesCount,
+    branchesWithPullRequestsCount,
     reposCount,
 }: {
-    drafts: DraftEntry[];
-    openDraftsCount: number;
-    publishedDraftsCount: number;
+    branches: BranchEntry[];
+    activeBranchesCount: number;
+    branchesWithPullRequestsCount: number;
     reposCount: number;
 }) {
-    const recentFirst = [...drafts].sort(
+    const recentFirst = [...branches].sort(
         (left, right) =>
-            Date.parse(right.draft.updatedAt) -
-            Date.parse(left.draft.updatedAt),
+            Date.parse(branchUpdatedAt(right.branch)) -
+            Date.parse(branchUpdatedAt(left.branch)),
     );
     return (
         <section className="section">
             <div className="section-header-text">
                 <h1>Activity</h1>
                 <p className="hint">
-                    Every draft across your workspaces, most recently updated
+                    Every branch across your workspaces, most recently updated
                     first.
                 </p>
             </div>
             <div className="stat-grid">
                 <div className="stat-card">
-                    <span className="label">open drafts</span>
-                    <span className="stat-value">{openDraftsCount}</span>
+                    <span className="label">active branches</span>
+                    <span className="stat-value">{activeBranchesCount}</span>
                 </div>
                 <div className="stat-card">
-                    <span className="label">published drafts</span>
-                    <span className="stat-value">{publishedDraftsCount}</span>
+                    <span className="label">branches with PRs</span>
+                    <span className="stat-value">{branchesWithPullRequestsCount}</span>
                 </div>
                 <div className="stat-card">
                     <span className="label">repositories</span>
@@ -626,7 +628,7 @@ function ActivityScreen({
                         <History aria-hidden size={18} />
                     </span>
                     <p>
-                        No drafts yet. Open a workspace and start editing to
+                        No branches yet. Open a workspace and start editing to
                         create one.
                     </p>
                 </div>
@@ -637,11 +639,11 @@ function ActivityScreen({
                     label="Search activity"
                     placeholder="Search activity"
                 >
-                    {recentFirst.map(({ draft, workspace }) => (
+                    {recentFirst.map(({ branch, workspace }) => (
                         <div
                             className="row"
-                            data-search={`${workspace.owner}/${workspace.name} ${workspace.path} ${draft.branch} ${draft.status} ${draft.prUrl ?? ""} ${draft.prState ?? ""}`}
-                            key={draft.id}
+                            data-search={`${workspace.owner}/${workspace.name} ${workspace.path} ${branch.branch} ${branch.status} ${branch.prUrl ?? ""} ${branch.prState ?? ""}`}
+                            key={branch.id}
                         >
                             <span className="row-icon">
                                 <History aria-hidden size={16} />
@@ -649,9 +651,9 @@ function ActivityScreen({
                             <span className="row-text">
                                 <Link
                                     className="row-title mono row-link"
-                                    href={`/app/workspaces/${workspace.slug}/drafts/${draft.id}`}
+                                    href={`/app/workspaces/${workspace.slug}/branches/${branch.id}`}
                                 >
-                                    {draft.branch}
+                                    {branch.branch}
                                 </Link>
                                 <span className="row-sub">
                                     <Link
@@ -659,16 +661,16 @@ function ActivityScreen({
                                     >
                                         {workspace.path}
                                     </Link>{" "}
-                                    · updated {formatDate(draft.updatedAt)}
-                                    {draft.prUrl ? (
+                                    · updated {formatDate(branchUpdatedAt(branch))}
+                                    {branch.prUrl ? (
                                         <>
                                             {" · "}
                                             <a
-                                                href={draft.prUrl}
+                                                href={branch.prUrl}
                                                 rel="noreferrer"
                                                 target="_blank"
                                             >
-                                                {draft.prUrl.replace(
+                                                {branch.prUrl.replace(
                                                     "https://github.com/",
                                                     "",
                                                 )}
@@ -678,11 +680,11 @@ function ActivityScreen({
                                 </span>
                             </span>
                             <span className="row-side">
-                                <DraftStatusPill draft={draft} />
+                                <BranchStatusPill branch={branch} />
                                 <Link
-                                    aria-label={`Open draft ${draft.branch}`}
+                                    aria-label={`Open branch ${branch.branch}`}
                                     className="muted"
-                                    href={`/app/workspaces/${workspace.slug}/drafts/${draft.id}`}
+                                    href={`/app/workspaces/${workspace.slug}/branches/${branch.id}`}
                                 >
                                     <ChevronRight aria-hidden size={15} />
                                 </Link>
@@ -708,4 +710,8 @@ function formatDate(value: string): string {
         dateStyle: "medium",
         timeStyle: "short",
     }).format(new Date(value));
+}
+
+function branchUpdatedAt(branch: BranchRecord): string {
+    return branch.lastEditedAt ?? branch.lastOpenedAt ?? branch.createdAt;
 }

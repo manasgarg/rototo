@@ -8,9 +8,9 @@ export type SectionId =
     | "linters"
     | "context"
     | "diagnostics"
-    | "drafts";
+    | "branches";
 
-/** Draft edit section id accepted from route/query state. */
+/** Branch edit section id accepted from route/query state. */
 export type EditKind =
     | "variables"
     | "qualifiers"
@@ -29,7 +29,7 @@ export function normalizeSection(value: string | null): SectionId | null {
         value === "linters" ||
         value === "context" ||
         value === "diagnostics" ||
-        value === "drafts"
+        value === "branches"
     ) {
         return value;
     }

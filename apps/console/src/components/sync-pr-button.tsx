@@ -4,10 +4,10 @@ import { useRouter } from "@/lib/navigation";
 import { apiFetch } from "@/lib/api";
 
 export function SyncPrButton({
-    draftId,
+    branchId,
     workspaceId,
 }: {
-    draftId: string;
+    branchId: string;
     workspaceId: string;
 }) {
     const router = useRouter();
@@ -19,7 +19,7 @@ export function SyncPrButton({
         setMessage(null);
         try {
             const response = await apiFetch(
-                `/api/workspaces/${workspaceId}/drafts/${draftId}/sync-pr`,
+                `/api/workspaces/${workspaceId}/branches/${branchId}/sync-pr`,
                 { method: "POST" },
             );
             const body = (await response.json()) as { error?: string };

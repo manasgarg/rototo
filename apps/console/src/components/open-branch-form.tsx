@@ -3,7 +3,7 @@ import { FormEvent, useState } from "react";
 import { GitBranch } from "lucide-react";
 import { apiFetch } from "@/lib/api";
 
-export function StartDraftFromBranchForm({
+export function OpenBranchForm({
     workspaceId,
 }: {
     workspaceId: string;
@@ -19,7 +19,7 @@ export function StartDraftFromBranchForm({
         setMessage(null);
         try {
             const response = await apiFetch(
-                `/api/workspaces/${workspaceId}/drafts`,
+                `/api/workspaces/${workspaceId}/branches`,
                 {
                     method: "POST",
                     headers: { "Content-Type": "application/json" },
@@ -27,16 +27,16 @@ export function StartDraftFromBranchForm({
                 },
             );
             const body = (await response.json()) as {
-                draft?: { id: string };
+                branch?: { id: string };
                 error?: string;
             };
-            if (!response.ok || !body.draft) {
+            if (!response.ok || !body.branch) {
                 throw new Error(
-                    body.error ?? "failed to open the branch as a draft",
+                    body.error ?? "failed to open the branch as a branch",
                 );
             }
             router.push(
-                `/app/workspaces/${workspaceId}/drafts/${body.draft.id}`,
+                `/app/workspaces/${workspaceId}/branches/${body.branch.id}`,
             );
         } catch (error) {
             setMessage(error instanceof Error ? error.message : String(error));
@@ -49,10 +49,10 @@ export function StartDraftFromBranchForm({
             <div className="card-head-text">
                 <h3>Edit an existing branch</h3>
                 <p className="hint">
-                    Open a draft on a branch that already exists in the
+                    Open a branch on a branch that already exists in the
                     repository — for example one created outside the console.
                     Publishing still opens a pull request to the base ref. If
-                    the branch already has an open draft, you join it.
+                    the branch already has an open branch, you join it.
                 </p>
             </div>
             <div className="inline-form">
@@ -75,7 +75,7 @@ export function StartDraftFromBranchForm({
                     ) : (
                         <GitBranch aria-hidden size={15} />
                     )}
-                    {pending ? "Opening" : "Open draft"}
+                    {pending ? "Opening" : "Open branch"}
                 </button>
                 {message ? (
                     <p className="form-note" data-tone="err">

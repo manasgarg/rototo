@@ -656,14 +656,14 @@ async fn console_data(
         .store
         .list_workspaces_for_user(&user.principal_id)
         .await?;
-    let drafts = state
+    let branches = state
         .store
-        .list_draft_sessions_for_user(&user.principal_id)
+        .list_tracked_branches_with_workspaces_for_user(&user.principal_id)
         .await?;
     Ok(Json(json!({
         "repos": repos,
         "workspaces": workspaces,
-        "drafts": drafts,
+        "branches": branches,
     })))
 }
 

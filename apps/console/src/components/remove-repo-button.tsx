@@ -17,7 +17,7 @@ export function RemoveRepoButton({
     async function remove() {
         if (
             !window.confirm(
-                `Remove ${repoName} from the console? Its workspaces and drafts disappear here; the GitHub repository is untouched.`,
+                `Remove ${repoName} from the console? Its workspaces and branches disappear here; the GitHub repository is untouched.`,
             )
         ) {
             return;

@@ -70,7 +70,7 @@ type VariableDeclarationKind = "primitive" | "catalog" | "schema";
 /**
  * Optional context harvested from sibling entities and related schemas.
  *
- * The parent screen rebuilds this from the current workspace/draft payload for
+ * The parent screen rebuilds this from the current workspace/branch payload for
  * each editor instance. Descriptions explain fields, examples show values
  * already in use, and preview truth tables come from the Rust runtime.
  */
@@ -133,7 +133,7 @@ export function FriendlyEntityEditor({
     contextAttributes = [],
     diagnostics = [],
     disabled,
-    draftId,
+    branchId,
     entity,
     guidance = {},
     catalogIds = [],
@@ -142,13 +142,13 @@ export function FriendlyEntityEditor({
     sourceMarks = [],
     workspaceId,
 }: {
-    /* The entity's text at the draft's base ref, when known. Enables the
+    /* The entity's text at the branch's base ref, when known. Enables the
      changes view in both form and source modes. */
     baseText?: string | null;
     contextAttributes?: string[];
     diagnostics?: LintDiagnostic[];
     disabled?: boolean;
-    draftId: string;
+    branchId: string;
     entity: FriendlyEntity;
     guidance?: FormGuidance;
     catalogIds?: string[];
@@ -188,12 +188,12 @@ export function FriendlyEntityEditor({
 
     const formRef = useRef<HTMLFormElement>(null);
 
-    // Source mode talks to the draft's rototo language server for as-you-type
+    // Source mode talks to the branch's rototo language server for as-you-type
     // diagnostics, completion, and hover.
     const lspRequest = useCallback(
         async (body: Record<string, unknown>) => {
             const response = await apiFetch(
-                `/api/workspaces/${workspaceId}/drafts/${draftId}/lsp`,
+                `/api/workspaces/${workspaceId}/branches/${branchId}/lsp`,
                 {
                     method: "POST",
                     headers: { "Content-Type": "application/json" },
@@ -208,7 +208,7 @@ export function FriendlyEntityEditor({
             }
             return payload;
         },
-        [workspaceId, draftId, entity.path],
+        [workspaceId, branchId, entity.path],
     );
     const lsp = useMemo<CodeEditorLsp | undefined>(
         () => (disabled ? undefined : { request: lspRequest }),
@@ -256,7 +256,7 @@ export function FriendlyEntityEditor({
         setNote(null);
         try {
             const response = await apiFetch(
-                `/api/workspaces/${workspaceId}/drafts/${draftId}/files`,
+                `/api/workspaces/${workspaceId}/branches/${branchId}/files`,
                 {
                     method: "POST",
                     headers: { "Content-Type": "application/json" },
@@ -267,7 +267,7 @@ export function FriendlyEntityEditor({
             if (!response.ok) {
                 throw new Error(body.error ?? "failed to save file");
             }
-            setNote({ tone: "ok", text: "Saved to the draft branch." });
+            setNote({ tone: "ok", text: "Saved to the branch." });
             router.refresh();
         } catch (error) {
             setNote({
@@ -392,7 +392,7 @@ export function FriendlyEntityEditor({
                     ) : (
                         <Save aria-hidden size={15} />
                     )}
-                    {pending ? "Saving" : "Save to draft"}
+                    {pending ? "Saving" : "Save to branch"}
                 </button>
                 {note ? (
                     <p className="form-note" data-tone={note.tone}>
@@ -922,7 +922,7 @@ function VariableResolutionPreview({
                 ))}
             </div>
             <span className="field-hint">
-                Qualifiers are evaluated by rototo on the draft branch; the
+                Qualifiers are evaluated by rototo on the branch; the
                 pathway follows your edits before you save.
             </span>
         </div>

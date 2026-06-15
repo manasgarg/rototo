@@ -17,12 +17,12 @@ type FormNote = { tone: "ok" | "err"; text: string };
 
 export function AddEntityForm({
     disabled,
-    draftId,
+    branchId,
     kind,
     workspaceId,
 }: {
     disabled?: boolean;
-    draftId: string;
+    branchId: string;
     kind: EntityKind;
     workspaceId: string;
 }) {
@@ -38,7 +38,7 @@ export function AddEntityForm({
         setNote(null);
         try {
             const response = await apiFetch(
-                `/api/workspaces/${workspaceId}/drafts/${draftId}/entities`,
+                `/api/workspaces/${workspaceId}/branches/${branchId}/entities`,
                 {
                     method: "POST",
                     headers: { "Content-Type": "application/json" },
@@ -53,7 +53,7 @@ export function AddEntityForm({
                 throw new Error(body.error ?? "failed to add entity");
             }
             setId("");
-            setNote({ tone: "ok", text: "Added to the draft branch." });
+            setNote({ tone: "ok", text: "Added to the branch." });
             router.refresh();
         } catch (error) {
             setNote({
@@ -127,12 +127,12 @@ export function AddEntityForm({
 
 export function AddCatalogEntryForm({
     disabled,
-    draftId,
+    branchId,
     catalogId,
     workspaceId,
 }: {
     disabled?: boolean;
-    draftId: string;
+    branchId: string;
     catalogId: string;
     workspaceId: string;
 }) {
@@ -147,7 +147,7 @@ export function AddCatalogEntryForm({
         setNote(null);
         try {
             const response = await apiFetch(
-                `/api/workspaces/${workspaceId}/drafts/${draftId}/entities`,
+                `/api/workspaces/${workspaceId}/branches/${branchId}/entities`,
                 {
                     method: "POST",
                     headers: { "Content-Type": "application/json" },
@@ -166,7 +166,7 @@ export function AddCatalogEntryForm({
                 throw new Error(body.error ?? "failed to add catalog entry");
             }
             setId("");
-            setNote({ tone: "ok", text: "Added to the draft branch." });
+            setNote({ tone: "ok", text: "Added to the branch." });
             router.refresh();
         } catch (error) {
             setNote({
@@ -222,13 +222,13 @@ export function AddCatalogEntryForm({
 
 export function DeleteEntityButton({
     disabled,
-    draftId,
+    branchId,
     filePath,
     returnHref,
     workspaceId,
 }: {
     disabled?: boolean;
-    draftId: string;
+    branchId: string;
     filePath: string;
     returnHref: string;
     workspaceId: string;
@@ -238,14 +238,14 @@ export function DeleteEntityButton({
     const [message, setMessage] = useState<string | null>(null);
 
     async function remove() {
-        if (!window.confirm(`Delete ${filePath} from the draft branch?`)) {
+        if (!window.confirm(`Delete ${filePath} from the branch?`)) {
             return;
         }
         setPending(true);
         setMessage(null);
         try {
             const response = await apiFetch(
-                `/api/workspaces/${workspaceId}/drafts/${draftId}/files`,
+                `/api/workspaces/${workspaceId}/branches/${branchId}/files`,
                 {
                     method: "DELETE",
                     headers: { "Content-Type": "application/json" },
@@ -303,7 +303,7 @@ function addHelp(kind: EntityKind): string {
     if (kind === "context") {
         return "Creates a JSON context example.";
     }
-    return "Creates a starter definition on the draft branch.";
+    return "Creates a starter definition on the branch.";
 }
 
 function placeholder(kind: EntityKind): string {

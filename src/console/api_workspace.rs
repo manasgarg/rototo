@@ -49,6 +49,10 @@ pub fn routes() -> axum::Router<SharedState> {
         .route("/workspaces/{workspace_id}/data", get(workspace_data))
         .route("/workspaces/{workspace_id}/entity", get(workspace_entity))
         .route(
+            "/workspaces/{workspace_id}/branch-candidates",
+            get(draft_candidates),
+        )
+        .route(
             "/workspaces/{workspace_id}/draft-candidates",
             get(draft_candidates),
         )
@@ -234,9 +238,9 @@ async fn workspace_data(
 ) -> ApiResult<Json<JsonValue>> {
     let user = require_user(&state, &headers).await?;
     let workspace = load_workspace(&state, &user, &workspace_id).await?;
-    let drafts = state
+    let branches = state
         .store
-        .list_draft_sessions_for_workspace(&workspace.id, &user.principal_id)
+        .list_tracked_branches_for_workspace(&workspace.id, &user.principal_id)
         .await?;
 
     let staged =
@@ -281,7 +285,7 @@ async fn workspace_data(
     let capabilities = workspace_capabilities_json(&state, &user, &workspace);
     Ok(Json(json!({
         "workspace": workspace,
-        "drafts": drafts,
+        "branches": branches,
         "inventory": inventory,
         "inventoryError": inventory_error,
         "lint": lint,
@@ -388,10 +392,10 @@ async fn draft_candidates(
 
     let known_branches: std::collections::HashSet<String> = state
         .store
-        .list_draft_sessions_for_workspace(&workspace.id, &user.principal_id)
+        .list_tracked_branches_for_workspace(&workspace.id, &user.principal_id)
         .await?
         .into_iter()
-        .map(|draft| draft.branch)
+        .map(|branch| branch.branch)
         .collect();
     let branches: Vec<String> = state
         .github

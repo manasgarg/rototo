@@ -15,7 +15,6 @@ import {
     ListChecks,
     Pencil,
     Tags,
-    Trash2,
     TriangleAlert,
     Wrench,
 } from "lucide-react";
@@ -27,13 +26,13 @@ import {
     NavGroupLabel,
     NavLink,
 } from "@/components/app-shell";
-import { AbandonDraftButton } from "@/components/abandon-draft-button";
+import { ArchiveBranchButton } from "@/components/archive-branch-button";
 import {
     DiagnosticCard,
     DiagnosticList,
     DiagnosticSummary,
 } from "@/components/diagnostic-list";
-import { DraftBranchEditor } from "@/components/draft-branch-editor";
+import { BranchNameEditor } from "@/components/branch-name-editor";
 import {
     AddEntityForm,
     AddCatalogEntryForm,
@@ -45,9 +44,9 @@ import {
     type FormGuidance,
 } from "@/components/friendly-entity-editor";
 import { LoadingScreen } from "@/components/loading-screen";
-import { PublishDraftButton } from "@/components/publish-draft-button";
+import { PublishBranchButton } from "@/components/publish-branch-button";
 import { SearchableList } from "@/components/searchable-list";
-import { DraftStatusPill } from "@/components/status-pills";
+import { BranchStatusPill } from "@/components/status-pills";
 import { SyncPrButton } from "@/components/sync-pr-button";
 import {
     WorkspaceGraph,
@@ -59,11 +58,10 @@ import { useShellUser } from "@/lib/me";
 import { RefreshScope } from "@/lib/refresh";
 import type { EditKind } from "@/lib/route-normalizers";
 import type {
-    DraftChangeRecord,
-    DraftData,
-    DraftEntityData,
-    DraftEventRecord,
-    DraftSessionRecord,
+    BranchChangeRecord,
+    BranchData,
+    BranchEntityData,
+    BranchRecord,
     EditableEntity as ApiEditableEntity,
     LintDiagnostic,
     WorkspaceDefinition,
@@ -76,19 +74,19 @@ import {
     workspaceGraphData,
 } from "@/screens/workspace-screen";
 
-/** Top-level draft screen tab accepted from route state. */
-export type DraftScreenId =
+/** Top-level branch screen tab accepted from route state. */
+export type BranchScreenId =
     | "overview"
     | "edit"
     | "changes"
     | "validate"
     | "publish";
 
-/** Draft entity loaded from the API and then edited in local component state. */
+/** Branch entity loaded from the API and then edited in local component state. */
 type EditableEntity = ApiEditableEntity;
 
-/** Lint payload for the current draft branch, including staging failures. */
-type DraftLintLoad =
+/** Lint payload for the current branch, including staging failures. */
+type BranchLintLoad =
     | { root: string; diagnostics: LintDiagnostic[] }
     | { root: string; diagnostics: LintDiagnostic[]; error: string };
 
@@ -101,26 +99,26 @@ const EDIT_KIND_TITLES: Record<EditKind, string> = {
     linters: "Linters",
 };
 
-export function DraftScreen({
-    draftId,
+export function BranchScreen({
+    branchId,
     kind = null,
     path = null,
     screen = "overview",
     workspaceId,
 }: {
-    draftId: string;
+    branchId: string;
     kind?: EditKind | null;
     path?: string | null;
-    screen?: DraftScreenId;
+    screen?: BranchScreenId;
     workspaceId: string;
 }) {
     const user = useShellUser();
     const selectedScreen = screen;
     const requestedEditKind = kind ?? "variables";
     const selectedEntityPath = path;
-    const base = `/api/workspaces/${encodeURIComponent(workspaceId)}/drafts/${encodeURIComponent(draftId)}`;
-    const load = useApi<DraftData>(`${base}/data`);
-    const entityExtras = useApi<DraftEntityData>(
+    const base = `/api/workspaces/${encodeURIComponent(workspaceId)}/branches/${encodeURIComponent(branchId)}`;
+    const load = useApi<BranchData>(`${base}/data`);
+    const entityExtras = useApi<BranchEntityData>(
         selectedEntityPath
             ? `${base}/entity?path=${encodeURIComponent(selectedEntityPath)}`
             : null,
@@ -136,8 +134,8 @@ export function DraftScreen({
         return (
             <main className="fault-page">
                 <div className="fault-panel">
-                    <span className="label">draft</span>
-                    <h1>This draft failed to load.</h1>
+                    <span className="label">branch</span>
+                    <h1>This branch failed to load.</h1>
                     <div className="banner banner-err">
                         <TriangleAlert aria-hidden size={16} />
                         <span>{load.error ?? "Unknown error."}</span>
@@ -149,19 +147,17 @@ export function DraftScreen({
 
     const {
         workspace,
-        draft,
+        branch,
         prSyncError,
         changes,
-        events,
-        model: draftModel,
+        model: branchModel,
         entities: editableEntities,
         editLoadError,
         editedPaths,
         capabilities,
     } = load.data;
-    const lint = load.data.lint as DraftLintLoad;
+    const lint = load.data.lint as BranchLintLoad;
 
-    const activity = draftActivity(draft, events);
     const lintHasErrors =
         "error" in lint ||
         lint.diagnostics.some((diagnostic) => diagnostic.severity === "error");
@@ -181,7 +177,7 @@ export function DraftScreen({
               )
             : [];
     const selectedEditKind = selectedEntity?.section ?? requestedEditKind;
-    // The base-ref version of the selected entity, for showing the draft's
+    // The base-ref version of the selected entity, for showing the branch's
     // delta in the editor. Null when the entity is new on this branch or the
     // base text is unavailable.
     const selectedEntityBaseText = entityExtras.data?.baseText ?? null;
@@ -191,9 +187,9 @@ export function DraftScreen({
         entityExtras.data?.contextPreviews ?? [];
 
     // Editing-mode entity graph: same graph as the workspace overview, built
-    // from the draft branch, with edited entities marked.
-    let draftGraphData: WorkspaceGraphData | null = null;
-    if (selectedScreen === "overview" && draftModel !== null) {
+    // from the branch, with edited entities marked.
+    let branchGraphData: WorkspaceGraphData | null = null;
+    if (selectedScreen === "overview" && branchModel !== null) {
         const pathForKey = new Map<string, string>();
         for (const entity of editableEntities) {
             const targetKey = editableEntityTargetKey(entity);
@@ -201,11 +197,11 @@ export function DraftScreen({
                 pathForKey.set(targetKey, entity.path);
             }
         }
-        draftGraphData = workspaceGraphData({
-            model: draftModel,
+        branchGraphData = workspaceGraphData({
+            model: branchModel,
             pathForKey,
             hrefFor: (entityPath) =>
-                editEntityHref(workspace.slug, draft.id, entityPath),
+                editEntityHref(workspace.slug, branch.id, entityPath),
             editedPaths: new Set(editedPaths),
         });
     }
@@ -240,10 +236,10 @@ export function DraftScreen({
         ...(selectedScreen !== "overview"
             ? [
                   {
-                      label: draft.branch,
-                      href: draftScreenHref(
+                      label: branch.branch,
+                      href: branchScreenHref(
                           workspace.slug,
-                          draft.id,
+                          branch.id,
                           "overview",
                       ),
                   },
@@ -255,7 +251,7 @@ export function DraftScreen({
                       label: EDIT_KIND_TITLES[selectedEditKind].toLowerCase(),
                       href: editKindHref(
                           workspace.slug,
-                          draft.id,
+                          branch.id,
                           selectedEditKind,
                       ),
                   },
@@ -265,7 +261,7 @@ export function DraftScreen({
                                 label: parentCatalogEntity.id,
                                 href: editEntityHref(
                                     workspace.slug,
-                                    draft.id,
+                                    branch.id,
                                     parentCatalogEntity.path,
                                 ),
                             },
@@ -278,7 +274,7 @@ export function DraftScreen({
         ? entityCrumbLabel
         : selectedScreen === "edit"
           ? `Edit ${EDIT_KIND_TITLES[selectedEditKind].toLowerCase()}`
-          : draftScreenTitle(selectedScreen);
+          : branchScreenTitle(selectedScreen);
 
     return (
         <RefreshScope
@@ -292,9 +288,9 @@ export function DraftScreen({
                     <>
                         <Link
                             className="pill-link"
-                            href={draftScreenHref(
+                            href={branchScreenHref(
                                 workspace.slug,
-                                draft.id,
+                                branch.id,
                                 "validate",
                             )}
                             title="Open validation"
@@ -310,11 +306,11 @@ export function DraftScreen({
                                 />
                             )}
                         </Link>
-                        <DraftStatusPill draft={draft} />
-                        {draft.prUrl ? (
+                        <BranchStatusPill branch={branch} />
+                        {branch.prUrl ? (
                             <a
                                 className="btn btn-secondary btn-sm"
-                                href={draft.prUrl}
+                                href={branch.prUrl}
                                 rel="noreferrer"
                                 target="_blank"
                             >
@@ -326,35 +322,33 @@ export function DraftScreen({
                 }
                 crumbs={crumbs}
                 editing={{
-                    label: draft.branch,
+                    label: branch.branch,
                     detail:
-                        draft.status === "open"
+                        branch.status === "active"
                             ? "Saves commit to this branch — nothing reaches the base ref without review."
-                            : draft.status === "published"
-                              ? "This draft is published; editing is locked."
-                              : "This draft was let go; editing is locked.",
+                            : "This branch is not active; editing is locked.",
                 }}
                 nav={
                     <>
                         <NavBack
-                            href={`/app/workspaces/${workspace.slug}/drafts`}
+                            href={`/app/workspaces/${workspace.slug}/branches`}
                             label="Workspace"
                         />
                         <NavContext
-                            href={draftScreenHref(
+                            href={branchScreenHref(
                                 workspace.slug,
-                                draft.id,
+                                branch.id,
                                 "overview",
                             )}
-                            label="draft branch"
-                            value={draft.branch}
+                            label="branch"
+                            value={branch.branch}
                         />
-                        <NavGroupLabel>Draft</NavGroupLabel>
+                        <NavGroupLabel>Branch</NavGroupLabel>
                         <NavLink
                             active={selectedScreen === "overview"}
-                            href={draftScreenHref(
+                            href={branchScreenHref(
                                 workspace.slug,
-                                draft.id,
+                                branch.id,
                                 "overview",
                             )}
                             icon={<GitBranch aria-hidden size={16} />}
@@ -363,9 +357,9 @@ export function DraftScreen({
                         <NavLink
                             active={selectedScreen === "changes"}
                             count={changes.length}
-                            href={draftScreenHref(
+                            href={branchScreenHref(
                                 workspace.slug,
-                                draft.id,
+                                branch.id,
                                 "changes",
                             )}
                             icon={<GitCompare aria-hidden size={16} />}
@@ -378,9 +372,9 @@ export function DraftScreen({
                                     ? undefined
                                     : lint.diagnostics.length
                             }
-                            href={draftScreenHref(
+                            href={branchScreenHref(
                                 workspace.slug,
-                                draft.id,
+                                branch.id,
                                 "validate",
                             )}
                             icon={<ListChecks aria-hidden size={16} />}
@@ -388,9 +382,9 @@ export function DraftScreen({
                         />
                         <NavLink
                             active={selectedScreen === "publish"}
-                            href={draftScreenHref(
+                            href={branchScreenHref(
                                 workspace.slug,
-                                draft.id,
+                                branch.id,
                                 "publish",
                             )}
                             icon={<GitPullRequest aria-hidden size={16} />}
@@ -405,7 +399,7 @@ export function DraftScreen({
                             count={editableEntityCounts.variables}
                             href={editKindHref(
                                 workspace.slug,
-                                draft.id,
+                                branch.id,
                                 "variables",
                             )}
                             icon={<FileCode2 aria-hidden size={16} />}
@@ -419,7 +413,7 @@ export function DraftScreen({
                             count={editableEntityCounts.qualifiers}
                             href={editKindHref(
                                 workspace.slug,
-                                draft.id,
+                                branch.id,
                                 "qualifiers",
                             )}
                             icon={<Tags aria-hidden size={16} />}
@@ -433,7 +427,7 @@ export function DraftScreen({
                             count={editableEntityCounts.catalogs}
                             href={editKindHref(
                                 workspace.slug,
-                                draft.id,
+                                branch.id,
                                 "catalogs",
                             )}
                             icon={<Database aria-hidden size={16} />}
@@ -447,7 +441,7 @@ export function DraftScreen({
                             count={editableEntityCounts.schemas}
                             href={editKindHref(
                                 workspace.slug,
-                                draft.id,
+                                branch.id,
                                 "schemas",
                             )}
                             icon={<FileJson2 aria-hidden size={16} />}
@@ -461,7 +455,7 @@ export function DraftScreen({
                             count={editableEntityCounts.context}
                             href={editKindHref(
                                 workspace.slug,
-                                draft.id,
+                                branch.id,
                                 "context",
                             )}
                             icon={<Braces aria-hidden size={16} />}
@@ -475,7 +469,7 @@ export function DraftScreen({
                             count={editableEntityCounts.linters}
                             href={editKindHref(
                                 workspace.slug,
-                                draft.id,
+                                branch.id,
                                 "linters",
                             )}
                             icon={<Wrench aria-hidden size={16} />}
@@ -487,21 +481,20 @@ export function DraftScreen({
                 user={user}
             >
                 {selectedScreen === "overview" ? (
-                    <DraftOverview
-                        activity={activity}
+                    <BranchOverview
                         changesCount={changes.length}
-                        draft={draft}
-                        graphData={draftGraphData}
+                        branch={branch}
+                        graphData={branchGraphData}
                         workspaceId={workspace.slug}
                     />
                 ) : null}
                 {selectedScreen === "edit" ? (
-                    <DraftEditScreen
+                    <BranchEditScreen
                         baseText={selectedEntityBaseText}
                         contextAttributes={contextAttributes}
                         contextPreviews={contextPreviews}
-                        draft={draft}
-                        model={draftModel}
+                        branch={branch}
+                        model={branchModel}
                         editableEntities={editableEntities}
                         entityDiagnostics={selectedEntityDiagnostics}
                         loadError={editLoadError}
@@ -513,7 +506,7 @@ export function DraftScreen({
                     />
                 ) : null}
                 {selectedScreen === "changes" ? (
-                    <DraftChangesScreen
+                    <BranchChangesScreen
                         changes={changes}
                         entityHrefForFile={(filePath) => {
                             const match = entityForDiagnosticPath(
@@ -523,7 +516,7 @@ export function DraftScreen({
                             return match
                                 ? editEntityHref(
                                       workspace.slug,
-                                      draft.id,
+                                      branch.id,
                                       match.path,
                                   )
                                 : null;
@@ -531,22 +524,22 @@ export function DraftScreen({
                     />
                 ) : null}
                 {selectedScreen === "validate" ? (
-                    <DraftValidateScreen
+                    <BranchValidateScreen
                         diagnosticHref={(diagnostic) =>
                             diagnosticEntityHref(
                                 diagnostic,
                                 editableEntities,
                                 workspace.slug,
-                                draft.id,
+                                branch.id,
                             )
                         }
                         lint={lint}
                     />
                 ) : null}
                 {selectedScreen === "publish" ? (
-                    <DraftPublishScreen
+                    <BranchPublishScreen
                         changesCount={changes.length}
-                        draft={draft}
+                        branch={branch}
                         lintHasErrors={lintHasErrors}
                         prSyncError={prSyncError}
                         writeCapability={capabilities.write}
@@ -558,55 +551,49 @@ export function DraftScreen({
     );
 }
 
-function DraftOverview({
-    activity,
+function BranchOverview({
     changesCount,
-    draft,
+    branch,
     graphData,
     workspaceId,
 }: {
-    activity: DraftEventRecord[];
     changesCount: number;
-    draft: DraftSessionRecord;
+    branch: BranchRecord;
     graphData: WorkspaceGraphData | null;
     workspaceId: string;
 }) {
-    const newestFirst = [...activity].sort(
-        (left, right) =>
-            Date.parse(right.createdAt) - Date.parse(left.createdAt),
-    );
     return (
         <section className="section">
             <div className="section-header">
                 <div className="section-header-text">
-                    <h1 className="mono">{draft.branch}</h1>
+                    <h1 className="mono">{branch.branch}</h1>
                     <p className="hint">
-                        Edits commit directly to this branch. When the draft is
+                        Edits commit directly to this branch. When the branch is
                         ready, publish it as a pull request from the publish
                         screen.
                     </p>
                 </div>
-                <DraftStatusPill draft={draft} />
+                <BranchStatusPill branch={branch} />
             </div>
             <div className="meta-grid">
                 <div className="meta-item">
                     <span className="label">base ref</span>
-                    <span className="meta-value mono">{draft.baseRef}</span>
+                    <span className="meta-value mono">{branch.baseRef}</span>
                 </div>
                 <div className="meta-item">
-                    <span className="label">tracked changes</span>
+                    <span className="label">changed files</span>
                     <span className="meta-value">{changesCount}</span>
                 </div>
                 <div className="meta-item">
                     <span className="label">created</span>
                     <span className="meta-value">
-                        {formatDate(draft.createdAt)}
+                        {formatDate(branch.createdAt)}
                     </span>
                 </div>
                 <div className="meta-item">
                     <span className="label">updated</span>
                     <span className="meta-value">
-                        {formatDate(draft.updatedAt)}
+                        {formatDate(branchUpdatedAt(branch))}
                     </span>
                 </div>
             </div>
@@ -615,13 +602,13 @@ function DraftOverview({
                     <h3>Branch name</h3>
                     <p className="hint">
                         Renaming moves the branch on GitHub. Locked once the
-                        draft is published.
+                        branch has a pull request.
                     </p>
                 </div>
-                <DraftBranchEditor
-                    branch={draft.branch}
-                    disabled={draft.status !== "open"}
-                    draftId={draft.id}
+                <BranchNameEditor
+                    branch={branch.branch}
+                    disabled={branch.status !== "active"}
+                    branchId={branch.id}
                     workspaceId={workspaceId}
                 />
             </div>
@@ -630,7 +617,7 @@ function DraftOverview({
                     <div className="card-head-text">
                         <h3>Entity graph</h3>
                         <p className="hint">
-                            The workspace as this draft sees it. Entities edited
+                            The workspace as this branch sees it. Entities edited
                             on this branch are marked{" "}
                             <span
                                 className="mono"
@@ -644,49 +631,15 @@ function DraftOverview({
                     <WorkspaceGraph data={graphData} />
                 </div>
             ) : null}
-            <div className="section-header" style={{ marginTop: 8 }}>
-                <div className="section-header-text">
-                    <h2>Activity</h2>
-                    <p className="hint">
-                        Everything that happened on this draft, newest first.
-                    </p>
-                </div>
-            </div>
-            <div className="timeline">
-                {newestFirst.map((event) => (
-                    <div className="tl-row" key={event.id}>
-                        <span
-                            className="tl-icon"
-                            data-tone={eventTone(event.kind)}
-                        >
-                            {eventIcon(event.kind)}
-                        </span>
-                        <span className="tl-body">
-                            <span>{event.summary}</span>
-                            {event.detailJson ? (
-                                <span
-                                    className="tl-detail"
-                                    title={event.detailJson}
-                                >
-                                    {event.detailJson}
-                                </span>
-                            ) : null}
-                        </span>
-                        <span className="tl-when">
-                            {formatDate(event.createdAt)}
-                        </span>
-                    </div>
-                ))}
-            </div>
         </section>
     );
 }
 
-function DraftEditScreen({
+function BranchEditScreen({
     baseText,
     contextAttributes,
     contextPreviews,
-    draft,
+    branch,
     editableEntities,
     entityDiagnostics,
     loadError,
@@ -700,7 +653,7 @@ function DraftEditScreen({
     baseText: string | null;
     contextAttributes: string[];
     contextPreviews: EditContextPreview[];
-    draft: DraftSessionRecord;
+    branch: BranchRecord;
     editableEntities: EditableEntity[];
     entityDiagnostics: LintDiagnostic[];
     loadError: string | null;
@@ -720,7 +673,7 @@ function DraftEditScreen({
             {loadError ? (
                 <div className="banner banner-err">
                     <TriangleAlert aria-hidden size={16} />
-                    <span>The draft workspace failed to load: {loadError}</span>
+                    <span>The branch workspace failed to load: {loadError}</span>
                 </div>
             ) : null}
             {selectedEntity ? (
@@ -730,7 +683,7 @@ function DraftEditScreen({
                     contextAttributes={contextAttributes}
                     contextPreviews={contextPreviews}
                     diagnostics={entityDiagnostics}
-                    draft={draft}
+                    branch={branch}
                     entity={selectedEntity}
                     model={model}
                     catalogIds={catalogIds}
@@ -743,12 +696,12 @@ function DraftEditScreen({
                         <h1>{EDIT_KIND_TITLES[selectedKind]}</h1>
                         <p className="hint">
                             Pick an entity to edit it with a form or as source.
-                            Saves commit to the draft branch.
+                            Saves commit to the branch.
                         </p>
                     </div>
                     <EditableEntityList
-                        disabled={draft.status !== "open"}
-                        draftId={draft.id}
+                        disabled={branch.status !== "active"}
+                        branchId={branch.id}
                         entities={entities}
                         kind={selectedKind}
                         workspaceId={workspaceId}
@@ -761,13 +714,13 @@ function DraftEditScreen({
 
 function EditableEntityList({
     disabled,
-    draftId,
+    branchId,
     entities,
     kind,
     workspaceId,
 }: {
     disabled?: boolean;
-    draftId: string;
+    branchId: string;
     entities: EditableEntity[];
     kind: EditKind;
     workspaceId: string;
@@ -776,7 +729,7 @@ function EditableEntityList({
         <>
             <AddEntityForm
                 disabled={disabled}
-                draftId={draftId}
+                branchId={branchId}
                 kind={kind}
                 workspaceId={workspaceId}
             />
@@ -801,7 +754,7 @@ function EditableEntityList({
                             data-search={editableEntitySearchText(entity)}
                             href={editEntityHref(
                                 workspaceId,
-                                draftId,
+                                branchId,
                                 entity.path,
                             )}
                             key={entity.path}
@@ -841,7 +794,7 @@ function EditableEntityDetail({
     contextAttributes,
     contextPreviews,
     diagnostics,
-    draft,
+    branch,
     entity,
     model,
     catalogIds,
@@ -853,7 +806,7 @@ function EditableEntityDetail({
     contextAttributes: string[];
     contextPreviews: EditContextPreview[];
     diagnostics: LintDiagnostic[];
-    draft: DraftSessionRecord;
+    branch: BranchRecord;
     entity: EditableEntity;
     model: WorkspaceSemanticModel | null;
     catalogIds: string[];
@@ -924,14 +877,14 @@ function EditableEntityDetail({
                         className="btn btn-ghost btn-sm"
                         href={`/app/workspaces/${workspaceId}/tree/${encodeEntityPath(entity.path)}`}
                     >
-                        View on {draft.baseRef}
+                        View on {branch.baseRef}
                     </Link>
                     {parentCatalog ? (
                         <Link
                             className="btn btn-secondary btn-sm"
                             href={editEntityHref(
                                 workspaceId,
-                                draft.id,
+                                branch.id,
                                 parentCatalog.path,
                             )}
                         >
@@ -943,7 +896,7 @@ function EditableEntityDetail({
                             className="btn btn-secondary btn-sm"
                             href={editKindHref(
                                 workspaceId,
-                                draft.id,
+                                branch.id,
                                 entity.section,
                             )}
                         >
@@ -970,8 +923,8 @@ function EditableEntityDetail({
                 baseText={baseText}
                 contextAttributes={contextAttributes}
                 diagnostics={diagnostics}
-                disabled={draft.status !== "open"}
-                draftId={draft.id}
+                disabled={branch.status !== "active"}
+                branchId={branch.id}
                 entity={entity}
                 guidance={{
                     ...buildFormGuidance(entity, allEntities, model),
@@ -985,8 +938,8 @@ function EditableEntityDetail({
             />
             {entity.kind === "catalog" ? (
                 <AddCatalogEntryForm
-                    disabled={draft.status !== "open"}
-                    draftId={draft.id}
+                    disabled={branch.status !== "active"}
+                    branchId={branch.id}
                     catalogId={entity.id}
                     workspaceId={workspaceId}
                 />
@@ -1005,7 +958,7 @@ function EditableEntityDetail({
                                 className="pill pill-neutral"
                                 href={editEntityHref(
                                     workspaceId,
-                                    draft.id,
+                                    branch.id,
                                     entry.path,
                                 )}
                                 key={entry.path}
@@ -1019,20 +972,20 @@ function EditableEntityDetail({
             <div className="card">
                 <div className="card-head">
                     <div className="card-head-text">
-                        <h3>Delete from draft</h3>
+                        <h3>Delete from branch</h3>
                         <p className="hint">
                             Removes <span className="mono">{entity.path}</span>{" "}
-                            from the draft branch. The base ref is untouched
+                            from the branch. The base ref is untouched
                             until the pull request merges.
                         </p>
                     </div>
                     <DeleteEntityButton
-                        disabled={draft.status !== "open"}
-                        draftId={draft.id}
+                        disabled={branch.status !== "active"}
+                        branchId={branch.id}
                         filePath={entity.path}
                         returnHref={editKindHref(
                             workspaceId,
-                            draft.id,
+                            branch.id,
                             entity.section,
                         )}
                         workspaceId={workspaceId}
@@ -1043,11 +996,11 @@ function EditableEntityDetail({
     );
 }
 
-function DraftChangesScreen({
+function BranchChangesScreen({
     changes,
     entityHrefForFile,
 }: {
-    changes: DraftChangeRecord[];
+    changes: BranchChangeRecord[];
     entityHrefForFile: (filePath: string) => string | null;
 }) {
     return (
@@ -1055,9 +1008,7 @@ function DraftChangesScreen({
             <div className="section-header-text">
                 <h1>Changes</h1>
                 <p className="hint">
-                    Semantic changes tracked on this draft. They become the pull
-                    request body, so reviewers see what changed in rototo terms
-                    — not just file diffs.
+                    Files changed on this branch compared with its base ref.
                 </p>
             </div>
             {changes.length === 0 ? (
@@ -1066,7 +1017,7 @@ function DraftChangesScreen({
                         <GitCompare aria-hidden size={18} />
                     </span>
                     <p>
-                        No tracked changes yet. Edits you save will show up here
+                        No changed files yet. Edits you save will show up here
                         as a diff.
                     </p>
                 </div>
@@ -1080,7 +1031,7 @@ function DraftChangesScreen({
                     {changes.map((change) => (
                         <article
                             className="diffcard"
-                            data-search={`${change.filePath} ${change.targetPath ?? ""} ${change.beforeJson} ${change.afterJson}`}
+                            data-search={change.filePath}
                             key={change.id}
                         >
                             <div className="diffhead">
@@ -1099,23 +1050,7 @@ function DraftChangesScreen({
                                         change.filePath
                                     )}
                                 </span>
-                                <span className="tag">
-                                    {change.targetPath ?? "file"}
-                                </span>
-                            </div>
-                            <div className="diffbody">
-                                <div className="dl dl-del">
-                                    <span className="g">−</span>
-                                    <span className="t">
-                                        {jsonSummary(change.beforeJson)}
-                                    </span>
-                                </div>
-                                <div className="dl dl-add">
-                                    <span className="g">+</span>
-                                    <span className="t">
-                                        {jsonSummary(change.afterJson)}
-                                    </span>
-                                </div>
+                                <span className="tag">file</span>
                             </div>
                         </article>
                     ))}
@@ -1125,12 +1060,12 @@ function DraftChangesScreen({
     );
 }
 
-function DraftValidateScreen({
+function BranchValidateScreen({
     diagnosticHref,
     lint,
 }: {
     diagnosticHref: (diagnostic: LintDiagnostic) => string | null;
-    lint: DraftLintLoad;
+    lint: BranchLintLoad;
 }) {
     return "error" in lint ? (
         <div className="banner banner-err">
@@ -1142,7 +1077,7 @@ function DraftValidateScreen({
             <div className="section-header-text">
                 <h1>Validate</h1>
                 <p className="hint">
-                    Lint runs against the draft branch. Publishing is blocked
+                    Lint runs against the branch. Publishing is blocked
                     while errors are present — warnings ship, errors don’t.
                 </p>
             </div>
@@ -1154,22 +1089,22 @@ function DraftValidateScreen({
     );
 }
 
-function DraftPublishScreen({
+function BranchPublishScreen({
     changesCount,
-    draft,
+    branch,
     lintHasErrors,
     prSyncError,
     writeCapability,
     workspaceId,
 }: {
     changesCount: number;
-    draft: DraftSessionRecord;
+    branch: BranchRecord;
     lintHasErrors: boolean;
     prSyncError: string | null;
     writeCapability: WorkspaceWriteCapability;
     workspaceId: string;
 }) {
-    const published = Boolean(draft.prUrl);
+    const published = Boolean(branch.prUrl);
     const directPush = writeCapability.kind === "directPush";
     return (
         <section className="section">
@@ -1179,13 +1114,13 @@ function DraftPublishScreen({
                     {directPush
                         ? "Publishing applies the configured direct-push workflow for "
                         : "Publishing opens a pull request from "}
-                    <span className="mono">{draft.branch}</span>
+                    <span className="mono">{branch.branch}</span>
                     {directPush ? (
                         "."
                     ) : (
                         <>
                             {" "}
-                            to <span className="mono">{draft.baseRef}</span>.
+                            to <span className="mono">{branch.baseRef}</span>.
                             Nothing reaches the base ref without review.
                         </>
                     )}
@@ -1198,7 +1133,7 @@ function DraftPublishScreen({
                             <GitPullRequest aria-hidden size={15} />
                         </span>
                         <div className="card-head-text">
-                            <h3>Pull request {draft.prState ?? "open"}</h3>
+                            <h3>Pull request {branch.prState ?? "open"}</h3>
                             <p className="hint">
                                 Review and merge on GitHub. State syncs back
                                 here.
@@ -1210,7 +1145,7 @@ function DraftPublishScreen({
                         >
                             <a
                                 className="btn btn-primary"
-                                href={draft.prUrl ?? "#"}
+                                href={branch.prUrl ?? "#"}
                                 rel="noreferrer"
                                 target="_blank"
                             >
@@ -1218,7 +1153,7 @@ function DraftPublishScreen({
                                 Open pull request
                             </a>
                             <SyncPrButton
-                                draftId={draft.id}
+                                branchId={branch.id}
                                 workspaceId={workspaceId}
                             />
                         </div>
@@ -1237,27 +1172,27 @@ function DraftPublishScreen({
                         </div>
                         <PublishCheck ok={changesCount > 0}>
                             {changesCount > 0
-                                ? `${changesCount} tracked ${changesCount === 1 ? "change" : "changes"} to publish`
-                                : "No tracked changes yet — save an edit first"}
+                                ? `${changesCount} changed ${changesCount === 1 ? "change" : "changes"} to publish`
+                                : "No changed files yet — save an edit first"}
                         </PublishCheck>
                         <PublishCheck ok={!lintHasErrors}>
                             {lintHasErrors
                                 ? "Lint reports errors — fix them on the validate screen"
                                 : "Lint is clean"}
                         </PublishCheck>
-                        <PublishCheck ok={draft.status === "open"}>
-                            {draft.status === "open"
-                                ? "Draft is open"
-                                : `Draft is ${draft.status}`}
+                        <PublishCheck ok={branch.status === "active"}>
+                            {branch.status === "active"
+                                ? "Branch is active"
+                                : `Branch is ${branch.status}`}
                         </PublishCheck>
                         <div className="action-row">
-                            <PublishDraftButton
+                            <PublishBranchButton
                                 disabled={
-                                    draft.status !== "open" ||
+                                    branch.status !== "active" ||
                                     changesCount === 0 ||
                                     lintHasErrors
                                 }
-                                draftId={draft.id}
+                                branchId={branch.id}
                                 writeKind={writeCapability.kind}
                                 workspaceId={workspaceId}
                             />
@@ -1265,18 +1200,17 @@ function DraftPublishScreen({
                     </div>
                     <div className="card">
                         <div className="card-head-text">
-                            <h3>Let go of this branch</h3>
+                            <h3>Archive this branch</h3>
                             <p className="hint">
-                                Close this console draft without opening a pull
-                                request. The GitHub branch stays in the
-                                repository, so it can be opened again later if
-                                needed.
+                                Hide this branch from the console without
+                                deleting it from the repository. It can be
+                                opened again later.
                             </p>
                         </div>
-                        <AbandonDraftButton
-                            branch={draft.branch}
-                            disabled={draft.status !== "open"}
-                            draftId={draft.id}
+                        <ArchiveBranchButton
+                            branch={branch.branch}
+                            disabled={branch.status !== "active"}
+                            branchId={branch.id}
                             workspaceId={workspaceId}
                         />
                     </div>
@@ -1299,32 +1233,6 @@ function PublishCheck({ children, ok }: { children: ReactNode; ok: boolean }) {
     );
 }
 
-function eventTone(kind: string): "sea" | "ok" | "err" | "neutral" {
-    if (kind.includes("publish") || kind.includes("pr")) {
-        return "ok";
-    }
-    if (kind.includes("delete")) {
-        return "err";
-    }
-    if (kind.includes("created")) {
-        return "sea";
-    }
-    return "neutral";
-}
-
-function eventIcon(kind: string): ReactNode {
-    if (kind.includes("publish") || kind.includes("pr")) {
-        return <GitPullRequest aria-hidden size={14} />;
-    }
-    if (kind.includes("delete")) {
-        return <Trash2 aria-hidden size={14} />;
-    }
-    if (kind.includes("created")) {
-        return <GitBranch aria-hidden size={14} />;
-    }
-    return <Pencil aria-hidden size={14} />;
-}
-
 function editKindIcon(kind: EditKind, size: number): ReactNode {
     switch (kind) {
         case "variables":
@@ -1342,10 +1250,10 @@ function editKindIcon(kind: EditKind, size: number): ReactNode {
     }
 }
 
-function draftScreenTitle(screen: DraftScreenId): string {
+function branchScreenTitle(screen: BranchScreenId): string {
     switch (screen) {
         case "overview":
-            return "Draft overview";
+            return "Branch overview";
         case "edit":
             return "Edit";
         case "changes":
@@ -1357,40 +1265,6 @@ function draftScreenTitle(screen: DraftScreenId): string {
     }
 }
 
-function jsonSummary(value: string): string {
-    try {
-        return JSON.stringify(JSON.parse(value));
-    } catch {
-        return value;
-    }
-}
-
-function draftActivity(
-    draft: DraftSessionRecord,
-    events: DraftEventRecord[],
-): DraftEventRecord[] {
-    const hasCreatedEvent = events.some(
-        (event) => event.kind === "draft.created",
-    );
-    if (hasCreatedEvent) {
-        return events;
-    }
-    return [
-        {
-            id: `${draft.id}:created`,
-            draftId: draft.id,
-            kind: "draft.created",
-            summary: `Created draft branch ${draft.branch}`,
-            detailJson: JSON.stringify({
-                branch: draft.branch,
-                baseRef: draft.baseRef,
-            }),
-            createdAt: draft.createdAt,
-        },
-        ...events,
-    ];
-}
-
 function formatDate(value: string): string {
     return new Intl.DateTimeFormat("en", {
         dateStyle: "medium",
@@ -1398,34 +1272,38 @@ function formatDate(value: string): string {
     }).format(new Date(value));
 }
 
-function draftScreenHref(
+function branchUpdatedAt(branch: BranchRecord): string {
+    return branch.lastEditedAt ?? branch.lastOpenedAt ?? branch.createdAt;
+}
+
+function branchScreenHref(
     workspaceId: string,
-    draftId: string,
-    screen: DraftScreenId,
+    branchId: string,
+    screen: BranchScreenId,
 ): string {
-    const base = `/app/workspaces/${workspaceId}/drafts/${draftId}`;
+    const base = `/app/workspaces/${workspaceId}/branches/${branchId}`;
     return screen === "overview" ? base : `${base}/${screen}`;
 }
 
 function editKindHref(
     workspaceId: string,
-    draftId: string,
+    branchId: string,
     kind: EditKind,
 ): string {
-    return `/app/workspaces/${workspaceId}/drafts/${draftId}/edit/${kind}`;
+    return `/app/workspaces/${workspaceId}/branches/${branchId}/edit/${kind}`;
 }
 
 function editEntityHref(
     workspaceId: string,
-    draftId: string,
+    branchId: string,
     path: string,
 ): string {
-    return `/app/workspaces/${workspaceId}/drafts/${draftId}/tree/${encodeEntityPath(path)}`;
+    return `/app/workspaces/${workspaceId}/branches/${branchId}/tree/${encodeEntityPath(path)}`;
 }
 
-export function normalizeDraftScreen(
+export function normalizeBranchScreen(
     value: string | null,
-): DraftScreenId | null {
+): BranchScreenId | null {
     if (
         value === "overview" ||
         value === "edit" ||
@@ -1714,14 +1592,14 @@ function diagnosticEntityHref(
     diagnostic: LintDiagnostic,
     entities: EditableEntity[],
     workspaceId: string,
-    draftId: string,
+    branchId: string,
 ): string | null {
     const pathMatch = entityForDiagnosticPath(
         entities,
         diagnostic.location?.path,
     );
     if (pathMatch) {
-        return editEntityHref(workspaceId, draftId, pathMatch.path);
+        return editEntityHref(workspaceId, branchId, pathMatch.path);
     }
 
     const entity = diagnostic.target?.entity;
@@ -1730,7 +1608,7 @@ function diagnosticEntityHref(
     }
 
     const match = entityFromSemanticTarget(entities, entity);
-    return match ? editEntityHref(workspaceId, draftId, match.path) : null;
+    return match ? editEntityHref(workspaceId, branchId, match.path) : null;
 }
 
 function entityForDiagnosticPath(

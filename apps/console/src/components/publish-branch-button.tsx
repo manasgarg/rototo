@@ -3,14 +3,14 @@ import { useState } from "react";
 import { ExternalLink, GitPullRequest } from "lucide-react";
 import { apiFetch } from "@/lib/api";
 
-export function PublishDraftButton({
+export function PublishBranchButton({
     workspaceId,
-    draftId,
+    branchId,
     disabled,
     writeKind = "pullRequest",
 }: {
     workspaceId: string;
-    draftId: string;
+    branchId: string;
     disabled?: boolean;
     writeKind?: "disabled" | "pullRequest" | "directPush";
 }) {
@@ -53,7 +53,7 @@ export function PublishDraftButton({
         setMessage(null);
         try {
             const response = await apiFetch(
-                `/api/workspaces/${workspaceId}/drafts/${draftId}/publish`,
+                `/api/workspaces/${workspaceId}/branches/${branchId}/publish`,
                 {
                     method: "POST",
                 },
@@ -64,7 +64,7 @@ export function PublishDraftButton({
                 error?: string;
             };
             if (!response.ok || (!body.pullRequest && !body.directPush)) {
-                throw new Error(body.error ?? "failed to publish draft");
+                throw new Error(body.error ?? "failed to publish branch");
             }
             if (body.pullRequest) {
                 setPullRequestUrl(body.pullRequest.html_url);

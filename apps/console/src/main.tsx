@@ -30,9 +30,9 @@ import { ConsoleScreen } from "@/screens/console-screen";
 import { LoginScreen } from "@/screens/login-screen";
 import { NotFound } from "@/screens/not-found";
 
-const DraftScreen = lazy(async () => {
-    const screen = await import("@/screens/draft-screen");
-    return { default: screen.DraftScreen };
+const BranchScreen = lazy(async () => {
+    const screen = await import("@/screens/branch-screen");
+    return { default: screen.BranchScreen };
 });
 
 const WorkspaceScreen = lazy(async () => {
@@ -119,30 +119,30 @@ function WorkspaceEntityRoute() {
     );
 }
 
-function DraftRoute({
+function BranchRoute({
     screen,
 }: {
     screen?: "overview" | "changes" | "validate" | "publish";
 }) {
-    const { workspaceId = "", draftId = "" } = useParams();
+    const { workspaceId = "", branchId = "" } = useParams();
     return (
-        <DraftScreen
-            draftId={draftId}
+        <BranchScreen
+            branchId={branchId}
             screen={screen ?? "overview"}
             workspaceId={workspaceId}
         />
     );
 }
 
-function DraftEditKindRoute() {
-    const { workspaceId = "", draftId = "", kind = "" } = useParams();
+function BranchEditKindRoute() {
+    const { workspaceId = "", branchId = "", kind = "" } = useParams();
     const editKind = normalizeEditKind(kind);
     if (!editKind) {
         return <NotFound />;
     }
     return (
-        <DraftScreen
-            draftId={draftId}
+        <BranchScreen
+            branchId={branchId}
             kind={editKind}
             screen="edit"
             workspaceId={workspaceId}
@@ -150,11 +150,11 @@ function DraftEditKindRoute() {
     );
 }
 
-function DraftEntityRoute() {
-    const { workspaceId = "", draftId = "", "*": splat = "" } = useParams();
+function BranchEntityRoute() {
+    const { workspaceId = "", branchId = "", "*": splat = "" } = useParams();
     return (
-        <DraftScreen
-            draftId={draftId}
+        <BranchScreen
+            branchId={branchId}
             path={decodeEntityPath(splat)}
             screen="edit"
             workspaceId={workspaceId}
@@ -191,9 +191,9 @@ function App() {
                                     />
                                     <Route
                                         element={
-                                            <ConsoleScreen screen="drafts" />
+                                            <ConsoleScreen screen="branches" />
                                         }
-                                        path="drafts"
+                                        path="branches"
                                     />
                                     <Route
                                         element={
@@ -210,34 +210,34 @@ function App() {
                                         path="workspaces/:workspaceId/tree/*"
                                     />
                                     <Route
-                                        element={<DraftRoute />}
-                                        path="workspaces/:workspaceId/drafts/:draftId"
+                                        element={<BranchRoute />}
+                                        path="workspaces/:workspaceId/branches/:branchId"
                                     />
                                     <Route
                                         element={
-                                            <DraftRoute screen="changes" />
+                                            <BranchRoute screen="changes" />
                                         }
-                                        path="workspaces/:workspaceId/drafts/:draftId/changes"
+                                        path="workspaces/:workspaceId/branches/:branchId/changes"
                                     />
                                     <Route
                                         element={
-                                            <DraftRoute screen="validate" />
+                                            <BranchRoute screen="validate" />
                                         }
-                                        path="workspaces/:workspaceId/drafts/:draftId/validate"
+                                        path="workspaces/:workspaceId/branches/:branchId/validate"
                                     />
                                     <Route
                                         element={
-                                            <DraftRoute screen="publish" />
+                                            <BranchRoute screen="publish" />
                                         }
-                                        path="workspaces/:workspaceId/drafts/:draftId/publish"
+                                        path="workspaces/:workspaceId/branches/:branchId/publish"
                                     />
                                     <Route
-                                        element={<DraftEditKindRoute />}
-                                        path="workspaces/:workspaceId/drafts/:draftId/edit/:kind"
+                                        element={<BranchEditKindRoute />}
+                                        path="workspaces/:workspaceId/branches/:branchId/edit/:kind"
                                     />
                                     <Route
-                                        element={<DraftEntityRoute />}
-                                        path="workspaces/:workspaceId/drafts/:draftId/tree/*"
+                                        element={<BranchEntityRoute />}
+                                        path="workspaces/:workspaceId/branches/:branchId/tree/*"
                                     />
                                     <Route
                                         element={<WorkspaceSectionRoute />}

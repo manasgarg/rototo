@@ -4,25 +4,25 @@ import { useState } from "react";
 import { apiFetch } from "@/lib/api";
 import { useRouter } from "@/lib/navigation";
 
-export function AbandonDraftButton({
+export function ArchiveBranchButton({
     branch,
     disabled,
-    draftId,
+    branchId,
     workspaceId,
 }: {
     branch: string;
     disabled?: boolean;
-    draftId: string;
+    branchId: string;
     workspaceId: string;
 }) {
     const router = useRouter();
     const [pending, setPending] = useState(false);
     const [message, setMessage] = useState<string | null>(null);
 
-    async function abandon() {
+    async function archive() {
         if (
             !window.confirm(
-                `Let go of draft branch ${branch}? The GitHub branch will stay in the repository, but this console draft will close.`,
+                `Archive branch ${branch}? The GitHub branch will stay in the repository.`,
             )
         ) {
             return;
@@ -31,14 +31,14 @@ export function AbandonDraftButton({
         setMessage(null);
         try {
             const response = await apiFetch(
-                `/api/workspaces/${workspaceId}/drafts/${draftId}/abandon`,
+                `/api/workspaces/${workspaceId}/branches/${branchId}/archive`,
                 { method: "POST" },
             );
             const body = (await response.json()) as { error?: string };
             if (!response.ok) {
-                throw new Error(body.error ?? "failed to let go of draft");
+                throw new Error(body.error ?? "failed to archive branch");
             }
-            router.push(`/app/workspaces/${workspaceId}/drafts`);
+            router.push(`/app/workspaces/${workspaceId}/branches`);
             router.refresh();
         } catch (error) {
             setMessage(error instanceof Error ? error.message : String(error));
@@ -52,7 +52,7 @@ export function AbandonDraftButton({
             <button
                 className="btn btn-danger"
                 disabled={disabled || pending}
-                onClick={abandon}
+                onClick={archive}
                 type="button"
             >
                 {pending ? (
@@ -60,7 +60,7 @@ export function AbandonDraftButton({
                 ) : (
                     <GitBranch aria-hidden size={15} />
                 )}
-                {pending ? "Letting go" : "Let go of branch"}
+                {pending ? "Archiving" : "Archive branch"}
             </button>
             {message ? (
                 <p className="form-note" data-tone="err">

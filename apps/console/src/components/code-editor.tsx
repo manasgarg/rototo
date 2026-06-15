@@ -86,7 +86,7 @@ type LspPosition = { line: number; character: number };
 /** LSP text range used by diagnostics and hovers. */
 type LspRange = { start: LspPosition; end: LspPosition };
 
-/** Response body from the draft LSP `update` operation. */
+/** Response body from the branch LSP `update` operation. */
 type LspUpdateResponse = {
     diagnostics?: Array<{
         message: string;
@@ -97,18 +97,18 @@ type LspUpdateResponse = {
     }>;
 };
 
-/** Response body from the draft LSP `completion` operation. */
+/** Response body from the branch LSP `completion` operation. */
 type LspCompletionResponse = {
     items?: Array<{ label: string; kind: number; detail?: string | null }>;
 };
 
-/** Response body from the draft LSP `hover` operation. */
+/** Response body from the branch LSP `hover` operation. */
 type LspHoverResponse = {
     hover?: { value: string; range?: LspRange | null } | null;
 };
 
 /**
- * Wires the editor to the draft's rototo language server session.
+ * Wires the editor to the branch's rototo language server session.
  *
  * `request` posts one bridge operation and resolves with its JSON body. The
  * component does not own server lifecycle; the Rust `LspSessions` cache does.
