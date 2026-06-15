@@ -3,12 +3,14 @@ import { useEffect, useState } from "react";
 import { GitBranchPlus, Search } from "lucide-react";
 import { apiFetch } from "@/lib/api";
 
+/** Branch candidate returned by the server's bounded GitHub compare scan. */
 type Candidate = {
     branch: string;
     aheadBy: number;
     filesChanged: number;
 };
 
+/** Component-local lifecycle for the draft candidate branch scan. */
 type ScanState =
     | { kind: "loading" }
     | { kind: "error"; message: string }

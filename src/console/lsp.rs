@@ -24,6 +24,10 @@ ordered. */
 const REQUEST_TIMEOUT: Duration = Duration::from_secs(30);
 const IDLE_SESSION: Duration = Duration::from_secs(10 * 60);
 
+/// Diagnostic shape returned from the console LSP endpoint.
+///
+/// The language server publishes full LSP diagnostics; the console simplifies
+/// them into this stable browser-facing shape for one editor update response.
 #[derive(Clone, Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct LspDiagnosticWire {
@@ -34,6 +38,10 @@ pub struct LspDiagnosticWire {
     pub range: JsonValue,
 }
 
+/// Completion item shape returned from the console LSP endpoint.
+///
+/// It is a trimmed JSON-RPC completion item built per request so the frontend
+/// does not depend on the full LSP schema.
 #[derive(Clone, Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct LspCompletionWire {
@@ -42,6 +50,10 @@ pub struct LspCompletionWire {
     pub detail: Option<String>,
 }
 
+/// Hover response shape returned from the console LSP endpoint.
+///
+/// The value is extracted from the LSP server response for one hover request
+/// and discarded after serialization.
 #[derive(Clone, Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct LspHoverWire {
@@ -49,16 +61,31 @@ pub struct LspHoverWire {
     pub range: Option<JsonValue>,
 }
 
+/// Outstanding JSON-RPC requests for one language-server session.
+///
+/// Request ids are allocated monotonically and mapped to one-shot senders.
+/// The reader task removes entries as responses arrive; timeouts remove them
+/// when the server does not answer.
 struct PendingRequests {
     next_id: i64,
     by_id: HashMap<i64, oneshot::Sender<std::result::Result<JsonValue, String>>>,
 }
 
+/// State shared between the request writer and JSON-RPC reader task.
+///
+/// It owns pending request channels and the latest diagnostics published per
+/// document URI. The session drops this state when its tasks are aborted.
 struct SessionShared {
     pending: Mutex<PendingRequests>,
     diagnostics_by_uri: Mutex<HashMap<String, Vec<JsonValue>>>,
 }
 
+/// Live in-process language-server session for one user and draft.
+///
+/// A session owns the staged checkout handle, duplex writer, server task,
+/// reader task, open document overlays, and idle timestamp. It is created on
+/// demand, reused across editor requests, and dropped on draft invalidation or
+/// after the idle window.
 struct LspSession {
     /// Keeps the staged checkout's temp directory alive for the session.
     _staged: Arc<Workspace>,
@@ -87,9 +114,17 @@ impl Drop for LspSession {
     }
 }
 
+/// Shared mutable holder for a single user/draft LSP session.
+///
+/// The slot lets concurrent editor requests serialize access while background
+/// cleanup or draft invalidation can take and shut down the session.
 type SessionSlot = Arc<Mutex<Option<LspSession>>>;
 
-/// Per-(user, draft) language server sessions over staged draft checkouts.
+/// Per-(user, draft) language server session registry.
+///
+/// The registry lives in `ConsoleState` for the process lifetime. Individual
+/// sessions are created on demand, refreshed when stale, and explicitly dropped
+/// whenever a draft save changes the staged branch content.
 #[derive(Clone, Default)]
 pub struct LspSessions {
     slots: Arc<Mutex<HashMap<String, SessionSlot>>>,

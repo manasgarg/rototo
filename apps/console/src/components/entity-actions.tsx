@@ -3,6 +3,7 @@ import { Plus, Trash2 } from "lucide-react";
 import { useRouter } from "@/lib/navigation";
 import { apiFetch } from "@/lib/api";
 
+/** Editable workspace section supported by the add-entity form. */
 type EntityKind =
     | "variables"
     | "qualifiers"
@@ -11,6 +12,7 @@ type EntityKind =
     | "context"
     | "linters";
 
+/** Transient submit/delete result shown by entity action forms. */
 type FormNote = { tone: "ok" | "err"; text: string };
 
 export function AddEntityForm({

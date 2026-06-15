@@ -14,6 +14,11 @@ use super::store::WorkspaceRecord;
 parse workspace files itself. Only context examples are enumerated from the
 contexts/ directory, which is file listing, not parsing. */
 
+/// Browser inventory for one staged workspace.
+///
+/// This is rebuilt from `WorkspaceSemanticModel` plus a lightweight context
+/// directory scan whenever a workspace or draft screen loads. It is not stored;
+/// the source files and the staged semantic model own its lifecycle.
 #[derive(Clone, Debug, Default, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct WorkspaceInventory {
@@ -26,6 +31,11 @@ pub struct WorkspaceInventory {
     pub context: ContextInventory,
 }
 
+/// Variable row in the console inventory.
+///
+/// It gives the UI enough resolved metadata to list, filter, and draw
+/// references without reparsing TOML. Each item is derived from one semantic
+/// variable model and disappears when that model no longer exists.
 #[derive(Clone, Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct VariableInventoryItem {
@@ -43,6 +53,11 @@ pub struct VariableInventoryItem {
     pub schema_reference: Option<String>,
 }
 
+/// Qualifier row in the console inventory.
+///
+/// It exists so screens can show named runtime conditions and their references
+/// while leaving predicate semantics to the Rust model. The item is regenerated
+/// for each staged checkout.
 #[derive(Clone, Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct QualifierInventoryItem {
@@ -53,6 +68,11 @@ pub struct QualifierInventoryItem {
     pub qualifier_references: Vec<String>,
 }
 
+/// Catalog row in the console inventory.
+///
+/// The console uses this projection to connect catalog declarations, schema
+/// references, and entry counts. It is derived from the semantic model and
+/// never cached separately from the staged workspace view.
 #[derive(Clone, Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct CatalogInventoryItem {
@@ -64,6 +84,10 @@ pub struct CatalogInventoryItem {
     pub entry_count: usize,
 }
 
+/// Catalog entry row in the console inventory.
+///
+/// This binds the catalog id and entry key to the source path the editor can
+/// open. It is rebuilt from catalog-entry models for each staged checkout.
 #[derive(Clone, Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct CatalogEntryInventoryItem {
@@ -73,6 +97,11 @@ pub struct CatalogEntryInventoryItem {
     pub path: String,
 }
 
+/// Standalone schema row in the console inventory.
+///
+/// It represents user-editable JSON Schema files, excluding the special
+/// context schema. The projection is transient and follows the staged semantic
+/// model.
 #[derive(Clone, Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SchemaInventoryItem {
@@ -81,6 +110,11 @@ pub struct SchemaInventoryItem {
     pub title: Option<String>,
 }
 
+/// Custom linter row in the console inventory.
+///
+/// It lets the UI navigate Lua lint scripts and show the rules declared by
+/// each script. The item is derived from linter models and source paths, not a
+/// persisted console table.
 #[derive(Clone, Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct LinterInventoryItem {
@@ -90,6 +124,11 @@ pub struct LinterInventoryItem {
     pub kind: &'static str,
 }
 
+/// Context support files discovered for one workspace.
+///
+/// The semantic model owns `schemas/context.schema.json`; examples are found by
+/// listing `contexts/`. The projection is rebuilt with the inventory and used
+/// only for preview inputs.
 #[derive(Clone, Debug, Default, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ContextInventory {
@@ -98,6 +137,10 @@ pub struct ContextInventory {
     pub examples: Vec<String>,
 }
 
+/// Source text loaded for one workspace definition file.
+///
+/// The editor receives this per request after the route validates that the path
+/// belongs to the staged workspace. It is discarded once the response is sent.
 #[derive(Clone, Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct WorkspaceDefinition {

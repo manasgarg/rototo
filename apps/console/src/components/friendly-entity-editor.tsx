@@ -42,6 +42,7 @@ const WIDGET_SPEC = widgetSpec as {
     >;
 };
 
+/** Workspace section edited by the friendly editor. */
 type EntitySection =
     | "variables"
     | "qualifiers"
@@ -50,6 +51,7 @@ type EntitySection =
     | "context"
     | "linters";
 
+/** Editable source file plus metadata owned by one editor instance. */
 type FriendlyEntity = {
     id: string;
     kind: string;
@@ -59,12 +61,19 @@ type FriendlyEntity = {
     language: "json" | "lua" | "toml" | "text";
 };
 
+/** Active editor tab for a friendly editor instance. */
 type EditorTab = "form" | "source";
 
+/** Variable declaration mode understood by the friendly variable editor. */
 type VariableDeclarationKind = "primitive" | "catalog" | "schema";
 
-/* Optional context harvested from sibling entities and related schemas:
-   descriptions explain a field, examples show values already in use. */
+/**
+ * Optional context harvested from sibling entities and related schemas.
+ *
+ * The parent screen rebuilds this from the current workspace/draft payload for
+ * each editor instance. Descriptions explain fields, examples show values
+ * already in use, and preview truth tables come from the Rust runtime.
+ */
 export type FormGuidance = {
     contextAttributeDocs?: Record<string, string>;
     attributeValueExamples?: Record<string, string[]>;
@@ -76,10 +85,12 @@ export type FormGuidance = {
     contextPreviews?: EditContextPreview[];
 };
 
-/* One saved request context with each workspace qualifier already evaluated
-   by the Rust runtime. The editor walks the edited rules against these truths
-   so the resolution preview updates live without reimplementing qualifier
-   semantics. */
+/**
+ * Saved request context with each workspace qualifier already evaluated.
+ *
+ * The editor walks edited rules against these runtime truths so previews update
+ * live without reimplementing qualifier semantics in React.
+ */
 export type EditContextPreview = {
     name: string;
     qualifierTruth: Record<string, boolean>;
@@ -1660,6 +1671,7 @@ function CatalogFields({
     );
 }
 
+/** JSON Schema property model used to render catalog-entry value controls. */
 type ObjectSchemaProperty = {
     key: string;
     required: boolean;
@@ -1673,6 +1685,7 @@ type ObjectSchemaProperty = {
     ui: { widget: string; params: Record<string, unknown> } | null;
 };
 
+/** Parsed object schema view model owned by one editor render. */
 type ObjectSchema = {
     properties: ObjectSchemaProperty[];
 };
@@ -2442,6 +2455,7 @@ function TopLevelTomlFields({
     );
 }
 
+/** Minimal variable TOML model used for form editing and source regeneration. */
 type VariableModel = {
     declarationKind: VariableDeclarationKind;
     declarationValue: string;

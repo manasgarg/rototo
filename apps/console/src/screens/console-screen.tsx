@@ -29,8 +29,10 @@ import type {
     WorkspaceSummariesData,
 } from "@/lib/types";
 
+/** App shell tab id accepted from route state. */
 export type AppScreen = "repositories" | "workspaces" | "drafts" | "activity";
 
+/** Active draft row paired with workspace metadata for dashboard lists. */
 type DraftEntry = { draft: DraftSessionRecord; workspace: WorkspaceRecord };
 
 const SCREEN_TITLES: Record<AppScreen, string> = {

@@ -33,6 +33,13 @@ use self::types::{
 /// branch content immediately.
 const STAGE_FRESH: Duration = Duration::from_secs(30);
 
+/// Shared cache for staged workspace artifacts and loaded workspace views.
+///
+/// The cache lives for the console process and is cloned into request handlers.
+/// Artifact slots own temporary git checkouts or archive extractions; view
+/// slots own `Workspace` handles over those artifacts. Entries are refreshed
+/// stale-while-revalidate and are dropped when a draft save invalidates the
+/// source.
 #[derive(Clone, Default)]
 pub struct StageCache {
     artifacts: Arc<Mutex<HashMap<String, ArtifactSlot>>>,

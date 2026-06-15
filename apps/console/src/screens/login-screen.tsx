@@ -6,6 +6,7 @@ import { RototoMark } from "@/components/rototo-mark";
 import { api } from "@/lib/api";
 import { useMe } from "@/lib/me";
 
+/** Device-flow start payload kept while local sign-in polling is active. */
 type DeviceStart = {
     userCode: string;
     verificationUri: string;

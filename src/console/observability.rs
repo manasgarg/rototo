@@ -8,6 +8,12 @@ use tokio::sync::Mutex;
 
 use crate::error::{Result, RototoError};
 
+/// Development-only NDJSON event sink for console API and UI activity.
+///
+/// The sink is enabled by `ROTOTO_CONSOLE_DEV_OBSERVABILITY`, lives in
+/// `ConsoleState`, and serializes append writes through one lock so concurrent
+/// requests do not interleave JSON lines. Dropping it closes no external
+/// service; the files remain in the configured directory.
 #[derive(Clone)]
 pub struct DevObservability {
     dir: Arc<PathBuf>,

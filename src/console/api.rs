@@ -27,6 +27,13 @@ use super::observability::DevObservability;
 use super::stage::StageCache;
 use super::store::{NewSession, SessionUser, Store};
 
+/// Process-wide console dependencies shared by every API route.
+///
+/// This is built once in `console::run`, wrapped in `Arc`, and then treated as
+/// immutable route state. Interior mutability lives inside the store, stage
+/// cache, LSP session map, local auth state, and optional observability sink so
+/// request handlers can coordinate blocking resources without replacing the
+/// state object itself.
 pub struct ConsoleState {
     pub deployment: DeploymentType,
     pub oauth: Option<HostedOAuth>,
@@ -44,10 +51,17 @@ pub struct ConsoleState {
     pub observability: Option<DevObservability>,
 }
 
+/// Axum state handle cloned into routers, middleware, and background tasks.
+///
+/// The lifecycle is the server lifecycle: dropping the last clone shuts down
+/// in-memory caches and sessions after the listener exits.
 pub type SharedState = Arc<ConsoleState>;
 
-/// Errors become the same `{ "error": message }` envelope the admin app
-/// produced, with the status the route used.
+/// API error envelope plus HTTP status.
+///
+/// Handlers construct this at the boundary where a domain, GitHub, auth, or
+/// staging error becomes a browser-facing JSON response. It is not persisted;
+/// `IntoResponse` consumes it into `{ "error": message }`.
 pub struct ApiError {
     pub status: StatusCode,
     pub message: String,
@@ -99,6 +113,10 @@ impl IntoResponse for ApiError {
     }
 }
 
+/// Route result alias that makes every fallible handler return `ApiError`.
+///
+/// The value lives only for one request and is converted by axum before the
+/// response leaves the process.
 pub type ApiResult<T> = std::result::Result<T, ApiError>;
 
 pub fn router(state: SharedState) -> axum::Router {
@@ -197,6 +215,11 @@ async fn record_api_request(
         .await;
 }
 
+/// Normalized request identity used by the development observability sink.
+///
+/// The middleware derives this from the raw path for one request so metrics can
+/// group `/api/workspaces/<id>` style paths without storing every concrete id
+/// as a separate route label.
 struct RouteObservability {
     pattern: String,
     workspace_id: Option<String>,
@@ -480,6 +503,11 @@ async fn oauth_start(State(state): State<SharedState>) -> ApiResult<Response> {
     Ok(response)
 }
 
+/// GitHub OAuth callback query parameters.
+///
+/// GitHub owns the values; the console validates them against the short-lived
+/// state cookie and stored nonce, then discards the struct after the callback
+/// creates a durable session.
 #[derive(serde::Deserialize)]
 struct OAuthCallbackQuery {
     code: Option<String>,
@@ -637,6 +665,11 @@ async fn repos_list(
     Ok(Json(json!({ "repos": repos })))
 }
 
+/// Repository registration request body from the console form.
+///
+/// It exists to keep user input distinct from a verified GitHub repository.
+/// The route trims and validates it, discovers workspaces, then persists the
+/// resulting repo/workspace records through `Store`.
 #[derive(serde::Deserialize)]
 struct RegisterRepoBody {
     repo: Option<String>,

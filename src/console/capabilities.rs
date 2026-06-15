@@ -1,5 +1,11 @@
 use serde::Serialize;
 
+/// Console deployment mode selected at startup.
+///
+/// Local mode trusts the workstation and can use ambient credentials. Hosted
+/// mode requires GitHub OAuth and encrypted session tokens. The value is stored
+/// in `ConsoleState` for the life of the process and serialized so the browser
+/// can choose the correct auth flow.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum DeploymentType {
@@ -16,6 +22,11 @@ impl DeploymentType {
     }
 }
 
+/// Write policy selected by CLI flags at startup.
+///
+/// This is process configuration, not workspace state. Route handlers combine
+/// it with the workspace source kind and current credential to decide whether a
+/// mutation can run.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum WritePolicy {
     Disabled,
@@ -33,6 +44,10 @@ impl WritePolicy {
     }
 }
 
+/// Concrete backend that will perform an allowed workspace write.
+///
+/// The browser only receives this as explanation. Server routes recompute the
+/// backend for each mutation so a stale client response cannot grant writes.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub enum WriteBackend {
@@ -40,6 +55,11 @@ pub enum WriteBackend {
     LocalGit,
 }
 
+/// Read capability for a workspace under the current credential.
+///
+/// It is calculated per response from the source kind and token availability,
+/// then discarded. It exists to let the UI explain missing credentials before a
+/// user hits an operation that would fail.
 #[derive(Clone, Debug, Serialize)]
 #[serde(tag = "status", rename_all = "camelCase")]
 pub enum Capability {
@@ -47,6 +67,10 @@ pub enum Capability {
     MissingCredential { reason: String },
 }
 
+/// Write capability for a workspace under the process write policy.
+///
+/// This is a browser-facing decision summary; the server does not trust it on
+/// follow-up requests and instead reselects a `DraftBackend` during mutation.
 #[derive(Clone, Debug, Serialize)]
 #[serde(tag = "kind", rename_all = "camelCase")]
 pub enum WriteCapability {
@@ -55,6 +79,11 @@ pub enum WriteCapability {
     DirectPush { backend: WriteBackend },
 }
 
+/// Full capability summary for one workspace response.
+///
+/// It is assembled alongside workspace data and has no durable lifecycle. The
+/// durable facts are the workspace source, startup write policy, and current
+/// user's credential.
 #[derive(Clone, Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct WorkspaceCapabilities {
@@ -62,6 +91,11 @@ pub struct WorkspaceCapabilities {
     pub write: WriteCapability,
 }
 
+/// Normalized class of workspace source URI.
+///
+/// Classification keeps routing policy explicit: local paths can use local git,
+/// GitHub sources can use the GitHub API, and generic remotes remain read-only
+/// until a write backend is intentionally added.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub enum WorkspaceSourceKind {

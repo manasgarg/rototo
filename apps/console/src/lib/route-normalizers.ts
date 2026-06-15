@@ -1,3 +1,4 @@
+/** Workspace screen section id accepted from route/query state. */
 export type SectionId =
     | "overview"
     | "variables"
@@ -9,6 +10,7 @@ export type SectionId =
     | "diagnostics"
     | "drafts";
 
+/** Draft edit section id accepted from route/query state. */
 export type EditKind =
     | "variables"
     | "qualifiers"

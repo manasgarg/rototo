@@ -3,6 +3,7 @@ import { FormEvent, useState } from "react";
 import { Plus, X } from "lucide-react";
 import { apiFetch } from "@/lib/api";
 
+/** Transient submit result shown by the repository registration form. */
 type FormNote = { tone: "ok" | "err"; text: string };
 
 const REPO_SPEC_ERROR =

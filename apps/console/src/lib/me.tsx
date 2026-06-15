@@ -14,6 +14,7 @@ import type { MeResponse } from "./types";
    when hosted deployment is signed out, so both 200 and 401 land here as a
    MeResponse. */
 
+/** React context state for the current `/api/me` payload and reload hook. */
 type MeState = {
     me: MeResponse | null;
     error: string | null;

@@ -3,6 +3,12 @@ use crate::source::SourceAuth;
 
 use super::types::ArtifactHandle;
 
+/// Parsed workspace source after console-specific cache classification.
+///
+/// Direct sources are handed to the SDK loader as-is. Git and HTTPS archive
+/// sources are split into artifact keys, subdirs, and invalidation markers so
+/// `StageCache` can reuse fetched/extracted state safely across requests and
+/// drop it when a draft write changes the source.
 #[derive(Clone, Debug)]
 pub(super) enum ParsedSource {
     Direct {

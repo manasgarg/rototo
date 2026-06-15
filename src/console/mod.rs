@@ -43,7 +43,12 @@ use self::token_crypto::TokenCrypto;
 pub const DEFAULT_BIND: &str = "127.0.0.1:7686";
 pub use self::capabilities::WritePolicy as ConsoleWritePolicy;
 
-/// Options resolved by the CLI layer; the console itself stays clap-free.
+/// Console startup options resolved by the CLI layer.
+///
+/// These values configure one server process: bind address, public origin,
+/// data directory, optional fixed workspace, write policy, and startup token.
+/// They are consumed by `run` to build `ConsoleState`; runtime repo, workspace,
+/// draft, and session lifecycles are then managed by the store and route code.
 pub struct ConsoleOptions {
     pub bind: String,
     pub public_url: Option<String>,

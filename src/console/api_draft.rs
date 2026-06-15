@@ -85,12 +85,23 @@ pub fn routes() -> axum::Router<SharedState> {
         )
 }
 
+/// Authorized draft, workspace, and user bundle for one draft route.
+///
+/// `load_draft` creates this after checking the user owns both the workspace
+/// and draft. It lives for one request and prevents later helper calls from
+/// accidentally mixing ids from different route parameters.
 struct DraftContext {
     user: SessionUser,
     workspace: WorkspaceRecord,
     draft: DraftSessionRecord,
 }
 
+/// Write mechanism selected for a draft operation.
+///
+/// The value is derived from the console write policy, workspace source kind,
+/// and current user credential. It lives only for the current operation and
+/// keeps GitHub writes, local-git writes, and direct-push mode explicit at each
+/// mutation site.
 enum DraftBackend<'a> {
     GitHub { token: &'a str, direct: bool },
     LocalGit,
@@ -181,6 +192,11 @@ async fn invalidate_draft(
         .await;
 }
 
+/// Optional body for starting a draft.
+///
+/// Empty bodies are accepted for the normal "create a branch for me" flow.
+/// When present, `branch` is validated against the selected backend before a
+/// durable `draft_sessions` row is inserted.
 #[derive(serde::Deserialize, Default)]
 struct DraftCreateBody {
     branch: Option<String>,
@@ -343,6 +359,10 @@ fn parse_draft_create_body(body: &[u8]) -> ApiResult<DraftCreateBody> {
         .map_err(|err| ApiError::bad_request(format!("invalid JSON body: {err}")))
 }
 
+/// Request body for retargeting an open pull-request draft to another branch.
+///
+/// The branch name is validated against GitHub before the existing draft row is
+/// updated. The struct is discarded after that one PATCH request.
 #[derive(serde::Deserialize)]
 struct DraftRenameBody {
     branch: Option<String>,
@@ -662,6 +682,12 @@ async fn draft_abandon(
     Ok(Json(json!({ "draft": draft })))
 }
 
+/// Request body for editing a primitive variable's default value.
+///
+/// This is the friendly-editor path, so it carries the semantic variable id and
+/// the file path the browser believes owns that value. The route rechecks the
+/// path, writes the file through the chosen backend, and records the net draft
+/// change for later PR text.
 #[derive(serde::Deserialize)]
 struct VariableSaveBody {
     #[serde(rename = "variableId")]
@@ -775,6 +801,11 @@ async fn draft_variable_save(
     Ok(Json(json!({ "change": change })))
 }
 
+/// Raw file save request from the source editor.
+///
+/// The body contains draft-branch text only; the route reloads the current
+/// branch file, commits the replacement through the chosen backend when it
+/// changed, and stores a draft change row for the path.
 #[derive(serde::Deserialize)]
 struct FileSaveBody {
     #[serde(rename = "filePath")]
@@ -874,6 +905,11 @@ async fn draft_file_save(
     Ok(Json(json!({ "ok": true })))
 }
 
+/// Raw file delete request from the source editor.
+///
+/// The route validates that the path stays inside the workspace, performs the
+/// delete through the selected backend, records an append-only draft event, and
+/// invalidates any staged view of the draft branch.
 #[derive(serde::Deserialize)]
 struct FileDeleteBody {
     #[serde(rename = "filePath")]
@@ -951,6 +987,12 @@ async fn draft_file_delete(
     Ok(Json(json!({ "ok": true })))
 }
 
+/// Entity creation request from the structured draft editor.
+///
+/// It describes the workspace noun to create and enough context for templated
+/// files, such as catalog membership or primitive variable type. The body is
+/// validated before any file is written, then the generated `PlannedFile`s
+/// become the draft's branch changes.
 #[derive(serde::Deserialize)]
 struct EntityCreateBody {
     kind: Option<String>,
@@ -1130,6 +1172,11 @@ fn invalid_entity_request() -> ApiError {
     )
 }
 
+/// Language-server request from the in-browser editor.
+///
+/// The request overlays unsaved text for one draft file and asks for an update,
+/// completion, or hover operation. It is not stored; the `LspSessions` cache
+/// owns any longer-lived server process state.
 #[derive(serde::Deserialize)]
 struct LspBody {
     op: Option<String>,
@@ -1469,6 +1516,10 @@ async fn editable_entities(
     staged_root: &std::path::Path,
     inventory: &WorkspaceInventory,
 ) -> Result<Vec<JsonValue>> {
+    /// Intermediate editable-entity row derived from inventory.
+    ///
+    /// The helper fills these from server inventory items, reads each file's
+    /// current draft-branch text, serializes them, and then drops the vector.
     struct Node {
         section: &'static str,
         id: String,

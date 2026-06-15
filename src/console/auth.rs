@@ -20,13 +20,22 @@ pub const GITHUB_OAUTH_SCOPES: &str = "read:user repo";
 /// ROTOTO_GITHUB_CLIENT_ID is set.
 const BAKED_DEVICE_CLIENT_ID: &str = "";
 
+/// Hosted-mode GitHub OAuth app credentials.
+///
+/// Startup resolves this from environment variables and stores it in
+/// `ConsoleState`. It lives for the server process and is used only to build
+/// authorization URLs and exchange callback codes for user tokens.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct HostedOAuth {
     pub client_id: String,
     pub client_secret: String,
 }
 
-/// Where the local-mode GitHub token came from, for the /api/me explanation.
+/// Where the current GitHub token came from.
+///
+/// This is serialized for `/api/me` so the UI can explain why a workspace can
+/// or cannot write. The source follows the token: it changes when local device
+/// flow stores a new token or hosted OAuth creates a session.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum GitHubCredentialSource {
@@ -37,18 +46,32 @@ pub enum GitHubCredentialSource {
     OAuthSession,
 }
 
+/// Local-mode token plus provenance.
+///
+/// The token may come from a flag, environment, device-flow credentials file,
+/// or `gh auth token`. It is kept in memory inside `LocalAuth`; device-flow
+/// tokens are also written to the console data directory for later launches.
 #[derive(Clone)]
 pub struct AmbientToken {
     pub token: String,
     pub source: GitHubCredentialSource,
 }
 
+/// In-progress local GitHub device-flow session.
+///
+/// The console stores only the device code between `/device/start` and polling
+/// completion. It is replaced when a new device flow starts and cleared when
+/// polling succeeds or fails.
 pub struct DeviceFlowState {
     pub device_code: String,
 }
 
-/// Local-mode authentication state: the ambient token plus the GitHub
-/// identity it maps to, fetched once per token.
+/// Local-mode authentication state.
+///
+/// This owns the mutable ambient token, the GitHub identity fetched for that
+/// exact token, and the optional in-flight device flow. It lives in
+/// `ConsoleState` for the process lifetime; the stored credentials file lets a
+/// successful device-flow sign-in survive restarts.
 pub struct LocalAuth {
     token: RwLock<Option<AmbientToken>>,
     identity: RwLock<Option<(String, SessionUser)>>,

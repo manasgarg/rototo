@@ -75,6 +75,11 @@ pub struct RepoWithWorkspaces {
     pub workspaces: Vec<WorkspaceRecord>,
 }
 
+/// Lifecycle state for a draft session.
+///
+/// The status lives in the `draft_sessions` table. Open drafts accept edits,
+/// published drafts represent a direct push or PR handoff, and abandoned drafts
+/// are retained for history but normally omitted from active lists.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "lowercase")]
 pub enum DraftStatus {
@@ -160,11 +165,21 @@ pub struct DraftEventRecord {
     pub created_at: String,
 }
 
+/// Inputs for creating a hosted OAuth session.
+///
+/// The store hashes a new session token, encrypts the GitHub token, and writes
+/// the session row. The plaintext token exists only long enough to create that
+/// row and return the browser cookie value.
 pub struct NewSession {
     pub identity: ActorIdentity,
     pub github_token: String,
 }
 
+/// Inputs for inserting a new draft session row.
+///
+/// Routes build this after selecting a write backend and validating branch
+/// access. The store assigns ids and timestamps; later draft operations mutate
+/// the resulting row by id.
 pub struct NewDraftSession {
     pub workspace_id: String,
     pub principal_id: String,
@@ -172,6 +187,11 @@ pub struct NewDraftSession {
     pub base_ref: String,
 }
 
+/// Upsert input for the net change tracked inside a draft.
+///
+/// Save routes pass semantic before/after JSON for a file or value target.
+/// The store creates, updates, or removes the durable change row depending on
+/// whether the after value still differs from the before value.
 pub struct DraftChangeInput {
     pub draft_id: String,
     pub file_path: String,
@@ -180,6 +200,10 @@ pub struct DraftChangeInput {
     pub after: serde_json::Value,
 }
 
+/// Append-only draft timeline input.
+///
+/// Mutation routes create these after user-visible actions. The store assigns
+/// ids and timestamps and never updates the event afterward.
 pub struct DraftEventInput {
     pub draft_id: String,
     pub kind: String,
@@ -187,6 +211,11 @@ pub struct DraftEventInput {
     pub detail: Option<serde_json::Value>,
 }
 
+/// Pull request metadata observed for a published draft.
+///
+/// Sync and publish routes pass this after reading GitHub. The store updates
+/// the draft row so later screens can show PR state without polling GitHub on
+/// every render.
 pub struct PullRequestStateInput {
     pub draft_id: String,
     pub pr_number: i64,
@@ -195,6 +224,11 @@ pub struct PullRequestStateInput {
     pub pr_merged_at: Option<String>,
 }
 
+/// Workspace discovered inside a registered repository.
+///
+/// Discovery creates these from GitHub tree results or fixed local sources.
+/// The store folds them into repo-scoped workspace rows and marks stale rows
+/// inactive or deletes them when safe.
 pub struct DiscoveredWorkspaceInput {
     pub path: String,
     pub git_ref: String,

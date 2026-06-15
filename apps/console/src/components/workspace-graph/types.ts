@@ -3,12 +3,14 @@
    concepts are plug-and-play — a concept is just a client component taking
    WorkspaceGraphData. */
 
+/** Workspace entity kind that can appear as a graph node. */
 export type GraphNodeKind =
     | "qualifier"
     | "variable"
     | "catalog"
     | "catalogEntry";
 
+/** Derived graph node for one semantic workspace entity. */
 export type GraphNode = {
     /* Stable unique id (the entity target key). */
     id: string;
@@ -26,14 +28,17 @@ export type GraphNode = {
     edited?: boolean;
 };
 
+/** Relationship kind between two semantic graph nodes. */
 export type GraphEdgeKind = "checks" | "selects" | "contains" | "requires";
 
+/** Directed graph edge derived from semantic references or containment. */
 export type GraphEdge = {
     from: string;
     to: string;
     kind: GraphEdgeKind;
 };
 
+/** Complete graph payload rendered for one staged workspace or draft. */
 export type WorkspaceGraphData = {
     nodes: GraphNode[];
     edges: GraphEdge[];

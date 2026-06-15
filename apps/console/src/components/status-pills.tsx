@@ -1,3 +1,4 @@
+/** Minimal draft state needed to render status pills across screens. */
 type DraftLike = {
     status: string;
     prState: string | null;

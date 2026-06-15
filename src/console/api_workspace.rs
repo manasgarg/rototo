@@ -22,8 +22,16 @@ const WORKSPACE_SUMMARY_CONCURRENCY: usize = 4;
 const MAX_COMPARED_BRANCHES: usize = 25;
 const DRAFT_CANDIDATE_COMPARE_CONCURRENCY: usize = 8;
 
+/// Ordered workspace summary result from a bounded background task.
+///
+/// The index preserves the user's repo/workspace ordering after concurrent
+/// staging and lint work finishes.
 type WorkspaceSummaryResult = (usize, JsonValue);
 
+/// Ordered GitHub branch comparison result used while scanning draft candidates.
+///
+/// Each value is produced by one GitHub compare request and discarded after the
+/// route has filtered it into a small browser-facing branch summary.
 type DraftCandidateCompareResult = (
     usize,
     String,
@@ -107,6 +115,10 @@ async fn workspace_lint(
     ))
 }
 
+/// Query string for the workspace summaries endpoint.
+///
+/// The optional repo id scopes a request to one registered repository. It is
+/// parsed per request and never stored; discovery state remains in SQLite.
 #[derive(serde::Deserialize, Default)]
 struct WorkspaceSummariesQuery {
     #[serde(rename = "repoId")]
@@ -272,6 +284,11 @@ async fn workspace_data(
     })))
 }
 
+/// Query string used to fetch one workspace file for inspect/edit screens.
+///
+/// The path is a repository-relative workspace path from the inventory. The
+/// route validates it by resolving through the staged workspace root before
+/// reading text.
 #[derive(serde::Deserialize)]
 pub struct EntityQuery {
     pub path: String,

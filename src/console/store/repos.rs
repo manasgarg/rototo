@@ -10,12 +10,21 @@ use super::rows::{repo_from_row, workspace_from_row};
 use super::types::{DiscoveredWorkspaceInput, RepoWithWorkspaces, WorkspaceRecord};
 use super::util::{db_err, new_id};
 
+/// Stable identity for a discovered workspace within one repository.
+///
+/// Discovery can produce rows in any order, so cleanup compares by workspace
+/// path and git ref instead of row id. The key lives only during one discovery
+/// transaction.
 #[derive(Hash, PartialEq, Eq)]
 struct WorkspaceKey {
     path: String,
     git_ref: String,
 }
 
+/// Existing workspace row paired with its discovery identity.
+///
+/// The cleanup step uses the row id for updates/deletes and the key for set
+/// membership against the newly discovered workspaces.
 struct WorkspaceRowKey {
     id: String,
     key: WorkspaceKey,

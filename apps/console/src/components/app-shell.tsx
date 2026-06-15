@@ -5,6 +5,7 @@ import { LogoutButton } from "@/components/logout-button";
 import { MobileNav } from "@/components/mobile-nav";
 import { RototoMark } from "@/components/rototo-mark";
 
+/** Breadcrumb item rendered by the app shell for the current route. */
 export type Crumb = {
     label: string;
     href?: string;

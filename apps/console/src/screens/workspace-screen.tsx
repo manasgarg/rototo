@@ -62,6 +62,7 @@ import type {
 } from "@/lib/types";
 import { NotFound } from "@/screens/not-found";
 
+/** Flattened workspace entity used for lists, links, and graph construction. */
 type EntityNode = {
     section: SectionId;
     kind: string;
@@ -73,6 +74,7 @@ type EntityNode = {
     outboundKeys: string[];
 };
 
+/** Lint payload for the staged workspace, including staging/lint failures. */
 type LintLoad =
     | WorkspaceLintView
     | { root: string; diagnostics: LintDiagnostic[]; error: string };
@@ -1562,6 +1564,7 @@ export function workspaceGraphData(input: {
     return { nodes: graphNodes, edges };
 }
 
+/** Render-ready relationship row for the current entity detail panel. */
 type EntityRelation = { key: string; content: ReactNode };
 
 function RelationList({

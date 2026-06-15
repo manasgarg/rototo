@@ -33,6 +33,7 @@ import {
 } from "@codemirror/view";
 import { useMemo } from "react";
 
+/** Language mode selected for one editor instance. */
 export type CodeEditorLanguage = "json" | "lua" | "toml" | "text";
 
 /* Syntax colors from the rototo palette: ink for structure, sea green for
@@ -73,15 +74,19 @@ const rototoHighlight = HighlightStyle.define([
     { tag: tags.meta, color: "var(--ink-2)" },
 ]);
 
+/** Line-level lint marker rendered in the editor gutter. */
 export type CodeEditorMark = {
     line: number;
     severity: "error" | "warning";
 };
 
+/** LSP zero-based text position used by editor bridge responses. */
 type LspPosition = { line: number; character: number };
 
+/** LSP text range used by diagnostics and hovers. */
 type LspRange = { start: LspPosition; end: LspPosition };
 
+/** Response body from the draft LSP `update` operation. */
 type LspUpdateResponse = {
     diagnostics?: Array<{
         message: string;
@@ -92,16 +97,22 @@ type LspUpdateResponse = {
     }>;
 };
 
+/** Response body from the draft LSP `completion` operation. */
 type LspCompletionResponse = {
     items?: Array<{ label: string; kind: number; detail?: string | null }>;
 };
 
+/** Response body from the draft LSP `hover` operation. */
 type LspHoverResponse = {
     hover?: { value: string; range?: LspRange | null } | null;
 };
 
-/* Wires the editor to the draft's rototo language server session. `request`
-   posts one bridge op and resolves with its JSON body. */
+/**
+ * Wires the editor to the draft's rototo language server session.
+ *
+ * `request` posts one bridge operation and resolves with its JSON body. The
+ * component does not own server lifecycle; the Rust `LspSessions` cache does.
+ */
 export type CodeEditorLsp = {
     request: (body: Record<string, unknown>) => Promise<unknown>;
 };

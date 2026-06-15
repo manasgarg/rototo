@@ -9,7 +9,11 @@ const TOKEN_FORMAT: &str = "rototo-console-token-v1";
 pub const KEY_ENV: &str = "ROTOTO_CONSOLE_TOKEN_ENCRYPTION_KEY";
 const TAG_LEN: usize = 16;
 
-/// Encrypts GitHub tokens at rest with AES-256-GCM. The ciphertext format is
+/// Encrypts stored GitHub tokens at rest with AES-256-GCM.
+///
+/// Hosted mode loads the key from `ROTOTO_CONSOLE_TOKEN_ENCRYPTION_KEY`; local
+/// mode may generate and persist one under the console data directory. The
+/// crypto handle lives inside `Store`, and ciphertext rows use
 /// `rototo-console-token-v1.<nonce>.<tag>.<ciphertext>` with base64url parts.
 #[derive(Clone)]
 pub struct TokenCrypto {

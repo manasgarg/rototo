@@ -76,6 +76,7 @@ import {
     workspaceGraphData,
 } from "@/screens/workspace-screen";
 
+/** Top-level draft screen tab accepted from route state. */
 export type DraftScreenId =
     | "overview"
     | "edit"
@@ -83,8 +84,10 @@ export type DraftScreenId =
     | "validate"
     | "publish";
 
+/** Draft entity loaded from the API and then edited in local component state. */
 type EditableEntity = ApiEditableEntity;
 
+/** Lint payload for the current draft branch, including staging failures. */
 type DraftLintLoad =
     | { root: string; diagnostics: LintDiagnostic[] }
     | { root: string; diagnostics: LintDiagnostic[]; error: string };

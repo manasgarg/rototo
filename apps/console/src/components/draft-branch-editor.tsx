@@ -3,6 +3,7 @@ import { GitBranch } from "lucide-react";
 import { useRouter } from "@/lib/navigation";
 import { apiFetch } from "@/lib/api";
 
+/** Transient submit result shown while renaming a draft branch. */
 type FormNote = { tone: "ok" | "err"; text: string };
 
 export function DraftBranchEditor({

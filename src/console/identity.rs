@@ -5,6 +5,12 @@ use serde::Serialize;
 
 use crate::error::{Result, RototoError};
 
+/// Console principal identity.
+///
+/// GitHub identities come from OAuth or token introspection and are stable
+/// enough for repository ownership. Git-config identities are local-mode
+/// fallbacks derived from the workspace checkout. The value is stored on
+/// sessions and serialized to the browser without exposing credentials.
 #[derive(Clone, Debug, Serialize)]
 #[serde(tag = "kind", rename_all = "camelCase")]
 pub enum ActorIdentity {

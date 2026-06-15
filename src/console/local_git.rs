@@ -7,6 +7,12 @@ use crate::error::{Result, RototoError};
 use super::inventory::workspace_local_path;
 use super::store::WorkspaceRecord;
 
+/// Result of publishing a direct-push draft through local git.
+///
+/// The route creates this after staging tracked draft paths, committing if
+/// needed, and attempting to push the current branch. It is serialized once to
+/// the browser and also summarized into a draft event; the struct itself is not
+/// persisted.
 #[derive(Clone, Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct LocalPublishResult {

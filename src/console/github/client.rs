@@ -3,11 +3,15 @@ use base64::engine::general_purpose::STANDARD as BASE64;
 use serde::Deserialize;
 use serde_json::{Value as JsonValue, json};
 
-use crate::error::{Result, RototoError};
+use super::error::{GitHubApiError, GitHubError, GitHubResult};
+use super::source::{enc, encode_repo_path, manifest_workspace_path, workspace_git_source};
+use super::{GITHUB_API, GITHUB_USER_AGENT};
 
-const GITHUB_USER_AGENT: &str = "rototo-console";
-const GITHUB_API: &str = "https://api.github.com";
-
+/// GitHub viewer identity returned by `/user`.
+///
+/// Auth code converts this into `ActorIdentity` and session/user records. The
+/// DTO itself is transient and exists only while handling token validation or
+/// sign-in.
 #[derive(Clone, Debug, Deserialize)]
 pub struct GitHubUser {
     pub id: i64,
@@ -16,6 +20,10 @@ pub struct GitHubUser {
     pub avatar_url: Option<String>,
 }
 
+/// Repository metadata returned by GitHub.
+///
+/// Registration and permission checks read this DTO, then persist only the
+/// rototo console repo fields needed for future workspace discovery.
 #[derive(Clone, Debug, Deserialize)]
 pub struct GitHubRepo {
     pub name: String,
@@ -24,11 +32,19 @@ pub struct GitHubRepo {
     pub permissions: Option<GitHubRepoPermissions>,
 }
 
+/// Owner object nested inside GitHub repository responses.
+///
+/// It exists because GitHub returns owner metadata as an object while rototo's
+/// store only needs the login string.
 #[derive(Clone, Debug, Deserialize)]
 pub struct GitHubRepoOwner {
     pub login: String,
 }
 
+/// GitHub permission flags used to decide whether a credential can write.
+///
+/// The client reads this during a permission check and discards it after
+/// choosing whether a draft mutation may continue.
 #[derive(Clone, Copy, Debug, Default, Deserialize)]
 pub struct GitHubRepoPermissions {
     #[serde(default)]
@@ -37,6 +53,10 @@ pub struct GitHubRepoPermissions {
     pub push: bool,
 }
 
+/// Rototo workspace found in a GitHub repository tree.
+///
+/// Discovery creates these from `rototo-workspace.toml` blobs. Store code
+/// upserts them into durable `workspaces` rows for the registering principal.
 #[derive(Clone, Debug)]
 pub struct DiscoveredWorkspace {
     pub path: String,
@@ -44,12 +64,21 @@ pub struct DiscoveredWorkspace {
     pub source: String,
 }
 
+/// File content plus blob SHA returned by GitHub contents API.
+///
+/// Draft save/delete paths need both pieces: content to diff or edit, and SHA
+/// to perform GitHub's optimistic update. The value lives only for one file
+/// operation.
 #[derive(Clone, Debug)]
 pub struct GitHubContentFile {
     pub sha: String,
     pub content: String,
 }
 
+/// Pull request metadata returned by GitHub.
+///
+/// Publish and sync routes copy these fields into a draft session row so the
+/// UI can show PR state without requiring a GitHub request on every render.
 #[derive(Clone, Debug, Deserialize)]
 pub struct GitHubPullRequest {
     pub html_url: String,
@@ -58,6 +87,10 @@ pub struct GitHubPullRequest {
     pub merged_at: Option<String>,
 }
 
+/// One entry from a GitHub recursive tree response.
+///
+/// Discovery, entity creation conflict checks, and branch scans use these to
+/// find blobs. They are transient results of GitHub API calls.
 #[derive(Clone, Debug, Deserialize)]
 pub struct GitHubTreeEntry {
     pub path: String,
@@ -65,110 +98,21 @@ pub struct GitHubTreeEntry {
     pub entry_type: String,
 }
 
+/// Branch comparison summary returned by GitHub.
+///
+/// Draft-candidate scans use it to decide whether a branch changes only files
+/// in the workspace path. It is filtered into a UI summary and not persisted.
 #[derive(Clone, Debug)]
 pub struct RefComparison {
     pub ahead_by: i64,
     pub files: Vec<String>,
 }
 
-/// A GitHub API failure that keeps the response so callers can shape
-/// user-facing messages the way the admin app did.
-#[derive(Debug)]
-pub struct GitHubApiError {
-    pub status: u16,
-    pub response_text: String,
-}
-
-impl GitHubApiError {
-    pub fn response_message(&self) -> Option<String> {
-        let body: JsonValue = serde_json::from_str(&self.response_text).ok()?;
-        body.get("message")
-            .and_then(JsonValue::as_str)
-            .map(str::to_owned)
-    }
-
-    pub fn message(&self) -> String {
-        let mut text = self.response_text.clone();
-        text.truncate(300);
-        format!("GitHub API {}: {}", self.status, text)
-    }
-}
-
-pub enum GitHubError {
-    Api(GitHubApiError),
-    Other(String),
-}
-
-impl GitHubError {
-    fn other(err: impl std::fmt::Display) -> Self {
-        Self::Other(err.to_string())
-    }
-}
-
-pub type GitHubResult<T> = std::result::Result<T, GitHubError>;
-
-/// User-facing message shaping, including the 403 "Resource not accessible by
-/// integration" case that needs OAuth-credential guidance.
-pub fn github_error_message(error: &GitHubError, action: &str) -> String {
-    match error {
-        GitHubError::Api(api) => {
-            if api.status == 403
-                && api.response_message().as_deref()
-                    == Some("Resource not accessible by integration")
-            {
-                return format!(
-                    "{action} failed because the GitHub credential cannot write to this repository. \
-                     Use GitHub OAuth App credentials, make sure the user has write access to the \
-                     repository, then log out and sign in again so the token is authorized with the \
-                     repo scope."
-                );
-            }
-            api.message()
-        }
-        GitHubError::Other(message) => message.clone(),
-    }
-}
-
-const REPO_SPEC_ERROR: &str = "repo must be owner/name or a GitHub repository URL";
-
-pub fn parse_repo_spec(value: &str) -> Result<(String, String)> {
-    let trimmed = value.trim();
-    let mut candidate = strip_prefix_ignore_ascii_case(trimmed, "git@github.com:")
-        .or_else(|| strip_prefix_ignore_ascii_case(trimmed, "ssh://git@github.com/"))
-        .or_else(|| strip_prefix_ignore_ascii_case(trimmed, "https://github.com/"))
-        .or_else(|| strip_prefix_ignore_ascii_case(trimmed, "http://github.com/"))
-        .or_else(|| strip_prefix_ignore_ascii_case(trimmed, "github.com/"))
-        .unwrap_or(trimmed);
-    candidate = candidate
-        .split(['?', '#'])
-        .next()
-        .unwrap_or("")
-        .trim_end_matches('/');
-    let Some((owner, mut name)) = candidate.split_once('/') else {
-        return Err(RototoError::new(REPO_SPEC_ERROR));
-    };
-    name = name.strip_suffix(".git").unwrap_or(name);
-    let valid = |part: &str| {
-        !part.is_empty()
-            && part
-                .chars()
-                .all(|c| c.is_ascii_alphanumeric() || matches!(c, '_' | '.' | '-'))
-    };
-    if !valid(owner) || !valid(name) || name.contains('/') {
-        return Err(RototoError::new(REPO_SPEC_ERROR));
-    }
-    Ok((owner.to_owned(), name.to_owned()))
-}
-
-fn strip_prefix_ignore_ascii_case<'a>(value: &'a str, prefix: &str) -> Option<&'a str> {
-    let head = value.get(..prefix.len())?;
-    if head.eq_ignore_ascii_case(prefix) {
-        value.get(prefix.len()..)
-    } else {
-        None
-    }
-}
-
+/// Small async GitHub REST client used by the console server.
+///
+/// The client owns a reusable `reqwest::Client` and lives in `ConsoleState` for
+/// the process lifetime. It does not store credentials; every call receives the
+/// current user's token explicitly.
 #[derive(Clone)]
 pub struct GitHubClient {
     http: reqwest::Client,
@@ -242,10 +186,18 @@ impl GitHubClient {
         name: &str,
         branch: &str,
     ) -> GitHubResult<String> {
+        /// Git ref lookup response from GitHub.
+        ///
+        /// The method validates that the ref points at a commit and returns
+        /// only the SHA needed for branch creation or write checks.
         #[derive(Deserialize)]
         struct RefResponse {
             object: RefObject,
         }
+        /// Nested git object in a GitHub ref response.
+        ///
+        /// It lives only long enough to reject refs that do not resolve to a
+        /// commit object.
         #[derive(Deserialize)]
         struct RefObject {
             sha: String,
@@ -277,6 +229,9 @@ impl GitHubClient {
         owner: &str,
         name: &str,
     ) -> GitHubResult<Vec<String>> {
+        /// Branch list item returned by GitHub.
+        ///
+        /// The client keeps only branch names for draft-candidate scanning.
         #[derive(Deserialize)]
         struct Branch {
             name: String,
@@ -298,12 +253,19 @@ impl GitHubClient {
         base: &str,
         head: &str,
     ) -> GitHubResult<RefComparison> {
+        /// GitHub compare response subset used by draft candidate scans.
+        ///
+        /// It is converted immediately into `RefComparison`.
         #[derive(Deserialize)]
         struct Comparison {
             ahead_by: i64,
             #[serde(default)]
             files: Vec<ComparisonFile>,
         }
+        /// Changed-file item nested in a GitHub compare response.
+        ///
+        /// Only the filename is needed to decide whether a branch touches the
+        /// workspace path.
         #[derive(Deserialize)]
         struct ComparisonFile {
             filename: String,
@@ -357,6 +319,10 @@ impl GitHubClient {
         branch: &str,
         new_name: &str,
     ) -> GitHubResult<String> {
+        /// GitHub branch-rename response body.
+        ///
+        /// The route persists the returned name on the draft row and discards
+        /// the raw response shape.
         #[derive(Deserialize)]
         struct Renamed {
             name: String,
@@ -385,6 +351,10 @@ impl GitHubClient {
         path: &str,
         git_ref: &str,
     ) -> GitHubResult<GitHubContentFile> {
+        /// GitHub contents response for a file.
+        ///
+        /// The client validates it is a base64 file blob, decodes the content,
+        /// and returns `GitHubContentFile` for one draft operation.
         #[derive(Deserialize)]
         struct Content {
             #[serde(rename = "type")]
@@ -522,6 +492,10 @@ impl GitHubClient {
         name: &str,
         git_ref: &str,
     ) -> GitHubResult<Vec<GitHubTreeEntry>> {
+        /// GitHub recursive tree response.
+        ///
+        /// The client rejects truncated trees because discovery and conflict
+        /// checks need a complete file list for the requested ref.
         #[derive(Deserialize)]
         struct TreeResponse {
             truncated: bool,
@@ -648,293 +622,4 @@ fn github_path_pattern(path: &str) -> String {
         })
         .collect::<Vec<_>>()
         .join("/")
-}
-
-/// GitHub OAuth web-flow code exchange.
-pub async fn exchange_github_code(
-    client_id: &str,
-    client_secret: &str,
-    code: &str,
-) -> Result<String> {
-    #[derive(Deserialize)]
-    struct Exchange {
-        access_token: Option<String>,
-        error: Option<String>,
-        error_description: Option<String>,
-    }
-    let response = reqwest::Client::new()
-        .post("https://github.com/login/oauth/access_token")
-        .header("Accept", "application/json")
-        .header("User-Agent", GITHUB_USER_AGENT)
-        .json(&json!({
-            "client_id": client_id,
-            "client_secret": client_secret,
-            "code": code,
-        }))
-        .send()
-        .await
-        .map_err(|err| RototoError::new(format!("GitHub OAuth exchange failed: {err}")))?;
-    let ok = response.status().is_success();
-    let body: Exchange = response
-        .json()
-        .await
-        .map_err(|err| RototoError::new(format!("GitHub OAuth exchange failed: {err}")))?;
-    match body.access_token {
-        Some(token) if ok => Ok(token),
-        _ => Err(RototoError::new(
-            body.error_description
-                .or(body.error)
-                .unwrap_or_else(|| "GitHub OAuth failed".to_owned()),
-        )),
-    }
-}
-
-/// GitHub device-flow: request a user code, then poll for the token.
-pub struct DeviceCode {
-    pub device_code: String,
-    pub user_code: String,
-    pub verification_uri: String,
-    pub interval_seconds: u64,
-    pub expires_in_seconds: u64,
-}
-
-pub async fn start_device_flow(client_id: &str) -> Result<DeviceCode> {
-    #[derive(Deserialize)]
-    struct DeviceResponse {
-        device_code: String,
-        user_code: String,
-        verification_uri: String,
-        #[serde(default)]
-        interval: u64,
-        expires_in: u64,
-    }
-    let response = reqwest::Client::new()
-        .post("https://github.com/login/device/code")
-        .header("Accept", "application/json")
-        .header("User-Agent", GITHUB_USER_AGENT)
-        .json(&json!({ "client_id": client_id, "scope": "read:user repo" }))
-        .send()
-        .await
-        .map_err(|err| RototoError::new(format!("GitHub device flow start failed: {err}")))?;
-    if !response.status().is_success() {
-        let status = response.status();
-        let text = response.text().await.unwrap_or_default();
-        return Err(RototoError::new(format!(
-            "GitHub device flow start failed: {status}: {text}"
-        )));
-    }
-    let body: DeviceResponse = response
-        .json()
-        .await
-        .map_err(|err| RototoError::new(format!("GitHub device flow start failed: {err}")))?;
-    Ok(DeviceCode {
-        device_code: body.device_code,
-        user_code: body.user_code,
-        verification_uri: body.verification_uri,
-        interval_seconds: body.interval.max(5),
-        expires_in_seconds: body.expires_in,
-    })
-}
-
-pub enum DevicePoll {
-    Pending,
-    SlowDown,
-    Token(String),
-    Failed(String),
-}
-
-pub async fn poll_device_flow(client_id: &str, device_code: &str) -> Result<DevicePoll> {
-    #[derive(Deserialize)]
-    struct PollResponse {
-        access_token: Option<String>,
-        error: Option<String>,
-        error_description: Option<String>,
-    }
-    let response = reqwest::Client::new()
-        .post("https://github.com/login/oauth/access_token")
-        .header("Accept", "application/json")
-        .header("User-Agent", GITHUB_USER_AGENT)
-        .json(&json!({
-            "client_id": client_id,
-            "device_code": device_code,
-            "grant_type": "urn:ietf:params:oauth:grant-type:device_code",
-        }))
-        .send()
-        .await
-        .map_err(|err| RototoError::new(format!("GitHub device flow poll failed: {err}")))?;
-    let body: PollResponse = response
-        .json()
-        .await
-        .map_err(|err| RototoError::new(format!("GitHub device flow poll failed: {err}")))?;
-    if let Some(token) = body.access_token {
-        return Ok(DevicePoll::Token(token));
-    }
-    Ok(match body.error.as_deref() {
-        Some("authorization_pending") => DevicePoll::Pending,
-        Some("slow_down") => DevicePoll::SlowDown,
-        Some(error) => DevicePoll::Failed(
-            body.error_description
-                .unwrap_or_else(|| format!("GitHub device flow failed: {error}")),
-        ),
-        None => DevicePoll::Failed("GitHub device flow failed".to_owned()),
-    })
-}
-
-pub fn workspace_archive_source(owner: &str, name: &str, git_ref: &str, path: &str) -> String {
-    let archive = format!(
-        "{GITHUB_API}/repos/{}/{}/tarball/{}",
-        enc(owner),
-        enc(name),
-        enc(git_ref)
-    );
-    if path == "." {
-        archive
-    } else {
-        format!("{archive}#:{path}")
-    }
-}
-
-pub fn workspace_git_source(owner: &str, name: &str, git_ref: &str, path: &str) -> String {
-    let remote = format!("git+https://github.com/{}/{}.git", enc(owner), enc(name));
-    if path == "." {
-        format!("{remote}#{git_ref}")
-    } else {
-        format!("{remote}#{git_ref}:{path}")
-    }
-}
-
-pub fn stable_workspace_key(owner: &str, name: &str, path: &str) -> String {
-    let digest = ring::digest::digest(
-        &ring::digest::SHA256,
-        format!("{owner}/{name}:{path}").as_bytes(),
-    );
-    digest
-        .as_ref()
-        .iter()
-        .map(|byte| format!("{byte:02x}"))
-        .collect::<String>()[..12]
-        .to_owned()
-}
-
-pub fn workspace_repo_path(workspace_path: &str, relative_path: &str) -> String {
-    if workspace_path == "." {
-        relative_path.to_owned()
-    } else {
-        format!("{workspace_path}/{relative_path}")
-    }
-}
-
-pub fn encode_repo_path(path: &str) -> String {
-    path.split('/').map(enc).collect::<Vec<_>>().join("/")
-}
-
-fn manifest_workspace_path(manifest_path: &str) -> String {
-    let path = manifest_path
-        .strip_suffix("/rototo-workspace.toml")
-        .unwrap_or_else(|| {
-            if manifest_path == "rototo-workspace.toml" {
-                ""
-            } else {
-                manifest_path
-            }
-        });
-    if path.is_empty() {
-        ".".to_owned()
-    } else {
-        path.to_owned()
-    }
-}
-
-/// Percent-encode a single URL path segment or query value.
-fn enc(value: &str) -> String {
-    let mut out = String::with_capacity(value.len());
-    for byte in value.bytes() {
-        match byte {
-            b'A'..=b'Z'
-            | b'a'..=b'z'
-            | b'0'..=b'9'
-            | b'-'
-            | b'_'
-            | b'.'
-            | b'~'
-            | b'!'
-            | b'*'
-            | b'\''
-            | b'('
-            | b')' => out.push(byte as char),
-            other => out.push_str(&format!("%{other:02X}")),
-        }
-    }
-    out
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn repo_spec_parses_owner_name() {
-        assert_eq!(
-            parse_repo_spec(" octo/configs ").unwrap(),
-            ("octo".to_owned(), "configs".to_owned())
-        );
-        assert_eq!(
-            parse_repo_spec("https://github.com/octo/configs.git").unwrap(),
-            ("octo".to_owned(), "configs".to_owned())
-        );
-        assert_eq!(
-            parse_repo_spec("git@github.com:octo/configs.git").unwrap(),
-            ("octo".to_owned(), "configs".to_owned())
-        );
-        assert_eq!(
-            parse_repo_spec("ssh://git@github.com/octo/configs.git").unwrap(),
-            ("octo".to_owned(), "configs".to_owned())
-        );
-        assert!(parse_repo_spec("octo").is_err());
-        assert!(parse_repo_spec("octo/configs/extra").is_err());
-        assert!(parse_repo_spec("https://example.com/octo/configs").is_err());
-        assert!(parse_repo_spec("https://github.com/octo/configs/tree/main").is_err());
-        assert!(parse_repo_spec("octo/with space").is_err());
-    }
-
-    #[test]
-    fn archive_source_appends_subdir_fragment() {
-        assert_eq!(
-            workspace_archive_source("o", "r", "main", "."),
-            "https://api.github.com/repos/o/r/tarball/main"
-        );
-        assert_eq!(
-            workspace_archive_source("o", "r", "main", "payments/flags"),
-            "https://api.github.com/repos/o/r/tarball/main#:payments/flags"
-        );
-    }
-
-    #[test]
-    fn git_source_appends_ref_and_subdir_fragment() {
-        assert_eq!(
-            workspace_git_source("o", "r", "main", "."),
-            "git+https://github.com/o/r.git#main"
-        );
-        assert_eq!(
-            workspace_git_source("o", "r", "main", "payments/flags"),
-            "git+https://github.com/o/r.git#main:payments/flags"
-        );
-    }
-
-    #[test]
-    fn manifest_paths_map_to_workspace_paths() {
-        assert_eq!(manifest_workspace_path("rototo-workspace.toml"), ".");
-        assert_eq!(
-            manifest_workspace_path("payments/flags/rototo-workspace.toml"),
-            "payments/flags"
-        );
-    }
-
-    #[test]
-    fn stable_workspace_key_is_short_hex() {
-        let key = stable_workspace_key("octo", "configs", ".");
-        assert_eq!(key.len(), 12);
-        assert!(key.chars().all(|c| c.is_ascii_hexdigit()));
-        assert_eq!(key, stable_workspace_key("octo", "configs", "."));
-    }
 }

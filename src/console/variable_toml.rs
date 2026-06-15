@@ -4,6 +4,11 @@ use crate::error::{Result, RototoError};
 
 pub const PRIMITIVE_VARIABLE_TYPES: &[&str] = &["bool", "int", "number", "string", "list"];
 
+/// Result of changing a primitive variable's default value in TOML text.
+///
+/// The friendly editor produces this after parsing the source file and the
+/// user's input. The draft route writes `text` through the selected backend and
+/// records `before`/`after` as the semantic draft change.
 #[derive(Clone, Debug)]
 pub struct VariableDefaultUpdate {
     pub text: String,
@@ -14,12 +19,21 @@ pub struct VariableDefaultUpdate {
     pub value_key: String,
 }
 
+/// Parsed `[values]` entry plus enough source location to rewrite it.
+///
+/// This is scratch state for one save operation; it is discarded after
+/// `VariableDefaultUpdate` is built.
 struct ParsedValue {
     literal: String,
     value: JsonValue,
     line_index: usize,
 }
 
+/// Minimal parse of the variable TOML needed by the friendly default editor.
+///
+/// It intentionally understands only the fields required for primitive default
+/// replacement and does not become a second workspace parser. The full lint and
+/// semantic model remain owned by rototo's Rust workspace loader.
 struct VariableParse {
     description: Option<String>,
     variable_type: Option<String>,

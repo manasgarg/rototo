@@ -10,6 +10,7 @@ import {
 import { Search } from "lucide-react";
 import { shouldAutoFocus } from "./autofocus";
 
+/** Props for one client-side searchable list instance. */
 type SearchableListProps = {
     label: string;
     placeholder: string;

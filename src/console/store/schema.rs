@@ -195,6 +195,11 @@ fn migrate_schema_v3(conn: &Connection) -> Result<()> {
 }
 
 fn migrate_schema_v2(conn: &Connection) -> Result<()> {
+    /// Snapshot of the pre-v2 `draft_changes` row shape.
+    ///
+    /// The migration reads every legacy row into this adapter, derives the new
+    /// `target_path`, writes the replacement table, and then drops the legacy
+    /// shape. It is never used at runtime after schema initialization.
     struct LegacyDraftChange {
         id: String,
         draft_id: String,

@@ -165,6 +165,11 @@ pub fn belongs_to_workspace(workspace_path: &str, file_path: &str) -> bool {
     workspace_path == "." || file_path.starts_with(&format!("{workspace_path}/"))
 }
 
+/// Workspace entity kind the draft editor knows how to create.
+///
+/// The enum is parsed from request JSON and then used to select file templates.
+/// It is intentionally tied to rototo's first-class nouns so new generic
+/// package/document concepts do not leak into console creation paths.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum EntityKind {
@@ -191,6 +196,11 @@ impl EntityKind {
     }
 }
 
+/// File planned for creation in a draft branch.
+///
+/// Template generation returns these before any write happens. The draft route
+/// checks for conflicts first, writes each file through the selected backend,
+/// and then serializes the same planned paths back to the UI.
 #[derive(Clone, Debug, serde::Serialize)]
 pub struct PlannedFile {
     pub path: String,
