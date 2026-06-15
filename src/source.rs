@@ -1,7 +1,6 @@
 use std::future::Future;
 use std::path::{Component, Path, PathBuf};
 use std::pin::Pin;
-use std::time::Duration;
 
 use tempfile::TempDir;
 use tokio::io::AsyncWriteExt;
@@ -10,225 +9,20 @@ use tokio::process::Command;
 use crate::error::{Result, RototoError};
 use crate::workspace::workspace_extends_sources;
 
+mod types;
+mod uri;
+
+use self::types::{ExtendSourceBase, LocalStageMode, ResolvedExtendSource};
+pub use self::types::{
+    LoadedWorkspaceSource, SourceAuth, SourceFingerprint, SourceLayer, SourceOptions, SourceProbe,
+    StagedWorkspace,
+};
+use self::uri::SourceUri;
+
 const WORKSPACE_MANIFEST: &str = "rototo-workspace.toml";
-const DEFAULT_MAX_ARCHIVE_BYTES: u64 = 50 * 1024 * 1024;
-const DEFAULT_MAX_DECOMPRESSED_ARCHIVE_BYTES: u64 = 200 * 1024 * 1024;
-const DEFAULT_MAX_ARCHIVE_ENTRIES: u64 = 10_000;
 const ERROR_BODY_PREVIEW_BYTES: u64 = 4096;
 const MAX_WORKSPACE_EXTENDS_DEPTH: usize = 32;
 const HTTP_USER_AGENT: &str = concat!("rototo/", env!("CARGO_PKG_VERSION"));
-
-#[derive(Clone, Debug)]
-pub struct SourceOptions {
-    auth: SourceAuth,
-    git_timeout: Duration,
-    http_timeout: Duration,
-    max_archive_bytes: u64,
-    max_decompressed_archive_bytes: u64,
-    max_archive_entries: u64,
-}
-
-impl SourceOptions {
-    pub fn new() -> Self {
-        Self::default()
-    }
-
-    pub fn auth(&self) -> &SourceAuth {
-        &self.auth
-    }
-
-    pub fn git_timeout(&self) -> Duration {
-        self.git_timeout
-    }
-
-    pub fn http_timeout(&self) -> Duration {
-        self.http_timeout
-    }
-
-    pub fn max_archive_bytes(&self) -> u64 {
-        self.max_archive_bytes
-    }
-
-    pub fn max_decompressed_archive_bytes(&self) -> u64 {
-        self.max_decompressed_archive_bytes
-    }
-
-    pub fn max_archive_entries(&self) -> u64 {
-        self.max_archive_entries
-    }
-
-    pub fn with_auth(mut self, auth: SourceAuth) -> Self {
-        self.auth = auth;
-        self
-    }
-
-    pub fn with_git_timeout(mut self, timeout: Duration) -> Self {
-        self.git_timeout = timeout;
-        self
-    }
-
-    pub fn with_http_timeout(mut self, timeout: Duration) -> Self {
-        self.http_timeout = timeout;
-        self
-    }
-
-    pub fn with_max_archive_bytes(mut self, bytes: u64) -> Self {
-        self.max_archive_bytes = bytes;
-        self
-    }
-
-    pub fn with_max_decompressed_archive_bytes(mut self, bytes: u64) -> Self {
-        self.max_decompressed_archive_bytes = bytes;
-        self
-    }
-
-    pub fn with_max_archive_entries(mut self, entries: u64) -> Self {
-        self.max_archive_entries = entries;
-        self
-    }
-}
-
-impl Default for SourceOptions {
-    fn default() -> Self {
-        Self {
-            auth: SourceAuth::None,
-            git_timeout: Duration::from_secs(60),
-            http_timeout: Duration::from_secs(30),
-            max_archive_bytes: DEFAULT_MAX_ARCHIVE_BYTES,
-            max_decompressed_archive_bytes: DEFAULT_MAX_DECOMPRESSED_ARCHIVE_BYTES,
-            max_archive_entries: DEFAULT_MAX_ARCHIVE_ENTRIES,
-        }
-    }
-}
-
-#[derive(Clone, Debug)]
-pub enum SourceAuth {
-    None,
-    Bearer(String),
-}
-
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub enum SourceFingerprint {
-    GitCommit(String),
-    HttpValidator(String),
-    ContentHash(String),
-    WorkspaceLayers(Vec<SourceFingerprint>),
-}
-
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub enum SourceProbe {
-    Unchanged,
-    Changed(Option<SourceFingerprint>),
-    ImmutablePinned(SourceFingerprint),
-    Unknown,
-}
-
-#[derive(Debug)]
-pub struct LoadedWorkspaceSource {
-    staged: StagedWorkspace,
-    fingerprint: Option<SourceFingerprint>,
-    immutable: bool,
-    layers: Vec<SourceLayer>,
-}
-
-impl LoadedWorkspaceSource {
-    pub fn staged(&self) -> &StagedWorkspace {
-        &self.staged
-    }
-
-    pub fn into_staged(self) -> StagedWorkspace {
-        self.staged
-    }
-
-    pub fn fingerprint(&self) -> Option<&SourceFingerprint> {
-        self.fingerprint.as_ref()
-    }
-
-    pub fn immutable(&self) -> bool {
-        self.immutable
-    }
-
-    pub fn layers(&self) -> &[SourceLayer] {
-        &self.layers
-    }
-}
-
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct SourceLayer {
-    source: String,
-    fingerprint: Option<SourceFingerprint>,
-    immutable: bool,
-}
-
-impl SourceLayer {
-    pub fn source(&self) -> &str {
-        &self.source
-    }
-
-    pub fn fingerprint(&self) -> Option<&SourceFingerprint> {
-        self.fingerprint.as_ref()
-    }
-
-    pub fn immutable(&self) -> bool {
-        self.immutable
-    }
-}
-
-#[derive(Clone, Copy, Debug)]
-enum LocalStageMode {
-    Borrow,
-    Snapshot,
-}
-
-#[derive(Clone, Copy, Debug)]
-struct ExtendSourceBase<'a> {
-    path: &'a Path,
-    temporary: bool,
-}
-
-#[derive(Debug)]
-struct ResolvedExtendSource {
-    source: String,
-    inherited_temporary_base: bool,
-}
-
-#[derive(Debug)]
-pub struct StagedWorkspace {
-    path: PathBuf,
-    _tempdir: Option<TempDir>,
-}
-
-impl StagedWorkspace {
-    pub fn local(path: PathBuf) -> Self {
-        Self {
-            path,
-            _tempdir: None,
-        }
-    }
-
-    fn temporary(path: PathBuf, tempdir: TempDir) -> Self {
-        Self {
-            path,
-            _tempdir: Some(tempdir),
-        }
-    }
-
-    pub fn path(&self) -> &Path {
-        &self.path
-    }
-
-    pub fn is_temporary(&self) -> bool {
-        self._tempdir.is_some()
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-struct SourceUri {
-    scheme: String,
-    base: String,
-    ref_: Option<String>,
-    subdir: Option<String>,
-}
 
 pub async fn stage_workspace_source(
     source: impl AsRef<str>,
@@ -1414,48 +1208,11 @@ fn relative_path_is_safe(path: &Path) -> bool {
             .all(|component| matches!(component, Component::Normal(_)))
 }
 
-impl SourceUri {
-    fn parse(source: &str) -> Result<Option<Self>> {
-        let Some((scheme, rest)) = source.split_once("://") else {
-            return Ok(None);
-        };
-        if scheme.is_empty() || rest.is_empty() {
-            return Err(RototoError::new(format!(
-                "workspace source URI is invalid: {source}"
-            )));
-        }
-        let (base, fragment) = match rest.split_once('#') {
-            Some((base, fragment)) => (base, Some(fragment)),
-            None => (rest, None),
-        };
-        if base.is_empty() {
-            return Err(RototoError::new(format!(
-                "workspace source URI is invalid: {source}"
-            )));
-        }
-        let (ref_, subdir) = match fragment {
-            Some(fragment) => match fragment.split_once(':') {
-                Some((ref_, subdir)) => (
-                    (!ref_.is_empty()).then(|| ref_.to_owned()),
-                    (!subdir.is_empty()).then(|| subdir.to_owned()),
-                ),
-                None => ((!fragment.is_empty()).then(|| fragment.to_owned()), None),
-            },
-            None => (None, None),
-        };
-        Ok(Some(Self {
-            scheme: scheme.to_ascii_lowercase(),
-            base: base.to_owned(),
-            ref_,
-            subdir,
-        }))
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use std::io::Cursor;
 
+    use super::types::{DEFAULT_MAX_ARCHIVE_ENTRIES, DEFAULT_MAX_DECOMPRESSED_ARCHIVE_BYTES};
     use super::*;
 
     fn write_archive_with_entry(
