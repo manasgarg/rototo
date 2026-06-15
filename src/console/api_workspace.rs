@@ -14,6 +14,7 @@ use super::inventory::{
 use super::resolve_preview::{
     SavedContextInput, qualifier_context_evaluations, resolve_saved_contexts,
 };
+use super::stage::{WorkspaceSelector, WorkspaceSelectorInput};
 use super::store::{SessionUser, WorkspaceRecord};
 
 const MAX_PREVIEW_CONTEXTS: usize = 4;
@@ -94,6 +95,31 @@ pub fn workspace_capabilities_json(
     })
 }
 
+async fn workspace_selector_for_base(
+    state: &super::api::ConsoleState,
+    user: &SessionUser,
+    workspace: &WorkspaceRecord,
+) -> ApiResult<WorkspaceSelector> {
+    WorkspaceSelector::for_base_workspace(WorkspaceSelectorInput {
+        principal_id: &user.principal_id,
+        token: source_token(user),
+        owner: &workspace.owner,
+        name: &workspace.name,
+        path: &workspace.path,
+        git_ref: &workspace.git_ref,
+        source: source_tree_source(state.fixed_workspace_source.as_deref(), workspace),
+    })
+    .await
+    .map_err(|err| ApiError::internal(err.to_string()))
+}
+
+fn source_tree_source<'a>(
+    fixed_workspace_source: Option<&'a str>,
+    workspace: &'a WorkspaceRecord,
+) -> &'a str {
+    fixed_workspace_source.unwrap_or(&workspace.source)
+}
+
 async fn workspace_lint(
     State(state): State<SharedState>,
     headers: HeaderMap,
@@ -101,9 +127,10 @@ async fn workspace_lint(
 ) -> ApiResult<Json<JsonValue>> {
     let user = require_user(&state, &headers).await?;
     let workspace = load_workspace(&state, &user, &workspace_id).await?;
+    let selector = workspace_selector_for_base(&state, &user, &workspace).await?;
     let inspected = state
         .stage
-        .inspect(source_token(&user), &workspace.source)
+        .get_inspected_workspace(selector, source_token(&user))
         .await
         .map_err(|err| ApiError::internal(err.to_string()))?;
     let lint = inspected
@@ -580,6 +607,19 @@ mod tests {
         let summary = workspace_summary_success_json(&workspace(), &inventory);
 
         assert_eq!(summary["catalogs"].as_u64(), Some(2));
+    }
+
+    #[test]
+    fn source_tree_source_prefers_fixed_source_tree_root() {
+        let mut workspace = workspace();
+        workspace.path = "apps/payments".to_owned();
+        workspace.source = "/tmp/configs/apps/payments".to_owned();
+
+        assert_eq!(
+            source_tree_source(Some("/tmp/configs"), &workspace),
+            "/tmp/configs"
+        );
+        assert_eq!(source_tree_source(None, &workspace), workspace.source);
     }
 
     #[test]

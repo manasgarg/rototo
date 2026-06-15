@@ -3,6 +3,7 @@
 mod cache;
 mod discovery;
 mod identity;
+mod load;
 mod records;
 mod selector;
 

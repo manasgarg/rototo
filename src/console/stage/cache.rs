@@ -6,6 +6,7 @@ use std::sync::Arc;
 use tokio::sync::Mutex;
 
 use super::discovery;
+use super::load;
 use super::{
     BranchChanges, BranchName, GitRefName, SemanticWorkspace, SourceTreeCacheKey,
     SourceTreeSelection, WorkspaceDiscovery, WorkspaceSelector,
@@ -51,9 +52,10 @@ impl StageCache {
 
     pub async fn get_inspected_workspace(
         &self,
-        _selector: WorkspaceSelector,
+        selector: WorkspaceSelector,
+        source_token: &str,
     ) -> Result<Arc<Workspace>> {
-        Err(stage_rewrite_error("get_inspected_workspace"))
+        load::get_inspected_workspace(selector, source_token).await
     }
 
     pub async fn get_semantic_workspace(
