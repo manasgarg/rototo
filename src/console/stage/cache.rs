@@ -80,10 +80,6 @@ impl StageCache {
 
     pub async fn invalidate_branch(&self, _cached_tree: &CachedTreeSource, _branch: &str) {}
 
-    pub async fn inspect(&self, _token: &str, _source: &str) -> Result<Arc<Workspace>> {
-        Err(stage_rewrite_error("inspect"))
-    }
-
     pub async fn semantic_model(
         &self,
         _token: &str,

@@ -1,4 +1,5 @@
 use super::api::{ApiError, ApiResult, ConsoleState};
+use super::capabilities::{WorkspaceSourceKind, classify_workspace_source};
 use super::stage::{CachedWorkspaceSource, SemanticWorkspace, WorkspaceSourceInput};
 use super::store::WorkspaceRecord;
 use crate::sdk::Workspace;
@@ -10,17 +11,73 @@ pub(crate) async fn workspace_source_for_base(
     token: &str,
     workspace: &WorkspaceRecord,
 ) -> ApiResult<CachedWorkspaceSource> {
-    CachedWorkspaceSource::for_base_workspace(WorkspaceSourceInput {
+    workspace_source_for_base_source(
+        state.fixed_workspace_source.as_deref(),
+        principal_id,
+        token,
+        workspace,
+    )
+    .await
+}
+
+pub(crate) async fn workspace_source_for_branch(
+    state: &ConsoleState,
+    principal_id: &str,
+    token: &str,
+    workspace: &WorkspaceRecord,
+    branch: &str,
+) -> ApiResult<CachedWorkspaceSource> {
+    let source = source_tree_source(state.fixed_workspace_source.as_deref(), workspace);
+    workspace_source_for_branch_source(source, principal_id, token, workspace, branch).await
+}
+
+async fn workspace_source_for_base_source(
+    fixed_workspace_source: Option<&str>,
+    principal_id: &str,
+    token: &str,
+    workspace: &WorkspaceRecord,
+) -> ApiResult<CachedWorkspaceSource> {
+    CachedWorkspaceSource::for_base_workspace(workspace_source_input(
+        principal_id,
+        token,
+        source_tree_source(fixed_workspace_source, workspace),
+        workspace,
+    ))
+    .await
+    .map_err(|err| ApiError::internal(err.to_string()))
+}
+
+async fn workspace_source_for_branch_source(
+    source: &str,
+    principal_id: &str,
+    token: &str,
+    workspace: &WorkspaceRecord,
+    branch: &str,
+) -> ApiResult<CachedWorkspaceSource> {
+    let input = workspace_source_input(principal_id, token, source, workspace);
+    if branch_source_uses_working_tree(source) {
+        CachedWorkspaceSource::for_base_workspace(input).await
+    } else {
+        CachedWorkspaceSource::for_branch_workspace(input, branch).await
+    }
+    .map_err(|err| ApiError::internal(err.to_string()))
+}
+
+fn workspace_source_input<'a>(
+    principal_id: &'a str,
+    token: &'a str,
+    source: &'a str,
+    workspace: &'a WorkspaceRecord,
+) -> WorkspaceSourceInput<'a> {
+    WorkspaceSourceInput {
         principal_id,
         token,
         owner: &workspace.owner,
         name: &workspace.name,
         path: &workspace.path,
         git_ref: &workspace.git_ref,
-        source: source_tree_source(state.fixed_workspace_source.as_deref(), workspace),
-    })
-    .await
-    .map_err(|err| ApiError::internal(err.to_string()))
+        source,
+    }
 }
 
 pub(crate) async fn semantic_workspace_for_base(
@@ -58,9 +115,18 @@ fn source_tree_source<'a>(
     fixed_workspace_source.unwrap_or(&workspace.source)
 }
 
+fn branch_source_uses_working_tree(source: &str) -> bool {
+    matches!(
+        classify_workspace_source(source),
+        WorkspaceSourceKind::LocalPath | WorkspaceSourceKind::FileUrl
+    )
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::console::stage::{BranchName, TreeRevision, TreeSource};
+    use tempfile::TempDir;
 
     fn workspace() -> WorkspaceRecord {
         WorkspaceRecord {
@@ -87,5 +153,69 @@ mod tests {
             "/tmp/configs"
         );
         assert_eq!(source_tree_source(None, &workspace), workspace.source);
+    }
+
+    #[tokio::test]
+    async fn branch_workspace_source_selects_draft_branch_for_git_workspace() {
+        let mut workspace = workspace();
+        workspace.path = "apps/payments".to_owned();
+        workspace.source = "git+https://github.com/octo/configs.git#main:apps/payments".to_owned();
+
+        let source = expect_ok(
+            workspace_source_for_branch_source(
+                &workspace.source,
+                "user_123",
+                "",
+                &workspace,
+                "draft/payments",
+            )
+            .await,
+        );
+
+        assert_eq!(
+            source.workspace.tree,
+            TreeSource::GitHub {
+                owner: "octo".to_owned(),
+                name: "configs".to_owned(),
+            }
+        );
+        assert_eq!(
+            source.workspace.revision,
+            TreeRevision::GitBranch(BranchName::new("draft/payments").unwrap())
+        );
+    }
+
+    #[tokio::test]
+    async fn branch_workspace_source_keeps_local_workspace_on_working_tree() {
+        let tempdir = TempDir::new().expect("tempdir");
+        let mut workspace = workspace();
+        workspace.path = ".".to_owned();
+        workspace.source = tempdir.path().to_string_lossy().into_owned();
+
+        let source = expect_ok(
+            workspace_source_for_branch_source(
+                &workspace.source,
+                "local-user",
+                "",
+                &workspace,
+                "draft/payments",
+            )
+            .await,
+        );
+
+        assert_eq!(
+            source.workspace.tree,
+            TreeSource::LocalFolder {
+                root: tempdir.path().canonicalize().unwrap()
+            }
+        );
+        assert_eq!(source.workspace.revision, TreeRevision::LocalWorkingTree);
+    }
+
+    fn expect_ok<T>(result: ApiResult<T>) -> T {
+        match result {
+            Ok(value) => value,
+            Err(err) => panic!("{}", err.message),
+        }
     }
 }

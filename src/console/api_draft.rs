@@ -1,4 +1,5 @@
 use std::collections::BTreeSet;
+use std::sync::Arc;
 use std::time::Duration;
 
 use axum::Json;
@@ -36,6 +37,7 @@ use super::workspace_edit::{
     draft_source, entity_template_files, expected_variable_file_path, parse_entity_id,
     parse_variable_type, variable_value_target_path,
 };
+use super::workspace_source::workspace_source_for_branch;
 
 const PR_SYNC_FRESH: Duration = Duration::from_secs(60);
 const MAX_PREVIEW_CONTEXTS: usize = 4;
@@ -190,6 +192,23 @@ async fn invalidate_draft(
         .stage
         .invalidate_source(&draft_source(workspace, draft))
         .await;
+}
+
+async fn inspect_draft_workspace(
+    state: &ConsoleState,
+    user: &SessionUser,
+    workspace: &WorkspaceRecord,
+    draft: &DraftSessionRecord,
+) -> ApiResult<Arc<crate::sdk::Workspace>> {
+    let token = source_token(user);
+    let workspace_source =
+        workspace_source_for_branch(state, &user.principal_id, token, workspace, &draft.branch)
+            .await?;
+    state
+        .stage
+        .get_inspected_workspace(workspace_source, token)
+        .await
+        .map_err(|err| ApiError::bad_request(err.to_string()))
 }
 
 /// Optional body for starting a draft.
@@ -537,18 +556,12 @@ async fn draft_publish(
     let mut errors = 0;
     let mut warnings = 0;
     for workspace in &lint_workspaces {
-        let source = draft_source(workspace, &context.draft);
-        let lint = match state
-            .stage
-            .inspect(source_token(&context.user), &source)
+        let inspected =
+            inspect_draft_workspace(&state, &context.user, workspace, &context.draft).await?;
+        let lint = inspected
+            .lint()
             .await
-        {
-            Ok(inspected) => inspected
-                .lint()
-                .await
-                .map_err(|err| ApiError::bad_request(err.to_string()))?,
-            Err(err) => return Err(ApiError::bad_request(err.to_string())),
-        };
+            .map_err(|err| ApiError::bad_request(err.to_string()))?;
         errors += lint
             .diagnostics
             .iter()
@@ -1205,14 +1218,8 @@ async fn draft_lsp(
         ));
     }
 
-    let staged = state
-        .stage
-        .inspect(
-            source_token(&context.user),
-            &draft_source(&context.workspace, &context.draft),
-        )
-        .await
-        .map_err(|err| ApiError::bad_request(err.to_string()))?;
+    let staged =
+        inspect_draft_workspace(&state, &context.user, &context.workspace, &context.draft).await?;
 
     let op = body.op.as_deref().unwrap_or("unknown").to_owned();
     let lsp_started = std::time::Instant::now();
