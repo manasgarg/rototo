@@ -23,6 +23,7 @@ mod time;
 mod token_crypto;
 mod variable_toml;
 mod workspace_edit;
+mod workspace_source;
 
 use std::path::PathBuf;
 use std::sync::Arc;

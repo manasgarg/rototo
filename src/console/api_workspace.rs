@@ -14,8 +14,8 @@ use super::inventory::{
 use super::resolve_preview::{
     SavedContextInput, qualifier_context_evaluations, resolve_saved_contexts,
 };
-use super::stage::{CachedWorkspaceSource, SemanticWorkspace, WorkspaceSourceInput};
 use super::store::{SessionUser, WorkspaceRecord};
+use super::workspace_source::{semantic_workspace_for_base, workspace_source_for_base};
 
 const MAX_PREVIEW_CONTEXTS: usize = 4;
 const WORKSPACE_SUMMARY_CONCURRENCY: usize = 4;
@@ -95,44 +95,6 @@ pub fn workspace_capabilities_json(
     })
 }
 
-async fn workspace_source_for_base(
-    state: &super::api::ConsoleState,
-    user: &SessionUser,
-    workspace: &WorkspaceRecord,
-) -> ApiResult<CachedWorkspaceSource> {
-    CachedWorkspaceSource::for_base_workspace(WorkspaceSourceInput {
-        principal_id: &user.principal_id,
-        token: source_token(user),
-        owner: &workspace.owner,
-        name: &workspace.name,
-        path: &workspace.path,
-        git_ref: &workspace.git_ref,
-        source: source_tree_source(state.fixed_workspace_source.as_deref(), workspace),
-    })
-    .await
-    .map_err(|err| ApiError::internal(err.to_string()))
-}
-
-async fn semantic_workspace_for_base(
-    state: &super::api::ConsoleState,
-    user: &SessionUser,
-    workspace: &WorkspaceRecord,
-) -> ApiResult<SemanticWorkspace> {
-    let workspace_source = workspace_source_for_base(state, user, workspace).await?;
-    state
-        .stage
-        .get_semantic_workspace(workspace_source, source_token(user))
-        .await
-        .map_err(|err| ApiError::internal(err.to_string()))
-}
-
-fn source_tree_source<'a>(
-    fixed_workspace_source: Option<&'a str>,
-    workspace: &'a WorkspaceRecord,
-) -> &'a str {
-    fixed_workspace_source.unwrap_or(&workspace.source)
-}
-
 async fn workspace_lint(
     State(state): State<SharedState>,
     headers: HeaderMap,
@@ -140,7 +102,9 @@ async fn workspace_lint(
 ) -> ApiResult<Json<JsonValue>> {
     let user = require_user(&state, &headers).await?;
     let workspace = load_workspace(&state, &user, &workspace_id).await?;
-    let workspace_source = workspace_source_for_base(&state, &user, &workspace).await?;
+    let workspace_source =
+        workspace_source_for_base(&state, &user.principal_id, source_token(&user), &workspace)
+            .await?;
     let inspected = state
         .stage
         .get_inspected_workspace(workspace_source, source_token(&user))
@@ -273,7 +237,9 @@ async fn workspace_data(
         .list_draft_sessions_for_workspace(&workspace.id, &user.principal_id)
         .await?;
 
-    let staged = semantic_workspace_for_base(&state, &user, &workspace).await;
+    let staged =
+        semantic_workspace_for_base(&state, &user.principal_id, source_token(&user), &workspace)
+            .await;
     let (inventory, inventory_error, lint, model) = match staged {
         Ok(semantic) => {
             let inventory =
@@ -341,7 +307,9 @@ async fn workspace_entity(
 ) -> ApiResult<Json<JsonValue>> {
     let user = require_user(&state, &headers).await?;
     let workspace = load_workspace(&state, &user, &workspace_id).await?;
-    let semantic = semantic_workspace_for_base(&state, &user, &workspace).await?;
+    let semantic =
+        semantic_workspace_for_base(&state, &user.principal_id, source_token(&user), &workspace)
+            .await?;
     let inventory =
         inspect_workspace_inventory(&workspace, &semantic.model, semantic.workspace.root())
             .await
@@ -517,9 +485,10 @@ pub async fn workspace_inventory(
     user: &SessionUser,
     workspace: &WorkspaceRecord,
 ) -> std::result::Result<(std::sync::Arc<crate::sdk::Workspace>, WorkspaceInventory), String> {
-    let semantic = semantic_workspace_for_base(state, user, workspace)
-        .await
-        .map_err(|err| err.message)?;
+    let semantic =
+        semantic_workspace_for_base(state, &user.principal_id, source_token(user), workspace)
+            .await
+            .map_err(|err| err.message)?;
     let inventory =
         inspect_workspace_inventory(workspace, &semantic.model, semantic.workspace.root())
             .await
@@ -617,19 +586,6 @@ mod tests {
         let summary = workspace_summary_success_json(&workspace(), &inventory);
 
         assert_eq!(summary["catalogs"].as_u64(), Some(2));
-    }
-
-    #[test]
-    fn source_tree_source_prefers_fixed_source_tree_root() {
-        let mut workspace = workspace();
-        workspace.path = "apps/payments".to_owned();
-        workspace.source = "/tmp/configs/apps/payments".to_owned();
-
-        assert_eq!(
-            source_tree_source(Some("/tmp/configs"), &workspace),
-            "/tmp/configs"
-        );
-        assert_eq!(source_tree_source(None, &workspace), workspace.source);
     }
 
     #[test]

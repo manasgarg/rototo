@@ -720,12 +720,18 @@ async fn repos_register(
                 .collect(),
         )
         .await?;
-    warm_registered_workspaces(state.clone(), token.to_owned(), stored.workspaces.clone());
+    warm_registered_workspaces(
+        state.clone(),
+        user.principal_id.clone(),
+        token.to_owned(),
+        stored.workspaces.clone(),
+    );
     Ok(Json(json!({ "repo": stored })))
 }
 
 fn warm_registered_workspaces(
     state: SharedState,
+    principal_id: String,
     token: String,
     workspaces: Vec<super::store::WorkspaceRecord>,
 ) {
@@ -736,7 +742,14 @@ fn warm_registered_workspaces(
     tokio::spawn(async move {
         for workspace in workspaces {
             let started = Instant::now();
-            match state.stage.semantic_model(&token, &workspace.source).await {
+            match super::workspace_source::semantic_workspace_for_base(
+                &state,
+                &principal_id,
+                &token,
+                &workspace,
+            )
+            .await
+            {
                 Ok(_) => {
                     tracing::debug!(
                         operation = "workspace.warm",
@@ -751,7 +764,7 @@ fn warm_registered_workspaces(
                         operation = "workspace.warm",
                         workspace_id = %workspace.id,
                         source = %workspace.source,
-                        error = %err,
+                        error = %err.message,
                         latency_ms = started.elapsed().as_millis(),
                         "console workspace warm-up failed"
                     );
