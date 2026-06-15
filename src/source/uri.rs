@@ -45,3 +45,32 @@ impl SourceUri {
         }))
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn source_uri_rejects_malformed_uris() {
+        assert!(SourceUri::parse("examples/basic").unwrap().is_none());
+        assert!(SourceUri::parse("://example.com/workspace.tar.gz").is_err());
+        assert!(SourceUri::parse("https://").is_err());
+        assert!(SourceUri::parse("https://#main").is_err());
+    }
+
+    #[test]
+    fn source_uri_accepts_supported_source_forms() {
+        for source in [
+            "file:///tmp/workspace",
+            "git+file:///tmp/workspace.git#main:rototo",
+            "git+https://github.com/example/config.git#main:rototo",
+            "git+ssh://git@github.com/example/config.git#main:rototo",
+            "https://example.com/workspace.tar.gz#:rototo",
+        ] {
+            assert!(
+                SourceUri::parse(source).unwrap().is_some(),
+                "source should parse: {source}"
+            );
+        }
+    }
+}
