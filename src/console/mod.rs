@@ -8,6 +8,7 @@ mod api_draft;
 mod api_workspace;
 mod auth;
 mod capabilities;
+mod fixed_workspace;
 mod github;
 mod identity;
 mod inventory;
@@ -37,7 +38,7 @@ use self::github::GitHubClient;
 use self::lsp::LspSessions;
 use self::observability::DevObservability;
 use self::stage::StageCache;
-use self::store::{DiscoveredWorkspaceInput, Store};
+use self::store::Store;
 use self::token_crypto::TokenCrypto;
 
 pub const DEFAULT_BIND: &str = "127.0.0.1:7686";
@@ -288,94 +289,18 @@ pub(crate) async fn register_fixed_workspace(
     principal_id: &str,
     source: &str,
 ) -> Result<()> {
-    let (owner, name, mut git_ref, path) = synthetic_registration(source);
-    if matches!(
-        capabilities::classify_workspace_source(source),
-        capabilities::WorkspaceSourceKind::LocalPath | capabilities::WorkspaceSourceKind::FileUrl
-    ) && let Ok(branch) = local_git::current_branch(source).await
-    {
-        git_ref = branch;
-    }
+    let registration = fixed_workspace::registration(&state.stage, principal_id, source).await?;
     state
         .store
         .upsert_repo_with_workspaces(
             principal_id.to_owned(),
-            owner,
-            name,
-            git_ref.clone(),
-            vec![DiscoveredWorkspaceInput {
-                path,
-                git_ref,
-                source: source.to_owned(),
-            }],
+            registration.owner,
+            registration.name,
+            registration.git_ref,
+            registration.workspaces,
         )
         .await?;
     Ok(())
-}
-
-/// Best-effort owner/name/ref/path display fields for an arbitrary workspace
-/// source. Staging always uses the source string itself, so these only feed
-/// labels and repo-path prefixes.
-fn synthetic_registration(source: &str) -> (String, String, String, String) {
-    let (base, fragment) = match source.split_once('#') {
-        Some((base, fragment)) => (base, Some(fragment)),
-        None => (source, None),
-    };
-    let path = fragment
-        .and_then(|fragment| fragment.split_once(':').map(|(_, path)| path))
-        .filter(|path| !path.is_empty())
-        .unwrap_or(".")
-        .to_owned();
-    let ref_from_fragment = fragment
-        .map(|fragment| {
-            fragment
-                .split_once(':')
-                .map(|(git_ref, _)| git_ref)
-                .unwrap_or(fragment)
-        })
-        .filter(|git_ref| !git_ref.is_empty());
-
-    // GitHub archive: https://api.github.com/repos/{owner}/{name}/tarball/{ref}
-    if let Some(rest) = base.strip_prefix("https://api.github.com/repos/") {
-        let parts: Vec<&str> = rest.split('/').collect();
-        if parts.len() >= 4 && (parts[2] == "tarball" || parts[2] == "zipball") {
-            return (
-                parts[0].to_owned(),
-                parts[1].to_owned(),
-                parts[3].to_owned(),
-                path,
-            );
-        }
-    }
-    // Git URL: git+https://github.com/{owner}/{name}.git
-    if let Some(at) = base.find("://")
-        && base.starts_with("git+")
-    {
-        let rest = &base[at + 3..];
-        let mut segments = rest.split('/').skip(1);
-        if let (Some(owner), Some(name)) = (segments.next(), segments.next()) {
-            let name = name.strip_suffix(".git").unwrap_or(name);
-            return (
-                owner.to_owned(),
-                name.to_owned(),
-                ref_from_fragment.unwrap_or("main").to_owned(),
-                path,
-            );
-        }
-    }
-    // Local paths and anything else.
-    let name = base
-        .trim_end_matches('/')
-        .rsplit('/')
-        .next()
-        .filter(|name| !name.is_empty())
-        .unwrap_or("workspace");
-    (
-        "demo".to_owned(),
-        name.to_owned(),
-        ref_from_fragment.unwrap_or("main").to_owned(),
-        path,
-    )
 }
 
 #[cfg(test)]
@@ -425,47 +350,5 @@ mod tests {
 
         assert!(err.to_string().contains(GITHUB_CLIENT_ID_ENV));
         assert!(err.to_string().contains(GITHUB_CLIENT_SECRET_ENV));
-    }
-
-    #[test]
-    fn synthetic_registration_parses_source_forms() {
-        assert_eq!(
-            synthetic_registration("https://api.github.com/repos/octo/configs/tarball/main"),
-            (
-                "octo".to_owned(),
-                "configs".to_owned(),
-                "main".to_owned(),
-                ".".to_owned()
-            )
-        );
-        assert_eq!(
-            synthetic_registration(
-                "https://api.github.com/repos/octo/configs/tarball/v2#:payments/flags"
-            ),
-            (
-                "octo".to_owned(),
-                "configs".to_owned(),
-                "v2".to_owned(),
-                "payments/flags".to_owned()
-            )
-        );
-        assert_eq!(
-            synthetic_registration("git+https://github.com/octo/configs.git#release:apps"),
-            (
-                "octo".to_owned(),
-                "configs".to_owned(),
-                "release".to_owned(),
-                "apps".to_owned()
-            )
-        );
-        assert_eq!(
-            synthetic_registration("examples/basic"),
-            (
-                "demo".to_owned(),
-                "basic".to_owned(),
-                "main".to_owned(),
-                ".".to_owned()
-            )
-        );
     }
 }
