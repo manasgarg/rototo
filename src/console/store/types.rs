@@ -20,11 +20,11 @@ pub struct SessionUser {
 
 /// Repository registered for one console principal.
 ///
-/// This is the parent record for workspace discovery and draft ownership. It is
-/// inserted the first time discovery sees a repo for a principal, refreshed by
-/// later discovery runs to update the default ref and discovery timestamps, and
-/// deleted explicitly by the user; deleting it cascades to workspaces, drafts,
-/// draft changes, and draft events.
+/// This is the parent record for workspace discovery and branch selections. It
+/// is inserted the first time discovery sees a repo for a principal, refreshed
+/// by later discovery runs to update the default ref and discovery timestamps,
+/// and deleted explicitly by the user; deleting it cascades to workspaces and
+/// branch selections.
 #[derive(Clone, Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct RepoRecord {
@@ -41,10 +41,10 @@ pub struct RepoRecord {
 /// Discovered rototo workspace inside a repository.
 ///
 /// This exists so the console can address a workspace by id or slug, reconstruct
-/// the workspace source, and scope lint, preview, and draft operations. Discovery
-/// inserts new rows, refreshes rows it still finds, deletes rows that no longer
-/// exist when no draft references them, and otherwise marks missing rows
-/// inactive so existing draft links can still resolve.
+/// the workspace source, and scope lint, preview, and branch operations.
+/// Discovery inserts new rows, refreshes rows it still finds, deletes rows that
+/// no longer exist when no branch references them, and otherwise marks missing
+/// rows inactive so existing branch links can still resolve.
 #[derive(Clone, Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct WorkspaceRecord {
@@ -75,59 +75,6 @@ pub struct RepoWithWorkspaces {
     pub workspaces: Vec<WorkspaceRecord>,
 }
 
-/// Lifecycle state for a draft session.
-///
-/// The status lives in the `draft_sessions` table. Open drafts accept edits,
-/// published drafts represent a direct push or PR handoff, and abandoned drafts
-/// are retained for history but normally omitted from active lists.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
-#[serde(rename_all = "lowercase")]
-pub enum DraftStatus {
-    Open,
-    Published,
-    Abandoned,
-}
-
-/// Editable draft branch for a workspace and principal.
-///
-/// This exists to group proposed workspace edits, their activity history, and
-/// any GitHub pull request state under one branch. Drafts start open, become
-/// published after a direct push or pull request creation, can reopen when a
-/// pull request is closed without merging, and become abandoned when the user
-/// discards them. Deleting the parent workspace or repository cascades to the
-/// draft and its child records.
-#[derive(Clone, Debug, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct DraftSessionRecord {
-    pub id: String,
-    pub workspace_id: String,
-    pub principal_id: String,
-    pub branch: String,
-    pub base_ref: String,
-    pub status: DraftStatus,
-    pub pr_url: Option<String>,
-    pub pr_number: Option<i64>,
-    pub pr_state: Option<String>,
-    pub pr_merged_at: Option<String>,
-    pub pr_synced_at: Option<String>,
-    pub created_at: String,
-    pub updated_at: String,
-    pub published_at: Option<String>,
-}
-
-/// Draft list item paired with the workspace it edits.
-///
-/// This exists for user-level draft views that need workspace metadata beside
-/// the draft state. It is not stored independently; each value is rebuilt from a
-/// `draft_sessions` row joined to its `workspaces` row, and normal lists omit
-/// abandoned drafts.
-#[derive(Clone, Debug, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct DraftWithWorkspaceRecord {
-    pub draft: DraftSessionRecord,
-    pub workspace: WorkspaceRecord,
-}
-
 /// Persisted tracking state for a repository branch.
 ///
 /// Active branches are currently selected for work, recent branches remain
@@ -143,11 +90,10 @@ pub enum TrackedBranchStatus {
 
 /// Branch selected by a user within a repository.
 ///
-/// This is the branch-level replacement for draft session identity. It stores
-/// only local lifecycle metadata needed by the console: which branch a user is
-/// working with, which workspaces inside the repo were selected for that
-/// branch, and any observed pull request metadata. The branch contents remain
-/// the source of truth.
+/// This stores only local lifecycle metadata needed by the console: which
+/// branch a user is working with, which workspaces inside the repo were
+/// selected for that branch, and any observed pull request metadata. The branch
+/// contents remain the source of truth.
 #[derive(Clone, Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct TrackedBranchRecord {
@@ -183,43 +129,6 @@ pub struct TrackedBranchWithWorkspaceRecord {
     pub workspace: WorkspaceRecord,
 }
 
-/// Net change inside a draft.
-///
-/// This exists so the console can render pending edits, rebuild workspace files,
-/// and describe changes in a pull request without committing each keystroke.
-/// There is at most one row per draft, file path, and optional target path; it
-/// is inserted on first divergence from the original value, updated as the user
-/// edits, and deleted when the value is reverted. Draft deletion cascades to its
-/// changes.
-#[derive(Clone, Debug, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct DraftChangeRecord {
-    pub id: String,
-    pub draft_id: String,
-    pub file_path: String,
-    pub target_path: Option<String>,
-    pub before_json: String,
-    pub after_json: String,
-    pub updated_at: String,
-}
-
-/// Append-only activity entry for a draft.
-///
-/// This exists to preserve the console timeline for draft creation, edits,
-/// publication, abandonment, and pull request sync events. Events are inserted
-/// as side effects of those operations and are not updated; deleting the parent
-/// draft cascades to its event history.
-#[derive(Clone, Debug, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct DraftEventRecord {
-    pub id: String,
-    pub draft_id: String,
-    pub kind: String,
-    pub summary: String,
-    pub detail_json: Option<String>,
-    pub created_at: String,
-}
-
 /// Inputs for creating a hosted OAuth session.
 ///
 /// The store hashes a new session token, encrypts the GitHub token, and writes
@@ -230,24 +139,11 @@ pub struct NewSession {
     pub github_token: String,
 }
 
-/// Inputs for inserting a new draft session row.
-///
-/// Routes build this after selecting a write backend and validating branch
-/// access. The store assigns ids and timestamps; later draft operations mutate
-/// the resulting row by id.
-pub struct NewDraftSession {
-    pub workspace_id: String,
-    pub principal_id: String,
-    pub branch: String,
-    pub base_ref: String,
-}
-
 /// Inputs for selecting or creating a tracked branch.
 ///
 /// The store derives the repository and last selected workspace path from the
 /// workspace id. Re-selecting an existing branch updates its lifecycle metadata
 /// and ensures the workspace is attached to that branch.
-#[allow(dead_code)]
 pub struct TrackBranchInput {
     pub workspace_id: String,
     pub principal_id: String,
@@ -257,45 +153,7 @@ pub struct TrackBranchInput {
     pub last_seen_commit: Option<String>,
 }
 
-/// Upsert input for the net change tracked inside a draft.
-///
-/// Save routes pass semantic before/after JSON for a file or value target.
-/// The store creates, updates, or removes the durable change row depending on
-/// whether the after value still differs from the before value.
-pub struct DraftChangeInput {
-    pub draft_id: String,
-    pub file_path: String,
-    pub target_path: Option<String>,
-    pub before: serde_json::Value,
-    pub after: serde_json::Value,
-}
-
-/// Append-only draft timeline input.
-///
-/// Mutation routes create these after user-visible actions. The store assigns
-/// ids and timestamps and never updates the event afterward.
-pub struct DraftEventInput {
-    pub draft_id: String,
-    pub kind: String,
-    pub summary: String,
-    pub detail: Option<serde_json::Value>,
-}
-
-/// Pull request metadata observed for a published draft.
-///
-/// Sync and publish routes pass this after reading GitHub. The store updates
-/// the draft row so later screens can show PR state without polling GitHub on
-/// every render.
-pub struct PullRequestStateInput {
-    pub draft_id: String,
-    pub pr_number: i64,
-    pub pr_state: String,
-    pub pr_url: String,
-    pub pr_merged_at: Option<String>,
-}
-
 /// Pull request metadata observed for a tracked branch.
-#[allow(dead_code)]
 pub struct TrackedBranchPullRequestInput {
     pub branch_id: String,
     pub pr_number: i64,

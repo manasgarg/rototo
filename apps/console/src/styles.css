@@ -494,7 +494,7 @@ h3 {
     overflow-y: auto;
 }
 
-/* ------------------------------------------------------- draft editing mode --
+/* ------------------------------------------------------ branch editing mode --
    A persistent cyan strip plus a faintly tinted surface: you are on a
    branch, and what you save commits to it. */
 .mode-strip {
@@ -1536,7 +1536,7 @@ select.input {
     cursor: grabbing;
 }
 
-/* Draft delta view: unified merge chunks in semantic tints */
+/* Branch delta view: unified merge chunks in semantic tints */
 .code-editor-shell .cm-deletedChunk {
     background: var(--err-bg);
 }

@@ -7,13 +7,11 @@ pub const PRIMITIVE_VARIABLE_TYPES: &[&str] = &["bool", "int", "number", "string
 /// Result of changing a primitive variable's default value in TOML text.
 ///
 /// The friendly editor produces this after parsing the source file and the
-/// user's input. The draft route writes `text` through the selected backend and
-/// records `before`/`after` as the semantic draft change.
+/// user's input. The branch route writes `text` through the selected backend
+/// and uses the literals to skip no-op writes.
 #[derive(Clone, Debug)]
 pub struct VariableDefaultUpdate {
     pub text: String,
-    pub before: JsonValue,
-    pub after: JsonValue,
     pub before_literal: String,
     pub after_literal: String,
     pub value_key: String,
@@ -25,7 +23,6 @@ pub struct VariableDefaultUpdate {
 /// `VariableDefaultUpdate` is built.
 struct ParsedValue {
     literal: String,
-    value: JsonValue,
     line_index: usize,
 }
 
@@ -87,8 +84,6 @@ pub fn update_primitive_variable_default(text: &str, value: &str) -> Result<Vari
 
     Ok(VariableDefaultUpdate {
         text: lines.join("\n"),
-        before: existing.value.clone(),
-        after,
         before_literal: existing.literal.clone(),
         after_literal,
         value_key: default_key,
@@ -143,7 +138,6 @@ fn parse_variable_file(text: &str) -> VariableParse {
             parse.values.push((
                 key.clone(),
                 ParsedValue {
-                    value: parse_toml_literal(&literal),
                     literal,
                     line_index,
                 },
@@ -220,37 +214,6 @@ fn parse_input_value(value: &str, variable_type: &str) -> Result<JsonValue> {
     }
 }
 
-fn parse_toml_literal(literal: &str) -> JsonValue {
-    let trimmed = literal.trim();
-    if trimmed.starts_with('"') {
-        if let Ok(value) = serde_json::from_str::<JsonValue>(trimmed) {
-            return value;
-        }
-        return JsonValue::String(trimmed.trim_matches('"').to_owned());
-    }
-    match trimmed {
-        "true" => return JsonValue::Bool(true),
-        "false" => return JsonValue::Bool(false),
-        _ => {}
-    }
-    if trimmed.starts_with('[')
-        && let Ok(value) = serde_json::from_str::<JsonValue>(trimmed)
-    {
-        return value;
-    }
-    let plain = trimmed.replace('_', "");
-    if let Ok(int) = plain.parse::<i64>() {
-        return JsonValue::from(int);
-    }
-    if let Ok(number) = plain.parse::<f64>()
-        && number.is_finite()
-        && let Some(number) = serde_json::Number::from_f64(number)
-    {
-        return JsonValue::Number(number);
-    }
-    JsonValue::String(trimmed.to_owned())
-}
-
 fn format_toml_literal(value: &JsonValue, variable_type: &str) -> String {
     match variable_type {
         "bool" => {
@@ -293,8 +256,8 @@ value = "treatment"
     fn updates_only_the_default_line() {
         let update = update_primitive_variable_default(VARIABLE, "true").unwrap();
         assert_eq!(update.value_key, "control");
-        assert_eq!(update.before, JsonValue::Bool(false));
-        assert_eq!(update.after, JsonValue::Bool(true));
+        assert_eq!(update.before_literal, "false");
+        assert_eq!(update.after_literal, "true");
         assert!(update.text.contains("control = true"));
         assert!(update.text.contains("treatment = true"));
         assert!(update.text.contains("qualifier = \"premium-users\""));

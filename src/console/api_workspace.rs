@@ -23,7 +23,7 @@ const MAX_PREVIEW_CONTEXTS: usize = 4;
 const WORKSPACE_SUMMARY_CONCURRENCY: usize = 4;
 /// Compare calls are one GitHub request per branch; keep the scan bounded.
 const MAX_COMPARED_BRANCHES: usize = 25;
-const DRAFT_CANDIDATE_COMPARE_CONCURRENCY: usize = 8;
+const BRANCH_CANDIDATE_COMPARE_CONCURRENCY: usize = 8;
 
 /// Ordered workspace summary result from a bounded background task.
 ///
@@ -31,11 +31,11 @@ const DRAFT_CANDIDATE_COMPARE_CONCURRENCY: usize = 8;
 /// staging and lint work finishes.
 type WorkspaceSummaryResult = (usize, JsonValue);
 
-/// Ordered GitHub branch comparison result used while scanning draft candidates.
+/// Ordered GitHub branch comparison result used while scanning branch candidates.
 ///
 /// Each value is produced by one GitHub compare request and discarded after the
 /// route has filtered it into a small browser-facing branch summary.
-type DraftCandidateCompareResult = (
+type BranchCandidateCompareResult = (
     usize,
     String,
     super::github::GitHubResult<super::github::RefComparison>,
@@ -50,11 +50,7 @@ pub fn routes() -> axum::Router<SharedState> {
         .route("/workspaces/{workspace_id}/entity", get(workspace_entity))
         .route(
             "/workspaces/{workspace_id}/branch-candidates",
-            get(draft_candidates),
-        )
-        .route(
-            "/workspaces/{workspace_id}/draft-candidates",
-            get(draft_candidates),
+            get(branch_candidates),
         )
 }
 
@@ -381,7 +377,7 @@ async fn workspace_entity(
     })))
 }
 
-async fn draft_candidates(
+async fn branch_candidates(
     State(state): State<SharedState>,
     headers: HeaderMap,
     Path(workspace_id): Path<String>,
@@ -426,12 +422,12 @@ async fn draft_candidates(
                 .await;
             (index, branch, comparison)
         });
-        if comparisons.len() >= DRAFT_CANDIDATE_COMPARE_CONCURRENCY {
-            collect_draft_candidate(&mut comparisons, &prefix, &mut candidates).await;
+        if comparisons.len() >= BRANCH_CANDIDATE_COMPARE_CONCURRENCY {
+            collect_branch_candidate(&mut comparisons, &prefix, &mut candidates).await;
         }
     }
     while !comparisons.is_empty() {
-        collect_draft_candidate(&mut comparisons, &prefix, &mut candidates).await;
+        collect_branch_candidate(&mut comparisons, &prefix, &mut candidates).await;
     }
     candidates.sort_by_key(|(index, _)| *index);
     let candidates: Vec<JsonValue> = candidates
@@ -446,8 +442,8 @@ async fn draft_candidates(
     })))
 }
 
-async fn collect_draft_candidate(
-    comparisons: &mut tokio::task::JoinSet<DraftCandidateCompareResult>,
+async fn collect_branch_candidate(
+    comparisons: &mut tokio::task::JoinSet<BranchCandidateCompareResult>,
     prefix: &str,
     candidates: &mut Vec<(usize, JsonValue)>,
 ) {
@@ -458,12 +454,12 @@ async fn collect_draft_candidate(
     let Ok((index, branch, Ok(comparison))) = joined else {
         return;
     };
-    if let Some(candidate) = draft_candidate_json(index, branch, comparison, prefix) {
+    if let Some(candidate) = branch_candidate_json(index, branch, comparison, prefix) {
         candidates.push(candidate);
     }
 }
 
-fn draft_candidate_json(
+fn branch_candidate_json(
     index: usize,
     branch: String,
     comparison: super::github::RefComparison,
@@ -593,8 +589,8 @@ mod tests {
     }
 
     #[test]
-    fn draft_candidate_accepts_root_workspace_changes() {
-        let candidate = draft_candidate_json(
+    fn branch_candidate_accepts_root_workspace_changes() {
+        let candidate = branch_candidate_json(
             2,
             "feature".to_owned(),
             comparison(3, &["variables/checkout.toml", "README.md"]),
@@ -615,9 +611,9 @@ mod tests {
     }
 
     #[test]
-    fn draft_candidate_rejects_empty_or_unrelated_changes() {
+    fn branch_candidate_rejects_empty_or_unrelated_changes() {
         assert!(
-            draft_candidate_json(
+            branch_candidate_json(
                 0,
                 "empty".to_owned(),
                 comparison(0, &["examples/basic/variables/checkout.toml"]),
@@ -626,11 +622,11 @@ mod tests {
             .is_none()
         );
         assert!(
-            draft_candidate_json(0, "empty".to_owned(), comparison(1, &[]), "examples/basic/",)
+            branch_candidate_json(0, "empty".to_owned(), comparison(1, &[]), "examples/basic/",)
                 .is_none()
         );
         assert!(
-            draft_candidate_json(
+            branch_candidate_json(
                 0,
                 "mixed".to_owned(),
                 comparison(1, &["examples/basic/variables/checkout.toml", "README.md"],),

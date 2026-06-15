@@ -113,6 +113,7 @@ where
     .await
 }
 
+#[cfg(feature = "console")]
 pub(crate) async fn write_request<W>(
     writer: &mut W,
     id: i64,

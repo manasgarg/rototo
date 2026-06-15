@@ -93,7 +93,7 @@ pub struct PredicateEvaluation {
 
 /// Compact truth table for all qualifiers against one saved context.
 ///
-/// Draft edit screens use this to show how a pending edit behaves across
+/// Branch edit screens use this to show how a pending edit behaves across
 /// sample contexts. It is computed on demand and discarded after serialization.
 #[derive(Clone, Debug, Serialize)]
 #[serde(rename_all = "camelCase")]

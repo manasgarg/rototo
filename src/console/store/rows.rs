@@ -1,8 +1,5 @@
 use super::repos::workspace_slug;
-use super::types::{
-    DraftChangeRecord, DraftEventRecord, DraftSessionRecord, DraftStatus, RepoRecord,
-    TrackedBranchRecord, TrackedBranchStatus, WorkspaceRecord,
-};
+use super::types::{RepoRecord, TrackedBranchRecord, TrackedBranchStatus, WorkspaceRecord};
 
 pub(super) fn repo_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<RepoRecord> {
     Ok(RepoRecord {
@@ -40,31 +37,6 @@ pub(super) fn workspace_from_row_at(
     })
 }
 
-pub(super) fn draft_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<DraftSessionRecord> {
-    let status: String = row.get(5)?;
-    Ok(DraftSessionRecord {
-        id: row.get(0)?,
-        workspace_id: row.get(1)?,
-        principal_id: row.get(2)?,
-        branch: row.get(3)?,
-        base_ref: row.get(4)?,
-        status: match status.as_str() {
-            "published" => DraftStatus::Published,
-            "abandoned" => DraftStatus::Abandoned,
-            _ => DraftStatus::Open,
-        },
-        pr_url: row.get(6)?,
-        pr_number: row.get(7)?,
-        pr_state: row.get(8)?,
-        pr_merged_at: row.get(9)?,
-        pr_synced_at: row.get(10)?,
-        created_at: row.get(11)?,
-        updated_at: row.get(12)?,
-        published_at: row.get(13)?,
-    })
-}
-
-#[allow(dead_code)]
 pub(super) fn tracked_branch_from_row(
     row: &rusqlite::Row<'_>,
 ) -> rusqlite::Result<TrackedBranchRecord> {
@@ -92,28 +64,5 @@ pub(super) fn tracked_branch_from_row(
         last_opened_at: row.get(15)?,
         last_edited_at: row.get(16)?,
         archived_at: row.get(17)?,
-    })
-}
-
-pub(super) fn change_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<DraftChangeRecord> {
-    Ok(DraftChangeRecord {
-        id: row.get(0)?,
-        draft_id: row.get(1)?,
-        file_path: row.get(2)?,
-        target_path: row.get(3)?,
-        before_json: row.get(4)?,
-        after_json: row.get(5)?,
-        updated_at: row.get(6)?,
-    })
-}
-
-pub(super) fn event_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<DraftEventRecord> {
-    Ok(DraftEventRecord {
-        id: row.get(0)?,
-        draft_id: row.get(1)?,
-        kind: row.get(2)?,
-        summary: row.get(3)?,
-        detail_json: row.get(4)?,
-        created_at: row.get(5)?,
     })
 }

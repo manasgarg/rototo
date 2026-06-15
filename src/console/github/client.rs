@@ -44,7 +44,7 @@ pub struct GitHubRepoOwner {
 /// GitHub permission flags used to decide whether a credential can write.
 ///
 /// The client reads this during a permission check and discards it after
-/// choosing whether a draft mutation may continue.
+/// choosing whether a branch mutation may continue.
 #[derive(Clone, Copy, Debug, Default, Deserialize)]
 pub struct GitHubRepoPermissions {
     #[serde(default)]
@@ -66,7 +66,7 @@ pub struct DiscoveredWorkspace {
 
 /// File content plus blob SHA returned by GitHub contents API.
 ///
-/// Draft save/delete paths need both pieces: content to diff or edit, and SHA
+/// Branch save/delete paths need both pieces: content to diff or edit, and SHA
 /// to perform GitHub's optimistic update. The value lives only for one file
 /// operation.
 #[derive(Clone, Debug)]
@@ -77,7 +77,7 @@ pub struct GitHubContentFile {
 
 /// Pull request metadata returned by GitHub.
 ///
-/// Publish and sync routes copy these fields into a draft session row so the
+/// Publish and sync routes copy these fields into a tracked branch row so the
 /// UI can show PR state without requiring a GitHub request on every render.
 #[derive(Clone, Debug, Deserialize)]
 pub struct GitHubPullRequest {
@@ -100,7 +100,7 @@ pub struct GitHubTreeEntry {
 
 /// Branch comparison summary returned by GitHub.
 ///
-/// Draft-candidate scans use it to decide whether a branch changes only files
+/// Branch-candidate scans use it to decide whether a branch changes only files
 /// in the workspace path. It is filtered into a UI summary and not persisted.
 #[derive(Clone, Debug)]
 pub struct RefComparison {
@@ -231,7 +231,7 @@ impl GitHubClient {
     ) -> GitHubResult<Vec<String>> {
         /// Branch list item returned by GitHub.
         ///
-        /// The client keeps only branch names for draft-candidate scanning.
+        /// The client keeps only branch names for branch-candidate scanning.
         #[derive(Deserialize)]
         struct Branch {
             name: String,
@@ -253,7 +253,7 @@ impl GitHubClient {
         base: &str,
         head: &str,
     ) -> GitHubResult<RefComparison> {
-        /// GitHub compare response subset used by draft candidate scans.
+        /// GitHub compare response subset used by branch candidate scans.
         ///
         /// It is converted immediately into `RefComparison`.
         #[derive(Deserialize)]
@@ -321,7 +321,7 @@ impl GitHubClient {
     ) -> GitHubResult<String> {
         /// GitHub branch-rename response body.
         ///
-        /// The route persists the returned name on the draft row and discards
+        /// The route persists the returned name on the tracked branch row and discards
         /// the raw response shape.
         #[derive(Deserialize)]
         struct Renamed {
@@ -354,7 +354,7 @@ impl GitHubClient {
         /// GitHub contents response for a file.
         ///
         /// The client validates it is a base64 file blob, decodes the content,
-        /// and returns `GitHubContentFile` for one draft operation.
+        /// and returns `GitHubContentFile` for one branch operation.
         #[derive(Deserialize)]
         struct Content {
             #[serde(rename = "type")]

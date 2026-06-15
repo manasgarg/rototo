@@ -24,7 +24,7 @@ export type GraphNode = {
      selected entries); hover highlighting includes them and the drawn edges
      that connect into them. */
     related?: string[];
-    /* Marked when the entity differs from the base ref in the current draft. */
+    /* Marked when the entity differs from the base ref in the current branch. */
     edited?: boolean;
 };
 
@@ -38,7 +38,7 @@ export type GraphEdge = {
     kind: GraphEdgeKind;
 };
 
-/** Complete graph payload rendered for one staged workspace or draft. */
+/** Complete graph payload rendered for one staged workspace or branch. */
 export type WorkspaceGraphData = {
     nodes: GraphNode[];
     edges: GraphEdge[];

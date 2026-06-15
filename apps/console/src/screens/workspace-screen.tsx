@@ -398,8 +398,9 @@ export function WorkspaceScreen({
                         model={model}
                         node={selectedNode}
                         activeBranch={
-                            branches.find((branch) => branch.status === "active") ??
-                            null
+                            branches.find(
+                                (branch) => branch.status === "active",
+                            ) ?? null
                         }
                         parentCatalog={parentCatalogNode}
                         qualifierEvaluations={qualifierEvaluations}
@@ -579,9 +580,7 @@ function WorkspaceSection({
                 {capabilities.write.kind === "pullRequest" ? (
                     <>
                         <BranchCandidates workspaceId={workspace.slug} />
-                        <OpenBranchForm
-                            workspaceId={workspace.slug}
-                        />
+                        <OpenBranchForm workspaceId={workspace.slug} />
                     </>
                 ) : null}
                 {branches.length === 0 ? (
@@ -590,8 +589,8 @@ function WorkspaceSection({
                             <GitBranch aria-hidden size={18} />
                         </span>
                         <p>
-                            No branches yet. Use “Edit workspace” to start
-                            one, or open an existing branch above.
+                            No branches yet. Use “Edit workspace” to start one,
+                            or open an existing branch above.
                         </p>
                     </div>
                 ) : (
@@ -616,7 +615,8 @@ function WorkspaceSection({
                                         {branch.branch}
                                     </span>
                                     <span className="row-sub">
-                                        updated {formatDate(branchUpdatedAt(branch))}
+                                        updated{" "}
+                                        {formatDate(branchUpdatedAt(branch))}
                                     </span>
                                 </span>
                                 <span className="row-side">
@@ -1864,7 +1864,9 @@ function OverviewAttention({
     ];
     const shown = ranked.slice(0, 5);
     const allClear =
-        lintError === null && ranked.length === 0 && activeBranches.length === 0;
+        lintError === null &&
+        ranked.length === 0 &&
+        activeBranches.length === 0;
 
     return (
         <div className="card">

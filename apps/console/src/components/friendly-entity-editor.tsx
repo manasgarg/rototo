@@ -922,8 +922,8 @@ function VariableResolutionPreview({
                 ))}
             </div>
             <span className="field-hint">
-                Qualifiers are evaluated by rototo on the branch; the
-                pathway follows your edits before you save.
+                Qualifiers are evaluated by rototo on the branch; the pathway
+                follows your edits before you save.
             </span>
         </div>
     );

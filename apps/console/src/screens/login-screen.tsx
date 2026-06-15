@@ -114,8 +114,8 @@ export function LoginScreen() {
                     <p className="hint">
                         The rototo console reads workspaces from the GitHub
                         repositories your account can already access. Edits land
-                        on branches and ship as pull requests — nothing
-                        merges without review.
+                        on branches and ship as pull requests — nothing merges
+                        without review.
                     </p>
                 </div>
 

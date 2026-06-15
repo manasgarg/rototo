@@ -8,7 +8,6 @@ use crate::error::{Result, RototoError};
 use super::token_crypto::TokenCrypto;
 
 mod branches;
-mod drafts;
 mod repos;
 mod rows;
 mod schema;

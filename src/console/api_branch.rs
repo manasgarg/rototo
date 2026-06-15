@@ -184,7 +184,7 @@ async fn invalidate_branch(
     workspace: &WorkspaceRecord,
     branch: &TrackedBranchRecord,
 ) {
-    state.lsp.drop_sessions_for_draft(&branch.id).await;
+    state.lsp.drop_sessions_for_branch(&branch.id).await;
     if let Ok(source) = workspace_source_for_branch(
         state,
         &user.principal_id,
@@ -654,7 +654,7 @@ async fn branch_archive(
         .archive_tracked_branch(&context.branch.id)
         .await
         .map_err(|err| ApiError::bad_request(err.to_string()))?;
-    state.lsp.drop_sessions_for_draft(&context.branch.id).await;
+    state.lsp.drop_sessions_for_branch(&context.branch.id).await;
     Ok(Json(json!({ "branch": branch })))
 }
 

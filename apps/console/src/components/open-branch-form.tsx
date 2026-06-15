@@ -3,11 +3,7 @@ import { FormEvent, useState } from "react";
 import { GitBranch } from "lucide-react";
 import { apiFetch } from "@/lib/api";
 
-export function OpenBranchForm({
-    workspaceId,
-}: {
-    workspaceId: string;
-}) {
+export function OpenBranchForm({ workspaceId }: { workspaceId: string }) {
     const router = useRouter();
     const [branch, setBranch] = useState("");
     const [pending, setPending] = useState(false);

@@ -17,7 +17,7 @@ contexts/ directory, which is file listing, not parsing. */
 /// Browser inventory for one staged workspace.
 ///
 /// This is rebuilt from `WorkspaceSemanticModel` plus a lightweight context
-/// directory scan whenever a workspace or draft screen loads. It is not stored;
+/// directory scan whenever a workspace or branch screen loads. It is not stored;
 /// the source files and the staged semantic model own its lifecycle.
 #[derive(Clone, Debug, Default, Serialize)]
 #[serde(rename_all = "camelCase")]

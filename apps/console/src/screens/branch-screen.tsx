@@ -617,8 +617,8 @@ function BranchOverview({
                     <div className="card-head-text">
                         <h3>Entity graph</h3>
                         <p className="hint">
-                            The workspace as this branch sees it. Entities edited
-                            on this branch are marked{" "}
+                            The workspace as this branch sees it. Entities
+                            edited on this branch are marked{" "}
                             <span
                                 className="mono"
                                 style={{ color: "var(--warn-700)" }}
@@ -673,7 +673,9 @@ function BranchEditScreen({
             {loadError ? (
                 <div className="banner banner-err">
                     <TriangleAlert aria-hidden size={16} />
-                    <span>The branch workspace failed to load: {loadError}</span>
+                    <span>
+                        The branch workspace failed to load: {loadError}
+                    </span>
                 </div>
             ) : null}
             {selectedEntity ? (
@@ -975,8 +977,8 @@ function EditableEntityDetail({
                         <h3>Delete from branch</h3>
                         <p className="hint">
                             Removes <span className="mono">{entity.path}</span>{" "}
-                            from the branch. The base ref is untouched
-                            until the pull request merges.
+                            from the branch. The base ref is untouched until the
+                            pull request merges.
                         </p>
                     </div>
                     <DeleteEntityButton
@@ -1077,8 +1079,8 @@ function BranchValidateScreen({
             <div className="section-header-text">
                 <h1>Validate</h1>
                 <p className="hint">
-                    Lint runs against the branch. Publishing is blocked
-                    while errors are present — warnings ship, errors don’t.
+                    Lint runs against the branch. Publishing is blocked while
+                    errors are present — warnings ship, errors don’t.
                 </p>
             </div>
             <DiagnosticList

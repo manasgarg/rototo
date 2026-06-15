@@ -15,8 +15,8 @@ use crate::sdk::Workspace;
 use super::store::WorkspaceRecord;
 
 /* Bridges the console editor to the real rototo language server. The console
-never reimplements lint, completion, or hover semantics: a draft editing
-session stages the draft branch and runs the LSP server in-process over a
+never reimplements lint, completion, or hover semantics: a branch editing
+session stages the selected branch and runs the LSP server in-process over a
 duplex pipe, forwarding the editor's unsaved text as document overlays.
 Calls are serialized per session so the single JSON-RPC stream stays
 ordered. */
@@ -80,11 +80,11 @@ struct SessionShared {
     diagnostics_by_uri: Mutex<HashMap<String, Vec<JsonValue>>>,
 }
 
-/// Live in-process language-server session for one user and draft.
+/// Live in-process language-server session for one user and branch.
 ///
 /// A session owns the staged checkout handle, duplex writer, server task,
 /// reader task, open document overlays, and idle timestamp. It is created on
-/// demand, reused across editor requests, and dropped on draft invalidation or
+/// demand, reused across editor requests, and dropped on branch invalidation or
 /// after the idle window.
 struct LspSession {
     /// Keeps the staged checkout's temp directory alive for the session.
@@ -114,17 +114,17 @@ impl Drop for LspSession {
     }
 }
 
-/// Shared mutable holder for a single user/draft LSP session.
+/// Shared mutable holder for a single user/branch LSP session.
 ///
 /// The slot lets concurrent editor requests serialize access while background
-/// cleanup or draft invalidation can take and shut down the session.
+/// cleanup or branch invalidation can take and shut down the session.
 type SessionSlot = Arc<Mutex<Option<LspSession>>>;
 
-/// Per-(user, draft) language server session registry.
+/// Per-(user, branch) language server session registry.
 ///
 /// The registry lives in `ConsoleState` for the process lifetime. Individual
 /// sessions are created on demand, refreshed when stale, and explicitly dropped
-/// whenever a draft save changes the staged branch content.
+/// whenever a save changes the staged branch content.
 #[derive(Clone, Default)]
 pub struct LspSessions {
     slots: Arc<Mutex<HashMap<String, SessionSlot>>>,
@@ -135,10 +135,10 @@ impl LspSessions {
         Self::default()
     }
 
-    /// The staged checkout goes stale once a save commits to the draft
+    /// The staged checkout goes stale once a save commits to the selected
     /// branch; drop the session so the next request restages.
-    pub async fn drop_sessions_for_draft(&self, draft_id: &str) {
-        let suffix = format!(":{draft_id}");
+    pub async fn drop_sessions_for_branch(&self, branch_id: &str) {
+        let suffix = format!(":{branch_id}");
         let mut slots = self.slots.lock().await;
         let keys: Vec<String> = slots
             .keys()
@@ -157,13 +157,13 @@ impl LspSessions {
     pub async fn update(
         &self,
         user_id: &str,
-        draft_id: &str,
+        branch_id: &str,
         staged: Arc<Workspace>,
         workspace: &WorkspaceRecord,
         path: &str,
         text: &str,
     ) -> Result<Vec<LspDiagnosticWire>> {
-        let slot = self.slot(user_id, draft_id).await;
+        let slot = self.slot(user_id, branch_id).await;
         let mut guard = slot.lock().await;
         let session = self.session(&mut guard, staged).await?;
         let uri = sync_document(session, workspace, path, text).await?;
@@ -191,14 +191,14 @@ impl LspSessions {
     pub async fn completion(
         &self,
         user_id: &str,
-        draft_id: &str,
+        branch_id: &str,
         staged: Arc<Workspace>,
         workspace: &WorkspaceRecord,
         path: &str,
         text: &str,
         position: JsonValue,
     ) -> Result<Vec<LspCompletionWire>> {
-        let slot = self.slot(user_id, draft_id).await;
+        let slot = self.slot(user_id, branch_id).await;
         let mut guard = slot.lock().await;
         let session = self.session(&mut guard, staged).await?;
         let uri = sync_document(session, workspace, path, text).await?;
@@ -230,14 +230,14 @@ impl LspSessions {
     pub async fn hover(
         &self,
         user_id: &str,
-        draft_id: &str,
+        branch_id: &str,
         staged: Arc<Workspace>,
         workspace: &WorkspaceRecord,
         path: &str,
         text: &str,
         position: JsonValue,
     ) -> Result<Option<LspHoverWire>> {
-        let slot = self.slot(user_id, draft_id).await;
+        let slot = self.slot(user_id, branch_id).await;
         let mut guard = slot.lock().await;
         let session = self.session(&mut guard, staged).await?;
         let uri = sync_document(session, workspace, path, text).await?;
@@ -263,8 +263,8 @@ impl LspSessions {
         }))
     }
 
-    async fn slot(&self, user_id: &str, draft_id: &str) -> SessionSlot {
-        let key = format!("{user_id}:{draft_id}");
+    async fn slot(&self, user_id: &str, branch_id: &str) -> SessionSlot {
+        let key = format!("{user_id}:{branch_id}");
         let mut slots = self.slots.lock().await;
         // Opportunistically reap idle sessions; the map stays small.
         for slot in slots.values() {

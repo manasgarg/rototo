@@ -156,7 +156,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn branch_workspace_source_selects_draft_branch_for_git_workspace() {
+    async fn branch_workspace_source_selects_branch_for_git_workspace() {
         let mut workspace = workspace();
         workspace.path = "apps/payments".to_owned();
         workspace.source = "git+https://github.com/octo/configs.git#main:apps/payments".to_owned();
@@ -167,7 +167,7 @@ mod tests {
                 "user_123",
                 "",
                 &workspace,
-                "draft/payments",
+                "feature/payments",
             )
             .await,
         );
@@ -181,7 +181,7 @@ mod tests {
         );
         assert_eq!(
             source.workspace.revision,
-            TreeRevision::GitBranch(BranchName::new("draft/payments").unwrap())
+            TreeRevision::GitBranch(BranchName::new("feature/payments").unwrap())
         );
     }
 
@@ -198,7 +198,7 @@ mod tests {
                 "local-user",
                 "",
                 &workspace,
-                "draft/payments",
+                "feature/payments",
             )
             .await,
         );

@@ -5,7 +5,6 @@
 
 mod api;
 mod api_branch;
-mod api_draft;
 mod api_workspace;
 mod auth;
 mod capabilities;
@@ -51,7 +50,7 @@ pub use self::capabilities::WritePolicy as ConsoleWritePolicy;
 /// These values configure one server process: bind address, public origin,
 /// data directory, optional fixed workspace, write policy, and startup token.
 /// They are consumed by `run` to build `ConsoleState`; runtime repo, workspace,
-/// draft, and session lifecycles are then managed by the store and route code.
+/// branch, and session lifecycles are then managed by the store and route code.
 pub struct ConsoleOptions {
     pub bind: String,
     pub public_url: Option<String>,

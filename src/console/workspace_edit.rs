@@ -1,56 +1,6 @@
-use serde_json::Value as JsonValue;
-
-use super::github::{stable_workspace_key, workspace_archive_source, workspace_repo_path};
-use super::store::{DraftChangeRecord, DraftSessionRecord, TrackedBranchRecord, WorkspaceRecord};
+use super::github::{stable_workspace_key, workspace_repo_path};
+use super::store::{TrackedBranchRecord, WorkspaceRecord};
 use super::time::now_compact_stamp;
-
-/// The workspace source to stage for a draft: the draft branch of the remote
-/// archive, or the local path unchanged for dev/test registrations.
-pub fn draft_source(workspace: &WorkspaceRecord, draft: &DraftSessionRecord) -> String {
-    if !workspace.source.contains("://") {
-        return workspace.source.clone();
-    }
-    if let Some(source) = replace_git_source_ref(&workspace.source, &draft.branch, &workspace.path)
-    {
-        return source;
-    }
-    if workspace
-        .source
-        .starts_with("https://api.github.com/repos/")
-    {
-        return workspace_archive_source(
-            &workspace.owner,
-            &workspace.name,
-            &draft.branch,
-            &workspace.path,
-        );
-    }
-    workspace_archive_source(
-        &workspace.owner,
-        &workspace.name,
-        &draft.branch,
-        &workspace.path,
-    )
-}
-
-fn replace_git_source_ref(source: &str, git_ref: &str, workspace_path: &str) -> Option<String> {
-    if !source.starts_with("git+") {
-        return None;
-    }
-    let (base, fragment) = source
-        .split_once('#')
-        .map(|(base, fragment)| (base, Some(fragment)))
-        .unwrap_or((source, None));
-    let subdir = fragment
-        .and_then(|fragment| fragment.split_once(':').map(|(_, subdir)| subdir))
-        .filter(|subdir| !subdir.is_empty())
-        .unwrap_or(workspace_path);
-    if subdir == "." {
-        Some(format!("{base}#{git_ref}"))
-    } else {
-        Some(format!("{base}#{git_ref}:{subdir}"))
-    }
-}
 
 pub fn expected_variable_file_path(workspace: &WorkspaceRecord, variable_id: &str) -> String {
     workspace_repo_path(&workspace.path, &format!("variables/{variable_id}.toml"))
@@ -58,10 +8,6 @@ pub fn expected_variable_file_path(workspace: &WorkspaceRecord, variable_id: &st
 
 pub fn variable_value_target_path(value_key: &str) -> String {
     format!("/values/{}", json_pointer_escape_segment(value_key))
-}
-
-pub fn draft_branch_name(login: &str, workspace: &WorkspaceRecord) -> String {
-    console_branch_name(login, workspace)
 }
 
 pub fn console_branch_name(login: &str, workspace: &WorkspaceRecord) -> String {
@@ -86,10 +32,6 @@ pub fn console_branch_name(login: &str, workspace: &WorkspaceRecord) -> String {
         "rototo-console/{login}/{key}/{stamp}",
         stamp = now_compact_stamp()
     )
-}
-
-pub fn draft_pr_title(workspace: &WorkspaceRecord) -> String {
-    branch_pr_title(workspace)
 }
 
 pub fn branch_pr_title(workspace: &WorkspaceRecord) -> String {
@@ -142,65 +84,6 @@ pub fn branch_pr_body(
     body.join("\n")
 }
 
-pub fn draft_pr_body(
-    workspace: &WorkspaceRecord,
-    draft: &DraftSessionRecord,
-    changes: &[DraftChangeRecord],
-    error_count: usize,
-    warning_count: usize,
-) -> String {
-    let lint_status = if error_count > 0 {
-        format!("{error_count} error(s)")
-    } else if warning_count > 0 {
-        format!("{warning_count} warning(s)")
-    } else {
-        "clean".to_owned()
-    };
-    let change_lines: Vec<String> = if changes.is_empty() {
-        vec!["- No tracked semantic changes.".to_owned()]
-    } else {
-        changes
-            .iter()
-            .map(|change| {
-                let target = match change.target_path.as_deref() {
-                    Some(target_path) if !target_path.is_empty() => {
-                        format!("`{}` `{}`", change.file_path, target_path)
-                    }
-                    _ => format!("`{}`", change.file_path),
-                };
-                format!(
-                    "- {target}: `{}` -> `{}`",
-                    json_summary(&change.before_json),
-                    json_summary(&change.after_json),
-                )
-            })
-            .collect()
-    };
-
-    let mut body = vec![
-        "## Rototo Console".to_owned(),
-        String::new(),
-        format!(
-            "Workspace: `{}/{}:{}`",
-            workspace.owner, workspace.name, workspace.path
-        ),
-        format!("Base ref: `{}`", draft.base_ref),
-        format!("Draft branch: `{}`", draft.branch),
-        format!("Lint status: {lint_status}"),
-        String::new(),
-        "## Semantic changes".to_owned(),
-        String::new(),
-    ];
-    body.extend(change_lines);
-    body.join("\n")
-}
-
-fn json_summary(value: &str) -> String {
-    serde_json::from_str::<JsonValue>(value)
-        .map(|parsed| parsed.to_string())
-        .unwrap_or_else(|_| value.to_owned())
-}
-
 fn json_pointer_escape_segment(segment: &str) -> String {
     segment.replace('~', "~0").replace('/', "~1")
 }
@@ -214,7 +97,7 @@ pub fn belongs_to_workspace(workspace_path: &str, file_path: &str) -> bool {
     workspace_path == "." || file_path.starts_with(&format!("{workspace_path}/"))
 }
 
-/// Workspace entity kind the draft editor knows how to create.
+/// Workspace entity kind the branch editor knows how to create.
 ///
 /// The enum is parsed from request JSON and then used to select file templates.
 /// It is intentionally tied to rototo's first-class nouns so new generic
@@ -231,23 +114,9 @@ pub enum EntityKind {
     Linters,
 }
 
-impl EntityKind {
-    pub fn label(self) -> &'static str {
-        match self {
-            Self::Variables => "variable",
-            Self::Qualifiers => "qualifier",
-            Self::Catalogs => "catalog",
-            Self::CatalogEntries => "catalog entry",
-            Self::Schemas => "schema",
-            Self::Context => "context example",
-            Self::Linters => "linter",
-        }
-    }
-}
-
-/// File planned for creation in a draft branch.
+/// File planned for creation in a branch.
 ///
-/// Template generation returns these before any write happens. The draft route
+/// Template generation returns these before any write happens. The branch route
 /// checks for conflicts first, writes each file through the selected backend,
 /// and then serializes the same planned paths back to the UI.
 #[derive(Clone, Debug, serde::Serialize)]
@@ -444,52 +313,27 @@ mod tests {
         }
     }
 
-    fn draft(branch: &str) -> DraftSessionRecord {
-        DraftSessionRecord {
-            id: "d1".to_owned(),
-            workspace_id: "w1".to_owned(),
+    fn branch(name: &str) -> TrackedBranchRecord {
+        TrackedBranchRecord {
+            id: "b1".to_owned(),
+            repo_id: "r1".to_owned(),
             principal_id: "42".to_owned(),
-            branch: branch.to_owned(),
+            branch: name.to_owned(),
             base_ref: "main".to_owned(),
-            status: super::super::store::DraftStatus::Open,
+            base_commit: None,
             pr_url: None,
             pr_number: None,
             pr_state: None,
             pr_merged_at: None,
             pr_synced_at: None,
+            last_selected_workspace_path: Some(".".to_owned()),
+            last_seen_commit: None,
+            status: super::super::store::TrackedBranchStatus::Active,
             created_at: "2026-01-01T00:00:00.000Z".to_owned(),
-            updated_at: "2026-01-01T00:00:00.000Z".to_owned(),
-            published_at: None,
+            last_opened_at: "2026-01-01T00:00:00.000Z".to_owned(),
+            last_edited_at: None,
+            archived_at: None,
         }
-    }
-
-    #[test]
-    fn draft_source_swaps_ref_for_remote_sources_only() {
-        let remote = workspace(
-            ".",
-            "https://api.github.com/repos/octo/configs/tarball/main",
-        );
-        assert_eq!(
-            draft_source(&remote, &draft("feature")),
-            "https://api.github.com/repos/octo/configs/tarball/feature"
-        );
-        let local = workspace(".", "/tmp/local-workspace");
-        assert_eq!(
-            draft_source(&local, &draft("feature")),
-            "/tmp/local-workspace"
-        );
-    }
-
-    #[test]
-    fn draft_source_preserves_git_source_shape() {
-        let remote = workspace(
-            "payments",
-            "git+https://github.com/octo/configs.git#main:payments",
-        );
-        assert_eq!(
-            draft_source(&remote, &draft("feature")),
-            "git+https://github.com/octo/configs.git#feature:payments"
-        );
     }
 
     #[test]
@@ -531,8 +375,8 @@ mod tests {
 
     #[test]
     fn branch_names_carry_login_key_and_stamp() {
-        let branch = draft_branch_name("Octo Cat!", &workspace(".", "src"));
-        let parts: Vec<&str> = branch.split('/').collect();
+        let name = console_branch_name("Octo Cat!", &workspace(".", "src"));
+        let parts: Vec<&str> = name.split('/').collect();
         assert_eq!(parts[0], "rototo-console");
         assert_eq!(parts[1], "octo-cat");
         assert_eq!(parts[2].len(), 12);
@@ -540,24 +384,16 @@ mod tests {
     }
 
     #[test]
-    fn pr_body_lists_changes_and_lint_status() {
-        let body = draft_pr_body(
+    fn pr_body_lists_changed_files_and_lint_status() {
+        let body = branch_pr_body(
             &workspace(".", "src"),
-            &draft("feature"),
-            &[DraftChangeRecord {
-                id: "c1".to_owned(),
-                draft_id: "d1".to_owned(),
-                file_path: "variables/banner.toml".to_owned(),
-                target_path: Some("/values/control".to_owned()),
-                before_json: "false".to_owned(),
-                after_json: "true".to_owned(),
-                updated_at: "2026-01-01T00:00:00.000Z".to_owned(),
-            }],
+            &branch("feature"),
+            &["variables/banner.toml".to_owned()],
             0,
             2,
         );
         assert!(body.starts_with("## Rototo Console"));
         assert!(body.contains("Lint status: 2 warning(s)"));
-        assert!(body.contains("- `variables/banner.toml` `/values/control`: `false` -> `true`"));
+        assert!(body.contains("- `variables/banner.toml`"));
     }
 }

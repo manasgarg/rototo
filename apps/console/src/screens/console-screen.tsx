@@ -218,7 +218,9 @@ export function ConsoleScreen({ screen }: { screen: AppScreen }) {
                     <ActivityScreen
                         branches={branches}
                         activeBranchesCount={activeBranches.length}
-                        branchesWithPullRequestsCount={branchesWithPullRequests.length}
+                        branchesWithPullRequestsCount={
+                            branchesWithPullRequests.length
+                        }
                         reposCount={repos.length}
                     />
                 ) : null}
@@ -529,8 +531,8 @@ function BranchesScreen({ branches }: { branches: BranchEntry[] }) {
                         <GitBranch aria-hidden size={18} />
                     </span>
                     <p>
-                        No branches yet. Open a workspace and start
-                        editing to create one.
+                        No branches yet. Open a workspace and start editing to
+                        create one.
                     </p>
                 </div>
             ) : (
@@ -615,7 +617,9 @@ function ActivityScreen({
                 </div>
                 <div className="stat-card">
                     <span className="label">branches with PRs</span>
-                    <span className="stat-value">{branchesWithPullRequestsCount}</span>
+                    <span className="stat-value">
+                        {branchesWithPullRequestsCount}
+                    </span>
                 </div>
                 <div className="stat-card">
                     <span className="label">repositories</span>
@@ -661,7 +665,8 @@ function ActivityScreen({
                                     >
                                         {workspace.path}
                                     </Link>{" "}
-                                    · updated {formatDate(branchUpdatedAt(branch))}
+                                    · updated{" "}
+                                    {formatDate(branchUpdatedAt(branch))}
                                     {branch.prUrl ? (
                                         <>
                                             {" · "}

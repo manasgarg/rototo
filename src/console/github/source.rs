@@ -1,7 +1,5 @@
 use crate::error::{Result, RototoError};
 
-use super::GITHUB_API;
-
 const REPO_SPEC_ERROR: &str = "repo must be owner/name or a GitHub repository URL";
 
 pub fn parse_repo_spec(value: &str) -> Result<(String, String)> {
@@ -39,20 +37,6 @@ fn strip_prefix_ignore_ascii_case<'a>(value: &'a str, prefix: &str) -> Option<&'
         value.get(prefix.len()..)
     } else {
         None
-    }
-}
-
-pub fn workspace_archive_source(owner: &str, name: &str, git_ref: &str, path: &str) -> String {
-    let archive = format!(
-        "{GITHUB_API}/repos/{}/{}/tarball/{}",
-        enc(owner),
-        enc(name),
-        enc(git_ref)
-    );
-    if path == "." {
-        archive
-    } else {
-        format!("{archive}#:{path}")
     }
 }
 
@@ -157,18 +141,6 @@ mod tests {
         assert!(parse_repo_spec("https://example.com/octo/configs").is_err());
         assert!(parse_repo_spec("https://github.com/octo/configs/tree/main").is_err());
         assert!(parse_repo_spec("octo/with space").is_err());
-    }
-
-    #[test]
-    fn archive_source_appends_subdir_fragment() {
-        assert_eq!(
-            workspace_archive_source("o", "r", "main", "."),
-            "https://api.github.com/repos/o/r/tarball/main"
-        );
-        assert_eq!(
-            workspace_archive_source("o", "r", "main", "payments/flags"),
-            "https://api.github.com/repos/o/r/tarball/main#:payments/flags"
-        );
     }
 
     #[test]

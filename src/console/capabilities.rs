@@ -70,7 +70,7 @@ pub enum Capability {
 /// Write capability for a workspace under the process write policy.
 ///
 /// This is a browser-facing decision summary; the server does not trust it on
-/// follow-up requests and instead reselects a `DraftBackend` during mutation.
+/// follow-up requests and instead reselects a write backend during mutation.
 #[derive(Clone, Debug, Serialize)]
 #[serde(tag = "kind", rename_all = "camelCase")]
 pub enum WriteCapability {

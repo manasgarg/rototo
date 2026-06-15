@@ -131,8 +131,7 @@ pub fn router(state: SharedState) -> axum::Router {
         .route("/repos", get(repos_list).post(repos_register))
         .route("/repos/{repo_id}", axum::routing::delete(repo_delete))
         .merge(super::api_workspace::routes())
-        .merge(super::api_branch::routes())
-        .merge(super::api_draft::routes());
+        .merge(super::api_branch::routes());
     if state.observability.is_some() {
         api = api.route("/dev/observability/events", post(dev_observability_event));
     }
@@ -210,7 +209,6 @@ async fn record_api_request(
             "latency_ms": started.elapsed().as_millis(),
             "deployment": state.deployment.label(),
             "workspace_id": route.workspace_id,
-            "draft_id": route.draft_id,
             "branch_id": route.branch_id,
             "error_class": error_class(status),
         }))
@@ -225,7 +223,6 @@ async fn record_api_request(
 struct RouteObservability {
     pattern: String,
     workspace_id: Option<String>,
-    draft_id: Option<String>,
     branch_id: Option<String>,
 }
 
@@ -237,7 +234,6 @@ fn route_observability(path: &str) -> RouteObservability {
         .collect::<Vec<_>>();
     let mut pattern = Vec::new();
     let mut workspace_id = None;
-    let mut draft_id = None;
     let mut branch_id = None;
     let mut index = 0;
     while index < segments.len() {
@@ -246,12 +242,6 @@ fn route_observability(path: &str) -> RouteObservability {
         if segment == "workspaces" && index + 1 < segments.len() {
             workspace_id = Some(segments[index + 1].to_owned());
             pattern.push(":workspace_id".to_owned());
-            index += 2;
-            continue;
-        }
-        if segment == "drafts" && index + 1 < segments.len() {
-            draft_id = Some(segments[index + 1].to_owned());
-            pattern.push(":draft_id".to_owned());
             index += 2;
             continue;
         }
@@ -271,7 +261,6 @@ fn route_observability(path: &str) -> RouteObservability {
     RouteObservability {
         pattern: format!("/{}", pattern.join("/")),
         workspace_id,
-        draft_id,
         branch_id,
     }
 }
@@ -827,15 +816,15 @@ mod tests {
     use super::*;
 
     #[test]
-    fn observability_route_extracts_workspace_and_draft_ids() {
-        let route = route_observability("/api/workspaces/ws-1/drafts/draft-2/lsp");
+    fn observability_route_extracts_workspace_and_branch_ids() {
+        let route = route_observability("/api/workspaces/ws-1/branches/branch-2/lsp");
 
         assert_eq!(
             route.pattern,
-            "/api/workspaces/:workspace_id/drafts/:draft_id/lsp"
+            "/api/workspaces/:workspace_id/branches/:branch_id/lsp"
         );
         assert_eq!(route.workspace_id.as_deref(), Some("ws-1"));
-        assert_eq!(route.draft_id.as_deref(), Some("draft-2"));
+        assert_eq!(route.branch_id.as_deref(), Some("branch-2"));
     }
 
     #[test]
@@ -844,6 +833,6 @@ mod tests {
 
         assert_eq!(route.pattern, "/api/repos/:repo_id");
         assert_eq!(route.workspace_id, None);
-        assert_eq!(route.draft_id, None);
+        assert_eq!(route.branch_id, None);
     }
 }

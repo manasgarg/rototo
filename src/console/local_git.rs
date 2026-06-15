@@ -7,12 +7,11 @@ use crate::error::{Result, RototoError};
 use super::inventory::workspace_local_path;
 use super::store::WorkspaceRecord;
 
-/// Result of publishing a direct-push draft through local git.
+/// Result of publishing a direct-push branch through local git.
 ///
-/// The route creates this after staging tracked draft paths, committing if
+/// The route creates this after staging tracked branch paths, committing if
 /// needed, and attempting to push the current branch. It is serialized once to
-/// the browser and also summarized into a draft event; the struct itself is not
-/// persisted.
+/// the browser; the struct itself is not persisted.
 #[derive(Clone, Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct LocalPublishResult {
@@ -134,7 +133,7 @@ pub async fn commit_and_push(
 ) -> Result<LocalPublishResult> {
     let root = workspace_root(&workspace.source)?;
     if paths.is_empty() {
-        return Err(RototoError::new("draft has no files to commit"));
+        return Err(RototoError::new("branch has no files to commit"));
     }
     let mut relative_paths = Vec::with_capacity(paths.len());
     for path in paths {
@@ -291,17 +290,17 @@ mod tests {
         run_git(root, &["add", "."]);
         run_git(root, &["commit", "-m", "initial"]);
 
-        std::fs::write(root.join("tracked.txt"), "draft\n").unwrap();
+        std::fs::write(root.join("tracked.txt"), "branch\n").unwrap();
         std::fs::write(root.join("other.txt"), "unrelated\n").unwrap();
         run_git(root, &["add", "other.txt"]);
 
-        let result = commit_and_push(&workspace(root), &["tracked.txt".to_owned()], "draft")
+        let result = commit_and_push(&workspace(root), &["tracked.txt".to_owned()], "branch")
             .await
             .unwrap();
 
         assert!(result.commit.is_some());
         assert!(!result.pushed);
-        assert_eq!(run_git(root, &["show", "HEAD:tracked.txt"]), "draft\n");
+        assert_eq!(run_git(root, &["show", "HEAD:tracked.txt"]), "branch\n");
         assert_eq!(run_git(root, &["show", "HEAD:other.txt"]), "base\n");
         assert_eq!(
             run_git(root, &["status", "--porcelain", "--", "other.txt"]),
