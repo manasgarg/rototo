@@ -2,23 +2,21 @@
 
 use std::path::{Path, PathBuf};
 
-use super::{
-    SourceTree, SourceTreeCacheKey, SourceTreeSelection, WorkspaceDiscovery, WorkspacePath,
-};
+use super::{CachedTreeSource, TreeRevision, TreeSource, WorkspaceDiscovery, WorkspacePath};
 use crate::error::{Result, RototoError};
 use crate::source::{SourceOptions, load_workspace_source};
 
 const WORKSPACE_MANIFEST: &str = "rototo-workspace.toml";
 
 pub async fn discover_workspaces(
-    source_tree: SourceTreeCacheKey,
-    selection: SourceTreeSelection,
+    cached_tree: CachedTreeSource,
+    revision: TreeRevision,
 ) -> Result<WorkspaceDiscovery> {
-    let root = stage_root_for_selection(&source_tree.source, &selection).await?;
+    let root = stage_root_for_revision(&cached_tree.tree, &revision).await?;
     let workspaces = discover_workspace_paths(root.path()).await?;
     Ok(WorkspaceDiscovery {
-        source_tree,
-        selection,
+        cached_tree,
+        revision,
         workspaces,
     })
 }
@@ -37,18 +35,13 @@ impl StagedRoot {
     }
 }
 
-async fn stage_root_for_selection(
-    source_tree: &SourceTree,
-    selection: &SourceTreeSelection,
-) -> Result<StagedRoot> {
-    match source_tree {
-        SourceTree::LocalFolder { root }
-            if matches!(selection, SourceTreeSelection::CurrentTree) =>
-        {
+async fn stage_root_for_revision(tree: &TreeSource, revision: &TreeRevision) -> Result<StagedRoot> {
+    match tree {
+        TreeSource::LocalFolder { root } if matches!(revision, TreeRevision::LocalWorkingTree) => {
             Ok(StagedRoot::Borrowed(root.clone()))
         }
-        SourceTree::GitHub { owner, name } => {
-            let Some(git_ref) = git_ref_for_selection(selection) else {
+        TreeSource::GitHub { owner, name } => {
+            let Some(git_ref) = git_ref_for_revision(revision) else {
                 return Err(invalid_selection_error());
             };
             stage_git_root(
@@ -57,34 +50,30 @@ async fn stage_root_for_selection(
             )
             .await
         }
-        SourceTree::GitRemote { remote_url } => {
-            let Some(git_ref) = git_ref_for_selection(selection) else {
+        TreeSource::GitRemote { remote_url } => {
+            let Some(git_ref) = git_ref_for_revision(revision) else {
                 return Err(invalid_selection_error());
             };
             stage_git_root(remote_url, git_ref).await
         }
-        SourceTree::Archive { .. }
-            if matches!(selection, SourceTreeSelection::ArchiveFingerprint(_)) =>
-        {
-            Err(RototoError::new(
-                "archive workspace discovery requires archive staging support",
-            ))
-        }
+        TreeSource::Archive { .. } if matches!(revision, TreeRevision::ArchiveSnapshot(_)) => Err(
+            RototoError::new("archive workspace discovery requires archive staging support"),
+        ),
         _ => Err(invalid_selection_error()),
     }
 }
 
-fn git_ref_for_selection(selection: &SourceTreeSelection) -> Option<&str> {
-    match selection {
-        SourceTreeSelection::BaseRef(ref_) => Some(ref_.as_ref()),
-        SourceTreeSelection::Branch(branch) => Some(branch.as_ref()),
-        SourceTreeSelection::Commit(commit) => Some(commit.as_ref()),
-        SourceTreeSelection::CurrentTree | SourceTreeSelection::ArchiveFingerprint(_) => None,
+fn git_ref_for_revision(revision: &TreeRevision) -> Option<&str> {
+    match revision {
+        TreeRevision::GitRef(ref_) => Some(ref_.as_ref()),
+        TreeRevision::GitBranch(branch) => Some(branch.as_ref()),
+        TreeRevision::GitCommit(commit) => Some(commit.as_ref()),
+        TreeRevision::LocalWorkingTree | TreeRevision::ArchiveSnapshot(_) => None,
     }
 }
 
 fn invalid_selection_error() -> RototoError {
-    RototoError::new("source tree selection is not valid for workspace discovery")
+    RototoError::new("tree revision is not valid for workspace discovery")
 }
 
 async fn stage_git_root(remote_url: &str, git_ref: &str) -> Result<StagedRoot> {
@@ -184,7 +173,7 @@ mod tests {
     use tempfile::TempDir;
 
     use super::*;
-    use crate::console::stage::{GitRefName, SourceTreeCacheKey, TokenIdentity};
+    use crate::console::stage::{CachedTreeSource, GitRefName, TokenIdentity};
 
     #[tokio::test]
     async fn discovers_workspaces_in_local_tree() {
@@ -197,8 +186,8 @@ mod tests {
             .unwrap();
 
         let discovery = discover_workspaces(
-            source_key(SourceTree::local_folder(tree.path()).await.unwrap()),
-            SourceTreeSelection::CurrentTree,
+            source_key(TreeSource::local_folder(tree.path()).await.unwrap()),
+            TreeRevision::LocalWorkingTree,
         )
         .await
         .unwrap();
@@ -218,10 +207,10 @@ mod tests {
         commit_all(repo.path(), "add workspaces");
 
         let discovery = discover_workspaces(
-            source_key(SourceTree::GitRemote {
+            source_key(TreeSource::GitRemote {
                 remote_url: format!("git+file://{}", repo.path().display()),
             }),
-            SourceTreeSelection::BaseRef(GitRefName::new("main").unwrap()),
+            TreeRevision::GitRef(GitRefName::new("main").unwrap()),
         )
         .await
         .unwrap();
@@ -233,7 +222,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn discovers_workspaces_from_git_branch_selection() {
+    async fn discovers_workspaces_from_git_branch_revision() {
         let repo = TempDir::new().expect("repo tempdir");
         init_repo(repo.path());
         write_manifest(repo.path()).await;
@@ -243,10 +232,10 @@ mod tests {
         commit_all(repo.path(), "add payments workspace");
 
         let discovery = discover_workspaces(
-            source_key(SourceTree::GitRemote {
+            source_key(TreeSource::GitRemote {
                 remote_url: format!("git+file://{}", repo.path().display()),
             }),
-            SourceTreeSelection::branch("feature/payments").unwrap(),
+            TreeRevision::git_branch("feature/payments").unwrap(),
         )
         .await
         .unwrap();
@@ -258,16 +247,16 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn rejects_selection_that_does_not_match_source_tree_kind() {
+    async fn rejects_revision_that_does_not_match_tree_source_kind() {
         let tree = TempDir::new().expect("tree tempdir");
         let err = discover_workspaces(
-            source_key(SourceTree::local_folder(tree.path()).await.unwrap()),
-            SourceTreeSelection::BaseRef(GitRefName::new("main").unwrap()),
+            source_key(TreeSource::local_folder(tree.path()).await.unwrap()),
+            TreeRevision::GitRef(GitRefName::new("main").unwrap()),
         )
         .await
         .unwrap_err();
 
-        assert!(err.to_string().contains("selection is not valid"));
+        assert!(err.to_string().contains("revision is not valid"));
     }
 
     async fn write_manifest(root: &Path) {
@@ -277,8 +266,8 @@ mod tests {
             .unwrap();
     }
 
-    fn source_key(source: SourceTree) -> SourceTreeCacheKey {
-        SourceTreeCacheKey::new("user_123", source, TokenIdentity::none()).unwrap()
+    fn source_key(source: TreeSource) -> CachedTreeSource {
+        CachedTreeSource::new("user_123", source, TokenIdentity::none()).unwrap()
     }
 
     fn workspace_strings(workspaces: &[WorkspacePath]) -> Vec<&str> {

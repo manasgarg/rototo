@@ -1,15 +1,10 @@
 #![allow(dead_code)]
 
 use super::identity::strip_prefix_ignore_ascii_case;
-use super::{SourceTree, SourceTreeCacheKey, SourceTreeSelection, TokenIdentity, WorkspacePath};
+use super::{
+    CachedWorkspaceSource, TokenIdentity, TreeRevision, TreeSource, WorkspacePath, WorkspaceSource,
+};
 use crate::error::{Result, RototoError};
-
-#[derive(Clone, Debug, Eq, PartialEq, Hash)]
-pub struct WorkspaceSelector {
-    pub source_tree: SourceTreeCacheKey,
-    pub path: WorkspacePath,
-    pub selection: SourceTreeSelection,
-}
 
 /// Compatibility input for current console routes and store rows.
 ///
@@ -17,7 +12,7 @@ pub struct WorkspaceSelector {
 /// old store still carries source strings, owner/name display fields, and
 /// workspace paths separately.
 #[derive(Clone, Copy, Debug)]
-pub struct WorkspaceSelectorInput<'a> {
+pub struct WorkspaceSourceInput<'a> {
     pub principal_id: &'a str,
     pub token: &'a str,
     pub owner: &'a str,
@@ -27,44 +22,40 @@ pub struct WorkspaceSelectorInput<'a> {
     pub source: &'a str,
 }
 
-impl WorkspaceSelector {
-    pub async fn for_base_workspace(input: WorkspaceSelectorInput<'_>) -> Result<Self> {
+impl CachedWorkspaceSource {
+    pub async fn for_base_workspace(input: WorkspaceSourceInput<'_>) -> Result<Self> {
         let parsed = LegacyWorkspaceSource::parse(input.source, input.owner, input.name).await?;
-        let selection = match parsed.kind {
+        let revision = match parsed.kind {
             LegacyWorkspaceSourceKind::Git => {
-                SourceTreeSelection::git_ref_or_commit(selected_git_ref(input, &parsed))?
+                TreeRevision::git_ref_or_commit(selected_git_ref(input, &parsed))?
             }
-            LegacyWorkspaceSourceKind::LocalFolder => SourceTreeSelection::CurrentTree,
+            LegacyWorkspaceSourceKind::LocalFolder => TreeRevision::LocalWorkingTree,
             LegacyWorkspaceSourceKind::Archive => {
                 return Err(RototoError::new(
-                    "archive workspace selectors require a resolved archive fingerprint",
+                    "archive workspace sources require a resolved archive snapshot",
                 ));
             }
         };
-        selector_from_parts(input, parsed.source_tree, selection)
+        cached_workspace_from_parts(input, parsed.tree, revision)
     }
 
     pub async fn for_branch_workspace(
-        input: WorkspaceSelectorInput<'_>,
+        input: WorkspaceSourceInput<'_>,
         branch: impl AsRef<str>,
     ) -> Result<Self> {
         let parsed = LegacyWorkspaceSource::parse(input.source, input.owner, input.name).await?;
         if !matches!(parsed.kind, LegacyWorkspaceSourceKind::Git) {
             return Err(RototoError::new(
-                "branch workspace selectors require a git-backed source tree",
+                "branch workspace sources require a git-backed source tree",
             ));
         }
-        selector_from_parts(
-            input,
-            parsed.source_tree,
-            SourceTreeSelection::branch(branch)?,
-        )
+        cached_workspace_from_parts(input, parsed.tree, TreeRevision::git_branch(branch)?)
     }
 }
 
 #[derive(Debug)]
 struct LegacyWorkspaceSource {
-    source_tree: SourceTree,
+    tree: TreeSource,
     ref_: Option<String>,
     kind: LegacyWorkspaceSourceKind,
 }
@@ -81,7 +72,7 @@ impl LegacyWorkspaceSource {
         let source = source.trim();
         let Some(uri) = ParsedSourceUri::parse(source)? else {
             return Ok(Self {
-                source_tree: SourceTree::local_folder(source).await?,
+                tree: TreeSource::local_folder(source).await?,
                 ref_: None,
                 kind: LegacyWorkspaceSourceKind::LocalFolder,
             });
@@ -94,7 +85,7 @@ impl LegacyWorkspaceSource {
                 ));
             }
             return Ok(Self {
-                source_tree: SourceTree::local_folder(&uri.base).await?,
+                tree: TreeSource::local_folder(&uri.base).await?,
                 ref_: None,
                 kind: LegacyWorkspaceSourceKind::LocalFolder,
             });
@@ -102,7 +93,7 @@ impl LegacyWorkspaceSource {
 
         if uri.scheme.starts_with("git+") {
             return Ok(Self {
-                source_tree: SourceTree::git_remote(uri.source_without_fragment())?,
+                tree: TreeSource::git_remote(uri.source_without_fragment())?,
                 ref_: uri.ref_,
                 kind: LegacyWorkspaceSourceKind::Git,
             });
@@ -111,13 +102,13 @@ impl LegacyWorkspaceSource {
         if uri.scheme == "https" {
             if github_archive_source(&uri.base).is_some() {
                 return Ok(Self {
-                    source_tree: SourceTree::github(owner, name)?,
+                    tree: TreeSource::github(owner, name)?,
                     ref_: uri.ref_,
                     kind: LegacyWorkspaceSourceKind::Git,
                 });
             }
             return Ok(Self {
-                source_tree: SourceTree::archive(source)?,
+                tree: TreeSource::archive(source)?,
                 ref_: None,
                 kind: LegacyWorkspaceSourceKind::Archive,
             });
@@ -180,24 +171,20 @@ impl ParsedSourceUri {
     }
 }
 
-fn selector_from_parts(
-    input: WorkspaceSelectorInput<'_>,
-    source_tree: SourceTree,
-    selection: SourceTreeSelection,
-) -> Result<WorkspaceSelector> {
-    Ok(WorkspaceSelector {
-        source_tree: SourceTreeCacheKey::new(
-            input.principal_id,
-            source_tree,
-            TokenIdentity::from_console_token(input.token),
-        )?,
-        path: WorkspacePath::new(input.path)?,
-        selection,
-    })
+fn cached_workspace_from_parts(
+    input: WorkspaceSourceInput<'_>,
+    tree: TreeSource,
+    revision: TreeRevision,
+) -> Result<CachedWorkspaceSource> {
+    CachedWorkspaceSource::new(
+        input.principal_id,
+        WorkspaceSource::new(tree, revision, WorkspacePath::new(input.path)?),
+        TokenIdentity::from_console_token(input.token),
+    )
 }
 
 fn selected_git_ref<'a>(
-    input: WorkspaceSelectorInput<'a>,
+    input: WorkspaceSourceInput<'a>,
     parsed: &'a LegacyWorkspaceSource,
 ) -> &'a str {
     let git_ref = input.git_ref.trim();
@@ -228,8 +215,8 @@ mod tests {
     use super::*;
     use crate::console::stage::{BranchName, GitCommit, GitRefName};
 
-    fn github_workspace_input() -> WorkspaceSelectorInput<'static> {
-        WorkspaceSelectorInput {
+    fn github_workspace_input() -> WorkspaceSourceInput<'static> {
+        WorkspaceSourceInput {
             principal_id: "user_123",
             token: "",
             owner: "Rototo",
@@ -241,75 +228,79 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn base_workspace_selector_adapts_current_github_store_shape() {
-        let selector = WorkspaceSelector::for_base_workspace(github_workspace_input())
+    async fn base_workspace_source_adapts_current_github_store_shape() {
+        let source = CachedWorkspaceSource::for_base_workspace(github_workspace_input())
             .await
             .unwrap();
 
         assert_eq!(
-            selector,
-            WorkspaceSelector {
-                source_tree: SourceTreeCacheKey::new(
-                    "user_123",
-                    SourceTree::GitHub {
+            source,
+            CachedWorkspaceSource::new(
+                "user_123",
+                WorkspaceSource::new(
+                    TreeSource::GitHub {
                         owner: "rototo".to_owned(),
                         name: "config".to_owned(),
                     },
-                    TokenIdentity::None,
-                )
-                .unwrap(),
-                path: WorkspacePath::new("workspaces/payments").unwrap(),
-                selection: SourceTreeSelection::BaseRef(GitRefName::new("main").unwrap()),
-            }
+                    TreeRevision::GitRef(GitRefName::new("main").unwrap()),
+                    WorkspacePath::new("workspaces/payments").unwrap(),
+                ),
+                TokenIdentity::None,
+            )
+            .unwrap()
         );
     }
 
     #[tokio::test]
-    async fn base_workspace_selector_uses_commit_selection_for_pinned_git_ref() {
-        let input = WorkspaceSelectorInput {
+    async fn base_workspace_source_uses_commit_revision_for_pinned_git_ref() {
+        let input = WorkspaceSourceInput {
             git_ref: "8D3C4B5A6F7081920A1B2C3D4E5F60718293A4B5",
             ..github_workspace_input()
         };
 
-        let selector = WorkspaceSelector::for_base_workspace(input).await.unwrap();
+        let source = CachedWorkspaceSource::for_base_workspace(input)
+            .await
+            .unwrap();
 
         assert_eq!(
-            selector.selection,
-            SourceTreeSelection::Commit(
+            source.workspace.revision,
+            TreeRevision::GitCommit(
                 GitCommit::new("8d3c4b5a6f7081920a1b2c3d4e5f60718293a4b5").unwrap()
             )
         );
     }
 
     #[tokio::test]
-    async fn branch_workspace_selector_adapts_token_and_branch_identity() {
-        let input = WorkspaceSelectorInput {
+    async fn branch_workspace_source_adapts_token_and_branch_identity() {
+        let input = WorkspaceSourceInput {
             token: "ghp_secret",
             ..github_workspace_input()
         };
 
-        let selector =
-            WorkspaceSelector::for_branch_workspace(input, "rototo-console/alice/change-checkout")
-                .await
-                .unwrap();
+        let source = CachedWorkspaceSource::for_branch_workspace(
+            input,
+            "rototo-console/alice/change-checkout",
+        )
+        .await
+        .unwrap();
 
         assert_eq!(
-            selector.source_tree.token,
+            source.token,
             TokenIdentity::Sha256Hex(
                 "4c281411e1ccc93c230902001a09e7b863cb12a3f3b341089eb980a34aa9e434".to_owned()
             )
         );
         assert_eq!(
-            selector.selection,
-            SourceTreeSelection::Branch(
+            source.workspace.revision,
+            TreeRevision::GitBranch(
                 BranchName::new("rototo-console/alice/change-checkout").unwrap()
             )
         );
     }
 
     #[tokio::test]
-    async fn selector_adapter_preserves_generic_git_remote_identity() {
-        let input = WorkspaceSelectorInput {
+    async fn workspace_source_adapter_preserves_generic_git_remote_identity() {
+        let input = WorkspaceSourceInput {
             principal_id: "user_123",
             token: "",
             owner: "Team",
@@ -319,25 +310,30 @@ mod tests {
             source: "git+https://Git.Example.com/Team/Config.git#main:services/api",
         };
 
-        let selector = WorkspaceSelector::for_base_workspace(input).await.unwrap();
+        let source = CachedWorkspaceSource::for_base_workspace(input)
+            .await
+            .unwrap();
 
         assert_eq!(
-            selector.source_tree.source,
-            SourceTree::GitRemote {
+            source.workspace.tree,
+            TreeSource::GitRemote {
                 remote_url: "git+https://git.example.com/Team/Config.git".to_owned()
             }
         );
-        assert_eq!(selector.path, WorkspacePath::new("services/api").unwrap());
         assert_eq!(
-            selector.selection,
-            SourceTreeSelection::BaseRef(GitRefName::new("main").unwrap())
+            source.workspace.path,
+            WorkspacePath::new("services/api").unwrap()
+        );
+        assert_eq!(
+            source.workspace.revision,
+            TreeRevision::GitRef(GitRefName::new("main").unwrap())
         );
     }
 
     #[tokio::test]
-    async fn selector_adapter_maps_local_workspace_to_current_tree() {
+    async fn workspace_source_adapter_maps_local_workspace_to_working_tree() {
         let tempdir = TempDir::new().expect("tempdir");
-        let input = WorkspaceSelectorInput {
+        let input = WorkspaceSourceInput {
             principal_id: "local-user",
             token: "",
             owner: "demo",
@@ -347,21 +343,23 @@ mod tests {
             source: tempdir.path().to_str().expect("utf8 temp path"),
         };
 
-        let selector = WorkspaceSelector::for_base_workspace(input).await.unwrap();
+        let source = CachedWorkspaceSource::for_base_workspace(input)
+            .await
+            .unwrap();
 
         assert_eq!(
-            selector.source_tree.source,
-            SourceTree::LocalFolder {
+            source.workspace.tree,
+            TreeSource::LocalFolder {
                 root: tempdir.path().canonicalize().unwrap()
             }
         );
-        assert_eq!(selector.path, WorkspacePath::root());
-        assert_eq!(selector.selection, SourceTreeSelection::CurrentTree);
+        assert_eq!(source.workspace.path, WorkspacePath::root());
+        assert_eq!(source.workspace.revision, TreeRevision::LocalWorkingTree);
     }
 
     #[tokio::test]
-    async fn selector_adapter_maps_github_archive_store_shape_to_git_tree() {
-        let input = WorkspaceSelectorInput {
+    async fn workspace_source_adapter_maps_github_archive_store_shape_to_git_tree() {
+        let input = WorkspaceSourceInput {
             principal_id: "user_123",
             token: "",
             owner: "Rototo",
@@ -371,24 +369,26 @@ mod tests {
             source: "https://API.GITHUB.com/repos/Rototo/Config/tarball/main#:workspaces/payments",
         };
 
-        let selector = WorkspaceSelector::for_base_workspace(input).await.unwrap();
+        let source = CachedWorkspaceSource::for_base_workspace(input)
+            .await
+            .unwrap();
 
         assert_eq!(
-            selector.source_tree.source,
-            SourceTree::GitHub {
+            source.workspace.tree,
+            TreeSource::GitHub {
                 owner: "rototo".to_owned(),
                 name: "config".to_owned(),
             }
         );
         assert_eq!(
-            selector.selection,
-            SourceTreeSelection::BaseRef(GitRefName::new("main").unwrap())
+            source.workspace.revision,
+            TreeRevision::GitRef(GitRefName::new("main").unwrap())
         );
     }
 
     #[tokio::test]
-    async fn selector_adapter_rejects_unresolved_arbitrary_archive() {
-        let input = WorkspaceSelectorInput {
+    async fn workspace_source_adapter_rejects_unresolved_arbitrary_archive() {
+        let input = WorkspaceSourceInput {
             principal_id: "user_123",
             token: "",
             owner: "demo",
@@ -398,9 +398,13 @@ mod tests {
             source: "https://example.com/releases/config.tar.gz#:workspaces/payments",
         };
 
-        assert!(WorkspaceSelector::for_base_workspace(input).await.is_err());
         assert!(
-            WorkspaceSelector::for_branch_workspace(input, "rototo-console/alice/change")
+            CachedWorkspaceSource::for_base_workspace(input)
+                .await
+                .is_err()
+        );
+        assert!(
+            CachedWorkspaceSource::for_branch_workspace(input, "rototo-console/alice/change")
                 .await
                 .is_err()
         );

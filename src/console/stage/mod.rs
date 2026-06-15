@@ -5,15 +5,15 @@ mod discovery;
 mod identity;
 mod load;
 mod records;
-mod selector;
+mod workspace_source;
 
 pub use self::cache::StageCache;
 pub use self::identity::{
-    BranchName, GitCommit, GitRefName, RepoRelativePath, SourceTree, SourceTreeCacheKey,
-    SourceTreeSelection, TokenIdentity, WorkspacePath,
+    BranchName, CachedTreeSource, CachedWorkspaceSource, GitCommit, GitRefName, RepoRelativePath,
+    TokenIdentity, TreeRevision, TreeSource, WorkspacePath, WorkspaceSource,
 };
 pub use self::records::{
-    BranchChanges, BranchTrackingState, PullRequestRef, SemanticWorkspace, SourceTreeId,
-    SourceTreeRecord, TrackedBranchId, TrackedBranchRecord, WorkspaceDiscovery,
+    BranchChanges, BranchTrackingState, PullRequestRef, SemanticWorkspace, TrackedBranchId,
+    TrackedBranchRecord, TreeSourceId, TreeSourceRecord, WorkspaceDiscovery,
 };
-pub use self::selector::{WorkspaceSelector, WorkspaceSelectorInput};
+pub use self::workspace_source::WorkspaceSourceInput;

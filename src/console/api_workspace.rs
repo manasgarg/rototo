@@ -14,7 +14,7 @@ use super::inventory::{
 use super::resolve_preview::{
     SavedContextInput, qualifier_context_evaluations, resolve_saved_contexts,
 };
-use super::stage::{WorkspaceSelector, WorkspaceSelectorInput};
+use super::stage::{CachedWorkspaceSource, WorkspaceSourceInput};
 use super::store::{SessionUser, WorkspaceRecord};
 
 const MAX_PREVIEW_CONTEXTS: usize = 4;
@@ -95,12 +95,12 @@ pub fn workspace_capabilities_json(
     })
 }
 
-async fn workspace_selector_for_base(
+async fn workspace_source_for_base(
     state: &super::api::ConsoleState,
     user: &SessionUser,
     workspace: &WorkspaceRecord,
-) -> ApiResult<WorkspaceSelector> {
-    WorkspaceSelector::for_base_workspace(WorkspaceSelectorInput {
+) -> ApiResult<CachedWorkspaceSource> {
+    CachedWorkspaceSource::for_base_workspace(WorkspaceSourceInput {
         principal_id: &user.principal_id,
         token: source_token(user),
         owner: &workspace.owner,
@@ -127,10 +127,10 @@ async fn workspace_lint(
 ) -> ApiResult<Json<JsonValue>> {
     let user = require_user(&state, &headers).await?;
     let workspace = load_workspace(&state, &user, &workspace_id).await?;
-    let selector = workspace_selector_for_base(&state, &user, &workspace).await?;
+    let workspace_source = workspace_source_for_base(&state, &user, &workspace).await?;
     let inspected = state
         .stage
-        .get_inspected_workspace(selector, source_token(&user))
+        .get_inspected_workspace(workspace_source, source_token(&user))
         .await
         .map_err(|err| ApiError::internal(err.to_string()))?;
     let lint = inspected

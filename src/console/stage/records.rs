@@ -3,20 +3,20 @@
 use std::sync::Arc;
 
 use super::{
-    BranchName, GitCommit, GitRefName, RepoRelativePath, SourceTree, SourceTreeCacheKey,
-    SourceTreeSelection, WorkspacePath,
+    BranchName, CachedTreeSource, GitCommit, GitRefName, RepoRelativePath, TreeRevision,
+    TreeSource, WorkspacePath,
 };
 use crate::lint::WorkspaceSemanticModel;
 use crate::sdk::Workspace;
 
-pub type SourceTreeId = String;
+pub type TreeSourceId = String;
 pub type TrackedBranchId = String;
 
 #[derive(Clone, Debug)]
-pub struct SourceTreeRecord {
-    pub id: SourceTreeId,
+pub struct TreeSourceRecord {
+    pub id: TreeSourceId,
     pub principal_id: String,
-    pub source: SourceTree,
+    pub tree: TreeSource,
     pub default_ref: Option<GitRefName>,
     pub display_name: String,
     pub created_at: String,
@@ -41,7 +41,7 @@ pub enum BranchTrackingState {
 #[derive(Clone, Debug)]
 pub struct TrackedBranchRecord {
     pub id: TrackedBranchId,
-    pub source_tree_id: SourceTreeId,
+    pub tree_source_id: TreeSourceId,
     pub branch: BranchName,
     pub base_ref: GitRefName,
     pub base_commit: Option<GitCommit>,
@@ -57,8 +57,8 @@ pub struct TrackedBranchRecord {
 
 #[derive(Clone, Debug)]
 pub struct WorkspaceDiscovery {
-    pub source_tree: SourceTreeCacheKey,
-    pub selection: SourceTreeSelection,
+    pub cached_tree: CachedTreeSource,
+    pub revision: TreeRevision,
     pub workspaces: Vec<WorkspacePath>,
 }
 

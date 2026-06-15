@@ -8,8 +8,8 @@ use tokio::sync::Mutex;
 use super::discovery;
 use super::load;
 use super::{
-    BranchChanges, BranchName, GitRefName, SemanticWorkspace, SourceTreeCacheKey,
-    SourceTreeSelection, WorkspaceDiscovery, WorkspaceSelector,
+    BranchChanges, BranchName, CachedTreeSource, CachedWorkspaceSource, GitRefName,
+    SemanticWorkspace, TreeRevision, WorkspaceDiscovery,
 };
 use crate::error::{Result, RototoError};
 use crate::lint::WorkspaceSemanticModel;
@@ -22,11 +22,11 @@ pub struct StageCache {
 
 #[derive(Debug, Default)]
 struct StageCacheInner {
-    _source_trees: Mutex<HashMap<SourceTreeCacheKey, SourceTreeSlot>>,
+    _tree_sources: Mutex<HashMap<CachedTreeSource, TreeSourceSlot>>,
 }
 
 #[derive(Debug, Default)]
-struct SourceTreeSlot;
+struct TreeSourceSlot;
 
 impl StageCache {
     pub fn new() -> Self {
@@ -35,15 +35,15 @@ impl StageCache {
 
     pub async fn discover_workspaces(
         &self,
-        source_tree: SourceTreeCacheKey,
-        selection: SourceTreeSelection,
+        cached_tree: CachedTreeSource,
+        revision: TreeRevision,
     ) -> Result<WorkspaceDiscovery> {
-        discovery::discover_workspaces(source_tree, selection).await
+        discovery::discover_workspaces(cached_tree, revision).await
     }
 
     pub async fn get_branch_changes(
         &self,
-        _source_tree: SourceTreeCacheKey,
+        _cached_tree: CachedTreeSource,
         _branch: BranchName,
         _base_ref: GitRefName,
     ) -> Result<BranchChanges> {
@@ -52,7 +52,7 @@ impl StageCache {
 
     pub async fn get_inspected_workspace(
         &self,
-        selector: WorkspaceSelector,
+        selector: CachedWorkspaceSource,
         source_token: &str,
     ) -> Result<Arc<Workspace>> {
         load::get_inspected_workspace(selector, source_token).await
@@ -60,21 +60,21 @@ impl StageCache {
 
     pub async fn get_semantic_workspace(
         &self,
-        _selector: WorkspaceSelector,
+        _selector: CachedWorkspaceSource,
     ) -> Result<SemanticWorkspace> {
         Err(stage_rewrite_error("get_semantic_workspace"))
     }
 
     pub async fn get_runtime_workspace(
         &self,
-        _selector: WorkspaceSelector,
+        _selector: CachedWorkspaceSource,
     ) -> Result<Arc<Workspace>> {
         Err(stage_rewrite_error("get_runtime_workspace"))
     }
 
-    pub async fn invalidate_workspace(&self, _selector: &WorkspaceSelector) {}
+    pub async fn invalidate_workspace(&self, _selector: &CachedWorkspaceSource) {}
 
-    pub async fn invalidate_branch(&self, _source_tree: &SourceTreeCacheKey, _branch: &str) {}
+    pub async fn invalidate_branch(&self, _cached_tree: &CachedTreeSource, _branch: &str) {}
 
     pub async fn inspect(&self, _token: &str, _source: &str) -> Result<Arc<Workspace>> {
         Err(stage_rewrite_error("inspect"))
