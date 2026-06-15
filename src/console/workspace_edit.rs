@@ -1,7 +1,7 @@
 use serde_json::Value as JsonValue;
 
 use super::github::{stable_workspace_key, workspace_archive_source, workspace_repo_path};
-use super::store::{DraftChangeRecord, DraftSessionRecord, WorkspaceRecord};
+use super::store::{DraftChangeRecord, DraftSessionRecord, TrackedBranchRecord, WorkspaceRecord};
 use super::time::now_compact_stamp;
 
 /// The workspace source to stage for a draft: the draft branch of the remote
@@ -61,6 +61,10 @@ pub fn variable_value_target_path(value_key: &str) -> String {
 }
 
 pub fn draft_branch_name(login: &str, workspace: &WorkspaceRecord) -> String {
+    console_branch_name(login, workspace)
+}
+
+pub fn console_branch_name(login: &str, workspace: &WorkspaceRecord) -> String {
     let login: String = {
         let mut cleaned = String::new();
         let mut pending_dash = false;
@@ -85,12 +89,57 @@ pub fn draft_branch_name(login: &str, workspace: &WorkspaceRecord) -> String {
 }
 
 pub fn draft_pr_title(workspace: &WorkspaceRecord) -> String {
+    branch_pr_title(workspace)
+}
+
+pub fn branch_pr_title(workspace: &WorkspaceRecord) -> String {
     let path = if workspace.path == "." {
         "root workspace"
     } else {
         &workspace.path
     };
     format!("Update rototo workspace {path}")
+}
+
+pub fn branch_pr_body(
+    workspace: &WorkspaceRecord,
+    branch: &TrackedBranchRecord,
+    changed_paths: &[String],
+    error_count: usize,
+    warning_count: usize,
+) -> String {
+    let lint_status = if error_count > 0 {
+        format!("{error_count} error(s)")
+    } else if warning_count > 0 {
+        format!("{warning_count} warning(s)")
+    } else {
+        "clean".to_owned()
+    };
+    let changed_paths = if changed_paths.is_empty() {
+        vec!["- No changed files detected.".to_owned()]
+    } else {
+        changed_paths
+            .iter()
+            .map(|path| format!("- `{path}`"))
+            .collect()
+    };
+
+    let mut body = vec![
+        "## Rototo Console".to_owned(),
+        String::new(),
+        format!(
+            "Workspace: `{}/{}:{}`",
+            workspace.owner, workspace.name, workspace.path
+        ),
+        format!("Base ref: `{}`", branch.base_ref),
+        format!("Branch: `{}`", branch.branch),
+        format!("Lint status: {lint_status}"),
+        String::new(),
+        "## Changed files".to_owned(),
+        String::new(),
+    ];
+    body.extend(changed_paths);
+    body.join("\n")
 }
 
 pub fn draft_pr_body(

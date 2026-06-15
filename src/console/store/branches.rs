@@ -9,7 +9,7 @@ use super::Store;
 use super::rows::{tracked_branch_from_row, workspace_from_row_at};
 use super::types::{
     TrackBranchInput, TrackedBranchPullRequestInput, TrackedBranchRecord, TrackedBranchStatus,
-    WorkspaceRecord,
+    TrackedBranchWithWorkspaceRecord, WorkspaceRecord,
 };
 use super::util::{db_err, new_id};
 
@@ -175,6 +175,38 @@ impl Store {
         .await
     }
 
+    pub async fn list_tracked_branches_with_workspaces_for_user(
+        &self,
+        principal_id: &str,
+    ) -> Result<Vec<TrackedBranchWithWorkspaceRecord>> {
+        let principal_id = principal_id.to_owned();
+        self.with_conn(move |conn, _| {
+            let mut statement = conn
+                .prepare(&format!(
+                    "SELECT {TRACKED_BRANCH_COLUMNS},
+                            w.id, w.repo_id, w.owner, w.name, w.path, w.ref_, w.source, w.discovered_at
+                     FROM tracked_branches b
+                     INNER JOIN tracked_branch_workspaces tbw ON tbw.branch_id = b.id
+                     INNER JOIN workspaces w ON w.id = tbw.workspace_id
+                     WHERE b.principal_id = ?1
+                       AND b.status != 'archived'
+                     ORDER BY b.last_opened_at DESC, b.branch ASC, w.path ASC"
+                ))
+                .map_err(db_err)?;
+            statement
+                .query_map(params![principal_id], |row| {
+                    Ok(TrackedBranchWithWorkspaceRecord {
+                        branch: tracked_branch_from_row(row)?,
+                        workspace: workspace_from_row_at(row, 18)?,
+                    })
+                })
+                .map_err(db_err)?
+                .collect::<rusqlite::Result<Vec<_>>>()
+                .map_err(db_err)
+        })
+        .await
+    }
+
     pub async fn get_tracked_branch_for_user(
         &self,
         branch_id: &str,
@@ -262,6 +294,31 @@ impl Store {
 
     pub async fn archive_tracked_branch(&self, branch_id: &str) -> Result<TrackedBranchRecord> {
         update_tracked_branch_status(self, branch_id, TrackedBranchStatus::Archived).await
+    }
+
+    pub async fn rename_tracked_branch(
+        &self,
+        branch_id: &str,
+        branch: &str,
+    ) -> Result<TrackedBranchRecord> {
+        let branch_id = branch_id.to_owned();
+        let branch = branch.to_owned();
+        self.with_conn(move |conn, _| {
+            let now = now_iso();
+            conn.execute(
+                "UPDATE tracked_branches
+                 SET branch = ?1,
+                     last_opened_at = ?2,
+                     status = 'active',
+                     archived_at = NULL
+                 WHERE id = ?3",
+                params![branch, now, branch_id],
+            )
+            .map_err(db_err)?;
+            tracked_branch_by_id(conn, &branch_id)?
+                .ok_or_else(|| RototoError::new("tracked branch rename failed"))
+        })
+        .await
     }
 
     pub async fn record_tracked_branch_edit(

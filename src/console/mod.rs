@@ -4,6 +4,7 @@
 //! configured GitHub API or local-git policy for the workspace source.
 
 mod api;
+mod api_branch;
 mod api_draft;
 mod api_workspace;
 mod auth;

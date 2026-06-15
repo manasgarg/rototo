@@ -171,6 +171,18 @@ pub struct TrackedBranchRecord {
     pub archived_at: Option<String>,
 }
 
+/// Branch list item paired with one selected workspace.
+///
+/// The branch identity is repository-scoped, but the console still needs a
+/// workspace beside it for navigation. Each value is rebuilt from a tracked
+/// branch joined through `tracked_branch_workspaces`.
+#[derive(Clone, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TrackedBranchWithWorkspaceRecord {
+    pub branch: TrackedBranchRecord,
+    pub workspace: WorkspaceRecord,
+}
+
 /// Net change inside a draft.
 ///
 /// This exists so the console can render pending edits, rebuild workspace files,

@@ -131,6 +131,7 @@ pub fn router(state: SharedState) -> axum::Router {
         .route("/repos", get(repos_list).post(repos_register))
         .route("/repos/{repo_id}", axum::routing::delete(repo_delete))
         .merge(super::api_workspace::routes())
+        .merge(super::api_branch::routes())
         .merge(super::api_draft::routes());
     if state.observability.is_some() {
         api = api.route("/dev/observability/events", post(dev_observability_event));
@@ -210,6 +211,7 @@ async fn record_api_request(
             "deployment": state.deployment.label(),
             "workspace_id": route.workspace_id,
             "draft_id": route.draft_id,
+            "branch_id": route.branch_id,
             "error_class": error_class(status),
         }))
         .await;
@@ -224,6 +226,7 @@ struct RouteObservability {
     pattern: String,
     workspace_id: Option<String>,
     draft_id: Option<String>,
+    branch_id: Option<String>,
 }
 
 fn route_observability(path: &str) -> RouteObservability {
@@ -235,6 +238,7 @@ fn route_observability(path: &str) -> RouteObservability {
     let mut pattern = Vec::new();
     let mut workspace_id = None;
     let mut draft_id = None;
+    let mut branch_id = None;
     let mut index = 0;
     while index < segments.len() {
         let segment = segments[index];
@@ -251,6 +255,12 @@ fn route_observability(path: &str) -> RouteObservability {
             index += 2;
             continue;
         }
+        if segment == "branches" && index + 1 < segments.len() {
+            branch_id = Some(segments[index + 1].to_owned());
+            pattern.push(":branch_id".to_owned());
+            index += 2;
+            continue;
+        }
         if segment == "repos" && index + 1 < segments.len() {
             pattern.push(":repo_id".to_owned());
             index += 2;
@@ -262,6 +272,7 @@ fn route_observability(path: &str) -> RouteObservability {
         pattern: format!("/{}", pattern.join("/")),
         workspace_id,
         draft_id,
+        branch_id,
     }
 }
 
