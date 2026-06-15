@@ -5,6 +5,7 @@ mod discovery;
 mod identity;
 mod load;
 mod records;
+mod semantic;
 mod workspace_source;
 
 pub use self::cache::StageCache;

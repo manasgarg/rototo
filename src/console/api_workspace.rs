@@ -14,7 +14,7 @@ use super::inventory::{
 use super::resolve_preview::{
     SavedContextInput, qualifier_context_evaluations, resolve_saved_contexts,
 };
-use super::stage::{CachedWorkspaceSource, WorkspaceSourceInput};
+use super::stage::{CachedWorkspaceSource, SemanticWorkspace, WorkspaceSourceInput};
 use super::store::{SessionUser, WorkspaceRecord};
 
 const MAX_PREVIEW_CONTEXTS: usize = 4;
@@ -111,6 +111,19 @@ async fn workspace_source_for_base(
     })
     .await
     .map_err(|err| ApiError::internal(err.to_string()))
+}
+
+async fn semantic_workspace_for_base(
+    state: &super::api::ConsoleState,
+    user: &SessionUser,
+    workspace: &WorkspaceRecord,
+) -> ApiResult<SemanticWorkspace> {
+    let workspace_source = workspace_source_for_base(state, user, workspace).await?;
+    state
+        .stage
+        .get_semantic_workspace(workspace_source, source_token(user))
+        .await
+        .map_err(|err| ApiError::internal(err.to_string()))
 }
 
 fn source_tree_source<'a>(
@@ -260,14 +273,13 @@ async fn workspace_data(
         .list_draft_sessions_for_workspace(&workspace.id, &user.principal_id)
         .await?;
 
-    let staged = state
-        .stage
-        .semantic_model(source_token(&user), &workspace.source)
-        .await;
+    let staged = semantic_workspace_for_base(&state, &user, &workspace).await;
     let (inventory, inventory_error, lint, model) = match staged {
-        Ok((inspected, model)) => {
-            let inventory = inspect_workspace_inventory(&workspace, &model, inspected.root()).await;
-            let lint = match inspected.lint().await {
+        Ok(semantic) => {
+            let inventory =
+                inspect_workspace_inventory(&workspace, &semantic.model, semantic.workspace.root())
+                    .await;
+            let lint = match semantic.workspace.lint().await {
                 Ok(lint) => lint_json(&lint),
                 Err(err) => lint_error_json(&workspace.source, &err.to_string()),
             };
@@ -276,19 +288,19 @@ async fn workspace_data(
                     serde_json::to_value(inventory).expect("inventory serializes"),
                     JsonValue::Null,
                     lint,
-                    serde_json::to_value(model.as_ref()).expect("model serializes"),
+                    serde_json::to_value(semantic.model.as_ref()).expect("model serializes"),
                 ),
                 Err(err) => (
                     serde_json::to_value(WorkspaceInventory::default())
                         .expect("inventory serializes"),
                     json!(err.to_string()),
                     lint,
-                    serde_json::to_value(model.as_ref()).expect("model serializes"),
+                    serde_json::to_value(semantic.model.as_ref()).expect("model serializes"),
                 ),
             }
         }
         Err(err) => {
-            let message = err.to_string();
+            let message = err.message;
             (
                 serde_json::to_value(WorkspaceInventory::default()).expect("inventory serializes"),
                 json!(message.clone()),
@@ -329,17 +341,14 @@ async fn workspace_entity(
 ) -> ApiResult<Json<JsonValue>> {
     let user = require_user(&state, &headers).await?;
     let workspace = load_workspace(&state, &user, &workspace_id).await?;
-    let (inspected, model) = state
-        .stage
-        .semantic_model(source_token(&user), &workspace.source)
-        .await
-        .map_err(|err| ApiError::internal(err.to_string()))?;
-    let inventory = inspect_workspace_inventory(&workspace, &model, inspected.root())
-        .await
-        .map_err(|err| ApiError::internal(err.to_string()))?;
+    let semantic = semantic_workspace_for_base(&state, &user, &workspace).await?;
+    let inventory =
+        inspect_workspace_inventory(&workspace, &semantic.model, semantic.workspace.root())
+            .await
+            .map_err(|err| ApiError::internal(err.to_string()))?;
 
     let (definition, definition_error) =
-        match read_workspace_definition(&workspace, inspected.root(), &query.path).await {
+        match read_workspace_definition(&workspace, semantic.workspace.root(), &query.path).await {
             Ok(definition) => (
                 serde_json::to_value(definition).expect("definition serializes"),
                 JsonValue::Null,
@@ -349,7 +358,7 @@ async fn workspace_entity(
 
     let contexts = load_saved_contexts(
         &workspace,
-        inspected.root(),
+        semantic.workspace.root(),
         &inventory,
         MAX_PREVIEW_CONTEXTS,
     )
@@ -368,7 +377,8 @@ async fn workspace_entity(
             .runtime(source_token(&user), &workspace.source)
             .await
     {
-        let resolutions = resolve_saved_contexts(&runtime, &model, &variable.id, &contexts).await;
+        let resolutions =
+            resolve_saved_contexts(&runtime, &semantic.model, &variable.id, &contexts).await;
         context_resolutions = serde_json::to_value(resolutions).expect("resolutions serialize");
     }
 
@@ -386,7 +396,8 @@ async fn workspace_entity(
             .await
     {
         let evaluations =
-            qualifier_context_evaluations(&runtime, &model, &qualifier.id, &contexts).await;
+            qualifier_context_evaluations(&runtime, &semantic.model, &qualifier.id, &contexts)
+                .await;
         qualifier_evaluations = serde_json::to_value(evaluations).expect("evaluations serialize");
     }
 
@@ -506,15 +517,14 @@ pub async fn workspace_inventory(
     user: &SessionUser,
     workspace: &WorkspaceRecord,
 ) -> std::result::Result<(std::sync::Arc<crate::sdk::Workspace>, WorkspaceInventory), String> {
-    let (inspected, model) = state
-        .stage
-        .semantic_model(source_token(user), &workspace.source)
+    let semantic = semantic_workspace_for_base(state, user, workspace)
         .await
-        .map_err(|err| err.to_string())?;
-    let inventory = inspect_workspace_inventory(workspace, &model, inspected.root())
-        .await
-        .map_err(|err| err.to_string())?;
-    Ok((inspected, inventory))
+        .map_err(|err| err.message)?;
+    let inventory =
+        inspect_workspace_inventory(workspace, &semantic.model, semantic.workspace.root())
+            .await
+            .map_err(|err| err.to_string())?;
+    Ok((semantic.workspace, inventory))
 }
 
 /// Reads up to `limit` saved request contexts from the staged checkout.

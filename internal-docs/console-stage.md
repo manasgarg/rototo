@@ -1649,16 +1649,19 @@ impl StageCache {
     pub async fn get_inspected_workspace(
         &self,
         selector: CachedWorkspaceSource,
+        source_token: &str,
     ) -> Result<Arc<Workspace>>;
 
     pub async fn get_semantic_workspace(
         &self,
         selector: CachedWorkspaceSource,
+        source_token: &str,
     ) -> Result<SemanticWorkspace>;
 
     pub async fn get_runtime_workspace(
         &self,
         selector: CachedWorkspaceSource,
+        source_token: &str,
     ) -> Result<Arc<Workspace>>;
 
     pub async fn invalidate_workspace(&self, selector: CachedWorkspaceSource);
@@ -1710,10 +1713,14 @@ Current callers should use it for:
 
 ### `get_inspected_workspace`
 
-`get_inspected_workspace(selector)` returns an `Arc<Workspace>` for one
-workspace path inside a staged source tree. The workspace has been inspected,
-but not lint-gated. Callers can read files through `workspace.root()` and can
-call `workspace.lint().await` themselves.
+`get_inspected_workspace(selector, source_token)` returns an `Arc<Workspace>`
+for one workspace path inside a staged source tree. The workspace has been
+inspected, but not lint-gated. Callers can read files through
+`workspace.root()` and can call `workspace.lint().await` themselves.
+
+`selector` carries `TokenIdentity` so cache keys stay scoped to the token used
+to access a source. `source_token` is the raw bearer token used only when the
+stage has to perform a cold source load.
 
 This is the permissive mode used by editing and diagnostics surfaces. Broken
 workspaces should still be inspectable when possible so the console can show
@@ -1728,8 +1735,8 @@ Current callers use it for:
 
 ### `get_semantic_workspace`
 
-`get_semantic_workspace(selector)` returns the inspected workspace plus a
-`WorkspaceSemanticModel`, grouped in `SemanticWorkspace`.
+`get_semantic_workspace(selector, source_token)` returns the inspected
+workspace plus a `WorkspaceSemanticModel`, grouped in `SemanticWorkspace`.
 
 The semantic model should be computed at most once per staged workspace view.
 Multiple routes use it for inventory, entity lookup, edit screens, and preview
@@ -1744,10 +1751,10 @@ relationship harder to accidentally break than returning a tuple.
 
 ### `get_runtime_workspace`
 
-`get_runtime_workspace(selector)` returns a lint-gated, runtime-capable
-`Workspace` for the selected workspace path. This is the workspace used for
-resolution previews. If lint fails, this method should fail the same way
-`Workspace::load` fails.
+`get_runtime_workspace(selector, source_token)` returns a lint-gated,
+runtime-capable `Workspace` for the selected workspace path. This is the
+workspace used for resolution previews. If lint fails, this method should fail
+the same way `Workspace::load` fails.
 
 Runtime preview has stricter semantics than inspection: applications can only
 resolve values from workspaces that pass lint and compile a runtime model. The
@@ -1964,7 +1971,8 @@ With that shape:
 1. `get_inspected_workspace` finds or creates the selected
    `StagedWorkspace`, then initializes `workspace.inspected`.
 2. `get_semantic_workspace` initializes `workspace.semantic` from the inspected
-   workspace.
+   workspace. On a cold cache, it passes the raw source token through to
+   inspection; the semantic model is still built from the inspected root.
 3. `get_runtime_workspace` initializes `workspace.runtime` from
    `Workspace::load(workspace.inspected.root())` and keeps the inspected
    backing alive.

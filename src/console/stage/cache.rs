@@ -7,6 +7,7 @@ use tokio::sync::Mutex;
 
 use super::discovery;
 use super::load;
+use super::semantic;
 use super::{
     BranchChanges, BranchName, CachedTreeSource, CachedWorkspaceSource, GitRefName,
     SemanticWorkspace, TreeRevision, WorkspaceDiscovery,
@@ -60,14 +61,16 @@ impl StageCache {
 
     pub async fn get_semantic_workspace(
         &self,
-        _selector: CachedWorkspaceSource,
+        selector: CachedWorkspaceSource,
+        source_token: &str,
     ) -> Result<SemanticWorkspace> {
-        Err(stage_rewrite_error("get_semantic_workspace"))
+        semantic::get_semantic_workspace(selector, source_token).await
     }
 
     pub async fn get_runtime_workspace(
         &self,
         _selector: CachedWorkspaceSource,
+        _source_token: &str,
     ) -> Result<Arc<Workspace>> {
         Err(stage_rewrite_error("get_runtime_workspace"))
     }
