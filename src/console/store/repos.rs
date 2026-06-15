@@ -273,6 +273,9 @@ fn delete_or_deactivate_workspace(tx: &Transaction<'_>, workspace_id: &str) -> R
            )
            AND NOT EXISTS (
              SELECT 1 FROM draft_workspaces WHERE workspace_id = ?1
+           )
+           AND NOT EXISTS (
+             SELECT 1 FROM tracked_branch_workspaces WHERE workspace_id = ?1
            )",
         params![workspace_id],
     )

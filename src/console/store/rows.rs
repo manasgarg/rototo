@@ -1,7 +1,7 @@
 use super::repos::workspace_slug;
 use super::types::{
     DraftChangeRecord, DraftEventRecord, DraftSessionRecord, DraftStatus, RepoRecord,
-    WorkspaceRecord,
+    TrackedBranchRecord, TrackedBranchStatus, WorkspaceRecord,
 };
 
 pub(super) fn repo_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<RepoRecord> {
@@ -61,6 +61,37 @@ pub(super) fn draft_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<DraftS
         created_at: row.get(11)?,
         updated_at: row.get(12)?,
         published_at: row.get(13)?,
+    })
+}
+
+#[allow(dead_code)]
+pub(super) fn tracked_branch_from_row(
+    row: &rusqlite::Row<'_>,
+) -> rusqlite::Result<TrackedBranchRecord> {
+    let status: String = row.get(13)?;
+    Ok(TrackedBranchRecord {
+        id: row.get(0)?,
+        repo_id: row.get(1)?,
+        principal_id: row.get(2)?,
+        branch: row.get(3)?,
+        base_ref: row.get(4)?,
+        base_commit: row.get(5)?,
+        pr_url: row.get(6)?,
+        pr_number: row.get(7)?,
+        pr_state: row.get(8)?,
+        pr_merged_at: row.get(9)?,
+        pr_synced_at: row.get(10)?,
+        last_selected_workspace_path: row.get(11)?,
+        last_seen_commit: row.get(12)?,
+        status: match status.as_str() {
+            "recent" => TrackedBranchStatus::Recent,
+            "archived" => TrackedBranchStatus::Archived,
+            _ => TrackedBranchStatus::Active,
+        },
+        created_at: row.get(14)?,
+        last_opened_at: row.get(15)?,
+        last_edited_at: row.get(16)?,
+        archived_at: row.get(17)?,
     })
 }
 

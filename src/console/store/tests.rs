@@ -38,7 +38,17 @@ fn schema_initialization_sets_store_schema_version() {
     let conn = Connection::open_in_memory().unwrap();
     schema::initialize_schema(&conn).unwrap();
 
-    assert_eq!(user_version(&conn), 3);
+    assert_eq!(user_version(&conn), 4);
+    assert!(
+        table_columns(&conn, "tracked_branches")
+            .iter()
+            .any(|column| column == "branch")
+    );
+    assert!(
+        table_columns(&conn, "tracked_branch_workspaces")
+            .iter()
+            .any(|column| column == "workspace_id")
+    );
 }
 
 #[test]
@@ -91,7 +101,7 @@ fn schema_initialization_baselines_legacy_version_zero_stores() {
 
     schema::initialize_schema(&conn).unwrap();
 
-    assert_eq!(user_version(&conn), 3);
+    assert_eq!(user_version(&conn), 4);
     assert!(
         table_columns(&conn, "workspaces")
             .iter()
@@ -203,7 +213,7 @@ fn schema_migration_v2_generalizes_draft_change_targets() {
 
     schema::initialize_schema(&conn).unwrap();
 
-    assert_eq!(user_version(&conn), 3);
+    assert_eq!(user_version(&conn), 4);
     let columns = table_columns(&conn, "draft_changes");
     assert!(columns.iter().any(|column| column == "target_path"));
     assert!(!columns.iter().any(|column| column == "variable_id"));
@@ -220,6 +230,11 @@ fn schema_migration_v2_generalizes_draft_change_targets() {
         )
         .unwrap();
     assert_eq!(target_path, "/values/control~1test~0key");
+    assert!(
+        table_columns(&conn, "tracked_branches")
+            .iter()
+            .any(|column| column == "last_selected_workspace_path")
+    );
 }
 
 #[test]
@@ -506,6 +521,263 @@ async fn repo_draft_can_include_multiple_workspaces() {
         .map(|workspace| workspace.path.as_str())
         .collect();
     assert_eq!(paths, [".", "payments/flags"]);
+}
+
+#[tokio::test]
+async fn tracked_branch_can_include_multiple_workspaces() {
+    let store = test_store().await;
+    let repo = store
+        .upsert_repo_with_workspaces(
+            "42".to_owned(),
+            "octo".to_owned(),
+            "configs".to_owned(),
+            "main".to_owned(),
+            vec![discovered("."), discovered("payments/flags")],
+        )
+        .await
+        .unwrap();
+    let root = repo.workspaces[0].clone();
+    let flags = repo.workspaces[1].clone();
+
+    let branch = store
+        .track_branch(TrackBranchInput {
+            workspace_id: root.id.clone(),
+            principal_id: "42".to_owned(),
+            branch: "feature/payments".to_owned(),
+            base_ref: "main".to_owned(),
+            base_commit: Some("0123456789abcdef0123456789abcdef01234567".to_owned()),
+            last_seen_commit: None,
+        })
+        .await
+        .unwrap();
+    assert_eq!(branch.status, TrackedBranchStatus::Active);
+    assert_eq!(branch.last_selected_workspace_path.as_deref(), Some("."));
+
+    let existing = store
+        .find_active_tracked_branch_for_repo_branch(&flags.id, "42", "feature/payments")
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(existing.id, branch.id);
+
+    let branch = store
+        .ensure_tracked_branch_workspace(&branch.id, &flags.id, "42")
+        .await
+        .unwrap();
+    assert_eq!(
+        branch.last_selected_workspace_path.as_deref(),
+        Some("payments/flags")
+    );
+
+    let root_branches = store
+        .list_tracked_branches_for_workspace(&root.id, "42")
+        .await
+        .unwrap();
+    let flags_branches = store
+        .list_tracked_branches_for_workspace(&flags.id, "42")
+        .await
+        .unwrap();
+    assert_eq!(root_branches[0].id, branch.id);
+    assert_eq!(flags_branches[0].id, branch.id);
+
+    let workspaces = store
+        .list_workspaces_for_tracked_branch(&branch.id)
+        .await
+        .unwrap();
+    let paths: Vec<&str> = workspaces
+        .iter()
+        .map(|workspace| workspace.path.as_str())
+        .collect();
+    assert_eq!(paths, [".", "payments/flags"]);
+}
+
+#[tokio::test]
+async fn tracked_branch_lists_recent_but_not_archived_branches() {
+    let store = test_store().await;
+    let repo = store
+        .upsert_repo_with_workspaces(
+            "42".to_owned(),
+            "octo".to_owned(),
+            "configs".to_owned(),
+            "main".to_owned(),
+            vec![discovered(".")],
+        )
+        .await
+        .unwrap();
+    let workspace = repo.workspaces[0].clone();
+
+    let active = store
+        .track_branch(TrackBranchInput {
+            workspace_id: workspace.id.clone(),
+            principal_id: "42".to_owned(),
+            branch: "feature/active".to_owned(),
+            base_ref: "main".to_owned(),
+            base_commit: None,
+            last_seen_commit: None,
+        })
+        .await
+        .unwrap();
+    let recent = store
+        .track_branch(TrackBranchInput {
+            workspace_id: workspace.id.clone(),
+            principal_id: "42".to_owned(),
+            branch: "feature/recent".to_owned(),
+            base_ref: "main".to_owned(),
+            base_commit: None,
+            last_seen_commit: None,
+        })
+        .await
+        .unwrap();
+    let archived = store
+        .track_branch(TrackBranchInput {
+            workspace_id: workspace.id.clone(),
+            principal_id: "42".to_owned(),
+            branch: "feature/archived".to_owned(),
+            base_ref: "main".to_owned(),
+            base_commit: None,
+            last_seen_commit: None,
+        })
+        .await
+        .unwrap();
+
+    let recent = store.mark_tracked_branch_recent(&recent.id).await.unwrap();
+    assert_eq!(recent.status, TrackedBranchStatus::Recent);
+    let archived = store.archive_tracked_branch(&archived.id).await.unwrap();
+    assert_eq!(archived.status, TrackedBranchStatus::Archived);
+    assert!(archived.archived_at.is_some());
+
+    let mut branches: Vec<String> = store
+        .list_tracked_branches_for_workspace(&workspace.id, "42")
+        .await
+        .unwrap()
+        .into_iter()
+        .map(|branch| branch.branch)
+        .collect();
+    branches.sort();
+    assert_eq!(branches, ["feature/active", "feature/recent"]);
+
+    let fetched = store
+        .get_tracked_branch_for_user(&archived.id, &workspace.id, "42")
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(fetched.status, TrackedBranchStatus::Archived);
+    assert_eq!(active.branch, "feature/active");
+}
+
+#[tokio::test]
+async fn tracked_branch_updates_edit_and_pull_request_metadata() {
+    let store = test_store().await;
+    let repo = store
+        .upsert_repo_with_workspaces(
+            "42".to_owned(),
+            "octo".to_owned(),
+            "configs".to_owned(),
+            "main".to_owned(),
+            vec![discovered(".")],
+        )
+        .await
+        .unwrap();
+    let branch = store
+        .track_branch(TrackBranchInput {
+            workspace_id: repo.workspaces[0].id.clone(),
+            principal_id: "42".to_owned(),
+            branch: "feature/pr".to_owned(),
+            base_ref: "main".to_owned(),
+            base_commit: None,
+            last_seen_commit: None,
+        })
+        .await
+        .unwrap();
+
+    let edited = store
+        .record_tracked_branch_edit(
+            &branch.id,
+            Some("fedcba9876543210fedcba9876543210fedcba98".to_owned()),
+        )
+        .await
+        .unwrap();
+    assert!(edited.last_edited_at.is_some());
+    assert_eq!(
+        edited.last_seen_commit.as_deref(),
+        Some("fedcba9876543210fedcba9876543210fedcba98")
+    );
+
+    let updated = store
+        .update_tracked_branch_pull_request_state(TrackedBranchPullRequestInput {
+            branch_id: branch.id.clone(),
+            pr_number: 12,
+            pr_state: "open".to_owned(),
+            pr_url: "https://github.com/octo/configs/pull/12".to_owned(),
+            pr_merged_at: None,
+        })
+        .await
+        .unwrap();
+    assert_eq!(updated.pr_number, Some(12));
+    assert_eq!(updated.pr_state.as_deref(), Some("open"));
+    assert!(updated.pr_synced_at.is_some());
+}
+
+#[tokio::test]
+async fn repo_upsert_hides_missing_workspace_but_keeps_tracked_branches() {
+    let store = test_store().await;
+    let repo = store
+        .upsert_repo_with_workspaces(
+            "42".to_owned(),
+            "octo".to_owned(),
+            "configs".to_owned(),
+            "main".to_owned(),
+            vec![discovered(".")],
+        )
+        .await
+        .unwrap();
+    let workspace = repo.workspaces[0].clone();
+    let branch = store
+        .track_branch(TrackBranchInput {
+            workspace_id: workspace.id.clone(),
+            principal_id: "42".to_owned(),
+            branch: "feature/root".to_owned(),
+            base_ref: "main".to_owned(),
+            base_commit: None,
+            last_seen_commit: None,
+        })
+        .await
+        .unwrap();
+
+    let rediscovered = store
+        .upsert_repo_with_workspaces(
+            "42".to_owned(),
+            "octo".to_owned(),
+            "configs".to_owned(),
+            "main".to_owned(),
+            vec![],
+        )
+        .await
+        .unwrap();
+
+    assert!(rediscovered.workspaces.is_empty());
+    assert!(
+        store
+            .list_workspaces_for_user("42")
+            .await
+            .unwrap()
+            .is_empty()
+    );
+    assert!(
+        store
+            .get_workspace_for_user(&workspace.id, "42")
+            .await
+            .unwrap()
+            .is_some()
+    );
+    let branches = store.list_tracked_branches_for_user("42").await.unwrap();
+    assert_eq!(branches.len(), 1);
+    assert_eq!(branches[0].id, branch.id);
+    let workspaces = store
+        .list_workspaces_for_tracked_branch(&branch.id)
+        .await
+        .unwrap();
+    assert_eq!(workspaces[0].id, workspace.id);
 }
 
 #[tokio::test]

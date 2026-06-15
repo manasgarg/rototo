@@ -4,7 +4,7 @@ use crate::error::{Result, RototoError};
 
 use super::util::db_err;
 
-const CURRENT_SCHEMA_VERSION: i32 = 3;
+const CURRENT_SCHEMA_VERSION: i32 = 4;
 const BASELINE_SCHEMA_VERSION: i32 = 1;
 
 pub(super) fn initialize_schema(conn: &Connection) -> Result<()> {
@@ -167,10 +167,54 @@ fn migrate_one_schema_version(conn: &Connection, version: i32) -> Result<i32> {
             migrate_schema_v3(conn)?;
             Ok(3)
         }
+        3 => {
+            migrate_schema_v4(conn)?;
+            Ok(4)
+        }
         _ => Err(RototoError::new(format!(
             "missing console database migration from schema version {version}"
         ))),
     }
+}
+
+fn migrate_schema_v4(conn: &Connection) -> Result<()> {
+    conn.execute_batch(
+        r#"
+        CREATE TABLE IF NOT EXISTS tracked_branches (
+          id TEXT PRIMARY KEY,
+          repo_id TEXT NOT NULL,
+          principal_id TEXT NOT NULL,
+          branch TEXT NOT NULL,
+          base_ref TEXT NOT NULL,
+          base_commit TEXT,
+          pr_url TEXT,
+          pr_number INTEGER,
+          pr_state TEXT,
+          pr_merged_at TEXT,
+          pr_synced_at TEXT,
+          last_selected_workspace_path TEXT,
+          last_seen_commit TEXT,
+          status TEXT NOT NULL,
+          created_at TEXT NOT NULL,
+          last_opened_at TEXT NOT NULL,
+          last_edited_at TEXT,
+          archived_at TEXT,
+          UNIQUE(repo_id, principal_id, branch),
+          FOREIGN KEY(repo_id) REFERENCES repos(id) ON DELETE CASCADE
+        );
+
+        CREATE TABLE IF NOT EXISTS tracked_branch_workspaces (
+          branch_id TEXT NOT NULL,
+          workspace_id TEXT NOT NULL,
+          added_at TEXT NOT NULL,
+          PRIMARY KEY(branch_id, workspace_id),
+          FOREIGN KEY(branch_id) REFERENCES tracked_branches(id) ON DELETE CASCADE,
+          FOREIGN KEY(workspace_id) REFERENCES workspaces(id) ON DELETE CASCADE
+        );
+        "#,
+    )
+    .map_err(db_err)?;
+    Ok(())
 }
 
 fn migrate_schema_v3(conn: &Connection) -> Result<()> {

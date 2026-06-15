@@ -128,6 +128,49 @@ pub struct DraftWithWorkspaceRecord {
     pub workspace: WorkspaceRecord,
 }
 
+/// Persisted tracking state for a repository branch.
+///
+/// Active branches are currently selected for work, recent branches remain
+/// visible as useful history, and archived branches are hidden from normal
+/// lists without deleting the branch from the remote source of truth.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "lowercase")]
+pub enum TrackedBranchStatus {
+    Active,
+    Recent,
+    Archived,
+}
+
+/// Branch selected by a user within a repository.
+///
+/// This is the branch-level replacement for draft session identity. It stores
+/// only local lifecycle metadata needed by the console: which branch a user is
+/// working with, which workspaces inside the repo were selected for that
+/// branch, and any observed pull request metadata. The branch contents remain
+/// the source of truth.
+#[derive(Clone, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TrackedBranchRecord {
+    pub id: String,
+    pub repo_id: String,
+    pub principal_id: String,
+    pub branch: String,
+    pub base_ref: String,
+    pub base_commit: Option<String>,
+    pub pr_url: Option<String>,
+    pub pr_number: Option<i64>,
+    pub pr_state: Option<String>,
+    pub pr_merged_at: Option<String>,
+    pub pr_synced_at: Option<String>,
+    pub last_selected_workspace_path: Option<String>,
+    pub last_seen_commit: Option<String>,
+    pub status: TrackedBranchStatus,
+    pub created_at: String,
+    pub last_opened_at: String,
+    pub last_edited_at: Option<String>,
+    pub archived_at: Option<String>,
+}
+
 /// Net change inside a draft.
 ///
 /// This exists so the console can render pending edits, rebuild workspace files,
@@ -187,6 +230,21 @@ pub struct NewDraftSession {
     pub base_ref: String,
 }
 
+/// Inputs for selecting or creating a tracked branch.
+///
+/// The store derives the repository and last selected workspace path from the
+/// workspace id. Re-selecting an existing branch updates its lifecycle metadata
+/// and ensures the workspace is attached to that branch.
+#[allow(dead_code)]
+pub struct TrackBranchInput {
+    pub workspace_id: String,
+    pub principal_id: String,
+    pub branch: String,
+    pub base_ref: String,
+    pub base_commit: Option<String>,
+    pub last_seen_commit: Option<String>,
+}
+
 /// Upsert input for the net change tracked inside a draft.
 ///
 /// Save routes pass semantic before/after JSON for a file or value target.
@@ -218,6 +276,16 @@ pub struct DraftEventInput {
 /// every render.
 pub struct PullRequestStateInput {
     pub draft_id: String,
+    pub pr_number: i64,
+    pub pr_state: String,
+    pub pr_url: String,
+    pub pr_merged_at: Option<String>,
+}
+
+/// Pull request metadata observed for a tracked branch.
+#[allow(dead_code)]
+pub struct TrackedBranchPullRequestInput {
+    pub branch_id: String,
     pub pr_number: i64,
     pub pr_state: String,
     pub pr_url: String,
