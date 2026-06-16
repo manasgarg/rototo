@@ -25,7 +25,9 @@ export function RefreshSourceTreeButton({
             );
             const body = (await response.json()) as { error?: string };
             if (!response.ok) {
-                throw new Error(body.error ?? "failed to refresh source tree");
+                throw new Error(
+                    body.error ?? "failed to refresh configuration source",
+                );
             }
             router.refresh();
         } catch (error) {

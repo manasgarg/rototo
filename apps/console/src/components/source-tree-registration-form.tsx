@@ -3,7 +3,7 @@ import { FormEvent, useState } from "react";
 import { Plus, X } from "lucide-react";
 import { apiFetch } from "@/lib/api";
 
-/** Transient submit result shown by the source tree registration form. */
+/** Transient submit result shown by the configuration source registration form. */
 type FormNote = { tone: "ok" | "err"; text: string };
 
 export function SourceTreeRegistrationForm() {
@@ -21,7 +21,7 @@ export function SourceTreeRegistrationForm() {
         try {
             const normalizedSourceTree = normalizeSourceTreeInput(sourceTree);
             if (!normalizedSourceTree) {
-                throw new Error("source tree is required");
+                throw new Error("configuration source is required");
             }
             const normalizedRef = ref.trim();
             const response = await apiFetch("/api/source-trees", {
@@ -33,11 +33,13 @@ export function SourceTreeRegistrationForm() {
             });
             const body = (await response.json()) as { error?: string };
             if (!response.ok) {
-                throw new Error(body.error ?? "failed to register source tree");
+                throw new Error(
+                    body.error ?? "failed to register configuration source",
+                );
             }
             setSourceTree("");
             setRef("");
-            setNote({ tone: "ok", text: "Source tree scanned." });
+            setNote({ tone: "ok", text: "Configuration source scanned." });
             setOpen(false);
             router.refresh();
         } catch (error) {
@@ -59,7 +61,7 @@ export function SourceTreeRegistrationForm() {
                     type="button"
                 >
                     <Plus aria-hidden size={15} />
-                    Add source tree
+                    Add configuration source
                 </button>
                 {note ? (
                     <p className="form-note" data-tone={note.tone}>
@@ -74,7 +76,7 @@ export function SourceTreeRegistrationForm() {
         <form className="card" onSubmit={submit}>
             <div className="card-head">
                 <div className="card-head-text">
-                    <h3>Add a source tree</h3>
+                    <h3>Add a configuration source</h3>
                     <p className="hint">
                         rototo scans the ref for{" "}
                         <span className="mono">rototo-workspace.toml</span>{" "}
@@ -93,7 +95,7 @@ export function SourceTreeRegistrationForm() {
             </div>
             <div className="field-row">
                 <label className="field-stack">
-                    <span className="label">source tree</span>
+                    <span className="label">configuration source</span>
                     <input
                         autoComplete="off"
                         autoFocus
@@ -126,7 +128,7 @@ export function SourceTreeRegistrationForm() {
                     ) : (
                         <Plus aria-hidden size={15} />
                     )}
-                    {pending ? "Scanning" : "Add source tree"}
+                    {pending ? "Scanning" : "Add configuration source"}
                 </button>
                 {note ? (
                     <p className="form-note" data-tone={note.tone}>

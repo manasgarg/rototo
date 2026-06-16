@@ -3,6 +3,7 @@ import {
     StrictMode,
     Suspense,
     lazy,
+    type ComponentType,
     type ErrorInfo,
     type ReactNode,
 } from "react";
@@ -30,26 +31,44 @@ import { ConsoleScreen } from "@/screens/console-screen";
 import { LoginScreen } from "@/screens/login-screen";
 import { NotFound } from "@/screens/not-found";
 
-const BranchScreen = lazy(async () => {
-    const screen = await import("@/screens/branch-screen");
-    return { default: screen.BranchScreen };
-});
+const DYNAMIC_IMPORT_RETRY_DELAYS_MS = [150, 500, 1200];
 
-const WorkspaceScreen = lazy(async () => {
-    const screen = await import("@/screens/workspace-screen");
-    return { default: screen.WorkspaceScreen };
-});
+const BranchScreen = lazyWithRetry(
+    async () => {
+        const screen = await import("@/screens/branch-screen");
+        return { default: screen.BranchScreen };
+    },
+    async () => {
+        const screen = (await import(
+            /* @vite-ignore */ `/src/screens/branch-screen.tsx?t=${Date.now()}`
+        )) as typeof import("@/screens/branch-screen");
+        return { default: screen.BranchScreen };
+    },
+);
+
+const WorkspaceScreen = lazyWithRetry(
+    async () => {
+        const screen = await import("@/screens/workspace-screen");
+        return { default: screen.WorkspaceScreen };
+    },
+    async () => {
+        const screen = (await import(
+            /* @vite-ignore */ `/src/screens/workspace-screen.tsx?t=${Date.now()}`
+        )) as typeof import("@/screens/workspace-screen");
+        return { default: screen.WorkspaceScreen };
+    },
+);
 
 installGlobalErrorTelemetry();
 
 class TelemetryBoundary extends Component<
     { children: ReactNode },
-    { failed: boolean }
+    { failed: boolean; message: string | null }
 > {
-    state = { failed: false };
+    state = { failed: false, message: null };
 
-    static getDerivedStateFromError() {
-        return { failed: true };
+    static getDerivedStateFromError(error: unknown) {
+        return { failed: true, message: errorMessage(error) };
     }
 
     componentDidCatch(error: Error, errorInfo: ErrorInfo) {
@@ -68,14 +87,72 @@ class TelemetryBoundary extends Component<
                         <span className="label">console error</span>
                         <h1>The console UI failed to render.</h1>
                         <p className="hint">
-                            Check the dev observability log for details.
+                            {this.state.message ??
+                                "Check the dev observability log for details."}
                         </p>
+                        <button
+                            className="btn btn-secondary"
+                            onClick={() => window.location.reload()}
+                            type="button"
+                        >
+                            Reload console
+                        </button>
                     </div>
                 </main>
             );
         }
         return this.props.children;
     }
+}
+
+function errorMessage(error: unknown): string {
+    return error instanceof Error ? error.message : String(error);
+}
+
+function lazyWithRetry<T extends ComponentType<any>>(
+    loader: () => Promise<{ default: T }>,
+    devLoader: () => Promise<{ default: T }>,
+) {
+    return lazy(() => retryDynamicImport(loader, devLoader));
+}
+
+async function retryDynamicImport<T>(
+    loader: () => Promise<T>,
+    devLoader: () => Promise<T>,
+): Promise<T> {
+    let lastError: unknown;
+    for (const delayMs of [0, ...DYNAMIC_IMPORT_RETRY_DELAYS_MS]) {
+        if (delayMs > 0) {
+            await new Promise((resolve) => setTimeout(resolve, delayMs));
+        }
+        try {
+            const load =
+                delayMs > 0 && import.meta.env.DEV ? devLoader : loader;
+            return await load();
+        } catch (error) {
+            lastError = error;
+            if (!isRetryableDynamicImportError(error)) {
+                throw error;
+            }
+            recordConsoleEvent({
+                kind: "dynamic-import-retry",
+                error: describeError(error),
+                delayMs,
+            });
+        }
+    }
+    throw lastError;
+}
+
+function isRetryableDynamicImportError(error: unknown): boolean {
+    const message = errorMessage(error);
+    return (
+        message.includes("Failed to fetch dynamically imported module") ||
+        message.includes("error loading dynamically imported module") ||
+        message.includes("Importing a module script failed") ||
+        message.includes("Loading chunk") ||
+        message.includes("dynamically imported module")
+    );
 }
 
 function RequireAuth({ children }: { children: React.ReactNode }) {
@@ -181,14 +258,23 @@ function App() {
                                         element={
                                             <Navigate
                                                 replace
-                                                to="source-trees"
+                                                to="configuration-sources"
                                             />
                                         }
                                         path="/"
                                     />
                                     <Route
                                         element={
-                                            <ConsoleScreen screen="source-trees" />
+                                            <ConsoleScreen screen="configuration-sources" />
+                                        }
+                                        path="configuration-sources"
+                                    />
+                                    <Route
+                                        element={
+                                            <Navigate
+                                                replace
+                                                to="/app/configuration-sources"
+                                            />
                                         }
                                         path="source-trees"
                                     />

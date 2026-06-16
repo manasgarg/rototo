@@ -101,7 +101,7 @@ console-dev:
         fi
     }
 
-    (cargo_watch -w src -w Cargo.toml -w Cargo.lock -w build.rs -x "run -- console --deployment local --public-url $public_url --data-dir $data_dir" 2>&1 | tee -a "$log") &
+    (cargo_watch -w src -w Cargo.toml -w Cargo.lock -w build.rs -x "run -- console --deployment hosted --public-url $public_url --data-dir $data_dir" 2>&1 | tee -a "$log") &
     api_pid=$!
     trap 'kill "$api_pid" 2>/dev/null || true; wait "$api_pid" 2>/dev/null || true' EXIT
     ready=0

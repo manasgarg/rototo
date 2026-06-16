@@ -170,7 +170,7 @@ pub fn workspace_capabilities(
                 }
             }
             _ => WriteCapability::Disabled {
-                reason: "only GitHub source trees support branch edits".to_owned(),
+                reason: "only GitHub configuration sources support branch edits".to_owned(),
             },
         },
         WritePolicy::DirectPush => match kind {
@@ -186,7 +186,7 @@ pub fn workspace_capabilities(
                 }
             }
             _ => WriteCapability::Disabled {
-                reason: "only GitHub source trees support branch edits".to_owned(),
+                reason: "only GitHub configuration sources support branch edits".to_owned(),
             },
         },
     };

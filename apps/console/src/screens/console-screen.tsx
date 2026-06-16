@@ -31,13 +31,17 @@ import type {
 } from "@/lib/types";
 
 /** App shell tab id accepted from route state. */
-export type AppScreen = "source-trees" | "workspaces" | "branches" | "activity";
+export type AppScreen =
+    | "configuration-sources"
+    | "workspaces"
+    | "branches"
+    | "activity";
 
 /** Active branch row paired with workspace metadata for dashboard lists. */
 type BranchEntry = { branch: BranchRecord; workspace: WorkspaceRecord };
 
 const SCREEN_TITLES: Record<AppScreen, string> = {
-    "source-trees": "Source Trees",
+    "configuration-sources": "Configuration Sources",
     workspaces: "Workspaces",
     branches: "Branches",
     activity: "Activity",
@@ -165,7 +169,7 @@ export function ConsoleScreen({ screen }: { screen: AppScreen }) {
                     {
                         label: "console",
                         href:
-                            selectedScreen === "source-trees"
+                            selectedScreen === "configuration-sources"
                                 ? undefined
                                 : "/app",
                     },
@@ -177,11 +181,11 @@ export function ConsoleScreen({ screen }: { screen: AppScreen }) {
                     <>
                         <NavGroupLabel>Console</NavGroupLabel>
                         <NavLink
-                            active={selectedScreen === "source-trees"}
+                            active={selectedScreen === "configuration-sources"}
                             count={sourceTrees.length}
-                            href={appScreenHref("source-trees")}
+                            href={appScreenHref("configuration-sources")}
                             icon={<FolderGit2 aria-hidden size={16} />}
-                            label="Source Trees"
+                            label="Configuration Sources"
                         />
                         <NavLink
                             active={selectedScreen === "workspaces"}
@@ -208,7 +212,7 @@ export function ConsoleScreen({ screen }: { screen: AppScreen }) {
                 title={SCREEN_TITLES[selectedScreen]}
                 user={user}
             >
-                {selectedScreen === "source-trees" ? (
+                {selectedScreen === "configuration-sources" ? (
                     <SourceTreesScreen sourceTrees={sourceTrees} />
                 ) : null}
                 {selectedScreen === "workspaces" ? (
@@ -245,9 +249,10 @@ function SourceTreesScreen({
     return (
         <section className="section">
             <div className="section-header-text">
-                <h1>Source Trees</h1>
+                <h1>Configuration Sources</h1>
                 <p className="hint">
-                    rototo discovers workspaces by scanning a source tree for{" "}
+                    rototo discovers workspaces by scanning a configuration
+                    source for{" "}
                     <span className="mono">rototo-workspace.toml</span> files.
                     Register a GitHub repo, local folder, git remote, or archive
                     this console can read.
@@ -260,16 +265,16 @@ function SourceTreesScreen({
                         <FolderGit2 aria-hidden size={18} />
                     </span>
                     <p>
-                        No source trees yet. Add one above to discover
+                        No configuration sources yet. Add one above to discover
                         workspaces.
                     </p>
                 </div>
             ) : (
                 <SearchableList
                     className="card-grid"
-                    emptyLabel="No source trees match that search."
-                    label="Search source trees"
-                    placeholder="Search source trees"
+                    emptyLabel="No configuration sources match that search."
+                    label="Search configuration sources"
+                    placeholder="Search configuration sources"
                 >
                     {sourceTrees.map((sourceTree) => (
                         <article
@@ -364,15 +369,15 @@ function WorkspacesScreen({
                 <p className="hint">
                     Each workspace is a{" "}
                     <span className="mono">rototo-workspace.toml</span> root
-                    discovered in a registered source tree. Open one to inspect
-                    and edit it.
+                    discovered in a registered configuration source. Open one to
+                    inspect and edit it.
                 </p>
             </div>
             {filterSourceTree ? (
                 <div className="action-row">
                     <span className="pill pill-sea">
                         <span className="d" />
-                        source tree: {filterSourceTree.displayName}
+                        configuration source: {filterSourceTree.displayName}
                     </span>
                     <Link
                         className="btn btn-ghost btn-sm"
@@ -389,8 +394,8 @@ function WorkspacesScreen({
                     </span>
                     <p>
                         {filterSourceTree
-                            ? `No workspaces discovered in ${filterSourceTree.displayName}. Re-scan it from the source trees screen after adding rototo-workspace.toml.`
-                            : "Nothing to configure… yet. Register a source tree to discover workspaces."}
+                            ? `No workspaces discovered in ${filterSourceTree.displayName}. Re-scan it from the configuration sources screen after adding rototo-workspace.toml.`
+                            : "Nothing to configure… yet. Register a configuration source to discover workspaces."}
                     </p>
                 </div>
             ) : (
@@ -548,8 +553,9 @@ function BranchesScreen({ branches }: { branches: BranchEntry[] }) {
             <div className="section-header-text">
                 <h1>Branches</h1>
                 <p className="hint">
-                    Every branch is a real branch in the workspace source tree.
-                    Edits commit to the branch; publishing opens a pull request.
+                    Every branch is a real branch in the workspace configuration
+                    source. Edits commit to the branch; publishing opens a pull
+                    request.
                 </p>
             </div>
             {branches.length === 0 ? (
@@ -649,7 +655,7 @@ function ActivityScreen({
                     </span>
                 </div>
                 <div className="stat-card">
-                    <span className="label">source trees</span>
+                    <span className="label">configuration sources</span>
                     <span className="stat-value">{sourceTreesCount}</span>
                 </div>
             </div>
@@ -734,7 +740,7 @@ function countLabel(count: number, noun: string): string {
 }
 
 function appScreenHref(screen: AppScreen): string {
-    return screen === "source-trees" ? "/app/source-trees" : `/app/${screen}`;
+    return `/app/${screen}`;
 }
 
 function sourceTreeKindLabel(kind: SourceTreeWithWorkspaces["kind"]): string {

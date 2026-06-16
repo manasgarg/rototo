@@ -468,7 +468,7 @@ function WorkspaceSection({
                 </div>
                 <div className="meta-grid">
                     <div className="meta-item">
-                        <span className="label">source tree</span>
+                        <span className="label">configuration source</span>
                         <span className="meta-value mono">
                             <Link
                                 className="title-link"

@@ -391,7 +391,7 @@ async fn branch_candidates(
             | super::capabilities::WorkspaceSourceKind::GitHubGit
     ) {
         return Err(ApiError::bad_request(
-            "only GitHub source trees support branch discovery",
+            "only GitHub configuration sources support branch discovery",
         ));
     }
     let token = require_github_token(&user, "Scanning branches")?;

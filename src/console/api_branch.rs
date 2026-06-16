@@ -127,7 +127,7 @@ fn branch_backend<'a>(
                 })
             }
             _ => Err(ApiError::bad_request(
-                "only GitHub source trees support branch edits",
+                "only GitHub configuration sources support branch edits",
             )),
         },
         WritePolicy::DirectPush => match kind {
@@ -139,7 +139,7 @@ fn branch_backend<'a>(
                 })
             }
             _ => Err(ApiError::bad_request(
-                "only GitHub source trees support branch edits",
+                "only GitHub configuration sources support branch edits",
             )),
         },
     }

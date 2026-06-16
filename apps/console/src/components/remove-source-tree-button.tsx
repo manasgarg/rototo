@@ -17,7 +17,7 @@ export function RemoveSourceTreeButton({
     async function remove() {
         if (
             !window.confirm(
-                `Remove ${sourceTreeName} from the console? Its workspaces and branches disappear here; the GitHub repository is untouched.`,
+                `Remove configuration source ${sourceTreeName} from the console? Its workspaces and branches disappear here; the GitHub repository is untouched.`,
             )
         ) {
             return;
@@ -33,7 +33,9 @@ export function RemoveSourceTreeButton({
             );
             const body = (await response.json()) as { error?: string };
             if (!response.ok) {
-                throw new Error(body.error ?? "failed to remove source tree");
+                throw new Error(
+                    body.error ?? "failed to remove configuration source",
+                );
             }
             router.refresh();
         } catch (error) {

@@ -907,7 +907,7 @@ async fn source_trees_register(
         .as_deref()
         .map(str::trim)
         .filter(|value| !value.is_empty())
-        .ok_or_else(|| ApiError::bad_request("source tree is required"))?;
+        .ok_or_else(|| ApiError::bad_request("configuration source is required"))?;
     if should_register_as_github(source_tree).await {
         tracing::info!(
             operation = "source_tree.register",
@@ -950,14 +950,14 @@ async fn upsert_github_source_tree(
     source_tree: &str,
     git_ref: Option<String>,
 ) -> ApiResult<(super::store::SourceTreeWithWorkspaces, String)> {
-    let token = require_github_token(user, "Registering the source tree")?;
+    let token = require_github_token(user, "Registering the configuration source")?;
     let (owner, name) = github::parse_repo_spec(source_tree)
         .map_err(|err| ApiError::bad_request(err.to_string()))?;
     let github_repo = state
         .github
         .repo(token, &owner, &name)
         .await
-        .map_err(|err| ApiError::github(&err, "Registering the source tree"))?;
+        .map_err(|err| ApiError::github(&err, "Registering the configuration source"))?;
     let requested_ref = git_ref
         .as_deref()
         .map(str::trim)
@@ -1105,7 +1105,7 @@ fn read_only_registration_source(source_tree: &str, git_ref: Option<&str>) -> Ap
         }
         if !source.starts_with("git+") {
             return Err(ApiError::bad_request(
-                "ref only applies to GitHub or git source trees",
+                "ref only applies to GitHub or git configuration sources",
             ));
         }
     }
@@ -1168,7 +1168,7 @@ async fn source_tree_delete(
         .delete_source_tree_for_user(&source_tree_id, &user.principal_id)
         .await?;
     if !removed {
-        return Err(ApiError::not_found("source tree not found"));
+        return Err(ApiError::not_found("configuration source not found"));
     }
     Ok(Json(json!({ "ok": true })))
 }
@@ -1192,7 +1192,7 @@ async fn refresh_source_tree_for_user(
         .store
         .get_source_tree_for_user(source_tree_id, &user.principal_id)
         .await?
-        .ok_or_else(|| ApiError::not_found("source tree not found"))?;
+        .ok_or_else(|| ApiError::not_found("configuration source not found"))?;
     let source_tree = existing.source_tree;
     tracing::info!(
         operation = "source_tree.refresh",

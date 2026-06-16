@@ -1148,6 +1148,22 @@ a.row:hover {
     box-shadow: var(--shadow-2);
 }
 
+.source-tree-card .card-head {
+    flex-wrap: wrap;
+}
+
+.source-tree-card .card-head-text {
+    flex: 1 1 180px;
+}
+
+.source-tree-card h3,
+.source-tree-card .card-stretch {
+    display: block;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
 /* stretched link: the whole card is the click target */
 .card-stretch::after {
     content: "";
@@ -1173,6 +1189,13 @@ a.row:hover {
     align-items: center;
     gap: 8px;
     flex: none;
+}
+
+.source-tree-card .card-actions {
+    flex: 0 1 auto;
+    flex-wrap: wrap;
+    justify-content: flex-end;
+    max-width: 100%;
 }
 
 .btn-remove:hover {
