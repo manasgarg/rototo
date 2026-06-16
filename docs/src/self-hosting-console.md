@@ -15,19 +15,27 @@ SQLite file under its data directory, and everything that matters lives in
 Git.
 
 ```sh
-rototo console
+rototo console --workspace examples/basic
 ```
 
-That starts the console on `http://127.0.0.1:7686`, bound to localhost.
+That starts a local console on `http://127.0.0.1:7686`, bound to localhost,
+with `examples/basic` registered as the fixed workspace.
 
 ## Local Deployment: One Engineer, One Laptop
 
-By default the console runs as a local deployment: no login screen, no user
-database, and no requirement that every workspace live on GitHub. Local folder
-workspaces can be read from disk with the identity already present in the git
-checkout (`user.name` and `user.email`). That keeps the laptop workflow close
-to normal git: if you are working in a local clone, rototo does not make you
-authenticate to GitHub just to inspect files.
+When `--workspace` is present and `--deployment` is omitted, the console runs as
+a local deployment: no login screen, no user database, and no requirement that
+every workspace live on GitHub. Local folder workspaces can be read from disk
+with the identity already present in the git checkout (`user.name` and
+`user.email`). That keeps the laptop workflow close to normal git: if you are
+working in a local clone, rototo does not make you authenticate to GitHub just
+to inspect files.
+
+You can also start local deployment without a fixed workspace:
+
+```sh
+rototo console --deployment local
+```
 
 A GitHub token still matters when the workspace source or write path needs
 GitHub. Private GitHub repositories need credentials to read, pull-request
@@ -59,14 +67,17 @@ repository permissions. A user who cannot push to the repository cannot edit
 branches through the console, and every pull request is attributed to the person
 who made it, not to a shared bot.
 
-Hosted deployment turns on when both OAuth credentials are configured:
+Hosted deployment is selected with `--deployment hosted`, or by omitting both
+`--deployment` and `--workspace`. The OAuth credentials do not choose the
+deployment mode; they are required configuration after hosted mode has been
+selected:
 
 ```sh
 ROTOTO_GITHUB_CLIENT_ID=… \
 ROTOTO_GITHUB_CLIENT_SECRET=… \
 ROTOTO_CONSOLE_TOKEN_ENCRYPTION_KEY=base64:… \
 ROTOTO_CONSOLE_PUBLIC_URL=https://console.internal.example.com \
-rototo console --bind 127.0.0.1:7686
+rototo console --deployment hosted --bind 127.0.0.1:7686
 ```
 
 - Register a GitHub OAuth App for your deployment with the callback URL
@@ -86,9 +97,10 @@ be your TLS terminator or your VPN.
 
 ## Fixed Workspace and Write Policy
 
-Deployment is separate from the workspace source and from the write policy.
-`--workspace` fixes the console to one workspace source. `--write` says what
-the console is allowed to do with that source:
+Deployment is selected before the workspace source and write policy are applied.
+`--workspace` fixes the console to one workspace source and defaults deployment
+to local unless you pass `--deployment hosted`. `--write` says what the console
+is allowed to do with that source:
 
 ```sh
 rototo console --workspace examples/basic --write disabled

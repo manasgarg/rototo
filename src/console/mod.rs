@@ -51,7 +51,9 @@ use tracing_subscriber::Registry;
 use tracing_subscriber::reload::Handle as TracingReloadHandle;
 
 pub const DEFAULT_BIND: &str = "127.0.0.1:7686";
-pub use self::capabilities::WritePolicy as ConsoleWritePolicy;
+pub use self::capabilities::{
+    DeploymentType as ConsoleDeployment, WritePolicy as ConsoleWritePolicy,
+};
 
 const CONSOLE_PUBLIC_URL_ENV: &str = "ROTOTO_CONSOLE_PUBLIC_URL";
 const CONSOLE_DATA_DIR_ENV: &str = "ROTOTO_CONSOLE_DATA_DIR";
@@ -74,6 +76,7 @@ pub struct ConsoleOptions {
     pub public_url: Option<String>,
     pub data_dir: Option<PathBuf>,
     pub workspace: Option<String>,
+    pub deployment: Option<ConsoleDeployment>,
     pub write_policy: WritePolicy,
     pub workspace_token: Option<String>,
 }
@@ -166,10 +169,17 @@ pub async fn run(options: ConsoleOptions) -> Result<()> {
         ))
     })?;
 
-    let (deployment, oauth) = resolve_deployment(&admin_env)?;
+    let deployment_selection = resolve_deployment(
+        options.deployment.clone(),
+        options.workspace.is_some(),
+        &admin_env,
+    )?;
+    let deployment = deployment_selection.deployment;
+    let oauth = deployment_selection.oauth;
     tracing::info!(
         operation = "console.startup",
         deployment = deployment.label(),
+        deployment_source = deployment_selection.reason.label(),
         write_policy = options.write_policy.label(),
         data_dir = %data_dir.display(),
         fixed_workspace = options.workspace.is_some(),
@@ -325,31 +335,72 @@ fn reload_console_tracing_filter(filter: &str) {
     }
 }
 
-fn resolve_deployment(
-    admin_env: &ConsoleAdminEnv,
-) -> Result<(DeploymentType, Option<HostedOAuth>)> {
-    let client_id = admin_env.get(GITHUB_CLIENT_ID_ENV).unwrap_or_default();
-    let client_secret = admin_env.get(GITHUB_CLIENT_SECRET_ENV).unwrap_or_default();
-    resolve_deployment_from_env(&client_id, &client_secret)
+#[derive(Debug, PartialEq, Eq)]
+struct DeploymentSelection {
+    deployment: DeploymentType,
+    oauth: Option<HostedOAuth>,
+    reason: DeploymentSelectionReason,
 }
 
-fn resolve_deployment_from_env(
-    client_id: &str,
-    client_secret: &str,
-) -> Result<(DeploymentType, Option<HostedOAuth>)> {
-    match (client_id.trim(), client_secret.trim()) {
-        ("", "") => Ok((DeploymentType::Local, None)),
-        (_, "") => Ok((DeploymentType::Local, None)),
-        ("", _) => Err(RototoError::new(format!(
-            "hosted deployment needs both {GITHUB_CLIENT_ID_ENV} and {GITHUB_CLIENT_SECRET_ENV}; set {GITHUB_CLIENT_ID_ENV} alone only for local device-flow sign-in"
-        ))),
-        (client_id, client_secret) => Ok((
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum DeploymentSelectionReason {
+    ExplicitFlag,
+    WorkspacePresent,
+    NoWorkspace,
+}
+
+impl DeploymentSelectionReason {
+    fn label(self) -> &'static str {
+        match self {
+            Self::ExplicitFlag => "explicit-flag",
+            Self::WorkspacePresent => "workspace-present",
+            Self::NoWorkspace => "no-workspace",
+        }
+    }
+}
+
+fn resolve_deployment(
+    explicit: Option<DeploymentType>,
+    has_workspace: bool,
+    admin_env: &ConsoleAdminEnv,
+) -> Result<DeploymentSelection> {
+    let (deployment, reason) = match explicit {
+        Some(deployment) => (deployment, DeploymentSelectionReason::ExplicitFlag),
+        None if has_workspace => (
+            DeploymentType::Local,
+            DeploymentSelectionReason::WorkspacePresent,
+        ),
+        None => (
             DeploymentType::Hosted,
-            Some(HostedOAuth {
-                client_id: client_id.to_owned(),
-                client_secret: client_secret.to_owned(),
-            }),
-        )),
+            DeploymentSelectionReason::NoWorkspace,
+        ),
+    };
+    let oauth = match deployment {
+        DeploymentType::Local => None,
+        DeploymentType::Hosted => Some(resolve_hosted_oauth(admin_env)?),
+    };
+    Ok(DeploymentSelection {
+        deployment,
+        oauth,
+        reason,
+    })
+}
+
+fn resolve_hosted_oauth(admin_env: &ConsoleAdminEnv) -> Result<HostedOAuth> {
+    let client_id = admin_env.get(GITHUB_CLIENT_ID_ENV).unwrap_or_default();
+    let client_secret = admin_env.get(GITHUB_CLIENT_SECRET_ENV).unwrap_or_default();
+    resolve_hosted_oauth_from_env(&client_id, &client_secret)
+}
+
+fn resolve_hosted_oauth_from_env(client_id: &str, client_secret: &str) -> Result<HostedOAuth> {
+    match (client_id.trim(), client_secret.trim()) {
+        ("", "") | (_, "") | ("", _) => Err(RototoError::new(format!(
+            "hosted deployment requires both {GITHUB_CLIENT_ID_ENV} and {GITHUB_CLIENT_SECRET_ENV}; pass --deployment local or --workspace <source> for local deployment"
+        ))),
+        (client_id, client_secret) => Ok(HostedOAuth {
+            client_id: client_id.to_owned(),
+            client_secret: client_secret.to_owned(),
+        }),
     }
 }
 
@@ -633,22 +684,34 @@ mod tests {
     use super::*;
 
     #[test]
-    fn resolve_deployment_stays_local_with_only_github_client_id() {
-        let (deployment, oauth) =
-            resolve_deployment_from_env("device-client-id", "").expect("deployment should resolve");
+    fn resolve_deployment_defaults_local_when_workspace_is_present() {
+        let selection =
+            resolve_deployment(None, true, &admin_env(&[])).expect("deployment should resolve");
 
-        assert_eq!(deployment, DeploymentType::Local);
-        assert!(oauth.is_none());
+        assert_eq!(selection.deployment, DeploymentType::Local);
+        assert_eq!(
+            selection.reason,
+            DeploymentSelectionReason::WorkspacePresent
+        );
+        assert!(selection.oauth.is_none());
     }
 
     #[test]
-    fn resolve_deployment_uses_hosted_when_namespaced_github_oauth_pair_is_set() {
-        let (deployment, oauth) = resolve_deployment_from_env("oauth-client-id", "oauth-secret")
-            .expect("deployment should resolve");
+    fn resolve_deployment_defaults_hosted_without_workspace() {
+        let selection = resolve_deployment(
+            None,
+            false,
+            &admin_env(&[
+                (GITHUB_CLIENT_ID_ENV, "oauth-client-id"),
+                (GITHUB_CLIENT_SECRET_ENV, "oauth-secret"),
+            ]),
+        )
+        .expect("deployment should resolve");
 
-        assert_eq!(deployment, DeploymentType::Hosted);
+        assert_eq!(selection.deployment, DeploymentType::Hosted);
+        assert_eq!(selection.reason, DeploymentSelectionReason::NoWorkspace);
         assert_eq!(
-            oauth,
+            selection.oauth,
             Some(HostedOAuth {
                 client_id: "oauth-client-id".to_owned(),
                 client_secret: "oauth-secret".to_owned(),
@@ -657,12 +720,70 @@ mod tests {
     }
 
     #[test]
-    fn resolve_deployment_rejects_github_client_secret_without_client_id() {
-        let err = resolve_deployment_from_env("", "oauth-secret")
-            .expect_err("deployment should reject a secret without a client id");
+    fn resolve_deployment_rejects_default_hosted_without_oauth_config() {
+        let err = resolve_deployment(None, false, &admin_env(&[]))
+            .expect_err("hosted deployment should require OAuth config");
 
         assert!(err.to_string().contains(GITHUB_CLIENT_ID_ENV));
         assert!(err.to_string().contains(GITHUB_CLIENT_SECRET_ENV));
+    }
+
+    #[test]
+    fn resolve_deployment_explicit_local_ignores_hosted_oauth_config() {
+        let selection = resolve_deployment(
+            Some(DeploymentType::Local),
+            false,
+            &admin_env(&[
+                (GITHUB_CLIENT_ID_ENV, "oauth-client-id"),
+                (GITHUB_CLIENT_SECRET_ENV, "oauth-secret"),
+            ]),
+        )
+        .expect("deployment should resolve");
+
+        assert_eq!(selection.deployment, DeploymentType::Local);
+        assert_eq!(selection.reason, DeploymentSelectionReason::ExplicitFlag);
+        assert!(selection.oauth.is_none());
+    }
+
+    #[test]
+    fn resolve_deployment_explicit_hosted_requires_oauth_config_even_with_workspace() {
+        let err = resolve_deployment(Some(DeploymentType::Hosted), true, &admin_env(&[]))
+            .expect_err("explicit hosted deployment should require OAuth config");
+
+        assert!(err.to_string().contains(GITHUB_CLIENT_ID_ENV));
+        assert!(err.to_string().contains(GITHUB_CLIENT_SECRET_ENV));
+    }
+
+    #[test]
+    fn resolve_deployment_explicit_hosted_allows_fixed_workspace() {
+        let selection = resolve_deployment(
+            Some(DeploymentType::Hosted),
+            true,
+            &admin_env(&[
+                (GITHUB_CLIENT_ID_ENV, "oauth-client-id"),
+                (GITHUB_CLIENT_SECRET_ENV, "oauth-secret"),
+            ]),
+        )
+        .expect("deployment should resolve");
+
+        assert_eq!(selection.deployment, DeploymentType::Hosted);
+        assert_eq!(selection.reason, DeploymentSelectionReason::ExplicitFlag);
+        assert!(selection.oauth.is_some());
+    }
+
+    #[test]
+    fn resolve_hosted_oauth_rejects_partial_config() {
+        let missing_secret = resolve_hosted_oauth_from_env("oauth-client-id", "")
+            .expect_err("hosted OAuth should reject missing secret");
+        let missing_client = resolve_hosted_oauth_from_env("", "oauth-secret")
+            .expect_err("hosted OAuth should reject missing client id");
+
+        assert!(
+            missing_secret
+                .to_string()
+                .contains(GITHUB_CLIENT_SECRET_ENV)
+        );
+        assert!(missing_client.to_string().contains(GITHUB_CLIENT_ID_ENV));
     }
 
     #[test]
@@ -793,5 +914,14 @@ mod tests {
                 .iter()
                 .any(|origin| origin == "http://dev.rototo.dev:5173")
         );
+    }
+
+    fn admin_env(values: &[(&str, &str)]) -> ConsoleAdminEnv {
+        ConsoleAdminEnv {
+            values: values
+                .iter()
+                .map(|(key, value)| ((*key).to_owned(), (*value).to_owned()))
+                .collect(),
+        }
     }
 }

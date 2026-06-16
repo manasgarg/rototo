@@ -101,7 +101,7 @@ console-dev:
         fi
     }
 
-    (cargo_watch -w src -w Cargo.toml -w Cargo.lock -w build.rs -x "run -- console --public-url $public_url --data-dir $data_dir" 2>&1 | tee -a "$log") &
+    (cargo_watch -w src -w Cargo.toml -w Cargo.lock -w build.rs -x "run -- console --deployment local --public-url $public_url --data-dir $data_dir" 2>&1 | tee -a "$log") &
     api_pid=$!
     trap 'kill "$api_pid" 2>/dev/null || true; wait "$api_pid" 2>/dev/null || true' EXIT
     ready=0
@@ -134,9 +134,9 @@ console-api:
     export RUST_LOG="${RUST_LOG:-warn}"
 
     if cargo watch --version >/dev/null 2>&1; then
-        cargo watch -w src -w Cargo.toml -w Cargo.lock -w build.rs -x "run -- console --public-url $public_url --data-dir $data_dir" 2>&1 | tee -a "$observability_dir/console-dev.log"
+        cargo watch -w src -w Cargo.toml -w Cargo.lock -w build.rs -x "run -- console --deployment local --public-url $public_url --data-dir $data_dir" 2>&1 | tee -a "$observability_dir/console-dev.log"
     elif command -v mise >/dev/null && mise exec -- cargo watch --version >/dev/null 2>&1; then
-        mise exec -- cargo watch -w src -w Cargo.toml -w Cargo.lock -w build.rs -x "run -- console --public-url $public_url --data-dir $data_dir" 2>&1 | tee -a "$observability_dir/console-dev.log"
+        mise exec -- cargo watch -w src -w Cargo.toml -w Cargo.lock -w build.rs -x "run -- console --deployment local --public-url $public_url --data-dir $data_dir" 2>&1 | tee -a "$observability_dir/console-dev.log"
     else
         echo "cargo-watch not found; run 'just setup' before 'just console-api'" >&2
         exit 1
@@ -154,12 +154,12 @@ console-demo: console-build
     set -euo pipefail
     bind="${ROTOTO_CONSOLE_DEMO_BIND:-127.0.0.1:7687}"
     public_url="${ROTOTO_CONSOLE_DEMO_PUBLIC_URL:-https://demo.rototo.dev}"
-    cargo run -- console --bind "$bind" --public-url "$public_url"
+    cargo run -- console --deployment local --bind "$bind" --public-url "$public_url"
 
 # Run a production-like local console with embedded frontend assets.
 [group('08. console')]
 console-preview: console-build
-    cargo run -- console
+    cargo run -- console --deployment local
 
 # Build the console UI bundle that release binaries embed.
 [group('08. console')]

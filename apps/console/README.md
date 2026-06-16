@@ -13,8 +13,8 @@ just setup          # one-time repo bootstrap, including console dependencies
 just console-dev    # auto-reloading Rust API plus Vite UI for https://dev.rototo.dev
 ```
 
-`just console-dev` runs the API with `--data-dir .rototo/dev` and resolves
-console runtime configuration from
+`just console-dev` runs the API with `--deployment local --data-dir .rototo/dev`
+and resolves console runtime configuration from
 `${XDG_CONFIG_HOME:-$HOME/.config}/rototo/workspace` when that workspace exists.
 The checked-in draft for that workspace lives at `examples/console-runtime`.
 
@@ -51,5 +51,5 @@ Build and run the embedded production shape:
 just console-demo    # https://demo.rototo.dev via Caddy, API/UI at 127.0.0.1:7687
 ```
 
-`just console-preview` still runs the embedded console on its default local
-bind when you do not want the Caddy-hosted demo domain.
+`just console-preview` still runs the embedded console in local deployment on
+its default local bind when you do not want the Caddy-hosted demo domain.

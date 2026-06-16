@@ -350,9 +350,30 @@ struct ConsoleArgs {
     #[arg(long = "workspace", value_name = "WORKSPACE_SOURCE")]
     workspace: Option<String>,
 
+    /// Console deployment mode. Defaults to local with --workspace, hosted otherwise.
+    #[arg(long = "deployment", value_enum)]
+    deployment: Option<ConsoleDeploymentArg>,
+
     /// Write behavior for console branch edits.
     #[arg(long = "write", value_enum, default_value_t = ConsoleWriteArg::PullRequest)]
     write: ConsoleWriteArg,
+}
+
+#[cfg(feature = "console")]
+#[derive(Clone, Copy, Debug, ValueEnum)]
+enum ConsoleDeploymentArg {
+    Local,
+    Hosted,
+}
+
+#[cfg(feature = "console")]
+impl From<ConsoleDeploymentArg> for rototo::console::ConsoleDeployment {
+    fn from(value: ConsoleDeploymentArg) -> Self {
+        match value {
+            ConsoleDeploymentArg::Local => Self::Local,
+            ConsoleDeploymentArg::Hosted => Self::Hosted,
+        }
+    }
 }
 
 #[cfg(feature = "console")]
@@ -637,6 +658,7 @@ async fn run() -> Result<ExitCode> {
                 public_url: args.public_url,
                 data_dir: args.data_dir,
                 workspace: args.workspace,
+                deployment: args.deployment.map(Into::into),
                 write_policy: args.write.into(),
                 workspace_token: cli.workspace_token.clone(),
             })
