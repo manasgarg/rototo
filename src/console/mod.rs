@@ -16,6 +16,7 @@ mod local_git;
 mod lsp;
 mod observability;
 mod resolve_preview;
+mod runtime_config;
 mod stage;
 mod static_assets;
 mod store;
@@ -28,6 +29,7 @@ mod workspace_source;
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::Arc;
+use std::sync::OnceLock;
 
 use crate::error::{Result, RototoError};
 
@@ -40,17 +42,26 @@ use self::capabilities::{DeploymentType, WritePolicy};
 use self::github::GitHubClient;
 use self::lsp::LspSessions;
 use self::observability::DevObservability;
+use self::runtime_config::{ConsoleRuntimeBase, ConsoleRuntimeConfig, public_url_host};
 use self::stage::StageCache;
 use self::store::Store;
 use self::token_crypto::TokenCrypto;
+use tracing_subscriber::EnvFilter;
+use tracing_subscriber::Registry;
+use tracing_subscriber::reload::Handle as TracingReloadHandle;
 
 pub const DEFAULT_BIND: &str = "127.0.0.1:7686";
 pub use self::capabilities::WritePolicy as ConsoleWritePolicy;
 
 const CONSOLE_PUBLIC_URL_ENV: &str = "ROTOTO_CONSOLE_PUBLIC_URL";
 const CONSOLE_DATA_DIR_ENV: &str = "ROTOTO_CONSOLE_DATA_DIR";
-const CONSOLE_DEV_OBSERVABILITY_ENV: &str = "ROTOTO_CONSOLE_DEV_OBSERVABILITY";
 const WORKSPACE_TOKEN_ENV: &str = "ROTOTO_WORKSPACE_TOKEN";
+
+static TRACING_FILTER_RELOAD: OnceLock<TracingReloadHandle<EnvFilter, Registry>> = OnceLock::new();
+
+pub fn set_tracing_filter_reload_handle(handle: TracingReloadHandle<EnvFilter, Registry>) {
+    let _ = TRACING_FILTER_RELOAD.set(handle);
+}
 
 /// Console startup options resolved by the CLI layer.
 ///
@@ -164,12 +175,45 @@ pub async fn run(options: ConsoleOptions) -> Result<()> {
         fixed_workspace = options.workspace.is_some(),
         "console startup configuration resolved"
     );
-    let observability = DevObservability::from_dir(
-        admin_env
-            .get(CONSOLE_DEV_OBSERVABILITY_ENV)
-            .map(PathBuf::from),
-    )
+
+    let listener = tokio::net::TcpListener::bind(&options.bind)
+        .await
+        .map_err(|err| {
+            RototoError::new(format!("failed to bind console to {}: {err}", options.bind))
+        })?;
+    let bound = listener
+        .local_addr()
+        .map_err(|err| RototoError::new(format!("failed to read console bind address: {err}")))?;
+    let public_url = options
+        .public_url
+        .or_else(|| admin_env.get(CONSOLE_PUBLIC_URL_ENV))
+        .map(|url| url.trim_end_matches('/').to_owned())
+        .unwrap_or_else(|| format!("http://{bound}"));
+    let secure_cookies = public_url.starts_with("https://");
+    let allowed_origins = allowed_origins(&public_url, bound.port());
+    let console_host = public_url_host(&public_url);
+    let runtime_config = ConsoleRuntimeConfig::load(ConsoleRuntimeBase {
+        deployment: deployment.clone(),
+        write_policy: options.write_policy,
+        console_host: console_host.clone(),
+        fixed_workspace: options.workspace.is_some(),
+        secure_cookies,
+    })
     .await?;
+    reload_console_tracing_filter(&runtime_config.startup_observability().tracing.filter);
+    let observability =
+        DevObservability::from_config(&data_dir, runtime_config.startup_observability()).await?;
+    tracing::info!(
+        operation = "console.listen",
+        bind = %bound,
+        public_url = %public_url,
+        console_host = console_host.as_deref(),
+        secure_cookies,
+        allowed_origins = allowed_origins.len(),
+        tracing_filter = %runtime_config.startup_observability().tracing.filter,
+        "console listener bound"
+    );
+
     let token_key = admin_env.get(token_crypto::KEY_ENV);
     let crypto = resolve_token_crypto(&deployment, &data_dir, token_key.as_deref()).await?;
     let store = Store::open(&data_dir.join("console.db"), crypto)?;
@@ -189,30 +233,6 @@ pub async fn run(options: ConsoleOptions) -> Result<()> {
         DeploymentType::Hosted => None,
     };
 
-    let listener = tokio::net::TcpListener::bind(&options.bind)
-        .await
-        .map_err(|err| {
-            RototoError::new(format!("failed to bind console to {}: {err}", options.bind))
-        })?;
-    let bound = listener
-        .local_addr()
-        .map_err(|err| RototoError::new(format!("failed to read console bind address: {err}")))?;
-    let public_url = options
-        .public_url
-        .or_else(|| admin_env.get(CONSOLE_PUBLIC_URL_ENV))
-        .map(|url| url.trim_end_matches('/').to_owned())
-        .unwrap_or_else(|| format!("http://{bound}"));
-    let secure_cookies = public_url.starts_with("https://");
-    let allowed_origins = allowed_origins(&public_url, bound.port());
-    tracing::info!(
-        operation = "console.listen",
-        bind = %bound,
-        public_url = %public_url,
-        secure_cookies,
-        allowed_origins = allowed_origins.len(),
-        "console listener bound"
-    );
-
     let state = Arc::new(ConsoleState {
         deployment: deployment.clone(),
         oauth,
@@ -227,6 +247,7 @@ pub async fn run(options: ConsoleOptions) -> Result<()> {
         allowed_origins,
         secure_cookies,
         observability,
+        runtime_config,
     });
 
     if deployment == DeploymentType::Local
@@ -272,6 +293,36 @@ pub async fn run(options: ConsoleOptions) -> Result<()> {
         .await
         .map_err(|err| RototoError::new(format!("console server failed: {err}")))?;
     Ok(())
+}
+
+fn reload_console_tracing_filter(filter: &str) {
+    let Some(handle) = TRACING_FILTER_RELOAD.get() else {
+        tracing::warn!(
+            operation = "console.tracing.reload",
+            tracing_filter = filter,
+            "console tracing reload handle is not installed"
+        );
+        return;
+    };
+    match EnvFilter::try_new(filter) {
+        Ok(filter) => {
+            if let Err(err) = handle.reload(filter) {
+                tracing::warn!(
+                    operation = "console.tracing.reload",
+                    error = %err,
+                    "console tracing filter could not be reloaded"
+                );
+            }
+        }
+        Err(err) => {
+            tracing::warn!(
+                operation = "console.tracing.reload",
+                tracing_filter = filter,
+                error = %err,
+                "console tracing filter is invalid"
+            );
+        }
+    }
 }
 
 fn resolve_deployment(

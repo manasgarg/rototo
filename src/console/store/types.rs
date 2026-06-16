@@ -174,6 +174,18 @@ pub struct ActiveBranchWithWorkspaceRecord {
     pub workspace: WorkspaceRecord,
 }
 
+/// Best-effort request context labels for observability policy resolution.
+///
+/// These are display values, not authorization decisions. Missing values mean
+/// the route did not carry that id or the row was not available when middleware
+/// built the request context.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct RequestContextNames {
+    pub repo: Option<String>,
+    pub workspace: Option<String>,
+    pub branch: Option<String>,
+}
+
 /// Inputs for creating a hosted OAuth session.
 ///
 /// The store hashes a new session token, encrypts the GitHub token, and writes

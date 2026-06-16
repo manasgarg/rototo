@@ -1,0 +1,17 @@
+enabled = true
+
+[event_sink]
+directory = "observability"
+api_events = true
+ui_events = true
+operation_events = true
+
+[tracing]
+filter = "warn"
+format = "compact"
+
+[thresholds]
+api_p95_ms = 750
+api_errors = 0
+frontend_errors = 0
+lsp_failures = 0

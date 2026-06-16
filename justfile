@@ -83,11 +83,11 @@ console-dev:
     #!/bin/bash
     set -euo pipefail
     public_url="${ROTOTO_CONSOLE_DEV_PUBLIC_URL:-https://dev.rototo.dev}"
-    observability_dir="${ROTOTO_CONSOLE_DEV_OBSERVABILITY:-.rototo/dev/observability}"
+    data_dir=".rototo/dev"
+    observability_dir="$data_dir/observability"
     mkdir -p "$observability_dir"
     touch "$observability_dir/console-api.ndjson" "$observability_dir/console-ui.ndjson" "$observability_dir/console-dev.log"
-    export ROTOTO_CONSOLE_DEV_OBSERVABILITY="$observability_dir"
-    export RUST_LOG="${RUST_LOG:-rototo=info,warn}"
+    export RUST_LOG="${RUST_LOG:-warn}"
     log="$observability_dir/console-dev.log"
 
     cargo_watch() {
@@ -101,7 +101,7 @@ console-dev:
         fi
     }
 
-    (cargo_watch -w src -w Cargo.toml -w Cargo.lock -w build.rs -x "run -- console --public-url $public_url" 2>&1 | tee -a "$log") &
+    (cargo_watch -w src -w Cargo.toml -w Cargo.lock -w build.rs -x "run -- console --public-url $public_url --data-dir $data_dir" 2>&1 | tee -a "$log") &
     api_pid=$!
     trap 'kill "$api_pid" 2>/dev/null || true; wait "$api_pid" 2>/dev/null || true' EXIT
     ready=0
@@ -127,16 +127,16 @@ console-api:
     #!/bin/bash
     set -euo pipefail
     public_url="${ROTOTO_CONSOLE_DEV_PUBLIC_URL:-https://dev.rototo.dev}"
-    observability_dir="${ROTOTO_CONSOLE_DEV_OBSERVABILITY:-.rototo/dev/observability}"
+    data_dir=".rototo/dev"
+    observability_dir="$data_dir/observability"
     mkdir -p "$observability_dir"
     touch "$observability_dir/console-api.ndjson" "$observability_dir/console-ui.ndjson" "$observability_dir/console-dev.log"
-    export ROTOTO_CONSOLE_DEV_OBSERVABILITY="$observability_dir"
-    export RUST_LOG="${RUST_LOG:-rototo=info,warn}"
+    export RUST_LOG="${RUST_LOG:-warn}"
 
     if cargo watch --version >/dev/null 2>&1; then
-        cargo watch -w src -w Cargo.toml -w Cargo.lock -w build.rs -x "run -- console --public-url $public_url" 2>&1 | tee -a "$observability_dir/console-dev.log"
+        cargo watch -w src -w Cargo.toml -w Cargo.lock -w build.rs -x "run -- console --public-url $public_url --data-dir $data_dir" 2>&1 | tee -a "$observability_dir/console-dev.log"
     elif command -v mise >/dev/null && mise exec -- cargo watch --version >/dev/null 2>&1; then
-        mise exec -- cargo watch -w src -w Cargo.toml -w Cargo.lock -w build.rs -x "run -- console --public-url $public_url" 2>&1 | tee -a "$observability_dir/console-dev.log"
+        mise exec -- cargo watch -w src -w Cargo.toml -w Cargo.lock -w build.rs -x "run -- console --public-url $public_url --data-dir $data_dir" 2>&1 | tee -a "$observability_dir/console-dev.log"
     else
         echo "cargo-watch not found; run 'just setup' before 'just console-api'" >&2
         exit 1

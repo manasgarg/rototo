@@ -1,0 +1,13 @@
+schema_version = 1
+
+description = "Request handled by a console instance using the dev host"
+
+[[predicate]]
+attribute = "phase"
+op = "eq"
+value = "request"
+
+[[predicate]]
+attribute = "console.host"
+op = "eq"
+value = "dev.rototo.dev"

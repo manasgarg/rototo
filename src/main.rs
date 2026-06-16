@@ -3322,6 +3322,23 @@ fn init_tracing() {
     let filter = tracing_subscriber::EnvFilter::try_from_default_env()
         .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new("warn"));
 
+    #[cfg(feature = "console")]
+    {
+        use tracing_subscriber::prelude::*;
+
+        let (filter, handle) = tracing_subscriber::reload::Layer::new(filter);
+        rototo::console::set_tracing_filter_reload_handle(handle);
+        tracing_subscriber::registry()
+            .with(filter)
+            .with(
+                tracing_subscriber::fmt::layer()
+                    .with_target(false)
+                    .with_writer(std::io::stderr),
+            )
+            .init();
+    }
+
+    #[cfg(not(feature = "console"))]
     tracing_subscriber::fmt()
         .with_env_filter(filter)
         .with_target(false)

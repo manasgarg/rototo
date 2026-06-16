@@ -1,0 +1,4 @@
+schema_version = 1
+
+description = "Per-request console observability policies"
+schema = "../schemas/console-request-observability.schema.json"

@@ -279,6 +279,39 @@ async fn active_branch_can_include_multiple_workspaces() {
 }
 
 #[tokio::test]
+async fn request_context_names_resolve_repo_workspace_and_branch_labels() {
+    let store = test_store().await;
+    let registered = store
+        .upsert_source_tree_with_workspaces(github_source_tree(vec![
+            discovered("."),
+            discovered("payments/flags"),
+        ]))
+        .await
+        .unwrap();
+    let flags = registered.workspaces[1].clone();
+    let branch = store
+        .select_branch(SelectBranchInput {
+            workspace_id: flags.id.clone(),
+            principal_id: "42".to_owned(),
+            branch: "feature/payments".to_owned(),
+            base_ref: "main".to_owned(),
+            base_commit: None,
+            last_seen_commit: None,
+        })
+        .await
+        .unwrap();
+
+    let names = store
+        .request_context_names(Some(&flags.id), Some(&branch.id))
+        .await
+        .unwrap();
+
+    assert_eq!(names.repo.as_deref(), Some("octo/configs"));
+    assert_eq!(names.workspace.as_deref(), Some("payments/flags"));
+    assert_eq!(names.branch.as_deref(), Some("feature/payments"));
+}
+
+#[tokio::test]
 async fn active_branch_lists_recent_but_not_archived_branches() {
     let store = test_store().await;
     let registered = store

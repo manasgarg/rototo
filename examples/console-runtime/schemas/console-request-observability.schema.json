@@ -1,0 +1,47 @@
+{
+  "type": "object",
+  "required": [
+    "record_api_event",
+    "record_operation_events",
+    "record_ui_events",
+    "record_errors",
+    "sample_rate",
+    "slow_request_ms",
+    "tracing"
+  ],
+  "properties": {
+    "record_api_event": {
+      "type": "boolean"
+    },
+    "record_operation_events": {
+      "type": "boolean"
+    },
+    "record_ui_events": {
+      "type": "boolean"
+    },
+    "record_errors": {
+      "type": "boolean"
+    },
+    "sample_rate": {
+      "type": "number",
+      "minimum": 0,
+      "maximum": 1
+    },
+    "slow_request_ms": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "tracing": {
+      "type": "object",
+      "required": ["filter"],
+      "properties": {
+        "filter": {
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      "additionalProperties": false
+    }
+  },
+  "additionalProperties": false
+}

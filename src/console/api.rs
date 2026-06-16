@@ -23,9 +23,12 @@ use super::github::{self, GitHubClient, GitHubError};
 use super::identity::{ActorIdentity, resolve_git_config_identity};
 use super::local_git;
 use super::lsp::LspSessions;
-use super::observability::DevObservability;
+use super::observability::{
+    DevObservability, current_request_observability, scope_request_observability,
+};
+use super::runtime_config::{ConsoleRuntimeConfig, RequestObservabilityContext};
 use super::stage::StageCache;
-use super::store::{NewSession, SessionUser, Store};
+use super::store::{NewSession, RequestContextNames, SessionUser, Store};
 
 /// Process-wide console dependencies shared by every API route.
 ///
@@ -49,6 +52,7 @@ pub struct ConsoleState {
     pub allowed_origins: Vec<String>,
     pub secure_cookies: bool,
     pub observability: Option<DevObservability>,
+    pub runtime_config: ConsoleRuntimeConfig,
 }
 
 /// Axum state handle cloned into routers, middleware, and background tasks.
@@ -163,11 +167,26 @@ async fn request_guard(State(state): State<SharedState>, request: Request, next:
     let started = Instant::now();
     let method = request.method().clone();
     let path = request.uri().path().to_owned();
+    let route = route_observability(&path);
+    let host = request_host(request.headers());
+    let names = request_context_names(&state, &route).await;
     let mutating = !matches!(
         *request.method(),
         Method::GET | Method::HEAD | Method::OPTIONS
     );
-    if mutating && request.uri().path().starts_with("/api") {
+    let observed = ObservedApiRequest {
+        method,
+        path,
+        route,
+        host,
+        names,
+        mutating,
+    };
+    let pre_policy = state
+        .runtime_config
+        .resolve_request_observability(observed.runtime_context(false, 0, "none", 0))
+        .await;
+    if observed.mutating && observed.path.starts_with("/api") {
         let headers = request.headers();
         if !headers.contains_key("x-rototo-console") {
             let response = ApiError {
@@ -175,7 +194,7 @@ async fn request_guard(State(state): State<SharedState>, request: Request, next:
                 message: "missing x-rototo-console request header".to_owned(),
             }
             .into_response();
-            record_api_request(&state, started, &method, &path, response.status()).await;
+            record_api_request(&state, started, &observed, response.status()).await;
             return response;
         }
         if let Some(origin) = headers.get(header::ORIGIN).and_then(|v| v.to_str().ok())
@@ -189,54 +208,107 @@ async fn request_guard(State(state): State<SharedState>, request: Request, next:
                 message: format!("origin {origin} is not allowed"),
             }
             .into_response();
-            record_api_request(&state, started, &method, &path, response.status()).await;
+            record_api_request(&state, started, &observed, response.status()).await;
             return response;
         }
     }
-    let response = next.run(request).await;
-    record_api_request(&state, started, &method, &path, response.status()).await;
+    let response = scope_request_observability(pre_policy, next.run(request)).await;
+    record_api_request(&state, started, &observed, response.status()).await;
     response
 }
 
 async fn record_api_request(
     state: &ConsoleState,
     started: Instant,
-    method: &Method,
-    path: &str,
+    observed: &ObservedApiRequest,
     status: StatusCode,
 ) {
-    let route = route_observability(path);
     let latency_ms = started.elapsed().as_millis();
+    let policy = state
+        .runtime_config
+        .resolve_request_observability(observed.runtime_context(
+            true,
+            status.as_u16(),
+            status_class(status),
+            latency_ms,
+        ))
+        .await;
     tracing::info!(
         operation = "console.api.request",
-        method = method.as_str(),
-        route = %route.pattern,
+        method = observed.method.as_str(),
+        route = %observed.route.pattern,
         status = status.as_u16(),
         status_class = status_class(status),
         latency_ms,
         deployment = state.deployment.label(),
-        workspace_id = route.workspace_id.as_deref(),
-        branch_id = route.branch_id.as_deref(),
+        host = observed.host.as_deref(),
+        repo = observed.names.repo.as_deref(),
+        workspace = observed.names.workspace.as_deref(),
+        branch = observed.names.branch.as_deref(),
+        workspace_id = observed.route.workspace_id.as_deref(),
+        branch_id = observed.route.branch_id.as_deref(),
         error_class = error_class(status),
+        request_tracing_filter = %policy.tracing.filter,
         "console API request completed"
     );
     let Some(observability) = &state.observability else {
         return;
     };
     observability
-        .record_api_request(json!({
-            "method": method.as_str(),
-            "path": path,
-            "route": route.pattern,
-            "status": status.as_u16(),
-            "status_class": status_class(status),
-            "latency_ms": latency_ms,
-            "deployment": state.deployment.label(),
-            "workspace_id": route.workspace_id,
-            "branch_id": route.branch_id,
-            "error_class": error_class(status),
-        }))
+        .record_api_request(
+            json!({
+                "method": observed.method.as_str(),
+                "path": observed.path.as_str(),
+                "route": observed.route.pattern.as_str(),
+                "status": status.as_u16(),
+                "status_class": status_class(status),
+                "latency_ms": latency_ms,
+                "deployment": state.deployment.label(),
+                "host": observed.host.as_deref(),
+                "repo": observed.names.repo.as_deref(),
+                "workspace": observed.names.workspace.as_deref(),
+                "branch": observed.names.branch.as_deref(),
+                "mutating": observed.mutating,
+                "workspace_id": observed.route.workspace_id.as_deref(),
+                "branch_id": observed.route.branch_id.as_deref(),
+                "error_class": error_class(status),
+            }),
+            &policy,
+        )
         .await;
+}
+
+struct ObservedApiRequest {
+    method: Method,
+    path: String,
+    route: RouteObservability,
+    host: Option<String>,
+    names: RequestContextNames,
+    mutating: bool,
+}
+
+impl ObservedApiRequest {
+    fn runtime_context(
+        &self,
+        response_present: bool,
+        status: u16,
+        status_class: &'static str,
+        latency_ms: u128,
+    ) -> RequestObservabilityContext {
+        RequestObservabilityContext {
+            host: self.host.clone(),
+            method: self.method.as_str().to_owned(),
+            route: self.route.pattern.clone(),
+            repo: self.names.repo.clone(),
+            workspace: self.names.workspace.clone(),
+            branch: self.names.branch.clone(),
+            mutating: self.mutating,
+            response_present,
+            status,
+            status_class,
+            latency_ms,
+        }
+    }
 }
 
 /// Normalized request identity used by the development observability sink.
@@ -248,6 +320,40 @@ struct RouteObservability {
     pattern: String,
     workspace_id: Option<String>,
     branch_id: Option<String>,
+}
+
+async fn request_context_names(
+    state: &ConsoleState,
+    route: &RouteObservability,
+) -> RequestContextNames {
+    match state
+        .store
+        .request_context_names(route.workspace_id.as_deref(), route.branch_id.as_deref())
+        .await
+    {
+        Ok(names) => names,
+        Err(err) => {
+            tracing::warn!(
+                operation = "console.api.request_context",
+                error = %err,
+                workspace_id = route.workspace_id.as_deref(),
+                branch_id = route.branch_id.as_deref(),
+                "console request context names could not be loaded"
+            );
+            RequestContextNames::default()
+        }
+    }
+}
+
+fn request_host(headers: &HeaderMap) -> Option<String> {
+    headers
+        .get("x-forwarded-host")
+        .or_else(|| headers.get(header::HOST))
+        .and_then(|value| value.to_str().ok())
+        .and_then(|value| value.split(',').next())
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(|value| value.to_ascii_lowercase())
 }
 
 fn route_observability(path: &str) -> RouteObservability {
@@ -426,7 +532,9 @@ async fn dev_observability_event(
     let Some(observability) = &state.observability else {
         return Err(ApiError::not_found("dev observability is disabled"));
     };
-    observability.record_ui_event(event).await;
+    let policy = current_request_observability()
+        .unwrap_or_else(|| state.runtime_config.default_request_observability());
+    observability.record_ui_event(event, &policy).await;
     Ok(Json(json!({ "ok": true })))
 }
 
@@ -1255,6 +1363,15 @@ mod tests {
             allowed_origins: vec!["http://127.0.0.1:7686".to_owned()],
             secure_cookies: false,
             observability: None,
+            runtime_config: ConsoleRuntimeConfig::built_in(
+                super::super::runtime_config::ConsoleRuntimeBase {
+                    deployment: DeploymentType::Local,
+                    write_policy: WritePolicy::Disabled,
+                    console_host: Some("127.0.0.1".to_owned()),
+                    fixed_workspace: false,
+                    secure_cookies: false,
+                },
+            ),
         })
     }
 

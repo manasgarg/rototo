@@ -13,11 +13,16 @@ just setup          # one-time repo bootstrap, including console dependencies
 just console-dev    # auto-reloading Rust API plus Vite UI for https://dev.rototo.dev
 ```
 
-`just console-dev` writes local observability data to
-`.rototo/dev/observability/`:
+`just console-dev` runs the API with `--data-dir .rototo/dev` and resolves
+console runtime configuration from
+`${XDG_CONFIG_HOME:-$HOME/.config}/rototo/workspace` when that workspace exists.
+The checked-in draft for that workspace lives at `examples/console-runtime`.
+
+The generated observability files live under `.rototo/dev/observability/`:
 
 - `console-api.ndjson` for API latency, status, and operation events;
 - `console-ui.ndjson` for browser API timing, route load, and error events;
+- `console-observability.json` for the resolved startup observability policy;
 - `console-dev.log` for raw Rust/Vite process output.
 
 After exercising the console, run:

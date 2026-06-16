@@ -8,7 +8,8 @@ use crate::error::{Result, RototoError};
 use super::Store;
 use super::rows::{source_tree_from_row, workspace_from_row};
 use super::types::{
-    DiscoveredWorkspaceInput, RegisterSourceTreeInput, SourceTreeWithWorkspaces, WorkspaceRecord,
+    DiscoveredWorkspaceInput, RegisterSourceTreeInput, RequestContextNames,
+    SourceTreeWithWorkspaces, WorkspaceRecord,
 };
 use super::util::{db_err, new_id};
 
@@ -137,6 +138,35 @@ impl Store {
                 return Ok(by_id);
             }
             workspace_by_slug_for_user(conn, &workspace_handle, &principal_id)
+        })
+        .await
+    }
+
+    pub async fn request_context_names(
+        &self,
+        workspace_id: Option<&str>,
+        branch_id: Option<&str>,
+    ) -> Result<RequestContextNames> {
+        let workspace_id = workspace_id.map(str::to_owned);
+        let branch_id = branch_id.map(str::to_owned);
+        self.with_conn(move |conn, _| {
+            let mut names = RequestContextNames::default();
+            if let Some(workspace_id) = workspace_id.as_deref()
+                && let Some((repo, workspace)) = workspace_context_names(conn, workspace_id)?
+            {
+                names.repo = Some(repo);
+                names.workspace = Some(workspace);
+            }
+            if let Some(branch_id) = branch_id.as_deref()
+                && let Some((repo, workspace, branch)) = branch_context_names(conn, branch_id)?
+            {
+                names.repo.get_or_insert(repo);
+                if names.workspace.is_none() {
+                    names.workspace = workspace;
+                }
+                names.branch = Some(branch);
+            }
+            Ok(names)
         })
         .await
     }
@@ -476,6 +506,38 @@ fn source_tree_with_workspaces_by_id(
         source_tree,
         workspaces,
     }))
+}
+
+fn workspace_context_names(
+    conn: &Connection,
+    workspace_id: &str,
+) -> Result<Option<(String, String)>> {
+    conn.query_row(
+        "SELECT r.display_name, w.path
+         FROM source_tree_workspaces w
+         INNER JOIN source_trees r ON r.id = w.source_tree_id
+         WHERE w.id = ?1",
+        params![workspace_id],
+        |row| Ok((row.get(0)?, row.get(1)?)),
+    )
+    .optional()
+    .map_err(db_err)
+}
+
+fn branch_context_names(
+    conn: &Connection,
+    branch_id: &str,
+) -> Result<Option<(String, Option<String>, String)>> {
+    conn.query_row(
+        "SELECT r.display_name, b.last_selected_workspace_path, b.branch
+         FROM active_branches b
+         INNER JOIN source_trees r ON r.id = b.source_tree_id
+         WHERE b.id = ?1",
+        params![branch_id],
+        |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+    )
+    .optional()
+    .map_err(db_err)
 }
 
 fn active_workspaces_for_source_tree(
