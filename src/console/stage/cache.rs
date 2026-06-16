@@ -29,53 +29,15 @@ struct StageCacheInner {
 
 #[derive(Default)]
 struct SourceTreeOriginSlot {
-    source_trees: Mutex<HashMap<SourceTreeKey, Arc<SourceTreeSlot>>>,
-    workspace_discoveries: Mutex<HashMap<WorkspaceDiscoveryKey, Arc<WorkspaceDiscoverySlot>>>,
+    source_trees: Mutex<HashMap<SourceTreeRevision, Arc<SourceTreeSlot>>>,
+    workspace_discoveries: Mutex<HashMap<SourceTreeRevision, Arc<WorkspaceDiscoverySlot>>>,
     workspace_views: Mutex<HashMap<WorkspaceViewKey, Arc<WorkspaceSlot>>>,
     branch_changes: Mutex<HashMap<BranchChangesKey, Arc<BranchChangesSlot>>>,
-}
-
-#[derive(Clone, Debug, Eq, PartialEq, Hash)]
-struct SourceTreeKey {
-    revision: SourceTreeRevision,
-}
-
-impl SourceTreeKey {
-    fn new(revision: SourceTreeRevision) -> Self {
-        Self { revision }
-    }
-
-    fn is_branch(&self, branch: &str) -> bool {
-        matches!(&self.revision, SourceTreeRevision::GitBranch(name) if name.as_str() == branch)
-    }
-
-    fn is_local_working_tree(&self) -> bool {
-        matches!(self.revision, SourceTreeRevision::LocalWorkingTree)
-    }
 }
 
 #[derive(Default)]
 struct SourceTreeSlot {
     staged_tree: OnceCell<Arc<StagedSourceTree>>,
-}
-
-#[derive(Clone, Debug, Eq, PartialEq, Hash)]
-struct WorkspaceDiscoveryKey {
-    revision: SourceTreeRevision,
-}
-
-impl WorkspaceDiscoveryKey {
-    fn new(revision: SourceTreeRevision) -> Self {
-        Self { revision }
-    }
-
-    fn is_branch(&self, branch: &str) -> bool {
-        matches!(&self.revision, SourceTreeRevision::GitBranch(name) if name.as_str() == branch)
-    }
-
-    fn is_local_working_tree(&self) -> bool {
-        matches!(self.revision, SourceTreeRevision::LocalWorkingTree)
-    }
 }
 
 #[derive(Default)]
@@ -146,10 +108,12 @@ impl StageCache {
     ) -> Result<WorkspaceDiscovery> {
         let cache = self.clone();
         let tree_slot = self.tree_slot(cached_tree.clone()).await;
-        let key = WorkspaceDiscoveryKey::new(revision.clone());
         let discovery_slot = {
             let mut workspace_discoveries = tree_slot.workspace_discoveries.lock().await;
-            workspace_discoveries.entry(key).or_default().clone()
+            workspace_discoveries
+                .entry(revision.clone())
+                .or_default()
+                .clone()
         };
         let discovery = discovery_slot
             .discovery
@@ -169,10 +133,9 @@ impl StageCache {
         revision: SourceTreeRevision,
     ) -> Result<Arc<StagedSourceTree>> {
         let tree_slot = self.tree_slot(cached_tree.clone()).await;
-        let key = SourceTreeKey::new(revision.clone());
         let source_tree_slot = {
             let mut source_trees = tree_slot.source_trees.lock().await;
-            source_trees.entry(key).or_default().clone()
+            source_trees.entry(revision.clone()).or_default().clone()
         };
         let staged_tree = source_tree_slot
             .staged_tree
@@ -293,12 +256,12 @@ impl StageCache {
                 .source_trees
                 .lock()
                 .await
-                .retain(|key, _| !key.is_local_working_tree());
+                .retain(|revision, _| !source_tree_revision_is_local_working_tree(revision));
             tree_slot
                 .workspace_discoveries
                 .lock()
                 .await
-                .retain(|key, _| !key.is_local_working_tree());
+                .retain(|revision, _| !source_tree_revision_is_local_working_tree(revision));
         }
     }
 
@@ -308,16 +271,19 @@ impl StageCache {
         };
         let invalidate_local_working_tree =
             matches!(cached_tree.origin, SourceTreeOrigin::LocalFolder { .. });
-        tree_slot.source_trees.lock().await.retain(|key, _| {
-            !(key.is_branch(branch) || invalidate_local_working_tree && key.is_local_working_tree())
+        tree_slot.source_trees.lock().await.retain(|revision, _| {
+            !(source_tree_revision_is_branch(revision, branch)
+                || invalidate_local_working_tree
+                    && source_tree_revision_is_local_working_tree(revision))
         });
         tree_slot
             .workspace_discoveries
             .lock()
             .await
-            .retain(|key, _| {
-                !(key.is_branch(branch)
-                    || invalidate_local_working_tree && key.is_local_working_tree())
+            .retain(|revision, _| {
+                !(source_tree_revision_is_branch(revision, branch)
+                    || invalidate_local_working_tree
+                        && source_tree_revision_is_local_working_tree(revision))
             });
         tree_slot.workspace_views.lock().await.retain(|key, _| {
             !(key.is_branch(branch) || invalidate_local_working_tree && key.is_local_working_tree())
@@ -352,6 +318,14 @@ impl StageCache {
         let tree_sources = self.inner.tree_sources.lock().await;
         tree_sources.get(cached_tree).cloned()
     }
+}
+
+fn source_tree_revision_is_branch(revision: &SourceTreeRevision, branch: &str) -> bool {
+    matches!(revision, SourceTreeRevision::GitBranch(name) if name.as_str() == branch)
+}
+
+fn source_tree_revision_is_local_working_tree(revision: &SourceTreeRevision) -> bool {
+    matches!(revision, SourceTreeRevision::LocalWorkingTree)
 }
 
 #[cfg(test)]
