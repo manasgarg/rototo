@@ -413,6 +413,13 @@ h3 {
     white-space: nowrap;
 }
 
+.logout-error {
+    max-width: 72px;
+    color: var(--err-700);
+    font-size: 11px;
+    line-height: 1.2;
+}
+
 .avatar {
     width: 28px;
     height: 28px;

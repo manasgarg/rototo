@@ -81,13 +81,17 @@ pub struct LocalAuth {
 }
 
 impl LocalAuth {
-    pub fn new(initial: Option<AmbientToken>, data_dir: &std::path::Path) -> Self {
+    pub fn new(
+        initial: Option<AmbientToken>,
+        data_dir: &std::path::Path,
+        device_client_id: Option<String>,
+    ) -> Self {
         Self {
             token: RwLock::new(initial),
             identity: RwLock::new(None),
             device_flow: Mutex::new(None),
             credentials_path: data_dir.join("credentials.json"),
-            device_client_id: device_client_id(),
+            device_client_id,
         }
     }
 
@@ -149,9 +153,8 @@ impl LocalAuth {
     }
 }
 
-fn device_client_id() -> Option<String> {
-    let from_env = std::env::var(GITHUB_CLIENT_ID_ENV).ok();
-    let id = from_env.unwrap_or_else(|| BAKED_DEVICE_CLIENT_ID.to_owned());
+pub(super) fn baked_device_client_id() -> Option<String> {
+    let id = BAKED_DEVICE_CLIENT_ID.to_owned();
     let id = id.trim().to_owned();
     (!id.is_empty()).then_some(id)
 }

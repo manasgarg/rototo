@@ -21,11 +21,10 @@ pub struct DevObservability {
 }
 
 impl DevObservability {
-    pub async fn from_env() -> Result<Option<Self>> {
-        let Some(dir) = std::env::var_os("ROTOTO_CONSOLE_DEV_OBSERVABILITY") else {
+    pub async fn from_dir(dir: Option<PathBuf>) -> Result<Option<Self>> {
+        let Some(dir) = dir else {
             return Ok(None);
         };
-        let dir = PathBuf::from(dir);
         if dir.as_os_str().is_empty() {
             return Ok(None);
         }
