@@ -62,9 +62,8 @@ Terminology in this note:
 
 - **Branch work** is the target model: editing against a git branch that can be
   created by the console or selected because it already exists.
-- **Draft** refers to the current implementation's UI/API/store naming. During
-  migration, draft records may index branch work, but they should not be the
-  source of record.
+- **Legacy draft rows** are migration-only input from older console stores.
+  The target model does not use drafts as API, store, or stage concepts.
 
 ## Proposed Data Model
 
@@ -108,26 +107,19 @@ branch.
 
 Target model:
 
-- `TreeSourceRecord`: an index of a source tree registered by a user;
-- `TrackedBranchRecord`: an index of a git branch the user is actively working
+- `SourceTreeRecord`: an index of a source tree registered by a user;
+- `ActiveBranchRecord`: an index of a git branch the user is actively working
   on, recently opened, or recently edited.
 
 These records are still not the source of truth for configuration. They are a
 durable index and session aid for the console. The source tree, branch refs,
 commits, and PRs remain authoritative.
 
-The current implementation also has compatibility rows:
-
-- current `DraftSessionRecord`: compatibility/index metadata for a branch
-  started by the console;
-- current `DraftChangeRecord`: compatibility/index metadata for semantic
-  changes tracked by the current UI.
-
-Those rows should be replaced, not preserved as design constraints. During
-migration they can be read to recover branch names and changed files, but the
-new store should follow the source-tree/tracked-branch model directly. If the
-console database is deleted, branch work should still be recoverable when the
-user selects the branch again or the provider can list relevant branches/PRs.
+Older stores may contain draft-named tables. Those rows are not design
+constraints. The new store follows the source-tree/active-branch model
+directly. If the console database is deleted, branch work should still be
+recoverable when the user selects the branch again or the provider can list
+relevant branches/PRs.
 
 The stage layer should not persist these concepts again. Dropping the console
 process should lose only cached checkouts, worktrees, extracted trees, derived
@@ -141,12 +133,18 @@ process-local entry point used by API routes.
 
 ```rust
 pub struct StageCache {
-    tree_sources: Mutex<HashMap<CachedTreeSource, Arc<TreeSourceSlot>>>,
+    tree_sources: Mutex<HashMap<CachedSourceTreeOrigin, Arc<SourceTreeOriginSlot>>>,
 }
 
-type TreeSourceSlot = Mutex<StagedTreeSource>;
+pub struct SourceTreeOriginSlot {
+    source_trees: Mutex<HashMap<SourceTreeRevision, Arc<SourceTreeSlot>>>,
+    workspace_discoveries: Mutex<HashMap<SourceTreeRevision, Arc<WorkspaceDiscoverySlot>>>,
+    workspace_views: Mutex<HashMap<WorkspaceViewKey, Arc<WorkspaceSlot>>>,
+    branch_changes: Mutex<HashMap<BranchChangesKey, Arc<BranchChangesSlot>>>,
+}
+
+type SourceTreeSlot = OnceCell<Arc<StagedSourceTree>>;
 type WorkspaceSlot = Mutex<StagedWorkspace>;
-type BranchSlot = Mutex<BranchCheckout>;
 ```
 
 The key must not contain raw bearer tokens. It should include a stable,
@@ -154,44 +152,44 @@ non-reversible token identity when the same remote source can be read with
 different credentials.
 
 ```rust
-pub struct CachedTreeSource {
+pub struct CachedSourceTreeOrigin {
     pub principal_id: String,
-    pub tree: TreeSource,
+    pub origin: SourceTreeOrigin,
     pub token: TokenIdentity,
 }
 ```
 
 ### Staged Source Tree
 
-`StagedTreeSource` represents the local physical manifestation of a source
+`StagedSourceTree` represents the local physical manifestation of a source
 tree for one user. For a GitHub repository this is the repo-level object: it
 knows the remote repo identity, the local git cache/worktrees, discovered
 workspace paths, branch checkouts, and lifecycle state.
 
 ```rust
-pub struct StagedTreeSource {
-    pub key: CachedTreeSource,
-    pub tree: TreeSource,
+pub struct StagedSourceTree {
+    pub key: CachedSourceTreeOrigin,
+    pub origin: SourceTreeOrigin,
     pub local: LocalTree,
     pub branches: HashMap<BranchName, Arc<BranchSlot>>,
     pub workspace_views: HashMap<WorkspaceViewKey, Arc<WorkspaceSlot>>,
-    pub lifecycle: TreeSourceLifecycle,
+    pub lifecycle: SourceTreeLifecycle,
 }
 
 pub struct BranchName(GitRefName);
 
 pub struct WorkspaceViewKey {
     pub path: WorkspacePath,
-    pub revision: TreeRevision,
+    pub revision: SourceTreeRevision,
 }
 ```
 
-`TreeSource` describes the source-of-record tree, not one workspace or branch
+`SourceTreeOrigin` describes the source-of-record tree, not one workspace or branch
 inside it. For GitHub this is owner/name. For local folders it is the
 canonical root path. For archives it is the archive URL.
 
 ```rust
-pub enum TreeSource {
+pub enum SourceTreeOrigin {
     GitHub {
         owner: NormalizedGitHubName,
         name: NormalizedGitHubName,
@@ -304,7 +302,7 @@ pub enum WorkspaceBacking {
 }
 ```
 
-Do not make a staged workspace hold an `Arc<StagedTreeSource>` if the source
+Do not make a staged workspace hold an `Arc<StagedSourceTree>` if the source
 tree also owns the workspace slot. That creates an easy reference cycle.
 Workspace backing should hold only the physical manifestation needed to keep
 the workspace root valid.
@@ -336,9 +334,8 @@ pub struct SemanticWorkspace {
 ### Branch Checkout
 
 A `BranchCheckout` belongs to the source tree, not to one workspace. A branch
-can change files that affect several workspaces under the same repo. The
-current UI may still call this a draft, but the stage model should think in
-terms of a branch checked out locally.
+can change files that affect several workspaces under the same repo. Stage
+should think in terms of a branch checked out locally.
 
 ```rust
 pub struct BranchCheckout {
@@ -365,7 +362,7 @@ to prevent duplicate work, decide whether revalidation is needed, and keep the
 last known good manifestation alive.
 
 ```rust
-pub struct TreeSourceLifecycle {
+pub struct SourceTreeLifecycle {
     pub staged_at: Instant,
     pub last_revalidated_at: Option<Instant>,
     pub revalidation: RevalidationState,
@@ -415,9 +412,13 @@ store records into workspace sources.
 The core address is:
 
 ```rust
-pub struct WorkspaceSource {
-    pub tree: TreeSource,
-    pub revision: TreeRevision,
+pub struct SourceTreeLocator {
+    pub origin: SourceTreeOrigin,
+    pub revision: SourceTreeRevision,
+}
+
+pub struct WorkspaceLocator {
+    pub source_tree: SourceTreeLocator,
     pub path: WorkspacePath,
 }
 ```
@@ -425,7 +426,7 @@ pub struct WorkspaceSource {
 Read this as:
 
 ```text
-WorkspaceSource = where the tree comes from
+WorkspaceLocator = where the tree comes from
                 + which revision of that tree to read
                 + where the workspace lives inside that tree
 ```
@@ -435,12 +436,12 @@ record.
 
 #### Cache Key
 
-`CachedTreeSource` is a process-local cache key. It should not be persisted.
+`CachedSourceTreeOrigin` is a process-local cache key. It should not be persisted.
 
 ```rust
-pub struct CachedTreeSource {
+pub struct CachedSourceTreeOrigin {
     pub principal_id: String,
-    pub tree: TreeSource,
+    pub origin: SourceTreeOrigin,
     pub token: TokenIdentity,
 }
 
@@ -453,7 +454,7 @@ pub enum TokenIdentity {
 Rules:
 
 - `principal_id` is the durable console principal id from the store.
-- `tree` is the normalized tree source identity, not a workspace source URI.
+- `origin` is the normalized tree source identity, not a workspace source URI.
 - `token` is `None` for unauthenticated reads and `Sha256Hex(full_digest)` for
   authenticated reads.
 - Raw bearer tokens must never appear in keys, logs, errors, or debug output.
@@ -470,32 +471,32 @@ Examples:
 
 ```text
 principal "user_123", GitHub "Rototo/Config", no token
-  -> CachedTreeSource {
+  -> CachedSourceTreeOrigin {
        principal_id: "user_123",
-       source: TreeSource::GitHub { owner: "rototo", name: "config" },
+       origin: SourceTreeOrigin::GitHub { owner: "rototo", name: "config" },
        token: TokenIdentity::None,
      }
 
 principal "user_123", same repo, bearer token "ghp_secret"
-  -> CachedTreeSource {
+  -> CachedSourceTreeOrigin {
        principal_id: "user_123",
-       source: TreeSource::GitHub { owner: "rototo", name: "config" },
+       origin: SourceTreeOrigin::GitHub { owner: "rototo", name: "config" },
        token: TokenIdentity::Sha256Hex(
          "4c281411e1ccc93c230902001a09e7b863cb12a3f3b341089eb980a34aa9e434",
        ),
      }
 
 principal "user_456", same repo, same token
-  -> different CachedTreeSource because principal_id differs
+  -> different CachedSourceTreeOrigin because principal_id differs
 ```
 
 #### Tree Source
 
-`TreeSource` identifies a tree before selecting a workspace path inside
+`SourceTreeOrigin` identifies a tree before selecting a workspace path inside
 it.
 
 ```rust
-pub enum TreeSource {
+pub enum SourceTreeOrigin {
     GitHub {
         owner: NormalizedGitHubName,
         name: NormalizedGitHubName,
@@ -518,11 +519,11 @@ Rules:
   spelling from store/API records outside the key when the UI needs it.
 - A GitHub repo registered as `owner/name` and a GitHub remote source such as
   `git+https://github.com/owner/name.git#main:path` should normalize to the
-  same `TreeSource::GitHub` when the adapter can recognize it.
+  same `SourceTreeOrigin::GitHub` when the adapter can recognize it.
 - GitHub HTTPS, SSH, and `git@github.com:owner/name.git` forms should strip a
   single trailing `.git`, strip trailing slashes, lowercase owner/name, and
   keep the ref/branch separate from the tree identity.
-- Generic git remotes use `TreeSource::GitRemote`. Normalize only the
+- Generic git remotes use `SourceTreeOrigin::GitRemote`. Normalize only the
   URL scheme and host casing and remove trailing slashes. Do not try to prove
   broader remote equivalence for non-GitHub hosts.
 - Local folders use an absolute canonical path after filesystem
@@ -532,48 +533,48 @@ Rules:
   Lowercase scheme and host, preserve path, query, and other URL components
   that affect the fetched bytes.
 - GitHub archive URLs encountered during migration should be adapted to
-  `TreeSource::GitHub` when owner/name are already available from a legacy
-  repo row; the ref becomes the selected `TreeRevision`. Arbitrary archive
-  URLs stay `TreeSource::Archive`.
+  `SourceTreeOrigin::GitHub` when owner/name are already available from a legacy
+  repo row; the ref becomes the selected `SourceTreeRevision`. Arbitrary archive
+  URLs stay `SourceTreeOrigin::Archive`.
 
 Examples:
 
 ```text
 GitHub repo record owner="Rototo", name="Config"
-  -> TreeSource::GitHub { owner: "rototo", name: "config" }
+  -> SourceTreeOrigin::GitHub { owner: "rototo", name: "config" }
 
 git+https://github.com/Rototo/Config.git#main:workspaces/payments
-  -> TreeSource::GitHub { owner: "rototo", name: "config" }
-  -> TreeRevision::GitRef("main")
+  -> SourceTreeOrigin::GitHub { owner: "rototo", name: "config" }
+  -> SourceTreeRevision::GitRef("main")
   -> WorkspacePath("workspaces/payments")
 
 git+ssh://git@github.com/Rototo/Config.git#feature/payments:.
-  -> TreeSource::GitHub { owner: "rototo", name: "config" }
-  -> TreeRevision::GitRef("feature/payments")
+  -> SourceTreeOrigin::GitHub { owner: "rototo", name: "config" }
+  -> SourceTreeRevision::GitRef("feature/payments")
   -> WorkspacePath(".")
 
 git@github.com:Rototo/Config.git
-  -> TreeSource::GitHub { owner: "rototo", name: "config" }
+  -> SourceTreeOrigin::GitHub { owner: "rototo", name: "config" }
 
 git+https://Git.Example.com/Team/Config.git#main:services/api
-  -> TreeSource::GitRemote {
+  -> SourceTreeOrigin::GitRemote {
        remote: "git+https://git.example.com/Team/Config.git",
      }
-  -> TreeRevision::GitRef("main")
+  -> SourceTreeRevision::GitRef("main")
   -> WorkspacePath("services/api")
 
 /home/alice/config-link, where config-link resolves to /srv/repos/config
-  -> TreeSource::LocalFolder { root: "/srv/repos/config" }
+  -> SourceTreeOrigin::LocalFolder { root: "/srv/repos/config" }
 
 https://EXAMPLE.com/releases/config.tar.gz#:workspaces/payments
-  -> TreeSource::Archive {
+  -> SourceTreeOrigin::Archive {
        url: "https://example.com/releases/config.tar.gz",
      }
   -> WorkspacePath("workspaces/payments")
 
 GitHub archive URL migrated from legacy repo owner="Rototo", name="Config", ref="main"
-  -> TreeSource::GitHub { owner: "rototo", name: "config" }
-  -> TreeRevision::GitRef("main")
+  -> SourceTreeOrigin::GitHub { owner: "rototo", name: "config" }
+  -> SourceTreeRevision::GitRef("main")
 ```
 
 #### Workspace Path
@@ -643,21 +644,21 @@ Examples:
 
 #### Source Tree Selection
 
-`TreeRevision` answers the question that `WorkspaceVersion` was trying to
-answer: which content tree should this workspace view read from?
+`SourceTreeRevision` answers which content tree a workspace view should read
+from.
 
 It is not a workspace version in the semantic-version sense. It is the selected
 tree lane for a workspace path. For a git-backed source it might be the base
-ref, a working branch, or an immutable commit. For non-git sources it might be
-the current local directory or an extracted archive fingerprint.
+ref, a working branch, or an immutable commit. For non-git sources it is
+currently the local working tree; archive-backed console loading is explicit
+and not represented as a durable branch lane.
 
 ```rust
-pub enum TreeRevision {
+pub enum SourceTreeRevision {
     GitRef(GitRefName),
     GitBranch(BranchName),
     GitCommit(GitCommit),
     LocalWorkingTree,
-    ArchiveSnapshot(SourceFingerprint),
 }
 ```
 
@@ -665,38 +666,32 @@ Rules:
 
 - `GitRef` is valid for git-backed trees. Preserve git ref case because refs
   are case-sensitive. Reject empty refs and refs beginning with `-`.
-- `GitBranch` is valid for git-backed trees with a branch worktree. Target routes
-  should get the branch name from `TrackedBranchRecord`. During migration, legacy
-  draft rows can be converted into `TrackedBranchRecord` rows by reading their durable
-  branch names.
+- `GitBranch` is valid for git-backed trees with a branch worktree. Target
+  routes should get the branch name from `ActiveBranchRecord`.
 - `GitCommit` is a 40-character lowercase hex commit id.
 - `LocalWorkingTree` is valid for local-folder trees and represents the current
   filesystem contents at the canonical root.
-- `ArchiveSnapshot` is valid for archive trees after staging or probing.
 - Route selectors may start with requested selections such as `GitRef("main")`
   or `GitBranch(branch_name)`. Staged physical objects should record resolved
-  facts such as commit SHA or archive fingerprint.
+  facts such as commit SHA or source fingerprint.
 
 Examples:
 
 ```text
 workspace route for repo default branch "main"
-  -> TreeRevision::GitRef("main")
+  -> SourceTreeRevision::GitRef("main")
 
 branch editor route for branch "rototo-console/alice/change-checkout"
-  -> TreeRevision::GitBranch(BranchName("rototo-console/alice/change-checkout"))
+  -> SourceTreeRevision::GitBranch(BranchName("rototo-console/alice/change-checkout"))
 
-TrackedBranchRecord { branch: "rototo-console/alice/change-checkout" }
-  -> TreeRevision::GitBranch(BranchName("rototo-console/alice/change-checkout"))
+ActiveBranchRecord { branch: "rototo-console/alice/change-checkout" }
+  -> SourceTreeRevision::GitBranch(BranchName("rototo-console/alice/change-checkout"))
 
 immutable source git+https://github.com/rototo/config.git#8d3c4b5a6f7081920a1b2c3d4e5f60718293a4b5:.
-  -> TreeRevision::GitCommit("8d3c4b5a6f7081920a1b2c3d4e5f60718293a4b5")
+  -> SourceTreeRevision::GitCommit("8d3c4b5a6f7081920a1b2c3d4e5f60718293a4b5")
 
 local folder source /srv/repos/config
-  -> TreeRevision::LocalWorkingTree
-
-staged archive with fingerprint sha256:abc123
-  -> TreeRevision::ArchiveSnapshot("sha256:abc123")
+  -> SourceTreeRevision::LocalWorkingTree
 ```
 
 #### Worktree Key
@@ -723,7 +718,7 @@ Rules:
 Examples:
 
 ```text
-TreeRevision::GitRef("main")
+SourceTreeRevision::GitRef("main")
   -> WorktreeKey::GitRef("main")
   -> RepoWorktree {
        resolved_commit: "a1b2c3d4e5f60718293a4b58d3c4b5a6f7081920",
@@ -735,10 +730,10 @@ after remote main advances
        resolved_commit: "c3d4e5f60718293a4b58d3c4b5a6f7081920a1b2",
      }
 
-TreeRevision::GitBranch(BranchName("rototo-console/alice/change-checkout"))
+SourceTreeRevision::GitBranch(BranchName("rototo-console/alice/change-checkout"))
   -> WorktreeKey::GitBranch("rototo-console/alice/change-checkout")
 
-TreeRevision::GitCommit("8d3c4b5a6f7081920a1b2c3d4e5f60718293a4b5")
+SourceTreeRevision::GitCommit("8d3c4b5a6f7081920a1b2c3d4e5f60718293a4b5")
   -> WorktreeKey::GitCommit("8d3c4b5a6f7081920a1b2c3d4e5f60718293a4b5")
 ```
 
@@ -747,8 +742,8 @@ TreeRevision::GitCommit("8d3c4b5a6f7081920a1b2c3d4e5f60718293a4b5")
 Stable enough to store or compare across process restarts:
 
 - durable `principal_id`;
-- `TreeSourceRecord.id`, `TrackedBranchRecord.id`;
-- normalized `TreeSource`;
+- `SourceTreeRecord.id`, `ActiveBranchRecord.id`;
+- normalized `SourceTreeOrigin`;
 - `WorkspacePath`;
 - `RepoRelativePath`;
 - `BranchName`;
@@ -757,7 +752,7 @@ Stable enough to store or compare across process restarts:
 
 Process-local only:
 
-- `CachedTreeSource` as a whole, because it includes `TokenIdentity`;
+- `CachedSourceTreeOrigin` as a whole, because it includes `TokenIdentity`;
 - tempdir paths;
 - worktree root paths;
 - `Arc` identity;
@@ -770,10 +765,9 @@ strings.
 
 ### Target Store And Stage Mapping
 
-The store should change to match the source-tree-first model. Do not preserve
-the current workspace-oriented shape as a design constraint. Keep legacy
-`RepoRecord`, workspace rows, `DraftSessionRecord`, and `DraftChangeRecord`
-only as migration inputs while the console moves to the new shape.
+The store should match the source-tree-first model. Do not preserve the old
+workspace-oriented shape as a design constraint. Legacy `repos`, `workspaces`,
+`tracked_*`, and `draft_*` tables are migration inputs only.
 
 #### Target Records
 
@@ -787,10 +781,10 @@ source of truth for configuration. Source trees, branch refs, commits, and PRs
 remain authoritative.
 
 ```rust
-pub struct TreeSourceRecord {
-    pub id: TreeSourceId,
+pub struct SourceTreeRecord {
+    pub id: SourceTreeId,
     pub principal_id: String,
-    pub source: TreeSource,
+    pub origin: SourceTreeOrigin,
     pub default_ref: Option<GitRefName>,
     pub display_name: String,
     pub created_at: DateTime<Utc>,
@@ -798,9 +792,9 @@ pub struct TreeSourceRecord {
     pub last_validated_at: Option<DateTime<Utc>>,
 }
 
-pub struct TrackedBranchRecord {
-    pub id: TrackedBranchId,
-    pub tree_source_id: TreeSourceId,
+pub struct ActiveBranchRecord {
+    pub id: ActiveBranchId,
+    pub source_tree_id: SourceTreeId,
     pub branch: BranchName,
     pub base_ref: GitRefName,
     pub base_commit: Option<GitCommit>,
@@ -829,7 +823,7 @@ request-local.
 
 There is intentionally no durable `WorkspaceRecord` in the target model.
 Workspace paths are facts discovered from a selected source tree checkout. A
-route may pass a `WorkspacePath`, and a tracked branch may remember one
+route may pass a `WorkspacePath`, and an active branch may remember one
 `last_selected_workspace` as a navigation hint, but the console does not need a
 workspace catalog table to reconstruct state.
 
@@ -837,14 +831,14 @@ workspace catalog table to reconstruct state.
 
 Store constraints should keep identity decisions out of route handlers:
 
-- `TreeSourceRecord` is unique by `(principal_id, source)`.
-- `TrackedBranchRecord` is unique by `(tree_source_id, branch)`.
-- `TrackedBranchRecord.base_ref` is the comparison and PR target ref. It is not part
-  of `TreeSource`.
-- `TrackedBranchRecord.last_selected_workspace` is a navigation hint, not an
+- `SourceTreeRecord` is unique by `(principal_id, source)`.
+- `ActiveBranchRecord` is unique by `(source_tree_id, branch)`.
+- `ActiveBranchRecord.base_ref` is the comparison and PR target ref. It is not part
+  of `SourceTreeOrigin`.
+- `ActiveBranchRecord.last_selected_workspace` is a navigation hint, not an
   assertion that the branch affects only that workspace.
-- `TrackedBranchRecord.last_seen_commit` and
-  `TreeSourceRecord.last_validated_at` are freshness metadata. They should not
+- `ActiveBranchRecord.last_seen_commit` and
+  `SourceTreeRecord.last_validated_at` are freshness metadata. They should not
   be used as configuration authority.
 - `BranchTrackingState::Active` means the user intentionally has this branch in
   their working set.
@@ -852,7 +846,7 @@ Store constraints should keep identity decisions out of route handlers:
   seen or edited lists, but the user is not actively working on it.
 - `BranchTrackingState::Archived` hides the branch from the normal working set
   without deleting the remote branch.
-- A tracked branch may have no selected workspace. In that case the console
+- A active branch may have no selected workspace. In that case the console
   should derive affected workspaces from the branch diff or ask the user to
   choose one.
 
@@ -860,7 +854,7 @@ These constraints are enough to answer the main lifecycle questions:
 
 - one registered source tree per user/source identity;
 - workspace lists are derived from source tree contents;
-- many tracked branches per source tree;
+- many active branches per source tree;
 - a branch can be reopened without knowing which workspace originally created
   it;
 - a workspace view is derived from `(source tree, workspace path, source tree
@@ -872,11 +866,11 @@ If the console database is deleted, the user should be able to register the
 same source tree again and recover durable work from the remote. Recovery has
 different levels:
 
-- `TreeSourceRecord` can be recreated from the user-provided source location and the
+- `SourceTreeRecord` can be recreated from the user-provided source location and the
   authenticated principal.
 - Workspace paths can be rebuilt by scanning a selected base tree or branch
   checkout for `rototo-workspace.toml`.
-- `TrackedBranchRecord` rows can be recreated when the user selects an
+- `ActiveBranchRecord` rows can be recreated when the user selects an
   existing branch, or when the provider lists branches/PRs that the console can
   present as importable.
 - Affected workspaces can be rebuilt by diffing the branch against `base_ref`
@@ -896,52 +890,57 @@ branch work.
 
 The target mapping from store to stage is direct. Route handlers combine a
 stored source tree, a workspace path derived from the source tree, and an
-optional tracked branch into one `CachedWorkspaceSource` before touching stage:
+optional active branch into one `CachedWorkspaceLocator` before touching stage:
 
 ```rust
-pub struct WorkspaceSource {
-    pub tree: TreeSource,
-    pub revision: TreeRevision,
+pub struct WorkspaceLocator {
+    pub source_tree: SourceTreeLocator,
     pub path: WorkspacePath,
 }
 
-pub struct CachedWorkspaceSource {
+pub struct CachedWorkspaceLocator {
     pub principal_id: String,
     pub token: TokenIdentity,
-    pub workspace: WorkspaceSource,
+    pub workspace: WorkspaceLocator,
 }
 ```
 
 ```text
-TreeSourceRecord + WorkspacePath + token + GitRef(default_ref)
-  -> CachedWorkspaceSource {
+SourceTreeRecord + WorkspacePath + token + GitRef(default_ref)
+  -> CachedWorkspaceLocator {
        principal_id,
        token,
-       workspace: WorkspaceSource {
-         tree,
-         revision: TreeRevision::GitRef(default_ref),
+       workspace: WorkspaceLocator {
+         source_tree: SourceTreeLocator {
+           origin,
+           revision: SourceTreeRevision::GitRef(default_ref),
+         },
          path: workspace_path,
        },
      }
 
-TreeSourceRecord + WorkspacePath + token + TrackedBranchRecord
-  -> CachedWorkspaceSource {
+SourceTreeRecord + WorkspacePath + token + ActiveBranchRecord
+  -> CachedWorkspaceLocator {
        principal_id,
        token,
-       workspace: WorkspaceSource {
-         tree,
-         revision: TreeRevision::GitBranch(branch.branch),
+       workspace: WorkspaceLocator {
+         source_tree: SourceTreeLocator {
+           origin,
+           revision: SourceTreeRevision::GitBranch(branch.branch),
+         },
          path: workspace_path,
        },
      }
 
-TreeSourceRecord + WorkspacePath + token + GitCommit
-  -> CachedWorkspaceSource {
+SourceTreeRecord + WorkspacePath + token + GitCommit
+  -> CachedWorkspaceLocator {
        principal_id,
        token,
-       workspace: WorkspaceSource {
-         tree,
-         revision: TreeRevision::GitCommit(commit),
+       workspace: WorkspaceLocator {
+         source_tree: SourceTreeLocator {
+           origin,
+           revision: SourceTreeRevision::GitCommit(commit),
+         },
          path: workspace_path,
        },
      }
@@ -951,109 +950,98 @@ Examples:
 
 ```text
 Open the base workspace at "."
-  TreeSourceRecord {
+  SourceTreeRecord {
     principal_id: "user_123",
-    tree: TreeSource::GitHub { owner: "rototo", name: "config" },
+    origin: SourceTreeOrigin::GitHub { owner: "rototo", name: "config" },
     default_ref: Some("main"),
   }
   token: TokenIdentity::Sha256Hex(
     "4c281411e1ccc93c230902001a09e7b863cb12a3f3b341089eb980a34aa9e434",
   )
   workspace path: WorkspacePath(".")
-  -> CachedWorkspaceSource {
+  -> CachedWorkspaceLocator {
        principal_id: "user_123",
        token: TokenIdentity::Sha256Hex(
          "4c281411e1ccc93c230902001a09e7b863cb12a3f3b341089eb980a34aa9e434",
        ),
-       workspace: WorkspaceSource {
-         tree: TreeSource::GitHub { owner: "rototo", name: "config" },
-         revision: TreeRevision::GitRef("main"),
+       workspace: WorkspaceLocator {
+         source_tree: SourceTreeLocator {
+           origin: SourceTreeOrigin::GitHub { owner: "rototo", name: "config" },
+           revision: SourceTreeRevision::GitRef("main"),
+         },
          path: WorkspacePath("."),
        },
      }
 
 Open an existing branch for a nested workspace
-  TreeSourceRecord { tree: TreeSource::GitHub { owner: "rototo", name: "config" } }
-  TrackedBranchRecord { branch: BranchName("rototo-console/alice/change-checkout") }
+  SourceTreeRecord { origin: SourceTreeOrigin::GitHub { owner: "rototo", name: "config" } }
+  ActiveBranchRecord { branch: BranchName("rototo-console/alice/change-checkout") }
   workspace path: WorkspacePath("workspaces/payments")
-  -> CachedWorkspaceSource {
+  -> CachedWorkspaceLocator {
        principal_id,
        token,
-       workspace: WorkspaceSource {
-         tree,
-         revision: TreeRevision::GitBranch(
-           BranchName("rototo-console/alice/change-checkout"),
-         ),
+       workspace: WorkspaceLocator {
+         source_tree: SourceTreeLocator {
+           origin,
+           revision: SourceTreeRevision::GitBranch(
+             BranchName("rototo-console/alice/change-checkout"),
+           ),
+         },
          path: WorkspacePath("workspaces/payments"),
        },
      }
 
 Create a branch from a workspace screen
-  1. create TrackedBranchRecord {
-       tree_source_id,
+  1. create ActiveBranchRecord {
+       source_tree_id,
        branch,
        base_ref,
        base_commit,
      }
   2. set last_selected_workspace to the current WorkspacePath
   3. set tracking to BranchTrackingState::Active
-  4. create CachedWorkspaceSource with TreeRevision::GitBranch(branch)
+  4. create CachedWorkspaceLocator with SourceTreeRevision::GitBranch(branch)
 
 Reopen a branch after restart
-  1. load TrackedBranchRecord by (tree_source_id, branch)
+  1. load ActiveBranchRecord by (source_tree_id, branch)
   2. use last_selected_workspace if present
   3. otherwise derive affected workspace paths from branch diff
   4. otherwise ask the user to choose a workspace path
-  5. create CachedWorkspaceSource with TreeRevision::GitBranch(branch)
+  5. create CachedWorkspaceLocator with SourceTreeRevision::GitBranch(branch)
 
 Preview an immutable commit
-  TreeSourceRecord + WorkspacePath + GitCommit(
+  SourceTreeRecord + WorkspacePath + GitCommit(
     "8d3c4b5a6f7081920a1b2c3d4e5f60718293a4b5",
   )
-  -> CachedWorkspaceSource {
+  -> CachedWorkspaceLocator {
        principal_id,
        token,
-       workspace: WorkspaceSource {
-         tree,
-         revision: TreeRevision::GitCommit(
-           "8d3c4b5a6f7081920a1b2c3d4e5f60718293a4b5",
-         ),
+       workspace: WorkspaceLocator {
+         source_tree: SourceTreeLocator {
+           origin,
+           revision: SourceTreeRevision::GitCommit(
+             "8d3c4b5a6f7081920a1b2c3d4e5f60718293a4b5",
+           ),
+         },
          path: workspace_path,
        },
      }
 
 Open a local folder workspace
-  TreeSourceRecord {
+  SourceTreeRecord {
     principal_id: "local",
-    tree: TreeSource::LocalFolder { root: "/srv/repos/config" },
+    origin: SourceTreeOrigin::LocalFolder { root: "/srv/repos/config" },
     default_ref: None,
   }
   workspace path: WorkspacePath("workspaces/payments")
-  -> CachedWorkspaceSource {
+  -> CachedWorkspaceLocator {
        principal_id: "local",
        token: TokenIdentity::None,
-       workspace: WorkspaceSource {
-         tree: TreeSource::LocalFolder { root: "/srv/repos/config" },
-         revision: TreeRevision::LocalWorkingTree,
-         path: WorkspacePath("workspaces/payments"),
-       },
-     }
-
-Open a staged archive workspace
-  TreeSourceRecord {
-    tree: TreeSource::Archive {
-      url: "https://example.com/releases/config.tar.gz",
-    },
-    default_ref: None,
-  }
-  workspace path: WorkspacePath("workspaces/payments")
-  fingerprint: SourceFingerprint("sha256:abc123")
-  -> CachedWorkspaceSource {
-       principal_id,
-       token,
-       workspace: WorkspaceSource {
-         tree,
-         revision: TreeRevision::ArchiveSnapshot("sha256:abc123"),
+       workspace: WorkspaceLocator {
+         source_tree: SourceTreeLocator {
+           origin: SourceTreeOrigin::LocalFolder { root: "/srv/repos/config" },
+           revision: SourceTreeRevision::LocalWorkingTree,
+         },
          path: WorkspacePath("workspaces/payments"),
        },
      }
@@ -1061,8 +1049,8 @@ Open a staged archive workspace
 
 Only ingestion and migration code should understand legacy source strings such
 as GitHub archive URLs or `git+https://...#ref:path`. Once a source is
-registered, API routes should work from normalized `TreeSourceRecord`,
-`WorkspacePath`, and `TrackedBranchRecord` values.
+registered, API routes should work from normalized `SourceTreeRecord`,
+`WorkspacePath`, and `ActiveBranchRecord` values.
 
 The store should not cache discovery products or SDK-derived objects.
 Discovered workspace paths, affected workspace paths, changed file paths,
@@ -1071,14 +1059,14 @@ tempdirs, and revalidation locks remain derived or process-local stage state.
 
 ### Source Tree Selection Semantics
 
-`TreeRevision` is the requested lane for reading one source tree. It is
+`SourceTreeRevision` is the requested lane for reading one source tree. It is
 not the resolved physical identity. Stage should keep requested selections and
 resolved facts separate.
 
 ```rust
-pub enum ResolvedTreeSource {
+pub enum ResolvedSourceTree {
     Git {
-        requested: TreeRevision,
+        requested: SourceTreeRevision,
         commit: GitCommit,
         worktree: Arc<RepoWorktree>,
     },
@@ -1110,10 +1098,6 @@ Rules by revision:
   current filesystem contents at the canonical root. Stage may use short TTLs,
   directory mtimes, or source fingerprints to avoid stale views, but local
   folders are not refreshed from a remote authority.
-- `ArchiveSnapshot(fingerprint)` is valid for extracted archive contents.
-  It is immutable for a staged archive. Refreshing an archive URL belongs to
-  source probing; if the bytes change, probing yields a new fingerprint and a
-  new source-tree selection.
 
 Route behavior:
 
@@ -1121,8 +1105,6 @@ Route behavior:
   `GitBranch`.
 - Explicit historical views may request `GitCommit`.
 - Local-folder routes request `LocalWorkingTree`.
-- Archive routes request `ArchiveSnapshot` after the archive has been
-  staged or probed.
 - Routes should not rewrite `GitRef` or `GitBranch` into `GitCommit` just because
   stage observed a commit. The observed commit is a resolved fact for caching,
   logs, diagnostics, and stale checks.
@@ -1130,10 +1112,12 @@ Route behavior:
 Examples:
 
 ```text
-CachedWorkspaceSource {
-  workspace: WorkspaceSource {
-    tree: github config,
-    revision: TreeRevision::GitRef("main"),
+CachedWorkspaceLocator {
+  workspace: WorkspaceLocator {
+    source_tree: SourceTreeLocator {
+      origin: github config,
+      revision: SourceTreeRevision::GitRef("main"),
+    },
     path: WorkspacePath("workspaces/payments"),
   },
 }
@@ -1141,12 +1125,14 @@ CachedWorkspaceSource {
   -> records resolved commit "a1b2c3d4e5f60718293a4b58d3c4b5a6f7081920"
   -> later refresh may replace it with commit "c3d4e5f60718293a4b58d3c4b5a6f7081920a1b2"
 
-CachedWorkspaceSource {
-  workspace: WorkspaceSource {
-    tree: github config,
-    revision: TreeRevision::GitBranch(
-      BranchName("rototo-console/alice/change-checkout"),
-    ),
+CachedWorkspaceLocator {
+  workspace: WorkspaceLocator {
+    source_tree: SourceTreeLocator {
+      origin: github config,
+      revision: SourceTreeRevision::GitBranch(
+        BranchName("rototo-console/alice/change-checkout"),
+      ),
+    },
     path: WorkspacePath("workspaces/payments"),
   },
 }
@@ -1154,22 +1140,26 @@ CachedWorkspaceSource {
   -> branch save calls invalidate_branch(...)
   -> next request restages or reuses the updated branch checkout
 
-CachedWorkspaceSource {
-  workspace: WorkspaceSource {
-    tree: github config,
-    revision: TreeRevision::GitCommit(
-      "8d3c4b5a6f7081920a1b2c3d4e5f60718293a4b5",
-    ),
+CachedWorkspaceLocator {
+  workspace: WorkspaceLocator {
+    source_tree: SourceTreeLocator {
+      origin: github config,
+      revision: SourceTreeRevision::GitCommit(
+        "8d3c4b5a6f7081920a1b2c3d4e5f60718293a4b5",
+      ),
+    },
     path: WorkspacePath("."),
   },
 }
   -> stages that commit
   -> no background refresh
 
-CachedWorkspaceSource {
-  workspace: WorkspaceSource {
-    tree: local folder /srv/repos/config,
-    revision: TreeRevision::LocalWorkingTree,
+CachedWorkspaceLocator {
+  workspace: WorkspaceLocator {
+    source_tree: SourceTreeLocator {
+      origin: local folder /srv/repos/config,
+      revision: SourceTreeRevision::LocalWorkingTree,
+    },
     path: WorkspacePath("."),
   },
 }
@@ -1184,8 +1174,6 @@ not be durable store state.
 
 ```rust
 pub struct WorkspaceDiscovery {
-    pub cached_tree: CachedTreeSource,
-    pub revision: TreeRevision,
     pub workspaces: Vec<WorkspacePath>,
 }
 ```
@@ -1199,12 +1187,12 @@ Rules:
 - Discovery works for base refs, branches, commits, local folders, and
   archives.
 - Discovery reads the selected source-tree checkout, not the durable store.
-- Results may be cached in stage by `(CachedTreeSource, TreeRevision)`.
+- Results may be cached in stage by `(CachedSourceTreeOrigin, SourceTreeRevision)`.
 - Cache entries are invalidated when the selected checkout changes.
 - Deleted workspaces disappear from the next discovery result after the source
   tree is refreshed or the branch is invalidated.
 - A route with an explicit `WorkspacePath` does not need discovery before
-  building a `CachedWorkspaceSource`; discovery is for lists and fallbacks.
+  building a `CachedWorkspaceLocator`; discovery is for lists and fallbacks.
 
 Example:
 
@@ -1214,7 +1202,7 @@ selected checkout:
   workspaces/payments/rototo-workspace.toml
   workspaces/search/rototo-workspace.toml
 
-discover_workspaces(source_tree, TreeRevision::GitRef("main"))
+discover_workspaces(source_tree, SourceTreeRevision::GitRef("main"))
   -> WorkspaceDiscovery {
        workspaces: [
          WorkspacePath("."),
@@ -1227,19 +1215,19 @@ discover_workspaces(source_tree, TreeRevision::GitRef("main"))
 ### Branch Scope In The Store
 
 This is resolved by the target store schema above. `BranchCheckout` belongs to
-a source tree, and `TrackedBranchRecord` follows that shape. A branch is not owned by
+a source tree, and `ActiveBranchRecord` follows that shape. A branch is not owned by
 one workspace. It may remember the last selected workspace for UI navigation,
 but it can affect several workspace paths.
 
 The important rules are:
 
-- `TrackedBranchRecord` belongs to `TreeSourceRecord`;
-- `TrackedBranchRecord.last_selected_workspace` is optional and is only a
+- `ActiveBranchRecord` belongs to `SourceTreeRecord`;
+- `ActiveBranchRecord.last_selected_workspace` is optional and is only a
   navigation hint;
 - affected workspaces are derived from the branch diff and discovered
   workspace paths;
 - changed files are derived from the branch diff;
-- current draft rows are migration inputs only.
+- legacy draft rows are migration inputs only.
 
 The remote branch and commits are still authoritative. Store rows help the
 console reopen a branch-oriented screen quickly and remember UI navigation.
@@ -1318,11 +1306,11 @@ Because the target store does not persist workspace rows or branch-workspace
 rows, routes should choose that workspace path in this order:
 
 1. Use the explicit `WorkspacePath` from the route when present.
-2. Otherwise use `TrackedBranchRecord.last_selected_workspace` when present.
+2. Otherwise use `ActiveBranchRecord.last_selected_workspace` when present.
 3. Otherwise call `get_branch_changes(source_tree, branch)` and use the most
    specific affected workspace when there is a clear choice.
 4. Otherwise ask the user to choose a workspace path from
-   `discover_workspaces(source_tree, TreeRevision::GitBranch(branch))`.
+   `discover_workspaces(source_tree, SourceTreeRevision::GitBranch(branch))`.
 
 This keeps `last_selected_workspace` as a UI hint. It does not make the branch
 owned by that workspace.
@@ -1379,7 +1367,7 @@ Lock hierarchy:
 
 ```text
 StageCache.source_trees map lock
-  -> TreeSourceSlot lock
+  -> SourceTreeOriginSlot lock
        -> BranchSlot lock
        -> WorkspaceSlot lock
 ```
@@ -1387,11 +1375,11 @@ StageCache.source_trees map lock
 Rules:
 
 - Acquire `StageCache.source_trees` only long enough to find or insert an
-  `Arc<TreeSourceSlot>`.
+  `Arc<SourceTreeOriginSlot>`.
 - Do not hold the `StageCache.source_trees` lock while awaiting any operation.
-- Acquire `TreeSourceSlot` only long enough to find or insert branch,
+- Acquire `SourceTreeOriginSlot` only long enough to find or insert branch,
   workspace, discovery, or refresh state.
-- Do not hold `TreeSourceSlot` while running git, fetching archives,
+- Do not hold `SourceTreeOriginSlot` while running git, fetching archives,
   extracting files, scanning workspaces, loading SDK workspaces, linting, or
   building semantic models.
 - Do not hold `BranchSlot` while committing files, fetching/probing a branch,
@@ -1409,7 +1397,7 @@ let source_slot = {
     let mut source_trees = self.source_trees.lock().await;
     source_trees
         .entry(source_tree_key.clone())
-        .or_insert_with(|| Arc::new(Mutex::new(StagedTreeSource::new(...))))
+        .or_insert_with(|| Arc::new(Mutex::new(StagedSourceTree::new(...))))
         .clone()
 };
 
@@ -1422,7 +1410,7 @@ let workspace_slot = {
         .clone()
 };
 
-// No StageCache or StagedTreeSource lock is held here.
+// No StageCache or StagedSourceTree lock is held here.
 let inspected = initialize_inspected_workspace(workspace_slot).await?;
 ```
 
@@ -1432,13 +1420,13 @@ Derived data should be initialized once per cache key even under concurrent
 requests:
 
 - `WorkspaceDiscovery` is single-flight per
-  `(CachedTreeSource, TreeRevision)`.
-- `BranchChanges` is single-flight per `(CachedTreeSource, BranchName)` and
+  `(CachedSourceTreeOrigin, SourceTreeRevision)`.
+- `BranchChanges` is single-flight per `(CachedSourceTreeOrigin, BranchName)` and
   invalidated after branch writes.
 - inspected workspace is single-flight per `WorkspaceViewKey`;
 - semantic model is single-flight per `WorkspaceViewKey`;
 - runtime workspace is single-flight per `WorkspaceViewKey`;
-- base-ref refresh is single-flight per `(CachedTreeSource, BaseRef)`.
+- base-ref refresh is single-flight per `(CachedSourceTreeOrigin, BaseRef)`.
 
 Use `tokio::sync::OnceCell`, a small in-flight task map, or a local
 single-flight helper. The important property is that ten concurrent requests
@@ -1581,7 +1569,7 @@ Resolve the gaps in this order:
 10. Error and observability shape.
 
 The first four should be settled before implementing structs. Current
-draft-named rows can be migration inputs, but the rewrite should not preserve
+legacy draft-named rows can be migration inputs, but the rewrite should not preserve
 their workspace-scoped shape as an internal stage constraint.
 
 ## Proposed Console Interface
@@ -1598,37 +1586,30 @@ especially benefits from explicit naming, because it returns the same
 ```rust
 pub struct StageCache;
 
-pub struct WorkspaceSource {
-    pub tree: TreeSource,
-    pub revision: TreeRevision,
+pub struct WorkspaceLocator {
+    pub source_tree: SourceTreeLocator,
     pub path: WorkspacePath,
 }
 
-pub struct CachedWorkspaceSource {
+pub struct CachedWorkspaceLocator {
     pub principal_id: String,
     pub token: TokenIdentity,
-    pub workspace: WorkspaceSource,
+    pub workspace: WorkspaceLocator,
 }
 
-pub enum TreeRevision {
+pub enum SourceTreeRevision {
     GitRef(GitRefName),
     GitBranch(BranchName),
     GitCommit(GitCommit),
     LocalWorkingTree,
-    ArchiveSnapshot(SourceFingerprint),
 }
 
 pub struct WorkspaceDiscovery {
-    pub cached_tree: CachedTreeSource,
-    pub revision: TreeRevision,
     pub workspaces: Vec<WorkspacePath>,
 }
 
 pub struct BranchChanges {
-    pub branch: BranchName,
-    pub base_ref: GitRefName,
     pub changed_files: Vec<RepoRelativePath>,
-    pub affected_workspaces: Vec<WorkspacePath>,
 }
 
 impl StageCache {
@@ -1636,36 +1617,37 @@ impl StageCache {
 
     pub async fn discover_workspaces(
         &self,
-        cached_tree: CachedTreeSource,
-        revision: TreeRevision,
+        cached_tree: CachedSourceTreeOrigin,
+        revision: SourceTreeRevision,
     ) -> Result<WorkspaceDiscovery>;
 
     pub async fn get_branch_changes(
         &self,
-        cached_tree: CachedTreeSource,
+        cached_tree: CachedSourceTreeOrigin,
         branch: BranchName,
+        base_ref: GitRefName,
     ) -> Result<BranchChanges>;
 
     pub async fn get_inspected_workspace(
         &self,
-        selector: CachedWorkspaceSource,
+        selector: CachedWorkspaceLocator,
         source_token: &str,
     ) -> Result<Arc<Workspace>>;
 
     pub async fn get_semantic_workspace(
         &self,
-        selector: CachedWorkspaceSource,
+        selector: CachedWorkspaceLocator,
         source_token: &str,
     ) -> Result<SemanticWorkspace>;
 
     pub async fn get_runtime_workspace(
         &self,
-        selector: CachedWorkspaceSource,
+        selector: CachedWorkspaceLocator,
         source_token: &str,
     ) -> Result<Arc<Workspace>>;
 
-    pub async fn invalidate_workspace(&self, selector: CachedWorkspaceSource);
-    pub async fn invalidate_branch(&self, cached_tree: CachedTreeSource, branch: BranchName);
+    pub async fn invalidate_workspace(&self, selector: &CachedWorkspaceLocator);
+    pub async fn invalidate_branch(&self, cached_tree: &CachedSourceTreeOrigin, branch: &str);
 }
 ```
 
@@ -1674,8 +1656,8 @@ fetch archives over the network, extract archives, run lint, or build a
 semantic model.
 
 Routes may keep source-string helpers while the code migrates, but those
-helpers should normalize the route inputs into `CachedTreeSource`,
-`WorkspaceSource`, and `TreeRevision` before touching cache state.
+helpers should normalize the route inputs into `CachedSourceTreeOrigin`,
+`WorkspaceLocator`, and `SourceTreeRevision` before touching cache state.
 
 ## Method Semantics
 
@@ -1943,12 +1925,13 @@ workspace-view slots.
 
 The useful cache hierarchy is:
 
-- `StageCache`: owns `CachedTreeSource -> StagedTreeSource`;
-- `StagedTreeSource`: owns the local tree plus branch checkout and
-  workspace-view slots;
+- `StageCache`: owns `CachedSourceTreeOrigin -> SourceTreeOriginSlot`;
+- `SourceTreeOriginSlot`: owns staged source trees by `SourceTreeRevision`,
+  workspace discovery results, workspace-view slots, and branch-change slots;
+- `StagedSourceTree`: owns one materialized filesystem tree root;
 - `StagedWorkspace`: owns derived workspace views for one path/source-tree
   selection pair;
-- `BranchCheckout`: owns the branch worktree and changed path metadata;
+- `BranchChanges`: owns derived changed path metadata for one branch/base ref;
 - `SemanticWorkspace`: is only a return object.
 
 Everything else should be a field, helper function, or private enum only after
@@ -1956,11 +1939,12 @@ it proves it makes the code easier to read.
 
 ```text
 StageCache
-  CachedTreeSource -> StagedTreeSource
+  CachedSourceTreeOrigin -> SourceTreeOriginSlot
 
-StagedTreeSource
+SourceTreeOriginSlot
+  SourceTreeRevision -> StagedSourceTree
   WorkspaceViewKey -> StagedWorkspace
-  BranchName -> BranchCheckout
+  BranchChangesKey -> BranchChanges
 
 StagedWorkspace
   inspected: OnceCell<Arc<Workspace>>
@@ -2003,7 +1987,7 @@ Refresh should be stale-while-revalidate:
   after the new manifestation stages and inspects successfully;
 - semantic and runtime caches must be reset when the staged files change.
 
-Refresh follows `TreeRevision` semantics:
+Refresh follows `SourceTreeRevision` semantics:
 
 - `GitRef(ref)`: eligible for background refresh. Probe/fetch the ref, compare
   the resolved commit with the cached `RepoWorktree`, and replace the worktree
@@ -2015,9 +1999,8 @@ Refresh follows `TreeRevision` semantics:
   and restaged from the same commit.
 - `LocalWorkingTree`: local-folder only. Revalidate by filesystem probing,
   fingerprinting, or short TTL. There is no remote fetch.
-- `ArchiveSnapshot(fingerprint)`: never refreshed. Archive URL probing that
-  discovers new bytes should produce a new fingerprint and therefore a new
-  selection/cache entry.
+- Archive URL probing belongs to source loading and discovery. Archives do not
+  participate in branch refresh because they are bytes, not branches.
 
 The current code uses fingerprints to avoid rebuilding views when git refs or
 archives are unchanged. A source-tree-first replacement can check a repo ref's
@@ -2078,8 +2061,7 @@ Workspace routes use staging as follows:
 - workspace entity: `get_semantic_workspace` to read definitions and contexts,
   then `get_runtime_workspace` for saved-context previews when lint-clean.
 
-Current branch routes, some of which are still draft-named in the API, use
-staging as follows:
+Current branch routes use staging as follows:
 
 - branch saves call `invalidate_branch(tree, branch)` after committing;
 - branch lint and publish checks call `get_inspected_workspace` on branch
