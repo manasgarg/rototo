@@ -194,7 +194,14 @@ async fn invalidate_branch(
     )
     .await
     {
-        state.stage.invalidate_workspace(&source).await;
+        if let Ok(cached_tree) = source.cached_tree_source() {
+            state
+                .stage
+                .invalidate_branch(&cached_tree, &branch.branch)
+                .await;
+        } else {
+            state.stage.invalidate_workspace(&source).await;
+        }
     }
 }
 

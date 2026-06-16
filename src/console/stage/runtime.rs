@@ -13,6 +13,13 @@ pub async fn get_runtime_workspace(
     source_token: &str,
 ) -> Result<Arc<Workspace>> {
     let inspected = load::get_inspected_workspace(selector, source_token).await?;
+    get_runtime_workspace_from_inspected(inspected, source_token).await
+}
+
+pub(super) async fn get_runtime_workspace_from_inspected(
+    inspected: Arc<Workspace>,
+    source_token: &str,
+) -> Result<Arc<Workspace>> {
     let inspected_root = inspected.root().to_string_lossy().into_owned();
     let runtime = Workspace::load_snapshot_with_options(
         inspected_root,
