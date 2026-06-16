@@ -8,7 +8,7 @@ use crate::error::{Result, RototoError};
 use super::path::select_subdir;
 use super::types::{
     LoadedWorkspaceSource, SourceFingerprint, SourceLayer, SourceOptions, SourceProbe,
-    StagedWorkspace,
+    StagedSourceTree,
 };
 use super::uri::SourceUri;
 
@@ -17,6 +17,26 @@ pub(super) async fn stage_git_repo(
     original: &str,
     options: &SourceOptions,
 ) -> Result<LoadedWorkspaceSource> {
+    let tree = stage_git_source_tree(uri, original, options).await?;
+    let fingerprint = tree.fingerprint().cloned();
+    let immutable = tree.immutable();
+    Ok(LoadedWorkspaceSource {
+        staged: tree.into_staged_workspace(),
+        fingerprint: fingerprint.clone(),
+        immutable,
+        layers: vec![SourceLayer {
+            source: original.to_owned(),
+            fingerprint,
+            immutable,
+        }],
+    })
+}
+
+pub(super) async fn stage_git_source_tree(
+    uri: &SourceUri,
+    original: &str,
+    options: &SourceOptions,
+) -> Result<StagedSourceTree> {
     let inner_scheme = uri
         .scheme
         .strip_prefix("git+")
@@ -78,16 +98,12 @@ pub(super) async fn stage_git_repo(
     }
     let commit = git_rev_parse_head(&clone_dir, options).await?;
     let root = select_subdir(&clone_dir, uri.subdir.as_deref(), original).await?;
-    Ok(LoadedWorkspaceSource {
-        staged: StagedWorkspace::temporary(root, tempdir),
-        fingerprint: Some(SourceFingerprint::GitCommit(commit.clone())),
-        immutable: pinned_commit,
-        layers: vec![SourceLayer {
-            source: original.to_owned(),
-            fingerprint: Some(SourceFingerprint::GitCommit(commit)),
-            immutable: pinned_commit,
-        }],
-    })
+    Ok(StagedSourceTree::temporary(
+        root,
+        tempdir,
+        Some(SourceFingerprint::GitCommit(commit)),
+        pinned_commit,
+    ))
 }
 
 pub(super) async fn probe_git_repo(

@@ -210,3 +210,57 @@ impl StagedWorkspace {
         self._tempdir.is_some()
     }
 }
+
+#[derive(Debug)]
+pub(crate) struct StagedSourceTree {
+    root: PathBuf,
+    fingerprint: Option<SourceFingerprint>,
+    immutable: bool,
+    _tempdir: Option<TempDir>,
+}
+
+impl StagedSourceTree {
+    #[cfg(feature = "console")]
+    pub(super) fn local(root: PathBuf) -> Self {
+        Self {
+            root,
+            fingerprint: None,
+            immutable: false,
+            _tempdir: None,
+        }
+    }
+
+    pub(super) fn temporary(
+        root: PathBuf,
+        tempdir: TempDir,
+        fingerprint: Option<SourceFingerprint>,
+        immutable: bool,
+    ) -> Self {
+        Self {
+            root,
+            fingerprint,
+            immutable,
+            _tempdir: Some(tempdir),
+        }
+    }
+
+    #[cfg(feature = "console")]
+    pub(crate) fn root(&self) -> &Path {
+        &self.root
+    }
+
+    pub(super) fn fingerprint(&self) -> Option<&SourceFingerprint> {
+        self.fingerprint.as_ref()
+    }
+
+    pub(super) fn immutable(&self) -> bool {
+        self.immutable
+    }
+
+    pub(super) fn into_staged_workspace(self) -> StagedWorkspace {
+        StagedWorkspace {
+            path: self.root,
+            _tempdir: self._tempdir,
+        }
+    }
+}

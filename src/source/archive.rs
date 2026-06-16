@@ -7,6 +7,8 @@ use crate::error::{Result, RototoError};
 
 use super::WORKSPACE_MANIFEST;
 use super::path::{async_is_file, relative_path_is_safe, select_subdir};
+#[cfg(feature = "console")]
+use super::types::StagedSourceTree;
 use super::types::{
     LoadedWorkspaceSource, SourceAuth, SourceFingerprint, SourceLayer, SourceOptions, SourceProbe,
     StagedWorkspace,
@@ -27,6 +29,67 @@ pub(super) async fn stage_https_archive(
         ));
     }
 
+    let ExtractedArchive {
+        extract_dir,
+        fingerprint,
+        tempdir,
+    } = extract_https_archive(uri, original, options).await?;
+    let root = match uri.subdir.as_deref() {
+        Some(subdir) => select_archive_subdir(&extract_dir, subdir, original).await?,
+        None => infer_archive_workspace_root(&extract_dir, original).await?,
+    };
+    Ok(LoadedWorkspaceSource {
+        staged: StagedWorkspace::temporary(root, tempdir),
+        fingerprint: fingerprint.clone(),
+        immutable: false,
+        layers: vec![SourceLayer {
+            source: original.to_owned(),
+            fingerprint,
+            immutable: false,
+        }],
+    })
+}
+
+#[cfg(feature = "console")]
+pub(super) async fn stage_https_archive_tree(
+    uri: &SourceUri,
+    original: &str,
+    options: &SourceOptions,
+) -> Result<StagedSourceTree> {
+    if uri.ref_.is_some() {
+        return Err(RototoError::new(
+            "https source trees only support #:subdir fragments",
+        ));
+    }
+
+    let ExtractedArchive {
+        extract_dir,
+        fingerprint,
+        tempdir,
+    } = extract_https_archive(uri, original, options).await?;
+    let root = match uri.subdir.as_deref() {
+        Some(subdir) => select_archive_subdir(&extract_dir, subdir, original).await?,
+        None => extract_dir,
+    };
+    Ok(StagedSourceTree::temporary(
+        root,
+        tempdir,
+        fingerprint,
+        false,
+    ))
+}
+
+struct ExtractedArchive {
+    extract_dir: PathBuf,
+    fingerprint: Option<SourceFingerprint>,
+    tempdir: TempDir,
+}
+
+async fn extract_https_archive(
+    uri: &SourceUri,
+    _original: &str,
+    options: &SourceOptions,
+) -> Result<ExtractedArchive> {
     let url = format!("{}://{}", uri.scheme, uri.base);
     let client = https_archive_client(options)?;
     let mut request = client.get(&url);
@@ -86,19 +149,10 @@ pub(super) async fn stage_https_archive(
     .await
     .map_err(|err| RototoError::new(format!("archive extraction task failed: {err}")))??;
 
-    let root = match uri.subdir.as_deref() {
-        Some(subdir) => select_archive_subdir(&extract_dir, subdir, original).await?,
-        None => infer_archive_workspace_root(&extract_dir, original).await?,
-    };
-    Ok(LoadedWorkspaceSource {
-        staged: StagedWorkspace::temporary(root, tempdir),
-        fingerprint: fingerprint.clone(),
-        immutable: false,
-        layers: vec![SourceLayer {
-            source: original.to_owned(),
-            fingerprint,
-            immutable: false,
-        }],
+    Ok(ExtractedArchive {
+        extract_dir,
+        fingerprint,
+        tempdir,
     })
 }
 

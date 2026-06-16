@@ -4,11 +4,18 @@ use tempfile::TempDir;
 
 use crate::error::{Result, RototoError};
 
+#[cfg(feature = "console")]
+use super::types::StagedSourceTree;
 use super::types::{LoadedWorkspaceSource, SourceLayer, StagedWorkspace};
 use super::uri::SourceUri;
 
 pub(super) async fn stage_local_path(path: &Path) -> Result<StagedWorkspace> {
     Ok(StagedWorkspace::local(path.to_path_buf()))
+}
+
+#[cfg(feature = "console")]
+pub(super) async fn stage_local_tree(path: &Path) -> Result<StagedSourceTree> {
+    Ok(StagedSourceTree::local(path.to_path_buf()))
 }
 
 pub(super) async fn snapshot_local_path(path: &Path) -> Result<LoadedWorkspaceSource> {
@@ -40,6 +47,16 @@ pub(super) async fn stage_file_uri(uri: &SourceUri) -> Result<StagedWorkspace> {
         ));
     }
     stage_local_path(Path::new(&uri.base)).await
+}
+
+#[cfg(feature = "console")]
+pub(super) async fn stage_file_uri_tree(uri: &SourceUri) -> Result<StagedSourceTree> {
+    if uri.ref_.is_some() || uri.subdir.is_some() {
+        return Err(RototoError::new(
+            "file:// source trees do not support fragments",
+        ));
+    }
+    stage_local_tree(Path::new(&uri.base)).await
 }
 
 fn copy_dir_recursive(source: &Path, target: &Path) -> Result<()> {

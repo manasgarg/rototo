@@ -7,10 +7,14 @@ mod path;
 mod types;
 mod uri;
 
+#[cfg(feature = "console")]
+pub(crate) use self::load::stage_source_tree;
 pub use self::load::{
     load_workspace_source, load_workspace_source_snapshot, probe_workspace_source,
     stage_workspace_source,
 };
+#[cfg(feature = "console")]
+pub(crate) use self::types::StagedSourceTree;
 pub use self::types::{
     LoadedWorkspaceSource, SourceAuth, SourceFingerprint, SourceLayer, SourceOptions, SourceProbe,
     StagedWorkspace,

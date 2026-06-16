@@ -4,7 +4,7 @@ use std::path::{Path, PathBuf};
 
 use super::{CachedTreeSource, TreeRevision, TreeSource, WorkspaceDiscovery, WorkspacePath};
 use crate::error::{Result, RototoError};
-use crate::source::{SourceOptions, load_workspace_source};
+use crate::source::{SourceOptions, stage_source_tree};
 
 const WORKSPACE_MANIFEST: &str = "rototo-workspace.toml";
 
@@ -23,14 +23,14 @@ pub async fn discover_workspaces(
 
 enum StagedRoot {
     Borrowed(PathBuf),
-    Loaded(crate::source::LoadedWorkspaceSource),
+    Loaded(crate::source::StagedSourceTree),
 }
 
 impl StagedRoot {
     fn path(&self) -> &Path {
         match self {
             Self::Borrowed(path) => path,
-            Self::Loaded(loaded) => loaded.staged().path(),
+            Self::Loaded(loaded) => loaded.root(),
         }
     }
 }
@@ -78,7 +78,7 @@ fn invalid_selection_error() -> RototoError {
 
 async fn stage_git_root(remote_url: &str, git_ref: &str) -> Result<StagedRoot> {
     let source = format!("{remote_url}#{git_ref}");
-    let loaded = load_workspace_source(&source, &SourceOptions::default()).await?;
+    let loaded = stage_source_tree(&source, &SourceOptions::default()).await?;
     Ok(StagedRoot::Loaded(loaded))
 }
 
@@ -244,6 +244,32 @@ mod tests {
             workspace_strings(&discovery.workspaces),
             vec![".", "workspaces/payments"]
         );
+    }
+
+    #[tokio::test]
+    async fn git_discovery_does_not_resolve_workspace_extends() {
+        let repo = TempDir::new().expect("repo tempdir");
+        init_repo(repo.path());
+        tokio::fs::write(
+            repo.path().join(WORKSPACE_MANIFEST),
+            r#"schema_version = 1
+extends = ["git+file:///missing/parent-workspace#main"]
+"#,
+        )
+        .await
+        .unwrap();
+        commit_all(repo.path(), "add extending workspace");
+
+        let discovery = discover_workspaces(
+            source_key(TreeSource::GitRemote {
+                remote_url: format!("git+file://{}", repo.path().display()),
+            }),
+            TreeRevision::GitRef(GitRefName::new("main").unwrap()),
+        )
+        .await
+        .unwrap();
+
+        assert_eq!(workspace_strings(&discovery.workspaces), vec!["."]);
     }
 
     #[tokio::test]

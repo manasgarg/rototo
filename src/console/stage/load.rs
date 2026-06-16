@@ -153,6 +153,33 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn selected_workspace_inspection_resolves_extends_layers() {
+        let tree = TempDir::new().expect("tree tempdir");
+        write_manifest(&tree.path().join("base")).await;
+        tokio::fs::create_dir_all(tree.path().join("child"))
+            .await
+            .unwrap();
+        tokio::fs::write(
+            tree.path().join("child/rototo-workspace.toml"),
+            r#"schema_version = 1
+extends = ["../base"]
+"#,
+        )
+        .await
+        .unwrap();
+
+        let selector = cached_workspace_source(
+            TreeSource::local_folder(tree.path()).await.unwrap(),
+            TreeRevision::LocalWorkingTree,
+            "child",
+        );
+
+        let workspace = get_inspected_workspace(selector, "").await.unwrap();
+
+        assert_eq!(workspace.source_layers().len(), 2);
+    }
+
+    #[tokio::test]
     async fn rejects_revision_that_does_not_match_inspection_tree_source() {
         let tree = TempDir::new().expect("tree tempdir");
         write_manifest(tree.path()).await;

@@ -2,10 +2,18 @@ use std::path::Path;
 
 use crate::error::{Result, RototoError};
 
+#[cfg(feature = "console")]
+use super::archive::stage_https_archive_tree;
 use super::archive::{probe_https_archive, stage_https_archive};
+#[cfg(feature = "console")]
+use super::git::stage_git_source_tree;
 use super::git::{probe_git_repo, stage_git_repo};
 use super::layer::load_workspace_source_graph;
 use super::local::{snapshot_local_path, stage_file_uri, stage_local_path};
+#[cfg(feature = "console")]
+use super::local::{stage_file_uri_tree, stage_local_tree};
+#[cfg(feature = "console")]
+use super::types::StagedSourceTree;
 use super::types::{
     LoadedWorkspaceSource, LocalStageMode, SourceFingerprint, SourceLayer, SourceOptions,
     SourceProbe, StagedWorkspace,
@@ -17,6 +25,30 @@ pub async fn stage_workspace_source(
     options: &SourceOptions,
 ) -> Result<StagedWorkspace> {
     Ok(load_workspace_source(source, options).await?.into_staged())
+}
+
+#[cfg(feature = "console")]
+pub(crate) async fn stage_source_tree(
+    source: impl AsRef<str>,
+    options: &SourceOptions,
+) -> Result<StagedSourceTree> {
+    let source = source.as_ref();
+    match SourceUri::parse(source)? {
+        None => stage_local_tree(Path::new(source)).await,
+        Some(uri) => match uri.scheme.as_str() {
+            "file" => stage_file_uri_tree(&uri).await,
+            "https" => stage_https_archive_tree(&uri, source, options).await,
+            "http" => Err(RototoError::new(
+                "http:// source trees are not supported; use https://",
+            )),
+            scheme if scheme.starts_with("git+") => {
+                stage_git_source_tree(&uri, source, options).await
+            }
+            scheme => Err(RototoError::new(format!(
+                "source tree scheme is not supported: {scheme}"
+            ))),
+        },
+    }
 }
 
 pub async fn load_workspace_source(
