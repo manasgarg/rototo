@@ -27,7 +27,7 @@ const BRANCH_CANDIDATE_COMPARE_CONCURRENCY: usize = 8;
 
 /// Ordered workspace summary result from a bounded background task.
 ///
-/// The index preserves the user's repo/workspace ordering after concurrent
+/// The index preserves the user's source tree/workspace ordering after concurrent
 /// staging and lint work finishes.
 type WorkspaceSummaryResult = (usize, JsonValue);
 
@@ -123,12 +123,12 @@ async fn workspace_lint(
 
 /// Query string for the workspace summaries endpoint.
 ///
-/// The optional repo id scopes a request to one registered repository. It is
+/// The optional source tree id scopes a request to one registered source tree. It is
 /// parsed per request and never stored; discovery state remains in SQLite.
 #[derive(serde::Deserialize, Default)]
 struct WorkspaceSummariesQuery {
-    #[serde(rename = "repoId")]
-    repo_id: Option<String>,
+    #[serde(rename = "sourceTreeId")]
+    source_tree_id: Option<String>,
 }
 
 async fn workspace_summaries(
@@ -141,8 +141,8 @@ async fn workspace_summaries(
         .store
         .list_workspaces_for_user(&user.principal_id)
         .await?;
-    if let Some(repo_id) = query.repo_id.as_deref() {
-        workspaces.retain(|workspace| workspace.repo_id == repo_id);
+    if let Some(source_tree_id) = query.source_tree_id.as_deref() {
+        workspaces.retain(|workspace| workspace.source_tree_id == source_tree_id);
     }
 
     let mut summaries = Vec::new();
@@ -531,7 +531,7 @@ mod tests {
         WorkspaceRecord {
             id: "workspace-id".to_owned(),
             slug: "configs".to_owned(),
-            repo_id: "repo-id".to_owned(),
+            source_tree_id: "repo-id".to_owned(),
             owner: "octo".to_owned(),
             name: "configs".to_owned(),
             path: ".".to_owned(),

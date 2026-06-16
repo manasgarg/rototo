@@ -303,7 +303,7 @@ mod tests {
         WorkspaceRecord {
             id: "w1".to_owned(),
             slug: "configs".to_owned(),
-            repo_id: "r1".to_owned(),
+            source_tree_id: "r1".to_owned(),
             owner: "octo".to_owned(),
             name: "configs".to_owned(),
             path: path.to_owned(),
@@ -316,7 +316,7 @@ mod tests {
     fn branch(name: &str) -> ActiveBranchRecord {
         ActiveBranchRecord {
             id: "b1".to_owned(),
-            repo_id: "r1".to_owned(),
+            source_tree_id: "r1".to_owned(),
             principal_id: "42".to_owned(),
             branch: name.to_owned(),
             base_ref: "main".to_owned(),

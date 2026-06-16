@@ -6,11 +6,11 @@ use crate::console::time::now_iso;
 use crate::error::{Result, RototoError};
 
 use super::Store;
-use super::rows::{repo_from_row, workspace_from_row};
-use super::types::{DiscoveredWorkspaceInput, RepoWithWorkspaces, WorkspaceRecord};
+use super::rows::{source_tree_from_row, workspace_from_row};
+use super::types::{DiscoveredWorkspaceInput, SourceTreeWithWorkspaces, WorkspaceRecord};
 use super::util::{db_err, new_id};
 
-/// Stable identity for a discovered workspace within one repository.
+/// Stable identity for a discovered workspace within one source tree.
 ///
 /// Discovery can produce rows in any order, so cleanup compares by workspace
 /// path and git ref instead of row id. The key lives only during one discovery
@@ -40,14 +40,14 @@ impl WorkspaceKey {
 }
 
 impl Store {
-    pub async fn upsert_repo_with_workspaces(
+    pub async fn upsert_source_tree_with_workspaces(
         &self,
         principal_id: String,
         owner: String,
         name: String,
         default_ref: String,
         workspaces: Vec<DiscoveredWorkspaceInput>,
-    ) -> Result<RepoWithWorkspaces> {
+    ) -> Result<SourceTreeWithWorkspaces> {
         self.with_conn(move |conn, _| {
             let now = now_iso();
             let tx = conn.unchecked_transaction().map_err(db_err)?;
@@ -66,29 +66,39 @@ impl Store {
 
             tx.commit().map_err(db_err)?;
 
-            repo_with_workspaces_by_id(conn, &source_tree_id, &principal_id)?
-                .ok_or_else(|| RototoError::new("repo registration failed"))
+            source_tree_with_workspaces_by_id(conn, &source_tree_id, &principal_id)?
+                .ok_or_else(|| RototoError::new("source tree registration failed"))
         })
         .await
     }
 
-    pub async fn list_repos_for_user(&self, principal_id: &str) -> Result<Vec<RepoWithWorkspaces>> {
+    pub async fn list_source_trees_for_user(
+        &self,
+        principal_id: &str,
+    ) -> Result<Vec<SourceTreeWithWorkspaces>> {
         let principal_id = principal_id.to_owned();
-        self.with_conn(move |conn, _| list_repos_for_user_sync(conn, &principal_id))
+        self.with_conn(move |conn, _| list_source_trees_for_user_sync(conn, &principal_id))
             .await
     }
 
-    pub async fn delete_repo_for_user(&self, repo_id: &str, principal_id: &str) -> Result<bool> {
-        let repo_id = repo_id.to_owned();
+    pub async fn delete_source_tree_for_user(
+        &self,
+        source_tree_id: &str,
+        principal_id: &str,
+    ) -> Result<bool> {
+        let source_tree_id = source_tree_id.to_owned();
         let principal_id = principal_id.to_owned();
         self.with_conn(move |conn, _| {
-            if repo_with_workspaces_by_id(conn, &repo_id, &principal_id)?.is_none() {
+            if source_tree_with_workspaces_by_id(conn, &source_tree_id, &principal_id)?.is_none() {
                 return Ok(false);
             }
             // ON DELETE CASCADE clears workspaces and active branch
             // selections transitively.
-            conn.execute("DELETE FROM source_trees WHERE id = ?1", params![repo_id])
-                .map_err(db_err)?;
+            conn.execute(
+                "DELETE FROM source_trees WHERE id = ?1",
+                params![source_tree_id],
+            )
+            .map_err(db_err)?;
             Ok(true)
         })
         .await
@@ -140,24 +150,24 @@ fn upsert_source_tree_row(
         .optional()
         .map_err(db_err)?;
 
-    if let Some(repo_id) = existing {
+    if let Some(source_tree_id) = existing {
         tx.execute(
             "UPDATE source_trees SET default_ref = ?1, updated_at = ?2, last_discovered_at = ?3
              WHERE id = ?4",
-            params![default_ref, now, now, repo_id.as_str()],
+            params![default_ref, now, now, source_tree_id.as_str()],
         )
         .map_err(db_err)?;
-        return Ok(repo_id);
+        return Ok(source_tree_id);
     }
 
-    let repo_id = new_id();
+    let source_tree_id = new_id();
     tx.execute(
         "INSERT INTO source_trees (
            id, principal_id, owner, name, default_ref,
            created_at, updated_at, last_discovered_at
          ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
         params![
-            repo_id,
+            source_tree_id,
             principal_id,
             owner,
             name,
@@ -168,7 +178,7 @@ fn upsert_source_tree_row(
         ],
     )
     .map_err(db_err)?;
-    Ok(repo_id)
+    Ok(source_tree_id)
 }
 
 fn upsert_discovered_workspaces(
@@ -296,20 +306,20 @@ fn delete_or_deactivate_workspace(tx: &Transaction<'_>, workspace_id: &str) -> R
     Ok(())
 }
 
-fn list_repos_for_user_sync(
+fn list_source_trees_for_user_sync(
     conn: &Connection,
     principal_id: &str,
-) -> Result<Vec<RepoWithWorkspaces>> {
-    list_repo_ids_for_user(conn, principal_id)?
+) -> Result<Vec<SourceTreeWithWorkspaces>> {
+    list_source_tree_ids_for_user(conn, principal_id)?
         .into_iter()
         .map(|id| {
-            repo_with_workspaces_by_id(conn, &id, principal_id)?
-                .ok_or_else(|| RototoError::new("repo listing failed"))
+            source_tree_with_workspaces_by_id(conn, &id, principal_id)?
+                .ok_or_else(|| RototoError::new("source tree listing failed"))
         })
         .collect()
 }
 
-fn list_repo_ids_for_user(conn: &Connection, principal_id: &str) -> Result<Vec<String>> {
+fn list_source_tree_ids_for_user(conn: &Connection, principal_id: &str) -> Result<Vec<String>> {
     let mut statement = conn
         .prepare(
             "SELECT id FROM source_trees WHERE principal_id = ?1
@@ -428,29 +438,35 @@ fn list_all_workspaces_for_user_sync(
     Ok(workspaces)
 }
 
-fn repo_with_workspaces_by_id(
+fn source_tree_with_workspaces_by_id(
     conn: &Connection,
-    repo_id: &str,
+    source_tree_id: &str,
     principal_id: &str,
-) -> Result<Option<RepoWithWorkspaces>> {
-    let repo = conn
+) -> Result<Option<SourceTreeWithWorkspaces>> {
+    let source_tree = conn
         .query_row(
             "SELECT id, principal_id, owner, name, default_ref,
                     created_at, updated_at, last_discovered_at
              FROM source_trees WHERE id = ?1 AND principal_id = ?2",
-            params![repo_id, principal_id],
-            repo_from_row,
+            params![source_tree_id, principal_id],
+            source_tree_from_row,
         )
         .optional()
         .map_err(db_err)?;
-    let Some(repo) = repo else {
+    let Some(source_tree) = source_tree else {
         return Ok(None);
     };
-    let workspaces = active_workspaces_for_repo(conn, &repo.id)?;
-    Ok(Some(RepoWithWorkspaces { repo, workspaces }))
+    let workspaces = active_workspaces_for_source_tree(conn, &source_tree.id)?;
+    Ok(Some(SourceTreeWithWorkspaces {
+        source_tree,
+        workspaces,
+    }))
 }
 
-fn active_workspaces_for_repo(conn: &Connection, repo_id: &str) -> Result<Vec<WorkspaceRecord>> {
+fn active_workspaces_for_source_tree(
+    conn: &Connection,
+    source_tree_id: &str,
+) -> Result<Vec<WorkspaceRecord>> {
     let mut statement = conn
         .prepare(
             "SELECT id, source_tree_id, owner, name, path, ref_, source, discovered_at
@@ -460,7 +476,7 @@ fn active_workspaces_for_repo(conn: &Connection, repo_id: &str) -> Result<Vec<Wo
         )
         .map_err(db_err)?;
     statement
-        .query_map(params![repo_id], workspace_from_row)
+        .query_map(params![source_tree_id], workspace_from_row)
         .map_err(db_err)?
         .collect::<rusqlite::Result<_>>()
         .map_err(db_err)

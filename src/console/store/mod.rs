@@ -8,10 +8,10 @@ use crate::error::{Result, RototoError};
 use super::token_crypto::TokenCrypto;
 
 mod branches;
-mod repos;
 mod rows;
 mod schema;
 mod sessions;
+mod source_trees;
 #[cfg(test)]
 mod tests;
 mod types;

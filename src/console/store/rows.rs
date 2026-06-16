@@ -1,8 +1,8 @@
-use super::repos::workspace_slug;
-use super::types::{ActiveBranchRecord, ActiveBranchStatus, RepoRecord, WorkspaceRecord};
+use super::source_trees::workspace_slug;
+use super::types::{ActiveBranchRecord, ActiveBranchStatus, SourceTreeRecord, WorkspaceRecord};
 
-pub(super) fn repo_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<RepoRecord> {
-    Ok(RepoRecord {
+pub(super) fn source_tree_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<SourceTreeRecord> {
+    Ok(SourceTreeRecord {
         id: row.get(0)?,
         principal_id: row.get(1)?,
         owner: row.get(2)?,
@@ -27,7 +27,7 @@ pub(super) fn workspace_from_row_at(
     Ok(WorkspaceRecord {
         id: row.get(offset)?,
         slug: workspace_slug(&name, &path),
-        repo_id: row.get(offset + 1)?,
+        source_tree_id: row.get(offset + 1)?,
         owner: row.get(offset + 2)?,
         name,
         path,
@@ -43,7 +43,7 @@ pub(super) fn active_branch_from_row(
     let status: String = row.get(13)?;
     Ok(ActiveBranchRecord {
         id: row.get(0)?,
-        repo_id: row.get(1)?,
+        source_tree_id: row.get(1)?,
         principal_id: row.get(2)?,
         branch: row.get(3)?,
         base_ref: row.get(4)?,

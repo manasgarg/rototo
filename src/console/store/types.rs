@@ -20,13 +20,11 @@ pub struct SessionUser {
 
 /// Source tree registered for one console principal.
 ///
-/// The API still exposes this as a repository record because current routes
-/// and wire shapes use repo terminology. In storage this is the durable source
-/// tree row: discovery refreshes its derived workspace rows, and deleting it
-/// cascades to branch selections.
+/// This is the durable source tree row: discovery refreshes its derived
+/// workspace rows, and deleting it cascades to branch selections.
 #[derive(Clone, Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
-pub struct RepoRecord {
+pub struct SourceTreeRecord {
     pub id: String,
     pub principal_id: String,
     pub owner: String,
@@ -46,10 +44,10 @@ pub struct RepoRecord {
 #[serde(rename_all = "camelCase")]
 pub struct WorkspaceRecord {
     pub id: String,
-    /// Derived, human-readable URL handle (repo name + workspace path).
+    /// Derived, human-readable URL handle (source tree name + workspace path).
     /// Stable across re-discovery, unlike the row id.
     pub slug: String,
-    pub repo_id: String,
+    pub source_tree_id: String,
     pub owner: String,
     pub name: String,
     pub path: String,
@@ -61,17 +59,17 @@ pub struct WorkspaceRecord {
 
 /// Source tree response with its currently active discovered workspaces.
 ///
-/// This exists as an API projection for repo navigation and discovery responses.
-/// It is not stored independently; each value is rebuilt from one source tree
-/// row and that tree's active derived workspace rows.
+/// This exists as an API projection for source tree navigation and discovery
+/// responses. It is not stored independently; each value is rebuilt from one
+/// source tree row and that tree's active derived workspace rows.
 #[derive(Clone, Debug, Serialize)]
-pub struct RepoWithWorkspaces {
+pub struct SourceTreeWithWorkspaces {
     #[serde(flatten)]
-    pub repo: RepoRecord,
+    pub source_tree: SourceTreeRecord,
     pub workspaces: Vec<WorkspaceRecord>,
 }
 
-/// Persisted tracking state for a repository branch.
+/// Persisted tracking state for a source tree branch.
 ///
 /// Active branches are currently selected for work, recent branches remain
 /// visible as useful history, and archived branches are hidden from normal
@@ -84,17 +82,17 @@ pub enum ActiveBranchStatus {
     Archived,
 }
 
-/// Branch selected by a user within a repository.
+/// Branch selected by a user within a source tree.
 ///
 /// This stores only local lifecycle metadata needed by the console: which
-/// branch a user is working with, which workspaces inside the repo were
+/// branch a user is working with, which workspaces inside the source tree were
 /// selected for that branch, and any observed pull request metadata. The branch
 /// contents remain the source of truth.
 #[derive(Clone, Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ActiveBranchRecord {
     pub id: String,
-    pub repo_id: String,
+    pub source_tree_id: String,
     pub principal_id: String,
     pub branch: String,
     pub base_ref: String,
@@ -115,7 +113,7 @@ pub struct ActiveBranchRecord {
 
 /// Branch list item paired with one selected workspace.
 ///
-/// The branch identity is repository-scoped, but the console still needs a
+/// The branch identity is source-tree-scoped, but the console still needs a
 /// workspace beside it for navigation. Each value is rebuilt from an active
 /// branch joined through path-based branch workspace membership.
 #[derive(Clone, Debug, Serialize)]
@@ -137,7 +135,7 @@ pub struct NewSession {
 
 /// Inputs for selecting or creating an active branch.
 ///
-/// The store derives the repository and last selected workspace path from the
+/// The store derives the source tree and last selected workspace path from the
 /// workspace id. Re-selecting an existing branch updates its lifecycle metadata
 /// and ensures the workspace is attached to that branch.
 pub struct SelectBranchInput {
@@ -158,10 +156,10 @@ pub struct BranchPullRequestInput {
     pub pr_merged_at: Option<String>,
 }
 
-/// Workspace discovered inside a registered repository.
+/// Workspace discovered inside a registered source tree.
 ///
 /// Discovery creates these from GitHub tree results or fixed local sources.
-/// The store folds them into repo-scoped workspace rows and marks stale rows
+/// The store folds them into source-tree-scoped workspace rows and marks stale rows
 /// inactive or deletes them when safe.
 pub struct DiscoveredWorkspaceInput {
     pub path: String,

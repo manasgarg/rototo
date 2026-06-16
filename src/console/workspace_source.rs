@@ -358,7 +358,7 @@ mod tests {
     fn workspace() -> WorkspaceRecord {
         WorkspaceRecord {
             id: "workspace_1".to_owned(),
-            repo_id: "repo_1".to_owned(),
+            source_tree_id: "repo_1".to_owned(),
             slug: "octo-configs-root".to_owned(),
             owner: "octo".to_owned(),
             name: "configs".to_owned(),

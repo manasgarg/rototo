@@ -125,10 +125,10 @@ async fn oauth_states_consume_once() {
 }
 
 #[tokio::test]
-async fn repo_upsert_lists_workspaces_with_slugs() {
+async fn source_tree_upsert_lists_workspaces_with_slugs() {
     let store = test_store().await;
-    let repo = store
-        .upsert_repo_with_workspaces(
+    let registered = store
+        .upsert_source_tree_with_workspaces(
             "42".to_owned(),
             "octo".to_owned(),
             "configs".to_owned(),
@@ -137,9 +137,9 @@ async fn repo_upsert_lists_workspaces_with_slugs() {
         )
         .await
         .unwrap();
-    assert_eq!(repo.workspaces.len(), 2);
-    assert_eq!(repo.workspaces[0].slug, "configs");
-    assert_eq!(repo.workspaces[1].slug, "configs-payments-flags");
+    assert_eq!(registered.workspaces.len(), 2);
+    assert_eq!(registered.workspaces[0].slug, "configs");
+    assert_eq!(registered.workspaces[1].slug, "configs-payments-flags");
 
     let by_slug = store
         .get_workspace_for_user("configs-payments-flags", "42")
@@ -163,7 +163,7 @@ async fn repo_upsert_lists_workspaces_with_slugs() {
 
     assert!(
         store
-            .delete_repo_for_user(&repo.repo.id, "42")
+            .delete_source_tree_for_user(&registered.source_tree.id, "42")
             .await
             .unwrap()
     );
@@ -179,8 +179,8 @@ async fn repo_upsert_lists_workspaces_with_slugs() {
 #[tokio::test]
 async fn active_branch_can_include_multiple_workspaces() {
     let store = test_store().await;
-    let repo = store
-        .upsert_repo_with_workspaces(
+    let registered = store
+        .upsert_source_tree_with_workspaces(
             "42".to_owned(),
             "octo".to_owned(),
             "configs".to_owned(),
@@ -189,8 +189,8 @@ async fn active_branch_can_include_multiple_workspaces() {
         )
         .await
         .unwrap();
-    let root = repo.workspaces[0].clone();
-    let flags = repo.workspaces[1].clone();
+    let root = registered.workspaces[0].clone();
+    let flags = registered.workspaces[1].clone();
 
     let branch = store
         .select_branch(SelectBranchInput {
@@ -207,7 +207,7 @@ async fn active_branch_can_include_multiple_workspaces() {
     assert_eq!(branch.last_selected_workspace_path.as_deref(), Some("."));
 
     let existing = store
-        .find_active_branch_for_repo_branch(&flags.id, "42", "feature/payments")
+        .find_active_branch_for_source_tree_branch(&flags.id, "42", "feature/payments")
         .await
         .unwrap()
         .unwrap();
@@ -247,8 +247,8 @@ async fn active_branch_can_include_multiple_workspaces() {
 #[tokio::test]
 async fn active_branch_lists_recent_but_not_archived_branches() {
     let store = test_store().await;
-    let repo = store
-        .upsert_repo_with_workspaces(
+    let registered = store
+        .upsert_source_tree_with_workspaces(
             "42".to_owned(),
             "octo".to_owned(),
             "configs".to_owned(),
@@ -257,7 +257,7 @@ async fn active_branch_lists_recent_but_not_archived_branches() {
         )
         .await
         .unwrap();
-    let workspace = repo.workspaces[0].clone();
+    let workspace = registered.workspaces[0].clone();
 
     let active = store
         .select_branch(SelectBranchInput {
@@ -321,8 +321,8 @@ async fn active_branch_lists_recent_but_not_archived_branches() {
 #[tokio::test]
 async fn active_branch_updates_edit_and_pull_request_metadata() {
     let store = test_store().await;
-    let repo = store
-        .upsert_repo_with_workspaces(
+    let registered = store
+        .upsert_source_tree_with_workspaces(
             "42".to_owned(),
             "octo".to_owned(),
             "configs".to_owned(),
@@ -333,7 +333,7 @@ async fn active_branch_updates_edit_and_pull_request_metadata() {
         .unwrap();
     let branch = store
         .select_branch(SelectBranchInput {
-            workspace_id: repo.workspaces[0].id.clone(),
+            workspace_id: registered.workspaces[0].id.clone(),
             principal_id: "42".to_owned(),
             branch: "feature/pr".to_owned(),
             base_ref: "main".to_owned(),
@@ -372,10 +372,10 @@ async fn active_branch_updates_edit_and_pull_request_metadata() {
 }
 
 #[tokio::test]
-async fn repo_upsert_hides_missing_workspace_but_keeps_active_branches() {
+async fn source_tree_upsert_hides_missing_workspace_but_keeps_active_branches() {
     let store = test_store().await;
-    let repo = store
-        .upsert_repo_with_workspaces(
+    let registered = store
+        .upsert_source_tree_with_workspaces(
             "42".to_owned(),
             "octo".to_owned(),
             "configs".to_owned(),
@@ -384,7 +384,7 @@ async fn repo_upsert_hides_missing_workspace_but_keeps_active_branches() {
         )
         .await
         .unwrap();
-    let workspace = repo.workspaces[0].clone();
+    let workspace = registered.workspaces[0].clone();
     let branch = store
         .select_branch(SelectBranchInput {
             workspace_id: workspace.id.clone(),
@@ -398,7 +398,7 @@ async fn repo_upsert_hides_missing_workspace_but_keeps_active_branches() {
         .unwrap();
 
     let rediscovered = store
-        .upsert_repo_with_workspaces(
+        .upsert_source_tree_with_workspaces(
             "42".to_owned(),
             "octo".to_owned(),
             "configs".to_owned(),

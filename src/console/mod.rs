@@ -49,7 +49,7 @@ pub use self::capabilities::WritePolicy as ConsoleWritePolicy;
 ///
 /// These values configure one server process: bind address, public origin,
 /// data directory, optional fixed workspace, write policy, and startup token.
-/// They are consumed by `run` to build `ConsoleState`; runtime repo, workspace,
+/// They are consumed by `run` to build `ConsoleState`; runtime source tree, workspace,
 /// branch, and session lifecycles are then managed by the store and route code.
 pub struct ConsoleOptions {
     pub bind: String,
@@ -283,7 +283,7 @@ async fn local_actor(state: &ConsoleState, source: &str) -> Result<store::Sessio
     })
 }
 
-/// Fixed workspace deployments register the configured source under the
+/// Fixed workspace deployments register the configured source tree under the
 /// request actor so the existing store-scoped workspace queries still work.
 pub(crate) async fn register_fixed_workspace(
     state: &ConsoleState,
@@ -293,7 +293,7 @@ pub(crate) async fn register_fixed_workspace(
     let registration = fixed_workspace::registration(&state.stage, principal_id, source).await?;
     state
         .store
-        .upsert_repo_with_workspaces(
+        .upsert_source_tree_with_workspaces(
             principal_id.to_owned(),
             registration.owner,
             registration.name,

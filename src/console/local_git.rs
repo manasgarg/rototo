@@ -222,7 +222,7 @@ mod tests {
         WorkspaceRecord {
             id: "workspace".to_owned(),
             slug: "workspace".to_owned(),
-            repo_id: "repo".to_owned(),
+            source_tree_id: "repo".to_owned(),
             owner: "local".to_owned(),
             name: "workspace".to_owned(),
             path: ".".to_owned(),

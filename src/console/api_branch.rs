@@ -255,7 +255,11 @@ async fn branch_select(
 
     if let Some(existing) = state
         .store
-        .find_active_branch_for_repo_branch(&workspace.id, &user.principal_id, &target.branch)
+        .find_active_branch_for_source_tree_branch(
+            &workspace.id,
+            &user.principal_id,
+            &target.branch,
+        )
         .await?
     {
         let existing = state
@@ -1678,7 +1682,7 @@ mod tests {
         WorkspaceRecord {
             id: "workspace-id".to_owned(),
             slug: "configs".to_owned(),
-            repo_id: "repo-id".to_owned(),
+            source_tree_id: "repo-id".to_owned(),
             owner: "octo".to_owned(),
             name: "configs".to_owned(),
             path: path.to_owned(),

@@ -128,8 +128,14 @@ pub fn router(state: SharedState) -> axum::Router {
         .route("/auth/device/start", post(device_start))
         .route("/auth/device/poll", post(device_poll))
         .route("/console", get(console_data))
-        .route("/repos", get(repos_list).post(repos_register))
-        .route("/repos/{repo_id}", axum::routing::delete(repo_delete))
+        .route(
+            "/source-trees",
+            get(source_trees_list).post(source_trees_register),
+        )
+        .route(
+            "/source-trees/{source_tree_id}",
+            axum::routing::delete(source_tree_delete),
+        )
         .merge(super::api_workspace::routes())
         .merge(super::api_branch::routes());
     if state.observability.is_some() {
@@ -251,8 +257,8 @@ fn route_observability(path: &str) -> RouteObservability {
             index += 2;
             continue;
         }
-        if segment == "repos" && index + 1 < segments.len() {
-            pattern.push(":repo_id".to_owned());
+        if segment == "source-trees" && index + 1 < segments.len() {
+            pattern.push(":source_tree_id".to_owned());
             index += 2;
             continue;
         }
@@ -640,7 +646,10 @@ async fn console_data(
     if let Some(source) = state.fixed_workspace_source.as_deref() {
         super::register_fixed_workspace(&state, &user.principal_id, source).await?;
     }
-    let repos = state.store.list_repos_for_user(&user.principal_id).await?;
+    let source_trees = state
+        .store
+        .list_source_trees_for_user(&user.principal_id)
+        .await?;
     let workspaces = state
         .store
         .list_workspaces_for_user(&user.principal_id)
@@ -650,53 +659,57 @@ async fn console_data(
         .list_active_branches_with_workspaces_for_user(&user.principal_id)
         .await?;
     Ok(Json(json!({
-        "repos": repos,
+        "sourceTrees": source_trees,
         "workspaces": workspaces,
         "branches": branches,
     })))
 }
 
-async fn repos_list(
+async fn source_trees_list(
     State(state): State<SharedState>,
     headers: HeaderMap,
 ) -> ApiResult<Json<JsonValue>> {
     let user = require_user(&state, &headers).await?;
-    let repos = state.store.list_repos_for_user(&user.principal_id).await?;
-    Ok(Json(json!({ "repos": repos })))
+    let source_trees = state
+        .store
+        .list_source_trees_for_user(&user.principal_id)
+        .await?;
+    Ok(Json(json!({ "sourceTrees": source_trees })))
 }
 
-/// Repository registration request body from the console form.
+/// Source tree registration request body from the console form.
 ///
 /// It exists to keep user input distinct from a verified GitHub repository.
 /// The route trims and validates it, discovers workspaces, then persists the
-/// resulting repo/workspace records through `Store`.
+/// resulting source tree/workspace records through `Store`.
 #[derive(serde::Deserialize)]
-struct RegisterRepoBody {
-    repo: Option<String>,
+struct RegisterSourceTreeBody {
+    #[serde(rename = "sourceTree")]
+    source_tree: Option<String>,
     #[serde(rename = "ref")]
     git_ref: Option<String>,
 }
 
-async fn repos_register(
+async fn source_trees_register(
     State(state): State<SharedState>,
     headers: HeaderMap,
-    Json(body): Json<RegisterRepoBody>,
+    Json(body): Json<RegisterSourceTreeBody>,
 ) -> ApiResult<Json<JsonValue>> {
     let user = require_user(&state, &headers).await?;
-    let token = require_github_token(&user, "Registering the repository")?;
-    let (owner, name) = github::parse_repo_spec(body.repo.as_deref().unwrap_or(""))
+    let token = require_github_token(&user, "Registering the source tree")?;
+    let (owner, name) = github::parse_repo_spec(body.source_tree.as_deref().unwrap_or(""))
         .map_err(|err| ApiError::bad_request(err.to_string()))?;
-    let repo = state
+    let github_repo = state
         .github
         .repo(token, &owner, &name)
         .await
-        .map_err(|err| ApiError::github(&err, "Registering the repository"))?;
+        .map_err(|err| ApiError::github(&err, "Registering the source tree"))?;
     let git_ref = body
         .git_ref
         .as_deref()
         .map(str::trim)
         .filter(|value| !value.is_empty())
-        .unwrap_or(&repo.default_branch)
+        .unwrap_or(&github_repo.default_branch)
         .to_owned();
     let workspaces = state
         .github
@@ -705,10 +718,10 @@ async fn repos_register(
         .map_err(|err| ApiError::github(&err, "Discovering workspaces"))?;
     let stored = state
         .store
-        .upsert_repo_with_workspaces(
+        .upsert_source_tree_with_workspaces(
             user.principal_id.clone(),
-            repo.owner.login,
-            repo.name,
+            github_repo.owner.login,
+            github_repo.name,
             git_ref,
             workspaces
                 .into_iter()
@@ -726,7 +739,7 @@ async fn repos_register(
         token.to_owned(),
         stored.workspaces.clone(),
     );
-    Ok(Json(json!({ "repo": stored })))
+    Ok(Json(json!({ "sourceTree": stored })))
 }
 
 fn warm_registered_workspaces(
@@ -774,18 +787,18 @@ fn warm_registered_workspaces(
     });
 }
 
-async fn repo_delete(
+async fn source_tree_delete(
     State(state): State<SharedState>,
     headers: HeaderMap,
-    axum::extract::Path(repo_id): axum::extract::Path<String>,
+    axum::extract::Path(source_tree_id): axum::extract::Path<String>,
 ) -> ApiResult<Json<JsonValue>> {
     let user = require_user(&state, &headers).await?;
     let removed = state
         .store
-        .delete_repo_for_user(&repo_id, &user.principal_id)
+        .delete_source_tree_for_user(&source_tree_id, &user.principal_id)
         .await?;
     if !removed {
-        return Err(ApiError::not_found("repository not found"));
+        return Err(ApiError::not_found("source tree not found"));
     }
     Ok(Json(json!({ "ok": true })))
 }
@@ -828,10 +841,10 @@ mod tests {
     }
 
     #[test]
-    fn observability_route_replaces_repo_ids() {
-        let route = route_observability("/api/repos/repo-1");
+    fn observability_route_replaces_source_tree_ids() {
+        let route = route_observability("/api/source-trees/tree-1");
 
-        assert_eq!(route.pattern, "/api/repos/:repo_id");
+        assert_eq!(route.pattern, "/api/source-trees/:source_tree_id");
         assert_eq!(route.workspace_id, None);
         assert_eq!(route.branch_id, None);
     }

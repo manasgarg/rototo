@@ -12,7 +12,7 @@ use super::types::{
 use super::util::{db_err, new_id};
 
 struct WorkspaceBranchBase {
-    repo_id: String,
+    source_tree_id: String,
     workspace_path: String,
 }
 
@@ -22,9 +22,9 @@ impl Store {
             let workspace = branch_workspace_base(conn, &input.workspace_id, &input.principal_id)?
                 .ok_or_else(|| RototoError::new("workspace not found for principal"))?;
             let now = now_iso();
-            let branch_id = match active_branch_id_by_repo_branch(
+            let branch_id = match active_branch_id_by_source_tree_branch(
                 conn,
-                &workspace.repo_id,
+                &workspace.source_tree_id,
                 &input.principal_id,
                 &input.branch,
             )? {
@@ -61,7 +61,7 @@ impl Store {
                          ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, 'active', ?9, ?10)",
                         params![
                             branch_id,
-                            workspace.repo_id,
+                            workspace.source_tree_id,
                             input.principal_id,
                             input.branch,
                             input.base_ref,
@@ -100,9 +100,9 @@ impl Store {
             }
             let workspace = branch_workspace_base(conn, &workspace_id, &principal_id)?
                 .ok_or_else(|| RototoError::new("workspace not found for principal"))?;
-            if workspace.repo_id != branch.repo_id {
+            if workspace.source_tree_id != branch.source_tree_id {
                 return Err(RototoError::new(
-                    "active branch workspace must belong to the same repo",
+                    "active branch workspace must belong to the same source tree",
                 ));
             }
             let now = now_iso();
@@ -243,7 +243,7 @@ impl Store {
         .await
     }
 
-    pub async fn find_active_branch_for_repo_branch(
+    pub async fn find_active_branch_for_source_tree_branch(
         &self,
         workspace_id: &str,
         principal_id: &str,
@@ -443,16 +443,16 @@ fn active_branch_by_id(conn: &Connection, branch_id: &str) -> Result<Option<Acti
     .map_err(db_err)
 }
 
-fn active_branch_id_by_repo_branch(
+fn active_branch_id_by_source_tree_branch(
     conn: &Connection,
-    repo_id: &str,
+    source_tree_id: &str,
     principal_id: &str,
     branch: &str,
 ) -> Result<Option<String>> {
     conn.query_row(
         "SELECT id FROM active_branches
          WHERE source_tree_id = ?1 AND principal_id = ?2 AND branch = ?3",
-        params![repo_id, principal_id, branch],
+        params![source_tree_id, principal_id, branch],
         |row| row.get(0),
     )
     .optional()
@@ -472,7 +472,7 @@ fn branch_workspace_base(
         params![workspace_id, principal_id],
         |row| {
             Ok(WorkspaceBranchBase {
-                repo_id: row.get(0)?,
+                source_tree_id: row.get(0)?,
                 workspace_path: row.get(1)?,
             })
         },
