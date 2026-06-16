@@ -56,6 +56,7 @@ import type {
     WorkspaceDefinition,
     WorkspaceEntityData,
     WorkspaceCapabilities,
+    WorkspaceRecord,
     WorkspaceInventory,
     WorkspaceLintView,
     WorkspaceSemanticModel,
@@ -448,15 +449,7 @@ function WorkspaceSection({
     lint: WorkspaceLintView | { root: string; diagnostics: []; error: string };
     nodes: EntityNode[];
     section: SectionId;
-    workspace: {
-        id: string;
-        slug: string;
-        sourceTreeId: string;
-        owner: string;
-        name: string;
-        path: string;
-        ref: string;
-    };
+    workspace: WorkspaceRecord;
 }) {
     if (section === "overview") {
         const activeBranches = branches.filter(
