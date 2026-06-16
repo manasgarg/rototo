@@ -205,10 +205,24 @@ async fn record_api_request(
     path: &str,
     status: StatusCode,
 ) {
+    let route = route_observability(path);
+    let latency_ms = started.elapsed().as_millis();
+    tracing::info!(
+        operation = "console.api.request",
+        method = method.as_str(),
+        route = %route.pattern,
+        status = status.as_u16(),
+        status_class = status_class(status),
+        latency_ms,
+        deployment = state.deployment.label(),
+        workspace_id = route.workspace_id.as_deref(),
+        branch_id = route.branch_id.as_deref(),
+        error_class = error_class(status),
+        "console API request completed"
+    );
     let Some(observability) = &state.observability else {
         return;
     };
-    let route = route_observability(path);
     observability
         .record_api_request(json!({
             "method": method.as_str(),
@@ -216,7 +230,7 @@ async fn record_api_request(
             "route": route.pattern,
             "status": status.as_u16(),
             "status_class": status_class(status),
-            "latency_ms": started.elapsed().as_millis(),
+            "latency_ms": latency_ms,
             "deployment": state.deployment.label(),
             "workspace_id": route.workspace_id,
             "branch_id": route.branch_id,
@@ -300,16 +314,44 @@ fn error_class(status: StatusCode) -> Option<&'static str> {
 /// The actor for a request, per deployment type.
 pub async fn require_user(state: &ConsoleState, headers: &HeaderMap) -> ApiResult<SessionUser> {
     match state.deployment {
-        DeploymentType::Hosted => session_from_headers(&state.store, headers)
-            .await
-            .ok_or_else(ApiError::unauthorized),
+        DeploymentType::Hosted => {
+            let user = session_from_headers(&state.store, headers).await;
+            match user {
+                Some(user) => {
+                    tracing::debug!(
+                        operation = "console.auth.require_user",
+                        deployment = "hosted",
+                        principal_id = %user.principal_id,
+                        "console request authorized from hosted session"
+                    );
+                    Ok(user)
+                }
+                None => {
+                    tracing::info!(
+                        operation = "console.auth.require_user",
+                        deployment = "hosted",
+                        "console request rejected without hosted session"
+                    );
+                    Err(ApiError::unauthorized())
+                }
+            }
+        }
         DeploymentType::Local => {
             let local = state
                 .local
                 .as_ref()
                 .expect("local deployment has local auth");
             match local.identity(&state.github).await {
-                Ok(Some(user)) => Ok(user),
+                Ok(Some(user)) => {
+                    tracing::debug!(
+                        operation = "console.auth.require_user",
+                        deployment = "local",
+                        principal_id = %user.principal_id,
+                        source = "github_token",
+                        "console request authorized from local GitHub identity"
+                    );
+                    Ok(user)
+                }
                 Ok(None) => {
                     let local_root = state
                         .fixed_workspace_source
@@ -323,6 +365,15 @@ pub async fn require_user(state: &ConsoleState, headers: &HeaderMap) -> ApiResul
                         principal_id: identity.principal_id(),
                         identity,
                         github_token: None,
+                    })
+                    .inspect(|user| {
+                        tracing::debug!(
+                            operation = "console.auth.require_user",
+                            deployment = "local",
+                            principal_id = %user.principal_id,
+                            source = "git_config",
+                            "console request authorized from git config fallback"
+                        );
                     })
                 }
                 Err(err) => {
@@ -341,6 +392,16 @@ pub async fn require_user(state: &ConsoleState, headers: &HeaderMap) -> ApiResul
                         principal_id: identity.principal_id(),
                         identity,
                         github_token: None,
+                    })
+                    .inspect(|user| {
+                        tracing::info!(
+                            operation = "console.auth.require_user",
+                            deployment = "local",
+                            principal_id = %user.principal_id,
+                            source = "git_config",
+                            token_error = %err,
+                            "console request authorized from git config after token auth failed"
+                        );
                     })
                 }
             }
@@ -463,12 +524,30 @@ async fn me(State(state): State<SharedState>, headers: HeaderMap) -> Response {
 
 async fn logout(State(state): State<SharedState>, headers: HeaderMap) -> ApiResult<Response> {
     if state.deployment != DeploymentType::Hosted {
+        tracing::info!(
+            operation = "console.auth.logout",
+            deployment = state.deployment.label(),
+            "console logout rejected outside hosted deployment"
+        );
         return Err(ApiError::bad_request(
             "logout only applies to hosted consoles",
         ));
     }
     if let Some(token) = cookie_value(&headers, SESSION_COOKIE) {
         state.store.delete_session(&token).await?;
+        tracing::info!(
+            operation = "console.auth.logout",
+            deployment = "hosted",
+            had_cookie = true,
+            "console hosted session deleted"
+        );
+    } else {
+        tracing::info!(
+            operation = "console.auth.logout",
+            deployment = "hosted",
+            had_cookie = false,
+            "console logout completed without session cookie"
+        );
     }
     let mut response = Json(json!({ "ok": true })).into_response();
     response.headers_mut().insert(
@@ -541,6 +620,14 @@ async fn oauth_callback(
         _ => false,
     };
     if !valid {
+        tracing::warn!(
+            operation = "console.auth.oauth_callback",
+            valid = false,
+            has_code = query.code.is_some(),
+            has_query_state = query.state.is_some(),
+            has_cookie_state = cookie_state.is_some(),
+            "console GitHub OAuth callback rejected invalid state"
+        );
         return Err(ApiError::bad_request("invalid GitHub OAuth state"));
     }
 
@@ -552,6 +639,7 @@ async fn oauth_callback(
         state.github.viewer(&token).await.map_err(|err| {
             ApiError::bad_request(github::github_error_message(&err, "Signing in"))
         })?;
+    let principal_id = format!("github:{}", viewer.id);
     let session_token = state
         .store
         .create_session(NewSession {
@@ -564,6 +652,12 @@ async fn oauth_callback(
             github_token: token,
         })
         .await?;
+    tracing::info!(
+        operation = "console.auth.oauth_callback",
+        valid = true,
+        principal_id = %principal_id,
+        "console GitHub OAuth session created"
+    );
 
     let mut response = Redirect::temporary(&format!("{}/app", state.public_url)).into_response();
     let cookies = response.headers_mut();
@@ -707,8 +801,22 @@ async fn source_trees_register(
         .filter(|value| !value.is_empty())
         .ok_or_else(|| ApiError::bad_request("source tree is required"))?;
     if should_register_as_github(source_tree).await {
+        tracing::info!(
+            operation = "source_tree.register",
+            principal_id = %user.principal_id,
+            backend = "github",
+            requested_ref = ?body.git_ref.as_deref(),
+            "console source tree registration selected GitHub backend"
+        );
         return register_github_source_tree(state, user, source_tree, body.git_ref).await;
     }
+    tracing::info!(
+        operation = "source_tree.register",
+        principal_id = %user.principal_id,
+        backend = "read_only",
+        requested_ref = ?body.git_ref.as_deref(),
+        "console source tree registration selected read-only backend"
+    );
     register_read_only_source_tree(state, user, source_tree, body.git_ref).await
 }
 
@@ -749,6 +857,14 @@ async fn upsert_github_source_tree(
         .map(ToOwned::to_owned)
         .or_else(|| source_tree_ref_hint(source_tree));
     let git_ref = requested_ref.unwrap_or_else(|| github_repo.default_branch.clone());
+    tracing::info!(
+        operation = "source_tree.upsert",
+        principal_id = %user.principal_id,
+        kind = "github",
+        repository = %format!("{}/{}", github_repo.owner.login, github_repo.name),
+        git_ref = %git_ref,
+        "console source tree workspace discovery starting"
+    );
     let workspaces = state
         .github
         .discover_workspaces(token, &owner, &name, &git_ref)
@@ -775,6 +891,14 @@ async fn upsert_github_source_tree(
                 .collect(),
         })
         .await?;
+    tracing::info!(
+        operation = "source_tree.upsert",
+        principal_id = %user.principal_id,
+        source_tree_id = %stored.source_tree.id,
+        kind = "github",
+        workspaces = stored.workspaces.len(),
+        "console source tree upserted"
+    );
     Ok((stored, token.to_owned()))
 }
 
@@ -804,6 +928,13 @@ async fn upsert_read_only_source_tree(
     let registration = super::fixed_workspace::registration(&source)
         .await
         .map_err(|err| ApiError::bad_request(err.to_string()))?;
+    tracing::info!(
+        operation = "source_tree.upsert",
+        principal_id = %user.principal_id,
+        kind = ?registration.kind,
+        workspaces = registration.workspaces.len(),
+        "console read-only source tree registration resolved"
+    );
     let stored = state
         .store
         .upsert_source_tree_with_workspaces(super::store::RegisterSourceTreeInput {
@@ -815,6 +946,14 @@ async fn upsert_read_only_source_tree(
             workspaces: registration.workspaces,
         })
         .await?;
+    tracing::info!(
+        operation = "source_tree.upsert",
+        principal_id = %user.principal_id,
+        source_tree_id = %stored.source_tree.id,
+        kind = ?stored.source_tree.kind,
+        workspaces = stored.workspaces.len(),
+        "console source tree upserted"
+    );
     Ok((stored, source_token(user).to_owned()))
 }
 
@@ -947,6 +1086,13 @@ async fn refresh_source_tree_for_user(
         .await?
         .ok_or_else(|| ApiError::not_found("source tree not found"))?;
     let source_tree = existing.source_tree;
+    tracing::info!(
+        operation = "source_tree.refresh",
+        principal_id = %user.principal_id,
+        source_tree_id,
+        kind = ?source_tree.kind,
+        "console source tree refresh selected backend"
+    );
     let (stored, token) = match source_tree.kind {
         super::store::SourceTreeKind::GitHub => {
             upsert_github_source_tree(

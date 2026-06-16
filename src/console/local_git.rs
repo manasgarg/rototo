@@ -27,17 +27,51 @@ pub async fn current_branch(source: &str) -> Result<String> {
 }
 
 async fn git(root: &Path, args: &[&str]) -> Result<String> {
+    let started = std::time::Instant::now();
+    let command_label = format!("git {}", args.join(" "));
+    tracing::debug!(
+        operation = "process.command",
+        command = %command_label,
+        cwd = %root.display(),
+        "console outbound process call started"
+    );
     let output = tokio::process::Command::new("git")
         .arg("-C")
         .arg(root)
         .args(args)
         .output()
         .await
-        .map_err(|err| RototoError::new(format!("failed to run git {}: {err}", args.join(" "))))?;
+        .map_err(|err| {
+            tracing::warn!(
+                operation = "process.command",
+                command = %command_label,
+                cwd = %root.display(),
+                error = %err,
+                latency_ms = started.elapsed().as_millis(),
+                "console outbound process call failed to start"
+            );
+            RototoError::new(format!("failed to run git {}: {err}", args.join(" ")))
+        })?;
     if output.status.success() {
+        tracing::info!(
+            operation = "process.command",
+            command = %command_label,
+            cwd = %root.display(),
+            status = output.status.code(),
+            latency_ms = started.elapsed().as_millis(),
+            "console outbound process call completed"
+        );
         return Ok(String::from_utf8_lossy(&output.stdout).into_owned());
     }
     let stderr = String::from_utf8_lossy(&output.stderr).trim().to_owned();
+    tracing::warn!(
+        operation = "process.command",
+        command = %command_label,
+        cwd = %root.display(),
+        status = output.status.code(),
+        latency_ms = started.elapsed().as_millis(),
+        "console outbound process call returned non-zero status"
+    );
     Err(RototoError::new(format!(
         "git {} failed: {}",
         args.join(" "),

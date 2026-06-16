@@ -175,6 +175,11 @@ pub async fn resolve_ambient_token(
             } else {
                 GitHubCredentialSource::Environment
             };
+            tracing::info!(
+                operation = "console.auth.ambient_token",
+                source = ?source,
+                "console local auth token resolved from explicit configuration"
+            );
             return Some(AmbientToken {
                 token: token.to_owned(),
                 source,
@@ -190,27 +195,75 @@ pub async fn resolve_ambient_token(
             .and_then(serde_json::Value::as_str)
         && !token.trim().is_empty()
     {
+        tracing::info!(
+            operation = "console.auth.ambient_token",
+            source = ?GitHubCredentialSource::DeviceFlow,
+            credentials_path = %credentials_path.display(),
+            "console local auth token resolved from stored device-flow credentials"
+        );
         return Some(AmbientToken {
             token: token.trim().to_owned(),
             source: GitHubCredentialSource::DeviceFlow,
         });
     }
 
-    if let Ok(output) = tokio::process::Command::new("gh")
+    let started = std::time::Instant::now();
+    tracing::debug!(
+        operation = "process.command",
+        command = "gh auth token",
+        "console outbound process call started"
+    );
+    match tokio::process::Command::new("gh")
         .args(["auth", "token"])
         .output()
         .await
-        && output.status.success()
     {
-        let token = String::from_utf8_lossy(&output.stdout).trim().to_owned();
-        if !token.is_empty() {
-            return Some(AmbientToken {
-                token,
-                source: GitHubCredentialSource::GhCli,
-            });
+        Ok(output) if output.status.success() => {
+            let token = String::from_utf8_lossy(&output.stdout).trim().to_owned();
+            tracing::info!(
+                operation = "process.command",
+                command = "gh auth token",
+                status = output.status.code(),
+                token_found = !token.is_empty(),
+                latency_ms = started.elapsed().as_millis(),
+                "console outbound process call completed"
+            );
+            if !token.is_empty() {
+                tracing::info!(
+                    operation = "console.auth.ambient_token",
+                    source = ?GitHubCredentialSource::GhCli,
+                    "console local auth token resolved from GitHub CLI"
+                );
+                return Some(AmbientToken {
+                    token,
+                    source: GitHubCredentialSource::GhCli,
+                });
+            }
+        }
+        Ok(output) => {
+            tracing::debug!(
+                operation = "process.command",
+                command = "gh auth token",
+                status = output.status.code(),
+                latency_ms = started.elapsed().as_millis(),
+                "console outbound process call returned non-zero status"
+            );
+        }
+        Err(err) => {
+            tracing::debug!(
+                operation = "process.command",
+                command = "gh auth token",
+                error = %err,
+                latency_ms = started.elapsed().as_millis(),
+                "console outbound process call failed to start"
+            );
         }
     }
 
+    tracing::info!(
+        operation = "console.auth.ambient_token",
+        "console local auth token was not found"
+    );
     None
 }
 

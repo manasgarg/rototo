@@ -17,8 +17,14 @@ pub(crate) struct FixedWorkspaceRegistration {
 }
 
 pub(crate) async fn registration(source: &str) -> Result<FixedWorkspaceRegistration> {
+    let started = std::time::Instant::now();
     let (display_name, mut default_revision, _path) = synthetic_registration(source);
     let source_kind = capabilities::classify_workspace_source(source);
+    tracing::info!(
+        operation = "fixed_workspace.registration",
+        source_kind = ?source_kind,
+        "console fixed source tree registration started"
+    );
     if matches!(
         source_kind,
         capabilities::WorkspaceSourceKind::LocalPath | capabilities::WorkspaceSourceKind::FileUrl
@@ -36,6 +42,12 @@ pub(crate) async fn registration(source: &str) -> Result<FixedWorkspaceRegistrat
         .collect::<Vec<_>>();
 
     if workspace_paths.is_empty() {
+        tracing::warn!(
+            operation = "fixed_workspace.registration",
+            source_kind = ?source_kind,
+            latency_ms = started.elapsed().as_millis(),
+            "console fixed source tree registration found no workspaces"
+        );
         return Err(RototoError::new(format!(
             "no rototo workspace manifests found under `{source}`"
         )));
@@ -50,13 +62,21 @@ pub(crate) async fn registration(source: &str) -> Result<FixedWorkspaceRegistrat
         })
         .collect();
 
-    Ok(FixedWorkspaceRegistration {
+    let registration = FixedWorkspaceRegistration {
         kind: source_tree_kind(source_kind),
         source: source.to_owned(),
         display_name,
         default_revision,
         workspaces,
-    })
+    };
+    tracing::info!(
+        operation = "fixed_workspace.registration",
+        source_tree_kind = ?registration.kind,
+        workspaces = registration.workspaces.len(),
+        latency_ms = started.elapsed().as_millis(),
+        "console fixed source tree registration completed"
+    );
+    Ok(registration)
 }
 
 fn source_tree_kind(kind: capabilities::WorkspaceSourceKind) -> SourceTreeKind {

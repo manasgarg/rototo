@@ -69,19 +69,58 @@ pub async fn resolve_git_config_identity(workdir: Option<&Path>) -> Result<Actor
 }
 
 async fn git_config_value(workdir: Option<&Path>, key: &str) -> Result<Option<String>> {
+    let started = std::time::Instant::now();
     let mut command = tokio::process::Command::new("git");
     if let Some(workdir) = workdir {
         command.arg("-C").arg(workdir);
     }
+    let cwd = workdir.map(|path| path.display().to_string());
+    tracing::debug!(
+        operation = "process.command",
+        command = "git config --get",
+        key,
+        cwd = cwd.as_deref(),
+        "console outbound process call started"
+    );
     let output = command
         .args(["config", "--get", key])
         .output()
         .await
-        .map_err(|err| RototoError::new(format!("failed to read git config {key}: {err}")))?;
+        .map_err(|err| {
+            tracing::debug!(
+                operation = "process.command",
+                command = "git config --get",
+                key,
+                cwd = cwd.as_deref(),
+                error = %err,
+                latency_ms = started.elapsed().as_millis(),
+                "console outbound process call failed to start"
+            );
+            RototoError::new(format!("failed to read git config {key}: {err}"))
+        })?;
     if !output.status.success() {
+        tracing::debug!(
+            operation = "process.command",
+            command = "git config --get",
+            key,
+            cwd = cwd.as_deref(),
+            status = output.status.code(),
+            latency_ms = started.elapsed().as_millis(),
+            "console outbound process call returned non-zero status"
+        );
         return Ok(None);
     }
     let value = String::from_utf8_lossy(&output.stdout).trim().to_owned();
+    tracing::info!(
+        operation = "process.command",
+        command = "git config --get",
+        key,
+        cwd = cwd.as_deref(),
+        status = output.status.code(),
+        value_found = !value.is_empty(),
+        latency_ms = started.elapsed().as_millis(),
+        "console outbound process call completed"
+    );
     Ok((!value.is_empty()).then_some(value))
 }
 

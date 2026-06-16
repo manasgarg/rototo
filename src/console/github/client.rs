@@ -577,6 +577,13 @@ impl GitHubClient {
     ) -> GitHubResult<T> {
         let started = std::time::Instant::now();
         let method_label = method.as_str().to_owned();
+        let path_pattern = github_path_pattern(path);
+        tracing::debug!(
+            operation = "github.rest",
+            method = %method_label,
+            path = %path_pattern,
+            "console outbound GitHub REST call started"
+        );
         let mut request = self
             .http
             .request(method, format!("{GITHUB_API}{path}"))
@@ -588,24 +595,73 @@ impl GitHubClient {
         if let Some(body) = body {
             request = request.json(&body);
         }
-        let response = request.send().await.map_err(GitHubError::other)?;
+        let response = match request.send().await {
+            Ok(response) => response,
+            Err(err) => {
+                tracing::warn!(
+                    operation = "github.rest",
+                    method = %method_label,
+                    path = %path_pattern,
+                    error = %err,
+                    latency_ms = started.elapsed().as_millis(),
+                    "console outbound GitHub REST call failed before response"
+                );
+                return Err(GitHubError::other(err));
+            }
+        };
         let status = response.status();
-        let text = response.text().await.map_err(GitHubError::other)?;
-        tracing::info!(
-            operation = "github.rest",
-            method = %method_label,
-            path = %github_path_pattern(path),
-            status = status.as_u16(),
-            latency_ms = started.elapsed().as_millis(),
-            "console GitHub REST call completed"
-        );
+        let text = match response.text().await {
+            Ok(text) => text,
+            Err(err) => {
+                tracing::warn!(
+                    operation = "github.rest",
+                    method = %method_label,
+                    path = %path_pattern,
+                    status = status.as_u16(),
+                    error = %err,
+                    latency_ms = started.elapsed().as_millis(),
+                    "console outbound GitHub REST response read failed"
+                );
+                return Err(GitHubError::other(err));
+            }
+        };
+        if status.is_success() {
+            tracing::info!(
+                operation = "github.rest",
+                method = %method_label,
+                path = %path_pattern,
+                status = status.as_u16(),
+                latency_ms = started.elapsed().as_millis(),
+                "console outbound GitHub REST call completed"
+            );
+        } else {
+            tracing::warn!(
+                operation = "github.rest",
+                method = %method_label,
+                path = %path_pattern,
+                status = status.as_u16(),
+                latency_ms = started.elapsed().as_millis(),
+                "console outbound GitHub REST call returned error status"
+            );
+        }
         if !status.is_success() {
             return Err(GitHubError::Api(GitHubApiError {
                 status: status.as_u16(),
                 response_text: text,
             }));
         }
-        serde_json::from_str(&text).map_err(GitHubError::other)
+        serde_json::from_str(&text).map_err(|err| {
+            tracing::warn!(
+                operation = "github.rest",
+                method = %method_label,
+                path = %path_pattern,
+                status = status.as_u16(),
+                error = %err,
+                latency_ms = started.elapsed().as_millis(),
+                "console outbound GitHub REST response decode failed"
+            );
+            GitHubError::other(err)
+        })
     }
 }
 

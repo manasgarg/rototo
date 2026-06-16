@@ -84,23 +84,43 @@ impl ConsoleAdminEnv {
 
     async fn load_from_path(path: Option<PathBuf>) -> Result<Self> {
         let Some(path) = path else {
+            tracing::debug!(
+                operation = "console.admin_env.load",
+                "console admin env path could not be resolved"
+            );
             return Ok(Self::default());
         };
         let contents = match tokio::fs::read_to_string(&path).await {
             Ok(contents) => contents,
             Err(err) if err.kind() == std::io::ErrorKind::NotFound => {
+                tracing::debug!(
+                    operation = "console.admin_env.load",
+                    path = %path.display(),
+                    "console admin env file not found"
+                );
                 return Ok(Self::default());
             }
             Err(err) => {
+                tracing::warn!(
+                    operation = "console.admin_env.load",
+                    path = %path.display(),
+                    error = %err,
+                    "console admin env file could not be read"
+                );
                 return Err(RototoError::new(format!(
                     "failed to read console admin env {}: {err}",
                     path.display()
                 )));
             }
         };
-        Ok(Self {
-            values: parse_admin_env(&path, &contents)?,
-        })
+        let values = parse_admin_env(&path, &contents)?;
+        tracing::info!(
+            operation = "console.admin_env.load",
+            path = %path.display(),
+            keys = values.len(),
+            "console admin env file loaded"
+        );
+        Ok(Self { values })
     }
 
     fn get(&self, key: &str) -> Option<String> {
@@ -136,6 +156,14 @@ pub async fn run(options: ConsoleOptions) -> Result<()> {
     })?;
 
     let (deployment, oauth) = resolve_deployment(&admin_env)?;
+    tracing::info!(
+        operation = "console.startup",
+        deployment = deployment.label(),
+        write_policy = options.write_policy.label(),
+        data_dir = %data_dir.display(),
+        fixed_workspace = options.workspace.is_some(),
+        "console startup configuration resolved"
+    );
     let observability = DevObservability::from_dir(
         admin_env
             .get(CONSOLE_DEV_OBSERVABILITY_ENV)
@@ -176,6 +204,14 @@ pub async fn run(options: ConsoleOptions) -> Result<()> {
         .unwrap_or_else(|| format!("http://{bound}"));
     let secure_cookies = public_url.starts_with("https://");
     let allowed_origins = allowed_origins(&public_url, bound.port());
+    tracing::info!(
+        operation = "console.listen",
+        bind = %bound,
+        public_url = %public_url,
+        secure_cookies,
+        allowed_origins = allowed_origins.len(),
+        "console listener bound"
+    );
 
     let state = Arc::new(ConsoleState {
         deployment: deployment.clone(),

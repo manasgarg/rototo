@@ -163,6 +163,15 @@ fn repo_relative_path_string(path: &str) -> Option<String> {
 }
 
 async fn git_output(repo: Option<&Path>, args: &[&str], options: &SourceOptions) -> Result<String> {
+    let started = std::time::Instant::now();
+    let command_label = format!("git {}", args.join(" "));
+    let cwd = repo.map(|path| path.display().to_string());
+    tracing::debug!(
+        operation = "process.command",
+        command = %command_label,
+        cwd = cwd.as_deref(),
+        "console outbound process call started"
+    );
     let mut command = Command::new("git");
     command.kill_on_drop(true);
     if let Some(repo) = repo {
@@ -172,8 +181,25 @@ async fn git_output(repo: Option<&Path>, args: &[&str], options: &SourceOptions)
     scrub_git_process_variables(&mut command);
     let output = tokio::time::timeout(options.git_timeout(), command.output())
         .await
-        .map_err(|_| RototoError::new(format!("git {} timed out", args.join(" "))))?
+        .map_err(|_| {
+            tracing::warn!(
+                operation = "process.command",
+                command = %command_label,
+                cwd = cwd.as_deref(),
+                latency_ms = started.elapsed().as_millis(),
+                "console outbound process call timed out"
+            );
+            RototoError::new(format!("git {} timed out", args.join(" ")))
+        })?
         .map_err(|err| {
+            tracing::warn!(
+                operation = "process.command",
+                command = %command_label,
+                cwd = cwd.as_deref(),
+                error = %err,
+                latency_ms = started.elapsed().as_millis(),
+                "console outbound process call failed to start"
+            );
             if err.kind() == std::io::ErrorKind::NotFound {
                 RototoError::new("required tool `git` was not found on PATH")
             } else {
@@ -181,9 +207,25 @@ async fn git_output(repo: Option<&Path>, args: &[&str], options: &SourceOptions)
             }
         })?;
     if output.status.success() {
+        tracing::info!(
+            operation = "process.command",
+            command = %command_label,
+            cwd = cwd.as_deref(),
+            status = output.status.code(),
+            latency_ms = started.elapsed().as_millis(),
+            "console outbound process call completed"
+        );
         return Ok(String::from_utf8_lossy(&output.stdout).into_owned());
     }
     let stderr = String::from_utf8_lossy(&output.stderr).trim().to_owned();
+    tracing::warn!(
+        operation = "process.command",
+        command = %command_label,
+        cwd = cwd.as_deref(),
+        status = output.status.code(),
+        latency_ms = started.elapsed().as_millis(),
+        "console outbound process call returned non-zero status"
+    );
     Err(RototoError::new(format!(
         "git {} failed: {}",
         args.join(" "),

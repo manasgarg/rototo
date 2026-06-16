@@ -239,6 +239,13 @@ async fn branch_select(
         .branch
         .map(|branch| branch.trim().to_owned())
         .filter(|branch| !branch.is_empty());
+    tracing::info!(
+        operation = "branch.select",
+        principal_id = %user.principal_id,
+        workspace_id = %workspace.id,
+        requested_branch = ?requested_branch.as_deref(),
+        "console branch selection requested"
+    );
 
     let base_ref = workspace.revision.clone();
     let backend = branch_backend(&state, &user, &workspace, "Opening a branch")?;
@@ -268,6 +275,15 @@ async fn branch_select(
             .store
             .ensure_active_branch_workspace(&existing.id, &workspace.id, &user.principal_id)
             .await?;
+        tracing::info!(
+            operation = "branch.select",
+            principal_id = %user.principal_id,
+            workspace_id = %workspace.id,
+            branch_id = %existing.id,
+            branch = %existing.branch,
+            outcome = "existing",
+            "console branch selection reused existing branch"
+        );
         return Ok(Json(json!({ "branch": existing })));
     }
 
@@ -282,6 +298,15 @@ async fn branch_select(
             last_seen_commit: target.last_seen_commit,
         })
         .await?;
+    tracing::info!(
+        operation = "branch.select",
+        principal_id = %user.principal_id,
+        workspace_id = %workspace.id,
+        branch_id = %branch.id,
+        branch = %branch.branch,
+        outcome = "selected",
+        "console branch selection stored active branch"
+    );
     Ok(Json(json!({ "branch": branch })))
 }
 
@@ -305,6 +330,15 @@ async fn branch_selection_target<'a>(
             token,
             direct: true,
         } => {
+            tracing::info!(
+                operation = "branch.selection_target",
+                principal_id = %user.principal_id,
+                workspace_id = %workspace.id,
+                mode = "direct_push",
+                base_ref,
+                requested_branch = ?requested_branch.as_deref(),
+                "console branch target resolving direct-push branch"
+            );
             if let Some(requested) = requested_branch.as_deref()
                 && requested != base_ref
             {
@@ -332,6 +366,15 @@ async fn branch_selection_target<'a>(
             token,
             direct: false,
         } => {
+            tracing::info!(
+                operation = "branch.selection_target",
+                principal_id = %user.principal_id,
+                workspace_id = %workspace.id,
+                mode = "pull_request",
+                base_ref,
+                requested_branch = ?requested_branch.as_deref(),
+                "console branch target resolving pull-request branch"
+            );
             state
                 .github
                 .assert_repo_write_access(token, &github_repo.owner, &github_repo.name)
@@ -344,6 +387,14 @@ async fn branch_selection_target<'a>(
                 .map_err(|err| ApiError::github(&err, "Opening a branch"))?;
             let branch = match requested_branch {
                 Some(branch) => {
+                    tracing::info!(
+                        operation = "branch.selection_target",
+                        principal_id = %user.principal_id,
+                        workspace_id = %workspace.id,
+                        branch = %branch,
+                        outcome = "requested_existing",
+                        "console branch target validating requested branch"
+                    );
                     if branch == base_ref {
                         return Err(ApiError::bad_request(format!(
                             "Editing {base_ref} directly would skip review. Pick another branch."
@@ -358,6 +409,14 @@ async fn branch_selection_target<'a>(
                 }
                 None => {
                     let branch = console_branch_name(&user.identity.display_login(), workspace);
+                    tracing::info!(
+                        operation = "branch.selection_target",
+                        principal_id = %user.principal_id,
+                        workspace_id = %workspace.id,
+                        branch = %branch,
+                        outcome = "create",
+                        "console branch target creating new branch"
+                    );
                     state
                         .github
                         .create_branch(
@@ -524,6 +583,14 @@ async fn branch_publish(
     let context = load_branch(&state, &headers, &workspace_id, &branch_id, true).await?;
     let changed_paths =
         branch_changed_paths(&state, &context.user, &context.workspace, &context.branch).await?;
+    tracing::info!(
+        operation = "branch.publish",
+        principal_id = %context.user.principal_id,
+        workspace_id = %context.workspace.id,
+        branch_id = %context.branch.id,
+        changed_files = changed_paths.len(),
+        "console branch publish requested"
+    );
     if changed_paths.is_empty() {
         return Err(ApiError::bad_request("branch has no changed files"));
     }
@@ -553,6 +620,16 @@ async fn branch_publish(
         warnings += lint.diagnostics.len() - workspace_errors;
     }
     if errors > 0 {
+        tracing::info!(
+            operation = "branch.publish",
+            principal_id = %context.user.principal_id,
+            workspace_id = %context.workspace.id,
+            branch_id = %context.branch.id,
+            errors,
+            warnings,
+            outcome = "lint_failed",
+            "console branch publish blocked by lint errors"
+        );
         return Err(ApiError::bad_request(format!(
             "branch has {errors} lint error(s) across included workspace(s); fix lint before publishing"
         )));
@@ -568,6 +645,15 @@ async fn branch_publish(
             token,
             direct: false,
         } => {
+            tracing::info!(
+                operation = "branch.publish",
+                principal_id = %context.user.principal_id,
+                workspace_id = %context.workspace.id,
+                branch_id = %context.branch.id,
+                mode = "pull_request",
+                warnings,
+                "console branch publish creating pull request"
+            );
             let pr = state
                 .github
                 .create_pull_request(
@@ -602,6 +688,15 @@ async fn branch_publish(
                     pr_merged_at: pr.merged_at.clone(),
                 })
                 .await?;
+            tracing::info!(
+                operation = "branch.publish",
+                principal_id = %context.user.principal_id,
+                workspace_id = %context.workspace.id,
+                branch_id = %context.branch.id,
+                pr_number = pr.number,
+                outcome = "pull_request_created",
+                "console branch publish completed"
+            );
             Ok(Json(json!({
                 "branch": branch,
                 "pullRequest": {
@@ -616,6 +711,14 @@ async fn branch_publish(
             token: _,
             direct: true,
         } => {
+            tracing::info!(
+                operation = "branch.publish",
+                principal_id = %context.user.principal_id,
+                workspace_id = %context.workspace.id,
+                branch_id = %context.branch.id,
+                mode = "direct_push",
+                "console branch publish recorded direct-push edit"
+            );
             let branch = state
                 .store
                 .record_active_branch_edit(&context.branch.id, None)
@@ -640,6 +743,14 @@ async fn branch_archive(
         .await
         .map_err(|err| ApiError::bad_request(err.to_string()))?;
     state.lsp.drop_sessions_for_branch(&context.branch.id).await;
+    tracing::info!(
+        operation = "branch.archive",
+        principal_id = %context.user.principal_id,
+        workspace_id = %context.workspace.id,
+        branch_id = %context.branch.id,
+        branch = %context.branch.branch,
+        "console branch archived"
+    );
     Ok(Json(json!({ "branch": branch })))
 }
 
@@ -692,6 +803,16 @@ async fn branch_variable_save(
         .map_err(|err| ApiError::bad_request(err.to_string()))?;
 
     if update.before_literal != update.after_literal {
+        tracing::info!(
+            operation = "branch.variable_save",
+            principal_id = %context.user.principal_id,
+            workspace_id = %context.workspace.id,
+            branch_id = %context.branch.id,
+            variable_id = %variable_id,
+            file_path = %file_path,
+            changed = true,
+            "console branch variable save writing change"
+        );
         write_branch_file(
             &state,
             &context,
@@ -703,6 +824,17 @@ async fn branch_variable_save(
         .await?;
         record_branch_edit(&state, &context, None).await?;
         invalidate_branch(&state, &context.user, &context.workspace, &context.branch).await;
+    } else {
+        tracing::info!(
+            operation = "branch.variable_save",
+            principal_id = %context.user.principal_id,
+            workspace_id = %context.workspace.id,
+            branch_id = %context.branch.id,
+            variable_id = %variable_id,
+            file_path = %file_path,
+            changed = false,
+            "console branch variable save skipped unchanged value"
+        );
     }
 
     Ok(Json(json!({
@@ -747,6 +879,15 @@ async fn branch_file_save(
     let (current_text, sha) =
         branch_file_text_and_sha(&state, &context, &file_path, &backend).await?;
     if current_text != content {
+        tracing::info!(
+            operation = "branch.file_save",
+            principal_id = %context.user.principal_id,
+            workspace_id = %context.workspace.id,
+            branch_id = %context.branch.id,
+            file_path = %file_path,
+            changed = true,
+            "console branch file save writing change"
+        );
         write_branch_file(
             &state,
             &context,
@@ -758,6 +899,16 @@ async fn branch_file_save(
         .await?;
         record_branch_edit(&state, &context, None).await?;
         invalidate_branch(&state, &context.user, &context.workspace, &context.branch).await;
+    } else {
+        tracing::info!(
+            operation = "branch.file_save",
+            principal_id = %context.user.principal_id,
+            workspace_id = %context.workspace.id,
+            branch_id = %context.branch.id,
+            file_path = %file_path,
+            changed = false,
+            "console branch file save skipped unchanged content"
+        );
     }
     Ok(Json(json!({ "ok": true })))
 }
@@ -795,6 +946,14 @@ async fn branch_file_delete(
         "Deleting the branch file",
     )? {
         BranchBackend::GitHub { token, .. } => {
+            tracing::info!(
+                operation = "branch.file_delete",
+                principal_id = %context.user.principal_id,
+                workspace_id = %context.workspace.id,
+                branch_id = %context.branch.id,
+                file_path = %file_path,
+                "console branch file delete writing change"
+            );
             let file = state
                 .github
                 .file(
