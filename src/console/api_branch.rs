@@ -91,10 +91,17 @@ struct BranchContext {
     user: SessionUser,
     workspace: WorkspaceRecord,
     branch: ActiveBranchRecord,
+    github_repo: GitHubRepoIdentity,
 }
 
 enum BranchBackend<'a> {
     GitHub { token: &'a str, direct: bool },
+}
+
+#[derive(Clone, Debug)]
+struct GitHubRepoIdentity {
+    owner: String,
+    name: String,
 }
 
 #[derive(Clone, Debug, Serialize)]
@@ -168,9 +175,16 @@ async fn load_branch(
     }
     Ok(BranchContext {
         user,
+        github_repo: github_repo_for_workspace(&workspace)?,
         workspace,
         branch,
     })
+}
+
+fn github_repo_for_workspace(workspace: &WorkspaceRecord) -> ApiResult<GitHubRepoIdentity> {
+    let (owner, name) = super::github::parse_repo_spec(&workspace.source)
+        .map_err(|err| ApiError::bad_request(err.to_string()))?;
+    Ok(GitHubRepoIdentity { owner, name })
 }
 
 async fn invalidate_branch(
@@ -235,12 +249,14 @@ async fn branch_select(
         .map(|branch| branch.trim().to_owned())
         .filter(|branch| !branch.is_empty());
 
-    let base_ref = workspace.git_ref.clone();
+    let base_ref = workspace.revision.clone();
     let backend = branch_backend(&state, &user, &workspace, "Opening a branch")?;
+    let github_repo = github_repo_for_workspace(&workspace)?;
     let target = branch_selection_target(
         &state,
         &user,
         &workspace,
+        &github_repo,
         &backend,
         requested_branch,
         &base_ref,
@@ -287,6 +303,7 @@ async fn branch_selection_target<'a>(
     state: &ConsoleState,
     user: &SessionUser,
     workspace: &WorkspaceRecord,
+    github_repo: &GitHubRepoIdentity,
     backend: &BranchBackend<'a>,
     requested_branch: Option<String>,
     base_ref: &str,
@@ -305,12 +322,12 @@ async fn branch_selection_target<'a>(
             }
             state
                 .github
-                .assert_repo_write_access(token, &workspace.owner, &workspace.name)
+                .assert_repo_write_access(token, &github_repo.owner, &github_repo.name)
                 .await
                 .map_err(|err| ApiError::github(&err, "Opening a branch"))?;
             let sha = state
                 .github
-                .branch_head_sha(token, &workspace.owner, &workspace.name, base_ref)
+                .branch_head_sha(token, &github_repo.owner, &github_repo.name, base_ref)
                 .await
                 .map_err(|err| ApiError::github(&err, "Opening a branch"))?;
             Ok(BranchSelectionTarget {
@@ -325,12 +342,12 @@ async fn branch_selection_target<'a>(
         } => {
             state
                 .github
-                .assert_repo_write_access(token, &workspace.owner, &workspace.name)
+                .assert_repo_write_access(token, &github_repo.owner, &github_repo.name)
                 .await
                 .map_err(|err| ApiError::github(&err, "Opening a branch"))?;
             let base_sha = state
                 .github
-                .branch_head_sha(token, &workspace.owner, &workspace.name, base_ref)
+                .branch_head_sha(token, &github_repo.owner, &github_repo.name, base_ref)
                 .await
                 .map_err(|err| ApiError::github(&err, "Opening a branch"))?;
             let branch = match requested_branch {
@@ -342,7 +359,7 @@ async fn branch_selection_target<'a>(
                     }
                     state
                         .github
-                        .branch_head_sha(token, &workspace.owner, &workspace.name, &branch)
+                        .branch_head_sha(token, &github_repo.owner, &github_repo.name, &branch)
                         .await
                         .map_err(|err| ApiError::github(&err, "Opening a branch"))?;
                     branch
@@ -351,7 +368,13 @@ async fn branch_selection_target<'a>(
                     let branch = console_branch_name(&user.identity.display_login(), workspace);
                     state
                         .github
-                        .create_branch(token, &workspace.owner, &workspace.name, &branch, &base_sha)
+                        .create_branch(
+                            token,
+                            &github_repo.owner,
+                            &github_repo.name,
+                            &branch,
+                            &base_sha,
+                        )
                         .await
                         .map_err(|err| ApiError::github(&err, "Opening a branch"))?;
                     branch
@@ -359,7 +382,7 @@ async fn branch_selection_target<'a>(
             };
             let last_seen_commit = state
                 .github
-                .branch_head_sha(token, &workspace.owner, &workspace.name, &branch)
+                .branch_head_sha(token, &github_repo.owner, &github_repo.name, &branch)
                 .await
                 .ok();
             Ok(BranchSelectionTarget {
@@ -419,8 +442,8 @@ async fn branch_rename(
         .github
         .rename_branch(
             token,
-            &context.workspace.owner,
-            &context.workspace.name,
+            &context.github_repo.owner,
+            &context.github_repo.name,
             &context.branch.branch,
             &branch,
         )
@@ -463,7 +486,7 @@ async fn branch_sync_pr(
     let branch = sync_pull_request(
         &state,
         &context.user,
-        &context.workspace,
+        &context.github_repo,
         &context.branch,
         pr_number,
     )
@@ -475,7 +498,7 @@ async fn branch_sync_pr(
 async fn sync_pull_request(
     state: &ConsoleState,
     user: &SessionUser,
-    workspace: &WorkspaceRecord,
+    github_repo: &GitHubRepoIdentity,
     branch: &ActiveBranchRecord,
     pr_number: i64,
 ) -> std::result::Result<ActiveBranchRecord, String> {
@@ -485,7 +508,7 @@ async fn sync_pull_request(
         .ok_or_else(|| "Syncing the pull request requires a GitHub credential".to_owned())?;
     let pr = state
         .github
-        .pull_request(token, &workspace.owner, &workspace.name, pr_number)
+        .pull_request(token, &github_repo.owner, &github_repo.name, pr_number)
         .await
         .map_err(|err| super::github::github_error_message(&err, "Syncing the pull request"))?;
     state
@@ -557,8 +580,8 @@ async fn branch_publish(
                 .github
                 .create_pull_request(
                     token,
-                    &context.workspace.owner,
-                    &context.workspace.name,
+                    &context.github_repo.owner,
+                    &context.github_repo.name,
                     &branch_pr_title(&context.workspace),
                     &branch_pr_body(
                         &context.workspace,
@@ -784,8 +807,8 @@ async fn branch_file_delete(
                 .github
                 .file(
                     token,
-                    &context.workspace.owner,
-                    &context.workspace.name,
+                    &context.github_repo.owner,
+                    &context.github_repo.name,
                     &file_path,
                     &context.branch.branch,
                 )
@@ -795,8 +818,8 @@ async fn branch_file_delete(
                 .github
                 .delete_file(
                     token,
-                    &context.workspace.owner,
-                    &context.workspace.name,
+                    &context.github_repo.owner,
+                    &context.github_repo.name,
                     &file_path,
                     &context.branch.branch,
                     &file.sha,
@@ -856,8 +879,8 @@ async fn branch_entity_create(
             .github
             .tree(
                 token,
-                &context.workspace.owner,
-                &context.workspace.name,
+                &context.github_repo.owner,
+                &context.github_repo.name,
                 &context.branch.branch,
             )
             .await
@@ -898,8 +921,8 @@ async fn branch_entity_create(
                     .github
                     .create_file(
                         token,
-                        &context.workspace.owner,
-                        &context.workspace.name,
+                        &context.github_repo.owner,
+                        &context.github_repo.name,
                         &file.path,
                         &context.branch.branch,
                         &file.content,
@@ -1026,6 +1049,7 @@ async fn branch_data(
     let BranchContext {
         user,
         workspace,
+        github_repo,
         mut branch,
     } = context;
 
@@ -1040,7 +1064,7 @@ async fn branch_data(
     if let Some(pr_number) = pr_number
         && !synced_recently
     {
-        match sync_pull_request(&state, &user, &workspace, &branch, pr_number).await {
+        match sync_pull_request(&state, &user, &github_repo, &branch, pr_number).await {
             Ok(updated) => branch = updated,
             Err(error) => pr_sync_error = Some(error),
         }
@@ -1221,12 +1245,13 @@ async fn branch_changed_paths(
 ) -> ApiResult<Vec<String>> {
     if context_is_github_workspace(workspace) {
         let token = require_github_token(user, "Loading branch changes")?;
+        let github_repo = github_repo_for_workspace(workspace)?;
         let comparison = state
             .github
             .compare_refs(
                 token,
-                &workspace.owner,
-                &workspace.name,
+                &github_repo.owner,
+                &github_repo.name,
                 &branch.base_ref,
                 &branch.branch,
             )
@@ -1290,8 +1315,8 @@ async fn branch_file_text_and_sha(
                 .github
                 .file(
                     token,
-                    &context.workspace.owner,
-                    &context.workspace.name,
+                    &context.github_repo.owner,
+                    &context.github_repo.name,
                     file_path,
                     &context.branch.branch,
                 )
@@ -1321,8 +1346,8 @@ async fn write_branch_file(
                 .github
                 .update_file(
                     token,
-                    &context.workspace.owner,
-                    &context.workspace.name,
+                    &context.github_repo.owner,
+                    &context.github_repo.name,
                     file_path,
                     &context.branch.branch,
                     sha.expect("GitHub file reads include a sha"),
@@ -1349,8 +1374,8 @@ async fn record_branch_edit(
                     .github
                     .branch_head_sha(
                         token,
-                        &context.workspace.owner,
-                        &context.workspace.name,
+                        &context.github_repo.owner,
+                        &context.github_repo.name,
                         &context.branch.branch,
                     )
                     .await
@@ -1377,8 +1402,8 @@ async fn base_entity_text(
         .github
         .file(
             token,
-            &context.workspace.owner,
-            &context.workspace.name,
+            &context.github_repo.owner,
+            &context.github_repo.name,
             path,
             &context.branch.base_ref,
         )
@@ -1581,10 +1606,9 @@ mod tests {
             id: "workspace-id".to_owned(),
             slug: "configs".to_owned(),
             source_tree_id: "repo-id".to_owned(),
-            owner: "octo".to_owned(),
-            name: "configs".to_owned(),
+            source_tree_label: "octo/configs".to_owned(),
             path: path.to_owned(),
-            git_ref: "main".to_owned(),
+            revision: "main".to_owned(),
             source: "git+https://github.com/octo/configs.git#main".to_owned(),
             discovered_at: "2026-06-13T00:00:00Z".to_owned(),
         }

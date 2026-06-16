@@ -765,13 +765,11 @@ async fn upsert_github_source_tree(
             ),
             display_name: format!("{}/{}", github_repo.owner.login, github_repo.name),
             default_revision: git_ref.clone(),
-            workspace_owner: github_repo.owner.login,
-            workspace_name: github_repo.name,
             workspaces: workspaces
                 .into_iter()
                 .map(|workspace| super::store::DiscoveredWorkspaceInput {
                     path: workspace.path,
-                    git_ref: workspace.git_ref,
+                    revision: workspace.git_ref,
                     source: workspace.source,
                 })
                 .collect(),
@@ -814,8 +812,6 @@ async fn upsert_read_only_source_tree(
             source: registration.source,
             display_name: registration.display_name,
             default_revision: registration.default_revision,
-            workspace_owner: registration.workspace_owner,
-            workspace_name: registration.workspace_name,
             workspaces: registration.workspaces,
         })
         .await?;
@@ -838,12 +834,18 @@ async fn should_register_as_github(source_tree: &str) -> bool {
 }
 
 fn source_tree_ref_hint(source_tree: &str) -> Option<String> {
-    let fragment = source_tree.split_once('#')?.1;
-    let git_ref = fragment
-        .split_once(':')
-        .map(|(git_ref, _)| git_ref)
-        .unwrap_or(fragment)
-        .trim();
+    let git_ref = if let Some(fragment) = source_tree.split_once('#').map(|(_, fragment)| fragment)
+    {
+        fragment
+            .split_once(':')
+            .map(|(git_ref, _)| git_ref)
+            .unwrap_or(fragment)
+            .trim()
+    } else if let Some(rest) = source_tree.strip_prefix("https://api.github.com/repos/") {
+        rest.split('/').nth(3).unwrap_or("").trim()
+    } else {
+        ""
+    };
     (!git_ref.is_empty()).then(|| git_ref.to_owned())
 }
 

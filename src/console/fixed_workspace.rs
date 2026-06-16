@@ -13,14 +13,11 @@ pub(crate) struct FixedWorkspaceRegistration {
     pub(crate) source: String,
     pub(crate) display_name: String,
     pub(crate) default_revision: String,
-    pub(crate) workspace_owner: String,
-    pub(crate) workspace_name: String,
     pub(crate) workspaces: Vec<DiscoveredWorkspaceInput>,
 }
 
 pub(crate) async fn registration(source: &str) -> Result<FixedWorkspaceRegistration> {
-    let (workspace_owner, workspace_name, mut default_revision, _path) =
-        synthetic_registration(source);
+    let (display_name, mut default_revision, _path) = synthetic_registration(source);
     let source_kind = capabilities::classify_workspace_source(source);
     if matches!(
         source_kind,
@@ -49,17 +46,15 @@ pub(crate) async fn registration(source: &str) -> Result<FixedWorkspaceRegistrat
         .map(|path| DiscoveredWorkspaceInput {
             source: source_for_path(source, &default_revision, &path),
             path,
-            git_ref: default_revision.clone(),
+            revision: default_revision.clone(),
         })
         .collect();
 
     Ok(FixedWorkspaceRegistration {
         kind: source_tree_kind(source_kind),
         source: source.to_owned(),
-        display_name: display_name(&workspace_owner, &workspace_name),
+        display_name,
         default_revision,
-        workspace_owner,
-        workspace_name,
         workspaces,
     })
 }
@@ -76,18 +71,10 @@ fn source_tree_kind(kind: capabilities::WorkspaceSourceKind) -> SourceTreeKind {
     }
 }
 
-fn display_name(owner: &str, name: &str) -> String {
-    if owner.is_empty() {
-        name.to_owned()
-    } else {
-        format!("{owner}/{name}")
-    }
-}
-
-/// Best-effort owner/name/ref/path display fields for an arbitrary workspace
-/// source. Staging always uses the source tree identity, so these only feed
-/// labels and repo-path prefixes while the old store shape is still in place.
-fn synthetic_registration(source: &str) -> (String, String, String, String) {
+/// Best-effort label/ref/path fields for an arbitrary source tree.
+/// Staging always uses the source tree identity; these feed display labels and
+/// the revision recorded for discovered workspace rows.
+fn synthetic_registration(source: &str) -> (String, String, String) {
     let (base, fragment) = match source.split_once('#') {
         Some((base, fragment)) => (base, Some(fragment)),
         None => (source, None),
@@ -111,8 +98,7 @@ fn synthetic_registration(source: &str) -> (String, String, String, String) {
         let parts: Vec<&str> = rest.split('/').collect();
         if parts.len() >= 4 && (parts[2] == "tarball" || parts[2] == "zipball") {
             return (
-                parts[0].to_owned(),
-                parts[1].to_owned(),
+                format!("{}/{}", parts[0], parts[1]),
                 parts[3].to_owned(),
                 path,
             );
@@ -128,8 +114,7 @@ fn synthetic_registration(source: &str) -> (String, String, String, String) {
             if let (Some(owner), Some(name)) = (segments.next(), segments.next()) {
                 let name = name.strip_suffix(".git").unwrap_or(name);
                 return (
-                    owner.to_owned(),
-                    name.to_owned(),
+                    format!("{owner}/{name}"),
                     ref_from_fragment.unwrap_or("main").to_owned(),
                     path,
                 );
@@ -144,7 +129,6 @@ fn synthetic_registration(source: &str) -> (String, String, String, String) {
         .filter(|name| !name.is_empty())
         .unwrap_or("workspace");
     (
-        "demo".to_owned(),
         name.to_owned(),
         ref_from_fragment.unwrap_or("main").to_owned(),
         path,
@@ -222,20 +206,14 @@ mod tests {
     fn synthetic_registration_parses_source_forms() {
         assert_eq!(
             synthetic_registration("https://api.github.com/repos/octo/configs/tarball/main"),
-            (
-                "octo".to_owned(),
-                "configs".to_owned(),
-                "main".to_owned(),
-                ".".to_owned()
-            )
+            ("octo/configs".to_owned(), "main".to_owned(), ".".to_owned())
         );
         assert_eq!(
             synthetic_registration(
                 "https://api.github.com/repos/octo/configs/tarball/v2#:payments/flags"
             ),
             (
-                "octo".to_owned(),
-                "configs".to_owned(),
+                "octo/configs".to_owned(),
                 "v2".to_owned(),
                 "payments/flags".to_owned()
             )
@@ -243,20 +221,14 @@ mod tests {
         assert_eq!(
             synthetic_registration("git+https://github.com/octo/configs.git#release:apps"),
             (
-                "octo".to_owned(),
-                "configs".to_owned(),
+                "octo/configs".to_owned(),
                 "release".to_owned(),
                 "apps".to_owned()
             )
         );
         assert_eq!(
             synthetic_registration("examples/basic"),
-            (
-                "demo".to_owned(),
-                "basic".to_owned(),
-                "main".to_owned(),
-                ".".to_owned()
-            )
+            ("basic".to_owned(), "main".to_owned(), ".".to_owned())
         );
     }
 
@@ -308,14 +280,13 @@ mod tests {
             .expect("fixed workspace registration");
 
         assert_eq!(registration.kind, SourceTreeKind::LocalFolder);
-        assert_eq!(registration.workspace_owner, "demo");
-        assert_eq!(
-            registration.workspace_name,
-            temp.path().file_name().unwrap().to_string_lossy()
-        );
         assert_eq!(
             registration.display_name,
-            format!("demo/{}", registration.workspace_name)
+            temp.path()
+                .file_name()
+                .unwrap()
+                .to_string_lossy()
+                .to_string()
         );
         assert_workspace_paths(&registration.workspaces, &[".", "apps/payments"]);
         assert_eq!(
@@ -339,7 +310,6 @@ mod tests {
             .expect("fixed workspace registration");
 
         assert_eq!(registration.kind, SourceTreeKind::GitRemote);
-        assert_eq!(registration.workspace_owner, "demo");
         assert_eq!(registration.default_revision, "main");
         assert_workspace_paths(&registration.workspaces, &[".", "apps/payments"]);
         assert_eq!(

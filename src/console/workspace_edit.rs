@@ -27,7 +27,7 @@ pub fn console_branch_name(login: &str, workspace: &WorkspaceRecord) -> String {
         }
         cleaned
     };
-    let key = stable_workspace_key(&workspace.owner, &workspace.name, &workspace.path);
+    let key = stable_workspace_key(&workspace.source_tree_label, &workspace.path);
     format!(
         "rototo-console/{login}/{key}/{stamp}",
         stamp = now_compact_stamp()
@@ -70,8 +70,8 @@ pub fn branch_pr_body(
         "## Rototo Console".to_owned(),
         String::new(),
         format!(
-            "Workspace: `{}/{}:{}`",
-            workspace.owner, workspace.name, workspace.path
+            "Workspace: `{}:{}`",
+            workspace.source_tree_label, workspace.path
         ),
         format!("Base ref: `{}`", branch.base_ref),
         format!("Branch: `{}`", branch.branch),
@@ -304,10 +304,9 @@ mod tests {
             id: "w1".to_owned(),
             slug: "configs".to_owned(),
             source_tree_id: "r1".to_owned(),
-            owner: "octo".to_owned(),
-            name: "configs".to_owned(),
+            source_tree_label: "octo/configs".to_owned(),
             path: path.to_owned(),
-            git_ref: "main".to_owned(),
+            revision: "main".to_owned(),
             source: source.to_owned(),
             discovered_at: "2026-01-01T00:00:00.000Z".to_owned(),
         }

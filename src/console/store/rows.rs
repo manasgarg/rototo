@@ -28,18 +28,17 @@ pub(super) fn workspace_from_row_at(
     row: &rusqlite::Row<'_>,
     offset: usize,
 ) -> rusqlite::Result<WorkspaceRecord> {
-    let name: String = row.get(offset + 3)?;
-    let path: String = row.get(offset + 4)?;
+    let source_tree_label: String = row.get(offset + 4)?;
+    let path: String = row.get(offset + 2)?;
     Ok(WorkspaceRecord {
         id: row.get(offset)?,
-        slug: workspace_slug(&name, &path),
+        slug: workspace_slug(&source_tree_label, &path),
         source_tree_id: row.get(offset + 1)?,
-        owner: row.get(offset + 2)?,
-        name,
+        source_tree_label,
         path,
-        git_ref: row.get(offset + 5)?,
-        source: row.get(offset + 6)?,
-        discovered_at: row.get(offset + 7)?,
+        revision: row.get(offset + 3)?,
+        source: row.get(offset + 5)?,
+        discovered_at: row.get(offset + 6)?,
     })
 }
 

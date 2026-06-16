@@ -4,7 +4,7 @@ use crate::error::{Result, RototoError};
 
 use super::util::db_err;
 
-const CURRENT_SCHEMA_VERSION: i32 = 7;
+const CURRENT_SCHEMA_VERSION: i32 = 8;
 
 pub(super) fn initialize_schema(conn: &Connection) -> Result<()> {
     configure_connection(conn)?;
@@ -49,14 +49,14 @@ fn migrate_schema(conn: &Connection) -> Result<()> {
             "console database schema version {version} is not supported; remove the console data directory and start from a fresh source tree"
         )));
     }
-    create_schema_v7(&tx)?;
+    create_schema_v8(&tx)?;
     set_schema_version(&tx, CURRENT_SCHEMA_VERSION)?;
 
     tx.commit().map_err(db_err)?;
     Ok(())
 }
 
-fn create_schema_v7(conn: &Connection) -> Result<()> {
+fn create_schema_v8(conn: &Connection) -> Result<()> {
     create_auth_tables(conn)?;
     conn.execute_batch(
         r#"
@@ -76,14 +76,13 @@ fn create_schema_v7(conn: &Connection) -> Result<()> {
         CREATE TABLE IF NOT EXISTS source_tree_workspaces (
           id TEXT PRIMARY KEY,
           source_tree_id TEXT NOT NULL,
-          owner TEXT NOT NULL,
-          name TEXT NOT NULL,
           path TEXT NOT NULL,
-          ref_ TEXT NOT NULL,
+          revision TEXT NOT NULL,
+          source_tree_label TEXT NOT NULL,
           source TEXT NOT NULL,
           discovered_at TEXT NOT NULL,
           active INTEGER NOT NULL DEFAULT 1,
-          UNIQUE(source_tree_id, path, ref_),
+          UNIQUE(source_tree_id, path, revision),
           FOREIGN KEY(source_tree_id) REFERENCES source_trees(id) ON DELETE CASCADE
         );
 

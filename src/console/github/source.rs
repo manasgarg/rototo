@@ -5,6 +5,32 @@ const REPO_SPEC_ERROR: &str = "repo must be owner/name or a GitHub repository UR
 pub fn parse_repo_spec(value: &str) -> Result<(String, String)> {
     let trimmed = value.trim();
     let trimmed = strip_prefix_ignore_ascii_case(trimmed, "git+").unwrap_or(trimmed);
+    if let Some(rest) = strip_prefix_ignore_ascii_case(trimmed, "https://api.github.com/repos/") {
+        let rest = rest
+            .split(['?', '#'])
+            .next()
+            .unwrap_or("")
+            .trim_end_matches('/');
+        let mut parts = rest.split('/');
+        let Some(owner) = parts.next() else {
+            return Err(RototoError::new(REPO_SPEC_ERROR));
+        };
+        let Some(name) = parts.next() else {
+            return Err(RototoError::new(REPO_SPEC_ERROR));
+        };
+        let archive_kind = parts.next();
+        if !matches!(archive_kind, Some("tarball" | "zipball")) {
+            return Err(RototoError::new(REPO_SPEC_ERROR));
+        }
+        let Some(_) = parts.next() else {
+            return Err(RototoError::new(REPO_SPEC_ERROR));
+        };
+        if parts.next().is_some() {
+            return Err(RototoError::new(REPO_SPEC_ERROR));
+        }
+        validate_repo_parts(owner, name)?;
+        return Ok((owner.to_owned(), name.to_owned()));
+    }
     let mut candidate = strip_prefix_ignore_ascii_case(trimmed, "git@github.com:")
         .or_else(|| strip_prefix_ignore_ascii_case(trimmed, "ssh://git@github.com/"))
         .or_else(|| strip_prefix_ignore_ascii_case(trimmed, "https://github.com/"))
@@ -20,6 +46,11 @@ pub fn parse_repo_spec(value: &str) -> Result<(String, String)> {
         return Err(RototoError::new(REPO_SPEC_ERROR));
     };
     name = name.strip_suffix(".git").unwrap_or(name);
+    validate_repo_parts(owner, name)?;
+    Ok((owner.to_owned(), name.to_owned()))
+}
+
+fn validate_repo_parts(owner: &str, name: &str) -> Result<()> {
     let valid = |part: &str| {
         !part.is_empty()
             && part
@@ -29,7 +60,7 @@ pub fn parse_repo_spec(value: &str) -> Result<(String, String)> {
     if !valid(owner) || !valid(name) || name.contains('/') {
         return Err(RototoError::new(REPO_SPEC_ERROR));
     }
-    Ok((owner.to_owned(), name.to_owned()))
+    Ok(())
 }
 
 fn strip_prefix_ignore_ascii_case<'a>(value: &'a str, prefix: &str) -> Option<&'a str> {
@@ -50,10 +81,10 @@ pub fn workspace_git_source(owner: &str, name: &str, git_ref: &str, path: &str) 
     }
 }
 
-pub fn stable_workspace_key(owner: &str, name: &str, path: &str) -> String {
+pub fn stable_workspace_key(source_tree_label: &str, path: &str) -> String {
     let digest = ring::digest::digest(
         &ring::digest::SHA256,
-        format!("{owner}/{name}:{path}").as_bytes(),
+        format!("{source_tree_label}:{path}").as_bytes(),
     );
     digest
         .as_ref()
@@ -145,6 +176,11 @@ mod tests {
             parse_repo_spec("git+ssh://git@github.com/octo/configs.git#feature/x").unwrap(),
             ("octo".to_owned(), "configs".to_owned())
         );
+        assert_eq!(
+            parse_repo_spec("https://api.github.com/repos/octo/configs/tarball/main#:apps")
+                .unwrap(),
+            ("octo".to_owned(), "configs".to_owned())
+        );
         assert!(parse_repo_spec("octo").is_err());
         assert!(parse_repo_spec("octo/configs/extra").is_err());
         assert!(parse_repo_spec("https://example.com/octo/configs").is_err());
@@ -176,9 +212,9 @@ mod tests {
 
     #[test]
     fn stable_workspace_key_is_short_hex() {
-        let key = stable_workspace_key("octo", "configs", ".");
+        let key = stable_workspace_key("octo/configs", ".");
         assert_eq!(key.len(), 12);
         assert!(key.chars().all(|c| c.is_ascii_hexdigit()));
-        assert_eq!(key, stable_workspace_key("octo", "configs", "."));
+        assert_eq!(key, stable_workspace_key("octo/configs", "."));
     }
 }

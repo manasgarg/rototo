@@ -394,6 +394,7 @@ async fn branch_candidates(
         ));
     }
     let token = require_github_token(&user, "Scanning branches")?;
+    let (owner, name) = github_repo_for_workspace(&workspace)?;
 
     let known_branches: std::collections::HashSet<String> = state
         .store
@@ -404,11 +405,11 @@ async fn branch_candidates(
         .collect();
     let branches: Vec<String> = state
         .github
-        .list_branches(token, &workspace.owner, &workspace.name)
+        .list_branches(token, &owner, &name)
         .await
         .map_err(|err| ApiError::github(&err, "Scanning branches"))?
         .into_iter()
-        .filter(|branch| *branch != workspace.git_ref && !known_branches.contains(branch))
+        .filter(|branch| *branch != workspace.revision && !known_branches.contains(branch))
         .collect();
     let compared = &branches[..branches.len().min(MAX_COMPARED_BRANCHES)];
     let prefix = if workspace.path == "." {
@@ -422,9 +423,9 @@ async fn branch_candidates(
     for (index, branch) in compared.iter().cloned().enumerate() {
         let github = state.github.clone();
         let token = token.to_owned();
-        let owner = workspace.owner.clone();
-        let name = workspace.name.clone();
-        let base = workspace.git_ref.clone();
+        let owner = owner.clone();
+        let name = name.clone();
+        let base = workspace.revision.clone();
         comparisons.spawn(async move {
             let comparison = github
                 .compare_refs(&token, &owner, &name, &base, &branch)
@@ -449,6 +450,11 @@ async fn branch_candidates(
         "scanned": compared.len(),
         "skipped": branches.len() - compared.len(),
     })))
+}
+
+fn github_repo_for_workspace(workspace: &WorkspaceRecord) -> ApiResult<(String, String)> {
+    super::github::parse_repo_spec(&workspace.source)
+        .map_err(|err| ApiError::bad_request(err.to_string()))
 }
 
 async fn collect_branch_candidate(
@@ -541,10 +547,9 @@ mod tests {
             id: "workspace-id".to_owned(),
             slug: "configs".to_owned(),
             source_tree_id: "repo-id".to_owned(),
-            owner: "octo".to_owned(),
-            name: "configs".to_owned(),
+            source_tree_label: "octo/configs".to_owned(),
             path: ".".to_owned(),
-            git_ref: "main".to_owned(),
+            revision: "main".to_owned(),
             source: "https://api.github.com/repos/octo/configs/tarball/main".to_owned(),
             discovered_at: "2026-06-13T00:00:00Z".to_owned(),
         }

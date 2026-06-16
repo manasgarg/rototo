@@ -97,15 +97,13 @@ pub struct SourceTreeCapabilities {
 #[serde(rename_all = "camelCase")]
 pub struct WorkspaceRecord {
     pub id: String,
-    /// Derived, human-readable URL handle (source tree name + workspace path).
+    /// Derived, human-readable URL handle (source tree label + workspace path).
     /// Stable across re-discovery, unlike the row id.
     pub slug: String,
     pub source_tree_id: String,
-    pub owner: String,
-    pub name: String,
+    pub source_tree_label: String,
     pub path: String,
-    #[serde(rename = "ref")]
-    pub git_ref: String,
+    pub revision: String,
     pub source: String,
     pub discovered_at: String,
 }
@@ -216,8 +214,6 @@ pub struct RegisterSourceTreeInput {
     pub source: String,
     pub display_name: String,
     pub default_revision: String,
-    pub workspace_owner: String,
-    pub workspace_name: String,
     pub workspaces: Vec<DiscoveredWorkspaceInput>,
 }
 
@@ -228,6 +224,6 @@ pub struct RegisterSourceTreeInput {
 /// inactive or deletes them when safe.
 pub struct DiscoveredWorkspaceInput {
     pub path: String,
-    pub git_ref: String,
+    pub revision: String,
     pub source: String,
 }

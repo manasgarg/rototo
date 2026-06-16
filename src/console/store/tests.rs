@@ -12,7 +12,7 @@ async fn test_store() -> Store {
 fn discovered(path: &str) -> DiscoveredWorkspaceInput {
     DiscoveredWorkspaceInput {
         path: path.to_owned(),
-        git_ref: "main".to_owned(),
+        revision: "main".to_owned(),
         source: format!("https://api.github.com/repos/o/r/tarball/main#:{path}"),
     }
 }
@@ -24,8 +24,6 @@ fn github_source_tree(workspaces: Vec<DiscoveredWorkspaceInput>) -> RegisterSour
         source: "git+https://github.com/octo/configs.git#main".to_owned(),
         display_name: "octo/configs".to_owned(),
         default_revision: "main".to_owned(),
-        workspace_owner: "octo".to_owned(),
-        workspace_name: "configs".to_owned(),
         workspaces,
     }
 }
@@ -37,8 +35,6 @@ fn local_source_tree(workspaces: Vec<DiscoveredWorkspaceInput>) -> RegisterSourc
         source: "/tmp/configs".to_owned(),
         display_name: "demo/configs".to_owned(),
         default_revision: "main".to_owned(),
-        workspace_owner: "demo".to_owned(),
-        workspace_name: "configs".to_owned(),
         workspaces,
     }
 }
@@ -64,7 +60,7 @@ fn schema_initialization_sets_store_schema_version() {
     let conn = Connection::open_in_memory().unwrap();
     schema::initialize_schema(&conn).unwrap();
 
-    assert_eq!(user_version(&conn), 7);
+    assert_eq!(user_version(&conn), 8);
     assert!(
         table_columns(&conn, "source_trees")
             .iter()
@@ -164,11 +160,11 @@ async fn source_tree_upsert_lists_workspaces_with_slugs() {
     assert_eq!(registered.source_tree.display_name, "octo/configs");
     assert!(registered.source_tree.capabilities.can_branch);
     assert_eq!(registered.workspaces.len(), 2);
-    assert_eq!(registered.workspaces[0].slug, "configs");
-    assert_eq!(registered.workspaces[1].slug, "configs-payments-flags");
+    assert_eq!(registered.workspaces[0].slug, "octo-configs");
+    assert_eq!(registered.workspaces[1].slug, "octo-configs-payments-flags");
 
     let by_slug = store
-        .get_workspace_for_user("configs-payments-flags", "42")
+        .get_workspace_for_user("octo-configs-payments-flags", "42")
         .await
         .unwrap()
         .unwrap();

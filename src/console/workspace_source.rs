@@ -16,17 +16,15 @@ use std::sync::Arc;
 pub(crate) struct WorkspaceSourceInput<'a> {
     pub(crate) principal_id: &'a str,
     pub(crate) token: &'a str,
-    pub(crate) owner: &'a str,
-    pub(crate) name: &'a str,
     pub(crate) path: &'a str,
-    pub(crate) git_ref: &'a str,
+    pub(crate) revision: &'a str,
     pub(crate) source: &'a str,
 }
 
 pub(crate) async fn cached_workspace_locator_for_base(
     input: WorkspaceSourceInput<'_>,
 ) -> Result<CachedWorkspaceLocator> {
-    let parsed = ParsedWorkspaceSource::parse(input.source, input.owner, input.name).await?;
+    let parsed = ParsedWorkspaceSource::parse(input.source).await?;
     let revision = match parsed.kind {
         WorkspaceSourceBacking::Git => {
             SourceTreeRevision::git_ref_or_commit(selected_git_ref(input, &parsed))?
@@ -41,7 +39,7 @@ pub(crate) async fn cached_workspace_locator_for_branch(
     input: WorkspaceSourceInput<'_>,
     branch: impl AsRef<str>,
 ) -> Result<CachedWorkspaceLocator> {
-    let parsed = ParsedWorkspaceSource::parse(input.source, input.owner, input.name).await?;
+    let parsed = ParsedWorkspaceSource::parse(input.source).await?;
     if !matches!(parsed.kind, WorkspaceSourceBacking::Git) {
         return Err(RototoError::new(
             "branch workspace sources require a git branch source tree",
@@ -114,10 +112,8 @@ fn workspace_source_input<'a>(
     WorkspaceSourceInput {
         principal_id,
         token,
-        owner: &workspace.owner,
-        name: &workspace.name,
         path: &workspace.path,
-        git_ref: &workspace.git_ref,
+        revision: &workspace.revision,
         source,
     }
 }
@@ -172,7 +168,7 @@ enum WorkspaceSourceBacking {
 }
 
 impl ParsedWorkspaceSource {
-    async fn parse(source: &str, owner: &str, name: &str) -> Result<Self> {
+    async fn parse(source: &str) -> Result<Self> {
         let source = source.trim();
         let Some(uri) = ParsedSourceUri::parse(source)? else {
             return Ok(Self {
@@ -204,7 +200,7 @@ impl ParsedWorkspaceSource {
         }
 
         if uri.scheme == "https" {
-            if github_archive_source(&uri.base).is_some() {
+            if let Some((owner, name, _)) = github_archive_source(&uri.base) {
                 return Ok(Self {
                     tree: SourceTreeOrigin::github(owner, name)?,
                     ref_: uri.ref_,
@@ -291,11 +287,11 @@ fn selected_git_ref<'a>(
     input: WorkspaceSourceInput<'a>,
     parsed: &'a ParsedWorkspaceSource,
 ) -> &'a str {
-    let git_ref = input.git_ref.trim();
-    if git_ref.is_empty() {
+    let revision = input.revision.trim();
+    if revision.is_empty() {
         parsed.ref_.as_deref().unwrap_or("main")
     } else {
-        git_ref
+        revision
     }
 }
 
@@ -332,10 +328,8 @@ mod tests {
         WorkspaceSourceInput {
             principal_id: "user_123",
             token: "",
-            owner: "Rototo",
-            name: "Config",
             path: "workspaces/payments",
-            git_ref: "main",
+            revision: "main",
             source: "git+https://github.com/Rototo/Config.git#main:workspaces/payments",
         }
     }
@@ -345,10 +339,9 @@ mod tests {
             id: "workspace_1".to_owned(),
             source_tree_id: "repo_1".to_owned(),
             slug: "octo-configs-root".to_owned(),
-            owner: "octo".to_owned(),
-            name: "configs".to_owned(),
+            source_tree_label: "octo/configs".to_owned(),
             path: ".".to_owned(),
-            git_ref: "main".to_owned(),
+            revision: "main".to_owned(),
             source: "https://api.github.com/repos/octo/configs/tarball/main".to_owned(),
             discovered_at: "2026-06-13T00:00:00Z".to_owned(),
         }
@@ -381,7 +374,7 @@ mod tests {
     #[tokio::test]
     async fn base_workspace_locator_uses_commit_revision_for_pinned_git_ref() {
         let input = WorkspaceSourceInput {
-            git_ref: "8D3C4B5A6F7081920A1B2C3D4E5F60718293A4B5",
+            revision: "8D3C4B5A6F7081920A1B2C3D4E5F60718293A4B5",
             ..github_workspace_input()
         };
 
@@ -426,10 +419,8 @@ mod tests {
         let input = WorkspaceSourceInput {
             principal_id: "user_123",
             token: "",
-            owner: "Team",
-            name: "Config",
             path: "services/api",
-            git_ref: "main",
+            revision: "main",
             source: "git+https://Git.Example.com/Team/Config.git#main:services/api",
         };
 
@@ -457,10 +448,8 @@ mod tests {
         let input = WorkspaceSourceInput {
             principal_id: "local-user",
             token: "",
-            owner: "demo",
-            name: "config",
             path: ".",
-            git_ref: "main",
+            revision: "main",
             source: tempdir.path().to_str().expect("utf8 temp path"),
         };
 
@@ -484,10 +473,8 @@ mod tests {
         let input = WorkspaceSourceInput {
             principal_id: "user_123",
             token: "",
-            owner: "Rototo",
-            name: "Config",
             path: "workspaces/payments",
-            git_ref: "main",
+            revision: "main",
             source: "https://API.GITHUB.com/repos/Rototo/Config/tarball/main#:workspaces/payments",
         };
 
@@ -511,10 +498,8 @@ mod tests {
         let input = WorkspaceSourceInput {
             principal_id: "user_123",
             token: "",
-            owner: "demo",
-            name: "config",
             path: "workspaces/payments",
-            git_ref: "main",
+            revision: "main",
             source: "https://example.com/releases/config.tar.gz#:workspaces/payments",
         };
 

@@ -299,8 +299,6 @@ pub(crate) async fn register_fixed_workspace(
             source: registration.source,
             display_name: registration.display_name,
             default_revision: registration.default_revision,
-            workspace_owner: registration.workspace_owner,
-            workspace_name: registration.workspace_name,
             workspaces: registration.workspaces,
         })
         .await?;

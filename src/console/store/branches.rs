@@ -187,7 +187,7 @@ impl Store {
             let mut statement = conn
                 .prepare(&format!(
                     "SELECT {ACTIVE_BRANCH_COLUMNS},
-                            w.id, w.source_tree_id, w.owner, w.name, w.path, w.ref_, w.source, w.discovered_at
+                            w.id, w.source_tree_id, w.path, w.revision, w.source_tree_label, w.source, w.discovered_at
                      FROM active_branches b
                      INNER JOIN active_branch_workspaces abw ON abw.branch_id = b.id
                      INNER JOIN source_tree_workspaces w
@@ -281,7 +281,7 @@ impl Store {
         self.with_conn(move |conn, _| {
             let mut statement = conn
                 .prepare(
-                    "SELECT w.id, w.source_tree_id, w.owner, w.name, w.path, w.ref_, w.source, w.discovered_at
+                    "SELECT w.id, w.source_tree_id, w.path, w.revision, w.source_tree_label, w.source, w.discovered_at
                      FROM active_branch_workspaces abw
                      INNER JOIN active_branches b ON b.id = abw.branch_id
                      INNER JOIN source_tree_workspaces w

@@ -110,10 +110,9 @@ export type WorkspaceRecord = {
     id: string;
     slug: string;
     sourceTreeId: string;
-    owner: string;
-    name: string;
+    sourceTreeLabel: string;
     path: string;
-    ref: string;
+    revision: string;
     source: string;
     discoveredAt: string;
 };

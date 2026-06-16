@@ -402,7 +402,7 @@ function WorkspacesScreen({
                 >
                     {workspaces.map((workspace) => (
                         <WorkspaceRow
-                            data-search={`${workspace.owner}/${workspace.name} ${workspace.path} ${workspace.ref}`}
+                            data-search={`${workspace.sourceTreeLabel} ${workspace.path} ${workspace.revision}`}
                             branchesCount={
                                 branches.filter(
                                     (entry) =>
@@ -458,9 +458,7 @@ function WorkspaceRow({
             </span>
             <span className="row-text">
                 <span className="row-title mono">{workspace.path}</span>
-                <span className="row-sub">
-                    {workspace.owner}/{workspace.name}
-                </span>
+                <span className="row-sub">{workspace.sourceTreeLabel}</span>
                 <span
                     aria-busy={summary ? undefined : true}
                     className="kv workspace-summary-line"
@@ -574,7 +572,7 @@ function BranchesScreen({ branches }: { branches: BranchEntry[] }) {
                     {branches.map(({ branch, workspace }) => (
                         <div
                             className="row"
-                            data-search={`${workspace.owner}/${workspace.name} ${workspace.path} ${branch.branch} ${branch.status} ${branch.prState ?? ""}`}
+                            data-search={`${workspace.sourceTreeLabel} ${workspace.path} ${branch.branch} ${branch.status} ${branch.prState ?? ""}`}
                             key={branch.id}
                         >
                             <span className="row-icon">
@@ -591,7 +589,7 @@ function BranchesScreen({ branches }: { branches: BranchEntry[] }) {
                                     <Link
                                         href={`/app/workspaces/${workspace.slug}`}
                                     >
-                                        {workspace.owner}/{workspace.name} ·{" "}
+                                        {workspace.sourceTreeLabel} ·{" "}
                                         {workspace.path}
                                     </Link>
                                 </span>
@@ -675,7 +673,7 @@ function ActivityScreen({
                     {recentFirst.map(({ branch, workspace }) => (
                         <div
                             className="row"
-                            data-search={`${workspace.owner}/${workspace.name} ${workspace.path} ${branch.branch} ${branch.status} ${branch.prUrl ?? ""} ${branch.prState ?? ""}`}
+                            data-search={`${workspace.sourceTreeLabel} ${workspace.path} ${branch.branch} ${branch.status} ${branch.prUrl ?? ""} ${branch.prState ?? ""}`}
                             key={branch.id}
                         >
                             <span className="row-icon">

@@ -213,7 +213,7 @@ export function BranchScreen({
     const catalogIdSuggestions = editableEntities
         .filter((entity) => entity.kind === "catalog")
         .map((entity) => entity.id);
-    const workspaceName = `${workspace.owner}/${workspace.name}`;
+    const workspaceName = workspace.sourceTreeLabel;
     const parentCatalogEntity =
         selectedEntity?.kind === "catalog entry"
             ? (editableEntities.find(

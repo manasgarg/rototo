@@ -224,7 +224,7 @@ export function WorkspaceScreen({
                   diagnosticMatchesNode(diagnostic, selectedNode, nodes),
               )
             : [];
-    const workspaceName = `${workspace.owner}/${workspace.name}`;
+    const workspaceName = workspace.sourceTreeLabel;
     const entityCrumbLabel = selectedNode
         ? parentCatalogNode &&
           selectedNode.id.startsWith(`${parentCatalogNode.id}/`)
@@ -481,7 +481,7 @@ function WorkspaceSection({
                                 className="title-link"
                                 href={`/app/workspaces?sourceTree=${workspace.sourceTreeId}`}
                             >
-                                {workspace.owner}/{workspace.name}
+                                {workspace.sourceTreeLabel}
                             </Link>
                         </span>
                     </div>
@@ -493,7 +493,9 @@ function WorkspaceSection({
                     </div>
                     <div className="meta-item">
                         <span className="label">ref</span>
-                        <span className="meta-value mono">{workspace.ref}</span>
+                        <span className="meta-value mono">
+                            {workspace.revision}
+                        </span>
                     </div>
                 </div>
                 {inventoryError ? (
@@ -573,7 +575,7 @@ function WorkspaceSection({
                         {capabilities.write.kind === "pullRequest"
                             ? "Each branch is a branch created from "
                             : "Each branch edits "}
-                        <span className="mono">{workspace.ref}</span>
+                        <span className="mono">{workspace.revision}</span>
                         {capabilities.write.kind === "pullRequest"
                             ? ". Edits commit to the branch; publishing opens a pull request."
                             : ". Publishing applies the configured direct-push workflow."}

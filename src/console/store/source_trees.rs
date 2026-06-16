@@ -20,7 +20,7 @@ use super::util::{db_err, new_id};
 #[derive(Hash, PartialEq, Eq)]
 struct WorkspaceKey {
     path: String,
-    git_ref: String,
+    revision: String,
 }
 
 /// Existing workspace row paired with its discovery identity.
@@ -36,7 +36,7 @@ impl WorkspaceKey {
     fn from_discovered(workspace: &DiscoveredWorkspaceInput) -> Self {
         Self {
             path: workspace.path.clone(),
-            git_ref: workspace.git_ref.clone(),
+            revision: workspace.revision.clone(),
         }
     }
 }
@@ -54,8 +54,7 @@ impl Store {
             let discovered_keys = upsert_discovered_workspaces(
                 &tx,
                 &source_tree_id,
-                &input.workspace_owner,
-                &input.workspace_name,
+                &input.display_name,
                 &input.workspaces,
                 &now,
             )?;
@@ -204,8 +203,7 @@ fn upsert_source_tree_row(
 fn upsert_discovered_workspaces(
     tx: &Transaction<'_>,
     source_tree_id: &str,
-    owner: &str,
-    name: &str,
+    source_tree_label: &str,
     workspaces: &[DiscoveredWorkspaceInput],
     now: &str,
 ) -> Result<HashSet<WorkspaceKey>> {
@@ -213,7 +211,7 @@ fn upsert_discovered_workspaces(
 
     for workspace in workspaces {
         discovered_keys.insert(WorkspaceKey::from_discovered(workspace));
-        upsert_workspace_row(tx, source_tree_id, owner, name, workspace, now)?;
+        upsert_workspace_row(tx, source_tree_id, source_tree_label, workspace, now)?;
     }
 
     Ok(discovered_keys)
@@ -222,24 +220,22 @@ fn upsert_discovered_workspaces(
 fn upsert_workspace_row(
     tx: &Transaction<'_>,
     source_tree_id: &str,
-    owner: &str,
-    name: &str,
+    source_tree_label: &str,
     workspace: &DiscoveredWorkspaceInput,
     now: &str,
 ) -> Result<()> {
     let updated = tx
         .execute(
             "UPDATE source_tree_workspaces
-             SET owner = ?1, name = ?2, source = ?3, discovered_at = ?4, active = 1
-             WHERE source_tree_id = ?5 AND path = ?6 AND ref_ = ?7",
+             SET source_tree_label = ?1, source = ?2, discovered_at = ?3, active = 1
+             WHERE source_tree_id = ?4 AND path = ?5 AND revision = ?6",
             params![
-                owner,
-                name,
+                source_tree_label,
                 workspace.source.as_str(),
                 now,
                 source_tree_id,
                 workspace.path.as_str(),
-                workspace.git_ref.as_str(),
+                workspace.revision.as_str(),
             ],
         )
         .map_err(db_err)?;
@@ -251,15 +247,14 @@ fn upsert_workspace_row(
     let workspace_id = new_id();
     tx.execute(
         "INSERT INTO source_tree_workspaces (
-           id, source_tree_id, owner, name, path, ref_, source, discovered_at
-         ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+           id, source_tree_id, path, revision, source_tree_label, source, discovered_at
+         ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
         params![
             workspace_id,
             source_tree_id,
-            owner,
-            name,
             workspace.path.as_str(),
-            workspace.git_ref.as_str(),
+            workspace.revision.as_str(),
+            source_tree_label,
             workspace.source.as_str(),
             now,
         ],
@@ -287,7 +282,7 @@ fn workspace_keys_for_source_tree(
     source_tree_id: &str,
 ) -> Result<Vec<WorkspaceRowKey>> {
     let mut statement = tx
-        .prepare("SELECT id, path, ref_ FROM source_tree_workspaces WHERE source_tree_id = ?1")
+        .prepare("SELECT id, path, revision FROM source_tree_workspaces WHERE source_tree_id = ?1")
         .map_err(db_err)?;
     statement
         .query_map(params![source_tree_id], |row| {
@@ -295,7 +290,7 @@ fn workspace_keys_for_source_tree(
                 id: row.get(0)?,
                 key: WorkspaceKey {
                     path: row.get(1)?,
-                    git_ref: row.get(2)?,
+                    revision: row.get(2)?,
                 },
             })
         })
@@ -359,7 +354,7 @@ fn workspace_by_id_for_user(
     principal_id: &str,
 ) -> Result<Option<WorkspaceRecord>> {
     conn.query_row(
-        "SELECT w.id, w.source_tree_id, w.owner, w.name, w.path, w.ref_, w.source, w.discovered_at
+        "SELECT w.id, w.source_tree_id, w.path, w.revision, w.source_tree_label, w.source, w.discovered_at
          FROM source_tree_workspaces w
          INNER JOIN source_trees r ON r.id = w.source_tree_id
          WHERE w.id = ?1 AND r.principal_id = ?2",
@@ -421,12 +416,12 @@ pub(super) fn list_workspaces_for_user_sync(
 ) -> Result<Vec<WorkspaceRecord>> {
     let mut statement = conn
         .prepare(
-            "SELECT w.id, w.source_tree_id, w.owner, w.name, w.path, w.ref_, w.source, w.discovered_at
+            "SELECT w.id, w.source_tree_id, w.path, w.revision, w.source_tree_label, w.source, w.discovered_at
              FROM source_tree_workspaces w
              INNER JOIN source_trees r ON r.id = w.source_tree_id
              WHERE r.principal_id = ?1
                AND w.active = 1
-             ORDER BY w.owner ASC, w.name ASC, w.path ASC",
+             ORDER BY w.source_tree_label ASC, w.path ASC",
         )
         .map_err(db_err)?;
     let workspaces = statement
@@ -443,11 +438,11 @@ fn list_all_workspaces_for_user_sync(
 ) -> Result<Vec<WorkspaceRecord>> {
     let mut statement = conn
         .prepare(
-            "SELECT w.id, w.source_tree_id, w.owner, w.name, w.path, w.ref_, w.source, w.discovered_at
+            "SELECT w.id, w.source_tree_id, w.path, w.revision, w.source_tree_label, w.source, w.discovered_at
              FROM source_tree_workspaces w
              INNER JOIN source_trees r ON r.id = w.source_tree_id
              WHERE r.principal_id = ?1
-             ORDER BY w.owner ASC, w.name ASC, w.path ASC",
+             ORDER BY w.source_tree_label ASC, w.path ASC",
         )
         .map_err(db_err)?;
     let workspaces = statement
@@ -489,7 +484,7 @@ fn active_workspaces_for_source_tree(
 ) -> Result<Vec<WorkspaceRecord>> {
     let mut statement = conn
         .prepare(
-            "SELECT id, source_tree_id, owner, name, path, ref_, source, discovered_at
+            "SELECT id, source_tree_id, path, revision, source_tree_label, source, discovered_at
              FROM source_tree_workspaces
              WHERE source_tree_id = ?1 AND active = 1
              ORDER BY path ASC",
