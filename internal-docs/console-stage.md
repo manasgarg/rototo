@@ -62,8 +62,6 @@ Terminology in this note:
 
 - **Branch work** is the target model: editing against a git branch that can be
   created by the console or selected because it already exists.
-- **Legacy draft rows** are migration-only input from older console stores.
-  The target model does not use drafts as API, store, or stage concepts.
 
 ## Proposed Data Model
 
@@ -115,11 +113,9 @@ These records are still not the source of truth for configuration. They are a
 durable index and session aid for the console. The source tree, branch refs,
 commits, and PRs remain authoritative.
 
-Older stores may contain draft-named tables. Those rows are not design
-constraints. The new store follows the source-tree/active-branch model
-directly. If the console database is deleted, branch work should still be
-recoverable when the user selects the branch again or the provider can list
-relevant branches/PRs.
+The store follows the source-tree/active-branch model directly. If the console
+database is deleted, branch work should still be recoverable when the user
+selects the branch again or the provider can list relevant branches/PRs.
 
 The stage layer should not persist these concepts again. Dropping the console
 process should lose only cached checkouts, worktrees, extracted trees, derived
@@ -532,15 +528,14 @@ Rules:
 - Archive identity is the HTTPS archive URL without the `#:subdir` fragment.
   Lowercase scheme and host, preserve path, query, and other URL components
   that affect the fetched bytes.
-- GitHub archive URLs encountered during migration should be adapted to
-  `SourceTreeOrigin::GitHub` when owner/name are already available from a legacy
-  repo row; the ref becomes the selected `SourceTreeRevision`. Arbitrary archive
-  URLs stay `SourceTreeOrigin::Archive`.
+- GitHub archive URLs should be adapted to `SourceTreeOrigin::GitHub` when
+  owner/name can be read from the URL form; the ref becomes the selected
+  `SourceTreeRevision`. Arbitrary archive URLs stay `SourceTreeOrigin::Archive`.
 
 Examples:
 
 ```text
-GitHub repo record owner="Rototo", name="Config"
+GitHub source tree input owner="Rototo", name="Config"
   -> SourceTreeOrigin::GitHub { owner: "rototo", name: "config" }
 
 git+https://github.com/Rototo/Config.git#main:workspaces/payments
@@ -572,7 +567,7 @@ https://EXAMPLE.com/releases/config.tar.gz#:workspaces/payments
      }
   -> WorkspacePath("workspaces/payments")
 
-GitHub archive URL migrated from legacy repo owner="Rototo", name="Config", ref="main"
+GitHub archive URL for owner="Rototo", name="Config", ref="main"
   -> SourceTreeOrigin::GitHub { owner: "rototo", name: "config" }
   -> SourceTreeRevision::GitRef("main")
 ```
@@ -766,8 +761,9 @@ strings.
 ### Target Store And Stage Mapping
 
 The store should match the source-tree-first model. Do not preserve the old
-workspace-oriented shape as a design constraint. Legacy `repos`, `workspaces`,
-`tracked_*`, and `draft_*` tables are migration inputs only.
+workspace-oriented shape as a design constraint. There is no compatibility
+schema for old databases; a fresh console store starts from source trees and
+active branches.
 
 #### Target Records
 
@@ -1047,10 +1043,10 @@ Open a local folder workspace
      }
 ```
 
-Only ingestion and migration code should understand legacy source strings such
-as GitHub archive URLs or `git+https://...#ref:path`. Once a source is
-registered, API routes should work from normalized `SourceTreeRecord`,
-`WorkspacePath`, and `ActiveBranchRecord` values.
+Only source-string ingestion should understand raw source forms such as GitHub
+archive URLs or `git+https://...#ref:path`. Once a source is registered, API
+routes should work from normalized `SourceTreeRecord`, `WorkspacePath`, and
+`ActiveBranchRecord` values.
 
 The store should not cache discovery products or SDK-derived objects.
 Discovered workspace paths, affected workspace paths, changed file paths,
@@ -1226,8 +1222,7 @@ The important rules are:
   navigation hint;
 - affected workspaces are derived from the branch diff and discovered
   workspace paths;
-- changed files are derived from the branch diff;
-- legacy draft rows are migration inputs only.
+- changed files are derived from the branch diff.
 
 The remote branch and commits are still authoritative. Store rows help the
 console reopen a branch-oriented screen quickly and remember UI navigation.
@@ -1568,9 +1563,9 @@ Resolve the gaps in this order:
 9. Eviction policy.
 10. Error and observability shape.
 
-The first four should be settled before implementing structs. Current
-legacy draft-named rows can be migration inputs, but the rewrite should not preserve
-their workspace-scoped shape as an internal stage constraint.
+The first four should be settled before implementing structs. The rewrite
+should not preserve the old workspace-scoped draft shape as an internal stage
+constraint.
 
 ## Proposed Console Interface
 
@@ -2074,7 +2069,7 @@ Current branch routes use staging as follows:
   selector, then `get_runtime_workspace` on the branch worktree or fall back to
   `get_runtime_workspace` on the base worktree.
 
-Repository registration warms newly discovered workspaces by calling
+Source tree registration warms newly discovered workspaces by calling
 `get_semantic_workspace` in a background task. Warm-up failures are logged but
 do not fail registration.
 
