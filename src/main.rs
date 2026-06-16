@@ -342,7 +342,7 @@ struct ConsoleArgs {
     )]
     public_url: Option<String>,
 
-    /// Directory for console state (sessions, drafts, credentials).
+    /// Directory for console state (sessions, selected branches, credentials).
     #[arg(long = "data-dir", value_name = "DIR", env = "ROTOTO_CONSOLE_DATA_DIR")]
     data_dir: Option<PathBuf>,
 
@@ -350,7 +350,7 @@ struct ConsoleArgs {
     #[arg(long = "workspace", value_name = "WORKSPACE_SOURCE")]
     workspace: Option<String>,
 
-    /// Write behavior for console drafts.
+    /// Write behavior for console branch edits.
     #[arg(long = "write", value_enum, default_value_t = ConsoleWriteArg::PullRequest)]
     write: ConsoleWriteArg,
 }
