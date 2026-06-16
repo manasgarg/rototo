@@ -384,6 +384,15 @@ async fn branch_candidates(
 ) -> ApiResult<Json<JsonValue>> {
     let user = require_user(&state, &headers).await?;
     let workspace = load_workspace(&state, &user, &workspace_id).await?;
+    if !matches!(
+        classify_workspace_source(&workspace.source),
+        super::capabilities::WorkspaceSourceKind::GitHubArchive
+            | super::capabilities::WorkspaceSourceKind::GitHubGit
+    ) {
+        return Err(ApiError::bad_request(
+            "only GitHub source trees support branch discovery",
+        ));
+    }
     let token = require_github_token(&user, "Scanning branches")?;
 
     let known_branches: std::collections::HashSet<String> = state

@@ -17,6 +17,32 @@ fn discovered(path: &str) -> DiscoveredWorkspaceInput {
     }
 }
 
+fn github_source_tree(workspaces: Vec<DiscoveredWorkspaceInput>) -> RegisterSourceTreeInput {
+    RegisterSourceTreeInput {
+        principal_id: "42".to_owned(),
+        kind: SourceTreeKind::GitHub,
+        source: "git+https://github.com/octo/configs.git#main".to_owned(),
+        display_name: "octo/configs".to_owned(),
+        default_revision: "main".to_owned(),
+        workspace_owner: "octo".to_owned(),
+        workspace_name: "configs".to_owned(),
+        workspaces,
+    }
+}
+
+fn local_source_tree(workspaces: Vec<DiscoveredWorkspaceInput>) -> RegisterSourceTreeInput {
+    RegisterSourceTreeInput {
+        principal_id: "42".to_owned(),
+        kind: SourceTreeKind::LocalFolder,
+        source: "/tmp/configs".to_owned(),
+        display_name: "demo/configs".to_owned(),
+        default_revision: "main".to_owned(),
+        workspace_owner: "demo".to_owned(),
+        workspace_name: "configs".to_owned(),
+        workspaces,
+    }
+}
+
 fn user_version(conn: &Connection) -> i32 {
     conn.query_row("PRAGMA user_version", [], |row| row.get(0))
         .unwrap()
@@ -38,11 +64,11 @@ fn schema_initialization_sets_store_schema_version() {
     let conn = Connection::open_in_memory().unwrap();
     schema::initialize_schema(&conn).unwrap();
 
-    assert_eq!(user_version(&conn), 6);
+    assert_eq!(user_version(&conn), 7);
     assert!(
         table_columns(&conn, "source_trees")
             .iter()
-            .any(|column| column == "owner")
+            .any(|column| column == "source")
     );
     assert!(
         table_columns(&conn, "source_tree_workspaces")
@@ -128,15 +154,15 @@ async fn oauth_states_consume_once() {
 async fn source_tree_upsert_lists_workspaces_with_slugs() {
     let store = test_store().await;
     let registered = store
-        .upsert_source_tree_with_workspaces(
-            "42".to_owned(),
-            "octo".to_owned(),
-            "configs".to_owned(),
-            "main".to_owned(),
-            vec![discovered("."), discovered("payments/flags")],
-        )
+        .upsert_source_tree_with_workspaces(github_source_tree(vec![
+            discovered("."),
+            discovered("payments/flags"),
+        ]))
         .await
         .unwrap();
+    assert_eq!(registered.source_tree.kind, SourceTreeKind::GitHub);
+    assert_eq!(registered.source_tree.display_name, "octo/configs");
+    assert!(registered.source_tree.capabilities.can_branch);
     assert_eq!(registered.workspaces.len(), 2);
     assert_eq!(registered.workspaces[0].slug, "configs");
     assert_eq!(registered.workspaces[1].slug, "configs-payments-flags");
@@ -177,16 +203,28 @@ async fn source_tree_upsert_lists_workspaces_with_slugs() {
 }
 
 #[tokio::test]
+async fn read_only_source_tree_kind_disables_branch_capabilities() {
+    let store = test_store().await;
+    let registered = store
+        .upsert_source_tree_with_workspaces(local_source_tree(vec![discovered(".")]))
+        .await
+        .unwrap();
+
+    assert_eq!(registered.source_tree.kind, SourceTreeKind::LocalFolder);
+    assert!(registered.source_tree.capabilities.can_load_workspaces);
+    assert!(!registered.source_tree.capabilities.can_branch);
+    assert!(!registered.source_tree.capabilities.can_edit);
+    assert!(!registered.source_tree.capabilities.can_open_pull_request);
+}
+
+#[tokio::test]
 async fn active_branch_can_include_multiple_workspaces() {
     let store = test_store().await;
     let registered = store
-        .upsert_source_tree_with_workspaces(
-            "42".to_owned(),
-            "octo".to_owned(),
-            "configs".to_owned(),
-            "main".to_owned(),
-            vec![discovered("."), discovered("payments/flags")],
-        )
+        .upsert_source_tree_with_workspaces(github_source_tree(vec![
+            discovered("."),
+            discovered("payments/flags"),
+        ]))
         .await
         .unwrap();
     let root = registered.workspaces[0].clone();
@@ -248,13 +286,7 @@ async fn active_branch_can_include_multiple_workspaces() {
 async fn active_branch_lists_recent_but_not_archived_branches() {
     let store = test_store().await;
     let registered = store
-        .upsert_source_tree_with_workspaces(
-            "42".to_owned(),
-            "octo".to_owned(),
-            "configs".to_owned(),
-            "main".to_owned(),
-            vec![discovered(".")],
-        )
+        .upsert_source_tree_with_workspaces(github_source_tree(vec![discovered(".")]))
         .await
         .unwrap();
     let workspace = registered.workspaces[0].clone();
@@ -322,13 +354,7 @@ async fn active_branch_lists_recent_but_not_archived_branches() {
 async fn active_branch_updates_edit_and_pull_request_metadata() {
     let store = test_store().await;
     let registered = store
-        .upsert_source_tree_with_workspaces(
-            "42".to_owned(),
-            "octo".to_owned(),
-            "configs".to_owned(),
-            "main".to_owned(),
-            vec![discovered(".")],
-        )
+        .upsert_source_tree_with_workspaces(github_source_tree(vec![discovered(".")]))
         .await
         .unwrap();
     let branch = store
@@ -375,13 +401,7 @@ async fn active_branch_updates_edit_and_pull_request_metadata() {
 async fn source_tree_upsert_hides_missing_workspace_but_keeps_active_branches() {
     let store = test_store().await;
     let registered = store
-        .upsert_source_tree_with_workspaces(
-            "42".to_owned(),
-            "octo".to_owned(),
-            "configs".to_owned(),
-            "main".to_owned(),
-            vec![discovered(".")],
-        )
+        .upsert_source_tree_with_workspaces(github_source_tree(vec![discovered(".")]))
         .await
         .unwrap();
     let workspace = registered.workspaces[0].clone();
@@ -398,13 +418,7 @@ async fn source_tree_upsert_hides_missing_workspace_but_keeps_active_branches() 
         .unwrap();
 
     let rediscovered = store
-        .upsert_source_tree_with_workspaces(
-            "42".to_owned(),
-            "octo".to_owned(),
-            "configs".to_owned(),
-            "main".to_owned(),
-            vec![],
-        )
+        .upsert_source_tree_with_workspaces(github_source_tree(vec![]))
         .await
         .unwrap();
 

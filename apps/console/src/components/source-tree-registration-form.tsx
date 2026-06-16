@@ -6,9 +6,6 @@ import { apiFetch } from "@/lib/api";
 /** Transient submit result shown by the source tree registration form. */
 type FormNote = { tone: "ok" | "err"; text: string };
 
-const SOURCE_TREE_SPEC_ERROR =
-    "source tree must be owner/repo or a GitHub repository URL";
-
 export function SourceTreeRegistrationForm() {
     const router = useRouter();
     const [open, setOpen] = useState(false);
@@ -81,8 +78,8 @@ export function SourceTreeRegistrationForm() {
                     <p className="hint">
                         rototo scans the ref for{" "}
                         <span className="mono">rototo-workspace.toml</span>{" "}
-                        files. Leave the branch empty to use the repository
-                        default.
+                        files. For git sources, leave the branch empty to use
+                        the source default.
                     </p>
                 </div>
                 <button
@@ -102,13 +99,13 @@ export function SourceTreeRegistrationForm() {
                         autoFocus
                         className="input mono"
                         onChange={(event) => setSourceTree(event.target.value)}
-                        placeholder="owner/repo"
+                        placeholder="owner/repo, local path, git+ URL, or archive URL"
                         required
                         value={sourceTree}
                     />
                 </label>
                 <label className="field-stack">
-                    <span className="label">branch</span>
+                    <span className="label">branch/ref</span>
                     <input
                         autoComplete="off"
                         className="input mono"
@@ -142,21 +139,5 @@ export function SourceTreeRegistrationForm() {
 }
 
 function normalizeSourceTreeInput(value: string): string {
-    let normalized = value.trim();
-    normalized = normalized.replace(/^git@github\.com:/i, "");
-    normalized = normalized.replace(/^ssh:\/\/git@github\.com\//i, "");
-    normalized = normalized.replace(/^https?:\/\/github\.com\//i, "");
-    normalized = normalized.replace(/^github\.com\//i, "");
-    normalized = normalized.split(/[?#]/, 1)[0]?.replace(/\/+$/, "") ?? "";
-    if (!normalized) {
-        return "";
-    }
-    const [owner, name, ...extra] = normalized.split("/");
-    const sourceTreeName = name?.replace(/\.git$/i, "");
-    const valid = (part: string | undefined) =>
-        !!part && /^[A-Za-z0-9_.-]+$/.test(part);
-    if (extra.length > 0 || !valid(owner) || !valid(sourceTreeName)) {
-        throw new Error(SOURCE_TREE_SPEC_ERROR);
-    }
-    return `${owner}/${sourceTreeName}`;
+    return value.trim();
 }

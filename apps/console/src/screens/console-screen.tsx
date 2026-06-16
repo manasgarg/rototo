@@ -248,7 +248,8 @@ function SourceTreesScreen({
                 <p className="hint">
                     rototo discovers workspaces by scanning a source tree for{" "}
                     <span className="mono">rototo-workspace.toml</span> files.
-                    Register a source tree your GitHub account can read.
+                    Register a GitHub repo, local folder, git remote, or archive
+                    this console can read.
                 </p>
             </div>
             <SourceTreeRegistrationForm />
@@ -272,7 +273,7 @@ function SourceTreesScreen({
                     {sourceTrees.map((sourceTree) => (
                         <article
                             className="card source-tree-card"
-                            data-search={`${sourceTree.owner}/${sourceTree.name} ${sourceTree.defaultRef}`}
+                            data-search={`${sourceTree.displayName} ${sourceTree.source} ${sourceTree.defaultRevision} ${sourceTreeKindLabel(sourceTree.kind)}`}
                             key={sourceTree.id}
                         >
                             <div className="card-head">
@@ -281,21 +282,31 @@ function SourceTreesScreen({
                                         <Link
                                             className="card-stretch"
                                             href={`/app/workspaces?sourceTree=${sourceTree.id}`}
-                                            title={`Workspaces in ${sourceTree.owner}/${sourceTree.name}`}
+                                            title={`Workspaces in ${sourceTree.displayName}`}
                                         >
-                                            {sourceTree.owner}/{sourceTree.name}
+                                            {sourceTree.displayName}
                                         </Link>
                                     </h3>
                                     <span className="kv">
                                         <span>
-                                            ref{" "}
+                                            revision{" "}
                                             <span className="mono">
-                                                {sourceTree.defaultRef}
+                                                {sourceTree.defaultRevision}
                                             </span>
+                                        </span>
+                                        <span>
+                                            {sourceTreeKindLabel(
+                                                sourceTree.kind,
+                                            )}
                                         </span>
                                     </span>
                                 </div>
                                 <span className="card-actions">
+                                    {!sourceTree.capabilities.canBranch ? (
+                                        <span className="pill pill-neutral">
+                                            read-only
+                                        </span>
+                                    ) : null}
                                     <span className="pill pill-sea">
                                         <span className="d" />
                                         {sourceTree.workspaces.length}{" "}
@@ -305,7 +316,7 @@ function SourceTreesScreen({
                                     </span>
                                     <RemoveSourceTreeButton
                                         sourceTreeId={sourceTree.id}
-                                        sourceTreeName={`${sourceTree.owner}/${sourceTree.name}`}
+                                        sourceTreeName={sourceTree.displayName}
                                     />
                                 </span>
                             </div>
@@ -356,8 +367,7 @@ function WorkspacesScreen({
                 <div className="action-row">
                     <span className="pill pill-sea">
                         <span className="d" />
-                        source tree: {filterSourceTree.owner}/
-                        {filterSourceTree.name}
+                        source tree: {filterSourceTree.displayName}
                     </span>
                     <Link
                         className="btn btn-ghost btn-sm"
@@ -374,7 +384,7 @@ function WorkspacesScreen({
                     </span>
                     <p>
                         {filterSourceTree
-                            ? `No workspaces discovered in ${filterSourceTree.owner}/${filterSourceTree.name}. Re-scan it from the source trees screen after adding rototo-workspace.toml.`
+                            ? `No workspaces discovered in ${filterSourceTree.displayName}. Re-scan it from the source trees screen after adding rototo-workspace.toml.`
                             : "Nothing to configure… yet. Register a source tree to discover workspaces."}
                     </p>
                 </div>
@@ -722,6 +732,19 @@ function countLabel(count: number, noun: string): string {
 
 function appScreenHref(screen: AppScreen): string {
     return screen === "source-trees" ? "/app/source-trees" : `/app/${screen}`;
+}
+
+function sourceTreeKindLabel(kind: SourceTreeWithWorkspaces["kind"]): string {
+    switch (kind) {
+        case "gitHub":
+            return "GitHub";
+        case "gitRemote":
+            return "git remote";
+        case "localFolder":
+            return "local folder";
+        case "archive":
+            return "archive";
+    }
 }
 
 function formatDate(value: string): string {

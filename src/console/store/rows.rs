@@ -2,15 +2,21 @@ use super::source_trees::workspace_slug;
 use super::types::{ActiveBranchRecord, ActiveBranchStatus, SourceTreeRecord, WorkspaceRecord};
 
 pub(super) fn source_tree_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<SourceTreeRecord> {
+    let kind = {
+        let value: String = row.get(2)?;
+        super::types::SourceTreeKind::from_str(&value)
+    };
     Ok(SourceTreeRecord {
         id: row.get(0)?,
         principal_id: row.get(1)?,
-        owner: row.get(2)?,
-        name: row.get(3)?,
-        default_ref: row.get(4)?,
-        created_at: row.get(5)?,
-        updated_at: row.get(6)?,
-        last_discovered_at: row.get(7)?,
+        kind,
+        source: row.get(3)?,
+        display_name: row.get(4)?,
+        default_revision: row.get(5)?,
+        capabilities: kind.capabilities(),
+        created_at: row.get(6)?,
+        updated_at: row.get(7)?,
+        last_discovered_at: row.get(8)?,
     })
 }
 

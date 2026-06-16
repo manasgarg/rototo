@@ -4,7 +4,7 @@ use crate::error::{Result, RototoError};
 
 use super::util::db_err;
 
-const CURRENT_SCHEMA_VERSION: i32 = 6;
+const CURRENT_SCHEMA_VERSION: i32 = 7;
 
 pub(super) fn initialize_schema(conn: &Connection) -> Result<()> {
     configure_connection(conn)?;
@@ -49,27 +49,28 @@ fn migrate_schema(conn: &Connection) -> Result<()> {
             "console database schema version {version} is not supported; remove the console data directory and start from a fresh source tree"
         )));
     }
-    create_schema_v6(&tx)?;
+    create_schema_v7(&tx)?;
     set_schema_version(&tx, CURRENT_SCHEMA_VERSION)?;
 
     tx.commit().map_err(db_err)?;
     Ok(())
 }
 
-fn create_schema_v6(conn: &Connection) -> Result<()> {
+fn create_schema_v7(conn: &Connection) -> Result<()> {
     create_auth_tables(conn)?;
     conn.execute_batch(
         r#"
         CREATE TABLE IF NOT EXISTS source_trees (
           id TEXT PRIMARY KEY,
           principal_id TEXT NOT NULL,
-          owner TEXT NOT NULL,
-          name TEXT NOT NULL,
-          default_ref TEXT NOT NULL,
+          kind TEXT NOT NULL,
+          source TEXT NOT NULL,
+          display_name TEXT NOT NULL,
+          default_revision TEXT NOT NULL,
           created_at TEXT NOT NULL,
           updated_at TEXT NOT NULL,
           last_discovered_at TEXT,
-          UNIQUE(principal_id, owner, name)
+          UNIQUE(principal_id, source)
         );
 
         CREATE TABLE IF NOT EXISTS source_tree_workspaces (

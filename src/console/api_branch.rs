@@ -24,9 +24,7 @@ use super::capabilities::{WorkspaceSourceKind, WritePolicy, classify_workspace_s
 use super::github::workspace_repo_path;
 use super::inventory::{
     WorkspaceInventory, inspect_workspace_inventory, language_for_path, read_workspace_definition,
-    workspace_local_path,
 };
-use super::local_git;
 use super::resolve_preview::edit_context_previews;
 use super::stage::{BranchName, GitRefName};
 use super::store::{
@@ -97,7 +95,6 @@ struct BranchContext {
 
 enum BranchBackend<'a> {
     GitHub { token: &'a str, direct: bool },
-    LocalGit,
 }
 
 #[derive(Clone, Debug, Serialize)]
@@ -127,13 +124,10 @@ fn branch_backend<'a>(
                 })
             }
             _ => Err(ApiError::bad_request(
-                "pull-request writes are only implemented for GitHub workspaces",
+                "only GitHub source trees support branch edits",
             )),
         },
         WritePolicy::DirectPush => match kind {
-            WorkspaceSourceKind::LocalPath | WorkspaceSourceKind::FileUrl => {
-                Ok(BranchBackend::LocalGit)
-            }
             WorkspaceSourceKind::GitHubArchive | WorkspaceSourceKind::GitHubGit => {
                 let token = require_github_token(user, action)?;
                 Ok(BranchBackend::GitHub {
@@ -142,7 +136,7 @@ fn branch_backend<'a>(
                 })
             }
             _ => Err(ApiError::bad_request(
-                "direct-push writes are not implemented for this workspace source",
+                "only GitHub source trees support branch edits",
             )),
         },
     }
@@ -298,24 +292,6 @@ async fn branch_selection_target<'a>(
     base_ref: &str,
 ) -> ApiResult<BranchSelectionTarget> {
     match backend {
-        BranchBackend::LocalGit => {
-            let branch = local_git::current_branch(&workspace.source)
-                .await
-                .map_err(|err| ApiError::bad_request(err.to_string()))?;
-            if let Some(requested) = requested_branch.as_deref()
-                && requested != branch
-            {
-                return Err(ApiError::bad_request(format!(
-                    "local workspace is on branch {branch}, not {requested}"
-                )));
-            }
-            let last_seen_commit = local_git::head_sha(&workspace.source).await.ok();
-            Ok(BranchSelectionTarget {
-                branch,
-                base_commit: None,
-                last_seen_commit,
-            })
-        }
         BranchBackend::GitHub {
             token,
             direct: true,
@@ -634,20 +610,6 @@ async fn branch_publish(
                 "directPush": { "backend": "githubApi" },
             })))
         }
-        BranchBackend::LocalGit => {
-            let result = local_git::commit_and_push(
-                &context.workspace,
-                &changed_paths,
-                &branch_pr_title(&context.workspace),
-            )
-            .await
-            .map_err(|err| ApiError::bad_request(err.to_string()))?;
-            let branch = state
-                .store
-                .record_active_branch_edit(&context.branch.id, result.commit.clone())
-                .await?;
-            Ok(Json(json!({ "branch": branch, "directPush": result })))
-        }
     }
 }
 
@@ -843,11 +805,6 @@ async fn branch_file_delete(
                 .await
                 .map_err(|err| ApiError::github(&err, "Deleting the branch file"))?;
         }
-        BranchBackend::LocalGit => {
-            local_git::delete_file(&context.workspace, &file_path)
-                .await
-                .map_err(|err| ApiError::bad_request(err.to_string()))?;
-        }
     }
     record_branch_edit(&state, &context, None).await?;
     invalidate_branch(&state, &context.user, &context.workspace, &context.branch).await;
@@ -909,30 +866,6 @@ async fn branch_entity_create(
             .filter(|entry| entry.entry_type == "blob")
             .map(|entry| entry.path)
             .collect(),
-        BranchBackend::LocalGit => {
-            let mut existing = HashSet::new();
-            for file in &files {
-                if local_git::file_exists(&context.workspace, &file.path)
-                    .await
-                    .map_err(|err| ApiError::bad_request(err.to_string()))?
-                {
-                    existing.insert(file.path.clone());
-                }
-            }
-            if let Some(catalog_id) = catalog_id.as_deref() {
-                let catalog_path = workspace_repo_path(
-                    &context.workspace.path,
-                    &format!("catalogs/{catalog_id}.toml"),
-                );
-                if local_git::file_exists(&context.workspace, &catalog_path)
-                    .await
-                    .map_err(|err| ApiError::bad_request(err.to_string()))?
-                {
-                    existing.insert(catalog_path);
-                }
-            }
-            existing
-        }
     };
     if kind == EntityKind::CatalogEntries {
         let catalog_id = catalog_id.as_deref().expect("validated above");
@@ -974,13 +907,6 @@ async fn branch_entity_create(
                     )
                     .await
                     .map_err(|err| ApiError::github(&err, "Creating the branch entity"))?;
-            }
-        }
-        BranchBackend::LocalGit => {
-            for file in &files {
-                local_git::write_file(&context.workspace, &file.path, &file.content)
-                    .await
-                    .map_err(|err| ApiError::bad_request(err.to_string()))?;
             }
         }
     }
@@ -1373,12 +1299,6 @@ async fn branch_file_text_and_sha(
                 .map_err(|err| ApiError::github(&err, "Reading the branch file"))?;
             Ok((file.content, Some(file.sha)))
         }
-        BranchBackend::LocalGit => Ok((
-            local_git::read_file(&context.workspace, file_path)
-                .await
-                .map_err(|err| ApiError::bad_request(err.to_string()))?,
-            None,
-        )),
     }
 }
 
@@ -1412,11 +1332,6 @@ async fn write_branch_file(
                 .await
                 .map_err(|err| ApiError::github(&err, "Writing the branch file"))?;
         }
-        BranchBackend::LocalGit => {
-            local_git::write_file(&context.workspace, file_path, content)
-                .await
-                .map_err(|err| ApiError::bad_request(err.to_string()))?;
-        }
     }
     Ok(())
 }
@@ -1443,7 +1358,7 @@ async fn record_branch_edit(
                 None => None,
             }
         }
-        None => local_git::head_sha(&context.workspace.source).await.ok(),
+        None => None,
     };
     state
         .store
@@ -1457,36 +1372,19 @@ async fn base_entity_text(
     context: &BranchContext,
     path: &str,
 ) -> Option<String> {
-    if context_is_github_workspace(&context.workspace) {
-        let token = context.user.github_token.as_deref()?;
-        return state
-            .github
-            .file(
-                token,
-                &context.workspace.owner,
-                &context.workspace.name,
-                path,
-                &context.branch.base_ref,
-            )
-            .await
-            .ok()
-            .map(|file| file.content);
-    }
-    let relative = workspace_local_path(&context.workspace, path).ok()?;
-    let output = tokio::process::Command::new("git")
-        .args([
-            "-C",
-            &context.workspace.source,
-            "show",
-            &format!("{}:./{relative}", context.branch.base_ref),
-        ])
-        .output()
+    let token = context.user.github_token.as_deref()?;
+    state
+        .github
+        .file(
+            token,
+            &context.workspace.owner,
+            &context.workspace.name,
+            path,
+            &context.branch.base_ref,
+        )
         .await
-        .ok()?;
-    output
-        .status
-        .success()
-        .then(|| String::from_utf8_lossy(&output.stdout).into_owned())
+        .ok()
+        .map(|file| file.content)
 }
 
 async fn editable_entities(

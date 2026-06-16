@@ -290,16 +290,19 @@ pub(crate) async fn register_fixed_workspace(
     principal_id: &str,
     source: &str,
 ) -> Result<()> {
-    let registration = fixed_workspace::registration(&state.stage, principal_id, source).await?;
+    let registration = fixed_workspace::registration(source).await?;
     state
         .store
-        .upsert_source_tree_with_workspaces(
-            principal_id.to_owned(),
-            registration.owner,
-            registration.name,
-            registration.git_ref,
-            registration.workspaces,
-        )
+        .upsert_source_tree_with_workspaces(store::RegisterSourceTreeInput {
+            principal_id: principal_id.to_owned(),
+            kind: registration.kind,
+            source: registration.source,
+            display_name: registration.display_name,
+            default_revision: registration.default_revision,
+            workspace_owner: registration.workspace_owner,
+            workspace_name: registration.workspace_name,
+            workspaces: registration.workspaces,
+        })
         .await?;
     Ok(())
 }

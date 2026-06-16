@@ -52,7 +52,6 @@ impl WritePolicy {
 #[serde(rename_all = "camelCase")]
 pub enum WriteBackend {
     GitHubApi,
-    LocalGit,
 }
 
 /// Read capability for a workspace under the current credential.
@@ -171,15 +170,10 @@ pub fn workspace_capabilities(
                 }
             }
             _ => WriteCapability::Disabled {
-                reason: "pull-request writes are only implemented for GitHub workspaces".to_owned(),
+                reason: "only GitHub source trees support branch edits".to_owned(),
             },
         },
         WritePolicy::DirectPush => match kind {
-            WorkspaceSourceKind::LocalPath | WorkspaceSourceKind::FileUrl => {
-                WriteCapability::DirectPush {
-                    backend: WriteBackend::LocalGit,
-                }
-            }
             WorkspaceSourceKind::GitHubArchive | WorkspaceSourceKind::GitHubGit => {
                 if has_github_token {
                     WriteCapability::DirectPush {
@@ -192,10 +186,47 @@ pub fn workspace_capabilities(
                 }
             }
             _ => WriteCapability::Disabled {
-                reason: "direct-push writes are not implemented for this workspace source"
-                    .to_owned(),
+                reason: "only GitHub source trees support branch edits".to_owned(),
             },
         },
     };
     WorkspaceCapabilities { read, write }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn github_sources_can_use_pull_request_writes_with_token() {
+        let capabilities = workspace_capabilities(
+            WorkspaceSourceKind::GitHubGit,
+            WritePolicy::PullRequest,
+            true,
+        );
+
+        assert!(matches!(
+            capabilities.write,
+            WriteCapability::PullRequest {
+                backend: WriteBackend::GitHubApi
+            }
+        ));
+    }
+
+    #[test]
+    fn non_github_sources_are_read_only_under_write_policies() {
+        for kind in [
+            WorkspaceSourceKind::LocalPath,
+            WorkspaceSourceKind::FileUrl,
+            WorkspaceSourceKind::GitFile,
+            WorkspaceSourceKind::HttpsArchive,
+            WorkspaceSourceKind::GenericGitRemote,
+        ] {
+            let capabilities = workspace_capabilities(kind, WritePolicy::PullRequest, true);
+            assert!(matches!(
+                capabilities.write,
+                WriteCapability::Disabled { .. }
+            ));
+        }
+    }
 }

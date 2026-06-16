@@ -4,14 +4,12 @@ use std::sync::Arc;
 use tokio::sync::{Mutex, OnceCell};
 
 use super::branch_changes;
-use super::discovery;
 use super::load;
 use super::runtime;
 use super::source_tree;
 use super::{
-    BranchChanges, BranchName, CachedSourceTreeOrigin, CachedWorkspaceLocator,
-    DiscoveredWorkspaces, GitRefName, SemanticWorkspace, SourceTreeOrigin, SourceTreeRevision,
-    WorkspaceLocator, WorkspacePath,
+    BranchChanges, BranchName, CachedSourceTreeOrigin, CachedWorkspaceLocator, GitRefName,
+    SemanticWorkspace, SourceTreeOrigin, SourceTreeRevision, WorkspaceLocator, WorkspacePath,
 };
 use crate::error::Result;
 use crate::sdk::Workspace;
@@ -30,7 +28,6 @@ struct StageCacheInner {
 #[derive(Default)]
 struct SourceTreeOriginSlot {
     source_trees: Mutex<HashMap<SourceTreeRevision, Arc<SourceTreeSlot>>>,
-    discovered_workspaces: Mutex<HashMap<SourceTreeRevision, Arc<DiscoveredWorkspacesSlot>>>,
     workspace_views: Mutex<HashMap<WorkspaceViewKey, Arc<WorkspaceSlot>>>,
     branch_changes: Mutex<HashMap<BranchChangesKey, Arc<BranchChangesSlot>>>,
 }
@@ -38,11 +35,6 @@ struct SourceTreeOriginSlot {
 #[derive(Default)]
 struct SourceTreeSlot {
     staged_tree: OnceCell<Arc<StagedSourceTree>>,
-}
-
-#[derive(Default)]
-struct DiscoveredWorkspacesSlot {
-    discovered: OnceCell<DiscoveredWorkspaces>,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Hash)]
@@ -99,32 +91,6 @@ struct BranchChangesSlot {
 impl StageCache {
     pub fn new() -> Self {
         Self::default()
-    }
-
-    pub async fn discover_workspaces(
-        &self,
-        cached_tree: CachedSourceTreeOrigin,
-        revision: SourceTreeRevision,
-    ) -> Result<DiscoveredWorkspaces> {
-        let cache = self.clone();
-        let tree_slot = self.tree_slot(cached_tree.clone()).await;
-        let discovered_slot = {
-            let mut discovered_workspaces = tree_slot.discovered_workspaces.lock().await;
-            discovered_workspaces
-                .entry(revision.clone())
-                .or_default()
-                .clone()
-        };
-        let discovered = discovered_slot
-            .discovered
-            .get_or_try_init(|| async move {
-                let staged_tree = cache
-                    .get_staged_source_tree(cached_tree.clone(), revision.clone())
-                    .await?;
-                discovery::discover_workspaces(staged_tree.root()).await
-            })
-            .await?;
-        Ok(discovered.clone())
     }
 
     pub(crate) async fn get_staged_source_tree(
@@ -257,11 +223,6 @@ impl StageCache {
                 .lock()
                 .await
                 .retain(|revision, _| !source_tree_revision_is_local_working_tree(revision));
-            tree_slot
-                .discovered_workspaces
-                .lock()
-                .await
-                .retain(|revision, _| !source_tree_revision_is_local_working_tree(revision));
         }
     }
 
@@ -276,15 +237,6 @@ impl StageCache {
                 || invalidate_local_working_tree
                     && source_tree_revision_is_local_working_tree(revision))
         });
-        tree_slot
-            .discovered_workspaces
-            .lock()
-            .await
-            .retain(|revision, _| {
-                !(source_tree_revision_is_branch(revision, branch)
-                    || invalidate_local_working_tree
-                        && source_tree_revision_is_local_working_tree(revision))
-            });
         tree_slot.workspace_views.lock().await.retain(|key, _| {
             !(key.is_branch(branch) || invalidate_local_working_tree && key.is_local_working_tree())
         });
@@ -524,7 +476,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn local_branch_invalidation_drops_working_tree_views_and_discovery() {
+    async fn local_branch_invalidation_drops_working_tree_views_and_staged_tree() {
         let tree = TempDir::new().expect("tree tempdir");
         write_workspace(tree.path()).await;
 
@@ -540,10 +492,6 @@ mod tests {
             .get_inspected_workspace(selector.clone(), "")
             .await
             .unwrap();
-        let discovery_before = cache
-            .discover_workspaces(cached_tree.clone(), SourceTreeRevision::LocalWorkingTree)
-            .await
-            .unwrap();
         let staged_before = cache
             .get_staged_source_tree(cached_tree.clone(), SourceTreeRevision::LocalWorkingTree)
             .await
@@ -553,18 +501,10 @@ mod tests {
             .await
             .unwrap();
         write_workspace(&tree.path().join("workspaces/payments")).await;
-        let cached_discovery = cache
-            .discover_workspaces(cached_tree.clone(), SourceTreeRevision::LocalWorkingTree)
-            .await
-            .unwrap();
 
         cache.invalidate_branch(&cached_tree, "feature/local").await;
         let workspace_after = cache
             .get_inspected_workspace(selector.clone(), "")
-            .await
-            .unwrap();
-        let discovery_after = cache
-            .discover_workspaces(cached_tree.clone(), SourceTreeRevision::LocalWorkingTree)
             .await
             .unwrap();
         let staged_after = cache
@@ -572,12 +512,6 @@ mod tests {
             .await
             .unwrap();
 
-        assert_eq!(workspace_path_strings(&discovery_before.paths), vec!["."]);
-        assert_eq!(workspace_path_strings(&cached_discovery.paths), vec!["."]);
-        assert_eq!(
-            workspace_path_strings(&discovery_after.paths),
-            vec![".", "workspaces/payments"]
-        );
         assert!(!Arc::ptr_eq(&workspace_before, &workspace_after));
         assert!(Arc::ptr_eq(&staged_before, &staged_cached));
         assert!(!Arc::ptr_eq(&staged_before, &staged_after));
@@ -685,10 +619,6 @@ default = "enabled"
 
     fn repo_path_strings(paths: &[RepoRelativePath]) -> Vec<&str> {
         paths.iter().map(RepoRelativePath::as_str).collect()
-    }
-
-    fn workspace_path_strings(paths: &[WorkspacePath]) -> Vec<&str> {
-        paths.iter().map(WorkspacePath::as_str).collect()
     }
 
     fn init_repo(path: &Path) {

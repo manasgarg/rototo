@@ -32,6 +32,11 @@ fn source_for_revision(tree: &SourceTreeOrigin, revision: &SourceTreeRevision) -
             };
             Ok(format!("{remote_url}#{git_ref}"))
         }
+        SourceTreeOrigin::Archive { url }
+            if matches!(revision, SourceTreeRevision::ArchiveSnapshot) =>
+        {
+            Ok(url.clone())
+        }
         _ => Err(invalid_selection_error()),
     }
 }
@@ -41,7 +46,7 @@ fn git_ref_for_revision(revision: &SourceTreeRevision) -> Option<&str> {
         SourceTreeRevision::GitRef(ref_) => Some(ref_.as_ref()),
         SourceTreeRevision::GitBranch(branch) => Some(branch.as_ref()),
         SourceTreeRevision::GitCommit(commit) => Some(commit.as_ref()),
-        SourceTreeRevision::LocalWorkingTree => None,
+        SourceTreeRevision::LocalWorkingTree | SourceTreeRevision::ArchiveSnapshot => None,
     }
 }
 
@@ -97,5 +102,18 @@ mod tests {
         .unwrap_err();
 
         assert!(err.to_string().contains("revision is not valid"));
+    }
+
+    #[test]
+    fn archive_snapshot_uses_archive_root_source() {
+        let source = source_for_revision(
+            &SourceTreeOrigin::Archive {
+                url: "https://example.com/config.tar.gz".to_owned(),
+            },
+            &SourceTreeRevision::ArchiveSnapshot,
+        )
+        .unwrap();
+
+        assert_eq!(source, "https://example.com/config.tar.gz");
     }
 }

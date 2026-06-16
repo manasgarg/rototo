@@ -27,12 +27,65 @@ pub struct SessionUser {
 pub struct SourceTreeRecord {
     pub id: String,
     pub principal_id: String,
-    pub owner: String,
-    pub name: String,
-    pub default_ref: String,
+    pub kind: SourceTreeKind,
+    pub source: String,
+    pub display_name: String,
+    pub default_revision: String,
+    pub capabilities: SourceTreeCapabilities,
     pub created_at: String,
     pub updated_at: String,
     pub last_discovered_at: Option<String>,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub enum SourceTreeKind {
+    GitHub,
+    GitRemote,
+    LocalFolder,
+    Archive,
+}
+
+impl SourceTreeKind {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::GitHub => "github",
+            Self::GitRemote => "git_remote",
+            Self::LocalFolder => "local_folder",
+            Self::Archive => "archive",
+        }
+    }
+
+    pub fn from_str(value: &str) -> Self {
+        match value {
+            "github" => Self::GitHub,
+            "git_remote" => Self::GitRemote,
+            "archive" => Self::Archive,
+            _ => Self::LocalFolder,
+        }
+    }
+
+    pub fn capabilities(self) -> SourceTreeCapabilities {
+        SourceTreeCapabilities {
+            can_refresh: true,
+            can_discover_workspaces: true,
+            can_load_workspaces: true,
+            can_branch: matches!(self, Self::GitHub),
+            can_edit: matches!(self, Self::GitHub),
+            can_open_pull_request: matches!(self, Self::GitHub),
+        }
+    }
+}
+
+#[derive(Clone, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SourceTreeCapabilities {
+    pub can_refresh: bool,
+    pub can_discover_workspaces: bool,
+    pub can_load_workspaces: bool,
+    pub can_branch: bool,
+    pub can_edit: bool,
+    pub can_open_pull_request: bool,
 }
 
 /// Discovered rototo workspace inside a source tree.
@@ -154,6 +207,18 @@ pub struct BranchPullRequestInput {
     pub pr_state: String,
     pub pr_url: String,
     pub pr_merged_at: Option<String>,
+}
+
+/// Durable source tree row plus discovered workspaces from one registration run.
+pub struct RegisterSourceTreeInput {
+    pub principal_id: String,
+    pub kind: SourceTreeKind,
+    pub source: String,
+    pub display_name: String,
+    pub default_revision: String,
+    pub workspace_owner: String,
+    pub workspace_name: String,
+    pub workspaces: Vec<DiscoveredWorkspaceInput>,
 }
 
 /// Workspace discovered inside a registered source tree.

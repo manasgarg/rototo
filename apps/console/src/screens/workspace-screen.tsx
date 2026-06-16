@@ -152,10 +152,6 @@ export function WorkspaceScreen({
     } = data.data;
     const lint = data.data.lint as LintLoad;
     const writeDisabled = capabilities.write.kind === "disabled";
-    const writeDisabledReason =
-        capabilities.write.kind === "disabled"
-            ? capabilities.write.reason
-            : undefined;
 
     // Canonical URLs use the friendly slug; id URLs redirect to it.
     if (workspaceId !== workspace.slug) {
@@ -189,6 +185,11 @@ export function WorkspaceScreen({
     const selectedSection = selectedNode
         ? selectedNode.section
         : (section ?? "overview");
+    if (selectedSection === "branches" && writeDisabled) {
+        return (
+            <Navigate replace to={sectionHref(workspace.slug, "overview")} />
+        );
+    }
     const definition: WorkspaceDefinition | null =
         entity.data?.definition ?? null;
     const definitionError: string | null =
@@ -289,11 +290,9 @@ export function WorkspaceScreen({
                                 />
                             )}
                         </Link>
-                        <StartBranchButton
-                            disabled={writeDisabled}
-                            disabledReason={writeDisabledReason}
-                            workspaceId={workspace.slug}
-                        />
+                        {!writeDisabled ? (
+                            <StartBranchButton workspaceId={workspace.slug} />
+                        ) : null}
                     </>
                 }
                 crumbs={crumbs}
@@ -370,15 +369,18 @@ export function WorkspaceScreen({
                             icon={<ListChecks aria-hidden size={16} />}
                             label="Diagnostics"
                         />
-                        <NavLink
-                            active={
-                                !selectedNode && selectedSection === "branches"
-                            }
-                            count={branches.length}
-                            href={sectionHref(workspace.slug, "branches")}
-                            icon={<GitBranch aria-hidden size={16} />}
-                            label="Branches"
-                        />
+                        {!writeDisabled ? (
+                            <NavLink
+                                active={
+                                    !selectedNode &&
+                                    selectedSection === "branches"
+                                }
+                                count={branches.length}
+                                href={sectionHref(workspace.slug, "branches")}
+                                icon={<GitBranch aria-hidden size={16} />}
+                                label="Branches"
+                            />
+                        ) : null}
                     </>
                 }
                 title={

@@ -229,6 +229,7 @@ pub enum SourceTreeRevision {
     GitBranch(BranchName),
     GitCommit(GitCommit),
     LocalWorkingTree,
+    ArchiveSnapshot,
 }
 
 impl SourceTreeRevision {

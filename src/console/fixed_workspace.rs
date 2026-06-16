@@ -1,50 +1,37 @@
 use std::path::Path;
 
 use crate::error::{Result, RototoError};
+use crate::source::{SourceOptions, stage_source_tree};
 
 use super::capabilities;
 use super::local_git;
-use super::stage::StageCache;
-use super::store::DiscoveredWorkspaceInput;
-use super::workspace_source::{WorkspaceLocatorInput, cached_workspace_locator_for_base};
+use super::stage::discover_workspaces_in_tree;
+use super::store::{DiscoveredWorkspaceInput, SourceTreeKind};
 
 pub(crate) struct FixedWorkspaceRegistration {
-    pub(crate) owner: String,
-    pub(crate) name: String,
-    pub(crate) git_ref: String,
+    pub(crate) kind: SourceTreeKind,
+    pub(crate) source: String,
+    pub(crate) display_name: String,
+    pub(crate) default_revision: String,
+    pub(crate) workspace_owner: String,
+    pub(crate) workspace_name: String,
     pub(crate) workspaces: Vec<DiscoveredWorkspaceInput>,
 }
 
-pub(crate) async fn registration(
-    stage: &StageCache,
-    principal_id: &str,
-    source: &str,
-) -> Result<FixedWorkspaceRegistration> {
-    let (owner, name, mut git_ref, path) = synthetic_registration(source);
+pub(crate) async fn registration(source: &str) -> Result<FixedWorkspaceRegistration> {
+    let (workspace_owner, workspace_name, mut default_revision, _path) =
+        synthetic_registration(source);
+    let source_kind = capabilities::classify_workspace_source(source);
     if matches!(
-        capabilities::classify_workspace_source(source),
+        source_kind,
         capabilities::WorkspaceSourceKind::LocalPath | capabilities::WorkspaceSourceKind::FileUrl
     ) && let Ok(branch) = local_git::current_branch(source).await
     {
-        git_ref = branch;
+        default_revision = branch;
     }
 
-    let workspace_source = cached_workspace_locator_for_base(WorkspaceLocatorInput {
-        principal_id,
-        token: "",
-        owner: &owner,
-        name: &name,
-        path: &path,
-        git_ref: &git_ref,
-        source,
-    })
-    .await?;
-
-    let workspace_paths = stage
-        .discover_workspaces(
-            workspace_source.cached_source_tree_origin()?,
-            workspace_source.workspace.source_tree.revision,
-        )
+    let staged = stage_source_tree(source, &SourceOptions::default()).await?;
+    let workspace_paths = discover_workspaces_in_tree(staged.root())
         .await?
         .paths
         .into_iter()
@@ -60,18 +47,41 @@ pub(crate) async fn registration(
     let workspaces = workspace_paths
         .into_iter()
         .map(|path| DiscoveredWorkspaceInput {
-            source: source_for_path(source, &git_ref, &path),
+            source: source_for_path(source, &default_revision, &path),
             path,
-            git_ref: git_ref.clone(),
+            git_ref: default_revision.clone(),
         })
         .collect();
 
     Ok(FixedWorkspaceRegistration {
-        owner,
-        name,
-        git_ref,
+        kind: source_tree_kind(source_kind),
+        source: source.to_owned(),
+        display_name: display_name(&workspace_owner, &workspace_name),
+        default_revision,
+        workspace_owner,
+        workspace_name,
         workspaces,
     })
+}
+
+fn source_tree_kind(kind: capabilities::WorkspaceSourceKind) -> SourceTreeKind {
+    match kind {
+        capabilities::WorkspaceSourceKind::GitHubArchive
+        | capabilities::WorkspaceSourceKind::GitHubGit => SourceTreeKind::GitHub,
+        capabilities::WorkspaceSourceKind::GitFile
+        | capabilities::WorkspaceSourceKind::GenericGitRemote => SourceTreeKind::GitRemote,
+        capabilities::WorkspaceSourceKind::HttpsArchive => SourceTreeKind::Archive,
+        capabilities::WorkspaceSourceKind::LocalPath
+        | capabilities::WorkspaceSourceKind::FileUrl => SourceTreeKind::LocalFolder,
+    }
+}
+
+fn display_name(owner: &str, name: &str) -> String {
+    if owner.is_empty() {
+        name.to_owned()
+    } else {
+        format!("{owner}/{name}")
+    }
 }
 
 /// Best-effort owner/name/ref/path display fields for an arbitrary workspace
@@ -168,15 +178,11 @@ fn source_for_path(source: &str, git_ref: &str, workspace_path: &str) -> String 
         if scheme.eq_ignore_ascii_case("https")
             && source.starts_with("https://api.github.com/repos/")
         {
-            let base = source
-                .split_once('#')
-                .map(|(base, _)| base)
-                .unwrap_or(source);
-            return if path == "." {
-                base.to_owned()
-            } else {
-                format!("{base}#:{path}")
-            };
+            return archive_source_for_path(source, path);
+        }
+
+        if scheme.eq_ignore_ascii_case("https") {
+            return archive_source_for_path(source, path);
         }
     }
 
@@ -185,6 +191,24 @@ fn source_for_path(source: &str, git_ref: &str, workspace_path: &str) -> String 
     } else {
         Path::new(source).join(path).display().to_string()
     }
+}
+
+fn archive_source_for_path(source: &str, workspace_path: &str) -> String {
+    if workspace_path == "." {
+        return source.to_owned();
+    }
+    let (base, existing_path) = match source.split_once('#') {
+        Some((base, fragment)) => (
+            base,
+            fragment.strip_prefix(':').filter(|path| !path.is_empty()),
+        ),
+        None => (source, None),
+    };
+    let path = match existing_path {
+        Some(prefix) => format!("{}/{}", prefix.trim_matches('/'), workspace_path),
+        None => workspace_path.to_owned(),
+    };
+    format!("{base}#:{path}")
 }
 
 #[cfg(test)]
@@ -259,6 +283,18 @@ mod tests {
                 std::path::MAIN_SEPARATOR
             )
         );
+        assert_eq!(
+            source_for_path(
+                "https://example.com/config.tar.gz#:base",
+                "main",
+                "apps/payments"
+            ),
+            "https://example.com/config.tar.gz#:base/apps/payments"
+        );
+        assert_eq!(
+            source_for_path("https://example.com/config.tar.gz#:base", "main", "."),
+            "https://example.com/config.tar.gz#:base"
+        );
     }
 
     #[tokio::test]
@@ -267,14 +303,19 @@ mod tests {
         write_manifest(temp.path());
         write_manifest(&temp.path().join("apps/payments"));
 
-        let registration = registration(&StageCache::new(), "local:user", path_str(temp.path()))
+        let registration = registration(path_str(temp.path()))
             .await
             .expect("fixed workspace registration");
 
-        assert_eq!(registration.owner, "demo");
+        assert_eq!(registration.kind, SourceTreeKind::LocalFolder);
+        assert_eq!(registration.workspace_owner, "demo");
         assert_eq!(
-            registration.name,
+            registration.workspace_name,
             temp.path().file_name().unwrap().to_string_lossy()
+        );
+        assert_eq!(
+            registration.display_name,
+            format!("demo/{}", registration.workspace_name)
         );
         assert_workspace_paths(&registration.workspaces, &[".", "apps/payments"]);
         assert_eq!(
@@ -293,12 +334,13 @@ mod tests {
         git(temp.path(), &["commit", "-m", "add workspaces"]);
 
         let source = format!("git+file://{}#main", path_str(temp.path()));
-        let registration = registration(&StageCache::new(), "local:user", &source)
+        let registration = registration(&source)
             .await
             .expect("fixed workspace registration");
 
-        assert_eq!(registration.owner, "demo");
-        assert_eq!(registration.git_ref, "main");
+        assert_eq!(registration.kind, SourceTreeKind::GitRemote);
+        assert_eq!(registration.workspace_owner, "demo");
+        assert_eq!(registration.default_revision, "main");
         assert_workspace_paths(&registration.workspaces, &[".", "apps/payments"]);
         assert_eq!(
             registration.workspaces[1].source,
@@ -310,8 +352,7 @@ mod tests {
     async fn registration_rejects_source_tree_without_workspaces() {
         let temp = TempDir::new().expect("temp dir");
 
-        let err = match registration(&StageCache::new(), "local:user", path_str(temp.path())).await
-        {
+        let err = match registration(path_str(temp.path())).await {
             Ok(_) => panic!("source tree should need a workspace manifest"),
             Err(err) => err,
         };

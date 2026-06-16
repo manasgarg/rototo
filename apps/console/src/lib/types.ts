@@ -65,8 +65,8 @@ export type WorkspaceCapability =
 /** Write capability calculated by the server from policy, source, and token. */
 export type WorkspaceWriteCapability =
     | { kind: "disabled"; reason: string }
-    | { kind: "pullRequest"; backend: "gitHubApi" | "localGit" }
-    | { kind: "directPush"; backend: "gitHubApi" | "localGit" };
+    | { kind: "pullRequest"; backend: "gitHubApi" }
+    | { kind: "directPush"; backend: "gitHubApi" };
 
 /** Combined read/write capability summary for one workspace response. */
 export type WorkspaceCapabilities = {
@@ -75,12 +75,26 @@ export type WorkspaceCapabilities = {
 };
 
 /** Registered source tree row persisted by the console store. */
+export type SourceTreeKind = "gitHub" | "gitRemote" | "localFolder" | "archive";
+
+/** Capability flags calculated from the registered source tree kind. */
+export type SourceTreeCapabilities = {
+    canRefresh: boolean;
+    canDiscoverWorkspaces: boolean;
+    canLoadWorkspaces: boolean;
+    canBranch: boolean;
+    canEdit: boolean;
+    canOpenPullRequest: boolean;
+};
+
 export type SourceTreeRecord = {
     id: string;
     principalId: string;
-    owner: string;
-    name: string;
-    defaultRef: string;
+    kind: SourceTreeKind;
+    source: string;
+    displayName: string;
+    defaultRevision: string;
+    capabilities: SourceTreeCapabilities;
     createdAt: string;
     updatedAt: string;
     lastDiscoveredAt: string | null;

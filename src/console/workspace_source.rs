@@ -33,11 +33,7 @@ pub(crate) async fn cached_workspace_locator_for_base(
             SourceTreeRevision::git_ref_or_commit(selected_git_ref(input, &parsed))?
         }
         LegacyWorkspaceSourceKind::LocalFolder => SourceTreeRevision::LocalWorkingTree,
-        LegacyWorkspaceSourceKind::Archive => {
-            return Err(RototoError::new(
-                "archive workspace sources require a resolved archive snapshot",
-            ));
-        }
+        LegacyWorkspaceSourceKind::Archive => SourceTreeRevision::ArchiveSnapshot,
     };
     cached_workspace_from_parts(input, parsed.tree, revision)
 }
@@ -522,7 +518,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn workspace_locator_adapter_rejects_unresolved_arbitrary_archive() {
+    async fn workspace_locator_adapter_maps_arbitrary_archive_to_snapshot() {
         let input = WorkspaceLocatorInput {
             principal_id: "user_123",
             token: "",
@@ -533,7 +529,18 @@ mod tests {
             source: "https://example.com/releases/config.tar.gz#:workspaces/payments",
         };
 
-        assert!(cached_workspace_locator_for_base(input).await.is_err());
+        let source = cached_workspace_locator_for_base(input).await.unwrap();
+
+        assert_eq!(
+            source.workspace.source_tree.origin,
+            SourceTreeOrigin::Archive {
+                url: "https://example.com/releases/config.tar.gz".to_owned()
+            }
+        );
+        assert_eq!(
+            source.workspace.source_tree.revision,
+            SourceTreeRevision::ArchiveSnapshot
+        );
         assert!(
             cached_workspace_locator_for_branch(input, "rototo-console/alice/change")
                 .await

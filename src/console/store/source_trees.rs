@@ -7,7 +7,9 @@ use crate::error::{Result, RototoError};
 
 use super::Store;
 use super::rows::{source_tree_from_row, workspace_from_row};
-use super::types::{DiscoveredWorkspaceInput, SourceTreeWithWorkspaces, WorkspaceRecord};
+use super::types::{
+    DiscoveredWorkspaceInput, RegisterSourceTreeInput, SourceTreeWithWorkspaces, WorkspaceRecord,
+};
 use super::util::{db_err, new_id};
 
 /// Stable identity for a discovered workspace within one source tree.
@@ -42,31 +44,26 @@ impl WorkspaceKey {
 impl Store {
     pub async fn upsert_source_tree_with_workspaces(
         &self,
-        principal_id: String,
-        owner: String,
-        name: String,
-        default_ref: String,
-        workspaces: Vec<DiscoveredWorkspaceInput>,
+        input: RegisterSourceTreeInput,
     ) -> Result<SourceTreeWithWorkspaces> {
         self.with_conn(move |conn, _| {
             let now = now_iso();
             let tx = conn.unchecked_transaction().map_err(db_err)?;
 
-            let source_tree_id =
-                upsert_source_tree_row(&tx, &principal_id, &owner, &name, &default_ref, &now)?;
+            let source_tree_id = upsert_source_tree_row(&tx, &input, &now)?;
             let discovered_keys = upsert_discovered_workspaces(
                 &tx,
                 &source_tree_id,
-                &owner,
-                &name,
-                &workspaces,
+                &input.workspace_owner,
+                &input.workspace_name,
+                &input.workspaces,
                 &now,
             )?;
             cleanup_missing_workspaces(&tx, &source_tree_id, &discovered_keys)?;
 
             tx.commit().map_err(db_err)?;
 
-            source_tree_with_workspaces_by_id(conn, &source_tree_id, &principal_id)?
+            source_tree_with_workspaces_by_id(conn, &source_tree_id, &input.principal_id)?
                 .ok_or_else(|| RototoError::new("source tree registration failed"))
         })
         .await
@@ -135,16 +132,13 @@ impl Store {
 
 fn upsert_source_tree_row(
     tx: &Transaction<'_>,
-    principal_id: &str,
-    owner: &str,
-    name: &str,
-    default_ref: &str,
+    input: &RegisterSourceTreeInput,
     now: &str,
 ) -> Result<String> {
     let existing: Option<String> = tx
         .query_row(
-            "SELECT id FROM source_trees WHERE principal_id = ?1 AND owner = ?2 AND name = ?3",
-            params![principal_id, owner, name],
+            "SELECT id FROM source_trees WHERE principal_id = ?1 AND source = ?2",
+            params![input.principal_id, input.source],
             |row| row.get(0),
         )
         .optional()
@@ -152,9 +146,21 @@ fn upsert_source_tree_row(
 
     if let Some(source_tree_id) = existing {
         tx.execute(
-            "UPDATE source_trees SET default_ref = ?1, updated_at = ?2, last_discovered_at = ?3
-             WHERE id = ?4",
-            params![default_ref, now, now, source_tree_id.as_str()],
+            "UPDATE source_trees
+             SET kind = ?1,
+                 display_name = ?2,
+                 default_revision = ?3,
+                 updated_at = ?4,
+                 last_discovered_at = ?5
+             WHERE id = ?6",
+            params![
+                input.kind.as_str(),
+                input.display_name,
+                input.default_revision,
+                now,
+                now,
+                source_tree_id.as_str()
+            ],
         )
         .map_err(db_err)?;
         return Ok(source_tree_id);
@@ -163,15 +169,16 @@ fn upsert_source_tree_row(
     let source_tree_id = new_id();
     tx.execute(
         "INSERT INTO source_trees (
-           id, principal_id, owner, name, default_ref,
+           id, principal_id, kind, source, display_name, default_revision,
            created_at, updated_at, last_discovered_at
-         ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+         ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
         params![
             source_tree_id,
-            principal_id,
-            owner,
-            name,
-            default_ref,
+            input.principal_id,
+            input.kind.as_str(),
+            input.source,
+            input.display_name,
+            input.default_revision,
             now,
             now,
             now
@@ -323,7 +330,7 @@ fn list_source_tree_ids_for_user(conn: &Connection, principal_id: &str) -> Resul
     let mut statement = conn
         .prepare(
             "SELECT id FROM source_trees WHERE principal_id = ?1
-             ORDER BY updated_at DESC, owner ASC, name ASC",
+             ORDER BY updated_at DESC, display_name ASC, source ASC",
         )
         .map_err(db_err)?;
     statement
@@ -445,7 +452,7 @@ fn source_tree_with_workspaces_by_id(
 ) -> Result<Option<SourceTreeWithWorkspaces>> {
     let source_tree = conn
         .query_row(
-            "SELECT id, principal_id, owner, name, default_ref,
+            "SELECT id, principal_id, kind, source, display_name, default_revision,
                     created_at, updated_at, last_discovered_at
              FROM source_trees WHERE id = ?1 AND principal_id = ?2",
             params![source_tree_id, principal_id],

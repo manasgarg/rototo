@@ -59,6 +59,17 @@ fn source_for_selector(selector: &CachedWorkspaceLocator) -> Result<String> {
                 selector.workspace.path.as_str(),
             ))
         }
+        SourceTreeOrigin::Archive { url }
+            if matches!(
+                selector.workspace.source_tree.revision,
+                SourceTreeRevision::ArchiveSnapshot
+            ) =>
+        {
+            Ok(archive_workspace_source(
+                url,
+                selector.workspace.path.as_str(),
+            ))
+        }
         _ => Err(invalid_selection_error()),
     }
 }
@@ -79,12 +90,20 @@ fn git_workspace_source(remote_url: &str, git_ref: &str, workspace_path: &str) -
     }
 }
 
+fn archive_workspace_source(url: &str, workspace_path: &str) -> String {
+    if workspace_path == "." {
+        url.to_owned()
+    } else {
+        format!("{url}#:{workspace_path}")
+    }
+}
+
 fn git_ref_for_revision(revision: &SourceTreeRevision) -> Option<&str> {
     match revision {
         SourceTreeRevision::GitRef(ref_) => Some(ref_.as_ref()),
         SourceTreeRevision::GitBranch(branch) => Some(branch.as_ref()),
         SourceTreeRevision::GitCommit(commit) => Some(commit.as_ref()),
-        SourceTreeRevision::LocalWorkingTree => None,
+        SourceTreeRevision::LocalWorkingTree | SourceTreeRevision::ArchiveSnapshot => None,
     }
 }
 
@@ -201,6 +220,22 @@ extends = ["../base"]
         assert_eq!(
             source_for_selector(&selector).unwrap(),
             "git+file:///tmp/configs#main:apps/payments"
+        );
+    }
+
+    #[test]
+    fn archive_locator_strings_keep_snapshot_and_workspace_path_separate() {
+        let selector = cached_workspace_source(
+            SourceTreeOrigin::Archive {
+                url: "https://example.com/config.tar.gz".to_owned(),
+            },
+            SourceTreeRevision::ArchiveSnapshot,
+            "apps/payments",
+        );
+
+        assert_eq!(
+            source_for_selector(&selector).unwrap(),
+            "https://example.com/config.tar.gz#:apps/payments"
         );
     }
 
