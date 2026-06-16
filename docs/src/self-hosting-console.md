@@ -3,14 +3,14 @@
 Reviewed configuration only helps if the people changing values actually go
 through review. The console exists so that an on-call engineer flipping an
 operational switch, or a product engineer adjusting a rollout, lands on a
-draft branch and a pull request — without hand-editing TOML. This page covers
+review branch and a pull request — without hand-editing TOML. This page covers
 running that console yourself, because the console is not a hosted service:
 it runs next to your repositories, with your credentials, and rototo.dev
 never sees them.
 
 The console ships inside the `rototo` binary. There is no separate server to
 install, no Node runtime, and no database to operate — console state (which
-repositories you registered, draft sessions, activity) lives in a small
+source trees you registered, selected branches, activity) lives in a small
 SQLite file under its data directory, and everything that matters lives in
 Git.
 
@@ -27,7 +27,7 @@ database, and no requirement that every workspace live on GitHub. Local folder
 workspaces can be read from disk with the identity already present in the git
 checkout (`user.name` and `user.email`). That keeps the laptop workflow close
 to normal git: if you are working in a local clone, rototo does not make you
-authenticate to GitHub just to inspect or edit files.
+authenticate to GitHub just to inspect files.
 
 A GitHub token still matters when the workspace source or write path needs
 GitHub. Private GitHub repositories need credentials to read, pull-request
@@ -43,8 +43,7 @@ console looks for that token in order:
 If none of those produce a token, the console starts anyway. Local folder
 workspaces still work; GitHub operations remain unavailable until a token is
 present. Edits made through GitHub are attributed to your GitHub account,
-because they are made with your token. Local direct-push edits are committed
-with the git identity configured for that checkout.
+because they are made with your token.
 
 Console state defaults to the platform data directory (for example
 `~/.local/share/rototo/console`); point `ROTOTO_CONSOLE_DATA_DIR` or
@@ -57,7 +56,7 @@ established. Instead of deriving them from a laptop environment, each user
 signs in with GitHub OAuth and the console keeps their token encrypted at rest,
 scoped to their session. Authorization stays where it already lives: GitHub
 repository permissions. A user who cannot push to the repository cannot edit
-drafts through the console, and every pull request is attributed to the person
+branches through the console, and every pull request is attributed to the person
 who made it, not to a shared bot.
 
 Hosted deployment turns on when both OAuth credentials are configured:
@@ -93,7 +92,7 @@ the console is allowed to do with that source:
 
 ```sh
 rototo console --workspace examples/basic --write disabled
-rototo console --workspace examples/basic --write direct-push
+rototo console --workspace git+https://github.com/acme/config.git#main --write direct-push
 rototo console \
   --workspace https://api.github.com/repos/acme/config/tarball/main \
   --write pull-request
@@ -103,16 +102,15 @@ Workspace sources here are the same sources every rototo command accepts —
 local paths, `git+https://`, or archive URLs, with `#ref:subdir` selection.
 
 - `--write disabled` turns the console into an inspection surface. It can load
-  and lint the workspace, but draft creation and publishing are rejected.
-- `--write pull-request` creates draft branches and pull requests for GitHub
+  and lint the workspace, but branch edits and publishing are rejected.
+- `--write pull-request` creates review branches and pull requests for GitHub
   workspaces.
-- `--write direct-push` commits directly to a local checkout or to the
-  configured GitHub ref, depending on where the workspace lives.
+- `--write direct-push` commits directly to the configured GitHub ref.
 
 ## The boundary worth knowing
 
 Reading workspaces works from any source rototo supports. Editing is narrower:
-the console can write GitHub workspaces through the GitHub API, and it can
-write local folder workspaces through local git when direct-push is enabled.
-Other hosted forges are a deliberate, separate piece of work rather than
-something half-supported behind a generic mode flag.
+the console can write GitHub workspaces through the GitHub API. Local folders,
+generic git remotes, and archive sources are read-only in the console. Other
+write backends are a deliberate, separate piece of work rather than something
+half-supported behind a generic mode flag.

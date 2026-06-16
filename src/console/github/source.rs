@@ -2,6 +2,17 @@ use crate::error::{Result, RototoError};
 
 const REPO_SPEC_ERROR: &str = "repo must be owner/name or a GitHub repository URL";
 
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct GitHubRepoIdentity {
+    pub owner: String,
+    pub name: String,
+}
+
+pub fn repo_identity_from_source(source: &str) -> Result<GitHubRepoIdentity> {
+    let (owner, name) = parse_repo_spec(source)?;
+    Ok(GitHubRepoIdentity { owner, name })
+}
+
 pub fn parse_repo_spec(value: &str) -> Result<(String, String)> {
     let trimmed = value.trim();
     let trimmed = strip_prefix_ignore_ascii_case(trimmed, "git+").unwrap_or(trimmed);
@@ -187,6 +198,17 @@ mod tests {
         assert!(parse_repo_spec("git+https://example.com/octo/configs.git").is_err());
         assert!(parse_repo_spec("https://github.com/octo/configs/tree/main").is_err());
         assert!(parse_repo_spec("octo/with space").is_err());
+    }
+
+    #[test]
+    fn repo_identity_from_source_wraps_repo_parts() {
+        assert_eq!(
+            repo_identity_from_source("git+https://github.com/octo/configs.git#main").unwrap(),
+            GitHubRepoIdentity {
+                owner: "octo".to_owned(),
+                name: "configs".to_owned(),
+            }
+        );
     }
 
     #[test]

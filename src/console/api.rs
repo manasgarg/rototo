@@ -932,21 +932,42 @@ async fn source_tree_refresh(
     axum::extract::Path(source_tree_id): axum::extract::Path<String>,
 ) -> ApiResult<Json<JsonValue>> {
     let user = require_user(&state, &headers).await?;
+    let stored = refresh_source_tree_for_user(&state, &user, &source_tree_id).await?;
+    Ok(Json(json!({ "sourceTree": stored })))
+}
+
+async fn refresh_source_tree_for_user(
+    state: &SharedState,
+    user: &super::store::SessionUser,
+    source_tree_id: &str,
+) -> ApiResult<super::store::SourceTreeWithWorkspaces> {
     let existing = state
         .store
-        .get_source_tree_for_user(&source_tree_id, &user.principal_id)
+        .get_source_tree_for_user(source_tree_id, &user.principal_id)
         .await?
         .ok_or_else(|| ApiError::not_found("source tree not found"))?;
     let source_tree = existing.source_tree;
-    let git_ref = Some(source_tree.default_revision.clone());
     let (stored, token) = match source_tree.kind {
         super::store::SourceTreeKind::GitHub => {
-            upsert_github_source_tree(&state, &user, &source_tree.source, git_ref).await?
+            upsert_github_source_tree(
+                state,
+                user,
+                &source_tree.source,
+                Some(source_tree.default_revision.clone()),
+            )
+            .await?
         }
-        super::store::SourceTreeKind::GitRemote
-        | super::store::SourceTreeKind::LocalFolder
-        | super::store::SourceTreeKind::Archive => {
-            upsert_read_only_source_tree(&state, &user, &source_tree.source, git_ref).await?
+        super::store::SourceTreeKind::GitRemote => {
+            upsert_read_only_source_tree(
+                state,
+                user,
+                &source_tree.source,
+                Some(source_tree.default_revision.clone()),
+            )
+            .await?
+        }
+        super::store::SourceTreeKind::LocalFolder | super::store::SourceTreeKind::Archive => {
+            upsert_read_only_source_tree(state, user, &source_tree.source, None).await?
         }
     };
     warm_registered_workspaces(
@@ -955,7 +976,7 @@ async fn source_tree_refresh(
         token,
         stored.workspaces.clone(),
     );
-    Ok(Json(json!({ "sourceTree": stored })))
+    Ok(stored)
 }
 
 pub fn random_token(bytes: usize) -> ApiResult<String> {
@@ -982,6 +1003,11 @@ pub fn url_encode(value: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::sync::Arc;
+
+    use crate::console::identity::ActorIdentity;
+    use crate::console::token_crypto::TokenCrypto;
+    use tempfile::TempDir;
 
     #[test]
     fn observability_route_extracts_workspace_and_branch_ids() {
@@ -1036,5 +1062,80 @@ mod tests {
         assert!(should_register_as_github("git+ssh://git@github.com/octo/configs.git#main").await);
         assert!(!should_register_as_github("git+file:///tmp/configs.git#main").await);
         assert!(!should_register_as_github("git+https://example.com/octo/configs.git#main").await);
+    }
+
+    #[tokio::test]
+    async fn source_tree_refresh_rediscovers_local_workspace_paths() {
+        let tree = TempDir::new().expect("source tree tempdir");
+        write_workspace(tree.path()).await;
+        let state = test_state();
+        let user = test_user();
+        let source = tree.path().to_str().expect("utf8 temp path");
+        let (registered, _) =
+            expect_api_ok(upsert_read_only_source_tree(&state, &user, source, None).await);
+        assert_eq!(workspace_paths(&registered.workspaces), vec!["."]);
+
+        write_workspace(&tree.path().join("workspaces/payments")).await;
+        let refreshed = expect_api_ok(
+            refresh_source_tree_for_user(&state, &user, &registered.source_tree.id).await,
+        );
+
+        assert_eq!(
+            workspace_paths(&refreshed.workspaces),
+            vec![".", "workspaces/payments"]
+        );
+        assert!(refreshed.source_tree.last_discovered_at.is_some());
+    }
+
+    fn expect_api_ok<T>(result: ApiResult<T>) -> T {
+        match result {
+            Ok(value) => value,
+            Err(err) => panic!("{}", err.message),
+        }
+    }
+
+    fn test_state() -> SharedState {
+        Arc::new(ConsoleState {
+            deployment: DeploymentType::Local,
+            oauth: None,
+            write_policy: WritePolicy::Disabled,
+            fixed_workspace_source: None,
+            store: Store::open_in_memory(TokenCrypto::generate().unwrap()).unwrap(),
+            github: GitHubClient::new(),
+            stage: StageCache::new(),
+            lsp: LspSessions::new(),
+            local: None,
+            public_url: "http://127.0.0.1:7686".to_owned(),
+            allowed_origins: vec!["http://127.0.0.1:7686".to_owned()],
+            secure_cookies: false,
+            observability: None,
+        })
+    }
+
+    fn test_user() -> super::super::store::SessionUser {
+        let identity = ActorIdentity::GitConfig {
+            name: Some("Console Test".to_owned()),
+            email: Some("console@example.com".to_owned()),
+        };
+        super::super::store::SessionUser {
+            session_hash: "test-session".to_owned(),
+            principal_id: identity.principal_id(),
+            identity,
+            github_token: None,
+        }
+    }
+
+    async fn write_workspace(path: &std::path::Path) {
+        tokio::fs::create_dir_all(path).await.unwrap();
+        tokio::fs::write(path.join("rototo-workspace.toml"), "schema_version = 1\n")
+            .await
+            .unwrap();
+    }
+
+    fn workspace_paths(workspaces: &[super::super::store::WorkspaceRecord]) -> Vec<&str> {
+        workspaces
+            .iter()
+            .map(|workspace| workspace.path.as_str())
+            .collect()
     }
 }

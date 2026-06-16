@@ -1,4 +1,5 @@
 use super::api::{ApiError, ApiResult, ConsoleState};
+use super::github::GitHubRepoIdentity;
 use super::stage::{
     CachedWorkspaceLocator, SemanticWorkspace, SourceTreeOrigin, SourceTreeRevision, TokenIdentity,
     WorkspaceLocator, WorkspacePath,
@@ -46,6 +47,10 @@ pub(crate) async fn cached_workspace_locator_for_branch(
         ));
     }
     cached_workspace_from_parts(input, parsed.tree, SourceTreeRevision::git_branch(branch)?)
+}
+
+pub(crate) fn github_repo_for_workspace(workspace: &WorkspaceRecord) -> Result<GitHubRepoIdentity> {
+    super::github::repo_identity_from_source(&workspace.source)
 }
 
 pub(crate) async fn workspace_source_for_base(

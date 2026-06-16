@@ -16,7 +16,8 @@ use super::resolve_preview::{
 };
 use super::store::{SessionUser, WorkspaceRecord};
 use super::workspace_source::{
-    runtime_workspace_for_base, semantic_workspace_for_base, workspace_source_for_base,
+    github_repo_for_workspace, runtime_workspace_for_base, semantic_workspace_for_base,
+    workspace_source_for_base,
 };
 
 const MAX_PREVIEW_CONTEXTS: usize = 4;
@@ -394,7 +395,8 @@ async fn branch_candidates(
         ));
     }
     let token = require_github_token(&user, "Scanning branches")?;
-    let (owner, name) = github_repo_for_workspace(&workspace)?;
+    let github_repo = github_repo_for_workspace(&workspace)
+        .map_err(|err| ApiError::bad_request(err.to_string()))?;
 
     let known_branches: std::collections::HashSet<String> = state
         .store
@@ -405,7 +407,7 @@ async fn branch_candidates(
         .collect();
     let branches: Vec<String> = state
         .github
-        .list_branches(token, &owner, &name)
+        .list_branches(token, &github_repo.owner, &github_repo.name)
         .await
         .map_err(|err| ApiError::github(&err, "Scanning branches"))?
         .into_iter()
@@ -423,12 +425,17 @@ async fn branch_candidates(
     for (index, branch) in compared.iter().cloned().enumerate() {
         let github = state.github.clone();
         let token = token.to_owned();
-        let owner = owner.clone();
-        let name = name.clone();
+        let github_repo = github_repo.clone();
         let base = workspace.revision.clone();
         comparisons.spawn(async move {
             let comparison = github
-                .compare_refs(&token, &owner, &name, &base, &branch)
+                .compare_refs(
+                    &token,
+                    &github_repo.owner,
+                    &github_repo.name,
+                    &base,
+                    &branch,
+                )
                 .await;
             (index, branch, comparison)
         });
@@ -450,11 +457,6 @@ async fn branch_candidates(
         "scanned": compared.len(),
         "skipped": branches.len() - compared.len(),
     })))
-}
-
-fn github_repo_for_workspace(workspace: &WorkspaceRecord) -> ApiResult<(String, String)> {
-    super::github::parse_repo_spec(&workspace.source)
-        .map_err(|err| ApiError::bad_request(err.to_string()))
 }
 
 async fn collect_branch_candidate(

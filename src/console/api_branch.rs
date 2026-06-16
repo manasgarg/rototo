@@ -37,7 +37,9 @@ use super::workspace_edit::{
     entity_template_files, expected_variable_file_path, parse_entity_id, parse_variable_type,
     variable_value_target_path,
 };
-use super::workspace_source::{runtime_workspace_for_base, workspace_source_for_branch};
+use super::workspace_source::{
+    github_repo_for_workspace, runtime_workspace_for_base, workspace_source_for_branch,
+};
 
 const PR_SYNC_FRESH: Duration = Duration::from_secs(60);
 const MAX_PREVIEW_CONTEXTS: usize = 4;
@@ -91,17 +93,11 @@ struct BranchContext {
     user: SessionUser,
     workspace: WorkspaceRecord,
     branch: ActiveBranchRecord,
-    github_repo: GitHubRepoIdentity,
+    github_repo: super::github::GitHubRepoIdentity,
 }
 
 enum BranchBackend<'a> {
     GitHub { token: &'a str, direct: bool },
-}
-
-#[derive(Clone, Debug)]
-struct GitHubRepoIdentity {
-    owner: String,
-    name: String,
 }
 
 #[derive(Clone, Debug, Serialize)]
@@ -175,16 +171,11 @@ async fn load_branch(
     }
     Ok(BranchContext {
         user,
-        github_repo: github_repo_for_workspace(&workspace)?,
+        github_repo: github_repo_for_workspace(&workspace)
+            .map_err(|err| ApiError::bad_request(err.to_string()))?,
         workspace,
         branch,
     })
-}
-
-fn github_repo_for_workspace(workspace: &WorkspaceRecord) -> ApiResult<GitHubRepoIdentity> {
-    let (owner, name) = super::github::parse_repo_spec(&workspace.source)
-        .map_err(|err| ApiError::bad_request(err.to_string()))?;
-    Ok(GitHubRepoIdentity { owner, name })
 }
 
 async fn invalidate_branch(
@@ -251,7 +242,8 @@ async fn branch_select(
 
     let base_ref = workspace.revision.clone();
     let backend = branch_backend(&state, &user, &workspace, "Opening a branch")?;
-    let github_repo = github_repo_for_workspace(&workspace)?;
+    let github_repo = github_repo_for_workspace(&workspace)
+        .map_err(|err| ApiError::bad_request(err.to_string()))?;
     let target = branch_selection_target(
         &state,
         &user,
@@ -303,7 +295,7 @@ async fn branch_selection_target<'a>(
     state: &ConsoleState,
     user: &SessionUser,
     workspace: &WorkspaceRecord,
-    github_repo: &GitHubRepoIdentity,
+    github_repo: &super::github::GitHubRepoIdentity,
     backend: &BranchBackend<'a>,
     requested_branch: Option<String>,
     base_ref: &str,
@@ -498,7 +490,7 @@ async fn branch_sync_pr(
 async fn sync_pull_request(
     state: &ConsoleState,
     user: &SessionUser,
-    github_repo: &GitHubRepoIdentity,
+    github_repo: &super::github::GitHubRepoIdentity,
     branch: &ActiveBranchRecord,
     pr_number: i64,
 ) -> std::result::Result<ActiveBranchRecord, String> {
@@ -1245,7 +1237,8 @@ async fn branch_changed_paths(
 ) -> ApiResult<Vec<String>> {
     if context_is_github_workspace(workspace) {
         let token = require_github_token(user, "Loading branch changes")?;
-        let github_repo = github_repo_for_workspace(workspace)?;
+        let github_repo = github_repo_for_workspace(workspace)
+            .map_err(|err| ApiError::bad_request(err.to_string()))?;
         let comparison = state
             .github
             .compare_refs(

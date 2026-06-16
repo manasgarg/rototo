@@ -159,8 +159,8 @@ when GitHub credentials are needed. Setting `ROTOTO_GITHUB_CLIENT_ID` and
 `ROTOTO_GITHUB_CLIENT_SECRET` switches it to hosted deployment with GitHub
 OAuth sign-in; `ROTOTO_CONSOLE_TOKEN_ENCRYPTION_KEY` is then required so
 stored tokens are encrypted at rest. `--workspace` registers one fixed source
-at startup, and `--write` controls whether drafts are disabled, published as
-pull requests, or direct-pushed. See
+at startup, and `--write` controls whether branch edits are disabled, published
+as pull requests, or direct-pushed. See
 [Self-Hosting the Console](self-hosting-console.md) for deployment shapes.
 
 ## `rototo lsp`
