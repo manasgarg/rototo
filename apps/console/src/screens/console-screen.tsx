@@ -12,8 +12,8 @@ import { useNavigate, useSearchParams } from "react-router";
 
 import { AppShell, NavGroupLabel, NavLink } from "@/components/app-shell";
 import { LoadingScreen } from "@/components/loading-screen";
-import { RemoveRepoButton } from "@/components/remove-repo-button";
-import { RepoRegistrationForm } from "@/components/repo-registration-form";
+import { RemoveSourceTreeButton } from "@/components/remove-source-tree-button";
+import { SourceTreeRegistrationForm } from "@/components/source-tree-registration-form";
 import { SearchableList } from "@/components/searchable-list";
 import { BranchStatusPill } from "@/components/status-pills";
 import { api, useApi } from "@/lib/api";
@@ -23,20 +23,20 @@ import { RefreshScope } from "@/lib/refresh";
 import type {
     ConsoleData,
     BranchRecord,
-    RepoWithWorkspaces,
+    SourceTreeWithWorkspaces,
     WorkspaceRecord,
     WorkspaceSummary,
     WorkspaceSummariesData,
 } from "@/lib/types";
 
 /** App shell tab id accepted from route state. */
-export type AppScreen = "repositories" | "workspaces" | "branches" | "activity";
+export type AppScreen = "source-trees" | "workspaces" | "branches" | "activity";
 
 /** Active branch row paired with workspace metadata for dashboard lists. */
 type BranchEntry = { branch: BranchRecord; workspace: WorkspaceRecord };
 
 const SCREEN_TITLES: Record<AppScreen, string> = {
-    repositories: "Repositories",
+    "source-trees": "Source Trees",
     workspaces: "Workspaces",
     branches: "Branches",
     activity: "Activity",
@@ -44,7 +44,7 @@ const SCREEN_TITLES: Record<AppScreen, string> = {
 
 export function ConsoleScreen({ screen }: { screen: AppScreen }) {
     const [query] = useSearchParams();
-    const repoFilterId = query.get("repo");
+    const sourceTreeFilterId = query.get("sourceTree");
     const user = useShellUser();
     const { data, error, loading, reload } =
         useApi<ConsoleData>("/api/console");
@@ -62,17 +62,20 @@ export function ConsoleScreen({ screen }: { screen: AppScreen }) {
             return;
         }
         let cancelled = false;
-        const activeRepoId =
-            repoFilterId && data.repos.some((repo) => repo.id === repoFilterId)
-                ? repoFilterId
+        const activeSourceTreeId =
+            sourceTreeFilterId &&
+            data.sourceTrees.some(
+                (sourceTree) => sourceTree.id === sourceTreeFilterId,
+            )
+                ? sourceTreeFilterId
                 : null;
-        const visibleWorkspaces = activeRepoId
+        const visibleWorkspaces = activeSourceTreeId
             ? data.workspaces.filter(
-                  (workspace) => workspace.repoId === activeRepoId,
+                  (workspace) => workspace.sourceTreeId === activeSourceTreeId,
               )
             : data.workspaces;
-        const path = activeRepoId
-            ? `/api/workspaces/summaries?repoId=${encodeURIComponent(activeRepoId)}`
+        const path = activeSourceTreeId
+            ? `/api/workspaces/summaries?sourceTreeId=${encodeURIComponent(activeSourceTreeId)}`
             : "/api/workspaces/summaries";
         setWorkspaceSummaries(new Map());
         void api<WorkspaceSummariesData>(path).then(
@@ -114,7 +117,7 @@ export function ConsoleScreen({ screen }: { screen: AppScreen }) {
         return () => {
             cancelled = true;
         };
-    }, [selectedScreen, data, repoFilterId]);
+    }, [selectedScreen, data, sourceTreeFilterId]);
 
     if (loading && !data) {
         return <LoadingScreen />;
@@ -134,13 +137,17 @@ export function ConsoleScreen({ screen }: { screen: AppScreen }) {
         );
     }
 
-    const repos = data.repos;
+    const sourceTrees = data.sourceTrees;
     const workspaces = data.workspaces;
-    const filterRepo = repoFilterId
-        ? (repos.find((repo) => repo.id === repoFilterId) ?? null)
+    const filterSourceTree = sourceTreeFilterId
+        ? (sourceTrees.find(
+              (sourceTree) => sourceTree.id === sourceTreeFilterId,
+          ) ?? null)
         : null;
-    const visibleWorkspaces = filterRepo
-        ? workspaces.filter((workspace) => workspace.repoId === filterRepo.id)
+    const visibleWorkspaces = filterSourceTree
+        ? workspaces.filter(
+              (workspace) => workspace.sourceTreeId === filterSourceTree.id,
+          )
         : workspaces;
     const branches = data.branches;
     const activeBranches = branches.filter(
@@ -157,11 +164,11 @@ export function ConsoleScreen({ screen }: { screen: AppScreen }) {
                     {
                         label: "console",
                         href:
-                            selectedScreen === "repositories"
+                            selectedScreen === "source-trees"
                                 ? undefined
                                 : "/app",
                     },
-                    ...(filterRepo
+                    ...(filterSourceTree
                         ? [{ label: "workspaces", href: "/app/workspaces" }]
                         : []),
                 ]}
@@ -169,11 +176,11 @@ export function ConsoleScreen({ screen }: { screen: AppScreen }) {
                     <>
                         <NavGroupLabel>Console</NavGroupLabel>
                         <NavLink
-                            active={selectedScreen === "repositories"}
-                            count={repos.length}
-                            href={appScreenHref("repositories")}
+                            active={selectedScreen === "source-trees"}
+                            count={sourceTrees.length}
+                            href={appScreenHref("source-trees")}
                             icon={<FolderGit2 aria-hidden size={16} />}
-                            label="Repositories"
+                            label="Source Trees"
                         />
                         <NavLink
                             active={selectedScreen === "workspaces"}
@@ -200,13 +207,13 @@ export function ConsoleScreen({ screen }: { screen: AppScreen }) {
                 title={SCREEN_TITLES[selectedScreen]}
                 user={user}
             >
-                {selectedScreen === "repositories" ? (
-                    <RepositoriesScreen repos={repos} />
+                {selectedScreen === "source-trees" ? (
+                    <SourceTreesScreen sourceTrees={sourceTrees} />
                 ) : null}
                 {selectedScreen === "workspaces" ? (
                     <WorkspacesScreen
                         branches={branches}
-                        filterRepo={filterRepo}
+                        filterSourceTree={filterSourceTree}
                         workspaceSummaries={workspaceSummaries}
                         workspaces={visibleWorkspaces}
                     />
@@ -221,7 +228,7 @@ export function ConsoleScreen({ screen }: { screen: AppScreen }) {
                         branchesWithPullRequestsCount={
                             branchesWithPullRequests.length
                         }
-                        reposCount={repos.length}
+                        sourceTreesCount={sourceTrees.length}
                     />
                 ) : null}
             </AppShell>
@@ -229,57 +236,61 @@ export function ConsoleScreen({ screen }: { screen: AppScreen }) {
     );
 }
 
-function RepositoriesScreen({ repos }: { repos: RepoWithWorkspaces[] }) {
+function SourceTreesScreen({
+    sourceTrees,
+}: {
+    sourceTrees: SourceTreeWithWorkspaces[];
+}) {
     return (
         <section className="section">
             <div className="section-header-text">
-                <h1>Repositories</h1>
+                <h1>Source Trees</h1>
                 <p className="hint">
-                    rototo discovers workspaces by scanning a repository for{" "}
+                    rototo discovers workspaces by scanning a source tree for{" "}
                     <span className="mono">rototo-workspace.toml</span> files.
-                    Register a repository your GitHub account can read.
+                    Register a source tree your GitHub account can read.
                 </p>
             </div>
-            <RepoRegistrationForm />
-            {repos.length === 0 ? (
+            <SourceTreeRegistrationForm />
+            {sourceTrees.length === 0 ? (
                 <div className="empty-state">
                     <span className="empty-puck">
                         <FolderGit2 aria-hidden size={18} />
                     </span>
                     <p>
-                        No repositories yet. Add one above to discover
+                        No source trees yet. Add one above to discover
                         workspaces.
                     </p>
                 </div>
             ) : (
                 <SearchableList
                     className="card-grid"
-                    emptyLabel="No repositories match that search."
-                    label="Search repositories"
-                    placeholder="Search repositories"
+                    emptyLabel="No source trees match that search."
+                    label="Search source trees"
+                    placeholder="Search source trees"
                 >
-                    {repos.map((repo) => (
+                    {sourceTrees.map((sourceTree) => (
                         <article
-                            className="card repo-card"
-                            data-search={`${repo.owner}/${repo.name} ${repo.defaultRef}`}
-                            key={repo.id}
+                            className="card source-tree-card"
+                            data-search={`${sourceTree.owner}/${sourceTree.name} ${sourceTree.defaultRef}`}
+                            key={sourceTree.id}
                         >
                             <div className="card-head">
                                 <div className="card-head-text">
                                     <h3>
                                         <Link
                                             className="card-stretch"
-                                            href={`/app/workspaces?repo=${repo.id}`}
-                                            title={`Workspaces in ${repo.owner}/${repo.name}`}
+                                            href={`/app/workspaces?sourceTree=${sourceTree.id}`}
+                                            title={`Workspaces in ${sourceTree.owner}/${sourceTree.name}`}
                                         >
-                                            {repo.owner}/{repo.name}
+                                            {sourceTree.owner}/{sourceTree.name}
                                         </Link>
                                     </h3>
                                     <span className="kv">
                                         <span>
                                             ref{" "}
                                             <span className="mono">
-                                                {repo.defaultRef}
+                                                {sourceTree.defaultRef}
                                             </span>
                                         </span>
                                     </span>
@@ -287,25 +298,27 @@ function RepositoriesScreen({ repos }: { repos: RepoWithWorkspaces[] }) {
                                 <span className="card-actions">
                                     <span className="pill pill-sea">
                                         <span className="d" />
-                                        {repo.workspaces.length}{" "}
-                                        {repo.workspaces.length === 1
+                                        {sourceTree.workspaces.length}{" "}
+                                        {sourceTree.workspaces.length === 1
                                             ? "workspace"
                                             : "workspaces"}
                                     </span>
-                                    <RemoveRepoButton
-                                        repoId={repo.id}
-                                        repoName={`${repo.owner}/${repo.name}`}
+                                    <RemoveSourceTreeButton
+                                        sourceTreeId={sourceTree.id}
+                                        sourceTreeName={`${sourceTree.owner}/${sourceTree.name}`}
                                     />
                                 </span>
                             </div>
                             <div className="kv">
                                 <span>
-                                    updated {formatDate(repo.updatedAt)}
+                                    updated {formatDate(sourceTree.updatedAt)}
                                 </span>
-                                {repo.lastDiscoveredAt ? (
+                                {sourceTree.lastDiscoveredAt ? (
                                     <span>
                                         discovered{" "}
-                                        {formatDate(repo.lastDiscoveredAt)}
+                                        {formatDate(
+                                            sourceTree.lastDiscoveredAt,
+                                        )}
                                     </span>
                                 ) : null}
                             </div>
@@ -319,12 +332,12 @@ function RepositoriesScreen({ repos }: { repos: RepoWithWorkspaces[] }) {
 
 function WorkspacesScreen({
     branches,
-    filterRepo,
+    filterSourceTree,
     workspaceSummaries,
     workspaces,
 }: {
     branches: BranchEntry[];
-    filterRepo: RepoWithWorkspaces | null;
+    filterSourceTree: SourceTreeWithWorkspaces | null;
     workspaceSummaries: Map<string, WorkspaceSummary>;
     workspaces: WorkspaceRecord[];
 }) {
@@ -335,15 +348,15 @@ function WorkspacesScreen({
                 <p className="hint">
                     Each workspace is a{" "}
                     <span className="mono">rototo-workspace.toml</span> root
-                    discovered in a registered repository. Open one to inspect
+                    discovered in a registered source tree. Open one to inspect
                     and edit it.
                 </p>
             </div>
-            {filterRepo ? (
+            {filterSourceTree ? (
                 <div className="action-row">
                     <span className="pill pill-sea">
                         <span className="d" />
-                        repository: {filterRepo.owner}/{filterRepo.name}
+                        source tree: {filterSourceTree.owner}/{filterSourceTree.name}
                     </span>
                     <Link
                         className="btn btn-ghost btn-sm"
@@ -359,9 +372,9 @@ function WorkspacesScreen({
                         <Layers aria-hidden size={18} />
                     </span>
                     <p>
-                        {filterRepo
-                            ? `No workspaces discovered in ${filterRepo.owner}/${filterRepo.name}. Re-scan it from the repositories screen after adding rototo-workspace.toml.`
-                            : "Nothing to configure… yet. Register a repository to discover workspaces."}
+                        {filterSourceTree
+                            ? `No workspaces discovered in ${filterSourceTree.owner}/${filterSourceTree.name}. Re-scan it from the source trees screen after adding rototo-workspace.toml.`
+                            : "Nothing to configure… yet. Register a source tree to discover workspaces."}
                     </p>
                 </div>
             ) : (
@@ -521,7 +534,7 @@ function BranchesScreen({ branches }: { branches: BranchEntry[] }) {
             <div className="section-header-text">
                 <h1>Branches</h1>
                 <p className="hint">
-                    Every branch is a real branch in the workspace repository.
+                    Every branch is a real branch in the workspace source tree.
                     Edits commit to the branch; publishing opens a pull request.
                 </p>
             </div>
@@ -589,12 +602,12 @@ function ActivityScreen({
     branches,
     activeBranchesCount,
     branchesWithPullRequestsCount,
-    reposCount,
+    sourceTreesCount,
 }: {
     branches: BranchEntry[];
     activeBranchesCount: number;
     branchesWithPullRequestsCount: number;
-    reposCount: number;
+    sourceTreesCount: number;
 }) {
     const recentFirst = [...branches].sort(
         (left, right) =>
@@ -622,8 +635,8 @@ function ActivityScreen({
                     </span>
                 </div>
                 <div className="stat-card">
-                    <span className="label">repositories</span>
-                    <span className="stat-value">{reposCount}</span>
+                    <span className="label">source trees</span>
+                    <span className="stat-value">{sourceTreesCount}</span>
                 </div>
             </div>
             {recentFirst.length === 0 ? (
@@ -707,7 +720,7 @@ function countLabel(count: number, noun: string): string {
 }
 
 function appScreenHref(screen: AppScreen): string {
-    return screen === "repositories" ? "/app" : `/app/${screen}`;
+    return screen === "source-trees" ? "/app/source-trees" : `/app/${screen}`;
 }
 
 function formatDate(value: string): string {

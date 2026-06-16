@@ -179,9 +179,18 @@ function App() {
                                 <Routes>
                                     <Route
                                         element={
-                                            <ConsoleScreen screen="repositories" />
+                                            <Navigate
+                                                replace
+                                                to="source-trees"
+                                            />
                                         }
                                         path="/"
+                                    />
+                                    <Route
+                                        element={
+                                            <ConsoleScreen screen="source-trees" />
+                                        }
+                                        path="source-trees"
                                     />
                                     <Route
                                         element={

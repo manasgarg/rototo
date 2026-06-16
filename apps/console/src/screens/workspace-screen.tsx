@@ -449,7 +449,7 @@ function WorkspaceSection({
     workspace: {
         id: string;
         slug: string;
-        repoId: string;
+        sourceTreeId: string;
         owner: string;
         name: string;
         path: string;
@@ -473,11 +473,11 @@ function WorkspaceSection({
                 </div>
                 <div className="meta-grid">
                     <div className="meta-item">
-                        <span className="label">repository</span>
+                        <span className="label">source tree</span>
                         <span className="meta-value mono">
                             <Link
                                 className="title-link"
-                                href={`/app/workspaces?repo=${workspace.repoId}`}
+                                href={`/app/workspaces?sourceTree=${workspace.sourceTreeId}`}
                             >
                                 {workspace.owner}/{workspace.name}
                             </Link>

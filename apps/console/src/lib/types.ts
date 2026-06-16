@@ -74,8 +74,8 @@ export type WorkspaceCapabilities = {
     write: WorkspaceWriteCapability;
 };
 
-/** Registered repository row persisted by the console store. */
-export type RepoRecord = {
+/** Registered source tree row persisted by the console store. */
+export type SourceTreeRecord = {
     id: string;
     principalId: string;
     owner: string;
@@ -86,16 +86,16 @@ export type RepoRecord = {
     lastDiscoveredAt: string | null;
 };
 
-/** Repository row plus active discovered workspaces, rebuilt for responses. */
-export type RepoWithWorkspaces = RepoRecord & {
+/** Source tree row plus active discovered workspaces, rebuilt for responses. */
+export type SourceTreeWithWorkspaces = SourceTreeRecord & {
     workspaces: WorkspaceRecord[];
 };
 
-/** Persisted workspace discovery row inside a registered repository. */
+/** Persisted workspace discovery row inside a registered source tree. */
 export type WorkspaceRecord = {
     id: string;
     slug: string;
-    repoId: string;
+    sourceTreeId: string;
     owner: string;
     name: string;
     path: string;
@@ -104,10 +104,10 @@ export type WorkspaceRecord = {
     discoveredAt: string;
 };
 
-/** Repository branch selected by one console user. */
+/** Source tree branch selected by one console user. */
 export type BranchRecord = {
     id: string;
-    repoId: string;
+    sourceTreeId: string;
     principalId: string;
     branch: string;
     baseRef: string;
@@ -458,9 +458,9 @@ export type EditableEntity = {
 };
 
 /* Screen payloads. */
-/** App shell payload: repos, workspaces, and active branch rows. */
+/** App shell payload: source trees, workspaces, and active branch rows. */
 export type ConsoleData = {
-    repos: RepoWithWorkspaces[];
+    sourceTrees: SourceTreeWithWorkspaces[];
     workspaces: WorkspaceRecord[];
     branches: Array<{ branch: BranchRecord; workspace: WorkspaceRecord }>;
 };

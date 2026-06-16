@@ -1129,14 +1129,14 @@ a.row:hover {
     gap: 12px;
 }
 
-.repo-card {
+.source-tree-card {
     position: relative;
     transition:
         border-color var(--dur-base),
         box-shadow var(--dur-base);
 }
 
-.repo-card:hover {
+.source-tree-card:hover {
     border-color: var(--sea-300);
     box-shadow: var(--shadow-2);
 }
@@ -1153,7 +1153,7 @@ a.row:hover {
     outline: none;
 }
 
-.repo-card:has(.card-stretch:focus-visible) {
+.source-tree-card:has(.card-stretch:focus-visible) {
     box-shadow: var(--focus-ring);
     border-color: var(--sea-400);
 }

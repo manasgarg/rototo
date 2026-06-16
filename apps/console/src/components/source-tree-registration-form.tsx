@@ -3,16 +3,16 @@ import { FormEvent, useState } from "react";
 import { Plus, X } from "lucide-react";
 import { apiFetch } from "@/lib/api";
 
-/** Transient submit result shown by the repository registration form. */
+/** Transient submit result shown by the source tree registration form. */
 type FormNote = { tone: "ok" | "err"; text: string };
 
-const REPO_SPEC_ERROR =
-    "repository must be owner/repo or a GitHub repository URL";
+const SOURCE_TREE_SPEC_ERROR =
+    "source tree must be owner/repo or a GitHub repository URL";
 
-export function RepoRegistrationForm() {
+export function SourceTreeRegistrationForm() {
     const router = useRouter();
     const [open, setOpen] = useState(false);
-    const [repo, setRepo] = useState("");
+    const [sourceTree, setSourceTree] = useState("");
     const [ref, setRef] = useState("");
     const [pending, setPending] = useState(false);
     const [note, setNote] = useState<FormNote | null>(null);
@@ -22,25 +22,25 @@ export function RepoRegistrationForm() {
         setPending(true);
         setNote(null);
         try {
-            const normalizedRepo = normalizeRepoInput(repo);
-            if (!normalizedRepo) {
-                throw new Error("repository is required");
+            const normalizedSourceTree = normalizeSourceTreeInput(sourceTree);
+            if (!normalizedSourceTree) {
+                throw new Error("source tree is required");
             }
             const normalizedRef = ref.trim();
-            const response = await apiFetch("/api/repos", {
+            const response = await apiFetch("/api/source-trees", {
                 method: "POST",
                 body: JSON.stringify({
-                    repo: normalizedRepo,
+                    sourceTree: normalizedSourceTree,
                     ref: normalizedRef || undefined,
                 }),
             });
             const body = (await response.json()) as { error?: string };
             if (!response.ok) {
-                throw new Error(body.error ?? "failed to register repository");
+                throw new Error(body.error ?? "failed to register source tree");
             }
-            setRepo("");
+            setSourceTree("");
             setRef("");
-            setNote({ tone: "ok", text: "Repository scanned." });
+            setNote({ tone: "ok", text: "Source tree scanned." });
             setOpen(false);
             router.refresh();
         } catch (error) {
@@ -62,7 +62,7 @@ export function RepoRegistrationForm() {
                     type="button"
                 >
                     <Plus aria-hidden size={15} />
-                    Add repository
+                    Add source tree
                 </button>
                 {note ? (
                     <p className="form-note" data-tone={note.tone}>
@@ -77,7 +77,7 @@ export function RepoRegistrationForm() {
         <form className="card" onSubmit={submit}>
             <div className="card-head">
                 <div className="card-head-text">
-                    <h3>Add a repository</h3>
+                    <h3>Add a source tree</h3>
                     <p className="hint">
                         rototo scans the ref for{" "}
                         <span className="mono">rototo-workspace.toml</span>{" "}
@@ -96,15 +96,15 @@ export function RepoRegistrationForm() {
             </div>
             <div className="field-row">
                 <label className="field-stack">
-                    <span className="label">repository</span>
+                    <span className="label">source tree</span>
                     <input
                         autoComplete="off"
                         autoFocus
                         className="input mono"
-                        onChange={(event) => setRepo(event.target.value)}
+                        onChange={(event) => setSourceTree(event.target.value)}
                         placeholder="owner/repo"
                         required
-                        value={repo}
+                        value={sourceTree}
                     />
                 </label>
                 <label className="field-stack">
@@ -121,7 +121,7 @@ export function RepoRegistrationForm() {
             <div className="action-row">
                 <button
                     className="btn btn-primary"
-                    disabled={pending || !repo.trim()}
+                    disabled={pending || !sourceTree.trim()}
                     type="submit"
                 >
                     {pending ? (
@@ -129,7 +129,7 @@ export function RepoRegistrationForm() {
                     ) : (
                         <Plus aria-hidden size={15} />
                     )}
-                    {pending ? "Scanning" : "Add repository"}
+                    {pending ? "Scanning" : "Add source tree"}
                 </button>
                 {note ? (
                     <p className="form-note" data-tone={note.tone}>
@@ -141,7 +141,7 @@ export function RepoRegistrationForm() {
     );
 }
 
-function normalizeRepoInput(value: string): string {
+function normalizeSourceTreeInput(value: string): string {
     let normalized = value.trim();
     normalized = normalized.replace(/^git@github\.com:/i, "");
     normalized = normalized.replace(/^ssh:\/\/git@github\.com\//i, "");
@@ -152,11 +152,11 @@ function normalizeRepoInput(value: string): string {
         return "";
     }
     const [owner, name, ...extra] = normalized.split("/");
-    const repoName = name?.replace(/\.git$/i, "");
+    const sourceTreeName = name?.replace(/\.git$/i, "");
     const valid = (part: string | undefined) =>
         !!part && /^[A-Za-z0-9_.-]+$/.test(part);
-    if (extra.length > 0 || !valid(owner) || !valid(repoName)) {
-        throw new Error(REPO_SPEC_ERROR);
+    if (extra.length > 0 || !valid(owner) || !valid(sourceTreeName)) {
+        throw new Error(SOURCE_TREE_SPEC_ERROR);
     }
-    return `${owner}/${repoName}`;
+    return `${owner}/${sourceTreeName}`;
 }

@@ -3,12 +3,12 @@ import { useState } from "react";
 import { Trash2 } from "lucide-react";
 import { apiFetch } from "@/lib/api";
 
-export function RemoveRepoButton({
-    repoId,
-    repoName,
+export function RemoveSourceTreeButton({
+    sourceTreeId,
+    sourceTreeName,
 }: {
-    repoId: string;
-    repoName: string;
+    sourceTreeId: string;
+    sourceTreeName: string;
 }) {
     const router = useRouter();
     const [pending, setPending] = useState(false);
@@ -17,7 +17,7 @@ export function RemoveRepoButton({
     async function remove() {
         if (
             !window.confirm(
-                `Remove ${repoName} from the console? Its workspaces and branches disappear here; the GitHub repository is untouched.`,
+                `Remove ${sourceTreeName} from the console? Its workspaces and branches disappear here; the GitHub repository is untouched.`,
             )
         ) {
             return;
@@ -25,12 +25,12 @@ export function RemoveRepoButton({
         setPending(true);
         setMessage(null);
         try {
-            const response = await apiFetch(`/api/repos/${repoId}`, {
+            const response = await apiFetch(`/api/source-trees/${sourceTreeId}`, {
                 method: "DELETE",
             });
             const body = (await response.json()) as { error?: string };
             if (!response.ok) {
-                throw new Error(body.error ?? "failed to remove repository");
+                throw new Error(body.error ?? "failed to remove source tree");
             }
             router.refresh();
         } catch (error) {
@@ -50,7 +50,7 @@ export function RemoveRepoButton({
                 className="btn btn-ghost btn-icon btn-remove"
                 disabled={pending}
                 onClick={remove}
-                title={`Remove ${repoName}`}
+                title={`Remove ${sourceTreeName}`}
                 type="button"
             >
                 {pending ? (
