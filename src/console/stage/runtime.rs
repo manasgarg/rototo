@@ -1,20 +1,8 @@
-#![allow(dead_code)]
-
 use std::sync::Arc;
 
-use super::load;
-use super::{CachedWorkspaceLocator, TokenIdentity};
 use crate::error::Result;
 use crate::sdk::{LoadOptions, Workspace};
 use crate::source::SourceAuth;
-
-pub async fn get_runtime_workspace(
-    selector: CachedWorkspaceLocator,
-    source_token: &str,
-) -> Result<Arc<Workspace>> {
-    let inspected = load::get_inspected_workspace(selector, source_token).await?;
-    get_runtime_workspace_from_inspected(inspected, source_token).await
-}
 
 pub(super) async fn get_runtime_workspace_from_inspected(
     inspected: Arc<Workspace>,
@@ -46,8 +34,10 @@ mod tests {
     use tempfile::TempDir;
 
     use super::*;
+    use crate::console::stage::load;
     use crate::console::stage::{
-        GitRefName, SourceTreeOrigin, SourceTreeRevision, WorkspaceLocator, WorkspacePath,
+        CachedWorkspaceLocator, GitRefName, SourceTreeOrigin, SourceTreeRevision, TokenIdentity,
+        WorkspaceLocator, WorkspacePath,
     };
     use crate::sdk::ResolveContext;
 
@@ -62,7 +52,10 @@ mod tests {
             "workspaces/payments",
         );
 
-        let runtime = get_runtime_workspace(selector, "").await.unwrap();
+        let inspected = load::get_inspected_workspace(selector, "").await.unwrap();
+        let runtime = get_runtime_workspace_from_inspected(inspected, "")
+            .await
+            .unwrap();
         let resolved = runtime
             .resolve_variable(
                 "checkout",
@@ -89,7 +82,10 @@ mod tests {
             "workspaces/payments",
         );
 
-        let runtime = get_runtime_workspace(selector, "").await.unwrap();
+        let inspected = load::get_inspected_workspace(selector, "").await.unwrap();
+        let runtime = get_runtime_workspace_from_inspected(inspected, "")
+            .await
+            .unwrap();
 
         assert!(
             runtime.root().join("rototo-workspace.toml").is_file(),
@@ -120,7 +116,9 @@ mod tests {
             .unwrap();
         assert!(inspected.root().join("rototo-workspace.toml").is_file());
 
-        let err = get_runtime_workspace(selector, "").await.unwrap_err();
+        let err = get_runtime_workspace_from_inspected(inspected, "")
+            .await
+            .unwrap_err();
         assert!(err.to_string().contains("workspace lint failed"));
     }
 
@@ -182,7 +180,7 @@ default = "enabled"
         CachedWorkspaceLocator::new(
             "user_123",
             WorkspaceLocator::new(tree, revision, WorkspacePath::new(path).unwrap()),
-            TokenIdentity::none(),
+            TokenIdentity::None,
         )
         .unwrap()
     }

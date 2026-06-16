@@ -32,13 +32,6 @@ fn source_for_revision(tree: &SourceTreeOrigin, revision: &SourceTreeRevision) -
             };
             Ok(format!("{remote_url}#{git_ref}"))
         }
-        SourceTreeOrigin::Archive { .. }
-            if matches!(revision, SourceTreeRevision::ArchiveSnapshot(_)) =>
-        {
-            Err(RototoError::new(
-                "archive source tree staging is not yet supported",
-            ))
-        }
         _ => Err(invalid_selection_error()),
     }
 }
@@ -48,7 +41,7 @@ fn git_ref_for_revision(revision: &SourceTreeRevision) -> Option<&str> {
         SourceTreeRevision::GitRef(ref_) => Some(ref_.as_ref()),
         SourceTreeRevision::GitBranch(branch) => Some(branch.as_ref()),
         SourceTreeRevision::GitCommit(commit) => Some(commit.as_ref()),
-        SourceTreeRevision::LocalWorkingTree | SourceTreeRevision::ArchiveSnapshot(_) => None,
+        SourceTreeRevision::LocalWorkingTree => None,
     }
 }
 
@@ -77,7 +70,7 @@ mod tests {
             CachedSourceTreeOrigin::new(
                 "user_123",
                 SourceTreeOrigin::local_folder(tree.path()).await.unwrap(),
-                TokenIdentity::none(),
+                TokenIdentity::None,
             )
             .unwrap(),
             SourceTreeRevision::LocalWorkingTree,
@@ -95,7 +88,7 @@ mod tests {
             CachedSourceTreeOrigin::new(
                 "user_123",
                 SourceTreeOrigin::local_folder(tree.path()).await.unwrap(),
-                TokenIdentity::none(),
+                TokenIdentity::None,
             )
             .unwrap(),
             SourceTreeRevision::GitRef(GitRefName::new("main").unwrap()),

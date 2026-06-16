@@ -1,5 +1,3 @@
-#![allow(dead_code)]
-
 use super::identity::strip_prefix_ignore_ascii_case;
 use super::{
     CachedWorkspaceLocator, SourceTreeOrigin, SourceTreeRevision, TokenIdentity, WorkspaceLocator,
@@ -213,8 +211,9 @@ fn github_archive_source(base: &str) -> Option<(&str, &str, &str)> {
 mod tests {
     use tempfile::TempDir;
 
+    use super::super::identity::GitCommit;
     use super::*;
-    use crate::console::stage::{BranchName, GitCommit, GitRefName};
+    use crate::console::stage::{BranchName, GitRefName};
 
     fn github_workspace_input() -> WorkspaceLocatorInput<'static> {
         WorkspaceLocatorInput {

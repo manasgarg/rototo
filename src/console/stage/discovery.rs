@@ -1,21 +1,14 @@
 use std::path::{Path, PathBuf};
 
-use super::{CachedSourceTreeOrigin, SourceTreeRevision, WorkspaceDiscovery, WorkspacePath};
+use super::WorkspaceDiscovery;
+use super::WorkspacePath;
 use crate::error::{Result, RototoError};
 
 const WORKSPACE_MANIFEST: &str = "rototo-workspace.toml";
 
-pub async fn discover_workspaces(
-    cached_origin: CachedSourceTreeOrigin,
-    revision: SourceTreeRevision,
-    root: &Path,
-) -> Result<WorkspaceDiscovery> {
+pub async fn discover_workspaces(root: &Path) -> Result<WorkspaceDiscovery> {
     let workspaces = discover_workspace_paths(root).await?;
-    Ok(WorkspaceDiscovery {
-        cached_origin,
-        revision,
-        workspaces,
-    })
+    Ok(WorkspaceDiscovery { workspaces })
 }
 
 async fn discover_workspace_paths(root: &Path) -> Result<Vec<WorkspacePath>> {
@@ -111,7 +104,7 @@ mod tests {
     use super::*;
     use crate::console::stage::source_tree;
     use crate::console::stage::{
-        CachedSourceTreeOrigin, GitRefName, SourceTreeOrigin, TokenIdentity,
+        CachedSourceTreeOrigin, GitRefName, SourceTreeOrigin, SourceTreeRevision, TokenIdentity,
     };
 
     #[tokio::test]
@@ -232,7 +225,7 @@ extends = ["git+file:///missing/parent-workspace#main"]
     }
 
     fn source_key(source: SourceTreeOrigin) -> CachedSourceTreeOrigin {
-        CachedSourceTreeOrigin::new("user_123", source, TokenIdentity::none()).unwrap()
+        CachedSourceTreeOrigin::new("user_123", source, TokenIdentity::None).unwrap()
     }
 
     async fn discover_for_source(
@@ -241,7 +234,7 @@ extends = ["git+file:///missing/parent-workspace#main"]
     ) -> Result<WorkspaceDiscovery> {
         let staged =
             source_tree::stage_tree_for_revision(cached_tree.clone(), revision.clone()).await?;
-        discover_workspaces(cached_tree, revision, staged.root()).await
+        discover_workspaces(staged.root()).await
     }
 
     fn workspace_strings(workspaces: &[WorkspacePath]) -> Vec<&str> {

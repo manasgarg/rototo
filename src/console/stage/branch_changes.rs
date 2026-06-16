@@ -5,12 +5,9 @@ use tokio::process::Command;
 
 use super::{
     BranchChanges, BranchName, GitRefName, RepoRelativePath, SourceTreeOrigin, SourceTreeRevision,
-    WorkspacePath,
 };
 use crate::error::{Result, RototoError};
 use crate::source::SourceOptions;
-
-const WORKSPACE_MANIFEST: &str = "rototo-workspace.toml";
 
 #[derive(Clone, Copy, Debug)]
 pub(super) enum BranchChangeSource {
@@ -21,18 +18,10 @@ pub(super) enum BranchChangeSource {
 pub(super) async fn get_branch_changes(
     repo: &Path,
     source: BranchChangeSource,
-    branch: BranchName,
     base_ref: GitRefName,
-    workspaces: &[WorkspacePath],
 ) -> Result<BranchChanges> {
     let changed_files = changed_files_for_staged_repo(repo, source, &base_ref).await?;
-    let affected_workspaces = affected_workspaces(&changed_files, workspaces);
-    Ok(BranchChanges {
-        branch,
-        base_ref,
-        changed_files,
-        affected_workspaces,
-    })
+    Ok(BranchChanges { changed_files })
 }
 
 pub(super) fn source_for_changes(tree: &SourceTreeOrigin) -> Result<BranchChangeSource> {
@@ -164,29 +153,6 @@ async fn changed_files_in_repo(
         .collect())
 }
 
-fn affected_workspaces(
-    changed_files: &[RepoRelativePath],
-    workspaces: &[WorkspacePath],
-) -> Vec<WorkspacePath> {
-    let mut affected = BTreeSet::new();
-    for workspace in workspaces {
-        if changed_files
-            .iter()
-            .any(|file| file_affects_workspace(file.as_str(), workspace.as_str()))
-        {
-            affected.insert(workspace.as_str().to_owned());
-        }
-    }
-    affected
-        .into_iter()
-        .filter_map(|path| WorkspacePath::new(path).ok())
-        .collect()
-}
-
-fn file_affects_workspace(file_path: &str, workspace_path: &str) -> bool {
-    workspace_path == "." || file_path.starts_with(&format!("{workspace_path}/"))
-}
-
 fn status_path(line: &str) -> Option<String> {
     let line = line.trim_end();
     if line.len() < 4 {
@@ -297,13 +263,7 @@ mod tests {
         let changes = get_branch_changes(
             staged_tree.root(),
             source_for_changes(&cached_tree.origin).unwrap(),
-            branch,
             GitRefName::new("main").unwrap(),
-            &[
-                WorkspacePath::root(),
-                WorkspacePath::new("workspaces/payments").unwrap(),
-                WorkspacePath::new("workspaces/search").unwrap(),
-            ],
         )
         .await
         .unwrap();
@@ -311,10 +271,6 @@ mod tests {
         assert_eq!(
             path_strings(&changes.changed_files),
             vec!["workspaces/payments/variables/checkout.toml"]
-        );
-        assert_eq!(
-            workspace_strings(&changes.affected_workspaces),
-            vec![".", "workspaces/payments"]
         );
     }
 
@@ -349,9 +305,7 @@ mod tests {
         let changes = get_branch_changes(
             staged_tree.root(),
             source_for_changes(&cached_tree.origin).unwrap(),
-            branch,
             GitRefName::new("main").unwrap(),
-            &[WorkspacePath::root()],
         )
         .await
         .unwrap();
@@ -360,7 +314,6 @@ mod tests {
             path_strings(&changes.changed_files),
             vec!["variables/checkout.toml", "variables/new.toml"]
         );
-        assert_eq!(workspace_strings(&changes.affected_workspaces), vec!["."]);
     }
 
     #[tokio::test]
@@ -377,21 +330,17 @@ mod tests {
         tokio::fs::create_dir_all(path.join("variables"))
             .await
             .unwrap();
-        tokio::fs::write(path.join(WORKSPACE_MANIFEST), "schema_version = 1\n")
+        tokio::fs::write(path.join("rototo-workspace.toml"), "schema_version = 1\n")
             .await
             .unwrap();
     }
 
     fn source_key(source: SourceTreeOrigin) -> CachedSourceTreeOrigin {
-        CachedSourceTreeOrigin::new("user_123", source, TokenIdentity::none()).unwrap()
+        CachedSourceTreeOrigin::new("user_123", source, TokenIdentity::None).unwrap()
     }
 
     fn path_strings(paths: &[RepoRelativePath]) -> Vec<&str> {
         paths.iter().map(RepoRelativePath::as_str).collect()
-    }
-
-    fn workspace_strings(workspaces: &[WorkspacePath]) -> Vec<&str> {
-        workspaces.iter().map(WorkspacePath::as_str).collect()
     }
 
     fn init_repo(root: &Path) {

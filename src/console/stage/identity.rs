@@ -1,5 +1,3 @@
-#![allow(dead_code)]
-
 use std::fmt::{self, Write};
 use std::path::{Path, PathBuf};
 
@@ -210,10 +208,6 @@ pub enum TokenIdentity {
 }
 
 impl TokenIdentity {
-    pub fn none() -> Self {
-        Self::None
-    }
-
     pub fn from_console_token(token: impl AsRef<str>) -> Self {
         let token = token.as_ref();
         if token.is_empty() {
@@ -235,7 +229,6 @@ pub enum SourceTreeRevision {
     GitBranch(BranchName),
     GitCommit(GitCommit),
     LocalWorkingTree,
-    ArchiveSnapshot(String),
 }
 
 impl SourceTreeRevision {
@@ -258,18 +251,6 @@ impl SourceTreeRevision {
 
     pub fn git_commit(value: impl AsRef<str>) -> Result<Self> {
         Ok(Self::GitCommit(GitCommit::new(value)?))
-    }
-
-    pub fn local_working_tree() -> Self {
-        Self::LocalWorkingTree
-    }
-
-    pub fn archive_snapshot(value: impl Into<String>) -> Result<Self> {
-        let value = value.into();
-        if value.trim().is_empty() {
-            return Err(RototoError::new("archive snapshot cannot be empty"));
-        }
-        Ok(Self::ArchiveSnapshot(value))
     }
 }
 
@@ -301,10 +282,6 @@ impl WorkspaceLocator {
             source_tree: SourceTreeLocator::new(origin, revision),
             path,
         }
-    }
-
-    pub fn from_source_tree(source_tree: SourceTreeLocator, path: WorkspacePath) -> Self {
-        Self { source_tree, path }
     }
 }
 
@@ -689,7 +666,7 @@ mod tests {
     fn cached_source_tree_origin_separates_principal_tree_and_token_identity() {
         let source = SourceTreeOrigin::github("Rototo", "Config").unwrap();
         let anonymous =
-            CachedSourceTreeOrigin::new("user_123", source.clone(), TokenIdentity::none()).unwrap();
+            CachedSourceTreeOrigin::new("user_123", source.clone(), TokenIdentity::None).unwrap();
         let with_token = CachedSourceTreeOrigin::new(
             "user_123",
             source.clone(),

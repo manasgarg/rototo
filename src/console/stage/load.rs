@@ -1,5 +1,3 @@
-#![allow(dead_code)]
-
 use std::path::Path;
 use std::sync::Arc;
 
@@ -61,16 +59,6 @@ fn source_for_selector(selector: &CachedWorkspaceLocator) -> Result<String> {
                 selector.workspace.path.as_str(),
             ))
         }
-        SourceTreeOrigin::Archive { .. }
-            if matches!(
-                selector.workspace.source_tree.revision,
-                SourceTreeRevision::ArchiveSnapshot(_)
-            ) =>
-        {
-            Err(RototoError::new(
-                "archive workspace inspection requires archive staging support",
-            ))
-        }
         _ => Err(invalid_selection_error()),
     }
 }
@@ -96,7 +84,7 @@ fn git_ref_for_revision(revision: &SourceTreeRevision) -> Option<&str> {
         SourceTreeRevision::GitRef(ref_) => Some(ref_.as_ref()),
         SourceTreeRevision::GitBranch(branch) => Some(branch.as_ref()),
         SourceTreeRevision::GitCommit(commit) => Some(commit.as_ref()),
-        SourceTreeRevision::LocalWorkingTree | SourceTreeRevision::ArchiveSnapshot(_) => None,
+        SourceTreeRevision::LocalWorkingTree => None,
     }
 }
 
@@ -231,7 +219,7 @@ extends = ["../base"]
         CachedWorkspaceLocator::new(
             "user_123",
             WorkspaceLocator::new(tree, revision, WorkspacePath::new(path).unwrap()),
-            TokenIdentity::none(),
+            TokenIdentity::None,
         )
         .unwrap()
     }

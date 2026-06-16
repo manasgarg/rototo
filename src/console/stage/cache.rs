@@ -157,7 +157,7 @@ impl StageCache {
                 let staged_tree = cache
                     .get_staged_source_tree(cached_tree.clone(), revision.clone())
                     .await?;
-                discovery::discover_workspaces(cached_tree, revision, staged_tree.root()).await
+                discovery::discover_workspaces(staged_tree.root()).await
             })
             .await?;
         Ok(discovery.clone())
@@ -206,17 +206,7 @@ impl StageCache {
                 let staged_tree = cache
                     .get_staged_source_tree(cached_tree.clone(), revision.clone())
                     .await?;
-                let discovery = cache
-                    .discover_workspaces(cached_tree.clone(), revision)
-                    .await?;
-                branch_changes::get_branch_changes(
-                    staged_tree.root(),
-                    source,
-                    branch,
-                    base_ref,
-                    &discovery.workspaces,
-                )
-                .await
+                branch_changes::get_branch_changes(staged_tree.root(), source, base_ref).await
             })
             .await?;
         Ok(changes.clone())
@@ -464,7 +454,7 @@ mod tests {
             SourceTreeOrigin::GitRemote {
                 remote_url: format!("git+file://{}", repo.path().display()),
             },
-            TokenIdentity::none(),
+            TokenIdentity::None,
         )
         .unwrap();
         let revision = SourceTreeRevision::GitRef(GitRefName::new("main").unwrap());
@@ -498,7 +488,7 @@ mod tests {
             remote_url: format!("git+file://{}", repo.path().display()),
         };
         let cached_tree =
-            CachedSourceTreeOrigin::new("user_123", tree.clone(), TokenIdentity::none()).unwrap();
+            CachedSourceTreeOrigin::new("user_123", tree.clone(), TokenIdentity::None).unwrap();
         let base = cached_workspace_source(
             tree.clone(),
             SourceTreeRevision::GitRef(GitRefName::new("main").unwrap()),
@@ -567,7 +557,7 @@ mod tests {
         let cache = StageCache::new();
         let source_tree = SourceTreeOrigin::local_folder(tree.path()).await.unwrap();
         let cached_tree =
-            CachedSourceTreeOrigin::new("user_123", source_tree.clone(), TokenIdentity::none())
+            CachedSourceTreeOrigin::new("user_123", source_tree.clone(), TokenIdentity::None)
                 .unwrap();
         let selector =
             cached_workspace_source(source_tree, SourceTreeRevision::LocalWorkingTree, ".");
@@ -645,7 +635,7 @@ mod tests {
             remote_url: format!("git+file://{}", repo.path().display()),
         };
         let cached_tree =
-            CachedSourceTreeOrigin::new("user_123", tree.clone(), TokenIdentity::none()).unwrap();
+            CachedSourceTreeOrigin::new("user_123", tree.clone(), TokenIdentity::None).unwrap();
         let branch = BranchName::new("feature/payments").unwrap();
         let base_ref = GitRefName::new("main").unwrap();
 
@@ -720,7 +710,7 @@ default = "enabled"
         CachedWorkspaceLocator::new(
             "user_123",
             WorkspaceLocator::new(tree, revision, WorkspacePath::new(path).unwrap()),
-            TokenIdentity::none(),
+            TokenIdentity::None,
         )
         .unwrap()
     }
