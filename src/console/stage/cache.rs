@@ -9,7 +9,8 @@ use super::load;
 use super::runtime;
 use super::{
     BranchChanges, BranchName, CachedTreeSource, CachedWorkspaceSource, GitRefName,
-    SemanticWorkspace, TreeRevision, WorkspaceDiscovery, WorkspacePath, WorkspaceSource,
+    SemanticWorkspace, TreeRevision, TreeSource, WorkspaceDiscovery, WorkspacePath,
+    WorkspaceSource,
 };
 use crate::error::Result;
 use crate::sdk::Workspace;
@@ -26,8 +27,33 @@ struct StageCacheInner {
 
 #[derive(Default)]
 struct TreeSourceSlot {
+    workspace_discoveries: Mutex<HashMap<WorkspaceDiscoveryKey, Arc<WorkspaceDiscoverySlot>>>,
     workspace_views: Mutex<HashMap<WorkspaceViewKey, Arc<WorkspaceSlot>>>,
     branch_changes: Mutex<HashMap<BranchChangesKey, Arc<BranchChangesSlot>>>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Hash)]
+struct WorkspaceDiscoveryKey {
+    revision: TreeRevision,
+}
+
+impl WorkspaceDiscoveryKey {
+    fn new(revision: TreeRevision) -> Self {
+        Self { revision }
+    }
+
+    fn is_branch(&self, branch: &str) -> bool {
+        matches!(&self.revision, TreeRevision::GitBranch(name) if name.as_str() == branch)
+    }
+
+    fn is_local_working_tree(&self) -> bool {
+        matches!(self.revision, TreeRevision::LocalWorkingTree)
+    }
+}
+
+#[derive(Default)]
+struct WorkspaceDiscoverySlot {
+    discovery: OnceCell<WorkspaceDiscovery>,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Hash)]
@@ -46,6 +72,10 @@ impl WorkspaceViewKey {
 
     fn is_branch(&self, branch: &str) -> bool {
         matches!(&self.revision, TreeRevision::GitBranch(name) if name.as_str() == branch)
+    }
+
+    fn is_local_working_tree(&self) -> bool {
+        matches!(self.revision, TreeRevision::LocalWorkingTree)
     }
 }
 
@@ -87,7 +117,19 @@ impl StageCache {
         cached_tree: CachedTreeSource,
         revision: TreeRevision,
     ) -> Result<WorkspaceDiscovery> {
-        discovery::discover_workspaces(cached_tree, revision).await
+        let tree_slot = self.tree_slot(cached_tree.clone()).await;
+        let key = WorkspaceDiscoveryKey::new(revision.clone());
+        let discovery_slot = {
+            let mut workspace_discoveries = tree_slot.workspace_discoveries.lock().await;
+            workspace_discoveries.entry(key).or_default().clone()
+        };
+        let discovery = discovery_slot
+            .discovery
+            .get_or_try_init(|| async move {
+                discovery::discover_workspaces(cached_tree, revision).await
+            })
+            .await?;
+        Ok(discovery.clone())
     }
 
     pub async fn get_branch_changes(
@@ -102,10 +144,21 @@ impl StageCache {
             let mut branch_changes = tree_slot.branch_changes.lock().await;
             branch_changes.entry(key).or_default().clone()
         };
+        let cache = self.clone();
         let changes = changes_slot
             .changes
             .get_or_try_init(|| async move {
-                branch_changes::get_branch_changes(cached_tree, branch, base_ref).await
+                let revision = branch_changes::revision_for_changes(&cached_tree.tree, &branch)?;
+                let discovery = cache
+                    .discover_workspaces(cached_tree.clone(), revision)
+                    .await?;
+                branch_changes::get_branch_changes(
+                    cached_tree,
+                    branch,
+                    base_ref,
+                    &discovery.workspaces,
+                )
+                .await
             })
             .await?;
         Ok(changes.clone())
@@ -187,17 +240,32 @@ impl StageCache {
         };
         let key = WorkspaceViewKey::new(&selector.workspace);
         tree_slot.workspace_views.lock().await.remove(&key);
+        if selector.workspace.revision == TreeRevision::LocalWorkingTree {
+            tree_slot
+                .workspace_discoveries
+                .lock()
+                .await
+                .retain(|key, _| !key.is_local_working_tree());
+        }
     }
 
     pub async fn invalidate_branch(&self, cached_tree: &CachedTreeSource, branch: &str) {
         let Some(tree_slot) = self.tree_slot_if_present(cached_tree).await else {
             return;
         };
+        let invalidate_local_working_tree =
+            matches!(cached_tree.tree, TreeSource::LocalFolder { .. });
         tree_slot
-            .workspace_views
+            .workspace_discoveries
             .lock()
             .await
-            .retain(|key, _| !key.is_branch(branch));
+            .retain(|key, _| {
+                !(key.is_branch(branch)
+                    || invalidate_local_working_tree && key.is_local_working_tree())
+            });
+        tree_slot.workspace_views.lock().await.retain(|key, _| {
+            !(key.is_branch(branch) || invalidate_local_working_tree && key.is_local_working_tree())
+        });
         tree_slot
             .branch_changes
             .lock()
@@ -362,6 +430,53 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn local_branch_invalidation_drops_working_tree_views_and_discovery() {
+        let tree = TempDir::new().expect("tree tempdir");
+        write_workspace(tree.path()).await;
+
+        let cache = StageCache::new();
+        let source_tree = TreeSource::local_folder(tree.path()).await.unwrap();
+        let cached_tree =
+            CachedTreeSource::new("user_123", source_tree.clone(), TokenIdentity::none()).unwrap();
+        let selector = cached_workspace_source(source_tree, TreeRevision::LocalWorkingTree, ".");
+
+        let workspace_before = cache
+            .get_inspected_workspace(selector.clone(), "")
+            .await
+            .unwrap();
+        let discovery_before = cache
+            .discover_workspaces(cached_tree.clone(), TreeRevision::LocalWorkingTree)
+            .await
+            .unwrap();
+        write_workspace(&tree.path().join("workspaces/payments")).await;
+        let cached_discovery = cache
+            .discover_workspaces(cached_tree.clone(), TreeRevision::LocalWorkingTree)
+            .await
+            .unwrap();
+
+        cache.invalidate_branch(&cached_tree, "feature/local").await;
+        let workspace_after = cache.get_inspected_workspace(selector, "").await.unwrap();
+        let discovery_after = cache
+            .discover_workspaces(cached_tree, TreeRevision::LocalWorkingTree)
+            .await
+            .unwrap();
+
+        assert_eq!(
+            workspace_path_strings(&discovery_before.workspaces),
+            vec!["."]
+        );
+        assert_eq!(
+            workspace_path_strings(&cached_discovery.workspaces),
+            vec!["."]
+        );
+        assert_eq!(
+            workspace_path_strings(&discovery_after.workspaces),
+            vec![".", "workspaces/payments"]
+        );
+        assert!(!Arc::ptr_eq(&workspace_before, &workspace_after));
+    }
+
+    #[tokio::test]
     async fn branch_invalidation_drops_cached_branch_changes() {
         let repo = TempDir::new().expect("repo tempdir");
         init_repo(repo.path());
@@ -463,6 +578,10 @@ default = "enabled"
 
     fn repo_path_strings(paths: &[RepoRelativePath]) -> Vec<&str> {
         paths.iter().map(RepoRelativePath::as_str).collect()
+    }
+
+    fn workspace_path_strings(paths: &[WorkspacePath]) -> Vec<&str> {
+        paths.iter().map(WorkspacePath::as_str).collect()
     }
 
     fn init_repo(path: &Path) {

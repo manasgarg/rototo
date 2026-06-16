@@ -17,14 +17,10 @@ pub async fn get_branch_changes(
     cached_tree: CachedTreeSource,
     branch: BranchName,
     base_ref: GitRefName,
+    workspaces: &[WorkspacePath],
 ) -> Result<BranchChanges> {
     let changed_files = changed_files_for_tree(&cached_tree.tree, &branch, &base_ref).await?;
-    let discovery = super::discovery::discover_workspaces(
-        cached_tree.clone(),
-        revision_for_changes(&cached_tree.tree, &branch),
-    )
-    .await?;
-    let affected_workspaces = affected_workspaces(&changed_files, &discovery.workspaces);
+    let affected_workspaces = affected_workspaces(&changed_files, workspaces);
     Ok(BranchChanges {
         branch,
         base_ref,
@@ -33,13 +29,15 @@ pub async fn get_branch_changes(
     })
 }
 
-fn revision_for_changes(tree: &TreeSource, branch: &BranchName) -> TreeRevision {
+pub fn revision_for_changes(tree: &TreeSource, branch: &BranchName) -> Result<TreeRevision> {
     match tree {
-        TreeSource::LocalFolder { .. } => TreeRevision::LocalWorkingTree,
+        TreeSource::LocalFolder { .. } => Ok(TreeRevision::LocalWorkingTree),
         TreeSource::GitHub { .. } | TreeSource::GitRemote { .. } => {
-            TreeRevision::GitBranch(branch.clone())
+            Ok(TreeRevision::GitBranch(branch.clone()))
         }
-        TreeSource::Archive { .. } => TreeRevision::ArchiveSnapshot("unsupported".to_owned()),
+        TreeSource::Archive { .. } => Err(RototoError::new(
+            "branch changes require a git-backed source tree",
+        )),
     }
 }
 
@@ -283,6 +281,11 @@ mod tests {
             }),
             BranchName::new("feature/payments").unwrap(),
             GitRefName::new("main").unwrap(),
+            &[
+                WorkspacePath::root(),
+                WorkspacePath::new("workspaces/payments").unwrap(),
+                WorkspacePath::new("workspaces/search").unwrap(),
+            ],
         )
         .await
         .unwrap();
@@ -321,6 +324,7 @@ mod tests {
             source_key(TreeSource::local_folder(repo.path()).await.unwrap()),
             BranchName::new("feature/local").unwrap(),
             GitRefName::new("main").unwrap(),
+            &[WorkspacePath::root()],
         )
         .await
         .unwrap();
@@ -338,6 +342,7 @@ mod tests {
             source_key(TreeSource::archive("https://example.com/configs.tar.gz").unwrap()),
             BranchName::new("feature/config").unwrap(),
             GitRefName::new("main").unwrap(),
+            &[],
         )
         .await
         .unwrap_err();
