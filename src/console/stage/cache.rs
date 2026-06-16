@@ -201,12 +201,17 @@ impl StageCache {
         let changes = changes_slot
             .changes
             .get_or_try_init(|| async move {
+                let source = branch_changes::source_for_changes(&cached_tree.tree)?;
                 let revision = branch_changes::revision_for_changes(&cached_tree.tree, &branch)?;
+                let staged_tree = cache
+                    .get_staged_source_tree(cached_tree.clone(), revision.clone())
+                    .await?;
                 let discovery = cache
                     .discover_workspaces(cached_tree.clone(), revision)
                     .await?;
                 branch_changes::get_branch_changes(
-                    cached_tree,
+                    staged_tree.root(),
+                    source,
                     branch,
                     base_ref,
                     &discovery.workspaces,

@@ -1,25 +1,31 @@
 use std::collections::BTreeSet;
 use std::path::Path;
 
-use tempfile::TempDir;
 use tokio::process::Command;
 
 use super::{
-    BranchChanges, BranchName, CachedTreeSource, GitRefName, RepoRelativePath, TreeRevision,
-    TreeSource, WorkspacePath,
+    BranchChanges, BranchName, GitRefName, RepoRelativePath, TreeRevision, TreeSource,
+    WorkspacePath,
 };
 use crate::error::{Result, RototoError};
 use crate::source::SourceOptions;
 
 const WORKSPACE_MANIFEST: &str = "rototo-workspace.toml";
 
-pub async fn get_branch_changes(
-    cached_tree: CachedTreeSource,
+#[derive(Clone, Copy, Debug)]
+pub(super) enum BranchChangeSource {
+    LocalWorkingTree,
+    GitBranch,
+}
+
+pub(super) async fn get_branch_changes(
+    repo: &Path,
+    source: BranchChangeSource,
     branch: BranchName,
     base_ref: GitRefName,
     workspaces: &[WorkspacePath],
 ) -> Result<BranchChanges> {
-    let changed_files = changed_files_for_tree(&cached_tree.tree, &branch, &base_ref).await?;
+    let changed_files = changed_files_for_staged_repo(repo, source, &base_ref).await?;
     let affected_workspaces = affected_workspaces(&changed_files, workspaces);
     Ok(BranchChanges {
         branch,
@@ -29,7 +35,19 @@ pub async fn get_branch_changes(
     })
 }
 
-pub fn revision_for_changes(tree: &TreeSource, branch: &BranchName) -> Result<TreeRevision> {
+pub(super) fn source_for_changes(tree: &TreeSource) -> Result<BranchChangeSource> {
+    match tree {
+        TreeSource::LocalFolder { .. } => Ok(BranchChangeSource::LocalWorkingTree),
+        TreeSource::GitHub { .. } | TreeSource::GitRemote { .. } => {
+            Ok(BranchChangeSource::GitBranch)
+        }
+        TreeSource::Archive { .. } => Err(RototoError::new(
+            "branch changes require a git-backed source tree",
+        )),
+    }
+}
+
+pub(super) fn revision_for_changes(tree: &TreeSource, branch: &BranchName) -> Result<TreeRevision> {
     match tree {
         TreeSource::LocalFolder { .. } => Ok(TreeRevision::LocalWorkingTree),
         TreeSource::GitHub { .. } | TreeSource::GitRemote { .. } => {
@@ -41,69 +59,67 @@ pub fn revision_for_changes(tree: &TreeSource, branch: &BranchName) -> Result<Tr
     }
 }
 
-async fn changed_files_for_tree(
-    tree: &TreeSource,
-    branch: &BranchName,
+async fn changed_files_for_staged_repo(
+    repo: &Path,
+    source: BranchChangeSource,
     base_ref: &GitRefName,
 ) -> Result<Vec<RepoRelativePath>> {
-    match tree {
-        TreeSource::LocalFolder { root } => changed_files_in_local_repo(root, base_ref).await,
-        TreeSource::GitHub { owner, name } => {
-            let remote = format!("https://github.com/{owner}/{name}.git");
-            changed_files_in_remote_repo(&remote, branch, base_ref).await
+    match source {
+        BranchChangeSource::LocalWorkingTree => {
+            changed_files_in_repo(
+                repo,
+                &[format!("{}...HEAD", base_ref.as_str())],
+                &SourceOptions::default(),
+            )
+            .await
         }
-        TreeSource::GitRemote { remote_url } => {
-            let remote = clone_url(remote_url)?;
-            changed_files_in_remote_repo(&remote, branch, base_ref).await
+        BranchChangeSource::GitBranch => {
+            let options = SourceOptions::default();
+            ensure_remote_base_ref(repo, base_ref, &options).await?;
+            changed_files_in_repo(
+                repo,
+                &[
+                    format!("{}...HEAD", base_ref.as_str()),
+                    format!("origin/{}...HEAD", base_ref.as_str()),
+                    "FETCH_HEAD...HEAD".to_owned(),
+                ],
+                &options,
+            )
+            .await
         }
-        TreeSource::Archive { .. } => Err(RototoError::new(
-            "branch changes require a git-backed source tree",
-        )),
     }
 }
 
-async fn changed_files_in_remote_repo(
-    remote: &str,
-    branch: &BranchName,
+async fn ensure_remote_base_ref(
+    repo: &Path,
     base_ref: &GitRefName,
-) -> Result<Vec<RepoRelativePath>> {
-    let options = SourceOptions::default();
-    let tempdir = TempDir::new()
-        .map_err(|err| RototoError::new(format!("failed to create tempdir: {err}")))?;
-    let repo = tempdir.path().join("clone");
+    options: &SourceOptions,
+) -> Result<()> {
+    if matches!(
+        git_output(
+            Some(repo),
+            &["rev-parse", "--is-shallow-repository"],
+            options
+        )
+        .await
+        .as_deref()
+        .map(str::trim),
+        Ok("true")
+    ) {
+        git_output(
+            Some(repo),
+            &["fetch", "--quiet", "--unshallow", "origin"],
+            options,
+        )
+        .await?;
+    }
     git_output(
-        None,
-        &["clone", "--quiet", remote, repo_string(&repo).as_str()],
-        &options,
+        Some(repo),
+        &["fetch", "--quiet", "origin", base_ref.as_str()],
+        options,
     )
     .await?;
-    git_output(
-        Some(&repo),
-        &["checkout", "--quiet", branch.as_str()],
-        &options,
-    )
-    .await?;
-    changed_files_in_repo(
-        &repo,
-        &[
-            format!("{}...HEAD", base_ref.as_str()),
-            format!("origin/{}...HEAD", base_ref.as_str()),
-        ],
-        &options,
-    )
-    .await
-}
-
-async fn changed_files_in_local_repo(
-    root: &Path,
-    base_ref: &GitRefName,
-) -> Result<Vec<RepoRelativePath>> {
-    changed_files_in_repo(
-        root,
-        &[format!("{}...HEAD", base_ref.as_str())],
-        &SourceOptions::default(),
-    )
-    .await
+    Ok(())
 }
 
 async fn changed_files_in_repo(
@@ -188,19 +204,6 @@ fn repo_relative_path_string(path: &str) -> Option<String> {
         .map(|path| path.as_str().to_owned())
 }
 
-fn clone_url(remote_url: &str) -> Result<String> {
-    let remote_url = remote_url.trim();
-    let remote_url = remote_url.strip_prefix("git+").unwrap_or(remote_url);
-    if remote_url.is_empty() {
-        return Err(RototoError::new("git remote URL cannot be empty"));
-    }
-    Ok(remote_url.to_owned())
-}
-
-fn repo_string(repo: &Path) -> String {
-    repo.to_string_lossy().into_owned()
-}
-
 async fn git_output(repo: Option<&Path>, args: &[&str], options: &SourceOptions) -> Result<String> {
     let mut command = Command::new("git");
     command.kill_on_drop(true);
@@ -254,8 +257,10 @@ fn scrub_git_process_variables(command: &mut Command) {
 
 #[cfg(test)]
 mod tests {
+    use super::super::source_tree;
     use super::*;
-    use crate::console::stage::TokenIdentity;
+    use crate::console::stage::{CachedTreeSource, TokenIdentity};
+    use tempfile::TempDir;
 
     #[tokio::test]
     async fn branch_changes_map_files_to_root_and_nested_workspaces() {
@@ -275,11 +280,21 @@ mod tests {
         .unwrap();
         commit_all(repo.path(), "change payments");
 
+        let cached_tree = source_key(TreeSource::GitRemote {
+            remote_url: format!("git+file://{}", repo.path().display()),
+        });
+        let branch = BranchName::new("feature/payments").unwrap();
+        let staged_tree = source_tree::stage_tree_for_revision(
+            cached_tree.clone(),
+            revision_for_changes(&cached_tree.tree, &branch).unwrap(),
+        )
+        .await
+        .unwrap();
+
         let changes = get_branch_changes(
-            source_key(TreeSource::GitRemote {
-                remote_url: format!("git+file://{}", repo.path().display()),
-            }),
-            BranchName::new("feature/payments").unwrap(),
+            staged_tree.root(),
+            source_for_changes(&cached_tree.tree).unwrap(),
+            branch,
             GitRefName::new("main").unwrap(),
             &[
                 WorkspacePath::root(),
@@ -320,9 +335,18 @@ mod tests {
         .await
         .unwrap();
 
+        let cached_tree = source_key(TreeSource::local_folder(repo.path()).await.unwrap());
+        let branch = BranchName::new("feature/local").unwrap();
+        let staged_tree = source_tree::stage_tree_for_revision(
+            cached_tree.clone(),
+            revision_for_changes(&cached_tree.tree, &branch).unwrap(),
+        )
+        .await
+        .unwrap();
         let changes = get_branch_changes(
-            source_key(TreeSource::local_folder(repo.path()).await.unwrap()),
-            BranchName::new("feature/local").unwrap(),
+            staged_tree.root(),
+            source_for_changes(&cached_tree.tree).unwrap(),
+            branch,
             GitRefName::new("main").unwrap(),
             &[WorkspacePath::root()],
         )
@@ -338,14 +362,9 @@ mod tests {
 
     #[tokio::test]
     async fn archive_sources_do_not_have_branch_changes() {
-        let err = get_branch_changes(
-            source_key(TreeSource::archive("https://example.com/configs.tar.gz").unwrap()),
-            BranchName::new("feature/config").unwrap(),
-            GitRefName::new("main").unwrap(),
-            &[],
-        )
-        .await
-        .unwrap_err();
+        let err =
+            source_for_changes(&TreeSource::archive("https://example.com/configs.tar.gz").unwrap())
+                .unwrap_err();
 
         assert!(err.to_string().contains("git-backed source tree"));
     }
