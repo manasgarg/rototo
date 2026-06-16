@@ -356,7 +356,8 @@ function WorkspacesScreen({
                 <div className="action-row">
                     <span className="pill pill-sea">
                         <span className="d" />
-                        source tree: {filterSourceTree.owner}/{filterSourceTree.name}
+                        source tree: {filterSourceTree.owner}/
+                        {filterSourceTree.name}
                     </span>
                     <Link
                         className="btn btn-ghost btn-sm"

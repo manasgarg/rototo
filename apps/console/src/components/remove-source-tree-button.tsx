@@ -25,9 +25,12 @@ export function RemoveSourceTreeButton({
         setPending(true);
         setMessage(null);
         try {
-            const response = await apiFetch(`/api/source-trees/${sourceTreeId}`, {
-                method: "DELETE",
-            });
+            const response = await apiFetch(
+                `/api/source-trees/${sourceTreeId}`,
+                {
+                    method: "DELETE",
+                },
+            );
             const body = (await response.json()) as { error?: string };
             if (!response.ok) {
                 throw new Error(body.error ?? "failed to remove source tree");
