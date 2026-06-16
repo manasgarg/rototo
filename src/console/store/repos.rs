@@ -52,14 +52,21 @@ impl Store {
             let now = now_iso();
             let tx = conn.unchecked_transaction().map_err(db_err)?;
 
-            let repo_id = upsert_repo_row(&tx, &principal_id, &owner, &name, &default_ref, &now)?;
-            let discovered_keys =
-                upsert_discovered_workspaces(&tx, &repo_id, &owner, &name, &workspaces, &now)?;
-            cleanup_missing_workspaces(&tx, &repo_id, &discovered_keys)?;
+            let source_tree_id =
+                upsert_source_tree_row(&tx, &principal_id, &owner, &name, &default_ref, &now)?;
+            let discovered_keys = upsert_discovered_workspaces(
+                &tx,
+                &source_tree_id,
+                &owner,
+                &name,
+                &workspaces,
+                &now,
+            )?;
+            cleanup_missing_workspaces(&tx, &source_tree_id, &discovered_keys)?;
 
             tx.commit().map_err(db_err)?;
 
-            repo_with_workspaces_by_id(conn, &repo_id, &principal_id)?
+            repo_with_workspaces_by_id(conn, &source_tree_id, &principal_id)?
                 .ok_or_else(|| RototoError::new("repo registration failed"))
         })
         .await
@@ -80,7 +87,7 @@ impl Store {
             }
             // ON DELETE CASCADE clears workspaces and tracked branch
             // selections transitively.
-            conn.execute("DELETE FROM repos WHERE id = ?1", params![repo_id])
+            conn.execute("DELETE FROM source_trees WHERE id = ?1", params![repo_id])
                 .map_err(db_err)?;
             Ok(true)
         })
@@ -116,7 +123,7 @@ impl Store {
     }
 }
 
-fn upsert_repo_row(
+fn upsert_source_tree_row(
     tx: &Transaction<'_>,
     principal_id: &str,
     owner: &str,
@@ -126,7 +133,7 @@ fn upsert_repo_row(
 ) -> Result<String> {
     let existing: Option<String> = tx
         .query_row(
-            "SELECT id FROM repos WHERE principal_id = ?1 AND owner = ?2 AND name = ?3",
+            "SELECT id FROM source_trees WHERE principal_id = ?1 AND owner = ?2 AND name = ?3",
             params![principal_id, owner, name],
             |row| row.get(0),
         )
@@ -135,7 +142,7 @@ fn upsert_repo_row(
 
     if let Some(repo_id) = existing {
         tx.execute(
-            "UPDATE repos SET default_ref = ?1, updated_at = ?2, last_discovered_at = ?3
+            "UPDATE source_trees SET default_ref = ?1, updated_at = ?2, last_discovered_at = ?3
              WHERE id = ?4",
             params![default_ref, now, now, repo_id.as_str()],
         )
@@ -145,7 +152,7 @@ fn upsert_repo_row(
 
     let repo_id = new_id();
     tx.execute(
-        "INSERT INTO repos (
+        "INSERT INTO source_trees (
            id, principal_id, owner, name, default_ref,
            created_at, updated_at, last_discovered_at
          ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
@@ -166,7 +173,7 @@ fn upsert_repo_row(
 
 fn upsert_discovered_workspaces(
     tx: &Transaction<'_>,
-    repo_id: &str,
+    source_tree_id: &str,
     owner: &str,
     name: &str,
     workspaces: &[DiscoveredWorkspaceInput],
@@ -176,7 +183,7 @@ fn upsert_discovered_workspaces(
 
     for workspace in workspaces {
         discovered_keys.insert(WorkspaceKey::from_discovered(workspace));
-        upsert_workspace_row(tx, repo_id, owner, name, workspace, now)?;
+        upsert_workspace_row(tx, source_tree_id, owner, name, workspace, now)?;
     }
 
     Ok(discovered_keys)
@@ -184,7 +191,7 @@ fn upsert_discovered_workspaces(
 
 fn upsert_workspace_row(
     tx: &Transaction<'_>,
-    repo_id: &str,
+    source_tree_id: &str,
     owner: &str,
     name: &str,
     workspace: &DiscoveredWorkspaceInput,
@@ -192,15 +199,15 @@ fn upsert_workspace_row(
 ) -> Result<()> {
     let updated = tx
         .execute(
-            "UPDATE workspaces
+            "UPDATE source_tree_workspaces
              SET owner = ?1, name = ?2, source = ?3, discovered_at = ?4, active = 1
-             WHERE repo_id = ?5 AND path = ?6 AND ref_ = ?7",
+             WHERE source_tree_id = ?5 AND path = ?6 AND ref_ = ?7",
             params![
                 owner,
                 name,
                 workspace.source.as_str(),
                 now,
-                repo_id,
+                source_tree_id,
                 workspace.path.as_str(),
                 workspace.git_ref.as_str(),
             ],
@@ -213,12 +220,12 @@ fn upsert_workspace_row(
 
     let workspace_id = new_id();
     tx.execute(
-        "INSERT INTO workspaces (
-           id, repo_id, owner, name, path, ref_, source, discovered_at
+        "INSERT INTO source_tree_workspaces (
+           id, source_tree_id, owner, name, path, ref_, source, discovered_at
          ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
         params![
             workspace_id,
-            repo_id,
+            source_tree_id,
             owner,
             name,
             workspace.path.as_str(),
@@ -233,10 +240,10 @@ fn upsert_workspace_row(
 
 fn cleanup_missing_workspaces(
     tx: &Transaction<'_>,
-    repo_id: &str,
+    source_tree_id: &str,
     discovered_keys: &HashSet<WorkspaceKey>,
 ) -> Result<()> {
-    for workspace in workspace_keys_for_repo(tx, repo_id)? {
+    for workspace in workspace_keys_for_source_tree(tx, source_tree_id)? {
         if discovered_keys.contains(&workspace.key) {
             continue;
         }
@@ -245,12 +252,15 @@ fn cleanup_missing_workspaces(
     Ok(())
 }
 
-fn workspace_keys_for_repo(tx: &Transaction<'_>, repo_id: &str) -> Result<Vec<WorkspaceRowKey>> {
+fn workspace_keys_for_source_tree(
+    tx: &Transaction<'_>,
+    source_tree_id: &str,
+) -> Result<Vec<WorkspaceRowKey>> {
     let mut statement = tx
-        .prepare("SELECT id, path, ref_ FROM workspaces WHERE repo_id = ?1")
+        .prepare("SELECT id, path, ref_ FROM source_tree_workspaces WHERE source_tree_id = ?1")
         .map_err(db_err)?;
     statement
-        .query_map(params![repo_id], |row| {
+        .query_map(params![source_tree_id], |row| {
             Ok(WorkspaceRowKey {
                 id: row.get(0)?,
                 key: WorkspaceKey {
@@ -266,16 +276,20 @@ fn workspace_keys_for_repo(tx: &Transaction<'_>, repo_id: &str) -> Result<Vec<Wo
 
 fn delete_or_deactivate_workspace(tx: &Transaction<'_>, workspace_id: &str) -> Result<()> {
     tx.execute(
-        "DELETE FROM workspaces
+        "DELETE FROM source_tree_workspaces
          WHERE id = ?1
            AND NOT EXISTS (
-             SELECT 1 FROM tracked_branch_workspaces WHERE workspace_id = ?1
+             SELECT 1
+             FROM active_branch_workspaces abw
+             INNER JOIN active_branches b ON b.id = abw.branch_id
+             WHERE b.source_tree_id = source_tree_workspaces.source_tree_id
+               AND abw.workspace_path = source_tree_workspaces.path
            )",
         params![workspace_id],
     )
     .map_err(db_err)?;
     tx.execute(
-        "UPDATE workspaces SET active = 0 WHERE id = ?1",
+        "UPDATE source_tree_workspaces SET active = 0 WHERE id = ?1",
         params![workspace_id],
     )
     .map_err(db_err)?;
@@ -298,7 +312,7 @@ fn list_repos_for_user_sync(
 fn list_repo_ids_for_user(conn: &Connection, principal_id: &str) -> Result<Vec<String>> {
     let mut statement = conn
         .prepare(
-            "SELECT id FROM repos WHERE principal_id = ?1
+            "SELECT id FROM source_trees WHERE principal_id = ?1
              ORDER BY updated_at DESC, owner ASC, name ASC",
         )
         .map_err(db_err)?;
@@ -315,9 +329,9 @@ fn workspace_by_id_for_user(
     principal_id: &str,
 ) -> Result<Option<WorkspaceRecord>> {
     conn.query_row(
-        "SELECT w.id, w.repo_id, w.owner, w.name, w.path, w.ref_, w.source, w.discovered_at
-         FROM workspaces w
-         INNER JOIN repos r ON r.id = w.repo_id
+        "SELECT w.id, w.source_tree_id, w.owner, w.name, w.path, w.ref_, w.source, w.discovered_at
+         FROM source_tree_workspaces w
+         INNER JOIN source_trees r ON r.id = w.source_tree_id
          WHERE w.id = ?1 AND r.principal_id = ?2",
         params![workspace_id, principal_id],
         workspace_from_row,
@@ -377,9 +391,9 @@ pub(super) fn list_workspaces_for_user_sync(
 ) -> Result<Vec<WorkspaceRecord>> {
     let mut statement = conn
         .prepare(
-            "SELECT w.id, w.repo_id, w.owner, w.name, w.path, w.ref_, w.source, w.discovered_at
-             FROM workspaces w
-             INNER JOIN repos r ON r.id = w.repo_id
+            "SELECT w.id, w.source_tree_id, w.owner, w.name, w.path, w.ref_, w.source, w.discovered_at
+             FROM source_tree_workspaces w
+             INNER JOIN source_trees r ON r.id = w.source_tree_id
              WHERE r.principal_id = ?1
                AND w.active = 1
              ORDER BY w.owner ASC, w.name ASC, w.path ASC",
@@ -399,9 +413,9 @@ fn list_all_workspaces_for_user_sync(
 ) -> Result<Vec<WorkspaceRecord>> {
     let mut statement = conn
         .prepare(
-            "SELECT w.id, w.repo_id, w.owner, w.name, w.path, w.ref_, w.source, w.discovered_at
-             FROM workspaces w
-             INNER JOIN repos r ON r.id = w.repo_id
+            "SELECT w.id, w.source_tree_id, w.owner, w.name, w.path, w.ref_, w.source, w.discovered_at
+             FROM source_tree_workspaces w
+             INNER JOIN source_trees r ON r.id = w.source_tree_id
              WHERE r.principal_id = ?1
              ORDER BY w.owner ASC, w.name ASC, w.path ASC",
         )
@@ -423,7 +437,7 @@ fn repo_with_workspaces_by_id(
         .query_row(
             "SELECT id, principal_id, owner, name, default_ref,
                     created_at, updated_at, last_discovered_at
-             FROM repos WHERE id = ?1 AND principal_id = ?2",
+             FROM source_trees WHERE id = ?1 AND principal_id = ?2",
             params![repo_id, principal_id],
             repo_from_row,
         )
@@ -439,9 +453,9 @@ fn repo_with_workspaces_by_id(
 fn active_workspaces_for_repo(conn: &Connection, repo_id: &str) -> Result<Vec<WorkspaceRecord>> {
     let mut statement = conn
         .prepare(
-            "SELECT id, repo_id, owner, name, path, ref_, source, discovered_at
-             FROM workspaces
-             WHERE repo_id = ?1 AND active = 1
+            "SELECT id, source_tree_id, owner, name, path, ref_, source, discovered_at
+             FROM source_tree_workspaces
+             WHERE source_tree_id = ?1 AND active = 1
              ORDER BY path ASC",
         )
         .map_err(db_err)?;

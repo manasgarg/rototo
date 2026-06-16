@@ -38,17 +38,29 @@ fn schema_initialization_sets_store_schema_version() {
     let conn = Connection::open_in_memory().unwrap();
     schema::initialize_schema(&conn).unwrap();
 
-    assert_eq!(user_version(&conn), 5);
+    assert_eq!(user_version(&conn), 6);
     assert!(
-        table_columns(&conn, "tracked_branches")
+        table_columns(&conn, "source_trees")
+            .iter()
+            .any(|column| column == "owner")
+    );
+    assert!(
+        table_columns(&conn, "source_tree_workspaces")
+            .iter()
+            .any(|column| column == "source_tree_id")
+    );
+    assert!(
+        table_columns(&conn, "active_branches")
             .iter()
             .any(|column| column == "branch")
     );
     assert!(
-        table_columns(&conn, "tracked_branch_workspaces")
+        table_columns(&conn, "active_branch_workspaces")
             .iter()
-            .any(|column| column == "workspace_id")
+            .any(|column| column == "workspace_path")
     );
+    assert!(table_columns(&conn, "repos").is_empty());
+    assert!(table_columns(&conn, "workspaces").is_empty());
 }
 
 #[test]
@@ -101,24 +113,26 @@ fn schema_initialization_baselines_legacy_version_zero_stores() {
 
     schema::initialize_schema(&conn).unwrap();
 
-    assert_eq!(user_version(&conn), 5);
+    assert_eq!(user_version(&conn), 6);
     assert!(
-        table_columns(&conn, "workspaces")
+        table_columns(&conn, "source_tree_workspaces")
             .iter()
             .any(|column| column == "active")
     );
     let active: i32 = conn
         .query_row(
-            "SELECT active FROM workspaces WHERE id = 'workspace-1'",
+            "SELECT active FROM source_tree_workspaces WHERE id = 'workspace-1'",
             [],
             |row| row.get(0),
         )
         .unwrap();
     assert_eq!(active, 1);
+    assert!(table_columns(&conn, "repos").is_empty());
+    assert!(table_columns(&conn, "workspaces").is_empty());
 }
 
 #[test]
-fn schema_migration_v5_replaces_legacy_draft_tables_with_tracked_branches() {
+fn schema_migration_v6_replaces_legacy_tables_with_source_tree_tables() {
     let conn = Connection::open_in_memory().unwrap();
     conn.execute_batch(
         r#"
@@ -148,10 +162,77 @@ fn schema_migration_v5_replaces_legacy_draft_tables_with_tracked_branches() {
           FOREIGN KEY(repo_id) REFERENCES repos(id) ON DELETE CASCADE
         );
 
+        CREATE TABLE tracked_branches (
+          id TEXT PRIMARY KEY,
+          repo_id TEXT NOT NULL,
+          principal_id TEXT NOT NULL,
+          branch TEXT NOT NULL,
+          base_ref TEXT NOT NULL,
+          base_commit TEXT,
+          pr_url TEXT,
+          pr_number INTEGER,
+          pr_state TEXT,
+          pr_merged_at TEXT,
+          pr_synced_at TEXT,
+          last_selected_workspace_path TEXT,
+          last_seen_commit TEXT,
+          status TEXT NOT NULL,
+          created_at TEXT NOT NULL,
+          last_opened_at TEXT NOT NULL,
+          last_edited_at TEXT,
+          archived_at TEXT,
+          UNIQUE(repo_id, principal_id, branch),
+          FOREIGN KEY(repo_id) REFERENCES repos(id) ON DELETE CASCADE
+        );
+
+        CREATE TABLE tracked_branch_workspaces (
+          branch_id TEXT NOT NULL,
+          workspace_id TEXT NOT NULL,
+          added_at TEXT NOT NULL,
+          PRIMARY KEY(branch_id, workspace_id),
+          FOREIGN KEY(branch_id) REFERENCES tracked_branches(id) ON DELETE CASCADE,
+          FOREIGN KEY(workspace_id) REFERENCES workspaces(id) ON DELETE CASCADE
+        );
+
         CREATE TABLE draft_sessions (id TEXT PRIMARY KEY);
         CREATE TABLE draft_workspaces (id TEXT PRIMARY KEY);
         CREATE TABLE draft_changes (id TEXT PRIMARY KEY);
         CREATE TABLE draft_events (id TEXT PRIMARY KEY);
+
+        INSERT INTO repos (
+          id, principal_id, owner, name, default_ref,
+          created_at, updated_at, last_discovered_at
+        ) VALUES (
+          'repo-1', '42', 'octo', 'configs', 'main',
+          '2026-06-14T00:00:00Z', '2026-06-14T00:00:00Z', NULL
+        );
+
+        INSERT INTO workspaces (
+          id, repo_id, owner, name, path, ref_, source, discovered_at, active
+        ) VALUES (
+          'workspace-1', 'repo-1', 'octo', 'configs', 'payments/flags', 'main',
+          'git+https://github.com/octo/configs#main:payments/flags',
+          '2026-06-14T00:00:00Z', 1
+        );
+
+        INSERT INTO tracked_branches (
+          id, repo_id, principal_id, branch, base_ref, base_commit,
+          pr_url, pr_number, pr_state, pr_merged_at, pr_synced_at,
+          last_selected_workspace_path, last_seen_commit, status,
+          created_at, last_opened_at, last_edited_at, archived_at
+        ) VALUES (
+          'branch-1', 'repo-1', '42', 'feature/payments', 'main', NULL,
+          NULL, NULL, NULL, NULL, NULL,
+          'payments/flags', NULL, 'active',
+          '2026-06-14T00:00:00Z', '2026-06-14T00:00:00Z', NULL, NULL
+        );
+
+        INSERT INTO tracked_branch_workspaces (
+          branch_id, workspace_id, added_at
+        ) VALUES (
+          'branch-1', 'workspace-1', '2026-06-14T00:00:00Z'
+        );
+
         PRAGMA user_version = 4;
         "#,
     )
@@ -159,16 +240,34 @@ fn schema_migration_v5_replaces_legacy_draft_tables_with_tracked_branches() {
 
     schema::initialize_schema(&conn).unwrap();
 
-    assert_eq!(user_version(&conn), 5);
+    assert_eq!(user_version(&conn), 6);
     assert!(
-        table_columns(&conn, "tracked_branches")
+        table_columns(&conn, "active_branches")
             .iter()
             .any(|column| column == "branch")
     );
+    assert!(
+        table_columns(&conn, "active_branch_workspaces")
+            .iter()
+            .any(|column| column == "workspace_path")
+    );
+    assert!(table_columns(&conn, "repos").is_empty());
+    assert!(table_columns(&conn, "workspaces").is_empty());
+    assert!(table_columns(&conn, "tracked_branches").is_empty());
+    assert!(table_columns(&conn, "tracked_branch_workspaces").is_empty());
     assert!(table_columns(&conn, "draft_sessions").is_empty());
     assert!(table_columns(&conn, "draft_workspaces").is_empty());
     assert!(table_columns(&conn, "draft_changes").is_empty());
     assert!(table_columns(&conn, "draft_events").is_empty());
+
+    let workspace_path: String = conn
+        .query_row(
+            "SELECT workspace_path FROM active_branch_workspaces WHERE branch_id = 'branch-1'",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap();
+    assert_eq!(workspace_path, "payments/flags");
 }
 
 #[test]

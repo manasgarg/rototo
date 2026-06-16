@@ -1,5 +1,3 @@
-#![allow(dead_code)]
-
 use rusqlite::{Connection, OptionalExtension, params};
 
 use crate::console::time::now_iso;
@@ -32,7 +30,7 @@ impl Store {
             )? {
                 Some(branch_id) => {
                     conn.execute(
-                        "UPDATE tracked_branches
+                        "UPDATE active_branches
                          SET base_ref = ?1,
                              base_commit = ?2,
                              last_seen_commit = ?3,
@@ -56,8 +54,8 @@ impl Store {
                 None => {
                     let branch_id = new_id();
                     conn.execute(
-                        "INSERT INTO tracked_branches (
-                           id, repo_id, principal_id, branch, base_ref, base_commit,
+                        "INSERT INTO active_branches (
+                           id, source_tree_id, principal_id, branch, base_ref, base_commit,
                            last_selected_workspace_path, last_seen_commit, status,
                            created_at, last_opened_at
                          ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, 'active', ?9, ?10)",
@@ -78,7 +76,12 @@ impl Store {
                     branch_id
                 }
             };
-            insert_tracked_branch_workspace_sync(conn, &branch_id, &input.workspace_id, &now)?;
+            insert_tracked_branch_workspace_sync(
+                conn,
+                &branch_id,
+                &workspace.workspace_path,
+                &now,
+            )?;
             tracked_branch_by_id(conn, &branch_id)?
                 .ok_or_else(|| RototoError::new("tracked branch creation failed"))
         })
@@ -108,9 +111,14 @@ impl Store {
                 ));
             }
             let now = now_iso();
-            insert_tracked_branch_workspace_sync(conn, &branch_id, &workspace_id, &now)?;
+            insert_tracked_branch_workspace_sync(
+                conn,
+                &branch_id,
+                &workspace.workspace_path,
+                &now,
+            )?;
             conn.execute(
-                "UPDATE tracked_branches
+                "UPDATE active_branches
                  SET last_selected_workspace_path = ?1,
                      status = 'active',
                      last_opened_at = ?2,
@@ -136,8 +144,12 @@ impl Store {
             let mut statement = conn
                 .prepare(&format!(
                     "{TRACKED_BRANCH_SELECT}
-                     INNER JOIN tracked_branch_workspaces tbw ON tbw.branch_id = b.id
-                     WHERE tbw.workspace_id = ?1
+                     INNER JOIN source_tree_workspaces requested_workspace
+                       ON requested_workspace.id = ?1
+                     INNER JOIN active_branch_workspaces abw
+                       ON abw.branch_id = b.id
+                      AND abw.workspace_path = requested_workspace.path
+                     WHERE b.source_tree_id = requested_workspace.source_tree_id
                        AND b.principal_id = ?2
                        AND b.status != 'archived'
                      ORDER BY b.last_opened_at DESC, b.branch ASC"
@@ -152,6 +164,7 @@ impl Store {
         .await
     }
 
+    #[cfg(test)]
     pub async fn list_tracked_branches_for_user(
         &self,
         principal_id: &str,
@@ -184,10 +197,12 @@ impl Store {
             let mut statement = conn
                 .prepare(&format!(
                     "SELECT {TRACKED_BRANCH_COLUMNS},
-                            w.id, w.repo_id, w.owner, w.name, w.path, w.ref_, w.source, w.discovered_at
-                     FROM tracked_branches b
-                     INNER JOIN tracked_branch_workspaces tbw ON tbw.branch_id = b.id
-                     INNER JOIN workspaces w ON w.id = tbw.workspace_id
+                            w.id, w.source_tree_id, w.owner, w.name, w.path, w.ref_, w.source, w.discovered_at
+                     FROM active_branches b
+                     INNER JOIN active_branch_workspaces abw ON abw.branch_id = b.id
+                     INNER JOIN source_tree_workspaces w
+                       ON w.source_tree_id = b.source_tree_id
+                      AND w.path = abw.workspace_path
                      WHERE b.principal_id = ?1
                        AND b.status != 'archived'
                      ORDER BY b.last_opened_at DESC, b.branch ASC, w.path ASC"
@@ -220,9 +235,13 @@ impl Store {
             conn.query_row(
                 &format!(
                     "{TRACKED_BRANCH_SELECT}
-                     INNER JOIN tracked_branch_workspaces tbw ON tbw.branch_id = b.id
+                     INNER JOIN source_tree_workspaces requested_workspace
+                       ON requested_workspace.id = ?2
+                     INNER JOIN active_branch_workspaces abw
+                       ON abw.branch_id = b.id
+                      AND abw.workspace_path = requested_workspace.path
                      WHERE b.id = ?1
-                       AND tbw.workspace_id = ?2
+                       AND b.source_tree_id = requested_workspace.source_tree_id
                        AND b.principal_id = ?3"
                 ),
                 params![branch_id, workspace_id, principal_id],
@@ -247,8 +266,8 @@ impl Store {
             conn.query_row(
                 &format!(
                     "{TRACKED_BRANCH_SELECT}
-                     INNER JOIN workspaces requested_workspace ON requested_workspace.id = ?1
-                     WHERE b.repo_id = requested_workspace.repo_id
+                     INNER JOIN source_tree_workspaces requested_workspace ON requested_workspace.id = ?1
+                     WHERE b.source_tree_id = requested_workspace.source_tree_id
                        AND b.principal_id = ?2
                        AND b.branch = ?3
                        AND b.status = 'active'
@@ -272,10 +291,13 @@ impl Store {
         self.with_conn(move |conn, _| {
             let mut statement = conn
                 .prepare(
-                    "SELECT w.id, w.repo_id, w.owner, w.name, w.path, w.ref_, w.source, w.discovered_at
-                     FROM tracked_branch_workspaces tbw
-                     INNER JOIN workspaces w ON w.id = tbw.workspace_id
-                     WHERE tbw.branch_id = ?1
+                    "SELECT w.id, w.source_tree_id, w.owner, w.name, w.path, w.ref_, w.source, w.discovered_at
+                     FROM active_branch_workspaces abw
+                     INNER JOIN active_branches b ON b.id = abw.branch_id
+                     INNER JOIN source_tree_workspaces w
+                       ON w.source_tree_id = b.source_tree_id
+                      AND w.path = abw.workspace_path
+                     WHERE abw.branch_id = ?1
                      ORDER BY w.path ASC",
                 )
                 .map_err(db_err)?;
@@ -288,6 +310,7 @@ impl Store {
         .await
     }
 
+    #[cfg(test)]
     pub async fn mark_tracked_branch_recent(&self, branch_id: &str) -> Result<TrackedBranchRecord> {
         update_tracked_branch_status(self, branch_id, TrackedBranchStatus::Recent).await
     }
@@ -306,7 +329,7 @@ impl Store {
         self.with_conn(move |conn, _| {
             let now = now_iso();
             conn.execute(
-                "UPDATE tracked_branches
+                "UPDATE active_branches
                  SET branch = ?1,
                      last_opened_at = ?2,
                      status = 'active',
@@ -330,7 +353,7 @@ impl Store {
         self.with_conn(move |conn, _| {
             let now = now_iso();
             conn.execute(
-                "UPDATE tracked_branches
+                "UPDATE active_branches
                  SET last_edited_at = ?1,
                      last_seen_commit = COALESCE(?2, last_seen_commit),
                      status = 'active',
@@ -352,7 +375,7 @@ impl Store {
         self.with_conn(move |conn, _| {
             let now = now_iso();
             conn.execute(
-                "UPDATE tracked_branches
+                "UPDATE active_branches
                  SET pr_number = ?1,
                      pr_state = ?2,
                      pr_url = ?3,
@@ -391,7 +414,7 @@ async fn update_tracked_branch_status(
                 TrackedBranchStatus::Archived => ("archived", Some(now.as_str())),
             };
             conn.execute(
-                "UPDATE tracked_branches
+                "UPDATE active_branches
                  SET status = ?1,
                      archived_at = ?2
                  WHERE id = ?3",
@@ -404,22 +427,23 @@ async fn update_tracked_branch_status(
         .await
 }
 
-const TRACKED_BRANCH_COLUMNS: &str = "b.id, b.repo_id, b.principal_id, b.branch, b.base_ref,
+const TRACKED_BRANCH_COLUMNS: &str = "b.id, b.source_tree_id, b.principal_id, b.branch, b.base_ref,
     b.base_commit, b.pr_url, b.pr_number, b.pr_state, b.pr_merged_at, b.pr_synced_at,
     b.last_selected_workspace_path, b.last_seen_commit, b.status, b.created_at,
     b.last_opened_at, b.last_edited_at, b.archived_at";
 
-const TRACKED_BRANCH_SELECT: &str = "SELECT b.id, b.repo_id, b.principal_id, b.branch, b.base_ref,
+const TRACKED_BRANCH_SELECT: &str =
+    "SELECT b.id, b.source_tree_id, b.principal_id, b.branch, b.base_ref,
         b.base_commit, b.pr_url, b.pr_number, b.pr_state, b.pr_merged_at, b.pr_synced_at,
         b.last_selected_workspace_path, b.last_seen_commit, b.status, b.created_at,
         b.last_opened_at, b.last_edited_at, b.archived_at
-     FROM tracked_branches b";
+     FROM active_branches b";
 
 fn tracked_branch_by_id(conn: &Connection, branch_id: &str) -> Result<Option<TrackedBranchRecord>> {
     conn.query_row(
         &format!(
             "SELECT {TRACKED_BRANCH_COLUMNS}
-             FROM tracked_branches b
+             FROM active_branches b
              WHERE b.id = ?1"
         ),
         params![branch_id],
@@ -436,8 +460,8 @@ fn tracked_branch_id_by_repo_branch(
     branch: &str,
 ) -> Result<Option<String>> {
     conn.query_row(
-        "SELECT id FROM tracked_branches
-         WHERE repo_id = ?1 AND principal_id = ?2 AND branch = ?3",
+        "SELECT id FROM active_branches
+         WHERE source_tree_id = ?1 AND principal_id = ?2 AND branch = ?3",
         params![repo_id, principal_id, branch],
         |row| row.get(0),
     )
@@ -451,9 +475,9 @@ fn branch_workspace_base(
     principal_id: &str,
 ) -> Result<Option<WorkspaceBranchBase>> {
     conn.query_row(
-        "SELECT w.repo_id, w.path
-         FROM workspaces w
-         INNER JOIN repos r ON r.id = w.repo_id
+        "SELECT w.source_tree_id, w.path
+         FROM source_tree_workspaces w
+         INNER JOIN source_trees r ON r.id = w.source_tree_id
          WHERE w.id = ?1 AND r.principal_id = ?2",
         params![workspace_id, principal_id],
         |row| {
@@ -470,14 +494,14 @@ fn branch_workspace_base(
 fn insert_tracked_branch_workspace_sync(
     conn: &Connection,
     branch_id: &str,
-    workspace_id: &str,
+    workspace_path: &str,
     added_at: &str,
 ) -> Result<bool> {
     let inserted = conn
         .execute(
-            "INSERT OR IGNORE INTO tracked_branch_workspaces (branch_id, workspace_id, added_at)
+            "INSERT OR IGNORE INTO active_branch_workspaces (branch_id, workspace_path, added_at)
              VALUES (?1, ?2, ?3)",
-            params![branch_id, workspace_id, added_at],
+            params![branch_id, workspace_path, added_at],
         )
         .map_err(db_err)?;
     Ok(inserted != 0)

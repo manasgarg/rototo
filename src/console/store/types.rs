@@ -18,13 +18,12 @@ pub struct SessionUser {
     pub github_token: Option<String>,
 }
 
-/// Repository registered for one console principal.
+/// Source tree registered for one console principal.
 ///
-/// This is the parent record for workspace discovery and branch selections. It
-/// is inserted the first time discovery sees a repo for a principal, refreshed
-/// by later discovery runs to update the default ref and discovery timestamps,
-/// and deleted explicitly by the user; deleting it cascades to workspaces and
-/// branch selections.
+/// The API still exposes this as a repository record because current routes
+/// and wire shapes use repo terminology. In storage this is the durable source
+/// tree row: discovery refreshes its derived workspace rows, and deleting it
+/// cascades to branch selections.
 #[derive(Clone, Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct RepoRecord {
@@ -38,13 +37,11 @@ pub struct RepoRecord {
     pub last_discovered_at: Option<String>,
 }
 
-/// Discovered rototo workspace inside a repository.
+/// Discovered rototo workspace inside a source tree.
 ///
-/// This exists so the console can address a workspace by id or slug, reconstruct
-/// the workspace source, and scope lint, preview, and branch operations.
-/// Discovery inserts new rows, refreshes rows it still finds, deletes rows that
-/// no longer exist when no branch references them, and otherwise marks missing
-/// rows inactive so existing branch links can still resolve.
+/// This is a derived row rebuilt by discovery. The durable branch state stores
+/// workspace paths, not workspace row ids, so these rows can be refreshed from
+/// the source tree without changing branch identity.
 #[derive(Clone, Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct WorkspaceRecord {
@@ -62,12 +59,11 @@ pub struct WorkspaceRecord {
     pub discovered_at: String,
 }
 
-/// Repository response with its currently active workspaces.
+/// Source tree response with its currently active discovered workspaces.
 ///
 /// This exists as an API projection for repo navigation and discovery responses.
-/// It is not stored independently; each value is rebuilt from one `repos` row
-/// and that repo's active `workspaces` rows, so its lifecycle follows those
-/// underlying records.
+/// It is not stored independently; each value is rebuilt from one source tree
+/// row and that tree's active derived workspace rows.
 #[derive(Clone, Debug, Serialize)]
 pub struct RepoWithWorkspaces {
     #[serde(flatten)]
@@ -121,7 +117,7 @@ pub struct TrackedBranchRecord {
 ///
 /// The branch identity is repository-scoped, but the console still needs a
 /// workspace beside it for navigation. Each value is rebuilt from a tracked
-/// branch joined through `tracked_branch_workspaces`.
+/// branch joined through path-based branch workspace membership.
 #[derive(Clone, Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct TrackedBranchWithWorkspaceRecord {
