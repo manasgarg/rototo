@@ -46,7 +46,7 @@ pub(crate) async fn registration(
             workspace_source.workspace.source_tree.revision,
         )
         .await?
-        .workspaces
+        .paths
         .into_iter()
         .map(|workspace| workspace.to_string())
         .collect::<Vec<_>>();

@@ -12,4 +12,4 @@ pub use self::identity::{
     BranchName, CachedSourceTreeOrigin, CachedWorkspaceLocator, GitRefName, RepoRelativePath,
     SourceTreeOrigin, SourceTreeRevision, TokenIdentity, WorkspaceLocator, WorkspacePath,
 };
-pub use self::records::{BranchChanges, SemanticWorkspace, WorkspaceDiscovery};
+pub use self::records::{BranchChanges, DiscoveredWorkspaces, SemanticWorkspace};

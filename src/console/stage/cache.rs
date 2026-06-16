@@ -9,9 +9,9 @@ use super::load;
 use super::runtime;
 use super::source_tree;
 use super::{
-    BranchChanges, BranchName, CachedSourceTreeOrigin, CachedWorkspaceLocator, GitRefName,
-    SemanticWorkspace, SourceTreeOrigin, SourceTreeRevision, WorkspaceDiscovery, WorkspaceLocator,
-    WorkspacePath,
+    BranchChanges, BranchName, CachedSourceTreeOrigin, CachedWorkspaceLocator,
+    DiscoveredWorkspaces, GitRefName, SemanticWorkspace, SourceTreeOrigin, SourceTreeRevision,
+    WorkspaceLocator, WorkspacePath,
 };
 use crate::error::Result;
 use crate::sdk::Workspace;
@@ -30,7 +30,7 @@ struct StageCacheInner {
 #[derive(Default)]
 struct SourceTreeOriginSlot {
     source_trees: Mutex<HashMap<SourceTreeRevision, Arc<SourceTreeSlot>>>,
-    workspace_discoveries: Mutex<HashMap<SourceTreeRevision, Arc<WorkspaceDiscoverySlot>>>,
+    discovered_workspaces: Mutex<HashMap<SourceTreeRevision, Arc<DiscoveredWorkspacesSlot>>>,
     workspace_views: Mutex<HashMap<WorkspaceViewKey, Arc<WorkspaceSlot>>>,
     branch_changes: Mutex<HashMap<BranchChangesKey, Arc<BranchChangesSlot>>>,
 }
@@ -41,8 +41,8 @@ struct SourceTreeSlot {
 }
 
 #[derive(Default)]
-struct WorkspaceDiscoverySlot {
-    discovery: OnceCell<WorkspaceDiscovery>,
+struct DiscoveredWorkspacesSlot {
+    discovered: OnceCell<DiscoveredWorkspaces>,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Hash)]
@@ -105,18 +105,18 @@ impl StageCache {
         &self,
         cached_tree: CachedSourceTreeOrigin,
         revision: SourceTreeRevision,
-    ) -> Result<WorkspaceDiscovery> {
+    ) -> Result<DiscoveredWorkspaces> {
         let cache = self.clone();
         let tree_slot = self.tree_slot(cached_tree.clone()).await;
-        let discovery_slot = {
-            let mut workspace_discoveries = tree_slot.workspace_discoveries.lock().await;
-            workspace_discoveries
+        let discovered_slot = {
+            let mut discovered_workspaces = tree_slot.discovered_workspaces.lock().await;
+            discovered_workspaces
                 .entry(revision.clone())
                 .or_default()
                 .clone()
         };
-        let discovery = discovery_slot
-            .discovery
+        let discovered = discovered_slot
+            .discovered
             .get_or_try_init(|| async move {
                 let staged_tree = cache
                     .get_staged_source_tree(cached_tree.clone(), revision.clone())
@@ -124,7 +124,7 @@ impl StageCache {
                 discovery::discover_workspaces(staged_tree.root()).await
             })
             .await?;
-        Ok(discovery.clone())
+        Ok(discovered.clone())
     }
 
     pub(crate) async fn get_staged_source_tree(
@@ -258,7 +258,7 @@ impl StageCache {
                 .await
                 .retain(|revision, _| !source_tree_revision_is_local_working_tree(revision));
             tree_slot
-                .workspace_discoveries
+                .discovered_workspaces
                 .lock()
                 .await
                 .retain(|revision, _| !source_tree_revision_is_local_working_tree(revision));
@@ -277,7 +277,7 @@ impl StageCache {
                     && source_tree_revision_is_local_working_tree(revision))
         });
         tree_slot
-            .workspace_discoveries
+            .discovered_workspaces
             .lock()
             .await
             .retain(|revision, _| {
@@ -572,16 +572,10 @@ mod tests {
             .await
             .unwrap();
 
+        assert_eq!(workspace_path_strings(&discovery_before.paths), vec!["."]);
+        assert_eq!(workspace_path_strings(&cached_discovery.paths), vec!["."]);
         assert_eq!(
-            workspace_path_strings(&discovery_before.workspaces),
-            vec!["."]
-        );
-        assert_eq!(
-            workspace_path_strings(&cached_discovery.workspaces),
-            vec!["."]
-        );
-        assert_eq!(
-            workspace_path_strings(&discovery_after.workspaces),
+            workspace_path_strings(&discovery_after.paths),
             vec![".", "workspaces/payments"]
         );
         assert!(!Arc::ptr_eq(&workspace_before, &workspace_after));

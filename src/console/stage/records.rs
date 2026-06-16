@@ -5,8 +5,8 @@ use crate::lint::WorkspaceSemanticModel;
 use crate::sdk::Workspace;
 
 #[derive(Clone, Debug)]
-pub struct WorkspaceDiscovery {
-    pub workspaces: Vec<WorkspacePath>,
+pub struct DiscoveredWorkspaces {
+    pub paths: Vec<WorkspacePath>,
 }
 
 #[derive(Clone, Debug)]

@@ -1,14 +1,14 @@
 use std::path::{Path, PathBuf};
 
-use super::WorkspaceDiscovery;
+use super::DiscoveredWorkspaces;
 use super::WorkspacePath;
 use crate::error::{Result, RototoError};
 
 const WORKSPACE_MANIFEST: &str = "rototo-workspace.toml";
 
-pub async fn discover_workspaces(root: &Path) -> Result<WorkspaceDiscovery> {
-    let workspaces = discover_workspace_paths(root).await?;
-    Ok(WorkspaceDiscovery { workspaces })
+pub async fn discover_workspaces(root: &Path) -> Result<DiscoveredWorkspaces> {
+    let paths = discover_workspace_paths(root).await?;
+    Ok(DiscoveredWorkspaces { paths })
 }
 
 async fn discover_workspace_paths(root: &Path) -> Result<Vec<WorkspacePath>> {
@@ -125,7 +125,7 @@ mod tests {
         .unwrap();
 
         assert_eq!(
-            workspace_strings(&discovery.workspaces),
+            workspace_strings(&discovery.paths),
             vec![".", "workspaces/payments", "workspaces/search"]
         );
     }
@@ -148,7 +148,7 @@ mod tests {
         .unwrap();
 
         assert_eq!(
-            workspace_strings(&discovery.workspaces),
+            workspace_strings(&discovery.paths),
             vec![".", "workspaces/payments"]
         );
     }
@@ -173,7 +173,7 @@ mod tests {
         .unwrap();
 
         assert_eq!(
-            workspace_strings(&discovery.workspaces),
+            workspace_strings(&discovery.paths),
             vec![".", "workspaces/payments"]
         );
     }
@@ -201,7 +201,7 @@ extends = ["git+file:///missing/parent-workspace#main"]
         .await
         .unwrap();
 
-        assert_eq!(workspace_strings(&discovery.workspaces), vec!["."]);
+        assert_eq!(workspace_strings(&discovery.paths), vec!["."]);
     }
 
     #[tokio::test]
@@ -231,7 +231,7 @@ extends = ["git+file:///missing/parent-workspace#main"]
     async fn discover_for_source(
         cached_tree: CachedSourceTreeOrigin,
         revision: SourceTreeRevision,
-    ) -> Result<WorkspaceDiscovery> {
+    ) -> Result<DiscoveredWorkspaces> {
         let staged =
             source_tree::stage_tree_for_revision(cached_tree.clone(), revision.clone()).await?;
         discover_workspaces(staged.root()).await
