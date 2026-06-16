@@ -9,7 +9,7 @@ use super::runtime;
 use super::source_tree;
 use super::{
     BranchChanges, BranchName, CachedSourceTreeOrigin, CachedWorkspaceLocator, GitRefName,
-    SemanticWorkspace, SourceTreeOrigin, SourceTreeRevision, WorkspaceLocator, WorkspacePath,
+    SemanticWorkspace, SourceTreeRevision, WorkspaceLocator, WorkspacePath,
 };
 use crate::error::Result;
 use crate::sdk::Workspace;
@@ -53,10 +53,6 @@ impl WorkspaceViewKey {
 
     fn is_branch(&self, branch: &str) -> bool {
         matches!(&self.revision, SourceTreeRevision::GitBranch(name) if name.as_str() == branch)
-    }
-
-    fn is_local_working_tree(&self) -> bool {
-        matches!(self.revision, SourceTreeRevision::LocalWorkingTree)
     }
 }
 
@@ -230,16 +226,16 @@ impl StageCache {
         let Some(tree_slot) = self.tree_slot_if_present(cached_tree).await else {
             return;
         };
-        let invalidate_local_working_tree =
-            matches!(cached_tree.origin, SourceTreeOrigin::LocalFolder { .. });
-        tree_slot.source_trees.lock().await.retain(|revision, _| {
-            !(source_tree_revision_is_branch(revision, branch)
-                || invalidate_local_working_tree
-                    && source_tree_revision_is_local_working_tree(revision))
-        });
-        tree_slot.workspace_views.lock().await.retain(|key, _| {
-            !(key.is_branch(branch) || invalidate_local_working_tree && key.is_local_working_tree())
-        });
+        tree_slot
+            .source_trees
+            .lock()
+            .await
+            .retain(|revision, _| !source_tree_revision_is_branch(revision, branch));
+        tree_slot
+            .workspace_views
+            .lock()
+            .await
+            .retain(|key, _| !key.is_branch(branch));
         tree_slot
             .branch_changes
             .lock()
@@ -473,48 +469,6 @@ mod tests {
         assert!(!Arc::ptr_eq(&branch_before, &branch_after));
         assert!(Arc::ptr_eq(&base_tree_before, &base_tree_after));
         assert!(!Arc::ptr_eq(&branch_tree_before, &branch_tree_after));
-    }
-
-    #[tokio::test]
-    async fn local_branch_invalidation_drops_working_tree_views_and_staged_tree() {
-        let tree = TempDir::new().expect("tree tempdir");
-        write_workspace(tree.path()).await;
-
-        let cache = StageCache::new();
-        let source_tree = SourceTreeOrigin::local_folder(tree.path()).await.unwrap();
-        let cached_tree =
-            CachedSourceTreeOrigin::new("user_123", source_tree.clone(), TokenIdentity::None)
-                .unwrap();
-        let selector =
-            cached_workspace_source(source_tree, SourceTreeRevision::LocalWorkingTree, ".");
-
-        let workspace_before = cache
-            .get_inspected_workspace(selector.clone(), "")
-            .await
-            .unwrap();
-        let staged_before = cache
-            .get_staged_source_tree(cached_tree.clone(), SourceTreeRevision::LocalWorkingTree)
-            .await
-            .unwrap();
-        let staged_cached = cache
-            .get_staged_source_tree(cached_tree.clone(), SourceTreeRevision::LocalWorkingTree)
-            .await
-            .unwrap();
-        write_workspace(&tree.path().join("workspaces/payments")).await;
-
-        cache.invalidate_branch(&cached_tree, "feature/local").await;
-        let workspace_after = cache
-            .get_inspected_workspace(selector.clone(), "")
-            .await
-            .unwrap();
-        let staged_after = cache
-            .get_staged_source_tree(cached_tree, SourceTreeRevision::LocalWorkingTree)
-            .await
-            .unwrap();
-
-        assert!(!Arc::ptr_eq(&workspace_before, &workspace_after));
-        assert!(Arc::ptr_eq(&staged_before, &staged_cached));
-        assert!(!Arc::ptr_eq(&staged_before, &staged_after));
     }
 
     #[tokio::test]

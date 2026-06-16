@@ -1,5 +1,4 @@
 use super::api::{ApiError, ApiResult, ConsoleState};
-use super::capabilities::{WorkspaceSourceKind, classify_workspace_source};
 use super::stage::{
     CachedWorkspaceLocator, SemanticWorkspace, SourceTreeOrigin, SourceTreeRevision, TokenIdentity,
     WorkspaceLocator, WorkspacePath,
@@ -9,12 +8,12 @@ use crate::error::{Result, RototoError};
 use crate::sdk::Workspace;
 use std::sync::Arc;
 
-/// Compatibility input for current console routes and store rows.
+/// Store/API input needed to build a stage workspace locator.
 ///
-/// This keeps raw `WorkspaceRecord` fields at the console adapter boundary.
-/// Stage only receives normalized locators.
+/// This keeps raw `WorkspaceRecord` fields at the console adapter boundary so
+/// stage only receives normalized locators.
 #[derive(Clone, Copy, Debug)]
-pub(crate) struct WorkspaceLocatorInput<'a> {
+pub(crate) struct WorkspaceSourceInput<'a> {
     pub(crate) principal_id: &'a str,
     pub(crate) token: &'a str,
     pub(crate) owner: &'a str,
@@ -25,27 +24,27 @@ pub(crate) struct WorkspaceLocatorInput<'a> {
 }
 
 pub(crate) async fn cached_workspace_locator_for_base(
-    input: WorkspaceLocatorInput<'_>,
+    input: WorkspaceSourceInput<'_>,
 ) -> Result<CachedWorkspaceLocator> {
-    let parsed = LegacyWorkspaceSource::parse(input.source, input.owner, input.name).await?;
+    let parsed = ParsedWorkspaceSource::parse(input.source, input.owner, input.name).await?;
     let revision = match parsed.kind {
-        LegacyWorkspaceSourceKind::Git => {
+        WorkspaceSourceBacking::Git => {
             SourceTreeRevision::git_ref_or_commit(selected_git_ref(input, &parsed))?
         }
-        LegacyWorkspaceSourceKind::LocalFolder => SourceTreeRevision::LocalWorkingTree,
-        LegacyWorkspaceSourceKind::Archive => SourceTreeRevision::ArchiveSnapshot,
+        WorkspaceSourceBacking::LocalFolder => SourceTreeRevision::LocalWorkingTree,
+        WorkspaceSourceBacking::Archive => SourceTreeRevision::ArchiveSnapshot,
     };
     cached_workspace_from_parts(input, parsed.tree, revision)
 }
 
 pub(crate) async fn cached_workspace_locator_for_branch(
-    input: WorkspaceLocatorInput<'_>,
+    input: WorkspaceSourceInput<'_>,
     branch: impl AsRef<str>,
 ) -> Result<CachedWorkspaceLocator> {
-    let parsed = LegacyWorkspaceSource::parse(input.source, input.owner, input.name).await?;
-    if !matches!(parsed.kind, LegacyWorkspaceSourceKind::Git) {
+    let parsed = ParsedWorkspaceSource::parse(input.source, input.owner, input.name).await?;
+    if !matches!(parsed.kind, WorkspaceSourceBacking::Git) {
         return Err(RototoError::new(
-            "branch workspace sources require a git-backed source tree",
+            "branch workspace sources require a git branch source tree",
         ));
     }
     cached_workspace_from_parts(input, parsed.tree, SourceTreeRevision::git_branch(branch)?)
@@ -101,12 +100,9 @@ async fn workspace_source_for_branch_source(
     branch: &str,
 ) -> ApiResult<CachedWorkspaceLocator> {
     let input = workspace_source_input(principal_id, token, source, workspace);
-    if branch_source_uses_working_tree(source) {
-        cached_workspace_locator_for_base(input).await
-    } else {
-        cached_workspace_locator_for_branch(input, branch).await
-    }
-    .map_err(|err| ApiError::internal(err.to_string()))
+    cached_workspace_locator_for_branch(input, branch)
+        .await
+        .map_err(|err| ApiError::internal(err.to_string()))
 }
 
 fn workspace_source_input<'a>(
@@ -114,8 +110,8 @@ fn workspace_source_input<'a>(
     token: &'a str,
     source: &'a str,
     workspace: &'a WorkspaceRecord,
-) -> WorkspaceLocatorInput<'a> {
-    WorkspaceLocatorInput {
+) -> WorkspaceSourceInput<'a> {
+    WorkspaceSourceInput {
         principal_id,
         token,
         owner: &workspace.owner,
@@ -161,35 +157,28 @@ fn source_tree_source<'a>(
     fixed_workspace_source.unwrap_or(&workspace.source)
 }
 
-fn branch_source_uses_working_tree(source: &str) -> bool {
-    matches!(
-        classify_workspace_source(source),
-        WorkspaceSourceKind::LocalPath | WorkspaceSourceKind::FileUrl
-    )
-}
-
 #[derive(Debug)]
-struct LegacyWorkspaceSource {
+struct ParsedWorkspaceSource {
     tree: SourceTreeOrigin,
     ref_: Option<String>,
-    kind: LegacyWorkspaceSourceKind,
+    kind: WorkspaceSourceBacking,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-enum LegacyWorkspaceSourceKind {
+enum WorkspaceSourceBacking {
     Git,
     LocalFolder,
     Archive,
 }
 
-impl LegacyWorkspaceSource {
+impl ParsedWorkspaceSource {
     async fn parse(source: &str, owner: &str, name: &str) -> Result<Self> {
         let source = source.trim();
         let Some(uri) = ParsedSourceUri::parse(source)? else {
             return Ok(Self {
                 tree: SourceTreeOrigin::local_folder(source).await?,
                 ref_: None,
-                kind: LegacyWorkspaceSourceKind::LocalFolder,
+                kind: WorkspaceSourceBacking::LocalFolder,
             });
         };
 
@@ -202,7 +191,7 @@ impl LegacyWorkspaceSource {
             return Ok(Self {
                 tree: SourceTreeOrigin::local_folder(&uri.base).await?,
                 ref_: None,
-                kind: LegacyWorkspaceSourceKind::LocalFolder,
+                kind: WorkspaceSourceBacking::LocalFolder,
             });
         }
 
@@ -210,7 +199,7 @@ impl LegacyWorkspaceSource {
             return Ok(Self {
                 tree: SourceTreeOrigin::git_remote(uri.source_without_fragment())?,
                 ref_: uri.ref_,
-                kind: LegacyWorkspaceSourceKind::Git,
+                kind: WorkspaceSourceBacking::Git,
             });
         }
 
@@ -219,13 +208,13 @@ impl LegacyWorkspaceSource {
                 return Ok(Self {
                     tree: SourceTreeOrigin::github(owner, name)?,
                     ref_: uri.ref_,
-                    kind: LegacyWorkspaceSourceKind::Git,
+                    kind: WorkspaceSourceBacking::Git,
                 });
             }
             return Ok(Self {
                 tree: SourceTreeOrigin::archive(source)?,
                 ref_: None,
-                kind: LegacyWorkspaceSourceKind::Archive,
+                kind: WorkspaceSourceBacking::Archive,
             });
         }
 
@@ -287,7 +276,7 @@ impl ParsedSourceUri {
 }
 
 fn cached_workspace_from_parts(
-    input: WorkspaceLocatorInput<'_>,
+    input: WorkspaceSourceInput<'_>,
     tree: SourceTreeOrigin,
     revision: SourceTreeRevision,
 ) -> Result<CachedWorkspaceLocator> {
@@ -299,8 +288,8 @@ fn cached_workspace_from_parts(
 }
 
 fn selected_git_ref<'a>(
-    input: WorkspaceLocatorInput<'a>,
-    parsed: &'a LegacyWorkspaceSource,
+    input: WorkspaceSourceInput<'a>,
+    parsed: &'a ParsedWorkspaceSource,
 ) -> &'a str {
     let git_ref = input.git_ref.trim();
     if git_ref.is_empty() {
@@ -339,8 +328,8 @@ mod tests {
     use crate::console::stage::{TokenIdentity, WorkspaceLocator, WorkspacePath};
     use tempfile::TempDir;
 
-    fn github_workspace_input() -> WorkspaceLocatorInput<'static> {
-        WorkspaceLocatorInput {
+    fn github_workspace_input() -> WorkspaceSourceInput<'static> {
+        WorkspaceSourceInput {
             principal_id: "user_123",
             token: "",
             owner: "Rototo",
@@ -391,7 +380,7 @@ mod tests {
 
     #[tokio::test]
     async fn base_workspace_locator_uses_commit_revision_for_pinned_git_ref() {
-        let input = WorkspaceLocatorInput {
+        let input = WorkspaceSourceInput {
             git_ref: "8D3C4B5A6F7081920A1B2C3D4E5F60718293A4B5",
             ..github_workspace_input()
         };
@@ -408,7 +397,7 @@ mod tests {
 
     #[tokio::test]
     async fn branch_workspace_locator_adapts_token_and_branch_identity() {
-        let input = WorkspaceLocatorInput {
+        let input = WorkspaceSourceInput {
             token: "ghp_secret",
             ..github_workspace_input()
         };
@@ -434,7 +423,7 @@ mod tests {
 
     #[tokio::test]
     async fn workspace_locator_adapter_preserves_generic_git_remote_identity() {
-        let input = WorkspaceLocatorInput {
+        let input = WorkspaceSourceInput {
             principal_id: "user_123",
             token: "",
             owner: "Team",
@@ -465,7 +454,7 @@ mod tests {
     #[tokio::test]
     async fn workspace_locator_adapter_maps_local_workspace_to_working_tree() {
         let tempdir = TempDir::new().expect("tempdir");
-        let input = WorkspaceLocatorInput {
+        let input = WorkspaceSourceInput {
             principal_id: "local-user",
             token: "",
             owner: "demo",
@@ -492,7 +481,7 @@ mod tests {
 
     #[tokio::test]
     async fn workspace_locator_adapter_maps_github_archive_store_shape_to_git_tree() {
-        let input = WorkspaceLocatorInput {
+        let input = WorkspaceSourceInput {
             principal_id: "user_123",
             token: "",
             owner: "Rototo",
@@ -519,7 +508,7 @@ mod tests {
 
     #[tokio::test]
     async fn workspace_locator_adapter_maps_arbitrary_archive_to_snapshot() {
-        let input = WorkspaceLocatorInput {
+        let input = WorkspaceSourceInput {
             principal_id: "user_123",
             token: "",
             owner: "demo",
@@ -588,36 +577,6 @@ mod tests {
         assert_eq!(
             source.workspace.source_tree.revision,
             SourceTreeRevision::GitBranch(BranchName::new("feature/payments").unwrap())
-        );
-    }
-
-    #[tokio::test]
-    async fn branch_workspace_source_keeps_local_workspace_on_working_tree() {
-        let tempdir = TempDir::new().expect("tempdir");
-        let mut workspace = workspace();
-        workspace.path = ".".to_owned();
-        workspace.source = tempdir.path().to_string_lossy().into_owned();
-
-        let source = expect_ok(
-            workspace_source_for_branch_source(
-                &workspace.source,
-                "local-user",
-                "",
-                &workspace,
-                "feature/payments",
-            )
-            .await,
-        );
-
-        assert_eq!(
-            source.workspace.source_tree.origin,
-            SourceTreeOrigin::LocalFolder {
-                root: tempdir.path().canonicalize().unwrap()
-            }
-        );
-        assert_eq!(
-            source.workspace.source_tree.revision,
-            SourceTreeRevision::LocalWorkingTree
         );
     }
 

@@ -4,6 +4,7 @@ const REPO_SPEC_ERROR: &str = "repo must be owner/name or a GitHub repository UR
 
 pub fn parse_repo_spec(value: &str) -> Result<(String, String)> {
     let trimmed = value.trim();
+    let trimmed = strip_prefix_ignore_ascii_case(trimmed, "git+").unwrap_or(trimmed);
     let mut candidate = strip_prefix_ignore_ascii_case(trimmed, "git@github.com:")
         .or_else(|| strip_prefix_ignore_ascii_case(trimmed, "ssh://git@github.com/"))
         .or_else(|| strip_prefix_ignore_ascii_case(trimmed, "https://github.com/"))
@@ -136,9 +137,18 @@ mod tests {
             parse_repo_spec("ssh://git@github.com/octo/configs.git").unwrap(),
             ("octo".to_owned(), "configs".to_owned())
         );
+        assert_eq!(
+            parse_repo_spec("git+https://github.com/octo/configs.git#main:apps").unwrap(),
+            ("octo".to_owned(), "configs".to_owned())
+        );
+        assert_eq!(
+            parse_repo_spec("git+ssh://git@github.com/octo/configs.git#feature/x").unwrap(),
+            ("octo".to_owned(), "configs".to_owned())
+        );
         assert!(parse_repo_spec("octo").is_err());
         assert!(parse_repo_spec("octo/configs/extra").is_err());
         assert!(parse_repo_spec("https://example.com/octo/configs").is_err());
+        assert!(parse_repo_spec("git+https://example.com/octo/configs.git").is_err());
         assert!(parse_repo_spec("https://github.com/octo/configs/tree/main").is_err());
         assert!(parse_repo_spec("octo/with space").is_err());
     }

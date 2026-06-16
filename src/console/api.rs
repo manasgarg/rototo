@@ -136,6 +136,10 @@ pub fn router(state: SharedState) -> axum::Router {
             "/source-trees/{source_tree_id}",
             axum::routing::delete(source_tree_delete),
         )
+        .route(
+            "/source-trees/{source_tree_id}/refresh",
+            post(source_tree_refresh),
+        )
         .merge(super::api_workspace::routes())
         .merge(super::api_branch::routes());
     if state.observability.is_some() {
@@ -714,7 +718,23 @@ async fn register_github_source_tree(
     source_tree: &str,
     git_ref: Option<String>,
 ) -> ApiResult<Json<JsonValue>> {
-    let token = require_github_token(&user, "Registering the source tree")?;
+    let (stored, token) = upsert_github_source_tree(&state, &user, source_tree, git_ref).await?;
+    warm_registered_workspaces(
+        state.clone(),
+        user.principal_id.clone(),
+        token,
+        stored.workspaces.clone(),
+    );
+    Ok(Json(json!({ "sourceTree": stored })))
+}
+
+async fn upsert_github_source_tree(
+    state: &SharedState,
+    user: &super::store::SessionUser,
+    source_tree: &str,
+    git_ref: Option<String>,
+) -> ApiResult<(super::store::SourceTreeWithWorkspaces, String)> {
+    let token = require_github_token(user, "Registering the source tree")?;
     let (owner, name) = github::parse_repo_spec(source_tree)
         .map_err(|err| ApiError::bad_request(err.to_string()))?;
     let github_repo = state
@@ -722,12 +742,13 @@ async fn register_github_source_tree(
         .repo(token, &owner, &name)
         .await
         .map_err(|err| ApiError::github(&err, "Registering the source tree"))?;
-    let git_ref = git_ref
+    let requested_ref = git_ref
         .as_deref()
         .map(str::trim)
         .filter(|value| !value.is_empty())
-        .unwrap_or(&github_repo.default_branch)
-        .to_owned();
+        .map(ToOwned::to_owned)
+        .or_else(|| source_tree_ref_hint(source_tree));
+    let git_ref = requested_ref.unwrap_or_else(|| github_repo.default_branch.clone());
     let workspaces = state
         .github
         .discover_workspaces(token, &owner, &name, &git_ref)
@@ -756,13 +777,7 @@ async fn register_github_source_tree(
                 .collect(),
         })
         .await?;
-    warm_registered_workspaces(
-        state.clone(),
-        user.principal_id.clone(),
-        token.to_owned(),
-        stored.workspaces.clone(),
-    );
-    Ok(Json(json!({ "sourceTree": stored })))
+    Ok((stored, token.to_owned()))
 }
 
 async fn register_read_only_source_tree(
@@ -771,6 +786,22 @@ async fn register_read_only_source_tree(
     source_tree: &str,
     git_ref: Option<String>,
 ) -> ApiResult<Json<JsonValue>> {
+    let (stored, token) = upsert_read_only_source_tree(&state, &user, source_tree, git_ref).await?;
+    warm_registered_workspaces(
+        state.clone(),
+        user.principal_id.clone(),
+        token,
+        stored.workspaces.clone(),
+    );
+    Ok(Json(json!({ "sourceTree": stored })))
+}
+
+async fn upsert_read_only_source_tree(
+    state: &SharedState,
+    user: &super::store::SessionUser,
+    source_tree: &str,
+    git_ref: Option<String>,
+) -> ApiResult<(super::store::SourceTreeWithWorkspaces, String)> {
     let source = read_only_registration_source(source_tree, git_ref.as_deref())?;
     let registration = super::fixed_workspace::registration(&source)
         .await
@@ -788,30 +819,32 @@ async fn register_read_only_source_tree(
             workspaces: registration.workspaces,
         })
         .await?;
-    warm_registered_workspaces(
-        state.clone(),
-        user.principal_id.clone(),
-        source_token(&user).to_owned(),
-        stored.workspaces.clone(),
-    );
-    Ok(Json(json!({ "sourceTree": stored })))
+    Ok((stored, source_token(user).to_owned()))
 }
 
 async fn should_register_as_github(source_tree: &str) -> bool {
-    if source_tree.contains("://")
-        || source_tree.starts_with("git@")
+    if source_tree.starts_with("file://")
+        || source_tree.starts_with("git+file://")
         || source_tree.starts_with('/')
         || source_tree.starts_with('.')
         || source_tree.starts_with('~')
     {
-        return github::parse_repo_spec(source_tree).is_ok()
-            && !source_tree.starts_with("file://")
-            && !source_tree.starts_with("git+");
+        return false;
     }
     if tokio::fs::metadata(source_tree).await.is_ok() {
         return false;
     }
     github::parse_repo_spec(source_tree).is_ok()
+}
+
+fn source_tree_ref_hint(source_tree: &str) -> Option<String> {
+    let fragment = source_tree.split_once('#')?.1;
+    let git_ref = fragment
+        .split_once(':')
+        .map(|(git_ref, _)| git_ref)
+        .unwrap_or(fragment)
+        .trim();
+    (!git_ref.is_empty()).then(|| git_ref.to_owned())
 }
 
 fn read_only_registration_source(source_tree: &str, git_ref: Option<&str>) -> ApiResult<String> {
@@ -891,6 +924,38 @@ async fn source_tree_delete(
     Ok(Json(json!({ "ok": true })))
 }
 
+async fn source_tree_refresh(
+    State(state): State<SharedState>,
+    headers: HeaderMap,
+    axum::extract::Path(source_tree_id): axum::extract::Path<String>,
+) -> ApiResult<Json<JsonValue>> {
+    let user = require_user(&state, &headers).await?;
+    let existing = state
+        .store
+        .get_source_tree_for_user(&source_tree_id, &user.principal_id)
+        .await?
+        .ok_or_else(|| ApiError::not_found("source tree not found"))?;
+    let source_tree = existing.source_tree;
+    let git_ref = Some(source_tree.default_revision.clone());
+    let (stored, token) = match source_tree.kind {
+        super::store::SourceTreeKind::GitHub => {
+            upsert_github_source_tree(&state, &user, &source_tree.source, git_ref).await?
+        }
+        super::store::SourceTreeKind::GitRemote
+        | super::store::SourceTreeKind::LocalFolder
+        | super::store::SourceTreeKind::Archive => {
+            upsert_read_only_source_tree(&state, &user, &source_tree.source, git_ref).await?
+        }
+    };
+    warm_registered_workspaces(
+        state.clone(),
+        user.principal_id.clone(),
+        token,
+        stored.workspaces.clone(),
+    );
+    Ok(Json(json!({ "sourceTree": stored })))
+}
+
 pub fn random_token(bytes: usize) -> ApiResult<String> {
     let mut buffer = vec![0u8; bytes];
     SystemRandom::new()
@@ -935,5 +1000,39 @@ mod tests {
         assert_eq!(route.pattern, "/api/source-trees/:source_tree_id");
         assert_eq!(route.workspace_id, None);
         assert_eq!(route.branch_id, None);
+    }
+
+    #[test]
+    fn observability_route_keeps_source_tree_refresh_action() {
+        let route = route_observability("/api/source-trees/tree-1/refresh");
+
+        assert_eq!(route.pattern, "/api/source-trees/:source_tree_id/refresh");
+    }
+
+    #[test]
+    fn source_tree_ref_hint_reads_git_fragment_refs() {
+        assert_eq!(
+            source_tree_ref_hint("git+https://github.com/o/r.git#release:apps").as_deref(),
+            Some("release")
+        );
+        assert_eq!(
+            source_tree_ref_hint("git+https://github.com/o/r.git#release").as_deref(),
+            Some("release")
+        );
+        assert_eq!(
+            source_tree_ref_hint("git+https://github.com/o/r.git#:"),
+            None
+        );
+        assert_eq!(source_tree_ref_hint("git+https://github.com/o/r.git"), None);
+    }
+
+    #[tokio::test]
+    async fn github_registration_detection_accepts_git_github_sources() {
+        assert!(
+            should_register_as_github("git+https://github.com/octo/configs.git#main:apps").await
+        );
+        assert!(should_register_as_github("git+ssh://git@github.com/octo/configs.git#main").await);
+        assert!(!should_register_as_github("git+file:///tmp/configs.git#main").await);
+        assert!(!should_register_as_github("git+https://example.com/octo/configs.git#main").await);
     }
 }

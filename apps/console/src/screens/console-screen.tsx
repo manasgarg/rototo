@@ -12,6 +12,7 @@ import { useNavigate, useSearchParams } from "react-router";
 
 import { AppShell, NavGroupLabel, NavLink } from "@/components/app-shell";
 import { LoadingScreen } from "@/components/loading-screen";
+import { RefreshSourceTreeButton } from "@/components/refresh-source-tree-button";
 import { RemoveSourceTreeButton } from "@/components/remove-source-tree-button";
 import { SourceTreeRegistrationForm } from "@/components/source-tree-registration-form";
 import { SearchableList } from "@/components/searchable-list";
@@ -314,6 +315,10 @@ function SourceTreesScreen({
                                             ? "workspace"
                                             : "workspaces"}
                                     </span>
+                                    <RefreshSourceTreeButton
+                                        sourceTreeId={sourceTree.id}
+                                        sourceTreeName={sourceTree.displayName}
+                                    />
                                     <RemoveSourceTreeButton
                                         sourceTreeId={sourceTree.id}
                                         sourceTreeName={sourceTree.displayName}

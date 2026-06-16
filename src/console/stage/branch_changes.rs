@@ -11,7 +11,6 @@ use crate::source::SourceOptions;
 
 #[derive(Clone, Copy, Debug)]
 pub(super) enum BranchChangeSource {
-    LocalWorkingTree,
     GitBranch,
 }
 
@@ -26,13 +25,12 @@ pub(super) async fn get_branch_changes(
 
 pub(super) fn source_for_changes(tree: &SourceTreeOrigin) -> Result<BranchChangeSource> {
     match tree {
-        SourceTreeOrigin::LocalFolder { .. } => Ok(BranchChangeSource::LocalWorkingTree),
         SourceTreeOrigin::GitHub { .. } | SourceTreeOrigin::GitRemote { .. } => {
             Ok(BranchChangeSource::GitBranch)
         }
-        SourceTreeOrigin::Archive { .. } => Err(RototoError::new(
-            "branch changes require a git-backed source tree",
-        )),
+        SourceTreeOrigin::LocalFolder { .. } | SourceTreeOrigin::Archive { .. } => Err(
+            RototoError::new("branch changes require a git branch source tree"),
+        ),
     }
 }
 
@@ -41,13 +39,12 @@ pub(super) fn revision_for_changes(
     branch: &BranchName,
 ) -> Result<SourceTreeRevision> {
     match tree {
-        SourceTreeOrigin::LocalFolder { .. } => Ok(SourceTreeRevision::LocalWorkingTree),
         SourceTreeOrigin::GitHub { .. } | SourceTreeOrigin::GitRemote { .. } => {
             Ok(SourceTreeRevision::GitBranch(branch.clone()))
         }
-        SourceTreeOrigin::Archive { .. } => Err(RototoError::new(
-            "branch changes require a git-backed source tree",
-        )),
+        SourceTreeOrigin::LocalFolder { .. } | SourceTreeOrigin::Archive { .. } => Err(
+            RototoError::new("branch changes require a git branch source tree"),
+        ),
     }
 }
 
@@ -57,14 +54,6 @@ async fn changed_files_for_staged_repo(
     base_ref: &GitRefName,
 ) -> Result<Vec<RepoRelativePath>> {
     match source {
-        BranchChangeSource::LocalWorkingTree => {
-            changed_files_in_repo(
-                repo,
-                &[format!("{}...HEAD", base_ref.as_str())],
-                &SourceOptions::default(),
-            )
-            .await
-        }
         BranchChangeSource::GitBranch => {
             let options = SourceOptions::default();
             ensure_remote_base_ref(repo, base_ref, &options).await?;
@@ -275,55 +264,13 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn local_branch_changes_include_working_tree_status() {
-        let repo = TempDir::new().expect("repo tempdir");
-        init_repo(repo.path());
-        write_workspace(repo.path()).await;
-        commit_all(repo.path(), "add workspace");
-        run_git(repo.path(), &["checkout", "-b", "feature/local"]);
-        tokio::fs::write(
-            repo.path().join("variables/checkout.toml"),
-            "schema_version = 1\n",
-        )
-        .await
-        .unwrap();
-        tokio::fs::write(
-            repo.path().join("variables/new.toml"),
-            "schema_version = 1\n",
-        )
-        .await
-        .unwrap();
-
-        let cached_tree = source_key(SourceTreeOrigin::local_folder(repo.path()).await.unwrap());
-        let branch = BranchName::new("feature/local").unwrap();
-        let staged_tree = source_tree::stage_tree_for_revision(
-            cached_tree.clone(),
-            revision_for_changes(&cached_tree.origin, &branch).unwrap(),
-        )
-        .await
-        .unwrap();
-        let changes = get_branch_changes(
-            staged_tree.root(),
-            source_for_changes(&cached_tree.origin).unwrap(),
-            GitRefName::new("main").unwrap(),
-        )
-        .await
-        .unwrap();
-
-        assert_eq!(
-            path_strings(&changes.changed_files),
-            vec!["variables/checkout.toml", "variables/new.toml"]
-        );
-    }
-
-    #[tokio::test]
     async fn archive_sources_do_not_have_branch_changes() {
         let err = source_for_changes(
             &SourceTreeOrigin::archive("https://example.com/configs.tar.gz").unwrap(),
         )
         .unwrap_err();
 
-        assert!(err.to_string().contains("git-backed source tree"));
+        assert!(err.to_string().contains("git branch source tree"));
     }
 
     async fn write_workspace(path: &Path) {

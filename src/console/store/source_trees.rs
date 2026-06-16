@@ -78,6 +78,19 @@ impl Store {
             .await
     }
 
+    pub async fn get_source_tree_for_user(
+        &self,
+        source_tree_id: &str,
+        principal_id: &str,
+    ) -> Result<Option<SourceTreeWithWorkspaces>> {
+        let source_tree_id = source_tree_id.to_owned();
+        let principal_id = principal_id.to_owned();
+        self.with_conn(move |conn, _| {
+            source_tree_with_workspaces_by_id(conn, &source_tree_id, &principal_id)
+        })
+        .await
+    }
+
     pub async fn delete_source_tree_for_user(
         &self,
         source_tree_id: &str,
