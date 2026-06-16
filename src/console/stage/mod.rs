@@ -13,11 +13,12 @@ mod workspace_source;
 
 pub use self::cache::StageCache;
 pub use self::identity::{
-    BranchName, CachedTreeSource, CachedWorkspaceSource, GitCommit, GitRefName, RepoRelativePath,
-    TokenIdentity, TreeRevision, TreeSource, WorkspacePath, WorkspaceSource,
+    BranchName, CachedSourceTreeOrigin, CachedWorkspaceLocator, GitCommit, GitRefName,
+    RepoRelativePath, SourceTreeLocator, SourceTreeOrigin, SourceTreeRevision, TokenIdentity,
+    WorkspaceLocator, WorkspacePath,
 };
 pub use self::records::{
-    BranchChanges, BranchTrackingState, PullRequestRef, SemanticWorkspace, TrackedBranchId,
-    TrackedBranchRecord, TreeSourceId, TreeSourceRecord, WorkspaceDiscovery,
+    BranchChanges, BranchTrackingState, PullRequestRef, SemanticWorkspace, SourceTreeOriginId,
+    SourceTreeOriginRecord, TrackedBranchId, TrackedBranchRecord, WorkspaceDiscovery,
 };
-pub use self::workspace_source::WorkspaceSourceInput;
+pub use self::workspace_source::WorkspaceLocatorInput;

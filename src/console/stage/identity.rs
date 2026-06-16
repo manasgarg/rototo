@@ -143,14 +143,14 @@ impl AsRef<str> for RepoRelativePath {
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Hash)]
-pub enum TreeSource {
+pub enum SourceTreeOrigin {
     GitHub { owner: String, name: String },
     GitRemote { remote_url: String },
     LocalFolder { root: PathBuf },
     Archive { url: String },
 }
 
-impl TreeSource {
+impl SourceTreeOrigin {
     pub fn github(owner: impl AsRef<str>, name: impl AsRef<str>) -> Result<Self> {
         Ok(Self::GitHub {
             owner: normalize_github_name(owner.as_ref(), "GitHub owner")?,
@@ -230,7 +230,7 @@ impl TokenIdentity {
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Hash)]
-pub enum TreeRevision {
+pub enum SourceTreeRevision {
     GitRef(GitRefName),
     GitBranch(BranchName),
     GitCommit(GitCommit),
@@ -238,7 +238,7 @@ pub enum TreeRevision {
     ArchiveSnapshot(String),
 }
 
-impl TreeRevision {
+impl SourceTreeRevision {
     pub fn git_ref(value: impl AsRef<str>) -> Result<Self> {
         Ok(Self::GitRef(GitRefName::new(value)?))
     }
@@ -274,33 +274,51 @@ impl TreeRevision {
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Hash)]
-pub struct WorkspaceSource {
-    pub tree: TreeSource,
-    pub revision: TreeRevision,
-    pub path: WorkspacePath,
+pub struct SourceTreeLocator {
+    pub origin: SourceTreeOrigin,
+    pub revision: SourceTreeRevision,
 }
 
-impl WorkspaceSource {
-    pub fn new(tree: TreeSource, revision: TreeRevision, path: WorkspacePath) -> Self {
-        Self {
-            tree,
-            revision,
-            path,
-        }
+impl SourceTreeLocator {
+    pub fn new(origin: SourceTreeOrigin, revision: SourceTreeRevision) -> Self {
+        Self { origin, revision }
     }
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Hash)]
-pub struct CachedTreeSource {
+pub struct WorkspaceLocator {
+    pub source_tree: SourceTreeLocator,
+    pub path: WorkspacePath,
+}
+
+impl WorkspaceLocator {
+    pub fn new(
+        origin: SourceTreeOrigin,
+        revision: SourceTreeRevision,
+        path: WorkspacePath,
+    ) -> Self {
+        Self {
+            source_tree: SourceTreeLocator::new(origin, revision),
+            path,
+        }
+    }
+
+    pub fn from_source_tree(source_tree: SourceTreeLocator, path: WorkspacePath) -> Self {
+        Self { source_tree, path }
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq, Hash)]
+pub struct CachedSourceTreeOrigin {
     pub principal_id: String,
-    pub tree: TreeSource,
+    pub origin: SourceTreeOrigin,
     pub token: TokenIdentity,
 }
 
-impl CachedTreeSource {
+impl CachedSourceTreeOrigin {
     pub fn new(
         principal_id: impl Into<String>,
-        tree: TreeSource,
+        origin: SourceTreeOrigin,
         token: TokenIdentity,
     ) -> Result<Self> {
         let principal_id = principal_id.into();
@@ -309,23 +327,23 @@ impl CachedTreeSource {
         }
         Ok(Self {
             principal_id,
-            tree,
+            origin,
             token,
         })
     }
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Hash)]
-pub struct CachedWorkspaceSource {
+pub struct CachedWorkspaceLocator {
     pub principal_id: String,
     pub token: TokenIdentity,
-    pub workspace: WorkspaceSource,
+    pub workspace: WorkspaceLocator,
 }
 
-impl CachedWorkspaceSource {
+impl CachedWorkspaceLocator {
     pub fn new(
         principal_id: impl Into<String>,
-        workspace: WorkspaceSource,
+        workspace: WorkspaceLocator,
         token: TokenIdentity,
     ) -> Result<Self> {
         let principal_id = principal_id.into();
@@ -339,10 +357,10 @@ impl CachedWorkspaceSource {
         })
     }
 
-    pub fn cached_tree_source(&self) -> Result<CachedTreeSource> {
-        CachedTreeSource::new(
+    pub fn cached_source_tree_origin(&self) -> Result<CachedSourceTreeOrigin> {
+        CachedSourceTreeOrigin::new(
             self.principal_id.clone(),
-            self.workspace.tree.clone(),
+            self.workspace.source_tree.origin.clone(),
             self.token.clone(),
         )
     }
@@ -584,56 +602,65 @@ mod tests {
     }
 
     #[test]
-    fn tree_source_normalizes_github_identity() {
-        let expected = TreeSource::GitHub {
+    fn source_tree_origin_normalizes_github_identity() {
+        let expected = SourceTreeOrigin::GitHub {
             owner: "rototo".to_owned(),
             name: "config".to_owned(),
         };
 
-        assert_eq!(TreeSource::github("Rototo", "Config").unwrap(), expected);
         assert_eq!(
-            TreeSource::git_remote(
+            SourceTreeOrigin::github("Rototo", "Config").unwrap(),
+            expected
+        );
+        assert_eq!(
+            SourceTreeOrigin::git_remote(
                 "git+https://github.com/Rototo/Config.git#main:workspaces/payments"
             )
             .unwrap(),
             expected
         );
         assert_eq!(
-            TreeSource::git_remote("git+ssh://git@github.com/Rototo/Config.git#feature/payments:.")
-                .unwrap(),
+            SourceTreeOrigin::git_remote(
+                "git+ssh://git@github.com/Rototo/Config.git#feature/payments:."
+            )
+            .unwrap(),
             expected
         );
         assert_eq!(
-            TreeSource::git_remote("git@github.com:Rototo/Config.git").unwrap(),
+            SourceTreeOrigin::git_remote("git@github.com:Rototo/Config.git").unwrap(),
             expected
         );
     }
 
     #[test]
-    fn tree_source_normalizes_generic_git_remote_without_overfitting() {
+    fn source_tree_origin_normalizes_generic_git_remote_without_overfitting() {
         assert_eq!(
-            TreeSource::git_remote("git+https://Git.Example.com/Team/Config.git#main:services/api")
-                .unwrap(),
-            TreeSource::GitRemote {
+            SourceTreeOrigin::git_remote(
+                "git+https://Git.Example.com/Team/Config.git#main:services/api"
+            )
+            .unwrap(),
+            SourceTreeOrigin::GitRemote {
                 remote_url: "git+https://git.example.com/Team/Config.git".to_owned()
             }
         );
     }
 
     #[test]
-    fn tree_source_normalizes_archive_url_identity() {
+    fn source_tree_origin_normalizes_archive_url_identity() {
         assert_eq!(
-            TreeSource::archive("https://EXAMPLE.com/releases/config.tar.gz#:workspaces/payments")
-                .unwrap(),
-            TreeSource::Archive {
+            SourceTreeOrigin::archive(
+                "https://EXAMPLE.com/releases/config.tar.gz#:workspaces/payments"
+            )
+            .unwrap(),
+            SourceTreeOrigin::Archive {
                 url: "https://example.com/releases/config.tar.gz".to_owned()
             }
         );
-        assert!(TreeSource::archive("http://example.com/config.tar.gz").is_err());
+        assert!(SourceTreeOrigin::archive("http://example.com/config.tar.gz").is_err());
     }
 
     #[tokio::test]
-    async fn tree_source_canonicalizes_local_folder_identity() {
+    async fn source_tree_origin_canonicalizes_local_folder_identity() {
         let tempdir = TempDir::new().expect("tempdir");
         let nested = tempdir.path().join("repo");
         tokio::fs::create_dir(&nested)
@@ -641,8 +668,8 @@ mod tests {
             .expect("create repo dir");
 
         assert_eq!(
-            TreeSource::local_folder(&nested).await.unwrap(),
-            TreeSource::LocalFolder {
+            SourceTreeOrigin::local_folder(&nested).await.unwrap(),
+            SourceTreeOrigin::LocalFolder {
                 root: nested.canonicalize().unwrap()
             }
         );
@@ -659,39 +686,42 @@ mod tests {
     }
 
     #[test]
-    fn cached_tree_source_separates_principal_tree_and_token_identity() {
-        let source = TreeSource::github("Rototo", "Config").unwrap();
+    fn cached_source_tree_origin_separates_principal_tree_and_token_identity() {
+        let source = SourceTreeOrigin::github("Rototo", "Config").unwrap();
         let anonymous =
-            CachedTreeSource::new("user_123", source.clone(), TokenIdentity::none()).unwrap();
-        let with_token = CachedTreeSource::new(
+            CachedSourceTreeOrigin::new("user_123", source.clone(), TokenIdentity::none()).unwrap();
+        let with_token = CachedSourceTreeOrigin::new(
             "user_123",
             source.clone(),
             TokenIdentity::from_bearer("ghp_secret"),
         )
         .unwrap();
-        let other_principal =
-            CachedTreeSource::new("user_456", source, TokenIdentity::from_bearer("ghp_secret"))
-                .unwrap();
+        let other_principal = CachedSourceTreeOrigin::new(
+            "user_456",
+            source,
+            TokenIdentity::from_bearer("ghp_secret"),
+        )
+        .unwrap();
 
         assert_ne!(anonymous, with_token);
         assert_ne!(with_token, other_principal);
     }
 
     #[test]
-    fn tree_revision_validates_ref_branch_and_commit_identity() {
-        assert!(TreeRevision::git_ref("main").is_ok());
-        assert!(TreeRevision::git_ref("").is_err());
-        assert!(TreeRevision::git_ref("-main").is_err());
+    fn source_tree_revision_validates_ref_branch_and_commit_identity() {
+        assert!(SourceTreeRevision::git_ref("main").is_ok());
+        assert!(SourceTreeRevision::git_ref("").is_err());
+        assert!(SourceTreeRevision::git_ref("-main").is_err());
 
-        assert!(TreeRevision::git_branch("rototo-console/alice/change-checkout").is_ok());
-        assert!(TreeRevision::git_branch("-bad").is_err());
+        assert!(SourceTreeRevision::git_branch("rototo-console/alice/change-checkout").is_ok());
+        assert!(SourceTreeRevision::git_branch("-bad").is_err());
 
         assert_eq!(
-            TreeRevision::git_commit("8D3C4B5A6F7081920A1B2C3D4E5F60718293A4B5").unwrap(),
-            TreeRevision::GitCommit(
+            SourceTreeRevision::git_commit("8D3C4B5A6F7081920A1B2C3D4E5F60718293A4B5").unwrap(),
+            SourceTreeRevision::GitCommit(
                 GitCommit::new("8d3c4b5a6f7081920a1b2c3d4e5f60718293a4b5").unwrap()
             )
         );
-        assert!(TreeRevision::git_commit("not-a-commit").is_err());
+        assert!(SourceTreeRevision::git_commit("not-a-commit").is_err());
     }
 }

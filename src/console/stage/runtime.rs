@@ -3,13 +3,13 @@
 use std::sync::Arc;
 
 use super::load;
-use super::{CachedWorkspaceSource, TokenIdentity};
+use super::{CachedWorkspaceLocator, TokenIdentity};
 use crate::error::Result;
 use crate::sdk::{LoadOptions, Workspace};
 use crate::source::SourceAuth;
 
 pub async fn get_runtime_workspace(
-    selector: CachedWorkspaceSource,
+    selector: CachedWorkspaceLocator,
     source_token: &str,
 ) -> Result<Arc<Workspace>> {
     let inspected = load::get_inspected_workspace(selector, source_token).await?;
@@ -47,7 +47,7 @@ mod tests {
 
     use super::*;
     use crate::console::stage::{
-        GitRefName, TreeRevision, TreeSource, WorkspacePath, WorkspaceSource,
+        GitRefName, SourceTreeOrigin, SourceTreeRevision, WorkspaceLocator, WorkspacePath,
     };
     use crate::sdk::ResolveContext;
 
@@ -57,8 +57,8 @@ mod tests {
         write_workspace(&tree.path().join("workspaces/payments")).await;
 
         let selector = cached_workspace_source(
-            TreeSource::local_folder(tree.path()).await.unwrap(),
-            TreeRevision::LocalWorkingTree,
+            SourceTreeOrigin::local_folder(tree.path()).await.unwrap(),
+            SourceTreeRevision::LocalWorkingTree,
             "workspaces/payments",
         );
 
@@ -82,10 +82,10 @@ mod tests {
         commit_all(repo.path(), "add workspace");
 
         let selector = cached_workspace_source(
-            TreeSource::GitRemote {
+            SourceTreeOrigin::GitRemote {
                 remote_url: format!("git+file://{}", repo.path().display()),
             },
-            TreeRevision::GitRef(GitRefName::new("main").unwrap()),
+            SourceTreeRevision::GitRef(GitRefName::new("main").unwrap()),
             "workspaces/payments",
         );
 
@@ -110,8 +110,8 @@ mod tests {
         let tree = TempDir::new().expect("tree tempdir");
         write_lint_broken_workspace(&tree.path().join("workspaces/payments")).await;
         let selector = cached_workspace_source(
-            TreeSource::local_folder(tree.path()).await.unwrap(),
-            TreeRevision::LocalWorkingTree,
+            SourceTreeOrigin::local_folder(tree.path()).await.unwrap(),
+            SourceTreeRevision::LocalWorkingTree,
             "workspaces/payments",
         );
 
@@ -175,13 +175,13 @@ default = "enabled"
     }
 
     fn cached_workspace_source(
-        tree: TreeSource,
-        revision: TreeRevision,
+        tree: SourceTreeOrigin,
+        revision: SourceTreeRevision,
         path: &str,
-    ) -> CachedWorkspaceSource {
-        CachedWorkspaceSource::new(
+    ) -> CachedWorkspaceLocator {
+        CachedWorkspaceLocator::new(
             "user_123",
-            WorkspaceSource::new(tree, revision, WorkspacePath::new(path).unwrap()),
+            WorkspaceLocator::new(tree, revision, WorkspacePath::new(path).unwrap()),
             TokenIdentity::none(),
         )
         .unwrap()

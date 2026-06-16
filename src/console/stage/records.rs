@@ -3,20 +3,20 @@
 use std::sync::Arc;
 
 use super::{
-    BranchName, CachedTreeSource, GitCommit, GitRefName, RepoRelativePath, TreeRevision,
-    TreeSource, WorkspacePath,
+    BranchName, CachedSourceTreeOrigin, GitCommit, GitRefName, RepoRelativePath, SourceTreeOrigin,
+    SourceTreeRevision, WorkspacePath,
 };
 use crate::lint::WorkspaceSemanticModel;
 use crate::sdk::Workspace;
 
-pub type TreeSourceId = String;
+pub type SourceTreeOriginId = String;
 pub type TrackedBranchId = String;
 
 #[derive(Clone, Debug)]
-pub struct TreeSourceRecord {
-    pub id: TreeSourceId,
+pub struct SourceTreeOriginRecord {
+    pub id: SourceTreeOriginId,
     pub principal_id: String,
-    pub tree: TreeSource,
+    pub tree: SourceTreeOrigin,
     pub default_ref: Option<GitRefName>,
     pub display_name: String,
     pub created_at: String,
@@ -41,7 +41,7 @@ pub enum BranchTrackingState {
 #[derive(Clone, Debug)]
 pub struct TrackedBranchRecord {
     pub id: TrackedBranchId,
-    pub tree_source_id: TreeSourceId,
+    pub source_tree_origin_id: SourceTreeOriginId,
     pub branch: BranchName,
     pub base_ref: GitRefName,
     pub base_commit: Option<GitCommit>,
@@ -57,8 +57,8 @@ pub struct TrackedBranchRecord {
 
 #[derive(Clone, Debug)]
 pub struct WorkspaceDiscovery {
-    pub cached_tree: CachedTreeSource,
-    pub revision: TreeRevision,
+    pub cached_origin: CachedSourceTreeOrigin,
+    pub revision: SourceTreeRevision,
     pub workspaces: Vec<WorkspacePath>,
 }
 

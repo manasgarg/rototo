@@ -1,6 +1,6 @@
 use super::api::{ApiError, ApiResult, ConsoleState};
 use super::capabilities::{WorkspaceSourceKind, classify_workspace_source};
-use super::stage::{CachedWorkspaceSource, SemanticWorkspace, WorkspaceSourceInput};
+use super::stage::{CachedWorkspaceLocator, SemanticWorkspace, WorkspaceLocatorInput};
 use super::store::WorkspaceRecord;
 use crate::sdk::Workspace;
 use std::sync::Arc;
@@ -10,7 +10,7 @@ pub(crate) async fn workspace_source_for_base(
     principal_id: &str,
     token: &str,
     workspace: &WorkspaceRecord,
-) -> ApiResult<CachedWorkspaceSource> {
+) -> ApiResult<CachedWorkspaceLocator> {
     workspace_source_for_base_source(
         state.fixed_workspace_source.as_deref(),
         principal_id,
@@ -26,7 +26,7 @@ pub(crate) async fn workspace_source_for_branch(
     token: &str,
     workspace: &WorkspaceRecord,
     branch: &str,
-) -> ApiResult<CachedWorkspaceSource> {
+) -> ApiResult<CachedWorkspaceLocator> {
     let source = source_tree_source(state.fixed_workspace_source.as_deref(), workspace);
     workspace_source_for_branch_source(source, principal_id, token, workspace, branch).await
 }
@@ -36,8 +36,8 @@ async fn workspace_source_for_base_source(
     principal_id: &str,
     token: &str,
     workspace: &WorkspaceRecord,
-) -> ApiResult<CachedWorkspaceSource> {
-    CachedWorkspaceSource::for_base_workspace(workspace_source_input(
+) -> ApiResult<CachedWorkspaceLocator> {
+    CachedWorkspaceLocator::for_base_workspace(workspace_source_input(
         principal_id,
         token,
         source_tree_source(fixed_workspace_source, workspace),
@@ -53,12 +53,12 @@ async fn workspace_source_for_branch_source(
     token: &str,
     workspace: &WorkspaceRecord,
     branch: &str,
-) -> ApiResult<CachedWorkspaceSource> {
+) -> ApiResult<CachedWorkspaceLocator> {
     let input = workspace_source_input(principal_id, token, source, workspace);
     if branch_source_uses_working_tree(source) {
-        CachedWorkspaceSource::for_base_workspace(input).await
+        CachedWorkspaceLocator::for_base_workspace(input).await
     } else {
-        CachedWorkspaceSource::for_branch_workspace(input, branch).await
+        CachedWorkspaceLocator::for_branch_workspace(input, branch).await
     }
     .map_err(|err| ApiError::internal(err.to_string()))
 }
@@ -68,8 +68,8 @@ fn workspace_source_input<'a>(
     token: &'a str,
     source: &'a str,
     workspace: &'a WorkspaceRecord,
-) -> WorkspaceSourceInput<'a> {
-    WorkspaceSourceInput {
+) -> WorkspaceLocatorInput<'a> {
+    WorkspaceLocatorInput {
         principal_id,
         token,
         owner: &workspace.owner,
@@ -125,7 +125,7 @@ fn branch_source_uses_working_tree(source: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::console::stage::{BranchName, TreeRevision, TreeSource};
+    use crate::console::stage::{BranchName, SourceTreeOrigin, SourceTreeRevision};
     use tempfile::TempDir;
 
     fn workspace() -> WorkspaceRecord {
@@ -173,15 +173,15 @@ mod tests {
         );
 
         assert_eq!(
-            source.workspace.tree,
-            TreeSource::GitHub {
+            source.workspace.source_tree.origin,
+            SourceTreeOrigin::GitHub {
                 owner: "octo".to_owned(),
                 name: "configs".to_owned(),
             }
         );
         assert_eq!(
-            source.workspace.revision,
-            TreeRevision::GitBranch(BranchName::new("feature/payments").unwrap())
+            source.workspace.source_tree.revision,
+            SourceTreeRevision::GitBranch(BranchName::new("feature/payments").unwrap())
         );
     }
 
@@ -204,12 +204,15 @@ mod tests {
         );
 
         assert_eq!(
-            source.workspace.tree,
-            TreeSource::LocalFolder {
+            source.workspace.source_tree.origin,
+            SourceTreeOrigin::LocalFolder {
                 root: tempdir.path().canonicalize().unwrap()
             }
         );
-        assert_eq!(source.workspace.revision, TreeRevision::LocalWorkingTree);
+        assert_eq!(
+            source.workspace.source_tree.revision,
+            SourceTreeRevision::LocalWorkingTree
+        );
     }
 
     fn expect_ok<T>(result: ApiResult<T>) -> T {

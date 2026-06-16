@@ -4,7 +4,7 @@ use std::path::Path;
 use tokio::process::Command;
 
 use super::{
-    BranchChanges, BranchName, GitRefName, RepoRelativePath, TreeRevision, TreeSource,
+    BranchChanges, BranchName, GitRefName, RepoRelativePath, SourceTreeOrigin, SourceTreeRevision,
     WorkspacePath,
 };
 use crate::error::{Result, RototoError};
@@ -35,25 +35,28 @@ pub(super) async fn get_branch_changes(
     })
 }
 
-pub(super) fn source_for_changes(tree: &TreeSource) -> Result<BranchChangeSource> {
+pub(super) fn source_for_changes(tree: &SourceTreeOrigin) -> Result<BranchChangeSource> {
     match tree {
-        TreeSource::LocalFolder { .. } => Ok(BranchChangeSource::LocalWorkingTree),
-        TreeSource::GitHub { .. } | TreeSource::GitRemote { .. } => {
+        SourceTreeOrigin::LocalFolder { .. } => Ok(BranchChangeSource::LocalWorkingTree),
+        SourceTreeOrigin::GitHub { .. } | SourceTreeOrigin::GitRemote { .. } => {
             Ok(BranchChangeSource::GitBranch)
         }
-        TreeSource::Archive { .. } => Err(RototoError::new(
+        SourceTreeOrigin::Archive { .. } => Err(RototoError::new(
             "branch changes require a git-backed source tree",
         )),
     }
 }
 
-pub(super) fn revision_for_changes(tree: &TreeSource, branch: &BranchName) -> Result<TreeRevision> {
+pub(super) fn revision_for_changes(
+    tree: &SourceTreeOrigin,
+    branch: &BranchName,
+) -> Result<SourceTreeRevision> {
     match tree {
-        TreeSource::LocalFolder { .. } => Ok(TreeRevision::LocalWorkingTree),
-        TreeSource::GitHub { .. } | TreeSource::GitRemote { .. } => {
-            Ok(TreeRevision::GitBranch(branch.clone()))
+        SourceTreeOrigin::LocalFolder { .. } => Ok(SourceTreeRevision::LocalWorkingTree),
+        SourceTreeOrigin::GitHub { .. } | SourceTreeOrigin::GitRemote { .. } => {
+            Ok(SourceTreeRevision::GitBranch(branch.clone()))
         }
-        TreeSource::Archive { .. } => Err(RototoError::new(
+        SourceTreeOrigin::Archive { .. } => Err(RototoError::new(
             "branch changes require a git-backed source tree",
         )),
     }
@@ -259,7 +262,7 @@ fn scrub_git_process_variables(command: &mut Command) {
 mod tests {
     use super::super::source_tree;
     use super::*;
-    use crate::console::stage::{CachedTreeSource, TokenIdentity};
+    use crate::console::stage::{CachedSourceTreeOrigin, TokenIdentity};
     use tempfile::TempDir;
 
     #[tokio::test]
@@ -280,20 +283,20 @@ mod tests {
         .unwrap();
         commit_all(repo.path(), "change payments");
 
-        let cached_tree = source_key(TreeSource::GitRemote {
+        let cached_tree = source_key(SourceTreeOrigin::GitRemote {
             remote_url: format!("git+file://{}", repo.path().display()),
         });
         let branch = BranchName::new("feature/payments").unwrap();
         let staged_tree = source_tree::stage_tree_for_revision(
             cached_tree.clone(),
-            revision_for_changes(&cached_tree.tree, &branch).unwrap(),
+            revision_for_changes(&cached_tree.origin, &branch).unwrap(),
         )
         .await
         .unwrap();
 
         let changes = get_branch_changes(
             staged_tree.root(),
-            source_for_changes(&cached_tree.tree).unwrap(),
+            source_for_changes(&cached_tree.origin).unwrap(),
             branch,
             GitRefName::new("main").unwrap(),
             &[
@@ -335,17 +338,17 @@ mod tests {
         .await
         .unwrap();
 
-        let cached_tree = source_key(TreeSource::local_folder(repo.path()).await.unwrap());
+        let cached_tree = source_key(SourceTreeOrigin::local_folder(repo.path()).await.unwrap());
         let branch = BranchName::new("feature/local").unwrap();
         let staged_tree = source_tree::stage_tree_for_revision(
             cached_tree.clone(),
-            revision_for_changes(&cached_tree.tree, &branch).unwrap(),
+            revision_for_changes(&cached_tree.origin, &branch).unwrap(),
         )
         .await
         .unwrap();
         let changes = get_branch_changes(
             staged_tree.root(),
-            source_for_changes(&cached_tree.tree).unwrap(),
+            source_for_changes(&cached_tree.origin).unwrap(),
             branch,
             GitRefName::new("main").unwrap(),
             &[WorkspacePath::root()],
@@ -362,9 +365,10 @@ mod tests {
 
     #[tokio::test]
     async fn archive_sources_do_not_have_branch_changes() {
-        let err =
-            source_for_changes(&TreeSource::archive("https://example.com/configs.tar.gz").unwrap())
-                .unwrap_err();
+        let err = source_for_changes(
+            &SourceTreeOrigin::archive("https://example.com/configs.tar.gz").unwrap(),
+        )
+        .unwrap_err();
 
         assert!(err.to_string().contains("git-backed source tree"));
     }
@@ -378,8 +382,8 @@ mod tests {
             .unwrap();
     }
 
-    fn source_key(source: TreeSource) -> CachedTreeSource {
-        CachedTreeSource::new("user_123", source, TokenIdentity::none()).unwrap()
+    fn source_key(source: SourceTreeOrigin) -> CachedSourceTreeOrigin {
+        CachedSourceTreeOrigin::new("user_123", source, TokenIdentity::none()).unwrap()
     }
 
     fn path_strings(paths: &[RepoRelativePath]) -> Vec<&str> {

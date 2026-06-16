@@ -1,18 +1,18 @@
 use std::path::{Path, PathBuf};
 
-use super::{CachedTreeSource, TreeRevision, WorkspaceDiscovery, WorkspacePath};
+use super::{CachedSourceTreeOrigin, SourceTreeRevision, WorkspaceDiscovery, WorkspacePath};
 use crate::error::{Result, RototoError};
 
 const WORKSPACE_MANIFEST: &str = "rototo-workspace.toml";
 
 pub async fn discover_workspaces(
-    cached_tree: CachedTreeSource,
-    revision: TreeRevision,
+    cached_origin: CachedSourceTreeOrigin,
+    revision: SourceTreeRevision,
     root: &Path,
 ) -> Result<WorkspaceDiscovery> {
     let workspaces = discover_workspace_paths(root).await?;
     Ok(WorkspaceDiscovery {
-        cached_tree,
+        cached_origin,
         revision,
         workspaces,
     })
@@ -110,7 +110,9 @@ mod tests {
 
     use super::*;
     use crate::console::stage::source_tree;
-    use crate::console::stage::{CachedTreeSource, GitRefName, TokenIdentity, TreeSource};
+    use crate::console::stage::{
+        CachedSourceTreeOrigin, GitRefName, SourceTreeOrigin, TokenIdentity,
+    };
 
     #[tokio::test]
     async fn discovers_workspaces_in_local_tree() {
@@ -123,8 +125,8 @@ mod tests {
             .unwrap();
 
         let discovery = discover_for_source(
-            source_key(TreeSource::local_folder(tree.path()).await.unwrap()),
-            TreeRevision::LocalWorkingTree,
+            source_key(SourceTreeOrigin::local_folder(tree.path()).await.unwrap()),
+            SourceTreeRevision::LocalWorkingTree,
         )
         .await
         .unwrap();
@@ -144,10 +146,10 @@ mod tests {
         commit_all(repo.path(), "add workspaces");
 
         let discovery = discover_for_source(
-            source_key(TreeSource::GitRemote {
+            source_key(SourceTreeOrigin::GitRemote {
                 remote_url: format!("git+file://{}", repo.path().display()),
             }),
-            TreeRevision::GitRef(GitRefName::new("main").unwrap()),
+            SourceTreeRevision::GitRef(GitRefName::new("main").unwrap()),
         )
         .await
         .unwrap();
@@ -169,10 +171,10 @@ mod tests {
         commit_all(repo.path(), "add payments workspace");
 
         let discovery = discover_for_source(
-            source_key(TreeSource::GitRemote {
+            source_key(SourceTreeOrigin::GitRemote {
                 remote_url: format!("git+file://{}", repo.path().display()),
             }),
-            TreeRevision::git_branch("feature/payments").unwrap(),
+            SourceTreeRevision::git_branch("feature/payments").unwrap(),
         )
         .await
         .unwrap();
@@ -198,10 +200,10 @@ extends = ["git+file:///missing/parent-workspace#main"]
         commit_all(repo.path(), "add extending workspace");
 
         let discovery = discover_for_source(
-            source_key(TreeSource::GitRemote {
+            source_key(SourceTreeOrigin::GitRemote {
                 remote_url: format!("git+file://{}", repo.path().display()),
             }),
-            TreeRevision::GitRef(GitRefName::new("main").unwrap()),
+            SourceTreeRevision::GitRef(GitRefName::new("main").unwrap()),
         )
         .await
         .unwrap();
@@ -210,11 +212,11 @@ extends = ["git+file:///missing/parent-workspace#main"]
     }
 
     #[tokio::test]
-    async fn rejects_revision_that_does_not_match_tree_source_kind() {
+    async fn rejects_revision_that_does_not_match_source_tree_origin_kind() {
         let tree = TempDir::new().expect("tree tempdir");
         let err = discover_for_source(
-            source_key(TreeSource::local_folder(tree.path()).await.unwrap()),
-            TreeRevision::GitRef(GitRefName::new("main").unwrap()),
+            source_key(SourceTreeOrigin::local_folder(tree.path()).await.unwrap()),
+            SourceTreeRevision::GitRef(GitRefName::new("main").unwrap()),
         )
         .await
         .unwrap_err();
@@ -229,13 +231,13 @@ extends = ["git+file:///missing/parent-workspace#main"]
             .unwrap();
     }
 
-    fn source_key(source: TreeSource) -> CachedTreeSource {
-        CachedTreeSource::new("user_123", source, TokenIdentity::none()).unwrap()
+    fn source_key(source: SourceTreeOrigin) -> CachedSourceTreeOrigin {
+        CachedSourceTreeOrigin::new("user_123", source, TokenIdentity::none()).unwrap()
     }
 
     async fn discover_for_source(
-        cached_tree: CachedTreeSource,
-        revision: TreeRevision,
+        cached_tree: CachedSourceTreeOrigin,
+        revision: SourceTreeRevision,
     ) -> Result<WorkspaceDiscovery> {
         let staged =
             source_tree::stage_tree_for_revision(cached_tree.clone(), revision.clone()).await?;

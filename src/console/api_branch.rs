@@ -195,7 +195,7 @@ async fn invalidate_branch(
     )
     .await
     {
-        if let Ok(cached_tree) = source.cached_tree_source() {
+        if let Ok(cached_tree) = source.cached_source_tree_origin() {
             state
                 .stage
                 .invalidate_branch(&cached_tree, &branch.branch)
@@ -1317,7 +1317,7 @@ async fn branch_changed_paths(
     )
     .await?;
     let cached_tree = selector
-        .cached_tree_source()
+        .cached_source_tree_origin()
         .map_err(|err| ApiError::internal(err.to_string()))?;
     let branch_name =
         BranchName::new(&branch.branch).map_err(|err| ApiError::bad_request(err.to_string()))?;

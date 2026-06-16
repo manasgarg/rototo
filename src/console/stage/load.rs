@@ -3,13 +3,13 @@
 use std::path::Path;
 use std::sync::Arc;
 
-use super::{CachedWorkspaceSource, TreeRevision, TreeSource};
+use super::{CachedWorkspaceLocator, SourceTreeOrigin, SourceTreeRevision};
 use crate::error::{Result, RototoError};
 use crate::sdk::Workspace;
 use crate::source::{SourceAuth, SourceOptions};
 
 pub async fn get_inspected_workspace(
-    selector: CachedWorkspaceSource,
+    selector: CachedWorkspaceLocator,
     source_token: &str,
 ) -> Result<Arc<Workspace>> {
     let source = source_for_selector(&selector)?;
@@ -26,18 +26,22 @@ fn source_options(source_token: &str) -> SourceOptions {
     }
 }
 
-fn source_for_selector(selector: &CachedWorkspaceSource) -> Result<String> {
-    match &selector.workspace.tree {
-        TreeSource::LocalFolder { root }
-            if matches!(selector.workspace.revision, TreeRevision::LocalWorkingTree) =>
+fn source_for_selector(selector: &CachedWorkspaceLocator) -> Result<String> {
+    match &selector.workspace.source_tree.origin {
+        SourceTreeOrigin::LocalFolder { root }
+            if matches!(
+                selector.workspace.source_tree.revision,
+                SourceTreeRevision::LocalWorkingTree
+            ) =>
         {
             Ok(local_workspace_source(
                 root,
                 selector.workspace.path.as_str(),
             ))
         }
-        TreeSource::GitHub { owner, name } => {
-            let Some(git_ref) = git_ref_for_revision(&selector.workspace.revision) else {
+        SourceTreeOrigin::GitHub { owner, name } => {
+            let Some(git_ref) = git_ref_for_revision(&selector.workspace.source_tree.revision)
+            else {
                 return Err(invalid_selection_error());
             };
             Ok(git_workspace_source(
@@ -46,8 +50,9 @@ fn source_for_selector(selector: &CachedWorkspaceSource) -> Result<String> {
                 selector.workspace.path.as_str(),
             ))
         }
-        TreeSource::GitRemote { remote_url } => {
-            let Some(git_ref) = git_ref_for_revision(&selector.workspace.revision) else {
+        SourceTreeOrigin::GitRemote { remote_url } => {
+            let Some(git_ref) = git_ref_for_revision(&selector.workspace.source_tree.revision)
+            else {
                 return Err(invalid_selection_error());
             };
             Ok(git_workspace_source(
@@ -56,10 +61,10 @@ fn source_for_selector(selector: &CachedWorkspaceSource) -> Result<String> {
                 selector.workspace.path.as_str(),
             ))
         }
-        TreeSource::Archive { .. }
+        SourceTreeOrigin::Archive { .. }
             if matches!(
-                selector.workspace.revision,
-                TreeRevision::ArchiveSnapshot(_)
+                selector.workspace.source_tree.revision,
+                SourceTreeRevision::ArchiveSnapshot(_)
             ) =>
         {
             Err(RototoError::new(
@@ -86,12 +91,12 @@ fn git_workspace_source(remote_url: &str, git_ref: &str, workspace_path: &str) -
     }
 }
 
-fn git_ref_for_revision(revision: &TreeRevision) -> Option<&str> {
+fn git_ref_for_revision(revision: &SourceTreeRevision) -> Option<&str> {
     match revision {
-        TreeRevision::GitRef(ref_) => Some(ref_.as_ref()),
-        TreeRevision::GitBranch(branch) => Some(branch.as_ref()),
-        TreeRevision::GitCommit(commit) => Some(commit.as_ref()),
-        TreeRevision::LocalWorkingTree | TreeRevision::ArchiveSnapshot(_) => None,
+        SourceTreeRevision::GitRef(ref_) => Some(ref_.as_ref()),
+        SourceTreeRevision::GitBranch(branch) => Some(branch.as_ref()),
+        SourceTreeRevision::GitCommit(commit) => Some(commit.as_ref()),
+        SourceTreeRevision::LocalWorkingTree | SourceTreeRevision::ArchiveSnapshot(_) => None,
     }
 }
 
@@ -106,7 +111,7 @@ mod tests {
     use tempfile::TempDir;
 
     use super::*;
-    use crate::console::stage::{GitRefName, TokenIdentity, WorkspacePath, WorkspaceSource};
+    use crate::console::stage::{GitRefName, TokenIdentity, WorkspaceLocator, WorkspacePath};
 
     #[tokio::test]
     async fn inspects_local_workspace_path_from_source_tree_root() {
@@ -114,8 +119,8 @@ mod tests {
         write_manifest(&tree.path().join("workspaces/payments")).await;
 
         let selector = cached_workspace_source(
-            TreeSource::local_folder(tree.path()).await.unwrap(),
-            TreeRevision::LocalWorkingTree,
+            SourceTreeOrigin::local_folder(tree.path()).await.unwrap(),
+            SourceTreeRevision::LocalWorkingTree,
             "workspaces/payments",
         );
 
@@ -137,10 +142,10 @@ mod tests {
         commit_all(repo.path(), "add workspace");
 
         let selector = cached_workspace_source(
-            TreeSource::GitRemote {
+            SourceTreeOrigin::GitRemote {
                 remote_url: format!("git+file://{}", repo.path().display()),
             },
-            TreeRevision::GitRef(GitRefName::new("main").unwrap()),
+            SourceTreeRevision::GitRef(GitRefName::new("main").unwrap()),
             "workspaces/payments",
         );
 
@@ -169,8 +174,8 @@ extends = ["../base"]
         .unwrap();
 
         let selector = cached_workspace_source(
-            TreeSource::local_folder(tree.path()).await.unwrap(),
-            TreeRevision::LocalWorkingTree,
+            SourceTreeOrigin::local_folder(tree.path()).await.unwrap(),
+            SourceTreeRevision::LocalWorkingTree,
             "child",
         );
 
@@ -180,13 +185,13 @@ extends = ["../base"]
     }
 
     #[tokio::test]
-    async fn rejects_revision_that_does_not_match_inspection_tree_source() {
+    async fn rejects_revision_that_does_not_match_inspection_source_tree_origin() {
         let tree = TempDir::new().expect("tree tempdir");
         write_manifest(tree.path()).await;
 
         let selector = cached_workspace_source(
-            TreeSource::local_folder(tree.path()).await.unwrap(),
-            TreeRevision::GitRef(GitRefName::new("main").unwrap()),
+            SourceTreeOrigin::local_folder(tree.path()).await.unwrap(),
+            SourceTreeRevision::GitRef(GitRefName::new("main").unwrap()),
             ".",
         );
 
@@ -196,12 +201,12 @@ extends = ["../base"]
     }
 
     #[test]
-    fn workspace_source_strings_keep_tree_and_workspace_path_separate() {
+    fn workspace_locator_strings_keep_source_tree_and_workspace_path_separate() {
         let selector = cached_workspace_source(
-            TreeSource::GitRemote {
+            SourceTreeOrigin::GitRemote {
                 remote_url: "git+file:///tmp/configs".to_owned(),
             },
-            TreeRevision::GitRef(GitRefName::new("main").unwrap()),
+            SourceTreeRevision::GitRef(GitRefName::new("main").unwrap()),
             "apps/payments",
         );
 
@@ -219,13 +224,13 @@ extends = ["../base"]
     }
 
     fn cached_workspace_source(
-        tree: TreeSource,
-        revision: TreeRevision,
+        tree: SourceTreeOrigin,
+        revision: SourceTreeRevision,
         path: &str,
-    ) -> CachedWorkspaceSource {
-        CachedWorkspaceSource::new(
+    ) -> CachedWorkspaceLocator {
+        CachedWorkspaceLocator::new(
             "user_123",
-            WorkspaceSource::new(tree, revision, WorkspacePath::new(path).unwrap()),
+            WorkspaceLocator::new(tree, revision, WorkspacePath::new(path).unwrap()),
             TokenIdentity::none(),
         )
         .unwrap()

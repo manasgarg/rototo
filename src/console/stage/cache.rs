@@ -9,9 +9,9 @@ use super::load;
 use super::runtime;
 use super::source_tree;
 use super::{
-    BranchChanges, BranchName, CachedTreeSource, CachedWorkspaceSource, GitRefName,
-    SemanticWorkspace, TreeRevision, TreeSource, WorkspaceDiscovery, WorkspacePath,
-    WorkspaceSource,
+    BranchChanges, BranchName, CachedSourceTreeOrigin, CachedWorkspaceLocator, GitRefName,
+    SemanticWorkspace, SourceTreeOrigin, SourceTreeRevision, WorkspaceDiscovery, WorkspaceLocator,
+    WorkspacePath,
 };
 use crate::error::Result;
 use crate::sdk::Workspace;
@@ -24,11 +24,11 @@ pub struct StageCache {
 
 #[derive(Default)]
 struct StageCacheInner {
-    tree_sources: Mutex<HashMap<CachedTreeSource, Arc<TreeSourceSlot>>>,
+    tree_sources: Mutex<HashMap<CachedSourceTreeOrigin, Arc<SourceTreeOriginSlot>>>,
 }
 
 #[derive(Default)]
-struct TreeSourceSlot {
+struct SourceTreeOriginSlot {
     source_trees: Mutex<HashMap<SourceTreeKey, Arc<SourceTreeSlot>>>,
     workspace_discoveries: Mutex<HashMap<WorkspaceDiscoveryKey, Arc<WorkspaceDiscoverySlot>>>,
     workspace_views: Mutex<HashMap<WorkspaceViewKey, Arc<WorkspaceSlot>>>,
@@ -37,20 +37,20 @@ struct TreeSourceSlot {
 
 #[derive(Clone, Debug, Eq, PartialEq, Hash)]
 struct SourceTreeKey {
-    revision: TreeRevision,
+    revision: SourceTreeRevision,
 }
 
 impl SourceTreeKey {
-    fn new(revision: TreeRevision) -> Self {
+    fn new(revision: SourceTreeRevision) -> Self {
         Self { revision }
     }
 
     fn is_branch(&self, branch: &str) -> bool {
-        matches!(&self.revision, TreeRevision::GitBranch(name) if name.as_str() == branch)
+        matches!(&self.revision, SourceTreeRevision::GitBranch(name) if name.as_str() == branch)
     }
 
     fn is_local_working_tree(&self) -> bool {
-        matches!(self.revision, TreeRevision::LocalWorkingTree)
+        matches!(self.revision, SourceTreeRevision::LocalWorkingTree)
     }
 }
 
@@ -61,20 +61,20 @@ struct SourceTreeSlot {
 
 #[derive(Clone, Debug, Eq, PartialEq, Hash)]
 struct WorkspaceDiscoveryKey {
-    revision: TreeRevision,
+    revision: SourceTreeRevision,
 }
 
 impl WorkspaceDiscoveryKey {
-    fn new(revision: TreeRevision) -> Self {
+    fn new(revision: SourceTreeRevision) -> Self {
         Self { revision }
     }
 
     fn is_branch(&self, branch: &str) -> bool {
-        matches!(&self.revision, TreeRevision::GitBranch(name) if name.as_str() == branch)
+        matches!(&self.revision, SourceTreeRevision::GitBranch(name) if name.as_str() == branch)
     }
 
     fn is_local_working_tree(&self) -> bool {
-        matches!(self.revision, TreeRevision::LocalWorkingTree)
+        matches!(self.revision, SourceTreeRevision::LocalWorkingTree)
     }
 }
 
@@ -85,24 +85,24 @@ struct WorkspaceDiscoverySlot {
 
 #[derive(Clone, Debug, Eq, PartialEq, Hash)]
 struct WorkspaceViewKey {
-    revision: TreeRevision,
+    revision: SourceTreeRevision,
     path: WorkspacePath,
 }
 
 impl WorkspaceViewKey {
-    fn new(source: &WorkspaceSource) -> Self {
+    fn new(source: &WorkspaceLocator) -> Self {
         Self {
-            revision: source.revision.clone(),
+            revision: source.source_tree.revision.clone(),
             path: source.path.clone(),
         }
     }
 
     fn is_branch(&self, branch: &str) -> bool {
-        matches!(&self.revision, TreeRevision::GitBranch(name) if name.as_str() == branch)
+        matches!(&self.revision, SourceTreeRevision::GitBranch(name) if name.as_str() == branch)
     }
 
     fn is_local_working_tree(&self) -> bool {
-        matches!(self.revision, TreeRevision::LocalWorkingTree)
+        matches!(self.revision, SourceTreeRevision::LocalWorkingTree)
     }
 }
 
@@ -141,8 +141,8 @@ impl StageCache {
 
     pub async fn discover_workspaces(
         &self,
-        cached_tree: CachedTreeSource,
-        revision: TreeRevision,
+        cached_tree: CachedSourceTreeOrigin,
+        revision: SourceTreeRevision,
     ) -> Result<WorkspaceDiscovery> {
         let cache = self.clone();
         let tree_slot = self.tree_slot(cached_tree.clone()).await;
@@ -165,8 +165,8 @@ impl StageCache {
 
     pub(crate) async fn get_staged_source_tree(
         &self,
-        cached_tree: CachedTreeSource,
-        revision: TreeRevision,
+        cached_tree: CachedSourceTreeOrigin,
+        revision: SourceTreeRevision,
     ) -> Result<Arc<StagedSourceTree>> {
         let tree_slot = self.tree_slot(cached_tree.clone()).await;
         let key = SourceTreeKey::new(revision.clone());
@@ -187,7 +187,7 @@ impl StageCache {
 
     pub async fn get_branch_changes(
         &self,
-        cached_tree: CachedTreeSource,
+        cached_tree: CachedSourceTreeOrigin,
         branch: BranchName,
         base_ref: GitRefName,
     ) -> Result<BranchChanges> {
@@ -201,8 +201,8 @@ impl StageCache {
         let changes = changes_slot
             .changes
             .get_or_try_init(|| async move {
-                let source = branch_changes::source_for_changes(&cached_tree.tree)?;
-                let revision = branch_changes::revision_for_changes(&cached_tree.tree, &branch)?;
+                let source = branch_changes::source_for_changes(&cached_tree.origin)?;
+                let revision = branch_changes::revision_for_changes(&cached_tree.origin, &branch)?;
                 let staged_tree = cache
                     .get_staged_source_tree(cached_tree.clone(), revision.clone())
                     .await?;
@@ -224,7 +224,7 @@ impl StageCache {
 
     pub async fn get_inspected_workspace(
         &self,
-        selector: CachedWorkspaceSource,
+        selector: CachedWorkspaceLocator,
         source_token: &str,
     ) -> Result<Arc<Workspace>> {
         let slot = self.workspace_slot(&selector).await?;
@@ -241,7 +241,7 @@ impl StageCache {
 
     pub async fn get_semantic_workspace(
         &self,
-        selector: CachedWorkspaceSource,
+        selector: CachedWorkspaceLocator,
         source_token: &str,
     ) -> Result<SemanticWorkspace> {
         let slot = self.workspace_slot(&selector).await?;
@@ -268,7 +268,7 @@ impl StageCache {
 
     pub async fn get_runtime_workspace(
         &self,
-        selector: CachedWorkspaceSource,
+        selector: CachedWorkspaceLocator,
         source_token: &str,
     ) -> Result<Arc<Workspace>> {
         let slot = self.workspace_slot(&selector).await?;
@@ -289,8 +289,8 @@ impl StageCache {
         Ok(Arc::clone(runtime))
     }
 
-    pub async fn invalidate_workspace(&self, selector: &CachedWorkspaceSource) {
-        let Ok(cached_tree) = selector.cached_tree_source() else {
+    pub async fn invalidate_workspace(&self, selector: &CachedWorkspaceLocator) {
+        let Ok(cached_tree) = selector.cached_source_tree_origin() else {
             return;
         };
         let Some(tree_slot) = self.tree_slot_if_present(&cached_tree).await else {
@@ -298,7 +298,7 @@ impl StageCache {
         };
         let key = WorkspaceViewKey::new(&selector.workspace);
         tree_slot.workspace_views.lock().await.remove(&key);
-        if selector.workspace.revision == TreeRevision::LocalWorkingTree {
+        if selector.workspace.source_tree.revision == SourceTreeRevision::LocalWorkingTree {
             tree_slot
                 .source_trees
                 .lock()
@@ -312,12 +312,12 @@ impl StageCache {
         }
     }
 
-    pub async fn invalidate_branch(&self, cached_tree: &CachedTreeSource, branch: &str) {
+    pub async fn invalidate_branch(&self, cached_tree: &CachedSourceTreeOrigin, branch: &str) {
         let Some(tree_slot) = self.tree_slot_if_present(cached_tree).await else {
             return;
         };
         let invalidate_local_working_tree =
-            matches!(cached_tree.tree, TreeSource::LocalFolder { .. });
+            matches!(cached_tree.origin, SourceTreeOrigin::LocalFolder { .. });
         tree_slot.source_trees.lock().await.retain(|key, _| {
             !(key.is_branch(branch) || invalidate_local_working_tree && key.is_local_working_tree())
         });
@@ -339,23 +339,26 @@ impl StageCache {
             .retain(|key, _| !key.is_branch(branch));
     }
 
-    async fn workspace_slot(&self, selector: &CachedWorkspaceSource) -> Result<Arc<WorkspaceSlot>> {
-        let cached_tree = selector.cached_tree_source()?;
+    async fn workspace_slot(
+        &self,
+        selector: &CachedWorkspaceLocator,
+    ) -> Result<Arc<WorkspaceSlot>> {
+        let cached_tree = selector.cached_source_tree_origin()?;
         let tree_slot = self.tree_slot(cached_tree).await;
         let view_key = WorkspaceViewKey::new(&selector.workspace);
         let mut workspace_views = tree_slot.workspace_views.lock().await;
         Ok(workspace_views.entry(view_key).or_default().clone())
     }
 
-    async fn tree_slot(&self, cached_tree: CachedTreeSource) -> Arc<TreeSourceSlot> {
+    async fn tree_slot(&self, cached_tree: CachedSourceTreeOrigin) -> Arc<SourceTreeOriginSlot> {
         let mut tree_sources = self.inner.tree_sources.lock().await;
         tree_sources.entry(cached_tree).or_default().clone()
     }
 
     async fn tree_slot_if_present(
         &self,
-        cached_tree: &CachedTreeSource,
-    ) -> Option<Arc<TreeSourceSlot>> {
+        cached_tree: &CachedSourceTreeOrigin,
+    ) -> Option<Arc<SourceTreeOriginSlot>> {
         let tree_sources = self.inner.tree_sources.lock().await;
         tree_sources.get(cached_tree).cloned()
     }
@@ -371,7 +374,7 @@ mod tests {
 
     use super::*;
     use crate::console::stage::{
-        RepoRelativePath, TokenIdentity, TreeSource, WorkspacePath, WorkspaceSource,
+        RepoRelativePath, SourceTreeOrigin, TokenIdentity, WorkspaceLocator, WorkspacePath,
     };
 
     #[tokio::test]
@@ -380,8 +383,8 @@ mod tests {
         write_workspace(&tree.path().join("workspaces/payments")).await;
         let cache = StageCache::new();
         let selector = cached_workspace_source(
-            TreeSource::local_folder(tree.path()).await.unwrap(),
-            TreeRevision::LocalWorkingTree,
+            SourceTreeOrigin::local_folder(tree.path()).await.unwrap(),
+            SourceTreeRevision::LocalWorkingTree,
             "workspaces/payments",
         );
 
@@ -419,15 +422,15 @@ mod tests {
         write_workspace(&tree.path().join("workspaces/payments")).await;
         write_workspace(&tree.path().join("workspaces/search")).await;
         let cache = StageCache::new();
-        let source_tree = TreeSource::local_folder(tree.path()).await.unwrap();
+        let source_tree = SourceTreeOrigin::local_folder(tree.path()).await.unwrap();
         let payments = cached_workspace_source(
             source_tree.clone(),
-            TreeRevision::LocalWorkingTree,
+            SourceTreeRevision::LocalWorkingTree,
             "workspaces/payments",
         );
         let search = cached_workspace_source(
             source_tree,
-            TreeRevision::LocalWorkingTree,
+            SourceTreeRevision::LocalWorkingTree,
             "workspaces/search",
         );
 
@@ -456,15 +459,15 @@ mod tests {
         commit_all(repo.path(), "add root workspace");
 
         let cache = StageCache::new();
-        let cached_tree = CachedTreeSource::new(
+        let cached_tree = CachedSourceTreeOrigin::new(
             "user_123",
-            TreeSource::GitRemote {
+            SourceTreeOrigin::GitRemote {
                 remote_url: format!("git+file://{}", repo.path().display()),
             },
             TokenIdentity::none(),
         )
         .unwrap();
-        let revision = TreeRevision::GitRef(GitRefName::new("main").unwrap());
+        let revision = SourceTreeRevision::GitRef(GitRefName::new("main").unwrap());
 
         let first = cache
             .get_staged_source_tree(cached_tree.clone(), revision.clone())
@@ -491,19 +494,19 @@ mod tests {
         run_git(repo.path(), &["checkout", "main"]);
 
         let cache = StageCache::new();
-        let tree = TreeSource::GitRemote {
+        let tree = SourceTreeOrigin::GitRemote {
             remote_url: format!("git+file://{}", repo.path().display()),
         };
         let cached_tree =
-            CachedTreeSource::new("user_123", tree.clone(), TokenIdentity::none()).unwrap();
+            CachedSourceTreeOrigin::new("user_123", tree.clone(), TokenIdentity::none()).unwrap();
         let base = cached_workspace_source(
             tree.clone(),
-            TreeRevision::GitRef(GitRefName::new("main").unwrap()),
+            SourceTreeRevision::GitRef(GitRefName::new("main").unwrap()),
             ".",
         );
         let branch = cached_workspace_source(
             tree,
-            TreeRevision::git_branch("feature/payments").unwrap(),
+            SourceTreeRevision::git_branch("feature/payments").unwrap(),
             ".",
         );
 
@@ -518,14 +521,14 @@ mod tests {
         let base_tree_before = cache
             .get_staged_source_tree(
                 cached_tree.clone(),
-                TreeRevision::GitRef(GitRefName::new("main").unwrap()),
+                SourceTreeRevision::GitRef(GitRefName::new("main").unwrap()),
             )
             .await
             .unwrap();
         let branch_tree_before = cache
             .get_staged_source_tree(
                 cached_tree.clone(),
-                TreeRevision::git_branch("feature/payments").unwrap(),
+                SourceTreeRevision::git_branch("feature/payments").unwrap(),
             )
             .await
             .unwrap();
@@ -539,14 +542,14 @@ mod tests {
         let base_tree_after = cache
             .get_staged_source_tree(
                 cached_tree.clone(),
-                TreeRevision::GitRef(GitRefName::new("main").unwrap()),
+                SourceTreeRevision::GitRef(GitRefName::new("main").unwrap()),
             )
             .await
             .unwrap();
         let branch_tree_after = cache
             .get_staged_source_tree(
                 cached_tree,
-                TreeRevision::git_branch("feature/payments").unwrap(),
+                SourceTreeRevision::git_branch("feature/payments").unwrap(),
             )
             .await
             .unwrap();
@@ -562,30 +565,32 @@ mod tests {
         write_workspace(tree.path()).await;
 
         let cache = StageCache::new();
-        let source_tree = TreeSource::local_folder(tree.path()).await.unwrap();
+        let source_tree = SourceTreeOrigin::local_folder(tree.path()).await.unwrap();
         let cached_tree =
-            CachedTreeSource::new("user_123", source_tree.clone(), TokenIdentity::none()).unwrap();
-        let selector = cached_workspace_source(source_tree, TreeRevision::LocalWorkingTree, ".");
+            CachedSourceTreeOrigin::new("user_123", source_tree.clone(), TokenIdentity::none())
+                .unwrap();
+        let selector =
+            cached_workspace_source(source_tree, SourceTreeRevision::LocalWorkingTree, ".");
 
         let workspace_before = cache
             .get_inspected_workspace(selector.clone(), "")
             .await
             .unwrap();
         let discovery_before = cache
-            .discover_workspaces(cached_tree.clone(), TreeRevision::LocalWorkingTree)
+            .discover_workspaces(cached_tree.clone(), SourceTreeRevision::LocalWorkingTree)
             .await
             .unwrap();
         let staged_before = cache
-            .get_staged_source_tree(cached_tree.clone(), TreeRevision::LocalWorkingTree)
+            .get_staged_source_tree(cached_tree.clone(), SourceTreeRevision::LocalWorkingTree)
             .await
             .unwrap();
         let staged_cached = cache
-            .get_staged_source_tree(cached_tree.clone(), TreeRevision::LocalWorkingTree)
+            .get_staged_source_tree(cached_tree.clone(), SourceTreeRevision::LocalWorkingTree)
             .await
             .unwrap();
         write_workspace(&tree.path().join("workspaces/payments")).await;
         let cached_discovery = cache
-            .discover_workspaces(cached_tree.clone(), TreeRevision::LocalWorkingTree)
+            .discover_workspaces(cached_tree.clone(), SourceTreeRevision::LocalWorkingTree)
             .await
             .unwrap();
 
@@ -595,11 +600,11 @@ mod tests {
             .await
             .unwrap();
         let discovery_after = cache
-            .discover_workspaces(cached_tree.clone(), TreeRevision::LocalWorkingTree)
+            .discover_workspaces(cached_tree.clone(), SourceTreeRevision::LocalWorkingTree)
             .await
             .unwrap();
         let staged_after = cache
-            .get_staged_source_tree(cached_tree, TreeRevision::LocalWorkingTree)
+            .get_staged_source_tree(cached_tree, SourceTreeRevision::LocalWorkingTree)
             .await
             .unwrap();
 
@@ -636,11 +641,11 @@ mod tests {
         commit_all(repo.path(), "change checkout");
 
         let cache = StageCache::new();
-        let tree = TreeSource::GitRemote {
+        let tree = SourceTreeOrigin::GitRemote {
             remote_url: format!("git+file://{}", repo.path().display()),
         };
         let cached_tree =
-            CachedTreeSource::new("user_123", tree.clone(), TokenIdentity::none()).unwrap();
+            CachedSourceTreeOrigin::new("user_123", tree.clone(), TokenIdentity::none()).unwrap();
         let branch = BranchName::new("feature/payments").unwrap();
         let base_ref = GitRefName::new("main").unwrap();
 
@@ -708,13 +713,13 @@ default = "enabled"
     }
 
     fn cached_workspace_source(
-        tree: TreeSource,
-        revision: TreeRevision,
+        tree: SourceTreeOrigin,
+        revision: SourceTreeRevision,
         path: &str,
-    ) -> CachedWorkspaceSource {
-        CachedWorkspaceSource::new(
+    ) -> CachedWorkspaceLocator {
+        CachedWorkspaceLocator::new(
             "user_123",
-            WorkspaceSource::new(tree, revision, WorkspacePath::new(path).unwrap()),
+            WorkspaceLocator::new(tree, revision, WorkspacePath::new(path).unwrap()),
             TokenIdentity::none(),
         )
         .unwrap()

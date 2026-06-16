@@ -4,7 +4,7 @@ use crate::error::{Result, RototoError};
 
 use super::capabilities;
 use super::local_git;
-use super::stage::{CachedWorkspaceSource, StageCache, WorkspaceSourceInput};
+use super::stage::{CachedWorkspaceLocator, StageCache, WorkspaceLocatorInput};
 use super::store::DiscoveredWorkspaceInput;
 
 pub(crate) struct FixedWorkspaceRegistration {
@@ -28,7 +28,7 @@ pub(crate) async fn registration(
         git_ref = branch;
     }
 
-    let workspace_source = CachedWorkspaceSource::for_base_workspace(WorkspaceSourceInput {
+    let workspace_source = CachedWorkspaceLocator::for_base_workspace(WorkspaceLocatorInput {
         principal_id,
         token: "",
         owner: &owner,
@@ -41,8 +41,8 @@ pub(crate) async fn registration(
 
     let workspace_paths = stage
         .discover_workspaces(
-            workspace_source.cached_tree_source()?,
-            workspace_source.workspace.revision,
+            workspace_source.cached_source_tree_origin()?,
+            workspace_source.workspace.source_tree.revision,
         )
         .await?
         .workspaces

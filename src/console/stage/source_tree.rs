@@ -1,22 +1,24 @@
 use crate::error::{Result, RototoError};
 use crate::source::{SourceOptions, StagedSourceTree, stage_source_tree};
 
-use super::{CachedTreeSource, TreeRevision, TreeSource};
+use super::{CachedSourceTreeOrigin, SourceTreeOrigin, SourceTreeRevision};
 
 pub async fn stage_tree_for_revision(
-    cached_tree: CachedTreeSource,
-    revision: TreeRevision,
+    cached_tree: CachedSourceTreeOrigin,
+    revision: SourceTreeRevision,
 ) -> Result<StagedSourceTree> {
-    let source = source_for_revision(&cached_tree.tree, &revision)?;
+    let source = source_for_revision(&cached_tree.origin, &revision)?;
     stage_source_tree(source, &SourceOptions::default()).await
 }
 
-fn source_for_revision(tree: &TreeSource, revision: &TreeRevision) -> Result<String> {
+fn source_for_revision(tree: &SourceTreeOrigin, revision: &SourceTreeRevision) -> Result<String> {
     match tree {
-        TreeSource::LocalFolder { root } if matches!(revision, TreeRevision::LocalWorkingTree) => {
+        SourceTreeOrigin::LocalFolder { root }
+            if matches!(revision, SourceTreeRevision::LocalWorkingTree) =>
+        {
             Ok(root.to_string_lossy().into_owned())
         }
-        TreeSource::GitHub { owner, name } => {
+        SourceTreeOrigin::GitHub { owner, name } => {
             let Some(git_ref) = git_ref_for_revision(revision) else {
                 return Err(invalid_selection_error());
             };
@@ -24,25 +26,29 @@ fn source_for_revision(tree: &TreeSource, revision: &TreeRevision) -> Result<Str
                 "git+https://github.com/{owner}/{name}.git#{git_ref}"
             ))
         }
-        TreeSource::GitRemote { remote_url } => {
+        SourceTreeOrigin::GitRemote { remote_url } => {
             let Some(git_ref) = git_ref_for_revision(revision) else {
                 return Err(invalid_selection_error());
             };
             Ok(format!("{remote_url}#{git_ref}"))
         }
-        TreeSource::Archive { .. } if matches!(revision, TreeRevision::ArchiveSnapshot(_)) => Err(
-            RototoError::new("archive source tree staging is not yet supported"),
-        ),
+        SourceTreeOrigin::Archive { .. }
+            if matches!(revision, SourceTreeRevision::ArchiveSnapshot(_)) =>
+        {
+            Err(RototoError::new(
+                "archive source tree staging is not yet supported",
+            ))
+        }
         _ => Err(invalid_selection_error()),
     }
 }
 
-fn git_ref_for_revision(revision: &TreeRevision) -> Option<&str> {
+fn git_ref_for_revision(revision: &SourceTreeRevision) -> Option<&str> {
     match revision {
-        TreeRevision::GitRef(ref_) => Some(ref_.as_ref()),
-        TreeRevision::GitBranch(branch) => Some(branch.as_ref()),
-        TreeRevision::GitCommit(commit) => Some(commit.as_ref()),
-        TreeRevision::LocalWorkingTree | TreeRevision::ArchiveSnapshot(_) => None,
+        SourceTreeRevision::GitRef(ref_) => Some(ref_.as_ref()),
+        SourceTreeRevision::GitBranch(branch) => Some(branch.as_ref()),
+        SourceTreeRevision::GitCommit(commit) => Some(commit.as_ref()),
+        SourceTreeRevision::LocalWorkingTree | SourceTreeRevision::ArchiveSnapshot(_) => None,
     }
 }
 
@@ -68,13 +74,13 @@ mod tests {
         .unwrap();
 
         let staged = stage_tree_for_revision(
-            CachedTreeSource::new(
+            CachedSourceTreeOrigin::new(
                 "user_123",
-                TreeSource::local_folder(tree.path()).await.unwrap(),
+                SourceTreeOrigin::local_folder(tree.path()).await.unwrap(),
                 TokenIdentity::none(),
             )
             .unwrap(),
-            TreeRevision::LocalWorkingTree,
+            SourceTreeRevision::LocalWorkingTree,
         )
         .await
         .unwrap();
@@ -83,16 +89,16 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn rejects_revision_that_does_not_match_tree_source() {
+    async fn rejects_revision_that_does_not_match_source_tree_origin() {
         let tree = TempDir::new().expect("tree tempdir");
         let err = stage_tree_for_revision(
-            CachedTreeSource::new(
+            CachedSourceTreeOrigin::new(
                 "user_123",
-                TreeSource::local_folder(tree.path()).await.unwrap(),
+                SourceTreeOrigin::local_folder(tree.path()).await.unwrap(),
                 TokenIdentity::none(),
             )
             .unwrap(),
-            TreeRevision::GitRef(GitRefName::new("main").unwrap()),
+            SourceTreeRevision::GitRef(GitRefName::new("main").unwrap()),
         )
         .await
         .unwrap_err();

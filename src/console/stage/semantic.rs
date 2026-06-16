@@ -3,11 +3,11 @@
 use std::sync::Arc;
 
 use super::load;
-use super::{CachedWorkspaceSource, SemanticWorkspace};
+use super::{CachedWorkspaceLocator, SemanticWorkspace};
 use crate::error::Result;
 
 pub async fn get_semantic_workspace(
-    selector: CachedWorkspaceSource,
+    selector: CachedWorkspaceLocator,
     source_token: &str,
 ) -> Result<SemanticWorkspace> {
     let workspace = load::get_inspected_workspace(selector, source_token).await?;
@@ -27,7 +27,8 @@ mod tests {
 
     use super::*;
     use crate::console::stage::{
-        GitRefName, TokenIdentity, TreeRevision, TreeSource, WorkspacePath, WorkspaceSource,
+        GitRefName, SourceTreeOrigin, SourceTreeRevision, TokenIdentity, WorkspaceLocator,
+        WorkspacePath,
     };
 
     #[tokio::test]
@@ -36,8 +37,8 @@ mod tests {
         write_workspace(&tree.path().join("workspaces/payments")).await;
 
         let selector = cached_workspace_source(
-            TreeSource::local_folder(tree.path()).await.unwrap(),
-            TreeRevision::LocalWorkingTree,
+            SourceTreeOrigin::local_folder(tree.path()).await.unwrap(),
+            SourceTreeRevision::LocalWorkingTree,
             "workspaces/payments",
         );
 
@@ -61,10 +62,10 @@ mod tests {
         commit_all(repo.path(), "add workspace");
 
         let selector = cached_workspace_source(
-            TreeSource::GitRemote {
+            SourceTreeOrigin::GitRemote {
                 remote_url: format!("git+file://{}", repo.path().display()),
             },
-            TreeRevision::GitRef(GitRefName::new("main").unwrap()),
+            SourceTreeRevision::GitRef(GitRefName::new("main").unwrap()),
             "workspaces/payments",
         );
 
@@ -107,13 +108,13 @@ default = "enabled"
     }
 
     fn cached_workspace_source(
-        tree: TreeSource,
-        revision: TreeRevision,
+        tree: SourceTreeOrigin,
+        revision: SourceTreeRevision,
         path: &str,
-    ) -> CachedWorkspaceSource {
-        CachedWorkspaceSource::new(
+    ) -> CachedWorkspaceLocator {
+        CachedWorkspaceLocator::new(
             "user_123",
-            WorkspaceSource::new(tree, revision, WorkspacePath::new(path).unwrap()),
+            WorkspaceLocator::new(tree, revision, WorkspacePath::new(path).unwrap()),
             TokenIdentity::none(),
         )
         .unwrap()
