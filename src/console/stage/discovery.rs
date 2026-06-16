@@ -1,85 +1,21 @@
-#![allow(dead_code)]
-
 use std::path::{Path, PathBuf};
 
-use super::{CachedTreeSource, TreeRevision, TreeSource, WorkspaceDiscovery, WorkspacePath};
+use super::{CachedTreeSource, TreeRevision, WorkspaceDiscovery, WorkspacePath};
 use crate::error::{Result, RototoError};
-use crate::source::{SourceOptions, stage_source_tree};
 
 const WORKSPACE_MANIFEST: &str = "rototo-workspace.toml";
 
 pub async fn discover_workspaces(
     cached_tree: CachedTreeSource,
     revision: TreeRevision,
+    root: &Path,
 ) -> Result<WorkspaceDiscovery> {
-    let root = stage_root_for_revision(&cached_tree.tree, &revision).await?;
-    let workspaces = discover_workspace_paths(root.path()).await?;
+    let workspaces = discover_workspace_paths(root).await?;
     Ok(WorkspaceDiscovery {
         cached_tree,
         revision,
         workspaces,
     })
-}
-
-enum StagedRoot {
-    Borrowed(PathBuf),
-    Loaded(crate::source::StagedSourceTree),
-}
-
-impl StagedRoot {
-    fn path(&self) -> &Path {
-        match self {
-            Self::Borrowed(path) => path,
-            Self::Loaded(loaded) => loaded.root(),
-        }
-    }
-}
-
-async fn stage_root_for_revision(tree: &TreeSource, revision: &TreeRevision) -> Result<StagedRoot> {
-    match tree {
-        TreeSource::LocalFolder { root } if matches!(revision, TreeRevision::LocalWorkingTree) => {
-            Ok(StagedRoot::Borrowed(root.clone()))
-        }
-        TreeSource::GitHub { owner, name } => {
-            let Some(git_ref) = git_ref_for_revision(revision) else {
-                return Err(invalid_selection_error());
-            };
-            stage_git_root(
-                &format!("git+https://github.com/{owner}/{name}.git"),
-                git_ref,
-            )
-            .await
-        }
-        TreeSource::GitRemote { remote_url } => {
-            let Some(git_ref) = git_ref_for_revision(revision) else {
-                return Err(invalid_selection_error());
-            };
-            stage_git_root(remote_url, git_ref).await
-        }
-        TreeSource::Archive { .. } if matches!(revision, TreeRevision::ArchiveSnapshot(_)) => Err(
-            RototoError::new("archive workspace discovery requires archive staging support"),
-        ),
-        _ => Err(invalid_selection_error()),
-    }
-}
-
-fn git_ref_for_revision(revision: &TreeRevision) -> Option<&str> {
-    match revision {
-        TreeRevision::GitRef(ref_) => Some(ref_.as_ref()),
-        TreeRevision::GitBranch(branch) => Some(branch.as_ref()),
-        TreeRevision::GitCommit(commit) => Some(commit.as_ref()),
-        TreeRevision::LocalWorkingTree | TreeRevision::ArchiveSnapshot(_) => None,
-    }
-}
-
-fn invalid_selection_error() -> RototoError {
-    RototoError::new("tree revision is not valid for workspace discovery")
-}
-
-async fn stage_git_root(remote_url: &str, git_ref: &str) -> Result<StagedRoot> {
-    let source = format!("{remote_url}#{git_ref}");
-    let loaded = stage_source_tree(&source, &SourceOptions::default()).await?;
-    Ok(StagedRoot::Loaded(loaded))
 }
 
 async fn discover_workspace_paths(root: &Path) -> Result<Vec<WorkspacePath>> {
@@ -173,7 +109,8 @@ mod tests {
     use tempfile::TempDir;
 
     use super::*;
-    use crate::console::stage::{CachedTreeSource, GitRefName, TokenIdentity};
+    use crate::console::stage::source_tree;
+    use crate::console::stage::{CachedTreeSource, GitRefName, TokenIdentity, TreeSource};
 
     #[tokio::test]
     async fn discovers_workspaces_in_local_tree() {
@@ -185,7 +122,7 @@ mod tests {
             .await
             .unwrap();
 
-        let discovery = discover_workspaces(
+        let discovery = discover_for_source(
             source_key(TreeSource::local_folder(tree.path()).await.unwrap()),
             TreeRevision::LocalWorkingTree,
         )
@@ -206,7 +143,7 @@ mod tests {
         write_manifest(&repo.path().join("workspaces/payments")).await;
         commit_all(repo.path(), "add workspaces");
 
-        let discovery = discover_workspaces(
+        let discovery = discover_for_source(
             source_key(TreeSource::GitRemote {
                 remote_url: format!("git+file://{}", repo.path().display()),
             }),
@@ -231,7 +168,7 @@ mod tests {
         write_manifest(&repo.path().join("workspaces/payments")).await;
         commit_all(repo.path(), "add payments workspace");
 
-        let discovery = discover_workspaces(
+        let discovery = discover_for_source(
             source_key(TreeSource::GitRemote {
                 remote_url: format!("git+file://{}", repo.path().display()),
             }),
@@ -260,7 +197,7 @@ extends = ["git+file:///missing/parent-workspace#main"]
         .unwrap();
         commit_all(repo.path(), "add extending workspace");
 
-        let discovery = discover_workspaces(
+        let discovery = discover_for_source(
             source_key(TreeSource::GitRemote {
                 remote_url: format!("git+file://{}", repo.path().display()),
             }),
@@ -275,7 +212,7 @@ extends = ["git+file:///missing/parent-workspace#main"]
     #[tokio::test]
     async fn rejects_revision_that_does_not_match_tree_source_kind() {
         let tree = TempDir::new().expect("tree tempdir");
-        let err = discover_workspaces(
+        let err = discover_for_source(
             source_key(TreeSource::local_folder(tree.path()).await.unwrap()),
             TreeRevision::GitRef(GitRefName::new("main").unwrap()),
         )
@@ -294,6 +231,15 @@ extends = ["git+file:///missing/parent-workspace#main"]
 
     fn source_key(source: TreeSource) -> CachedTreeSource {
         CachedTreeSource::new("user_123", source, TokenIdentity::none()).unwrap()
+    }
+
+    async fn discover_for_source(
+        cached_tree: CachedTreeSource,
+        revision: TreeRevision,
+    ) -> Result<WorkspaceDiscovery> {
+        let staged =
+            source_tree::stage_tree_for_revision(cached_tree.clone(), revision.clone()).await?;
+        discover_workspaces(cached_tree, revision, staged.root()).await
     }
 
     fn workspace_strings(workspaces: &[WorkspacePath]) -> Vec<&str> {

@@ -8,6 +8,7 @@ mod load;
 mod records;
 mod runtime;
 mod semantic;
+mod source_tree;
 mod workspace_source;
 
 pub use self::cache::StageCache;
