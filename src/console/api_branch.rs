@@ -28,6 +28,7 @@ use super::inventory::{
 };
 use super::local_git;
 use super::resolve_preview::edit_context_previews;
+use super::stage::{BranchName, GitRefName};
 use super::store::{
     SessionUser, TrackBranchInput, TrackedBranchPullRequestInput, TrackedBranchRecord,
     TrackedBranchStatus, WorkspaceRecord,
@@ -1307,10 +1308,34 @@ async fn branch_changed_paths(
             .map_err(|err| ApiError::github(&err, "Loading branch changes"))?;
         return Ok(filter_workspace_paths(workspace, comparison.files));
     }
-    let changed = local_git::changed_paths(workspace, &branch.base_ref)
+    let selector = workspace_source_for_branch(
+        state,
+        &user.principal_id,
+        source_token(user),
+        workspace,
+        &branch.branch,
+    )
+    .await?;
+    let cached_tree = selector
+        .cached_tree_source()
+        .map_err(|err| ApiError::internal(err.to_string()))?;
+    let branch_name =
+        BranchName::new(&branch.branch).map_err(|err| ApiError::bad_request(err.to_string()))?;
+    let base_ref =
+        GitRefName::new(&branch.base_ref).map_err(|err| ApiError::bad_request(err.to_string()))?;
+    let changes = state
+        .stage
+        .get_branch_changes(cached_tree, branch_name, base_ref)
         .await
         .map_err(|err| ApiError::bad_request(err.to_string()))?;
-    Ok(filter_workspace_paths(workspace, changed))
+    Ok(filter_workspace_paths(
+        workspace,
+        changes
+            .changed_files
+            .into_iter()
+            .map(|path| path.as_str().to_owned())
+            .collect(),
+    ))
 }
 
 fn filter_workspace_paths(workspace: &WorkspaceRecord, paths: Vec<String>) -> Vec<String> {

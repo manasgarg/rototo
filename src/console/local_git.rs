@@ -55,38 +55,6 @@ pub async fn head_sha(source: &str) -> Result<String> {
     Ok(sha.to_owned())
 }
 
-pub async fn changed_paths(workspace: &WorkspaceRecord, base_ref: &str) -> Result<Vec<String>> {
-    let root = workspace_root(&workspace.source)?;
-    let pathspec = if workspace.path == "." {
-        ".".to_owned()
-    } else {
-        workspace.path.clone()
-    };
-    let mut paths = std::collections::BTreeSet::new();
-    if let Ok(diff) = git(
-        &root,
-        &[
-            "diff",
-            "--name-only",
-            &format!("{base_ref}...HEAD"),
-            "--",
-            &pathspec,
-        ],
-    )
-    .await
-    {
-        paths.extend(
-            diff.lines()
-                .map(str::trim)
-                .filter(|line| !line.is_empty())
-                .map(str::to_owned),
-        );
-    }
-    let status = git(&root, &["status", "--porcelain", "--", &pathspec]).await?;
-    paths.extend(status.lines().filter_map(status_path));
-    Ok(paths.into_iter().collect())
-}
-
 pub async fn read_file(workspace: &WorkspaceRecord, file_path: &str) -> Result<String> {
     let root = workspace_root(&workspace.source)?;
     let relative = workspace_local_path(workspace, file_path)?;
@@ -215,20 +183,6 @@ async fn git(root: &Path, args: &[&str]) -> Result<String> {
     )))
 }
 
-fn status_path(line: &str) -> Option<String> {
-    let line = line.trim_end();
-    if line.len() < 4 {
-        return None;
-    }
-    let path = if line.starts_with('R') || line.starts_with('C') {
-        line.rsplit(" -> ").next().unwrap_or(&line[3..])
-    } else {
-        &line[3..]
-    };
-    let path = path.trim().trim_matches('"');
-    (!path.is_empty()).then(|| path.to_owned())
-}
-
 fn ensure_inside(root: &Path, path: &Path) -> Result<()> {
     let root = root
         .canonicalize()
@@ -305,22 +259,6 @@ mod tests {
         assert_eq!(
             run_git(root, &["status", "--porcelain", "--", "other.txt"]),
             "M  other.txt\n"
-        );
-    }
-
-    #[test]
-    fn status_path_reads_modified_untracked_and_renamed_paths() {
-        assert_eq!(
-            status_path(" M variables/a.toml"),
-            Some("variables/a.toml".to_owned())
-        );
-        assert_eq!(
-            status_path("?? variables/new.toml"),
-            Some("variables/new.toml".to_owned())
-        );
-        assert_eq!(
-            status_path("R  variables/old.toml -> variables/new.toml"),
-            Some("variables/new.toml".to_owned())
         );
     }
 }

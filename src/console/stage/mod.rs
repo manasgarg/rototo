@@ -1,5 +1,6 @@
 #![allow(dead_code, unused_imports)]
 
+mod branch_changes;
 mod cache;
 mod discovery;
 mod identity;

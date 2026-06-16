@@ -3,6 +3,7 @@ use std::sync::Arc;
 
 use tokio::sync::{Mutex, OnceCell};
 
+use super::branch_changes;
 use super::discovery;
 use super::load;
 use super::runtime;
@@ -10,7 +11,7 @@ use super::{
     BranchChanges, BranchName, CachedTreeSource, CachedWorkspaceSource, GitRefName,
     SemanticWorkspace, TreeRevision, WorkspaceDiscovery, WorkspacePath, WorkspaceSource,
 };
-use crate::error::{Result, RototoError};
+use crate::error::Result;
 use crate::sdk::Workspace;
 
 #[derive(Clone, Default)]
@@ -26,6 +27,7 @@ struct StageCacheInner {
 #[derive(Default)]
 struct TreeSourceSlot {
     workspace_views: Mutex<HashMap<WorkspaceViewKey, Arc<WorkspaceSlot>>>,
+    branch_changes: Mutex<HashMap<BranchChangesKey, Arc<BranchChangesSlot>>>,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Hash)]
@@ -54,6 +56,27 @@ struct WorkspaceSlot {
     runtime: OnceCell<Arc<Workspace>>,
 }
 
+#[derive(Clone, Debug, Eq, PartialEq, Hash)]
+struct BranchChangesKey {
+    branch: BranchName,
+    base_ref: GitRefName,
+}
+
+impl BranchChangesKey {
+    fn new(branch: BranchName, base_ref: GitRefName) -> Self {
+        Self { branch, base_ref }
+    }
+
+    fn is_branch(&self, branch: &str) -> bool {
+        self.branch.as_str() == branch
+    }
+}
+
+#[derive(Default)]
+struct BranchChangesSlot {
+    changes: OnceCell<BranchChanges>,
+}
+
 impl StageCache {
     pub fn new() -> Self {
         Self::default()
@@ -69,11 +92,23 @@ impl StageCache {
 
     pub async fn get_branch_changes(
         &self,
-        _cached_tree: CachedTreeSource,
-        _branch: BranchName,
-        _base_ref: GitRefName,
+        cached_tree: CachedTreeSource,
+        branch: BranchName,
+        base_ref: GitRefName,
     ) -> Result<BranchChanges> {
-        Err(stage_rewrite_error("get_branch_changes"))
+        let tree_slot = self.tree_slot(cached_tree.clone()).await;
+        let key = BranchChangesKey::new(branch.clone(), base_ref.clone());
+        let changes_slot = {
+            let mut branch_changes = tree_slot.branch_changes.lock().await;
+            branch_changes.entry(key).or_default().clone()
+        };
+        let changes = changes_slot
+            .changes
+            .get_or_try_init(|| async move {
+                branch_changes::get_branch_changes(cached_tree, branch, base_ref).await
+            })
+            .await?;
+        Ok(changes.clone())
     }
 
     pub async fn get_inspected_workspace(
@@ -163,6 +198,11 @@ impl StageCache {
             .lock()
             .await
             .retain(|key, _| !key.is_branch(branch));
+        tree_slot
+            .branch_changes
+            .lock()
+            .await
+            .retain(|key, _| !key.is_branch(branch));
     }
 
     async fn workspace_slot(&self, selector: &CachedWorkspaceSource) -> Result<Arc<WorkspaceSlot>> {
@@ -187,12 +227,6 @@ impl StageCache {
     }
 }
 
-fn stage_rewrite_error(operation: &str) -> RototoError {
-    RototoError::new(format!(
-        "console stage operation `{operation}` is unavailable while the stage cache is being rebuilt"
-    ))
-}
-
 #[cfg(test)]
 mod tests {
     use std::path::Path;
@@ -202,7 +236,9 @@ mod tests {
     use tempfile::TempDir;
 
     use super::*;
-    use crate::console::stage::{TokenIdentity, TreeSource, WorkspacePath, WorkspaceSource};
+    use crate::console::stage::{
+        RepoRelativePath, TokenIdentity, TreeSource, WorkspacePath, WorkspaceSource,
+    };
 
     #[tokio::test]
     async fn workspace_views_cache_inspected_semantic_and_runtime_handles() {
@@ -325,6 +361,68 @@ mod tests {
         assert!(!Arc::ptr_eq(&branch_before, &branch_after));
     }
 
+    #[tokio::test]
+    async fn branch_invalidation_drops_cached_branch_changes() {
+        let repo = TempDir::new().expect("repo tempdir");
+        init_repo(repo.path());
+        write_workspace(repo.path()).await;
+        commit_all(repo.path(), "add root workspace");
+        run_git(repo.path(), &["checkout", "-b", "feature/payments"]);
+        tokio::fs::write(
+            repo.path().join("variables/checkout.toml"),
+            "schema_version = 1\n",
+        )
+        .await
+        .unwrap();
+        commit_all(repo.path(), "change checkout");
+
+        let cache = StageCache::new();
+        let tree = TreeSource::GitRemote {
+            remote_url: format!("git+file://{}", repo.path().display()),
+        };
+        let cached_tree =
+            CachedTreeSource::new("user_123", tree.clone(), TokenIdentity::none()).unwrap();
+        let branch = BranchName::new("feature/payments").unwrap();
+        let base_ref = GitRefName::new("main").unwrap();
+
+        let first = cache
+            .get_branch_changes(cached_tree.clone(), branch.clone(), base_ref.clone())
+            .await
+            .unwrap();
+        tokio::fs::write(
+            repo.path().join("variables/search.toml"),
+            "schema_version = 1\n",
+        )
+        .await
+        .unwrap();
+        commit_all(repo.path(), "change search");
+
+        let cached = cache
+            .get_branch_changes(cached_tree.clone(), branch.clone(), base_ref.clone())
+            .await
+            .unwrap();
+        cache
+            .invalidate_branch(&cached_tree, "feature/payments")
+            .await;
+        let refreshed = cache
+            .get_branch_changes(cached_tree, branch, base_ref)
+            .await
+            .unwrap();
+
+        assert_eq!(
+            repo_path_strings(&first.changed_files),
+            vec!["variables/checkout.toml"]
+        );
+        assert_eq!(
+            repo_path_strings(&cached.changed_files),
+            vec!["variables/checkout.toml"]
+        );
+        assert_eq!(
+            repo_path_strings(&refreshed.changed_files),
+            vec!["variables/checkout.toml", "variables/search.toml"]
+        );
+    }
+
     async fn write_workspace(path: &Path) {
         tokio::fs::create_dir_all(path.join("variables"))
             .await
@@ -361,6 +459,10 @@ default = "enabled"
             TokenIdentity::none(),
         )
         .unwrap()
+    }
+
+    fn repo_path_strings(paths: &[RepoRelativePath]) -> Vec<&str> {
+        paths.iter().map(RepoRelativePath::as_str).collect()
     }
 
     fn init_repo(path: &Path) {
