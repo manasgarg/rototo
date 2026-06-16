@@ -374,7 +374,7 @@ async fn repo_upsert_lists_workspaces_with_slugs() {
 }
 
 #[tokio::test]
-async fn tracked_branch_can_include_multiple_workspaces() {
+async fn active_branch_can_include_multiple_workspaces() {
     let store = test_store().await;
     let repo = store
         .upsert_repo_with_workspaces(
@@ -390,7 +390,7 @@ async fn tracked_branch_can_include_multiple_workspaces() {
     let flags = repo.workspaces[1].clone();
 
     let branch = store
-        .track_branch(TrackBranchInput {
+        .select_branch(SelectBranchInput {
             workspace_id: root.id.clone(),
             principal_id: "42".to_owned(),
             branch: "feature/payments".to_owned(),
@@ -400,18 +400,18 @@ async fn tracked_branch_can_include_multiple_workspaces() {
         })
         .await
         .unwrap();
-    assert_eq!(branch.status, TrackedBranchStatus::Active);
+    assert_eq!(branch.status, ActiveBranchStatus::Active);
     assert_eq!(branch.last_selected_workspace_path.as_deref(), Some("."));
 
     let existing = store
-        .find_active_tracked_branch_for_repo_branch(&flags.id, "42", "feature/payments")
+        .find_active_branch_for_repo_branch(&flags.id, "42", "feature/payments")
         .await
         .unwrap()
         .unwrap();
     assert_eq!(existing.id, branch.id);
 
     let branch = store
-        .ensure_tracked_branch_workspace(&branch.id, &flags.id, "42")
+        .ensure_active_branch_workspace(&branch.id, &flags.id, "42")
         .await
         .unwrap();
     assert_eq!(
@@ -420,18 +420,18 @@ async fn tracked_branch_can_include_multiple_workspaces() {
     );
 
     let root_branches = store
-        .list_tracked_branches_for_workspace(&root.id, "42")
+        .list_active_branches_for_workspace(&root.id, "42")
         .await
         .unwrap();
     let flags_branches = store
-        .list_tracked_branches_for_workspace(&flags.id, "42")
+        .list_active_branches_for_workspace(&flags.id, "42")
         .await
         .unwrap();
     assert_eq!(root_branches[0].id, branch.id);
     assert_eq!(flags_branches[0].id, branch.id);
 
     let workspaces = store
-        .list_workspaces_for_tracked_branch(&branch.id)
+        .list_workspaces_for_active_branch(&branch.id)
         .await
         .unwrap();
     let paths: Vec<&str> = workspaces
@@ -442,7 +442,7 @@ async fn tracked_branch_can_include_multiple_workspaces() {
 }
 
 #[tokio::test]
-async fn tracked_branch_lists_recent_but_not_archived_branches() {
+async fn active_branch_lists_recent_but_not_archived_branches() {
     let store = test_store().await;
     let repo = store
         .upsert_repo_with_workspaces(
@@ -457,7 +457,7 @@ async fn tracked_branch_lists_recent_but_not_archived_branches() {
     let workspace = repo.workspaces[0].clone();
 
     let active = store
-        .track_branch(TrackBranchInput {
+        .select_branch(SelectBranchInput {
             workspace_id: workspace.id.clone(),
             principal_id: "42".to_owned(),
             branch: "feature/active".to_owned(),
@@ -468,7 +468,7 @@ async fn tracked_branch_lists_recent_but_not_archived_branches() {
         .await
         .unwrap();
     let recent = store
-        .track_branch(TrackBranchInput {
+        .select_branch(SelectBranchInput {
             workspace_id: workspace.id.clone(),
             principal_id: "42".to_owned(),
             branch: "feature/recent".to_owned(),
@@ -479,7 +479,7 @@ async fn tracked_branch_lists_recent_but_not_archived_branches() {
         .await
         .unwrap();
     let archived = store
-        .track_branch(TrackBranchInput {
+        .select_branch(SelectBranchInput {
             workspace_id: workspace.id.clone(),
             principal_id: "42".to_owned(),
             branch: "feature/archived".to_owned(),
@@ -490,14 +490,14 @@ async fn tracked_branch_lists_recent_but_not_archived_branches() {
         .await
         .unwrap();
 
-    let recent = store.mark_tracked_branch_recent(&recent.id).await.unwrap();
-    assert_eq!(recent.status, TrackedBranchStatus::Recent);
-    let archived = store.archive_tracked_branch(&archived.id).await.unwrap();
-    assert_eq!(archived.status, TrackedBranchStatus::Archived);
+    let recent = store.mark_active_branch_recent(&recent.id).await.unwrap();
+    assert_eq!(recent.status, ActiveBranchStatus::Recent);
+    let archived = store.archive_active_branch(&archived.id).await.unwrap();
+    assert_eq!(archived.status, ActiveBranchStatus::Archived);
     assert!(archived.archived_at.is_some());
 
     let mut branches: Vec<String> = store
-        .list_tracked_branches_for_workspace(&workspace.id, "42")
+        .list_active_branches_for_workspace(&workspace.id, "42")
         .await
         .unwrap()
         .into_iter()
@@ -507,16 +507,16 @@ async fn tracked_branch_lists_recent_but_not_archived_branches() {
     assert_eq!(branches, ["feature/active", "feature/recent"]);
 
     let fetched = store
-        .get_tracked_branch_for_user(&archived.id, &workspace.id, "42")
+        .get_active_branch_for_user(&archived.id, &workspace.id, "42")
         .await
         .unwrap()
         .unwrap();
-    assert_eq!(fetched.status, TrackedBranchStatus::Archived);
+    assert_eq!(fetched.status, ActiveBranchStatus::Archived);
     assert_eq!(active.branch, "feature/active");
 }
 
 #[tokio::test]
-async fn tracked_branch_updates_edit_and_pull_request_metadata() {
+async fn active_branch_updates_edit_and_pull_request_metadata() {
     let store = test_store().await;
     let repo = store
         .upsert_repo_with_workspaces(
@@ -529,7 +529,7 @@ async fn tracked_branch_updates_edit_and_pull_request_metadata() {
         .await
         .unwrap();
     let branch = store
-        .track_branch(TrackBranchInput {
+        .select_branch(SelectBranchInput {
             workspace_id: repo.workspaces[0].id.clone(),
             principal_id: "42".to_owned(),
             branch: "feature/pr".to_owned(),
@@ -541,7 +541,7 @@ async fn tracked_branch_updates_edit_and_pull_request_metadata() {
         .unwrap();
 
     let edited = store
-        .record_tracked_branch_edit(
+        .record_active_branch_edit(
             &branch.id,
             Some("fedcba9876543210fedcba9876543210fedcba98".to_owned()),
         )
@@ -554,7 +554,7 @@ async fn tracked_branch_updates_edit_and_pull_request_metadata() {
     );
 
     let updated = store
-        .update_tracked_branch_pull_request_state(TrackedBranchPullRequestInput {
+        .update_active_branch_pull_request_state(BranchPullRequestInput {
             branch_id: branch.id.clone(),
             pr_number: 12,
             pr_state: "open".to_owned(),
@@ -569,7 +569,7 @@ async fn tracked_branch_updates_edit_and_pull_request_metadata() {
 }
 
 #[tokio::test]
-async fn repo_upsert_hides_missing_workspace_but_keeps_tracked_branches() {
+async fn repo_upsert_hides_missing_workspace_but_keeps_active_branches() {
     let store = test_store().await;
     let repo = store
         .upsert_repo_with_workspaces(
@@ -583,7 +583,7 @@ async fn repo_upsert_hides_missing_workspace_but_keeps_tracked_branches() {
         .unwrap();
     let workspace = repo.workspaces[0].clone();
     let branch = store
-        .track_branch(TrackBranchInput {
+        .select_branch(SelectBranchInput {
             workspace_id: workspace.id.clone(),
             principal_id: "42".to_owned(),
             branch: "feature/root".to_owned(),
@@ -620,11 +620,11 @@ async fn repo_upsert_hides_missing_workspace_but_keeps_tracked_branches() {
             .unwrap()
             .is_some()
     );
-    let branches = store.list_tracked_branches_for_user("42").await.unwrap();
+    let branches = store.list_active_branches_for_user("42").await.unwrap();
     assert_eq!(branches.len(), 1);
     assert_eq!(branches[0].id, branch.id);
     let workspaces = store
-        .list_workspaces_for_tracked_branch(&branch.id)
+        .list_workspaces_for_active_branch(&branch.id)
         .await
         .unwrap();
     assert_eq!(workspaces[0].id, workspace.id);

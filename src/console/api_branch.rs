@@ -30,8 +30,8 @@ use super::local_git;
 use super::resolve_preview::edit_context_previews;
 use super::stage::{BranchName, GitRefName};
 use super::store::{
-    SessionUser, TrackBranchInput, TrackedBranchPullRequestInput, TrackedBranchRecord,
-    TrackedBranchStatus, WorkspaceRecord,
+    ActiveBranchRecord, ActiveBranchStatus, BranchPullRequestInput, SelectBranchInput, SessionUser,
+    WorkspaceRecord,
 };
 use super::variable_toml::update_primitive_variable_default;
 use super::workspace_edit::{
@@ -92,7 +92,7 @@ pub fn routes() -> axum::Router<SharedState> {
 struct BranchContext {
     user: SessionUser,
     workspace: WorkspaceRecord,
-    branch: TrackedBranchRecord,
+    branch: ActiveBranchRecord,
 }
 
 enum BranchBackend<'a> {
@@ -166,10 +166,10 @@ async fn load_branch(
     let workspace = load_workspace(state, &user, workspace_id).await?;
     let branch = state
         .store
-        .get_tracked_branch_for_user(branch_id, &workspace.id, &user.principal_id)
+        .get_active_branch_for_user(branch_id, &workspace.id, &user.principal_id)
         .await?
         .ok_or_else(|| ApiError::not_found("branch not found"))?;
-    if require_active && branch.status != TrackedBranchStatus::Active {
+    if require_active && branch.status != ActiveBranchStatus::Active {
         return Err(ApiError::bad_request("branch is not active"));
     }
     Ok(BranchContext {
@@ -183,7 +183,7 @@ async fn invalidate_branch(
     state: &ConsoleState,
     user: &SessionUser,
     workspace: &WorkspaceRecord,
-    branch: &TrackedBranchRecord,
+    branch: &ActiveBranchRecord,
 ) {
     state.lsp.drop_sessions_for_branch(&branch.id).await;
     if let Ok(source) = workspace_source_for_branch(
@@ -210,7 +210,7 @@ async fn inspect_branch_workspace(
     state: &ConsoleState,
     user: &SessionUser,
     workspace: &WorkspaceRecord,
-    branch: &TrackedBranchRecord,
+    branch: &ActiveBranchRecord,
 ) -> ApiResult<Arc<crate::sdk::Workspace>> {
     let token = source_token(user);
     let workspace_source =
@@ -255,23 +255,19 @@ async fn branch_select(
 
     if let Some(existing) = state
         .store
-        .find_active_tracked_branch_for_repo_branch(
-            &workspace.id,
-            &user.principal_id,
-            &target.branch,
-        )
+        .find_active_branch_for_repo_branch(&workspace.id, &user.principal_id, &target.branch)
         .await?
     {
         let existing = state
             .store
-            .ensure_tracked_branch_workspace(&existing.id, &workspace.id, &user.principal_id)
+            .ensure_active_branch_workspace(&existing.id, &workspace.id, &user.principal_id)
             .await?;
         return Ok(Json(json!({ "branch": existing })));
     }
 
     let branch = state
         .store
-        .track_branch(TrackBranchInput {
+        .select_branch(SelectBranchInput {
             workspace_id: workspace.id.clone(),
             principal_id: user.principal_id.clone(),
             branch: target.branch,
@@ -452,7 +448,7 @@ async fn branch_rename(
         .map_err(|err| ApiError::github(&err, "Renaming the branch"))?;
     let updated = state
         .store
-        .rename_tracked_branch(&context.branch.id, &renamed)
+        .rename_active_branch(&context.branch.id, &renamed)
         .await?;
     Ok(Json(json!({ "branch": updated })))
 }
@@ -500,9 +496,9 @@ async fn sync_pull_request(
     state: &ConsoleState,
     user: &SessionUser,
     workspace: &WorkspaceRecord,
-    branch: &TrackedBranchRecord,
+    branch: &ActiveBranchRecord,
     pr_number: i64,
-) -> std::result::Result<TrackedBranchRecord, String> {
+) -> std::result::Result<ActiveBranchRecord, String> {
     let token = user
         .github_token
         .as_deref()
@@ -514,7 +510,7 @@ async fn sync_pull_request(
         .map_err(|err| super::github::github_error_message(&err, "Syncing the pull request"))?;
     state
         .store
-        .update_tracked_branch_pull_request_state(TrackedBranchPullRequestInput {
+        .update_active_branch_pull_request_state(BranchPullRequestInput {
             branch_id: branch.id.clone(),
             pr_number: pr.number,
             pr_state: pull_request_state(pr.state.as_deref(), pr.merged_at.as_deref()),
@@ -539,7 +535,7 @@ async fn branch_publish(
 
     let mut lint_workspaces = state
         .store
-        .list_workspaces_for_tracked_branch(&context.branch.id)
+        .list_workspaces_for_active_branch(&context.branch.id)
         .await?;
     if lint_workspaces.is_empty() {
         lint_workspaces.push(context.workspace.clone());
@@ -603,7 +599,7 @@ async fn branch_publish(
             };
             let branch = state
                 .store
-                .update_tracked_branch_pull_request_state(TrackedBranchPullRequestInput {
+                .update_active_branch_pull_request_state(BranchPullRequestInput {
                     branch_id: context.branch.id.clone(),
                     pr_number: pr.number,
                     pr_state,
@@ -627,7 +623,7 @@ async fn branch_publish(
         } => {
             let branch = state
                 .store
-                .record_tracked_branch_edit(&context.branch.id, None)
+                .record_active_branch_edit(&context.branch.id, None)
                 .await?;
             Ok(Json(json!({
                 "branch": branch,
@@ -644,7 +640,7 @@ async fn branch_publish(
             .map_err(|err| ApiError::bad_request(err.to_string()))?;
             let branch = state
                 .store
-                .record_tracked_branch_edit(&context.branch.id, result.commit.clone())
+                .record_active_branch_edit(&context.branch.id, result.commit.clone())
                 .await?;
             Ok(Json(json!({ "branch": branch, "directPush": result })))
         }
@@ -659,7 +655,7 @@ async fn branch_archive(
     let context = load_branch(&state, &headers, &workspace_id, &branch_id, false).await?;
     let branch = state
         .store
-        .archive_tracked_branch(&context.branch.id)
+        .archive_active_branch(&context.branch.id)
         .await
         .map_err(|err| ApiError::bad_request(err.to_string()))?;
     state.lsp.drop_sessions_for_branch(&context.branch.id).await;
@@ -1291,7 +1287,7 @@ async fn branch_changed_paths(
     state: &ConsoleState,
     user: &SessionUser,
     workspace: &WorkspaceRecord,
-    branch: &TrackedBranchRecord,
+    branch: &ActiveBranchRecord,
 ) -> ApiResult<Vec<String>> {
     if context_is_github_workspace(workspace) {
         let token = require_github_token(user, "Loading branch changes")?;
@@ -1425,7 +1421,7 @@ async fn record_branch_edit(
     state: &ConsoleState,
     context: &BranchContext,
     commit: Option<String>,
-) -> ApiResult<TrackedBranchRecord> {
+) -> ApiResult<ActiveBranchRecord> {
     let last_seen_commit = match commit {
         Some(commit) => Some(commit),
         None if context_is_github_workspace(&context.workspace) => {
@@ -1447,7 +1443,7 @@ async fn record_branch_edit(
     };
     state
         .store
-        .record_tracked_branch_edit(&context.branch.id, last_seen_commit)
+        .record_active_branch_edit(&context.branch.id, last_seen_commit)
         .await
         .map_err(ApiError::from)
 }

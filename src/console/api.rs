@@ -647,7 +647,7 @@ async fn console_data(
         .await?;
     let branches = state
         .store
-        .list_tracked_branches_with_workspaces_for_user(&user.principal_id)
+        .list_active_branches_with_workspaces_for_user(&user.principal_id)
         .await?;
     Ok(Json(json!({
         "repos": repos,

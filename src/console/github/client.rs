@@ -77,7 +77,7 @@ pub struct GitHubContentFile {
 
 /// Pull request metadata returned by GitHub.
 ///
-/// Publish and sync routes copy these fields into a tracked branch row so the
+/// Publish and sync routes copy these fields into a branch row so the
 /// UI can show PR state without requiring a GitHub request on every render.
 #[derive(Clone, Debug, Deserialize)]
 pub struct GitHubPullRequest {
@@ -321,7 +321,7 @@ impl GitHubClient {
     ) -> GitHubResult<String> {
         /// GitHub branch-rename response body.
         ///
-        /// The route persists the returned name on the tracked branch row and discards
+        /// The route persists the returned name on the branch row and discards
         /// the raw response shape.
         #[derive(Deserialize)]
         struct Renamed {

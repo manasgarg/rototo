@@ -9,7 +9,7 @@ use super::store::WorkspaceRecord;
 
 /// Result of publishing a direct-push branch through local git.
 ///
-/// The route creates this after staging tracked branch paths, committing if
+/// The route creates this after staging branch paths, committing if
 /// needed, and attempting to push the current branch. It is serialized once to
 /// the browser; the struct itself is not persisted.
 #[derive(Clone, Debug, Serialize)]

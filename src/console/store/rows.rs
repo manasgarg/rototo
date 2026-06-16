@@ -1,5 +1,5 @@
 use super::repos::workspace_slug;
-use super::types::{RepoRecord, TrackedBranchRecord, TrackedBranchStatus, WorkspaceRecord};
+use super::types::{ActiveBranchRecord, ActiveBranchStatus, RepoRecord, WorkspaceRecord};
 
 pub(super) fn repo_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<RepoRecord> {
     Ok(RepoRecord {
@@ -37,11 +37,11 @@ pub(super) fn workspace_from_row_at(
     })
 }
 
-pub(super) fn tracked_branch_from_row(
+pub(super) fn active_branch_from_row(
     row: &rusqlite::Row<'_>,
-) -> rusqlite::Result<TrackedBranchRecord> {
+) -> rusqlite::Result<ActiveBranchRecord> {
     let status: String = row.get(13)?;
-    Ok(TrackedBranchRecord {
+    Ok(ActiveBranchRecord {
         id: row.get(0)?,
         repo_id: row.get(1)?,
         principal_id: row.get(2)?,
@@ -56,9 +56,9 @@ pub(super) fn tracked_branch_from_row(
         last_selected_workspace_path: row.get(11)?,
         last_seen_commit: row.get(12)?,
         status: match status.as_str() {
-            "recent" => TrackedBranchStatus::Recent,
-            "archived" => TrackedBranchStatus::Archived,
-            _ => TrackedBranchStatus::Active,
+            "recent" => ActiveBranchStatus::Recent,
+            "archived" => ActiveBranchStatus::Archived,
+            _ => ActiveBranchStatus::Active,
         },
         created_at: row.get(14)?,
         last_opened_at: row.get(15)?,

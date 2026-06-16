@@ -78,7 +78,7 @@ pub struct RepoWithWorkspaces {
 /// lists without deleting the branch from the remote source of truth.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "lowercase")]
-pub enum TrackedBranchStatus {
+pub enum ActiveBranchStatus {
     Active,
     Recent,
     Archived,
@@ -92,7 +92,7 @@ pub enum TrackedBranchStatus {
 /// contents remain the source of truth.
 #[derive(Clone, Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
-pub struct TrackedBranchRecord {
+pub struct ActiveBranchRecord {
     pub id: String,
     pub repo_id: String,
     pub principal_id: String,
@@ -106,7 +106,7 @@ pub struct TrackedBranchRecord {
     pub pr_synced_at: Option<String>,
     pub last_selected_workspace_path: Option<String>,
     pub last_seen_commit: Option<String>,
-    pub status: TrackedBranchStatus,
+    pub status: ActiveBranchStatus,
     pub created_at: String,
     pub last_opened_at: String,
     pub last_edited_at: Option<String>,
@@ -116,12 +116,12 @@ pub struct TrackedBranchRecord {
 /// Branch list item paired with one selected workspace.
 ///
 /// The branch identity is repository-scoped, but the console still needs a
-/// workspace beside it for navigation. Each value is rebuilt from a tracked
+/// workspace beside it for navigation. Each value is rebuilt from an active
 /// branch joined through path-based branch workspace membership.
 #[derive(Clone, Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
-pub struct TrackedBranchWithWorkspaceRecord {
-    pub branch: TrackedBranchRecord,
+pub struct ActiveBranchWithWorkspaceRecord {
+    pub branch: ActiveBranchRecord,
     pub workspace: WorkspaceRecord,
 }
 
@@ -135,12 +135,12 @@ pub struct NewSession {
     pub github_token: String,
 }
 
-/// Inputs for selecting or creating a tracked branch.
+/// Inputs for selecting or creating an active branch.
 ///
 /// The store derives the repository and last selected workspace path from the
 /// workspace id. Re-selecting an existing branch updates its lifecycle metadata
 /// and ensures the workspace is attached to that branch.
-pub struct TrackBranchInput {
+pub struct SelectBranchInput {
     pub workspace_id: String,
     pub principal_id: String,
     pub branch: String,
@@ -149,8 +149,8 @@ pub struct TrackBranchInput {
     pub last_seen_commit: Option<String>,
 }
 
-/// Pull request metadata observed for a tracked branch.
-pub struct TrackedBranchPullRequestInput {
+/// Pull request metadata observed for an active branch.
+pub struct BranchPullRequestInput {
     pub branch_id: String,
     pub pr_number: i64,
     pub pr_state: String,

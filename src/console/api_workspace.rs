@@ -236,7 +236,7 @@ async fn workspace_data(
     let workspace = load_workspace(&state, &user, &workspace_id).await?;
     let branches = state
         .store
-        .list_tracked_branches_for_workspace(&workspace.id, &user.principal_id)
+        .list_active_branches_for_workspace(&workspace.id, &user.principal_id)
         .await?;
 
     let staged =
@@ -388,7 +388,7 @@ async fn branch_candidates(
 
     let known_branches: std::collections::HashSet<String> = state
         .store
-        .list_tracked_branches_for_workspace(&workspace.id, &user.principal_id)
+        .list_active_branches_for_workspace(&workspace.id, &user.principal_id)
         .await?
         .into_iter()
         .map(|branch| branch.branch)

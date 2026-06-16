@@ -1,5 +1,5 @@
 use super::github::{stable_workspace_key, workspace_repo_path};
-use super::store::{TrackedBranchRecord, WorkspaceRecord};
+use super::store::{ActiveBranchRecord, WorkspaceRecord};
 use super::time::now_compact_stamp;
 
 pub fn expected_variable_file_path(workspace: &WorkspaceRecord, variable_id: &str) -> String {
@@ -45,7 +45,7 @@ pub fn branch_pr_title(workspace: &WorkspaceRecord) -> String {
 
 pub fn branch_pr_body(
     workspace: &WorkspaceRecord,
-    branch: &TrackedBranchRecord,
+    branch: &ActiveBranchRecord,
     changed_paths: &[String],
     error_count: usize,
     warning_count: usize,
@@ -313,8 +313,8 @@ mod tests {
         }
     }
 
-    fn branch(name: &str) -> TrackedBranchRecord {
-        TrackedBranchRecord {
+    fn branch(name: &str) -> ActiveBranchRecord {
+        ActiveBranchRecord {
             id: "b1".to_owned(),
             repo_id: "r1".to_owned(),
             principal_id: "42".to_owned(),
@@ -328,7 +328,7 @@ mod tests {
             pr_synced_at: None,
             last_selected_workspace_path: Some(".".to_owned()),
             last_seen_commit: None,
-            status: super::super::store::TrackedBranchStatus::Active,
+            status: super::super::store::ActiveBranchStatus::Active,
             created_at: "2026-01-01T00:00:00.000Z".to_owned(),
             last_opened_at: "2026-01-01T00:00:00.000Z".to_owned(),
             last_edited_at: None,

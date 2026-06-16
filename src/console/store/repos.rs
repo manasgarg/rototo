@@ -85,7 +85,7 @@ impl Store {
             if repo_with_workspaces_by_id(conn, &repo_id, &principal_id)?.is_none() {
                 return Ok(false);
             }
-            // ON DELETE CASCADE clears workspaces and tracked branch
+            // ON DELETE CASCADE clears workspaces and active branch
             // selections transitively.
             conn.execute("DELETE FROM source_trees WHERE id = ?1", params![repo_id])
                 .map_err(db_err)?;
