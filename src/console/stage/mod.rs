@@ -6,7 +6,6 @@ mod load;
 mod records;
 mod runtime;
 mod source_tree;
-mod workspace_source;
 
 pub use self::cache::StageCache;
 pub use self::identity::{
@@ -14,4 +13,3 @@ pub use self::identity::{
     SourceTreeOrigin, SourceTreeRevision, TokenIdentity, WorkspaceLocator, WorkspacePath,
 };
 pub use self::records::{BranchChanges, SemanticWorkspace, WorkspaceDiscovery};
-pub use self::workspace_source::WorkspaceLocatorInput;
