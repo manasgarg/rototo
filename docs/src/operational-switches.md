@@ -32,17 +32,12 @@ schema_version = 1
 description = "Whether accounts can create new projects"
 type = "bool"
 
-[values]
-enabled = true
-disabled = false
-
 [resolve]
-default = "enabled"
+default = true
 ```
 
-The variable has two [named values](reference-variable-values.html), but only
-one is selected. That naming matters more than it may seem at first. In logs,
-traces, and reviews, `disabled` says more than a bare `false`.
+The variable has one direct [typed value](reference-variable-values.html).
+Rules can add more values later without introducing a separate value table.
 
 Lint and resolve the switch:
 
@@ -57,9 +52,9 @@ selects the default value:
 ```text
 variable: project-creation-enabled
   pathway:
-    default -> enabled
+    default -> true
   result:
-    value key: enabled
+    source: literal
     value: true
 ```
 
@@ -80,13 +75,13 @@ async fn create_project(workspace: &Workspace) -> Result<(), Box<dyn std::error:
         .resolve_variable("project-creation-enabled", &context)
         .await?;
 
-    let value_key = resolution.value_key.clone();
+    let source = resolution.source.clone();
     let creation_enabled: bool = serde_json::from_value(resolution.value)?;
 
     if !creation_enabled {
         println!(
             "project creation blocked by rototo value `{}` from {:?}",
-            value_key,
+            source,
             workspace.source_fingerprint()
         );
         return Ok(());
@@ -108,7 +103,7 @@ async def create_project(workspace: rototo.Workspace) -> None:
     if not creation_enabled:
         print(
             "project creation blocked by rototo "
-            f"value `{resolution.value_key}`"
+            f"value `{resolution.source}`"
         )
         return
 
@@ -125,7 +120,7 @@ async function createProject(workspace: Workspace): Promise<void> {
 
   if (!creationEnabled) {
     console.log(
-      `project creation blocked by rototo value \`${resolution.valueKey}\``,
+      `project creation blocked by rototo value \`${resolution.source}\``,
     );
     return;
   }
@@ -144,7 +139,7 @@ void createProject(Workspace workspace) throws Exception {
     if (!creationEnabled) {
         System.out.printf(
             "project creation blocked by rototo value `%s`%n",
-            resolution.valueKey()
+            resolution.source()
         );
         return;
     }
@@ -169,7 +164,7 @@ func createProject(ctx context.Context, workspace *rototo.Workspace) error {
     if !creationEnabled {
         fmt.Printf(
             "project creation blocked by rototo value `%s`\n",
-            resolution.ValueKey,
+            resolution.Source,
         )
         return nil
     }
@@ -241,16 +236,12 @@ schema_version = 1
 description = "Whether accounts can create new projects"
 type = "bool"
 
-[values]
-enabled = true
-disabled = false
-
 [resolve]
-default = "enabled"
+default = true
 
 [[resolve.rule]]
 qualifier = "eu-accounts"
-value = "disabled"
+value = false
 ```
 
 The rule says exactly what the incident response means: disable project
@@ -304,7 +295,7 @@ rototo resolve operations-config \
 ```
 
 ```text
-value key: enabled
+source: literal
 value: true
 ```
 
@@ -315,7 +306,7 @@ rototo resolve operations-config \
 ```
 
 ```text
-value key: disabled
+source: literal
 value: false
 ```
 

@@ -1,3 +1,4 @@
+/** Workspace screen section id accepted from route/query state. */
 export type SectionId =
     | "overview"
     | "variables"
@@ -7,8 +8,9 @@ export type SectionId =
     | "linters"
     | "context"
     | "diagnostics"
-    | "drafts";
+    | "branches";
 
+/** Branch edit section id accepted from route/query state. */
 export type EditKind =
     | "variables"
     | "qualifiers"
@@ -27,7 +29,7 @@ export function normalizeSection(value: string | null): SectionId | null {
         value === "linters" ||
         value === "context" ||
         value === "diagnostics" ||
-        value === "drafts"
+        value === "branches"
     ) {
         return value;
     }

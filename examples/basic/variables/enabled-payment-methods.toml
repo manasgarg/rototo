@@ -3,18 +3,13 @@ schema_version = 1
 description = "Payment methods enabled at checkout"
 type = "list"
 
-[values]
-standard = ["card", "paypal"]
-mobile = ["card", "apple_pay", "google_pay"]
-enterprise = ["card", "invoice", "wire_transfer"]
-
 [resolve]
-default = "standard"
+default = ["card", "paypal"]
 
 [[resolve.rule]]
 qualifier = "mobile-users"
-value = "mobile"
+value = ["card", "apple_pay", "google_pay"]
 
 [[resolve.rule]]
 qualifier = "enterprise-accounts"
-value = "enterprise"
+value = ["card", "invoice", "wire_transfer"]

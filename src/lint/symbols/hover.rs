@@ -9,8 +9,8 @@ use super::super::WorkspaceLintSnapshot;
 use super::super::index::*;
 use super::WorkspaceHover;
 use super::common::{
-    location_contains_position, predicate_op_project_field_value, source_range_size,
-    string_project_field_value,
+    json_project_field_label, location_contains_position, predicate_op_project_field_value,
+    source_range_size, string_project_field_value,
 };
 
 pub(crate) fn hover(
@@ -457,7 +457,7 @@ fn catalog_hover_contents(catalog: &CatalogNode) -> String {
 
 fn catalog_entry_hover_contents(entry: &CatalogEntryNode) -> String {
     format!(
-        "### Catalog entry `{}`\n\nCatalog: `{}`\n\nJSON shape: `{}`",
+        "### Catalog value `{}`\n\nCatalog: `{}`\n\nJSON shape: `{}`",
         entry.key,
         entry.catalog_id,
         json_shape_label(&entry.value)
@@ -466,9 +466,9 @@ fn catalog_entry_hover_contents(entry: &CatalogEntryNode) -> String {
 
 fn variable_resolve_hover_contents(
     variable: &VariableNode,
-    default: &ProjectField<String>,
+    default: &ProjectField<JsonValue>,
 ) -> String {
-    match string_project_field_value(default) {
+    match json_project_field_label(default) {
         Some(value) => format!(
             "### Resolve for `{}`\n\nDefault value: `{}`",
             variable.id, value
@@ -489,7 +489,7 @@ fn variable_rule_hover_contents(variable: &VariableNode, rule: &VariableRuleNode
 fn variable_rule_summary(rule: &VariableRuleNode) -> String {
     match (
         string_project_field_value(&rule.qualifier),
-        string_project_field_value(&rule.value),
+        json_project_field_label(&rule.value),
     ) {
         (Some(qualifier), Some(value)) => {
             format!("Qualifier `{qualifier}` selects value `{value}`.")

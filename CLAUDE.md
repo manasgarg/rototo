@@ -102,13 +102,13 @@ static SPA with no server runtime; it talks only to `/api/*` and its built
 
 Auth modes are resolved at startup: local (default — no login; ambient GitHub
 token from `--workspace-token`/`ROTOTO_WORKSPACE_TOKEN`, a stored device-flow
-sign-in, or `gh auth token`), team (`GITHUB_CLIENT_ID` + `GITHUB_CLIENT_SECRET`
-turn on the GitHub OAuth web flow with per-user tokens encrypted via
-`ROTOTO_CONSOLE_TOKEN_ENCRYPTION_KEY`), and read-only (`--read-only
---workspace <source>`, no auth, writes rejected). Mutating routes require the
-`x-rototo-console` header plus an Origin check; keep that invariant when
-adding routes. Console writes go through the GitHub API only — do not add a
-generic git write backend without reopening the design.
+sign-in, or `gh auth token`), team (`ROTOTO_GITHUB_CLIENT_ID` +
+`ROTOTO_GITHUB_CLIENT_SECRET` turn on the GitHub OAuth web flow with per-user
+tokens encrypted via `ROTOTO_CONSOLE_TOKEN_ENCRYPTION_KEY`), and read-only
+(`--read-only --workspace <source>`, no auth, writes rejected). Mutating routes
+require the `x-rototo-console` header plus an Origin check; keep that invariant
+when adding routes. Console writes go through the GitHub API only — do not add
+a generic git write backend without reopening the design.
 
 Wire shapes are serde camelCase and mirrored in
 `apps/console/src/lib/types.ts`; the Rust server is the source of truth.
@@ -126,10 +126,9 @@ workspace structure and files:
   using `qualifier.<id>`, use known predicate operators, and validate bucket and
   operator value shapes.
 - Variable files parse, declare `schema_version = 1`, declare exactly one of
-  `type`, `schema`, or `catalog`, contain inline values under `[values]` and/or
-  external values under a sibling `<variable-id>-values/*.toml` directory,
-  declare `[resolve]`, reference known values, and reference known qualifiers
-  from rules.
+  `type` or `catalog`, declare `[resolve]`, put primitive values directly in
+  resolve defaults and rules, reference known catalog values for catalog-backed
+  variables, and reference known qualifiers from rules.
 - Primitive variable values match `bool`, `int`, `number`, `string`, or `list`.
 - Schema-backed variable values validate against their JSON Schema.
 - Workspaces can declare custom rules in `rototo-workspace.toml` under

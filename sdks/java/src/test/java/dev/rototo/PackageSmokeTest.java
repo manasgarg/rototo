@@ -12,8 +12,9 @@ public final class PackageSmokeTest {
             VariableResolution resolution = workspace.resolveVariable(
                     "premium-message",
                     Map.of("user", Map.of("tier", "premium"))).get(30, TimeUnit.SECONDS);
-            if (!resolution.valueKey().equals("premium")) {
-                throw new AssertionError("unexpected package smoke value key: " + resolution.valueKey());
+            if (!resolution.value().equals("Welcome back, premium member.")
+                    || !resolution.source().equals(Map.of("kind", "literal"))) {
+                throw new AssertionError("unexpected package smoke resolution: " + resolution.value());
             }
         }
     }

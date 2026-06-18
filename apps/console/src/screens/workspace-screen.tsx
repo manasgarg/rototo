@@ -31,11 +31,11 @@ import {
 } from "@/components/diagnostic-list";
 import { LoadingScreen } from "@/components/loading-screen";
 import { SearchableList } from "@/components/searchable-list";
-import { DraftCandidates } from "@/components/draft-candidates";
+import { BranchCandidates } from "@/components/branch-candidates";
 import { ReadOnlySource } from "@/components/read-only-source";
-import { DraftStatusPill } from "@/components/status-pills";
-import { StartDraftButton } from "@/components/start-draft-button";
-import { StartDraftFromBranchForm } from "@/components/start-draft-from-branch-form";
+import { BranchStatusPill } from "@/components/status-pills";
+import { StartBranchButton } from "@/components/start-branch-button";
+import { OpenBranchForm } from "@/components/open-branch-form";
 import { WorkspaceGraph } from "@/components/workspace-graph";
 import type { WorkspaceGraphData } from "@/components/workspace-graph/types";
 import { useApi } from "@/lib/api";
@@ -45,7 +45,7 @@ import { useShellUser } from "@/lib/me";
 import { RefreshScope } from "@/lib/refresh";
 import type { SectionId } from "@/lib/route-normalizers";
 import type {
-    DraftSessionRecord,
+    BranchRecord,
     LintDiagnostic,
     QualifierContextEvaluation,
     QualifierEvaluation,
@@ -55,12 +55,15 @@ import type {
     WorkspaceData,
     WorkspaceDefinition,
     WorkspaceEntityData,
+    WorkspaceCapabilities,
+    WorkspaceRecord,
     WorkspaceInventory,
     WorkspaceLintView,
     WorkspaceSemanticModel,
 } from "@/lib/types";
 import { NotFound } from "@/screens/not-found";
 
+/** Flattened workspace entity used for lists, links, and graph construction. */
 type EntityNode = {
     section: SectionId;
     kind: string;
@@ -72,6 +75,7 @@ type EntityNode = {
     outboundKeys: string[];
 };
 
+/** Lint payload for the staged workspace, including staging/lint failures. */
 type LintLoad =
     | WorkspaceLintView
     | { root: string; diagnostics: LintDiagnostic[]; error: string };
@@ -85,7 +89,7 @@ const SECTION_TITLES: Record<SectionId, string> = {
     linters: "Linters",
     context: "Context",
     diagnostics: "Diagnostics",
-    drafts: "Drafts",
+    branches: "Branches",
 };
 
 const SECTION_HINTS: Partial<Record<SectionId, string>> = {
@@ -93,7 +97,7 @@ const SECTION_HINTS: Partial<Record<SectionId, string>> = {
         "Named values the application resolves at runtime, with defaults and rules.",
     qualifiers:
         "Named runtime conditions. Rules reference them to select values.",
-    catalogs: "Typed entries that schema-backed variables can point at.",
+    catalogs: "Typed values that catalog-backed variables can point at.",
     schemas: "JSON Schemas that validate context and selected values.",
     linters: "Custom lint rules this workspace declares beyond the built-ins.",
     context: "The context contract: schema plus example resolution contexts.",
@@ -139,8 +143,16 @@ export function WorkspaceScreen({
         );
     }
 
-    const { workspace, drafts, inventory, inventoryError, model } = data.data;
+    const {
+        workspace,
+        branches,
+        inventory,
+        inventoryError,
+        model,
+        capabilities,
+    } = data.data;
     const lint = data.data.lint as LintLoad;
+    const writeDisabled = capabilities.write.kind === "disabled";
 
     // Canonical URLs use the friendly slug; id URLs redirect to it.
     if (workspaceId !== workspace.slug) {
@@ -174,6 +186,11 @@ export function WorkspaceScreen({
     const selectedSection = selectedNode
         ? selectedNode.section
         : (section ?? "overview");
+    if (selectedSection === "branches" && writeDisabled) {
+        return (
+            <Navigate replace to={sectionHref(workspace.slug, "overview")} />
+        );
+    }
     const definition: WorkspaceDefinition | null =
         entity.data?.definition ?? null;
     const definitionError: string | null =
@@ -197,7 +214,7 @@ export function WorkspaceScreen({
     }
     const diagnosticCount = "error" in lint ? 0 : lint.diagnostics.length;
     const parentCatalogNode =
-        selectedNode?.kind === "catalog entry"
+        selectedNode?.kind === "catalog value"
             ? (nodes.find(
                   (node) => node.targetKey === `catalogs:${selectedNode.badge}`,
               ) ?? null)
@@ -208,7 +225,7 @@ export function WorkspaceScreen({
                   diagnosticMatchesNode(diagnostic, selectedNode, nodes),
               )
             : [];
-    const workspaceName = `${workspace.owner}/${workspace.name}`;
+    const workspaceName = workspace.sourceTreeLabel;
     const entityCrumbLabel = selectedNode
         ? parentCatalogNode &&
           selectedNode.id.startsWith(`${parentCatalogNode.id}/`)
@@ -274,7 +291,9 @@ export function WorkspaceScreen({
                                 />
                             )}
                         </Link>
-                        <StartDraftButton workspaceId={workspace.slug} />
+                        {!writeDisabled ? (
+                            <StartBranchButton workspaceId={workspace.slug} />
+                        ) : null}
                     </>
                 }
                 crumbs={crumbs}
@@ -351,15 +370,18 @@ export function WorkspaceScreen({
                             icon={<ListChecks aria-hidden size={16} />}
                             label="Diagnostics"
                         />
-                        <NavLink
-                            active={
-                                !selectedNode && selectedSection === "drafts"
-                            }
-                            count={drafts.length}
-                            href={sectionHref(workspace.slug, "drafts")}
-                            icon={<GitBranch aria-hidden size={16} />}
-                            label="Drafts"
-                        />
+                        {!writeDisabled ? (
+                            <NavLink
+                                active={
+                                    !selectedNode &&
+                                    selectedSection === "branches"
+                                }
+                                count={branches.length}
+                                href={sectionHref(workspace.slug, "branches")}
+                                icon={<GitBranch aria-hidden size={16} />}
+                                label="Branches"
+                            />
+                        ) : null}
                     </>
                 }
                 title={
@@ -378,9 +400,10 @@ export function WorkspaceScreen({
                         error={definitionError}
                         model={model}
                         node={selectedNode}
-                        openDraft={
-                            drafts.find((draft) => draft.status === "open") ??
-                            null
+                        activeBranch={
+                            branches.find(
+                                (branch) => branch.status === "active",
+                            ) ?? null
                         }
                         parentCatalog={parentCatalogNode}
                         qualifierEvaluations={qualifierEvaluations}
@@ -389,8 +412,9 @@ export function WorkspaceScreen({
                 ) : (
                     <WorkspaceSection
                         diagnosticCount={diagnosticCount}
-                        drafts={drafts}
+                        branches={branches}
                         graphData={graphData}
+                        capabilities={capabilities}
                         inventory={inventory}
                         inventoryError={inventoryError}
                         lint={lint}
@@ -405,8 +429,9 @@ export function WorkspaceScreen({
 }
 
 function WorkspaceSection({
+    capabilities,
     diagnosticCount,
-    drafts,
+    branches,
     graphData,
     inventory,
     inventoryError,
@@ -415,26 +440,21 @@ function WorkspaceSection({
     section,
     workspace,
 }: {
+    capabilities: WorkspaceCapabilities;
     diagnosticCount: number;
-    drafts: DraftSessionRecord[];
+    branches: BranchRecord[];
     graphData: WorkspaceGraphData | null;
     inventory: WorkspaceInventory;
     inventoryError: string | null;
     lint: WorkspaceLintView | { root: string; diagnostics: []; error: string };
     nodes: EntityNode[];
     section: SectionId;
-    workspace: {
-        id: string;
-        slug: string;
-        repoId: string;
-        owner: string;
-        name: string;
-        path: string;
-        ref: string;
-    };
+    workspace: WorkspaceRecord;
 }) {
     if (section === "overview") {
-        const openDrafts = drafts.filter((draft) => draft.status === "open");
+        const activeBranches = branches.filter(
+            (branch) => branch.status === "active",
+        );
         return (
             <section className="section">
                 <div className="section-header">
@@ -448,13 +468,13 @@ function WorkspaceSection({
                 </div>
                 <div className="meta-grid">
                     <div className="meta-item">
-                        <span className="label">repository</span>
+                        <span className="label">configuration source</span>
                         <span className="meta-value mono">
                             <Link
                                 className="title-link"
-                                href={`/app/workspaces?repo=${workspace.repoId}`}
+                                href={`/app/workspaces?sourceTree=${workspace.sourceTreeId}`}
                             >
-                                {workspace.owner}/{workspace.name}
+                                {workspace.sourceTreeLabel}
                             </Link>
                         </span>
                     </div>
@@ -466,7 +486,9 @@ function WorkspaceSection({
                     </div>
                     <div className="meta-item">
                         <span className="label">ref</span>
-                        <span className="meta-value mono">{workspace.ref}</span>
+                        <span className="meta-value mono">
+                            {workspace.revision}
+                        </span>
                     </div>
                 </div>
                 {inventoryError ? (
@@ -484,7 +506,7 @@ function WorkspaceSection({
                             }
                             lintError={"error" in lint ? lint.error : null}
                             nodes={nodes}
-                            openDrafts={openDrafts}
+                            activeBranches={activeBranches}
                             workspaceId={workspace.slug}
                         />
                         {graphData ? (
@@ -493,7 +515,7 @@ function WorkspaceSection({
                                     <h3>Entity graph</h3>
                                     <p className="hint">
                                         How qualifiers, variables, catalogs, and
-                                        entries connect. Hover a node to trace
+                                        values connect. Hover a node to trace
                                         its references; click to open it.
                                     </p>
                                 </div>
@@ -537,56 +559,65 @@ function WorkspaceSection({
         );
     }
 
-    if (section === "drafts") {
+    if (section === "branches") {
         return (
             <section className="section">
                 <div className="section-header-text">
-                    <h1>Drafts</h1>
+                    <h1>Branches</h1>
                     <p className="hint">
-                        Each draft is a branch created from{" "}
-                        <span className="mono">{workspace.ref}</span>. Edits
-                        commit to the branch; publishing opens a pull request.
+                        {capabilities.write.kind === "pullRequest"
+                            ? "Each branch is a branch created from "
+                            : "Each branch edits "}
+                        <span className="mono">{workspace.revision}</span>
+                        {capabilities.write.kind === "pullRequest"
+                            ? ". Edits commit to the branch; publishing opens a pull request."
+                            : ". Publishing applies the configured direct-push workflow."}
                     </p>
                 </div>
-                <DraftCandidates workspaceId={workspace.slug} />
-                <StartDraftFromBranchForm workspaceId={workspace.slug} />
-                {drafts.length === 0 ? (
+                {capabilities.write.kind === "pullRequest" ? (
+                    <>
+                        <BranchCandidates workspaceId={workspace.slug} />
+                        <OpenBranchForm workspaceId={workspace.slug} />
+                    </>
+                ) : null}
+                {branches.length === 0 ? (
                     <div className="empty-state">
                         <span className="empty-puck">
                             <GitBranch aria-hidden size={18} />
                         </span>
                         <p>
-                            No draft branches yet. Use “Edit workspace” to start
-                            one, or open an existing branch above.
+                            No branches yet. Use “Edit workspace” to start one,
+                            or open an existing branch above.
                         </p>
                     </div>
                 ) : (
                     <SearchableList
                         className="row-list"
-                        emptyLabel="No drafts match that search."
-                        label="Search drafts"
-                        placeholder="Search drafts"
+                        emptyLabel="No branches match that search."
+                        label="Search branches"
+                        placeholder="Search branches"
                     >
-                        {drafts.map((draft) => (
+                        {branches.map((branch) => (
                             <Link
                                 className="row"
-                                data-search={`${draft.branch} ${draft.status} ${draft.prState ?? ""} ${draft.prUrl ?? ""}`}
-                                href={`/app/workspaces/${workspace.slug}/drafts/${draft.id}`}
-                                key={draft.id}
+                                data-search={`${branch.branch} ${branch.status} ${branch.prState ?? ""} ${branch.prUrl ?? ""}`}
+                                href={`/app/workspaces/${workspace.slug}/branches/${branch.id}`}
+                                key={branch.id}
                             >
                                 <span className="row-icon">
                                     <GitBranch aria-hidden size={16} />
                                 </span>
                                 <span className="row-text">
                                     <span className="row-title mono">
-                                        {draft.branch}
+                                        {branch.branch}
                                     </span>
                                     <span className="row-sub">
-                                        updated {formatDate(draft.updatedAt)}
+                                        updated{" "}
+                                        {formatDate(branchUpdatedAt(branch))}
                                     </span>
                                 </span>
                                 <span className="row-side">
-                                    <DraftStatusPill draft={draft} />
+                                    <BranchStatusPill branch={branch} />
                                     <ChevronRight
                                         aria-hidden
                                         className="muted"
@@ -602,7 +633,7 @@ function WorkspaceSection({
     }
 
     // The catalogs section lists catalog types only; each type carries its
-    // entries inline.
+    // values inline.
     const sectionNodes = nodes.filter(
         (node) =>
             node.section === section &&
@@ -640,7 +671,7 @@ function WorkspaceSection({
                             node.kind === "catalog"
                                 ? nodes.filter(
                                       (candidate) =>
-                                          candidate.kind === "catalog entry" &&
+                                          candidate.kind === "catalog value" &&
                                           candidate.badge === node.id,
                                   )
                                 : [];
@@ -721,8 +752,8 @@ function WorkspaceSection({
                                     <span className="tag">
                                         {entries.length}{" "}
                                         {entries.length === 1
-                                            ? "entry"
-                                            : "entries"}
+                                            ? "value"
+                                            : "values"}
                                     </span>
                                     <Link
                                         aria-label={`Open catalog ${node.id}`}
@@ -752,7 +783,7 @@ function EntityDefinition({
     error,
     model,
     node,
-    openDraft,
+    activeBranch,
     parentCatalog,
     qualifierEvaluations,
     workspaceId,
@@ -764,14 +795,14 @@ function EntityDefinition({
     error: string | null;
     model: WorkspaceSemanticModel | null;
     node: EntityNode;
-    openDraft: DraftSessionRecord | null;
+    activeBranch: BranchRecord | null;
     parentCatalog: EntityNode | null;
     qualifierEvaluations: QualifierContextEvaluation[];
     workspaceId: string;
 }) {
     const relations = entityRelations({ allNodes, model, node, workspaceId });
-    const editHref = openDraft
-        ? `/app/workspaces/${workspaceId}/drafts/${openDraft.id}/tree/${encodeEntityPath(node.path)}`
+    const editHref = activeBranch
+        ? `/app/workspaces/${workspaceId}/branches/${activeBranch.id}/tree/${encodeEntityPath(node.path)}`
         : null;
 
     return (
@@ -816,7 +847,7 @@ function EntityDefinition({
                             href={editHref}
                         >
                             <Pencil aria-hidden size={13} />
-                            Edit in draft
+                            Edit in branch
                         </Link>
                     ) : null}
                 </div>
@@ -915,34 +946,46 @@ function EntitySummary({
             return null;
         }
         const rules = variable.resolve?.rules ?? [];
-        const defaultKey = variable.resolve?.default?.value ?? null;
-        if (rules.length === 0 && !defaultKey && variable.values.length === 0) {
+        const defaultValue = variable.resolve?.default?.value;
+        if (rules.length === 0 && defaultValue === undefined) {
             return null;
         }
-        // Catalog-typed variables select entries by key; link each value key to
-        // the entry it names.
+        // Catalog-typed variables select by value name; link the string
+        // selection to the catalog value it names.
         const catalogId =
             variable.declaration.kind === "catalog"
                 ? (variable.declaration.value ?? null)
                 : null;
-        const valueKeyLabel = (key: string | null): ReactNode => {
-            if (!key) {
+        const valueLabel = (value: unknown): ReactNode => {
+            if (value === undefined || value === null) {
                 return "?";
             }
-            const entryNode = catalogId
-                ? allNodes.find(
-                      (candidate) =>
-                          candidate.targetKey ===
-                          `catalog_entries:${catalogId}:${key}`,
-                  )
-                : undefined;
+            const label =
+                typeof value === "string" ? value : JSON.stringify(value);
+            const entryNode =
+                catalogId && typeof value === "string"
+                    ? allNodes.find(
+                          (candidate) =>
+                              candidate.targetKey ===
+                              `catalog_entries:${catalogId}:${value}`,
+                      )
+                    : undefined;
             return entryNode ? (
                 <Link href={entityHref(workspaceId, entryNode.path)}>
-                    {key}
+                    {label}
                 </Link>
             ) : (
-                key
+                label
             );
+        };
+        const resolvedValueLabel = (resolution: SavedContextResolution) => {
+            if (
+                resolution.source?.kind === "catalog" &&
+                resolution.source.catalog === catalogId
+            ) {
+                return valueLabel(resolution.source.value);
+            }
+            return valueLabel(resolution.value);
         };
         return (
             <div className="card">
@@ -953,27 +996,6 @@ function EntitySummary({
                         wins, otherwise the default value applies.
                     </p>
                 </div>
-                {variable.values.length > 0 ? (
-                    <>
-                        <span className="label">declared values</span>
-                        <div className="spec">
-                            {variable.values.map((value) => (
-                                <div className="spec-row" key={value.key}>
-                                    <span>
-                                        {value.key} <span className="g">=</span>{" "}
-                                        {JSON.stringify(value.value)}
-                                        {value.key === defaultKey ? (
-                                            <span className="g">
-                                                {" "}
-                                                · default
-                                            </span>
-                                        ) : null}
-                                    </span>
-                                </div>
-                            ))}
-                        </div>
-                    </>
-                ) : null}
                 <span className="label">how it resolves</span>
                 <div className="spec">
                     {rules.map((rule) => (
@@ -983,7 +1005,7 @@ function EntitySummary({
                                 if{" "}
                                 {qualifierLabel(rule.qualifier?.value ?? null)}{" "}
                                 <span className="g">→</span>{" "}
-                                {valueKeyLabel(rule.value?.value ?? null)}
+                                {valueLabel(rule.value?.value)}
                             </span>
                         </div>
                     ))}
@@ -991,8 +1013,8 @@ function EntitySummary({
                         <span className="g">default</span>
                         <span>
                             <span className="g">→</span>{" "}
-                            {defaultKey
-                                ? valueKeyLabel(defaultKey)
+                            {defaultValue !== undefined
+                                ? valueLabel(defaultValue)
                                 : "not declared"}
                         </span>
                     </div>
@@ -1050,9 +1072,7 @@ function EntitySummary({
                                                 </span>
                                             ) : null}
                                             <span className="g">→</span>{" "}
-                                            {valueKeyLabel(
-                                                resolution.valueKey ?? null,
-                                            )}
+                                            {resolvedValueLabel(resolution)}
                                         </span>
                                     ) : (
                                         <span className="g">
@@ -1190,9 +1210,9 @@ function EntitySummary({
         return (
             <div className="card">
                 <div className="card-head-text">
-                    <h3>Entries</h3>
+                    <h3>Values</h3>
                     <p className="hint">
-                        Variable values reference these entries by key.
+                        Variables select these catalog values by name.
                     </p>
                 </div>
                 <div className="row-list">
@@ -1420,7 +1440,7 @@ function QualifierEvaluationRows({
 
 /* Builds the graph data contract from the semantic model. Rendering concepts
    live in components/workspace-graph. Callers supply entity paths per target
-   key, the href builder, and optionally the set of paths edited in a draft. */
+   key, the href builder, and optionally the set of paths edited in a branch. */
 export function workspaceGraphData(input: {
     model: WorkspaceSemanticModel;
     pathForKey: Map<string, string>;
@@ -1466,6 +1486,12 @@ export function workspaceGraphData(input: {
     }
     const edges: WorkspaceGraphData["edges"] = [];
     const seenEdges = new Set<string>();
+    const relatedByNode = new Map<string, Set<string>>();
+    const ruleQualifierByKey = new Map<string, string>();
+    const ruleEntryByKey = new Map<
+        string,
+        { catalog: string; entry: string }
+    >();
     const pushEdge = (
         from: string,
         to: string,
@@ -1477,6 +1503,14 @@ export function workspaceGraphData(input: {
         }
         seenEdges.add(key);
         edges.push({ from, to, kind });
+    };
+    const pushRelated = (from: string, to: string) => {
+        if (!seenNodes.has(from) || !seenNodes.has(to) || from === to) {
+            return;
+        }
+        const related = relatedByNode.get(from) ?? new Set<string>();
+        related.add(to);
+        relatedByNode.set(from, related);
     };
     for (const reference of model.references) {
         const { from, to, via } = reference;
@@ -1497,8 +1531,12 @@ export function workspaceGraphData(input: {
             to.kind === "qualifier"
         ) {
             pushEdge(`qualifiers:${to.id}`, `variables:${from.id}`, "checks");
+            ruleQualifierByKey.set(
+                `${from.id}:${via.index}`,
+                `qualifiers:${to.id}`,
+            );
         }
-        // Variables connect to catalogs; catalogs fan out to their entries.
+        // Variables connect to catalogs; catalogs fan out to their values.
         if (
             via.kind === "variableCatalog" &&
             from.kind === "variable" &&
@@ -1506,20 +1544,38 @@ export function workspaceGraphData(input: {
         ) {
             pushEdge(`variables:${from.id}`, `catalogs:${to.id}`, "selects");
         }
-        // Selected entries are not drawn as edges (the path goes through the
+        // Selected values are not drawn as edges (the path goes through the
         // catalog) but hover highlighting should reach them.
         if (
             (via.kind === "ruleValue" || via.kind === "resolveDefault") &&
             from.kind === "variable" &&
             to.kind === "catalogEntry"
         ) {
-            const variableNode = graphNodes.find(
-                (node) => node.id === `variables:${from.id}`,
-            );
             const entryKey = `catalog_entries:${to.catalog}:${to.key}`;
-            if (variableNode && seenNodes.has(entryKey)) {
-                (variableNode.related ??= []).push(entryKey);
+            pushRelated(`variables:${from.id}`, entryKey);
+            if (via.kind === "ruleValue") {
+                ruleEntryByKey.set(`${from.id}:${via.index}`, {
+                    catalog: to.catalog,
+                    entry: to.key,
+                });
             }
+        }
+    }
+    for (const [ruleKey, entry] of ruleEntryByKey) {
+        const qualifierKey = ruleQualifierByKey.get(ruleKey);
+        if (!qualifierKey) {
+            continue;
+        }
+        pushRelated(qualifierKey, `catalogs:${entry.catalog}`);
+        pushRelated(
+            qualifierKey,
+            `catalog_entries:${entry.catalog}:${entry.entry}`,
+        );
+    }
+    for (const node of graphNodes) {
+        const related = relatedByNode.get(node.id);
+        if (related?.size) {
+            node.related = Array.from(related);
         }
     }
     for (const entry of model.catalogEntries) {
@@ -1532,6 +1588,7 @@ export function workspaceGraphData(input: {
     return { nodes: graphNodes, edges };
 }
 
+/** Render-ready relationship row for the current entity detail panel. */
 type EntityRelation = { key: string; content: ReactNode };
 
 function RelationList({
@@ -1626,7 +1683,7 @@ function entityRelations(input: {
         if (to.kind === "contextAttribute") {
             continue;
         }
-        // Internal references (a variable's rules naming its own values) are
+        // Internal references (a variable's rules naming direct values) are
         // declaration detail, not cross-entity references.
         if (targetKeyForRef(from) === targetKeyForRef(to)) {
             continue;
@@ -1650,7 +1707,7 @@ function entityRelations(input: {
                             key: `out:${index}`,
                             content: (
                                 <>
-                                    {g(`rule[${via.index}]`)} selects entry{" "}
+                                    {g(`rule[${via.index}]`)} selects value{" "}
                                     {link}
                                 </>
                             ),
@@ -1663,7 +1720,7 @@ function entityRelations(input: {
                             key: `out:${index}`,
                             content: (
                                 <>
-                                    {g("default")} selects entry {link}
+                                    {g("default")} selects value {link}
                                 </>
                             ),
                         });
@@ -1678,7 +1735,7 @@ function entityRelations(input: {
                 case "catalogSchema":
                     outbound.push({
                         key: `out:${index}`,
-                        content: <>entries validate against {link}</>,
+                        content: <>values validate against {link}</>,
                     });
                     break;
                 case "predicateQualifier":
@@ -1737,7 +1794,7 @@ function entityRelations(input: {
                 case "catalogSchema":
                     inbound.push({
                         key: `in:${index}`,
-                        content: <>{link} validates its entries against this</>,
+                        content: <>{link} validates its values against this</>,
                     });
                     break;
                 case "predicateQualifier":
@@ -1794,7 +1851,7 @@ function entityRelations(input: {
             }
         }
     }
-    if (node.kind === "catalog entry") {
+    if (node.kind === "catalog value") {
         const catalogId = node.badge ?? "";
         outbound.push({
             key: "out:membership",
@@ -1814,13 +1871,13 @@ function OverviewAttention({
     diagnostics,
     lintError,
     nodes,
-    openDrafts,
+    activeBranches,
     workspaceId,
 }: {
     diagnostics: LintDiagnostic[];
     lintError: string | null;
     nodes: EntityNode[];
-    openDrafts: DraftSessionRecord[];
+    activeBranches: BranchRecord[];
     workspaceId: string;
 }) {
     const ranked = [
@@ -1829,7 +1886,9 @@ function OverviewAttention({
     ];
     const shown = ranked.slice(0, 5);
     const allClear =
-        lintError === null && ranked.length === 0 && openDrafts.length === 0;
+        lintError === null &&
+        ranked.length === 0 &&
+        activeBranches.length === 0;
 
     return (
         <div className="card">
@@ -1852,7 +1911,7 @@ function OverviewAttention({
                     <CheckCircle2 aria-hidden size={16} />
                     <span>
                         Nothing needs you right now — lint is clean and there
-                        are no open drafts.
+                        are no active branches.
                     </span>
                 </div>
             ) : (
@@ -1913,26 +1972,26 @@ function OverviewAttention({
                             … all {ranked.length} diagnostics
                         </Link>
                     ) : null}
-                    {openDrafts.map((draft) => (
+                    {activeBranches.map((branch) => (
                         <Link
                             className="row"
-                            href={`/app/workspaces/${workspaceId}/drafts/${draft.id}`}
-                            key={draft.id}
+                            href={`/app/workspaces/${workspaceId}/branches/${branch.id}`}
+                            key={branch.id}
                         >
                             <span className="row-icon">
                                 <GitBranch aria-hidden size={16} />
                             </span>
                             <span className="row-text">
                                 <span className="row-title mono">
-                                    {draft.branch}
+                                    {branch.branch}
                                 </span>
                                 <span className="row-sub">
-                                    open draft · updated{" "}
-                                    {formatDate(draft.updatedAt)}
+                                    active branch · updated{" "}
+                                    {formatDate(branchUpdatedAt(branch))}
                                 </span>
                             </span>
                             <span className="row-side">
-                                <DraftStatusPill draft={draft} />
+                                <BranchStatusPill branch={branch} />
                                 <ChevronRight
                                     aria-hidden
                                     className="muted"
@@ -2016,15 +2075,13 @@ function entityNodes(inventory: WorkspaceInventory): EntityNode[] {
                 item.catalogReference
                     ? `catalogs:${item.catalogReference}`
                     : null,
-                // Catalog-typed variables select entries by value key, so each
-                // selected entry is a reference too.
+                // Catalog-typed variables select by value name, so each
+                // selected catalog value is a reference too.
                 ...(item.catalogReference
                     ? [
                           ...new Set([
-                              ...item.ruleValueKeys,
-                              ...(item.defaultValueKey
-                                  ? [item.defaultValueKey]
-                                  : []),
+                              ...item.ruleValues,
+                              ...(item.defaultValue ? [item.defaultValue] : []),
                           ]),
                       ].map(
                           (key) =>
@@ -2052,7 +2109,7 @@ function entityNodes(inventory: WorkspaceInventory): EntityNode[] {
             id: item.id,
             path: item.path,
             description: item.description,
-            badge: `${item.entryCount} entries`,
+            badge: `${item.entryCount} values`,
             targetKey: `catalogs:${item.id}`,
             outboundKeys: item.schemaReference
                 ? [`schemas:${item.schemaReference}`]
@@ -2060,7 +2117,7 @@ function entityNodes(inventory: WorkspaceInventory): EntityNode[] {
         })),
         ...inventory.catalogEntries.map((item) => ({
             section: "catalogs" as const,
-            kind: "catalog entry",
+            kind: "catalog value",
             id: item.id,
             path: item.path,
             description: `Entry ${item.key} for catalog ${item.catalogId}`,
@@ -2211,4 +2268,8 @@ function formatDate(value: string): string {
         dateStyle: "medium",
         timeStyle: "short",
     }).format(new Date(value));
+}
+
+function branchUpdatedAt(branch: BranchRecord): string {
+    return branch.lastEditedAt ?? branch.lastOpenedAt ?? branch.createdAt;
 }

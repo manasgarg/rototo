@@ -5,6 +5,7 @@ import { LogoutButton } from "@/components/logout-button";
 import { MobileNav } from "@/components/mobile-nav";
 import { RototoMark } from "@/components/rototo-mark";
 
+/** Breadcrumb item rendered by the app shell for the current route. */
 export type Crumb = {
     label: string;
     href?: string;
@@ -22,7 +23,7 @@ export function AppShell({
     actions?: ReactNode;
     children: ReactNode;
     crumbs?: Crumb[];
-    /* Draft editing mode: a persistent strip and a tinted surface so the
+    /* Branch editing mode: a persistent strip and a tinted surface so the
      user always knows their edits land on a branch. */
     editing?: { label: string; detail: string };
     nav: ReactNode;
@@ -96,7 +97,7 @@ export function AppShell({
                     <div className="mode-strip">
                         <Pencil aria-hidden size={13} />
                         <span className="label mode-strip-label">
-                            draft editing
+                            branch editing
                         </span>
                         <span className="mono mode-strip-branch">
                             {editing.label}

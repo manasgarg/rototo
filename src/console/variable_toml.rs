@@ -4,36 +4,36 @@ use crate::error::{Result, RototoError};
 
 pub const PRIMITIVE_VARIABLE_TYPES: &[&str] = &["bool", "int", "number", "string", "list"];
 
+/// Result of changing a primitive variable's default value in TOML text.
+///
+/// The friendly editor produces this after parsing the source file and the
+/// user's input. The branch route writes `text` through the selected backend
+/// and uses the literals to skip no-op writes.
 #[derive(Clone, Debug)]
 pub struct VariableDefaultUpdate {
     pub text: String,
-    pub before: JsonValue,
-    pub after: JsonValue,
     pub before_literal: String,
     pub after_literal: String,
-    pub value_key: String,
 }
 
-struct ParsedValue {
+/// Parsed default value plus enough source location to rewrite it.
+///
+/// This is scratch state for one save operation; it is discarded after
+/// `VariableDefaultUpdate` is built.
+struct ParsedDefault {
     literal: String,
-    value: JsonValue,
     line_index: usize,
 }
 
+/// Minimal parse of the variable TOML needed by the friendly default editor.
+///
+/// It intentionally understands only the fields required for primitive default
+/// replacement and does not become a second workspace parser. The full lint and
+/// semantic model remain owned by rototo's Rust workspace loader.
 struct VariableParse {
     description: Option<String>,
     variable_type: Option<String>,
-    default_key: Option<String>,
-    values: Vec<(String, ParsedValue)>,
-}
-
-impl VariableParse {
-    fn value(&self, key: &str) -> Option<&ParsedValue> {
-        self.values
-            .iter()
-            .find(|(value_key, _)| value_key == key)
-            .map(|(_, value)| value)
-    }
+    default: Option<ParsedDefault>,
 }
 
 pub fn update_primitive_variable_default(text: &str, value: &str) -> Result<VariableDefaultUpdate> {
@@ -43,15 +43,10 @@ pub fn update_primitive_variable_default(text: &str, value: &str) -> Result<Vari
             "Only primitive variables can be edited in this view.",
         ));
     };
-    let Some(default_key) = parsed.default_key.clone() else {
+    let Some(existing) = parsed.default else {
         return Err(RototoError::new(
             "Variable does not declare a resolve default.",
         ));
-    };
-    let Some(existing) = parsed.value(&default_key) else {
-        return Err(RototoError::new(format!(
-            "Variable default value {default_key} is not declared under [values]."
-        )));
     };
 
     let after = parse_input_value(value, &variable_type)?;
@@ -73,11 +68,8 @@ pub fn update_primitive_variable_default(text: &str, value: &str) -> Result<Vari
 
     Ok(VariableDefaultUpdate {
         text: lines.join("\n"),
-        before: existing.value.clone(),
-        after,
         before_literal: existing.literal.clone(),
         after_literal,
-        value_key: default_key,
     })
 }
 
@@ -85,8 +77,7 @@ fn parse_variable_file(text: &str) -> VariableParse {
     let mut parse = VariableParse {
         description: None,
         variable_type: None,
-        default_key: None,
-        values: Vec::new(),
+        default: None,
     };
     let mut section = String::new();
 
@@ -117,23 +108,13 @@ fn parse_variable_file(text: &str) -> VariableParse {
         }
 
         if section == "[resolve]" {
-            if let Some(value) = quoted_field(trimmed, "default") {
-                parse.default_key = Some(value);
-            }
-            continue;
-        }
-
-        if section == "[values]"
-            && let Some((key, literal)) = key_value_line(trimmed)
-        {
-            parse.values.push((
-                key.clone(),
-                ParsedValue {
-                    value: parse_toml_literal(&literal),
+            if let Some(literal) = field_literal(trimmed, "default") {
+                parse.default = Some(ParsedDefault {
                     literal,
                     line_index,
-                },
-            ));
+                });
+            }
+            continue;
         }
     }
 
@@ -206,37 +187,6 @@ fn parse_input_value(value: &str, variable_type: &str) -> Result<JsonValue> {
     }
 }
 
-fn parse_toml_literal(literal: &str) -> JsonValue {
-    let trimmed = literal.trim();
-    if trimmed.starts_with('"') {
-        if let Ok(value) = serde_json::from_str::<JsonValue>(trimmed) {
-            return value;
-        }
-        return JsonValue::String(trimmed.trim_matches('"').to_owned());
-    }
-    match trimmed {
-        "true" => return JsonValue::Bool(true),
-        "false" => return JsonValue::Bool(false),
-        _ => {}
-    }
-    if trimmed.starts_with('[')
-        && let Ok(value) = serde_json::from_str::<JsonValue>(trimmed)
-    {
-        return value;
-    }
-    let plain = trimmed.replace('_', "");
-    if let Ok(int) = plain.parse::<i64>() {
-        return JsonValue::from(int);
-    }
-    if let Ok(number) = plain.parse::<f64>()
-        && number.is_finite()
-        && let Some(number) = serde_json::Number::from_f64(number)
-    {
-        return JsonValue::Number(number);
-    }
-    JsonValue::String(trimmed.to_owned())
-}
-
 fn format_toml_literal(value: &JsonValue, variable_type: &str) -> String {
     match variable_type {
         "bool" => {
@@ -263,34 +213,29 @@ mod tests {
 description = "Shows the launch banner"
 type = "bool"
 
-[values]
-control = false
-treatment = true
-
 [resolve]
-default = "control"
+default = false
 
 [[resolve.rule]]
 qualifier = "premium-users"
-value = "treatment"
+value = true
 "#;
 
     #[test]
     fn updates_only_the_default_line() {
         let update = update_primitive_variable_default(VARIABLE, "true").unwrap();
-        assert_eq!(update.value_key, "control");
-        assert_eq!(update.before, JsonValue::Bool(false));
-        assert_eq!(update.after, JsonValue::Bool(true));
-        assert!(update.text.contains("control = true"));
-        assert!(update.text.contains("treatment = true"));
+        assert_eq!(update.before_literal, "false");
+        assert_eq!(update.after_literal, "true");
+        assert!(update.text.contains("default = true"));
+        assert!(update.text.contains("value = true"));
         assert!(update.text.contains("qualifier = \"premium-users\""));
-        // Only the control line changed.
+        // Only the default line changed.
         let changed: Vec<(&str, &str)> = VARIABLE
             .lines()
             .zip(update.text.lines())
             .filter(|(before, after)| before != after)
             .collect();
-        assert_eq!(changed, vec![("control = false", "control = true")]);
+        assert_eq!(changed, vec![("default = false", "default = true")]);
     }
 
     #[test]
@@ -298,10 +243,10 @@ value = "treatment"
         assert!(update_primitive_variable_default(VARIABLE, "definitely").is_err());
         let int_variable = VARIABLE
             .replace("type = \"bool\"", "type = \"int\"")
-            .replace("control = false", "control = 4");
+            .replace("default = false", "default = 4");
         assert!(update_primitive_variable_default(&int_variable, "4.5").is_err());
         let update = update_primitive_variable_default(&int_variable, "7").unwrap();
-        assert!(update.text.contains("control = 7"));
+        assert!(update.text.contains("default = 7"));
     }
 
     #[test]

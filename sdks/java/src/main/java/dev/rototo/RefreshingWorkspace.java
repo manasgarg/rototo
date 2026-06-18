@@ -55,8 +55,8 @@ public final class RefreshingWorkspace implements AutoCloseable {
             Map<String, Object> value = Json.asObject(Json.parse(json));
             return new VariableResolution(
                     Json.asString(value.get("id")),
-                    Json.asString(value.get("valueKey")),
-                    value.get("value"));
+                    value.get("value"),
+                    value.get("source"));
         }, Rototo.executor());
     }
 

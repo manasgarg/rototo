@@ -22,7 +22,7 @@ public final class JavaSdkTest {
                     "premium-message",
                     Map.of("user", Map.of("tier", "premium"))));
             assertEquals("premium-message", variable.id(), "variable id");
-            assertEquals("premium", variable.valueKey(), "value key");
+            assertEquals(Map.of("kind", "literal"), variable.source(), "source");
             assertEquals("Welcome back, premium member.", variable.value(), "value");
 
             QualifierResolution qualifier = await(workspace.resolveQualifier(
@@ -35,7 +35,7 @@ public final class JavaSdkTest {
                     "premium-message",
                     Map.of("user", Map.of("tier", Map.of("bad", "shape"))),
                     ResolveOptions.validateContext(false)));
-            assertEquals("control", skippedValidation.valueKey(), "validation skip fallback");
+            assertEquals(Map.of("kind", "literal"), skippedValidation.source(), "validation skip fallback");
         }
 
         try (Workspace inspected = await(Workspace.inspect("examples/basic"))) {
@@ -131,8 +131,8 @@ public final class JavaSdkTest {
         Map<String, Object> result = Json.asObject(expect.get("result"));
         VariableResolution actual = await(future);
         assertEquals(Json.asString(result.get("id")), actual.id(), name + " id");
-        assertEquals(Json.asString(result.get("value_key")), actual.valueKey(), name + " value key");
         assertEquals(result.get("value"), actual.value(), name + " value");
+        assertEquals(result.get("source"), actual.source(), name + " source");
     }
 
     private static void refresh() throws Exception {
@@ -143,7 +143,7 @@ public final class JavaSdkTest {
             VariableResolution resolution = await(workspace.resolveVariable(
                     "premium-message",
                     Map.of("user", Map.of("tier", "premium"))));
-            assertEquals("premium", resolution.valueKey(), "refreshing resolution");
+            assertEquals(Map.of("kind", "literal"), resolution.source(), "refreshing resolution");
             RefreshStatus status = await(workspace.status());
             assertEquals(0L, status.consecutiveFailures(), "consecutive failures");
             assertEquals(false, status.refreshing(), "refreshing flag");

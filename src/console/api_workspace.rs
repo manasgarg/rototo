@@ -4,7 +4,10 @@ use axum::http::HeaderMap;
 use axum::routing::get;
 use serde_json::{Value as JsonValue, json};
 
-use super::api::{ApiError, ApiResult, SharedState, require_user};
+use super::api::{
+    ApiError, ApiResult, SharedState, require_github_token, require_user, source_token,
+};
+use super::capabilities::{classify_workspace_source, workspace_capabilities};
 use super::inventory::{
     WorkspaceInventory, inspect_workspace_inventory, read_workspace_definition,
 };
@@ -12,16 +15,28 @@ use super::resolve_preview::{
     SavedContextInput, qualifier_context_evaluations, resolve_saved_contexts,
 };
 use super::store::{SessionUser, WorkspaceRecord};
+use super::workspace_source::{
+    github_repo_for_workspace, runtime_workspace_for_base, semantic_workspace_for_base,
+    workspace_source_for_base,
+};
 
 const MAX_PREVIEW_CONTEXTS: usize = 4;
 const WORKSPACE_SUMMARY_CONCURRENCY: usize = 4;
 /// Compare calls are one GitHub request per branch; keep the scan bounded.
 const MAX_COMPARED_BRANCHES: usize = 25;
-const DRAFT_CANDIDATE_COMPARE_CONCURRENCY: usize = 8;
+const BRANCH_CANDIDATE_COMPARE_CONCURRENCY: usize = 8;
 
+/// Ordered workspace summary result from a bounded background task.
+///
+/// The index preserves the user's source tree/workspace ordering after concurrent
+/// staging and lint work finishes.
 type WorkspaceSummaryResult = (usize, JsonValue);
 
-type DraftCandidateCompareResult = (
+/// Ordered GitHub branch comparison result used while scanning branch candidates.
+///
+/// Each value is produced by one GitHub compare request and discarded after the
+/// route has filtered it into a small browser-facing branch summary.
+type BranchCandidateCompareResult = (
     usize,
     String,
     super::github::GitHubResult<super::github::RefComparison>,
@@ -35,8 +50,8 @@ pub fn routes() -> axum::Router<SharedState> {
         .route("/workspaces/{workspace_id}/data", get(workspace_data))
         .route("/workspaces/{workspace_id}/entity", get(workspace_entity))
         .route(
-            "/workspaces/{workspace_id}/draft-candidates",
-            get(draft_candidates),
+            "/workspaces/{workspace_id}/branch-candidates",
+            get(branch_candidates),
         )
 }
 
@@ -45,9 +60,12 @@ pub async fn load_workspace(
     user: &SessionUser,
     workspace_id: &str,
 ) -> ApiResult<WorkspaceRecord> {
+    if let Some(source) = state.fixed_workspace_source.as_deref() {
+        super::register_fixed_workspace(state, &user.principal_id, source).await?;
+    }
     state
         .store
-        .get_workspace_for_user(workspace_id, &user.github_user_id)
+        .get_workspace_for_user(workspace_id, &user.principal_id)
         .await?
         .ok_or_else(|| ApiError::not_found("workspace not found"))
 }
@@ -64,6 +82,22 @@ pub fn lint_error_json(root: &str, error: &str) -> JsonValue {
     json!({ "root": root, "diagnostics": [], "error": error })
 }
 
+pub fn workspace_capabilities_json(
+    state: &super::api::ConsoleState,
+    user: &SessionUser,
+    workspace: &WorkspaceRecord,
+) -> JsonValue {
+    let source_kind = classify_workspace_source(&workspace.source);
+    json!({
+        "sourceKind": source_kind,
+        "capabilities": workspace_capabilities(
+            source_kind,
+            state.write_policy,
+            user.github_token.is_some(),
+        ),
+    })
+}
+
 async fn workspace_lint(
     State(state): State<SharedState>,
     headers: HeaderMap,
@@ -71,9 +105,12 @@ async fn workspace_lint(
 ) -> ApiResult<Json<JsonValue>> {
     let user = require_user(&state, &headers).await?;
     let workspace = load_workspace(&state, &user, &workspace_id).await?;
+    let workspace_source =
+        workspace_source_for_base(&state, &user.principal_id, source_token(&user), &workspace)
+            .await?;
     let inspected = state
         .stage
-        .inspect(&user.github_token, &workspace.source)
+        .get_inspected_workspace(workspace_source, source_token(&user))
         .await
         .map_err(|err| ApiError::internal(err.to_string()))?;
     let lint = inspected
@@ -85,10 +122,14 @@ async fn workspace_lint(
     ))
 }
 
+/// Query string for the workspace summaries endpoint.
+///
+/// The optional source tree id scopes a request to one registered source tree. It is
+/// parsed per request and never stored; discovery state remains in SQLite.
 #[derive(serde::Deserialize, Default)]
 struct WorkspaceSummariesQuery {
-    #[serde(rename = "repoId")]
-    repo_id: Option<String>,
+    #[serde(rename = "sourceTreeId")]
+    source_tree_id: Option<String>,
 }
 
 async fn workspace_summaries(
@@ -99,10 +140,10 @@ async fn workspace_summaries(
     let user = require_user(&state, &headers).await?;
     let mut workspaces = state
         .store
-        .list_workspaces_for_user(&user.github_user_id)
+        .list_workspaces_for_user(&user.principal_id)
         .await?;
-    if let Some(repo_id) = query.repo_id.as_deref() {
-        workspaces.retain(|workspace| workspace.repo_id == repo_id);
+    if let Some(source_tree_id) = query.source_tree_id.as_deref() {
+        workspaces.retain(|workspace| workspace.source_tree_id == source_tree_id);
     }
 
     let mut summaries = Vec::new();
@@ -194,19 +235,20 @@ async fn workspace_data(
 ) -> ApiResult<Json<JsonValue>> {
     let user = require_user(&state, &headers).await?;
     let workspace = load_workspace(&state, &user, &workspace_id).await?;
-    let drafts = state
+    let branches = state
         .store
-        .list_draft_sessions_for_workspace(&workspace.id, &user.github_user_id)
+        .list_active_branches_for_workspace(&workspace.id, &user.principal_id)
         .await?;
 
-    let staged = state
-        .stage
-        .semantic_model(&user.github_token, &workspace.source)
-        .await;
+    let staged =
+        semantic_workspace_for_base(&state, &user.principal_id, source_token(&user), &workspace)
+            .await;
     let (inventory, inventory_error, lint, model) = match staged {
-        Ok((inspected, model)) => {
-            let inventory = inspect_workspace_inventory(&workspace, &model, inspected.root()).await;
-            let lint = match inspected.lint().await {
+        Ok(semantic) => {
+            let inventory =
+                inspect_workspace_inventory(&workspace, &semantic.model, semantic.workspace.root())
+                    .await;
+            let lint = match semantic.workspace.lint().await {
                 Ok(lint) => lint_json(&lint),
                 Err(err) => lint_error_json(&workspace.source, &err.to_string()),
             };
@@ -215,19 +257,19 @@ async fn workspace_data(
                     serde_json::to_value(inventory).expect("inventory serializes"),
                     JsonValue::Null,
                     lint,
-                    serde_json::to_value(model.as_ref()).expect("model serializes"),
+                    serde_json::to_value(semantic.model.as_ref()).expect("model serializes"),
                 ),
                 Err(err) => (
                     serde_json::to_value(WorkspaceInventory::default())
                         .expect("inventory serializes"),
                     json!(err.to_string()),
                     lint,
-                    serde_json::to_value(model.as_ref()).expect("model serializes"),
+                    serde_json::to_value(semantic.model.as_ref()).expect("model serializes"),
                 ),
             }
         }
         Err(err) => {
-            let message = err.to_string();
+            let message = err.message;
             (
                 serde_json::to_value(WorkspaceInventory::default()).expect("inventory serializes"),
                 json!(message.clone()),
@@ -237,16 +279,24 @@ async fn workspace_data(
         }
     };
 
+    let capabilities = workspace_capabilities_json(&state, &user, &workspace);
     Ok(Json(json!({
         "workspace": workspace,
-        "drafts": drafts,
+        "branches": branches,
         "inventory": inventory,
         "inventoryError": inventory_error,
         "lint": lint,
         "model": model,
+        "sourceKind": capabilities["sourceKind"].clone(),
+        "capabilities": capabilities["capabilities"].clone(),
     })))
 }
 
+/// Query string used to fetch one workspace file for inspect/edit screens.
+///
+/// The path is a repository-relative workspace path from the inventory. The
+/// route validates it by resolving through the staged workspace root before
+/// reading text.
 #[derive(serde::Deserialize)]
 pub struct EntityQuery {
     pub path: String,
@@ -260,17 +310,16 @@ async fn workspace_entity(
 ) -> ApiResult<Json<JsonValue>> {
     let user = require_user(&state, &headers).await?;
     let workspace = load_workspace(&state, &user, &workspace_id).await?;
-    let (inspected, model) = state
-        .stage
-        .semantic_model(&user.github_token, &workspace.source)
-        .await
-        .map_err(|err| ApiError::internal(err.to_string()))?;
-    let inventory = inspect_workspace_inventory(&workspace, &model, inspected.root())
-        .await
-        .map_err(|err| ApiError::internal(err.to_string()))?;
+    let semantic =
+        semantic_workspace_for_base(&state, &user.principal_id, source_token(&user), &workspace)
+            .await?;
+    let inventory =
+        inspect_workspace_inventory(&workspace, &semantic.model, semantic.workspace.root())
+            .await
+            .map_err(|err| ApiError::internal(err.to_string()))?;
 
     let (definition, definition_error) =
-        match read_workspace_definition(&workspace, inspected.root(), &query.path).await {
+        match read_workspace_definition(&workspace, semantic.workspace.root(), &query.path).await {
             Ok(definition) => (
                 serde_json::to_value(definition).expect("definition serializes"),
                 JsonValue::Null,
@@ -280,7 +329,7 @@ async fn workspace_entity(
 
     let contexts = load_saved_contexts(
         &workspace,
-        inspected.root(),
+        semantic.workspace.root(),
         &inventory,
         MAX_PREVIEW_CONTEXTS,
     )
@@ -294,12 +343,12 @@ async fn workspace_entity(
         .iter()
         .find(|variable| variable.path == query.path)
         && !contexts.is_empty()
-        && let Ok(runtime) = state
-            .stage
-            .runtime(&user.github_token, &workspace.source)
-            .await
+        && let Ok(runtime) =
+            runtime_workspace_for_base(&state, &user.principal_id, source_token(&user), &workspace)
+                .await
     {
-        let resolutions = resolve_saved_contexts(&runtime, &model, &variable.id, &contexts).await;
+        let resolutions =
+            resolve_saved_contexts(&runtime, &semantic.model, &variable.id, &contexts).await;
         context_resolutions = serde_json::to_value(resolutions).expect("resolutions serialize");
     }
 
@@ -311,13 +360,13 @@ async fn workspace_entity(
         .iter()
         .find(|qualifier| qualifier.path == query.path)
         && !contexts.is_empty()
-        && let Ok(runtime) = state
-            .stage
-            .runtime(&user.github_token, &workspace.source)
-            .await
+        && let Ok(runtime) =
+            runtime_workspace_for_base(&state, &user.principal_id, source_token(&user), &workspace)
+                .await
     {
         let evaluations =
-            qualifier_context_evaluations(&runtime, &model, &qualifier.id, &contexts).await;
+            qualifier_context_evaluations(&runtime, &semantic.model, &qualifier.id, &contexts)
+                .await;
         qualifier_evaluations = serde_json::to_value(evaluations).expect("evaluations serialize");
     }
 
@@ -329,28 +378,40 @@ async fn workspace_entity(
     })))
 }
 
-async fn draft_candidates(
+async fn branch_candidates(
     State(state): State<SharedState>,
     headers: HeaderMap,
     Path(workspace_id): Path<String>,
 ) -> ApiResult<Json<JsonValue>> {
     let user = require_user(&state, &headers).await?;
     let workspace = load_workspace(&state, &user, &workspace_id).await?;
+    if !matches!(
+        classify_workspace_source(&workspace.source),
+        super::capabilities::WorkspaceSourceKind::GitHubArchive
+            | super::capabilities::WorkspaceSourceKind::GitHubGit
+    ) {
+        return Err(ApiError::bad_request(
+            "only GitHub configuration sources support branch discovery",
+        ));
+    }
+    let token = require_github_token(&user, "Scanning branches")?;
+    let github_repo = github_repo_for_workspace(&workspace)
+        .map_err(|err| ApiError::bad_request(err.to_string()))?;
 
     let known_branches: std::collections::HashSet<String> = state
         .store
-        .list_draft_sessions_for_workspace(&workspace.id, &user.github_user_id)
+        .list_active_branches_for_workspace(&workspace.id, &user.principal_id)
         .await?
         .into_iter()
-        .map(|draft| draft.branch)
+        .map(|branch| branch.branch)
         .collect();
     let branches: Vec<String> = state
         .github
-        .list_branches(&user.github_token, &workspace.owner, &workspace.name)
+        .list_branches(token, &github_repo.owner, &github_repo.name)
         .await
         .map_err(|err| ApiError::github(&err, "Scanning branches"))?
         .into_iter()
-        .filter(|branch| *branch != workspace.git_ref && !known_branches.contains(branch))
+        .filter(|branch| *branch != workspace.revision && !known_branches.contains(branch))
         .collect();
     let compared = &branches[..branches.len().min(MAX_COMPARED_BRANCHES)];
     let prefix = if workspace.path == "." {
@@ -363,22 +424,27 @@ async fn draft_candidates(
     let mut comparisons = tokio::task::JoinSet::new();
     for (index, branch) in compared.iter().cloned().enumerate() {
         let github = state.github.clone();
-        let token = user.github_token.clone();
-        let owner = workspace.owner.clone();
-        let name = workspace.name.clone();
-        let base = workspace.git_ref.clone();
+        let token = token.to_owned();
+        let github_repo = github_repo.clone();
+        let base = workspace.revision.clone();
         comparisons.spawn(async move {
             let comparison = github
-                .compare_refs(&token, &owner, &name, &base, &branch)
+                .compare_refs(
+                    &token,
+                    &github_repo.owner,
+                    &github_repo.name,
+                    &base,
+                    &branch,
+                )
                 .await;
             (index, branch, comparison)
         });
-        if comparisons.len() >= DRAFT_CANDIDATE_COMPARE_CONCURRENCY {
-            collect_draft_candidate(&mut comparisons, &prefix, &mut candidates).await;
+        if comparisons.len() >= BRANCH_CANDIDATE_COMPARE_CONCURRENCY {
+            collect_branch_candidate(&mut comparisons, &prefix, &mut candidates).await;
         }
     }
     while !comparisons.is_empty() {
-        collect_draft_candidate(&mut comparisons, &prefix, &mut candidates).await;
+        collect_branch_candidate(&mut comparisons, &prefix, &mut candidates).await;
     }
     candidates.sort_by_key(|(index, _)| *index);
     let candidates: Vec<JsonValue> = candidates
@@ -393,8 +459,8 @@ async fn draft_candidates(
     })))
 }
 
-async fn collect_draft_candidate(
-    comparisons: &mut tokio::task::JoinSet<DraftCandidateCompareResult>,
+async fn collect_branch_candidate(
+    comparisons: &mut tokio::task::JoinSet<BranchCandidateCompareResult>,
     prefix: &str,
     candidates: &mut Vec<(usize, JsonValue)>,
 ) {
@@ -405,12 +471,12 @@ async fn collect_draft_candidate(
     let Ok((index, branch, Ok(comparison))) = joined else {
         return;
     };
-    if let Some(candidate) = draft_candidate_json(index, branch, comparison, prefix) {
+    if let Some(candidate) = branch_candidate_json(index, branch, comparison, prefix) {
         candidates.push(candidate);
     }
 }
 
-fn draft_candidate_json(
+fn branch_candidate_json(
     index: usize,
     branch: String,
     comparison: super::github::RefComparison,
@@ -436,15 +502,15 @@ pub async fn workspace_inventory(
     user: &SessionUser,
     workspace: &WorkspaceRecord,
 ) -> std::result::Result<(std::sync::Arc<crate::sdk::Workspace>, WorkspaceInventory), String> {
-    let (inspected, model) = state
-        .stage
-        .semantic_model(&user.github_token, &workspace.source)
-        .await
-        .map_err(|err| err.to_string())?;
-    let inventory = inspect_workspace_inventory(workspace, &model, inspected.root())
-        .await
-        .map_err(|err| err.to_string())?;
-    Ok((inspected, inventory))
+    let semantic =
+        semantic_workspace_for_base(state, &user.principal_id, source_token(user), workspace)
+            .await
+            .map_err(|err| err.message)?;
+    let inventory =
+        inspect_workspace_inventory(workspace, &semantic.model, semantic.workspace.root())
+            .await
+            .map_err(|err| err.to_string())?;
+    Ok((semantic.workspace, inventory))
 }
 
 /// Reads up to `limit` saved request contexts from the staged checkout.
@@ -482,11 +548,10 @@ mod tests {
         WorkspaceRecord {
             id: "workspace-id".to_owned(),
             slug: "configs".to_owned(),
-            repo_id: "repo-id".to_owned(),
-            owner: "octo".to_owned(),
-            name: "configs".to_owned(),
+            source_tree_id: "repo-id".to_owned(),
+            source_tree_label: "octo/configs".to_owned(),
             path: ".".to_owned(),
-            git_ref: "main".to_owned(),
+            revision: "main".to_owned(),
             source: "https://api.github.com/repos/octo/configs/tarball/main".to_owned(),
             discovered_at: "2026-06-13T00:00:00Z".to_owned(),
         }
@@ -540,8 +605,8 @@ mod tests {
     }
 
     #[test]
-    fn draft_candidate_accepts_root_workspace_changes() {
-        let candidate = draft_candidate_json(
+    fn branch_candidate_accepts_root_workspace_changes() {
+        let candidate = branch_candidate_json(
             2,
             "feature".to_owned(),
             comparison(3, &["variables/checkout.toml", "README.md"]),
@@ -562,9 +627,9 @@ mod tests {
     }
 
     #[test]
-    fn draft_candidate_rejects_empty_or_unrelated_changes() {
+    fn branch_candidate_rejects_empty_or_unrelated_changes() {
         assert!(
-            draft_candidate_json(
+            branch_candidate_json(
                 0,
                 "empty".to_owned(),
                 comparison(0, &["examples/basic/variables/checkout.toml"]),
@@ -573,11 +638,11 @@ mod tests {
             .is_none()
         );
         assert!(
-            draft_candidate_json(0, "empty".to_owned(), comparison(1, &[]), "examples/basic/",)
+            branch_candidate_json(0, "empty".to_owned(), comparison(1, &[]), "examples/basic/",)
                 .is_none()
         );
         assert!(
-            draft_candidate_json(
+            branch_candidate_json(
                 0,
                 "mixed".to_owned(),
                 comparison(1, &["examples/basic/variables/checkout.toml", "README.md"],),

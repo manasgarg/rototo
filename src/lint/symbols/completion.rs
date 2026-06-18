@@ -115,7 +115,7 @@ fn current_variable_value_completion_items(
                 WorkspaceCompletionItem::new(
                     value.clone(),
                     WorkspaceCompletionItemKind::Value,
-                    "catalog entry",
+                    "catalog value",
                 )
             })
             .collect(),

@@ -1,0 +1,9 @@
+record_api_event = false
+record_operation_events = false
+record_ui_events = false
+record_errors = true
+sample_rate = 0.0
+slow_request_ms = 750
+
+[tracing]
+filter = "warn"

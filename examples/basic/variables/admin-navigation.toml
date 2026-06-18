@@ -3,13 +3,9 @@ schema_version = 1
 description = "Whether to show administrator navigation affordances"
 type = "bool"
 
-[values]
-hidden = false
-visible = true
-
 [resolve]
-default = "hidden"
+default = false
 
 [[resolve.rule]]
 qualifier = "admin-users"
-value = "visible"
+value = true

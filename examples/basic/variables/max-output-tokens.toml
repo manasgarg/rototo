@@ -3,22 +3,17 @@ schema_version = 1
 description = "Maximum response token budget for interactive completions"
 type = "int"
 
-[values]
-small = 1200
-standard = 2400
-large = 5000
-
 [resolve]
-default = "standard"
+default = 2400
 
 [[resolve.rule]]
 qualifier = "lane-stage"
-value = "small"
+value = 1200
 
 [[resolve.rule]]
 qualifier = "lane-dev"
-value = "large"
+value = 5000
 
 [[resolve.rule]]
 qualifier = "enterprise-accounts"
-value = "large"
+value = 5000

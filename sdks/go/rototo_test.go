@@ -37,8 +37,8 @@ func TestWorkspaceExposesGoResolutionObjects(t *testing.T) {
 	if variable.ID != "premium-message" {
 		t.Fatalf("variable id = %q", variable.ID)
 	}
-	if variable.ValueKey != "premium" {
-		t.Fatalf("value key = %q", variable.ValueKey)
+	if !reflect.DeepEqual(variable.Source, map[string]any{"kind": "literal"}) {
+		t.Fatalf("source = %#v", variable.Source)
 	}
 	if variable.Value != "Welcome back, premium member." {
 		t.Fatalf("value = %#v", variable.Value)
@@ -88,8 +88,8 @@ func TestContextValidationCanBeSkipped(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if result.ValueKey != "control" {
-		t.Fatalf("value key = %q", result.ValueKey)
+	if !reflect.DeepEqual(result.Source, map[string]any{"kind": "literal"}) {
+		t.Fatalf("source = %#v", result.Source)
 	}
 }
 
@@ -243,9 +243,9 @@ func runContractCase(t *testing.T, sdkCase contractCase) (map[string]any, error)
 			return nil, err
 		}
 		return map[string]any{
-			"id":        result.ID,
-			"value_key": result.ValueKey,
-			"value":     result.Value,
+			"id":     result.ID,
+			"value":  result.Value,
+			"source": result.Source,
 		}, nil
 	case "resolve_qualifier":
 		workspace, err := Load(context.Background(), source, nil)
@@ -379,11 +379,8 @@ func writeWorkspace(t *testing.T, root string, message string) {
 description = "Message"
 type = "string"
 
-[values]
-default = "` + message + `"
-
 [resolve]
-default = "default"
+default = "` + message + `"
 `
 	if err := os.WriteFile(filepath.Join(variables, "message.toml"), []byte(contents), 0o644); err != nil {
 		t.Fatal(err)

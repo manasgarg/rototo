@@ -6,8 +6,11 @@ use tokio::sync::{Mutex, RwLock};
 use crate::error::{Result, RototoError};
 
 use super::github::{self, GitHubClient};
+use super::identity::ActorIdentity;
 use super::store::{SessionUser, Store};
 
+pub const GITHUB_CLIENT_ID_ENV: &str = "ROTOTO_GITHUB_CLIENT_ID";
+pub const GITHUB_CLIENT_SECRET_ENV: &str = "ROTOTO_GITHUB_CLIENT_SECRET";
 pub const SESSION_COOKIE: &str = "rototo_console_session";
 pub const OAUTH_STATE_COOKIE: &str = "rototo_console_oauth_state";
 pub const GITHUB_OAUTH_SCOPES: &str = "read:user repo";
@@ -17,51 +20,58 @@ pub const GITHUB_OAUTH_SCOPES: &str = "read:user repo";
 /// ROTOTO_GITHUB_CLIENT_ID is set.
 const BAKED_DEVICE_CLIENT_ID: &str = "";
 
+/// Hosted-mode GitHub OAuth app credentials.
+///
+/// Startup resolves this from environment variables and stores it in
+/// `ConsoleState`. It lives for the server process and is used only to build
+/// authorization URLs and exchange callback codes for user tokens.
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub enum AuthMode {
-    /// Single user on a trusted machine: no login, ambient GitHub token.
-    Local,
-    /// Shared deployment: GitHub OAuth web flow, per-user encrypted tokens.
-    Team {
-        client_id: String,
-        client_secret: String,
-    },
-    /// Demo deployment: no auth, fixed workspace source, mutations rejected.
-    ReadOnly,
+pub struct HostedOAuth {
+    pub client_id: String,
+    pub client_secret: String,
 }
 
-impl AuthMode {
-    pub fn label(&self) -> &'static str {
-        match self {
-            Self::Local => "local",
-            Self::Team { .. } => "team",
-            Self::ReadOnly => "read-only",
-        }
-    }
-}
-
-/// Where the local-mode GitHub token came from, for the /api/me explanation.
+/// Where the current GitHub token came from.
+///
+/// This is serialized for `/api/me` so the UI can explain why a workspace can
+/// or cannot write. The source follows the token: it changes when local device
+/// flow stores a new token or hosted OAuth creates a session.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize)]
 #[serde(rename_all = "kebab-case")]
-pub enum TokenSource {
+pub enum GitHubCredentialSource {
     Flag,
     Environment,
     DeviceFlow,
     GhCli,
+    OAuthSession,
 }
 
+/// Local-mode token plus provenance.
+///
+/// The token may come from a flag, environment, device-flow credentials file,
+/// or `gh auth token`. It is kept in memory inside `LocalAuth`; device-flow
+/// tokens are also written to the console data directory for later launches.
 #[derive(Clone)]
 pub struct AmbientToken {
     pub token: String,
-    pub source: TokenSource,
+    pub source: GitHubCredentialSource,
 }
 
+/// In-progress local GitHub device-flow session.
+///
+/// The console stores only the device code between `/device/start` and polling
+/// completion. It is replaced when a new device flow starts and cleared when
+/// polling succeeds or fails.
 pub struct DeviceFlowState {
     pub device_code: String,
 }
 
-/// Local-mode authentication state: the ambient token plus the GitHub
-/// identity it maps to, fetched once per token.
+/// Local-mode authentication state.
+///
+/// This owns the mutable ambient token, the GitHub identity fetched for that
+/// exact token, and the optional in-flight device flow. It lives in
+/// `ConsoleState` for the process lifetime; the stored credentials file lets a
+/// successful device-flow sign-in survive restarts.
 pub struct LocalAuth {
     token: RwLock<Option<AmbientToken>>,
     identity: RwLock<Option<(String, SessionUser)>>,
@@ -71,13 +81,17 @@ pub struct LocalAuth {
 }
 
 impl LocalAuth {
-    pub fn new(initial: Option<AmbientToken>, data_dir: &std::path::Path) -> Self {
+    pub fn new(
+        initial: Option<AmbientToken>,
+        data_dir: &std::path::Path,
+        device_client_id: Option<String>,
+    ) -> Self {
         Self {
             token: RwLock::new(initial),
             identity: RwLock::new(None),
             device_flow: Mutex::new(None),
             credentials_path: data_dir.join("credentials.json"),
-            device_client_id: device_client_id(),
+            device_client_id,
         }
     }
 
@@ -98,7 +112,7 @@ impl LocalAuth {
         write_private_file(&self.credentials_path, &credentials.to_string()).await?;
         *self.token.write().await = Some(AmbientToken {
             token,
-            source: TokenSource::DeviceFlow,
+            source: GitHubCredentialSource::DeviceFlow,
         });
         *self.identity.write().await = None;
         Ok(())
@@ -125,20 +139,22 @@ impl LocalAuth {
         })?;
         let user = SessionUser {
             session_hash: "local".to_owned(),
-            github_user_id: viewer.id.to_string(),
-            github_login: viewer.login,
-            github_name: viewer.name,
-            github_avatar_url: viewer.avatar_url,
-            github_token: ambient.token.clone(),
+            principal_id: format!("github:{}", viewer.id),
+            identity: ActorIdentity::GitHub {
+                id: viewer.id.to_string(),
+                login: viewer.login,
+                name: viewer.name,
+                avatar_url: viewer.avatar_url,
+            },
+            github_token: Some(ambient.token.clone()),
         };
         *self.identity.write().await = Some((ambient.token, user.clone()));
         Ok(Some(user))
     }
 }
 
-fn device_client_id() -> Option<String> {
-    let from_env = std::env::var("ROTOTO_GITHUB_CLIENT_ID").ok();
-    let id = from_env.unwrap_or_else(|| BAKED_DEVICE_CLIENT_ID.to_owned());
+pub(super) fn baked_device_client_id() -> Option<String> {
+    let id = BAKED_DEVICE_CLIENT_ID.to_owned();
     let id = id.trim().to_owned();
     (!id.is_empty()).then_some(id)
 }
@@ -155,10 +171,15 @@ pub async fn resolve_ambient_token(
             // clap fills the flag from ROTOTO_WORKSPACE_TOKEN too; report the
             // narrower source only when the flag came from the environment.
             let source = if std::env::args().any(|arg| arg == "--workspace-token") {
-                TokenSource::Flag
+                GitHubCredentialSource::Flag
             } else {
-                TokenSource::Environment
+                GitHubCredentialSource::Environment
             };
+            tracing::info!(
+                operation = "console.auth.ambient_token",
+                source = ?source,
+                "console local auth token resolved from explicit configuration"
+            );
             return Some(AmbientToken {
                 token: token.to_owned(),
                 source,
@@ -174,27 +195,75 @@ pub async fn resolve_ambient_token(
             .and_then(serde_json::Value::as_str)
         && !token.trim().is_empty()
     {
+        tracing::info!(
+            operation = "console.auth.ambient_token",
+            source = ?GitHubCredentialSource::DeviceFlow,
+            credentials_path = %credentials_path.display(),
+            "console local auth token resolved from stored device-flow credentials"
+        );
         return Some(AmbientToken {
             token: token.trim().to_owned(),
-            source: TokenSource::DeviceFlow,
+            source: GitHubCredentialSource::DeviceFlow,
         });
     }
 
-    if let Ok(output) = tokio::process::Command::new("gh")
+    let started = std::time::Instant::now();
+    tracing::debug!(
+        operation = "process.command",
+        command = "gh auth token",
+        "console outbound process call started"
+    );
+    match tokio::process::Command::new("gh")
         .args(["auth", "token"])
         .output()
         .await
-        && output.status.success()
     {
-        let token = String::from_utf8_lossy(&output.stdout).trim().to_owned();
-        if !token.is_empty() {
-            return Some(AmbientToken {
-                token,
-                source: TokenSource::GhCli,
-            });
+        Ok(output) if output.status.success() => {
+            let token = String::from_utf8_lossy(&output.stdout).trim().to_owned();
+            tracing::info!(
+                operation = "process.command",
+                command = "gh auth token",
+                status = output.status.code(),
+                token_found = !token.is_empty(),
+                latency_ms = started.elapsed().as_millis(),
+                "console outbound process call completed"
+            );
+            if !token.is_empty() {
+                tracing::info!(
+                    operation = "console.auth.ambient_token",
+                    source = ?GitHubCredentialSource::GhCli,
+                    "console local auth token resolved from GitHub CLI"
+                );
+                return Some(AmbientToken {
+                    token,
+                    source: GitHubCredentialSource::GhCli,
+                });
+            }
+        }
+        Ok(output) => {
+            tracing::debug!(
+                operation = "process.command",
+                command = "gh auth token",
+                status = output.status.code(),
+                latency_ms = started.elapsed().as_millis(),
+                "console outbound process call returned non-zero status"
+            );
+        }
+        Err(err) => {
+            tracing::debug!(
+                operation = "process.command",
+                command = "gh auth token",
+                error = %err,
+                latency_ms = started.elapsed().as_millis(),
+                "console outbound process call failed to start"
+            );
         }
     }
 
+    tracing::info!(
+        operation = "console.auth.ambient_token",
+        "console local auth token was not found"
+    );
     None
 }
 

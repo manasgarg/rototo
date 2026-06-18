@@ -1,11 +1,7 @@
 schema_version = 1
 
 description = "Variable with bad qualifier and value references"
-type = "string"
-
-[values]
-control = "control"
-treatment = "treatment"
+type = "catalog:bad-resolve"
 
 [resolve]
 default = "control"

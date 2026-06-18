@@ -164,8 +164,6 @@ pub struct FixtureCase {
 pub struct FixtureExpectation {
     pub value: toml::Value,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub value_key: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
     pub matched: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub matched_rule: Option<usize>,
@@ -378,7 +376,6 @@ fn qualifier_case(
         context: json_to_toml(&context)?,
         expect: FixtureExpectation {
             value: toml::Value::Boolean(trace.value),
-            value_key: None,
             matched: None,
             matched_rule: None,
             matched_qualifier: None,
@@ -432,7 +429,10 @@ async fn generate_variable_fixture(
         let title = format!(
             "Rule {} selects {} when {} matches",
             rule.index,
-            rule.value.as_deref().unwrap_or("<missing>"),
+            rule.value
+                .as_ref()
+                .map(serde_json::Value::to_string)
+                .unwrap_or_else(|| "<missing>".to_owned()),
             rule.qualifier.as_deref().unwrap_or("<missing>")
         );
         cases.push(variable_case(
@@ -470,7 +470,6 @@ fn variable_case(
         context: json_to_toml(&context)?,
         expect: FixtureExpectation {
             value: json_to_toml(&trace.resolution.value)?,
-            value_key: Some(trace.resolution.value_key.clone()),
             matched: matched_rule.is_none().then(|| "default".to_owned()),
             matched_rule: matched_rule.map(|rule| rule.index),
             matched_qualifier: matched_rule.map(|rule| rule.qualifier.clone()),
@@ -1135,16 +1134,6 @@ async fn assert_fixture_case(
         }
         FixtureTarget::Variable(id) => {
             let trace = trace_variable_resolution(workspace.root(), id, context.value()).await?;
-            let expected_value_key =
-                case.expect.value_key.as_ref().ok_or_else(|| {
-                    RototoError::new("variable fixture expect.value_key is required")
-                })?;
-            if &trace.resolution.value_key != expected_value_key {
-                return Err(RototoError::new(format!(
-                    "expected value_key {expected_value_key}, got {}",
-                    trace.resolution.value_key
-                )));
-            }
             let expected_value = toml_to_json(&case.expect.value)?;
             if trace.resolution.value != expected_value {
                 return Err(RototoError::new(format!(

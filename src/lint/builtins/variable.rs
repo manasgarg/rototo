@@ -59,37 +59,13 @@ fn lint_type_source(diagnostics: &mut Vec<LintDiagnostic>, variable: &VariableNo
 }
 
 fn lint_values_shape(diagnostics: &mut Vec<LintDiagnostic>, variable: &VariableNode) {
-    if is_catalog_backed(variable) {
-        if variable.values.invalid_shape || !variable.values.inline_values.is_empty() {
-            push_project_diagnostic(
-                diagnostics,
-                RototoRuleId::VariableValuesDisallowed,
-                variable.field_target(SemanticField::VariableValues),
-                variable.values.location.clone(),
-                "catalog-backed variables must not contain [values]",
-            );
-        }
-        return;
-    }
-
-    if variable.values.invalid_shape {
+    if variable.values.invalid_shape || !variable.values.inline_values.is_empty() {
         push_project_diagnostic(
             diagnostics,
-            RototoRuleId::VariableValuesMissing,
+            RototoRuleId::VariableValuesDisallowed,
             variable.field_target(SemanticField::VariableValues),
             variable.values.location.clone(),
-            "variable values must be a table",
-        );
-        return;
-    }
-
-    if variable.values.inline_values.is_empty() {
-        push_project_diagnostic(
-            diagnostics,
-            RototoRuleId::VariableValuesMissing,
-            variable.field_target(SemanticField::VariableValues),
-            variable.values.location.clone(),
-            "primitive variable must contain [values]",
+            "variables must not contain [values]; put literal values directly under [resolve]",
         );
     }
 }
@@ -200,15 +176,9 @@ pub(super) fn lint_variable_references(ctx: &mut LintContext) {
                 format!("variable references unknown catalog: {catalog}"),
             ),
             (
-                ReferenceSource::VariableResolveDefault { variable },
+                ReferenceSource::VariableResolveDefault { variable: _ },
                 ReferenceTarget::VariableValue { variable: _, value },
             ) => {
-                let Some(variable_node) = ctx.index.variables.get(variable) else {
-                    continue;
-                };
-                if !variable_has_values(variable_node) {
-                    continue;
-                }
                 push_reference_diagnostic(
                     &mut diagnostics,
                     RototoRuleId::VariableUnknownValue,
@@ -231,7 +201,7 @@ pub(super) fn lint_variable_references(ctx: &mut LintContext) {
                     RototoRuleId::VariableUnknownValue,
                     edge.semantic_target.clone(),
                     edge.location.clone(),
-                    format!("resolve default references unknown catalog entry: {value}"),
+                    format!("resolve default references unknown catalog value: {value}"),
                 );
             }
             (
@@ -248,15 +218,12 @@ pub(super) fn lint_variable_references(ctx: &mut LintContext) {
                 format!("rule references unknown qualifier: {qualifier}"),
             ),
             (
-                ReferenceSource::VariableRuleValue { variable, rule: _ },
+                ReferenceSource::VariableRuleValue {
+                    variable: _,
+                    rule: _,
+                },
                 ReferenceTarget::VariableValue { variable: _, value },
             ) => {
-                let Some(variable_node) = ctx.index.variables.get(variable) else {
-                    continue;
-                };
-                if !variable_has_values(variable_node) {
-                    continue;
-                }
                 push_reference_diagnostic(
                     &mut diagnostics,
                     RototoRuleId::VariableUnknownValue,
@@ -279,7 +246,7 @@ pub(super) fn lint_variable_references(ctx: &mut LintContext) {
                     RototoRuleId::VariableUnknownValue,
                     edge.semantic_target.clone(),
                     edge.location.clone(),
-                    format!("rule references unknown catalog entry: {value}"),
+                    format!("rule references unknown catalog value: {value}"),
                 );
             }
             _ => {}
@@ -287,10 +254,6 @@ pub(super) fn lint_variable_references(ctx: &mut LintContext) {
     }
 
     ctx.diagnostics.extend(diagnostics);
-}
-
-fn variable_has_values(variable: &VariableNode) -> bool {
-    !variable.values.inline_values.is_empty()
 }
 
 pub(super) fn lint_variable_values(ctx: &mut LintContext) {
@@ -302,10 +265,12 @@ pub(super) fn lint_variable_values(ctx: &mut LintContext) {
                 else {
                     continue;
                 };
-                lint_primitive_variable_values(&mut diagnostics, variable, primitive);
+                lint_primitive_resolve_values(&mut diagnostics, variable, primitive);
             }
-            TypeSourceNode::Catalog(_)
-            | TypeSourceNode::Schema(_)
+            TypeSourceNode::Catalog(_) => {
+                lint_catalog_resolve_values(&mut diagnostics, variable);
+            }
+            TypeSourceNode::Schema(_)
             | TypeSourceNode::Missing { .. }
             | TypeSourceNode::Conflict { .. }
             | TypeSourceNode::Invalid { .. } => {}
@@ -332,32 +297,123 @@ fn lint_primitive_type(
     primitive
 }
 
-fn lint_primitive_variable_values(
+fn lint_primitive_resolve_values(
     diagnostics: &mut Vec<LintDiagnostic>,
     variable: &VariableNode,
     primitive: PrimitiveType,
 ) {
-    for value in variable.values.inline_values.values() {
-        if primitive.matches(&value.value) {
+    let ResolveNode::Resolve { default, rules, .. } = &variable.resolve else {
+        return;
+    };
+    if let ProjectField::Present(default) = default.as_ref() {
+        lint_primitive_value(
+            diagnostics,
+            variable.field_target(SemanticField::VariableResolveDefault),
+            &default.value,
+            &default.location,
+            primitive,
+            "resolve default",
+        );
+    }
+    let RuleCollection::Rules(rules) = rules else {
+        return;
+    };
+    for rule in rules {
+        if rule.invalid_shape {
             continue;
         }
-
-        push_value_diagnostic(
-            diagnostics,
-            RototoRuleId::VariableValueTypeMismatch,
-            value.field_target(SemanticField::Value),
-            value.location.clone(),
-            format!(
-                "value {} does not match type {}",
-                value.key,
-                primitive.as_str()
-            ),
-        );
+        if let ProjectField::Present(value) = &rule.value {
+            lint_primitive_value(
+                diagnostics,
+                rule.field_target(&variable.id, SemanticField::VariableRuleValue),
+                &value.value,
+                &value.location,
+                primitive,
+                "rule value",
+            );
+        }
     }
 }
 
-fn is_catalog_backed(variable: &VariableNode) -> bool {
-    matches!(variable.type_source, TypeSourceNode::Catalog(_))
+fn lint_primitive_value(
+    diagnostics: &mut Vec<LintDiagnostic>,
+    target: impl Into<crate::diagnostics::SemanticTarget>,
+    value: &JsonValue,
+    location: &crate::diagnostics::DiagnosticLocation,
+    primitive: PrimitiveType,
+    label: &str,
+) {
+    if primitive.matches(value) {
+        return;
+    }
+
+    push_value_diagnostic(
+        diagnostics,
+        RototoRuleId::VariableValueTypeMismatch,
+        target,
+        location.clone(),
+        format!(
+            "{label} does not match type {}: {}",
+            primitive.as_str(),
+            value_label(value)
+        ),
+    );
+}
+
+fn lint_catalog_resolve_values(diagnostics: &mut Vec<LintDiagnostic>, variable: &VariableNode) {
+    let ResolveNode::Resolve { default, rules, .. } = &variable.resolve else {
+        return;
+    };
+    if let ProjectField::Present(default) = default.as_ref() {
+        lint_catalog_selector(
+            diagnostics,
+            variable.field_target(SemanticField::VariableResolveDefault),
+            &default.value,
+            &default.location,
+            "resolve default",
+        );
+    }
+    let RuleCollection::Rules(rules) = rules else {
+        return;
+    };
+    for rule in rules {
+        if rule.invalid_shape {
+            continue;
+        }
+        if let ProjectField::Present(value) = &rule.value {
+            lint_catalog_selector(
+                diagnostics,
+                rule.field_target(&variable.id, SemanticField::VariableRuleValue),
+                &value.value,
+                &value.location,
+                "rule value",
+            );
+        }
+    }
+}
+
+fn lint_catalog_selector(
+    diagnostics: &mut Vec<LintDiagnostic>,
+    target: impl Into<crate::diagnostics::SemanticTarget>,
+    value: &JsonValue,
+    location: &crate::diagnostics::DiagnosticLocation,
+    label: &str,
+) {
+    if value.is_string() {
+        return;
+    }
+
+    push_value_diagnostic(
+        diagnostics,
+        RototoRuleId::VariableValueTypeMismatch,
+        target,
+        location.clone(),
+        format!("{label} for catalog-backed variable must be a string"),
+    );
+}
+
+fn value_label(value: &JsonValue) -> String {
+    serde_json::to_string(value).unwrap_or_else(|_| "<value>".to_owned())
 }
 
 fn variable_catalog_id<'a>(ctx: &'a LintContext, variable: &str) -> Option<&'a str> {

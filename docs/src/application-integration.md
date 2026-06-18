@@ -488,7 +488,7 @@ with ordinary domain types instead of raw JSON.
 
 If conversion fails, treat it as a contract failure between the app and
 workspace. In most services that should be logged with enough context to
-identify the variable id, value key, and
+identify the variable id, source, and
 [workspace fingerprint](reference-workspace-sources.html).
 
 ## Log The Selection, Not The Whole Payload
@@ -496,7 +496,7 @@ identify the variable id, value key, and
 For most production debugging, the important fields are:
 
 - variable id;
-- selected value key;
+- selected source;
 - workspace fingerprint;
 - relevant request or account identifier;
 - refresh status when investigating freshness.
@@ -507,7 +507,7 @@ For example:
 ```rust
 tracing::info!(
     variable = "account-limit-profile",
-    value_key = %resolution.value_key,
+    source = %resolution.source,
     workspace_fingerprint = ?workspace.current().await.source_fingerprint(),
     account_id = %account.id,
     "resolved runtime configuration"
@@ -519,7 +519,7 @@ logger.info(
     "resolved runtime configuration",
     extra={
         "variable": "account-limit-profile",
-        "value_key": resolution.value_key,
+        "source": resolution.source,
         "account_id": account.id,
     },
 )
@@ -528,16 +528,16 @@ logger.info(
 ```typescript
 logger.info("resolved runtime configuration", {
   variable: "account-limit-profile",
-  valueKey: resolution.valueKey,
+  source: resolution.source,
   accountId: account.id,
 });
 ```
 
 ```java
 logger.info(
-    "resolved runtime configuration variable={} valueKey={} accountId={}",
+    "resolved runtime configuration variable={} source={} accountId={}",
     "account-limit-profile",
-    resolution.valueKey(),
+    resolution.source(),
     account.id()
 );
 ```
@@ -546,14 +546,14 @@ logger.info(
 slog.Info(
     "resolved runtime configuration",
     "variable", "account-limit-profile",
-    "value_key", resolution.ValueKey,
+    "source", resolution.Source,
     "account_id", account.ID,
 )
 ```
 :::
 
 Do not log full selected payloads by default. Some configuration is sensitive,
-and even non-sensitive payloads make logs noisy. The value key and fingerprint
+and even non-sensitive payloads make logs noisy. The source and fingerprint
 usually tell you which reviewed workspace content was used. Use `rototo show`,
 `rototo inspect`, or repository history when you need to read the full value.
 
@@ -682,7 +682,7 @@ An idiomatic integration gives the app clear responsibilities:
 - build context from facts the app owns;
 - resolve named variables at behavior boundaries;
 - convert selected JSON values into app types;
-- log the selected value key and workspace fingerprint;
+- log the selected source and workspace fingerprint;
 - expose refresh status.
 
 The workspace owns the policy. The app owns applying the selected policy to

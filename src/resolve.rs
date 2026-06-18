@@ -6,14 +6,14 @@ use serde_json::Value as JsonValue;
 
 use crate::error::{Result, RototoError};
 use crate::lint::{
-    RuntimeAttribute, RuntimeCompareOp, RuntimePredicate, RuntimeWorkspace,
+    RuntimeAttribute, RuntimeCompareOp, RuntimePredicate, RuntimeSelectedValue, RuntimeWorkspace,
     compile_runtime_workspace,
 };
 use crate::model::{
     BucketResolutionTrace, PredicateResolutionTrace, QualifierResolutionTrace,
     VariableResolutionTrace, VariableRuleResolutionTrace,
 };
-use crate::model::{QualifierResolution, VariableResolution};
+use crate::model::{QualifierResolution, VariableResolution, VariableResolutionSource};
 
 pub async fn resolve_qualifier(
     workspace_root: &Path,
@@ -212,40 +212,49 @@ fn resolve_variable_trace_with_state(
         .get(id)
         .ok_or_else(|| RototoError::new(format!("variable not found: variable://{id}")))?;
 
-    let mut value_key = None;
+    let mut selected = None;
     let mut rules = Vec::new();
     for rule in &variable.rules {
         let matched = state.resolve(&rule.qualifier)?;
         rules.push(VariableRuleResolutionTrace {
             index: rule.index,
             qualifier: rule.qualifier.clone(),
-            value: rule.value.clone(),
+            value: rule.value.value().clone(),
+            source: selected_value_source(&rule.value),
             matched,
         });
         if matched {
-            value_key = Some(rule.value.clone());
+            selected = Some(rule.value.clone());
             break;
         }
     }
 
-    let value_key = value_key.unwrap_or_else(|| variable.default.clone());
-    let value = variable.values.get(&value_key).ok_or_else(|| {
-        RototoError::new(format!("variable references unknown value: {value_key}"))
-    })?;
+    let selected = selected.unwrap_or_else(|| variable.default.clone());
 
     let resolution = VariableResolution {
         id: id.to_owned(),
-        value_key,
-        value: value.clone(),
+        value: selected.value().clone(),
+        source: selected_value_source(&selected),
     };
     let qualifier_traces = state.qualifier_traces();
 
     Ok(VariableResolutionTrace {
         resolution,
-        default_value: variable.default.clone(),
+        default_value: variable.default.value().clone(),
+        default_source: selected_value_source(&variable.default),
         rules,
         qualifier_traces,
     })
+}
+
+fn selected_value_source(value: &RuntimeSelectedValue) -> VariableResolutionSource {
+    match value {
+        RuntimeSelectedValue::Literal(_) => VariableResolutionSource::Literal,
+        RuntimeSelectedValue::Catalog { catalog, name, .. } => VariableResolutionSource::Catalog {
+            catalog: catalog.clone(),
+            value: name.clone(),
+        },
+    }
 }
 
 struct QualifierState<'a> {
@@ -791,10 +800,6 @@ value = "anything"
             r#"schema_version = 1
 type = "string"
 
-[values]
-control = "control"
-premium = "premium"
-
 [resolve]
 default = "control"
 
@@ -809,15 +814,12 @@ value = "premium"
         let fallback = resolve_variable(workspace.path(), "message", &context)
             .await
             .unwrap();
-        assert_eq!(fallback.value_key, "control");
+        assert_eq!(fallback.value, serde_json::json!("control"));
 
         std::fs::write(
             workspace.path().join("variables/bad-rule.toml"),
             r#"schema_version = 1
 type = "string"
-
-[values]
-control = "control"
 
 [resolve]
 default = "control"

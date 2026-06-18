@@ -4,18 +4,17 @@ import { existsSync } from "node:fs";
 import { join } from "node:path";
 
 const root = process.cwd();
-const dir = process.env.ROTOTO_CONSOLE_DEV_OBSERVABILITY || ".rototo/dev/observability";
+const rawArgs = process.argv.slice(2);
+const dirArgIndex = rawArgs.indexOf("--dir");
+const dir =
+  dirArgIndex >= 0 && rawArgs[dirArgIndex + 1]
+    ? rawArgs[dirArgIndex + 1]
+    : ".rototo/dev/observability";
 const fullDir = join(root, dir);
-const args = new Set(process.argv.slice(2));
+const args = new Set(rawArgs);
 const check = args.has("--check");
 const watch = args.has("--watch");
-
-const thresholds = {
-  apiP95Ms: numberEnv("ROTOTO_CONSOLE_OBSERVE_API_P95_MS", 750),
-  apiErrorCount: numberEnv("ROTOTO_CONSOLE_OBSERVE_API_ERRORS", 0),
-  frontendErrorCount: numberEnv("ROTOTO_CONSOLE_OBSERVE_FRONTEND_ERRORS", 0),
-  lspFailureCount: numberEnv("ROTOTO_CONSOLE_OBSERVE_LSP_FAILURES", 0),
-};
+let thresholds = defaultThresholds();
 
 async function main() {
   if (watch) {
@@ -29,6 +28,7 @@ async function main() {
 }
 
 async function summarizeAndMaybeExit(shouldCheck) {
+  thresholds = await readThresholds(fullDir);
   const apiEvents = await readNdjson(join(fullDir, "console-api.ndjson"));
   const uiEvents = await readNdjson(join(fullDir, "console-ui.ndjson"));
   const summary = summarize(apiEvents, uiEvents);
@@ -66,6 +66,38 @@ async function readNdjson(path) {
     }
   }
   return events;
+}
+
+async function readThresholds(dir) {
+  const configPath = join(dir, "console-observability.json");
+  if (!existsSync(configPath)) {
+    return defaultThresholds();
+  }
+  try {
+    const config = JSON.parse(await readFile(configPath, "utf8"));
+    return {
+      apiP95Ms: numberOr(config?.thresholds?.api_p95_ms, 750),
+      apiErrorCount: numberOr(config?.thresholds?.api_errors, 0),
+      frontendErrorCount: numberOr(config?.thresholds?.frontend_errors, 0),
+      lspFailureCount: numberOr(config?.thresholds?.lsp_failures, 0),
+    };
+  } catch {
+    return defaultThresholds();
+  }
+}
+
+function defaultThresholds() {
+  return {
+    apiP95Ms: 750,
+    apiErrorCount: 0,
+    frontendErrorCount: 0,
+    lspFailureCount: 0,
+  };
+}
+
+function numberOr(value, fallback) {
+  const number = Number(value);
+  return Number.isFinite(number) ? number : fallback;
 }
 
 function summarize(apiEvents, uiEvents) {
@@ -196,11 +228,6 @@ function percentile(values, p) {
   }
   const index = Math.min(values.length - 1, Math.ceil(values.length * p) - 1);
   return Math.round(values[index]);
-}
-
-function numberEnv(name, fallback) {
-  const value = Number(process.env[name]);
-  return Number.isFinite(value) ? value : fallback;
 }
 
 main().catch((error) => {

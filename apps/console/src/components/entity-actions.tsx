@@ -3,6 +3,7 @@ import { Plus, Trash2 } from "lucide-react";
 import { useRouter } from "@/lib/navigation";
 import { apiFetch } from "@/lib/api";
 
+/** Editable workspace section supported by the add-entity form. */
 type EntityKind =
     | "variables"
     | "qualifiers"
@@ -11,16 +12,17 @@ type EntityKind =
     | "context"
     | "linters";
 
+/** Transient submit/delete result shown by entity action forms. */
 type FormNote = { tone: "ok" | "err"; text: string };
 
 export function AddEntityForm({
     disabled,
-    draftId,
+    branchId,
     kind,
     workspaceId,
 }: {
     disabled?: boolean;
-    draftId: string;
+    branchId: string;
     kind: EntityKind;
     workspaceId: string;
 }) {
@@ -36,7 +38,7 @@ export function AddEntityForm({
         setNote(null);
         try {
             const response = await apiFetch(
-                `/api/workspaces/${workspaceId}/drafts/${draftId}/entities`,
+                `/api/workspaces/${workspaceId}/branches/${branchId}/entities`,
                 {
                     method: "POST",
                     headers: { "Content-Type": "application/json" },
@@ -51,7 +53,7 @@ export function AddEntityForm({
                 throw new Error(body.error ?? "failed to add entity");
             }
             setId("");
-            setNote({ tone: "ok", text: "Added to the draft branch." });
+            setNote({ tone: "ok", text: "Added to the branch." });
             router.refresh();
         } catch (error) {
             setNote({
@@ -125,12 +127,12 @@ export function AddEntityForm({
 
 export function AddCatalogEntryForm({
     disabled,
-    draftId,
+    branchId,
     catalogId,
     workspaceId,
 }: {
     disabled?: boolean;
-    draftId: string;
+    branchId: string;
     catalogId: string;
     workspaceId: string;
 }) {
@@ -145,7 +147,7 @@ export function AddCatalogEntryForm({
         setNote(null);
         try {
             const response = await apiFetch(
-                `/api/workspaces/${workspaceId}/drafts/${draftId}/entities`,
+                `/api/workspaces/${workspaceId}/branches/${branchId}/entities`,
                 {
                     method: "POST",
                     headers: { "Content-Type": "application/json" },
@@ -161,10 +163,10 @@ export function AddCatalogEntryForm({
                 files?: Array<{ path: string }>;
             };
             if (!response.ok) {
-                throw new Error(body.error ?? "failed to add catalog entry");
+                throw new Error(body.error ?? "failed to add catalog value");
             }
             setId("");
-            setNote({ tone: "ok", text: "Added to the draft branch." });
+            setNote({ tone: "ok", text: "Added to the branch." });
             router.refresh();
         } catch (error) {
             setNote({
@@ -179,19 +181,19 @@ export function AddCatalogEntryForm({
     return (
         <form className="card" onSubmit={submit}>
             <div className="card-head-text">
-                <h3>Add a catalog entry</h3>
+                <h3>Add a catalog value</h3>
                 <p className="hint">
-                    Creates an entry under{" "}
+                    Creates a value file under{" "}
                     <span className="mono">catalogs/{catalogId}-entries</span>.
                 </p>
             </div>
             <label className="field-stack">
-                <span className="label">entry key</span>
+                <span className="label">value name</span>
                 <input
                     className="input mono"
                     disabled={disabled || pending}
                     onChange={(event) => setId(event.target.value)}
-                    placeholder="new-entry"
+                    placeholder="new-value"
                     value={id}
                 />
             </label>
@@ -220,13 +222,13 @@ export function AddCatalogEntryForm({
 
 export function DeleteEntityButton({
     disabled,
-    draftId,
+    branchId,
     filePath,
     returnHref,
     workspaceId,
 }: {
     disabled?: boolean;
-    draftId: string;
+    branchId: string;
     filePath: string;
     returnHref: string;
     workspaceId: string;
@@ -236,14 +238,14 @@ export function DeleteEntityButton({
     const [message, setMessage] = useState<string | null>(null);
 
     async function remove() {
-        if (!window.confirm(`Delete ${filePath} from the draft branch?`)) {
+        if (!window.confirm(`Delete ${filePath} from the branch?`)) {
             return;
         }
         setPending(true);
         setMessage(null);
         try {
             const response = await apiFetch(
-                `/api/workspaces/${workspaceId}/drafts/${draftId}/files`,
+                `/api/workspaces/${workspaceId}/branches/${branchId}/files`,
                 {
                     method: "DELETE",
                     headers: { "Content-Type": "application/json" },
@@ -296,12 +298,12 @@ function kindLabel(kind: EntityKind): string {
 
 function addHelp(kind: EntityKind): string {
     if (kind === "catalogs") {
-        return "Creates a catalog file, its schema, and a default catalog entry.";
+        return "Creates a catalog file, its schema, and a default catalog value.";
     }
     if (kind === "context") {
         return "Creates a JSON context example.";
     }
-    return "Creates a starter definition on the draft branch.";
+    return "Creates a starter definition on the branch.";
 }
 
 function placeholder(kind: EntityKind): string {

@@ -1,18 +1,18 @@
 # Catalogs Reference
 
 Catalogs are for structured configuration that deserves its own schema. Use
-them when the application should receive one reviewed entry, not a loose group
+them when the application should receive one reviewed value, not a loose group
 of primitive variables.
 
 Catalog files live under `catalogs/*.toml`. The file stem is the catalog id.
-Entries for that catalog live under `catalogs/<catalog-id>-entries/*.toml`.
-[Variables](reference-variables.html) then select entry keys from that
+Values for that catalog live under `catalogs/<catalog-id>-entries/*.toml`.
+[Variables](reference-variables.html) then select value names from that
 catalog.
 
 ## Catalog File
 
-A catalog file declares the schema for a family of entries. It does not hold
-the entries themselves.
+A catalog file declares the schema for a family of values. It does not hold
+the values themselves.
 
 ```toml
 schema_version = 1
@@ -33,9 +33,9 @@ The `schema` path is resolved relative to the catalog file. It must stay
 inside the workspace and must point to a discovered schema document under
 `schemas/`.
 
-## Entry Files
+## Value Files
 
-Entries live beside the catalog in a directory named for that catalog:
+Values live beside the catalog in a directory named for that catalog:
 
 ```text
 catalogs/
@@ -45,7 +45,7 @@ catalogs/
     enterprise.toml
 ```
 
-The entry key is the file stem:
+The value name is the file stem:
 
 ```text
 growth.toml     -> growth
@@ -65,8 +65,8 @@ members = 250
 
 ## Variable Integration
 
-A variable turns catalog entries into runtime configuration by
-[selecting entry keys](reference-variable-resolution.html) with
+A variable turns catalog values into runtime configuration by
+[selecting value names](reference-variable-resolution.html) with
 `type = "catalog:<catalog-id>"`:
 
 ```toml
@@ -82,12 +82,12 @@ value = "enterprise"
 ```
 
 Catalog-backed variables must not contain `[values]`. The selectable values
-come from entry files.
+come from value files.
 
 ## Catalog References In Schemas
 
-Sometimes one structured entry needs to point at another reviewed entry. JSON
-Schemas may mark string fields as references to other catalog entries with
+Sometimes one structured value needs to point at another reviewed value. JSON
+Schemas may mark string fields as references to other catalog values with
 `x-rototo-catalog`:
 
 ```json
@@ -102,7 +102,7 @@ Schemas may mark string fields as references to other catalog entries with
 }
 ```
 
-When an entry contains `banner_id = "incident"`, rototo checks that:
+When a value contains `banner_id = "incident"`, rototo checks that:
 
 - `catalog://support-banner` exists;
 - `catalogs/support-banner-entries/incident.toml` exists.

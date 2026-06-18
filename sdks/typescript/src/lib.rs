@@ -87,8 +87,8 @@ impl JsWorkspace {
             .map_err(js_err)?;
         Ok(serde_json::json!({
             "id": resolution.id,
-            "valueKey": resolution.value_key,
             "value": resolution.value,
+            "source": resolution.source,
         }))
     }
 
@@ -161,8 +161,8 @@ impl JsRefreshingWorkspace {
             .map_err(js_err)?;
         Ok(serde_json::json!({
             "id": resolution.id,
-            "valueKey": resolution.value_key,
             "value": resolution.value,
+            "source": resolution.source,
         }))
     }
 

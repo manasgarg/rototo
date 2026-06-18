@@ -342,17 +342,57 @@ struct ConsoleArgs {
     )]
     public_url: Option<String>,
 
-    /// Directory for console state (sessions, drafts, credentials).
+    /// Directory for console state (sessions, selected branches, credentials).
     #[arg(long = "data-dir", value_name = "DIR", env = "ROTOTO_CONSOLE_DATA_DIR")]
     data_dir: Option<PathBuf>,
 
-    /// Serve one workspace without auth and reject every write.
-    #[arg(long = "read-only", action = ArgAction::SetTrue)]
-    read_only: bool,
-
-    /// Workspace source for --read-only deployments.
+    /// Workspace source to register at startup.
     #[arg(long = "workspace", value_name = "WORKSPACE_SOURCE")]
     workspace: Option<String>,
+
+    /// Console deployment mode. Defaults to local with --workspace, hosted otherwise.
+    #[arg(long = "deployment", value_enum)]
+    deployment: Option<ConsoleDeploymentArg>,
+
+    /// Write behavior for console branch edits.
+    #[arg(long = "write", value_enum, default_value_t = ConsoleWriteArg::PullRequest)]
+    write: ConsoleWriteArg,
+}
+
+#[cfg(feature = "console")]
+#[derive(Clone, Copy, Debug, ValueEnum)]
+enum ConsoleDeploymentArg {
+    Local,
+    Hosted,
+}
+
+#[cfg(feature = "console")]
+impl From<ConsoleDeploymentArg> for rototo::console::ConsoleDeployment {
+    fn from(value: ConsoleDeploymentArg) -> Self {
+        match value {
+            ConsoleDeploymentArg::Local => Self::Local,
+            ConsoleDeploymentArg::Hosted => Self::Hosted,
+        }
+    }
+}
+
+#[cfg(feature = "console")]
+#[derive(Clone, Copy, Debug, ValueEnum)]
+enum ConsoleWriteArg {
+    Disabled,
+    PullRequest,
+    DirectPush,
+}
+
+#[cfg(feature = "console")]
+impl From<ConsoleWriteArg> for rototo::console::ConsoleWritePolicy {
+    fn from(value: ConsoleWriteArg) -> Self {
+        match value {
+            ConsoleWriteArg::Disabled => Self::Disabled,
+            ConsoleWriteArg::PullRequest => Self::PullRequest,
+            ConsoleWriteArg::DirectPush => Self::DirectPush,
+        }
+    }
 }
 
 #[derive(Clone, Copy, Debug, ValueEnum)]
@@ -617,8 +657,9 @@ async fn run() -> Result<ExitCode> {
                 bind: args.bind,
                 public_url: args.public_url,
                 data_dir: args.data_dir,
-                read_only: args.read_only,
                 workspace: args.workspace,
+                deployment: args.deployment.map(Into::into),
+                write_policy: args.write.into(),
                 workspace_token: cli.workspace_token.clone(),
             })
             .await?;
@@ -1190,10 +1231,6 @@ fn variable_template(id: &str) -> String {
 description = {description}
 type = "string"
 
-[values]
-control = "control"
-# treatment = "treatment"
-
 [resolve]
 default = "control"
 
@@ -1203,18 +1240,18 @@ default = "control"
 # qualifier = "premium-users"
 # value = "treatment"
 #
-# For catalog-backed values, remove [values] and use a catalog type:
+# For catalog-backed values, use a catalog type:
 #
 # type = "catalog:{id}"
 #
-# Catalog entry keys become the selectable value keys.
+# Catalog value names become the selectable values.
 "#
     )
 }
 
 fn catalog_template(id: &str) -> String {
     let description = toml_string(&format!(
-        "Edit this description to explain the {id} catalog entries"
+        "Edit this description to explain the {id} catalog values"
     ));
     let schema = toml_string(&format!("../schemas/{id}.schema.json"));
     format!(
@@ -2679,7 +2716,7 @@ fn print_variable_resolution_trace(trace: &VariableResolutionTrace) -> Result<()
             style::dim(&format!("rule[{}]", rule.index)),
             style::sea(&rule.qualifier),
             style::arrow(),
-            rule.value,
+            compact_json(&rule.value)?,
             if rule.matched {
                 style::ok("matched")
             } else {
@@ -2691,15 +2728,24 @@ fn print_variable_resolution_trace(trace: &VariableResolutionTrace) -> Result<()
         "    {} {} {}",
         style::dim("default"),
         style::arrow(),
-        trace.default_value
+        compact_json(&trace.default_value)?
     );
     println!("  {}", style::subhead("result"));
     println!(
-        "    value key: {}",
-        style::sea_bold(&trace.resolution.value_key)
+        "    source: {}",
+        style::sea_bold(&resolution_source_label(&trace.resolution.source))
     );
     println!("    value: {}", compact_json(&trace.resolution.value)?);
     Ok(())
+}
+
+fn resolution_source_label(source: &rototo::model::VariableResolutionSource) -> String {
+    match source {
+        rototo::model::VariableResolutionSource::Literal => "literal".to_owned(),
+        rototo::model::VariableResolutionSource::Catalog { catalog, value } => {
+            format!("{catalog}:{value}")
+        }
+    }
 }
 
 fn print_qualifier_resolution_trace(trace: &QualifierResolutionTrace) -> Result<()> {
@@ -3303,6 +3349,23 @@ fn init_tracing() {
     let filter = tracing_subscriber::EnvFilter::try_from_default_env()
         .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new("warn"));
 
+    #[cfg(feature = "console")]
+    {
+        use tracing_subscriber::prelude::*;
+
+        let (filter, handle) = tracing_subscriber::reload::Layer::new(filter);
+        rototo::console::set_tracing_filter_reload_handle(handle);
+        tracing_subscriber::registry()
+            .with(filter)
+            .with(
+                tracing_subscriber::fmt::layer()
+                    .with_target(false)
+                    .with_writer(std::io::stderr),
+            )
+            .init();
+    }
+
+    #[cfg(not(feature = "console"))]
     tracing_subscriber::fmt()
         .with_env_filter(filter)
         .with_target(false)

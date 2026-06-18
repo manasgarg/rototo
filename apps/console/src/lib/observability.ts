@@ -1,3 +1,4 @@
+/** Development observability event posted to the server NDJSON sink. */
 type ConsoleEvent = {
     kind: string;
     [key: string]: unknown;

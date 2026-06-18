@@ -120,8 +120,8 @@ pub extern "system" fn Java_dev_rototo_Native_workspaceResolveVariableNative(
             env,
             serde_json::json!({
                 "id": resolution.id,
-                "valueKey": resolution.value_key,
                 "value": resolution.value,
+                "source": resolution.source,
             }),
         )
     })
@@ -224,8 +224,8 @@ pub extern "system" fn Java_dev_rototo_Native_refreshingWorkspaceResolveVariable
             env,
             serde_json::json!({
                 "id": resolution.id,
-                "valueKey": resolution.value_key,
                 "value": resolution.value,
+                "source": resolution.source,
             }),
         )
     })

@@ -2,24 +2,24 @@ package dev.rototo;
 
 public final class VariableResolution {
     private final String id;
-    private final String valueKey;
     private final Object value;
+    private final Object source;
 
-    public VariableResolution(String id, String valueKey, Object value) {
+    public VariableResolution(String id, Object value, Object source) {
         this.id = id;
-        this.valueKey = valueKey;
         this.value = value;
+        this.source = source;
     }
 
     public String id() {
         return id;
     }
 
-    public String valueKey() {
-        return valueKey;
-    }
-
     public Object value() {
         return value;
+    }
+
+    public Object source() {
+        return source;
     }
 }

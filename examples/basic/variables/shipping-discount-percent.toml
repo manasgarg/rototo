@@ -3,23 +3,17 @@ schema_version = 1
 description = "Shipping discount percentage at checkout"
 type = "int"
 
-[values]
-none = 0
-small = 5
-premium = 15
-high_value = 25
-
 [resolve]
-default = "none"
+default = 0
 
 [[resolve.rule]]
 qualifier = "lane-stage"
-value = "small"
+value = 5
 
 [[resolve.rule]]
 qualifier = "premium-users"
-value = "premium"
+value = 15
 
 [[resolve.rule]]
 qualifier = "high-value-cart"
-value = "high_value"
+value = 25

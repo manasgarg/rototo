@@ -46,7 +46,7 @@ provider retries are handled.
 
 That is why this example uses a
 [catalog-backed variable](reference-catalogs.html). The variable owns
-resolution. The catalog owns the validated policy entries the app can consume.
+resolution. The catalog owns the validated policy values the app can consume.
 
 ## Create The Workspace
 
@@ -74,7 +74,7 @@ Replace `notification-config/catalogs/notification-delivery-policy.toml`:
 ```toml
 schema_version = 1
 
-description = "Notification delivery policy entries"
+description = "Notification delivery policy values"
 schema = "../schemas/notification-delivery-policy.schema.json"
 ```
 
@@ -83,7 +83,7 @@ before any special runtime conditions are introduced.
 
 ## Define The Policy Shape
 
-Before adding policy entries, define
+Before adding policy values, define
 [what the notification service is willing to consume](reference-catalogs.html).
 Replace
 `notification-config/schemas/notification-delivery-policy.schema.json`:
@@ -122,10 +122,10 @@ Replace
 
 The schema is doing production work. A digest policy must say how often the
 digest runs. Every policy must declare channels, quiet-hours behavior, and a
-fallback channel. Rototo validates those entries during lint, before the app
+fallback channel. Rototo validates those values during lint, before the app
 loads them.
 
-## Add The Policy Entries
+## Add The Policy Values
 
 Rename the generated entry file from
 `notification-config/catalogs/notification-delivery-policy-entries/default.toml`
@@ -326,7 +326,7 @@ rototo lint notification-config
 ```
 
 Lint checks both contracts: the context facts the app must send, and the
-delivery policy entries the app may receive.
+delivery policy values the app may receive.
 
 ## Resolve The Policy Paths
 
@@ -341,7 +341,7 @@ rototo resolve notification-config \
 ```
 
 ```text
-value key: product_digest
+source: notification-delivery-policy:product_digest
 value: {"channels":["email","in_app"],"delivery":"digest","digest_interval_hours":24,"fallback_channel":"in_app","respect_quiet_hours":true}
 ```
 
@@ -356,7 +356,7 @@ rototo resolve notification-config \
 ```
 
 ```text
-value key: security_alert
+source: notification-delivery-policy:security_alert
 value: {"channels":["email","in_app"],"delivery":"immediate","fallback_channel":"email","respect_quiet_hours":false}
 ```
 
@@ -372,7 +372,7 @@ rototo resolve notification-config \
 ```
 
 ```text
-value key: enterprise_incident
+source: notification-delivery-policy:enterprise_incident
 value: {"channels":["email","slack","in_app"],"delivery":"immediate","fallback_channel":"email","respect_quiet_hours":false}
 ```
 
@@ -424,12 +424,12 @@ async fn delivery_policy(
     let resolution = workspace
         .resolve_variable("notification-delivery-policy", &context)
         .await?;
-    let value_key = resolution.value_key.clone();
+    let source = resolution.source.clone();
     let policy: DeliveryPolicy = serde_json::from_value(resolution.value)?;
 
     println!(
         "selected notification-delivery-policy `{}` from {:?}",
-        value_key,
+        source,
         workspace.source_fingerprint()
     );
 
@@ -467,7 +467,7 @@ async def delivery_policy(
     )
     policy = DeliveryPolicy(**resolution.value)
 
-    print(f"selected notification-delivery-policy `{resolution.value_key}`")
+    print(f"selected notification-delivery-policy `{resolution.source}`")
     return policy
 ```
 
@@ -496,7 +496,7 @@ async function deliveryPolicy(
   );
 
   console.log(
-    `selected notification-delivery-policy \`${resolution.valueKey}\``,
+    `selected notification-delivery-policy \`${resolution.source}\``,
   );
   return resolution.value as DeliveryPolicy;
 }
@@ -536,7 +536,7 @@ DeliveryPolicy deliveryPolicy(
 
     System.out.printf(
         "selected notification-delivery-policy `%s`%n",
-        resolution.valueKey()
+        resolution.source()
     );
     return new DeliveryPolicy(
         (String) value.get("delivery"),
@@ -588,7 +588,7 @@ func deliveryPolicy(
         return DeliveryPolicy{}, err
     }
 
-    fmt.Printf("selected notification-delivery-policy `%s`\n", resolution.ValueKey)
+    fmt.Printf("selected notification-delivery-policy `%s`\n", resolution.Source)
     return policy, nil
 }
 ```

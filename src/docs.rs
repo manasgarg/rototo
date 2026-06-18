@@ -480,16 +480,12 @@ pub fn render_homepage_html() -> String {
 schema_version = 1
 type = "string"
 
-[values]
-control = "classic"
-treatment = "redesign"
-
 [resolve]
-default = "control"
+default = "classic"
 
 [[resolve.rule]]
 qualifier = "premium-users"
-value = "treatment"
+value = "redesign"
 "#,
     );
     let resolve_snippet = render_code_block(
@@ -614,7 +610,7 @@ value = "treatment"
     <p>
       <code>rototo console</code> serves a web console from the same binary as
       the CLI: browse workspaces, trace how a variable resolves against saved
-      contexts, edit drafts on real branches, and publish pull requests. Run it
+      contexts, edit review branches, and publish pull requests. Run it
       on your laptop with your own GitHub token, or behind your proxy with
       GitHub OAuth for the whole team.
     </p>

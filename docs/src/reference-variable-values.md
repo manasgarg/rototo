@@ -2,31 +2,31 @@
 
 Variables matter only if the selected value has a shape the application can
 trust. Rototo validates primitive values directly and validates structured
-entries through catalogs.
+values through catalogs.
 
-That split keeps the app boundary clear: primitive values stay inline, while
-structured entries get schemas and entry files.
+That split keeps the app boundary clear: primitive values stay inline in the
+variable's resolve block, while structured values get schemas and catalog
+files.
 [Variable Resolution](reference-variable-resolution.html) covers resolution
 order.
 
 ## Primitive Values
 
-Primitive variables store values inline under `[values]`:
+Primitive variables store values directly under `[resolve]`:
 
 ```toml
 schema_version = 1
 type = "int"
 
-[values]
-standard = 3
-expanded = 25
-
 [resolve]
-default = "standard"
+default = 3
+
+[[resolve.rule]]
+qualifier = "paid-account"
+value = 25
 ```
 
-The table key is the value key. The TOML value is converted to JSON and
-returned as the selected value.
+The TOML value is converted to JSON and returned as the selected value.
 
 ## Primitive Type Rules
 
@@ -47,26 +47,32 @@ Examples:
 ```toml
 type = "bool"
 
-[values]
-off = false
-on = true
+[resolve]
+default = false
+
+[[resolve.rule]]
+qualifier = "enabled-account"
+value = true
 ```
 
 ```toml
 type = "list"
 
-[values]
-standard = ["email"]
-expanded = ["email", "sms"]
+[resolve]
+default = ["email"]
+
+[[resolve.rule]]
+qualifier = "expanded-notifications"
+value = ["email", "sms"]
 ```
 
 Objects are not accepted as primitive values. Use a
 [catalog-backed variable](reference-catalogs.html) when the value needs
 object structure.
 
-## Catalog Entry Values
+## Catalog Values
 
-Structured values live as catalog entries so rototo can validate the shape
+Structured values live as catalog values so rototo can validate the shape
 before the application receives the selected payload:
 
 ```text
@@ -85,7 +91,7 @@ description = "Account limit profiles"
 schema = "../schemas/account-limit-profile.schema.json"
 ```
 
-Each entry file contains the payload:
+Each value file contains the payload:
 
 ```toml
 enabled_features = ["audit-log"]
@@ -95,7 +101,7 @@ projects = 100
 members = 250
 ```
 
-The variable then selects entry keys:
+The variable then names catalog values:
 
 ```toml
 type = "catalog:account-limit-profile"
@@ -113,7 +119,7 @@ value = "enterprise"
 Validation is part of the release boundary. Primitive values are checked
 against the declared primitive type during lint.
 
-Catalog entries are checked against the catalog's JSON Schema during lint.
+Catalog values are checked against the catalog's JSON Schema during lint.
 If an entry does not match its schema, rototo reports
 `rototo/catalog-entry-schema-mismatch`.
 
@@ -125,7 +131,7 @@ If a variable default or rule references a missing value, rototo reports
 Value keys are operational names. They appear in:
 
 - variable files;
-- catalog entry filenames;
+- catalog value filenames;
 - CLI and SDK resolution results;
 - generated fixtures;
 - logs and metrics you build from resolution traces.

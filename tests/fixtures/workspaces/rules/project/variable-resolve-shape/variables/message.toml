@@ -2,6 +2,3 @@ schema_version = 1
 type = "string"
 
 resolve = "bad"
-
-[values]
-control = "control"

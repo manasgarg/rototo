@@ -25,8 +25,8 @@ rototo init communications-config --variable support-banner
 rototo init communications-config --catalog support-banner
 ```
 
-The variable will select a named banner entry. The catalog will define the
-schema and hold the entries the variable can select.
+The variable will select a named banner value. The catalog will define the
+schema and hold the values the variable can select.
 
 Replace `communications-config/variables/support-banner.toml`:
 
@@ -49,12 +49,12 @@ description = "Support banner payloads"
 schema = "../schemas/support-banner.schema.json"
 ```
 
-The variable now has a type, but its values live as catalog entries. Resolution
-stays in the variable, while entry validation belongs to the catalog.
+The variable now has a type, but its values live as catalog values. Resolution
+stays in the variable, while value validation belongs to the catalog.
 
-## Define The Entry Shape
+## Define The Value Shape
 
-Before writing banner entries, define the
+Before writing banner values, define the
 [shape the app is willing to consume](reference-catalogs.html).
 Replace `communications-config/schemas/support-banner.schema.json`:
 
@@ -89,9 +89,9 @@ The schema makes two production expectations explicit. A disabled banner can be
 small. An enabled banner must include the fields the app needs to render
 something coherent.
 
-## Add The Banner Entries
+## Add The Banner Values
 
-Rename the generated entry file from
+Rename the generated value file from
 `communications-config/catalogs/support-banner-entries/default.toml` to
 `communications-config/catalogs/support-banner-entries/none.toml`, then replace
 its contents:
@@ -111,8 +111,8 @@ link = "https://status.example.com"
 ```
 
 These file stems, `none` and `eu-incident`, are the
-[value keys](reference-variable-values.html) the variable can select. Rototo
-validates both entries against the catalog schema during lint.
+[catalog values](reference-variable-values.html) the variable can select. Rototo
+validates both values against the catalog schema during lint.
 
 Run lint and resolve the default path:
 
@@ -124,7 +124,7 @@ rototo resolve communications-config --variable support-banner
 With no runtime context, the workspace selects `none`:
 
 ```text
-value key: none
+source: support-banner:none
 value:
   enabled: false
 ```
@@ -217,7 +217,7 @@ rototo resolve communications-config \
 ```
 
 ```text
-value key: none
+source: support-banner:none
 value:
   enabled: false
 ```
@@ -231,7 +231,7 @@ rototo resolve communications-config \
 ```
 
 ```text
-value key: eu-incident
+source: support-banner:eu-incident
 value:
   enabled: true
   severity: warning
@@ -276,12 +276,12 @@ async fn support_banner_for_request(
     let resolution = workspace
         .resolve_variable("support-banner", &context)
         .await?;
-    let value_key = resolution.value_key.clone();
+    let source = resolution.source.clone();
     let banner: SupportBanner = serde_json::from_value(resolution.value)?;
 
     println!(
         "selected support-banner `{}` from {:?}",
-        value_key,
+        source,
         workspace.source_fingerprint()
     );
 
@@ -316,7 +316,7 @@ async def support_banner_for_request(
     )
     banner = SupportBanner(**resolution.value)
 
-    print(f"selected support-banner `{resolution.value_key}`")
+    print(f"selected support-banner `{resolution.source}`")
     return banner if banner.enabled else None
 ```
 
@@ -339,7 +339,7 @@ async function supportBannerForRequest(
   );
   const banner = resolution.value as SupportBanner;
 
-  console.log(`selected support-banner \`${resolution.valueKey}\``);
+  console.log(`selected support-banner \`${resolution.source}\``);
   return banner.enabled ? banner : undefined;
 }
 ```
@@ -374,7 +374,7 @@ Optional<SupportBanner> supportBannerForRequest(
         (String) value.get("link")
     );
 
-    System.out.printf("selected support-banner `%s`%n", resolution.valueKey());
+    System.out.printf("selected support-banner `%s`%n", resolution.source());
     return banner.enabled() ? Optional.of(banner) : Optional.empty();
 }
 ```
@@ -413,7 +413,7 @@ func supportBannerForRequest(
         return nil, err
     }
 
-    fmt.Printf("selected support-banner `%s`\n", resolution.ValueKey)
+    fmt.Printf("selected support-banner `%s`\n", resolution.Source)
     if !banner.Enabled {
         return nil, nil
     }
@@ -422,7 +422,7 @@ func supportBannerForRequest(
 ```
 :::
 
-In a real service, I would emit the selected value key and workspace
+In a real service, I would emit the selected source and workspace
 fingerprint through the same observability path I use for the request. When a
 customer asks why a banner appeared, the answer should point back to the
 workspace version and rule that selected it.

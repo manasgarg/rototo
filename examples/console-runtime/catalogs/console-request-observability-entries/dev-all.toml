@@ -1,0 +1,9 @@
+record_api_event = true
+record_operation_events = true
+record_ui_events = true
+record_errors = true
+sample_rate = 1.0
+slow_request_ms = 1
+
+[tracing]
+filter = "rototo=trace,warn"

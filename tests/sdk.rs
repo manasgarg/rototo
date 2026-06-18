@@ -3,6 +3,7 @@ use predicates::prelude::*;
 use std::process::Stdio;
 use std::time::{Duration, Instant};
 
+use rototo::model::VariableResolutionSource;
 use rototo::{
     LintMode, LoadOptions, RefreshOptions, RefreshOutcome, RefreshingWorkspace, ResolveContext,
     ResolveOptions, SourceOptions, Workspace, diagnostic_for_rule,
@@ -27,6 +28,19 @@ async fn run_git(repo: &std::path::Path, args: &[&str]) {
         .await
         .unwrap();
     assert!(status.success(), "git {args:?} failed");
+}
+
+fn assert_catalog_source(source: &VariableResolutionSource, catalog: &str, value: &str) {
+    match source {
+        VariableResolutionSource::Catalog {
+            catalog: actual_catalog,
+            value: actual_value,
+        } => {
+            assert_eq!(actual_catalog, catalog);
+            assert_eq!(actual_value, value);
+        }
+        VariableResolutionSource::Literal => panic!("expected catalog-backed resolution source"),
+    }
 }
 
 async fn git_output(repo: &std::path::Path, args: &[&str]) -> String {
@@ -69,11 +83,8 @@ async fn write_minimal_workspace_with_message(root: &std::path::Path, message: &
 description = "Message"
 type = "string"
 
-[values]
-default = "{message}"
-
 [resolve]
-default = "default"
+default = "{message}"
 "#,
         ),
     )
@@ -91,11 +102,8 @@ async fn write_string_variable(root: &std::path::Path, id: &str, value: &str) {
             r#"schema_version = 1
 type = "string"
 
-[values]
-default = "{value}"
-
 [resolve]
-default = "default"
+default = "{value}"
 "#,
         ),
     )
@@ -234,9 +242,9 @@ async fn sdk_reads_primitive_variable_values() {
         .await
         .unwrap();
 
-    assert_eq!(variable.value["values"]["control"], "Welcome back.");
+    assert_eq!(variable.value["resolve"]["default"], "Welcome back.");
     assert_eq!(
-        variable.value["values"]["premium"],
+        variable.value["resolve"]["rule"][0]["value"],
         "Welcome back, premium member."
     );
 }
@@ -247,22 +255,16 @@ async fn sdk_reads_all_basic_variable_configs_with_declared_sources() {
 
     assert!(variables.len() > 10);
     for variable in variables {
-        let type_name = variable.value["type"].as_str().unwrap_or_default();
-        if type_name.starts_with("catalog:") {
-            assert!(
-                variable.value.get("values").is_none(),
-                "variable://{} should not declare inline values",
-                variable.id
-            );
-        } else {
-            assert!(
-                variable.value["values"]
-                    .as_object()
-                    .is_some_and(|values| !values.is_empty()),
-                "variable://{} should expose at least one value",
-                variable.id
-            );
-        }
+        assert!(
+            variable.value.get("values").is_none(),
+            "variable://{} should not declare inline values",
+            variable.id
+        );
+        assert!(
+            variable.value["resolve"].get("default").is_some(),
+            "variable://{} should declare a direct default value",
+            variable.id
+        );
     }
 }
 
@@ -785,7 +787,7 @@ async fn sdk_resolves_variable() {
         .await
         .unwrap();
 
-    assert_eq!(resolution.value_key, "premium");
+    assert_catalog_source(&resolution.source, "checkout-redesign", "premium");
     assert_eq!(resolution.value["variant"], "premium");
 }
 
@@ -801,7 +803,6 @@ async fn sdk_resolves_primitive_variable() {
         .await
         .unwrap();
 
-    assert_eq!(resolution.value_key, "premium");
     assert_eq!(resolution.value, "Welcome back, premium member.");
 }
 
@@ -931,7 +932,7 @@ async fn workspace_sdk_resolves_with_context_contract() {
         .await
         .unwrap();
 
-    assert_eq!(resolution.value_key, "premium");
+    assert_catalog_source(&resolution.source, "checkout-redesign", "premium");
 }
 
 #[tokio::test]
@@ -996,7 +997,7 @@ async fn workspace_sdk_resolves_from_context_only() {
         .await
         .unwrap();
 
-    assert_eq!(resolution.value_key, "premium");
+    assert_catalog_source(&resolution.source, "checkout-redesign", "premium");
 }
 
 #[tokio::test]

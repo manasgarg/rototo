@@ -1,3 +1,4 @@
+use std::future::Future;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -8,21 +9,39 @@ use tokio::sync::Mutex;
 
 use crate::error::{Result, RototoError};
 
+use super::runtime_config::{
+    ConsoleObservabilityConfig, ConsoleRequestObservabilityConfig, resolve_observability_dir,
+};
+
+/// Development-only NDJSON event sink for console API and UI activity.
+///
+/// The sink is enabled by the console runtime workspace, lives in `ConsoleState`,
+/// and serializes append writes through one lock so concurrent requests do not
+/// interleave JSON lines. Dropping it closes no external service; the files
+/// remain in the configured directory.
 #[derive(Clone)]
 pub struct DevObservability {
     dir: Arc<PathBuf>,
+    config: Arc<ConsoleObservabilityConfig>,
     write_lock: Arc<Mutex<()>>,
 }
 
+tokio::task_local! {
+    static REQUEST_OBSERVABILITY: ConsoleRequestObservabilityConfig;
+}
+
 impl DevObservability {
-    pub async fn from_env() -> Result<Option<Self>> {
-        let Some(dir) = std::env::var_os("ROTOTO_CONSOLE_DEV_OBSERVABILITY") else {
-            return Ok(None);
-        };
-        let dir = PathBuf::from(dir);
-        if dir.as_os_str().is_empty() {
+    pub async fn from_config(
+        data_dir: &Path,
+        config: &ConsoleObservabilityConfig,
+    ) -> Result<Option<Self>> {
+        if !config.enabled {
             return Ok(None);
         }
+        if config.event_sink.directory.trim().is_empty() {
+            return Ok(None);
+        }
+        let dir = resolve_observability_dir(data_dir, &config.event_sink.directory);
         tokio::fs::create_dir_all(&dir).await.map_err(|err| {
             RototoError::new(format!(
                 "failed to create console observability directory {}: {err}",
@@ -32,8 +51,10 @@ impl DevObservability {
         for file in ["console-api.ndjson", "console-ui.ndjson"] {
             touch(&dir.join(file)).await?;
         }
+        write_json_file(&dir.join("console-observability.json"), config).await?;
         Ok(Some(Self {
             dir: Arc::new(dir),
+            config: Arc::new(config.clone()),
             write_lock: Arc::new(Mutex::new(())),
         }))
     }
@@ -42,17 +63,49 @@ impl DevObservability {
         self.dir.as_ref().as_path()
     }
 
-    pub async fn record_api_request(&self, mut event: JsonValue) {
+    pub async fn record_api_request(
+        &self,
+        mut event: JsonValue,
+        policy: &ConsoleRequestObservabilityConfig,
+    ) {
+        if !self.config.event_sink.api_events
+            || (!policy.record_api_event
+                && !policy.records_error_status(
+                    event
+                        .get("status")
+                        .and_then(JsonValue::as_u64)
+                        .unwrap_or_default() as u16,
+                ))
+        {
+            return;
+        }
         if let Some(object) = event.as_object_mut() {
             object.insert(
                 "kind".to_owned(),
                 JsonValue::String("api-request".to_owned()),
             );
+            object.insert(
+                "request_tracing_filter".to_owned(),
+                JsonValue::String(policy.tracing.filter.clone()),
+            );
         }
         self.write_event("console-api.ndjson", event).await;
     }
 
-    pub async fn record_ui_event(&self, event: JsonValue) {
+    pub async fn record_ui_event(
+        &self,
+        mut event: JsonValue,
+        policy: &ConsoleRequestObservabilityConfig,
+    ) {
+        if !self.config.event_sink.ui_events || !policy.record_ui_events {
+            return;
+        }
+        if let Some(object) = event.as_object_mut() {
+            object.insert(
+                "request_tracing_filter".to_owned(),
+                JsonValue::String(policy.tracing.filter.clone()),
+            );
+        }
         self.write_event("console-ui.ndjson", event).await;
     }
 
@@ -63,6 +116,14 @@ impl DevObservability {
         ok: bool,
         extra: JsonValue,
     ) {
+        if !self.config.event_sink.operation_events {
+            return;
+        }
+        if let Some(policy) = current_request_observability()
+            && !policy.record_operation_events
+        {
+            return;
+        }
         self.write_event(
             "console-api.ndjson",
             json!({
@@ -97,6 +158,20 @@ impl DevObservability {
     }
 }
 
+pub async fn scope_request_observability<F, T>(
+    policy: ConsoleRequestObservabilityConfig,
+    future: F,
+) -> T
+where
+    F: Future<Output = T>,
+{
+    REQUEST_OBSERVABILITY.scope(policy, future).await
+}
+
+pub fn current_request_observability() -> Option<ConsoleRequestObservabilityConfig> {
+    REQUEST_OBSERVABILITY.try_with(Clone::clone).ok()
+}
+
 async fn touch(path: &Path) -> Result<()> {
     tokio::fs::OpenOptions::new()
         .create(true)
@@ -110,6 +185,18 @@ async fn touch(path: &Path) -> Result<()> {
                 path.display()
             ))
         })
+}
+
+async fn write_json_file(path: &Path, value: &impl serde::Serialize) -> Result<()> {
+    let contents = serde_json::to_string_pretty(value)
+        .map(|contents| format!("{contents}\n"))
+        .map_err(|err| RototoError::new(format!("failed to encode {}: {err}", path.display())))?;
+    tokio::fs::write(path, contents).await.map_err(|err| {
+        RototoError::new(format!(
+            "failed to write console observability config {}: {err}",
+            path.display()
+        ))
+    })
 }
 
 fn add_timestamp(event: &mut JsonValue) {

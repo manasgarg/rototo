@@ -1,0 +1,19 @@
+schema_version = 1
+
+description = "Per-request observability policy for rototo console"
+type = "catalog:console-request-observability"
+
+[resolve]
+default = "standard"
+
+[[resolve.rule]]
+qualifier = "request-dev-console"
+value = "dev-all"
+
+[[resolve.rule]]
+qualifier = "request-server-error"
+value = "retain-errors"
+
+[[resolve.rule]]
+qualifier = "request-slow"
+value = "retain-slow"

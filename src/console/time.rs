@@ -33,7 +33,7 @@ pub fn iso_from_system_time(time: SystemTime) -> String {
     )
 }
 
-/// Compact UTC stamp (`YYYYMMDDHHMMSS`) used in generated draft branch names.
+/// Compact UTC stamp (`YYYYMMDDHHMMSS`) used in generated console branch names.
 pub fn now_compact_stamp() -> String {
     now_iso()
         .chars()

@@ -1,5 +1,7 @@
 use super::super::index::*;
-use super::common::{predicate_op_project_field_value, string_project_field_value};
+use super::common::{
+    json_project_field_label, predicate_op_project_field_value, string_project_field_value,
+};
 use super::{WorkspaceDocumentSymbol, WorkspaceDocumentSymbolKind};
 
 pub(crate) fn document_symbols(index: &SemanticIndex, path: &str) -> Vec<WorkspaceDocumentSymbol> {
@@ -207,7 +209,7 @@ fn variable_rule_symbol_name(rule: &VariableRuleNode) -> String {
     let index = rule.index + 1;
     match (
         string_project_field_value(&rule.qualifier),
-        string_project_field_value(&rule.value),
+        json_project_field_label(&rule.value),
     ) {
         (Some(qualifier), Some(value)) => format!("rule {index}: {qualifier} -> {value}"),
         (Some(qualifier), None) => format!("rule {index}: {qualifier}"),

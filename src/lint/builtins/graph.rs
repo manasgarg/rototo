@@ -5,7 +5,7 @@ use crate::diagnostics::{
     SemanticField, Severity,
 };
 
-use super::super::engine::{LintContext, variable_values};
+use super::super::engine::LintContext;
 use super::super::index::*;
 use super::super::references::QualifierReferenceEdge;
 use super::super::stages::push_graph_diagnostic;
@@ -221,29 +221,6 @@ pub(super) fn lint_rules_selecting_default_value(ctx: &mut LintContext) {
                     message: format!("resolve default value: {}", default_value.value),
                 });
             }
-        }
-    }
-
-    ctx.diagnostics.extend(diagnostics);
-}
-
-pub(super) fn lint_unused_variable_values(ctx: &mut LintContext) {
-    let mut diagnostics = Vec::new();
-
-    for variable in ctx.index.variables.values() {
-        let referenced = ctx.references.referenced_variable_value_keys(&variable.id);
-        for value in variable_values(ctx, variable) {
-            if referenced.contains(&value.key) {
-                continue;
-            }
-
-            push_graph_diagnostic(
-                &mut diagnostics,
-                RototoRuleId::VariableValueUnused,
-                value.target(),
-                value.location.clone(),
-                format!("variable value is not referenced: {}", value.key),
-            );
         }
     }
 

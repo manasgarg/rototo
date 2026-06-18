@@ -32,7 +32,10 @@ async fn semantic_model_projects_entities_references_and_ranges() {
 
     let resolve = variable.resolve.as_ref().expect("resolve section");
     let default = resolve.default.as_ref().expect("default field");
-    assert_eq!(default.value.as_deref(), Some("hidden"));
+    assert_eq!(
+        default.value.as_ref().and_then(|value| value.as_str()),
+        Some("hidden")
+    );
     assert!(
         default.location.range.is_some(),
         "field locations carry ranges for range-based edits"
@@ -59,7 +62,7 @@ async fn semantic_model_projects_entities_references_and_ranges() {
         .expect("support-banner/mobile_help object");
     assert!(object.value.is_object());
 
-    // The reference graph covers rule qualifiers and selected catalog entries.
+    // The reference graph covers rule qualifiers and selected catalog values.
     let rule_qualifier_edge = model.references.iter().any(|reference| {
         matches!(&reference.from, ModelEntityRef::Variable { id } if id == "support-banner")
             && matches!(&reference.to, ModelEntityRef::Qualifier { id } if id == "mobile-users")
@@ -73,7 +76,7 @@ async fn semantic_model_projects_entities_references_and_ranges() {
                     if catalog == "support-banner" && key == "mobile_help"
             )
     });
-    assert!(object_edge, "variable value -> catalog entry edge");
+    assert!(object_edge, "variable value -> catalog value edge");
 
     // The model serializes with camelCase keys and tagged entity refs.
     let json = serde_json::to_value(&model).expect("model serializes");

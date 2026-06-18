@@ -42,20 +42,16 @@ schema_version = 1
 description = "Maximum active projects for an account"
 type = "int"
 
-[values]
-standard = 3
-premium = 25
-
 [resolve]
-default = "standard"
+default = 3
 
 [[resolve.rule]]
 qualifier = "premium-account"
-value = "premium"
+value = 25
 ```
 
 The qualifier gives the condition a name. The variable rule can now say
-`premium-account -> premium`, and the app does not need to know how premium is
+`premium-account -> 25`, and the app does not need to know how premium is
 defined.
 
 ## Add The Context Contract
@@ -391,9 +387,6 @@ async fn max_active_projects_deserializes_for_app_contexts() -> Result<(), Box<d
         .resolve_variable("max-active-projects", &premium)
         .await?;
 
-    assert_eq!(standard.value_key, "standard");
-    assert_eq!(premium.value_key, "premium");
-
     let standard: i64 = serde_json::from_value(standard.value)?;
     let premium: i64 = serde_json::from_value(premium.value)?;
 
@@ -422,8 +415,6 @@ async def test_max_active_projects_deserializes_for_app_contexts():
         {"account": {"plan": "premium"}},
     )
 
-    assert standard.value_key == "standard"
-    assert premium.value_key == "premium"
     assert standard.value == 3
     assert premium.value == 25
 ```
@@ -446,8 +437,6 @@ test("max-active-projects deserializes for app contexts", async () => {
     { account: { plan: "premium" } },
   );
 
-  assert.equal(standard.valueKey, "standard");
-  assert.equal(premium.valueKey, "premium");
   assert.equal(standard.value, 3);
   assert.equal(premium.value, 25);
 });
@@ -475,8 +464,6 @@ void maxActiveProjectsDeserializesForAppContexts() throws Exception {
             )
             .get();
 
-        assertEquals("standard", standard.valueKey());
-        assertEquals("premium", premium.valueKey());
         assertEquals(3L, ((Number) standard.value()).longValue());
         assertEquals(25L, ((Number) premium.value()).longValue());
     }
@@ -516,9 +503,6 @@ func TestMaxActiveProjectsDeserializesForAppContexts(t *testing.T) {
         t.Fatal(err)
     }
 
-    if standard.ValueKey != "standard" || premium.ValueKey != "premium" {
-        t.Fatalf("unexpected value keys: %s, %s", standard.ValueKey, premium.ValueKey)
-    }
     if standard.Value != float64(3) || premium.Value != float64(25) {
         t.Fatalf("unexpected values: %v, %v", standard.Value, premium.Value)
     }
@@ -544,8 +528,8 @@ can change and how to recover:
 ```text
 Change max-active-projects:
 - add premium-account rule
-- standard accounts keep value key standard
-- premium accounts select value key premium
+- standard accounts keep value 3
+- premium accounts select value 25
 - rototo lint and account-app contract tests passed
 - rollback: revert this workspace commit
 ```
@@ -554,7 +538,7 @@ After merge, services following the branch source can
 [refresh](reference-sdk-refresh.html) to the new workspace. The application
 binary does not redeploy, but future resolutions can change.
 
-The service should log the selected value key and workspace fingerprint near the
+The service should log the selected source and workspace fingerprint near the
 behavior boundary:
 
 :::sdk-snippet production-log-selection
@@ -565,7 +549,7 @@ let resolution = workspace
 
 tracing::info!(
     variable = "max-active-projects",
-    value_key = %resolution.value_key,
+    source = %resolution.source,
     workspace_fingerprint = ?workspace.current().await.source_fingerprint(),
     account_plan = %account_plan,
     "resolved runtime configuration"
@@ -581,7 +565,7 @@ logger.info(
     "resolved runtime configuration",
     extra={
         "variable": "max-active-projects",
-        "value_key": resolution.value_key,
+        "source": resolution.source,
         "account_plan": account_plan,
     },
 )
@@ -594,7 +578,7 @@ const resolution = await workspace.resolveVariable(
 );
 logger.info("resolved runtime configuration", {
   variable: "max-active-projects",
-  valueKey: resolution.valueKey,
+  source: resolution.source,
   accountPlan,
 });
 ```
@@ -604,9 +588,9 @@ VariableResolution resolution = workspace
     .resolveVariable("max-active-projects", context)
     .get();
 logger.info(
-    "resolved runtime configuration variable={} valueKey={} accountPlan={}",
+    "resolved runtime configuration variable={} source={} accountPlan={}",
     "max-active-projects",
-    resolution.valueKey(),
+    resolution.source(),
     accountPlan
 );
 ```
@@ -624,7 +608,7 @@ if err != nil {
 slog.Info(
     "resolved runtime configuration",
     "variable", "max-active-projects",
-    "value_key", resolution.ValueKey,
+    "source", resolution.Source,
     "account_plan", accountPlan,
 )
 ```

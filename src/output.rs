@@ -241,7 +241,7 @@ pub(crate) fn print_inspect_report(report: &WorkspaceInspectReport, json: bool) 
                 println!("    schema: {}", style::info(schema));
             }
             if !catalog.entries.is_empty() {
-                println!("    {}", style::subhead("entries"));
+                println!("    {}", style::subhead("values"));
                 for entry in &catalog.entries {
                     println!(
                         "      {} = {}",
@@ -297,7 +297,7 @@ pub(crate) fn print_inspect_report(report: &WorkspaceInspectReport, json: bool) 
                 println!("    {}", style::subhead("resolve"));
                 for rule in &variable.resolve.rules {
                     let qualifier = rule.qualifier.as_deref().unwrap_or("<missing>");
-                    let value = rule.value.as_deref().unwrap_or("<missing>");
+                    let value = compact_json_option(&rule.value)?;
                     println!(
                         "      {} if {} {} {}",
                         style::dim(&format!("rule[{}]", rule.index)),
@@ -306,11 +306,7 @@ pub(crate) fn print_inspect_report(report: &WorkspaceInspectReport, json: bool) 
                         value
                     );
                 }
-                let default = variable
-                    .resolve
-                    .default_value
-                    .as_deref()
-                    .unwrap_or("<missing>");
+                let default = compact_json_option(&variable.resolve.default_value)?;
                 println!(
                     "      {} {} {default}",
                     style::dim("default"),
@@ -323,14 +319,17 @@ pub(crate) fn print_inspect_report(report: &WorkspaceInspectReport, json: bool) 
                 print_diagnostics(&variable.diagnostics);
             }
             if let Some(trace) = &variable.trace {
-                println!("    trace: {}", trace.resolution.value_key);
+                println!(
+                    "    trace: {}",
+                    resolution_source_label(&trace.resolution.source)
+                );
                 for rule in &trace.rules {
                     println!(
                         "      {} if {} {} {} ({})",
                         style::dim(&format!("rule[{}]", rule.index)),
                         style::sea(&rule.qualifier),
                         style::arrow(),
-                        rule.value,
+                        compact_json(&rule.value)?,
                         if rule.matched {
                             style::ok("matched")
                         } else {
@@ -440,17 +439,26 @@ pub(crate) fn print_workspace_diff(diff: &WorkspaceDiff, json: bool) -> Result<(
             println!("  variable: {}", impact.variable);
             println!(
                 "    before: {} {}",
-                impact.before.value_key,
+                resolution_source_label(&impact.before.source),
                 compact_json(&impact.before.value)?
             );
             println!(
                 "    after: {} {}",
-                impact.after.value_key,
+                resolution_source_label(&impact.after.source),
                 compact_json(&impact.after.value)?
             );
         }
     }
     Ok(())
+}
+
+fn resolution_source_label(source: &rototo::model::VariableResolutionSource) -> String {
+    match source {
+        rototo::model::VariableResolutionSource::Literal => "literal".to_owned(),
+        rototo::model::VariableResolutionSource::Catalog { catalog, value } => {
+            format!("{catalog}:{value}")
+        }
+    }
 }
 
 fn print_entity_separator(index: usize, count: usize) {
@@ -793,7 +801,7 @@ fn semantic_entity_label(entity: &SemanticEntity) -> String {
         }
         SemanticEntity::Variable { id } => format!("variable:{id}"),
         SemanticEntity::Catalog { id } => format!("catalog:{id}"),
-        SemanticEntity::CatalogEntry { catalog, key } => format!("catalog:{catalog}.entry:{key}"),
+        SemanticEntity::CatalogEntry { catalog, key } => format!("catalog:{catalog}.value:{key}"),
         SemanticEntity::Value { variable, key } => format!("variable:{variable}.value:{key}"),
         SemanticEntity::Rule { variable, index } => {
             format!("variable:{variable}.rule[{index}]")
@@ -826,7 +834,7 @@ fn semantic_field_label(field: &SemanticField) -> String {
         SemanticField::SchemaJson => "json".to_owned(),
         SemanticField::SchemaJsonPath { path } => format!("json.{}", path.join(".")),
         SemanticField::CatalogSchema => "schema".to_owned(),
-        SemanticField::CatalogEntry => "entry".to_owned(),
+        SemanticField::CatalogEntry => "value".to_owned(),
     }
 }
 

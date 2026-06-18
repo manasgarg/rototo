@@ -9,6 +9,13 @@ pub(super) fn string_project_field_value(field: &ProjectField<String>) -> Option
     }
 }
 
+pub(super) fn json_project_field_label(field: &ProjectField<serde_json::Value>) -> Option<String> {
+    match field {
+        ProjectField::Present(value) => Some(value.value.to_string()),
+        ProjectField::Invalid { .. } | ProjectField::Missing { .. } => None,
+    }
+}
+
 pub(super) fn predicate_op_project_field_value(field: &ProjectField<PredicateOp>) -> Option<&str> {
     match field {
         ProjectField::Present(value) => Some(value.value.as_str()),
@@ -51,18 +58,15 @@ pub(super) fn source_range_size(range: SourceRange) -> usize {
 pub(super) fn variable_value_definition_location(
     index: &SemanticIndex,
     variable: &VariableNode,
-    value: &str,
+    value: &serde_json::Value,
 ) -> Option<DiagnosticLocation> {
     if let TypeSourceNode::Catalog(catalog) = &variable.type_source {
+        let value = value.as_str()?;
         return index
             .catalog_entries
             .get(&catalog.value)
             .and_then(|entries| entries.get(value))
             .map(|entry| entry.location.clone());
     }
-    variable
-        .values
-        .inline_values
-        .get(value)
-        .map(|value| value.location.clone())
+    None
 }

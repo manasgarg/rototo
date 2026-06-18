@@ -3,4 +3,4 @@
 # matters more than automatically picking up stable compiler improvements.
 [toolchain]
 channel = "stable"
-components = ["rustfmt", "clippy"]
+components = ["rustfmt", "clippy", "rust-analyzer"]

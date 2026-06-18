@@ -297,16 +297,6 @@ impl ValueNode {
         }
         .into()
     }
-
-    pub(in crate::lint) fn field_target(&self, field: SemanticField) -> SemanticTarget {
-        SemanticTarget::field(
-            SemanticEntity::Value {
-                variable: self.variable_id.clone(),
-                key: self.key.clone(),
-            },
-            field,
-        )
-    }
 }
 
 pub(in crate::lint) enum ValueOrigin {
@@ -392,7 +382,7 @@ pub(in crate::lint) enum ResolveNode {
     },
     Resolve {
         location: DiagnosticLocation,
-        default: Box<ProjectField<String>>,
+        default: Box<ProjectField<JsonValue>>,
         rules: RuleCollection,
     },
 }
@@ -416,7 +406,7 @@ pub(in crate::lint) struct VariableRuleNode {
     pub(in crate::lint) index: usize,
     pub(in crate::lint) location: DiagnosticLocation,
     pub(in crate::lint) qualifier: ProjectField<String>,
-    pub(in crate::lint) value: ProjectField<String>,
+    pub(in crate::lint) value: ProjectField<JsonValue>,
     pub(in crate::lint) invalid_shape: bool,
 }
 

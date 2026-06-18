@@ -160,7 +160,10 @@ fn inspects_variable_resolution_trace_as_json() {
         .assert()
         .success()
         .stdout(predicate::str::contains(r#""id": "checkout-redesign""#))
-        .stdout(predicate::str::contains(r#""value_key": "premium""#))
+        .stdout(predicate::str::contains(
+            r#""catalog": "checkout-redesign""#,
+        ))
+        .stdout(predicate::str::contains(r#""value": "premium""#))
         .stdout(predicate::str::contains(r#""matched": true"#))
         .stdout(predicate::str::contains(r#""qualifier_traces": ["#))
         .stdout(predicate::str::contains(r#""actual": "premium""#));
@@ -181,7 +184,7 @@ fn inspect_broken_workspace_still_shows_partial_model_and_lint() {
         .stdout(predicate::str::contains("runtime: unavailable"))
         .stdout(predicate::str::contains("rototo/variable-unknown-value"))
         .stdout(predicate::str::contains("resolve:"))
-        .stdout(predicate::str::contains("default -> missing"));
+        .stdout(predicate::str::contains(r#"default -> "missing""#));
 }
 
 #[test]
@@ -190,15 +193,19 @@ fn inspect_lint_rule_shows_emitted_diagnostics() {
         .unwrap()
         .args([
             "inspect",
-            "tests/fixtures/workspaces/rules/graph/variable-value-unused",
+            "tests/fixtures/workspaces/rules/value/variable-value-type-mismatch",
             "--lint-rule",
-            "rototo/variable-value-unused",
+            "rototo/variable-value-type-mismatch",
         ])
         .assert()
         .success()
         .stdout(predicate::str::contains("lint rules:"))
-        .stdout(predicate::str::contains("rototo/variable-value-unused"))
-        .stdout(predicate::str::contains("variable value is not referenced"));
+        .stdout(predicate::str::contains(
+            "rototo/variable-value-type-mismatch",
+        ))
+        .stdout(predicate::str::contains(
+            "resolve default does not match type",
+        ));
 }
 
 #[test]
@@ -251,5 +258,5 @@ fn inspect_variable_context_resolves_without_extra_input() {
         ])
         .assert()
         .success()
-        .stdout(predicate::str::contains("trace: premium"));
+        .stdout(predicate::str::contains("trace: checkout-redesign:premium"));
 }

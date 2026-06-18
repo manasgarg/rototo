@@ -76,6 +76,8 @@ fn retired_rototo_rules_are_not_listed() {
         "rototo/variable-lint-shape",
         "rototo/qualifier-missing-table",
         "rototo/variable-missing-table",
+        "rototo/variable-values-missing",
+        "rototo/variable-value-unused",
     ] {
         assert!(
             !rules.contains(&retired),

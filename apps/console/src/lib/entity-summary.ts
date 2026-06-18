@@ -3,18 +3,20 @@
 // reimplementing any resolution semantics: it only reports what the file
 // declares, in declaration order.
 
+/** Rule summary parsed from variable TOML for display-only inspect panels. */
 export type VariableRuleSummary = {
     index: number;
     qualifier: string | null;
     value: string | null;
 };
 
+/** Variable declaration summary built from source text for one render. */
 export type VariableSummary = {
-    defaultKey: string | null;
+    defaultValue: string | null;
     rules: VariableRuleSummary[];
-    values: Array<{ key: string; literal: string }>;
 };
 
+/** Predicate summary parsed from qualifier TOML for display-only panels. */
 export type QualifierPredicateSummary = {
     index: number;
     subject: string | null;
@@ -22,6 +24,7 @@ export type QualifierPredicateSummary = {
     valueLiteral: string | null;
 };
 
+/** JSON Schema property summary shown in compact inspect views. */
 export type SchemaPropertySummary = {
     key: string;
     type: string | null;
@@ -29,6 +32,7 @@ export type SchemaPropertySummary = {
     description: string | null;
 };
 
+/** Top-level JSON Schema summary parsed from source text for display. */
 export type SchemaSummary = {
     title: string | null;
     type: string | null;
@@ -45,20 +49,16 @@ export function topLevelFields(
 export function variableSummary(text: string): VariableSummary {
     const blocks = tomlBlocks(text);
     const resolve = blocks.find((block) => block.header === "resolve");
-    const values = blocks.find((block) => block.header === "values");
     const rules = blocks
         .filter((block) => block.header === "resolve.rule")
         .map((block, index) => ({
             index,
             qualifier: stringLiteral(blockField(block, "qualifier")),
-            value: stringLiteral(blockField(block, "value")),
+            value: blockField(block, "value"),
         }));
     return {
-        defaultKey: resolve
-            ? stringLiteral(blockField(resolve, "default"))
-            : null,
+        defaultValue: resolve ? blockField(resolve, "default") : null,
         rules,
-        values: values ? values.fields : [],
     };
 }
 
@@ -119,6 +119,7 @@ export function schemaSummary(text: string): SchemaSummary | null {
     };
 }
 
+/** Scratch representation of one TOML table while extracting summaries. */
 type TomlBlock = {
     header: string;
     fields: Array<{ key: string; literal: string }>;

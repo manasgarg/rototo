@@ -413,6 +413,13 @@ h3 {
     white-space: nowrap;
 }
 
+.logout-error {
+    max-width: 72px;
+    color: var(--err-700);
+    font-size: 11px;
+    line-height: 1.2;
+}
+
 .avatar {
     width: 28px;
     height: 28px;
@@ -494,7 +501,7 @@ h3 {
     overflow-y: auto;
 }
 
-/* ------------------------------------------------------- draft editing mode --
+/* ------------------------------------------------------ branch editing mode --
    A persistent cyan strip plus a faintly tinted surface: you are on a
    branch, and what you save commits to it. */
 .mode-strip {
@@ -1129,16 +1136,32 @@ a.row:hover {
     gap: 12px;
 }
 
-.repo-card {
+.source-tree-card {
     position: relative;
     transition:
         border-color var(--dur-base),
         box-shadow var(--dur-base);
 }
 
-.repo-card:hover {
+.source-tree-card:hover {
     border-color: var(--sea-300);
     box-shadow: var(--shadow-2);
+}
+
+.source-tree-card .card-head {
+    flex-wrap: wrap;
+}
+
+.source-tree-card .card-head-text {
+    flex: 1 1 180px;
+}
+
+.source-tree-card h3,
+.source-tree-card .card-stretch {
+    display: block;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
 }
 
 /* stretched link: the whole card is the click target */
@@ -1153,7 +1176,7 @@ a.row:hover {
     outline: none;
 }
 
-.repo-card:has(.card-stretch:focus-visible) {
+.source-tree-card:has(.card-stretch:focus-visible) {
     box-shadow: var(--focus-ring);
     border-color: var(--sea-400);
 }
@@ -1166,6 +1189,13 @@ a.row:hover {
     align-items: center;
     gap: 8px;
     flex: none;
+}
+
+.source-tree-card .card-actions {
+    flex: 0 1 auto;
+    flex-wrap: wrap;
+    justify-content: flex-end;
+    max-width: 100%;
 }
 
 .btn-remove:hover {
@@ -1536,7 +1566,7 @@ select.input {
     cursor: grabbing;
 }
 
-/* Draft delta view: unified merge chunks in semantic tints */
+/* Branch delta view: unified merge chunks in semantic tints */
 .code-editor-shell .cm-deletedChunk {
     background: var(--err-bg);
 }

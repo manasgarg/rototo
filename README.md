@@ -54,7 +54,7 @@ The main concepts are deliberately small:
 - Context is the runtime facts supplied by the application.
 - Qualifiers turn those facts into named reusable conditions.
 - Variables select typed values using defaults and qualifier rules.
-- Catalogs hold structured policy entries validated by JSON Schema.
+- Catalogs hold structured policy values validated by JSON Schema.
 - Lint and tests make workspace changes releasable.
 
 The core loop is:
@@ -101,11 +101,8 @@ schema_version = 1
 description = "Maximum active projects for an account"
 type = "int"
 
-[values]
-standard = 3
-
 [resolve]
-default = "standard"
+default = 3
 ```
 
 Then prove the workspace can stand on its own:
@@ -146,7 +143,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
 
     println!(
         "selected {} from {:?}",
-        resolution.value_key,
+        resolution.source,
         workspace.source_fingerprint()
     );
 
@@ -181,11 +178,13 @@ and publishing pull requests:
 rototo console
 ```
 
-It starts on `http://127.0.0.1:7686` with no sign-in, using your ambient
-GitHub token (`ROTOTO_WORKSPACE_TOKEN` or `gh auth token`). Team deployments
-configure GitHub OAuth; demo deployments run `--read-only` against one
-workspace source. See the self-hosting guide in the docs for all three
-shapes.
+It starts on `http://127.0.0.1:7686` with no sign-in. Local workspaces can be
+read from disk, and GitHub workspaces use your ambient GitHub token
+(`ROTOTO_WORKSPACE_TOKEN` or `gh auth token`) when a credential is needed.
+Hosted deployments configure GitHub OAuth. Fixed-source deployments use
+`--workspace <source>` and choose writes with
+`--write disabled|pull-request|direct-push`. See the self-hosting guide for
+the deployment and write-policy shapes.
 
 ## Documentation
 

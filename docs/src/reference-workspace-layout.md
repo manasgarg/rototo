@@ -32,8 +32,8 @@ Rototo discovers these workspace paths:
 | --- | --- | --- | --- |
 | `qualifiers/*.toml` | TOML | File stem | Named runtime conditions. |
 | `variables/*.toml` | TOML | File stem | Named values resolved by applications. |
-| `catalogs/*.toml` | TOML | File stem | Schemas for structured catalog entries. |
-| `catalogs/<catalog-id>-entries/*.toml` | TOML | File stem | Entries selectable by `catalog:<catalog-id>` variables. |
+| `catalogs/*.toml` | TOML | File stem | Schemas for structured catalog values. |
+| `catalogs/<catalog-id>-entries/*.toml` | TOML | File stem | Values selectable by `catalog:<catalog-id>` variables. |
 | `schemas/*.json` | JSON | File stem | JSON Schemas used for context and catalog validation. |
 | `lint/*.lua` | Lua | File stem | Custom lint handlers. |
 
@@ -52,16 +52,16 @@ The file stem is the id:
 variables/account-limits.toml       -> variable://account-limits
 qualifiers/paid-account.toml        -> qualifier://paid-account
 catalogs/banner.toml               -> catalog://banner
-catalogs/banner-entries/hidden.toml -> catalog entry key hidden
+catalogs/banner-entries/hidden.toml -> catalog value name hidden
 ```
 
 Ids are references in other files, CLI selectors, SDK calls, diagnostics, and
 resolution traces. Rename files deliberately, because a rename changes the
 public id.
 
-## Catalog Entries
+## Catalog Values
 
-Catalog entries are discovered only under a directory named for an existing
+Catalog values are discovered only under a directory named for an existing
 catalog:
 
 ```text
@@ -72,8 +72,8 @@ catalogs/
     incident.toml
 ```
 
-Here `banner.toml` declares the catalog and its schema. The two entry files
-define entry keys `hidden` and `incident`.
+Here `banner.toml` declares the catalog and its schema. The two value files
+define value names `hidden` and `incident`.
 
 If the catalog file does not exist, rototo does not treat the matching
 `*-entries/` directory as an independent catalog family.
@@ -84,7 +84,7 @@ If the catalog file does not exist, rototo does not treat the matching
 When present, it is the schema for the runtime context an application passes
 during resolution.
 
-Other JSON Schemas under `schemas/` validate catalog entries when referenced
+Other JSON Schemas under `schemas/` validate catalog values when referenced
 from a catalog file.
 
 ## Document Kinds

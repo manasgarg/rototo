@@ -5,12 +5,18 @@ use serde::Serialize;
 use serde_json::Value as JsonValue;
 
 use crate::lint::WorkspaceSemanticModel;
+use crate::model::VariableResolutionSource;
 use crate::sdk::{ResolveContext, Workspace};
 
 /* Resolution previews against saved request contexts. These run the real
 runtime (the same evaluation applications get) and then annotate the
 declared rules and predicates with what each one saw. */
 
+/// Variable resolution result for one saved request context.
+///
+/// The console computes this on demand with the same runtime path applications
+/// use, then decorates it with rule-walk detail for the UI. It is never stored;
+/// saved context files and the staged workspace version are the durable inputs.
 #[derive(Clone, Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SavedContextResolution {
@@ -18,7 +24,9 @@ pub struct SavedContextResolution {
     pub path: String,
     pub ok: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub value_key: Option<String>,
+    pub value: Option<JsonValue>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub source: Option<VariableResolutionSource>,
     /// The walk through the rules: each step is a qualifier evaluation, in
     /// order, ending at the first match.
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -29,6 +37,10 @@ pub struct SavedContextResolution {
     pub error: Option<String>,
 }
 
+/// One rule considered during a variable preview.
+///
+/// Steps are emitted in declaration order and stop at the first matching rule,
+/// mirroring runtime resolution. The vector lives only in the preview response.
 #[derive(Clone, Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ResolutionStep {
@@ -38,6 +50,11 @@ pub struct ResolutionStep {
     pub evaluation: QualifierEvaluation,
 }
 
+/// Qualifier preview for one saved request context.
+///
+/// This is used on inspect screens to explain named conditions outside a
+/// variable rule walk. It is computed per request and may carry an error when
+/// the context JSON cannot be evaluated.
 #[derive(Clone, Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct QualifierContextEvaluation {
@@ -51,6 +68,8 @@ pub struct QualifierContextEvaluation {
 /// A qualifier's resolution against one context: its verdict plus every
 /// predicate, with the context value the predicate read and — for
 /// `qualifier.<id>` predicates — the nested qualifier's own resolution.
+/// Preview routes rebuild it from the current staged workspace and discard it
+/// after the response.
 #[derive(Clone, Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct QualifierEvaluation {
@@ -59,6 +78,11 @@ pub struct QualifierEvaluation {
     pub predicates: Vec<PredicateEvaluation>,
 }
 
+/// Predicate-level detail for one qualifier preview.
+///
+/// The value records what the predicate declared, what context value it read,
+/// and any nested qualifier evaluation. It is reconstructed each time a preview
+/// response is built.
 #[derive(Clone, Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct PredicateEvaluation {
@@ -70,6 +94,10 @@ pub struct PredicateEvaluation {
     pub nested: Option<Box<QualifierEvaluation>>,
 }
 
+/// Compact truth table for all qualifiers against one saved context.
+///
+/// Branch edit screens use this to show how a pending edit behaves across
+/// sample contexts. It is computed on demand and discarded after serialization.
 #[derive(Clone, Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct EditContextPreview {
@@ -157,6 +185,11 @@ fn context_path_value<'a>(context: &'a JsonValue, path: &str) -> Option<&'a Json
     Some(current)
 }
 
+/// Source text for one saved context example.
+///
+/// Workspace routes build these by reading `contexts/*.json` from the staged
+/// checkout, then pass them into preview functions. The struct is an in-memory
+/// transfer object, not a persisted console record.
 pub struct SavedContextInput {
     pub name: String,
     pub path: String,
@@ -186,7 +219,8 @@ pub async fn resolve_saved_contexts(
                 name: context_input.name.clone(),
                 path: context_input.path.clone(),
                 ok: false,
-                value_key: None,
+                value: None,
+                source: None,
                 steps: None,
                 used_default: None,
                 error: Some(error),
@@ -243,7 +277,8 @@ async fn resolve_one(
         name: context_input.name.clone(),
         path: context_input.path.clone(),
         ok: true,
-        value_key: Some(resolution.value_key),
+        value: Some(resolution.value),
+        source: Some(resolution.source),
         steps: Some(steps),
         used_default: Some(!matched_rule),
         error: None,

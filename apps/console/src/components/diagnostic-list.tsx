@@ -203,7 +203,7 @@ function diagnosticEntityName(
         case "catalog_entry":
             return text(entity.catalog)
                 ? {
-                      kind: "catalog entry",
+                      kind: "catalog value",
                       name: text(entity.key)
                           ? `${entity.catalog as string}/${entity.key as string}`
                           : (entity.catalog as string),

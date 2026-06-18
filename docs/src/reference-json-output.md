@@ -102,7 +102,7 @@ to read configured workspace data or the diagnostic catalog:
 Selected variables, qualifiers, and catalogs include `id`, `uri`, `path`, and
 their TOML content converted to JSON.
 
-Catalog output includes an `entries` table when catalog entry files exist.
+Catalog output includes an `entries` table when catalog value files exist.
 
 ## `inspect --json`
 

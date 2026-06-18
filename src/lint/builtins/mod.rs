@@ -40,7 +40,6 @@ pub(super) fn run_graph(ctx: &mut LintContext) {
     graph::lint_unreachable_qualifiers(ctx);
     graph::lint_shadowed_variable_rules(ctx);
     graph::lint_rules_selecting_default_value(ctx);
-    graph::lint_unused_variable_values(ctx);
     qualifier::lint_duplicate_predicates(ctx);
 }
 

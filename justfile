@@ -78,16 +78,20 @@ _install-typescript-sdk-deps:
     npm --prefix sdks/typescript ci
 
 # Run the full console development stack: Rust API plus Vite UI.
+# Pass a workspace source to run local deployment against that source.
 [group('08. console')]
-console-dev:
+console-dev workspace_source="":
     #!/bin/bash
     set -euo pipefail
     public_url="${ROTOTO_CONSOLE_DEV_PUBLIC_URL:-https://dev.rototo.dev}"
-    observability_dir="${ROTOTO_CONSOLE_DEV_OBSERVABILITY:-.rototo/dev/observability}"
+    workspace_source={{ quote(workspace_source) }}
+    workspace_source="${ROTOTO_CONSOLE_DEV_WORKSPACE:-$workspace_source}"
+    workspace_source="${workspace_source#workspace_source=}"
+    data_dir=".rototo/dev"
+    observability_dir="$data_dir/observability"
     mkdir -p "$observability_dir"
     touch "$observability_dir/console-api.ndjson" "$observability_dir/console-ui.ndjson" "$observability_dir/console-dev.log"
-    export ROTOTO_CONSOLE_DEV_OBSERVABILITY="$observability_dir"
-    export RUST_LOG="${RUST_LOG:-rototo=info,warn}"
+    export RUST_LOG="${RUST_LOG:-warn}"
     log="$observability_dir/console-dev.log"
 
     cargo_watch() {
@@ -101,7 +105,23 @@ console-dev:
         fi
     }
 
-    (cargo_watch -w src -w Cargo.toml -w Cargo.lock -w build.rs -x "run -- console --public-url $public_url" 2>&1 | tee -a "$log") &
+    shell_quote() {
+        printf '%q' "$1"
+    }
+
+    deployment="hosted"
+    run_cmd="run -- console --deployment $deployment --public-url $(shell_quote "$public_url") --data-dir $(shell_quote "$data_dir")"
+    if [[ -n "$workspace_source" ]]; then
+        deployment="local"
+        run_cmd="run -- console --deployment $deployment --public-url $(shell_quote "$public_url") --data-dir $(shell_quote "$data_dir") --workspace $(shell_quote "$workspace_source")"
+    fi
+
+    echo "starting console API in $deployment deployment"
+    if [[ -n "$workspace_source" ]]; then
+        echo "using workspace source: $workspace_source"
+    fi
+
+    (cargo_watch -w src -w Cargo.toml -w Cargo.lock -w build.rs -x "$run_cmd" 2>&1 | tee -a "$log") &
     api_pid=$!
     trap 'kill "$api_pid" 2>/dev/null || true; wait "$api_pid" 2>/dev/null || true' EXIT
     ready=0
@@ -127,16 +147,16 @@ console-api:
     #!/bin/bash
     set -euo pipefail
     public_url="${ROTOTO_CONSOLE_DEV_PUBLIC_URL:-https://dev.rototo.dev}"
-    observability_dir="${ROTOTO_CONSOLE_DEV_OBSERVABILITY:-.rototo/dev/observability}"
+    data_dir=".rototo/dev"
+    observability_dir="$data_dir/observability"
     mkdir -p "$observability_dir"
     touch "$observability_dir/console-api.ndjson" "$observability_dir/console-ui.ndjson" "$observability_dir/console-dev.log"
-    export ROTOTO_CONSOLE_DEV_OBSERVABILITY="$observability_dir"
-    export RUST_LOG="${RUST_LOG:-rototo=info,warn}"
+    export RUST_LOG="${RUST_LOG:-warn}"
 
     if cargo watch --version >/dev/null 2>&1; then
-        cargo watch -w src -w Cargo.toml -w Cargo.lock -w build.rs -x "run -- console --public-url $public_url" 2>&1 | tee -a "$observability_dir/console-dev.log"
+        cargo watch -w src -w Cargo.toml -w Cargo.lock -w build.rs -x "run -- console --deployment local --public-url $public_url --data-dir $data_dir" 2>&1 | tee -a "$observability_dir/console-dev.log"
     elif command -v mise >/dev/null && mise exec -- cargo watch --version >/dev/null 2>&1; then
-        mise exec -- cargo watch -w src -w Cargo.toml -w Cargo.lock -w build.rs -x "run -- console --public-url $public_url" 2>&1 | tee -a "$observability_dir/console-dev.log"
+        mise exec -- cargo watch -w src -w Cargo.toml -w Cargo.lock -w build.rs -x "run -- console --deployment local --public-url $public_url --data-dir $data_dir" 2>&1 | tee -a "$observability_dir/console-dev.log"
     else
         echo "cargo-watch not found; run 'just setup' before 'just console-api'" >&2
         exit 1
@@ -154,12 +174,12 @@ console-demo: console-build
     set -euo pipefail
     bind="${ROTOTO_CONSOLE_DEMO_BIND:-127.0.0.1:7687}"
     public_url="${ROTOTO_CONSOLE_DEMO_PUBLIC_URL:-https://demo.rototo.dev}"
-    cargo run -- console --bind "$bind" --public-url "$public_url"
+    cargo run -- console --deployment local --bind "$bind" --public-url "$public_url"
 
 # Run a production-like local console with embedded frontend assets.
 [group('08. console')]
 console-preview: console-build
-    cargo run -- console
+    cargo run -- console --deployment local
 
 # Build the console UI bundle that release binaries embed.
 [group('08. console')]
@@ -218,7 +238,6 @@ lint:
     set -euo pipefail
     cargo clippy --workspace --all-targets --all-features -- -D warnings
     npm --prefix apps/console run lint
-    bash scripts/check-vocabulary.sh
 
 # Run all maintained test slices.
 [group('04. test')]
@@ -468,12 +487,6 @@ release-package-dry-run version:
     if command -v mvn >/dev/null; then
         (cd sdks/java && mvn -B -Dgpg.skip=true -Dcentral.skipPublishing=true verify)
     fi
-    bash scripts/release-smoke.sh "$version"
-
-# Print post-publish smoke check links for every registry.
-[group('07. release')]
-release-smoke version:
-    bash scripts/release-smoke.sh "{{version}}"
 
 # Update package versions and generated SDK packaging content for a release.
 [group('07. release')]

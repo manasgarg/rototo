@@ -42,6 +42,7 @@ const WIDGET_SPEC = widgetSpec as {
     >;
 };
 
+/** Workspace section edited by the friendly editor. */
 type EntitySection =
     | "variables"
     | "qualifiers"
@@ -50,6 +51,7 @@ type EntitySection =
     | "context"
     | "linters";
 
+/** Editable source file plus metadata owned by one editor instance. */
 type FriendlyEntity = {
     id: string;
     kind: string;
@@ -59,12 +61,19 @@ type FriendlyEntity = {
     language: "json" | "lua" | "toml" | "text";
 };
 
+/** Active editor tab for a friendly editor instance. */
 type EditorTab = "form" | "source";
 
+/** Variable declaration mode understood by the friendly variable editor. */
 type VariableDeclarationKind = "primitive" | "catalog" | "schema";
 
-/* Optional context harvested from sibling entities and related schemas:
-   descriptions explain a field, examples show values already in use. */
+/**
+ * Optional context harvested from sibling entities and related schemas.
+ *
+ * The parent screen rebuilds this from the current workspace/branch payload for
+ * each editor instance. Descriptions explain fields, examples show values
+ * already in use, and preview truth tables come from the Rust runtime.
+ */
 export type FormGuidance = {
     contextAttributeDocs?: Record<string, string>;
     attributeValueExamples?: Record<string, string[]>;
@@ -76,10 +85,12 @@ export type FormGuidance = {
     contextPreviews?: EditContextPreview[];
 };
 
-/* One saved request context with each workspace qualifier already evaluated
-   by the Rust runtime. The editor walks the edited rules against these truths
-   so the resolution preview updates live without reimplementing qualifier
-   semantics. */
+/**
+ * Saved request context with each workspace qualifier already evaluated.
+ *
+ * The editor walks edited rules against these runtime truths so previews update
+ * live without reimplementing qualifier semantics in React.
+ */
 export type EditContextPreview = {
     name: string;
     qualifierTruth: Record<string, boolean>;
@@ -112,9 +123,9 @@ const OPERATOR_HINTS: Record<string, string> = {
 const PRIMITIVE_TYPES = ["bool", "int", "number", "string", "list"];
 
 const DECLARATION_HINTS: Record<VariableDeclarationKind, string> = {
-    primitive: "Values below must match this primitive type.",
-    catalog: "Values select entries of this catalog by key.",
-    schema: "Values must validate against this JSON Schema.",
+    primitive: "Resolve values must match this primitive type.",
+    catalog: "Resolve values select values from this catalog.",
+    schema: "Resolve values must validate against this JSON Schema.",
 };
 
 export function FriendlyEntityEditor({
@@ -122,7 +133,7 @@ export function FriendlyEntityEditor({
     contextAttributes = [],
     diagnostics = [],
     disabled,
-    draftId,
+    branchId,
     entity,
     guidance = {},
     catalogIds = [],
@@ -131,13 +142,13 @@ export function FriendlyEntityEditor({
     sourceMarks = [],
     workspaceId,
 }: {
-    /* The entity's text at the draft's base ref, when known. Enables the
+    /* The entity's text at the branch's base ref, when known. Enables the
      changes view in both form and source modes. */
     baseText?: string | null;
     contextAttributes?: string[];
     diagnostics?: LintDiagnostic[];
     disabled?: boolean;
-    draftId: string;
+    branchId: string;
     entity: FriendlyEntity;
     guidance?: FormGuidance;
     catalogIds?: string[];
@@ -177,12 +188,12 @@ export function FriendlyEntityEditor({
 
     const formRef = useRef<HTMLFormElement>(null);
 
-    // Source mode talks to the draft's rototo language server for as-you-type
+    // Source mode talks to the branch's rototo language server for as-you-type
     // diagnostics, completion, and hover.
     const lspRequest = useCallback(
         async (body: Record<string, unknown>) => {
             const response = await apiFetch(
-                `/api/workspaces/${workspaceId}/drafts/${draftId}/lsp`,
+                `/api/workspaces/${workspaceId}/branches/${branchId}/lsp`,
                 {
                     method: "POST",
                     headers: { "Content-Type": "application/json" },
@@ -197,7 +208,7 @@ export function FriendlyEntityEditor({
             }
             return payload;
         },
-        [workspaceId, draftId, entity.path],
+        [workspaceId, branchId, entity.path],
     );
     const lsp = useMemo<CodeEditorLsp | undefined>(
         () => (disabled ? undefined : { request: lspRequest }),
@@ -245,7 +256,7 @@ export function FriendlyEntityEditor({
         setNote(null);
         try {
             const response = await apiFetch(
-                `/api/workspaces/${workspaceId}/drafts/${draftId}/files`,
+                `/api/workspaces/${workspaceId}/branches/${branchId}/files`,
                 {
                     method: "POST",
                     headers: { "Content-Type": "application/json" },
@@ -256,7 +267,7 @@ export function FriendlyEntityEditor({
             if (!response.ok) {
                 throw new Error(body.error ?? "failed to save file");
             }
-            setNote({ tone: "ok", text: "Saved to the draft branch." });
+            setNote({ tone: "ok", text: "Saved to the branch." });
             router.refresh();
         } catch (error) {
             setNote({
@@ -381,7 +392,7 @@ export function FriendlyEntityEditor({
                     ) : (
                         <Save aria-hidden size={15} />
                     )}
-                    {pending ? "Saving" : "Save to draft"}
+                    {pending ? "Saving" : "Save to branch"}
                 </button>
                 {note ? (
                     <p className="form-note" data-tone={note.tone}>
@@ -458,7 +469,7 @@ function editorForm({
             />
         );
     }
-    if (entity.kind === "catalog entry") {
+    if (entity.kind === "catalog value") {
         const entryNotes = diagnostics.filter(
             (diagnostic) => targetEntityKind(diagnostic) === "catalog_entry",
         );
@@ -523,19 +534,11 @@ function skeletonContent(input: {
             missing.push('type = "string"');
         }
         const fields = variableFields(content);
-        if (
-            fields.declarationKind !== "catalog" &&
-            sectionLines(content, "[values]").length === 0
-        ) {
-            missing.push("[values]", 'default = ""');
-        }
         if (!tomlSectionRawField(content, "[resolve]", "default")) {
             if (!hasSection("[resolve]")) {
                 missing.push("[resolve]");
             }
-            const firstValue =
-                sectionLines(content, "[values]")[0]?.key ?? "default";
-            missing.push(`default = ${JSON.stringify(firstValue)}`);
+            missing.push(`default = ${defaultLiteralFor(fields)}`);
         }
     } else if (entity.section === "qualifiers") {
         if (!has("schema_version")) {
@@ -562,7 +565,7 @@ function skeletonContent(input: {
         if (!has("schema")) {
             missing.push(`schema = "../schemas/${entity.id}.schema.json"`);
         }
-    } else if (entity.kind === "catalog entry") {
+    } else if (entity.kind === "catalog value") {
         const schema = parseObjectSchema(catalogSchema);
         if (!schema) {
             return null;
@@ -664,10 +667,10 @@ function VariableFields({
 }) {
     const fields = useMemo(() => variableFields(content), [content]);
     const model = useMemo(() => variableModel(content), [content]);
-    const defaultOptions =
+    const catalogValueOptions =
         fields.declarationKind === "catalog"
             ? (guidance.catalogEntryKeys?.[fields.declarationValue] ?? [])
-            : model.values.map((value) => value.key);
+            : [];
     const declarationDoc =
         fields.declarationKind === "schema"
             ? guidance.schemaDocs?.[
@@ -686,13 +689,12 @@ function VariableFields({
     });
     const defaultNotes = diagnostics.filter(
         (diagnostic) =>
-            targetEntityKind(diagnostic) === "value" &&
-            fields.defaultKey !== null &&
-            targetEntityValue(diagnostic, "key") === fields.defaultKey,
+            targetFieldKind(diagnostic) === "variable_resolve_default",
     );
 
     function updateDeclaration(kind: VariableDeclarationKind, value: string) {
-        let text = removeTopLevelField(content, "type");
+        let text = removeSectionBlock(content, "[values]");
+        text = removeTopLevelField(text, "type");
         text = removeTopLevelField(text, "schema");
         if (kind === "schema") {
             onChange(setTopLevelStringField(text, "schema", value));
@@ -818,51 +820,67 @@ function VariableFields({
                 {DECLARATION_HINTS[fields.declarationKind]}
                 {declarationDoc ? ` — ${declarationDoc}` : ""}
             </span>
-            {fields.declarationKind !== "catalog" ? (
-                <VariableValuesEditor
-                    content={content}
-                    diagnostics={diagnostics}
-                    disabled={disabled}
-                    model={model}
-                    onChange={onChange}
-                />
-            ) : null}
             <label className="field-stack">
                 <span className="label">default value</span>
-                <select
-                    className="input mono"
-                    disabled={disabled}
-                    onChange={(event) =>
-                        onChange(
-                            setTomlSectionField(
-                                ensureSection(content, "[resolve]"),
-                                "[resolve]",
-                                "default",
-                                JSON.stringify(event.target.value),
-                            ),
-                        )
-                    }
-                    value={model.defaultKey ?? ""}
-                >
-                    {model.defaultKey === null ? (
-                        <option value="">not declared</option>
-                    ) : null}
-                    {defaultOptions.map((option) => (
-                        <option key={option} value={option}>
-                            {option}
-                        </option>
-                    ))}
-                    {model.defaultKey !== null &&
-                    !defaultOptions.includes(model.defaultKey) ? (
-                        <option value={model.defaultKey}>
-                            {model.defaultKey} (unknown)
-                        </option>
-                    ) : null}
-                </select>
+                {fields.declarationKind === "catalog" ? (
+                    <select
+                        className="input mono"
+                        disabled={disabled}
+                        onChange={(event) =>
+                            onChange(
+                                setTomlSectionField(
+                                    ensureSection(content, "[resolve]"),
+                                    "[resolve]",
+                                    "default",
+                                    JSON.stringify(event.target.value),
+                                ),
+                            )
+                        }
+                        value={model.defaultValue ?? ""}
+                    >
+                        {model.defaultValue === null ? (
+                            <option value="">not declared</option>
+                        ) : null}
+                        {catalogValueOptions.map((option) => (
+                            <option key={option} value={option}>
+                                {option}
+                            </option>
+                        ))}
+                        {model.defaultValue !== null &&
+                        !catalogValueOptions.includes(model.defaultValue) ? (
+                            <option value={model.defaultValue}>
+                                {model.defaultValue} (unknown)
+                            </option>
+                        ) : null}
+                    </select>
+                ) : (
+                    <VariableValueControl
+                        declarationKind={model.declarationKind}
+                        declarationValue={model.declarationValue}
+                        disabled={disabled}
+                        literal={
+                            model.defaultValue ??
+                            emptyLiteralFor(
+                                model.declarationValue,
+                                model.declarationKind,
+                            )
+                        }
+                        onUpdate={(literal) =>
+                            onChange(
+                                setTomlSectionField(
+                                    ensureSection(content, "[resolve]"),
+                                    "[resolve]",
+                                    "default",
+                                    literal,
+                                ),
+                            )
+                        }
+                    />
+                )}
                 <FieldNotes items={defaultNotes} />
                 <span className="field-hint">
                     {fields.declarationKind === "catalog"
-                        ? "Selects which entry of the catalog applies when no rule matches."
+                        ? "Selects which catalog value applies when no rule matches."
                         : "Applies when no rule matches."}
                 </span>
             </label>
@@ -871,10 +889,17 @@ function VariableFields({
                 disabled={disabled}
                 model={model}
                 onChange={(rules) =>
-                    onChange(rewriteResolveRules(content, rules))
+                    onChange(
+                        rewriteResolveRules(
+                            content,
+                            rules,
+                            model.declarationKind,
+                            model.declarationValue,
+                        ),
+                    )
                 }
                 qualifierIds={guidance.qualifierIds ?? []}
-                valueOptions={defaultOptions}
+                valueOptions={catalogValueOptions}
             />
             {guidance.contextPreviews && guidance.contextPreviews.length > 0 ? (
                 <VariableResolutionPreview
@@ -911,8 +936,8 @@ function VariableResolutionPreview({
                 ))}
             </div>
             <span className="field-hint">
-                Qualifiers are evaluated by rototo on the draft branch; the
-                pathway follows your edits before you save.
+                Qualifiers are evaluated by rototo on the branch; the pathway
+                follows your edits before you save.
             </span>
         </div>
     );
@@ -935,129 +960,9 @@ function previewOutcome(
             return `rule[${index}] ${rule.qualifier} → ${rule.value || "unset"}`;
         }
     }
-    return model.defaultKey !== null
-        ? `default → ${model.defaultKey}`
+    return model.defaultValue !== null
+        ? `default → ${model.defaultValue}`
         : "no default declared";
-}
-
-/* Stacked value rows: key + a control matching the declared type. */
-function VariableValuesEditor({
-    content,
-    diagnostics,
-    disabled,
-    model,
-    onChange,
-}: {
-    content: string;
-    diagnostics: LintDiagnostic[];
-    disabled?: boolean;
-    model: VariableModel;
-    onChange: (content: string) => void;
-}) {
-    const rewrite = (entries: Array<{ key: string; literal: string }>) =>
-        onChange(rewriteValuesSection(content, entries));
-
-    function addValue() {
-        let key = "new-value";
-        let suffix = 2;
-        while (model.values.some((value) => value.key === key)) {
-            key = `new-value-${suffix}`;
-            suffix += 1;
-        }
-        rewrite([
-            ...model.values,
-            {
-                key,
-                literal: emptyLiteralFor(
-                    model.declarationValue,
-                    model.declarationKind,
-                ),
-            },
-        ]);
-    }
-
-    return (
-        <div className="field-stack">
-            <span className="label">values</span>
-            {model.values.length === 0 ? (
-                <span className="field-hint">
-                    No values declared yet — add the first one.
-                </span>
-            ) : null}
-            {model.values.map((value, index) => {
-                const notes = diagnostics.filter(
-                    (diagnostic) =>
-                        targetEntityKind(diagnostic) === "value" &&
-                        targetEntityValue(diagnostic, "key") === value.key,
-                );
-                return (
-                    <div className="field-stack" key={index}>
-                        <div className="value-row">
-                            <input
-                                aria-label="Value key"
-                                className="input mono"
-                                disabled={disabled}
-                                onChange={(event) => {
-                                    const next = model.values.map(
-                                        (candidate, at) =>
-                                            at === index
-                                                ? {
-                                                      ...candidate,
-                                                      key: event.target.value,
-                                                  }
-                                                : candidate,
-                                    );
-                                    rewrite(next);
-                                }}
-                                value={value.key}
-                            />
-                            <VariableValueControl
-                                declarationKind={model.declarationKind}
-                                declarationValue={model.declarationValue}
-                                disabled={disabled}
-                                literal={value.literal}
-                                onUpdate={(literal) => {
-                                    const next = model.values.map(
-                                        (candidate, at) =>
-                                            at === index
-                                                ? { ...candidate, literal }
-                                                : candidate,
-                                    );
-                                    rewrite(next);
-                                }}
-                            />
-                            <button
-                                aria-label={`Remove value ${value.key}`}
-                                className="btn btn-ghost btn-icon btn-remove"
-                                disabled={disabled}
-                                onClick={() =>
-                                    rewrite(
-                                        model.values.filter(
-                                            (_, at) => at !== index,
-                                        ),
-                                    )
-                                }
-                                type="button"
-                            >
-                                <X aria-hidden size={14} />
-                            </button>
-                        </div>
-                        <FieldNotes items={notes} />
-                    </div>
-                );
-            })}
-            <button
-                className="btn btn-ghost btn-sm"
-                disabled={disabled}
-                onClick={addValue}
-                style={{ width: "fit-content" }}
-                type="button"
-            >
-                <Plus aria-hidden size={14} />
-                Add value
-            </button>
-        </div>
-    );
 }
 
 /* The value control morphs with the declaration: bool gets true/false,
@@ -1137,7 +1042,7 @@ function VariableValueControl({
             />
         );
     }
-    // schema-backed entries and anything unrecognized: raw TOML literal
+    // schema-backed values and anything unrecognized: raw TOML literal
     return (
         <input
             className="input mono"
@@ -1363,35 +1268,63 @@ function VariableRulesEditor({
                                 value={rule.qualifier}
                             />
                             <span className="rule-word">→</span>
-                            <select
-                                aria-label="Rule value"
-                                className="input mono"
-                                disabled={disabled}
-                                onChange={(event) =>
-                                    onChange(
-                                        model.rules.map((candidate, at) =>
-                                            at === index
-                                                ? {
-                                                      ...candidate,
-                                                      value: event.target.value,
-                                                  }
-                                                : candidate,
-                                        ),
-                                    )
-                                }
-                                value={rule.value}
-                            >
-                                {valueOptions.map((option) => (
-                                    <option key={option} value={option}>
-                                        {option}
-                                    </option>
-                                ))}
-                                {!valueOptions.includes(rule.value) ? (
-                                    <option value={rule.value}>
-                                        {rule.value || "unset"}
-                                    </option>
-                                ) : null}
-                            </select>
+                            {model.declarationKind === "catalog" ? (
+                                <select
+                                    aria-label="Rule value"
+                                    className="input mono"
+                                    disabled={disabled}
+                                    onChange={(event) =>
+                                        onChange(
+                                            model.rules.map((candidate, at) =>
+                                                at === index
+                                                    ? {
+                                                          ...candidate,
+                                                          value: event.target
+                                                              .value,
+                                                      }
+                                                    : candidate,
+                                            ),
+                                        )
+                                    }
+                                    value={rule.value}
+                                >
+                                    {valueOptions.map((option) => (
+                                        <option key={option} value={option}>
+                                            {option}
+                                        </option>
+                                    ))}
+                                    {!valueOptions.includes(rule.value) ? (
+                                        <option value={rule.value}>
+                                            {rule.value || "unset"}
+                                        </option>
+                                    ) : null}
+                                </select>
+                            ) : (
+                                <VariableValueControl
+                                    declarationKind={model.declarationKind}
+                                    declarationValue={model.declarationValue}
+                                    disabled={disabled}
+                                    literal={
+                                        rule.value ||
+                                        emptyLiteralFor(
+                                            model.declarationValue,
+                                            model.declarationKind,
+                                        )
+                                    }
+                                    onUpdate={(literal) =>
+                                        onChange(
+                                            model.rules.map((candidate, at) =>
+                                                at === index
+                                                    ? {
+                                                          ...candidate,
+                                                          value: literal,
+                                                      }
+                                                    : candidate,
+                                            ),
+                                        )
+                                    }
+                                />
+                            )}
                             <button
                                 aria-label="Remove rule"
                                 className="btn btn-ghost btn-icon btn-remove"
@@ -1425,7 +1358,13 @@ function VariableRulesEditor({
                         ...model.rules,
                         {
                             qualifier: qualifierIds[0] ?? "",
-                            value: valueOptions[0] ?? "",
+                            value:
+                                model.declarationKind === "catalog"
+                                    ? (valueOptions[0] ?? "")
+                                    : emptyLiteralFor(
+                                          model.declarationValue,
+                                          model.declarationKind,
+                                      ),
                         },
                     ])
                 }
@@ -1623,7 +1562,7 @@ function CatalogFields({
                             ),
                         )
                     }
-                    placeholder="What these entries represent"
+                    placeholder="What these values represent"
                     value={fields.description}
                 />
             </label>
@@ -1660,6 +1599,7 @@ function CatalogFields({
     );
 }
 
+/** JSON Schema property model used to render catalog-entry value controls. */
 type ObjectSchemaProperty = {
     key: string;
     required: boolean;
@@ -1673,6 +1613,7 @@ type ObjectSchemaProperty = {
     ui: { widget: string; params: Record<string, unknown> } | null;
 };
 
+/** Parsed object schema view model owned by one editor render. */
 type ObjectSchema = {
     properties: ObjectSchemaProperty[];
 };
@@ -2442,30 +2383,31 @@ function TopLevelTomlFields({
     );
 }
 
+/** Minimal variable TOML model used for form editing and source regeneration. */
 type VariableModel = {
     declarationKind: VariableDeclarationKind;
     declarationValue: string;
-    values: Array<{ key: string; literal: string }>;
-    defaultKey: string | null;
+    defaultValue: string | null;
     rules: Array<{ qualifier: string; value: string }>;
 };
 
 function variableModel(text: string): VariableModel {
     const base = variableFields(text);
+    const defaultLiteral = tomlSectionRawField(text, "[resolve]", "default");
     return {
         declarationKind: base.declarationKind,
         declarationValue: base.declarationValue,
-        values: sectionLines(text, "[values]").map((field) => ({
-            key: field.key,
-            literal: field.value,
-        })),
-        defaultKey: tomlSectionStringField(text, "[resolve]", "default"),
-        rules: resolveRuleBlocks(text),
+        defaultValue:
+            defaultLiteral && base.declarationKind === "catalog"
+                ? parseTomlStringLiteral(defaultLiteral)
+                : defaultLiteral,
+        rules: resolveRuleBlocks(text, base.declarationKind),
     };
 }
 
 function resolveRuleBlocks(
     text: string,
+    declarationKind: VariableDeclarationKind,
 ): Array<{ qualifier: string; value: string }> {
     const lines = text.split(/\r?\n/);
     const rules: Array<{ qualifier: string; value: string }> = [];
@@ -2475,15 +2417,17 @@ function resolveRuleBlocks(
         }
         const end = nextSectionLine(lines, index + 1);
         const blockFields = lines.slice(index + 1, end).flatMap(parseFieldLine);
+        const value =
+            blockFields.find((field) => field.key === "value")?.value ?? "";
         rules.push({
             qualifier: parseTomlStringLiteral(
                 blockFields.find((field) => field.key === "qualifier")?.value ??
                     '""',
             ),
-            value: parseTomlStringLiteral(
-                blockFields.find((field) => field.key === "value")?.value ??
-                    '""',
-            ),
+            value:
+                declarationKind === "catalog"
+                    ? parseTomlStringLiteral(value || '""')
+                    : value,
         });
         index = end - 1;
     }
@@ -2505,29 +2449,11 @@ function tidyToml(text: string): string {
     return `${text.replace(/\n{3,}/g, "\n\n").replace(/\n+$/, "")}\n`;
 }
 
-function rewriteValuesSection(
-    text: string,
-    entries: Array<{ key: string; literal: string }>,
-): string {
-    const without = removeSectionBlock(text, "[values]");
-    if (entries.length === 0) {
-        return tidyToml(without);
-    }
-    const section = `[values]\n${entries
-        .map((entry) => `${entry.key} = ${entry.literal}`)
-        .join("\n")}`;
-    const lines = without.split(/\r?\n/);
-    const resolveAt = lines.findIndex((line) => line.trim() === "[resolve]");
-    if (resolveAt === -1) {
-        return tidyToml(`${without.trimEnd()}\n\n${section}`);
-    }
-    lines.splice(resolveAt, 0, ...section.split("\n"), "");
-    return tidyToml(lines.join("\n"));
-}
-
 function rewriteResolveRules(
     text: string,
     rules: Array<{ qualifier: string; value: string }>,
+    declarationKind: VariableDeclarationKind,
+    declarationValue: string,
 ): string {
     let without = text;
     for (;;) {
@@ -2542,10 +2468,14 @@ function rewriteResolveRules(
     }
     without = ensureSection(without, "[resolve]");
     const blocks = rules
-        .map(
-            (rule) =>
-                `[[resolve.rule]]\nqualifier = ${JSON.stringify(rule.qualifier)}\nvalue = ${JSON.stringify(rule.value)}`,
-        )
+        .map((rule) => {
+            const value =
+                declarationKind === "catalog"
+                    ? JSON.stringify(rule.value)
+                    : rule.value ||
+                      emptyLiteralFor(declarationValue, declarationKind);
+            return `[[resolve.rule]]\nqualifier = ${JSON.stringify(rule.qualifier)}\nvalue = ${value}`;
+        })
         .join("\n\n");
     return tidyToml(`${without.trimEnd()}\n\n${blocks}`);
 }
@@ -2570,17 +2500,24 @@ function emptyLiteralFor(
     }
 }
 
+function defaultLiteralFor(fields: {
+    declarationKind: VariableDeclarationKind;
+    declarationValue: string;
+}): string {
+    if (fields.declarationKind === "catalog") {
+        return '""';
+    }
+    return emptyLiteralFor(fields.declarationValue, fields.declarationKind);
+}
+
 function variableFields(text: string) {
     const type = topLevelStringField(text, "type");
     const schema = topLevelStringField(text, "schema");
-    const defaultKey = tomlSectionStringField(text, "[resolve]", "default");
-    const defaultRaw = defaultKey
-        ? tomlSectionRawField(text, "[values]", defaultKey)
-        : null;
     const base = {
         description: topLevelStringField(text, "description"),
-        defaultKey,
-        defaultValue: defaultRaw ? inputFromLiteral(defaultRaw) : "",
+        defaultValue: inputFromLiteral(
+            tomlSectionRawField(text, "[resolve]", "default") ?? "",
+        ),
     };
     if (schema) {
         return {

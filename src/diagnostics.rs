@@ -235,19 +235,13 @@ rototo_rules! {
         id: "variable-values-disallowed",
         entity: Variable,
         title: "Variable values are not allowed",
-        help: "Remove [values] from catalog-backed variables; catalog entries provide the values.",
-    },
-    VariableValuesMissing => {
-        id: "variable-values-missing",
-        entity: Variable,
-        title: "Variable values are missing",
-        help: "Add [values] entries to primitive variables.",
+        help: "Remove [values] and put literal values directly under [resolve].",
     },
     VariableUnknownValue => {
         id: "variable-unknown-value",
         entity: Variable,
-        title: "Variable references an unknown value",
-        help: "Create the referenced value under [values] or update the reference.",
+        title: "Variable references an unknown catalog value",
+        help: "Create the referenced catalog value or update the reference.",
     },
     VariableValueTypeMismatch => {
         id: "variable-value-type-mismatch",
@@ -264,8 +258,8 @@ rototo_rules! {
     CatalogEntryParseFailed => {
         id: "catalog-entry-parse-failed",
         entity: CatalogEntry,
-        title: "Catalog entry TOML file could not be parsed",
-        help: "Fix the TOML syntax so rototo can parse the catalog entry file.",
+        title: "Catalog value TOML file could not be parsed",
+        help: "Fix the TOML syntax so rototo can parse the catalog value file.",
     },
     CatalogSchemaVersion => {
         id: "catalog-schema-version",
@@ -282,14 +276,14 @@ rototo_rules! {
     CatalogEntrySchemaMismatch => {
         id: "catalog-entry-schema-mismatch",
         entity: CatalogEntry,
-        title: "Catalog entry does not match schema",
-        help: "Update the catalog entry so it matches the catalog JSON Schema.",
+        title: "Catalog value does not match schema",
+        help: "Update the catalog value so it matches the catalog JSON Schema.",
     },
     CatalogEntryUnknownReference => {
         id: "catalog-entry-unknown-reference",
         entity: CatalogEntry,
-        title: "Catalog entry references an unknown entry",
-        help: "Create the referenced catalog entry or update the x-rototo-catalog field.",
+        title: "Catalog value references an unknown entry",
+        help: "Create the referenced catalog value or update the x-rototo-catalog field.",
     },
     VariableResolveMissingDefault => {
         id: "variable-resolve-missing-default",
@@ -327,13 +321,6 @@ rototo_rules! {
         entity: Rule,
         title: "Variable rule selects the default value",
         help: "Remove the rule or update it to select a value that differs from the resolve default.",
-        severity: Warning,
-    },
-    VariableValueUnused => {
-        id: "variable-value-unused",
-        entity: Value,
-        title: "Variable value is not used",
-        help: "Reference the value from the resolve default or a rule, or remove it.",
         severity: Warning,
     },
     CustomLintFailed => {

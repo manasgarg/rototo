@@ -1,94 +1,159 @@
 /* Wire types for the rototo console API. The Rust server is the source of
    truth (src/console/); these mirror its serde camelCase output. */
 
-export type ConsoleMode = "local" | "team" | "read-only";
+/** Server deployment mode resolved once at console startup. */
+export type ConsoleDeployment = "local" | "hosted";
+/** Server write policy resolved once at console startup. */
+export type ConsoleWritePolicy = "disabled" | "pull-request" | "direct-push";
+/** Explanation of where the active GitHub token came from. */
+export type GitHubTokenSource =
+    | "flag"
+    | "environment"
+    | "device-flow"
+    | "gh-cli"
+    | "oauth-session";
 
+/** Principal identity returned by the server without exposing credentials. */
+export type ActorIdentity =
+    | {
+          kind: "gitConfig";
+          name: string | null;
+          email: string | null;
+      }
+    | {
+          kind: "gitHub";
+          id: string;
+          login: string;
+          name: string | null;
+          avatarUrl: string | null;
+      };
+
+/** `/api/me` payload for auth state and process capabilities. */
 export type MeResponse = {
-    mode: ConsoleMode;
+    deployment: ConsoleDeployment;
+    writePolicy: ConsoleWritePolicy;
     deviceFlow: boolean;
-    tokenSource: "flag" | "environment" | "device-flow" | "gh-cli" | null;
+    tokenSource: GitHubTokenSource | null;
     authError: string | null;
     user: SessionUser | null;
 };
 
+/** Signed-in console user projection; the session token remains server-side. */
 export type SessionUser = {
-    githubUserId: string;
-    githubLogin: string;
-    githubName: string | null;
-    githubAvatarUrl: string | null;
+    principalId: string;
+    identity: ActorIdentity;
+    displayName: string;
+    avatarUrl: string | null;
+    hasGithubToken: boolean;
 };
 
-export type RepoRecord = {
+/** Normalized workspace source class used for UI capability messaging. */
+export type WorkspaceSourceKind =
+    | "localPath"
+    | "fileUrl"
+    | "gitFile"
+    | "gitHubArchive"
+    | "gitHubGit"
+    | "httpsArchive"
+    | "genericGitRemote";
+
+/** Read capability calculated for the current user and workspace response. */
+export type WorkspaceCapability =
+    | { status: "allowed" }
+    | { status: "missingCredential"; reason: string };
+
+/** Write capability calculated by the server from policy, source, and token. */
+export type WorkspaceWriteCapability =
+    | { kind: "disabled"; reason: string }
+    | { kind: "pullRequest"; backend: "gitHubApi" }
+    | { kind: "directPush"; backend: "gitHubApi" };
+
+/** Combined read/write capability summary for one workspace response. */
+export type WorkspaceCapabilities = {
+    read: WorkspaceCapability;
+    write: WorkspaceWriteCapability;
+};
+
+/** Registered source tree row persisted by the console store. */
+export type SourceTreeKind = "gitHub" | "gitRemote" | "localFolder" | "archive";
+
+/** Capability flags calculated from the registered source tree kind. */
+export type SourceTreeCapabilities = {
+    canRefresh: boolean;
+    canDiscoverWorkspaces: boolean;
+    canLoadWorkspaces: boolean;
+    canBranch: boolean;
+    canEdit: boolean;
+    canOpenPullRequest: boolean;
+};
+
+export type SourceTreeRecord = {
     id: string;
-    githubUserId: string;
-    owner: string;
-    name: string;
-    defaultRef: string;
+    principalId: string;
+    kind: SourceTreeKind;
+    source: string;
+    displayName: string;
+    defaultRevision: string;
+    capabilities: SourceTreeCapabilities;
     createdAt: string;
     updatedAt: string;
     lastDiscoveredAt: string | null;
 };
 
-export type RepoWithWorkspaces = RepoRecord & {
+/** Source tree row plus active discovered workspaces, rebuilt for responses. */
+export type SourceTreeWithWorkspaces = SourceTreeRecord & {
     workspaces: WorkspaceRecord[];
 };
 
+/** Persisted workspace discovery row inside a registered source tree. */
 export type WorkspaceRecord = {
     id: string;
     slug: string;
-    repoId: string;
-    owner: string;
-    name: string;
+    sourceTreeId: string;
+    sourceTreeLabel: string;
     path: string;
-    ref: string;
+    revision: string;
     source: string;
     discoveredAt: string;
 };
 
-export type DraftSessionRecord = {
+/** Source tree branch selected by one console user. */
+export type BranchRecord = {
     id: string;
-    workspaceId: string;
-    githubUserId: string;
+    sourceTreeId: string;
+    principalId: string;
     branch: string;
     baseRef: string;
-    status: "open" | "published" | "abandoned";
+    baseCommit: string | null;
     prUrl: string | null;
     prNumber: number | null;
     prState: string | null;
     prMergedAt: string | null;
     prSyncedAt: string | null;
+    lastSelectedWorkspacePath: string | null;
+    lastSeenCommit: string | null;
+    status: "active" | "recent" | "archived";
     createdAt: string;
-    updatedAt: string;
-    publishedAt: string | null;
+    lastOpenedAt: string;
+    lastEditedAt: string | null;
+    archivedAt: string | null;
 };
 
-export type DraftChangeRecord = {
+/** Changed file derived from comparing a branch with its base ref. */
+export type BranchChangeRecord = {
     id: string;
-    draftId: string;
     filePath: string;
-    variableId: string;
-    valueKey: string;
-    beforeJson: string;
-    afterJson: string;
-    updatedAt: string;
-};
-
-export type DraftEventRecord = {
-    id: string;
-    draftId: string;
-    kind: string;
-    summary: string;
-    detailJson: string | null;
-    createdAt: string;
 };
 
 /* Lint diagnostics arrive as the Rust LintDiagnostic serde output; the
    console reads them loosely, same as the admin app did. */
+/** Diagnostic target from Rust lint output, kept loose for compatibility. */
 export type SemanticTarget = {
     entity?: Record<string, unknown>;
     field?: Record<string, unknown>;
 };
 
+/** Browser-facing copy of a Rust lint diagnostic. */
 export type LintDiagnostic = {
     rule?: { id?: string } | string;
     severity?: string;
@@ -106,6 +171,7 @@ export type LintDiagnostic = {
     };
 };
 
+/** Successful lint payload for one staged workspace root. */
 export type WorkspaceLintView = {
     root: string;
     diagnostics: LintDiagnostic[];
@@ -117,16 +183,25 @@ export type WorkspaceLintLoad =
     | { root: string; diagnostics: LintDiagnostic[]; error: string };
 
 /* The semantic model: serde of rototo's WorkspaceSemanticModel. */
+/** Source location emitted by the Rust semantic model. */
 export type ModelLocation = {
     path: string;
     range?: unknown;
 };
 
+/** Value plus location for a scalar field in the semantic model. */
 export type ModelField = {
     value?: string;
     location: ModelLocation;
 };
 
+/** JSON value plus location for resolve values in the semantic model. */
+export type ModelValueField = {
+    value?: unknown;
+    location: ModelLocation;
+};
+
+/** Qualifier predicate as described by the semantic model. */
 export type PredicateModel = {
     index: number;
     location: ModelLocation;
@@ -135,6 +210,7 @@ export type PredicateModel = {
     value?: unknown;
 };
 
+/** Qualifier declaration from the semantic model. */
 export type QualifierModel = {
     id: string;
     location: ModelLocation;
@@ -142,31 +218,36 @@ export type QualifierModel = {
     predicates: PredicateModel[];
 };
 
+/** Variable declaration kind and optional referenced schema/catalog/type. */
 export type DeclarationModel = {
     kind: string;
     value?: string;
     location: ModelLocation;
 };
 
+/** Named value declared by a variable or value file. */
 export type ValueModel = {
     key: string;
     location: ModelLocation;
     value: unknown;
 };
 
+/** Resolve rule in declaration order. */
 export type RuleModel = {
     index: number;
     location: ModelLocation;
     qualifier?: ModelField;
-    value?: ModelField;
+    value?: ModelValueField;
 };
 
+/** Variable resolution block with default and ordered rules. */
 export type ResolveModel = {
     location: ModelLocation;
-    default?: ModelField;
+    default?: ModelValueField;
     rules: RuleModel[];
 };
 
+/** Variable declaration from the semantic model. */
 export type VariableModel = {
     id: string;
     location: ModelLocation;
@@ -176,6 +257,7 @@ export type VariableModel = {
     resolve?: ResolveModel;
 };
 
+/** Catalog declaration from the semantic model. */
 export type CatalogModel = {
     id: string;
     location: ModelLocation;
@@ -183,6 +265,7 @@ export type CatalogModel = {
     schema?: ModelField;
 };
 
+/** Catalog value value from the semantic model. */
 export type CatalogEntryModel = {
     catalog: string;
     key: string;
@@ -190,18 +273,21 @@ export type CatalogEntryModel = {
     value: unknown;
 };
 
+/** JSON Schema file from the semantic model. */
 export type SchemaModel = {
     path: string;
     location: ModelLocation;
     json?: unknown;
 };
 
+/** Custom Lua linter file and the rules it declares. */
 export type LinterModel = {
     path: string;
     location: ModelLocation;
     rules: Array<{ id: string; title: string; help: string }>;
 };
 
+/** Node identity used by semantic references. */
 export type ModelEntityRef =
     | { kind: "qualifier"; id: string }
     | { kind: "variable"; id: string }
@@ -211,6 +297,7 @@ export type ModelEntityRef =
     | { kind: "value"; variable: string; key: string }
     | { kind: "contextAttribute"; name: string };
 
+/** Edge reason used by semantic references. */
 export type ModelReferenceVia =
     | { kind: "predicateQualifier"; index: number }
     | { kind: "predicateContextAttribute"; index: number }
@@ -220,6 +307,7 @@ export type ModelReferenceVia =
     | { kind: "ruleQualifier"; index: number }
     | { kind: "ruleValue"; index: number };
 
+/** Directed semantic reference from one workspace entity to another. */
 export type ReferenceModel = {
     from: ModelEntityRef;
     to: ModelEntityRef;
@@ -227,6 +315,7 @@ export type ReferenceModel = {
     via: ModelReferenceVia;
 };
 
+/** Full semantic graph for a staged workspace, generated by Rust. */
 export type WorkspaceSemanticModel = {
     version: number;
     qualifiers: QualifierModel[];
@@ -239,19 +328,21 @@ export type WorkspaceSemanticModel = {
 };
 
 /* Workspace inventory, computed server-side from the semantic model. */
+/** Variable inventory row derived from the semantic model for navigation. */
 export type VariableInventoryItem = {
     id: string;
     path: string;
     description: string | null;
     declaration: string;
-    defaultValueKey: string | null;
+    defaultValue: string | null;
     ruleCount: number;
     qualifierReferences: string[];
-    ruleValueKeys: string[];
+    ruleValues: string[];
     catalogReference: string | null;
     schemaReference: string | null;
 };
 
+/** Qualifier inventory row derived from the semantic model. */
 export type QualifierInventoryItem = {
     id: string;
     path: string;
@@ -260,6 +351,7 @@ export type QualifierInventoryItem = {
     qualifierReferences: string[];
 };
 
+/** Catalog inventory row with schema and entry-count summary. */
 export type CatalogInventoryItem = {
     id: string;
     path: string;
@@ -269,6 +361,7 @@ export type CatalogInventoryItem = {
     entryCount: number;
 };
 
+/** Catalog value inventory row linked to its editable source path. */
 export type CatalogEntryInventoryItem = {
     catalogId: string;
     key: string;
@@ -276,12 +369,14 @@ export type CatalogEntryInventoryItem = {
     path: string;
 };
 
+/** Standalone schema inventory row for editor navigation. */
 export type SchemaInventoryItem = {
     id: string;
     path: string;
     title: string | null;
 };
 
+/** Custom lint rule or script inventory row for editor navigation. */
 export type LinterInventoryItem = {
     id: string;
     title: string | null;
@@ -289,12 +384,14 @@ export type LinterInventoryItem = {
     kind: "rule" | "script";
 };
 
+/** Context schema/example summary discovered for preview inputs. */
 export type ContextInventory = {
     schemaPath: string | null;
     exampleCount: number;
     examples: string[];
 };
 
+/** Server-built navigation inventory for one staged workspace. */
 export type WorkspaceInventory = {
     variables: VariableInventoryItem[];
     qualifiers: QualifierInventoryItem[];
@@ -305,6 +402,7 @@ export type WorkspaceInventory = {
     context: ContextInventory;
 };
 
+/** Source text for one workspace file opened by the console. */
 export type WorkspaceDefinition = {
     path: string;
     text: string;
@@ -313,6 +411,7 @@ export type WorkspaceDefinition = {
 
 /* Resolution previews against saved request contexts, computed server-side
    by the real runtime. */
+/** Runtime qualifier evaluation annotated with predicate-level detail. */
 export type QualifierEvaluation = {
     id: string;
     matched: boolean | null;
@@ -326,11 +425,13 @@ export type QualifierEvaluation = {
     }>;
 };
 
+/** Variable preview result for one saved request context. */
 export type SavedContextResolution = {
     name: string;
     path: string;
     ok: boolean;
-    valueKey?: string;
+    value?: unknown;
+    source?: VariableResolutionSource;
     steps?: Array<{
         index: number;
         qualifier: string;
@@ -341,6 +442,11 @@ export type SavedContextResolution = {
     error?: string;
 };
 
+export type VariableResolutionSource =
+    | { kind: "literal" }
+    | { kind: "catalog"; catalog: string; value: string };
+
+/** Qualifier preview result for one saved request context. */
 export type QualifierContextEvaluation = {
     name: string;
     path: string;
@@ -348,12 +454,14 @@ export type QualifierContextEvaluation = {
     error?: string;
 };
 
+/** Branch edit preview truth table for one saved request context. */
 export type EditContextPreview = {
     name: string;
     qualifierTruth: Record<string, boolean>;
 };
 
-/* Draft editing: each editable entity arrives with its draft-branch text. */
+/* Branch editing: each editable entity arrives with its branch text. */
+/** Branch-branch entity text and metadata used by the editor screens. */
 export type EditableEntity = {
     section:
         | "variables"
@@ -374,12 +482,14 @@ export type EditableEntity = {
 };
 
 /* Screen payloads. */
+/** App shell payload: source trees, workspaces, and active branch rows. */
 export type ConsoleData = {
-    repos: RepoWithWorkspaces[];
+    sourceTrees: SourceTreeWithWorkspaces[];
     workspaces: WorkspaceRecord[];
-    drafts: Array<{ draft: DraftSessionRecord; workspace: WorkspaceRecord }>;
+    branches: Array<{ branch: BranchRecord; workspace: WorkspaceRecord }>;
 };
 
+/** Count/error summary for one staged workspace. */
 export type WorkspaceSummary = {
     variables: number;
     qualifiers: number;
@@ -388,24 +498,30 @@ export type WorkspaceSummary = {
     error: string | null;
 };
 
+/** Workspace summary paired with stable workspace navigation ids. */
 export type WorkspaceSummaryEntry = WorkspaceSummary & {
     workspaceId: string;
     workspaceSlug: string;
 };
 
+/** Workspace summary list payload, preserving server ordering. */
 export type WorkspaceSummariesData = {
     summaries: WorkspaceSummaryEntry[];
 };
 
+/** Full workspace screen payload for a persisted workspace record. */
 export type WorkspaceData = {
     workspace: WorkspaceRecord;
-    drafts: DraftSessionRecord[];
+    branches: BranchRecord[];
     inventory: WorkspaceInventory;
     inventoryError: string | null;
     lint: WorkspaceLintLoad;
     model: WorkspaceSemanticModel | null;
+    sourceKind: WorkspaceSourceKind;
+    capabilities: WorkspaceCapabilities;
 };
 
+/** Source text and previews for one workspace inspect entity. */
 export type WorkspaceEntityData = {
     definition: WorkspaceDefinition | null;
     definitionError: string | null;
@@ -413,20 +529,23 @@ export type WorkspaceEntityData = {
     qualifierEvaluations: QualifierContextEvaluation[];
 };
 
-export type DraftData = {
+/** Full branch screen payload, including branch state and editable entities. */
+export type BranchData = {
     workspace: WorkspaceRecord;
-    draft: DraftSessionRecord;
+    branch: BranchRecord;
     prSyncError: string | null;
-    changes: DraftChangeRecord[];
-    events: DraftEventRecord[];
+    changes: BranchChangeRecord[];
     lint: WorkspaceLintLoad;
     model: WorkspaceSemanticModel | null;
     entities: EditableEntity[];
     editLoadError: string | null;
     editedPaths: string[];
+    sourceKind: WorkspaceSourceKind;
+    capabilities: WorkspaceCapabilities;
 };
 
-export type DraftEntityData = {
+/** Extra compare/preview payload for one branch entity editor. */
+export type BranchEntityData = {
     baseText: string | null;
     contextPreviews: EditContextPreview[];
 };

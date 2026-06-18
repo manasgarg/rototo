@@ -12,7 +12,7 @@ export function NotFound() {
                 <span className="label">404 — not found</span>
                 <h1>Nothing is configured at this address.</h1>
                 <p className="hint">
-                    The workspace or draft may have been removed, or the link
+                    The workspace or branch may have been removed, or the link
                     may be stale.
                 </p>
                 <Link className="btn btn-secondary" href="/app">

@@ -74,8 +74,7 @@ pub(crate) enum RuntimeCompareOp {
 
 #[derive(Debug)]
 pub(crate) struct RuntimeVariable {
-    pub(crate) values: BTreeMap<String, JsonValue>,
-    pub(crate) default: String,
+    pub(crate) default: RuntimeSelectedValue,
     pub(crate) rules: Vec<RuntimeRule>,
 }
 
@@ -83,7 +82,26 @@ pub(crate) struct RuntimeVariable {
 pub(crate) struct RuntimeRule {
     pub(crate) index: usize,
     pub(crate) qualifier: String,
-    pub(crate) value: String,
+    pub(crate) value: RuntimeSelectedValue,
+}
+
+#[derive(Clone, Debug)]
+pub(crate) enum RuntimeSelectedValue {
+    Literal(JsonValue),
+    Catalog {
+        catalog: String,
+        name: String,
+        value: JsonValue,
+    },
+}
+
+impl RuntimeSelectedValue {
+    pub(crate) fn value(&self) -> &JsonValue {
+        match self {
+            Self::Literal(value) => value,
+            Self::Catalog { value, .. } => value,
+        }
+    }
 }
 
 pub(crate) async fn compile_runtime_workspace(root: &Path) -> Result<RuntimeWorkspace> {
@@ -261,17 +279,9 @@ impl<'a> RuntimeCompiler<'a> {
                 )));
             }
             self.validate_variable_type_source(index, variable)?;
-            let values = self.compile_variable_values(index, variable)?;
-            let (default, rules) = self.compile_variable_resolve(variable, &values, qualifiers)?;
+            let (default, rules) = self.compile_variable_resolve(index, variable, qualifiers)?;
 
-            variables.insert(
-                variable.id.clone(),
-                RuntimeVariable {
-                    values,
-                    default,
-                    rules,
-                },
-            );
+            variables.insert(variable.id.clone(), RuntimeVariable { default, rules });
         }
         Ok(variables)
     }
@@ -307,91 +317,35 @@ impl<'a> RuntimeCompiler<'a> {
         }
     }
 
-    fn compile_variable_values(
+    fn compile_variable_resolve(
         &self,
         index: &SemanticIndex,
         variable: &VariableNode,
-    ) -> Result<BTreeMap<String, JsonValue>> {
-        if let TypeSourceNode::Catalog(catalog) = &variable.type_source {
-            if variable.values.invalid_shape || !variable.values.inline_values.is_empty() {
-                return Err(RototoError::new(format!(
-                    "catalog-backed variable must not contain values: {}",
-                    variable.id
-                )));
-            }
-
-            let entries = index.catalog_entries.get(&catalog.value).ok_or_else(|| {
-                RototoError::new(format!(
-                    "catalog has no entries for variable {}: {}",
-                    variable.id, catalog.value
-                ))
-            })?;
-            if entries.is_empty() {
-                return Err(RototoError::new(format!(
-                    "catalog has no entries for variable {}: {}",
-                    variable.id, catalog.value
-                )));
-            }
-            return Ok(entries
-                .iter()
-                .map(|(key, entry)| (key.clone(), entry.value.clone()))
-                .collect());
-        }
-
-        if variable.values.invalid_shape {
-            return Err(RototoError::new(format!(
-                "variable values must be a table: {}",
-                variable.id
-            )));
-        }
-        let mut values = BTreeMap::new();
-        for (key, value) in &variable.values.inline_values {
-            values.insert(key.clone(), value.value.clone());
-        }
-
-        if values.is_empty() {
-            return Err(RototoError::new(format!(
-                "variable must contain values: {}",
-                variable.id
-            )));
-        }
-        Ok(values)
-    }
-
-    fn compile_variable_resolve(
-        &self,
-        variable: &VariableNode,
-        values: &BTreeMap<String, JsonValue>,
         qualifiers: &BTreeMap<String, RuntimeQualifier>,
-    ) -> Result<(String, Vec<RuntimeRule>)> {
+    ) -> Result<(RuntimeSelectedValue, Vec<RuntimeRule>)> {
         let ResolveNode::Resolve { default, rules, .. } = &variable.resolve else {
             return Err(RototoError::new(format!(
                 "variable must contain [resolve]: {}",
                 variable.id
             )));
         };
-        let default = present_string(default, "resolve must reference a default value")?
-            .value
-            .clone();
-        if !values.contains_key(&default) {
-            return Err(RototoError::new(format!(
-                "resolve default references unknown value: {default}"
-            )));
-        }
+        let default = present_json(default, "resolve must declare a default value")?;
+        let default = self.compile_variable_value(index, variable, &default.value)?;
         let RuleCollection::Rules(rules) = rules else {
             return Err(RototoError::new("rule must use [[resolve.rule]] tables"));
         };
         let rules = rules
             .iter()
-            .map(|rule| self.compile_variable_rule(rule, values, qualifiers))
+            .map(|rule| self.compile_variable_rule(index, variable, rule, qualifiers))
             .collect::<Result<Vec<_>>>()?;
         Ok((default, rules))
     }
 
     fn compile_variable_rule(
         &self,
+        index: &SemanticIndex,
+        variable: &VariableNode,
         rule: &VariableRuleNode,
-        values: &BTreeMap<String, JsonValue>,
         qualifiers: &BTreeMap<String, RuntimeQualifier>,
     ) -> Result<RuntimeRule> {
         if rule.invalid_shape {
@@ -405,18 +359,43 @@ impl<'a> RuntimeCompiler<'a> {
                 "rule references unknown qualifier: {qualifier}"
             )));
         }
-        let value = present_string(&rule.value, "rule must reference a value")?
-            .value
-            .clone();
-        if !values.contains_key(&value) {
-            return Err(RototoError::new(format!(
-                "rule references unknown value: {value}"
-            )));
-        }
+        let value = present_json(&rule.value, "rule must declare a value")?;
+        let value = self.compile_variable_value(index, variable, &value.value)?;
         Ok(RuntimeRule {
             index: rule.index,
             qualifier,
             value,
+        })
+    }
+
+    fn compile_variable_value(
+        &self,
+        index: &SemanticIndex,
+        variable: &VariableNode,
+        value: &JsonValue,
+    ) -> Result<RuntimeSelectedValue> {
+        let TypeSourceNode::Catalog(catalog) = &variable.type_source else {
+            return Ok(RuntimeSelectedValue::Literal(value.clone()));
+        };
+        let Some(name) = value.as_str() else {
+            return Err(RototoError::new(format!(
+                "catalog-backed variable value must be a string: {}",
+                variable.id
+            )));
+        };
+        let entries = index.catalog_entries.get(&catalog.value).ok_or_else(|| {
+            RototoError::new(format!(
+                "catalog has no values for variable {}: {}",
+                variable.id, catalog.value
+            ))
+        })?;
+        let entry = entries.get(name).ok_or_else(|| {
+            RototoError::new(format!("variable references unknown catalog value: {name}"))
+        })?;
+        Ok(RuntimeSelectedValue::Catalog {
+            catalog: catalog.value.clone(),
+            name: name.to_owned(),
+            value: entry.value.clone(),
         })
     }
 }
@@ -429,6 +408,18 @@ fn present_string<'a>(
     field: &'a ProjectField<String>,
     message: &'static str,
 ) -> Result<&'a Spanned<String>> {
+    match field {
+        ProjectField::Present(value) => Ok(value),
+        ProjectField::Invalid { .. } | ProjectField::Missing { .. } => {
+            Err(RototoError::new(message))
+        }
+    }
+}
+
+fn present_json<'a>(
+    field: &'a ProjectField<JsonValue>,
+    message: &'static str,
+) -> Result<&'a Spanned<JsonValue>> {
     match field {
         ProjectField::Present(value) => Ok(value),
         ProjectField::Invalid { .. } | ProjectField::Missing { .. } => {

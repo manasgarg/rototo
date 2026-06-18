@@ -1,0 +1,4 @@
+schema_version = 1
+
+description = "Catalog for bad resolve references"
+schema = "../schemas/bad-resolve.schema.json"

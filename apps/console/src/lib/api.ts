@@ -81,6 +81,7 @@ export async function api<T>(
     return (await response.json()) as T;
 }
 
+/** Screen-level API request state owned by `useApi` for one endpoint path. */
 export type ApiState<T> = {
     data: T | null;
     error: string | null;

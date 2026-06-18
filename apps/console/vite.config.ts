@@ -22,7 +22,7 @@ export default defineConfig({
                 "./src/main.tsx",
                 "./src/screens/console-screen.tsx",
                 "./src/components/app-shell.tsx",
-                "./src/components/repo-registration-form.tsx",
+                "./src/components/source-tree-registration-form.tsx",
                 "./src/lib/api.ts",
                 "./src/lib/me.tsx",
             ],

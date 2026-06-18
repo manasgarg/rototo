@@ -1,28 +1,16 @@
-use serde_json::Value as JsonValue;
-
-use super::github::{stable_workspace_key, workspace_archive_source, workspace_repo_path};
-use super::store::{DraftChangeRecord, DraftSessionRecord, WorkspaceRecord};
+use super::github::{stable_workspace_key, workspace_repo_path};
+use super::store::{ActiveBranchRecord, WorkspaceRecord};
 use super::time::now_compact_stamp;
-
-/// The workspace source to stage for a draft: the draft branch of the remote
-/// archive, or the local path unchanged for dev/test registrations.
-pub fn draft_source(workspace: &WorkspaceRecord, draft: &DraftSessionRecord) -> String {
-    if !workspace.source.contains("://") {
-        return workspace.source.clone();
-    }
-    workspace_archive_source(
-        &workspace.owner,
-        &workspace.name,
-        &draft.branch,
-        &workspace.path,
-    )
-}
 
 pub fn expected_variable_file_path(workspace: &WorkspaceRecord, variable_id: &str) -> String {
     workspace_repo_path(&workspace.path, &format!("variables/{variable_id}.toml"))
 }
 
-pub fn draft_branch_name(login: &str, workspace: &WorkspaceRecord) -> String {
+pub fn variable_default_target_path() -> String {
+    "/resolve/default".to_owned()
+}
+
+pub fn console_branch_name(login: &str, workspace: &WorkspaceRecord) -> String {
     let login: String = {
         let mut cleaned = String::new();
         let mut pending_dash = false;
@@ -39,14 +27,14 @@ pub fn draft_branch_name(login: &str, workspace: &WorkspaceRecord) -> String {
         }
         cleaned
     };
-    let key = stable_workspace_key(&workspace.owner, &workspace.name, &workspace.path);
+    let key = stable_workspace_key(&workspace.source_tree_label, &workspace.path);
     format!(
         "rototo-console/{login}/{key}/{stamp}",
         stamp = now_compact_stamp()
     )
 }
 
-pub fn draft_pr_title(workspace: &WorkspaceRecord) -> String {
+pub fn branch_pr_title(workspace: &WorkspaceRecord) -> String {
     let path = if workspace.path == "." {
         "root workspace"
     } else {
@@ -55,10 +43,10 @@ pub fn draft_pr_title(workspace: &WorkspaceRecord) -> String {
     format!("Update rototo workspace {path}")
 }
 
-pub fn draft_pr_body(
+pub fn branch_pr_body(
     workspace: &WorkspaceRecord,
-    draft: &DraftSessionRecord,
-    changes: &[DraftChangeRecord],
+    branch: &ActiveBranchRecord,
+    changed_paths: &[String],
     error_count: usize,
     warning_count: usize,
 ) -> String {
@@ -69,20 +57,12 @@ pub fn draft_pr_body(
     } else {
         "clean".to_owned()
     };
-    let change_lines: Vec<String> = if changes.is_empty() {
-        vec!["- No tracked semantic changes.".to_owned()]
+    let changed_paths = if changed_paths.is_empty() {
+        vec!["- No changed files detected.".to_owned()]
     } else {
-        changes
+        changed_paths
             .iter()
-            .map(|change| {
-                format!(
-                    "- variable `{}` value `{}`: `{}` -> `{}`",
-                    change.variable_id,
-                    change.value_key,
-                    json_summary(&change.before_json),
-                    json_summary(&change.after_json),
-                )
-            })
+            .map(|path| format!("- `{path}`"))
             .collect()
     };
 
@@ -90,24 +70,18 @@ pub fn draft_pr_body(
         "## Rototo Console".to_owned(),
         String::new(),
         format!(
-            "Workspace: `{}/{}:{}`",
-            workspace.owner, workspace.name, workspace.path
+            "Workspace: `{}:{}`",
+            workspace.source_tree_label, workspace.path
         ),
-        format!("Base ref: `{}`", draft.base_ref),
-        format!("Draft branch: `{}`", draft.branch),
+        format!("Base ref: `{}`", branch.base_ref),
+        format!("Branch: `{}`", branch.branch),
         format!("Lint status: {lint_status}"),
         String::new(),
-        "## Semantic changes".to_owned(),
+        "## Changed files".to_owned(),
         String::new(),
     ];
-    body.extend(change_lines);
+    body.extend(changed_paths);
     body.join("\n")
-}
-
-fn json_summary(value: &str) -> String {
-    serde_json::from_str::<JsonValue>(value)
-        .map(|parsed| parsed.to_string())
-        .unwrap_or_else(|_| value.to_owned())
 }
 
 /// File paths must stay inside the workspace: no absolute paths, no `..`
@@ -119,6 +93,11 @@ pub fn belongs_to_workspace(workspace_path: &str, file_path: &str) -> bool {
     workspace_path == "." || file_path.starts_with(&format!("{workspace_path}/"))
 }
 
+/// Workspace entity kind the branch editor knows how to create.
+///
+/// The enum is parsed from request JSON and then used to select file templates.
+/// It is intentionally tied to rototo's first-class nouns so new generic
+/// package/document concepts do not leak into console creation paths.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum EntityKind {
@@ -131,20 +110,11 @@ pub enum EntityKind {
     Linters,
 }
 
-impl EntityKind {
-    pub fn label(self) -> &'static str {
-        match self {
-            Self::Variables => "variable",
-            Self::Qualifiers => "qualifier",
-            Self::Catalogs => "catalog",
-            Self::CatalogEntries => "catalog entry",
-            Self::Schemas => "schema",
-            Self::Context => "context example",
-            Self::Linters => "linter",
-        }
-    }
-}
-
+/// File planned for creation in a branch.
+///
+/// Template generation returns these before any write happens. The branch route
+/// checks for conflicts first, writes each file through the selected backend,
+/// and then serializes the same planned paths back to the UI.
 #[derive(Clone, Debug, serde::Serialize)]
 pub struct PlannedFile {
     pub path: String,
@@ -202,7 +172,7 @@ pub fn entity_template_files(
             },
         ],
         EntityKind::CatalogEntries => {
-            let catalog_id = catalog_id.expect("catalog entry creation requires catalogId");
+            let catalog_id = catalog_id.expect("catalog value creation requires catalogId");
             vec![PlannedFile {
                 path: path(&format!("catalogs/{catalog_id}-entries/{id}.toml")),
                 content: catalog_entry_template().to_owned(),
@@ -234,10 +204,8 @@ fn variable_template(id: &str, variable_type: &str) -> String {
         "schema_version = 1\n\n\
          description = {description}\n\
          type = {variable_type}\n\n\
-         [values]\n\
-         control = {default_literal}\n\n\
          [resolve]\n\
-         default = \"control\"\n",
+         default = {default_literal}\n",
         description = toml_string(&format!(
             "Edit this description to explain what {id} controls"
         )),
@@ -265,7 +233,7 @@ fn catalog_template(id: &str) -> String {
          description = {description}\n\
          schema = {schema}\n",
         description = toml_string(&format!(
-            "Edit this description to explain the {id} catalog entries"
+            "Edit this description to explain the {id} catalog values"
         )),
         schema = toml_string(&format!("../schemas/{id}.schema.json")),
     )
@@ -329,50 +297,36 @@ mod tests {
         WorkspaceRecord {
             id: "w1".to_owned(),
             slug: "configs".to_owned(),
-            repo_id: "r1".to_owned(),
-            owner: "octo".to_owned(),
-            name: "configs".to_owned(),
+            source_tree_id: "r1".to_owned(),
+            source_tree_label: "octo/configs".to_owned(),
             path: path.to_owned(),
-            git_ref: "main".to_owned(),
+            revision: "main".to_owned(),
             source: source.to_owned(),
             discovered_at: "2026-01-01T00:00:00.000Z".to_owned(),
         }
     }
 
-    fn draft(branch: &str) -> DraftSessionRecord {
-        DraftSessionRecord {
-            id: "d1".to_owned(),
-            workspace_id: "w1".to_owned(),
-            github_user_id: "42".to_owned(),
-            branch: branch.to_owned(),
+    fn branch(name: &str) -> ActiveBranchRecord {
+        ActiveBranchRecord {
+            id: "b1".to_owned(),
+            source_tree_id: "r1".to_owned(),
+            principal_id: "42".to_owned(),
+            branch: name.to_owned(),
             base_ref: "main".to_owned(),
-            status: super::super::store::DraftStatus::Open,
+            base_commit: None,
             pr_url: None,
             pr_number: None,
             pr_state: None,
             pr_merged_at: None,
             pr_synced_at: None,
+            last_selected_workspace_path: Some(".".to_owned()),
+            last_seen_commit: None,
+            status: super::super::store::ActiveBranchStatus::Active,
             created_at: "2026-01-01T00:00:00.000Z".to_owned(),
-            updated_at: "2026-01-01T00:00:00.000Z".to_owned(),
-            published_at: None,
+            last_opened_at: "2026-01-01T00:00:00.000Z".to_owned(),
+            last_edited_at: None,
+            archived_at: None,
         }
-    }
-
-    #[test]
-    fn draft_source_swaps_ref_for_remote_sources_only() {
-        let remote = workspace(
-            ".",
-            "https://api.github.com/repos/octo/configs/tarball/main",
-        );
-        assert_eq!(
-            draft_source(&remote, &draft("feature")),
-            "https://api.github.com/repos/octo/configs/tarball/feature"
-        );
-        let local = workspace(".", "/tmp/local-workspace");
-        assert_eq!(
-            draft_source(&local, &draft("feature")),
-            "/tmp/local-workspace"
-        );
     }
 
     #[test]
@@ -414,8 +368,8 @@ mod tests {
 
     #[test]
     fn branch_names_carry_login_key_and_stamp() {
-        let branch = draft_branch_name("Octo Cat!", &workspace(".", "src"));
-        let parts: Vec<&str> = branch.split('/').collect();
+        let name = console_branch_name("Octo Cat!", &workspace(".", "src"));
+        let parts: Vec<&str> = name.split('/').collect();
         assert_eq!(parts[0], "rototo-console");
         assert_eq!(parts[1], "octo-cat");
         assert_eq!(parts[2].len(), 12);
@@ -423,25 +377,16 @@ mod tests {
     }
 
     #[test]
-    fn pr_body_lists_changes_and_lint_status() {
-        let body = draft_pr_body(
+    fn pr_body_lists_changed_files_and_lint_status() {
+        let body = branch_pr_body(
             &workspace(".", "src"),
-            &draft("feature"),
-            &[DraftChangeRecord {
-                id: "c1".to_owned(),
-                draft_id: "d1".to_owned(),
-                file_path: "variables/banner.toml".to_owned(),
-                variable_id: "banner".to_owned(),
-                value_key: "control".to_owned(),
-                before_json: "false".to_owned(),
-                after_json: "true".to_owned(),
-                updated_at: "2026-01-01T00:00:00.000Z".to_owned(),
-            }],
+            &branch("feature"),
+            &["variables/banner.toml".to_owned()],
             0,
             2,
         );
         assert!(body.starts_with("## Rototo Console"));
         assert!(body.contains("Lint status: 2 warning(s)"));
-        assert!(body.contains("- variable `banner` value `control`: `false` -> `true`"));
+        assert!(body.contains("- `variables/banner.toml`"));
     }
 }

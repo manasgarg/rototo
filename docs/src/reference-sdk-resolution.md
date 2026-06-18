@@ -64,7 +64,7 @@ let resolution = workspace
     .resolve_variable("account-limits", &context)
     .await?;
 
-println!("{} -> {}", resolution.value_key, resolution.value);
+println!("{:?} -> {}", resolution.source, resolution.value);
 ```
 
 ```python
@@ -73,7 +73,7 @@ resolution = await workspace.resolve_variable(
     context,
 )
 
-print(f"{resolution.value_key} -> {resolution.value}")
+print(f"{resolution.source} -> {resolution.value}")
 ```
 
 ```typescript
@@ -82,7 +82,7 @@ const resolution = await workspace.resolveVariable(
   context,
 );
 
-console.log(`${resolution.valueKey} -> ${resolution.value}`);
+console.log(`${resolution.source.kind} -> ${resolution.value}`);
 ```
 
 ```java
@@ -90,7 +90,7 @@ VariableResolution resolution = workspace
     .resolveVariable("account-limits", context)
     .get();
 
-System.out.println(resolution.valueKey() + " -> " + resolution.value());
+System.out.println(resolution.source() + " -> " + resolution.value());
 ```
 
 ```go
@@ -104,7 +104,7 @@ if err != nil {
     return err
 }
 
-fmt.Printf("%s -> %v\n", resolution.ValueKey, resolution.Value)
+fmt.Printf("%v -> %v\n", resolution.Source, resolution.Value)
 ```
 :::
 
@@ -113,10 +113,11 @@ fmt.Printf("%s -> %v\n", resolution.ValueKey, resolution.Value)
 | Field | Type | Meaning |
 | --- | --- | --- |
 | `id` | string | Variable id. |
-| `value_key` | string | Selected value key. |
 | `value` | JSON value | Selected value. |
+| `source` | object | Selected source. Literal values use `{ "kind": "literal" }`; catalog values include `catalog` and `value`. |
 
-The TypeScript, Java, and Go SDKs expose `value_key` as `valueKey`.
+The TypeScript, Java, and Go SDKs expose `source` with their normal field or
+method casing.
 
 ## Resolve A Qualifier
 

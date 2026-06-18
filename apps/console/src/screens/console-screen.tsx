@@ -12,37 +12,44 @@ import { useNavigate, useSearchParams } from "react-router";
 
 import { AppShell, NavGroupLabel, NavLink } from "@/components/app-shell";
 import { LoadingScreen } from "@/components/loading-screen";
-import { RemoveRepoButton } from "@/components/remove-repo-button";
-import { RepoRegistrationForm } from "@/components/repo-registration-form";
+import { RefreshSourceTreeButton } from "@/components/refresh-source-tree-button";
+import { RemoveSourceTreeButton } from "@/components/remove-source-tree-button";
+import { SourceTreeRegistrationForm } from "@/components/source-tree-registration-form";
 import { SearchableList } from "@/components/searchable-list";
-import { DraftStatusPill } from "@/components/status-pills";
+import { BranchStatusPill } from "@/components/status-pills";
 import { api, useApi } from "@/lib/api";
 import { Link } from "@/lib/link";
 import { useShellUser } from "@/lib/me";
 import { RefreshScope } from "@/lib/refresh";
 import type {
     ConsoleData,
-    DraftSessionRecord,
-    RepoWithWorkspaces,
+    BranchRecord,
+    SourceTreeWithWorkspaces,
     WorkspaceRecord,
     WorkspaceSummary,
     WorkspaceSummariesData,
 } from "@/lib/types";
 
-export type AppScreen = "repositories" | "workspaces" | "drafts" | "activity";
+/** App shell tab id accepted from route state. */
+export type AppScreen =
+    | "configuration-sources"
+    | "workspaces"
+    | "branches"
+    | "activity";
 
-type DraftEntry = { draft: DraftSessionRecord; workspace: WorkspaceRecord };
+/** Active branch row paired with workspace metadata for dashboard lists. */
+type BranchEntry = { branch: BranchRecord; workspace: WorkspaceRecord };
 
 const SCREEN_TITLES: Record<AppScreen, string> = {
-    repositories: "Repositories",
+    "configuration-sources": "Configuration Sources",
     workspaces: "Workspaces",
-    drafts: "Drafts",
+    branches: "Branches",
     activity: "Activity",
 };
 
 export function ConsoleScreen({ screen }: { screen: AppScreen }) {
     const [query] = useSearchParams();
-    const repoFilterId = query.get("repo");
+    const sourceTreeFilterId = query.get("sourceTree");
     const user = useShellUser();
     const { data, error, loading, reload } =
         useApi<ConsoleData>("/api/console");
@@ -60,17 +67,20 @@ export function ConsoleScreen({ screen }: { screen: AppScreen }) {
             return;
         }
         let cancelled = false;
-        const activeRepoId =
-            repoFilterId && data.repos.some((repo) => repo.id === repoFilterId)
-                ? repoFilterId
+        const activeSourceTreeId =
+            sourceTreeFilterId &&
+            data.sourceTrees.some(
+                (sourceTree) => sourceTree.id === sourceTreeFilterId,
+            )
+                ? sourceTreeFilterId
                 : null;
-        const visibleWorkspaces = activeRepoId
+        const visibleWorkspaces = activeSourceTreeId
             ? data.workspaces.filter(
-                  (workspace) => workspace.repoId === activeRepoId,
+                  (workspace) => workspace.sourceTreeId === activeSourceTreeId,
               )
             : data.workspaces;
-        const path = activeRepoId
-            ? `/api/workspaces/summaries?repoId=${encodeURIComponent(activeRepoId)}`
+        const path = activeSourceTreeId
+            ? `/api/workspaces/summaries?sourceTreeId=${encodeURIComponent(activeSourceTreeId)}`
             : "/api/workspaces/summaries";
         setWorkspaceSummaries(new Map());
         void api<WorkspaceSummariesData>(path).then(
@@ -112,7 +122,7 @@ export function ConsoleScreen({ screen }: { screen: AppScreen }) {
         return () => {
             cancelled = true;
         };
-    }, [selectedScreen, data, repoFilterId]);
+    }, [selectedScreen, data, sourceTreeFilterId]);
 
     if (loading && !data) {
         return <LoadingScreen />;
@@ -132,18 +142,24 @@ export function ConsoleScreen({ screen }: { screen: AppScreen }) {
         );
     }
 
-    const repos = data.repos;
+    const sourceTrees = data.sourceTrees;
     const workspaces = data.workspaces;
-    const filterRepo = repoFilterId
-        ? (repos.find((repo) => repo.id === repoFilterId) ?? null)
+    const filterSourceTree = sourceTreeFilterId
+        ? (sourceTrees.find(
+              (sourceTree) => sourceTree.id === sourceTreeFilterId,
+          ) ?? null)
         : null;
-    const visibleWorkspaces = filterRepo
-        ? workspaces.filter((workspace) => workspace.repoId === filterRepo.id)
+    const visibleWorkspaces = filterSourceTree
+        ? workspaces.filter(
+              (workspace) => workspace.sourceTreeId === filterSourceTree.id,
+          )
         : workspaces;
-    const drafts = data.drafts;
-    const openDrafts = drafts.filter(({ draft }) => draft.status === "open");
-    const publishedDrafts = drafts.filter(
-        ({ draft }) => draft.status === "published",
+    const branches = data.branches;
+    const activeBranches = branches.filter(
+        ({ branch }) => branch.status === "active",
+    );
+    const branchesWithPullRequests = branches.filter(
+        ({ branch }) => branch.prUrl !== null,
     );
 
     return (
@@ -153,11 +169,11 @@ export function ConsoleScreen({ screen }: { screen: AppScreen }) {
                     {
                         label: "console",
                         href:
-                            selectedScreen === "repositories"
+                            selectedScreen === "configuration-sources"
                                 ? undefined
                                 : "/app",
                     },
-                    ...(filterRepo
+                    ...(filterSourceTree
                         ? [{ label: "workspaces", href: "/app/workspaces" }]
                         : []),
                 ]}
@@ -165,11 +181,11 @@ export function ConsoleScreen({ screen }: { screen: AppScreen }) {
                     <>
                         <NavGroupLabel>Console</NavGroupLabel>
                         <NavLink
-                            active={selectedScreen === "repositories"}
-                            count={repos.length}
-                            href={appScreenHref("repositories")}
+                            active={selectedScreen === "configuration-sources"}
+                            count={sourceTrees.length}
+                            href={appScreenHref("configuration-sources")}
                             icon={<FolderGit2 aria-hidden size={16} />}
-                            label="Repositories"
+                            label="Configuration Sources"
                         />
                         <NavLink
                             active={selectedScreen === "workspaces"}
@@ -179,11 +195,11 @@ export function ConsoleScreen({ screen }: { screen: AppScreen }) {
                             label="Workspaces"
                         />
                         <NavLink
-                            active={selectedScreen === "drafts"}
-                            count={drafts.length}
-                            href={appScreenHref("drafts")}
+                            active={selectedScreen === "branches"}
+                            count={branches.length}
+                            href={appScreenHref("branches")}
                             icon={<GitBranch aria-hidden size={16} />}
-                            label="Drafts"
+                            label="Branches"
                         />
                         <NavLink
                             active={selectedScreen === "activity"}
@@ -196,26 +212,28 @@ export function ConsoleScreen({ screen }: { screen: AppScreen }) {
                 title={SCREEN_TITLES[selectedScreen]}
                 user={user}
             >
-                {selectedScreen === "repositories" ? (
-                    <RepositoriesScreen repos={repos} />
+                {selectedScreen === "configuration-sources" ? (
+                    <SourceTreesScreen sourceTrees={sourceTrees} />
                 ) : null}
                 {selectedScreen === "workspaces" ? (
                     <WorkspacesScreen
-                        drafts={drafts}
-                        filterRepo={filterRepo}
+                        branches={branches}
+                        filterSourceTree={filterSourceTree}
                         workspaceSummaries={workspaceSummaries}
                         workspaces={visibleWorkspaces}
                     />
                 ) : null}
-                {selectedScreen === "drafts" ? (
-                    <DraftsScreen drafts={drafts} />
+                {selectedScreen === "branches" ? (
+                    <BranchesScreen branches={branches} />
                 ) : null}
                 {selectedScreen === "activity" ? (
                     <ActivityScreen
-                        drafts={drafts}
-                        openDraftsCount={openDrafts.length}
-                        publishedDraftsCount={publishedDrafts.length}
-                        reposCount={repos.length}
+                        branches={branches}
+                        activeBranchesCount={activeBranches.length}
+                        branchesWithPullRequestsCount={
+                            branchesWithPullRequests.length
+                        }
+                        sourceTreesCount={sourceTrees.length}
                     />
                 ) : null}
             </AppShell>
@@ -223,83 +241,105 @@ export function ConsoleScreen({ screen }: { screen: AppScreen }) {
     );
 }
 
-function RepositoriesScreen({ repos }: { repos: RepoWithWorkspaces[] }) {
+function SourceTreesScreen({
+    sourceTrees,
+}: {
+    sourceTrees: SourceTreeWithWorkspaces[];
+}) {
     return (
         <section className="section">
             <div className="section-header-text">
-                <h1>Repositories</h1>
+                <h1>Configuration Sources</h1>
                 <p className="hint">
-                    rototo discovers workspaces by scanning a repository for{" "}
+                    rototo discovers workspaces by scanning a configuration
+                    source for{" "}
                     <span className="mono">rototo-workspace.toml</span> files.
-                    Register a repository your GitHub account can read.
+                    Register a GitHub repo, local folder, git remote, or archive
+                    this console can read.
                 </p>
             </div>
-            <RepoRegistrationForm />
-            {repos.length === 0 ? (
+            <SourceTreeRegistrationForm />
+            {sourceTrees.length === 0 ? (
                 <div className="empty-state">
                     <span className="empty-puck">
                         <FolderGit2 aria-hidden size={18} />
                     </span>
                     <p>
-                        No repositories yet. Add one above to discover
+                        No configuration sources yet. Add one above to discover
                         workspaces.
                     </p>
                 </div>
             ) : (
                 <SearchableList
                     className="card-grid"
-                    emptyLabel="No repositories match that search."
-                    label="Search repositories"
-                    placeholder="Search repositories"
+                    emptyLabel="No configuration sources match that search."
+                    label="Search configuration sources"
+                    placeholder="Search configuration sources"
                 >
-                    {repos.map((repo) => (
+                    {sourceTrees.map((sourceTree) => (
                         <article
-                            className="card repo-card"
-                            data-search={`${repo.owner}/${repo.name} ${repo.defaultRef}`}
-                            key={repo.id}
+                            className="card source-tree-card"
+                            data-search={`${sourceTree.displayName} ${sourceTree.source} ${sourceTree.defaultRevision} ${sourceTreeKindLabel(sourceTree.kind)}`}
+                            key={sourceTree.id}
                         >
                             <div className="card-head">
                                 <div className="card-head-text">
                                     <h3>
                                         <Link
                                             className="card-stretch"
-                                            href={`/app/workspaces?repo=${repo.id}`}
-                                            title={`Workspaces in ${repo.owner}/${repo.name}`}
+                                            href={`/app/workspaces?sourceTree=${sourceTree.id}`}
+                                            title={`Workspaces in ${sourceTree.displayName}`}
                                         >
-                                            {repo.owner}/{repo.name}
+                                            {sourceTree.displayName}
                                         </Link>
                                     </h3>
                                     <span className="kv">
                                         <span>
-                                            ref{" "}
+                                            revision{" "}
                                             <span className="mono">
-                                                {repo.defaultRef}
+                                                {sourceTree.defaultRevision}
                                             </span>
+                                        </span>
+                                        <span>
+                                            {sourceTreeKindLabel(
+                                                sourceTree.kind,
+                                            )}
                                         </span>
                                     </span>
                                 </div>
                                 <span className="card-actions">
+                                    {!sourceTree.capabilities.canBranch ? (
+                                        <span className="pill pill-neutral">
+                                            read-only
+                                        </span>
+                                    ) : null}
                                     <span className="pill pill-sea">
                                         <span className="d" />
-                                        {repo.workspaces.length}{" "}
-                                        {repo.workspaces.length === 1
+                                        {sourceTree.workspaces.length}{" "}
+                                        {sourceTree.workspaces.length === 1
                                             ? "workspace"
                                             : "workspaces"}
                                     </span>
-                                    <RemoveRepoButton
-                                        repoId={repo.id}
-                                        repoName={`${repo.owner}/${repo.name}`}
+                                    <RefreshSourceTreeButton
+                                        sourceTreeId={sourceTree.id}
+                                        sourceTreeName={sourceTree.displayName}
+                                    />
+                                    <RemoveSourceTreeButton
+                                        sourceTreeId={sourceTree.id}
+                                        sourceTreeName={sourceTree.displayName}
                                     />
                                 </span>
                             </div>
                             <div className="kv">
                                 <span>
-                                    updated {formatDate(repo.updatedAt)}
+                                    updated {formatDate(sourceTree.updatedAt)}
                                 </span>
-                                {repo.lastDiscoveredAt ? (
+                                {sourceTree.lastDiscoveredAt ? (
                                     <span>
                                         discovered{" "}
-                                        {formatDate(repo.lastDiscoveredAt)}
+                                        {formatDate(
+                                            sourceTree.lastDiscoveredAt,
+                                        )}
                                     </span>
                                 ) : null}
                             </div>
@@ -312,13 +352,13 @@ function RepositoriesScreen({ repos }: { repos: RepoWithWorkspaces[] }) {
 }
 
 function WorkspacesScreen({
-    drafts,
-    filterRepo,
+    branches,
+    filterSourceTree,
     workspaceSummaries,
     workspaces,
 }: {
-    drafts: DraftEntry[];
-    filterRepo: RepoWithWorkspaces | null;
+    branches: BranchEntry[];
+    filterSourceTree: SourceTreeWithWorkspaces | null;
     workspaceSummaries: Map<string, WorkspaceSummary>;
     workspaces: WorkspaceRecord[];
 }) {
@@ -329,15 +369,15 @@ function WorkspacesScreen({
                 <p className="hint">
                     Each workspace is a{" "}
                     <span className="mono">rototo-workspace.toml</span> root
-                    discovered in a registered repository. Open one to inspect
-                    and edit it.
+                    discovered in a registered configuration source. Open one to
+                    inspect and edit it.
                 </p>
             </div>
-            {filterRepo ? (
+            {filterSourceTree ? (
                 <div className="action-row">
                     <span className="pill pill-sea">
                         <span className="d" />
-                        repository: {filterRepo.owner}/{filterRepo.name}
+                        configuration source: {filterSourceTree.displayName}
                     </span>
                     <Link
                         className="btn btn-ghost btn-sm"
@@ -353,9 +393,9 @@ function WorkspacesScreen({
                         <Layers aria-hidden size={18} />
                     </span>
                     <p>
-                        {filterRepo
-                            ? `No workspaces discovered in ${filterRepo.owner}/${filterRepo.name}. Re-scan it from the repositories screen after adding rototo-workspace.toml.`
-                            : "Nothing to configure… yet. Register a repository to discover workspaces."}
+                        {filterSourceTree
+                            ? `No workspaces discovered in ${filterSourceTree.displayName}. Re-scan it from the configuration sources screen after adding rototo-workspace.toml.`
+                            : "Nothing to configure… yet. Register a configuration source to discover workspaces."}
                     </p>
                 </div>
             ) : (
@@ -367,9 +407,9 @@ function WorkspacesScreen({
                 >
                     {workspaces.map((workspace) => (
                         <WorkspaceRow
-                            data-search={`${workspace.owner}/${workspace.name} ${workspace.path} ${workspace.ref}`}
-                            draftsCount={
-                                drafts.filter(
+                            data-search={`${workspace.sourceTreeLabel} ${workspace.path} ${workspace.revision}`}
+                            branchesCount={
+                                branches.filter(
                                     (entry) =>
                                         entry.workspace.id === workspace.id,
                                 ).length
@@ -386,12 +426,12 @@ function WorkspacesScreen({
 }
 
 function WorkspaceRow({
-    draftsCount,
+    branchesCount,
     summary,
     workspace,
     "data-search": dataSearch,
 }: {
-    draftsCount: number;
+    branchesCount: number;
     summary: WorkspaceSummary | undefined;
     workspace: WorkspaceRecord;
     "data-search": string;
@@ -423,9 +463,7 @@ function WorkspaceRow({
             </span>
             <span className="row-text">
                 <span className="row-title mono">{workspace.path}</span>
-                <span className="row-sub">
-                    {workspace.owner}/{workspace.name}
-                </span>
+                <span className="row-sub">{workspace.sourceTreeLabel}</span>
                 <span
                     aria-busy={summary ? undefined : true}
                     className="kv workspace-summary-line"
@@ -482,10 +520,10 @@ function WorkspaceRow({
                     </span>
                 ) : (
                     <>
-                        {draftsCount > 0 ? (
+                        {branchesCount > 0 ? (
                             <span className="pill pill-neutral">
-                                {draftsCount}{" "}
-                                {draftsCount === 1 ? "draft" : "drafts"}
+                                {branchesCount}{" "}
+                                {branchesCount === 1 ? "branch" : "branches"}
                             </span>
                         ) : null}
                         <ChevronRight aria-hidden className="muted" size={15} />
@@ -509,38 +547,39 @@ function shouldHandleClientNavigation(
     );
 }
 
-function DraftsScreen({ drafts }: { drafts: DraftEntry[] }) {
+function BranchesScreen({ branches }: { branches: BranchEntry[] }) {
     return (
         <section className="section">
             <div className="section-header-text">
-                <h1>Drafts</h1>
+                <h1>Branches</h1>
                 <p className="hint">
-                    Every draft is a real branch in the workspace repository.
-                    Edits commit to the branch; publishing opens a pull request.
+                    Every branch is a real branch in the workspace configuration
+                    source. Edits commit to the branch; publishing opens a pull
+                    request.
                 </p>
             </div>
-            {drafts.length === 0 ? (
+            {branches.length === 0 ? (
                 <div className="empty-state">
                     <span className="empty-puck">
                         <GitBranch aria-hidden size={18} />
                     </span>
                     <p>
-                        No draft branches yet. Open a workspace and start
-                        editing to create one.
+                        No branches yet. Open a workspace and start editing to
+                        create one.
                     </p>
                 </div>
             ) : (
                 <SearchableList
                     className="row-list"
-                    emptyLabel="No drafts match that search."
-                    label="Search drafts"
-                    placeholder="Search drafts"
+                    emptyLabel="No branches match that search."
+                    label="Search branches"
+                    placeholder="Search branches"
                 >
-                    {drafts.map(({ draft, workspace }) => (
+                    {branches.map(({ branch, workspace }) => (
                         <div
                             className="row"
-                            data-search={`${workspace.owner}/${workspace.name} ${workspace.path} ${draft.branch} ${draft.status} ${draft.prState ?? ""}`}
-                            key={draft.id}
+                            data-search={`${workspace.sourceTreeLabel} ${workspace.path} ${branch.branch} ${branch.status} ${branch.prState ?? ""}`}
+                            key={branch.id}
                         >
                             <span className="row-icon">
                                 <GitBranch aria-hidden size={16} />
@@ -548,25 +587,25 @@ function DraftsScreen({ drafts }: { drafts: DraftEntry[] }) {
                             <span className="row-text">
                                 <Link
                                     className="row-title mono row-link"
-                                    href={`/app/workspaces/${workspace.slug}/drafts/${draft.id}`}
+                                    href={`/app/workspaces/${workspace.slug}/branches/${branch.id}`}
                                 >
-                                    {draft.branch}
+                                    {branch.branch}
                                 </Link>
                                 <span className="row-sub">
                                     <Link
                                         href={`/app/workspaces/${workspace.slug}`}
                                     >
-                                        {workspace.owner}/{workspace.name} ·{" "}
+                                        {workspace.sourceTreeLabel} ·{" "}
                                         {workspace.path}
                                     </Link>
                                 </span>
                             </span>
                             <span className="row-side">
-                                <DraftStatusPill draft={draft} />
+                                <BranchStatusPill branch={branch} />
                                 <Link
-                                    aria-label={`Open draft ${draft.branch}`}
+                                    aria-label={`Open branch ${branch.branch}`}
                                     className="muted"
-                                    href={`/app/workspaces/${workspace.slug}/drafts/${draft.id}`}
+                                    href={`/app/workspaces/${workspace.slug}/branches/${branch.id}`}
                                 >
                                     <ChevronRight aria-hidden size={15} />
                                 </Link>
@@ -580,42 +619,44 @@ function DraftsScreen({ drafts }: { drafts: DraftEntry[] }) {
 }
 
 function ActivityScreen({
-    drafts,
-    openDraftsCount,
-    publishedDraftsCount,
-    reposCount,
+    branches,
+    activeBranchesCount,
+    branchesWithPullRequestsCount,
+    sourceTreesCount,
 }: {
-    drafts: DraftEntry[];
-    openDraftsCount: number;
-    publishedDraftsCount: number;
-    reposCount: number;
+    branches: BranchEntry[];
+    activeBranchesCount: number;
+    branchesWithPullRequestsCount: number;
+    sourceTreesCount: number;
 }) {
-    const recentFirst = [...drafts].sort(
+    const recentFirst = [...branches].sort(
         (left, right) =>
-            Date.parse(right.draft.updatedAt) -
-            Date.parse(left.draft.updatedAt),
+            Date.parse(branchUpdatedAt(right.branch)) -
+            Date.parse(branchUpdatedAt(left.branch)),
     );
     return (
         <section className="section">
             <div className="section-header-text">
                 <h1>Activity</h1>
                 <p className="hint">
-                    Every draft across your workspaces, most recently updated
+                    Every branch across your workspaces, most recently updated
                     first.
                 </p>
             </div>
             <div className="stat-grid">
                 <div className="stat-card">
-                    <span className="label">open drafts</span>
-                    <span className="stat-value">{openDraftsCount}</span>
+                    <span className="label">active branches</span>
+                    <span className="stat-value">{activeBranchesCount}</span>
                 </div>
                 <div className="stat-card">
-                    <span className="label">published drafts</span>
-                    <span className="stat-value">{publishedDraftsCount}</span>
+                    <span className="label">branches with PRs</span>
+                    <span className="stat-value">
+                        {branchesWithPullRequestsCount}
+                    </span>
                 </div>
                 <div className="stat-card">
-                    <span className="label">repositories</span>
-                    <span className="stat-value">{reposCount}</span>
+                    <span className="label">configuration sources</span>
+                    <span className="stat-value">{sourceTreesCount}</span>
                 </div>
             </div>
             {recentFirst.length === 0 ? (
@@ -624,7 +665,7 @@ function ActivityScreen({
                         <History aria-hidden size={18} />
                     </span>
                     <p>
-                        No drafts yet. Open a workspace and start editing to
+                        No branches yet. Open a workspace and start editing to
                         create one.
                     </p>
                 </div>
@@ -635,11 +676,11 @@ function ActivityScreen({
                     label="Search activity"
                     placeholder="Search activity"
                 >
-                    {recentFirst.map(({ draft, workspace }) => (
+                    {recentFirst.map(({ branch, workspace }) => (
                         <div
                             className="row"
-                            data-search={`${workspace.owner}/${workspace.name} ${workspace.path} ${draft.branch} ${draft.status} ${draft.prUrl ?? ""} ${draft.prState ?? ""}`}
-                            key={draft.id}
+                            data-search={`${workspace.sourceTreeLabel} ${workspace.path} ${branch.branch} ${branch.status} ${branch.prUrl ?? ""} ${branch.prState ?? ""}`}
+                            key={branch.id}
                         >
                             <span className="row-icon">
                                 <History aria-hidden size={16} />
@@ -647,9 +688,9 @@ function ActivityScreen({
                             <span className="row-text">
                                 <Link
                                     className="row-title mono row-link"
-                                    href={`/app/workspaces/${workspace.slug}/drafts/${draft.id}`}
+                                    href={`/app/workspaces/${workspace.slug}/branches/${branch.id}`}
                                 >
-                                    {draft.branch}
+                                    {branch.branch}
                                 </Link>
                                 <span className="row-sub">
                                     <Link
@@ -657,16 +698,17 @@ function ActivityScreen({
                                     >
                                         {workspace.path}
                                     </Link>{" "}
-                                    · updated {formatDate(draft.updatedAt)}
-                                    {draft.prUrl ? (
+                                    · updated{" "}
+                                    {formatDate(branchUpdatedAt(branch))}
+                                    {branch.prUrl ? (
                                         <>
                                             {" · "}
                                             <a
-                                                href={draft.prUrl}
+                                                href={branch.prUrl}
                                                 rel="noreferrer"
                                                 target="_blank"
                                             >
-                                                {draft.prUrl.replace(
+                                                {branch.prUrl.replace(
                                                     "https://github.com/",
                                                     "",
                                                 )}
@@ -676,11 +718,11 @@ function ActivityScreen({
                                 </span>
                             </span>
                             <span className="row-side">
-                                <DraftStatusPill draft={draft} />
+                                <BranchStatusPill branch={branch} />
                                 <Link
-                                    aria-label={`Open draft ${draft.branch}`}
+                                    aria-label={`Open branch ${branch.branch}`}
                                     className="muted"
-                                    href={`/app/workspaces/${workspace.slug}/drafts/${draft.id}`}
+                                    href={`/app/workspaces/${workspace.slug}/branches/${branch.id}`}
                                 >
                                     <ChevronRight aria-hidden size={15} />
                                 </Link>
@@ -698,7 +740,20 @@ function countLabel(count: number, noun: string): string {
 }
 
 function appScreenHref(screen: AppScreen): string {
-    return screen === "repositories" ? "/app" : `/app/${screen}`;
+    return `/app/${screen}`;
+}
+
+function sourceTreeKindLabel(kind: SourceTreeWithWorkspaces["kind"]): string {
+    switch (kind) {
+        case "gitHub":
+            return "GitHub";
+        case "gitRemote":
+            return "git remote";
+        case "localFolder":
+            return "local folder";
+        case "archive":
+            return "archive";
+    }
 }
 
 function formatDate(value: string): string {
@@ -706,4 +761,8 @@ function formatDate(value: string): string {
         dateStyle: "medium",
         timeStyle: "short",
     }).format(new Date(value));
+}
+
+function branchUpdatedAt(branch: BranchRecord): string {
+    return branch.lastEditedAt ?? branch.lastOpenedAt ?? branch.createdAt;
 }

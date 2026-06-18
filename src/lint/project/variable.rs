@@ -8,7 +8,9 @@ use crate::diagnostics::DiagnosticLocation;
 use super::super::index::*;
 use super::super::source::SourceDocument;
 use super::super::syntax::{ParsedToml, item_location, value_location};
-use super::fields::{integer_field, json_from_toml_value, optional_string_field, string_field};
+use super::fields::{
+    integer_field, json_field, json_from_toml_value, optional_string_field, string_field,
+};
 
 pub(crate) fn project_variable(
     document: &SourceDocument,
@@ -164,7 +166,7 @@ fn project_resolve(
 
     ResolveNode::Resolve {
         location: location.clone(),
-        default: Box::new(string_field(document, table, "default", location.clone())),
+        default: Box::new(json_field(document, table, "default", location.clone())),
         rules: project_rules(document, variable_id, table),
     }
 }
@@ -226,7 +228,7 @@ fn project_rule_from_table_like(
         index,
         location: location.clone(),
         qualifier: string_field(document, table, "qualifier", location.clone()),
-        value: string_field(document, table, "value", location.clone()),
+        value: json_field(document, table, "value", location.clone()),
         invalid_shape,
     }
 }

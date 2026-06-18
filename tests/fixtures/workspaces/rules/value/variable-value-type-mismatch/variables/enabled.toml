@@ -1,8 +1,5 @@
 schema_version = 1
 type = "bool"
 
-[values]
-control = "not a bool"
-
 [resolve]
-default = "control"
+default = "not a bool"

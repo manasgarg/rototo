@@ -1,14 +1,15 @@
-type DraftLike = {
+/** Minimal branch state needed to render status pills across screens. */
+type BranchLike = {
     status: string;
     prState: string | null;
 };
 
-export function DraftStatusPill({ draft }: { draft: DraftLike }) {
-    if (draft.status === "abandoned") {
-        return <Pill label="let go" tone="neutral" />;
+export function BranchStatusPill({ branch }: { branch: BranchLike }) {
+    if (branch.status === "archived") {
+        return <Pill label="archived" tone="neutral" />;
     }
-    if (draft.status === "published") {
-        const state = draft.prState ?? "published";
+    if (branch.prState) {
+        const state = branch.prState;
         if (state === "merged") {
             return <Pill label="merged" tone="ok" />;
         }
@@ -20,7 +21,10 @@ export function DraftStatusPill({ draft }: { draft: DraftLike }) {
         }
         return <Pill label={state} tone="info" />;
     }
-    return <Pill label="draft" tone="sea" />;
+    if (branch.status === "recent") {
+        return <Pill label="recent" tone="neutral" />;
+    }
+    return <Pill label="active" tone="sea" />;
 }
 
 export function Pill({

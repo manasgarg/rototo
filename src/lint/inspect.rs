@@ -445,20 +445,27 @@ fn variable_resolve(variable: &VariableNode) -> ResolveInspectReport {
             .map(|rule| RulePathwayInspectReport {
                 index: rule.index,
                 qualifier: present_string_value(&rule.qualifier),
-                value: present_string_value(&rule.value),
+                value: present_json_value(&rule.value),
                 location: rule.location.clone(),
             })
             .collect(),
         RuleCollection::Invalid { .. } => Vec::new(),
     };
     ResolveInspectReport {
-        default_value: present_string_value(default),
+        default_value: present_json_value(default),
         rules,
         location: location.clone(),
     }
 }
 
 fn present_string_value(field: &ProjectField<String>) -> Option<String> {
+    match field {
+        ProjectField::Present(value) => Some(value.value.clone()),
+        ProjectField::Invalid { .. } | ProjectField::Missing { .. } => None,
+    }
+}
+
+fn present_json_value(field: &ProjectField<serde_json::Value>) -> Option<serde_json::Value> {
     match field {
         ProjectField::Present(value) => Some(value.value.clone()),
         ProjectField::Invalid { .. } | ProjectField::Missing { .. } => None,

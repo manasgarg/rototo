@@ -17,8 +17,8 @@ fn diff_json_reports_semantic_value_change_and_resolution_impact() {
     fs::write(
         &variable_path,
         variable.replace(
-            r#"premium = "Welcome back, premium member.""#,
-            r#"premium = "Welcome back, valued premium member.""#,
+            r#"value = "Welcome back, premium member.""#,
+            r#"value = "Welcome back, valued premium member.""#,
         ),
     )
     .unwrap();
@@ -46,12 +46,12 @@ fn diff_json_reports_semantic_value_change_and_resolution_impact() {
     let value_change = changes
         .iter()
         .find(|change| {
-            change["kind"] == "variable_value_changed"
-                && change["target"]["entity"]["kind"] == "value"
+            change["kind"] == "variable_rule_value_changed"
+                && change["target"]["entity"]["kind"] == "rule"
                 && change["target"]["entity"]["variable"] == "premium-message"
-                && change["target"]["entity"]["key"] == "premium"
+                && change["target"]["entity"]["index"] == 0
         })
-        .expect("premium-message value change");
+        .expect("premium-message rule value change");
     assert_eq!(value_change["before"], "Welcome back, premium member.");
     assert_eq!(
         value_change["after"],
@@ -63,8 +63,8 @@ fn diff_json_reports_semantic_value_change_and_resolution_impact() {
         .iter()
         .find(|impact| impact["variable"] == "premium-message")
         .expect("premium-message resolution impact");
-    assert_eq!(impact["before"]["value_key"], "premium");
-    assert_eq!(impact["after"]["value_key"], "premium");
+    assert_eq!(impact["before"]["source"]["kind"], "literal");
+    assert_eq!(impact["after"]["source"]["kind"], "literal");
     assert_eq!(impact["before"]["value"], "Welcome back, premium member.");
     assert_eq!(
         impact["after"]["value"],

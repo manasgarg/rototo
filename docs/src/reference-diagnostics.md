@@ -111,7 +111,7 @@ The global catalog contains built-in rototo rules. A workspace-scoped catalog
 also includes [custom rules](reference-custom-lua-lint.html) registered by
 `lint/*.lua`.
 
-Catalog entries contain:
+Catalog values contain:
 
 ```json
 {

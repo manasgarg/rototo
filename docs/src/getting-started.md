@@ -64,16 +64,13 @@ schema_version = 1
 description = "Maximum active projects for an account"
 type = "int"
 
-[values]
-standard = 3
-
 [resolve]
-default = "standard"
+default = 3
 ```
 
 The variable declares one
-[typed value](reference-variable-values.html) named `standard`. The
-`[resolve]` block says that `standard` is the value to use when no
+[typed value](reference-variable-values.html). The
+`[resolve]` block says that `3` is the value to use when no
 [rule](reference-variable-resolution.html) selects something else.
 
 Before an application uses the workspace, I want the workspace to prove it is
@@ -100,9 +97,9 @@ the default value wins.
 workspace: account-config
 variable: max-active-projects
   pathway:
-    default -> standard
+    default -> 3
   result:
-    value key: standard
+    source: literal
     value: 3
 ```
 
@@ -159,7 +156,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
 
         println!(
             "max-active-projects: {} ({})",
-            resolution.value, resolution.value_key
+            resolution.value, resolution.source
         );
 
         tokio::time::sleep(Duration::from_secs(5)).await;
@@ -190,7 +187,7 @@ async def main() -> None:
             )
             print(
                 f"max-active-projects: "
-                f"{resolution.value} ({resolution.value_key})"
+                f"{resolution.value} ({resolution.source})"
             )
             await asyncio.sleep(5)
     finally:
@@ -219,7 +216,7 @@ try {
       {},
     );
     console.log(
-      `max-active-projects: ${resolution.value} (${resolution.valueKey})`,
+      `max-active-projects: ${resolution.value} (${resolution.source})`,
     );
     await new Promise((resolve) => setTimeout(resolve, 5000));
   }
@@ -246,7 +243,7 @@ try {
         System.out.printf(
             "max-active-projects: %s (%s)%n",
             resolution.value(),
-            resolution.valueKey()
+            resolution.source()
         );
         Thread.sleep(5_000);
     }
@@ -283,7 +280,7 @@ for {
     fmt.Printf(
         "max-active-projects: %v (%s)\n",
         resolution.Value,
-        resolution.ValueKey,
+        resolution.Source,
     )
     time.Sleep(5 * time.Second)
 }

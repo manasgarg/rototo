@@ -59,9 +59,9 @@ type Workspace struct {
 
 // VariableResolution is the selected variable value.
 type VariableResolution struct {
-	ID       string `json:"id"`
-	ValueKey string `json:"valueKey"`
-	Value    any    `json:"value"`
+	ID     string `json:"id"`
+	Value  any    `json:"value"`
+	Source any    `json:"source"`
 }
 
 // QualifierResolution is the evaluated qualifier result.

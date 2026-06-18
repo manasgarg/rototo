@@ -73,8 +73,8 @@ if err != nil {
     return err
 }
 
-fmt.Println(resolution.ValueKey)
 fmt.Println(resolution.Value)
+fmt.Println(resolution.Source)
 ```
 
 `VariableResolution` has:
@@ -82,8 +82,8 @@ fmt.Println(resolution.Value)
 | Field | Meaning |
 | --- | --- |
 | `ID` | Variable id. |
-| `ValueKey` | Selected value key. |
 | `Value` | Selected JSON-compatible value. |
+| `Source` | Selected source. |
 
 ## Resolve A Qualifier
 

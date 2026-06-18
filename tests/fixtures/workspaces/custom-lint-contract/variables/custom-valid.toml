@@ -3,8 +3,5 @@ schema_version = 1
 description = "Variable with a declared custom lint rule"
 type = "string"
 
-[values]
-default = "default"
-
 [resolve]
 default = "default"

@@ -3,8 +3,5 @@ schema_version = 1
 description = "Message displayed in an operational status surface"
 type = "string"
 
-[values]
-standard = "All systems operational."
-
 [resolve]
-default = "standard"
+default = "All systems operational."

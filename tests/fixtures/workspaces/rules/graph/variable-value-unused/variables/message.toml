@@ -1,9 +1,5 @@
 schema_version = 1
 type = "string"
 
-[values]
-control = "hello"
-unused = "not selected"
-
 [resolve]
-default = "control"
+default = "hello"
