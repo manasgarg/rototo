@@ -20,9 +20,10 @@ export type GraphNode = {
     /* The entity's source text, for hover previews. May be truncated. */
     source?: string;
     language?: "json" | "lua" | "toml" | "text";
-    /* Entities semantically tied to this one beyond drawn edges (a variable's
-     selected entries); hover highlighting includes them and the drawn edges
-     that connect into them. */
+    /* Entities semantically tied to this one beyond drawn edges, such as a
+     variable's selected values or a qualifier's rule-selected catalog path.
+     Hover highlighting includes them and the drawn edges that connect into
+     them. */
     related?: string[];
     /* Marked when the entity differs from the base ref in the current branch. */
     edited?: boolean;

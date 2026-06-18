@@ -79,7 +79,7 @@ Create `product-config/catalogs/inference-routing-policy.toml`:
 ```toml
 schema_version = 1
 
-description = "Inference routing policy entries"
+description = "Inference routing policy values"
 schema = "../schemas/inference-routing-policy.schema.json"
 ```
 
@@ -107,7 +107,7 @@ Create `product-config/schemas/inference-routing-policy.schema.json`:
 ```
 
 This schema is the product team's guardrail. Customer and team layers can add
-their own policy entries, but those entries still have to use supported
+their own policy values, but those values still have to use supported
 providers, supported task names, and a timeout range the product is prepared to
 operate.
 
@@ -130,7 +130,7 @@ rototo resolve product-config --variable inference-routing-policy
 ```
 
 ```text
-value key: product_default
+source: inference-routing-policy:product_default
 value: {"allowed_tasks":["summarization","classification"],"fallback_provider":"none","mode":"primary","primary_provider":"openai","timeout_ms":4000}
 ```
 
@@ -189,7 +189,7 @@ rototo resolve customer-config --variable inference-routing-policy
 ```
 
 ```text
-value key: customer_default
+source: inference-routing-policy:customer_default
 value: {"allowed_tasks":["summarization","classification"],"fallback_provider":"anthropic","mode":"fallback","primary_provider":"openai","timeout_ms":5000}
 ```
 
@@ -284,7 +284,7 @@ rototo resolve team-config \
 ```
 
 ```text
-value key: customer_default
+source: inference-routing-policy:customer_default
 value: {"allowed_tasks":["summarization","classification"],"fallback_provider":"anthropic","mode":"fallback","primary_provider":"openai","timeout_ms":5000}
 ```
 
@@ -297,7 +297,7 @@ rototo resolve team-config \
 ```
 
 ```text
-value key: team_fast_summarization
+source: inference-routing-policy:team_fast_summarization
 value: {"allowed_tasks":["summarization"],"fallback_provider":"openai","mode":"primary","primary_provider":"anthropic","timeout_ms":2500}
 ```
 

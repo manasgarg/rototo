@@ -19,7 +19,7 @@ test("workspace exposes TypeScript resolution objects", async () => {
     });
 
     assert.equal(variable.id, "premium-message");
-    assert.equal(variable.valueKey, "premium");
+    assert.deepEqual(variable.source, { kind: "literal" });
     assert.equal(variable.value, "Welcome back, premium member.");
     assert.equal(qualifier.id, "premium-users");
     assert.equal(qualifier.value, true);
@@ -65,7 +65,7 @@ test("context validation can be skipped", async () => {
         { validateContext: false },
     );
 
-    assert.equal(result.valueKey, "control");
+    assert.deepEqual(result.source, { kind: "literal" });
 });
 
 test("load rejects invalid lint mode", async () => {

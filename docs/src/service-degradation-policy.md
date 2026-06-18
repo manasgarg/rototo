@@ -57,7 +57,7 @@ Replace `degradation-config/catalogs/service-degradation-policy.toml`:
 ```toml
 schema_version = 1
 
-description = "Service degradation policy entries"
+description = "Service degradation policy values"
 schema = "../schemas/service-degradation-policy.schema.json"
 ```
 
@@ -221,7 +221,7 @@ rototo resolve degradation-config \
 ```
 
 ```text
-value key: normal
+source: service-degradation-policy:normal
 value: {"background_jobs_enabled":true,"fallback_provider":"primary","max_concurrency":100,"mode":"normal","non_critical_fanout":"send"}
 ```
 
@@ -234,7 +234,7 @@ rototo resolve degradation-config \
 ```
 
 ```text
-value key: degraded
+source: service-degradation-policy:degraded
 value: {"background_jobs_enabled":false,"fallback_provider":"primary","max_concurrency":30,"mode":"degraded","non_critical_fanout":"defer"}
 ```
 
@@ -366,7 +366,7 @@ rototo resolve degradation-config \
 
 ```text
 test: bucket salt=service-degradation-recovery-2026-06 range=[0,1000] bucket=5274
-value key: degraded
+source: service-degradation-policy:degraded
 ```
 
 `acct-001` is inside the bucket, so the same high-pressure state selects
@@ -381,7 +381,7 @@ rototo resolve degradation-config \
 
 ```text
 test: bucket salt=service-degradation-recovery-2026-06 range=[0,1000] bucket=540
-value key: severe
+source: service-degradation-policy:severe
 value: {"background_jobs_enabled":false,"fallback_provider":"secondary","max_concurrency":10,"mode":"severe","non_critical_fanout":"pause"}
 ```
 
@@ -464,12 +464,12 @@ async fn degradation_policy(
     let resolution = workspace
         .resolve_variable("service-degradation-policy", &context)
         .await?;
-    let value_key = resolution.value_key.clone();
+    let source = resolution.source.clone();
     let policy: DegradationPolicy = serde_json::from_value(resolution.value)?;
 
     println!(
         "selected service-degradation-policy `{}` from {:?}",
-        value_key,
+        source,
         workspace.source_fingerprint()
     );
 
@@ -505,7 +505,7 @@ async def degradation_policy(
     )
     policy = DegradationPolicy(**resolution.value)
 
-    print(f"selected service-degradation-policy `{resolution.value_key}`")
+    print(f"selected service-degradation-policy `{resolution.source}`")
     return policy
 ```
 
@@ -531,7 +531,7 @@ async function degradationPolicy(
     },
   );
 
-  console.log(`selected service-degradation-policy \`${resolution.valueKey}\``);
+  console.log(`selected service-degradation-policy \`${resolution.source}\``);
   return resolution.value as DegradationPolicy;
 }
 ```
@@ -565,7 +565,7 @@ DegradationPolicy degradationPolicy(
 
     System.out.printf(
         "selected service-degradation-policy `%s`%n",
-        resolution.valueKey()
+        resolution.source()
     );
     return new DegradationPolicy(
         (String) value.get("mode"),
@@ -615,7 +615,7 @@ func degradationPolicy(
         return DegradationPolicy{}, err
     }
 
-    fmt.Printf("selected service-degradation-policy `%s`\n", resolution.ValueKey)
+    fmt.Printf("selected service-degradation-policy `%s`\n", resolution.Source)
     return policy, nil
 }
 ```

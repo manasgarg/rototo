@@ -19,11 +19,8 @@ test("refreshing workspace resolves and shuts down", async () => {
             `schema_version = 1
 type = "string"
 
-[values]
-default = "hello"
-
 [resolve]
-default = "default"
+default = "hello"
 `,
         );
 

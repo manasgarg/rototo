@@ -10,11 +10,22 @@ Development:
 
 ```sh
 just setup          # one-time repo bootstrap, including console dependencies
-just console-dev    # auto-reloading Rust API plus Vite UI for https://dev.rototo.dev
+just console-dev    # hosted auto-reloading Rust API plus Vite UI for https://dev.rototo.dev
+just console-dev examples/basic
+just console-dev workspace_source=examples/basic
 ```
 
-`just console-dev` runs the API with `--deployment local --data-dir .rototo/dev`
-and resolves console runtime configuration from
+`just console-dev` runs the API with `--deployment hosted --data-dir .rototo/dev`
+by default. Pass a workspace source, or set `ROTOTO_CONSOLE_DEV_WORKSPACE`, to
+run local deployment against that fixed source:
+
+```sh
+just console-dev examples/basic
+just console-dev workspace_source=examples/basic
+ROTOTO_CONSOLE_DEV_WORKSPACE=examples/basic just console-dev
+```
+
+Both modes resolve console runtime configuration from
 `${XDG_CONFIG_HOME:-$HOME/.config}/rototo/workspace` when that workspace exists.
 The checked-in draft for that workspace lives at `examples/console-runtime`.
 

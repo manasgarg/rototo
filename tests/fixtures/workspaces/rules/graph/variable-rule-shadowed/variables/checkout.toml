@@ -1,11 +1,6 @@
 schema_version = 1
 type = "string"
 
-[values]
-control = "control"
-premium = "premium"
-alternate = "alternate"
-
 [resolve]
 default = "control"
 

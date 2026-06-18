@@ -52,6 +52,23 @@ pub(super) fn string_field(
     }
 }
 
+pub(super) fn json_field(
+    document: &SourceDocument,
+    table: &Table<'_>,
+    key: &str,
+    missing_location: DiagnosticLocation,
+) -> ProjectField<JsonValue> {
+    match table.get(key) {
+        Some(item) => ProjectField::Present(Spanned {
+            value: json_from_toml_value(item),
+            location: item_location(document, item),
+        }),
+        None => ProjectField::Missing {
+            location: missing_location,
+        },
+    }
+}
+
 pub(super) fn optional_string_field(
     document: &SourceDocument,
     table: &Table<'_>,

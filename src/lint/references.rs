@@ -258,14 +258,6 @@ impl ReferenceIndex {
         reachable
     }
 
-    pub(super) fn referenced_variable_value_keys(&self, variable_id: &str) -> BTreeSet<String> {
-        self.value_referenced_by
-            .keys()
-            .filter(|(variable, _value)| variable == variable_id)
-            .map(|(_variable, value)| value.clone())
-            .collect()
-    }
-
     #[allow(dead_code)]
     pub(super) fn qualifier_reference_sites(&self, qualifier: &str) -> &[ReferenceSite] {
         self.qualifier_referenced_by
@@ -282,6 +274,18 @@ impl ReferenceIndex {
     ) -> &[ReferenceSite] {
         self.value_referenced_by
             .get(&(variable.to_owned(), value.to_owned()))
+            .map(Vec::as_slice)
+            .unwrap_or(&[])
+    }
+
+    #[allow(dead_code)]
+    pub(super) fn catalog_entry_reference_sites(
+        &self,
+        catalog: &str,
+        value: &str,
+    ) -> &[ReferenceSite] {
+        self.catalog_entry_referenced_by
+            .get(&(catalog.to_owned(), value.to_owned()))
             .map(Vec::as_slice)
             .unwrap_or(&[])
     }
@@ -412,8 +416,9 @@ impl ReferenceIndex {
                 continue;
             };
 
-            if let ProjectField::Present(value) = default.as_ref() {
-                let target = variable_value_target(variable, &value.value);
+            if let ProjectField::Present(value) = default.as_ref()
+                && let Some(target) = variable_value_target(variable, &value.value)
+            {
                 self.push_edge(
                     ReferenceSource::VariableResolveDefault {
                         variable: variable.id.clone(),
@@ -451,8 +456,9 @@ impl ReferenceIndex {
                         ReferenceTarget::Qualifier(qualifier.value.clone()),
                     );
                 }
-                if let ProjectField::Present(value) = &rule.value {
-                    let target = variable_value_target(variable, &value.value);
+                if let ProjectField::Present(value) = &rule.value
+                    && let Some(target) = variable_value_target(variable, &value.value)
+                {
                     self.push_edge(
                         ReferenceSource::VariableRuleValue {
                             variable: variable.id.clone(),
@@ -549,17 +555,16 @@ fn variable_catalog_id(variable: &VariableNode) -> Option<&str> {
     }
 }
 
-fn variable_value_target(variable: &VariableNode, value: &str) -> ReferenceTarget {
-    match variable_catalog_id(variable) {
-        Some(catalog) => ReferenceTarget::CatalogEntry {
-            catalog: catalog.to_owned(),
-            value: value.to_owned(),
-        },
-        None => ReferenceTarget::VariableValue {
-            variable: variable.id.clone(),
-            value: value.to_owned(),
-        },
-    }
+fn variable_value_target(
+    variable: &VariableNode,
+    value: &serde_json::Value,
+) -> Option<ReferenceTarget> {
+    let catalog = variable_catalog_id(variable)?;
+    let value = value.as_str()?;
+    Some(ReferenceTarget::CatalogEntry {
+        catalog: catalog.to_owned(),
+        value: value.to_owned(),
+    })
 }
 
 impl ReferenceEdge {

@@ -110,7 +110,7 @@ rototo resolve account-config \
   --context @account-app/tests/contexts/enterprise-account.json
 ```
 
-That command gives the reviewer a direct way to inspect the selected value key
+That command gives the reviewer a direct way to inspect the selected source
 and [resolution trace](reference-resolution-output.html) before reading
 application code.
 
@@ -160,7 +160,7 @@ selection, regenerate the fixture, review the diff, and make sure the app
 tests still explain why the new behavior is acceptable.
 
 Bucket predicates are a good example. A bucket change can look small in TOML
-but move a stable account from one value key to another. The fixture diff makes
+but move a stable account from one source to another. The fixture diff makes
 that visible.
 
 ## Test The App Contract
@@ -194,7 +194,6 @@ async fn enterprise_account_receives_enterprise_limits() -> Result<(), Box<dyn E
     let resolution = workspace
         .resolve_variable("account-limit-profile", &context)
         .await?;
-    assert_eq!(resolution.value_key, "enterprise");
 
     let profile: AccountLimitProfile = serde_json::from_value(resolution.value)?;
     assert_eq!(profile.max_projects, 100);
@@ -228,7 +227,6 @@ async def test_enterprise_account_receives_enterprise_limits():
         },
     )
 
-    assert resolution.value_key == "enterprise"
     profile = AccountLimitProfile(**resolution.value)
     assert profile.max_projects == 100
     assert profile.audit_retention_days == 365
@@ -257,7 +255,6 @@ test("enterprise account receives enterprise limits", async () => {
     },
   );
 
-  assert.equal(resolution.valueKey, "enterprise");
   const profile = resolution.value as AccountLimitProfile;
   assert.equal(profile.max_projects, 100);
   assert.equal(profile.audit_retention_days, 365);
@@ -283,7 +280,6 @@ void enterpriseAccountReceivesEnterpriseLimits() throws Exception {
         Map<String, Object> profile =
             (Map<String, Object>) resolution.value();
 
-        assertEquals("enterprise", resolution.valueKey());
         assertEquals(100L, ((Number) profile.get("max_projects")).longValue());
         assertEquals(
             365L,
@@ -330,9 +326,6 @@ func TestEnterpriseAccountReceivesEnterpriseLimits(t *testing.T) {
         t.Fatal(err)
     }
 
-    if resolution.ValueKey != "enterprise" {
-        t.Fatalf("unexpected value key: %s", resolution.ValueKey)
-    }
     if profile.MaxProjects != 100 || profile.AuditRetentionDays != 365 {
         t.Fatalf("unexpected profile: %#v", profile)
     }
@@ -347,7 +340,7 @@ the app test suite before the service observes the workspace change.
 
 The most valuable app tests usually assert three things:
 
-- the selected `value_key`;
+- the selected `source`;
 - the app type produced from the selected JSON;
 - the application behavior that depends on that type.
 
@@ -374,7 +367,6 @@ let standard = ResolveContext::from_json(serde_json::json!({
 let resolution = workspace
     .resolve_variable("account-limit-profile", &standard)
     .await?;
-assert_eq!(resolution.value_key, "standard");
 ```
 
 ```python
@@ -389,7 +381,6 @@ resolution = await workspace.resolve_variable(
     "account-limit-profile",
     standard,
 )
-assert resolution.value_key == "standard"
 ```
 
 ```typescript
@@ -404,7 +395,6 @@ const resolution = await workspace.resolveVariable(
   "account-limit-profile",
   standard,
 );
-assert.equal(resolution.valueKey, "standard");
 ```
 
 ```java
@@ -416,7 +406,6 @@ Map<String, Object> standard = Map.of(
 VariableResolution resolution = workspace
     .resolveVariable("account-limit-profile", standard)
     .get();
-assertEquals("standard", resolution.valueKey());
 ```
 
 ```go
@@ -435,9 +424,6 @@ resolution, err := workspace.ResolveVariable(
 )
 if err != nil {
     t.Fatal(err)
-}
-if resolution.ValueKey != "standard" {
-    t.Fatalf("unexpected value key: %s", resolution.ValueKey)
 }
 ```
 :::
@@ -495,7 +481,6 @@ let context = ResolveContext::from_json(serde_json::json!({}))?;
 let before = workspace
     .resolve_variable("support-banner", &context)
     .await?;
-assert_eq!(before.value_key, "off");
 
 publish_workspace_change_that_turns_banner_on().await?;
 workspace.refresh_now().await?;
@@ -503,7 +488,6 @@ workspace.refresh_now().await?;
 let after = workspace
     .resolve_variable("support-banner", &context)
     .await?;
-assert_eq!(after.value_key, "on");
 ```
 
 ```python
@@ -511,13 +495,11 @@ workspace = await rototo.RefreshingWorkspace.load(source)
 context = {}
 
 before = await workspace.resolve_variable("support-banner", context)
-assert before.value_key == "off"
 
 await publish_workspace_change_that_turns_banner_on()
 await workspace.refresh_now()
 
 after = await workspace.resolve_variable("support-banner", context)
-assert after.value_key == "on"
 ```
 
 ```typescript
@@ -525,13 +507,11 @@ const workspace = await RefreshingWorkspace.load(source);
 const context = {};
 
 const before = await workspace.resolveVariable("support-banner", context);
-assert.equal(before.valueKey, "off");
 
 await publishWorkspaceChangeThatTurnsBannerOn();
 await workspace.refreshNow();
 
 const after = await workspace.resolveVariable("support-banner", context);
-assert.equal(after.valueKey, "on");
 ```
 
 ```java
@@ -543,7 +523,6 @@ Map<String, Object> context = Map.of();
 VariableResolution before = workspace
     .resolveVariable("support-banner", context)
     .get();
-assertEquals("off", before.valueKey());
 
 publishWorkspaceChangeThatTurnsBannerOn();
 workspace.refreshNow().get();
@@ -551,7 +530,6 @@ workspace.refreshNow().get();
 VariableResolution after = workspace
     .resolveVariable("support-banner", context)
     .get();
-assertEquals("on", after.valueKey());
 ```
 
 ```go
@@ -570,9 +548,6 @@ before, err := workspace.ResolveVariable(
 if err != nil {
     t.Fatal(err)
 }
-if before.ValueKey != "off" {
-    t.Fatalf("unexpected value key before refresh: %s", before.ValueKey)
-}
 
 publishWorkspaceChangeThatTurnsBannerOn(t)
 if _, err := workspace.RefreshNow(ctx); err != nil {
@@ -588,9 +563,6 @@ after, err := workspace.ResolveVariable(
 if err != nil {
     t.Fatal(err)
 }
-if after.ValueKey != "on" {
-    t.Fatalf("unexpected value key after refresh: %s", after.ValueKey)
-}
 ```
 :::
 
@@ -604,7 +576,6 @@ assert!(workspace.refresh_now().await.is_err());
 let still_valid = workspace
     .resolve_variable("support-banner", &context)
     .await?;
-assert_eq!(still_valid.value_key, "on");
 
 let status = workspace.status().await;
 assert!(status.last_error.is_some());
@@ -619,7 +590,6 @@ except rototo.RototoError:
     pass
 
 still_valid = await workspace.resolve_variable("support-banner", context)
-assert still_valid.value_key == "on"
 
 status = await workspace.status()
 assert status.last_error is not None
@@ -631,7 +601,6 @@ await publishBrokenWorkspaceChange();
 await assert.rejects(() => workspace.refreshNow());
 
 const stillValid = await workspace.resolveVariable("support-banner", context);
-assert.equal(stillValid.valueKey, "on");
 
 const status = await workspace.status();
 assert.ok(status.lastError);
@@ -645,7 +614,6 @@ assertThrows(ExecutionException.class, () -> workspace.refreshNow().get());
 VariableResolution stillValid = workspace
     .resolveVariable("support-banner", context)
     .get();
-assertEquals("on", stillValid.valueKey());
 
 RefreshStatus status = workspace.status().get();
 assertNotNull(status.lastError());
@@ -666,9 +634,6 @@ stillValid, err := workspace.ResolveVariable(
 )
 if err != nil {
     t.Fatal(err)
-}
-if stillValid.ValueKey != "on" {
-    t.Fatalf("unexpected value key after failed refresh: %s", stillValid.ValueKey)
 }
 
 status, err := workspace.Status(ctx)

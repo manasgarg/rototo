@@ -1,8 +1,5 @@
 schema_version = 1
 schema = "../schemas/missing.schema.json"
 
-[values]
-control = "control"
-
 [resolve]
 default = "control"

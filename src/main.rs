@@ -1231,10 +1231,6 @@ fn variable_template(id: &str) -> String {
 description = {description}
 type = "string"
 
-[values]
-control = "control"
-# treatment = "treatment"
-
 [resolve]
 default = "control"
 
@@ -1244,18 +1240,18 @@ default = "control"
 # qualifier = "premium-users"
 # value = "treatment"
 #
-# For catalog-backed values, remove [values] and use a catalog type:
+# For catalog-backed values, use a catalog type:
 #
 # type = "catalog:{id}"
 #
-# Catalog entry keys become the selectable value keys.
+# Catalog value names become the selectable values.
 "#
     )
 }
 
 fn catalog_template(id: &str) -> String {
     let description = toml_string(&format!(
-        "Edit this description to explain the {id} catalog entries"
+        "Edit this description to explain the {id} catalog values"
     ));
     let schema = toml_string(&format!("../schemas/{id}.schema.json"));
     format!(
@@ -2720,7 +2716,7 @@ fn print_variable_resolution_trace(trace: &VariableResolutionTrace) -> Result<()
             style::dim(&format!("rule[{}]", rule.index)),
             style::sea(&rule.qualifier),
             style::arrow(),
-            rule.value,
+            compact_json(&rule.value)?,
             if rule.matched {
                 style::ok("matched")
             } else {
@@ -2732,15 +2728,24 @@ fn print_variable_resolution_trace(trace: &VariableResolutionTrace) -> Result<()
         "    {} {} {}",
         style::dim("default"),
         style::arrow(),
-        trace.default_value
+        compact_json(&trace.default_value)?
     );
     println!("  {}", style::subhead("result"));
     println!(
-        "    value key: {}",
-        style::sea_bold(&trace.resolution.value_key)
+        "    source: {}",
+        style::sea_bold(&resolution_source_label(&trace.resolution.source))
     );
     println!("    value: {}", compact_json(&trace.resolution.value)?);
     Ok(())
+}
+
+fn resolution_source_label(source: &rototo::model::VariableResolutionSource) -> String {
+    match source {
+        rototo::model::VariableResolutionSource::Literal => "literal".to_owned(),
+        rototo::model::VariableResolutionSource::Catalog { catalog, value } => {
+            format!("{catalog}:{value}")
+        }
+    }
 }
 
 fn print_qualifier_resolution_trace(trace: &QualifierResolutionTrace) -> Result<()> {

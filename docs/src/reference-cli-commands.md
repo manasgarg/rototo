@@ -81,7 +81,7 @@ rototo diff BEFORE_WORKSPACE_SOURCE AFTER_WORKSPACE_SOURCE [--context CONTEXT]
 
 Use `diff` when you need to understand what changed in rototo terms rather than
 as raw TOML or JSON. It compares projected workspace entities such as variables,
-values, resolve rules, qualifiers, predicates, catalogs, catalog entries, and
+values, resolve rules, qualifiers, predicates, catalogs, catalog values, and
 schemas.
 
 When context is supplied, `diff` also reports resolution impact for variables

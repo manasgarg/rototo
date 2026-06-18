@@ -4,14 +4,14 @@ import type { GraphNode, GraphNodeKind, WorkspaceGraphData } from "./types";
 
 /* Concept: layered columns. Entities group into columns by kind in
    resolution order — qualifiers feed variables, variables select catalogs,
-   and catalogs contain entries. Hovering a node lights up its edges and
+   and catalogs contain values. Hovering a node lights up its edges and
    neighbors and previews its source; clicking opens the entity. */
 
 const COLUMNS: Array<{ kind: GraphNodeKind; title: string }> = [
     { kind: "qualifier", title: "qualifiers" },
     { kind: "variable", title: "variables" },
     { kind: "catalog", title: "catalogs" },
-    { kind: "catalogEntry", title: "entries" },
+    { kind: "catalogEntry", title: "values" },
 ];
 
 const KIND_COLOR: Record<GraphNodeKind, string> = {
@@ -123,7 +123,7 @@ export function ColumnsGraph({
     }, [data]);
 
     // Everything lit by the hovered node: itself, its edge neighbors, and its
-    // related entities (a variable's selected entries).
+    // related entities that complete a selected catalog path.
     const litNodes = useMemo(() => {
         if (!active) {
             return null;

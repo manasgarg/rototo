@@ -33,13 +33,8 @@ schema_version = 1
 description = "Onboarding step IDs shown to an account"
 type = "list"
 
-[values]
-standard = ["create_project", "invite_teammate", "configure_profile"]
-enterprise = ["create_project", "invite_teammate", "configure_sso", "add_billing_contact"]
-eu_enterprise = ["create_project", "invite_teammate", "configure_sso", "review_data_processing", "add_billing_contact"]
-
 [resolve]
-default = "standard"
+default = ["create_project", "invite_teammate", "configure_profile"]
 ```
 
 The values are step IDs, not display text. That is an important boundary. The
@@ -56,7 +51,7 @@ rototo resolve onboarding-config --variable onboarding-steps
 With no runtime context, rototo selects `standard`:
 
 ```text
-value key: standard
+source: literal
 value: ["create_project","invite_teammate","configure_profile"]
 ```
 
@@ -175,21 +170,16 @@ schema_version = 1
 description = "Onboarding step IDs shown to an account"
 type = "list"
 
-[values]
-standard = ["create_project", "invite_teammate", "configure_profile"]
-enterprise = ["create_project", "invite_teammate", "configure_sso", "add_billing_contact"]
-eu_enterprise = ["create_project", "invite_teammate", "configure_sso", "review_data_processing", "add_billing_contact"]
-
 [resolve]
-default = "standard"
+default = ["create_project", "invite_teammate", "configure_profile"]
 
 [[resolve.rule]]
 qualifier = "test-eu-enterprise-accounts"
-value = "eu_enterprise"
+value = ["create_project", "invite_teammate", "configure_sso", "review_data_processing", "add_billing_contact"]
 
 [[resolve.rule]]
 qualifier = "test-enterprise-accounts"
-value = "enterprise"
+value = ["create_project", "invite_teammate", "configure_sso", "add_billing_contact"]
 ```
 
 This is the first PR I would ship. The production service can refresh the
@@ -248,7 +238,7 @@ rototo resolve onboarding-config \
 ```
 
 ```text
-value key: standard
+source: literal
 ```
 
 A regular enterprise account still receives the standard checklist:
@@ -262,7 +252,7 @@ rototo resolve onboarding-config \
 ```
 
 ```text
-value key: standard
+source: literal
 ```
 
 A test enterprise account receives the enterprise checklist:
@@ -276,7 +266,7 @@ rototo resolve onboarding-config \
 ```
 
 ```text
-value key: enterprise
+source: literal
 ```
 
 A test EU enterprise account receives the EU-specific checklist:
@@ -290,7 +280,7 @@ rototo resolve onboarding-config \
 ```
 
 ```text
-value key: eu_enterprise
+source: literal
 ```
 
 That is the live test loop: the workspace is deployed, the application resolves
@@ -341,7 +331,7 @@ rototo resolve onboarding-config \
 ```
 
 ```text
-value key: enterprise
+source: literal
 ```
 
 ```sh
@@ -353,7 +343,7 @@ rototo resolve onboarding-config \
 ```
 
 ```text
-value key: eu_enterprise
+source: literal
 ```
 
 The important habit is not only that the final rule order is right. It is that
@@ -385,12 +375,12 @@ async fn onboarding_steps_for_account(
     let resolution = workspace
         .resolve_variable("onboarding-steps", &context)
         .await?;
-    let value_key = resolution.value_key.clone();
+    let source = resolution.source.clone();
     let steps: Vec<String> = serde_json::from_value(resolution.value)?;
 
     println!(
         "selected onboarding-steps `{}` from {:?}",
-        value_key,
+        source,
         workspace.source_fingerprint()
     );
 
@@ -415,7 +405,7 @@ async def onboarding_steps_for_account(
     resolution = await workspace.resolve_variable("onboarding-steps", context)
     steps = list(resolution.value)
 
-    print(f"selected onboarding-steps `{resolution.value_key}`")
+    print(f"selected onboarding-steps `{resolution.source}`")
     return steps
 ```
 
@@ -434,7 +424,7 @@ async function onboardingStepsForAccount(
     context,
   );
 
-  console.log(`selected onboarding-steps \`${resolution.valueKey}\``);
+  console.log(`selected onboarding-steps \`${resolution.source}\``);
   return resolution.value as string[];
 }
 ```
@@ -459,7 +449,7 @@ List<String> onboardingStepsForAccount(
 
     @SuppressWarnings("unchecked")
     List<String> steps = (List<String>) resolution.value();
-    System.out.printf("selected onboarding-steps `%s`%n", resolution.valueKey());
+    System.out.printf("selected onboarding-steps `%s`%n", resolution.source());
     return steps;
 }
 ```
@@ -498,7 +488,7 @@ func onboardingStepsForAccount(
         return nil, err
     }
 
-    fmt.Printf("selected onboarding-steps `%s`\n", resolution.ValueKey)
+    fmt.Printf("selected onboarding-steps `%s`\n", resolution.Source)
     return steps, nil
 }
 ```

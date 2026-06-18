@@ -3,8 +3,5 @@ schema_version = 1
 description = "Variable declaring a type rototo does not know"
 type = "currency"
 
-[values]
-usd = "USD"
-
 [resolve]
-default = "usd"
+default = "USD"

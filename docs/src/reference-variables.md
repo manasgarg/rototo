@@ -14,16 +14,12 @@ schema_version = 1
 description = "Maximum active projects for an account"
 type = "int"
 
-[values]
-standard = 3
-expanded = 25
-
 [resolve]
-default = "standard"
+default = 3
 
 [[resolve.rule]]
 qualifier = "paid-account"
-value = "expanded"
+value = 25
 ```
 
 ## Fields
@@ -33,7 +29,6 @@ value = "expanded"
 | `schema_version` | Yes | integer | Variable format version. The only supported value is `1`. |
 | `description` | No | string | Human description shown by inspect and editor tooling. |
 | `type` | Yes | string | Primitive type or `catalog:<catalog-id>`. |
-| `values` | Primitive only | table | Inline values keyed by value name. |
 | `resolve` | Yes | table | Default value and ordered qualifier rules. |
 
 The older `schema = "...json"` field is rejected. Structured values should use
@@ -65,23 +60,26 @@ type = "catalog:account-limit-profile"
 
 ## Primitive Values
 
-Primitive variables must contain a `[values]` table. Each table key is a value
-key. Each value must match the declared primitive type.
+Primitive variables put their values directly in `[resolve].default` and
+`[[resolve.rule]].value`. Each value must match the declared primitive type.
 
 ```toml
 type = "string"
 
-[values]
-control = "standard"
-priority = "priority"
+[resolve]
+default = "standard"
+
+[[resolve.rule]]
+qualifier = "priority-account"
+value = "priority"
 ```
 
-Primitive variables without values are invalid. Catalog-backed variables with
-`[values]` are invalid.
+Variables with `[values]` are invalid. That older indirection is rejected so
+the configured value is visible where resolution selects it.
 
 ## Catalog-Backed Variables
 
-Catalog-backed variables select entry keys from the matching catalog entry
+Catalog-backed variables select named values from the matching catalog value
 directory:
 
 ```toml
@@ -98,13 +96,13 @@ qualifier = "enterprise-account"
 value = "enterprise"
 ```
 
-The `default` and rule `value` fields reference files under:
+The `default` and rule `value` fields name files under:
 
 ```text
 catalogs/account-limit-profile-entries/
 ```
 
-Every selected entry is validated against the catalog schema before an
+Every selected value is validated against the catalog schema before an
 application can consume it.
 
 ## Resolve Block
@@ -120,12 +118,14 @@ qualifier = "paid-account"
 value = "expanded"
 ```
 
-`default` is required. It must reference a known primitive value key or a known
-catalog entry key.
+`default` is required. For primitive variables it is the default value itself.
+For catalog-backed variables it names a value in the catalog.
 
 Rules are evaluated in file order. Each rule references one qualifier and one
-value. The first rule whose qualifier resolves to `true` selects its value. If
-no rule matches, the default value is selected.
+value. For primitive variables the rule contains the value directly. For
+catalog-backed variables the rule names a catalog value. The first rule whose
+qualifier resolves to `true` selects its value. If no rule matches, the default
+value is selected.
 
 ## Invalid Shapes
 
@@ -142,11 +142,11 @@ schema = "../schemas/value.schema.json"
 ```
 
 ```toml
-# Catalog-backed variables must not contain [values]
-type = "catalog:account-limit-profile"
+# [values] is no longer supported
+type = "string"
 
 [values]
-growth = {}
+growth = "legacy"
 ```
 
 ```toml

@@ -101,7 +101,7 @@ struct VariableSemantic {
     location: DiagnosticLocation,
     type_source: Option<FieldSemantic<JsonValue>>,
     values: BTreeMap<String, ValueSemantic>,
-    resolve_default: Option<FieldSemantic<String>>,
+    resolve_default: Option<FieldSemantic<JsonValue>>,
     rules: Vec<RuleSemantic>,
 }
 
@@ -119,7 +119,7 @@ impl VariableSemantic {
                     Some(FieldSemantic {
                         target: variable.field_target(SemanticField::VariableResolveDefault),
                         location: location.clone(),
-                        value: String::new(),
+                        value: JsonValue::Null,
                     })
                 }
             },
@@ -252,7 +252,7 @@ struct RuleSemantic {
     target: SemanticTarget,
     location: DiagnosticLocation,
     qualifier: Option<FieldSemantic<String>>,
-    value: Option<FieldSemantic<String>>,
+    value: Option<FieldSemantic<JsonValue>>,
 }
 
 impl RuleSemantic {
@@ -264,7 +264,7 @@ impl RuleSemantic {
                 &rule.qualifier,
                 rule.field_target(variable_id, SemanticField::VariableRuleQualifier),
             ),
-            value: present_string_field(
+            value: present_json_field(
                 &rule.value,
                 rule.field_target(variable_id, SemanticField::VariableRuleValue),
             ),
@@ -815,7 +815,8 @@ async fn resolution_impacts(
 }
 
 fn variable_resolution_eq(left: &VariableResolution, right: &VariableResolution) -> bool {
-    left.value_key == right.value_key && left.value == right.value
+    left.value == right.value
+        && serde_json::to_value(&left.source).ok() == serde_json::to_value(&right.source).ok()
 }
 
 fn variable_type_source(
@@ -858,6 +859,20 @@ fn present_string_field(
     field: &ProjectField<String>,
     target: SemanticTarget,
 ) -> Option<FieldSemantic<String>> {
+    match field {
+        ProjectField::Present(value) => Some(FieldSemantic {
+            target,
+            location: value.location.clone(),
+            value: value.value.clone(),
+        }),
+        ProjectField::Invalid { .. } | ProjectField::Missing { .. } => None,
+    }
+}
+
+fn present_json_field(
+    field: &ProjectField<JsonValue>,
+    target: SemanticTarget,
+) -> Option<FieldSemantic<JsonValue>> {
     match field {
         ProjectField::Present(value) => Some(FieldSemantic {
             target,

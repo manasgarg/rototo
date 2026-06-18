@@ -61,7 +61,7 @@ Built-in lint validates:
 | `project` | File content shape and required fields. |
 | `register` | Custom Lua lint registration. |
 | `reference` | Links between variables, qualifiers, catalogs, schemas, and context paths. |
-| `value` | Primitive values, schemas, catalog entries, and custom value rules. |
+| `value` | Primitive values, schemas, catalog values, and custom value rules. |
 | `graph` | Relationships that are valid syntax but suspicious behavior. |
 | `policy` | Custom policy checks. |
 

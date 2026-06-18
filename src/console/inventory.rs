@@ -43,12 +43,12 @@ pub struct VariableInventoryItem {
     pub path: String,
     pub description: Option<String>,
     pub declaration: String,
-    pub default_value_key: Option<String>,
+    pub default_value: Option<String>,
     pub rule_count: usize,
     pub qualifier_references: Vec<String>,
-    /// Distinct value keys selected by rules; for catalog-typed variables
-    /// these name catalog entries.
-    pub rule_value_keys: Vec<String>,
+    /// Distinct string values selected by rules. For catalog-typed variables
+    /// these name catalog values; primitive literals are not inventory links.
+    pub rule_values: Vec<String>,
     pub catalog_reference: Option<String>,
     pub schema_reference: Option<String>,
 }
@@ -84,10 +84,10 @@ pub struct CatalogInventoryItem {
     pub entry_count: usize,
 }
 
-/// Catalog entry row in the console inventory.
+/// Catalog value row in the console inventory.
 ///
-/// This binds the catalog id and entry key to the source path the editor can
-/// open. It is rebuilt from catalog-entry models for each staged checkout.
+/// This binds the catalog id and value name to the source path the editor can
+/// open. It is rebuilt from catalog value models for each staged checkout.
 #[derive(Clone, Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct CatalogEntryInventoryItem {
@@ -195,11 +195,17 @@ fn inventory_from_model(
                 path: repo_path(&variable.location.path),
                 description: variable.description.clone(),
                 declaration: declaration_label(&variable.declaration),
-                default_value_key: variable
-                    .resolve
-                    .as_ref()
-                    .and_then(|resolve| resolve.default.as_ref())
-                    .and_then(|default| default.value.clone()),
+                default_value: (variable.declaration.kind == "catalog")
+                    .then(|| {
+                        variable
+                            .resolve
+                            .as_ref()
+                            .and_then(|resolve| resolve.default.as_ref())
+                            .and_then(|default| default.value.as_ref())
+                            .and_then(|value| value.as_str())
+                            .map(str::to_owned)
+                    })
+                    .flatten(),
                 rule_count: rules.len(),
                 qualifier_references: distinct_sorted(
                     rules
@@ -207,12 +213,18 @@ fn inventory_from_model(
                         .filter_map(|rule| rule.qualifier.as_ref())
                         .filter_map(|qualifier| qualifier.value.clone()),
                 ),
-                rule_value_keys: distinct_sorted(
-                    rules
-                        .iter()
-                        .filter_map(|rule| rule.value.as_ref())
-                        .filter_map(|value| value.value.clone()),
-                ),
+                rule_values: if variable.declaration.kind == "catalog" {
+                    distinct_sorted(
+                        rules
+                            .iter()
+                            .filter_map(|rule| rule.value.as_ref())
+                            .filter_map(|value| value.value.as_ref())
+                            .filter_map(|value| value.as_str())
+                            .map(str::to_owned),
+                    )
+                } else {
+                    Vec::new()
+                },
                 catalog_reference: (variable.declaration.kind == "catalog")
                     .then(|| variable.declaration.value.clone())
                     .flatten(),

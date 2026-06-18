@@ -54,7 +54,7 @@ The main concepts are deliberately small:
 - Context is the runtime facts supplied by the application.
 - Qualifiers turn those facts into named reusable conditions.
 - Variables select typed values using defaults and qualifier rules.
-- Catalogs hold structured policy entries validated by JSON Schema.
+- Catalogs hold structured policy values validated by JSON Schema.
 - Lint and tests make workspace changes releasable.
 
 The core loop is:
@@ -101,11 +101,8 @@ schema_version = 1
 description = "Maximum active projects for an account"
 type = "int"
 
-[values]
-standard = 3
-
 [resolve]
-default = "standard"
+default = 3
 ```
 
 Then prove the workspace can stand on its own:
@@ -146,7 +143,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
 
     println!(
         "selected {} from {:?}",
-        resolution.value_key,
+        resolution.source,
         workspace.source_fingerprint()
     );
 

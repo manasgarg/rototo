@@ -35,7 +35,7 @@ use super::variable_toml::update_primitive_variable_default;
 use super::workspace_edit::{
     EntityKind, belongs_to_workspace, branch_pr_body, branch_pr_title, console_branch_name,
     entity_template_files, expected_variable_file_path, parse_entity_id, parse_variable_type,
-    variable_value_target_path,
+    variable_default_target_path,
 };
 use super::workspace_source::{
     github_repo_for_workspace, runtime_workspace_for_base, workspace_source_for_branch,
@@ -839,7 +839,7 @@ async fn branch_variable_save(
 
     Ok(Json(json!({
         "ok": true,
-        "targetPath": variable_value_target_path(&update.value_key),
+        "targetPath": variable_default_target_path(),
     })))
 }
 
@@ -1612,7 +1612,7 @@ async fn editable_entities(
             kind: "catalog",
             path: item.path.clone(),
             description: item.description.clone(),
-            badge: Some(format!("{} entries", item.entry_count)),
+            badge: Some(format!("{} values", item.entry_count)),
             catalog_id: None,
             entry_key: None,
         });
@@ -1621,10 +1621,10 @@ async fn editable_entities(
         nodes.push(Node {
             section: "catalogs",
             id: item.id.clone(),
-            kind: "catalog entry",
+            kind: "catalog value",
             path: item.path.clone(),
             description: Some(format!(
-                "Entry {} for catalog {}",
+                "Value {} for catalog {}",
                 item.key, item.catalog_id
             )),
             badge: Some(item.catalog_id.clone()),
@@ -1718,7 +1718,7 @@ fn parse_kind(value: &str) -> Option<EntityKind> {
 
 fn invalid_entity_request() -> ApiError {
     ApiError::bad_request(
-        "kind and id are required; catalog entry creation also requires catalogId. ids may \
+        "kind and id are required; catalog value creation also requires catalogId. ids may \
          contain letters, numbers, dot, dash, and underscore",
     )
 }

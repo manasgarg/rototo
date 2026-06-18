@@ -51,8 +51,8 @@ VariableResolution resolution = workspace
     .resolveVariable("premium-message", context)
     .get();
 
-System.out.println(resolution.valueKey());
 System.out.println(resolution.value());
+System.out.println(resolution.source());
 ```
 
 `VariableResolution` has:
@@ -60,8 +60,8 @@ System.out.println(resolution.value());
 | Method | Meaning |
 | --- | --- |
 | `id()` | Variable id. |
-| `valueKey()` | Selected value key. |
 | `value()` | Selected JSON-compatible value. |
+| `source()` | Selected source. |
 
 ## Resolve A Qualifier
 

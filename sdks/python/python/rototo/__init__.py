@@ -17,8 +17,8 @@ class VariableResolution:
     """Selected value for a rototo variable."""
 
     id: str
-    value_key: str
     value: Any
+    source: Any
 
 
 @dataclass(frozen=True)
@@ -94,8 +94,8 @@ class Workspace:
         )
         return VariableResolution(
             id=result["id"],
-            value_key=result["value_key"],
             value=result["value"],
+            source=result["source"],
         )
 
     async def resolve_qualifier(
@@ -150,8 +150,8 @@ class RefreshingWorkspace:
         )
         return VariableResolution(
             id=result["id"],
-            value_key=result["value_key"],
             value=result["value"],
+            source=result["source"],
         )
 
     async def resolve_qualifier(

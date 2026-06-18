@@ -480,16 +480,12 @@ pub fn render_homepage_html() -> String {
 schema_version = 1
 type = "string"
 
-[values]
-control = "classic"
-treatment = "redesign"
-
 [resolve]
-default = "control"
+default = "classic"
 
 [[resolve.rule]]
 qualifier = "premium-users"
-value = "treatment"
+value = "redesign"
 "#,
     );
     let resolve_snippet = render_code_block(

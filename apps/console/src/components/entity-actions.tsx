@@ -163,7 +163,7 @@ export function AddCatalogEntryForm({
                 files?: Array<{ path: string }>;
             };
             if (!response.ok) {
-                throw new Error(body.error ?? "failed to add catalog entry");
+                throw new Error(body.error ?? "failed to add catalog value");
             }
             setId("");
             setNote({ tone: "ok", text: "Added to the branch." });
@@ -181,19 +181,19 @@ export function AddCatalogEntryForm({
     return (
         <form className="card" onSubmit={submit}>
             <div className="card-head-text">
-                <h3>Add a catalog entry</h3>
+                <h3>Add a catalog value</h3>
                 <p className="hint">
-                    Creates an entry under{" "}
+                    Creates a value file under{" "}
                     <span className="mono">catalogs/{catalogId}-entries</span>.
                 </p>
             </div>
             <label className="field-stack">
-                <span className="label">entry key</span>
+                <span className="label">value name</span>
                 <input
                     className="input mono"
                     disabled={disabled || pending}
                     onChange={(event) => setId(event.target.value)}
-                    placeholder="new-entry"
+                    placeholder="new-value"
                     value={id}
                 />
             </label>
@@ -298,7 +298,7 @@ function kindLabel(kind: EntityKind): string {
 
 function addHelp(kind: EntityKind): string {
     if (kind === "catalogs") {
-        return "Creates a catalog file, its schema, and a default catalog entry.";
+        return "Creates a catalog file, its schema, and a default catalog value.";
     }
     if (kind === "context") {
         return "Creates a JSON context example.";

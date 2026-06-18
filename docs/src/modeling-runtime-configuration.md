@@ -259,12 +259,12 @@ scalar or one list:
 schema_version = 1
 type = "int"
 
-[values]
-standard = 3
-expanded = 25
-
 [resolve]
-default = "standard"
+default = 3
+
+[[resolve.rule]]
+qualifier = "expanded-account"
+value = 25
 ```
 
 [Catalogs](reference-catalogs.html) are the better fit when the selected
@@ -417,7 +417,7 @@ kinds of mistakes.
 Use schemas for structure:
 
 - the app must provide `account.plan` as a string;
-- a catalog entry must include `limits.projects`;
+- a catalog value must include `limits.projects`;
 - a field must be an integer within a JSON Schema range;
 - unknown fields should be rejected.
 

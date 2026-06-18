@@ -24,7 +24,7 @@ class ApiTest(unittest.IsolatedAsyncioTestCase):
         )
 
         self.assertEqual(variable.id, "premium-message")
-        self.assertEqual(variable.value_key, "premium")
+        self.assertEqual(variable.source, {"kind": "literal"})
         self.assertEqual(variable.value, "Welcome back, premium member.")
         self.assertEqual(qualifier.id, "premium-users")
         self.assertTrue(qualifier.value)
@@ -56,7 +56,7 @@ class ApiTest(unittest.IsolatedAsyncioTestCase):
             validate_context=False,
         )
 
-        self.assertEqual(result.value_key, "control")
+        self.assertEqual(result.source, {"kind": "literal"})
 
     async def test_load_rejects_invalid_lint_mode(self) -> None:
         with self.assertRaises(ValueError) as raised:

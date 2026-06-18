@@ -3,8 +3,5 @@ schema_version = 1
 description = "Variable with failing custom Lua value lint"
 type = "string"
 
-[values]
-default = "ok"
-
 [resolve]
-default = "default"
+default = "ok"

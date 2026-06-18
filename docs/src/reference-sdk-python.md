@@ -44,8 +44,8 @@ resolution = await workspace.resolve_variable(
     {"user": {"tier": "premium"}},
 )
 
-print(resolution.value_key)
 print(resolution.value)
+print(resolution.source)
 ```
 
 `VariableResolution` has:
@@ -53,8 +53,8 @@ print(resolution.value)
 | Field | Meaning |
 | --- | --- |
 | `id` | Variable id. |
-| `value_key` | Selected value key. |
 | `value` | Selected JSON-compatible Python value. |
+| `source` | Selected source. |
 
 ## Resolve A Qualifier
 

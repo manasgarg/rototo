@@ -29,10 +29,6 @@ schema_version = 1
 description = "Search ranking mode used for catalog queries"
 type = "string"
 
-[values]
-stable = "stable"
-hybrid = "hybrid"
-
 [resolve]
 default = "stable"
 ```
@@ -48,7 +44,7 @@ rototo resolve rollout-config --variable search-ranking-mode
 ```
 
 ```text
-value key: stable
+source: literal
 value: "stable"
 ```
 
@@ -78,10 +74,6 @@ schema_version = 1
 
 description = "Search ranking mode used for catalog queries"
 type = "string"
-
-[values]
-stable = "stable"
-hybrid = "hybrid"
 
 [resolve]
 default = "stable"
@@ -134,7 +126,7 @@ rototo resolve rollout-config \
 ```
 
 ```text
-value key: stable
+source: literal
 ```
 
 ```sh
@@ -144,7 +136,7 @@ rototo resolve rollout-config \
 ```
 
 ```text
-value key: hybrid
+source: literal
 ```
 
 ## Add A Stable Bucket
@@ -177,10 +169,6 @@ schema_version = 1
 
 description = "Search ranking mode used for catalog queries"
 type = "string"
-
-[values]
-stable = "stable"
-hybrid = "hybrid"
 
 [resolve]
 default = "stable"
@@ -251,7 +239,7 @@ rototo resolve rollout-config \
 
 ```text
 test: bucket salt=search-ranking-hybrid-2026-06 range=[0,500] bucket=2978
-value key: stable
+source: literal
 ```
 
 `acct-0005` is inside the range:
@@ -265,7 +253,7 @@ rototo resolve rollout-config \
 
 ```text
 test: bucket salt=search-ranking-hybrid-2026-06 range=[0,500] bucket=134
-value key: hybrid
+source: literal
 ```
 
 The bucket value is deterministic, not sampled per request. That means logs,
@@ -322,12 +310,12 @@ async fn search_ranking_mode(
     let resolution = workspace
         .resolve_variable("search-ranking-mode", &context)
         .await?;
-    let value_key = resolution.value_key.clone();
+    let source = resolution.source.clone();
     let mode: String = serde_json::from_value(resolution.value)?;
 
     println!(
         "selected search-ranking-mode `{}` from {:?}",
-        value_key,
+        source,
         workspace.source_fingerprint()
     );
 
@@ -350,7 +338,7 @@ async def search_ranking_mode(
     resolution = await workspace.resolve_variable("search-ranking-mode", context)
     mode = str(resolution.value)
 
-    print(f"selected search-ranking-mode `{resolution.value_key}`")
+    print(f"selected search-ranking-mode `{resolution.source}`")
     return mode
 ```
 
@@ -366,7 +354,7 @@ async function searchRankingMode(
   );
   const mode = String(resolution.value);
 
-  console.log(`selected search-ranking-mode \`${resolution.valueKey}\``);
+  console.log(`selected search-ranking-mode \`${resolution.source}\``);
   return mode;
 }
 ```
@@ -387,7 +375,7 @@ String searchRankingMode(
         )
         .get();
 
-    System.out.printf("selected search-ranking-mode `%s`%n", resolution.valueKey());
+    System.out.printf("selected search-ranking-mode `%s`%n", resolution.source());
     return (String) resolution.value();
 }
 ```
@@ -415,7 +403,7 @@ func searchRankingMode(
     }
 
     mode, _ := resolution.Value.(string)
-    fmt.Printf("selected search-ranking-mode `%s`\n", resolution.ValueKey)
+    fmt.Printf("selected search-ranking-mode `%s`\n", resolution.Source)
     return mode, nil
 }
 ```

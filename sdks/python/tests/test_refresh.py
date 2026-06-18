@@ -47,11 +47,8 @@ def write_workspace(root: Path, message: str) -> None:
             description = "Message"
             type = "string"
 
-            [values]
-            default = "{message}"
-
             [resolve]
-            default = "default"
+            default = "{message}"
             """
         ).lstrip()
     )

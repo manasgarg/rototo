@@ -3,11 +3,6 @@ schema_version = 1
 description = "Search ranking algorithm for catalog queries"
 type = "string"
 
-[values]
-classic = "classic"
-semantic = "semantic"
-hybrid = "hybrid"
-
 [resolve]
 default = "classic"
 

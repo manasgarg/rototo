@@ -52,7 +52,7 @@ projected workspace.
 
 ## Catalog Entry Layers
 
-Catalog entry files layer by path:
+Catalog value files layer by path:
 
 ```text
 catalogs/banner-entries/default.toml

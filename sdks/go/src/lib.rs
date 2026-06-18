@@ -116,8 +116,8 @@ pub extern "C" fn rototo_go_workspace_resolve_variable(
             .map_err(|err| err.to_string())?;
         json_string(serde_json::json!({
             "id": resolution.id,
-            "valueKey": resolution.value_key,
             "value": resolution.value,
+            "source": resolution.source,
         }))
     })
 }
@@ -204,8 +204,8 @@ pub extern "C" fn rototo_go_refreshing_workspace_resolve_variable(
         })?;
         json_string(serde_json::json!({
             "id": resolution.id,
-            "valueKey": resolution.value_key,
             "value": resolution.value,
+            "source": resolution.source,
         }))
     })
 }

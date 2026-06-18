@@ -52,6 +52,14 @@ pub struct ModelField {
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
+pub struct ModelValueField {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub value: Option<JsonValue>,
+    pub location: ModelLocation,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct QualifierModel {
     pub id: String,
     pub location: ModelLocation,
@@ -111,7 +119,7 @@ pub struct ValueModel {
 pub struct ResolveModel {
     pub location: ModelLocation,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub default: Option<ModelField>,
+    pub default: Option<ModelValueField>,
     pub rules: Vec<RuleModel>,
 }
 
@@ -123,7 +131,7 @@ pub struct RuleModel {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub qualifier: Option<ModelField>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub value: Option<ModelField>,
+    pub value: Option<ModelValueField>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -283,7 +291,7 @@ impl WorkspaceLintSnapshot {
                         rules,
                     } => Some(ResolveModel {
                         location: model_location(location),
-                        default: Some(model_field(default)),
+                        default: Some(model_value_field(default)),
                         rules: match rules {
                             RuleCollection::Rules(rules) => rules
                                 .iter()
@@ -291,7 +299,7 @@ impl WorkspaceLintSnapshot {
                                     index: rule.index,
                                     location: model_location(&rule.location),
                                     qualifier: Some(model_field(&rule.qualifier)),
-                                    value: Some(model_field(&rule.value)),
+                                    value: Some(model_value_field(&rule.value)),
                                 })
                                 .collect(),
                             RuleCollection::Invalid { .. } => Vec::new(),
@@ -414,6 +422,16 @@ fn model_location(location: &DiagnosticLocation) -> ModelLocation {
 
 fn model_field(field: &ProjectField<String>) -> ModelField {
     ModelField {
+        value: match field {
+            ProjectField::Present(value) => Some(value.value.clone()),
+            ProjectField::Invalid { .. } | ProjectField::Missing { .. } => None,
+        },
+        location: model_location(&field.location()),
+    }
+}
+
+fn model_value_field(field: &ProjectField<JsonValue>) -> ModelValueField {
+    ModelValueField {
         value: match field {
             ProjectField::Present(value) => Some(value.value.clone()),
             ProjectField::Invalid { .. } | ProjectField::Missing { .. } => None,

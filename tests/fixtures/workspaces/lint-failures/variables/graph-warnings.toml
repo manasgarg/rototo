@@ -3,12 +3,6 @@ schema_version = 1
 description = "Variable with graph warnings"
 type = "string"
 
-[values]
-control = "control"
-first = "first"
-duplicate = "duplicate"
-unused = "unused"
-
 [resolve]
 default = "control"
 

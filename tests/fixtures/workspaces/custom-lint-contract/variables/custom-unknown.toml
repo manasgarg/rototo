@@ -3,8 +3,5 @@ schema_version = 1
 description = "Variable whose custom lint emits an undeclared rule"
 type = "string"
 
-[values]
-default = "default"
-
 [resolve]
 default = "default"

@@ -83,16 +83,16 @@ The default is always the fallback. It is not evaluated as a qualifier.
 ## Value Selection
 
 For [primitive variables](reference-variable-values.html), selected values come
-from `[values]`.
+directly from `[resolve].default` or a matching `[[resolve.rule]].value`.
 
-For [catalog-backed variables](reference-catalogs.html), selected values come
+For [catalog-backed variables](reference-catalogs.html), selected catalog values come
 from `catalogs/<catalog-id>-entries/*.toml` and are validated against the
 catalog schema.
 
 The resolution result includes both:
 
-- `value_key`: the selected key;
-- `value`: the selected JSON value.
+- `value`: the selected JSON value;
+- `source`: whether the value was literal or came from a catalog value.
 
 ## Shadowed Rules
 
@@ -113,18 +113,32 @@ guess whether a later rule is meaningful.
 {
   "resolution": {
     "id": "account-limits",
-    "value_key": "enterprise",
     "value": {
       "projects": 100,
       "members": 250
+    },
+    "source": {
+      "kind": "catalog",
+      "catalog": "account-limit-profile",
+      "value": "enterprise"
     }
   },
   "default_value": "growth",
+  "default_source": {
+    "kind": "catalog",
+    "catalog": "account-limit-profile",
+    "value": "growth"
+  },
   "rules": [
     {
       "index": 0,
       "qualifier": "enterprise-account",
       "value": "enterprise",
+      "source": {
+        "kind": "catalog",
+        "catalog": "account-limit-profile",
+        "value": "enterprise"
+      },
       "matched": true
     }
   ],

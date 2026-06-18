@@ -5,6 +5,7 @@ use serde::Serialize;
 use serde_json::Value as JsonValue;
 
 use crate::lint::WorkspaceSemanticModel;
+use crate::model::VariableResolutionSource;
 use crate::sdk::{ResolveContext, Workspace};
 
 /* Resolution previews against saved request contexts. These run the real
@@ -23,7 +24,9 @@ pub struct SavedContextResolution {
     pub path: String,
     pub ok: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub value_key: Option<String>,
+    pub value: Option<JsonValue>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub source: Option<VariableResolutionSource>,
     /// The walk through the rules: each step is a qualifier evaluation, in
     /// order, ending at the first match.
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -216,7 +219,8 @@ pub async fn resolve_saved_contexts(
                 name: context_input.name.clone(),
                 path: context_input.path.clone(),
                 ok: false,
-                value_key: None,
+                value: None,
+                source: None,
                 steps: None,
                 used_default: None,
                 error: Some(error),
@@ -273,7 +277,8 @@ async fn resolve_one(
         name: context_input.name.clone(),
         path: context_input.path.clone(),
         ok: true,
-        value_key: Some(resolution.value_key),
+        value: Some(resolution.value),
+        source: Some(resolution.source),
         steps: Some(steps),
         used_default: Some(!matched_rule),
         error: None,

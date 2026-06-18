@@ -195,6 +195,12 @@ export type ModelField = {
     location: ModelLocation;
 };
 
+/** JSON value plus location for resolve values in the semantic model. */
+export type ModelValueField = {
+    value?: unknown;
+    location: ModelLocation;
+};
+
 /** Qualifier predicate as described by the semantic model. */
 export type PredicateModel = {
     index: number;
@@ -231,13 +237,13 @@ export type RuleModel = {
     index: number;
     location: ModelLocation;
     qualifier?: ModelField;
-    value?: ModelField;
+    value?: ModelValueField;
 };
 
 /** Variable resolution block with default and ordered rules. */
 export type ResolveModel = {
     location: ModelLocation;
-    default?: ModelField;
+    default?: ModelValueField;
     rules: RuleModel[];
 };
 
@@ -259,7 +265,7 @@ export type CatalogModel = {
     schema?: ModelField;
 };
 
-/** Catalog entry value from the semantic model. */
+/** Catalog value value from the semantic model. */
 export type CatalogEntryModel = {
     catalog: string;
     key: string;
@@ -328,10 +334,10 @@ export type VariableInventoryItem = {
     path: string;
     description: string | null;
     declaration: string;
-    defaultValueKey: string | null;
+    defaultValue: string | null;
     ruleCount: number;
     qualifierReferences: string[];
-    ruleValueKeys: string[];
+    ruleValues: string[];
     catalogReference: string | null;
     schemaReference: string | null;
 };
@@ -355,7 +361,7 @@ export type CatalogInventoryItem = {
     entryCount: number;
 };
 
-/** Catalog entry inventory row linked to its editable source path. */
+/** Catalog value inventory row linked to its editable source path. */
 export type CatalogEntryInventoryItem = {
     catalogId: string;
     key: string;
@@ -424,7 +430,8 @@ export type SavedContextResolution = {
     name: string;
     path: string;
     ok: boolean;
-    valueKey?: string;
+    value?: unknown;
+    source?: VariableResolutionSource;
     steps?: Array<{
         index: number;
         qualifier: string;
@@ -434,6 +441,10 @@ export type SavedContextResolution = {
     usedDefault?: boolean;
     error?: string;
 };
+
+export type VariableResolutionSource =
+    | { kind: "literal" }
+    | { kind: "catalog"; catalog: string; value: string };
 
 /** Qualifier preview result for one saved request context. */
 export type QualifierContextEvaluation = {

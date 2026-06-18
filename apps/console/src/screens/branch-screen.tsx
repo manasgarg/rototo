@@ -215,7 +215,7 @@ export function BranchScreen({
         .map((entity) => entity.id);
     const workspaceName = workspace.sourceTreeLabel;
     const parentCatalogEntity =
-        selectedEntity?.kind === "catalog entry"
+        selectedEntity?.kind === "catalog value"
             ? (editableEntities.find(
                   (candidate) =>
                       candidate.kind === "catalog" &&
@@ -819,12 +819,12 @@ function EditableEntityDetail({
         entity.kind === "catalog"
             ? allEntities.filter(
                   (candidate) =>
-                      candidate.kind === "catalog entry" &&
+                      candidate.kind === "catalog value" &&
                       candidate.catalogId === entity.id,
               )
             : [];
     const parentCatalog =
-        entity.kind === "catalog entry"
+        entity.kind === "catalog value"
             ? (allEntities.find(
                   (candidate) =>
                       candidate.kind === "catalog" &&
@@ -949,9 +949,9 @@ function EditableEntityDetail({
             {catalogEntries.length > 0 ? (
                 <div className="card">
                     <div className="card-head-text">
-                        <h3>Catalog entries</h3>
+                        <h3>Catalog values</h3>
                         <p className="hint">
-                            Entries available for this catalog.
+                            Values available for this catalog.
                         </p>
                     </div>
                     <div className="reference-links">
@@ -1355,7 +1355,7 @@ function editableEntityTargetKey(entity: EditableEntity): string | null {
     if (entity.kind === "catalog") {
         return `catalogs:${entity.id}`;
     }
-    if (entity.kind === "catalog entry" && entity.catalogId) {
+    if (entity.kind === "catalog value" && entity.catalogId) {
         const entryKey = entity.entryKey ?? entity.id.split("/").pop();
         return entryKey
             ? `catalog_entries:${entity.catalogId}:${entryKey}`
@@ -1438,7 +1438,7 @@ function buildFormGuidance(
         const entryKeys: Record<string, string[]> = {};
         for (const candidate of entities) {
             if (
-                candidate.kind === "catalog entry" &&
+                candidate.kind === "catalog value" &&
                 candidate.catalogId &&
                 candidate.entryKey
             ) {
@@ -1474,7 +1474,7 @@ function buildFormGuidance(
                 ]),
         );
     }
-    if (entity.kind === "catalog entry") {
+    if (entity.kind === "catalog value") {
         const examples: Record<string, string[]> = {};
         for (const sibling of model?.catalogEntries ?? []) {
             if (
@@ -1549,7 +1549,7 @@ function catalogEntrySchemaText(
     entity: EditableEntity,
     entities: EditableEntity[],
 ): string | null {
-    if (entity.kind !== "catalog entry" || !entity.catalogId) {
+    if (entity.kind !== "catalog value" || !entity.catalogId) {
         return null;
     }
     const catalog = entities.find(
@@ -1685,7 +1685,7 @@ function entityFromSemanticTarget(
         return (
             entities.find(
                 (candidate) =>
-                    candidate.kind === "catalog entry" &&
+                    candidate.kind === "catalog value" &&
                     candidate.catalogId === entity.catalog &&
                     (typeof entity.key !== "string" ||
                         candidate.entryKey === entity.key),

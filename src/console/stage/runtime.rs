@@ -135,11 +135,8 @@ mod tests {
 schema_version = 1
 type = "bool"
 
-[values]
-enabled = true
-
 [resolve]
-default = "enabled"
+default = true
 "#
             .trim_start(),
         )
@@ -160,11 +157,8 @@ default = "enabled"
 schema_version = 1
 type = "bool"
 
-[values]
-enabled = "yes"
-
 [resolve]
-default = "enabled"
+default = "yes"
 "#
             .trim_start(),
         )

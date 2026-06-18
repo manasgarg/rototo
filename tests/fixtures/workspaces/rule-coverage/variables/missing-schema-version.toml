@@ -1,8 +1,5 @@
 description = "Missing variable schema_version"
 type = "string"
 
-[values]
-default = "default"
-
 [resolve]
 default = "default"

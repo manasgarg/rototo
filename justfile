@@ -78,11 +78,15 @@ _install-typescript-sdk-deps:
     npm --prefix sdks/typescript ci
 
 # Run the full console development stack: Rust API plus Vite UI.
+# Pass a workspace source to run local deployment against that source.
 [group('08. console')]
-console-dev:
+console-dev workspace_source="":
     #!/bin/bash
     set -euo pipefail
     public_url="${ROTOTO_CONSOLE_DEV_PUBLIC_URL:-https://dev.rototo.dev}"
+    workspace_source={{ quote(workspace_source) }}
+    workspace_source="${ROTOTO_CONSOLE_DEV_WORKSPACE:-$workspace_source}"
+    workspace_source="${workspace_source#workspace_source=}"
     data_dir=".rototo/dev"
     observability_dir="$data_dir/observability"
     mkdir -p "$observability_dir"
@@ -101,7 +105,23 @@ console-dev:
         fi
     }
 
-    (cargo_watch -w src -w Cargo.toml -w Cargo.lock -w build.rs -x "run -- console --deployment hosted --public-url $public_url --data-dir $data_dir" 2>&1 | tee -a "$log") &
+    shell_quote() {
+        printf '%q' "$1"
+    }
+
+    deployment="hosted"
+    run_cmd="run -- console --deployment $deployment --public-url $(shell_quote "$public_url") --data-dir $(shell_quote "$data_dir")"
+    if [[ -n "$workspace_source" ]]; then
+        deployment="local"
+        run_cmd="run -- console --deployment $deployment --public-url $(shell_quote "$public_url") --data-dir $(shell_quote "$data_dir") --workspace $(shell_quote "$workspace_source")"
+    fi
+
+    echo "starting console API in $deployment deployment"
+    if [[ -n "$workspace_source" ]]; then
+        echo "using workspace source: $workspace_source"
+    fi
+
+    (cargo_watch -w src -w Cargo.toml -w Cargo.lock -w build.rs -x "$run_cmd" 2>&1 | tee -a "$log") &
     api_pid=$!
     trap 'kill "$api_pid" 2>/dev/null || true; wait "$api_pid" 2>/dev/null || true' EXIT
     ready=0

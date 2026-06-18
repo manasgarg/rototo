@@ -37,11 +37,8 @@ mod tests {
         let disk_variable = r#"schema_version = 1
 type = "string"
 
-[values]
-control = "hello"
-
 [resolve]
-default = "control"
+default = "hello"
 "#;
         let variable_path = root.join("variables/message.toml");
         tokio::fs::write(&variable_path, disk_variable)
@@ -59,11 +56,8 @@ default = "control"
                     "text": r#"schema_version = 1
 type = "missing"
 
-[values]
-control = "hello"
-
 [resolve]
-default = "control"
+default = "hello"
 "#,
                 }
             }))
@@ -150,11 +144,8 @@ value = "premium"
         let disk_variable = r#"schema_version = 1
 type = "string"
 
-[values]
-control = "hello"
-
 [resolve]
-default = "control"
+default = "hello"
 "#;
         let variable_path = root.join("variables/message.toml");
         tokio::fs::write(&variable_path, disk_variable)
@@ -185,16 +176,12 @@ schema = "../schemas/message.schema.json"
                     "text": r#"schema_version = 1
 type = "string"
 
-[values]
-control = "hello"
-treatment = "welcome"
-
 [resolve]
-default = "control"
+default = "hello"
 
 [[resolve.rule]]
 qualifier = "premium"
-value = "treatment"
+value = "welcome"
 "#,
                 }
             }))
@@ -236,16 +223,13 @@ value = "treatment"
             .await
             .unwrap();
         let variable = child_symbol(&variable_symbols, "message");
-        let values = child_symbol(&variable.children, "values");
-        let treatment = child_symbol(&values.children, "treatment");
-        assert_eq!(treatment.range.start.line, 5);
 
         let resolve = child_symbol(&variable.children, "resolve");
         assert!(
             resolve
                 .children
                 .iter()
-                .any(|child| child.name == "rule 1: premium -> treatment")
+                .any(|child| child.name == "rule 1: premium -> \"welcome\"")
         );
         assert_eq!(
             tokio::fs::read_to_string(&variable_path).await.unwrap(),
@@ -295,11 +279,8 @@ value = "premium"
         let disk_variable = r#"schema_version = 1
 type = "string"
 
-[values]
-control = "hello"
-
 [resolve]
-default = "control"
+default = "hello"
 "#;
         let variable_path = root.join("variables/message.toml");
         tokio::fs::write(&variable_path, disk_variable)
@@ -336,16 +317,12 @@ extends = ["../base"]
                     "text": r#"schema_version = 1
 type = "string"
 
-[values]
-control = "hello"
-treatment = "welcome"
-
 [resolve]
-default = "control"
+default = "hello"
 
 [[resolve.rule]]
 qualifier = "premium"
-value = "treatment"
+value = "welcome"
 "#,
                 }
             }))
@@ -357,8 +334,8 @@ value = "treatment"
                     "uri": format!("file://{}", variable_path.display())
                 },
                 "position": {
-                    "line": 10,
-                    "character": 8
+                    "line": 7,
+                    "character": 12
                 }
             }))
             .await
@@ -366,7 +343,7 @@ value = "treatment"
 
         assert_no_completion(&completions, "../base", "workspace extend");
         assert_completion(&completions, "premium", "qualifier");
-        assert_completion(&completions, "treatment", "variable value");
+        assert_no_completion(&completions, "treatment", "variable value");
         assert_no_completion(&completions, "bucket", "predicate operator");
         assert_no_completion(&completions, "extends", "custom lint field selector");
 
@@ -464,11 +441,8 @@ value = "premium"
 description = "Disk message"
 type = "string"
 
-[values]
-control = "hello"
-
 [resolve]
-default = "control"
+default = "hello"
 "#;
         let variable_path = root.join("variables/message.toml");
         tokio::fs::write(&variable_path, disk_variable)
@@ -525,16 +499,12 @@ end
 description = "Overlay message hover"
 type = "string"
 
-[values]
-control = "hello"
-treatment = "welcome"
-
 [resolve]
-default = "control"
+default = "hello"
 
 [[resolve.rule]]
 qualifier = "premium"
-value = "treatment"
+value = "welcome"
 "#,
                 }
             }))
@@ -549,8 +519,8 @@ value = "treatment"
             "Type: `string`",
         );
         assert_hover_contains(
-            &hover_contents(&server, &variable_path, 6, 14).await,
-            "Value `treatment`",
+            &hover_contents(&server, &variable_path, 8, 9).await,
+            "selects value `\"welcome\"`",
         );
         assert_hover_contains(
             &hover_contents(&server, &qualifier_path, 1, 17).await,
@@ -573,11 +543,8 @@ value = "treatment"
 description = "Overlay message hover"
 type = "missing"
 
-[values]
-control = "hello"
-
 [resolve]
-default = "control"
+default = "hello"
 "#
                     }
                 ]
@@ -678,11 +645,8 @@ value = true
         let disk_variable = r#"schema_version = 1
 type = "string"
 
-[values]
-control = "hello"
-
 [resolve]
-default = "control"
+default = "hello"
 "#;
         let variable_path = root.join("variables/message.toml");
         tokio::fs::write(&variable_path, disk_variable)
@@ -699,16 +663,12 @@ default = "control"
                     "text": r#"schema_version = 1
 schema = "../schemas/message.schema.json"
 
-[values]
-control = "hello"
-treatment = "welcome"
-
 [resolve]
-default = "control"
+default = "hello"
 
 [[resolve.rule]]
 qualifier = "premium"
-value = "treatment"
+value = "welcome"
 "#,
                 }
             }))
@@ -721,16 +681,12 @@ value = "treatment"
                 .ends_with("/schemas/message.schema.json")
         );
 
-        let qualifier_definition = definition_location(&server, &variable_path, 11, 18).await;
+        let qualifier_definition = definition_location(&server, &variable_path, 7, 18).await;
         assert!(
             qualifier_definition
                 .uri
                 .ends_with("/qualifiers/premium.toml")
         );
-
-        let value_definition = definition_location(&server, &variable_path, 12, 9).await;
-        assert!(value_definition.uri.ends_with("/variables/message.toml"));
-        assert_eq!(value_definition.range.start.line, 5);
 
         let predicate_definition =
             definition_location(&server, &premium_qualifier_path, 3, 14).await;
@@ -814,11 +770,8 @@ value = true
         let disk_variable = r#"schema_version = 1
 type = "string"
 
-[values]
-control = "hello"
-
 [resolve]
-default = "control"
+default = "hello"
 "#;
         let variable_path = root.join("variables/message.toml");
         tokio::fs::write(&variable_path, disk_variable)
@@ -835,16 +788,12 @@ default = "control"
                     "text": r#"schema_version = 1
 schema = "../schemas/message.schema.json"
 
-[values]
-control = "hello"
-treatment = "welcome"
-
 [resolve]
-default = "control"
+default = "hello"
 
 [[resolve.rule]]
 qualifier = "premium"
-value = "treatment"
+value = "welcome"
 "#,
                 }
             }))
@@ -863,7 +812,7 @@ value = "treatment"
                 .any(|location| location.uri.ends_with("/qualifiers/premium.toml"))
         );
 
-        let premium_references = reference_locations(&server, &variable_path, 11, 18, true).await;
+        let premium_references = reference_locations(&server, &variable_path, 7, 18, true).await;
         assert_eq!(premium_references.len(), 2);
         assert!(
             premium_references
@@ -876,15 +825,8 @@ value = "treatment"
                 .any(|location| location.uri.ends_with("/variables/message.toml"))
         );
 
-        let treatment_references = reference_locations(&server, &variable_path, 5, 14, true).await;
-        assert_eq!(treatment_references.len(), 2);
-        assert_eq!(
-            treatment_references
-                .iter()
-                .filter(|location| location.uri.ends_with("/variables/message.toml"))
-                .count(),
-            2
-        );
+        let literal_references = reference_locations(&server, &variable_path, 8, 9, true).await;
+        assert!(literal_references.is_empty());
 
         let context_attribute_references =
             reference_locations(&server, &beta_qualifier_path, 3, 14, true).await;

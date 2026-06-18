@@ -4,6 +4,3 @@ description = "Resolve block has wrong shape"
 type = "string"
 
 resolve = "bad"
-
-[values]
-default = "default"

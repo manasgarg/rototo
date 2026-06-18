@@ -5,6 +5,7 @@ import {
     type RefreshOutcome,
     type RefreshStatusJson,
     type VariableResolutionJson,
+    type VariableResolutionSourceJson,
     type WorkspaceLintJson,
     native,
 } from "./native.js";
@@ -16,6 +17,7 @@ export type {
     RefreshOutcome,
     RefreshStatusJson,
     VariableResolutionJson,
+    VariableResolutionSourceJson,
     WorkspaceLintJson,
 };
 
@@ -40,8 +42,8 @@ export type RefreshingWorkspaceOptions = LoadOptions & {
 
 export type VariableResolution = {
     id: string;
-    valueKey: string;
     value: JsonValue;
+    source: VariableResolutionSourceJson;
 };
 
 export type QualifierResolution = {
@@ -73,6 +75,7 @@ export type ModelLocation = { path: string; range?: ModelRange };
 /* A scalar field as rototo parsed it: `value` is present only when the field
    had the expected shape; the location always points at the field. */
 export type ModelField = { value?: string; location: ModelLocation };
+export type ModelValueField = { value?: JsonValue; location: ModelLocation };
 
 export type QualifierModel = {
     id: string;
@@ -106,12 +109,12 @@ export type VariableModel = {
     valuesSection?: ModelLocation;
     resolve?: {
         location: ModelLocation;
-        default?: ModelField;
+        default?: ModelValueField;
         rules: Array<{
             index: number;
             location: ModelLocation;
             qualifier?: ModelField;
-            value?: ModelField;
+            value?: ModelValueField;
         }>;
     };
 };

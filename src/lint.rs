@@ -28,14 +28,14 @@ pub(crate) use input::{LintInput, OverlayDocument};
 pub(crate) use inspect::inspect_snapshot;
 use references::ReferenceIndex;
 pub(crate) use runtime::{
-    RuntimeAttribute, RuntimeCompareOp, RuntimePredicate, RuntimeWorkspace,
+    RuntimeAttribute, RuntimeCompareOp, RuntimePredicate, RuntimeSelectedValue, RuntimeWorkspace,
     compile_runtime_workspace, compile_runtime_workspace_from_snapshot,
 };
 pub use semantic_model::{
     CatalogEntryModel, CatalogModel, DeclarationModel, LinterModel, LinterRuleModel,
-    ModelEntityRef, ModelField, ModelLocation, ModelReferenceVia, PredicateModel, QualifierModel,
-    ReferenceModel, ResolveModel, RuleModel, SchemaModel, ValueModel, VariableModel,
-    WorkspaceSemanticModel,
+    ModelEntityRef, ModelField, ModelLocation, ModelReferenceVia, ModelValueField, PredicateModel,
+    QualifierModel, ReferenceModel, ResolveModel, RuleModel, SchemaModel, ValueModel,
+    VariableModel, WorkspaceSemanticModel,
 };
 pub(crate) use symbols::{
     WorkspaceCompletionItem, WorkspaceCompletionItemKind, WorkspaceDefinition,

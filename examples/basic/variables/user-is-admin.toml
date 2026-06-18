@@ -3,13 +3,9 @@ schema_version = 1
 description = "Whether the user should receive admin UI affordances"
 type = "bool"
 
-[values]
-off = false
-on = true
-
 [resolve]
-default = "off"
+default = false
 
 [[resolve.rule]]
 qualifier = "admin-users"
-value = "on"
+value = true

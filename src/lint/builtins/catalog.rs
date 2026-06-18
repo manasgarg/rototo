@@ -84,7 +84,7 @@ pub(super) fn lint_catalog_entries(ctx: &mut LintContext) {
                     RototoRuleId::CatalogEntrySchemaMismatch,
                     entry.field_target(SemanticField::CatalogEntry),
                     entry.location.clone(),
-                    format!("catalog entry {} does not match schema: {err}", entry.key),
+                    format!("catalog value {} does not match schema: {err}", entry.key),
                 );
             }
 

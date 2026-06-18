@@ -40,18 +40,32 @@ the rule outcomes that led to that result:
 {
   "resolution": {
     "id": "account-limits",
-    "value_key": "enterprise",
     "value": {
       "projects": 100,
       "members": 250
+    },
+    "source": {
+      "kind": "catalog",
+      "catalog": "account-limit-profile",
+      "value": "enterprise"
     }
   },
   "default_value": "growth",
+  "default_source": {
+    "kind": "catalog",
+    "catalog": "account-limit-profile",
+    "value": "growth"
+  },
   "rules": [
     {
       "index": 0,
       "qualifier": "enterprise-account",
       "value": "enterprise",
+      "source": {
+        "kind": "catalog",
+        "catalog": "account-limit-profile",
+        "value": "enterprise"
+      },
       "matched": true
     }
   ],
@@ -62,9 +76,10 @@ the rule outcomes that led to that result:
 | Field | Type | Meaning |
 | --- | --- | --- |
 | `resolution.id` | string | Variable id. |
-| `resolution.value_key` | string | Selected value key. |
 | `resolution.value` | JSON value | Selected value after TOML to JSON conversion. |
-| `default_value` | string | Default value key from `[resolve]`. |
+| `resolution.source` | object | Selected source. Literal values use `{ "kind": "literal" }`; catalog values include `catalog` and `value`. |
+| `default_value` | JSON value | Default value from `[resolve]`. |
+| `default_source` | object | Default source. |
 | `rules` | array | Rule outcomes in resolve order. |
 | `qualifier_traces` | array | Qualifiers evaluated while resolving the variable. |
 

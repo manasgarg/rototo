@@ -46,8 +46,8 @@ async def run_case(case: dict[str, Any]) -> dict[str, Any]:
         result = await workspace.resolve_variable(case["id"], case.get("context", {}))
         return {
             "id": result.id,
-            "value_key": result.value_key,
             "value": result.value,
+            "source": result.source,
         }
 
     if operation == "resolve_qualifier":

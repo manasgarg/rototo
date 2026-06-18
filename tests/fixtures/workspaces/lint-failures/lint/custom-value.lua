@@ -1,7 +1,8 @@
 function register(lint)
   lint:on({
     stage = "value",
-    entity = "value",
+    entity = "variable",
+    field = "resolve",
     rule = {
           id = "fixture/custom-value-rejected",
           title = "Custom value lint rejected a value",
@@ -12,11 +13,11 @@ function register(lint)
 end
 
 function reject_value(ctx)
-  if ctx.target.variable.id == "custom-value-lint" then
+  if ctx.target.id == "custom-value-lint" then
     return {
       {
         message = "custom value lint rejected "
-          .. ctx.target.variable.id .. "." .. ctx.target.name
+          .. ctx.target.id .. ".default"
       }
     }
   end

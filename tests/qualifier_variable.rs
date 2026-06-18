@@ -248,7 +248,10 @@ fn resolves_variable_by_id() {
         .assert()
         .success()
         .stdout(predicate::str::contains(r#""id": "checkout-redesign""#))
-        .stdout(predicate::str::contains(r#""value_key": "premium""#))
+        .stdout(predicate::str::contains(
+            r#""catalog": "checkout-redesign""#,
+        ))
+        .stdout(predicate::str::contains(r#""value": "premium""#))
         .stdout(predicate::str::contains(r#""variant": "premium""#));
 }
 
@@ -266,7 +269,7 @@ fn resolves_variable_without_context_as_empty_object() {
         .assert()
         .success()
         .stdout(predicate::str::contains(r#""id": "summary-token-budget""#))
-        .stdout(predicate::str::contains(r#""value_key": "standard""#))
+        .stdout(predicate::str::contains(r#""kind": "literal""#))
         .stdout(predicate::str::contains(r#""value": 1800"#));
 }
 
@@ -286,7 +289,8 @@ fn resolves_production_example_enterprise_profile() {
         .assert()
         .success()
         .stdout(predicate::str::contains(r#""id": "agent-config""#))
-        .stdout(predicate::str::contains(r#""value_key": "enterprise""#))
+        .stdout(predicate::str::contains(r#""catalog": "agent-config""#))
+        .stdout(predicate::str::contains(r#""value": "enterprise""#))
         .stdout(predicate::str::contains(r#""model": "gpt-5""#));
 }
 
@@ -308,7 +312,7 @@ fn resolves_all_variables() {
         .success()
         .stdout(predicate::str::contains(r#""id": "checkout-redesign""#))
         .stdout(predicate::str::contains(r#""id": "admin-navigation""#))
-        .stdout(predicate::str::contains(r#""value_key": "enterprise""#));
+        .stdout(predicate::str::contains(r#""value": "enterprise""#));
 }
 
 #[test]
@@ -328,7 +332,10 @@ fn resolves_variable_with_context_assignments() {
         ])
         .assert()
         .success()
-        .stdout(predicate::str::contains(r#""value_key": "premium""#));
+        .stdout(predicate::str::contains(
+            r#""catalog": "checkout-redesign""#,
+        ))
+        .stdout(predicate::str::contains(r#""value": "premium""#));
 }
 
 #[test]
@@ -352,9 +359,10 @@ fn resolves_variable_with_trace_output() {
     assert!(stdout.contains(r#"[0] context user.tier = "premium""#));
     assert!(stdout.contains(r#"test: eq "premium""#));
     assert!(stdout.contains("matched: true"));
-    assert!(stdout.contains("rule[0] if premium-users -> premium (matched)"));
-    assert!(stdout.contains("default -> control"));
-    assert!(stdout.contains("value key: premium"));
+    assert!(stdout.contains("rule[0] if premium-users ->"));
+    assert!(stdout.contains(r#""variant":"premium""#));
+    assert!(stdout.contains("default ->"));
+    assert!(stdout.contains("source: checkout-redesign:premium"));
     assert!(
         stdout.find("qualifiers:").unwrap() < stdout.find("  result:").unwrap(),
         "qualifier predicates should be printed before the final variable result"
@@ -416,7 +424,10 @@ fn resolve_accepts_lane_as_context() {
         ])
         .assert()
         .success()
-        .stdout(predicate::str::contains(r#""value_key": "premium""#));
+        .stdout(predicate::str::contains(
+            r#""catalog": "checkout-redesign""#,
+        ))
+        .stdout(predicate::str::contains(r#""value": "premium""#));
 }
 
 #[test]

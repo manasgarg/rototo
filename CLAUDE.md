@@ -126,10 +126,9 @@ workspace structure and files:
   using `qualifier.<id>`, use known predicate operators, and validate bucket and
   operator value shapes.
 - Variable files parse, declare `schema_version = 1`, declare exactly one of
-  `type`, `schema`, or `catalog`, contain inline values under `[values]` and/or
-  external values under a sibling `<variable-id>-values/*.toml` directory,
-  declare `[resolve]`, reference known values, and reference known qualifiers
-  from rules.
+  `type` or `catalog`, declare `[resolve]`, put primitive values directly in
+  resolve defaults and rules, reference known catalog values for catalog-backed
+  variables, and reference known qualifiers from rules.
 - Primitive variable values match `bool`, `int`, `number`, `string`, or `list`.
 - Schema-backed variable values validate against their JSON Schema.
 - Workspaces can declare custom rules in `rototo-workspace.toml` under

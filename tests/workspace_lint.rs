@@ -74,11 +74,8 @@ fn local_lint_applies_workspace_layers() {
         r#"schema_version = 1
 type = "string"
 
-[values]
-default = "hello"
-
 [resolve]
-default = "default"
+default = "hello"
 "#,
     )
     .unwrap();
@@ -502,11 +499,6 @@ fn reports_project_stage_variable_shape_failures() {
     );
     assert_project_rule(
         &lint,
-        "rototo/variable-values-missing",
-        "variables/values-missing.toml",
-    );
-    assert_project_rule(
-        &lint,
         "rototo/variable-resolve-missing-default",
         "variables/resolve-missing-default.toml",
     );
@@ -544,7 +536,7 @@ fn reports_project_stage_predicate_failures() {
 }
 
 #[test]
-fn catalog_entry_file_can_represent_object_with_value_key() {
+fn catalog_value_file_can_represent_object_with_value_field() {
     let temp = tempfile::TempDir::new().unwrap();
     let root = temp.path();
     std::fs::create_dir_all(root.join("variables")).unwrap();
@@ -628,7 +620,7 @@ schema = "../schemas/message.schema.json"
     .unwrap();
     std::fs::write(
         root.join("catalogs/message-entries/default.toml"),
-        r#"value = "catalog entry""#,
+        r#"value = "catalog value""#,
     )
     .unwrap();
     std::fs::write(
@@ -689,7 +681,7 @@ fn reports_reference_stage_failures() {
         diagnostic_messages_for_rule(&lint, "rototo/variable-unknown-value");
     assert!(
         unknown_value_messages
-            .contains(&"rule references unknown value: another-missing-value".to_owned())
+            .contains(&"rule references unknown catalog value: another-missing-value".to_owned())
     );
 }
 
@@ -713,9 +705,9 @@ fn canonical_reference_fixture_reports_variable_rule_unknown_qualifier() {
             primary: ExpectedPrimaryLocation::Document {
                 path: "variables/checkout-redesign.toml",
                 range: Some(ExpectedRange {
-                    start_line: 11,
+                    start_line: 7,
                     start_character: 12,
-                    end_line: 11,
+                    end_line: 7,
                     end_character: 27,
                 }),
             },
@@ -763,12 +755,12 @@ fn reports_value_stage_failures() {
     assert_eq!(schema_mismatch["target"]["entity"]["key"], "broken");
 
     let type_mismatch = diagnostic_for_rule(&lint, "rototo/variable-value-type-mismatch");
-    assert_eq!(type_mismatch["target"]["entity"]["kind"], "value");
+    assert_eq!(type_mismatch["target"]["entity"]["kind"], "variable");
+    assert_eq!(type_mismatch["target"]["entity"]["id"], "bad-type-value");
     assert_eq!(
-        type_mismatch["target"]["entity"]["variable"],
-        "bad-type-value"
+        type_mismatch["target"]["field"]["kind"],
+        "variable_resolve_default"
     );
-    assert_eq!(type_mismatch["target"]["entity"]["key"], "bad");
     assert!(type_mismatch["location"]["range"].is_object());
 }
 
@@ -931,22 +923,6 @@ fn reports_graph_stage_shadowed_rule_warning_without_failing() {
 }
 
 #[test]
-fn reports_graph_stage_unused_value_warning_without_failing() {
-    let lint = lint_json(
-        "tests/fixtures/workspaces/rules/graph/variable-value-unused",
-        true,
-    );
-    let diagnostic = only_diagnostic(&lint);
-
-    assert_eq!(diagnostic["rule"], "rototo/variable-value-unused");
-    assert_eq!(diagnostic["severity"], "warning");
-    assert_eq!(diagnostic["stage"], "graph");
-    assert_eq!(diagnostic["target"]["entity"]["kind"], "value");
-    assert_eq!(diagnostic["target"]["entity"]["variable"], "message");
-    assert_eq!(diagnostic["target"]["entity"]["key"], "unused");
-}
-
-#[test]
 fn lint_failures_fixture_covers_graph_rules() {
     let lint = lint_json("tests/fixtures/workspaces/lint-failures", false);
 
@@ -959,11 +935,6 @@ fn lint_failures_fixture_covers_graph_rules() {
     assert_graph_rule(
         &lint,
         "rototo/variable-rule-shadowed",
-        "variables/graph-warnings.toml",
-    );
-    assert_graph_rule(
-        &lint,
-        "rototo/variable-value-unused",
         "variables/graph-warnings.toml",
     );
 }
@@ -1003,9 +974,9 @@ fn reports_workspace_custom_lint_failures() {
     assert_eq!(variable["target"]["entity"]["id"], "custom-lint");
 
     let value = diagnostic_for_rule(&lint, "fixture/custom-value-rejected");
-    assert_eq!(value["target"]["entity"]["kind"], "value");
-    assert_eq!(value["target"]["entity"]["variable"], "custom-value-lint");
-    assert_eq!(value["target"]["entity"]["key"], "default");
+    assert_eq!(value["target"]["entity"]["kind"], "variable");
+    assert_eq!(value["target"]["entity"]["id"], "custom-value-lint");
+    assert_eq!(value["target"]["field"]["kind"], "variable_resolve");
 }
 
 #[test]
@@ -1040,9 +1011,8 @@ fn reports_registered_custom_lint_failures() {
     );
 
     let diagnostic = diagnostic_for_rule(&lint, "payments/max-token-budget");
-    assert_eq!(diagnostic["target"]["entity"]["kind"], "value");
-    assert_eq!(diagnostic["target"]["entity"]["variable"], "agent-config");
-    assert_eq!(diagnostic["target"]["entity"]["key"], "standard");
+    assert_eq!(diagnostic["target"]["entity"]["kind"], "variable");
+    assert_eq!(diagnostic["target"]["entity"]["id"], "agent-config");
     assert_eq!(diagnostic["stage"], "value");
     assert!(diagnostic["location"]["range"].is_object());
 }
@@ -1629,104 +1599,46 @@ fn canonical_rule_fixtures() -> &'static [CanonicalRuleFixture] {
             }],
         },
         CanonicalRuleFixture {
-            rule: RototoRuleId::VariableValuesMissing,
-            workspace: "tests/fixtures/workspaces/rules/project/variable-values-missing",
+            rule: RototoRuleId::VariableResolveMissingDefault,
+            workspace: "tests/fixtures/workspaces/rules/project/variable-resolve-missing-default",
             success: false,
             expected: &[ExpectedDiagnostic {
-                rule: "rototo/variable-values-missing",
+                rule: "rototo/variable-resolve-missing-default",
                 severity: "error",
                 stage: LintStage::Project,
                 entity: ExpectedEntity::Variable("message"),
                 primary: ExpectedPrimaryLocation::Document {
                     path: "variables/message.toml",
-                    range: None,
+                    range: Some(ExpectedRange {
+                        start_line: 3,
+                        start_character: 0,
+                        end_line: 4,
+                        end_character: 0,
+                    }),
                 },
                 related: &[],
             }],
         },
         CanonicalRuleFixture {
-            rule: RototoRuleId::VariableResolveMissingDefault,
-            workspace: "tests/fixtures/workspaces/rules/project/variable-resolve-missing-default",
-            success: false,
-            expected: &[
-                ExpectedDiagnostic {
-                    rule: "rototo/variable-resolve-missing-default",
-                    severity: "error",
-                    stage: LintStage::Project,
-                    entity: ExpectedEntity::Variable("message"),
-                    primary: ExpectedPrimaryLocation::Document {
-                        path: "variables/message.toml",
-                        range: Some(ExpectedRange {
-                            start_line: 6,
-                            start_character: 0,
-                            end_line: 7,
-                            end_character: 0,
-                        }),
-                    },
-                    related: &[],
-                },
-                ExpectedDiagnostic {
-                    rule: "rototo/variable-value-unused",
-                    severity: "warning",
-                    stage: LintStage::Graph,
-                    entity: ExpectedEntity::Value {
-                        variable: "message",
-                        key: "control",
-                    },
-                    primary: ExpectedPrimaryLocation::Document {
-                        path: "variables/message.toml",
-                        range: Some(ExpectedRange {
-                            start_line: 4,
-                            start_character: 10,
-                            end_line: 4,
-                            end_character: 19,
-                        }),
-                    },
-                    related: &[],
-                },
-            ],
-        },
-        CanonicalRuleFixture {
             rule: RototoRuleId::VariableResolveShape,
             workspace: "tests/fixtures/workspaces/rules/project/variable-resolve-shape",
             success: false,
-            expected: &[
-                ExpectedDiagnostic {
-                    rule: "rototo/variable-resolve-shape",
-                    severity: "error",
-                    stage: LintStage::Project,
-                    entity: ExpectedEntity::Variable("message"),
-                    primary: ExpectedPrimaryLocation::Document {
-                        path: "variables/message.toml",
-                        range: Some(ExpectedRange {
-                            start_line: 3,
-                            start_character: 10,
-                            end_line: 3,
-                            end_character: 15,
-                        }),
-                    },
-                    related: &[],
+            expected: &[ExpectedDiagnostic {
+                rule: "rototo/variable-resolve-shape",
+                severity: "error",
+                stage: LintStage::Project,
+                entity: ExpectedEntity::Variable("message"),
+                primary: ExpectedPrimaryLocation::Document {
+                    path: "variables/message.toml",
+                    range: Some(ExpectedRange {
+                        start_line: 3,
+                        start_character: 10,
+                        end_line: 3,
+                        end_character: 15,
+                    }),
                 },
-                ExpectedDiagnostic {
-                    rule: "rototo/variable-value-unused",
-                    severity: "warning",
-                    stage: LintStage::Graph,
-                    entity: ExpectedEntity::Value {
-                        variable: "message",
-                        key: "control",
-                    },
-                    primary: ExpectedPrimaryLocation::Document {
-                        path: "variables/message.toml",
-                        range: Some(ExpectedRange {
-                            start_line: 6,
-                            start_character: 10,
-                            end_line: 6,
-                            end_character: 19,
-                        }),
-                    },
-                    related: &[],
-                },
-            ],
+                related: &[],
+            }],
         },
         CanonicalRuleFixture {
             rule: RototoRuleId::VariableRuleShape,
@@ -1743,9 +1655,9 @@ fn canonical_rule_fixtures() -> &'static [CanonicalRuleFixture] {
                 primary: ExpectedPrimaryLocation::Document {
                     path: "variables/message.toml",
                     range: Some(ExpectedRange {
-                        start_line: 9,
+                        start_line: 6,
                         start_character: 8,
-                        end_line: 9,
+                        end_line: 6,
                         end_character: 21,
                     }),
                 },
@@ -1997,9 +1909,9 @@ fn canonical_rule_fixtures() -> &'static [CanonicalRuleFixture] {
                 primary: ExpectedPrimaryLocation::Document {
                     path: "variables/message.toml",
                     range: Some(ExpectedRange {
-                        start_line: 7,
+                        start_line: 4,
                         start_character: 10,
-                        end_line: 7,
+                        end_line: 4,
                         end_character: 19,
                     }),
                 },
@@ -2021,9 +1933,9 @@ fn canonical_rule_fixtures() -> &'static [CanonicalRuleFixture] {
                 primary: ExpectedPrimaryLocation::Document {
                     path: "variables/checkout-redesign.toml",
                     range: Some(ExpectedRange {
-                        start_line: 11,
+                        start_line: 7,
                         start_character: 12,
-                        end_line: 11,
+                        end_line: 7,
                         end_character: 27,
                     }),
                 },
@@ -2059,10 +1971,7 @@ fn canonical_rule_fixtures() -> &'static [CanonicalRuleFixture] {
                 rule: "rototo/variable-value-type-mismatch",
                 severity: "error",
                 stage: LintStage::Value,
-                entity: ExpectedEntity::Value {
-                    variable: "enabled",
-                    key: "control",
-                },
+                entity: ExpectedEntity::Variable("enabled"),
                 primary: ExpectedPrimaryLocation::Document {
                     path: "variables/enabled.toml",
                     range: Some(ExpectedRange {
@@ -2257,18 +2166,18 @@ fn canonical_rule_fixtures() -> &'static [CanonicalRuleFixture] {
                 primary: ExpectedPrimaryLocation::Document {
                     path: "variables/checkout.toml",
                     range: Some(ExpectedRange {
-                        start_line: 16,
+                        start_line: 11,
                         start_character: 12,
-                        end_line: 16,
+                        end_line: 11,
                         end_character: 27,
                     }),
                 },
                 related: &[ExpectedRelatedLocation {
                     path: "variables/checkout.toml",
                     range: Some(ExpectedRange {
-                        start_line: 12,
+                        start_line: 7,
                         start_character: 12,
-                        end_line: 12,
+                        end_line: 7,
                         end_character: 27,
                     }),
                     message: "first rule using qualifier: premium-users",
@@ -2290,46 +2199,22 @@ fn canonical_rule_fixtures() -> &'static [CanonicalRuleFixture] {
                 primary: ExpectedPrimaryLocation::Document {
                     path: "variables/message.toml",
                     range: Some(ExpectedRange {
-                        start_line: 11,
+                        start_line: 8,
                         start_character: 8,
-                        end_line: 11,
+                        end_line: 8,
                         end_character: 17,
                     }),
                 },
                 related: &[ExpectedRelatedLocation {
                     path: "variables/message.toml",
                     range: Some(ExpectedRange {
-                        start_line: 7,
+                        start_line: 4,
                         start_character: 10,
-                        end_line: 7,
+                        end_line: 4,
                         end_character: 19,
                     }),
-                    message: "resolve default value: control",
+                    message: "resolve default value: \"control\"",
                 }],
-            }],
-        },
-        CanonicalRuleFixture {
-            rule: RototoRuleId::VariableValueUnused,
-            workspace: "tests/fixtures/workspaces/rules/graph/variable-value-unused",
-            success: true,
-            expected: &[ExpectedDiagnostic {
-                rule: "rototo/variable-value-unused",
-                severity: "warning",
-                stage: LintStage::Graph,
-                entity: ExpectedEntity::Value {
-                    variable: "message",
-                    key: "unused",
-                },
-                primary: ExpectedPrimaryLocation::Document {
-                    path: "variables/message.toml",
-                    range: Some(ExpectedRange {
-                        start_line: 5,
-                        start_character: 9,
-                        end_line: 5,
-                        end_character: 23,
-                    }),
-                },
-                related: &[],
             }],
         },
         CanonicalRuleFixture {
@@ -2735,7 +2620,6 @@ fn lint_failures_expected_rule_ids() -> &'static [&'static str] {
         "rototo/variable-unknown-type",
         "rototo/variable-unknown-value",
         "rototo/variable-value-type-mismatch",
-        "rototo/variable-value-unused",
     ]
 }
 

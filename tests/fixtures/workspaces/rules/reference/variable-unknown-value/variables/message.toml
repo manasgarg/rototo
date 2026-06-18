@@ -1,8 +1,5 @@
 schema_version = 1
-type = "string"
-
-[values]
-control = "control"
+type = "catalog:message"
 
 [resolve]
 default = "missing"

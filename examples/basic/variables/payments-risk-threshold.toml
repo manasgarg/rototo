@@ -3,18 +3,13 @@ schema_version = 1
 description = "Risk score threshold above which checkout asks for review"
 type = "number"
 
-[values]
-relaxed = 0.92
-standard = 0.82
-strict = 0.70
-
 [resolve]
-default = "standard"
+default = 0.82
 
 [[resolve.rule]]
 qualifier = "lane-dev"
-value = "relaxed"
+value = 0.92
 
 [[resolve.rule]]
 qualifier = "high-value-cart"
-value = "strict"
+value = 0.70

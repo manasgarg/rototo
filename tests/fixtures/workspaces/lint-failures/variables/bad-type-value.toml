@@ -3,9 +3,5 @@ schema_version = 1
 description = "Primitive variable with a mismatched value"
 type = "int"
 
-[values]
-ok = 10
-bad = "ten"
-
 [resolve]
-default = "ok"
+default = "not an int"

@@ -67,9 +67,13 @@ export type JsonObject = { [key: string]: JsonValue };
 
 export type VariableResolutionJson = {
     id: string;
-    valueKey: string;
     value: JsonValue;
+    source: VariableResolutionSourceJson;
 };
+
+export type VariableResolutionSourceJson =
+    | { kind: "literal" }
+    | { kind: "catalog"; catalog: string; value: string };
 
 export type QualifierResolutionJson = {
     id: string;

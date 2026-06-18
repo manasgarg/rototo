@@ -119,11 +119,8 @@ mod tests {
         let disk_variable = r#"schema_version = 1
 type = "string"
 
-[values]
-control = "hello"
-
 [resolve]
-default = "control"
+default = "hello"
 "#;
         tokio::fs::write(root.join("variables/message.toml"), disk_variable)
             .await
@@ -132,11 +129,8 @@ default = "control"
         let invalid_overlay = r#"schema_version = 1
 type = "mystery"
 
-[values]
-control = "hello"
-
 [resolve]
-default = "control"
+default = "hello"
 "#;
         let mut input = LintInput::new(root.to_path_buf());
         input.overlays.insert(
@@ -178,9 +172,12 @@ default = "control"
 
         let symbols = snapshot.document_symbols("variables/message.toml");
         assert_eq!(symbols[0].name, "message");
-        assert!(symbols[0].children.iter().any(|symbol| {
-            symbol.name == "values" && symbol.children.iter().any(|child| child.name == "control")
-        }));
+        assert!(
+            symbols[0]
+                .children
+                .iter()
+                .any(|symbol| symbol.name == "resolve")
+        );
 
         let mut cleared_input = LintInput::new(root.to_path_buf());
         cleared_input.overlays.insert(
@@ -345,9 +342,9 @@ end
             "rototo/variable-rule-unknown-qualifier",
         );
         assert_eq!(reference.primary.path, "variables/checkout-redesign.toml");
-        assert_eq!(reference.primary.range.unwrap().start.line, 11);
+        assert_eq!(reference.primary.range.unwrap().start.line, 7);
         assert_eq!(reference.primary.range.unwrap().start.character, 12);
-        assert_eq!(reference.primary.range.unwrap().end.line, 11);
+        assert_eq!(reference.primary.range.unwrap().end.line, 7);
         assert_eq!(reference.primary.range.unwrap().end.character, 27);
     }
 
@@ -440,6 +437,9 @@ end
         tokio::fs::create_dir_all(root.join("variables"))
             .await
             .unwrap();
+        tokio::fs::create_dir_all(root.join("catalogs/message-entries"))
+            .await
+            .unwrap();
         tokio::fs::create_dir_all(root.join("schemas"))
             .await
             .unwrap();
@@ -482,22 +482,33 @@ value = "eu"
         tokio::fs::write(
             root.join("variables/message.toml"),
             r#"schema_version = 1
-schema = "../schemas/message.schema.json"
-
-[values]
-control = "hello"
-treatment = "welcome"
+type = "catalog:message"
 
 [resolve]
 default = "missing"
 
 [[resolve.rule]]
 qualifier = "premium"
-value = "treatment"
+value = "welcome"
 
 [[resolve.rule]]
 qualifier = "missing"
 value = "absent"
+"#,
+        )
+        .await
+        .unwrap();
+        tokio::fs::write(
+            root.join("catalogs/message.toml"),
+            r#"schema_version = 1
+schema = "../schemas/message.schema.json"
+"#,
+        )
+        .await
+        .unwrap();
+        tokio::fs::write(
+            root.join("catalogs/message-entries/welcome.toml"),
+            r#"text = "welcome"
 "#,
         )
         .await
@@ -510,7 +521,7 @@ value = "absent"
         .unwrap();
         tokio::fs::write(
             root.join("schemas/message.schema.json"),
-            r#"{"type":"string"}"#,
+            r#"{"type":"object"}"#,
         )
         .await
         .unwrap();
@@ -540,8 +551,8 @@ value = "absent"
         assert!(snapshot.references.edges().iter().any(|edge| {
             matches!(edge.source, ReferenceSource::VariableRuleValue { .. })
                 && edge.target
-                    == ReferenceTarget::VariableValue {
-                        variable: "message".to_owned(),
+                    == ReferenceTarget::CatalogEntry {
+                        catalog: "message".to_owned(),
                         value: "absent".to_owned(),
                     }
                 && !edge.is_resolved()
@@ -566,7 +577,7 @@ value = "absent"
         assert!(
             snapshot
                 .references
-                .variable_value_reference_sites("message", "treatment")
+                .catalog_entry_reference_sites("message", "welcome")
                 .iter()
                 .any(|site| matches!(
                     site.from,
@@ -579,7 +590,7 @@ value = "absent"
         assert!(
             snapshot
                 .references
-                .variable_value_reference_sites("message", "absent")
+                .catalog_entry_reference_sites("message", "absent")
                 .is_empty()
         );
 

@@ -3,18 +3,13 @@ schema_version = 1
 description = "Queue used for manual fraud review"
 type = "string"
 
-[values]
-default = "risk-standard"
-high_value = "risk-priority"
-eu = "risk-eu"
-
 [resolve]
-default = "default"
+default = "risk-standard"
 
 [[resolve.rule]]
 qualifier = "high-value-cart"
-value = "high_value"
+value = "risk-priority"
 
 [[resolve.rule]]
 qualifier = "eu-users"
-value = "eu"
+value = "risk-eu"

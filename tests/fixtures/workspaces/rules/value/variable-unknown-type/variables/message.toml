@@ -1,8 +1,5 @@
 schema_version = 1
 type = "text"
 
-[values]
-control = "control"
-
 [resolve]
 default = "control"

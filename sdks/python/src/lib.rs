@@ -317,8 +317,14 @@ fn variable_resolution_to_py(
 ) -> PyResult<Py<PyAny>> {
     let dict = PyDict::new(py);
     dict.set_item("id", resolution.id)?;
-    dict.set_item("value_key", resolution.value_key)?;
     dict.set_item("value", pythonize(py, &resolution.value)?)?;
+    dict.set_item(
+        "source",
+        pythonize(
+            py,
+            &serde_json::to_value(resolution.source).unwrap_or(JsonValue::Null),
+        )?,
+    )?;
     Ok(dict.into_any().unbind())
 }
 

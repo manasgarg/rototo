@@ -20,7 +20,7 @@ The smallest review I would trust for a runtime configuration change should
 answer:
 
 - which variables can select a different value;
-- which value keys are new, changed, or removed;
+- which catalog values are new, changed, or removed;
 - which runtime conditions can match the new path;
 - which accounts, environments, buckets, or workspace layers are affected;
 - which tests prove the intended behavior;
@@ -33,7 +33,7 @@ For example, this is reviewable:
 
 ```text
 Change account-limit-profile:
-- add value key preview-enterprise
+- add source preview-enterprise
 - route test accounts in prod to preview-enterprise
 - leave standard and enterprise defaults unchanged
 - verified with rototo fixtures and account-app policy tests
@@ -87,13 +87,10 @@ gives several ways to do that without adding app-side policy:
 - deterministic buckets;
 - customer or team workspace layers.
 
-I usually prefer adding a new value key before changing the default path:
+I usually prefer adding a new catalog value before changing the default path:
 
 ```toml
-[values]
-standard = { max_projects = 10, audit_retention_days = 30 }
-enterprise = { max_projects = 100, audit_retention_days = 365 }
-preview_enterprise = { max_projects = 150, audit_retention_days = 365 }
+type = "catalog:account-limit-profile"
 
 [resolve]
 default = "standard"
@@ -129,7 +126,7 @@ dumping the full payload.
 For each important resolution, log:
 
 - variable id;
-- selected value key;
+- selected source;
 - workspace fingerprint;
 - relevant request, account, or tenant identifier;
 - service deployment identity when it helps answer the question.
@@ -148,7 +145,7 @@ Those fields make the common production questions answerable:
 ```text
 Which workspace version is this service using?
 Did it pick up the latest reviewed commit?
-Which value key did this account receive?
+Which source did this account receive?
 Is the service serving last-known-good because refresh is failing?
 ```
 
@@ -206,7 +203,7 @@ invisible.
 For urgent workspace changes, keep the path short but still reviewable:
 
 - make one policy change per pull request when possible;
-- include the exact runtime condition and value key being changed;
+- include the exact runtime condition and source being changed;
 - run `rototo lint` and the relevant fixture or app tests;
 - get approval from the owner of the affected administrative boundary;
 - record the recovery command or revert commit in the incident notes.
@@ -222,7 +219,7 @@ An operated rototo integration has a clean split:
 - the workspace owns reviewed policy;
 - the app owns runtime facts and applying selected policy;
 - CI owns lint, fixtures, and app contract tests;
-- observability owns selected value keys, fingerprints, and refresh state;
+- observability owns selected catalog values, fingerprints, and refresh state;
 - git owns recovery history.
 
 When those responsibilities stay clear, configuration can move quickly without

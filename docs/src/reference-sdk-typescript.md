@@ -37,8 +37,8 @@ const resolution = await workspace.resolveVariable(
   { user: { tier: "premium" } },
 );
 
-console.log(resolution.valueKey);
 console.log(resolution.value);
+console.log(resolution.source);
 ```
 
 `VariableResolution` has:
@@ -46,8 +46,8 @@ console.log(resolution.value);
 | Field | Meaning |
 | --- | --- |
 | `id` | Variable id. |
-| `valueKey` | Selected value key. |
 | `value` | Selected JSON-compatible value. |
+| `source` | Selected source. |
 
 ## Resolve A Qualifier
 

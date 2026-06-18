@@ -3,9 +3,5 @@ schema_version = 1
 description = "Agent config with a registered custom value lint"
 type = "list"
 
-[values]
-standard = [6000]
-small = [1000]
-
 [resolve]
-default = "standard"
+default = [6000]

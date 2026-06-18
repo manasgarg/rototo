@@ -159,8 +159,15 @@ pub struct QualifierResolution {
 #[derive(Clone, Debug, serde::Serialize)]
 pub struct VariableResolution {
     pub id: String,
-    pub value_key: String,
     pub value: serde_json::Value,
+    pub source: VariableResolutionSource,
+}
+
+#[derive(Clone, Debug, serde::Serialize)]
+#[serde(rename_all = "snake_case", tag = "kind")]
+pub enum VariableResolutionSource {
+    Literal,
+    Catalog { catalog: String, value: String },
 }
 
 #[derive(Debug, serde::Serialize)]
@@ -312,7 +319,7 @@ pub struct ValueInspectReport {
 
 #[derive(Debug, serde::Serialize)]
 pub struct ResolveInspectReport {
-    pub default_value: Option<String>,
+    pub default_value: Option<serde_json::Value>,
     pub rules: Vec<RulePathwayInspectReport>,
     #[serde(skip_serializing)]
     pub location: DiagnosticLocation,
@@ -322,7 +329,7 @@ pub struct ResolveInspectReport {
 pub struct RulePathwayInspectReport {
     pub index: usize,
     pub qualifier: Option<String>,
-    pub value: Option<String>,
+    pub value: Option<serde_json::Value>,
     #[serde(skip_serializing)]
     pub location: DiagnosticLocation,
 }
@@ -454,7 +461,8 @@ pub struct BucketResolutionTrace {
 #[derive(Debug, Clone, serde::Serialize)]
 pub struct VariableResolutionTrace {
     pub resolution: VariableResolution,
-    pub default_value: String,
+    pub default_value: serde_json::Value,
+    pub default_source: VariableResolutionSource,
     pub rules: Vec<VariableRuleResolutionTrace>,
     pub qualifier_traces: Vec<QualifierResolutionTrace>,
 }
@@ -463,6 +471,7 @@ pub struct VariableResolutionTrace {
 pub struct VariableRuleResolutionTrace {
     pub index: usize,
     pub qualifier: String,
-    pub value: String,
+    pub value: serde_json::Value,
+    pub source: VariableResolutionSource,
     pub matched: bool,
 }

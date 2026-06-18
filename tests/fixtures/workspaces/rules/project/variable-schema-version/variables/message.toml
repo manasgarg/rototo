@@ -1,7 +1,4 @@
 type = "string"
 
-[values]
-control = "control"
-
 [resolve]
 default = "control"

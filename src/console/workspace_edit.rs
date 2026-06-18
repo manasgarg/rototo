@@ -6,8 +6,8 @@ pub fn expected_variable_file_path(workspace: &WorkspaceRecord, variable_id: &st
     workspace_repo_path(&workspace.path, &format!("variables/{variable_id}.toml"))
 }
 
-pub fn variable_value_target_path(value_key: &str) -> String {
-    format!("/values/{}", json_pointer_escape_segment(value_key))
+pub fn variable_default_target_path() -> String {
+    "/resolve/default".to_owned()
 }
 
 pub fn console_branch_name(login: &str, workspace: &WorkspaceRecord) -> String {
@@ -82,10 +82,6 @@ pub fn branch_pr_body(
     ];
     body.extend(changed_paths);
     body.join("\n")
-}
-
-fn json_pointer_escape_segment(segment: &str) -> String {
-    segment.replace('~', "~0").replace('/', "~1")
 }
 
 /// File paths must stay inside the workspace: no absolute paths, no `..`
@@ -176,7 +172,7 @@ pub fn entity_template_files(
             },
         ],
         EntityKind::CatalogEntries => {
-            let catalog_id = catalog_id.expect("catalog entry creation requires catalogId");
+            let catalog_id = catalog_id.expect("catalog value creation requires catalogId");
             vec![PlannedFile {
                 path: path(&format!("catalogs/{catalog_id}-entries/{id}.toml")),
                 content: catalog_entry_template().to_owned(),
@@ -208,10 +204,8 @@ fn variable_template(id: &str, variable_type: &str) -> String {
         "schema_version = 1\n\n\
          description = {description}\n\
          type = {variable_type}\n\n\
-         [values]\n\
-         control = {default_literal}\n\n\
          [resolve]\n\
-         default = \"control\"\n",
+         default = {default_literal}\n",
         description = toml_string(&format!(
             "Edit this description to explain what {id} controls"
         )),
@@ -239,7 +233,7 @@ fn catalog_template(id: &str) -> String {
          description = {description}\n\
          schema = {schema}\n",
         description = toml_string(&format!(
-            "Edit this description to explain the {id} catalog entries"
+            "Edit this description to explain the {id} catalog values"
         )),
         schema = toml_string(&format!("../schemas/{id}.schema.json")),
     )
