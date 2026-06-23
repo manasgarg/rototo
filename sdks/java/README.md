@@ -11,7 +11,7 @@ linting, refresh, and resolution behavior in the Rust core.
 rototo is currently versioned as an alpha package for Java 11 and newer:
 
 ```gradle
-implementation("dev.rototo:rototo:0.1.0-alpha.4")
+implementation("dev.rototo:rototo:0.1.0-alpha.5")
 ```
 
 For Maven:
@@ -20,13 +20,13 @@ For Maven:
 <dependency>
   <groupId>dev.rototo</groupId>
   <artifactId>rototo</artifactId>
-  <version>0.1.0-alpha.4</version>
+  <version>0.1.0-alpha.5</version>
 </dependency>
 ```
 
 The package includes native libraries for the supported Linux, macOS, and
 Windows targets. The rototo release version stays SemVer, for example
-`0.1.0-alpha.4`.
+`0.1.0-alpha.5`.
 
 ## Load A Workspace
 

@@ -21,8 +21,8 @@ explicitly:
 python -m pip install --pre rototo
 ```
 
-The rototo release version stays SemVer, for example `0.1.0-alpha.4`. Python
-packaging tools may display the equivalent PEP 440 spelling `0.1.0a4` for the
+The rototo release version stays SemVer, for example `0.1.0-alpha.5`. Python
+packaging tools may display the equivalent PEP 440 spelling `0.1.0a5` for the
 distribution.
 
 ## Load A Workspace

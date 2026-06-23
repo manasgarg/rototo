@@ -16,7 +16,7 @@ public final class JavaSdkTest {
     }
 
     private static void api() throws Exception {
-        assertEquals("0.1.0-alpha.4", Rototo.version(), "version");
+        assertEquals(expectedVersion(), Rototo.version(), "version");
         try (Workspace workspace = await(Workspace.load("examples/basic"))) {
             VariableResolution variable = await(workspace.resolveVariable(
                     "premium-message",
@@ -177,5 +177,13 @@ public final class JavaSdkTest {
         if (!expected.equals(actual)) {
             throw new AssertionError(label + ": expected " + expected + ", got " + actual);
         }
+    }
+
+    private static String expectedVersion() {
+        String version = System.getProperty("rototo.expected.version");
+        if (version == null || version.isBlank()) {
+            throw new AssertionError("missing rototo.expected.version");
+        }
+        return version;
     }
 }

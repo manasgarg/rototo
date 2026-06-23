@@ -124,7 +124,7 @@ Add rototo, Tokio, and serde_json to `Cargo.toml`:
 
 ```toml
 [dependencies]
-rototo = "0.1.0-alpha.4"
+rototo = "0.1.0-alpha.5"
 serde_json = "1"
 tokio = { version = "1", features = ["macros", "rt-multi-thread", "time"] }
 ```
