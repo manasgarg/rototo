@@ -3,7 +3,7 @@
 Runtime application code should resolve named
 [variables](reference-variables.html) and
 [qualifiers](reference-qualifiers.html) through a
-[loaded workspace handle](reference-sdk-loading.html). That keeps file parsing,
+[loaded package handle](reference-sdk-loading.html). That keeps file parsing,
 lint, context validation, and selection semantics inside rototo instead of
 copying them into the app.
 
@@ -60,7 +60,7 @@ The JSON value must be an object.
 
 :::sdk-snippet resolve-variable
 ```rust
-let resolution = workspace
+let resolution = pkg
     .resolve_variable("account-limits", &context)
     .await?;
 
@@ -68,7 +68,7 @@ println!("{:?} -> {}", resolution.source, resolution.value);
 ```
 
 ```python
-resolution = await workspace.resolve_variable(
+resolution = await pkg.resolve_variable(
     "account-limits",
     context,
 )
@@ -77,7 +77,7 @@ print(f"{resolution.source} -> {resolution.value}")
 ```
 
 ```typescript
-const resolution = await workspace.resolveVariable(
+const resolution = await pkg.resolveVariable(
   "account-limits",
   context,
 );
@@ -86,7 +86,7 @@ console.log(`${resolution.source.kind} -> ${resolution.value}`);
 ```
 
 ```java
-VariableResolution resolution = workspace
+VariableResolution resolution = pkg
     .resolveVariable("account-limits", context)
     .get();
 
@@ -94,7 +94,7 @@ System.out.println(resolution.source() + " -> " + resolution.value());
 ```
 
 ```go
-resolution, err := workspace.ResolveVariable(
+resolution, err := pkg.ResolveVariable(
     ctx,
     "account-limits",
     resolveContext,
@@ -123,7 +123,7 @@ method casing.
 
 :::sdk-snippet resolve-qualifier
 ```rust
-let matches = workspace
+let matches = pkg
     .resolve_qualifier("enterprise-account", &context)
     .await?;
 
@@ -131,7 +131,7 @@ println!("{matches}");
 ```
 
 ```python
-matches = await workspace.resolve_qualifier(
+matches = await pkg.resolve_qualifier(
     "enterprise-account",
     context,
 )
@@ -140,7 +140,7 @@ print(matches)
 ```
 
 ```typescript
-const matches = await workspace.resolveQualifier(
+const matches = await pkg.resolveQualifier(
   "enterprise-account",
   context,
 );
@@ -149,7 +149,7 @@ console.log(matches);
 ```
 
 ```java
-boolean matches = workspace
+boolean matches = pkg
     .resolveQualifier("enterprise-account", context)
     .get();
 
@@ -157,7 +157,7 @@ System.out.println(matches);
 ```
 
 ```go
-matches, err := workspace.ResolveQualifier(
+matches, err := pkg.ResolveQualifier(
     ctx,
     "enterprise-account",
     resolveContext,
@@ -176,7 +176,7 @@ Qualifier resolution returns the final boolean result.
 ## Context Validation Options
 
 By default, SDK resolution validates context against a compatible request
-context schema when the workspace provides one.
+context schema when the package provides one.
 
 To skip validation for a specific call:
 
@@ -188,13 +188,13 @@ let options = ResolveOptions {
     validate_context: false,
 };
 
-let resolution = workspace
+let resolution = pkg
     .resolve_variable_with_options("account-limits", &context, options)
     .await?;
 ```
 
 ```python
-resolution = await workspace.resolve_variable(
+resolution = await pkg.resolve_variable(
     "account-limits",
     context,
     validate_context=False,
@@ -202,7 +202,7 @@ resolution = await workspace.resolve_variable(
 ```
 
 ```typescript
-const resolution = await workspace.resolveVariable(
+const resolution = await pkg.resolveVariable(
   "account-limits",
   context,
   { validateContext: false },
@@ -210,7 +210,7 @@ const resolution = await workspace.resolveVariable(
 ```
 
 ```java
-VariableResolution resolution = workspace
+VariableResolution resolution = pkg
     .resolveVariable(
         "account-limits",
         context,
@@ -220,7 +220,7 @@ VariableResolution resolution = workspace
 ```
 
 ```go
-resolution, err := workspace.ResolveVariable(
+resolution, err := pkg.ResolveVariable(
     ctx,
     "account-limits",
     resolveContext,
@@ -233,17 +233,17 @@ Skipping validation does not make missing context paths valid. A qualifier that
 reads a missing path can still fail resolution. This option only skips
 [JSON Schema validation](reference-context.html) of the context object.
 
-## Workspace Loaded Without Runtime
+## Package Loaded Without Runtime
 
-Inspection loads a workspace without compiling a runtime model. Resolution from
+Inspection loads a package without compiling a runtime model. Resolution from
 that handle fails with:
 
 ```text
-workspace was loaded without a runtime model; use Workspace::load with lint enabled
+package was loaded without a runtime model; use Package::load with lint enabled
 ```
 
-Use loaded runtime workspaces or
-[refreshing workspaces](reference-sdk-refresh.html) for application runtime
+Use loaded runtime packages or
+[refreshing packages](reference-sdk-refresh.html) for application runtime
 paths.
 
 ## Rust Free Functions
@@ -251,15 +251,15 @@ paths.
 The Rust crate also exports filesystem-oriented functions:
 
 ```rust
-rototo::resolve_variable(workspace_root, "account-limits", context_json).await?;
-rototo::resolve_variables(workspace_root, context_json).await?;
-rototo::resolve_qualifier(workspace_root, "enterprise-account", context_json).await?;
-rototo::resolve_qualifiers(workspace_root, context_json).await?;
+rototo::resolve_variable(package_root, "account-limits", context_json).await?;
+rototo::resolve_variables(package_root, context_json).await?;
+rototo::resolve_qualifier(package_root, "enterprise-account", context_json).await?;
+rototo::resolve_qualifiers(package_root, context_json).await?;
 ```
 
-These compile the runtime workspace from a local root for each call. They are
+These compile the runtime package from a local root for each call. They are
 handy for Rust tests and tools. Long-running services should prefer a loaded
-workspace.
+package.
 
 ## Traces
 
@@ -267,8 +267,8 @@ The loaded SDK APIs return compact resolutions. The CLI and Rust free trace
 functions return explanation traces:
 
 ```rust
-rototo::trace_variable_resolution(workspace_root, "account-limits", context_json).await?;
-rototo::trace_qualifier_resolution(workspace_root, "enterprise-account", context_json).await?;
+rototo::trace_variable_resolution(package_root, "account-limits", context_json).await?;
+rototo::trace_qualifier_resolution(package_root, "enterprise-account", context_json).await?;
 ```
 
 Use [traces](reference-resolution-output.html) for tests, diagnostics, or

@@ -47,7 +47,7 @@ rototo/<rule-id>
 Examples:
 
 ```text
-rototo/workspace-manifest-missing
+rototo/package-manifest-missing
 rototo/qualifier-when-shape
 rototo/variable-unknown-value
 rototo/catalog-entry-schema-mismatch
@@ -73,14 +73,14 @@ warning
 
 `rototo lint` exits with failure when selected diagnostics include any error.
 Warnings are still reported because they often point at confusing or risky
-workspace behavior.
+package behavior.
 
 ## Targets
 
 Diagnostics can target:
 
 ```text
-workspace
+package
 manifest
 qualifier
 variable
@@ -106,7 +106,7 @@ rototo show examples/basic --lint-rules
 rototo show examples/basic --lint-authority rototo
 ```
 
-The global catalog contains built-in rototo rules. A workspace-scoped catalog
+The global catalog contains built-in rototo rules. A package-scoped catalog
 also includes [custom rules](reference-custom-lua-lint.html) registered by
 `lint/*.lua`.
 

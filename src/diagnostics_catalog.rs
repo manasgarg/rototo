@@ -2,9 +2,9 @@ use std::path::Path;
 
 use crate::diagnostics::{DiagnosticCatalogEntry, RototoRuleId};
 use crate::error::{Result, RototoError};
-use crate::lint::{LintInput, lint_workspace_snapshot};
+use crate::lint::{LintInput, lint_package_snapshot};
 use crate::model::{DiagnosticCatalog, DiagnosticCatalogScope};
-use crate::workspace::inspect_workspace;
+use crate::package::inspect_package;
 
 pub fn diagnostics_catalog() -> DiagnosticCatalog {
     let mut diagnostics: Vec<_> = RototoRuleId::iter()
@@ -19,15 +19,15 @@ pub fn diagnostics_catalog() -> DiagnosticCatalog {
     }
 }
 
-pub async fn diagnostics_catalog_for_workspace(workspace_root: &Path) -> Result<DiagnosticCatalog> {
-    let workspace = inspect_workspace(workspace_root).await?;
-    let snapshot = lint_workspace_snapshot(LintInput::new(workspace.root.clone())).await?;
+pub async fn diagnostics_catalog_for_package(package_root: &Path) -> Result<DiagnosticCatalog> {
+    let package = inspect_package(package_root).await?;
+    let snapshot = lint_package_snapshot(LintInput::new(package.root.clone())).await?;
     let mut diagnostics = snapshot.diagnostic_catalog_entries();
     diagnostics.sort_by(|left, right| left.rule.cmp(&right.rule));
 
     Ok(DiagnosticCatalog {
-        scope: DiagnosticCatalogScope::Workspace,
-        subject: workspace.root.display().to_string(),
+        scope: DiagnosticCatalogScope::Package,
+        subject: package.root.display().to_string(),
         diagnostics,
     })
 }

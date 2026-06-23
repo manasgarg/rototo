@@ -17,85 +17,85 @@ use super::api::{
     ApiError, ApiResult, ConsoleState, SharedState, require_github_token, require_user,
     source_token,
 };
-use super::api_workspace::{
-    EntityQuery, lint_error_json, lint_json, load_saved_contexts, load_workspace,
-    workspace_capabilities_json,
+use super::api_package::{
+    EntityQuery, lint_error_json, lint_json, load_package, load_saved_contexts,
+    package_capabilities_json,
 };
 use super::capabilities::{
-    DeploymentType, WorkspaceSourceKind, WritePolicy, classify_workspace_source,
+    DeploymentType, PackageSourceKind, WritePolicy, classify_package_source,
 };
-use super::github::workspace_repo_path;
+use super::github::package_repo_path;
 use super::inventory::{
-    WorkspaceInventory, inspect_workspace_inventory, language_for_path, read_workspace_definition,
+    PackageInventory, inspect_package_inventory, language_for_path, read_package_definition,
 };
 use super::local_git;
-use super::resolve_preview::edit_context_previews;
-use super::stage::{BranchName, GitRefName, SourceTreeRevision};
-use super::store::{
-    ActiveBranchRecord, ActiveBranchStatus, BranchPullRequestInput, SelectBranchInput, SessionUser,
-    WorkspaceRecord,
-};
-use super::variable_toml::update_primitive_variable_default;
-use super::workspace_edit::{
-    EntityKind, belongs_to_workspace, branch_pr_body, branch_pr_title, console_branch_name,
+use super::package_edit::{
+    EntityKind, belongs_to_package, branch_pr_body, branch_pr_title, console_branch_name,
     entity_template_files, expected_variable_file_path, parse_entity_id, parse_variable_type,
     variable_default_target_path,
 };
-use super::workspace_source::{
-    github_repo_for_workspace, runtime_workspace_for_base, workspace_source_for_branch,
+use super::package_source::{
+    github_repo_for_package, package_source_for_branch, runtime_package_for_base,
 };
+use super::resolve_preview::edit_context_previews;
+use super::stage::{BranchName, GitRefName, SourceTreeRevision};
+use super::store::{
+    ActiveBranchRecord, ActiveBranchStatus, BranchPullRequestInput, PackageRecord,
+    SelectBranchInput, SessionUser,
+};
+use super::variable_toml::update_primitive_variable_default;
 
 const PR_SYNC_FRESH: Duration = Duration::from_secs(60);
 const MAX_PREVIEW_CONTEXTS: usize = 4;
 
 pub fn routes() -> axum::Router<SharedState> {
     axum::Router::new()
-        .route("/workspaces/{workspace_id}/branches", post(branch_select))
+        .route("/packages/{package_id}/branches", post(branch_select))
         .route(
-            "/workspaces/{workspace_id}/branches/{branch_id}",
+            "/packages/{package_id}/branches/{branch_id}",
             patch(branch_rename),
         )
         .route(
-            "/workspaces/{workspace_id}/branches/{branch_id}/data",
+            "/packages/{package_id}/branches/{branch_id}/data",
             get(branch_data),
         )
         .route(
-            "/workspaces/{workspace_id}/branches/{branch_id}/entity",
+            "/packages/{package_id}/branches/{branch_id}/entity",
             get(branch_entity),
         )
         .route(
-            "/workspaces/{workspace_id}/branches/{branch_id}/sync-pr",
+            "/packages/{package_id}/branches/{branch_id}/sync-pr",
             post(branch_sync_pr),
         )
         .route(
-            "/workspaces/{workspace_id}/branches/{branch_id}/publish",
+            "/packages/{package_id}/branches/{branch_id}/publish",
             post(branch_publish),
         )
         .route(
-            "/workspaces/{workspace_id}/branches/{branch_id}/archive",
+            "/packages/{package_id}/branches/{branch_id}/archive",
             post(branch_archive),
         )
         .route(
-            "/workspaces/{workspace_id}/branches/{branch_id}/variables",
+            "/packages/{package_id}/branches/{branch_id}/variables",
             post(branch_variable_save),
         )
         .route(
-            "/workspaces/{workspace_id}/branches/{branch_id}/files",
+            "/packages/{package_id}/branches/{branch_id}/files",
             post(branch_file_save).delete(branch_file_delete),
         )
         .route(
-            "/workspaces/{workspace_id}/branches/{branch_id}/entities",
+            "/packages/{package_id}/branches/{branch_id}/entities",
             post(branch_entity_create),
         )
         .route(
-            "/workspaces/{workspace_id}/branches/{branch_id}/lsp",
+            "/packages/{package_id}/branches/{branch_id}/lsp",
             post(branch_lsp),
         )
 }
 
 struct BranchContext {
     user: SessionUser,
-    workspace: WorkspaceRecord,
+    package: PackageRecord,
     branch: ActiveBranchRecord,
     github_repo: Option<super::github::GitHubRepoIdentity>,
 }
@@ -115,16 +115,16 @@ struct BranchFileChange {
 fn branch_backend<'a>(
     state: &ConsoleState,
     user: &'a SessionUser,
-    workspace: &WorkspaceRecord,
+    package: &PackageRecord,
     action: &str,
 ) -> ApiResult<BranchBackend<'a>> {
-    let kind = classify_workspace_source(&workspace.source);
+    let kind = classify_package_source(&package.source);
     match state.write_policy {
         WritePolicy::Disabled => Err(ApiError::bad_request(format!(
             "{action} is disabled for this console"
         ))),
         WritePolicy::PullRequest => match kind {
-            WorkspaceSourceKind::GitHubArchive | WorkspaceSourceKind::GitHubGit => {
+            PackageSourceKind::GitHubArchive | PackageSourceKind::GitHubGit => {
                 let token = require_github_token(user, action)?;
                 Ok(BranchBackend::GitHub {
                     token,
@@ -136,19 +136,19 @@ fn branch_backend<'a>(
             )),
         },
         WritePolicy::DirectPush => match kind {
-            WorkspaceSourceKind::GitHubArchive | WorkspaceSourceKind::GitHubGit => {
+            PackageSourceKind::GitHubArchive | PackageSourceKind::GitHubGit => {
                 let token = require_github_token(user, action)?;
                 Ok(BranchBackend::GitHub {
                     token,
                     direct: true,
                 })
             }
-            WorkspaceSourceKind::LocalPath | WorkspaceSourceKind::FileUrl
+            PackageSourceKind::LocalPath | PackageSourceKind::FileUrl
                 if state.deployment == DeploymentType::Local =>
             {
                 Ok(BranchBackend::LocalWorkingTree)
             }
-            WorkspaceSourceKind::LocalPath | WorkspaceSourceKind::FileUrl => Err(
+            PackageSourceKind::LocalPath | PackageSourceKind::FileUrl => Err(
                 ApiError::bad_request("local folder edits require a local console deployment"),
             ),
             _ => Err(ApiError::bad_request(
@@ -158,17 +158,17 @@ fn branch_backend<'a>(
     }
 }
 
-fn context_is_github_workspace(workspace: &WorkspaceRecord) -> bool {
+fn context_is_github_package(package: &PackageRecord) -> bool {
     matches!(
-        classify_workspace_source(&workspace.source),
-        WorkspaceSourceKind::GitHubArchive | WorkspaceSourceKind::GitHubGit
+        classify_package_source(&package.source),
+        PackageSourceKind::GitHubArchive | PackageSourceKind::GitHubGit
     )
 }
 
-fn context_is_local_workspace(workspace: &WorkspaceRecord) -> bool {
+fn context_is_local_package(package: &PackageRecord) -> bool {
     matches!(
-        classify_workspace_source(&workspace.source),
-        WorkspaceSourceKind::LocalPath | WorkspaceSourceKind::FileUrl
+        classify_package_source(&package.source),
+        PackageSourceKind::LocalPath | PackageSourceKind::FileUrl
     )
 }
 
@@ -182,15 +182,15 @@ fn context_github_repo(context: &BranchContext) -> ApiResult<&super::github::Git
 async fn load_branch(
     state: &ConsoleState,
     headers: &HeaderMap,
-    workspace_id: &str,
+    package_id: &str,
     branch_id: &str,
     require_active: bool,
 ) -> ApiResult<BranchContext> {
     let user = require_user(state, headers).await?;
-    let workspace = load_workspace(state, &user, workspace_id).await?;
+    let package = load_package(state, &user, package_id).await?;
     let branch = state
         .store
-        .get_active_branch_for_user(branch_id, &workspace.id, &user.principal_id)
+        .get_active_branch_for_user(branch_id, &package.id, &user.principal_id)
         .await?
         .ok_or_else(|| ApiError::not_found("branch not found"))?;
     if require_active && branch.status != ActiveBranchStatus::Active {
@@ -198,15 +198,15 @@ async fn load_branch(
     }
     Ok(BranchContext {
         user,
-        github_repo: if context_is_github_workspace(&workspace) {
+        github_repo: if context_is_github_package(&package) {
             Some(
-                github_repo_for_workspace(&workspace)
+                github_repo_for_package(&package)
                     .map_err(|err| ApiError::bad_request(err.to_string()))?,
             )
         } else {
             None
         },
-        workspace,
+        package,
         branch,
     })
 }
@@ -214,45 +214,45 @@ async fn load_branch(
 async fn invalidate_branch(
     state: &ConsoleState,
     user: &SessionUser,
-    workspace: &WorkspaceRecord,
+    package: &PackageRecord,
     branch: &ActiveBranchRecord,
 ) {
     state.lsp.drop_sessions_for_branch(&branch.id).await;
-    if let Ok(source) = workspace_source_for_branch(
+    if let Ok(source) = package_source_for_branch(
         state,
         &user.principal_id,
         source_token(user),
-        workspace,
+        package,
         &branch.branch,
     )
     .await
     {
-        if source.workspace.source_tree.revision == SourceTreeRevision::LocalWorkingTree {
-            state.stage.invalidate_workspace(&source).await;
+        if source.package.source_tree.revision == SourceTreeRevision::LocalWorkingTree {
+            state.stage.invalidate_package(&source).await;
         } else if let Ok(cached_tree) = source.cached_source_tree_origin() {
             state
                 .stage
                 .invalidate_branch(&cached_tree, &branch.branch)
                 .await;
         } else {
-            state.stage.invalidate_workspace(&source).await;
+            state.stage.invalidate_package(&source).await;
         }
     }
 }
 
-async fn inspect_branch_workspace(
+async fn inspect_branch_package(
     state: &ConsoleState,
     user: &SessionUser,
-    workspace: &WorkspaceRecord,
+    package: &PackageRecord,
     branch: &ActiveBranchRecord,
-) -> ApiResult<Arc<crate::sdk::Workspace>> {
+) -> ApiResult<Arc<crate::sdk::Package>> {
     let token = source_token(user);
-    let workspace_source =
-        workspace_source_for_branch(state, &user.principal_id, token, workspace, &branch.branch)
+    let package_source =
+        package_source_for_branch(state, &user.principal_id, token, package, &branch.branch)
             .await?;
     state
         .stage
-        .get_inspected_workspace(workspace_source, token)
+        .get_inspected_package(package_source, token)
         .await
         .map_err(|err| ApiError::bad_request(err.to_string()))
 }
@@ -265,11 +265,11 @@ struct BranchSelectBody {
 async fn branch_select(
     State(state): State<SharedState>,
     headers: HeaderMap,
-    Path(workspace_id): Path<String>,
+    Path(package_id): Path<String>,
     body: Bytes,
 ) -> ApiResult<Json<JsonValue>> {
     let user = require_user(&state, &headers).await?;
-    let workspace = load_workspace(&state, &user, &workspace_id).await?;
+    let package = load_package(&state, &user, &package_id).await?;
     let requested_branch = parse_branch_select_body(&body)?
         .branch
         .map(|branch| branch.trim().to_owned())
@@ -277,16 +277,16 @@ async fn branch_select(
     tracing::info!(
         operation = "branch.select",
         principal_id = %user.principal_id,
-        workspace_id = %workspace.id,
+        package_id = %package.id,
         requested_branch = ?requested_branch.as_deref(),
         "console branch selection requested"
     );
 
-    let base_ref = workspace.revision.clone();
-    let backend = branch_backend(&state, &user, &workspace, "Opening a branch")?;
-    let github_repo = if context_is_github_workspace(&workspace) {
+    let base_ref = package.revision.clone();
+    let backend = branch_backend(&state, &user, &package, "Opening a branch")?;
+    let github_repo = if context_is_github_package(&package) {
         Some(
-            github_repo_for_workspace(&workspace)
+            github_repo_for_package(&package)
                 .map_err(|err| ApiError::bad_request(err.to_string()))?,
         )
     } else {
@@ -295,7 +295,7 @@ async fn branch_select(
     let target = branch_selection_target(
         &state,
         &user,
-        &workspace,
+        &package,
         github_repo.as_ref(),
         &backend,
         requested_branch,
@@ -305,21 +305,17 @@ async fn branch_select(
 
     if let Some(existing) = state
         .store
-        .find_active_branch_for_source_tree_branch(
-            &workspace.id,
-            &user.principal_id,
-            &target.branch,
-        )
+        .find_active_branch_for_source_tree_branch(&package.id, &user.principal_id, &target.branch)
         .await?
     {
         let existing = state
             .store
-            .ensure_active_branch_workspace(&existing.id, &workspace.id, &user.principal_id)
+            .ensure_active_branch_package(&existing.id, &package.id, &user.principal_id)
             .await?;
         tracing::info!(
             operation = "branch.select",
             principal_id = %user.principal_id,
-            workspace_id = %workspace.id,
+            package_id = %package.id,
             branch_id = %existing.id,
             branch = %existing.branch,
             outcome = "existing",
@@ -331,7 +327,7 @@ async fn branch_select(
     let branch = state
         .store
         .select_branch(SelectBranchInput {
-            workspace_id: workspace.id.clone(),
+            package_id: package.id.clone(),
             principal_id: user.principal_id.clone(),
             branch: target.branch,
             base_ref,
@@ -342,7 +338,7 @@ async fn branch_select(
     tracing::info!(
         operation = "branch.select",
         principal_id = %user.principal_id,
-        workspace_id = %workspace.id,
+        package_id = %package.id,
         branch_id = %branch.id,
         branch = %branch.branch,
         outcome = "selected",
@@ -360,7 +356,7 @@ struct BranchSelectionTarget {
 async fn branch_selection_target<'a>(
     state: &ConsoleState,
     user: &SessionUser,
-    workspace: &WorkspaceRecord,
+    package: &PackageRecord,
     github_repo: Option<&super::github::GitHubRepoIdentity>,
     backend: &BranchBackend<'a>,
     requested_branch: Option<String>,
@@ -374,7 +370,7 @@ async fn branch_selection_target<'a>(
             tracing::info!(
                 operation = "branch.selection_target",
                 principal_id = %user.principal_id,
-                workspace_id = %workspace.id,
+                package_id = %package.id,
                 mode = "direct_push",
                 base_ref,
                 requested_branch = ?requested_branch.as_deref(),
@@ -412,7 +408,7 @@ async fn branch_selection_target<'a>(
             tracing::info!(
                 operation = "branch.selection_target",
                 principal_id = %user.principal_id,
-                workspace_id = %workspace.id,
+                package_id = %package.id,
                 mode = "pull_request",
                 base_ref,
                 requested_branch = ?requested_branch.as_deref(),
@@ -435,7 +431,7 @@ async fn branch_selection_target<'a>(
                     tracing::info!(
                         operation = "branch.selection_target",
                         principal_id = %user.principal_id,
-                        workspace_id = %workspace.id,
+                        package_id = %package.id,
                         branch = %branch,
                         outcome = "requested_existing",
                         "console branch target validating requested branch"
@@ -453,11 +449,11 @@ async fn branch_selection_target<'a>(
                     branch
                 }
                 None => {
-                    let branch = console_branch_name(&user.identity.display_login(), workspace);
+                    let branch = console_branch_name(&user.identity.display_login(), package);
                     tracing::info!(
                         operation = "branch.selection_target",
                         principal_id = %user.principal_id,
-                        workspace_id = %workspace.id,
+                        package_id = %package.id,
                         branch = %branch,
                         outcome = "create",
                         "console branch target creating new branch"
@@ -493,7 +489,7 @@ async fn branch_selection_target<'a>(
                     "local folder edits use the current working tree branch",
                 ));
             }
-            let root = local_source_root(state, workspace).await?;
+            let root = local_source_root(state, package).await?;
             let branch = local_git::current_branch_at(&root)
                 .await
                 .map_err(|err| ApiError::bad_request(err.to_string()))?;
@@ -525,10 +521,10 @@ struct BranchRenameBody {
 async fn branch_rename(
     State(state): State<SharedState>,
     headers: HeaderMap,
-    Path((workspace_id, branch_id)): Path<(String, String)>,
+    Path((package_id, branch_id)): Path<(String, String)>,
     Json(body): Json<BranchRenameBody>,
 ) -> ApiResult<Json<JsonValue>> {
-    let context = load_branch(&state, &headers, &workspace_id, &branch_id, true).await?;
+    let context = load_branch(&state, &headers, &package_id, &branch_id, true).await?;
     let Some(branch) = body
         .branch
         .map(|branch| branch.trim().to_owned())
@@ -545,7 +541,7 @@ async fn branch_rename(
     } = branch_backend(
         &state,
         &context.user,
-        &context.workspace,
+        &context.package,
         "Renaming the branch",
     )?
     else {
@@ -575,16 +571,16 @@ async fn branch_rename(
 async fn branch_sync_pr(
     State(state): State<SharedState>,
     headers: HeaderMap,
-    Path((workspace_id, branch_id)): Path<(String, String)>,
+    Path((package_id, branch_id)): Path<(String, String)>,
 ) -> ApiResult<Json<JsonValue>> {
-    let context = load_branch(&state, &headers, &workspace_id, &branch_id, false).await?;
+    let context = load_branch(&state, &headers, &package_id, &branch_id, false).await?;
     let BranchBackend::GitHub {
         token: _,
         direct: false,
     } = branch_backend(
         &state,
         &context.user,
-        &context.workspace,
+        &context.package,
         "Syncing the pull request",
     )?
     else {
@@ -643,15 +639,15 @@ async fn sync_pull_request(
 async fn branch_publish(
     State(state): State<SharedState>,
     headers: HeaderMap,
-    Path((workspace_id, branch_id)): Path<(String, String)>,
+    Path((package_id, branch_id)): Path<(String, String)>,
 ) -> ApiResult<Json<JsonValue>> {
-    let context = load_branch(&state, &headers, &workspace_id, &branch_id, true).await?;
+    let context = load_branch(&state, &headers, &package_id, &branch_id, true).await?;
     let changed_paths =
-        branch_changed_paths(&state, &context.user, &context.workspace, &context.branch).await?;
+        branch_changed_paths(&state, &context.user, &context.package, &context.branch).await?;
     tracing::info!(
         operation = "branch.publish",
         principal_id = %context.user.principal_id,
-        workspace_id = %context.workspace.id,
+        package_id = %context.package.id,
         branch_id = %context.branch.id,
         changed_files = changed_paths.len(),
         "console branch publish requested"
@@ -660,35 +656,35 @@ async fn branch_publish(
         return Err(ApiError::bad_request("branch has no changed files"));
     }
 
-    let mut lint_workspaces = state
+    let mut lint_packages = state
         .store
-        .list_workspaces_for_active_branch(&context.branch.id)
+        .list_packages_for_active_branch(&context.branch.id)
         .await?;
-    if lint_workspaces.is_empty() {
-        lint_workspaces.push(context.workspace.clone());
+    if lint_packages.is_empty() {
+        lint_packages.push(context.package.clone());
     }
     let mut errors = 0;
     let mut warnings = 0;
-    for workspace in &lint_workspaces {
+    for package in &lint_packages {
         let inspected =
-            inspect_branch_workspace(&state, &context.user, workspace, &context.branch).await?;
+            inspect_branch_package(&state, &context.user, package, &context.branch).await?;
         let lint = inspected
             .lint()
             .await
             .map_err(|err| ApiError::bad_request(err.to_string()))?;
-        let workspace_errors = lint
+        let package_errors = lint
             .diagnostics
             .iter()
             .filter(|diagnostic| diagnostic.severity == crate::diagnostics::Severity::Error)
             .count();
-        errors += workspace_errors;
-        warnings += lint.diagnostics.len() - workspace_errors;
+        errors += package_errors;
+        warnings += lint.diagnostics.len() - package_errors;
     }
     if errors > 0 {
         tracing::info!(
             operation = "branch.publish",
             principal_id = %context.user.principal_id,
-            workspace_id = %context.workspace.id,
+            package_id = %context.package.id,
             branch_id = %context.branch.id,
             errors,
             warnings,
@@ -696,14 +692,14 @@ async fn branch_publish(
             "console branch publish blocked by lint errors"
         );
         return Err(ApiError::bad_request(format!(
-            "branch has {errors} lint error(s) across included workspace(s); fix lint before publishing"
+            "branch has {errors} lint error(s) across included package(s); fix lint before publishing"
         )));
     }
 
     match branch_backend(
         &state,
         &context.user,
-        &context.workspace,
+        &context.package,
         "Publishing the branch",
     )? {
         BranchBackend::GitHub {
@@ -714,7 +710,7 @@ async fn branch_publish(
             tracing::info!(
                 operation = "branch.publish",
                 principal_id = %context.user.principal_id,
-                workspace_id = %context.workspace.id,
+                package_id = %context.package.id,
                 branch_id = %context.branch.id,
                 mode = "pull_request",
                 warnings,
@@ -726,9 +722,9 @@ async fn branch_publish(
                     token,
                     &github_repo.owner,
                     &github_repo.name,
-                    &branch_pr_title(&context.workspace),
+                    &branch_pr_title(&context.package),
                     &branch_pr_body(
-                        &context.workspace,
+                        &context.package,
                         &context.branch,
                         &changed_paths,
                         errors,
@@ -757,7 +753,7 @@ async fn branch_publish(
             tracing::info!(
                 operation = "branch.publish",
                 principal_id = %context.user.principal_id,
-                workspace_id = %context.workspace.id,
+                package_id = %context.package.id,
                 branch_id = %context.branch.id,
                 pr_number = pr.number,
                 outcome = "pull_request_created",
@@ -780,7 +776,7 @@ async fn branch_publish(
             tracing::info!(
                 operation = "branch.publish",
                 principal_id = %context.user.principal_id,
-                workspace_id = %context.workspace.id,
+                package_id = %context.package.id,
                 branch_id = %context.branch.id,
                 mode = "direct_push",
                 "console branch publish recorded direct-push edit"
@@ -798,7 +794,7 @@ async fn branch_publish(
             tracing::info!(
                 operation = "branch.publish",
                 principal_id = %context.user.principal_id,
-                workspace_id = %context.workspace.id,
+                package_id = %context.package.id,
                 branch_id = %context.branch.id,
                 mode = "local_working_tree",
                 "console branch publish validated local working tree edits"
@@ -818,9 +814,9 @@ async fn branch_publish(
 async fn branch_archive(
     State(state): State<SharedState>,
     headers: HeaderMap,
-    Path((workspace_id, branch_id)): Path<(String, String)>,
+    Path((package_id, branch_id)): Path<(String, String)>,
 ) -> ApiResult<Json<JsonValue>> {
-    let context = load_branch(&state, &headers, &workspace_id, &branch_id, false).await?;
+    let context = load_branch(&state, &headers, &package_id, &branch_id, false).await?;
     let branch = state
         .store
         .archive_active_branch(&context.branch.id)
@@ -830,7 +826,7 @@ async fn branch_archive(
     tracing::info!(
         operation = "branch.archive",
         principal_id = %context.user.principal_id,
-        workspace_id = %context.workspace.id,
+        package_id = %context.package.id,
         branch_id = %context.branch.id,
         branch = %context.branch.branch,
         "console branch archived"
@@ -850,10 +846,10 @@ struct VariableSaveBody {
 async fn branch_variable_save(
     State(state): State<SharedState>,
     headers: HeaderMap,
-    Path((workspace_id, branch_id)): Path<(String, String)>,
+    Path((package_id, branch_id)): Path<(String, String)>,
     Json(body): Json<VariableSaveBody>,
 ) -> ApiResult<Json<JsonValue>> {
-    let context = load_branch(&state, &headers, &workspace_id, &branch_id, true).await?;
+    let context = load_branch(&state, &headers, &package_id, &branch_id, true).await?;
     let variable_id = body
         .variable_id
         .map(|id| id.trim().to_owned())
@@ -868,17 +864,17 @@ async fn branch_variable_save(
             "variableId, filePath, and value are required",
         ));
     };
-    let expected = expected_variable_file_path(&context.workspace, &variable_id);
+    let expected = expected_variable_file_path(&context.package, &variable_id);
     if file_path != expected {
         return Err(ApiError::bad_request(
-            "variable file path does not match workspace",
+            "variable file path does not match package",
         ));
     }
 
     let backend = branch_backend(
         &state,
         &context.user,
-        &context.workspace,
+        &context.package,
         "Saving the branch change",
     )?;
     let (current_text, sha) =
@@ -890,7 +886,7 @@ async fn branch_variable_save(
         tracing::info!(
             operation = "branch.variable_save",
             principal_id = %context.user.principal_id,
-            workspace_id = %context.workspace.id,
+            package_id = %context.package.id,
             branch_id = %context.branch.id,
             variable_id = %variable_id,
             file_path = %file_path,
@@ -907,12 +903,12 @@ async fn branch_variable_save(
         )
         .await?;
         record_branch_edit(&state, &context, None).await?;
-        invalidate_branch(&state, &context.user, &context.workspace, &context.branch).await;
+        invalidate_branch(&state, &context.user, &context.package, &context.branch).await;
     } else {
         tracing::info!(
             operation = "branch.variable_save",
             principal_id = %context.user.principal_id,
-            workspace_id = %context.workspace.id,
+            package_id = %context.package.id,
             branch_id = %context.branch.id,
             variable_id = %variable_id,
             file_path = %file_path,
@@ -937,10 +933,10 @@ struct FileSaveBody {
 async fn branch_file_save(
     State(state): State<SharedState>,
     headers: HeaderMap,
-    Path((workspace_id, branch_id)): Path<(String, String)>,
+    Path((package_id, branch_id)): Path<(String, String)>,
     Json(body): Json<FileSaveBody>,
 ) -> ApiResult<Json<JsonValue>> {
-    let context = load_branch(&state, &headers, &workspace_id, &branch_id, true).await?;
+    let context = load_branch(&state, &headers, &package_id, &branch_id, true).await?;
     let file_path = body
         .file_path
         .map(|path| path.trim().to_owned())
@@ -948,16 +944,16 @@ async fn branch_file_save(
     let (Some(file_path), Some(content)) = (file_path, body.content) else {
         return Err(ApiError::bad_request("filePath and content are required"));
     };
-    if !belongs_to_workspace(&context.workspace.path, &file_path) {
+    if !belongs_to_package(&context.package.path, &file_path) {
         return Err(ApiError::bad_request(
-            "file path does not belong to workspace",
+            "file path does not belong to package",
         ));
     }
 
     let backend = branch_backend(
         &state,
         &context.user,
-        &context.workspace,
+        &context.package,
         "Saving the branch file",
     )?;
     let (current_text, sha) =
@@ -966,7 +962,7 @@ async fn branch_file_save(
         tracing::info!(
             operation = "branch.file_save",
             principal_id = %context.user.principal_id,
-            workspace_id = %context.workspace.id,
+            package_id = %context.package.id,
             branch_id = %context.branch.id,
             file_path = %file_path,
             changed = true,
@@ -982,12 +978,12 @@ async fn branch_file_save(
         )
         .await?;
         record_branch_edit(&state, &context, None).await?;
-        invalidate_branch(&state, &context.user, &context.workspace, &context.branch).await;
+        invalidate_branch(&state, &context.user, &context.package, &context.branch).await;
     } else {
         tracing::info!(
             operation = "branch.file_save",
             principal_id = %context.user.principal_id,
-            workspace_id = %context.workspace.id,
+            package_id = %context.package.id,
             branch_id = %context.branch.id,
             file_path = %file_path,
             changed = false,
@@ -1006,10 +1002,10 @@ struct FileDeleteBody {
 async fn branch_file_delete(
     State(state): State<SharedState>,
     headers: HeaderMap,
-    Path((workspace_id, branch_id)): Path<(String, String)>,
+    Path((package_id, branch_id)): Path<(String, String)>,
     Json(body): Json<FileDeleteBody>,
 ) -> ApiResult<Json<JsonValue>> {
-    let context = load_branch(&state, &headers, &workspace_id, &branch_id, true).await?;
+    let context = load_branch(&state, &headers, &package_id, &branch_id, true).await?;
     let Some(file_path) = body
         .file_path
         .map(|path| path.trim().to_owned())
@@ -1017,16 +1013,16 @@ async fn branch_file_delete(
     else {
         return Err(ApiError::bad_request("filePath is required"));
     };
-    if !belongs_to_workspace(&context.workspace.path, &file_path) {
+    if !belongs_to_package(&context.package.path, &file_path) {
         return Err(ApiError::bad_request(
-            "file path does not belong to workspace",
+            "file path does not belong to package",
         ));
     }
 
     match branch_backend(
         &state,
         &context.user,
-        &context.workspace,
+        &context.package,
         "Deleting the branch file",
     )? {
         BranchBackend::GitHub { token, .. } => {
@@ -1034,7 +1030,7 @@ async fn branch_file_delete(
             tracing::info!(
                 operation = "branch.file_delete",
                 principal_id = %context.user.principal_id,
-                workspace_id = %context.workspace.id,
+                package_id = %context.package.id,
                 branch_id = %context.branch.id,
                 file_path = %file_path,
                 "console branch file delete writing change"
@@ -1068,16 +1064,16 @@ async fn branch_file_delete(
             tracing::info!(
                 operation = "branch.file_delete",
                 principal_id = %context.user.principal_id,
-                workspace_id = %context.workspace.id,
+                package_id = %context.package.id,
                 branch_id = %context.branch.id,
                 file_path = %file_path,
                 "console branch file delete removing local file"
             );
-            delete_local_file(&state, &context.workspace, &file_path).await?;
+            delete_local_file(&state, &context.package, &file_path).await?;
         }
     }
     record_branch_edit(&state, &context, None).await?;
-    invalidate_branch(&state, &context.user, &context.workspace, &context.branch).await;
+    invalidate_branch(&state, &context.user, &context.package, &context.branch).await;
     Ok(Json(json!({ "ok": true })))
 }
 
@@ -1094,10 +1090,10 @@ struct EntityCreateBody {
 async fn branch_entity_create(
     State(state): State<SharedState>,
     headers: HeaderMap,
-    Path((workspace_id, branch_id)): Path<(String, String)>,
+    Path((package_id, branch_id)): Path<(String, String)>,
     Json(body): Json<EntityCreateBody>,
 ) -> ApiResult<Json<JsonValue>> {
-    let context = load_branch(&state, &headers, &workspace_id, &branch_id, true).await?;
+    let context = load_branch(&state, &headers, &package_id, &branch_id, true).await?;
     let kind = body.kind.as_deref().and_then(parse_kind);
     let id = parse_entity_id(body.id.as_deref());
     let catalog_id = parse_entity_id(body.catalog_id.as_deref());
@@ -1113,13 +1109,13 @@ async fn branch_entity_create(
         kind,
         &id,
         catalog_id.as_deref(),
-        &context.workspace.path,
+        &context.package.path,
         &variable_type,
     );
     let backend = branch_backend(
         &state,
         &context.user,
-        &context.workspace,
+        &context.package,
         "Creating the branch entity",
     )?;
     let existing: HashSet<String> = match &backend {
@@ -1143,17 +1139,17 @@ async fn branch_entity_create(
         BranchBackend::LocalWorkingTree => {
             let mut existing = HashSet::new();
             for file in &files {
-                if local_file_exists(&state, &context.workspace, &file.path).await? {
+                if local_file_exists(&state, &context.package, &file.path).await? {
                     existing.insert(file.path.clone());
                 }
             }
             if kind == EntityKind::CatalogEntries {
                 let catalog_id = catalog_id.as_deref().expect("validated above");
-                let catalog_path = workspace_repo_path(
-                    &context.workspace.path,
+                let catalog_path = package_repo_path(
+                    &context.package.path,
                     &format!("catalogs/{catalog_id}.schema.json"),
                 );
-                if local_file_exists(&state, &context.workspace, &catalog_path).await? {
+                if local_file_exists(&state, &context.package, &catalog_path).await? {
                     existing.insert(catalog_path);
                 }
             }
@@ -1162,8 +1158,8 @@ async fn branch_entity_create(
     };
     if kind == EntityKind::CatalogEntries {
         let catalog_id = catalog_id.as_deref().expect("validated above");
-        let catalog_path = workspace_repo_path(
-            &context.workspace.path,
+        let catalog_path = package_repo_path(
+            &context.package.path,
             &format!("catalogs/{catalog_id}.schema.json"),
         );
         if !existing.contains(&catalog_path) {
@@ -1182,7 +1178,7 @@ async fn branch_entity_create(
     match branch_backend(
         &state,
         &context.user,
-        &context.workspace,
+        &context.package,
         "Creating the branch entity",
     )? {
         BranchBackend::GitHub { token, .. } => {
@@ -1205,12 +1201,12 @@ async fn branch_entity_create(
         }
         BranchBackend::LocalWorkingTree => {
             for file in &files {
-                write_local_file(&state, &context.workspace, &file.path, &file.content).await?;
+                write_local_file(&state, &context.package, &file.path, &file.content).await?;
             }
         }
     }
     record_branch_edit(&state, &context, None).await?;
-    invalidate_branch(&state, &context.user, &context.workspace, &context.branch).await;
+    invalidate_branch(&state, &context.user, &context.package, &context.branch).await;
     Ok(Json(json!({ "files": files })))
 }
 
@@ -1225,10 +1221,10 @@ struct LspBody {
 async fn branch_lsp(
     State(state): State<SharedState>,
     headers: HeaderMap,
-    Path((workspace_id, branch_id)): Path<(String, String)>,
+    Path((package_id, branch_id)): Path<(String, String)>,
     Json(body): Json<LspBody>,
 ) -> ApiResult<Json<JsonValue>> {
-    let context = load_branch(&state, &headers, &workspace_id, &branch_id, true).await?;
+    let context = load_branch(&state, &headers, &package_id, &branch_id, true).await?;
     let path = body
         .path
         .map(|path| path.trim().to_owned())
@@ -1236,15 +1232,14 @@ async fn branch_lsp(
     let (Some(path), Some(text)) = (path, body.text) else {
         return Err(ApiError::bad_request("path and text are required"));
     };
-    if !belongs_to_workspace(&context.workspace.path, &path) {
+    if !belongs_to_package(&context.package.path, &path) {
         return Err(ApiError::bad_request(
-            "file path does not belong to workspace",
+            "file path does not belong to package",
         ));
     }
 
     let staged =
-        inspect_branch_workspace(&state, &context.user, &context.workspace, &context.branch)
-            .await?;
+        inspect_branch_package(&state, &context.user, &context.package, &context.branch).await?;
 
     let op = body.op.as_deref().unwrap_or("unknown").to_owned();
     let lsp_started = std::time::Instant::now();
@@ -1256,7 +1251,7 @@ async fn branch_lsp(
                     &context.user.principal_id,
                     &context.branch.id,
                     staged,
-                    &context.workspace,
+                    &context.package,
                     &path,
                     &text,
                 )
@@ -1271,7 +1266,7 @@ async fn branch_lsp(
                     &context.user.principal_id,
                     &context.branch.id,
                     staged,
-                    &context.workspace,
+                    &context.package,
                     &path,
                     &text,
                     position,
@@ -1287,7 +1282,7 @@ async fn branch_lsp(
                     &context.user.principal_id,
                     &context.branch.id,
                     staged,
-                    &context.workspace,
+                    &context.package,
                     &path,
                     &text,
                     position,
@@ -1305,7 +1300,7 @@ async fn branch_lsp(
                 lsp_started.elapsed().as_millis(),
                 result.is_ok(),
                 json!({
-                    "workspace_id": workspace_id,
+                    "package_id": package_id,
                     "branch_id": branch_id,
                     "path": path,
                 }),
@@ -1319,12 +1314,12 @@ async fn branch_lsp(
 async fn branch_data(
     State(state): State<SharedState>,
     headers: HeaderMap,
-    Path((workspace_id, branch_id)): Path<(String, String)>,
+    Path((package_id, branch_id)): Path<(String, String)>,
 ) -> ApiResult<Json<JsonValue>> {
-    let context = load_branch(&state, &headers, &workspace_id, &branch_id, false).await?;
+    let context = load_branch(&state, &headers, &package_id, &branch_id, false).await?;
     let BranchContext {
         user,
-        workspace,
+        package,
         github_repo,
         mut branch,
     } = context;
@@ -1350,34 +1345,24 @@ async fn branch_data(
     }
 
     let token = source_token(&user);
-    let workspace_source = workspace_source_for_branch(
-        &state,
-        &user.principal_id,
-        token,
-        &workspace,
-        &branch.branch,
-    )
-    .await;
-    let staged = match workspace_source {
-        Ok(source) => state.stage.get_semantic_workspace(source, token).await,
+    let package_source =
+        package_source_for_branch(&state, &user.principal_id, token, &package, &branch.branch)
+            .await;
+    let staged = match package_source {
+        Ok(source) => state.stage.get_semantic_package(source, token).await,
         Err(err) => Err(crate::error::RototoError::new(err.message)),
     };
     let (entities, edit_load_error, lint, model) = match &staged {
         Ok(semantic) => {
-            let lint = match semantic.workspace.lint().await {
+            let lint = match semantic.package.lint().await {
                 Ok(lint) => lint_json(&lint),
                 Err(err) => lint_error_json(&branch.branch, &err.to_string()),
             };
-            match inspect_workspace_inventory(
-                &workspace,
-                &semantic.model,
-                semantic.workspace.root(),
-            )
-            .await
+            match inspect_package_inventory(&package, &semantic.model, semantic.package.root())
+                .await
             {
                 Ok(inventory) => {
-                    match editable_entities(&workspace, semantic.workspace.root(), &inventory).await
-                    {
+                    match editable_entities(&package, semantic.package.root(), &inventory).await {
                         Ok(entities) => (
                             entities,
                             JsonValue::Null,
@@ -1413,7 +1398,7 @@ async fn branch_data(
         }
     };
 
-    let edited_paths = branch_changed_paths(&state, &user, &workspace, &branch)
+    let edited_paths = branch_changed_paths(&state, &user, &package, &branch)
         .await
         .unwrap_or_default();
     let changes: Vec<BranchFileChange> = edited_paths
@@ -1424,9 +1409,9 @@ async fn branch_data(
         })
         .collect();
 
-    let capabilities = workspace_capabilities_json(&state, &user, &workspace);
+    let capabilities = package_capabilities_json(&state, &user, &package);
     Ok(Json(json!({
-        "workspace": workspace,
+        "package": package,
         "branch": branch,
         "prSyncError": pr_sync_error,
         "changes": changes,
@@ -1443,49 +1428,46 @@ async fn branch_data(
 async fn branch_entity(
     State(state): State<SharedState>,
     headers: HeaderMap,
-    Path((workspace_id, branch_id)): Path<(String, String)>,
+    Path((package_id, branch_id)): Path<(String, String)>,
     Query(query): Query<EntityQuery>,
 ) -> ApiResult<Json<JsonValue>> {
-    let context = load_branch(&state, &headers, &workspace_id, &branch_id, false).await?;
+    let context = load_branch(&state, &headers, &package_id, &branch_id, false).await?;
     let base_text = base_entity_text(&state, &context, &query.path).await;
 
     let mut context_previews = JsonValue::Array(Vec::new());
     let token = source_token(&context.user);
-    if let Ok(source) = workspace_source_for_branch(
+    if let Ok(source) = package_source_for_branch(
         &state,
         &context.user.principal_id,
         token,
-        &context.workspace,
+        &context.package,
         &context.branch.branch,
     )
     .await
-        && let Ok(semantic) = state.stage.get_semantic_workspace(source, token).await
-        && let Ok(inventory) = inspect_workspace_inventory(
-            &context.workspace,
-            &semantic.model,
-            semantic.workspace.root(),
-        )
-        .await
+        && let Ok(semantic) = state.stage.get_semantic_package(source, token).await
+        && let Ok(inventory) =
+            inspect_package_inventory(&context.package, &semantic.model, semantic.package.root())
+                .await
         && inventory
             .variables
             .iter()
             .any(|variable| variable.path == query.path)
     {
-        let runtime = match workspace_source_for_branch(
+        let runtime = match package_source_for_branch(
             &state,
             &context.user.principal_id,
             token,
-            &context.workspace,
+            &context.package,
             &context.branch.branch,
         )
         .await
         {
-            Ok(source) => state.stage.get_runtime_workspace(source, token).await.ok(),
-            Err(_) => runtime_workspace_for_base(
+            Ok(source) => state.stage.get_runtime_package(source, token).await.ok(),
+            Err(_) => runtime_package_for_base(
                 &state,
                 &context.user.principal_id,
                 token,
-                &context.workspace,
+                &context.package,
             )
             .await
             .ok(),
@@ -1497,8 +1479,8 @@ async fn branch_entity(
                 .map(|qualifier| qualifier.id.clone())
                 .collect();
             let contexts = load_saved_contexts(
-                &context.workspace,
-                semantic.workspace.root(),
+                &context.package,
+                semantic.package.root(),
                 &inventory,
                 MAX_PREVIEW_CONTEXTS,
             )
@@ -1519,12 +1501,12 @@ async fn branch_entity(
 async fn branch_changed_paths(
     state: &ConsoleState,
     user: &SessionUser,
-    workspace: &WorkspaceRecord,
+    package: &PackageRecord,
     branch: &ActiveBranchRecord,
 ) -> ApiResult<Vec<String>> {
-    if context_is_github_workspace(workspace) {
+    if context_is_github_package(package) {
         let token = require_github_token(user, "Loading branch changes")?;
-        let github_repo = github_repo_for_workspace(workspace)
+        let github_repo = github_repo_for_package(package)
             .map_err(|err| ApiError::bad_request(err.to_string()))?;
         let comparison = state
             .github
@@ -1537,21 +1519,21 @@ async fn branch_changed_paths(
             )
             .await
             .map_err(|err| ApiError::github(&err, "Loading branch changes"))?;
-        return Ok(filter_workspace_paths(workspace, comparison.files));
+        return Ok(filter_package_paths(package, comparison.files));
     }
-    if context_is_local_workspace(workspace) {
-        let root = local_source_root(state, workspace).await?;
-        let scope = local_workspace_scope(state, workspace);
+    if context_is_local_package(package) {
+        let root = local_source_root(state, package).await?;
+        let scope = local_package_scope(state, package);
         let paths = local_git::changed_paths(&root, &scope)
             .await
             .map_err(|err| ApiError::bad_request(err.to_string()))?;
-        return Ok(filter_workspace_paths(workspace, paths));
+        return Ok(filter_package_paths(package, paths));
     }
-    let selector = workspace_source_for_branch(
+    let selector = package_source_for_branch(
         state,
         &user.principal_id,
         source_token(user),
-        workspace,
+        package,
         &branch.branch,
     )
     .await?;
@@ -1567,8 +1549,8 @@ async fn branch_changed_paths(
         .get_branch_changes(cached_tree, branch_name, base_ref)
         .await
         .map_err(|err| ApiError::bad_request(err.to_string()))?;
-    Ok(filter_workspace_paths(
-        workspace,
+    Ok(filter_package_paths(
+        package,
         changes
             .changed_files
             .into_iter()
@@ -1577,11 +1559,11 @@ async fn branch_changed_paths(
     ))
 }
 
-fn filter_workspace_paths(workspace: &WorkspaceRecord, paths: Vec<String>) -> Vec<String> {
-    let prefix = if workspace.path == "." {
+fn filter_package_paths(package: &PackageRecord, paths: Vec<String>) -> Vec<String> {
+    let prefix = if package.path == "." {
         String::new()
     } else {
-        format!("{}/", workspace.path)
+        format!("{}/", package.path)
     };
     paths
         .into_iter()
@@ -1591,27 +1573,24 @@ fn filter_workspace_paths(workspace: &WorkspaceRecord, paths: Vec<String>) -> Ve
         .collect()
 }
 
-async fn local_source_root(
-    state: &ConsoleState,
-    workspace: &WorkspaceRecord,
-) -> ApiResult<PathBuf> {
+async fn local_source_root(state: &ConsoleState, package: &PackageRecord) -> ApiResult<PathBuf> {
     let source = state
-        .fixed_workspace_source
+        .fixed_package_source
         .as_deref()
-        .unwrap_or(&workspace.source);
+        .unwrap_or(&package.source);
     let root =
-        local_git::workspace_root(source).map_err(|err| ApiError::bad_request(err.to_string()))?;
+        local_git::package_root(source).map_err(|err| ApiError::bad_request(err.to_string()))?;
     tokio::fs::canonicalize(&root).await.map_err(|err| {
         ApiError::bad_request(format!(
-            "failed to resolve local workspace source {}: {err}",
+            "failed to resolve local package source {}: {err}",
             root.display()
         ))
     })
 }
 
-fn local_workspace_scope(state: &ConsoleState, workspace: &WorkspaceRecord) -> String {
-    if state.fixed_workspace_source.is_some() {
-        workspace.path.clone()
+fn local_package_scope(state: &ConsoleState, package: &PackageRecord) -> String {
+    if state.fixed_package_source.is_some() {
+        package.path.clone()
     } else {
         ".".to_owned()
     }
@@ -1619,15 +1598,15 @@ fn local_workspace_scope(state: &ConsoleState, workspace: &WorkspaceRecord) -> S
 
 fn local_relative_path(
     state: &ConsoleState,
-    workspace: &WorkspaceRecord,
+    package: &PackageRecord,
     file_path: &str,
 ) -> ApiResult<String> {
-    let relative = if state.fixed_workspace_source.is_some() || workspace.path == "." {
+    let relative = if state.fixed_package_source.is_some() || package.path == "." {
         file_path.trim()
     } else {
         file_path
-            .strip_prefix(&format!("{}/", workspace.path))
-            .ok_or_else(|| ApiError::bad_request("file path does not belong to workspace"))?
+            .strip_prefix(&format!("{}/", package.path))
+            .ok_or_else(|| ApiError::bad_request("file path does not belong to package"))?
     };
     if relative.is_empty()
         || relative.starts_with('/')
@@ -1642,11 +1621,11 @@ fn local_relative_path(
 
 async fn local_existing_file_path(
     state: &ConsoleState,
-    workspace: &WorkspaceRecord,
+    package: &PackageRecord,
     file_path: &str,
 ) -> ApiResult<PathBuf> {
-    let root = local_source_root(state, workspace).await?;
-    let relative = local_relative_path(state, workspace, file_path)?;
+    let root = local_source_root(state, package).await?;
+    let relative = local_relative_path(state, package, file_path)?;
     let path = root.join(relative);
     let canonical = tokio::fs::canonicalize(&path).await.map_err(|err| {
         if err.kind() == std::io::ErrorKind::NotFound {
@@ -1657,7 +1636,7 @@ async fn local_existing_file_path(
     })?;
     if !canonical.starts_with(&root) {
         return Err(ApiError::bad_request(
-            "file path escapes the local workspace source",
+            "file path escapes the local package source",
         ));
     }
     Ok(canonical)
@@ -1665,18 +1644,18 @@ async fn local_existing_file_path(
 
 async fn local_writable_file_path(
     state: &ConsoleState,
-    workspace: &WorkspaceRecord,
+    package: &PackageRecord,
     file_path: &str,
 ) -> ApiResult<PathBuf> {
-    let root = local_source_root(state, workspace).await?;
-    let relative = local_relative_path(state, workspace, file_path)?;
+    let root = local_source_root(state, package).await?;
+    let relative = local_relative_path(state, package, file_path)?;
     ensure_local_parent_dir(&root, &relative).await?;
     let path = root.join(relative);
     if let Ok(metadata) = tokio::fs::symlink_metadata(&path).await
         && metadata.file_type().is_symlink()
     {
         return Err(ApiError::bad_request(
-            "local workspace edits do not follow symlink files",
+            "local package edits do not follow symlink files",
         ));
     }
     Ok(path)
@@ -1696,12 +1675,12 @@ async fn ensure_local_parent_dir(root: &FsPath, relative: &str) -> ApiResult<()>
             Ok(metadata) => {
                 if metadata.file_type().is_symlink() {
                     return Err(ApiError::bad_request(
-                        "local workspace edits do not follow symlink directories",
+                        "local package edits do not follow symlink directories",
                     ));
                 }
                 if !metadata.is_dir() {
                     return Err(ApiError::bad_request(format!(
-                        "local workspace path is not a directory: {}",
+                        "local package path is not a directory: {}",
                         current.display()
                     )));
                 }
@@ -1727,7 +1706,7 @@ async fn ensure_local_parent_dir(root: &FsPath, relative: &str) -> ApiResult<()>
     })?;
     if !canonical_parent.starts_with(root) {
         return Err(ApiError::bad_request(
-            "file path escapes the local workspace source",
+            "file path escapes the local package source",
         ));
     }
     Ok(())
@@ -1735,10 +1714,10 @@ async fn ensure_local_parent_dir(root: &FsPath, relative: &str) -> ApiResult<()>
 
 async fn local_file_exists(
     state: &ConsoleState,
-    workspace: &WorkspaceRecord,
+    package: &PackageRecord,
     file_path: &str,
 ) -> ApiResult<bool> {
-    match local_existing_file_path(state, workspace, file_path).await {
+    match local_existing_file_path(state, package, file_path).await {
         Ok(path) => Ok(path.is_file()),
         Err(err) if err.status == axum::http::StatusCode::NOT_FOUND => Ok(false),
         Err(err) => Err(err),
@@ -1747,10 +1726,10 @@ async fn local_file_exists(
 
 async fn read_local_file(
     state: &ConsoleState,
-    workspace: &WorkspaceRecord,
+    package: &PackageRecord,
     file_path: &str,
 ) -> ApiResult<String> {
-    let path = local_existing_file_path(state, workspace, file_path).await?;
+    let path = local_existing_file_path(state, package, file_path).await?;
     tokio::fs::read_to_string(&path).await.map_err(|err| {
         ApiError::bad_request(format!(
             "failed to read local file {}: {err}",
@@ -1761,11 +1740,11 @@ async fn read_local_file(
 
 async fn write_local_file(
     state: &ConsoleState,
-    workspace: &WorkspaceRecord,
+    package: &PackageRecord,
     file_path: &str,
     content: &str,
 ) -> ApiResult<()> {
-    let path = local_writable_file_path(state, workspace, file_path).await?;
+    let path = local_writable_file_path(state, package, file_path).await?;
     tokio::fs::write(&path, content).await.map_err(|err| {
         ApiError::bad_request(format!(
             "failed to write local file {}: {err}",
@@ -1776,10 +1755,10 @@ async fn write_local_file(
 
 async fn delete_local_file(
     state: &ConsoleState,
-    workspace: &WorkspaceRecord,
+    package: &PackageRecord,
     file_path: &str,
 ) -> ApiResult<()> {
-    let path = local_existing_file_path(state, workspace, file_path).await?;
+    let path = local_existing_file_path(state, package, file_path).await?;
     tokio::fs::remove_file(&path).await.map_err(|err| {
         ApiError::bad_request(format!(
             "failed to delete local file {}: {err}",
@@ -1811,7 +1790,7 @@ async fn branch_file_text_and_sha(
             Ok((file.content, Some(file.sha)))
         }
         BranchBackend::LocalWorkingTree => {
-            let text = read_local_file(state, &context.workspace, file_path).await?;
+            let text = read_local_file(state, &context.package, file_path).await?;
             Ok((text, None))
         }
     }
@@ -1828,7 +1807,7 @@ async fn write_branch_file(
     match branch_backend(
         state,
         &context.user,
-        &context.workspace,
+        &context.package,
         "Writing the branch file",
     )? {
         BranchBackend::GitHub { token, .. } => {
@@ -1851,7 +1830,7 @@ async fn write_branch_file(
         BranchBackend::LocalWorkingTree => {
             let _ = message;
             let _ = sha;
-            write_local_file(state, &context.workspace, file_path, content).await?;
+            write_local_file(state, &context.package, file_path, content).await?;
         }
     }
     Ok(())
@@ -1864,7 +1843,7 @@ async fn record_branch_edit(
 ) -> ApiResult<ActiveBranchRecord> {
     let last_seen_commit = match commit {
         Some(commit) => Some(commit),
-        None if context_is_github_workspace(&context.workspace) => {
+        None if context_is_github_package(&context.package) => {
             match context.user.github_token.as_deref() {
                 Some(token) => match context_github_repo(context) {
                     Ok(github_repo) => state
@@ -1896,9 +1875,9 @@ async fn base_entity_text(
     context: &BranchContext,
     path: &str,
 ) -> Option<String> {
-    if context_is_local_workspace(&context.workspace) {
-        let root = local_source_root(state, &context.workspace).await.ok()?;
-        let relative = local_relative_path(state, &context.workspace, path).ok()?;
+    if context_is_local_package(&context.package) {
+        let root = local_source_root(state, &context.package).await.ok()?;
+        let relative = local_relative_path(state, &context.package, path).ok()?;
         return local_git::file_at_head(&root, &relative)
             .await
             .ok()
@@ -1921,9 +1900,9 @@ async fn base_entity_text(
 }
 
 async fn editable_entities(
-    workspace: &WorkspaceRecord,
+    package: &PackageRecord,
     staged_root: &std::path::Path,
-    inventory: &WorkspaceInventory,
+    inventory: &PackageInventory,
 ) -> Result<Vec<JsonValue>> {
     struct Node {
         section: &'static str,
@@ -2037,7 +2016,7 @@ async fn editable_entities(
 
     let mut entities = Vec::with_capacity(nodes.len());
     for node in nodes {
-        let definition = read_workspace_definition(workspace, staged_root, &node.path).await?;
+        let definition = read_package_definition(package, staged_root, &node.path).await?;
         entities.push(json!({
             "section": node.section,
             "id": node.id,
@@ -2104,9 +2083,9 @@ mod tests {
     use super::*;
     use tempfile::TempDir;
 
-    fn workspace(path: &str) -> WorkspaceRecord {
-        WorkspaceRecord {
-            id: "workspace-id".to_owned(),
+    fn package(path: &str) -> PackageRecord {
+        PackageRecord {
+            id: "package-id".to_owned(),
             slug: "configs".to_owned(),
             source_tree_id: "repo-id".to_owned(),
             source_tree_label: "octo/configs".to_owned(),
@@ -2133,10 +2112,10 @@ mod tests {
     }
 
     #[test]
-    fn workspace_path_filter_keeps_only_selected_workspace() {
+    fn package_path_filter_keeps_only_selected_package() {
         assert_eq!(
-            filter_workspace_paths(
-                &workspace("apps/payments"),
+            filter_package_paths(
+                &package("apps/payments"),
                 vec![
                     "apps/payments/variables/a.toml".to_owned(),
                     "apps/web/variables/b.toml".to_owned(),
@@ -2145,8 +2124,8 @@ mod tests {
             vec!["apps/payments/variables/a.toml".to_owned()]
         );
         assert_eq!(
-            filter_workspace_paths(
-                &workspace("."),
+            filter_package_paths(
+                &package("."),
                 vec!["variables/a.toml".to_owned(), "README.md".to_owned()],
             ),
             vec!["README.md".to_owned(), "variables/a.toml".to_owned()]

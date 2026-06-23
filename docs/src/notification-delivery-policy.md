@@ -48,9 +48,9 @@ That is why this example uses a
 [catalog-backed variable](reference-catalogs.html). The variable owns
 resolution. The catalog owns the validated policy values the app can consume.
 
-## Create The Workspace
+## Create The Package
 
-Create the workspace with a variable and a catalog template:
+Create the package with a variable and a catalog template:
 
 ```sh
 rototo init notification-config --variable notification-delivery-policy
@@ -254,7 +254,7 @@ The qualifiers introduced three runtime facts: `account.plan`,
 rototo init notification-config --context
 ```
 
-On this workspace, rototo writes
+On this package, rototo writes
 `notification-config/request-contexts/request.schema.json`:
 
 ```json
@@ -288,7 +288,7 @@ On this workspace, rototo writes
 }
 ```
 
-Now lint the workspace:
+Now lint the package:
 
 ```sh
 rototo lint notification-config
@@ -361,7 +361,7 @@ logging.
 ```rust
 use serde::Deserialize;
 
-use rototo::{ResolveContext, Workspace};
+use rototo::{ResolveContext, Package};
 
 #[derive(Debug, Deserialize)]
 struct DeliveryPolicy {
@@ -373,7 +373,7 @@ struct DeliveryPolicy {
 }
 
 async fn delivery_policy(
-    workspace: &Workspace,
+    package: &Package,
     account_plan: &str,
     notification_kind: &str,
     incident_active: bool,
@@ -390,7 +390,7 @@ async fn delivery_policy(
         }
     }))?;
 
-    let resolution = workspace
+    let resolution = pkg
         .resolve_variable("notification-delivery-policy", &context)
         .await?;
     let source = resolution.source.clone();
@@ -399,7 +399,7 @@ async fn delivery_policy(
     println!(
         "selected notification-delivery-policy `{}` from {:?}",
         source,
-        workspace.source_fingerprint()
+        pkg.source_fingerprint()
     );
 
     Ok(policy)
@@ -420,7 +420,7 @@ class DeliveryPolicy:
 
 
 async def delivery_policy(
-    workspace: rototo.Workspace,
+    package: rototo.Package,
     account_plan: str,
     notification_kind: str,
     incident_active: bool,
@@ -430,7 +430,7 @@ async def delivery_policy(
         "notification": {"kind": notification_kind},
         "incident": {"active": incident_active},
     }
-    resolution = await workspace.resolve_variable(
+    resolution = await pkg.resolve_variable(
         "notification-delivery-policy",
         context,
     )
@@ -450,12 +450,12 @@ type DeliveryPolicy = {
 };
 
 async function deliveryPolicy(
-  workspace: Workspace,
+  package: Package,
   accountPlan: string,
   notificationKind: string,
   incidentActive: boolean,
 ): Promise<DeliveryPolicy> {
-  const resolution = await workspace.resolveVariable(
+  const resolution = await pkg.resolveVariable(
     "notification-delivery-policy",
     {
       account: { plan: accountPlan },
@@ -481,12 +481,12 @@ record DeliveryPolicy(
 ) {}
 
 DeliveryPolicy deliveryPolicy(
-    Workspace workspace,
+    Package pkg,
     String accountPlan,
     String notificationKind,
     boolean incidentActive
 ) throws Exception {
-    VariableResolution resolution = workspace
+    VariableResolution resolution = pkg
         .resolveVariable(
             "notification-delivery-policy",
             Map.of(
@@ -528,12 +528,12 @@ type DeliveryPolicy struct {
 
 func deliveryPolicy(
     ctx context.Context,
-    workspace *rototo.Workspace,
+    package *rototo.Package,
     accountPlan string,
     notificationKind string,
     incidentActive bool,
 ) (DeliveryPolicy, error) {
-    resolution, err := workspace.ResolveVariable(
+    resolution, err := pkg.ResolveVariable(
         ctx,
         "notification-delivery-policy",
         map[string]any{
@@ -564,7 +564,7 @@ func deliveryPolicy(
 :::
 
 The selected value is observable. Logs and traces can show which policy key was
-used, which workspace version supplied it, and which runtime facts led there.
+used, which package version supplied it, and which runtime facts led there.
 
 ## Keep The State Somewhere Else
 
@@ -589,5 +589,5 @@ Keep these in the notification system or adjacent operational systems:
 - audit logs and customer support history.
 
 That keeps the policy reviewable without pretending that a configuration
-workspace is a delivery database. The notification service still owns the live
+package is a delivery database. The notification service still owns the live
 work. Rototo gives it a typed, versioned, explainable policy to apply.

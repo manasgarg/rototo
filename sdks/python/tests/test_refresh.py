@@ -8,37 +8,37 @@ from pathlib import Path
 import rototo
 
 
-class RefreshingWorkspaceTest(unittest.IsolatedAsyncioTestCase):
-    async def test_refreshing_workspace_refreshes_local_source(self) -> None:
+class RefreshingPackageTest(unittest.IsolatedAsyncioTestCase):
+    async def test_refreshing_package_refreshes_local_source(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
-            write_workspace(root, "hello")
+            write_package(root, "hello")
 
-            workspace = await rototo.RefreshingWorkspace.load(str(root))
+            package = await rototo.RefreshingPackage.load(str(root))
             try:
-                initial = await workspace.resolve_variable("message", {})
+                initial = await package.resolve_variable("message", {})
                 self.assertEqual(initial.value, "hello")
 
-                write_workspace(root, "updated")
-                outcome = await workspace.refresh_now()
+                write_package(root, "updated")
+                outcome = await package.refresh_now()
                 self.assertIn(outcome, {"refreshed", "unchanged"})
 
-                refreshed = await workspace.resolve_variable("message", {})
+                refreshed = await package.resolve_variable("message", {})
                 self.assertEqual(refreshed.value, "updated")
 
-                status = await workspace.status()
+                status = await package.status()
                 self.assertIsNotNone(status.last_success)
                 self.assertEqual(status.consecutive_failures, 0)
             finally:
-                await workspace.shutdown()
+                await package.shutdown()
 
             with self.assertRaises(rototo.RototoError):
-                await workspace.resolve_variable("message", {})
+                await package.resolve_variable("message", {})
 
 
-def write_workspace(root: Path, message: str) -> None:
+def write_package(root: Path, message: str) -> None:
     (root / "variables").mkdir(exist_ok=True)
-    (root / "rototo-workspace.toml").write_text("schema_version = 1\n")
+    (root / "rototo-package.toml").write_text("schema_version = 1\n")
     (root / "variables" / "message.toml").write_text(
         textwrap.dedent(
             f"""

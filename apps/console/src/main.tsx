@@ -46,16 +46,16 @@ const BranchScreen = lazyWithRetry(
     },
 );
 
-const WorkspaceScreen = lazyWithRetry(
+const PackageScreen = lazyWithRetry(
     async () => {
-        const screen = await import("@/screens/workspace-screen");
-        return { default: screen.WorkspaceScreen };
+        const screen = await import("@/screens/package-screen");
+        return { default: screen.PackageScreen };
     },
     async () => {
         const screen = (await import(
-            /* @vite-ignore */ `/src/screens/workspace-screen.tsx?t=${Date.now()}`
-        )) as typeof import("@/screens/workspace-screen");
-        return { default: screen.WorkspaceScreen };
+            /* @vite-ignore */ `/src/screens/package-screen.tsx?t=${Date.now()}`
+        )) as typeof import("@/screens/package-screen");
+        return { default: screen.PackageScreen };
     },
 );
 
@@ -177,22 +177,19 @@ function RequireAuth({ children }: { children: React.ReactNode }) {
     return <>{children}</>;
 }
 
-function WorkspaceSectionRoute() {
-    const { workspaceId = "", section = "" } = useParams();
+function PackageSectionRoute() {
+    const { packageId = "", section = "" } = useParams();
     const sectionId = normalizeSection(section);
     if (!sectionId || sectionId === "overview") {
         return <NotFound />;
     }
-    return <WorkspaceScreen section={sectionId} workspaceId={workspaceId} />;
+    return <PackageScreen section={sectionId} packageId={packageId} />;
 }
 
-function WorkspaceEntityRoute() {
-    const { workspaceId = "", "*": splat = "" } = useParams();
+function PackageEntityRoute() {
+    const { packageId = "", "*": splat = "" } = useParams();
     return (
-        <WorkspaceScreen
-            path={decodeEntityPath(splat)}
-            workspaceId={workspaceId}
-        />
+        <PackageScreen path={decodeEntityPath(splat)} packageId={packageId} />
     );
 }
 
@@ -201,18 +198,18 @@ function BranchRoute({
 }: {
     screen?: "overview" | "changes" | "validate" | "publish";
 }) {
-    const { workspaceId = "", branchId = "" } = useParams();
+    const { packageId = "", branchId = "" } = useParams();
     return (
         <BranchScreen
             branchId={branchId}
             screen={screen ?? "overview"}
-            workspaceId={workspaceId}
+            packageId={packageId}
         />
     );
 }
 
 function BranchEditKindRoute() {
-    const { workspaceId = "", branchId = "", kind = "" } = useParams();
+    const { packageId = "", branchId = "", kind = "" } = useParams();
     const editKind = normalizeEditKind(kind);
     if (!editKind) {
         return <NotFound />;
@@ -222,19 +219,19 @@ function BranchEditKindRoute() {
             branchId={branchId}
             kind={editKind}
             screen="edit"
-            workspaceId={workspaceId}
+            packageId={packageId}
         />
     );
 }
 
 function BranchEntityRoute() {
-    const { workspaceId = "", branchId = "", "*": splat = "" } = useParams();
+    const { packageId = "", branchId = "", "*": splat = "" } = useParams();
     return (
         <BranchScreen
             branchId={branchId}
             path={decodeEntityPath(splat)}
             screen="edit"
-            workspaceId={workspaceId}
+            packageId={packageId}
         />
     );
 }
@@ -292,51 +289,51 @@ function App() {
                                     />
                                     <Route
                                         element={
-                                            <ConsoleScreen screen="workspaces" />
+                                            <ConsoleScreen screen="packages" />
                                         }
-                                        path="workspaces"
+                                        path="packages"
                                     />
                                     <Route
-                                        element={<WorkspaceScreenRoute />}
-                                        path="workspaces/:workspaceId"
+                                        element={<PackageScreenRoute />}
+                                        path="packages/:packageId"
                                     />
                                     <Route
-                                        element={<WorkspaceEntityRoute />}
-                                        path="workspaces/:workspaceId/tree/*"
+                                        element={<PackageEntityRoute />}
+                                        path="packages/:packageId/tree/*"
                                     />
                                     <Route
                                         element={<BranchRoute />}
-                                        path="workspaces/:workspaceId/branches/:branchId"
+                                        path="packages/:packageId/branches/:branchId"
                                     />
                                     <Route
                                         element={
                                             <BranchRoute screen="changes" />
                                         }
-                                        path="workspaces/:workspaceId/branches/:branchId/changes"
+                                        path="packages/:packageId/branches/:branchId/changes"
                                     />
                                     <Route
                                         element={
                                             <BranchRoute screen="validate" />
                                         }
-                                        path="workspaces/:workspaceId/branches/:branchId/validate"
+                                        path="packages/:packageId/branches/:branchId/validate"
                                     />
                                     <Route
                                         element={
                                             <BranchRoute screen="publish" />
                                         }
-                                        path="workspaces/:workspaceId/branches/:branchId/publish"
+                                        path="packages/:packageId/branches/:branchId/publish"
                                     />
                                     <Route
                                         element={<BranchEditKindRoute />}
-                                        path="workspaces/:workspaceId/branches/:branchId/edit/:kind"
+                                        path="packages/:packageId/branches/:branchId/edit/:kind"
                                     />
                                     <Route
                                         element={<BranchEntityRoute />}
-                                        path="workspaces/:workspaceId/branches/:branchId/tree/*"
+                                        path="packages/:packageId/branches/:branchId/tree/*"
                                     />
                                     <Route
-                                        element={<WorkspaceSectionRoute />}
-                                        path="workspaces/:workspaceId/:section"
+                                        element={<PackageSectionRoute />}
+                                        path="packages/:packageId/:section"
                                     />
                                     <Route element={<NotFound />} path="*" />
                                 </Routes>
@@ -351,9 +348,9 @@ function App() {
     );
 }
 
-function WorkspaceScreenRoute() {
-    const { workspaceId = "" } = useParams();
-    return <WorkspaceScreen workspaceId={workspaceId} />;
+function PackageScreenRoute() {
+    const { packageId = "" } = useParams();
+    return <PackageScreen packageId={packageId} />;
 }
 
 createRoot(document.getElementById("root")!).render(

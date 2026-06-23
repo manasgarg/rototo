@@ -1,11 +1,11 @@
 use std::fs;
 use std::path::Path;
 
-use rototo::lint::{ModelEntityRef, ModelReferenceVia, workspace_semantic_model};
+use rototo::lint::{ModelEntityRef, ModelReferenceVia, package_semantic_model};
 
 #[tokio::test]
 async fn semantic_model_projects_entities_references_and_ranges() {
-    let model = workspace_semantic_model(Path::new("examples/basic"))
+    let model = package_semantic_model(Path::new("examples/basic"))
         .await
         .expect("examples/basic should produce a semantic model");
 
@@ -109,7 +109,7 @@ async fn semantic_model_projects_entities_references_and_ranges() {
 async fn semantic_model_projects_query_rules_and_request_context_compatibility() {
     let temp = tempfile::TempDir::new().unwrap();
     let root = temp.path();
-    write_file(root, "rototo-workspace.toml", "schema_version = 1\n");
+    write_file(root, "rototo-package.toml", "schema_version = 1\n");
     write_file(
         root,
         "request-contexts/request.schema.json",
@@ -183,9 +183,9 @@ query = 'entry.channel == context.channel && entry.active == true && qualifier["
 "#,
     );
 
-    let model = workspace_semantic_model(root)
+    let model = package_semantic_model(root)
         .await
-        .expect("temp workspace should produce a semantic model");
+        .expect("temp package should produce a semantic model");
 
     let variable = model
         .variables

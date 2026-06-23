@@ -4,16 +4,16 @@
   "write_policy": "pull-request",
   "console": {
     "host": "dev.rototo.dev",
-    "fixed_workspace": false,
+    "fixed_package": false,
     "secure_cookies": false
   },
   "request": {
     "present": true,
     "host": "dev.rototo.dev",
     "method": "GET",
-    "route": "/api/workspaces",
+    "route": "/api/packages",
     "repo": "manasgarg/rototo",
-    "workspace": "console-runtime",
+    "package": "console-runtime",
     "branch": "main",
     "mutating": false
   },

@@ -256,7 +256,7 @@ function diagnosticLocation(diagnostic: LintDiagnostic): string {
 function diagnosticTargetLabel(diagnostic: LintDiagnostic): string {
     const entity = diagnostic.target?.entity;
     if (!entity || typeof entity.kind !== "string") {
-        return "workspace";
+        return "package";
     }
     const kind = entity.kind;
     if (kind === "variable" && typeof entity.id === "string") {

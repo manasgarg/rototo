@@ -26,31 +26,31 @@ rototo is the system I kept wanting: runtime configuration that can change witho
 
 ## The rototo model
 
-rototo treats runtime configuration as reviewable workspace files.
+rototo treats runtime configuration as reviewable package files.
 
-A [workspace](reference-workspace-layout.html) is a directory tree rooted at
-`rototo-workspace.toml`. It is versioned in git and contains the
+A [package](reference-package-layout.html) is a directory tree rooted at
+`rototo-package.toml`. It is versioned in git and contains the
 [variables](reference-variables.html), [qualifiers](reference-qualifiers.html),
 [catalogs](reference-catalogs.html), request contexts, and
 [custom lint rules](reference-custom-lua-lint.html) that define runtime policy.
 
 At runtime, an application is deployed with a
-[workspace source](reference-workspace-sources.html) URI. The
+[package source](reference-package-sources.html) URI. The
 [rototo SDK](reference-sdk-loading.html) loads that source, lints the
-workspace, and [resolves named variables](reference-sdk-resolution.html) using
+package, and [resolves named variables](reference-sdk-resolution.html) using
 the [runtime context](reference-context.html) provided by the application.
 
 For long-running services, successful
 [refreshes](reference-sdk-refresh.html) affect future resolutions. Failed
-refreshes keep the last successfully loaded workspace active.
+refreshes keep the last successfully loaded package active.
 
 The core loop is:
 
-1. Edit workspace files.
+1. Edit package files.
 2. Review the diff.
 3. Run lint and tests.
 4. Merge the change.
-5. Let applications refresh the workspace source and use the new values.
+5. Let applications refresh the package source and use the new values.
 
 The configuration moves independently from the application binary, but it does not move outside the engineering process.
 
@@ -62,18 +62,18 @@ Code and configuration can live in git. Teams can review them together, test the
 
 Schemas and [custom Lua lint rules](reference-custom-lua-lint.html) define
 what valid configuration means. [Built-in lint](reference-lint-overview.html)
-catches malformed workspace structure, unknown references, invalid primitive
+catches malformed package structure, unknown references, invalid primitive
 values, context mismatches, and schema failures. Custom lint captures the local
 policy only your team knows.
 
-Application tests can load the same workspace source the service will use and
+Application tests can load the same package source the service will use and
 assert the values selected for important runtime contexts. That catches
-failures workspace lint cannot see: the app expected an integer, the workspace
-now selects a structured entry, or the app no longer provides the facts the workspace
+failures package lint cannot see: the app expected an integer, the package
+now selects a structured entry, or the app no longer provides the facts the package
 expects. [Testing Runtime Configuration](testing-runtime-configuration.html)
-covers that app-workspace contract.
+covers that app-package contract.
 
-Because resolution happens through the SDK in the application process, existing observability can explain what value was selected, from which workspace version, and why.
+Because resolution happens through the SDK in the application process, existing observability can explain what value was selected, from which package version, and why.
 
 ## Where rototo fits
 
@@ -96,7 +96,7 @@ rototo is not ordinary application storage. User records, transactions, analytic
 ## Start here
 
 Start with [Getting Started](getting-started.html). It builds one account
-limit end to end: workspace files, CLI resolution, SDK loading, and refresh.
+limit end to end: package files, CLI resolution, SDK loading, and refresh.
 
 Then read [Configuration Primitives](configuration-primitives.html) for the
 model the whole system shares: the few primitives, how they compose into one

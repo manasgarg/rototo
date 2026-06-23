@@ -7,13 +7,13 @@ use serde_json::{Number as JsonNumber, Value as JsonValue};
 use crate::error::{Result, RototoError};
 use crate::expression::simple_rule_qualifier;
 use crate::model::{
-    PredicateInspectReport, QualifierInspectReport, QualifierResolutionTrace,
-    RulePathwayInspectReport, VariableInspectReport, VariableResolutionTrace,
-    WorkspaceInspectReport, WorkspaceInspectRequest,
+    PackageInspectReport, PackageInspectRequest, PredicateInspectReport, QualifierInspectReport,
+    QualifierResolutionTrace, RulePathwayInspectReport, VariableInspectReport,
+    VariableResolutionTrace,
 };
 use crate::resolve::{bucket_value, trace_qualifier_resolution, trace_variable_resolution};
-use crate::sdk::{ResolveContext, Workspace};
-use crate::source::{SourceOptions, stage_workspace_source};
+use crate::sdk::{Package, ResolveContext};
+use crate::source::{SourceOptions, stage_package_source};
 
 const SUITE_FILE: &str = "rototo-fixtures.toml";
 const MAX_BUCKET_CANDIDATES: usize = 100_000;
@@ -61,7 +61,7 @@ impl FixtureTargetSelection {
 
 #[derive(Debug)]
 pub struct GeneratedFixtureSuite {
-    pub workspace: String,
+    pub package: String,
     pub manifest: FixtureSuite,
     files: Vec<GeneratedFixtureFile>,
 }
@@ -127,7 +127,7 @@ async fn write_toml_file(path: &Path, value: impl Serialize) -> Result<()> {
 pub struct FixtureSuite {
     pub schema_version: u32,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub workspace: Option<String>,
+    pub package: Option<String>,
     #[serde(default, rename = "fixture")]
     pub fixtures: Vec<FixtureEntry>,
 }
@@ -190,15 +190,15 @@ fn empty_toml_table() -> toml::Value {
 }
 
 pub async fn generate_fixture_suite(
-    workspace_source: impl AsRef<str>,
+    package_source: impl AsRef<str>,
     source_options: &SourceOptions,
     selection: FixtureGenerateSelection,
 ) -> Result<GeneratedFixtureSuite> {
-    let workspace_source = workspace_source.as_ref();
+    let package_source = package_source.as_ref();
     let selection = selection.normalized();
-    let staged = stage_workspace_source(workspace_source.to_owned(), source_options).await?;
+    let staged = stage_package_source(package_source.to_owned(), source_options).await?;
     let report =
-        crate::inspect_workspace_report(staged.path(), WorkspaceInspectRequest::default()).await?;
+        crate::inspect_package_report(staged.path(), PackageInspectRequest::default()).await?;
 
     let variable_ids = selected_variable_ids(&report, &selection.variables)?;
     let qualifier_ids = selected_qualifier_ids(&report, &selection.qualifiers)?;
@@ -206,7 +206,7 @@ pub async fn generate_fixture_suite(
 
     let mut manifest = FixtureSuite {
         schema_version: 1,
-        workspace: Some(workspace_source.to_owned()),
+        package: Some(package_source.to_owned()),
         fixtures: Vec::new(),
     };
     let mut files = Vec::new();
@@ -242,14 +242,14 @@ pub async fn generate_fixture_suite(
     }
 
     Ok(GeneratedFixtureSuite {
-        workspace: workspace_source.to_owned(),
+        package: package_source.to_owned(),
         manifest,
         files,
     })
 }
 
 fn selected_variable_ids(
-    report: &WorkspaceInspectReport,
+    report: &PackageInspectReport,
     selection: &FixtureTargetSelection,
 ) -> Result<Vec<String>> {
     selected_ids(
@@ -260,7 +260,7 @@ fn selected_variable_ids(
 }
 
 fn selected_qualifier_ids(
-    report: &WorkspaceInspectReport,
+    report: &PackageInspectReport,
     selection: &FixtureTargetSelection,
 ) -> Result<Vec<String>> {
     selected_ids(
@@ -297,14 +297,14 @@ fn selected_ids<'a>(
 }
 
 async fn generate_qualifier_fixture(
-    workspace: &Path,
+    package: &Path,
     qualifier: &QualifierInspectReport,
     factory: &ContextFactory<'_>,
 ) -> Result<FixtureFile> {
     let mut cases = Vec::new();
 
     if let Some((context, trace)) =
-        sampled_qualifier_context(workspace, &qualifier.id, true, factory).await?
+        sampled_qualifier_context(package, &qualifier.id, true, factory).await?
     {
         cases.push(qualifier_case(
             "matches",
@@ -317,7 +317,7 @@ async fn generate_qualifier_fixture(
     }
 
     if let Some((context, trace)) =
-        sampled_qualifier_context(workspace, &qualifier.id, false, factory).await?
+        sampled_qualifier_context(package, &qualifier.id, false, factory).await?
     {
         cases.push(qualifier_case(
             "does-not-match",
@@ -362,14 +362,14 @@ fn qualifier_case(
 }
 
 async fn generate_variable_fixture(
-    workspace: &Path,
+    package: &Path,
     variable: &VariableInspectReport,
     factory: &ContextFactory<'_>,
 ) -> Result<FixtureFile> {
     let mut cases = Vec::new();
 
-    if let Some(context) = variable_default_context(workspace, variable, factory).await? {
-        let trace = trace_variable_resolution(workspace, &variable.id, &context).await?;
+    if let Some(context) = variable_default_context(package, variable, factory).await? {
+        let trace = trace_variable_resolution(package, &variable.id, &context).await?;
         if trace.rules.iter().any(|rule| rule.matched) {
             return Err(RototoError::new(format!(
                 "generated default fixture matched a rule for variable: {}",
@@ -387,10 +387,10 @@ async fn generate_variable_fixture(
     }
 
     for rule in &variable.resolve.rules {
-        let Some(context) = variable_rule_context(workspace, variable, rule, factory).await? else {
+        let Some(context) = variable_rule_context(package, variable, rule, factory).await? else {
             continue;
         };
-        let trace = trace_variable_resolution(workspace, &variable.id, &context).await?;
+        let trace = trace_variable_resolution(package, &variable.id, &context).await?;
         if !trace
             .rules
             .iter()
@@ -465,13 +465,13 @@ fn rule_condition_label(rule: &RulePathwayInspectReport) -> String {
 }
 
 async fn variable_rule_context(
-    workspace: &Path,
+    package: &Path,
     variable: &VariableInspectReport,
     rule: &RulePathwayInspectReport,
     factory: &ContextFactory<'_>,
 ) -> Result<Option<JsonValue>> {
     for context in factory.sample_contexts() {
-        if let Ok(trace) = trace_variable_resolution(workspace, &variable.id, context).await
+        if let Ok(trace) = trace_variable_resolution(package, &variable.id, context).await
             && trace
                 .rules
                 .iter()
@@ -483,7 +483,7 @@ async fn variable_rule_context(
 
     if let Some(qualifier) = rule.when.as_deref().and_then(simple_rule_qualifier)
         && let Some(context) = factory.qualifier_context(&qualifier, true)
-        && let Ok(trace) = trace_variable_resolution(workspace, &variable.id, &context).await
+        && let Ok(trace) = trace_variable_resolution(package, &variable.id, &context).await
         && trace
             .rules
             .iter()
@@ -496,12 +496,12 @@ async fn variable_rule_context(
 }
 
 async fn variable_default_context(
-    workspace: &Path,
+    package: &Path,
     variable: &VariableInspectReport,
     factory: &ContextFactory<'_>,
 ) -> Result<Option<JsonValue>> {
     for context in factory.sample_contexts() {
-        if let Ok(trace) = trace_variable_resolution(workspace, &variable.id, context).await
+        if let Ok(trace) = trace_variable_resolution(package, &variable.id, context).await
             && trace.rules.iter().all(|rule| !rule.matched)
         {
             return Ok(Some(context.clone()));
@@ -512,13 +512,13 @@ async fn variable_default_context(
 }
 
 async fn sampled_qualifier_context(
-    workspace: &Path,
+    package: &Path,
     qualifier: &str,
     desired: bool,
     factory: &ContextFactory<'_>,
 ) -> Result<Option<(JsonValue, QualifierResolutionTrace)>> {
     for context in factory.sample_contexts() {
-        if let Ok(trace) = trace_qualifier_resolution(workspace, qualifier, context).await
+        if let Ok(trace) = trace_qualifier_resolution(package, qualifier, context).await
             && trace.value == desired
         {
             return Ok(Some((context.clone(), trace)));
@@ -526,7 +526,7 @@ async fn sampled_qualifier_context(
     }
 
     if let Some(context) = factory.qualifier_context(qualifier, desired)
-        && let Ok(trace) = trace_qualifier_resolution(workspace, qualifier, &context).await
+        && let Ok(trace) = trace_qualifier_resolution(package, qualifier, &context).await
         && trace.value == desired
     {
         return Ok(Some((context, trace)));
@@ -546,7 +546,7 @@ struct ContextFactory<'a> {
 }
 
 impl<'a> ContextFactory<'a> {
-    fn new(report: &'a WorkspaceInspectReport) -> Self {
+    fn new(report: &'a PackageInspectReport) -> Self {
         Self {
             qualifiers: report
                 .qualifiers
@@ -1057,7 +1057,7 @@ pub struct FixtureAssertionReport {
 }
 
 pub async fn assert_fixtures(
-    workspace: &Workspace,
+    package: &Package,
     suite_path: impl AsRef<Path>,
 ) -> Result<FixtureAssertionReport> {
     let suite = load_fixture_suite(suite_path).await?;
@@ -1065,7 +1065,7 @@ pub async fn assert_fixtures(
     for file in &suite.files {
         let target = FixtureTarget::parse(&file.fixture.target)?;
         for case in &file.fixture.cases {
-            assert_fixture_case(workspace, &target, case)
+            assert_fixture_case(package, &target, case)
                 .await
                 .map_err(|err| {
                     RototoError::new(format!(
@@ -1099,7 +1099,7 @@ impl FixtureTarget {
 }
 
 async fn assert_fixture_case(
-    workspace: &Workspace,
+    package: &Package,
     target: &FixtureTarget,
     case: &FixtureCase,
 ) -> Result<()> {
@@ -1107,7 +1107,7 @@ async fn assert_fixture_case(
     let context = ResolveContext::from_json(context)?;
     match target {
         FixtureTarget::Qualifier(id) => {
-            let trace = trace_qualifier_resolution(workspace.root(), id, context.value()).await?;
+            let trace = trace_qualifier_resolution(package.root(), id, context.value()).await?;
             let expected = case.expect.value.as_bool().ok_or_else(|| {
                 RototoError::new("qualifier fixture expect.value must be a boolean")
             })?;
@@ -1120,7 +1120,7 @@ async fn assert_fixture_case(
             assert_bucket_expectations(&case.expect.buckets, &[trace])?;
         }
         FixtureTarget::Variable(id) => {
-            let trace = trace_variable_resolution(workspace.root(), id, context.value()).await?;
+            let trace = trace_variable_resolution(package.root(), id, context.value()).await?;
             let expected_value = toml_to_json(&case.expect.value)?;
             if trace.resolution.value != expected_value {
                 return Err(RototoError::new(format!(

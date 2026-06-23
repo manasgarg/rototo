@@ -1,10 +1,10 @@
 # Testing Runtime Configuration
 
-After the application can load a workspace and resolve variables, the next
-question is whether a workspace change is safe to release. Lint answers part of
+After the application can load a package and resolve variables, the next
+question is whether a package change is safe to release. Lint answers part of
 that question, but not all of it.
 
-[`rototo lint`](reference-lint-overview.html) can prove that the workspace is
+[`rototo lint`](reference-lint-overview.html) can prove that the package is
 well-formed: schemas parse, qualifiers reference known fields, variable rules
 point at known values, and selected values match their declared shape. You
 still need that. It does not prove the application still behaves correctly when
@@ -12,7 +12,7 @@ those values are selected.
 
 I think about the tests in layers:
 
-- workspace lint protects the control-plane files;
+- package lint protects the control-plane files;
 - generated fixtures protect expected resolution behavior;
 - app tests protect the contract between selected JSON and application code;
 - refresh tests protect the long-running service behavior.
@@ -25,7 +25,7 @@ test suite easier to maintain and easier to trust during review.
 For any runtime configuration change, ask the same question a reviewer will ask
 under pressure:
 
-> If this workspace commit reaches a running service, what behavior can change?
+> If this package commit reaches a running service, what behavior can change?
 
 That question usually points at one variable, one set of context facts, and one
 application boundary. For an account limit policy, the important cases may be:
@@ -40,7 +40,7 @@ Those cases should be visible in tests. A reviewer should not need to inspect a
 chain of qualifiers and values by hand to understand whether the important
 runtime paths still hold.
 
-## Keep Lint In The Workspace
+## Keep Lint In The Package
 
 Run lint before any behavior test:
 
@@ -49,12 +49,12 @@ rototo lint account-config
 ```
 
 Lint is the first gate because it catches invalid control-plane state before
-the app even enters the picture. It should stay close to the workspace
+the app even enters the picture. It should stay close to the package
 repository and run in pre-commit and CI.
 
 Use built-in lint for rototo's own contracts:
 
-- workspace layout;
+- package layout;
 - qualifier and variable references;
 - expression helpers;
 - primitive and schema-backed values;
@@ -62,13 +62,13 @@ Use built-in lint for rototo's own contracts:
 - custom Lua lint registration.
 
 Use [custom Lua lint](reference-custom-lua-lint.html) for local policy that
-belongs with the workspace. For example, if account limits must stay below an
-operational ceiling, that rule belongs in the workspace because it constrains
+belongs with the package. For example, if account limits must stay below an
+operational ceiling, that rule belongs in the package because it constrains
 the values reviewers are approving.
 
 Do not use app tests for that kind of file-level policy. App tests are slower,
 farther away from the policy author, and usually worse at explaining which
-workspace field is wrong.
+package field is wrong.
 
 ## Commit Context Fixtures
 
@@ -97,9 +97,9 @@ For example:
 }
 ```
 
-These files are part of the app-workspace
+These files are part of the app-package
 [context](reference-context.html) contract. When the application starts sending
-a new context field, the fixture changes. When the workspace starts depending
+a new context field, the fixture changes. When the package starts depending
 on a new field, the fixture proves the app knows how to provide it.
 
 They also help in review because the CLI can resolve with the same input:
@@ -140,15 +140,15 @@ Then assert them from the app test suite:
 
 ```rust
 use std::error::Error;
-use rototo::Workspace;
+use rototo::Package;
 
 #[tokio::test]
 async fn rototo_resolution_fixtures_still_hold() -> Result<(), Box<dyn Error>> {
-    let source = std::env::var("ROTOTO_WORKSPACE_SOURCE")
+    let source = std::env::var("ROTOTO_PACKAGE_SOURCE")
         .unwrap_or_else(|_| "account-config".to_owned());
-    let workspace = Workspace::load(source).await?;
+    let pkg = Package::load(source).await?;
 
-    rototo::testing::assert_fixtures(&workspace, "tests/rototo-fixtures").await?;
+    rototo::testing::assert_fixtures(&package, "tests/rototo-fixtures").await?;
 
     Ok(())
 }
@@ -172,7 +172,7 @@ exercise the behavior boundary that uses it.
 ```rust
 use std::error::Error;
 use serde::Deserialize;
-use rototo::{ResolveContext, Workspace};
+use rototo::{ResolveContext, Package};
 
 #[derive(Debug, Deserialize)]
 struct AccountLimitProfile {
@@ -182,7 +182,7 @@ struct AccountLimitProfile {
 
 #[tokio::test]
 async fn enterprise_account_receives_enterprise_limits() -> Result<(), Box<dyn Error>> {
-    let workspace = Workspace::load("account-config").await?;
+    let pkg = Package::load("account-config").await?;
     let context = ResolveContext::from_json(serde_json::json!({
         "account": {
             "id": "acct_enterprise",
@@ -191,7 +191,7 @@ async fn enterprise_account_receives_enterprise_limits() -> Result<(), Box<dyn E
         }
     }))?;
 
-    let resolution = workspace
+    let resolution = pkg
         .resolve_variable("account-limit-profile", &context)
         .await?;
 
@@ -215,8 +215,8 @@ class AccountLimitProfile:
 
 
 async def test_enterprise_account_receives_enterprise_limits():
-    workspace = await rototo.Workspace.load("account-config")
-    resolution = await workspace.resolve_variable(
+    pkg = await rototo.Package.load("account-config")
+    resolution = await pkg.resolve_variable(
         "account-limit-profile",
         {
             "account": {
@@ -235,7 +235,7 @@ async def test_enterprise_account_receives_enterprise_limits():
 ```typescript
 import assert from "node:assert/strict";
 import test from "node:test";
-import { Workspace } from "rototo";
+import { Package } from "rototo";
 
 type AccountLimitProfile = {
   max_projects: number;
@@ -243,8 +243,8 @@ type AccountLimitProfile = {
 };
 
 test("enterprise account receives enterprise limits", async () => {
-  const workspace = await Workspace.load("account-config");
-  const resolution = await workspace.resolveVariable(
+  const pkg = await Package.load("account-config");
+  const resolution = await pkg.resolveVariable(
     "account-limit-profile",
     {
       account: {
@@ -264,8 +264,8 @@ test("enterprise account receives enterprise limits", async () => {
 ```java
 @Test
 void enterpriseAccountReceivesEnterpriseLimits() throws Exception {
-    try (Workspace workspace = Workspace.load("account-config").get()) {
-        VariableResolution resolution = workspace
+    try (Package pkg = Package.load("account-config").get()) {
+        VariableResolution resolution = pkg
             .resolveVariable(
                 "account-limit-profile",
                 Map.of("account", Map.of(
@@ -292,13 +292,13 @@ void enterpriseAccountReceivesEnterpriseLimits() throws Exception {
 ```go
 func TestEnterpriseAccountReceivesEnterpriseLimits(t *testing.T) {
     ctx := context.Background()
-    workspace, err := rototo.Load(ctx, "account-config", nil)
+    pkg, err := rototo.Load(ctx, "account-config", nil)
     if err != nil {
         t.Fatal(err)
     }
-    defer workspace.Close()
+    defer pkg.Close()
 
-    resolution, err := workspace.ResolveVariable(
+    resolution, err := pkg.ResolveVariable(
         ctx,
         "account-limit-profile",
         map[string]any{
@@ -333,10 +333,10 @@ func TestEnterpriseAccountReceivesEnterpriseLimits(t *testing.T) {
 ```
 :::
 
-This test catches a different class of failure from lint. The workspace may
+This test catches a different class of failure from lint. The package may
 select a schema-valid value, but the application may no longer be able to
 deserialize or use it. That is an app contract failure, and it should fail in
-the app test suite before the service observes the workspace change.
+the app test suite before the service observes the package change.
 
 The most valuable app tests usually assert three things:
 
@@ -364,7 +364,7 @@ let standard = ResolveContext::from_json(serde_json::json!({
     }
 }))?;
 
-let resolution = workspace
+let resolution = pkg
     .resolve_variable("account-limit-profile", &standard)
     .await?;
 ```
@@ -377,7 +377,7 @@ standard = {
     },
 }
 
-resolution = await workspace.resolve_variable(
+resolution = await pkg.resolve_variable(
     "account-limit-profile",
     standard,
 )
@@ -391,7 +391,7 @@ const standard = {
   },
 };
 
-const resolution = await workspace.resolveVariable(
+const resolution = await pkg.resolveVariable(
   "account-limit-profile",
   standard,
 );
@@ -403,7 +403,7 @@ Map<String, Object> standard = Map.of(
     Map.of("id", "acct_standard", "plan", "standard")
 );
 
-VariableResolution resolution = workspace
+VariableResolution resolution = pkg
     .resolveVariable("account-limit-profile", standard)
     .get();
 ```
@@ -416,7 +416,7 @@ standard := map[string]any{
     },
 }
 
-resolution, err := workspace.ResolveVariable(
+resolution, err := pkg.ResolveVariable(
     ctx,
     "account-limit-profile",
     standard,
@@ -441,22 +441,22 @@ make the degraded behavior explicit and observable.
 
 ## Test The Final Layered Source
 
-If the application loads a layered workspace, test the same source URI the
+If the application loads a layered package, test the same source URI the
 service will use:
 
 ```text
-ROTOTO_WORKSPACE_SOURCE=git+https://github.com/acme/customer-config.git#main:customers/acme-support
+ROTOTO_PACKAGE_SOURCE=git+https://github.com/acme/customer-config.git#main:customers/acme-support
 ```
 
-Testing only the base workspace can miss the failure that matters in
+Testing only the base package can miss the failure that matters in
 production: the product default is valid, but the customer or team layer
 overrides a value in a way the app cannot consume.
 
 The app should have at least one test path that loads the final assembled
-workspace source, resolves the variables it depends on, and deserializes the
+package source, resolves the variables it depends on, and deserializes the
 selected values into the app types.
 
-That keeps workspace layering in its proper role. Layers are administrative
+That keeps package layering in its proper role. Layers are administrative
 boundaries. The application still consumes one runtime control plane.
 
 ## Test Refresh Behavior
@@ -468,78 +468,78 @@ At minimum, cover these cases:
 
 - initial load succeeds before the service starts serving requests;
 - a successful refresh affects future resolutions;
-- a failed refresh keeps the last successfully loaded workspace active;
+- a failed refresh keeps the last successfully loaded package active;
 - refresh status is exposed to logs, health checks, or metrics.
 
 The core assertion looks like this:
 
 :::sdk-snippet testing-refresh-success
 ```rust
-let workspace = RefreshingWorkspace::load(source, RefreshOptions::new()).await?;
+let pkg = RefreshingPackage::load(source, RefreshOptions::new()).await?;
 let context = ResolveContext::from_json(serde_json::json!({}))?;
 
-let before = workspace
+let before = pkg
     .resolve_variable("support-banner", &context)
     .await?;
 
-publish_workspace_change_that_turns_banner_on().await?;
-workspace.refresh_now().await?;
+publish_package_change_that_turns_banner_on().await?;
+pkg.refresh_now().await?;
 
-let after = workspace
+let after = pkg
     .resolve_variable("support-banner", &context)
     .await?;
 ```
 
 ```python
-workspace = await rototo.RefreshingWorkspace.load(source)
+pkg = await rototo.RefreshingPackage.load(source)
 context = {}
 
-before = await workspace.resolve_variable("support-banner", context)
+before = await pkg.resolve_variable("support-banner", context)
 
-await publish_workspace_change_that_turns_banner_on()
-await workspace.refresh_now()
+await publish_package_change_that_turns_banner_on()
+await pkg.refresh_now()
 
-after = await workspace.resolve_variable("support-banner", context)
+after = await pkg.resolve_variable("support-banner", context)
 ```
 
 ```typescript
-const workspace = await RefreshingWorkspace.load(source);
+const pkg = await RefreshingPackage.load(source);
 const context = {};
 
-const before = await workspace.resolveVariable("support-banner", context);
+const before = await pkg.resolveVariable("support-banner", context);
 
-await publishWorkspaceChangeThatTurnsBannerOn();
-await workspace.refreshNow();
+await publishPackageChangeThatTurnsBannerOn();
+await pkg.refreshNow();
 
-const after = await workspace.resolveVariable("support-banner", context);
+const after = await pkg.resolveVariable("support-banner", context);
 ```
 
 ```java
-RefreshingWorkspace workspace = RefreshingWorkspace
+RefreshingPackage pkg = RefreshingPackage
     .load(source)
     .get();
 Map<String, Object> context = Map.of();
 
-VariableResolution before = workspace
+VariableResolution before = pkg
     .resolveVariable("support-banner", context)
     .get();
 
-publishWorkspaceChangeThatTurnsBannerOn();
-workspace.refreshNow().get();
+publishPackageChangeThatTurnsBannerOn();
+pkg.refreshNow().get();
 
-VariableResolution after = workspace
+VariableResolution after = pkg
     .resolveVariable("support-banner", context)
     .get();
 ```
 
 ```go
-workspace, err := rototo.LoadRefreshing(ctx, source, nil)
+pkg, err := rototo.LoadRefreshing(ctx, source, nil)
 if err != nil {
     t.Fatal(err)
 }
-defer workspace.Close(ctx)
+defer pkg.Close(ctx)
 
-before, err := workspace.ResolveVariable(
+before, err := pkg.ResolveVariable(
     ctx,
     "support-banner",
     map[string]any{},
@@ -549,12 +549,12 @@ if err != nil {
     t.Fatal(err)
 }
 
-publishWorkspaceChangeThatTurnsBannerOn(t)
-if _, err := workspace.RefreshNow(ctx); err != nil {
+publishPackageChangeThatTurnsBannerOn(t)
+if _, err := pkg.RefreshNow(ctx); err != nil {
     t.Fatal(err)
 }
 
-after, err := workspace.ResolveVariable(
+after, err := pkg.ResolveVariable(
     ctx,
     "support-banner",
     map[string]any{},
@@ -570,63 +570,63 @@ And the failure path should prove last-known-good behavior:
 
 :::sdk-snippet testing-refresh-failure
 ```rust
-publish_broken_workspace_change().await?;
-assert!(workspace.refresh_now().await.is_err());
+publish_broken_package_change().await?;
+assert!(pkg.refresh_now().await.is_err());
 
-let still_valid = workspace
+let still_valid = pkg
     .resolve_variable("support-banner", &context)
     .await?;
 
-let status = workspace.status().await;
+let status = pkg.status().await;
 assert!(status.last_error.is_some());
 assert_eq!(status.consecutive_failures, 1);
 ```
 
 ```python
-await publish_broken_workspace_change()
+await publish_broken_package_change()
 try:
-    await workspace.refresh_now()
+    await pkg.refresh_now()
 except rototo.RototoError:
     pass
 
-still_valid = await workspace.resolve_variable("support-banner", context)
+still_valid = await pkg.resolve_variable("support-banner", context)
 
-status = await workspace.status()
+status = await pkg.status()
 assert status.last_error is not None
 assert status.consecutive_failures == 1
 ```
 
 ```typescript
-await publishBrokenWorkspaceChange();
-await assert.rejects(() => workspace.refreshNow());
+await publishBrokenPackageChange();
+await assert.rejects(() => pkg.refreshNow());
 
-const stillValid = await workspace.resolveVariable("support-banner", context);
+const stillValid = await pkg.resolveVariable("support-banner", context);
 
-const status = await workspace.status();
+const status = await pkg.status();
 assert.ok(status.lastError);
 assert.equal(status.consecutiveFailures, 1);
 ```
 
 ```java
-publishBrokenWorkspaceChange();
-assertThrows(ExecutionException.class, () -> workspace.refreshNow().get());
+publishBrokenPackageChange();
+assertThrows(ExecutionException.class, () -> pkg.refreshNow().get());
 
-VariableResolution stillValid = workspace
+VariableResolution stillValid = pkg
     .resolveVariable("support-banner", context)
     .get();
 
-RefreshStatus status = workspace.status().get();
+RefreshStatus status = pkg.status().get();
 assertNotNull(status.lastError());
 assertEquals(1, status.consecutiveFailures());
 ```
 
 ```go
-publishBrokenWorkspaceChange(t)
-if _, err := workspace.RefreshNow(ctx); err == nil {
+publishBrokenPackageChange(t)
+if _, err := pkg.RefreshNow(ctx); err == nil {
     t.Fatal("expected refresh failure")
 }
 
-stillValid, err := workspace.ResolveVariable(
+stillValid, err := pkg.ResolveVariable(
     ctx,
     "support-banner",
     map[string]any{},
@@ -636,7 +636,7 @@ if err != nil {
     t.Fatal(err)
 }
 
-status, err := workspace.Status(ctx)
+status, err := pkg.Status(ctx)
 if err != nil {
     t.Fatal(err)
 }
@@ -647,8 +647,8 @@ if status.LastError == nil || status.ConsecutiveFailures != 1 {
 :::
 
 The helper names in those snippets are app test helpers, not rototo APIs. The
-contract is what matters: a bad workspace commit must not replace the
-last-known-good workspace in a running service.
+contract is what matters: a bad package commit must not replace the
+last-known-good package in a running service.
 
 ## Put The Gates In Order
 
@@ -661,10 +661,10 @@ cargo test -p account-app
 ```
 
 The exact commands will vary by repository layout, but the order matters. First
-prove the workspace is valid. Then prove expected resolution behavior. Then
+prove the package is valid. Then prove expected resolution behavior. Then
 prove the application can consume and apply the selected policy.
 
 That order is why the [production workflow](production-workflow.html) holds
-together. The workspace can move independently from the application binary, but
+together. The package can move independently from the application binary, but
 it still moves through a release path that proves the app and control plane
 agree.

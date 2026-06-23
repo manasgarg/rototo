@@ -10,7 +10,7 @@ That is a good fit for rototo. The switch is not user state, queue state, or an
 authorization decision. It is reviewed operational policy that the app can
 refresh and apply at runtime.
 
-I will keep the workspace small: `operations-config`, with one service boundary
+I will keep the package small: `operations-config`, with one service boundary
 that checks whether project creation is enabled.
 
 ## Start With A Broad Switch
@@ -18,7 +18,7 @@ that checks whether project creation is enabled.
 The first version does not need runtime context. Either project creation is
 enabled for everyone, or it is disabled for everyone.
 
-Create a workspace with one [variable](reference-variables.html):
+Create a package with one [variable](reference-variables.html):
 
 ```sh
 rototo init operations-config --variable project-creation-enabled
@@ -67,11 +67,11 @@ rototo only answers the operational policy question.
 
 :::sdk-snippet operational-switch-app
 ```rust
-use rototo::{ResolveContext, Workspace};
+use rototo::{ResolveContext, Package};
 
-async fn create_project(workspace: &Workspace) -> Result<(), Box<dyn std::error::Error>> {
+async fn create_project(package: &Package) -> Result<(), Box<dyn std::error::Error>> {
     let context = ResolveContext::from_json(serde_json::json!({}))?;
-    let resolution = workspace
+    let resolution = pkg
         .resolve_variable("project-creation-enabled", &context)
         .await?;
 
@@ -82,7 +82,7 @@ async fn create_project(workspace: &Workspace) -> Result<(), Box<dyn std::error:
         println!(
             "project creation blocked by rototo value `{}` from {:?}",
             source,
-            workspace.source_fingerprint()
+            pkg.source_fingerprint()
         );
         return Ok(());
     }
@@ -93,8 +93,8 @@ async fn create_project(workspace: &Workspace) -> Result<(), Box<dyn std::error:
 ```
 
 ```python
-async def create_project(workspace: rototo.Workspace) -> None:
-    resolution = await workspace.resolve_variable(
+async def create_project(package: rototo.Package) -> None:
+    resolution = await pkg.resolve_variable(
         "project-creation-enabled",
         {},
     )
@@ -111,8 +111,8 @@ async def create_project(workspace: rototo.Workspace) -> None:
 ```
 
 ```typescript
-async function createProject(workspace: Workspace): Promise<void> {
-  const resolution = await workspace.resolveVariable(
+async function createProject(package: Package): Promise<void> {
+  const resolution = await pkg.resolveVariable(
     "project-creation-enabled",
     {},
   );
@@ -130,8 +130,8 @@ async function createProject(workspace: Workspace): Promise<void> {
 ```
 
 ```java
-void createProject(Workspace workspace) throws Exception {
-    VariableResolution resolution = workspace
+void createProject(Package pkg) throws Exception {
+    VariableResolution resolution = pkg
         .resolveVariable("project-creation-enabled", Map.of())
         .get();
     boolean creationEnabled = (Boolean) resolution.value();
@@ -149,8 +149,8 @@ void createProject(Workspace workspace) throws Exception {
 ```
 
 ```go
-func createProject(ctx context.Context, workspace *rototo.Workspace) error {
-    resolution, err := workspace.ResolveVariable(
+func createProject(ctx context.Context, package *rototo.Package) error {
+    resolution, err := pkg.ResolveVariable(
         ctx,
         "project-creation-enabled",
         map[string]any{},
@@ -198,10 +198,10 @@ git commit -m "Disable project creation during incident"
 ```
 
 Long-running services that use
-[`RefreshingWorkspace`](reference-sdk-refresh.html) keep serving the last
-successfully loaded workspace until a refresh succeeds. After the merge reaches
-the workspace source, a successful refresh affects future project creation
-checks. If a refresh fails, the service keeps the last known-good workspace
+[`RefreshingPackage`](reference-sdk-refresh.html) keep serving the last
+successfully loaded package until a refresh succeeds. After the merge reaches
+the package source, a successful refresh affects future project creation
+checks. If a refresh fails, the service keeps the last known-good package
 active.
 
 Rollback follows the same path: revert the change, or make a new reviewed change
@@ -211,7 +211,7 @@ that sets the default back to `enabled`.
 
 A global switch helps when the whole system is affected. More often, the
 incident has a boundary: one region, one account class, or one integration. I
-prefer adding that boundary to the workspace instead of scattering `if` checks
+prefer adding that boundary to the package instead of scattering `if` checks
 through app code.
 
 Restore the default to `enabled`, then create
@@ -247,13 +247,13 @@ creation for accounts in the European region; keep the default open.
 ## Generate The Context Contract
 
 The qualifier now reads `account.region`. That is the right moment to generate
-the [context schema](reference-context.html) skeleton from the workspace:
+the [context schema](reference-context.html) skeleton from the package:
 
 ```sh
 rototo init operations-config --context
 ```
 
-On this workspace, rototo writes
+On this package, rototo writes
 `operations-config/request-contexts/request.schema.json`:
 
 ```json
@@ -273,11 +273,11 @@ On this workspace, rototo writes
 }
 ```
 
-The schema makes the app contract explicit. If the workspace reads
+The schema makes the app contract explicit. If the package reads
 `account.region`, the app must send context with that shape when it resolves
 the switch.
 
-Lint the workspace:
+Lint the package:
 
 ```sh
 rototo lint operations-config
@@ -308,7 +308,7 @@ value: false
 ```
 
 Now the app supplies a fact it already knows at the request boundary, and the
-workspace owns the reviewed decision about what that fact means operationally.
+package owns the reviewed decision about what that fact means operationally.
 
 ## Keep The Boundary Clear
 

@@ -3,7 +3,7 @@ import { Plus, Trash2 } from "lucide-react";
 import { useRouter } from "@/lib/navigation";
 import { apiFetch } from "@/lib/api";
 
-/** Editable workspace section supported by the add-entity form. */
+/** Editable package section supported by the add-entity form. */
 type EntityKind =
     | "variables"
     | "qualifiers"
@@ -19,13 +19,13 @@ export function AddEntityForm({
     disabled,
     branchId,
     kind,
-    workspaceId,
+    packageId,
 }: {
     catalogIds?: string[];
     disabled?: boolean;
     branchId: string;
     kind: EntityKind;
-    workspaceId: string;
+    packageId: string;
 }) {
     const router = useRouter();
     const [id, setId] = useState("");
@@ -39,7 +39,7 @@ export function AddEntityForm({
         setNote(null);
         try {
             const response = await apiFetch(
-                `/api/workspaces/${workspaceId}/branches/${branchId}/entities`,
+                `/api/packages/${packageId}/branches/${branchId}/entities`,
                 {
                     method: "POST",
                     headers: { "Content-Type": "application/json" },
@@ -154,12 +154,12 @@ export function AddCatalogEntryForm({
     disabled,
     branchId,
     catalogId,
-    workspaceId,
+    packageId,
 }: {
     disabled?: boolean;
     branchId: string;
     catalogId: string;
-    workspaceId: string;
+    packageId: string;
 }) {
     const router = useRouter();
     const [id, setId] = useState("");
@@ -172,7 +172,7 @@ export function AddCatalogEntryForm({
         setNote(null);
         try {
             const response = await apiFetch(
-                `/api/workspaces/${workspaceId}/branches/${branchId}/entities`,
+                `/api/packages/${packageId}/branches/${branchId}/entities`,
                 {
                     method: "POST",
                     headers: { "Content-Type": "application/json" },
@@ -250,13 +250,13 @@ export function DeleteEntityButton({
     branchId,
     filePath,
     returnHref,
-    workspaceId,
+    packageId,
 }: {
     disabled?: boolean;
     branchId: string;
     filePath: string;
     returnHref: string;
-    workspaceId: string;
+    packageId: string;
 }) {
     const router = useRouter();
     const [pending, setPending] = useState(false);
@@ -270,7 +270,7 @@ export function DeleteEntityButton({
         setMessage(null);
         try {
             const response = await apiFetch(
-                `/api/workspaces/${workspaceId}/branches/${branchId}/files`,
+                `/api/packages/${packageId}/branches/${branchId}/files`,
                 {
                     method: "DELETE",
                     headers: { "Content-Type": "application/json" },

@@ -8,57 +8,57 @@ func nativeVersion() (string, error) {
 	return "", cgoDisabled()
 }
 
-func nativeWorkspaceLoad(source, workspaceToken, lint string) (nativeHandle, error) {
+func nativePackageLoad(source, packageToken, lint string) (nativeHandle, error) {
 	return 0, cgoDisabled()
 }
 
-func nativeWorkspaceInspect(source, workspaceToken string) (nativeHandle, error) {
+func nativePackageInspect(source, packageToken string) (nativeHandle, error) {
 	return 0, cgoDisabled()
 }
 
-func nativeWorkspaceRoot(handle nativeHandle) (string, error) {
+func nativePackageRoot(handle nativeHandle) (string, error) {
 	return "", cgoDisabled()
 }
 
-func nativeWorkspaceLint(handle nativeHandle) (string, error) {
+func nativePackageLint(handle nativeHandle) (string, error) {
 	return "", cgoDisabled()
 }
 
-func nativeWorkspaceResolveVariable(handle nativeHandle, id, contextJSON string, validateContext bool) (string, error) {
+func nativePackageResolveVariable(handle nativeHandle, id, contextJSON string, validateContext bool) (string, error) {
 	return "", cgoDisabled()
 }
 
-func nativeWorkspaceResolveQualifier(handle nativeHandle, id, contextJSON string, validateContext bool) (string, error) {
+func nativePackageResolveQualifier(handle nativeHandle, id, contextJSON string, validateContext bool) (string, error) {
 	return "", cgoDisabled()
 }
 
-func nativeWorkspaceFree(handle nativeHandle) {}
+func nativePackageFree(handle nativeHandle) {}
 
-func nativeRefreshingWorkspaceLoad(source string, periodSeconds *float64, workspaceToken, lint string) (nativeHandle, error) {
+func nativeRefreshingPackageLoad(source string, periodSeconds *float64, packageToken, lint string) (nativeHandle, error) {
 	return 0, cgoDisabled()
 }
 
-func nativeRefreshingWorkspaceResolveVariable(handle nativeHandle, id, contextJSON string, validateContext bool) (string, error) {
+func nativeRefreshingPackageResolveVariable(handle nativeHandle, id, contextJSON string, validateContext bool) (string, error) {
 	return "", cgoDisabled()
 }
 
-func nativeRefreshingWorkspaceResolveQualifier(handle nativeHandle, id, contextJSON string, validateContext bool) (string, error) {
+func nativeRefreshingPackageResolveQualifier(handle nativeHandle, id, contextJSON string, validateContext bool) (string, error) {
 	return "", cgoDisabled()
 }
 
-func nativeRefreshingWorkspaceRefreshNow(handle nativeHandle) (string, error) {
+func nativeRefreshingPackageRefreshNow(handle nativeHandle) (string, error) {
 	return "", cgoDisabled()
 }
 
-func nativeRefreshingWorkspaceStatus(handle nativeHandle) (string, error) {
+func nativeRefreshingPackageStatus(handle nativeHandle) (string, error) {
 	return "", cgoDisabled()
 }
 
-func nativeRefreshingWorkspaceShutdown(handle nativeHandle) error {
+func nativeRefreshingPackageShutdown(handle nativeHandle) error {
 	return cgoDisabled()
 }
 
-func nativeRefreshingWorkspaceFree(handle nativeHandle) {}
+func nativeRefreshingPackageFree(handle nativeHandle) {}
 
 func cgoDisabled() error {
 	return errors.New("rototo Go SDK requires cgo")

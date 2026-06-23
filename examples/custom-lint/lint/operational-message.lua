@@ -2,13 +2,13 @@ function register(lint)
   lint:rule({
     id = "operations/message-not-empty",
     title = "Operational message is empty",
-    help = "Set a non-empty message before releasing the workspace.",
+    help = "Set a non-empty message before releasing the package.",
     target = "/variables/operational-message",
     handler = "check_message",
   })
 end
 
-function check_message(workspace, variable)
+function check_message(package, variable)
   if variable.resolve.default == "" then
     return {
       {

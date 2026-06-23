@@ -1,7 +1,7 @@
 # Java SDK Reference
 
 The Java SDK is a thin JNI wrapper around the Rust SDK. Java code gets an
-idiomatic `CompletableFuture` API while rototo keeps workspace loading,
+idiomatic `CompletableFuture` API while rototo keeps package loading,
 linting, refresh, and resolution behavior in the Rust core.
 
 ## Install
@@ -26,18 +26,18 @@ The package includes native libraries for the supported Linux, macOS, and
 Windows targets. The rototo release version stays SemVer, for example
 `0.1.0-alpha.5`.
 
-## Load A Workspace
+## Load A Package
 
 ```java
-import dev.rototo.Workspace;
+import dev.rototo.Package;
 
-try (Workspace workspace = Workspace.load("examples/basic").get()) {
-    // Resolve variables from this workspace.
+try (Package pkg = Package.load("examples/basic").get()) {
+    // Resolve variables from this pkg.
 }
 ```
 
-`Workspace.load` accepts the same source strings as the CLI. It lints the
-workspace and rejects lint failures before returning.
+`Package.load` accepts the same source strings as the CLI. It lints the
+package and rejects lint failures before returning.
 
 ## Resolve A Variable
 
@@ -47,7 +47,7 @@ Map<String, Object> context = Map.of(
     Map.of("tier", "premium")
 );
 
-VariableResolution resolution = workspace
+VariableResolution resolution = pkg
     .resolveVariable("premium-message", context)
     .get();
 
@@ -66,7 +66,7 @@ System.out.println(resolution.source());
 ## Resolve A Qualifier
 
 ```java
-boolean matches = workspace
+boolean matches = pkg
     .resolveQualifier("premium-users", context)
     .get();
 
@@ -82,7 +82,7 @@ default. Skip validation for one call when a tool needs to evaluate partial
 context:
 
 ```java
-VariableResolution resolution = workspace
+VariableResolution resolution = pkg
     .resolveVariable(
         "premium-message",
         context,
@@ -96,33 +96,33 @@ The context still must be a JSON object represented as a `Map<String, ?>`.
 ## Inspect And Lint
 
 ```java
-try (Workspace workspace = Workspace.inspect("examples/basic").get()) {
-    WorkspaceLint lint = workspace.lint().get();
+try (Package pkg = Package.inspect("examples/basic").get()) {
+    PackageLint lint = pkg.lint().get();
 }
 ```
 
-Inspection is for tools. A workspace loaded through `inspect` cannot resolve
+Inspection is for tools. A package loaded through `inspect` cannot resolve
 variables or qualifiers because it does not compile the runtime model.
 
-## Refreshing Workspace
+## Refreshing Package
 
 ```java
-RefreshingWorkspaceOptions options = RefreshingWorkspaceOptions.builder()
+RefreshingPackageOptions options = RefreshingPackageOptions.builder()
     .periodSeconds(30.0)
     .build();
 
-RefreshingWorkspace workspace = RefreshingWorkspace
+RefreshingPackage pkg = RefreshingPackage
     .load(source, options)
     .get();
 
-VariableResolution resolution = workspace
+VariableResolution resolution = pkg
     .resolveVariable("premium-message", context)
     .get();
-RefreshStatus status = workspace.status().get();
-workspace.shutdown().get();
+RefreshStatus status = pkg.status().get();
+pkg.shutdown().get();
 ```
 
-`RefreshingWorkspace` keeps serving the last successfully loaded workspace when
+`RefreshingPackage` keeps serving the last successfully loaded package when
 refresh fails. `status` returns a `RefreshStatus` object with fingerprint,
 success, attempt, failure, error, refreshing, and immutable fields.
 
@@ -133,7 +133,7 @@ methods return `CompletableFuture`, errors are available as the future cause:
 
 ```java
 try {
-    workspace.resolveVariable("missing", Map.of()).get();
+    pkg.resolveVariable("missing", Map.of()).get();
 } catch (ExecutionException error) {
     if (error.getCause() instanceof RototoException rototoError) {
         System.out.println(rototoError.getMessage());
@@ -145,9 +145,9 @@ try {
 
 | Type | Purpose |
 | --- | --- |
-| `Workspace` | Loaded workspace handle. |
-| `RefreshingWorkspace` | Refreshing workspace handle for services. |
+| `Package` | Loaded package handle. |
+| `RefreshingPackage` | Refreshing package handle for services. |
 | `VariableResolution` | Selected variable value. |
 | `RefreshStatus` | Refresh state snapshot. |
-| `WorkspaceLint` | Lint result for a loaded or inspected workspace. |
+| `PackageLint` | Lint result for a loaded or inspected pkg. |
 | `RototoException` | Error raised for rototo failures. |

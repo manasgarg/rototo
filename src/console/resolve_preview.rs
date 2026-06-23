@@ -5,9 +5,9 @@ use serde::Serialize;
 use serde_json::Value as JsonValue;
 
 use crate::expression::simple_rule_qualifier;
-use crate::lint::WorkspaceSemanticModel;
+use crate::lint::PackageSemanticModel;
 use crate::model::VariableResolutionSource;
-use crate::sdk::{ResolveContext, Workspace};
+use crate::sdk::{Package, ResolveContext};
 
 /* Resolution previews against saved request contexts. These run the real
 runtime (the same evaluation applications get) and then annotate the declared
@@ -17,7 +17,7 @@ rules and qualifier conditions with what each one saw. */
 ///
 /// The console computes this on demand with the same runtime path applications
 /// use, then decorates it with rule-walk detail for the UI. It is never stored;
-/// saved context files and the staged workspace version are the durable inputs.
+/// saved context files and the staged package version are the durable inputs.
 #[derive(Clone, Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SavedContextResolution {
@@ -70,7 +70,7 @@ pub struct QualifierContextEvaluation {
 
 /// A qualifier's resolution against one context: its verdict plus the
 /// condition that produced it.
-/// Preview routes rebuild it from the current staged workspace and discard it
+/// Preview routes rebuild it from the current staged package and discard it
 /// after the response.
 #[derive(Clone, Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -111,8 +111,8 @@ pub struct EditContextPreview {
 }
 
 pub async fn evaluate_qualifier_with_context(
-    runtime: &Workspace,
-    model: &WorkspaceSemanticModel,
+    runtime: &Package,
+    model: &PackageSemanticModel,
     qualifier_id: &str,
     context: &JsonValue,
 ) -> QualifierEvaluation {
@@ -121,8 +121,8 @@ pub async fn evaluate_qualifier_with_context(
 }
 
 fn evaluate_recursive<'a>(
-    runtime: &'a Workspace,
-    model: &'a WorkspaceSemanticModel,
+    runtime: &'a Package,
+    model: &'a PackageSemanticModel,
     qualifier_id: &'a str,
     context: &'a JsonValue,
     seen: &'a mut Vec<String>,
@@ -194,7 +194,7 @@ fn context_path_value<'a>(context: &'a JsonValue, path: &str) -> Option<&'a Json
 
 /// Source text for one saved request context sample.
 ///
-/// Workspace routes build these from `request-contexts/<id>-entries/*.json`
+/// Package routes build these from `request-contexts/<id>-entries/*.json`
 /// in the staged checkout, then pass them into preview functions. The struct
 /// is an in-memory transfer object, not a persisted console record.
 #[derive(Clone)]
@@ -207,8 +207,8 @@ pub struct SavedContextInput {
 
 /// Resolves one variable against each saved context, annotating the rule walk.
 pub async fn resolve_saved_contexts(
-    runtime: &Workspace,
-    model: &WorkspaceSemanticModel,
+    runtime: &Package,
+    model: &PackageSemanticModel,
     variable_id: &str,
     contexts: &[SavedContextInput],
 ) -> Vec<SavedContextResolution> {
@@ -241,8 +241,8 @@ pub async fn resolve_saved_contexts(
 }
 
 async fn resolve_one(
-    runtime: &Workspace,
-    model: &WorkspaceSemanticModel,
+    runtime: &Package,
+    model: &PackageSemanticModel,
     variable_id: &str,
     rules: &[crate::lint::RuleModel],
     context_input: &SavedContextInput,
@@ -297,9 +297,9 @@ async fn resolve_one(
     })
 }
 
-/// Evaluates every workspace qualifier against each saved request context.
+/// Evaluates every package qualifier against each saved request context.
 pub async fn edit_context_previews(
-    runtime: &Workspace,
+    runtime: &Package,
     qualifier_ids: &[String],
     contexts: &[SavedContextInput],
 ) -> Vec<EditContextPreview> {
@@ -330,8 +330,8 @@ pub async fn edit_context_previews(
 }
 
 pub async fn qualifier_context_evaluations(
-    runtime: &Workspace,
-    model: &WorkspaceSemanticModel,
+    runtime: &Package,
+    model: &PackageSemanticModel,
     qualifier_id: &str,
     contexts: &[SavedContextInput],
 ) -> Vec<QualifierContextEvaluation> {

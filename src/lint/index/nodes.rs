@@ -10,15 +10,15 @@ use crate::diagnostics::{
 use crate::expression::Expression;
 
 use super::ids::{
-    CatalogId, QualifierId, RequestContextEntryId, RequestContextId, ValueKey, VariableId,
-    WorkspacePath,
+    CatalogId, PackagePath, QualifierId, RequestContextEntryId, RequestContextId, ValueKey,
+    VariableId,
 };
 use super::targets::RegisteredLintSelector;
 
 pub(in crate::lint) struct ManifestNode {
     pub(in crate::lint) doc: DocId,
     pub(in crate::lint) location: DiagnosticLocation,
-    pub(in crate::lint) extends: WorkspaceExtendsCollection,
+    pub(in crate::lint) extends: PackageExtendsCollection,
 }
 
 impl ManifestNode {
@@ -27,19 +27,19 @@ impl ManifestNode {
     }
 }
 
-pub(in crate::lint) struct WorkspaceExtendNode {
+pub(in crate::lint) struct PackageExtendNode {
     pub(in crate::lint) source: String,
     pub(in crate::lint) location: DiagnosticLocation,
 }
 
-pub(in crate::lint) enum WorkspaceExtendsCollection {
+pub(in crate::lint) enum PackageExtendsCollection {
     Missing,
     Invalid {
         location: DiagnosticLocation,
     },
     Sources {
         location: DiagnosticLocation,
-        values: Vec<WorkspaceExtendNode>,
+        values: Vec<PackageExtendNode>,
     },
 }
 
@@ -195,7 +195,7 @@ fn parse_variable_type(value: &str) -> Option<VariableTypeKind> {
 pub(in crate::lint) struct CatalogNode {
     pub(in crate::lint) doc: DocId,
     pub(in crate::lint) id: CatalogId,
-    pub(in crate::lint) path: WorkspacePath,
+    pub(in crate::lint) path: PackagePath,
     pub(in crate::lint) location: DiagnosticLocation,
     pub(in crate::lint) json: Option<JsonValue>,
     pub(in crate::lint) validator: Option<Arc<jsonschema::Validator>>,
@@ -249,7 +249,7 @@ impl CatalogEntryNode {
 
 pub(in crate::lint) struct RequestContextNode {
     pub(in crate::lint) id: RequestContextId,
-    pub(in crate::lint) path: WorkspacePath,
+    pub(in crate::lint) path: PackagePath,
     pub(in crate::lint) location: DiagnosticLocation,
     pub(in crate::lint) json: Option<JsonValue>,
     pub(in crate::lint) validator: Option<Arc<jsonschema::Validator>>,
@@ -277,7 +277,7 @@ impl RequestContextNode {
 pub(in crate::lint) struct RequestContextEntryNode {
     pub(in crate::lint) request_context_id: RequestContextId,
     pub(in crate::lint) key: RequestContextEntryId,
-    pub(in crate::lint) path: WorkspacePath,
+    pub(in crate::lint) path: PackagePath,
     pub(in crate::lint) location: DiagnosticLocation,
     pub(in crate::lint) value: Option<JsonValue>,
 }
@@ -333,7 +333,7 @@ pub(in crate::lint) enum ValueOrigin {
 #[derive(Default)]
 pub(in crate::lint) struct CustomLintRegistry {
     pub(in crate::lint) rules: BTreeMap<CustomRuleId, CustomRuleDefinitionNode>,
-    pub(in crate::lint) files: BTreeMap<WorkspacePath, CustomLintFileNode>,
+    pub(in crate::lint) files: BTreeMap<PackagePath, CustomLintFileNode>,
     pub(in crate::lint) registrations: Vec<CustomLintRegistration>,
 }
 
@@ -344,14 +344,14 @@ pub(in crate::lint) struct CustomRuleDefinitionNode {
 
 #[derive(Clone)]
 pub(in crate::lint) struct CustomLintFileNode {
-    pub(in crate::lint) path: WorkspacePath,
+    pub(in crate::lint) path: PackagePath,
     pub(in crate::lint) doc: DocId,
     pub(in crate::lint) location: DiagnosticLocation,
 }
 
 #[derive(Clone)]
 pub(in crate::lint) struct CustomLintRegistration {
-    pub(in crate::lint) file_path: WorkspacePath,
+    pub(in crate::lint) file_path: PackagePath,
     pub(in crate::lint) rule: CustomRuleId,
     pub(in crate::lint) stage: LintStage,
     pub(in crate::lint) selector: RegisteredLintSelector,

@@ -5,7 +5,7 @@ use serde_json::Value as JsonValue;
 use tokio::io::{AsyncBufRead, AsyncWrite, BufReader};
 
 use crate::error::{Result, RototoError};
-use crate::lint::{LintInput, OverlayDocument, WorkspaceLintSnapshot, lint_workspace_snapshot};
+use crate::lint::{LintInput, OverlayDocument, PackageLintSnapshot, lint_package_snapshot};
 
 use super::convert::{
     lsp_completion_item, lsp_document_symbol, lsp_hover, lsp_location, lsp_reference,
@@ -17,8 +17,8 @@ use super::protocol::{
 };
 use super::transport::{read_message, write_error_response, write_notification, write_response};
 use super::uri::{
-    initialize_workspace_root, json_i32, path_from_file_uri, source_position_from_json,
-    workspace_relative_path,
+    initialize_package_root, json_i32, package_relative_path, path_from_file_uri,
+    source_position_from_json,
 };
 
 pub async fn serve_stdio() -> Result<()> {
@@ -62,7 +62,7 @@ where
 }
 
 pub(super) struct LspServer {
-    pub(super) workspace_root: Option<PathBuf>,
+    pub(super) package_root: Option<PathBuf>,
     overlays: BTreeMap<String, OverlayDocument>,
     shutdown_requested: bool,
 }
@@ -70,7 +70,7 @@ pub(super) struct LspServer {
 impl LspServer {
     pub(super) fn new() -> Self {
         Self {
-            workspace_root: None,
+            package_root: None,
             overlays: BTreeMap::new(),
             shutdown_requested: false,
         }
@@ -89,7 +89,7 @@ impl LspServer {
 
         match (id, method) {
             (Some(id), "initialize") => {
-                self.workspace_root = initialize_workspace_root(&params).await?;
+                self.package_root = initialize_package_root(&params).await?;
                 write_response(writer, id, initialize_result()).await?;
             }
             (Some(id), "shutdown") => {
@@ -148,19 +148,19 @@ impl LspServer {
                 write_error_response(writer, id, -32601, "method not found").await?;
             }
             (None, "initialized") => {
-                self.publish_workspace_diagnostics(writer).await?;
+                self.publish_package_diagnostics(writer).await?;
             }
             (None, "textDocument/didOpen") => {
                 self.open_document(params)?;
-                self.publish_workspace_diagnostics(writer).await?;
+                self.publish_package_diagnostics(writer).await?;
             }
             (None, "textDocument/didChange") => {
                 self.change_document(params)?;
-                self.publish_workspace_diagnostics(writer).await?;
+                self.publish_package_diagnostics(writer).await?;
             }
             (None, "textDocument/didSave") | (None, "textDocument/didClose") => {
                 self.remove_document_overlay(params)?;
-                self.publish_workspace_diagnostics(writer).await?;
+                self.publish_package_diagnostics(writer).await?;
             }
             (None, "exit") => {
                 if self.shutdown_requested {
@@ -187,7 +187,7 @@ impl LspServer {
             .and_then(JsonValue::as_str)
             .ok_or_else(|| RototoError::new("didOpen missing textDocument.text"))?;
         let version = json_i32(text_document.get("version"));
-        let path = self.workspace_path_for_uri(uri)?;
+        let path = self.package_path_for_uri(uri)?;
         self.overlays.insert(
             path,
             OverlayDocument {
@@ -221,7 +221,7 @@ impl LspServer {
             .get("text")
             .and_then(JsonValue::as_str)
             .ok_or_else(|| RototoError::new("didChange missing full text content change"))?;
-        let path = self.workspace_path_for_uri(uri)?;
+        let path = self.package_path_for_uri(uri)?;
         self.overlays.insert(
             path,
             OverlayDocument {
@@ -240,16 +240,16 @@ impl LspServer {
             .get("uri")
             .and_then(JsonValue::as_str)
             .ok_or_else(|| RototoError::new("document notification missing textDocument.uri"))?;
-        let path = self.workspace_path_for_uri(uri)?;
+        let path = self.package_path_for_uri(uri)?;
         self.overlays.remove(&path);
         Ok(())
     }
 
-    async fn publish_workspace_diagnostics<W>(&self, writer: &mut W) -> Result<()>
+    async fn publish_package_diagnostics<W>(&self, writer: &mut W) -> Result<()>
     where
         W: AsyncWrite + Unpin,
     {
-        for publication in self.workspace_diagnostics().await? {
+        for publication in self.package_diagnostics().await? {
             write_notification(
                 writer,
                 "textDocument/publishDiagnostics",
@@ -261,8 +261,8 @@ impl LspServer {
         Ok(())
     }
 
-    pub(super) async fn workspace_diagnostics(&self) -> Result<Vec<PublishDiagnosticsParams>> {
-        let Some(snapshot) = self.workspace_snapshot().await? else {
+    pub(super) async fn package_diagnostics(&self) -> Result<Vec<PublishDiagnosticsParams>> {
+        let Some(snapshot) = self.package_snapshot().await? else {
             return Ok(Vec::new());
         };
         Ok(publish_diagnostics_params(&snapshot.lint))
@@ -279,8 +279,8 @@ impl LspServer {
             .get("uri")
             .and_then(JsonValue::as_str)
             .ok_or_else(|| RototoError::new("documentSymbol missing textDocument.uri"))?;
-        let path = self.workspace_path_for_uri(uri)?;
-        let Some(snapshot) = self.workspace_snapshot().await? else {
+        let path = self.package_path_for_uri(uri)?;
+        let Some(snapshot) = self.package_snapshot().await? else {
             return Ok(Vec::new());
         };
         Ok(snapshot
@@ -306,8 +306,8 @@ impl LspServer {
                 .get("position")
                 .ok_or_else(|| RototoError::new("completion missing position"))?,
         )?;
-        let path = self.workspace_path_for_uri(uri)?;
-        let Some(snapshot) = self.workspace_snapshot().await? else {
+        let path = self.package_path_for_uri(uri)?;
+        let Some(snapshot) = self.package_snapshot().await? else {
             return Ok(Vec::new());
         };
         Ok(snapshot
@@ -330,8 +330,8 @@ impl LspServer {
                 .get("position")
                 .ok_or_else(|| RototoError::new("hover missing position"))?,
         )?;
-        let path = self.workspace_path_for_uri(uri)?;
-        let Some(snapshot) = self.workspace_snapshot().await? else {
+        let path = self.package_path_for_uri(uri)?;
+        let Some(snapshot) = self.package_snapshot().await? else {
             return Ok(None);
         };
         Ok(snapshot.hover(&path, position).map(lsp_hover))
@@ -350,8 +350,8 @@ impl LspServer {
                 .get("position")
                 .ok_or_else(|| RototoError::new("definition missing position"))?,
         )?;
-        let path = self.workspace_path_for_uri(uri)?;
-        let Some(snapshot) = self.workspace_snapshot().await? else {
+        let path = self.package_path_for_uri(uri)?;
+        let Some(snapshot) = self.package_snapshot().await? else {
             return Ok(None);
         };
         Ok(snapshot.definition(&path, position).map(lsp_location))
@@ -375,8 +375,8 @@ impl LspServer {
             .and_then(|context| context.get("includeDeclaration"))
             .and_then(JsonValue::as_bool)
             .unwrap_or(false);
-        let path = self.workspace_path_for_uri(uri)?;
-        let Some(snapshot) = self.workspace_snapshot().await? else {
+        let path = self.package_path_for_uri(uri)?;
+        let Some(snapshot) = self.package_snapshot().await? else {
             return Ok(Vec::new());
         };
         Ok(snapshot
@@ -386,20 +386,20 @@ impl LspServer {
             .collect())
     }
 
-    async fn workspace_snapshot(&self) -> Result<Option<WorkspaceLintSnapshot>> {
-        let Some(root) = &self.workspace_root else {
+    async fn package_snapshot(&self) -> Result<Option<PackageLintSnapshot>> {
+        let Some(root) = &self.package_root else {
             return Ok(None);
         };
         let mut input = LintInput::new(root.clone());
         input.overlays = self.overlays.clone();
-        lint_workspace_snapshot(input).await.map(Some)
+        lint_package_snapshot(input).await.map(Some)
     }
 
-    fn workspace_path_for_uri(&self, uri: &str) -> Result<String> {
-        let Some(root) = &self.workspace_root else {
-            return Err(RototoError::new("LSP workspace root is not initialized"));
+    fn package_path_for_uri(&self, uri: &str) -> Result<String> {
+        let Some(root) = &self.package_root else {
+            return Err(RototoError::new("LSP package root is not initialized"));
         };
         let path = path_from_file_uri(uri)?;
-        workspace_relative_path(root, &path)
+        package_relative_path(root, &path)
     }
 }

@@ -32,7 +32,7 @@
       "type": "object",
       "required": [
         "host",
-        "fixed_workspace",
+        "fixed_package",
         "secure_cookies"
       ],
       "properties": {
@@ -42,7 +42,7 @@
             "null"
           ]
         },
-        "fixed_workspace": {
+        "fixed_package": {
           "type": "boolean"
         },
         "secure_cookies": {
@@ -58,7 +58,7 @@
         "method",
         "route",
         "repo",
-        "workspace",
+        "package",
         "branch",
         "mutating"
       ],
@@ -94,7 +94,7 @@
             "null"
           ]
         },
-        "workspace": {
+        "package": {
           "type": [
             "string",
             "null"

@@ -2,10 +2,10 @@ use std::collections::BTreeSet;
 
 use serde_json::Value as JsonValue;
 
-use super::super::WorkspaceLintSnapshot;
+use super::super::PackageLintSnapshot;
 use super::super::index::*;
 use super::common::location_contains_position;
-use super::{WorkspaceCompletionItem, WorkspaceCompletionItemKind};
+use super::{PackageCompletionItem, PackageCompletionItemKind};
 use crate::diagnostics::SourcePosition;
 use crate::expression::{Expression, ExpressionResultHint};
 use crate::model::SourceKind;
@@ -153,15 +153,15 @@ const CUSTOM_LINT_FIELD_SELECTORS: &[&str] = &[
 ];
 
 pub(crate) fn completion_items(
-    snapshot: &WorkspaceLintSnapshot,
+    snapshot: &PackageLintSnapshot,
     path: &str,
     position: SourcePosition,
-) -> Vec<WorkspaceCompletionItem> {
+) -> Vec<PackageCompletionItem> {
     let mut items = Vec::new();
 
     if let Some(expression_items) = expression_completion_items(snapshot, path, position) {
         items.extend(expression_items);
-        sort_and_deduplicate_workspace_completion_items(&mut items);
+        sort_and_deduplicate_package_completion_items(&mut items);
         return items;
     }
 
@@ -201,9 +201,9 @@ pub(crate) fn completion_items(
     };
 
     if preserve_order {
-        deduplicate_workspace_completion_items_preserving_order(&mut items);
+        deduplicate_package_completion_items_preserving_order(&mut items);
     } else {
-        sort_and_deduplicate_workspace_completion_items(&mut items);
+        sort_and_deduplicate_package_completion_items(&mut items);
     }
     items
 }
@@ -220,11 +220,11 @@ enum CompletionContext {
 }
 
 fn completion_context(
-    snapshot: &WorkspaceLintSnapshot,
+    snapshot: &PackageLintSnapshot,
     path: &str,
     position: SourcePosition,
 ) -> CompletionContext {
-    if path == super::super::WORKSPACE_MANIFEST {
+    if path == super::super::PACKAGE_MANIFEST {
         return CompletionContext::Manifest;
     }
 
@@ -275,7 +275,7 @@ fn completion_context(
     CompletionContext::Other
 }
 
-fn document_kind(snapshot: &WorkspaceLintSnapshot, path: &str) -> Option<SourceKind> {
+fn document_kind(snapshot: &PackageLintSnapshot, path: &str) -> Option<SourceKind> {
     snapshot
         .lint
         .documents
@@ -285,10 +285,10 @@ fn document_kind(snapshot: &WorkspaceLintSnapshot, path: &str) -> Option<SourceK
 }
 
 fn qualifier_field_completion_items(
-    snapshot: &WorkspaceLintSnapshot,
+    snapshot: &PackageLintSnapshot,
     path: &str,
     position: SourcePosition,
-) -> Vec<WorkspaceCompletionItem> {
+) -> Vec<PackageCompletionItem> {
     let context = toml_completion_context(snapshot, path, position);
     if context.table.is_some() {
         return Vec::new();
@@ -297,10 +297,10 @@ fn qualifier_field_completion_items(
 }
 
 fn variable_field_completion_items(
-    snapshot: &WorkspaceLintSnapshot,
+    snapshot: &PackageLintSnapshot,
     path: &str,
     position: SourcePosition,
-) -> Vec<WorkspaceCompletionItem> {
+) -> Vec<PackageCompletionItem> {
     let context = toml_completion_context(snapshot, path, position);
     match context.table.as_deref() {
         None => toml_completion_items(VARIABLE_TOP_LEVEL_COMPLETIONS, &context),
@@ -313,14 +313,14 @@ fn variable_field_completion_items(
 fn toml_completion_items(
     specs: &[TomlCompletionSpec],
     context: &TomlCompletionContext,
-) -> Vec<WorkspaceCompletionItem> {
+) -> Vec<PackageCompletionItem> {
     specs
         .iter()
         .filter(|spec| toml_completion_spec_is_available(spec, context))
         .map(|spec| {
-            WorkspaceCompletionItem::new(
+            PackageCompletionItem::new(
                 spec.label,
-                WorkspaceCompletionItemKind::FieldSelector,
+                PackageCompletionItemKind::FieldSelector,
                 spec.detail,
             )
             .with_insert_text(spec.insert_text)
@@ -335,7 +335,7 @@ struct TomlCompletionContext {
 }
 
 fn toml_completion_context(
-    snapshot: &WorkspaceLintSnapshot,
+    snapshot: &PackageLintSnapshot,
     path: &str,
     position: SourcePosition,
 ) -> TomlCompletionContext {
@@ -456,10 +456,10 @@ struct ExpressionCursor {
 }
 
 fn expression_completion_items(
-    snapshot: &WorkspaceLintSnapshot,
+    snapshot: &PackageLintSnapshot,
     path: &str,
     position: SourcePosition,
-) -> Option<Vec<WorkspaceCompletionItem>> {
+) -> Option<Vec<PackageCompletionItem>> {
     let source_kind = document_kind(snapshot, path)?;
     if !matches!(source_kind, SourceKind::Qualifier | SourceKind::Variable) {
         return None;
@@ -570,7 +570,7 @@ fn expression_ends_with_word_operator(prefix: &str, operator: &str) -> bool {
 }
 
 fn expression_cursor_at_position(
-    snapshot: &WorkspaceLintSnapshot,
+    snapshot: &PackageLintSnapshot,
     path: &str,
     position: SourcePosition,
 ) -> Option<ExpressionCursor> {
@@ -675,9 +675,9 @@ fn qualifier_reference_prefix(prefix: &str) -> Option<&str> {
 }
 
 fn context_path_completion_items(
-    snapshot: &WorkspaceLintSnapshot,
+    snapshot: &PackageLintSnapshot,
     token: &str,
-) -> Vec<WorkspaceCompletionItem> {
+) -> Vec<PackageCompletionItem> {
     let Some(path) = token.strip_prefix("context.") else {
         return Vec::new();
     };
@@ -698,10 +698,10 @@ fn context_path_completion_items(
 }
 
 fn entry_path_completion_items(
-    snapshot: &WorkspaceLintSnapshot,
+    snapshot: &PackageLintSnapshot,
     path: &str,
     token: &str,
-) -> Vec<WorkspaceCompletionItem> {
+) -> Vec<PackageCompletionItem> {
     let Some(path_suffix) = token.strip_prefix("entry.") else {
         return Vec::new();
     };
@@ -756,7 +756,7 @@ fn path_completion_items(
     parent: &[&str],
     fields: BTreeSet<String>,
     detail: &'static str,
-) -> Vec<WorkspaceCompletionItem> {
+) -> Vec<PackageCompletionItem> {
     let prefix = if parent.is_empty() {
         format!("{root}.")
     } else {
@@ -766,9 +766,9 @@ fn path_completion_items(
     fields
         .into_iter()
         .map(|field| {
-            WorkspaceCompletionItem::new(
+            PackageCompletionItem::new(
                 format!("{prefix}{field}"),
-                WorkspaceCompletionItemKind::FieldSelector,
+                PackageCompletionItemKind::FieldSelector,
                 detail,
             )
         })
@@ -781,7 +781,7 @@ fn current_variable_query_catalog_id(index: &SemanticIndex, path: &str) -> Optio
     type_kind.value.list_catalog().map(ToOwned::to_owned)
 }
 
-fn expression_root_completion_items(include_entry: bool) -> Vec<WorkspaceCompletionItem> {
+fn expression_root_completion_items(include_entry: bool) -> Vec<PackageCompletionItem> {
     let mut roots = vec!["context.", "qualifier[\""];
     if include_entry {
         roots.push("entry.");
@@ -789,23 +789,23 @@ fn expression_root_completion_items(include_entry: bool) -> Vec<WorkspaceComplet
     roots
         .into_iter()
         .map(|root| {
-            WorkspaceCompletionItem::new(
+            PackageCompletionItem::new(
                 root,
-                WorkspaceCompletionItemKind::FieldSelector,
+                PackageCompletionItemKind::FieldSelector,
                 "expression root",
             )
         })
         .collect()
 }
 
-fn expression_function_completion_items() -> Vec<WorkspaceCompletionItem> {
+fn expression_function_completion_items() -> Vec<PackageCompletionItem> {
     EXPRESSION_FUNCTIONS
         .iter()
         .copied()
         .map(|function| {
-            WorkspaceCompletionItem::new(
+            PackageCompletionItem::new(
                 format!("{function}("),
-                WorkspaceCompletionItemKind::Function,
+                PackageCompletionItemKind::Function,
                 "expression function",
             )
         })
@@ -814,7 +814,7 @@ fn expression_function_completion_items() -> Vec<WorkspaceCompletionItem> {
 
 fn expression_operator_completion_items(
     operators: &[ExpressionOperator],
-) -> Vec<WorkspaceCompletionItem> {
+) -> Vec<PackageCompletionItem> {
     operators
         .iter()
         .map(|operator| {
@@ -822,9 +822,9 @@ fn expression_operator_completion_items(
                 ExpressionOperator::And => "&&",
                 ExpressionOperator::Or => "||",
             };
-            WorkspaceCompletionItem::new(
+            PackageCompletionItem::new(
                 label,
-                WorkspaceCompletionItemKind::Operator,
+                PackageCompletionItemKind::Operator,
                 "expression operator",
             )
             .with_insert_text(format!("{label} "))
@@ -833,10 +833,10 @@ fn expression_operator_completion_items(
 }
 
 fn catalog_entry_field_completion_items(
-    snapshot: &WorkspaceLintSnapshot,
+    snapshot: &PackageLintSnapshot,
     path: &str,
     position: SourcePosition,
-) -> Vec<WorkspaceCompletionItem> {
+) -> Vec<PackageCompletionItem> {
     let Some(catalog_id) = catalog_id_for_entry_path(path) else {
         return Vec::new();
     };
@@ -859,9 +859,9 @@ fn catalog_entry_field_completion_items(
         .keys()
         .filter(|field| !context.keys.contains(field.as_str()))
         .map(|field| {
-            WorkspaceCompletionItem::new(
+            PackageCompletionItem::new(
                 field.clone(),
-                WorkspaceCompletionItemKind::FieldSelector,
+                PackageCompletionItemKind::FieldSelector,
                 "catalog entry field",
             )
             .with_insert_text(format!("{field} = "))
@@ -903,14 +903,14 @@ fn variable_expression_at_position(
     })
 }
 
-fn qualifier_completion_items(index: &SemanticIndex) -> Vec<WorkspaceCompletionItem> {
+fn qualifier_completion_items(index: &SemanticIndex) -> Vec<PackageCompletionItem> {
     index
         .qualifiers
         .keys()
         .map(|qualifier| {
-            WorkspaceCompletionItem::new(
+            PackageCompletionItem::new(
                 qualifier.clone(),
-                WorkspaceCompletionItemKind::Qualifier,
+                PackageCompletionItemKind::Qualifier,
                 "qualifier",
             )
         })
@@ -920,7 +920,7 @@ fn qualifier_completion_items(index: &SemanticIndex) -> Vec<WorkspaceCompletionI
 fn current_variable_value_completion_items(
     index: &SemanticIndex,
     path: &str,
-) -> Vec<WorkspaceCompletionItem> {
+) -> Vec<PackageCompletionItem> {
     let Some(variable) = current_variable_for_path(index, path) else {
         return Vec::new();
     };
@@ -932,9 +932,9 @@ fn current_variable_value_completion_items(
             .into_iter()
             .flat_map(|entries| entries.keys())
             .map(|value| {
-                WorkspaceCompletionItem::new(
+                PackageCompletionItem::new(
                     value.clone(),
-                    WorkspaceCompletionItemKind::Value,
+                    PackageCompletionItemKind::Value,
                     "catalog value",
                 )
             })
@@ -944,9 +944,9 @@ fn current_variable_value_completion_items(
             .inline_values
             .keys()
             .map(|value| {
-                WorkspaceCompletionItem::new(
+                PackageCompletionItem::new(
                     value.clone(),
-                    WorkspaceCompletionItemKind::Value,
+                    PackageCompletionItemKind::Value,
                     "variable value",
                 )
             })
@@ -961,21 +961,21 @@ fn current_variable_for_path<'a>(index: &'a SemanticIndex, path: &str) -> Option
         .find(|variable| variable.location.path == path)
 }
 
-fn custom_lint_field_selector_completion_items() -> Vec<WorkspaceCompletionItem> {
+fn custom_lint_field_selector_completion_items() -> Vec<PackageCompletionItem> {
     CUSTOM_LINT_FIELD_SELECTORS
         .iter()
         .copied()
         .map(|field| {
-            WorkspaceCompletionItem::new(
+            PackageCompletionItem::new(
                 field,
-                WorkspaceCompletionItemKind::FieldSelector,
+                PackageCompletionItemKind::FieldSelector,
                 "custom lint field selector",
             )
         })
         .collect()
 }
 
-fn sort_and_deduplicate_workspace_completion_items(items: &mut Vec<WorkspaceCompletionItem>) {
+fn sort_and_deduplicate_package_completion_items(items: &mut Vec<PackageCompletionItem>) {
     items.sort_by(|left, right| {
         left.label
             .cmp(&right.label)
@@ -989,9 +989,7 @@ fn sort_and_deduplicate_workspace_completion_items(items: &mut Vec<WorkspaceComp
     });
 }
 
-fn deduplicate_workspace_completion_items_preserving_order(
-    items: &mut Vec<WorkspaceCompletionItem>,
-) {
+fn deduplicate_package_completion_items_preserving_order(items: &mut Vec<PackageCompletionItem>) {
     let mut seen = BTreeSet::new();
     items.retain(|item| {
         seen.insert((
@@ -1002,12 +1000,12 @@ fn deduplicate_workspace_completion_items_preserving_order(
     });
 }
 
-fn completion_item_kind_rank(kind: WorkspaceCompletionItemKind) -> u8 {
+fn completion_item_kind_rank(kind: PackageCompletionItemKind) -> u8 {
     match kind {
-        WorkspaceCompletionItemKind::Qualifier => 0,
-        WorkspaceCompletionItemKind::Value => 1,
-        WorkspaceCompletionItemKind::FieldSelector => 2,
-        WorkspaceCompletionItemKind::Function => 3,
-        WorkspaceCompletionItemKind::Operator => 4,
+        PackageCompletionItemKind::Qualifier => 0,
+        PackageCompletionItemKind::Value => 1,
+        PackageCompletionItemKind::FieldSelector => 2,
+        PackageCompletionItemKind::Function => 3,
+        PackageCompletionItemKind::Operator => 4,
     }
 }

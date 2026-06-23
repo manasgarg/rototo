@@ -2,9 +2,9 @@ import { createRequire } from "node:module";
 
 const require = createRequire(import.meta.url);
 
-type NativeWorkspace = {
+type NativePackage = {
     root(): string;
-    lint(): Promise<WorkspaceLintJson>;
+    lint(): Promise<PackageLintJson>;
     semanticModel(): Promise<JsonValue>;
     resolveVariable(
         id: string,
@@ -18,16 +18,16 @@ type NativeWorkspace = {
     ): Promise<boolean>;
 };
 
-type NativeWorkspaceConstructor = {
+type NativePackageConstructor = {
     load(
         source: string,
-        workspaceToken?: string,
+        packageToken?: string,
         lint?: "deny" | "skip",
-    ): Promise<NativeWorkspace>;
-    inspect(source: string, workspaceToken?: string): Promise<NativeWorkspace>;
+    ): Promise<NativePackage>;
+    inspect(source: string, packageToken?: string): Promise<NativePackage>;
 };
 
-type NativeRefreshingWorkspace = {
+type NativeRefreshingPackage = {
     resolveVariable(
         id: string,
         context: JsonValue,
@@ -43,19 +43,19 @@ type NativeRefreshingWorkspace = {
     shutdown(): Promise<void>;
 };
 
-type NativeRefreshingWorkspaceConstructor = {
+type NativeRefreshingPackageConstructor = {
     load(
         source: string,
         periodSeconds?: number,
-        workspaceToken?: string,
+        packageToken?: string,
         lint?: "deny" | "skip",
-    ): Promise<NativeRefreshingWorkspace>;
+    ): Promise<NativeRefreshingPackage>;
 };
 
 export type NativeModule = {
     version(): string;
-    _Workspace: NativeWorkspaceConstructor;
-    _RefreshingWorkspace: NativeRefreshingWorkspaceConstructor;
+    _Package: NativePackageConstructor;
+    _RefreshingPackage: NativeRefreshingPackageConstructor;
 };
 
 export type JsonPrimitive = string | number | boolean | null;
@@ -87,7 +87,7 @@ export type RefreshStatusJson = {
     immutable: boolean;
 };
 
-export type WorkspaceLintJson = {
+export type PackageLintJson = {
     root: string;
     diagnostics: JsonValue[];
 };

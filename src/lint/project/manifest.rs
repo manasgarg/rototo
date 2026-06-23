@@ -17,24 +17,24 @@ pub(crate) fn project_manifest(document: &SourceDocument, toml: &ParsedToml) -> 
 fn project_extends(
     document: &SourceDocument,
     root: Option<&Table<'_>>,
-) -> WorkspaceExtendsCollection {
+) -> PackageExtendsCollection {
     let Some(root) = root else {
-        return WorkspaceExtendsCollection::Missing;
+        return PackageExtendsCollection::Missing;
     };
     let Some(item) = root.get("extends") else {
-        return WorkspaceExtendsCollection::Missing;
+        return PackageExtendsCollection::Missing;
     };
     let location = item_location(document, item);
     let Some(values) = item.as_array() else {
-        return WorkspaceExtendsCollection::Invalid { location };
+        return PackageExtendsCollection::Invalid { location };
     };
 
-    WorkspaceExtendsCollection::Sources {
+    PackageExtendsCollection::Sources {
         location,
         values: values
             .iter()
             .filter_map(|value| {
-                Some(WorkspaceExtendNode {
+                Some(PackageExtendNode {
                     source: value.as_str()?.to_owned(),
                     location: value_location(document, value),
                 })

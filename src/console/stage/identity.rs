@@ -85,11 +85,11 @@ impl AsRef<str> for BranchName {
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Hash)]
-pub struct WorkspacePath(String);
+pub struct PackagePath(String);
 
-impl WorkspacePath {
+impl PackagePath {
     pub fn new(value: impl AsRef<str>) -> Result<Self> {
-        let value = normalize_tree_relative_path(value.as_ref(), true, "workspace path")?;
+        let value = normalize_tree_relative_path(value.as_ref(), true, "package path")?;
         Ok(Self(value))
     }
 
@@ -102,13 +102,13 @@ impl WorkspacePath {
     }
 }
 
-impl fmt::Display for WorkspacePath {
+impl fmt::Display for PackagePath {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         self.0.fmt(f)
     }
 }
 
-impl AsRef<str> for WorkspacePath {
+impl AsRef<str> for PackagePath {
     fn as_ref(&self) -> &str {
         self.as_str()
     }
@@ -268,17 +268,13 @@ impl SourceTreeLocator {
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Hash)]
-pub struct WorkspaceLocator {
+pub struct PackageLocator {
     pub source_tree: SourceTreeLocator,
-    pub path: WorkspacePath,
+    pub path: PackagePath,
 }
 
-impl WorkspaceLocator {
-    pub fn new(
-        origin: SourceTreeOrigin,
-        revision: SourceTreeRevision,
-        path: WorkspacePath,
-    ) -> Self {
+impl PackageLocator {
+    pub fn new(origin: SourceTreeOrigin, revision: SourceTreeRevision, path: PackagePath) -> Self {
         Self {
             source_tree: SourceTreeLocator::new(origin, revision),
             path,
@@ -312,16 +308,16 @@ impl CachedSourceTreeOrigin {
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Hash)]
-pub struct CachedWorkspaceLocator {
+pub struct CachedPackageLocator {
     pub principal_id: String,
     pub token: TokenIdentity,
-    pub workspace: WorkspaceLocator,
+    pub package: PackageLocator,
 }
 
-impl CachedWorkspaceLocator {
+impl CachedPackageLocator {
     pub fn new(
         principal_id: impl Into<String>,
-        workspace: WorkspaceLocator,
+        package: PackageLocator,
         token: TokenIdentity,
     ) -> Result<Self> {
         let principal_id = principal_id.into();
@@ -331,14 +327,14 @@ impl CachedWorkspaceLocator {
         Ok(Self {
             principal_id,
             token,
-            workspace,
+            package,
         })
     }
 
     pub fn cached_source_tree_origin(&self) -> Result<CachedSourceTreeOrigin> {
         CachedSourceTreeOrigin::new(
             self.principal_id.clone(),
-            self.workspace.source_tree.origin.clone(),
+            self.package.source_tree.origin.clone(),
             self.token.clone(),
         )
     }
@@ -535,48 +531,48 @@ mod tests {
     use super::*;
 
     #[test]
-    fn workspace_paths_normalize_tree_relative_identity() {
-        assert_eq!(WorkspacePath::new("").unwrap().as_str(), ".");
-        assert_eq!(WorkspacePath::new(".").unwrap().as_str(), ".");
+    fn package_paths_normalize_tree_relative_identity() {
+        assert_eq!(PackagePath::new("").unwrap().as_str(), ".");
+        assert_eq!(PackagePath::new(".").unwrap().as_str(), ".");
         assert_eq!(
-            WorkspacePath::new("workspaces/payments").unwrap().as_str(),
-            "workspaces/payments"
+            PackagePath::new("packages/payments").unwrap().as_str(),
+            "packages/payments"
         );
         assert_eq!(
-            WorkspacePath::new("workspaces/payments/").unwrap().as_str(),
-            "workspaces/payments"
+            PackagePath::new("packages/payments/").unwrap().as_str(),
+            "packages/payments"
         );
         assert_eq!(
-            WorkspacePath::new("workspaces\\payments").unwrap().as_str(),
-            "workspaces/payments"
+            PackagePath::new("packages\\payments").unwrap().as_str(),
+            "packages/payments"
         );
 
-        assert!(WorkspacePath::new("/workspaces/payments").is_err());
-        assert!(WorkspacePath::new("C:\\workspaces\\payments").is_err());
-        assert!(WorkspacePath::new("../payments").is_err());
-        assert!(WorkspacePath::new("workspaces/../api").is_err());
-        assert!(WorkspacePath::new("workspaces//api").is_err());
+        assert!(PackagePath::new("/packages/payments").is_err());
+        assert!(PackagePath::new("C:\\packages\\payments").is_err());
+        assert!(PackagePath::new("../payments").is_err());
+        assert!(PackagePath::new("packages/../api").is_err());
+        assert!(PackagePath::new("packages//api").is_err());
     }
 
     #[test]
-    fn repo_relative_paths_reject_workspace_root_identity() {
+    fn repo_relative_paths_reject_package_root_identity() {
         assert_eq!(
-            RepoRelativePath::new("workspaces/payments/variables/checkout.toml")
+            RepoRelativePath::new("packages/payments/variables/checkout.toml")
                 .unwrap()
                 .as_str(),
-            "workspaces/payments/variables/checkout.toml"
+            "packages/payments/variables/checkout.toml"
         );
         assert_eq!(
-            RepoRelativePath::new("rototo-workspace.toml")
+            RepoRelativePath::new("rototo-package.toml")
                 .unwrap()
                 .as_str(),
-            "rototo-workspace.toml"
+            "rototo-package.toml"
         );
 
         assert!(RepoRelativePath::new(".").is_err());
         assert!(RepoRelativePath::new("").is_err());
-        assert!(RepoRelativePath::new("/rototo-workspace.toml").is_err());
-        assert!(RepoRelativePath::new("workspaces/payments/../api/file.toml").is_err());
+        assert!(RepoRelativePath::new("/rototo-package.toml").is_err());
+        assert!(RepoRelativePath::new("packages/payments/../api/file.toml").is_err());
     }
 
     #[test]
@@ -592,7 +588,7 @@ mod tests {
         );
         assert_eq!(
             SourceTreeOrigin::git_remote(
-                "git+https://github.com/Rototo/Config.git#main:workspaces/payments"
+                "git+https://github.com/Rototo/Config.git#main:packages/payments"
             )
             .unwrap(),
             expected
@@ -627,7 +623,7 @@ mod tests {
     fn source_tree_origin_normalizes_archive_url_identity() {
         assert_eq!(
             SourceTreeOrigin::archive(
-                "https://EXAMPLE.com/releases/config.tar.gz#:workspaces/payments"
+                "https://EXAMPLE.com/releases/config.tar.gz#:packages/payments"
             )
             .unwrap(),
             SourceTreeOrigin::Archive {

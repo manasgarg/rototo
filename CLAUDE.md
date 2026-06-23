@@ -1,9 +1,9 @@
 # rototo Agent Guide
 
 `rototo` is a Rust project. It is a git-backed configuration control plane:
-configuration lives as reviewable workspace files in a git repository, rototo
+configuration lives as reviewable package files in a git repository, rototo
 validates those files, and apps can later source typed configuration values from
-that workspace at runtime. Treat git as the source of truth and the workspace as
+that package at runtime. Treat git as the source of truth and the package as
 the control-plane boundary; avoid designs that assume an external database,
 remote service, or generated state unless explicitly introduced.
 
@@ -19,18 +19,18 @@ changes made before a public stability commitment.
 
 Rototo should use async APIs for any operation that may block: filesystem I/O,
 network fetches, subprocesses, archive extraction, Lua lint execution, and
-workspace loading or resolution. Do not add new sync public APIs around blocking
+package loading or resolution. Do not add new sync public APIs around blocking
 work; use async functions and `spawn_blocking` for sync-only libraries.
 
 Use rototo's domain vocabulary directly. Current first-class concepts are
-workspaces, qualifiers, variables, catalogs, schemas, and values. Avoid
+packages, qualifiers, variables, catalogs, schemas, and values. Avoid
 reintroducing generic nouns such as package, catalog, item, or document in CLI
 commands, public SDK types, docs, tests, or diagnostics unless the product model
 explicitly changes.
 
 ## Current Shape
 
-The workspace format is rooted at `rototo-workspace.toml`:
+The package format is rooted at `rototo-package.toml`:
 
 - `qualifiers/*.toml`: named qualifier definitions. The file stem is the
   qualifier id.
@@ -38,7 +38,7 @@ The workspace format is rooted at `rototo-workspace.toml`:
   id.
 - `schemas/*.json`: JSON Schemas referenced by schema-backed variables.
 
-The example workspace at `examples/basic` is intentionally broad and should stay
+The example package at `examples/basic` is intentionally broad and should stay
 lint-clean. It covers primitive variables, schema-backed nested values,
 default values, override rules, qualifier composition, and bucket predicates.
 
@@ -50,20 +50,20 @@ design is reopened.
 The CLI intentionally makes qualifiers and variables first-class:
 
 ```text
-rototo workspace inspect [workspace] [--workspace <workspace>]
-rototo workspace lint [workspace] [--workspace <workspace>]
+rototo package inspect [package] [--package <package>]
+rototo package lint [package] [--package <package>]
 rototo qualifier list|get|lint|resolve|resolve-all ...
 rototo variable list|get|lint|resolve|resolve-all ...
-rototo diagnostics list|get ... [--workspace <workspace>]
+rototo diagnostics list|get ... [--package <package>]
 rototo completions <shell>
 ```
 
-Workspace arguments are sources, not only local paths. They can be local paths,
+Package arguments are sources, not only local paths. They can be local paths,
 `file://`, `git+file://`, `git+https://`, `git+ssh://`, or `https://` archive
-URLs. Plain `http://` workspace sources are intentionally unsupported. Git
+URLs. Plain `http://` package sources are intentionally unsupported. Git
 sources support `#ref:subdir`; archive URLs support `#:subdir`. Bearer auth for
-HTTPS archive sources comes from `--workspace-token` or
-`ROTOTO_WORKSPACE_TOKEN`.
+HTTPS archive sources comes from `--package-token` or
+`ROTOTO_PACKAGE_TOKEN`.
 
 Do not add `rototo catalog ...`. Qualifier and variable command enums are kept
 separate in `src/main.rs` even when they currently share verbs, so each noun can
@@ -81,10 +81,10 @@ another qualifier via `qualifier.<id>`. Variables resolve by taking the first
 matching rule value, otherwise the default value.
 
 ```sh
-rototo qualifier resolve premium-users --workspace examples/basic \
+rototo qualifier resolve premium-users --package examples/basic \
   --context user.tier=premium
 
-rototo variable resolve checkout-redesign --workspace examples/basic \
+rototo variable resolve checkout-redesign --package examples/basic \
   --context @examples/basic/contexts/premium-enterprise.json
 ```
 
@@ -92,20 +92,20 @@ rototo variable resolve checkout-redesign --workspace examples/basic \
 
 `rototo console` serves the web console and its JSON API from the same binary
 as the CLI. The Rust server lives in `src/console/` and owns all data access:
-workspace staging, lint, the semantic model, resolution previews, the GitHub
+package staging, lint, the semantic model, resolution previews, the GitHub
 REST write path (draft branches, file commits, pull requests), an in-process
-LSP bridge, and a SQLite store for repos/workspaces/drafts/sessions under the
+LSP bridge, and a SQLite store for repos/packages/drafts/sessions under the
 console data directory. The frontend in `apps/console` is a Vite + React
 static SPA with no server runtime; it talks only to `/api/*` and its built
 `dist/` bundle is embedded into the binary (staged via `build.rs`, served by
 `rust-embed`).
 
 Auth modes are resolved at startup: local (default — no login; ambient GitHub
-token from `--workspace-token`/`ROTOTO_WORKSPACE_TOKEN`, a stored device-flow
+token from `--package-token`/`ROTOTO_PACKAGE_TOKEN`, a stored device-flow
 sign-in, or `gh auth token`), team (`ROTOTO_GITHUB_CLIENT_ID` +
 `ROTOTO_GITHUB_CLIENT_SECRET` turn on the GitHub OAuth web flow with per-user
 tokens encrypted via `ROTOTO_CONSOLE_TOKEN_ENCRYPTION_KEY`), and read-only
-(`--read-only --workspace <source>`, no auth, writes rejected). Mutating routes
+(`--read-only --package <source>`, no auth, writes rejected). Mutating routes
 require the `x-rototo-console` header plus an Origin check; keep that invariant
 when adding routes. Console writes go through the GitHub API only — do not add
 a generic git write backend without reopening the design.
@@ -118,9 +118,9 @@ Keep the console feature flag in Cargo.toml: SDK binding crates build with
 ## Lint Expectations
 
 Lint is core behavior, not just smoke testing. It should validate rototo's own
-workspace structure and files:
+package structure and files:
 
-- Workspace manifest exists, parses, and declares `schema_version = 1`.
+- Package manifest exists, parses, and declares `schema_version = 1`.
 - Qualifier files parse, declare `schema_version = 1`, contain at least one
   `[[predicate]]`, reference known qualifiers when
   using `qualifier.<id>`, use known predicate operators, and validate bucket and
@@ -131,7 +131,7 @@ workspace structure and files:
   variables, and reference known qualifiers from rules.
 - Primitive variable values match `bool`, `int`, `number`, `string`, or `list`.
 - Schema-backed variable values validate against their JSON Schema.
-- Workspaces can declare custom rules in `rototo-workspace.toml` under
+- Packages can declare custom rules in `rototo-package.toml` under
   `[[lint.rule]]` with `id`, `title`, and `help`. Lua files under `lint/*.lua`
   define `register(lint)` and register handlers with stage, entity, optional
   field, declared rule, and handler name. Handlers return diagnostics with
@@ -145,28 +145,28 @@ Diagnostics use one stable `rule` identity. Built-in rototo rules use
 paths. Lua/custom lint rules use
 `<authority>/<rule-id>` with a non-`rototo` authority, for example
 `payments/max-token-budget`. The diagnostics catalog lists built-in rules
-globally and adds declared custom rules for a workspace-scoped catalog.
+globally and adds declared custom rules for a package-scoped catalog.
 
-The failure fixture at `tests/fixtures/workspaces/lint-failures` is a compact
-coverage workspace for expected lint failures. Extend it when adding new lint
+The failure fixture at `tests/fixtures/packages/lint-failures` is a compact
+coverage package for expected lint failures. Extend it when adding new lint
 rules.
 
 ## SDK
 
 The Rust SDK mirrors the first-class model. Prefer explicit APIs such as:
 
-- `inspect_workspace`
-- `lint_workspace`, `lint_qualifier`, `lint_variable`
+- `inspect_package`
+- `lint_package`, `lint_qualifier`, `lint_variable`
 - `list_qualifiers`, `list_variables`
 - `read_qualifier`, `read_qualifiers`, `read_variable`, `read_variables`
 - `resolve_qualifier`, `resolve_qualifiers`
 - `resolve_variable`, `resolve_variables`
 
-All SDK APIs that touch workspace files, source loading, lint, or resolution are
-async. `Workspace::load(source).await` accepts the same source forms as the CLI,
-lints the loaded workspace, and rejects lint failures.
-`Workspace::inspect(source).await` is the lower-level loader for tools that need
-staged workspace data without running lint. Both APIs own any temporary staged
+All SDK APIs that touch package files, source loading, lint, or resolution are
+async. `Package::load(source).await` accepts the same source forms as the CLI,
+lints the loaded package, and rejects lint failures.
+`Package::inspect(source).await` is the lower-level loader for tools that need
+staged package data without running lint. Both APIs own any temporary staged
 checkout/archive extraction needed by remote sources.
 
 Returned config types are `QualifierConfig` and `VariableConfig`. Avoid adding a
@@ -177,14 +177,14 @@ convenience forms for `--context` are parsed in `src/main.rs`.
 ### Language-Specific SDKs
 
 Language-specific SDKs should be thin, idiomatic bindings around the Rust SDK.
-Rust remains the semantic authority for workspace loading, lint, source
+Rust remains the semantic authority for package loading, lint, source
 staging, refresh, qualifier evaluation, variable resolution, context
 validation, and error behavior. Do not reimplement rototo semantics in Python,
 Node, Go, Java, or other SDKs unless the design is explicitly reopened.
 
 Keep each language SDK's first surface small and runtime-focused:
 
-- load or inspect a workspace source;
+- load or inspect a package source;
 - resolve variables and qualifiers with a JSON object context;
 - expose refresh for long-running services;
 - map Rust errors into the language's normal error type;
@@ -228,7 +228,7 @@ inline SDK snippet groups in Markdown rather than separate duplicated pages for
 the same concept:
 
 ````text
-:::sdk-snippet load-workspace
+:::sdk-snippet load-package
 ```rust
 ...
 ```
@@ -335,7 +335,7 @@ Good examples:
 
 > The useful part is that none of this changes the core shape.
 
-> I am using `RefreshingWorkspace` even in the first app because refresh is part
+> I am using `RefreshingPackage` even in the first app because refresh is part
 > of the runtime model.
 
 Avoid empty hype or feature-catalog phrasing:
@@ -377,27 +377,27 @@ sentence explains exactly why.
 Use this conceptual ordering unless the page has a narrower purpose:
 
 1. Runtime configuration is a production control problem.
-2. Rototo stores that control plane as a Git-versioned workspace.
-3. Applications load a workspace source rather than embedding config values.
+2. Rototo stores that control plane as a Git-versioned package.
+3. Applications load a package source rather than embedding config values.
 4. Applications resolve named variables using runtime context.
 5. Context schemas validate request-time facts supplied by the app.
 6. Qualifiers turn runtime facts into named reusable conditions.
 7. Variables select configured values using defaults and qualifier rules.
 8. Value schemas validate the selected value before the application consumes it.
-9. Linting and tests make the workspace releasable.
-10. Long-running services refresh the workspace and keep last-known-good state.
-11. Observability explains what was selected, from which workspace version, and
+9. Linting and tests make the package releasable.
+10. Long-running services refresh the package and keep last-known-good state.
+11. Observability explains what was selected, from which package version, and
     why.
 
 Treat refresh as part of the core runtime model, not as an incidental SDK
 feature. Make clear that:
 
 - configuration is deployed separately from the application binary;
-- the application is deployed with a workspace source URI;
-- the SDK loads the workspace at startup;
+- the application is deployed with a package source URI;
+- the SDK loads the package at startup;
 - long-running services can periodically refresh from the same source;
 - successful refreshes affect future resolutions;
-- failed refreshes keep the last successfully loaded workspace active;
+- failed refreshes keep the last successfully loaded package active;
 - immutable commit refs are reproducible but do not produce new refresh results.
 
 Keep page roles distinct:
@@ -420,7 +420,7 @@ reader's question, for example:
 > evaluating?
 
 Then explain the flow: application asks for a variable with runtime context from
-a workspace version; rototo validates context, evaluates qualifiers, checks
+a package version; rototo validates context, evaluates qualifiers, checks
 rules, selects a value, validates the value, and returns the result with enough
 explanation to debug or observe it.
 

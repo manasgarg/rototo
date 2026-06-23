@@ -15,7 +15,7 @@ All notable changes to rototo are documented here.
 
 ## 0.1.0-alpha.3
 
-- Added workspace layering, catalogs, `rototo init`, and fixture generation.
+- Added package layering, catalogs, `rototo init`, and fixture generation.
 - Made resolution without `--context` use empty `{}` context.
 - Reworked the bundled and public documentation around examples, adoption
   guidance, reference material, and release process.

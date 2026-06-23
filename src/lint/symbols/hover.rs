@@ -5,19 +5,19 @@ use crate::diagnostics::{
     SourcePosition,
 };
 
-use super::super::WorkspaceLintSnapshot;
+use super::super::PackageLintSnapshot;
 use super::super::index::*;
-use super::WorkspaceHover;
+use super::PackageHover;
 use super::common::{
     expression_project_field_label, json_project_field_label, location_contains_position,
     source_range_size,
 };
 
 pub(crate) fn hover(
-    snapshot: &WorkspaceLintSnapshot,
+    snapshot: &PackageLintSnapshot,
     path: &str,
     position: SourcePosition,
-) -> Option<WorkspaceHover> {
+) -> Option<PackageHover> {
     let mut candidates = Vec::new();
     push_diagnostic_hover_candidates(snapshot, path, position, &mut candidates);
     push_manifest_hover_candidates(&snapshot.index, path, position, &mut candidates);
@@ -35,11 +35,11 @@ pub(crate) fn hover(
 struct HoverCandidate {
     priority: u8,
     span_size: usize,
-    hover: WorkspaceHover,
+    hover: PackageHover,
 }
 
 fn push_diagnostic_hover_candidates(
-    snapshot: &WorkspaceLintSnapshot,
+    snapshot: &PackageLintSnapshot,
     path: &str,
     position: SourcePosition,
     candidates: &mut Vec<HoverCandidate>,
@@ -236,7 +236,7 @@ fn push_hover_candidate(
     candidates.push(HoverCandidate {
         priority,
         span_size: location.range.map(source_range_size).unwrap_or(usize::MAX),
-        hover: WorkspaceHover {
+        hover: PackageHover {
             contents,
             location: location.clone(),
         },
@@ -252,12 +252,12 @@ fn sort_hover_candidates(candidates: &mut [HoverCandidate]) {
     });
 }
 
-fn file_hover(index: &SemanticIndex, path: &str) -> Option<WorkspaceHover> {
+fn file_hover(index: &SemanticIndex, path: &str) -> Option<PackageHover> {
     index
         .variables
         .values()
         .find(|variable| variable.location.path == path)
-        .map(|variable| WorkspaceHover {
+        .map(|variable| PackageHover {
             contents: variable_hover_contents(variable),
             location: variable.location.clone(),
         })
@@ -266,7 +266,7 @@ fn file_hover(index: &SemanticIndex, path: &str) -> Option<WorkspaceHover> {
                 .qualifiers
                 .values()
                 .find(|qualifier| qualifier.location.path == path)
-                .map(|qualifier| WorkspaceHover {
+                .map(|qualifier| PackageHover {
                     contents: qualifier_hover_contents(qualifier),
                     location: qualifier.location.clone(),
                 })
@@ -276,7 +276,7 @@ fn file_hover(index: &SemanticIndex, path: &str) -> Option<WorkspaceHover> {
                 .catalogs
                 .values()
                 .find(|catalog| catalog.location.path == path)
-                .map(|catalog| WorkspaceHover {
+                .map(|catalog| PackageHover {
                     contents: catalog_hover_contents(catalog),
                     location: catalog.location.clone(),
                 })
@@ -286,7 +286,7 @@ fn file_hover(index: &SemanticIndex, path: &str) -> Option<WorkspaceHover> {
                 entries
                     .values()
                     .find(|entry| entry.location.path == path)
-                    .map(|entry| WorkspaceHover {
+                    .map(|entry| PackageHover {
                         contents: catalog_entry_hover_contents(entry),
                         location: entry.location.clone(),
                     })
@@ -312,12 +312,7 @@ fn diagnostic_rule_title_help(index: &SemanticIndex, rule: &DiagnosticRule) -> (
         }
         DiagnosticRule::Custom(rule) => custom_rule_definition(index, rule)
             .map(|definition| (definition.title, definition.help))
-            .unwrap_or_else(|| {
-                (
-                    rule.as_str().to_owned(),
-                    "Workspace custom lint.".to_owned(),
-                )
-            }),
+            .unwrap_or_else(|| (rule.as_str().to_owned(), "Package custom lint.".to_owned())),
     }
 }
 

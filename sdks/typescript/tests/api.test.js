@@ -3,18 +3,18 @@ import { test } from "node:test";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { RototoError, Workspace } from "../dist/index.js";
+import { RototoError, Package } from "../dist/index.js";
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "../../..");
 const EXAMPLES_BASIC = resolve(ROOT, "examples/basic");
 
-test("workspace exposes TypeScript runtime resolution API", async () => {
-    const workspace = await Workspace.load(EXAMPLES_BASIC);
+test("package exposes TypeScript runtime resolution API", async () => {
+    const pkg = await Package.load(EXAMPLES_BASIC);
 
-    const variable = await workspace.resolveVariable("premium-message", {
+    const variable = await pkg.resolveVariable("premium-message", {
         user: { tier: "premium" },
     });
-    const qualifier = await workspace.resolveQualifier("premium-users", {
+    const qualifier = await pkg.resolveQualifier("premium-users", {
         user: { tier: "premium" },
     });
 
@@ -24,31 +24,26 @@ test("workspace exposes TypeScript runtime resolution API", async () => {
     assert.equal(qualifier, true);
 });
 
-test("inspected workspace can lint but not resolve", async () => {
-    const workspace = await Workspace.inspect(EXAMPLES_BASIC);
-    const lint = await workspace.lint();
+test("inspected package can lint but not resolve", async () => {
+    const pkg = await Package.inspect(EXAMPLES_BASIC);
+    const lint = await pkg.lint();
 
     assert.deepEqual(lint.diagnostics, []);
     await assert.rejects(
-        () => workspace.resolveVariable("premium-message", {}),
+        () => pkg.resolveVariable("premium-message", {}),
         (error) =>
             error instanceof RototoError &&
             error.message.includes(
-                "workspace was loaded without a runtime model",
+                "package was loaded without a runtime model",
             ),
     );
 });
 
 test("context must be a JSON object", async () => {
-    const workspace = await Workspace.load(EXAMPLES_BASIC);
+    const pkg = await Package.load(EXAMPLES_BASIC);
 
     await assert.rejects(
-        () =>
-            workspace.resolveVariable("premium-message", [
-                "not",
-                "an",
-                "object",
-            ]),
+        () => pkg.resolveVariable("premium-message", ["not", "an", "object"]),
         (error) =>
             error instanceof RototoError &&
             error.message.includes("resolve context must be a JSON object"),
@@ -56,9 +51,9 @@ test("context must be a JSON object", async () => {
 });
 
 test("context validation can be skipped", async () => {
-    const workspace = await Workspace.load(EXAMPLES_BASIC);
+    const pkg = await Package.load(EXAMPLES_BASIC);
 
-    const result = await workspace.resolveVariable(
+    const result = await pkg.resolveVariable(
         "premium-message",
         { user: { tier: { bad: "shape" } } },
         { validateContext: false },
@@ -69,7 +64,7 @@ test("context validation can be skipped", async () => {
 
 test("load rejects invalid lint mode", async () => {
     await assert.rejects(
-        () => Workspace.load(EXAMPLES_BASIC, { lint: "warn" }),
+        () => Package.load(EXAMPLES_BASIC, { lint: "warn" }),
         (error) =>
             error instanceof RototoError &&
             error.message.includes("lint must be 'deny' or 'skip'"),

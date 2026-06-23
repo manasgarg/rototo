@@ -1,7 +1,7 @@
 # Go SDK Reference
 
 The Go SDK is a thin cgo wrapper around the Rust SDK. Go code gets a small
-context-aware API while rototo keeps workspace loading, linting, refresh, and
+context-aware API while rototo keeps package loading, linting, refresh, and
 resolution behavior in the Rust core.
 
 ## Install
@@ -29,7 +29,7 @@ export ROTOTO_GO_NATIVE_PATH="$PWD/target/debug/librototo_go.so"
 Use `librototo_go.dylib` on macOS and `rototo_go.dll` on Windows. The rototo
 release version stays SemVer, for example `0.1.0-alpha.5`.
 
-## Load A Workspace
+## Load A Package
 
 ```go
 package main
@@ -41,17 +41,17 @@ import (
 )
 
 func main() error {
-    workspace, err := rototo.Load(context.Background(), "examples/basic", nil)
+    pkg, err := rototo.Load(context.Background(), "examples/basic", nil)
     if err != nil {
         return err
     }
-    defer workspace.Close()
+    defer pkg.Close()
 
     return nil
 }
 ```
 
-`Load` accepts the same source strings as the CLI. It lints the workspace and
+`Load` accepts the same source strings as the CLI. It lints the package and
 rejects lint failures before returning.
 
 ## Resolve A Variable
@@ -63,7 +63,7 @@ resolveContext := map[string]any{
     },
 }
 
-resolution, err := workspace.ResolveVariable(
+resolution, err := pkg.ResolveVariable(
     context.Background(),
     "premium-message",
     resolveContext,
@@ -88,7 +88,7 @@ fmt.Println(resolution.Source)
 ## Resolve A Qualifier
 
 ```go
-matches, err := workspace.ResolveQualifier(
+matches, err := pkg.ResolveQualifier(
     context.Background(),
     "premium-users",
     resolveContext,
@@ -110,7 +110,7 @@ default. Skip validation for one call when a tool needs to evaluate partial
 context:
 
 ```go
-resolution, err := workspace.ResolveVariable(
+resolution, err := pkg.ResolveVariable(
     context.Background(),
     "premium-message",
     resolveContext,
@@ -123,46 +123,46 @@ The context still must be a JSON object represented as `map[string]any`.
 ## Inspect And Lint
 
 ```go
-workspace, err := rototo.Inspect(context.Background(), "examples/basic", nil)
+pkg, err := rototo.Inspect(context.Background(), "examples/basic", nil)
 if err != nil {
     return err
 }
-defer workspace.Close()
+defer pkg.Close()
 
-lint, err := workspace.Lint(context.Background())
+lint, err := pkg.Lint(context.Background())
 ```
 
-Inspection is for tools. A workspace loaded through `Inspect` cannot resolve
+Inspection is for tools. A package loaded through `Inspect` cannot resolve
 variables or qualifiers because it does not compile the runtime model.
 
-## Refreshing Workspace
+## Refreshing Package
 
 ```go
 periodSeconds := 30.0
 
-workspace, err := rototo.LoadRefreshing(
+pkg, err := rototo.LoadRefreshing(
     context.Background(),
     source,
-    &rototo.RefreshingWorkspaceOptions{
+    &rototo.RefreshingPackageOptions{
         PeriodSeconds: &periodSeconds,
     },
 )
 if err != nil {
     return err
 }
-defer workspace.Close(context.Background())
+defer pkg.Close(context.Background())
 
-resolution, err := workspace.ResolveVariable(
+resolution, err := pkg.ResolveVariable(
     context.Background(),
     "premium-message",
     resolveContext,
     nil,
 )
-status, err := workspace.Status(context.Background())
-err = workspace.Shutdown(context.Background())
+status, err := pkg.Status(context.Background())
+err = pkg.Shutdown(context.Background())
 ```
 
-`RefreshingWorkspace` keeps serving the last successfully loaded workspace when
+`RefreshingPackage` keeps serving the last successfully loaded package when
 refresh fails. `Status` returns a `RefreshStatus` struct with fingerprint,
 success, attempt, failure, error, refreshing, and immutable fields.
 
@@ -171,7 +171,7 @@ success, attempt, failure, error, refreshing, and immutable fields.
 Rust `RototoError` values become `*rototo.Error` in Go:
 
 ```go
-_, err := workspace.ResolveVariable(context.Background(), "missing", nil, nil)
+_, err := pkg.ResolveVariable(context.Background(), "missing", nil, nil)
 if err != nil {
     var rototoError *rototo.Error
     if errors.As(err, &rototoError) {
@@ -187,12 +187,12 @@ standard Go errors.
 
 | Type | Purpose |
 | --- | --- |
-| `Workspace` | Loaded workspace handle. |
-| `RefreshingWorkspace` | Refreshing workspace handle for services. |
-| `LoadOptions` | Workspace load options. |
-| `RefreshingWorkspaceOptions` | Refreshing workspace load options. |
+| `Package` | Loaded package handle. |
+| `RefreshingPackage` | Refreshing package handle for services. |
+| `LoadOptions` | Package load options. |
+| `RefreshingPackageOptions` | Refreshing package load options. |
 | `ResolveOptions` | Per-call resolution options. |
 | `VariableResolution` | Selected variable value. |
 | `RefreshStatus` | Refresh state snapshot. |
-| `WorkspaceLint` | Lint result for a loaded or inspected workspace. |
+| `PackageLint` | Lint result for a loaded or inspected package. |
 | `Error` | Error raised for rototo failures. |

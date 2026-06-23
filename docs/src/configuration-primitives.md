@@ -39,10 +39,10 @@ application supplies at request time. rototo calls that input the
 ```
 
 The split this enforces matters more than the format. The application owns what
-happened in this request — the plan, the seat count, the country. The workspace
+happened in this request — the plan, the seat count, the country. The package
 owns what those facts mean for runtime behavior. A context that already carries
 the decision, like `use_enterprise_limits = true`, has moved policy out of the
-workspace and into the caller, where no reviewer can see it and no trace can
+package and into the caller, where no reviewer can see it and no trace can
 explain it.
 
 The context is the only input the rest of the model reads. Every other
@@ -123,7 +123,7 @@ than merely configurable.
 
 A selected value is only useful if it has the shape the application expects. Two
 primitives bound what a value may be, so a shape mistake is caught in the
-workspace instead of in application code.
+package instead of in application code.
 
 A [schema](reference-context.html) is JSON Schema applied to structure — both to
 the request context the app supplies and to the structured values a variable can
@@ -158,7 +158,7 @@ monthly_requests = 1000000
 
 Use a primitive value — `bool`, `int`, `number`, `string`, or `list` — when the
 configuration is truly one scalar or one list. Use a catalog when the selected
-value is a structured policy entry the workspace should prove correct before the
+value is a structured policy entry the package should prove correct before the
 application consumes it. Either way, the contract lives next to the value, and
 the application is not the first place a missing field or wrong type is
 discovered.
@@ -166,7 +166,7 @@ discovered.
 ## Lint Keeps The Model Honest
 
 Composition is only safe if the parts actually fit. The last primitive is the
-guard: [lint](reference-lint-overview.html) checks that the workspace is
+guard: [lint](reference-lint-overview.html) checks that the package is
 internally consistent before it can be released.
 
 Built-in lint validates structure and references: the manifest parses, files
@@ -183,7 +183,7 @@ distinction keeps structural contracts close to the values they validate and
 leaves room for local policy without forcing it into JSON Schema.
 
 Lint is what lets the model assume its own invariants at resolution time: by the
-time an application loads a workspace, the references resolve and the values fit.
+time an application loads a package, the references resolve and the values fit.
 
 ## The Shape Of The Model
 
@@ -194,14 +194,14 @@ Step back and the whole model is small:
   values.
 - **Two contract primitives** — schemas constrain shape, catalogs hold sets of
   validated structured values.
-- **One guard** — lint proves the workspace is consistent before release.
+- **One guard** — lint proves the package is consistent before release.
 
 The composition rules are equally small. Qualifiers compose with qualifiers.
 Rules read context and qualifiers through one expression language. Variables
 select among values bounded by schemas and catalogs. Lint validates the whole
 graph before an application can load it.
 
-One operation runs the model. Given a workspace version and a request context,
+One operation runs the model. Given a package version and a request context,
 resolution:
 
 1. validates the context against a compatible context schema;
@@ -214,7 +214,7 @@ resolution:
 5. returns the value, its source, and a trace of the rules and conditions that
    produced it.
 
-Resolution is a pure function of the loaded workspace version and the supplied
+Resolution is a pure function of the loaded package version and the supplied
 context. Nothing else is read.
 
 ## What The Model Guarantees
@@ -223,7 +223,7 @@ The composition is built to make three properties hold, because they are what
 make configuration safe to change without a redeploy.
 
 **It is deterministic.** Resolution reads no ambient clock and draws no
-randomness. The same workspace version and the same context always select the
+randomness. The same package version and the same context always select the
 same value. Time and identity enter only as facts the application supplies: a
 bucket reads a stable account id from context, and a dated condition compares a
 timestamp the caller passes in. Determinism is what makes a resolution
@@ -242,7 +242,7 @@ condition that each qualifier evaluated.
 ```
 
 Existing logs and observability can report what was selected, from which
-workspace version, and why, without reimplementing any of this logic. See
+package version, and why, without reimplementing any of this logic. See
 [resolution output](reference-resolution-output.html) for the full shape.
 
 **It is reviewable.** Every primitive is a file in git. Each condition, value,
@@ -256,15 +256,15 @@ of steps, merge sources, or keep state. Those belong to the application, and
 keeping them out is what keeps resolution pure and explainable.
 
 - **Computation** — arithmetic, scoring, rating, and string templating. The
-  workspace stores the weights and thresholds; the application does the math.
+  package stores the weights and thresholds; the application does the math.
 - **Orchestration** — workflows, approval chains, and escalation sequences.
   rototo configures the decisions inside a workflow; it does not run the
   workflow.
 - **Merging and precedence** — deep-merge and source-precedence layering across
-  configuration sources. [Workspace layering](reference-workspace-layering.html)
+  configuration sources. [Package layering](reference-package-layering.html)
   replaces files at a path; it does not patch individual fields.
 - **State** — counters, quotas, usage metering, and lifecycle clocks. The
-  workspace stores the limit, not the running count.
+  package stores the limit, not the running count.
 - **Traversal beyond a single hop** — org-tree walks and multi-level
   relationship chains. A single-hop fact supplied in context is fine; iterative
   traversal is the application's.

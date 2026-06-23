@@ -1,9 +1,9 @@
 # SDK Loading Reference
 
-Applications should not parse workspace files directly. They should load a
-[workspace source](reference-workspace-sources.html) with the SDK, let rototo
+Applications should not parse package files directly. They should load a
+[package source](reference-package-sources.html) with the SDK, let rototo
 lint it, and [resolve named variables](reference-sdk-resolution.html) from the
-loaded workspace.
+loaded package.
 
 The loading API is the boundary that decides whether the app receives a valid
 control plane. Resolution and [refresh](reference-sdk-refresh.html) have their
@@ -15,35 +15,35 @@ For install commands, imports, and exact language-specific types, see the
 [Java](reference-sdk-java.html), and [Go](reference-sdk-go.html) SDK
 references.
 
-## Load A Workspace
+## Load A Package
 
-:::sdk-snippet load-workspace
+:::sdk-snippet load-package
 ```rust
-use rototo::Workspace;
+use rototo::Package;
 
-let workspace = Workspace::load("git+https://github.com/acme/config.git#main").await?;
+let pkg = Package::load("git+https://github.com/acme/config.git#main").await?;
 ```
 
 ```python
 import rototo
 
-workspace = await rototo.Workspace.load(
+pkg = await rototo.Package.load(
     "git+https://github.com/acme/config.git#main",
 )
 ```
 
 ```typescript
-import { Workspace } from "rototo";
+import { Package } from "rototo";
 
-const workspace = await Workspace.load(
+const pkg = await Package.load(
   "git+https://github.com/acme/config.git#main",
 );
 ```
 
 ```java
-import dev.rototo.Workspace;
+import dev.rototo.Package;
 
-Workspace workspace = Workspace
+Package pkg = Package
     .load("git+https://github.com/acme/config.git#main")
     .get();
 ```
@@ -55,7 +55,7 @@ import (
     rototo "github.com/manasgarg/rototo/sdks/go"
 )
 
-workspace, err := rototo.Load(
+pkg, err := rototo.Load(
     context.Background(),
     "git+https://github.com/acme/config.git#main",
     nil,
@@ -63,49 +63,49 @@ workspace, err := rototo.Load(
 if err != nil {
     return err
 }
-defer workspace.Close()
+defer pkg.Close()
 ```
 :::
 
-Loading stages the source, inspects the workspace, runs
+Loading stages the source, inspects the package, runs
 [lint](reference-lint-overview.html), and rejects lint failures. It accepts the
-same [source forms](reference-workspace-sources.html) as the CLI.
+same [source forms](reference-package-sources.html) as the CLI.
 
 Use this for services that load configuration once at startup.
 
-## Inspect A Workspace
+## Inspect A Package
 
-:::sdk-snippet inspect-workspace
+:::sdk-snippet inspect-package
 ```rust
-let workspace = Workspace::inspect("examples/basic").await?;
+let pkg = Package::inspect("examples/basic").await?;
 ```
 
 ```python
-workspace = await rototo.Workspace.inspect("examples/basic")
+pkg = await rototo.Package.inspect("examples/basic")
 ```
 
 ```typescript
-const workspace = await Workspace.inspect("examples/basic");
+const pkg = await Package.inspect("examples/basic");
 ```
 
 ```java
-Workspace workspace = Workspace.inspect("examples/basic").get();
+Package pkg = Package.inspect("examples/basic").get();
 ```
 
 ```go
-workspace, err := rototo.Inspect(context.Background(), "examples/basic", nil)
+pkg, err := rototo.Inspect(context.Background(), "examples/basic", nil)
 if err != nil {
     return err
 }
-defer workspace.Close()
+defer pkg.Close()
 ```
 :::
 
-Inspection stages and inspects a workspace without requiring a lint-clean
+Inspection stages and inspects a package without requiring a lint-clean
 runtime. It is the lower-level loader for tools that need to inspect broken
-workspaces, editor state, or staged diagnostics.
+packages, editor state, or staged diagnostics.
 
-Most application code should load a runtime workspace instead.
+Most application code should load a runtime package instead.
 
 ## Load Options
 
@@ -117,37 +117,37 @@ let options = LoadOptions::new()
     .with_lint(LintMode::Deny)
     .with_source_auth(SourceAuth::Bearer(token));
 
-let workspace = Workspace::load_with_options(source, options).await?;
+let pkg = Package::load_with_options(source, options).await?;
 ```
 
 ```python
-workspace = await rototo.Workspace.load(
+pkg = await rototo.Package.load(
     source,
     lint="deny",
-    workspace_token=token,
+    package_token=token,
 )
 ```
 
 ```typescript
-const workspace = await Workspace.load(source, {
+const pkg = await Package.load(source, {
   lint: "deny",
-  workspaceToken: token,
+  packageToken: token,
 });
 ```
 
 ```java
 LoadOptions options = LoadOptions.builder()
     .lint(LintMode.DENY)
-    .workspaceToken(token)
+    .packageToken(token)
     .build();
 
-Workspace workspace = Workspace.load(source, options).get();
+Package pkg = Package.load(source, options).get();
 ```
 
 ```go
-workspace, err := rototo.Load(ctx, source, &rototo.LoadOptions{
+pkg, err := rototo.Load(ctx, source, &rototo.LoadOptions{
     Lint:           rototo.LintDeny,
-    WorkspaceToken: token,
+    PackageToken: token,
 })
 if err != nil {
     return err
@@ -157,36 +157,36 @@ if err != nil {
 
 Lint deny is the default. It rejects lint failures during load.
 
-Lint skip is available for tools that need to stage or inspect a workspace
+Lint skip is available for tools that need to stage or inspect a package
 without enforcing lint. Do not use it as the default in application runtime
 paths.
 
-## Workspace Metadata
+## Package Metadata
 
-:::sdk-snippet workspace-metadata
+:::sdk-snippet package-metadata
 ```rust
-let root = workspace.root();
-let inspection = workspace.inspection();
-let context_schema = workspace.context_schema();
-let fingerprint = workspace.source_fingerprint();
-let immutable = workspace.immutable_source();
-let layers = workspace.source_layers();
+let root = pkg.root();
+let inspection = pkg.inspection();
+let context_schema = pkg.context_schema();
+let fingerprint = pkg.source_fingerprint();
+let immutable = pkg.immutable_source();
+let layers = pkg.source_layers();
 ```
 
 ```python
-root = workspace.root
+root = pkg.root
 ```
 
 ```typescript
-const root = workspace.root;
+const root = pkg.root;
 ```
 
 ```java
-String root = workspace.root();
+String root = pkg.root();
 ```
 
 ```go
-root, err := workspace.Root()
+root, err := pkg.Root()
 ```
 :::
 
@@ -197,15 +197,15 @@ language-specific tools need it.
 
 ## Temporary Staging
 
-Remote sources are staged into temporary directories owned by the workspace
-handle. Keep the workspace value alive for as long as the app needs to resolve
+Remote sources are staged into temporary directories owned by the package
+handle. Keep the package value alive for as long as the app needs to resolve
 from it.
 
-Do not retain paths into the staged root after dropping the workspace.
+Do not retain paths into the staged root after dropping the package.
 
 ## Context Schema
 
-When the loaded workspace contains request context schemas,
+When the loaded package contains request context schemas,
 [resolution](reference-sdk-resolution.html) validates context against a
 compatible schema by default.
 

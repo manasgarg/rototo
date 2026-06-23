@@ -292,7 +292,7 @@ impl SourceStore {
 }
 
 fn overlay_document_kind(path: &str) -> Option<DocumentKind> {
-    if path == "rototo-workspace.toml" {
+    if path == "rototo-package.toml" {
         return Some(DocumentKind::Manifest);
     }
     let parts = path.split('/').collect::<Vec<_>>();

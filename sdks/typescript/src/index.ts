@@ -5,7 +5,7 @@ import {
     type RefreshStatusJson,
     type VariableResolutionJson,
     type VariableResolutionSourceJson,
-    type WorkspaceLintJson,
+    type PackageLintJson,
     native,
 } from "./native.js";
 
@@ -16,25 +16,25 @@ export type {
     RefreshStatusJson,
     VariableResolutionJson,
     VariableResolutionSourceJson,
-    WorkspaceLintJson,
+    PackageLintJson,
 };
 
 export type LintMode = "deny" | "skip";
 
 export type LoadOptions = {
-    workspaceToken?: string;
+    packageToken?: string;
     lint?: LintMode;
 };
 
 export type InspectOptions = {
-    workspaceToken?: string;
+    packageToken?: string;
 };
 
 export type ResolveOptions = {
     validateContext?: boolean;
 };
 
-export type RefreshingWorkspaceOptions = LoadOptions & {
+export type RefreshingPackageOptions = LoadOptions & {
     periodSeconds?: number;
 };
 
@@ -54,7 +54,7 @@ export type RefreshStatus = {
     immutable: boolean;
 };
 
-export type WorkspaceLint = {
+export type PackageLint = {
     root: string;
     diagnostics: JsonValue[];
 };
@@ -165,8 +165,8 @@ export type ReferenceModel = {
 };
 
 /* The serializable projection of rototo's semantic and reference indexes.
-   Tools consume this instead of parsing workspace files themselves. */
-export type WorkspaceSemanticModel = {
+   Tools consume this instead of parsing package files themselves. */
+export type PackageSemanticModel = {
     version: number;
     qualifiers: QualifierModel[];
     variables: VariableModel[];
@@ -191,20 +191,20 @@ export function version(): string {
     return VERSION;
 }
 
-export class Workspace {
-    private constructor(private readonly inner: NativeWorkspaceHandle) {}
+export class Package {
+    private constructor(private readonly inner: NativePackageHandle) {}
 
     static async load(
         source: string,
         options: LoadOptions = {},
-    ): Promise<Workspace> {
+    ): Promise<Package> {
         try {
-            const inner = await native._Workspace.load(
+            const inner = await native._Package.load(
                 String(source),
-                options.workspaceToken,
+                options.packageToken,
                 options.lint ?? "deny",
             );
-            return new Workspace(inner);
+            return new Package(inner);
         } catch (error) {
             throw toRototoError(error);
         }
@@ -213,13 +213,13 @@ export class Workspace {
     static async inspect(
         source: string,
         options: InspectOptions = {},
-    ): Promise<Workspace> {
+    ): Promise<Package> {
         try {
-            const inner = await native._Workspace.inspect(
+            const inner = await native._Package.inspect(
                 String(source),
-                options.workspaceToken,
+                options.packageToken,
             );
-            return new Workspace(inner);
+            return new Package(inner);
         } catch (error) {
             throw toRototoError(error);
         }
@@ -229,7 +229,7 @@ export class Workspace {
         return this.inner.root();
     }
 
-    async lint(): Promise<WorkspaceLint> {
+    async lint(): Promise<PackageLint> {
         try {
             return await this.inner.lint();
         } catch (error) {
@@ -237,9 +237,9 @@ export class Workspace {
         }
     }
 
-    async semanticModel(): Promise<WorkspaceSemanticModel> {
+    async semanticModel(): Promise<PackageSemanticModel> {
         try {
-            return (await this.inner.semanticModel()) as WorkspaceSemanticModel;
+            return (await this.inner.semanticModel()) as PackageSemanticModel;
         } catch (error) {
             throw toRototoError(error);
         }
@@ -278,23 +278,23 @@ export class Workspace {
     }
 }
 
-export class RefreshingWorkspace {
+export class RefreshingPackage {
     private constructor(
-        private readonly inner: NativeRefreshingWorkspaceHandle,
+        private readonly inner: NativeRefreshingPackageHandle,
     ) {}
 
     static async load(
         source: string,
-        options: RefreshingWorkspaceOptions = {},
-    ): Promise<RefreshingWorkspace> {
+        options: RefreshingPackageOptions = {},
+    ): Promise<RefreshingPackage> {
         try {
-            const inner = await native._RefreshingWorkspace.load(
+            const inner = await native._RefreshingPackage.load(
                 String(source),
                 options.periodSeconds,
-                options.workspaceToken,
+                options.packageToken,
                 options.lint ?? "deny",
             );
-            return new RefreshingWorkspace(inner);
+            return new RefreshingPackage(inner);
         } catch (error) {
             throw toRototoError(error);
         }
@@ -357,9 +357,9 @@ export class RefreshingWorkspace {
     }
 }
 
-type NativeWorkspaceHandle = Awaited<ReturnType<typeof native._Workspace.load>>;
-type NativeRefreshingWorkspaceHandle = Awaited<
-    ReturnType<typeof native._RefreshingWorkspace.load>
+type NativePackageHandle = Awaited<ReturnType<typeof native._Package.load>>;
+type NativeRefreshingPackageHandle = Awaited<
+    ReturnType<typeof native._RefreshingPackage.load>
 >;
 
 function toRototoError(error: unknown): RototoError {

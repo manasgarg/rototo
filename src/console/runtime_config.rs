@@ -7,7 +7,7 @@ use serde_json::{Value as JsonValue, json};
 use tracing_subscriber::EnvFilter;
 
 use crate::error::{Result, RototoError};
-use crate::{ResolveContext, Workspace};
+use crate::{Package, ResolveContext};
 
 use super::capabilities::{DeploymentType, WritePolicy};
 
@@ -17,14 +17,14 @@ const DEV_HOST: &str = "dev.rototo.dev";
 
 #[derive(Clone)]
 pub(crate) struct ConsoleRuntimeConfig {
-    workspace: Option<Arc<Workspace>>,
+    package: Option<Arc<Package>>,
     base: ConsoleRuntimeBase,
     startup_observability: ConsoleObservabilityConfig,
 }
 
 impl ConsoleRuntimeConfig {
     pub(crate) async fn load(base: ConsoleRuntimeBase) -> Result<Self> {
-        Self::load_from_path(default_runtime_workspace_path(), base).await
+        Self::load_from_path(default_runtime_package_path(), base).await
     }
 
     pub(crate) async fn load_from_path(
@@ -34,15 +34,15 @@ impl ConsoleRuntimeConfig {
         let Some(path) = path else {
             tracing::warn!(
                 operation = "console.runtime_config.load",
-                "console runtime workspace path could not be resolved; using built-in defaults"
+                "console runtime package path could not be resolved; using built-in defaults"
             );
             return Ok(Self::built_in(base));
         };
-        if !tokio::fs::try_exists(path.join("rototo-workspace.toml"))
+        if !tokio::fs::try_exists(path.join("rototo-package.toml"))
             .await
             .map_err(|err| {
                 RototoError::new(format!(
-                    "failed to inspect console runtime workspace {}: {err}",
+                    "failed to inspect console runtime package {}: {err}",
                     path.display()
                 ))
             })?
@@ -50,32 +50,28 @@ impl ConsoleRuntimeConfig {
             tracing::info!(
                 operation = "console.runtime_config.load",
                 path = %path.display(),
-                "console runtime workspace not found; using built-in defaults"
+                "console runtime package not found; using built-in defaults"
             );
             return Ok(Self::built_in(base));
         }
 
-        let workspace = Arc::new(
-            Workspace::load(path.to_string_lossy())
-                .await
-                .map_err(|err| {
-                    RototoError::new(format!(
-                        "failed to load console runtime workspace {}: {err}",
-                        path.display()
-                    ))
-                })?,
-        );
+        let package = Arc::new(Package::load(path.to_string_lossy()).await.map_err(|err| {
+            RototoError::new(format!(
+                "failed to load console runtime package {}: {err}",
+                path.display()
+            ))
+        })?);
         let startup_observability =
-            resolve_startup_observability(&workspace, &base.startup_context()).await?;
+            resolve_startup_observability(&package, &base.startup_context()).await?;
         tracing::info!(
             operation = "console.runtime_config.load",
             path = %path.display(),
             tracing_filter = %startup_observability.tracing.filter,
             observability_enabled = startup_observability.enabled,
-            "console runtime workspace loaded"
+            "console runtime package loaded"
         );
         Ok(Self {
-            workspace: Some(workspace),
+            package: Some(package),
             base,
             startup_observability,
         })
@@ -88,7 +84,7 @@ impl ConsoleRuntimeConfig {
             ConsoleObservabilityConfig::standard()
         };
         Self {
-            workspace: None,
+            package: None,
             base,
             startup_observability,
         }
@@ -111,8 +107,8 @@ impl ConsoleRuntimeConfig {
         request: RequestObservabilityContext,
     ) -> ConsoleRequestObservabilityConfig {
         let context = self.base.request_context(&request);
-        let resolved = match &self.workspace {
-            Some(workspace) => resolve_request_observability(workspace, &context).await,
+        let resolved = match &self.package {
+            Some(package) => resolve_request_observability(package, &context).await,
             None => Ok(self.resolve_built_in_request_observability(&request)),
         };
         match resolved {
@@ -146,11 +142,11 @@ impl ConsoleRuntimeConfig {
 }
 
 async fn resolve_startup_observability(
-    workspace: &Workspace,
+    package: &Package,
     context: &JsonValue,
 ) -> Result<ConsoleObservabilityConfig> {
     let context = ResolveContext::from_json(context.clone())?;
-    let resolution = workspace
+    let resolution = package
         .resolve_variable(STARTUP_OBSERVABILITY_VARIABLE, &context)
         .await?;
     let config: ConsoleObservabilityConfig = serde_json::from_value(resolution.value).map_err(|err| {
@@ -163,11 +159,11 @@ async fn resolve_startup_observability(
 }
 
 async fn resolve_request_observability(
-    workspace: &Workspace,
+    package: &Package,
     context: &JsonValue,
 ) -> Result<ConsoleRequestObservabilityConfig> {
     let context = ResolveContext::from_json(context.clone())?;
-    let resolution = workspace
+    let resolution = package
         .resolve_variable(REQUEST_OBSERVABILITY_VARIABLE, &context)
         .await?;
     let config: ConsoleRequestObservabilityConfig =
@@ -185,7 +181,7 @@ pub(crate) struct ConsoleRuntimeBase {
     pub(crate) deployment: DeploymentType,
     pub(crate) write_policy: WritePolicy,
     pub(crate) console_host: Option<String>,
-    pub(crate) fixed_workspace: bool,
+    pub(crate) fixed_package: bool,
     pub(crate) secure_cookies: bool,
 }
 
@@ -203,7 +199,7 @@ impl ConsoleRuntimeBase {
             "write_policy": self.write_policy.label(),
             "console": {
                 "host": self.console_host,
-                "fixed_workspace": self.fixed_workspace,
+                "fixed_package": self.fixed_package,
                 "secure_cookies": self.secure_cookies,
             },
             "request": {
@@ -212,7 +208,7 @@ impl ConsoleRuntimeBase {
                 "method": "none",
                 "route": "none",
                 "repo": null,
-                "workspace": null,
+                "package": null,
                 "branch": null,
                 "mutating": false,
             },
@@ -232,7 +228,7 @@ impl ConsoleRuntimeBase {
             "write_policy": self.write_policy.label(),
             "console": {
                 "host": self.console_host,
-                "fixed_workspace": self.fixed_workspace,
+                "fixed_package": self.fixed_package,
                 "secure_cookies": self.secure_cookies,
             },
             "request": {
@@ -241,7 +237,7 @@ impl ConsoleRuntimeBase {
                 "method": request.method,
                 "route": request.route,
                 "repo": request.repo,
-                "workspace": request.workspace,
+                "package": request.package,
                 "branch": request.branch,
                 "mutating": request.mutating,
             },
@@ -261,7 +257,7 @@ pub(crate) struct RequestObservabilityContext {
     pub(crate) method: String,
     pub(crate) route: String,
     pub(crate) repo: Option<String>,
-    pub(crate) workspace: Option<String>,
+    pub(crate) package: Option<String>,
     pub(crate) branch: Option<String>,
     pub(crate) mutating: bool,
     pub(crate) response_present: bool,
@@ -445,22 +441,22 @@ pub(crate) struct RequestTracingConfig {
     pub(crate) filter: String,
 }
 
-pub(crate) fn default_runtime_workspace_path() -> Option<PathBuf> {
-    default_runtime_workspace_path_from(
+pub(crate) fn default_runtime_package_path() -> Option<PathBuf> {
+    default_runtime_package_path_from(
         std::env::var_os("XDG_CONFIG_HOME"),
         std::env::var_os("HOME"),
     )
 }
 
-fn default_runtime_workspace_path_from(
+fn default_runtime_package_path_from(
     xdg_config_home: Option<OsString>,
     home: Option<OsString>,
 ) -> Option<PathBuf> {
     if let Some(dir) = xdg_config_home.filter(|dir| !dir.is_empty()) {
-        return Some(PathBuf::from(dir).join("rototo/workspace"));
+        return Some(PathBuf::from(dir).join("rototo/package"));
     }
     home.filter(|dir| !dir.is_empty())
-        .map(|dir| PathBuf::from(dir).join(".config/rototo/workspace"))
+        .map(|dir| PathBuf::from(dir).join(".config/rototo/package"))
 }
 
 pub(crate) fn public_url_host(public_url: &str) -> Option<String> {
@@ -509,23 +505,23 @@ mod tests {
             deployment,
             write_policy: WritePolicy::PullRequest,
             console_host: host.map(str::to_owned),
-            fixed_workspace: false,
+            fixed_package: false,
             secure_cookies: host.is_some_and(|host| host != "127.0.0.1"),
         }
     }
 
     #[test]
-    fn runtime_workspace_path_uses_xdg_config_home() {
+    fn runtime_package_path_uses_xdg_config_home() {
         let path =
-            default_runtime_workspace_path_from(Some("/tmp/xdg".into()), Some("/tmp/home".into()))
+            default_runtime_package_path_from(Some("/tmp/xdg".into()), Some("/tmp/home".into()))
                 .unwrap();
-        assert_eq!(path, PathBuf::from("/tmp/xdg/rototo/workspace"));
+        assert_eq!(path, PathBuf::from("/tmp/xdg/rototo/package"));
     }
 
     #[test]
-    fn runtime_workspace_path_falls_back_to_home_config() {
-        let path = default_runtime_workspace_path_from(None, Some("/tmp/home".into())).unwrap();
-        assert_eq!(path, PathBuf::from("/tmp/home/.config/rototo/workspace"));
+    fn runtime_package_path_falls_back_to_home_config() {
+        let path = default_runtime_package_path_from(None, Some("/tmp/home".into())).unwrap();
+        assert_eq!(path, PathBuf::from("/tmp/home/.config/rototo/package"));
     }
 
     #[test]
@@ -541,7 +537,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn missing_runtime_workspace_uses_built_in_dev_defaults() {
+    async fn missing_runtime_package_uses_built_in_dev_defaults() {
         let dir = tempfile::tempdir().unwrap();
         let config = ConsoleRuntimeConfig::load_from_path(
             Some(dir.path().join("missing")),
@@ -560,7 +556,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn generated_workspace_resolves_dev_for_host_not_deployment() {
+    async fn generated_package_resolves_dev_for_host_not_deployment() {
         let config = ConsoleRuntimeConfig::load_from_path(
             Some(PathBuf::from("examples/console-runtime")),
             base(Some(DEV_HOST), DeploymentType::Hosted),
@@ -577,7 +573,7 @@ mod tests {
                 method: "GET".to_owned(),
                 route: "/api/source-trees".to_owned(),
                 repo: None,
-                workspace: None,
+                package: None,
                 branch: None,
                 mutating: false,
                 response_present: true,
@@ -590,7 +586,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn generated_workspace_keeps_standard_host_quiet_until_problematic() {
+    async fn generated_package_keeps_standard_host_quiet_until_problematic() {
         let config = ConsoleRuntimeConfig::load_from_path(
             Some(PathBuf::from("examples/console-runtime")),
             base(Some("console.rototo.dev"), DeploymentType::Hosted),
@@ -604,7 +600,7 @@ mod tests {
                 method: "GET".to_owned(),
                 route: "/api/source-trees".to_owned(),
                 repo: None,
-                workspace: None,
+                package: None,
                 branch: None,
                 mutating: false,
                 response_present: true,
@@ -626,7 +622,7 @@ mod tests {
                     method: "GET".to_owned(),
                     route: "/api/source-trees".to_owned(),
                     repo: None,
-                    workspace: None,
+                    package: None,
                     branch: None,
                     mutating: false,
                     response_present: true,

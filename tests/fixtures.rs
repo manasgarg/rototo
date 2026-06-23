@@ -2,7 +2,7 @@ use std::fs;
 
 use assert_cmd::Command;
 use predicates::prelude::*;
-use rototo::Workspace;
+use rototo::Package;
 
 #[test]
 fn fixtures_command_generates_readable_toml_suite() {
@@ -42,7 +42,7 @@ fn fixtures_command_generates_readable_toml_suite() {
 }
 
 #[test]
-fn fixtures_command_defaults_to_whole_workspace() {
+fn fixtures_command_defaults_to_whole_package() {
     let temp = tempfile::tempdir().unwrap();
     let out = temp.path().join("fixtures");
 
@@ -79,8 +79,8 @@ async fn testing_helper_asserts_generated_fixtures() {
         .assert()
         .success();
 
-    let workspace = Workspace::load("examples/basic").await.unwrap();
-    let report = rototo::testing::assert_fixtures(&workspace, &out)
+    let package = Package::load("examples/basic").await.unwrap();
+    let report = rototo::testing::assert_fixtures(&package, &out)
         .await
         .unwrap();
     assert_eq!(report.cases, 2);

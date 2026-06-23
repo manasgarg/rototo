@@ -1,11 +1,11 @@
-"""Python SDK for rototo runtime configuration workspaces."""
+"""Python SDK for rototo runtime configuration packages."""
 
 from __future__ import annotations
 
 from dataclasses import dataclass
 from typing import Any, Mapping
 
-from ._rototo import RototoError, _RefreshingWorkspace, _Workspace, version as _version
+from ._rototo import RototoError, _RefreshingPackage, _Package, version as _version
 
 
 JsonObject = Mapping[str, Any]
@@ -23,7 +23,7 @@ class VariableResolution:
 
 @dataclass(frozen=True)
 class RefreshStatus:
-    """Current refresh state for a long-running workspace handle."""
+    """Current refresh state for a long-running package handle."""
 
     current_fingerprint: Any | None
     last_success: float | None
@@ -34,10 +34,10 @@ class RefreshStatus:
     immutable: bool
 
 
-class Workspace:
-    """Loaded rototo workspace."""
+class Package:
+    """Loaded rototo package."""
 
-    def __init__(self, inner: _Workspace) -> None:
+    def __init__(self, inner: _Package) -> None:
         self._inner = inner
 
     @classmethod
@@ -45,12 +45,12 @@ class Workspace:
         cls,
         source: str,
         *,
-        workspace_token: str | None = None,
+        package_token: str | None = None,
         lint: str = "deny",
-    ) -> Workspace:
-        inner = await _Workspace.load(
+    ) -> Package:
+        inner = await _Package.load(
             str(source),
-            workspace_token=workspace_token,
+            package_token=package_token,
             lint=lint,
         )
         return cls(inner)
@@ -60,9 +60,9 @@ class Workspace:
         cls,
         source: str,
         *,
-        workspace_token: str | None = None,
-    ) -> Workspace:
-        inner = await _Workspace.inspect(str(source), workspace_token=workspace_token)
+        package_token: str | None = None,
+    ) -> Package:
+        inner = await _Package.inspect(str(source), package_token=package_token)
         return cls(inner)
 
     @property
@@ -104,10 +104,10 @@ class Workspace:
         )
 
 
-class RefreshingWorkspace:
-    """Refreshing rototo workspace for long-running services."""
+class RefreshingPackage:
+    """Refreshing rototo package for long-running services."""
 
-    def __init__(self, inner: _RefreshingWorkspace) -> None:
+    def __init__(self, inner: _RefreshingPackage) -> None:
         self._inner = inner
 
     @classmethod
@@ -116,13 +116,13 @@ class RefreshingWorkspace:
         source: str,
         *,
         period_seconds: float | None = None,
-        workspace_token: str | None = None,
+        package_token: str | None = None,
         lint: str = "deny",
-    ) -> RefreshingWorkspace:
-        inner = await _RefreshingWorkspace.load(
+    ) -> RefreshingPackage:
+        inner = await _RefreshingPackage.load(
             str(source),
             period_seconds=period_seconds,
-            workspace_token=workspace_token,
+            package_token=package_token,
             lint=lint,
         )
         return cls(inner)
@@ -171,10 +171,10 @@ class RefreshingWorkspace:
 
 __all__ = [
     "JsonObject",
-    "RefreshingWorkspace",
+    "RefreshingPackage",
     "RefreshStatus",
     "RototoError",
     "VariableResolution",
-    "Workspace",
+    "Package",
     "__version__",
 ]

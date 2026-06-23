@@ -30,9 +30,9 @@ should this request use?
 The first version of that policy can be small: run normally while pressure is
 normal, and reduce load when queue pressure is high.
 
-## Create The Workspace
+## Create The Package
 
-Create the workspace with a [variable](reference-variables.html) and a
+Create the package with a [variable](reference-variables.html) and a
 [catalog](reference-catalogs.html) template:
 
 ```sh
@@ -86,7 +86,7 @@ Replace `degradation-config/catalogs/service-degradation-policy.schema.json`:
 The schema is deliberately operational. It says which fields the service will
 honor, which modes are allowed, and how far concurrency can be pushed. If
 someone tries to set `max_concurrency = 0` during an incident,
-[lint](reference-lint-overview.html) catches that before the workspace is
+[lint](reference-lint-overview.html) catches that before the package is
 released.
 
 ## Add The First Policies
@@ -172,7 +172,7 @@ The qualifier introduced `service.queue_pressure`. Generate the
 rototo init degradation-config --context
 ```
 
-On this workspace, rototo writes
+On this package, rototo writes
 `degradation-config/request-contexts/request.schema.json`:
 
 ```json
@@ -192,7 +192,7 @@ On this workspace, rototo writes
 }
 ```
 
-Lint the workspace:
+Lint the package:
 
 ```sh
 rototo lint degradation-config
@@ -297,7 +297,7 @@ The bucket introduced `account.id`. Regenerate the
 rototo init degradation-config --context --force
 ```
 
-On this workspace, the regenerated
+On this package, the regenerated
 `degradation-config/request-contexts/request.schema.json` includes both runtime facts:
 
 ```json
@@ -368,7 +368,7 @@ while the rest of the pressured traffic stays on the first degraded policy.
 
 ## Iterate Through Review
 
-Recovery may need a few variations. Because the policy lives in the workspace,
+Recovery may need a few variations. Because the policy lives in the package,
 each variation can be a small reviewed diff.
 
 To widen the severe policy without reshuffling account assignment, keep the
@@ -391,8 +391,8 @@ fallback_provider = "secondary"
 
 To roll back the trial, remove the `severe-recovery-trial` rule or move the
 bucket range back down. The service can
-[refresh](reference-sdk-refresh.html) the workspace and apply the new policy to
-future resolutions while the last successfully loaded workspace stays active if
+[refresh](reference-sdk-refresh.html) the package and apply the new policy to
+future resolutions while the last successfully loaded package stays active if
 a refresh fails.
 
 Rototo does not decide whether the variation worked. The service metrics,
@@ -410,7 +410,7 @@ used for stable assignment.
 ```rust
 use serde::Deserialize;
 
-use rototo::{ResolveContext, Workspace};
+use rototo::{ResolveContext, Package};
 
 #[derive(Debug, Deserialize)]
 struct DegradationPolicy {
@@ -422,7 +422,7 @@ struct DegradationPolicy {
 }
 
 async fn degradation_policy(
-    workspace: &Workspace,
+    package: &Package,
     queue_pressure: &str,
     account_id: &str,
 ) -> Result<DegradationPolicy, Box<dyn std::error::Error>> {
@@ -435,7 +435,7 @@ async fn degradation_policy(
         }
     }))?;
 
-    let resolution = workspace
+    let resolution = pkg
         .resolve_variable("service-degradation-policy", &context)
         .await?;
     let source = resolution.source.clone();
@@ -444,7 +444,7 @@ async fn degradation_policy(
     println!(
         "selected service-degradation-policy `{}` from {:?}",
         source,
-        workspace.source_fingerprint()
+        pkg.source_fingerprint()
     );
 
     Ok(policy)
@@ -465,7 +465,7 @@ class DegradationPolicy:
 
 
 async def degradation_policy(
-    workspace: rototo.Workspace,
+    package: rototo.Package,
     queue_pressure: str,
     account_id: str,
 ) -> DegradationPolicy:
@@ -473,7 +473,7 @@ async def degradation_policy(
         "service": {"queue_pressure": queue_pressure},
         "account": {"id": account_id},
     }
-    resolution = await workspace.resolve_variable(
+    resolution = await pkg.resolve_variable(
         "service-degradation-policy",
         context,
     )
@@ -493,11 +493,11 @@ type DegradationPolicy = {
 };
 
 async function degradationPolicy(
-  workspace: Workspace,
+  package: Package,
   queuePressure: string,
   accountId: string,
 ): Promise<DegradationPolicy> {
-  const resolution = await workspace.resolveVariable(
+  const resolution = await pkg.resolveVariable(
     "service-degradation-policy",
     {
       service: { queue_pressure: queuePressure },
@@ -520,11 +520,11 @@ record DegradationPolicy(
 ) {}
 
 DegradationPolicy degradationPolicy(
-    Workspace workspace,
+    Package pkg,
     String queuePressure,
     String accountId
 ) throws Exception {
-    VariableResolution resolution = workspace
+    VariableResolution resolution = pkg
         .resolveVariable(
             "service-degradation-policy",
             Map.of(
@@ -562,11 +562,11 @@ type DegradationPolicy struct {
 
 func degradationPolicy(
     ctx context.Context,
-    workspace *rototo.Workspace,
+    package *rototo.Package,
     queuePressure string,
     accountID string,
 ) (DegradationPolicy, error) {
-    resolution, err := workspace.ResolveVariable(
+    resolution, err := pkg.ResolveVariable(
         ctx,
         "service-degradation-policy",
         map[string]any{

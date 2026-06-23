@@ -1,48 +1,48 @@
 # SDK Refresh Reference
 
 Configuration is deployed separately from the application binary. A
-long-running service should be able to pick up a newly reviewed workspace
+long-running service should be able to pick up a newly reviewed package
 version without restarting, while continuing to serve the last known good
-workspace when refresh fails.
+package when refresh fails.
 
-`RefreshingWorkspace` is the SDK type for that model.
+`RefreshingPackage` is the SDK type for that model.
 
 ## Load With Refresh
 
-:::sdk-snippet load-refreshing-workspace
+:::sdk-snippet load-refreshing-package
 ```rust
 use std::time::Duration;
-use rototo::{RefreshOptions, RefreshingWorkspace};
+use rototo::{RefreshOptions, RefreshingPackage};
 
 let refresh = RefreshOptions::new()
     .with_period(Duration::from_secs(30));
 
-let workspace = RefreshingWorkspace::load(source, refresh).await?;
+let pkg = RefreshingPackage::load(source, refresh).await?;
 ```
 
 ```python
 import rototo
 
-workspace = await rototo.RefreshingWorkspace.load(
+pkg = await rototo.RefreshingPackage.load(
     source,
     period_seconds=30,
 )
 ```
 
 ```typescript
-import { RefreshingWorkspace } from "rototo";
+import { RefreshingPackage } from "rototo";
 
-const workspace = await RefreshingWorkspace.load(source, {
+const pkg = await RefreshingPackage.load(source, {
   periodSeconds: 30,
 });
 ```
 
 ```java
-RefreshingWorkspaceOptions options = RefreshingWorkspaceOptions.builder()
+RefreshingPackageOptions options = RefreshingPackageOptions.builder()
     .periodSeconds(30.0)
     .build();
 
-RefreshingWorkspace workspace = RefreshingWorkspace
+RefreshingPackage pkg = RefreshingPackage
     .load(source, options)
     .get();
 ```
@@ -50,57 +50,57 @@ RefreshingWorkspace workspace = RefreshingWorkspace
 ```go
 periodSeconds := 30.0
 
-workspace, err := rototo.LoadRefreshing(
+pkg, err := rototo.LoadRefreshing(
     ctx,
     source,
-    &rototo.RefreshingWorkspaceOptions{
+    &rototo.RefreshingPackageOptions{
         PeriodSeconds: &periodSeconds,
     },
 )
 if err != nil {
     return err
 }
-defer workspace.Close(ctx)
+defer pkg.Close(ctx)
 ```
 :::
 
 Initial load [stages the source](reference-sdk-loading.html), lints it,
-compiles the runtime model, and makes that workspace current. If initial load
-fails, the service has no active workspace and the call returns an error.
+compiles the runtime model, and makes that package current. If initial load
+fails, the service has no active package and the call returns an error.
 
 ## Resolution
 
-`RefreshingWorkspace` exposes the same runtime resolution methods:
+`RefreshingPackage` exposes the same runtime resolution methods:
 
 :::sdk-snippet refreshing-resolution
 ```rust
-let resolution = workspace
+let resolution = pkg
     .resolve_variable("account-limits", &context)
     .await?;
 ```
 
 ```python
-resolution = await workspace.resolve_variable(
+resolution = await pkg.resolve_variable(
     "account-limits",
     context,
 )
 ```
 
 ```typescript
-const resolution = await workspace.resolveVariable(
+const resolution = await pkg.resolveVariable(
   "account-limits",
   context,
 );
 ```
 
 ```java
-VariableResolution resolution = workspace
+VariableResolution resolution = pkg
     .resolveVariable("account-limits", context)
     .get();
 ```
 
 ```go
-resolution, err := workspace.ResolveVariable(
+resolution, err := pkg.ResolveVariable(
     ctx,
     "account-limits",
     resolveContext,
@@ -110,30 +110,30 @@ resolution, err := workspace.ResolveVariable(
 :::
 
 Each call [resolves](reference-sdk-resolution.html) against the current
-successfully loaded workspace. A successful refresh affects future resolutions.
+successfully loaded package. A successful refresh affects future resolutions.
 It does not mutate a resolution already returned to application code.
 
 ## Manual Refresh
 
 :::sdk-snippet manual-refresh
 ```rust
-let outcome = workspace.refresh_now().await?;
+let outcome = pkg.refresh_now().await?;
 ```
 
 ```python
-outcome = await workspace.refresh_now()
+outcome = await pkg.refresh_now()
 ```
 
 ```typescript
-const outcome = await workspace.refreshNow();
+const outcome = await pkg.refreshNow();
 ```
 
 ```java
-String outcome = workspace.refreshNow().get();
+String outcome = pkg.refreshNow().get();
 ```
 
 ```go
-outcome, err := workspace.RefreshNow(ctx)
+outcome, err := pkg.RefreshNow(ctx)
 ```
 :::
 
@@ -142,7 +142,7 @@ Refresh outcomes:
 | Outcome | Meaning |
 | --- | --- |
 | `unchanged` | Source fingerprint did not change. |
-| `refreshed` | A changed source loaded, linted, and replaced the current workspace. |
+| `refreshed` | A changed source loaded, linted, and replaced the current package. |
 | `immutable` | Source is pinned to an immutable commit. |
 
 ## Periodic Refresh
@@ -157,24 +157,24 @@ let refresh = RefreshOptions::new()
 ```
 
 ```python
-workspace = await rototo.RefreshingWorkspace.load(
+pkg = await rototo.RefreshingPackage.load(
     source,
     period_seconds=60,
 )
 ```
 
 ```typescript
-const workspace = await RefreshingWorkspace.load(source, {
+const pkg = await RefreshingPackage.load(source, {
   periodSeconds: 60,
 });
 ```
 
 ```java
-RefreshingWorkspaceOptions options = RefreshingWorkspaceOptions.builder()
+RefreshingPackageOptions options = RefreshingPackageOptions.builder()
     .periodSeconds(60.0)
     .build();
 
-RefreshingWorkspace workspace = RefreshingWorkspace
+RefreshingPackage pkg = RefreshingPackage
     .load(source, options)
     .get();
 ```
@@ -182,25 +182,25 @@ RefreshingWorkspace workspace = RefreshingWorkspace
 ```go
 periodSeconds := 60.0
 
-workspace, err := rototo.LoadRefreshing(
+pkg, err := rototo.LoadRefreshing(
     ctx,
     source,
-    &rototo.RefreshingWorkspaceOptions{
+    &rototo.RefreshingPackageOptions{
         PeriodSeconds: &periodSeconds,
     },
 )
 ```
 :::
 
-On refresh failure, rototo keeps the current workspace active and backs off
+On refresh failure, rototo keeps the current package active and backs off
 before the next attempt. The default Rust backoff starts at 5 seconds and caps
 at 300 seconds. The first Python and Go SDK releases use the Rust defaults.
 
 ## Immutable Sources
 
-A [git source](reference-workspace-sources.html) pinned to a full 40-character
+A [git source](reference-package-sources.html) pinned to a full 40-character
 commit SHA is immutable. Periodic refresh is disabled for immutable sources,
-because there is no later workspace version to discover from that source
+because there is no later package version to discover from that source
 string.
 
 Commit-pinned sources are good for reproducible jobs and tests. Branch or tag
@@ -211,23 +211,23 @@ reviewed configuration updates.
 
 :::sdk-snippet refresh-status
 ```rust
-let status = workspace.status().await;
+let status = pkg.status().await;
 ```
 
 ```python
-status = await workspace.status()
+status = await pkg.status()
 ```
 
 ```typescript
-const status = await workspace.status();
+const status = await pkg.status();
 ```
 
 ```java
-RefreshStatus status = workspace.status().get();
+RefreshStatus status = pkg.status().get();
 ```
 
 ```go
-status, err := workspace.Status(ctx)
+status, err := pkg.Status(ctx)
 ```
 :::
 
@@ -235,7 +235,7 @@ status, err := workspace.Status(ctx)
 
 | Field | Meaning |
 | --- | --- |
-| `current_fingerprint` | Fingerprint of the active workspace source. |
+| `current_fingerprint` | Fingerprint of the active package source. |
 | `last_success` | Last successful initial load or refresh time. |
 | `last_attempt` | Last refresh attempt time. |
 | `consecutive_failures` | Count of refresh failures since the last success. |
@@ -249,33 +249,33 @@ Rust also exposes `RefreshStatus::stale(max_staleness)`.
 
 :::sdk-snippet refresh-shutdown
 ```rust
-workspace.shutdown().await;
+pkg.shutdown().await;
 ```
 
 ```python
-await workspace.shutdown()
+await pkg.shutdown()
 ```
 
 ```typescript
-await workspace.shutdown();
+await pkg.shutdown();
 ```
 
 ```java
-workspace.shutdown().get();
+pkg.shutdown().get();
 ```
 
 ```go
-err := workspace.Shutdown(ctx)
+err := pkg.Shutdown(ctx)
 ```
 :::
 
 `shutdown` stops the background refresh loop and waits for it. Dropping the
-refreshing workspace also signals shutdown and aborts the task if needed, but
+refreshing package also signals shutdown and aborts the task if needed, but
 explicit shutdown gives services a cleaner stop path.
 
 ## Observability
 
 A service should expose the active fingerprint, refresh failures, and staleness
 state. Those are the fields that tell an operator whether the service is using
-the latest reviewed workspace or deliberately serving the last known good
+the latest reviewed package or deliberately serving the last known good
 version.

@@ -2,7 +2,7 @@
 
 Applications ask rototo for variables. A variable gives a name to one runtime
 configuration decision: which value should this request, account, or service
-state receive from this workspace version?
+state receive from this package version?
 
 Variable files live under `variables/*.toml`. The file stem is the variable id.
 

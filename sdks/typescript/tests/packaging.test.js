@@ -2,10 +2,10 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 
 import {
-    RefreshingWorkspace,
+    RefreshingPackage,
     RototoError,
     VERSION,
-    Workspace,
+    Package,
     __version__,
     version,
 } from "../dist/index.js";
@@ -15,6 +15,6 @@ test("public API exports expected names", () => {
     assert.equal(VERSION, __version__);
     assert.equal(version(), __version__);
     assert.equal(typeof RototoError, "function");
-    assert.equal(typeof Workspace.load, "function");
-    assert.equal(typeof RefreshingWorkspace.load, "function");
+    assert.equal(typeof Package.load, "function");
+    assert.equal(typeof RefreshingPackage.load, "function");
 });

@@ -9,7 +9,7 @@ use crate::lua_lint;
 use super::super::engine::LintContext;
 use super::super::stages::push_stage_diagnostic;
 use super::targets::{
-    registered_lint_output_anchor, registered_lint_targets, registered_lint_workspace,
+    registered_lint_output_anchor, registered_lint_package, registered_lint_targets,
 };
 
 pub(super) async fn register_pipeline_lint(
@@ -20,14 +20,14 @@ pub(super) async fn register_pipeline_lint(
 }
 
 async fn lint_registered_target(
-    workspace: JsonValue,
+    package: JsonValue,
     target: JsonValue,
     lint_path: PathBuf,
     script: String,
     handler: String,
 ) -> Result<Vec<lua_lint::RegisteredCustomLintOutput>> {
     lua_lint::lint_registered_target(lua_lint::RegisteredLintInput {
-        workspace,
+        package,
         target,
         lint_path,
         script,
@@ -69,10 +69,10 @@ pub(crate) async fn run_registered_custom_lints(ctx: &mut LintContext, stage: Li
         else {
             continue;
         };
-        let workspace = registered_lint_workspace(ctx);
+        let package = registered_lint_package(ctx);
         for target in targets {
             match lint_registered_target(
-                workspace.clone(),
+                package.clone(),
                 target.data.clone(),
                 std::path::PathBuf::from(&registration.file_path),
                 document.text.clone(),

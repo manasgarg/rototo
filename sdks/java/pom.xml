@@ -10,7 +10,7 @@
   <packaging>jar</packaging>
 
   <name>rototo Java SDK</name>
-  <description>Java SDK for rototo runtime configuration workspaces.</description>
+  <description>Java SDK for rototo runtime configuration packages.</description>
   <url>https://rototo.dev</url>
 
   <licenses>

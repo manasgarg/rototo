@@ -12,8 +12,8 @@ public final class PackageSmokeTest {
         if (!Rototo.version().equals(expectedVersion)) {
             throw new AssertionError("expected version " + expectedVersion + ", got " + Rototo.version());
         }
-        try (Workspace workspace = Workspace.load("examples/basic").get(30, TimeUnit.SECONDS)) {
-            VariableResolution resolution = workspace.resolveVariable(
+        try (Package pkg = Package.load("examples/basic").get(30, TimeUnit.SECONDS)) {
+            VariableResolution resolution = pkg.resolveVariable(
                     "premium-message",
                     Map.of("user", Map.of("tier", "premium"))).get(30, TimeUnit.SECONDS);
             if (!resolution.value().equals("Welcome back, premium member.")

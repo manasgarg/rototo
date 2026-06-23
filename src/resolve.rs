@@ -5,36 +5,32 @@ use serde_json::Value as JsonValue;
 
 use crate::error::{Result, RototoError};
 use crate::lint::{
-    RuntimeCatalogQuery, RuntimeRule, RuntimeRuleSelection, RuntimeSelectedValue, RuntimeWorkspace,
-    compile_runtime_workspace,
+    RuntimeCatalogQuery, RuntimePackage, RuntimeRule, RuntimeRuleSelection, RuntimeSelectedValue,
+    compile_runtime_package,
 };
 use crate::model::{QualifierResolution, VariableResolution, VariableResolutionSource};
 use crate::model::{
     QualifierResolutionTrace, VariableResolutionTrace, VariableRuleResolutionTrace,
 };
 
-pub async fn resolve_qualifier(
-    workspace_root: &Path,
-    id: &str,
-    context: &JsonValue,
-) -> Result<bool> {
-    let runtime = compile_runtime_workspace(workspace_root).await?;
+pub async fn resolve_qualifier(package_root: &Path, id: &str, context: &JsonValue) -> Result<bool> {
+    let runtime = compile_runtime_package(package_root).await?;
     runtime.validate_context_for_qualifier(id, context)?;
     resolve_qualifier_unchecked(&runtime, id, context).await
 }
 
 pub async fn trace_qualifier_resolution(
-    workspace_root: &Path,
+    package_root: &Path,
     id: &str,
     context: &JsonValue,
 ) -> Result<QualifierResolutionTrace> {
-    let runtime = compile_runtime_workspace(workspace_root).await?;
+    let runtime = compile_runtime_package(package_root).await?;
     runtime.validate_context_for_qualifier(id, context)?;
     trace_qualifier_unchecked(&runtime, id, context).await
 }
 
 pub(crate) async fn resolve_qualifier_unchecked(
-    runtime: &RuntimeWorkspace,
+    runtime: &RuntimePackage,
     id: &str,
     context: &JsonValue,
 ) -> Result<bool> {
@@ -43,7 +39,7 @@ pub(crate) async fn resolve_qualifier_unchecked(
 }
 
 pub(crate) async fn trace_qualifier_unchecked(
-    runtime: &RuntimeWorkspace,
+    runtime: &RuntimePackage,
     id: &str,
     context: &JsonValue,
 ) -> Result<QualifierResolutionTrace> {
@@ -55,25 +51,25 @@ pub(crate) async fn trace_qualifier_unchecked(
 }
 
 pub async fn resolve_qualifiers(
-    workspace_root: &Path,
+    package_root: &Path,
     context: &JsonValue,
 ) -> Result<Vec<QualifierResolution>> {
-    let runtime = compile_runtime_workspace(workspace_root).await?;
+    let runtime = compile_runtime_package(package_root).await?;
     runtime.validate_context(context)?;
     resolve_qualifiers_unchecked(&runtime, context).await
 }
 
 pub async fn trace_qualifier_resolutions(
-    workspace_root: &Path,
+    package_root: &Path,
     context: &JsonValue,
 ) -> Result<Vec<QualifierResolutionTrace>> {
-    let runtime = compile_runtime_workspace(workspace_root).await?;
+    let runtime = compile_runtime_package(package_root).await?;
     runtime.validate_context(context)?;
     trace_qualifier_resolutions_unchecked(&runtime, context).await
 }
 
 pub(crate) async fn resolve_qualifiers_unchecked(
-    runtime: &RuntimeWorkspace,
+    runtime: &RuntimePackage,
     context: &JsonValue,
 ) -> Result<Vec<QualifierResolution>> {
     let mut state = QualifierState::new(runtime, context);
@@ -88,7 +84,7 @@ pub(crate) async fn resolve_qualifiers_unchecked(
 }
 
 pub(crate) async fn trace_qualifier_resolutions_unchecked(
-    runtime: &RuntimeWorkspace,
+    runtime: &RuntimePackage,
     context: &JsonValue,
 ) -> Result<Vec<QualifierResolutionTrace>> {
     let ids: Vec<String> = runtime.qualifiers.keys().cloned().collect();
@@ -105,27 +101,27 @@ pub(crate) async fn trace_qualifier_resolutions_unchecked(
 }
 
 pub async fn resolve_variable(
-    workspace_root: &Path,
+    package_root: &Path,
     id: &str,
     context: &JsonValue,
 ) -> Result<VariableResolution> {
-    let runtime = compile_runtime_workspace(workspace_root).await?;
+    let runtime = compile_runtime_package(package_root).await?;
     runtime.validate_context_for_variable(id, context)?;
     resolve_variable_unchecked(&runtime, id, context).await
 }
 
 pub async fn trace_variable_resolution(
-    workspace_root: &Path,
+    package_root: &Path,
     id: &str,
     context: &JsonValue,
 ) -> Result<VariableResolutionTrace> {
-    let runtime = compile_runtime_workspace(workspace_root).await?;
+    let runtime = compile_runtime_package(package_root).await?;
     runtime.validate_context_for_variable(id, context)?;
     trace_variable_unchecked(&runtime, id, context).await
 }
 
 pub(crate) async fn resolve_variable_unchecked(
-    runtime: &RuntimeWorkspace,
+    runtime: &RuntimePackage,
     id: &str,
     context: &JsonValue,
 ) -> Result<VariableResolution> {
@@ -134,7 +130,7 @@ pub(crate) async fn resolve_variable_unchecked(
 }
 
 pub(crate) async fn trace_variable_unchecked(
-    runtime: &RuntimeWorkspace,
+    runtime: &RuntimePackage,
     id: &str,
     context: &JsonValue,
 ) -> Result<VariableResolutionTrace> {
@@ -143,25 +139,25 @@ pub(crate) async fn trace_variable_unchecked(
 }
 
 pub async fn resolve_variables(
-    workspace_root: &Path,
+    package_root: &Path,
     context: &JsonValue,
 ) -> Result<Vec<VariableResolution>> {
-    let runtime = compile_runtime_workspace(workspace_root).await?;
+    let runtime = compile_runtime_package(package_root).await?;
     runtime.validate_context(context)?;
     resolve_variables_unchecked(&runtime, context).await
 }
 
 pub async fn trace_variable_resolutions(
-    workspace_root: &Path,
+    package_root: &Path,
     context: &JsonValue,
 ) -> Result<Vec<VariableResolutionTrace>> {
-    let runtime = compile_runtime_workspace(workspace_root).await?;
+    let runtime = compile_runtime_package(package_root).await?;
     runtime.validate_context(context)?;
     trace_variable_resolutions_unchecked(&runtime, context).await
 }
 
 pub(crate) async fn resolve_variables_unchecked(
-    runtime: &RuntimeWorkspace,
+    runtime: &RuntimePackage,
     context: &JsonValue,
 ) -> Result<Vec<VariableResolution>> {
     let ids: Vec<String> = runtime.variables.keys().cloned().collect();
@@ -175,7 +171,7 @@ pub(crate) async fn resolve_variables_unchecked(
 }
 
 pub(crate) async fn trace_variable_resolutions_unchecked(
-    runtime: &RuntimeWorkspace,
+    runtime: &RuntimePackage,
     context: &JsonValue,
 ) -> Result<Vec<VariableResolutionTrace>> {
     let ids: Vec<String> = runtime.variables.keys().cloned().collect();
@@ -189,7 +185,7 @@ pub(crate) async fn trace_variable_resolutions_unchecked(
 }
 
 fn resolve_variable_with_state(
-    runtime: &RuntimeWorkspace,
+    runtime: &RuntimePackage,
     state: &mut QualifierState<'_>,
     id: &str,
 ) -> Result<VariableResolution> {
@@ -197,7 +193,7 @@ fn resolve_variable_with_state(
 }
 
 fn resolve_variable_trace_with_state(
-    runtime: &RuntimeWorkspace,
+    runtime: &RuntimePackage,
     state: &mut QualifierState<'_>,
     id: &str,
 ) -> Result<VariableResolutionTrace> {
@@ -295,7 +291,7 @@ fn static_rule_selection_value(selection: &RuntimeRuleSelection) -> Option<&Runt
 }
 
 fn resolve_rule_selection(
-    runtime: &RuntimeWorkspace,
+    runtime: &RuntimePackage,
     state: &mut QualifierState<'_>,
     selection: &RuntimeRuleSelection,
 ) -> Result<RuntimeSelectedValue> {
@@ -306,7 +302,7 @@ fn resolve_rule_selection(
 }
 
 fn resolve_catalog_query(
-    runtime: &RuntimeWorkspace,
+    runtime: &RuntimePackage,
     state: &mut QualifierState<'_>,
     query: &RuntimeCatalogQuery,
 ) -> Result<RuntimeSelectedValue> {
@@ -336,7 +332,7 @@ fn resolve_catalog_query(
 }
 
 fn catalog_entry_view(
-    runtime: &RuntimeWorkspace,
+    runtime: &RuntimePackage,
     catalog: &str,
     name: &str,
     entry: &JsonValue,
@@ -346,7 +342,7 @@ fn catalog_entry_view(
 }
 
 fn hydrate_catalog_entry(
-    runtime: &RuntimeWorkspace,
+    runtime: &RuntimePackage,
     catalog: &str,
     name: &str,
     entry: &JsonValue,
@@ -369,7 +365,7 @@ fn hydrate_catalog_entry(
 }
 
 fn hydrate_schema_value(
-    runtime: &RuntimeWorkspace,
+    runtime: &RuntimePackage,
     schema_catalog: &str,
     schema: &JsonValue,
     value: &JsonValue,
@@ -424,7 +420,7 @@ fn hydrate_schema_value(
 }
 
 fn hydrate_catalog_reference(
-    runtime: &RuntimeWorkspace,
+    runtime: &RuntimePackage,
     ref_spec: &JsonValue,
     value: &JsonValue,
     stack: &mut BTreeSet<(String, String)>,
@@ -462,7 +458,7 @@ fn hydrate_catalog_reference(
 }
 
 fn hydrate_catalog_reference_target(
-    runtime: &RuntimeWorkspace,
+    runtime: &RuntimePackage,
     catalog: &str,
     entry: &str,
     pointer: Option<&str>,
@@ -498,7 +494,7 @@ fn is_json_pointer(value: &str) -> bool {
 }
 
 fn resolve_schema_ref<'a>(
-    runtime: &'a RuntimeWorkspace,
+    runtime: &'a RuntimePackage,
     current_catalog: &str,
     reference: &str,
 ) -> Option<(String, &'a JsonValue)> {
@@ -534,7 +530,7 @@ fn resolve_schema_ref<'a>(
 }
 
 struct QualifierState<'a> {
-    runtime: &'a RuntimeWorkspace,
+    runtime: &'a RuntimePackage,
     context: &'a JsonValue,
     cache: HashMap<String, bool>,
     resolving: HashSet<String>,
@@ -542,7 +538,7 @@ struct QualifierState<'a> {
 }
 
 impl<'a> QualifierState<'a> {
-    fn new(runtime: &'a RuntimeWorkspace, context: &'a JsonValue) -> Self {
+    fn new(runtime: &'a RuntimePackage, context: &'a JsonValue) -> Self {
         Self {
             runtime,
             context,
@@ -627,7 +623,7 @@ mod tests {
 
     #[tokio::test]
     async fn resolves_predicate_operator_true_and_false_outcomes() {
-        let workspace = workspace_with_qualifiers(&[
+        let package = package_with_qualifiers(&[
             ("eq-true", predicate("user.tier", "eq", r#""premium""#)),
             ("eq-false", predicate("user.tier", "eq", r#""free""#)),
             ("neq-true", predicate("user.tier", "neq", r#""free""#)),
@@ -670,7 +666,7 @@ mod tests {
             "lte-true",
         ] {
             assert!(
-                resolve_qualifier(workspace.path(), id, &context)
+                resolve_qualifier(package.path(), id, &context)
                     .await
                     .unwrap(),
                 "{id}"
@@ -688,7 +684,7 @@ mod tests {
             "lte-false",
         ] {
             assert!(
-                !resolve_qualifier(workspace.path(), id, &context)
+                !resolve_qualifier(package.path(), id, &context)
                     .await
                     .unwrap(),
                 "{id}"
@@ -698,7 +694,7 @@ mod tests {
 
     #[tokio::test]
     async fn missing_context_paths_fail_resolution() {
-        let workspace = workspace_with_qualifiers(&[
+        let package = package_with_qualifiers(&[
             (
                 "missing-compare",
                 predicate("missing.path", "neq", r#""anything""#),
@@ -720,7 +716,7 @@ when = "context.user.tier == \"premium\" && context.missing.path == \"anything\"
             "user": { "id": "user-123", "tier": "free" }
         });
 
-        let err = resolve_qualifier(workspace.path(), "missing-compare", &context)
+        let err = resolve_qualifier(package.path(), "missing-compare", &context)
             .await
             .unwrap_err();
         assert_eq!(
@@ -728,7 +724,7 @@ when = "context.user.tier == \"premium\" && context.missing.path == \"anything\"
             "expression path is missing: context.missing.path"
         );
 
-        let err = resolve_qualifier(workspace.path(), "missing-bucket", &context)
+        let err = resolve_qualifier(package.path(), "missing-bucket", &context)
             .await
             .unwrap_err();
         assert_eq!(
@@ -737,16 +733,12 @@ when = "context.user.tier == \"premium\" && context.missing.path == \"anything\"
         );
 
         assert!(
-            !resolve_qualifier(
-                workspace.path(),
-                "missing-after-false",
-                &non_matching_context,
-            )
-            .await
-            .unwrap()
+            !resolve_qualifier(package.path(), "missing-after-false", &non_matching_context,)
+                .await
+                .unwrap()
         );
         let err = resolve_qualifier(
-            workspace.path(),
+            package.path(),
             "missing-after-false",
             &serde_json::json!({ "user": { "tier": "premium" } }),
         )
@@ -768,7 +760,7 @@ when = "context.user.tier == \"premium\" && context.missing.path == \"anything\"
             bucket_value("known-salt", &serde_json::json!("user-123")),
             bucket_value("known-salt", &serde_json::json!("user-123"))
         );
-        let workspace = workspace_with_qualifiers(&[
+        let package = package_with_qualifiers(&[
             ("bucket-in", bucket_predicate("9913, 9914")),
             ("bucket-start-exclusive", bucket_predicate("9914, 9915")),
             ("bucket-end-exclusive", bucket_predicate("9912, 9913")),
@@ -776,17 +768,17 @@ when = "context.user.tier == \"premium\" && context.missing.path == \"anything\"
         let context = serde_json::json!({ "user": { "id": "user-123" } });
 
         assert!(
-            resolve_qualifier(workspace.path(), "bucket-in", &context)
+            resolve_qualifier(package.path(), "bucket-in", &context)
                 .await
                 .unwrap()
         );
         assert!(
-            !resolve_qualifier(workspace.path(), "bucket-start-exclusive", &context)
+            !resolve_qualifier(package.path(), "bucket-start-exclusive", &context)
                 .await
                 .unwrap()
         );
         assert!(
-            !resolve_qualifier(workspace.path(), "bucket-end-exclusive", &context)
+            !resolve_qualifier(package.path(), "bucket-end-exclusive", &context)
                 .await
                 .unwrap()
         );
@@ -794,7 +786,7 @@ when = "context.user.tier == \"premium\" && context.missing.path == \"anything\"
 
     #[tokio::test]
     async fn resolves_expanded_predicate_operators() {
-        let workspace = workspace_with_qualifiers(&[
+        let package = package_with_qualifiers(&[
             (
                 "prefix-true",
                 predicate("user.email", "prefix", r#""ava@""#),
@@ -943,7 +935,7 @@ when = "context.user.tier == \"premium\" && context.missing.path == \"anything\"
             "not-true",
         ] {
             assert!(
-                resolve_qualifier(workspace.path(), id, &context)
+                resolve_qualifier(package.path(), id, &context)
                     .await
                     .unwrap(),
                 "{id}"
@@ -962,7 +954,7 @@ when = "context.user.tier == \"premium\" && context.missing.path == \"anything\"
             "not-false",
         ] {
             assert!(
-                !resolve_qualifier(workspace.path(), id, &context)
+                !resolve_qualifier(package.path(), id, &context)
                     .await
                     .unwrap(),
                 "{id}"
@@ -972,7 +964,7 @@ when = "context.user.tier == \"premium\" && context.missing.path == \"anything\"
 
     #[tokio::test]
     async fn resolves_qualifier_indirection_and_cycles() {
-        let workspace = workspace_with_qualifiers(&[
+        let package = package_with_qualifiers(&[
             ("premium", predicate("user.tier", "eq", r#""premium""#)),
             ("free", predicate("user.tier", "eq", r#""free""#)),
             ("premium-derived", condition(r#"qualifier["premium"]"#)),
@@ -983,16 +975,16 @@ when = "context.user.tier == \"premium\" && context.missing.path == \"anything\"
         let context = serde_json::json!({ "user": { "tier": "premium" } });
 
         assert!(
-            resolve_qualifier(workspace.path(), "premium-derived", &context)
+            resolve_qualifier(package.path(), "premium-derived", &context)
                 .await
                 .unwrap()
         );
         assert!(
-            !resolve_qualifier(workspace.path(), "free-derived", &context)
+            !resolve_qualifier(package.path(), "free-derived", &context)
                 .await
                 .unwrap()
         );
-        let err = resolve_qualifier(workspace.path(), "cycle-a", &context)
+        let err = resolve_qualifier(package.path(), "cycle-a", &context)
             .await
             .unwrap_err();
         assert!(err.to_string().contains("qualifier cycle detected"));
@@ -1000,11 +992,11 @@ when = "context.user.tier == \"premium\" && context.missing.path == \"anything\"
 
     #[tokio::test]
     async fn resolves_variable_default_and_fails_closed() {
-        let workspace =
-            workspace_with_qualifiers(&[("premium", predicate("user.tier", "eq", r#""premium""#))]);
-        std::fs::create_dir_all(workspace.path().join("variables")).unwrap();
+        let package =
+            package_with_qualifiers(&[("premium", predicate("user.tier", "eq", r#""premium""#))]);
+        std::fs::create_dir_all(package.path().join("variables")).unwrap();
         std::fs::write(
-            workspace.path().join("variables/message.toml"),
+            package.path().join("variables/message.toml"),
             r#"schema_version = 1
 type = "string"
 
@@ -1019,13 +1011,13 @@ value = "premium"
         .unwrap();
         let context = serde_json::json!({ "user": { "tier": "free" } });
 
-        let fallback = resolve_variable(workspace.path(), "message", &context)
+        let fallback = resolve_variable(package.path(), "message", &context)
             .await
             .unwrap();
         assert_eq!(fallback.value, serde_json::json!("control"));
 
         std::fs::write(
-            workspace.path().join("variables/bad-rule.toml"),
+            package.path().join("variables/bad-rule.toml"),
             r#"schema_version = 1
 type = "string"
 
@@ -1035,7 +1027,7 @@ rule = ["not-a-table"]
 "#,
         )
         .unwrap();
-        let err = resolve_variable(workspace.path(), "bad-rule", &context)
+        let err = resolve_variable(package.path(), "bad-rule", &context)
             .await
             .unwrap_err();
         assert!(err.to_string().contains("rule must be a table"));
@@ -1043,7 +1035,7 @@ rule = ["not-a-table"]
 
     #[tokio::test]
     async fn numeric_equality_is_exact_without_lossy_large_integer_casts() {
-        let workspace = workspace_with_qualifiers(&[
+        let package = package_with_qualifiers(&[
             ("int-float-equal", predicate("n", "eq", "100.0")),
             (
                 "large-int-float-not-equal",
@@ -1060,17 +1052,17 @@ rule = ["not-a-table"]
         });
 
         assert!(
-            resolve_qualifier(workspace.path(), "int-float-equal", &context)
+            resolve_qualifier(package.path(), "int-float-equal", &context)
                 .await
                 .unwrap()
         );
         assert!(
-            !resolve_qualifier(workspace.path(), "large-int-float-not-equal", &context)
+            !resolve_qualifier(package.path(), "large-int-float-not-equal", &context)
                 .await
                 .unwrap()
         );
         assert!(
-            resolve_qualifier(workspace.path(), "large-int-self-equal", &context)
+            resolve_qualifier(package.path(), "large-int-self-equal", &context)
                 .await
                 .unwrap()
         );
@@ -1078,22 +1070,19 @@ rule = ["not-a-table"]
 
     #[tokio::test]
     async fn resolves_when_qualifiers_and_catalog_query_variables() {
-        let workspace = workspace_with_qualifiers(&[(
+        let package = package_with_qualifiers(&[(
             "premium",
             r#"schema_version = 1
 when = "context.user.tier == \"premium\""
 "#
             .to_owned(),
         )]);
-        std::fs::create_dir_all(workspace.path().join("catalogs/message-template-entries"))
-            .unwrap();
-        std::fs::create_dir_all(workspace.path().join("catalogs/hero-banner-entries")).unwrap();
-        std::fs::create_dir_all(workspace.path().join("catalogs/page-entries")).unwrap();
-        std::fs::create_dir_all(workspace.path().join("variables")).unwrap();
+        std::fs::create_dir_all(package.path().join("catalogs/message-template-entries")).unwrap();
+        std::fs::create_dir_all(package.path().join("catalogs/hero-banner-entries")).unwrap();
+        std::fs::create_dir_all(package.path().join("catalogs/page-entries")).unwrap();
+        std::fs::create_dir_all(package.path().join("variables")).unwrap();
         std::fs::write(
-            workspace
-                .path()
-                .join("catalogs/message-template.schema.json"),
+            package.path().join("catalogs/message-template.schema.json"),
             r#"{
   "type": "object",
   "required": ["channel", "active", "body"],
@@ -1107,7 +1096,7 @@ when = "context.user.tier == \"premium\""
         )
         .unwrap();
         std::fs::write(
-            workspace
+            package
                 .path()
                 .join("catalogs/message-template-entries/email.toml"),
             r#"channel = "email"
@@ -1117,7 +1106,7 @@ body = "Email body"
         )
         .unwrap();
         std::fs::write(
-            workspace
+            package
                 .path()
                 .join("catalogs/message-template-entries/sms.toml"),
             r#"channel = "sms"
@@ -1127,7 +1116,7 @@ body = "SMS body"
         )
         .unwrap();
         std::fs::write(
-            workspace.path().join("variables/templates.toml"),
+            package.path().join("variables/templates.toml"),
             r#"schema_version = 1
 type = "list<catalog:message-template>"
 
@@ -1140,7 +1129,7 @@ query = "entry.channel == context.channel && entry.active == true && qualifier[\
         )
         .unwrap();
         std::fs::write(
-            workspace.path().join("catalogs/hero-banner.schema.json"),
+            package.path().join("catalogs/hero-banner.schema.json"),
             r#"{
   "type": "object",
   "required": ["cta"],
@@ -1152,7 +1141,7 @@ query = "entry.channel == context.channel && entry.active == true && qualifier[\
         )
         .unwrap();
         std::fs::write(
-            workspace
+            package
                 .path()
                 .join("catalogs/hero-banner-entries/home.toml"),
             r#"cta = "Buy"
@@ -1160,7 +1149,7 @@ query = "entry.channel == context.channel && entry.active == true && qualifier[\
         )
         .unwrap();
         std::fs::write(
-            workspace.path().join("catalogs/page.schema.json"),
+            package.path().join("catalogs/page.schema.json"),
             r#"{
   "type": "object",
   "required": ["hero", "title"],
@@ -1176,14 +1165,14 @@ query = "entry.channel == context.channel && entry.active == true && qualifier[\
         )
         .unwrap();
         std::fs::write(
-            workspace.path().join("catalogs/page-entries/home.toml"),
+            package.path().join("catalogs/page-entries/home.toml"),
             r#"hero = "home"
 title = "Home"
 "#,
         )
         .unwrap();
         std::fs::write(
-            workspace.path().join("variables/pages.toml"),
+            package.path().join("variables/pages.toml"),
             r#"schema_version = 1
 type = "list<catalog:page>"
 
@@ -1202,11 +1191,11 @@ query = "entry.hero.cta == \"Buy\""
         });
 
         assert!(
-            resolve_qualifier(workspace.path(), "premium", &context)
+            resolve_qualifier(package.path(), "premium", &context)
                 .await
                 .unwrap()
         );
-        let resolution = resolve_variable(workspace.path(), "templates", &context)
+        let resolution = resolve_variable(package.path(), "templates", &context)
             .await
             .unwrap();
         assert_eq!(
@@ -1221,7 +1210,7 @@ query = "entry.hero.cta == \"Buy\""
             ])
         );
 
-        let pages = resolve_variable(workspace.path(), "pages", &context)
+        let pages = resolve_variable(package.path(), "pages", &context)
             .await
             .unwrap();
         assert_eq!(
@@ -1243,24 +1232,24 @@ query = "entry.hero.cta == \"Buy\""
     async fn malformed_qualifier_conditions_return_errors_during_unchecked_resolution() {
         let context = serde_json::json!({ "user": { "tier": "premium", "id": "user-123" } });
 
-        let workspace = workspace_with_qualifiers(&[(
+        let package = package_with_qualifiers(&[(
             "unknown-function",
             condition(r#"not_a_real_function(context.user.tier, "premium")"#),
         )]);
-        let err = resolve_qualifier(workspace.path(), "unknown-function", &context)
+        let err = resolve_qualifier(package.path(), "unknown-function", &context)
             .await
             .unwrap_err();
         assert!(err.to_string().contains("unknown expression function"));
 
-        let workspace =
-            workspace_with_qualifiers(&[("missing-when", String::from("schema_version = 1\n"))]);
-        let err = resolve_qualifier(workspace.path(), "missing-when", &context)
+        let package =
+            package_with_qualifiers(&[("missing-when", String::from("schema_version = 1\n"))]);
+        let err = resolve_qualifier(package.path(), "missing-when", &context)
             .await
             .unwrap_err();
         assert!(err.to_string().contains("qualifier must declare when"));
 
-        let workspace = workspace_with_qualifiers(&[("non-bool", condition("context.user.tier"))]);
-        let err = resolve_qualifier(workspace.path(), "non-bool", &context)
+        let package = package_with_qualifiers(&[("non-bool", condition("context.user.tier"))]);
+        let err = resolve_qualifier(package.path(), "non-bool", &context)
             .await
             .unwrap_err();
         assert!(
@@ -1269,23 +1258,23 @@ query = "entry.hero.cta == \"Buy\""
         );
     }
 
-    fn workspace_with_qualifiers(qualifiers: &[(&str, String)]) -> tempfile::TempDir {
-        let workspace = tempfile::TempDir::new().unwrap();
+    fn package_with_qualifiers(qualifiers: &[(&str, String)]) -> tempfile::TempDir {
+        let package = tempfile::TempDir::new().unwrap();
         std::fs::write(
-            workspace.path().join("rototo-workspace.toml"),
+            package.path().join("rototo-package.toml"),
             r#"schema_version = 1
 "#,
         )
         .unwrap();
-        std::fs::create_dir_all(workspace.path().join("qualifiers")).unwrap();
+        std::fs::create_dir_all(package.path().join("qualifiers")).unwrap();
         for (id, contents) in qualifiers {
             std::fs::write(
-                workspace.path().join(format!("qualifiers/{id}.toml")),
+                package.path().join(format!("qualifiers/{id}.toml")),
                 contents,
             )
             .unwrap();
         }
-        workspace
+        package
     }
 
     fn predicate(attribute: &str, op: &str, value: &str) -> String {

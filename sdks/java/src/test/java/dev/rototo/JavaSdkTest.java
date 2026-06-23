@@ -17,32 +17,32 @@ public final class JavaSdkTest {
 
     private static void api() throws Exception {
         assertEquals(expectedVersion(), Rototo.version(), "version");
-        try (Workspace workspace = await(Workspace.load("examples/basic"))) {
-            VariableResolution variable = await(workspace.resolveVariable(
+        try (Package pkg = await(Package.load("examples/basic"))) {
+            VariableResolution variable = await(pkg.resolveVariable(
                     "premium-message",
                     Map.of("user", Map.of("tier", "premium"))));
             assertEquals("premium-message", variable.id(), "variable id");
             assertEquals(Map.of("kind", "literal"), variable.source(), "source");
             assertEquals("Welcome back, premium member.", variable.value(), "value");
 
-            Boolean qualifier = await(workspace.resolveQualifier(
+            Boolean qualifier = await(pkg.resolveQualifier(
                     "premium-users",
                     Map.of("user", Map.of("tier", "free"))));
             assertEquals(false, qualifier, "qualifier value");
 
-            VariableResolution skippedValidation = await(workspace.resolveVariable(
+            VariableResolution skippedValidation = await(pkg.resolveVariable(
                     "premium-message",
                     Map.of("user", Map.of("tier", Map.of("bad", "shape"))),
                     ResolveOptions.validateContext(false)));
             assertEquals(Map.of("kind", "literal"), skippedValidation.source(), "validation skip fallback");
         }
 
-        try (Workspace inspected = await(Workspace.inspect("examples/basic"))) {
-            WorkspaceLint lint = await(inspected.lint());
+        try (Package inspected = await(Package.inspect("examples/basic"))) {
+            PackageLint lint = await(inspected.lint());
             assertEquals(0, lint.diagnostics().size(), "inspection lint diagnostics");
             assertRototoError(
                     inspected.resolveVariable("premium-message", Map.of()),
-                    "workspace was loaded without a runtime model");
+                    "package was loaded without a runtime model");
         }
     }
 
@@ -55,12 +55,12 @@ public final class JavaSdkTest {
             Map<String, Object> testCase = Json.asObject(Json.parse(line));
             String name = Json.asString(testCase.get("name"));
             String operation = Json.asString(testCase.get("operation"));
-            String workspaceSource = Json.asString(testCase.get("workspace"));
+            String packageSource = Json.asString(testCase.get("package"));
             Map<String, Object> expect = Json.asObject(testCase.get("expect"));
             boolean ok = Json.asBoolean(expect.get("ok"));
 
-            if (operation.equals("load_workspace")) {
-                CompletableFuture<Workspace> future = Workspace.load(workspaceSource);
+            if (operation.equals("load_package")) {
+                CompletableFuture<Package> future = Package.load(packageSource);
                 if (ok) {
                     await(future).close();
                 } else {
@@ -69,24 +69,24 @@ public final class JavaSdkTest {
                 continue;
             }
 
-            try (Workspace workspace = await(Workspace.load(workspaceSource))) {
+            try (Package pkg = await(Package.load(packageSource))) {
                 switch (operation) {
-                    case "lint_workspace":
+                    case "lint_package":
                         if (ok) {
-                            WorkspaceLint lint = await(workspace.lint());
+                            PackageLint lint = await(pkg.lint());
                             assertEquals(
                                     Json.asLong(expect.get("diagnostics")),
                                     (long) lint.diagnostics().size(),
                                     name + " diagnostics");
                         } else {
-                            assertRototoError(workspace.lint(), expectedError(expect));
+                            assertRototoError(pkg.lint(), expectedError(expect));
                         }
                         break;
                     case "resolve_qualifier":
-                        runQualifierCase(name, workspace, testCase, expect, ok);
+                        runQualifierCase(name, pkg, testCase, expect, ok);
                         break;
                     case "resolve_variable":
-                        runVariableCase(name, workspace, testCase, expect, ok);
+                        runVariableCase(name, pkg, testCase, expect, ok);
                         break;
                     default:
                         throw new AssertionError("unsupported contract operation: " + operation);
@@ -97,11 +97,11 @@ public final class JavaSdkTest {
 
     private static void runQualifierCase(
             String name,
-            Workspace workspace,
+            Package pkg,
             Map<String, Object> testCase,
             Map<String, Object> expect,
             boolean ok) throws Exception {
-        CompletableFuture<Boolean> future = workspace.resolveQualifier(
+        CompletableFuture<Boolean> future = pkg.resolveQualifier(
                 Json.asString(testCase.get("id")),
                 Json.asObject(testCase.get("context")));
         if (!ok) {
@@ -114,11 +114,11 @@ public final class JavaSdkTest {
 
     private static void runVariableCase(
             String name,
-            Workspace workspace,
+            Package pkg,
             Map<String, Object> testCase,
             Map<String, Object> expect,
             boolean ok) throws Exception {
-        CompletableFuture<VariableResolution> future = workspace.resolveVariable(
+        CompletableFuture<VariableResolution> future = pkg.resolveVariable(
                 Json.asString(testCase.get("id")),
                 Json.asObject(testCase.get("context")));
         if (!ok) {
@@ -133,18 +133,18 @@ public final class JavaSdkTest {
     }
 
     private static void refresh() throws Exception {
-        RefreshingWorkspaceOptions options = RefreshingWorkspaceOptions.builder()
+        RefreshingPackageOptions options = RefreshingPackageOptions.builder()
                 .periodSeconds(30.0)
                 .build();
-        try (RefreshingWorkspace workspace = await(RefreshingWorkspace.load("examples/basic", options))) {
-            VariableResolution resolution = await(workspace.resolveVariable(
+        try (RefreshingPackage pkg = await(RefreshingPackage.load("examples/basic", options))) {
+            VariableResolution resolution = await(pkg.resolveVariable(
                     "premium-message",
                     Map.of("user", Map.of("tier", "premium"))));
             assertEquals(Map.of("kind", "literal"), resolution.source(), "refreshing resolution");
-            RefreshStatus status = await(workspace.status());
+            RefreshStatus status = await(pkg.status());
             assertEquals(0L, status.consecutiveFailures(), "consecutive failures");
             assertEquals(false, status.refreshing(), "refreshing flag");
-            await(workspace.shutdown());
+            await(pkg.shutdown());
         }
     }
 

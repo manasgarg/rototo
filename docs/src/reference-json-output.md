@@ -14,14 +14,14 @@ JSON output is pretty-printed.
 Diagnostics use the shape described in
 [Diagnostics](reference-diagnostics.html).
 
-When a command reports workspace documents, each document summary uses this
+When a command reports package documents, each document summary uses this
 shape:
 
 ```json
 {
   "id": 0,
   "path": "variables/account-limits.toml",
-  "uri": "file:///workspace/variables/account-limits.toml",
+  "uri": "file:///package/variables/account-limits.toml",
   "version": null,
   "kind": "variable"
 }
@@ -34,7 +34,7 @@ documents usually report `null`.
 
 ```json
 {
-  "workspace": "/workspace",
+  "package": "/package",
   "documents": [],
   "diagnostics": []
 }
@@ -45,12 +45,12 @@ stable rule ids.
 
 ## `diff --json`
 
-`diff --json` reports semantic changes between two workspace sources:
+`diff --json` reports semantic changes between two package sources:
 
 ```json
 {
-  "before": "/workspace-before",
-  "after": "/workspace-after",
+  "before": "/package-before",
+  "after": "/package-after",
   "changes": [
     {
       "kind": "variable_value_changed",
@@ -83,12 +83,12 @@ resolved value changes for that context.
 ## `show --json`
 
 `show` returns selected config and catalog views. Use it when automation needs
-to read configured workspace data or the diagnostic catalog:
+to read configured package data or the diagnostic catalog:
 
 ```json
 {
   "command": "show",
-  "workspace": "/workspace",
+  "package": "/package",
   "catalogs": [],
   "variables": [],
   "qualifiers": [],
@@ -105,12 +105,12 @@ Catalog output includes an `entries` table when catalog value files exist.
 
 ## `inspect --json`
 
-`inspect` returns the most complete workspace explanation. Use it when tooling
+`inspect` returns the most complete package explanation. Use it when tooling
 needs dependencies, consumers, runtime status, and optional resolution traces:
 
 ```json
 {
-  "workspace": "/workspace",
+  "package": "/package",
   "documents": [],
   "runtime": { "status": "available" },
   "diagnostics": [],
@@ -127,14 +127,14 @@ Selected variables, catalogs, and qualifiers include dependencies,
 consumers, and diagnostics. When `--context` is supplied, selected variables
 and qualifiers can include `trace`.
 
-`runtime.status` is `available` when the workspace compiles into a runtime
+`runtime.status` is `available` when the package compiles into a runtime
 model. Otherwise it is `unavailable` with a reason.
 
 ## `resolve --json`
 
 ```json
 {
-  "workspace": "/workspace",
+  "package": "/package",
   "variables": [],
   "qualifiers": []
 }
@@ -155,7 +155,7 @@ publishers and tools that need to mirror the bundled docs order:
     {
       "title": "Reference",
       "pages": [
-        { "id": "reference-workspace-layout", "title": "Workspace Layout" }
+        { "id": "reference-package-layout", "title": "Package Layout" }
       ]
     }
   ]

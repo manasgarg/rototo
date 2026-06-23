@@ -169,8 +169,8 @@ The corresponding value is:
 ```
 
 Rototo follows catalog reference annotations through `properties`, `items`,
-`prefixItems`, `allOf`, `anyOf`, `oneOf`, `$defs`, and local or workspace-local
-`$ref` references. Workspace-local schemas are addressed as
+`prefixItems`, `allOf`, `anyOf`, `oneOf`, `$defs`, and local or package-local
+`$ref` references. Package-local schemas are addressed as
 `rototo://catalogs/<catalog-id>.schema.json`; rototo does not fetch schemas from
 the network during lint.
 
@@ -201,7 +201,7 @@ attach an editor hint to a property with `x-rototo-ui`:
 }
 ```
 
-Widgets are pre-registered; the vocabulary is part of the workspace format and
+Widgets are pre-registered; the vocabulary is part of the package format and
 editor tooling renders only widgets it knows:
 
 | Widget | Property types | Parameters |

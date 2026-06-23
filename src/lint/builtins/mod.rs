@@ -1,16 +1,16 @@
 mod catalog;
 mod graph;
+mod package;
 mod qualifier;
 mod request_context;
 mod schema;
 mod variable;
-mod workspace;
 
 use super::engine::LintContext;
 use super::index::ProjectField;
 
 pub(super) fn run_project(ctx: &mut LintContext) {
-    workspace::lint_manifest_shape(ctx);
+    package::lint_manifest_shape(ctx);
     request_context::lint_request_context_schemas(ctx);
     request_context::lint_request_context_reserved_fields(ctx);
     qualifier::lint_qualifier_shapes(ctx);

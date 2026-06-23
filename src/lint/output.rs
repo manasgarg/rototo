@@ -8,7 +8,7 @@ fn diagnostic_sort_key(
     diagnostic: &LintDiagnostic,
 ) -> (u8, &str, usize, usize, usize, String, &str) {
     let location_rank = match diagnostic.primary.kind {
-        crate::diagnostics::DiagnosticLocationKind::WorkspaceRoot => 0,
+        crate::diagnostics::DiagnosticLocationKind::PackageRoot => 0,
         crate::diagnostics::DiagnosticLocationKind::Document
         | crate::diagnostics::DiagnosticLocationKind::Span => 1,
     };

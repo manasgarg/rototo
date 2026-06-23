@@ -1,8 +1,8 @@
 # CLI Commands Reference
 
-The CLI is how people and automation touch a workspace before an application
+The CLI is how people and automation touch a package before an application
 does. I use it for four jobs: create the files rototo understands, prove the
-workspace is valid, explain what the runtime model will do, and export the docs
+package is valid, explain what the runtime model will do, and export the docs
 that describe that contract.
 
 For exact parser output, use `rototo <command> --help` with the binary you are
@@ -11,12 +11,12 @@ running.
 ## `rototo init`
 
 ```sh
-rototo init <WORKSPACE> [--qualifier ID] [--variable ID] [--catalog ID] [--context] [--force] [--dry-run]
+rototo init <PACKAGE> [--qualifier ID] [--variable ID] [--catalog ID] [--context] [--force] [--dry-run]
 ```
 
-Use `init` when you want rototo to create the workspace paths and templates it
+Use `init` when you want rototo to create the package paths and templates it
 expects instead of hand-writing the first file from memory. It creates a local
-workspace or adds templates to an existing workspace.
+package or adds templates to an existing package.
 
 | Option | Meaning |
 | --- | --- |
@@ -30,7 +30,7 @@ workspace or adds templates to an existing workspace.
 ## `rototo fixtures`
 
 ```sh
-rototo fixtures <WORKSPACE_SOURCE> --out <DIR> [selectors]
+rototo fixtures <PACKAGE_SOURCE> --out <DIR> [selectors]
 ```
 
 Use `fixtures` when a runtime behavior should become a reviewable test case.
@@ -49,12 +49,12 @@ Selectors:
 ## `rototo lint`
 
 ```sh
-rototo lint [WORKSPACE_SOURCE] [selectors]
+rototo lint [PACKAGE_SOURCE] [selectors]
 ```
 
-Use `lint` before a workspace can be trusted by an app, CI job, or reviewer. It
-validates the workspace or selected targets. Without selectors, lint reports
-workspace-wide diagnostics. With selectors, lint filters output to selected
+Use `lint` before a package can be trusted by an app, CI job, or reviewer. It
+validates the package or selected targets. Without selectors, lint reports
+package-wide diagnostics. With selectors, lint filters output to selected
 variables, catalogs, qualifiers, lint rules, authorities, or Lua linters.
 
 `--quiet` suppresses the successful `ok:` line, but diagnostics still print.
@@ -62,11 +62,11 @@ variables, catalogs, qualifiers, lint rules, authorities, or Lua linters.
 ## `rototo inspect`
 
 ```sh
-rototo inspect [WORKSPACE_SOURCE] [selectors] [--context CONTEXT]
+rototo inspect [PACKAGE_SOURCE] [selectors] [--context CONTEXT]
 ```
 
-Use `inspect` when you need to understand how rototo sees the workspace after
-source loading and layering. It explains the projected workspace: documents,
+Use `inspect` when you need to understand how rototo sees the package after
+source loading and layering. It explains the projected package: documents,
 runtime status, diagnostics, catalogs, variables, qualifiers, lint
 rules, lint authorities, and linters.
 
@@ -77,28 +77,28 @@ sample entries from compatible request contexts.
 ## `rototo diff`
 
 ```sh
-rototo diff BEFORE_WORKSPACE_SOURCE AFTER_WORKSPACE_SOURCE [--context CONTEXT]
+rototo diff BEFORE_PACKAGE_SOURCE AFTER_PACKAGE_SOURCE [--context CONTEXT]
 ```
 
 Use `diff` when you need to understand what changed in rototo terms rather than
-as raw TOML or JSON. It compares projected workspace entities such as variables,
+as raw TOML or JSON. It compares projected package entities such as variables,
 values, resolve rules, qualifiers, catalogs, catalog values, and
 request contexts.
 
 When context is supplied, `diff` also reports resolution impact for variables
-whose selected value changes between the before and after workspaces.
+whose selected value changes between the before and after packages.
 
 ## `rototo show`
 
 ```sh
-rototo show [WORKSPACE_SOURCE] [selectors]
+rototo show [PACKAGE_SOURCE] [selectors]
 ```
 
 Use `show` when you need configured files and catalog metadata, not runtime
-evaluation. Without selectors it prints a workspace inventory. With `--json`,
+evaluation. Without selectors it prints a package inventory. With `--json`,
 it returns a structured view for the selected targets.
 
-When no workspace source is supplied and only lint catalog selectors are used,
+When no package source is supplied and only lint catalog selectors are used,
 `show` reads the global built-in diagnostic catalog.
 
 Examples:
@@ -112,7 +112,7 @@ rototo show examples/basic --lint-authority rototo
 ## `rototo resolve`
 
 ```sh
-rototo resolve [WORKSPACE_SOURCE] [--variable ID | --variables | --qualifier ID | --qualifiers] [--context CONTEXT]
+rototo resolve [PACKAGE_SOURCE] [--variable ID | --variables | --qualifier ID | --qualifiers] [--context CONTEXT]
 ```
 
 Use `resolve` when you want to see the value an application would receive for a
@@ -147,20 +147,20 @@ internal links in generated package READMEs and defaults to
 ```sh
 rototo console
 rototo console --bind <ADDR> [--public-url <URL>] [--data-dir <DIR>]
-rototo console --workspace <WORKSPACE_SOURCE> --write disabled
-rototo console --workspace <WORKSPACE_SOURCE> --write pull-request
-rototo console --workspace <WORKSPACE_SOURCE> --write direct-push
+rototo console --package <PACKAGE_SOURCE> --write disabled
+rototo console --package <PACKAGE_SOURCE> --write pull-request
+rototo console --package <PACKAGE_SOURCE> --write direct-push
 ```
 
 Use `console` to serve the rototo web console and its JSON API from this
 binary. With no OAuth secret configured it runs as a local deployment on
 `http://127.0.0.1:7686`: no browser sign-in, using git config identity for
-local workspaces and an ambient GitHub token (`--workspace-token` /
-`ROTOTO_WORKSPACE_TOKEN`, a stored device-flow sign-in, or `gh auth token`)
+local packages and an ambient GitHub token (`--package-token` /
+`ROTOTO_PACKAGE_TOKEN`, a stored device-flow sign-in, or `gh auth token`)
 when GitHub credentials are needed. Setting `ROTOTO_GITHUB_CLIENT_ID` and
 `ROTOTO_GITHUB_CLIENT_SECRET` switches it to hosted deployment with GitHub
 OAuth sign-in; `ROTOTO_CONSOLE_TOKEN_ENCRYPTION_KEY` is then required so
-stored tokens are encrypted at rest. `--workspace` registers one fixed source
+stored tokens are encrypted at rest. `--package` registers one fixed source
 at startup, and `--write` controls whether branch edits are disabled, published
 as pull requests, or direct-pushed. See
 [Self-Hosting the Console](self-hosting-console.md) for deployment shapes.
@@ -171,7 +171,7 @@ as pull requests, or direct-pushed. See
 rototo lsp
 ```
 
-Use `lsp` when an editor or agent needs live workspace feedback. It runs the
+Use `lsp` when an editor or agent needs live package feedback. It runs the
 rototo Language Server Protocol server over stdio for diagnostics,
 completions, symbols, hovers, and definitions.
 

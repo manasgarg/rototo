@@ -4,9 +4,9 @@ Once tests are in place, rototo changes can move independently from the
 application binary. That is what we want, but it changes how the team operates
 the system.
 
-A workspace commit can change production behavior as soon as a long-running
+A package commit can change production behavior as soon as a long-running
 service [refreshes](reference-sdk-refresh.html) its
-[workspace source](reference-workspace-sources.html). The application did not
+[package source](reference-package-sources.html). The application did not
 redeploy, but the behavior changed. I would treat that as a release and operate
 it with the same care: clear review, narrow blast radius, observable selection,
 and a recovery path that people understand before they need it.
@@ -14,7 +14,7 @@ and a recovery path that people understand before they need it.
 The everyday habits matter here. Without them, reviewed runtime configuration
 slowly turns back into ad hoc configuration.
 
-## Treat Workspace Changes As Releases
+## Treat Package Changes As Releases
 
 The smallest review I would trust for a runtime configuration change should
 answer:
@@ -22,7 +22,7 @@ answer:
 - which variables can select a different value;
 - which catalog values are new, changed, or removed;
 - which runtime conditions can match the new path;
-- which accounts, environments, buckets, or workspace layers are affected;
+- which accounts, environments, buckets, or package layers are affected;
 - which tests prove the intended behavior;
 - how to recover if the policy is wrong.
 
@@ -46,29 +46,29 @@ This is much harder to operate:
 Update config
 ```
 
-The workspace is the control plane. Its commits deserve commit messages and
+The package is the control plane. Its commits deserve commit messages and
 pull request descriptions that explain the runtime decision being changed.
 
 ## Choose Source Refs Deliberately
 
 Application deployments should be explicit about the
-[workspace source](reference-workspace-sources.html) they load:
+[package source](reference-package-sources.html) they load:
 
 ```text
-ROTOTO_WORKSPACE_SOURCE=git+https://github.com/acme/runtime-config.git#main:workspaces/prod
+ROTOTO_PACKAGE_SOURCE=git+https://github.com/acme/runtime-config.git#main:packages/prod
 ```
 
 A branch or tag ref lets a long-running service discover later reviewed
-workspace commits through refresh. That is the usual choice for services that
+package commits through refresh. That is the usual choice for services that
 should receive runtime policy updates without a restart.
 
 A full commit SHA gives reproducibility:
 
 ```text
-ROTOTO_WORKSPACE_SOURCE=git+https://github.com/acme/runtime-config.git#2f3c4d5e6f708192aabbccddeeff001122334455:workspaces/prod
+ROTOTO_PACKAGE_SOURCE=git+https://github.com/acme/runtime-config.git#2f3c4d5e6f708192aabbccddeeff001122334455:packages/prod
 ```
 
-That fits jobs, migrations, audits, and deployments where the exact workspace
+That fits jobs, migrations, audits, and deployments where the exact package
 version must not move. It also means refresh will not discover newer commits
 from that source. Pinning is a tradeoff: better reproducibility, no ongoing
 updates.
@@ -85,7 +85,7 @@ gives several ways to do that without adding app-side policy:
 - account classes;
 - deployment lanes;
 - deterministic buckets;
-- customer or team workspace layers.
+- customer or team package layers.
 
 I usually prefer adding a new catalog value before changing the default path:
 
@@ -112,10 +112,10 @@ For [bucketed changes](bucketed-rollout.html), keep the bucket condition stable
 and change the percentage deliberately. A jump from 5 percent to 50 percent is
 a larger release than it looks in a one-line diff.
 
-For [layered workspaces](workspace-layering.html), use the narrowest
+For [layered packages](package-layering.html), use the narrowest
 administrative boundary that matches ownership. A customer-specific override
 belongs in the customer layer. A support-team override belongs in the
-support-team layer. The application still loads one assembled workspace source,
+support-team layer. The application still loads one assembled package source,
 but the operational blast radius follows the layer that changed.
 
 ## Observe Selection, Refresh, And Freshness
@@ -127,13 +127,13 @@ For each important resolution, log:
 
 - variable id;
 - selected source;
-- workspace fingerprint;
+- package fingerprint;
 - relevant request, account, or tenant identifier;
 - service deployment identity when it helps answer the question.
 
 For [refresh](reference-sdk-refresh.html), expose:
 
-- current workspace fingerprint;
+- current package fingerprint;
 - last successful refresh time;
 - last attempted refresh time;
 - consecutive refresh failures;
@@ -143,7 +143,7 @@ For [refresh](reference-sdk-refresh.html), expose:
 Those fields make the common production questions answerable:
 
 ```text
-Which workspace version is this service using?
+Which package version is this service using?
 Did it pick up the latest reviewed commit?
 Which source did this account receive?
 Is the service serving last-known-good because refresh is failing?
@@ -155,15 +155,15 @@ what this process actually loaded and selected.
 
 ## Alert On Stale Refresh
 
-Failed refreshes keep the last successfully loaded workspace active. That is
+Failed refreshes keep the last successfully loaded package active. That is
 the right runtime behavior, but it still needs an alert.
 
 An alert should fire when the service has not successfully refreshed within the
 freshness window you expect for that source. The window depends on the system.
 For some services, five minutes is too long. For others, an hour is fine.
 
-The alert should point at the workspace source and the last refresh error. The
-first operator question is usually whether the workspace is broken, the source
+The alert should point at the package source and the last refresh error. The
+first operator question is usually whether the package is broken, the source
 is unreachable, or the service no longer has access.
 
 Treat stale refresh as a control-plane incident, not as an app crash. The
@@ -172,16 +172,16 @@ longer receiving reviewed changes.
 
 ## Roll Back Through Git First
 
-When a workspace policy is wrong, the first recovery path should usually be a
-workspace revert:
+When a package policy is wrong, the first recovery path should usually be a
+package revert:
 
 ```sh
-git revert <bad-workspace-commit>
+git revert <bad-package-commit>
 git push
 ```
 
-Services following a branch source can refresh to the reverted workspace. The
-application binary did not change because the app-workspace contract is still
+Services following a branch source can refresh to the reverted package. The
+application binary did not change because the app-package contract is still
 valid; the policy was wrong.
 
 Redeploy the application when the contract is wrong:
@@ -189,10 +189,10 @@ Redeploy the application when the contract is wrong:
 - the app sent the wrong context shape;
 - the app cannot deserialize a valid selected value;
 - the app applies the selected policy incorrectly;
-- the service is configured with the wrong workspace source.
+- the service is configured with the wrong package source.
 
 That distinction matters during an incident. If policy is wrong, fix policy in
-the workspace. If the app-workspace boundary is wrong, fix the app or its
+the package. If the app-package boundary is wrong, fix the app or its
 deployment configuration.
 
 ## Keep Emergency Changes Reviewable
@@ -200,7 +200,7 @@ deployment configuration.
 Incidents sometimes need fast configuration changes. Fast should not mean
 invisible.
 
-For urgent workspace changes, keep the path short but still reviewable:
+For urgent package changes, keep the path short but still reviewable:
 
 - make one policy change per pull request when possible;
 - include the exact runtime condition and source being changed;
@@ -208,7 +208,7 @@ For urgent workspace changes, keep the path short but still reviewable:
 - get approval from the owner of the affected administrative boundary;
 - record the recovery command or revert commit in the incident notes.
 
-If your organization has a break-glass path, make it explicit in the workspace
+If your organization has a break-glass path, make it explicit in the package
 repository. The dangerous part is not speed. The dangerous part is a hidden
 side path that bypasses the same files, tests, and history everyone else uses.
 
@@ -216,14 +216,14 @@ side path that bypasses the same files, tests, and history everyone else uses.
 
 An operated rototo integration has a clean split:
 
-- the workspace owns reviewed policy;
+- the package owns reviewed policy;
 - the app owns runtime facts and applying selected policy;
 - CI owns lint, fixtures, and app contract tests;
 - observability owns selected catalog values, fingerprints, and refresh state;
 - git owns recovery history.
 
 When those responsibilities stay clear, configuration can move quickly without
-becoming mysterious. A workspace change can reach a running service through
+becoming mysterious. A package change can reach a running service through
 refresh, and the team can still answer the questions that matter: what changed,
 who reviewed it, where did it apply, what did the app select, and how do we
 recover?

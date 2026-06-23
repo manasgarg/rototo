@@ -15,7 +15,7 @@ We will model that as `rollout-config`, with one variable named
 
 ## Start With The Stable Mode
 
-Create the workspace:
+Create the package:
 
 ```sh
 rototo init rollout-config --variable search-ranking-mode
@@ -33,7 +33,7 @@ type = "string"
 default = "stable"
 ```
 
-The app can support both modes, but the workspace still selects `stable` for
+The app can support both modes, but the package still selects `stable` for
 everyone. That is the starting point I want before adding rollout policy.
 
 Lint and resolve the default:
@@ -52,7 +52,7 @@ value: "stable"
 
 Before sending traffic to a percentage bucket, I want an explicit live test
 path. Test accounts exercise the same SDK call and the same production
-workspace source as regular accounts, but they do not change the regular
+package source as regular accounts, but they do not change the regular
 account experience.
 
 Create [`rollout-config/qualifiers/test-accounts.toml`](reference-qualifiers.html):
@@ -80,7 +80,7 @@ when = 'qualifier["test-accounts"]'
 value = "hybrid"
 ```
 
-This is the first PR I would ship. The service can refresh the workspace, and
+This is the first PR I would ship. The service can refresh the package, and
 test accounts can use `hybrid` while every regular account stays on `stable`.
 
 Generate the first [request context schema](reference-context.html):
@@ -89,7 +89,7 @@ Generate the first [request context schema](reference-context.html):
 rototo init rollout-config --context
 ```
 
-On this workspace, rototo writes `rollout-config/request-contexts/request.schema.json`:
+On this package, rototo writes `rollout-config/request-contexts/request.schema.json`:
 
 ```json
 {
@@ -108,7 +108,7 @@ On this workspace, rototo writes `rollout-config/request-contexts/request.schema
 }
 ```
 
-Lint the workspace:
+Lint the package:
 
 ```sh
 rototo lint rollout-config
@@ -189,7 +189,7 @@ test-account phase, use `--force` and review the resulting diff:
 rototo init rollout-config --context --force
 ```
 
-On this workspace, the regenerated
+On this package, the regenerated
 `rollout-config/request-contexts/request.schema.json` includes both paths:
 
 ```json
@@ -210,7 +210,7 @@ On this workspace, the regenerated
 }
 ```
 
-Lint the workspace:
+Lint the package:
 
 ```sh
 rototo lint rollout-config
@@ -282,10 +282,10 @@ both ranking implementations and the metrics that compare them.
 
 :::sdk-snippet bucketed-rollout-app
 ```rust
-use rototo::{ResolveContext, Workspace};
+use rototo::{ResolveContext, Package};
 
 async fn search_ranking_mode(
-    workspace: &Workspace,
+    package: &Package,
     account_kind: &str,
     account_id: &str,
 ) -> Result<String, Box<dyn std::error::Error>> {
@@ -296,7 +296,7 @@ async fn search_ranking_mode(
         }
     }))?;
 
-    let resolution = workspace
+    let resolution = pkg
         .resolve_variable("search-ranking-mode", &context)
         .await?;
     let source = resolution.source.clone();
@@ -305,7 +305,7 @@ async fn search_ranking_mode(
     println!(
         "selected search-ranking-mode `{}` from {:?}",
         source,
-        workspace.source_fingerprint()
+        pkg.source_fingerprint()
     );
 
     Ok(mode)
@@ -314,7 +314,7 @@ async fn search_ranking_mode(
 
 ```python
 async def search_ranking_mode(
-    workspace: rototo.Workspace,
+    package: rototo.Package,
     account_kind: str,
     account_id: str,
 ) -> str:
@@ -324,7 +324,7 @@ async def search_ranking_mode(
             "id": account_id,
         },
     }
-    resolution = await workspace.resolve_variable("search-ranking-mode", context)
+    resolution = await pkg.resolve_variable("search-ranking-mode", context)
     mode = str(resolution.value)
 
     print(f"selected search-ranking-mode `{resolution.source}`")
@@ -333,11 +333,11 @@ async def search_ranking_mode(
 
 ```typescript
 async function searchRankingMode(
-  workspace: Workspace,
+  package: Package,
   accountKind: string,
   accountId: string,
 ): Promise<string> {
-  const resolution = await workspace.resolveVariable(
+  const resolution = await pkg.resolveVariable(
     "search-ranking-mode",
     { account: { kind: accountKind, id: accountId } },
   );
@@ -350,11 +350,11 @@ async function searchRankingMode(
 
 ```java
 String searchRankingMode(
-    Workspace workspace,
+    Package pkg,
     String accountKind,
     String accountId
 ) throws Exception {
-    VariableResolution resolution = workspace
+    VariableResolution resolution = pkg
         .resolveVariable(
             "search-ranking-mode",
             Map.of("account", Map.of(
@@ -372,11 +372,11 @@ String searchRankingMode(
 ```go
 func searchRankingMode(
     ctx context.Context,
-    workspace *rototo.Workspace,
+    package *rototo.Package,
     accountKind string,
     accountID string,
 ) (string, error) {
-    resolution, err := workspace.ResolveVariable(
+    resolution, err := pkg.ResolveVariable(
         ctx,
         "search-ranking-mode",
         map[string]any{
@@ -419,5 +419,5 @@ Avoid it when the decision belongs to another runtime system:
 - metrics collection;
 - high-volume mutable state.
 
-The workspace owns the rollout policy. The app owns the behavior behind each
+The package owns the rollout policy. The app owns the behavior behind each
 mode and the evidence that tells the team whether to widen, hold, or roll back.

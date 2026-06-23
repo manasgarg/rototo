@@ -112,7 +112,7 @@ export function LoginScreen() {
                             : "Connect GitHub"}
                     </h1>
                     <p className="hint">
-                        The rototo console reads workspaces from the GitHub
+                        The rototo console reads packages from the GitHub
                         repositories your account can already access. Edits land
                         on branches and ship as pull requests — nothing merges
                         without review.
@@ -191,7 +191,7 @@ export function LoginScreen() {
                                         <span>
                                             <KeyRound aria-hidden size={13} />{" "}
                                             <span className="mono">
-                                                ROTOTO_WORKSPACE_TOKEN=&lt;token&gt;
+                                                ROTOTO_PACKAGE_TOKEN=&lt;token&gt;
                                                 rototo console
                                             </span>
                                         </span>

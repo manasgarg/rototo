@@ -8,7 +8,7 @@ data-processing steps.
 That logic can grow quietly in app code. One branch handles the account plan,
 another handles the operating region, and another handles a test account path
 for trying the new checklist in production. I prefer putting the reviewed
-policy in the workspace and letting the app render whatever step IDs rototo
+policy in the package and letting the app render whatever step IDs rototo
 selects.
 
 We will model that as `onboarding-config`, with one variable named
@@ -19,7 +19,7 @@ test path that only affects accounts marked for testing.
 
 ## Start With The Default Checklist
 
-Create the workspace:
+Create the package:
 
 ```sh
 rototo init onboarding-config --variable onboarding-steps
@@ -38,7 +38,7 @@ default = ["create_project", "invite_teammate", "configure_profile"]
 ```
 
 The values are step IDs, not display text. That is an important boundary. The
-workspace selects the reviewed checklist; the app still owns labels, layout,
+package selects the reviewed checklist; the app still owns labels, layout,
 completion state, and per-user progress.
 
 Lint and resolve the default:
@@ -156,7 +156,7 @@ value = ["create_project", "invite_teammate", "configure_sso", "add_billing_cont
 ```
 
 This is the first PR I would ship. The production service can refresh the
-workspace, and test accounts exercise the same SDK resolution path as everyone
+package, and test accounts exercise the same SDK resolution path as everyone
 else, including the EU-specific variant. Regular enterprise accounts still get
 the default checklist until the team is ready to widen the rule.
 
@@ -170,7 +170,7 @@ and `account.region`. Generate the
 rototo init onboarding-config --context
 ```
 
-On this workspace, rototo writes
+On this package, rototo writes
 `onboarding-config/request-contexts/request.schema.json`:
 
 ```json
@@ -192,7 +192,7 @@ On this workspace, rototo writes
 }
 ```
 
-Lint the workspace:
+Lint the package:
 
 ```sh
 rototo lint onboarding-config
@@ -256,7 +256,7 @@ rototo resolve onboarding-config \
 source: literal
 ```
 
-That is the live test loop: the workspace is deployed, the application resolves
+That is the live test loop: the package is deployed, the application resolves
 real runtime context, and only accounts marked for testing see the new
 checklist.
 
@@ -329,10 +329,10 @@ and map each step ID to app-owned content and completion state.
 
 :::sdk-snippet onboarding-checklist-app
 ```rust
-use rototo::{ResolveContext, Workspace};
+use rototo::{ResolveContext, Package};
 
 async fn onboarding_steps_for_account(
-    workspace: &Workspace,
+    package: &Package,
     kind: &str,
     plan: &str,
     region: &str,
@@ -345,7 +345,7 @@ async fn onboarding_steps_for_account(
         }
     }))?;
 
-    let resolution = workspace
+    let resolution = pkg
         .resolve_variable("onboarding-steps", &context)
         .await?;
     let source = resolution.source.clone();
@@ -354,7 +354,7 @@ async fn onboarding_steps_for_account(
     println!(
         "selected onboarding-steps `{}` from {:?}",
         source,
-        workspace.source_fingerprint()
+        pkg.source_fingerprint()
     );
 
     Ok(steps)
@@ -363,7 +363,7 @@ async fn onboarding_steps_for_account(
 
 ```python
 async def onboarding_steps_for_account(
-    workspace: rototo.Workspace,
+    package: rototo.Package,
     kind: str,
     plan: str,
     region: str,
@@ -375,7 +375,7 @@ async def onboarding_steps_for_account(
             "region": region,
         },
     }
-    resolution = await workspace.resolve_variable("onboarding-steps", context)
+    resolution = await pkg.resolve_variable("onboarding-steps", context)
     steps = list(resolution.value)
 
     print(f"selected onboarding-steps `{resolution.source}`")
@@ -384,7 +384,7 @@ async def onboarding_steps_for_account(
 
 ```typescript
 async function onboardingStepsForAccount(
-  workspace: Workspace,
+  package: Package,
   kind: string,
   plan: string,
   region: string,
@@ -392,7 +392,7 @@ async function onboardingStepsForAccount(
   const context = {
     account: { kind, plan, region },
   };
-  const resolution = await workspace.resolveVariable(
+  const resolution = await pkg.resolveVariable(
     "onboarding-steps",
     context,
   );
@@ -404,12 +404,12 @@ async function onboardingStepsForAccount(
 
 ```java
 List<String> onboardingStepsForAccount(
-    Workspace workspace,
+    Package pkg,
     String kind,
     String plan,
     String region
 ) throws Exception {
-    VariableResolution resolution = workspace
+    VariableResolution resolution = pkg
         .resolveVariable(
             "onboarding-steps",
             Map.of("account", Map.of(
@@ -430,12 +430,12 @@ List<String> onboardingStepsForAccount(
 ```go
 func onboardingStepsForAccount(
     ctx context.Context,
-    workspace *rototo.Workspace,
+    package *rototo.Package,
     kind string,
     plan string,
     region string,
 ) ([]string, error) {
-    resolution, err := workspace.ResolveVariable(
+    resolution, err := pkg.ResolveVariable(
         ctx,
         "onboarding-steps",
         map[string]any{
@@ -470,7 +470,7 @@ func onboardingStepsForAccount(
 Rototo selects a reviewed list of step IDs. The app still owns the step labels,
 the UI, completion state, and whether a user has already finished a step.
 
-## Keep State Out Of The Workspace
+## Keep State Out Of The Package
 
 This pattern fits rototo when the checklist policy changes through review and
 should be explainable at runtime.
@@ -490,5 +490,5 @@ Keep these out of rototo:
 - analytics events;
 - rollout assignments owned by a separate system.
 
-The workspace should answer which checklist applies. The application should own
+The package should answer which checklist applies. The application should own
 what each user has done with that checklist.

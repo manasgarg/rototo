@@ -10,7 +10,7 @@ qualifiers directly for debugging.
 
 Qualifier resolution needs:
 
-- a [loaded, lint-clean workspace](reference-sdk-loading.html);
+- a [loaded, lint-clean package](reference-sdk-loading.html);
 - a qualifier id;
 - a [JSON object context](reference-context.html).
 
@@ -26,27 +26,27 @@ SDK:
 
 :::sdk-snippet qualifier-resolution-sdk
 ```rust
-let result = workspace
+let result = pkg
     .resolve_qualifier("paid-account", &context)
     .await?;
 ```
 
 ```python
-result = await workspace.resolve_qualifier("paid-account", context)
+result = await pkg.resolve_qualifier("paid-account", context)
 ```
 
 ```typescript
-const result = await workspace.resolveQualifier("paid-account", context);
+const result = await pkg.resolveQualifier("paid-account", context);
 ```
 
 ```java
-boolean result = workspace
+boolean result = pkg
     .resolveQualifier("paid-account", context)
     .get();
 ```
 
 ```go
-result, err := workspace.ResolveQualifier(
+result, err := pkg.ResolveQualifier(
     ctx,
     "paid-account",
     resolveContext,
@@ -104,7 +104,7 @@ per-subexpression evaluation details.
 
 ## Error Boundaries
 
-Qualifier resolution assumes lint has already validated workspace structure and
+Qualifier resolution assumes lint has already validated package structure and
 references. Runtime errors are still possible when the context does not satisfy
 what the qualifier needs.
 

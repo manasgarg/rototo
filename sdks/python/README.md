@@ -3,7 +3,7 @@
 # rototo Python SDK
 
 The Python SDK is a thin native wrapper around the Rust SDK. Python code gets
-an idiomatic async API while rototo keeps workspace loading, linting, refresh,
+an idiomatic async API while rototo keeps package loading, linting, refresh,
 and resolution behavior in the Rust core.
 
 ## Install
@@ -25,23 +25,23 @@ The rototo release version stays SemVer, for example `0.1.0-alpha.5`. Python
 packaging tools may display the equivalent PEP 440 spelling `0.1.0a5` for the
 distribution.
 
-## Load A Workspace
+## Load A Package
 
 ```python
 import rototo
 
-workspace = await rototo.Workspace.load("examples/basic")
+pkg = await rototo.Package.load("examples/basic")
 ```
 
-`Workspace.load` accepts the same
-[source strings](https://docs.rototo.dev/reference-workspace-sources.html) as the CLI. It
-[lints](https://docs.rototo.dev/reference-lint-overview.html) the workspace and rejects lint failures
+`Package.load` accepts the same
+[source strings](https://docs.rototo.dev/reference-package-sources.html) as the CLI. It
+[lints](https://docs.rototo.dev/reference-lint-overview.html) the package and rejects lint failures
 before returning.
 
 ## Resolve A Variable
 
 ```python
-resolution = await workspace.resolve_variable(
+resolution = await pkg.resolve_variable(
     "premium-message",
     {"user": {"tier": "premium"}},
 )
@@ -61,7 +61,7 @@ print(resolution.source)
 ## Resolve A Qualifier
 
 ```python
-matches = await workspace.resolve_qualifier(
+matches = await pkg.resolve_qualifier(
     "premium-users",
     {"user": {"tier": "premium"}},
 )
@@ -78,7 +78,7 @@ request context schema by default. Skip validation for one call when a tool
 needs to evaluate partial context:
 
 ```python
-resolution = await workspace.resolve_variable(
+resolution = await pkg.resolve_variable(
     "premium-message",
     context,
     validate_context=False,
@@ -90,29 +90,29 @@ The context still must be a JSON object.
 ## Inspect And Lint
 
 ```python
-workspace = await rototo.Workspace.inspect("examples/basic")
-lint = await workspace.lint()
+pkg = await rototo.Package.inspect("examples/basic")
+lint = await pkg.lint()
 ```
 
-Inspection is for tools. A workspace loaded through `inspect` cannot
+Inspection is for tools. A package loaded through `inspect` cannot
 [resolve variables or qualifiers](https://docs.rototo.dev/reference-sdk-resolution.html) because it
 does not compile the runtime model.
 
-## Refreshing Workspace
+## Refreshing Package
 
 ```python
-workspace = await rototo.RefreshingWorkspace.load(
+pkg = await rototo.RefreshingPackage.load(
     source,
     period_seconds=30,
 )
 
-resolution = await workspace.resolve_variable("premium-message", context)
-status = await workspace.status()
-await workspace.shutdown()
+resolution = await pkg.resolve_variable("premium-message", context)
+status = await pkg.status()
+await pkg.shutdown()
 ```
 
-[`RefreshingWorkspace`](https://docs.rototo.dev/reference-sdk-refresh.html) keeps serving the last
-successfully loaded workspace when refresh fails. `status` returns a
+[`RefreshingPackage`](https://docs.rototo.dev/reference-sdk-refresh.html) keeps serving the last
+successfully loaded package when refresh fails. `status` returns a
 `RefreshStatus` dataclass with fingerprint, success, attempt, failure, error,
 refreshing, and immutable fields.
 
@@ -122,7 +122,7 @@ Rust `RototoError` values become `rototo.RototoError` in Python:
 
 ```python
 try:
-    await workspace.resolve_variable("missing", {})
+    await pkg.resolve_variable("missing", {})
 except rototo.RototoError as error:
     print(error)
 ```
@@ -134,8 +134,8 @@ Invalid Python option values, such as an unknown lint mode, raise Python
 
 | Type | Purpose |
 | --- | --- |
-| `Workspace` | Loaded workspace handle. |
-| `RefreshingWorkspace` | Refreshing workspace handle for services. |
+| `Package` | Loaded package handle. |
+| `RefreshingPackage` | Refreshing package handle for services. |
 | `VariableResolution` | Selected variable value. |
 | `RefreshStatus` | Refresh state snapshot. |
 | `RototoError` | Error raised for rototo failures. |

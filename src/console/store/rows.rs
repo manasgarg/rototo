@@ -1,7 +1,7 @@
 use std::path::Path;
 
-use super::source_trees::workspace_slug;
-use super::types::{ActiveBranchRecord, ActiveBranchStatus, SourceTreeRecord, WorkspaceRecord};
+use super::source_trees::package_slug;
+use super::types::{ActiveBranchRecord, ActiveBranchStatus, PackageRecord, SourceTreeRecord};
 
 pub(super) fn source_tree_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<SourceTreeRecord> {
     let kind = {
@@ -22,23 +22,23 @@ pub(super) fn source_tree_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<
     })
 }
 
-pub(super) fn workspace_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<WorkspaceRecord> {
-    workspace_from_row_at(row, 0)
+pub(super) fn package_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<PackageRecord> {
+    package_from_row_at(row, 0)
 }
 
-pub(super) fn workspace_from_row_at(
+pub(super) fn package_from_row_at(
     row: &rusqlite::Row<'_>,
     offset: usize,
-) -> rusqlite::Result<WorkspaceRecord> {
+) -> rusqlite::Result<PackageRecord> {
     let source_tree_label: String = row.get(offset + 4)?;
     let path: String = row.get(offset + 2)?;
     let source: String = row.get(offset + 5)?;
-    Ok(WorkspaceRecord {
+    Ok(PackageRecord {
         id: row.get(offset)?,
-        slug: workspace_slug(&source_tree_label, &path),
+        slug: package_slug(&source_tree_label, &path),
         source_tree_id: row.get(offset + 1)?,
         source_tree_label,
-        display_path: workspace_display_path(&path, &source),
+        display_path: package_display_path(&path, &source),
         path,
         revision: row.get(offset + 3)?,
         source,
@@ -46,7 +46,7 @@ pub(super) fn workspace_from_row_at(
     })
 }
 
-fn workspace_display_path(path: &str, source: &str) -> String {
+fn package_display_path(path: &str, source: &str) -> String {
     if path != "." {
         return path.to_owned();
     }
@@ -79,7 +79,7 @@ pub(super) fn active_branch_from_row(
         pr_state: row.get(8)?,
         pr_merged_at: row.get(9)?,
         pr_synced_at: row.get(10)?,
-        last_selected_workspace_path: row.get(11)?,
+        last_selected_package_path: row.get(11)?,
         last_seen_commit: row.get(12)?,
         status: match status.as_str() {
             "recent" => ActiveBranchStatus::Recent,

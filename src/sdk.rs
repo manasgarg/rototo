@@ -8,47 +8,47 @@ use tokio::task::JoinHandle;
 
 use crate::error::{Result, RototoError};
 use crate::lint::{
-    LintInput, RuntimeWorkspace, compile_runtime_workspace_from_snapshot, lint_workspace_snapshot,
+    LintInput, RuntimePackage, compile_runtime_package_from_snapshot, lint_package_snapshot,
 };
-use crate::model::{VariableResolution, WorkspaceInspection, WorkspaceLint};
+use crate::model::{PackageInspection, PackageLint, VariableResolution};
+use crate::package::inspect_package;
 use crate::source::{
-    SourceAuth, SourceFingerprint, SourceLayer, SourceOptions, SourceProbe, StagedWorkspace,
-    load_workspace_source, load_workspace_source_snapshot, probe_workspace_source,
+    SourceAuth, SourceFingerprint, SourceLayer, SourceOptions, SourceProbe, StagedPackage,
+    load_package_source, load_package_source_snapshot, probe_package_source,
 };
-use crate::workspace::inspect_workspace;
 
 #[derive(Debug)]
-pub struct Workspace {
-    staged: StagedWorkspace,
-    inspection: WorkspaceInspection,
-    runtime: Option<RuntimeWorkspace>,
+pub struct Package {
+    staged: StagedPackage,
+    inspection: PackageInspection,
+    runtime: Option<RuntimePackage>,
     source_fingerprint: Option<SourceFingerprint>,
     immutable_source: bool,
     source_layers: Vec<SourceLayer>,
 }
 
-impl Workspace {
+impl Package {
     pub async fn load(source: impl AsRef<str>) -> Result<Self> {
         Self::load_with_options(source, LoadOptions::default()).await
     }
 
     pub async fn load_with_options(source: impl AsRef<str>, options: LoadOptions) -> Result<Self> {
-        let mut workspace = Self::stage_and_inspect(source, options.source()).await?;
+        let mut package = Self::stage_and_inspect(source, options.source()).await?;
         if options.lint() == LintMode::Deny {
-            workspace.compile_runtime_after_lint().await?;
+            package.compile_runtime_after_lint().await?;
         }
-        Ok(workspace)
+        Ok(package)
     }
 
     pub(crate) async fn load_snapshot_with_options(
         source: impl AsRef<str>,
         options: LoadOptions,
     ) -> Result<Self> {
-        let mut workspace = Self::stage_snapshot_and_inspect(source, options.source()).await?;
+        let mut package = Self::stage_snapshot_and_inspect(source, options.source()).await?;
         if options.lint() == LintMode::Deny {
-            workspace.compile_runtime_after_lint().await?;
+            package.compile_runtime_after_lint().await?;
         }
-        Ok(workspace)
+        Ok(package)
     }
 
     pub async fn inspect(source: impl AsRef<str>) -> Result<Self> {
@@ -63,7 +63,7 @@ impl Workspace {
     }
 
     async fn stage_and_inspect(source: impl AsRef<str>, options: &SourceOptions) -> Result<Self> {
-        let loaded = load_workspace_source(source, options).await?;
+        let loaded = load_package_source(source, options).await?;
         Self::inspect_loaded(loaded).await
     }
 
@@ -71,18 +71,18 @@ impl Workspace {
         source: impl AsRef<str>,
         options: &SourceOptions,
     ) -> Result<Self> {
-        let loaded = load_workspace_source_snapshot(source, options).await?;
+        let loaded = load_package_source_snapshot(source, options).await?;
         Self::inspect_loaded(loaded).await
     }
 
-    async fn inspect_loaded(loaded: crate::source::LoadedWorkspaceSource) -> Result<Self> {
+    async fn inspect_loaded(loaded: crate::source::LoadedPackageSource) -> Result<Self> {
         let source_fingerprint = loaded.fingerprint().cloned();
         let immutable_source = loaded.immutable();
         let source_layers = loaded.layers().to_vec();
         let staged = loaded.into_staged();
         let root = staged.path().to_path_buf();
 
-        let inspection = inspect_workspace(&root).await?;
+        let inspection = inspect_package(&root).await?;
 
         Ok(Self {
             staged,
@@ -95,14 +95,14 @@ impl Workspace {
     }
 
     async fn compile_runtime_after_lint(&mut self) -> Result<()> {
-        let snapshot = lint_workspace_snapshot(LintInput::new(self.root().to_path_buf())).await?;
+        let snapshot = lint_package_snapshot(LintInput::new(self.root().to_path_buf())).await?;
         if snapshot.lint.has_errors() {
             return Err(RototoError::new(format!(
-                "workspace lint failed with {} diagnostic(s)",
+                "package lint failed with {} diagnostic(s)",
                 snapshot.lint.diagnostics.len()
             )));
         }
-        self.runtime = Some(compile_runtime_workspace_from_snapshot(&snapshot)?);
+        self.runtime = Some(compile_runtime_package_from_snapshot(&snapshot)?);
         Ok(())
     }
 
@@ -110,7 +110,7 @@ impl Workspace {
         self.staged.path()
     }
 
-    pub fn inspection(&self) -> &WorkspaceInspection {
+    pub fn inspection(&self) -> &PackageInspection {
         &self.inspection
     }
 
@@ -133,15 +133,15 @@ impl Workspace {
         &self.source_layers
     }
 
-    pub async fn lint(&self) -> Result<WorkspaceLint> {
-        crate::lint_workspace(self.root()).await
+    pub async fn lint(&self) -> Result<PackageLint> {
+        crate::lint_package(self.root()).await
     }
 
-    /// The semantic model of this workspace: entities, references, and source
+    /// The semantic model of this package: entities, references, and source
     /// ranges as rototo parses the staged files. Tools should consume this
-    /// instead of parsing workspace files themselves.
-    pub async fn semantic_model(&self) -> Result<crate::lint::WorkspaceSemanticModel> {
-        crate::lint::workspace_semantic_model(self.root()).await
+    /// instead of parsing package files themselves.
+    pub async fn semantic_model(&self) -> Result<crate::lint::PackageSemanticModel> {
+        crate::lint::package_semantic_model(self.root()).await
     }
 
     pub async fn validate_context(&self, context: &ResolveContext) -> Result<()> {
@@ -194,16 +194,16 @@ impl Workspace {
             .await
     }
 
-    fn runtime(&self) -> Result<&RuntimeWorkspace> {
+    fn runtime(&self) -> Result<&RuntimePackage> {
         self.runtime.as_ref().ok_or_else(|| {
             RototoError::new(
-                "workspace was loaded without a runtime model; use Workspace::load with lint enabled",
+                "package was loaded without a runtime model; use Package::load with lint enabled",
             )
         })
     }
 }
 
-pub struct RefreshingWorkspace {
+pub struct RefreshingPackage {
     source: String,
     load_options: LoadOptions,
     refresh_options: RefreshOptions,
@@ -214,12 +214,12 @@ pub struct RefreshingWorkspace {
 
 #[derive(Clone)]
 struct RefreshState {
-    current: Arc<RwLock<Arc<Workspace>>>,
+    current: Arc<RwLock<Arc<Package>>>,
     status: Arc<RwLock<RefreshStatus>>,
     refresh_lock: Arc<Mutex<()>>,
 }
 
-impl RefreshingWorkspace {
+impl RefreshingPackage {
     pub async fn load(source: impl AsRef<str>, refresh: RefreshOptions) -> Result<Self> {
         Self::load_with_options(source, LoadOptions::default(), refresh).await
     }
@@ -230,11 +230,11 @@ impl RefreshingWorkspace {
         refresh_options: RefreshOptions,
     ) -> Result<Self> {
         let source = source.as_ref().to_owned();
-        let workspace =
-            Arc::new(Workspace::load_snapshot_with_options(&source, load_options.clone()).await?);
-        let immutable = workspace.immutable_source();
+        let package =
+            Arc::new(Package::load_snapshot_with_options(&source, load_options.clone()).await?);
+        let immutable = package.immutable_source();
         let status = Arc::new(RwLock::new(RefreshStatus {
-            current_fingerprint: workspace.source_fingerprint().cloned(),
+            current_fingerprint: package.source_fingerprint().cloned(),
             last_success: Some(SystemTime::now()),
             last_attempt: None,
             consecutive_failures: 0,
@@ -245,11 +245,11 @@ impl RefreshingWorkspace {
         if immutable && refresh_options.period().is_some() {
             tracing::warn!(
                 source = %redacted_source(&source),
-                "workspace source is pinned to an immutable commit; periodic refresh is disabled"
+                "package source is pinned to an immutable commit; periodic refresh is disabled"
             );
         }
         let state = RefreshState {
-            current: Arc::new(RwLock::new(workspace)),
+            current: Arc::new(RwLock::new(package)),
             status: status.clone(),
             refresh_lock: Arc::new(Mutex::new(())),
         };
@@ -277,7 +277,7 @@ impl RefreshingWorkspace {
         })
     }
 
-    pub async fn current(&self) -> Arc<Workspace> {
+    pub async fn current(&self) -> Arc<Package> {
         self.state.current.read().await.clone()
     }
 
@@ -347,7 +347,7 @@ impl RefreshingWorkspace {
     }
 }
 
-impl Drop for RefreshingWorkspace {
+impl Drop for RefreshingPackage {
     fn drop(&mut self) {
         let _ = self.shutdown.send(true);
         if let Some(task) = &self.task {
@@ -469,7 +469,7 @@ fn spawn_refresh_loop(
                     source = %redacted_source(&source),
                     error = %err,
                     backoff_ms = delay.as_millis(),
-                    "workspace refresh failed; continuing to serve last known good workspace"
+                    "package refresh failed; continuing to serve last known good package"
                 );
                 tokio::select! {
                     _ = tokio::time::sleep(delay) => {}
@@ -516,17 +516,17 @@ async fn refresh_once_inner(
     let previous = current.source_fingerprint().cloned();
     let layers = current.source_layers().to_vec();
     drop(current);
-    match probe_workspace_source_graph(source, load_options.source(), previous.as_ref(), &layers)
+    match probe_package_source_graph(source, load_options.source(), previous.as_ref(), &layers)
         .await?
     {
         SourceProbe::Unchanged => {
-            tracing::debug!(source = %redacted_source(source), "workspace source is unchanged");
+            tracing::debug!(source = %redacted_source(source), "package source is unchanged");
             return Ok(RefreshOutcome::Unchanged);
         }
         SourceProbe::ImmutablePinned(fingerprint) => {
             tracing::warn!(
                 source = %redacted_source(source),
-                "workspace source is pinned to an immutable commit; periodic refresh is disabled"
+                "package source is pinned to an immutable commit; periodic refresh is disabled"
             );
             let mut status = state.status.write().await;
             status.current_fingerprint = Some(fingerprint);
@@ -534,23 +534,23 @@ async fn refresh_once_inner(
             return Ok(RefreshOutcome::Immutable);
         }
         SourceProbe::Changed(_) => {
-            tracing::info!(source = %redacted_source(source), "workspace source changed");
+            tracing::info!(source = %redacted_source(source), "package source changed");
         }
         SourceProbe::Unknown => {
             tracing::debug!(
                 source = %redacted_source(source),
-                "workspace source change status is unknown; attempting refresh"
+                "package source change status is unknown; attempting refresh"
             );
         }
     }
 
-    let workspace =
-        Arc::new(Workspace::load_snapshot_with_options(source, load_options.clone()).await?);
-    let fingerprint = workspace.source_fingerprint().cloned();
-    let immutable = workspace.immutable_source();
+    let package =
+        Arc::new(Package::load_snapshot_with_options(source, load_options.clone()).await?);
+    let fingerprint = package.source_fingerprint().cloned();
+    let immutable = package.immutable_source();
     {
         let mut current = state.current.write().await;
-        *current = workspace;
+        *current = package;
     }
     {
         let mut status = state.status.write().await;
@@ -560,22 +560,22 @@ async fn refresh_once_inner(
         status.last_error = None;
         status.immutable = immutable;
     }
-    tracing::info!(source = %redacted_source(source), "workspace refresh succeeded");
+    tracing::info!(source = %redacted_source(source), "package refresh succeeded");
     Ok(RefreshOutcome::Refreshed)
 }
 
-async fn probe_workspace_source_graph(
+async fn probe_package_source_graph(
     source: &str,
     options: &SourceOptions,
     previous: Option<&SourceFingerprint>,
     layers: &[SourceLayer],
 ) -> Result<SourceProbe> {
     if layers.len() <= 1 {
-        return probe_workspace_source(source, options, previous).await;
+        return probe_package_source(source, options, previous).await;
     }
 
     for layer in layers {
-        match probe_workspace_source(layer.source(), options, layer.fingerprint()).await? {
+        match probe_package_source(layer.source(), options, layer.fingerprint()).await? {
             SourceProbe::Unchanged => {}
             SourceProbe::ImmutablePinned(_) if layer.immutable() => {}
             SourceProbe::ImmutablePinned(_) => return Ok(SourceProbe::Unchanged),

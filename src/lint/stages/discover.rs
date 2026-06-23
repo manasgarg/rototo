@@ -5,7 +5,7 @@ use crate::diagnostics::{
 };
 use crate::error::Result;
 
-use super::super::WORKSPACE_MANIFEST;
+use super::super::PACKAGE_MANIFEST;
 use super::super::engine::LintContext;
 use super::super::source::{DocumentCollection, DocumentKind};
 
@@ -14,10 +14,10 @@ pub(super) async fn run(ctx: &mut LintContext) -> Result<()> {
         Ok(root) => root,
         Err(err) => {
             ctx.diagnostics.push(LintDiagnostic::rototo(
-                RototoRuleId::WorkspaceNotFound,
+                RototoRuleId::PackageNotFound,
                 LintStage::Discover,
-                SemanticEntity::Workspace,
-                DiagnosticLocation::workspace_root(ctx.input.root.display().to_string()),
+                SemanticEntity::Package,
+                DiagnosticLocation::package_root(ctx.input.root.display().to_string()),
                 err.to_string(),
             ));
             return Ok(());
@@ -28,10 +28,10 @@ pub(super) async fn run(ctx: &mut LintContext) -> Result<()> {
         Ok(metadata) => metadata,
         Err(err) => {
             ctx.diagnostics.push(LintDiagnostic::rototo(
-                RototoRuleId::WorkspaceNotFound,
+                RototoRuleId::PackageNotFound,
                 LintStage::Discover,
-                SemanticEntity::Workspace,
-                DiagnosticLocation::workspace_root(root.display().to_string()),
+                SemanticEntity::Package,
+                DiagnosticLocation::package_root(root.display().to_string()),
                 err.to_string(),
             ));
             return Ok(());
@@ -40,32 +40,32 @@ pub(super) async fn run(ctx: &mut LintContext) -> Result<()> {
 
     if !metadata.is_dir() {
         ctx.diagnostics.push(LintDiagnostic::rototo(
-            RototoRuleId::WorkspaceNotFound,
+            RototoRuleId::PackageNotFound,
             LintStage::Discover,
-            SemanticEntity::Workspace,
-            DiagnosticLocation::workspace_root(root.display().to_string()),
-            "workspace path is not a directory",
+            SemanticEntity::Package,
+            DiagnosticLocation::package_root(root.display().to_string()),
+            "package path is not a directory",
         ));
         return Ok(());
     }
 
     ctx.source.root = root;
-    let manifest_path = PathBuf::from(WORKSPACE_MANIFEST);
+    let manifest_path = PathBuf::from(PACKAGE_MANIFEST);
     if tokio::fs::metadata(ctx.source.root.join(&manifest_path))
         .await
         .is_ok_and(|metadata| metadata.is_file())
-        || ctx.input.overlays.contains_key(WORKSPACE_MANIFEST)
+        || ctx.input.overlays.contains_key(PACKAGE_MANIFEST)
     {
         ctx.source
             .add_disk_document(manifest_path, DocumentKind::Manifest)
             .await;
     } else {
         ctx.diagnostics.push(LintDiagnostic::rototo(
-            RototoRuleId::WorkspaceManifestMissing,
+            RototoRuleId::PackageManifestMissing,
             LintStage::Discover,
-            SemanticEntity::Workspace,
-            DiagnosticLocation::workspace_root(ctx.source.root.display().to_string()),
-            "workspace manifest is missing",
+            SemanticEntity::Package,
+            DiagnosticLocation::package_root(ctx.source.root.display().to_string()),
+            "package manifest is missing",
         ));
         return Ok(());
     }

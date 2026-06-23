@@ -10,12 +10,12 @@ export function BranchNameEditor({
     branch,
     disabled,
     branchId,
-    workspaceId,
+    packageId,
 }: {
     branch: string;
     disabled?: boolean;
     branchId: string;
-    workspaceId: string;
+    packageId: string;
 }) {
     const router = useRouter();
     const [value, setValue] = useState(branch);
@@ -28,7 +28,7 @@ export function BranchNameEditor({
         setNote(null);
         try {
             const response = await apiFetch(
-                `/api/workspaces/${workspaceId}/branches/${branchId}`,
+                `/api/packages/${packageId}/branches/${branchId}`,
                 {
                     method: "PATCH",
                     headers: { "Content-Type": "application/json" },

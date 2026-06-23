@@ -10,6 +10,6 @@ pub use self::auth_flow::{DevicePoll, exchange_github_code, poll_device_flow, st
 pub use self::client::{GitHubClient, RefComparison};
 pub use self::error::{GitHubError, GitHubResult, github_error_message};
 pub use self::source::{
-    GitHubRepoIdentity, parse_repo_spec, repo_identity_from_source, stable_workspace_key,
-    workspace_repo_path,
+    GitHubRepoIdentity, package_repo_path, parse_repo_spec, repo_identity_from_source,
+    stable_package_key,
 };

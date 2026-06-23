@@ -11,33 +11,33 @@ pub mod lint;
 pub mod lsp;
 pub mod lua_lint;
 pub mod model;
+pub mod package;
 mod predicate;
 pub mod resolve;
 pub mod sdk;
 pub mod source;
 pub mod testing;
-pub mod workspace;
 
 pub use diagnostics_catalog::{
-    diagnostic_for_rule, diagnostics_catalog, diagnostics_catalog_for_workspace,
+    diagnostic_for_rule, diagnostics_catalog, diagnostics_catalog_for_package,
 };
 pub use error::{Result, RototoError};
-pub use inspect::inspect_workspace_report;
-pub use lint::{diff_workspaces, lint_catalog, lint_qualifier, lint_variable, lint_workspace};
+pub use inspect::inspect_package_report;
+pub use lint::{diff_packages, lint_catalog, lint_package, lint_qualifier, lint_variable};
+pub use package::{
+    find_package_root, inspect_package, list_catalogs, list_qualifiers, list_variables,
+    read_catalog, read_catalogs, read_qualifier, read_qualifiers, read_variable, read_variables,
+};
 pub use resolve::{
     resolve_qualifier, resolve_qualifiers, resolve_variable, resolve_variables,
     trace_qualifier_resolution, trace_qualifier_resolutions, trace_variable_resolution,
     trace_variable_resolutions,
 };
 pub use sdk::{
-    LintMode, LoadOptions, RefreshOptions, RefreshOutcome, RefreshStatus, RefreshingWorkspace,
-    ResolveContext, ResolveOptions, Workspace,
+    LintMode, LoadOptions, Package, RefreshOptions, RefreshOutcome, RefreshStatus,
+    RefreshingPackage, ResolveContext, ResolveOptions,
 };
 pub use source::{
-    SourceAuth, SourceFingerprint, SourceLayer, SourceOptions, SourceProbe, StagedWorkspace,
-    probe_workspace_source, stage_workspace_source,
-};
-pub use workspace::{
-    find_workspace_root, inspect_workspace, list_catalogs, list_qualifiers, list_variables,
-    read_catalog, read_catalogs, read_qualifier, read_qualifiers, read_variable, read_variables,
+    SourceAuth, SourceFingerprint, SourceLayer, SourceOptions, SourceProbe, StagedPackage,
+    probe_package_source, stage_package_source,
 };

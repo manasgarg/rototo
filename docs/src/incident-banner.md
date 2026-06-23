@@ -8,7 +8,7 @@ a small entry the app needs to trust before it renders it.
 
 An incident banner is a good example. During a regional support incident, the
 service may need to show a banner to affected accounts. A malformed banner is
-user-visible, so I want the workspace to validate the entry before the app
+user-visible, so I want the package to validate the entry before the app
 ever loads it.
 
 In this example, rototo owns the reviewed decision and selected payload. The
@@ -17,7 +17,7 @@ render a banner at all.
 
 ## Start With A Catalog-Backed Variable
 
-Create a workspace with a [variable](reference-variables.html) and a
+Create a package with a [variable](reference-variables.html) and a
 [catalog](reference-catalogs.html) template:
 
 ```sh
@@ -112,7 +112,7 @@ rototo lint communications-config
 rototo resolve communications-config --variable support-banner
 ```
 
-With no runtime context, the workspace selects `none`:
+With no runtime context, the package selects `none`:
 
 ```text
 source: support-banner:none
@@ -165,7 +165,7 @@ The qualifier introduced a context path, `account.region`. Generate the
 rototo init communications-config --context
 ```
 
-On this workspace, rototo writes
+On this package, rototo writes
 `communications-config/request-contexts/request.schema.json`:
 
 ```json
@@ -240,7 +240,7 @@ covered in [Application Integration](application-integration.html).
 ```rust
 use serde::Deserialize;
 
-use rototo::{ResolveContext, Workspace};
+use rototo::{ResolveContext, Package};
 
 #[derive(Debug, Deserialize)]
 struct SupportBanner {
@@ -252,7 +252,7 @@ struct SupportBanner {
 }
 
 async fn support_banner_for_request(
-    workspace: &Workspace,
+    package: &Package,
     account_region: &str,
 ) -> Result<Option<SupportBanner>, Box<dyn std::error::Error>> {
     let context = ResolveContext::from_json(serde_json::json!({
@@ -261,7 +261,7 @@ async fn support_banner_for_request(
         }
     }))?;
 
-    let resolution = workspace
+    let resolution = pkg
         .resolve_variable("support-banner", &context)
         .await?;
     let source = resolution.source.clone();
@@ -270,7 +270,7 @@ async fn support_banner_for_request(
     println!(
         "selected support-banner `{}` from {:?}",
         source,
-        workspace.source_fingerprint()
+        pkg.source_fingerprint()
     );
 
     if banner.enabled {
@@ -295,10 +295,10 @@ class SupportBanner:
 
 
 async def support_banner_for_request(
-    workspace: rototo.Workspace,
+    package: rototo.Package,
     account_region: str,
 ) -> SupportBanner | None:
-    resolution = await workspace.resolve_variable(
+    resolution = await pkg.resolve_variable(
         "support-banner",
         {"account": {"region": account_region}},
     )
@@ -318,10 +318,10 @@ type SupportBanner = {
 };
 
 async function supportBannerForRequest(
-  workspace: Workspace,
+  package: Package,
   accountRegion: string,
 ): Promise<SupportBanner | undefined> {
-  const resolution = await workspace.resolveVariable(
+  const resolution = await pkg.resolveVariable(
     "support-banner",
     { account: { region: accountRegion } },
   );
@@ -342,10 +342,10 @@ record SupportBanner(
 ) {}
 
 Optional<SupportBanner> supportBannerForRequest(
-    Workspace workspace,
+    Package pkg,
     String accountRegion
 ) throws Exception {
-    VariableResolution resolution = workspace
+    VariableResolution resolution = pkg
         .resolveVariable(
             "support-banner",
             Map.of("account", Map.of("region", accountRegion))
@@ -378,10 +378,10 @@ type SupportBanner struct {
 
 func supportBannerForRequest(
     ctx context.Context,
-    workspace *rototo.Workspace,
+    package *rototo.Package,
     accountRegion string,
 ) (*SupportBanner, error) {
-    resolution, err := workspace.ResolveVariable(
+    resolution, err := pkg.ResolveVariable(
         ctx,
         "support-banner",
         map[string]any{"account": map[string]any{"region": accountRegion}},
@@ -410,10 +410,10 @@ func supportBannerForRequest(
 ```
 :::
 
-In a real service, I would emit the selected source and workspace
+In a real service, I would emit the selected source and package
 fingerprint through the same observability path I use for the request. When a
 customer asks why a banner appeared, the answer should point back to the
-workspace version and rule that selected it.
+package version and rule that selected it.
 
 ## Keep Rendering In The App
 
@@ -425,7 +425,7 @@ This is a good rototo boundary when:
 - the payload is small enough to review in git;
 - bad shape would break or degrade application behavior;
 - the selected value depends on runtime context;
-- rollback should be a workspace change.
+- rollback should be a package change.
 
 Keep these concerns in the app:
 
@@ -435,5 +435,5 @@ Keep these concerns in the app:
 - whether a specific page has room to render it;
 - request authorization and user identity.
 
-That keeps the line clear. The workspace owns the validated operational
+That keeps the line clear. The package owns the validated operational
 payload. The app owns the product experience around it.

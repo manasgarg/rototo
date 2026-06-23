@@ -1,6 +1,6 @@
 use crate::diagnostics::LintDiagnostic;
 use crate::error::Result;
-use crate::model::WorkspaceLint;
+use crate::model::PackageLint;
 
 use super::index::*;
 use super::input::LintInput;
@@ -8,10 +8,10 @@ use super::output::sort_diagnostics;
 use super::references::ReferenceIndex;
 use super::source::SourceStore;
 use super::syntax::SyntaxIndex;
-use super::{WorkspaceLintSnapshot, stages};
+use super::{PackageLintSnapshot, stages};
 
-pub(super) async fn lint_workspace_snapshot(input: LintInput) -> Result<WorkspaceLintSnapshot> {
-    LintEngine::new().lint_workspace(input).await
+pub(super) async fn lint_package_snapshot(input: LintInput) -> Result<PackageLintSnapshot> {
+    LintEngine::new().lint_package(input).await
 }
 
 struct LintEngine;
@@ -21,7 +21,7 @@ impl LintEngine {
         Self
     }
 
-    async fn lint_workspace(&self, input: LintInput) -> Result<WorkspaceLintSnapshot> {
+    async fn lint_package(&self, input: LintInput) -> Result<PackageLintSnapshot> {
         let mut ctx = LintContext::new(input);
         stages::run_pipeline(&mut ctx).await?;
         Ok(ctx.finish())
@@ -50,16 +50,16 @@ impl LintContext {
         }
     }
 
-    fn finish(mut self) -> WorkspaceLintSnapshot {
+    fn finish(mut self) -> PackageLintSnapshot {
         sort_diagnostics(&mut self.diagnostics);
         let documents = self.source.document_summaries();
         let source_texts = self.source.document_texts();
-        let lint = WorkspaceLint {
+        let lint = PackageLint {
             root: self.source.root,
             documents,
             diagnostics: self.diagnostics,
         };
-        WorkspaceLintSnapshot {
+        PackageLintSnapshot {
             lint,
             index: self.index,
             references: self.references,
@@ -81,7 +81,7 @@ mod tests {
 
     use crate::diagnostics::{CustomRuleId, LintStage};
 
-    use super::super::WORKSPACE_MANIFEST;
+    use super::super::PACKAGE_MANIFEST;
     use super::super::index::RegisteredLintAddress;
     use super::super::input::OverlayDocument;
     use super::*;
@@ -94,7 +94,7 @@ mod tests {
             .await
             .unwrap();
         tokio::fs::write(
-            root.join(WORKSPACE_MANIFEST),
+            root.join(PACKAGE_MANIFEST),
             r#"schema_version = 1
 "#,
         )
@@ -124,7 +124,7 @@ default = "hello"
                 version: Some(42),
             },
         );
-        let snapshot = lint_workspace_snapshot(input).await.unwrap();
+        let snapshot = lint_package_snapshot(input).await.unwrap();
         let lint = &snapshot.lint;
 
         let diagnostic = lint
@@ -144,7 +144,7 @@ default = "hello"
 
         let grouped = lint.diagnostics_by_document();
         assert!(grouped.iter().any(|group| {
-            group.document.path == "rototo-workspace.toml" && group.diagnostics.is_empty()
+            group.document.path == "rototo-package.toml" && group.diagnostics.is_empty()
         }));
         assert!(grouped.iter().any(|group| {
             group.document.path == "variables/message.toml" && !group.diagnostics.is_empty()
@@ -171,7 +171,7 @@ default = "hello"
                 version: Some(43),
             },
         );
-        let cleared = lint_workspace_snapshot(cleared_input).await.unwrap();
+        let cleared = lint_package_snapshot(cleared_input).await.unwrap();
 
         assert!(cleared.lint.diagnostics.is_empty());
         let cleared_groups = cleared.lint.diagnostics_by_document();
@@ -184,13 +184,13 @@ default = "hello"
     }
 
     #[tokio::test]
-    async fn snapshot_discovers_overlay_only_workspace_files() {
+    async fn snapshot_discovers_overlay_only_package_files() {
         let tempdir = tempfile::tempdir().unwrap();
         let root = tempdir.path();
         let mut input = LintInput::new(root.to_path_buf());
         for (path, text) in [
             (
-                WORKSPACE_MANIFEST,
+                PACKAGE_MANIFEST,
                 r#"schema_version = 1
 "#,
             ),
@@ -251,11 +251,11 @@ value = "premium"
     id = "policy/noop",
     title = "No-op policy",
     help = "No-op policy used by tests.",
-    handler = "check_workspace",
+    handler = "check_package",
   })
 end
 
-function check_workspace(workspace, target)
+function check_package(package, target)
   return {}
 end
 "#,
@@ -270,7 +270,7 @@ end
             );
         }
 
-        let snapshot = lint_workspace_snapshot(input).await.unwrap();
+        let snapshot = lint_package_snapshot(input).await.unwrap();
         let lint = &snapshot.lint;
         let paths = lint
             .documents
@@ -280,7 +280,7 @@ end
 
         assert!(lint.diagnostics.is_empty(), "{:#?}", lint.diagnostics);
         for expected in [
-            WORKSPACE_MANIFEST,
+            PACKAGE_MANIFEST,
             "qualifiers/premium.toml",
             "variables/message.toml",
             "catalogs/message.schema.json",
@@ -301,8 +301,8 @@ end
 
     #[tokio::test]
     async fn snapshot_diagnostic_ranges_cover_references() {
-        let reference_snapshot = lint_workspace_snapshot(LintInput::new(PathBuf::from(
-            "tests/fixtures/workspaces/rules/reference/variable-rule-unknown-qualifier",
+        let reference_snapshot = lint_package_snapshot(LintInput::new(PathBuf::from(
+            "tests/fixtures/packages/rules/reference/variable-rule-unknown-qualifier",
         )))
         .await
         .unwrap();
@@ -319,8 +319,8 @@ end
 
     #[tokio::test]
     async fn snapshot_index_records_custom_lint_registry() {
-        let snapshot = lint_workspace_snapshot(LintInput::new(PathBuf::from(
-            "tests/fixtures/workspaces/custom-targets",
+        let snapshot = lint_package_snapshot(LintInput::new(PathBuf::from(
+            "tests/fixtures/packages/custom-targets",
         )))
         .await
         .unwrap();
@@ -353,8 +353,8 @@ end
 
     #[tokio::test]
     async fn snapshot_records_source_backed_failure_diagnostics() {
-        let parse_snapshot = lint_workspace_snapshot(LintInput::new(PathBuf::from(
-            "tests/fixtures/workspaces/rules/parse/variable-parse-failed",
+        let parse_snapshot = lint_package_snapshot(LintInput::new(PathBuf::from(
+            "tests/fixtures/packages/rules/parse/variable-parse-failed",
         )))
         .await
         .unwrap();
@@ -365,8 +365,8 @@ end
                 .ends_with("variables/broken.toml")
         );
 
-        let register_snapshot = lint_workspace_snapshot(LintInput::new(PathBuf::from(
-            "tests/fixtures/workspaces/rules/register/custom-lint-failed",
+        let register_snapshot = lint_package_snapshot(LintInput::new(PathBuf::from(
+            "tests/fixtures/packages/rules/register/custom-lint-failed",
         )))
         .await
         .unwrap();
@@ -397,7 +397,7 @@ end
             .await
             .unwrap();
         tokio::fs::write(
-            root.join(WORKSPACE_MANIFEST),
+            root.join(PACKAGE_MANIFEST),
             r#"schema_version = 1
 "#,
         )
@@ -463,7 +463,7 @@ value = "absent"
         )
         .await
         .unwrap();
-        let snapshot = lint_workspace_snapshot(LintInput::new(root.to_path_buf()))
+        let snapshot = lint_package_snapshot(LintInput::new(root.to_path_buf()))
             .await
             .unwrap();
 
@@ -542,7 +542,7 @@ value = "absent"
         assert!(context_schema.invalid_message.is_none());
     }
 
-    fn diagnostic_by_rule<'a>(lint: &'a WorkspaceLint, rule: &str) -> &'a LintDiagnostic {
+    fn diagnostic_by_rule<'a>(lint: &'a PackageLint, rule: &str) -> &'a LintDiagnostic {
         lint.diagnostics
             .iter()
             .find(|diagnostic| diagnostic.rule.as_string() == rule)

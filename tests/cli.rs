@@ -24,11 +24,11 @@ fn top_level_help_is_task_oriented() {
         .arg("--help")
         .assert()
         .success()
-        .stdout(predicate::str::contains("Workspace commands"))
+        .stdout(predicate::str::contains("Package commands"))
         .stdout(predicate::str::contains("Utility commands"))
         .stdout(predicate::str::contains("lint"))
         .stdout(predicate::str::contains("rototo docs -p index"))
-        .stdout(predicate::str::contains("rototo help workspace-sources").not())
+        .stdout(predicate::str::contains("rototo help package-sources").not())
         .stdout(predicate::str::contains("git+https://").not());
 }
 
@@ -55,7 +55,7 @@ fn quiet_suppresses_successful_lint_output() {
 fn quiet_keeps_lint_diagnostics() {
     Command::cargo_bin("rototo")
         .unwrap()
-        .args(["--quiet", "lint", "tests/fixtures/workspaces/lint-failures"])
+        .args(["--quiet", "lint", "tests/fixtures/packages/lint-failures"])
         .assert()
         .failure()
         .stdout(predicate::str::contains("error[rototo/"));
@@ -65,7 +65,7 @@ fn quiet_keeps_lint_diagnostics() {
 fn old_noun_commands_are_removed() {
     Command::cargo_bin("rototo")
         .unwrap()
-        .args(["workspace", "lint", "examples/basic"])
+        .args(["package", "lint", "examples/basic"])
         .assert()
         .failure();
 }
@@ -203,17 +203,11 @@ fn exports_bundled_docs_as_static_site() {
             .is_file()
     );
     assert!(site.join("docs/service-degradation-policy.html").is_file());
-    assert!(site.join("docs/workspace-layering.html").is_file());
-    assert!(
-        site.join("docs/reference-workspace-manifest.html")
-            .is_file()
-    );
-    assert!(site.join("docs/reference-workspace-layout.html").is_file());
-    assert!(site.join("docs/reference-workspace-sources.html").is_file());
-    assert!(
-        site.join("docs/reference-workspace-layering.html")
-            .is_file()
-    );
+    assert!(site.join("docs/package-layering.html").is_file());
+    assert!(site.join("docs/reference-package-manifest.html").is_file());
+    assert!(site.join("docs/reference-package-layout.html").is_file());
+    assert!(site.join("docs/reference-package-sources.html").is_file());
+    assert!(site.join("docs/reference-package-layering.html").is_file());
     assert!(site.join("docs/reference-context.html").is_file());
     assert!(site.join("docs/reference-qualifiers.html").is_file());
     assert!(
@@ -298,10 +292,10 @@ fn exports_bundled_docs_as_static_site() {
     assert!(app_page.contains(r#"<pre class="code-block language-go sdk-snippet""#));
     assert!(app_page.contains(r#"<code class="language-rust">use rototo::"#));
     assert!(app_page.contains(
-        r#"<code class="language-typescript">import { Workspace } from &quot;rototo&quot;;"#
+        r#"<code class="language-typescript">import { Package } from &quot;rototo&quot;;"#
     ));
-    assert!(app_page.contains(r#"<code class="language-plaintext">ROTOTO_WORKSPACE_SOURCE="#));
-    assert!(app_page.contains("ROTOTO_WORKSPACE_SOURCE"));
+    assert!(app_page.contains(r#"<code class="language-plaintext">ROTOTO_PACKAGE_SOURCE="#));
+    assert!(app_page.contains("ROTOTO_PACKAGE_SOURCE"));
     assert!(!app_page.contains(r#"<span class="sx-"#));
 
     let getting_started_page = fs::read_to_string(site.join("docs/getting-started.html")).unwrap();
@@ -350,7 +344,7 @@ fn exports_bundled_docs_as_static_site() {
     assert!(sdk_page.contains(r#"<pre class="code-block language-java sdk-snippet""#));
     assert!(sdk_page.contains(r#"<pre class="code-block language-go sdk-snippet""#));
     assert!(sdk_page.contains(r#"<code class="language-typescript">const context = {"#));
-    assert!(sdk_page.contains("await workspace.resolveVariable"));
+    assert!(sdk_page.contains("await pkg.resolveVariable"));
     assert!(!sdk_page.contains(r#"<p><span class="sx-"#));
     assert!(!sdk_page.contains(r#"<span class="sx-"#));
 }
@@ -376,7 +370,7 @@ fn generates_python_package_readme_from_docs() {
     let actual = fs::read_to_string(readme).unwrap();
     let expected = rototo::docs::render_package_readme("python").unwrap();
     assert_eq!(actual, expected);
-    assert!(actual.contains("https://docs.rototo.dev/reference-workspace-sources.html"));
+    assert!(actual.contains("https://docs.rototo.dev/reference-package-sources.html"));
 }
 
 #[test]
@@ -402,7 +396,7 @@ fn generates_typescript_package_readme_from_docs() {
     let actual = fs::read_to_string(readme).unwrap();
     let expected = rototo::docs::render_package_readme("typescript").unwrap();
     assert_eq!(actual, expected);
-    assert!(actual.contains("https://docs.rototo.dev/reference-workspace-sources.html"));
+    assert!(actual.contains("https://docs.rototo.dev/reference-package-sources.html"));
 }
 
 #[test]
@@ -432,7 +426,7 @@ fn generates_package_readme_with_custom_docs_base_url() {
     )
     .unwrap();
     assert_eq!(actual, expected);
-    assert!(actual.contains("https://docs.example.test/base/reference-workspace-sources.html"));
+    assert!(actual.contains("https://docs.example.test/base/reference-package-sources.html"));
     assert!(!actual.contains("https://docs.rototo.dev/"));
 }
 
@@ -496,13 +490,13 @@ fn docs_page_prefix_reports_unknown_page() {
 fn docs_search_uses_regex() {
     let output = Command::cargo_bin("rototo")
         .unwrap()
-        .args(["docs", "-s", "workspace source"])
+        .args(["docs", "-s", "package source"])
         .output()
         .unwrap();
 
     assert!(output.status.success());
     let stdout = String::from_utf8(output.stdout).unwrap();
-    assert!(stdout.contains("\x1b[7mworkspace source\x1b[0m"));
+    assert!(stdout.contains("\x1b[7mpackage source\x1b[0m"));
     assert!(
         !stdout
             .lines()

@@ -17,7 +17,7 @@ export function RemoveSourceTreeButton({
     async function remove() {
         if (
             !window.confirm(
-                `Remove configuration source ${sourceTreeName} from the console? Its workspaces and branches disappear here; the GitHub repository is untouched.`,
+                `Remove configuration source ${sourceTreeName} from the console? Its packages and branches disappear here; the GitHub repository is untouched.`,
             )
         ) {
             return;

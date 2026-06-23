@@ -5,20 +5,20 @@ use serde_json::Value as JsonValue;
 
 use crate::diagnostics::{DiagnosticLocation, SemanticEntity, SemanticField, SemanticTarget};
 use crate::error::Result;
-use crate::model::{ResolutionImpact, SemanticChange, VariableResolution, WorkspaceDiff};
+use crate::model::{PackageDiff, ResolutionImpact, SemanticChange, VariableResolution};
 
 use super::index::*;
-use super::{LintInput, WorkspaceLintSnapshot, compile_runtime_workspace_from_snapshot};
+use super::{LintInput, PackageLintSnapshot, compile_runtime_package_from_snapshot};
 
-pub(crate) async fn diff_workspaces(
+pub(crate) async fn diff_packages(
     before_root: &Path,
     after_root: &Path,
     context: Option<&JsonValue>,
-) -> Result<WorkspaceDiff> {
-    let before = super::lint_workspace_snapshot(LintInput::new(before_root.to_path_buf())).await?;
-    let after = super::lint_workspace_snapshot(LintInput::new(after_root.to_path_buf())).await?;
-    let before_model = WorkspaceSemanticModel::from_snapshot(&before);
-    let after_model = WorkspaceSemanticModel::from_snapshot(&after);
+) -> Result<PackageDiff> {
+    let before = super::lint_package_snapshot(LintInput::new(before_root.to_path_buf())).await?;
+    let after = super::lint_package_snapshot(LintInput::new(after_root.to_path_buf())).await?;
+    let before_model = PackageSemanticModel::from_snapshot(&before);
+    let after_model = PackageSemanticModel::from_snapshot(&after);
 
     let mut changes = Vec::new();
     diff_variables(&before_model, &after_model, &mut changes);
@@ -30,7 +30,7 @@ pub(crate) async fn diff_workspaces(
         None => Vec::new(),
     };
 
-    Ok(WorkspaceDiff {
+    Ok(PackageDiff {
         before: before_root.display().to_string(),
         after: after_root.display().to_string(),
         changes,
@@ -39,15 +39,15 @@ pub(crate) async fn diff_workspaces(
 }
 
 #[derive(Default)]
-struct WorkspaceSemanticModel {
+struct PackageSemanticModel {
     variables: BTreeMap<String, VariableSemantic>,
     qualifiers: BTreeMap<String, QualifierSemantic>,
     catalogs: BTreeMap<String, CatalogSemantic>,
     catalog_entries: BTreeMap<(String, String), CatalogEntrySemantic>,
 }
 
-impl WorkspaceSemanticModel {
-    fn from_snapshot(snapshot: &WorkspaceLintSnapshot) -> Self {
+impl PackageSemanticModel {
+    fn from_snapshot(snapshot: &PackageLintSnapshot) -> Self {
         Self {
             variables: snapshot
                 .index
@@ -262,8 +262,8 @@ struct FieldSemantic<T> {
 }
 
 fn diff_variables(
-    before: &WorkspaceSemanticModel,
-    after: &WorkspaceSemanticModel,
+    before: &PackageSemanticModel,
+    after: &PackageSemanticModel,
     changes: &mut Vec<SemanticChange>,
 ) {
     for id in sorted_keys(before.variables.keys(), after.variables.keys()) {
@@ -381,8 +381,8 @@ fn diff_rules(before: &[RuleSemantic], after: &[RuleSemantic], changes: &mut Vec
 }
 
 fn diff_qualifiers(
-    before: &WorkspaceSemanticModel,
-    after: &WorkspaceSemanticModel,
+    before: &PackageSemanticModel,
+    after: &PackageSemanticModel,
     changes: &mut Vec<SemanticChange>,
 ) {
     for id in sorted_keys(before.qualifiers.keys(), after.qualifiers.keys()) {
@@ -405,8 +405,8 @@ fn diff_qualifiers(
 }
 
 fn diff_catalogs(
-    before: &WorkspaceSemanticModel,
-    after: &WorkspaceSemanticModel,
+    before: &PackageSemanticModel,
+    after: &PackageSemanticModel,
     changes: &mut Vec<SemanticChange>,
 ) {
     for id in sorted_keys(before.catalogs.keys(), after.catalogs.keys()) {
@@ -634,12 +634,12 @@ fn target_with_json_path(target: &SemanticTarget, path: Vec<String>) -> Semantic
 }
 
 async fn resolution_impacts(
-    before: &WorkspaceLintSnapshot,
-    after: &WorkspaceLintSnapshot,
+    before: &PackageLintSnapshot,
+    after: &PackageLintSnapshot,
     context: &JsonValue,
 ) -> Result<Vec<ResolutionImpact>> {
-    let before_runtime = compile_runtime_workspace_from_snapshot(before)?;
-    let after_runtime = compile_runtime_workspace_from_snapshot(after)?;
+    let before_runtime = compile_runtime_package_from_snapshot(before)?;
+    let after_runtime = compile_runtime_package_from_snapshot(after)?;
     before_runtime.validate_context(context)?;
     after_runtime.validate_context(context)?;
     let before_resolutions = crate::resolve::resolve_variables_unchecked(&before_runtime, context)

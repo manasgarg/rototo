@@ -6,23 +6,23 @@ use crate::expression::Expression;
 use crate::model::{
     CatalogEntryInspectReport, CatalogInspectReport, DependencyInspectReport, InspectRuntimeStatus,
     InspectSelection, LintAuthorityInspectReport, LintRuleInspectReport, LinterInspectReport,
-    LinterRegistrationInspectReport, QualifierInspectReport, ReferenceInspectReport,
-    RequestContextEntryInspectReport, RequestContextInspectReport, ResolveInspectReport,
-    RulePathwayInspectReport, ValueInspectReport, VariableInspectReport, WorkspaceInspectReport,
-    WorkspaceInspectRequest,
+    LinterRegistrationInspectReport, PackageInspectReport, PackageInspectRequest,
+    QualifierInspectReport, ReferenceInspectReport, RequestContextEntryInspectReport,
+    RequestContextInspectReport, ResolveInspectReport, RulePathwayInspectReport,
+    ValueInspectReport, VariableInspectReport,
 };
 use crate::resolve::{trace_qualifier_unchecked, trace_variable_unchecked};
 
 use super::index::*;
 use super::references::{ReferenceSource, ReferenceTarget};
-use super::{RuntimeWorkspace, WorkspaceLintSnapshot};
+use super::{PackageLintSnapshot, RuntimePackage};
 
 pub(crate) async fn inspect_snapshot(
-    snapshot: &WorkspaceLintSnapshot,
-    runtime: Option<&RuntimeWorkspace>,
+    snapshot: &PackageLintSnapshot,
+    runtime: Option<&RuntimePackage>,
     runtime_error: Option<String>,
-    request: &WorkspaceInspectRequest,
-) -> Result<WorkspaceInspectReport> {
+    request: &PackageInspectRequest,
+) -> Result<PackageInspectReport> {
     validate_context_request(request)?;
 
     let catalog = catalog_from_snapshot(snapshot);
@@ -71,8 +71,8 @@ pub(crate) async fn inspect_snapshot(
     let linters = selected_linters(snapshot, request, inventory);
     let diagnostics = selected_diagnostics(snapshot, request, inventory);
 
-    Ok(WorkspaceInspectReport {
-        workspace: snapshot.lint.root.display().to_string(),
+    Ok(PackageInspectReport {
+        package: snapshot.lint.root.display().to_string(),
         documents: snapshot.lint.documents.clone(),
         runtime: match runtime_error {
             Some(reason) => InspectRuntimeStatus::Unavailable { reason },
@@ -89,7 +89,7 @@ pub(crate) async fn inspect_snapshot(
     })
 }
 
-fn validate_context_request(request: &WorkspaceInspectRequest) -> Result<()> {
+fn validate_context_request(request: &PackageInspectRequest) -> Result<()> {
     if request.context.is_none() {
         return Ok(());
     }
@@ -102,8 +102,8 @@ fn validate_context_request(request: &WorkspaceInspectRequest) -> Result<()> {
 }
 
 fn validate_request(
-    snapshot: &WorkspaceLintSnapshot,
-    request: &WorkspaceInspectRequest,
+    snapshot: &PackageLintSnapshot,
+    request: &PackageInspectRequest,
     catalog: &[DiagnosticCatalogEntry],
 ) -> Result<()> {
     for id in request.variables.explicit_values() {
@@ -160,7 +160,7 @@ fn validate_request(
 }
 
 fn selected_request_contexts(
-    snapshot: &WorkspaceLintSnapshot,
+    snapshot: &PackageLintSnapshot,
     include_all_for_none: bool,
 ) -> Vec<RequestContextInspectReport> {
     if !include_all_for_none {
@@ -175,7 +175,7 @@ fn selected_request_contexts(
 }
 
 fn request_context_report(
-    snapshot: &WorkspaceLintSnapshot,
+    snapshot: &PackageLintSnapshot,
     request_context: &RequestContextNode,
 ) -> RequestContextInspectReport {
     let diagnostics = snapshot
@@ -213,7 +213,7 @@ fn request_context_report(
 }
 
 fn request_context_entries(
-    snapshot: &WorkspaceLintSnapshot,
+    snapshot: &PackageLintSnapshot,
     request_context: &str,
 ) -> Vec<RequestContextEntryInspectReport> {
     snapshot
@@ -236,9 +236,9 @@ fn request_context_entries(
 }
 
 async fn inspect_variable(
-    snapshot: &WorkspaceLintSnapshot,
-    runtime: Option<&RuntimeWorkspace>,
-    request: &WorkspaceInspectRequest,
+    snapshot: &PackageLintSnapshot,
+    runtime: Option<&RuntimePackage>,
+    request: &PackageInspectRequest,
     id: &str,
 ) -> Result<VariableInspectReport> {
     let variable = snapshot
@@ -287,9 +287,9 @@ async fn inspect_variable(
 }
 
 async fn inspect_qualifier(
-    snapshot: &WorkspaceLintSnapshot,
-    runtime: Option<&RuntimeWorkspace>,
-    request: &WorkspaceInspectRequest,
+    snapshot: &PackageLintSnapshot,
+    runtime: Option<&RuntimePackage>,
+    request: &PackageInspectRequest,
     id: &str,
 ) -> Result<QualifierInspectReport> {
     let qualifier = snapshot
@@ -338,7 +338,7 @@ async fn inspect_qualifier(
     })
 }
 
-fn inspect_catalog(snapshot: &WorkspaceLintSnapshot, id: &str) -> Result<CatalogInspectReport> {
+fn inspect_catalog(snapshot: &PackageLintSnapshot, id: &str) -> Result<CatalogInspectReport> {
     let catalog = snapshot
         .index
         .catalogs
@@ -371,7 +371,7 @@ fn inspect_catalog(snapshot: &WorkspaceLintSnapshot, id: &str) -> Result<Catalog
     })
 }
 
-fn catalog_entries(snapshot: &WorkspaceLintSnapshot, id: &str) -> Vec<CatalogEntryInspectReport> {
+fn catalog_entries(snapshot: &PackageLintSnapshot, id: &str) -> Vec<CatalogEntryInspectReport> {
     snapshot
         .index
         .catalog_entries
@@ -387,7 +387,7 @@ fn catalog_entries(snapshot: &WorkspaceLintSnapshot, id: &str) -> Vec<CatalogEnt
 }
 
 fn document_uri_path(
-    snapshot: &WorkspaceLintSnapshot,
+    snapshot: &PackageLintSnapshot,
     doc: crate::diagnostics::DocId,
 ) -> (String, String) {
     snapshot
@@ -437,10 +437,7 @@ fn variable_type_source_label(variable: &VariableNode) -> String {
     }
 }
 
-fn variable_schema_dependency(
-    _snapshot: &WorkspaceLintSnapshot,
-    _variable: &str,
-) -> Option<String> {
+fn variable_schema_dependency(_snapshot: &PackageLintSnapshot, _variable: &str) -> Option<String> {
     None
 }
 
@@ -520,7 +517,7 @@ fn present_expression_source(field: &Option<ProjectField<Expression>>) -> Option
 }
 
 fn variable_dependencies(
-    snapshot: &WorkspaceLintSnapshot,
+    snapshot: &PackageLintSnapshot,
     variable: &str,
 ) -> DependencyInspectReport {
     let mut qualifiers = BTreeSet::new();
@@ -564,7 +561,7 @@ fn variable_dependencies(
 }
 
 fn catalog_dependencies(
-    _snapshot: &WorkspaceLintSnapshot,
+    _snapshot: &PackageLintSnapshot,
     _catalog: &str,
 ) -> DependencyInspectReport {
     DependencyInspectReport {
@@ -575,7 +572,7 @@ fn catalog_dependencies(
 }
 
 fn qualifier_dependencies(
-    snapshot: &WorkspaceLintSnapshot,
+    snapshot: &PackageLintSnapshot,
     qualifier: &str,
 ) -> DependencyInspectReport {
     let mut qualifiers = BTreeSet::new();
@@ -596,7 +593,7 @@ fn qualifier_dependencies(
 }
 
 fn collect_qualifier_dependencies(
-    snapshot: &WorkspaceLintSnapshot,
+    snapshot: &PackageLintSnapshot,
     qualifier: &str,
     qualifiers: &mut BTreeSet<String>,
     context_paths: &mut BTreeSet<String>,
@@ -637,7 +634,7 @@ fn qualifier_when(qualifier: &QualifierNode) -> Option<String> {
 }
 
 fn qualifier_consumers(
-    snapshot: &WorkspaceLintSnapshot,
+    snapshot: &PackageLintSnapshot,
     qualifier: &str,
 ) -> Vec<ReferenceInspectReport> {
     snapshot
@@ -660,10 +657,7 @@ fn qualifier_consumers(
         .collect()
 }
 
-fn catalog_consumers(
-    snapshot: &WorkspaceLintSnapshot,
-    catalog: &str,
-) -> Vec<ReferenceInspectReport> {
+fn catalog_consumers(snapshot: &PackageLintSnapshot, catalog: &str) -> Vec<ReferenceInspectReport> {
     snapshot
         .references
         .edges()
@@ -713,8 +707,8 @@ fn reference_source_label(source: &ReferenceSource) -> String {
 }
 
 fn selected_diagnostics(
-    snapshot: &WorkspaceLintSnapshot,
-    request: &WorkspaceInspectRequest,
+    snapshot: &PackageLintSnapshot,
+    request: &PackageInspectRequest,
     inventory: bool,
 ) -> Vec<LintDiagnostic> {
     if inventory {
@@ -731,7 +725,7 @@ fn selected_diagnostics(
 
 fn diagnostic_matches_request(
     diagnostic: &LintDiagnostic,
-    request: &WorkspaceInspectRequest,
+    request: &PackageInspectRequest,
 ) -> bool {
     selection_matches_variable(&request.variables, diagnostic)
         || selection_matches_catalog(&request.catalogs, diagnostic)
@@ -870,8 +864,8 @@ fn diagnostic_belongs_to_request_context(diagnostic: &LintDiagnostic, id: &str) 
 }
 
 fn selected_lint_rules(
-    snapshot: &WorkspaceLintSnapshot,
-    request: &WorkspaceInspectRequest,
+    snapshot: &PackageLintSnapshot,
+    request: &PackageInspectRequest,
     catalog: &[DiagnosticCatalogEntry],
 ) -> Vec<LintRuleInspectReport> {
     let entries = match &request.lint_rules {
@@ -889,13 +883,13 @@ fn selected_lint_rules(
 }
 
 fn selected_lint_authorities(
-    snapshot: &WorkspaceLintSnapshot,
-    request: &WorkspaceInspectRequest,
+    snapshot: &PackageLintSnapshot,
+    request: &PackageInspectRequest,
     catalog: &[DiagnosticCatalogEntry],
-    include_workspace_rules_for_none: bool,
+    include_package_rules_for_none: bool,
 ) -> Vec<LintAuthorityInspectReport> {
-    let (selected, workspace_rules_only) = match &request.lint_authorities {
-        InspectSelection::None if include_workspace_rules_for_none => (None, true),
+    let (selected, package_rules_only) = match &request.lint_authorities {
+        InspectSelection::None if include_package_rules_for_none => (None, true),
         InspectSelection::None => return Vec::new(),
         InspectSelection::All => (None, false),
         InspectSelection::Some(authorities) => (
@@ -908,7 +902,7 @@ fn selected_lint_authorities(
         let Some(authority) = authority_of(&entry.rule) else {
             continue;
         };
-        if workspace_rules_only && authority == "rototo" {
+        if package_rules_only && authority == "rototo" {
             continue;
         }
         if selected
@@ -929,7 +923,7 @@ fn selected_lint_authorities(
 }
 
 fn lint_rule_report(
-    snapshot: &WorkspaceLintSnapshot,
+    snapshot: &PackageLintSnapshot,
     entry: &DiagnosticCatalogEntry,
 ) -> LintRuleInspectReport {
     let diagnostics = snapshot
@@ -952,8 +946,8 @@ fn lint_rule_report(
 }
 
 fn selected_linters(
-    snapshot: &WorkspaceLintSnapshot,
-    request: &WorkspaceInspectRequest,
+    snapshot: &PackageLintSnapshot,
+    request: &PackageInspectRequest,
     include_all_for_none: bool,
 ) -> Vec<LinterInspectReport> {
     let selected = match &request.linters {
@@ -1005,7 +999,7 @@ fn selected_linters(
         .collect()
 }
 
-fn catalog_from_snapshot(snapshot: &WorkspaceLintSnapshot) -> Vec<DiagnosticCatalogEntry> {
+fn catalog_from_snapshot(snapshot: &PackageLintSnapshot) -> Vec<DiagnosticCatalogEntry> {
     let mut entries = RototoRuleId::iter()
         .map(DiagnosticCatalogEntry::from_rototo)
         .collect::<Vec<_>>();
@@ -1043,7 +1037,7 @@ fn linter_id(path: &str) -> Option<String> {
 
 fn registered_address_label(address: &RegisteredLintAddress) -> String {
     match address {
-        RegisteredLintAddress::Workspace => "/".to_owned(),
+        RegisteredLintAddress::Package => "/".to_owned(),
         RegisteredLintAddress::Qualifiers => "/qualifiers".to_owned(),
         RegisteredLintAddress::Qualifier { id } => format!("/qualifiers/{id}"),
         RegisteredLintAddress::Variables => "/variables".to_owned(),

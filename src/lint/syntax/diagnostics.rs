@@ -78,7 +78,7 @@ fn ceil_char_boundary(text: &str, mut offset: usize) -> usize {
 
 fn parse_failed_rule(kind: &DocumentKind) -> RototoRuleId {
     match kind {
-        DocumentKind::Manifest => RototoRuleId::WorkspaceManifestParseFailed,
+        DocumentKind::Manifest => RototoRuleId::PackageManifestParseFailed,
         DocumentKind::Qualifier { .. } => RototoRuleId::QualifierParseFailed,
         DocumentKind::Variable { .. } => RototoRuleId::VariableParseFailed,
         DocumentKind::Catalog { .. } => RototoRuleId::CatalogParseFailed,

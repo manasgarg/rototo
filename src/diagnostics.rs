@@ -5,7 +5,7 @@ use serde::{Serialize, Serializer};
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize)]
 #[serde(rename_all = "lowercase")]
 pub enum DiagnosticEntity {
-    Workspace,
+    Package,
     Qualifier,
     Variable,
     Catalog,
@@ -62,10 +62,10 @@ macro_rules! rototo_rules {
             pub fn is_retired(self) -> bool {
                 matches!(
                     self,
-                    Self::WorkspaceContextSchemaRef
-                        | Self::WorkspaceContextSchemaAttribute
-                        | Self::WorkspaceContextSchemaReservedField
-                        | Self::WorkspaceContextSchemaMissing
+                    Self::PackageContextSchemaRef
+                        | Self::PackageContextSchemaAttribute
+                        | Self::PackageContextSchemaReservedField
+                        | Self::PackageContextSchemaMissing
                         | Self::QualifierPredicateMissing
                         | Self::QualifierPredicateShape
                         | Self::QualifierPredicateUnknownOp
@@ -95,51 +95,51 @@ macro_rules! rototo_rules {
 }
 
 rototo_rules! {
-    WorkspaceNotFound => {
-        id: "workspace-not-found",
-        entity: Workspace,
-        title: "Workspace was not found",
-        help: "Pass a path to an existing rototo workspace directory.",
+    PackageNotFound => {
+        id: "package-not-found",
+        entity: Package,
+        title: "Package was not found",
+        help: "Pass a path to an existing rototo package directory.",
     },
-    WorkspaceManifestMissing => {
-        id: "workspace-manifest-missing",
-        entity: Workspace,
-        title: "Workspace manifest is missing",
-        help: "Create rototo-workspace.toml at the workspace root.",
+    PackageManifestMissing => {
+        id: "package-manifest-missing",
+        entity: Package,
+        title: "Package manifest is missing",
+        help: "Create rototo-package.toml at the package root.",
     },
-    WorkspaceManifestParseFailed => {
-        id: "workspace-manifest-parse-failed",
-        entity: Workspace,
-        title: "Workspace manifest could not be parsed",
-        help: "Fix the TOML syntax in rototo-workspace.toml.",
+    PackageManifestParseFailed => {
+        id: "package-manifest-parse-failed",
+        entity: Package,
+        title: "Package manifest could not be parsed",
+        help: "Fix the TOML syntax in rototo-package.toml.",
     },
-    WorkspaceManifestSchemaFailed => {
-        id: "workspace-manifest-schema-failed",
-        entity: Workspace,
-        title: "Workspace manifest does not match schema",
-        help: "Declare schema_version = 1 and optional extends in rototo-workspace.toml.",
+    PackageManifestSchemaFailed => {
+        id: "package-manifest-schema-failed",
+        entity: Package,
+        title: "Package manifest does not match schema",
+        help: "Declare schema_version = 1 and optional extends in rototo-package.toml.",
     },
-    WorkspaceContextSchemaRef => {
-        id: "workspace-context-schema-ref",
-        entity: Workspace,
+    PackageContextSchemaRef => {
+        id: "package-context-schema-ref",
+        entity: Package,
         title: "Resolve context schema is invalid",
         help: "Retired. Use request-contexts/<id>.schema.json for request context validation.",
     },
-    WorkspaceContextSchemaAttribute => {
-        id: "workspace-context-schema-attribute",
-        entity: Workspace,
+    PackageContextSchemaAttribute => {
+        id: "package-context-schema-attribute",
+        entity: Package,
         title: "Qualifier context attribute is not declared by the resolve context schema",
-        help: "Declare the context path in the workspace context schema or update the qualifier.",
+        help: "Declare the context path in the package context schema or update the qualifier.",
     },
-    WorkspaceContextSchemaReservedField => {
-        id: "workspace-context-schema-reserved-field",
-        entity: Workspace,
+    PackageContextSchemaReservedField => {
+        id: "package-context-schema-reserved-field",
+        entity: Package,
         title: "Resolve context schema declares a reserved field",
         help: "Rename the request context field; qualifier is reserved for qualifier.<id> predicate references.",
     },
-    WorkspaceContextSchemaMissing => {
-        id: "workspace-context-schema-missing",
-        entity: Workspace,
+    PackageContextSchemaMissing => {
+        id: "package-context-schema-missing",
+        entity: Package,
         title: "Resolve context schema is missing",
         help: "Retired. Add request-contexts/<id>.schema.json for request context validation.",
         severity: Warning,
@@ -421,32 +421,32 @@ rototo_rules! {
     },
     CustomLintFailed => {
         id: "custom-lint-failed",
-        entity: Workspace,
+        entity: Package,
         title: "Custom lint execution failed",
         help: "Update the Lua lint file or target data so custom lint can run.",
     },
     CustomLintRegistrationInvalid => {
         id: "custom-lint-registration-invalid",
-        entity: Workspace,
+        entity: Package,
         title: "Custom lint registration is invalid",
         help: "Register custom lint with an allowed stage, entity, field, rule metadata, and handler.",
     },
     CustomLintRuleConflict => {
         id: "custom-lint-rule-conflict",
-        entity: Workspace,
+        entity: Package,
         title: "Custom lint rule metadata conflicts",
         help: "Use identical title and help text for repeated custom rule declarations.",
     },
     CustomLintFileUnregistered => {
         id: "custom-lint-file-unregistered",
-        entity: Workspace,
+        entity: Package,
         title: "Custom lint file registers no handlers",
         help: "Register at least one handler from the Lua file or remove the file.",
         severity: Warning,
     },
     CustomLintRegistrationDuplicate => {
         id: "custom-lint-registration-duplicate",
-        entity: Workspace,
+        entity: Package,
         title: "Custom lint registration is duplicated",
         help: "Remove duplicate custom lint registrations so handlers run once per target.",
         severity: Warning,
@@ -672,7 +672,7 @@ pub enum LintStage {
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Serialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum SemanticEntity {
-    Workspace,
+    Package,
     Manifest,
     Qualifier {
         id: String,
@@ -714,7 +714,7 @@ pub enum SemanticEntity {
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Serialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum SemanticField {
-    WorkspaceExtends,
+    PackageExtends,
     SchemaVersion,
     Description,
     QualifierWhen,
@@ -804,7 +804,7 @@ pub(crate) struct SourceSpan {
 pub enum DiagnosticLocationKind {
     Span,
     Document,
-    WorkspaceRoot,
+    PackageRoot,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -859,9 +859,9 @@ impl DiagnosticLocation {
         }
     }
 
-    pub fn workspace_root(path: impl Into<String>) -> Self {
+    pub fn package_root(path: impl Into<String>) -> Self {
         Self {
-            kind: DiagnosticLocationKind::WorkspaceRoot,
+            kind: DiagnosticLocationKind::PackageRoot,
             doc: None,
             span: None,
             path: path.into(),

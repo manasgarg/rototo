@@ -11,11 +11,11 @@ import (
 	"testing"
 )
 
-func TestWorkspaceExposesGoRuntimeResolutionAPI(t *testing.T) {
-	workspace := loadBasicWorkspace(t)
-	defer closeWorkspace(t, workspace)
+func TestPackageExposesGoRuntimeResolutionAPI(t *testing.T) {
+	pkg := loadBasicPackage(t)
+	defer closePackage(t, pkg)
 
-	variable, err := workspace.ResolveVariable(
+	variable, err := pkg.ResolveVariable(
 		context.Background(),
 		"premium-message",
 		map[string]any{"user": map[string]any{"tier": "premium"}},
@@ -24,7 +24,7 @@ func TestWorkspaceExposesGoRuntimeResolutionAPI(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	qualifier, err := workspace.ResolveQualifier(
+	qualifier, err := pkg.ResolveQualifier(
 		context.Background(),
 		"premium-users",
 		map[string]any{"user": map[string]any{"tier": "premium"}},
@@ -48,14 +48,14 @@ func TestWorkspaceExposesGoRuntimeResolutionAPI(t *testing.T) {
 	}
 }
 
-func TestInspectedWorkspaceCanLintButNotResolve(t *testing.T) {
-	workspace, err := Inspect(context.Background(), basicWorkspace(), nil)
+func TestInspectedPackageCanLintButNotResolve(t *testing.T) {
+	pkg, err := Inspect(context.Background(), basicPackage(), nil)
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer closeWorkspace(t, workspace)
+	defer closePackage(t, pkg)
 
-	lint, err := workspace.Lint(context.Background())
+	lint, err := pkg.Lint(context.Background())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -63,20 +63,20 @@ func TestInspectedWorkspaceCanLintButNotResolve(t *testing.T) {
 		t.Fatalf("diagnostics = %#v", lint.Diagnostics)
 	}
 
-	_, err = workspace.ResolveVariable(context.Background(), "premium-message", map[string]any{}, nil)
+	_, err = pkg.ResolveVariable(context.Background(), "premium-message", map[string]any{}, nil)
 	if err == nil {
-		t.Fatal("expected inspected workspace resolution to fail")
+		t.Fatal("expected inspected package resolution to fail")
 	}
-	if !strings.Contains(err.Error(), "workspace was loaded without a runtime model") {
+	if !strings.Contains(err.Error(), "package was loaded without a runtime model") {
 		t.Fatalf("unexpected error: %v", err)
 	}
 }
 
 func TestContextValidationCanBeSkipped(t *testing.T) {
-	workspace := loadBasicWorkspace(t)
-	defer closeWorkspace(t, workspace)
+	pkg := loadBasicPackage(t)
+	defer closePackage(t, pkg)
 
-	result, err := workspace.ResolveVariable(
+	result, err := pkg.ResolveVariable(
 		context.Background(),
 		"premium-message",
 		map[string]any{"user": map[string]any{"tier": map[string]any{"bad": "shape"}}},
@@ -91,7 +91,7 @@ func TestContextValidationCanBeSkipped(t *testing.T) {
 }
 
 func TestLoadRejectsInvalidLintMode(t *testing.T) {
-	_, err := Load(context.Background(), basicWorkspace(), &LoadOptions{Lint: LintMode("warn")})
+	_, err := Load(context.Background(), basicPackage(), &LoadOptions{Lint: LintMode("warn")})
 	if err == nil {
 		t.Fatal("expected invalid lint mode error")
 	}
@@ -100,17 +100,17 @@ func TestLoadRejectsInvalidLintMode(t *testing.T) {
 	}
 }
 
-func TestRefreshingWorkspaceRefreshesLocalSource(t *testing.T) {
+func TestRefreshingPackageRefreshesLocalSource(t *testing.T) {
 	root := t.TempDir()
-	writeWorkspace(t, root, "hello")
+	writePackage(t, root, "hello")
 
-	workspace, err := LoadRefreshing(context.Background(), root, nil)
+	pkg, err := LoadRefreshing(context.Background(), root, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer closeRefreshingWorkspace(t, workspace)
+	defer closeRefreshingPackage(t, pkg)
 
-	initial, err := workspace.ResolveVariable(context.Background(), "message", map[string]any{}, nil)
+	initial, err := pkg.ResolveVariable(context.Background(), "message", map[string]any{}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -118,8 +118,8 @@ func TestRefreshingWorkspaceRefreshesLocalSource(t *testing.T) {
 		t.Fatalf("initial value = %#v", initial.Value)
 	}
 
-	writeWorkspace(t, root, "updated")
-	outcome, err := workspace.RefreshNow(context.Background())
+	writePackage(t, root, "updated")
+	outcome, err := pkg.RefreshNow(context.Background())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -127,7 +127,7 @@ func TestRefreshingWorkspaceRefreshesLocalSource(t *testing.T) {
 		t.Fatalf("unexpected refresh outcome: %s", outcome)
 	}
 
-	refreshed, err := workspace.ResolveVariable(context.Background(), "message", map[string]any{}, nil)
+	refreshed, err := pkg.ResolveVariable(context.Background(), "message", map[string]any{}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -135,7 +135,7 @@ func TestRefreshingWorkspaceRefreshesLocalSource(t *testing.T) {
 		t.Fatalf("refreshed value = %#v", refreshed.Value)
 	}
 
-	status, err := workspace.Status(context.Background())
+	status, err := pkg.Status(context.Background())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -146,12 +146,12 @@ func TestRefreshingWorkspaceRefreshesLocalSource(t *testing.T) {
 		t.Fatalf("consecutive failures = %d", status.ConsecutiveFailures)
 	}
 
-	if err := workspace.Close(context.Background()); err != nil {
+	if err := pkg.Close(context.Background()); err != nil {
 		t.Fatal(err)
 	}
-	_, err = workspace.ResolveVariable(context.Background(), "message", map[string]any{}, nil)
+	_, err = pkg.ResolveVariable(context.Background(), "message", map[string]any{}, nil)
 	if err == nil {
-		t.Fatal("expected closed refreshing workspace resolution to fail")
+		t.Fatal("expected closed refreshing package resolution to fail")
 	}
 }
 
@@ -189,7 +189,7 @@ func TestPublicAPIExportsExpectedNames(t *testing.T) {
 type contractCase struct {
 	Name      string         `json:"name"`
 	Operation string         `json:"operation"`
-	Workspace string         `json:"workspace"`
+	Package   string         `json:"package"`
 	ID        string         `json:"id"`
 	Context   map[string]any `json:"context"`
 	Expect    contractExpect `json:"expect"`
@@ -208,34 +208,34 @@ type contractErrorExpected struct {
 
 func runContractCase(t *testing.T, sdkCase contractCase) (any, error) {
 	t.Helper()
-	source := filepath.Join(repoRoot(t), filepath.FromSlash(sdkCase.Workspace))
+	source := filepath.Join(repoRoot(t), filepath.FromSlash(sdkCase.Package))
 
 	switch sdkCase.Operation {
-	case "load_workspace":
-		workspace, err := Load(context.Background(), source, nil)
+	case "load_package":
+		pkg, err := Load(context.Background(), source, nil)
 		if err != nil {
 			return nil, err
 		}
-		defer closeWorkspace(t, workspace)
+		defer closePackage(t, pkg)
 		return map[string]any{"ok": true}, nil
-	case "lint_workspace":
-		workspace, err := Inspect(context.Background(), source, nil)
+	case "lint_package":
+		pkg, err := Inspect(context.Background(), source, nil)
 		if err != nil {
 			return nil, err
 		}
-		defer closeWorkspace(t, workspace)
-		lint, err := workspace.Lint(context.Background())
+		defer closePackage(t, pkg)
+		lint, err := pkg.Lint(context.Background())
 		if err != nil {
 			return nil, err
 		}
 		return map[string]any{"diagnostics": len(lint.Diagnostics)}, nil
 	case "resolve_variable":
-		workspace, err := Load(context.Background(), source, nil)
+		pkg, err := Load(context.Background(), source, nil)
 		if err != nil {
 			return nil, err
 		}
-		defer closeWorkspace(t, workspace)
-		result, err := workspace.ResolveVariable(context.Background(), sdkCase.ID, sdkCase.Context, nil)
+		defer closePackage(t, pkg)
+		result, err := pkg.ResolveVariable(context.Background(), sdkCase.ID, sdkCase.Context, nil)
 		if err != nil {
 			return nil, err
 		}
@@ -245,12 +245,12 @@ func runContractCase(t *testing.T, sdkCase contractCase) (any, error) {
 			"source": result.Source,
 		}, nil
 	case "resolve_qualifier":
-		workspace, err := Load(context.Background(), source, nil)
+		pkg, err := Load(context.Background(), source, nil)
 		if err != nil {
 			return nil, err
 		}
-		defer closeWorkspace(t, workspace)
-		result, err := workspace.ResolveQualifier(context.Background(), sdkCase.ID, sdkCase.Context, nil)
+		defer closePackage(t, pkg)
+		result, err := pkg.ResolveQualifier(context.Background(), sdkCase.ID, sdkCase.Context, nil)
 		if err != nil {
 			return nil, err
 		}
@@ -326,30 +326,30 @@ func assertSubset(t *testing.T, actual any, expected any) {
 	}
 }
 
-func loadBasicWorkspace(t *testing.T) *Workspace {
+func loadBasicPackage(t *testing.T) *Package {
 	t.Helper()
-	workspace, err := Load(context.Background(), basicWorkspace(), nil)
+	pkg, err := Load(context.Background(), basicPackage(), nil)
 	if err != nil {
 		t.Fatal(err)
 	}
-	return workspace
+	return pkg
 }
 
-func closeWorkspace(t *testing.T, workspace *Workspace) {
+func closePackage(t *testing.T, pkg *Package) {
 	t.Helper()
-	if err := workspace.Close(); err != nil {
+	if err := pkg.Close(); err != nil {
 		t.Fatal(err)
 	}
 }
 
-func closeRefreshingWorkspace(t *testing.T, workspace *RefreshingWorkspace) {
+func closeRefreshingPackage(t *testing.T, pkg *RefreshingPackage) {
 	t.Helper()
-	if err := workspace.Close(context.Background()); err != nil {
+	if err := pkg.Close(context.Background()); err != nil {
 		t.Fatal(err)
 	}
 }
 
-func basicWorkspace() string {
+func basicPackage() string {
 	return filepath.Join(repoRootForCaller(), "examples", "basic")
 }
 
@@ -366,13 +366,13 @@ func repoRootForCaller() string {
 	return filepath.Clean(filepath.Join(wd, "..", ".."))
 }
 
-func writeWorkspace(t *testing.T, root string, message string) {
+func writePackage(t *testing.T, root string, message string) {
 	t.Helper()
 	variables := filepath.Join(root, "variables")
 	if err := os.MkdirAll(variables, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(root, "rototo-workspace.toml"), []byte("schema_version = 1\n"), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(root, "rototo-package.toml"), []byte("schema_version = 1\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	contents := `schema_version = 1

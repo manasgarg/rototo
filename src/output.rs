@@ -9,48 +9,48 @@ use rototo::diagnostics::{
     SemanticField, SemanticTarget, Severity,
 };
 use rototo::error::{Result, RototoError};
-use rototo::model::{InspectRuntimeStatus, WorkspaceDiff, WorkspaceInspectReport};
-use rototo::model::{WorkspaceInspection, WorkspaceLint};
-use rototo::workspace::{
+use rototo::model::{InspectRuntimeStatus, PackageDiff, PackageInspectReport};
+use rototo::model::{PackageInspection, PackageLint};
+use rototo::package::{
     catalog_for_id, qualifier_for_id, read_catalog_json, read_toml, read_variable_toml,
     variable_for_id,
 };
 
 #[derive(Debug, Serialize)]
-struct WorkspaceFileJson<'a> {
+struct PackageFileJson<'a> {
     id: &'a str,
     uri: &'a str,
     path: String,
 }
 
 #[derive(Debug, Serialize)]
-struct WorkspaceLintJson<'a> {
-    workspace: String,
+struct PackageLintJson<'a> {
+    package: String,
     documents: &'a [rototo::model::SourceDocumentSummary],
     diagnostics: &'a [LintDiagnostic],
 }
 
 #[derive(Debug, Serialize)]
 struct QualifierListJson<'a> {
-    workspace: String,
-    qualifiers: Vec<WorkspaceFileJson<'a>>,
+    package: String,
+    qualifiers: Vec<PackageFileJson<'a>>,
 }
 
 #[derive(Debug, Serialize)]
 struct VariableListJson<'a> {
-    workspace: String,
-    variables: Vec<WorkspaceFileJson<'a>>,
+    package: String,
+    variables: Vec<PackageFileJson<'a>>,
 }
 
 #[derive(Debug, Serialize)]
 struct CatalogListJson<'a> {
-    workspace: String,
-    catalogs: Vec<WorkspaceFileJson<'a>>,
+    package: String,
+    catalogs: Vec<PackageFileJson<'a>>,
 }
 
 #[derive(Debug, Serialize)]
 struct QualifierGetJson {
-    workspace: String,
+    package: String,
     id: String,
     uri: String,
     path: String,
@@ -59,7 +59,7 @@ struct QualifierGetJson {
 
 #[derive(Debug, Serialize)]
 struct VariableGetJson {
-    workspace: String,
+    package: String,
     id: String,
     uri: String,
     path: String,
@@ -68,19 +68,19 @@ struct VariableGetJson {
 
 #[derive(Debug, Serialize)]
 struct CatalogGetJson {
-    workspace: String,
+    package: String,
     id: String,
     uri: String,
     path: String,
     value: serde_json::Value,
 }
 
-pub(crate) fn print_workspace_lint(lint: &WorkspaceLint, json: bool, quiet: bool) -> Result<()> {
+pub(crate) fn print_package_lint(lint: &PackageLint, json: bool, quiet: bool) -> Result<()> {
     if json {
         println!(
             "{}",
-            serde_json::to_string_pretty(&WorkspaceLintJson {
-                workspace: lint.root.display().to_string(),
+            serde_json::to_string_pretty(&PackageLintJson {
+                package: lint.root.display().to_string(),
                 documents: &lint.documents,
                 diagnostics: &lint.diagnostics,
             })
@@ -101,7 +101,7 @@ pub(crate) fn print_workspace_lint(lint: &WorkspaceLint, json: bool, quiet: bool
     Ok(())
 }
 
-pub(crate) fn print_inspect_report(report: &WorkspaceInspectReport, json: bool) -> Result<()> {
+pub(crate) fn print_inspect_report(report: &PackageInspectReport, json: bool) -> Result<()> {
     if json {
         println!(
             "{}",
@@ -113,8 +113,8 @@ pub(crate) fn print_inspect_report(report: &WorkspaceInspectReport, json: bool) 
 
     println!(
         "{} {}",
-        style::label("workspace"),
-        style::bold(&report.workspace)
+        style::label("package"),
+        style::bold(&report.package)
     );
     match &report.runtime {
         InspectRuntimeStatus::Available => {
@@ -402,7 +402,7 @@ fn print_compatible_request_contexts(request_contexts: &[String], indent: &str) 
     }
 }
 
-pub(crate) fn print_workspace_diff(diff: &WorkspaceDiff, json: bool) -> Result<()> {
+pub(crate) fn print_package_diff(diff: &PackageDiff, json: bool) -> Result<()> {
     if json {
         println!(
             "{}",
@@ -519,17 +519,17 @@ fn print_dependencies(dependencies: &rototo::model::DependencyInspectReport, ind
     }
 }
 
-pub(crate) fn print_qualifier_list(inspection: &WorkspaceInspection, json: bool) -> Result<()> {
+pub(crate) fn print_qualifier_list(inspection: &PackageInspection, json: bool) -> Result<()> {
     if json {
         println!(
             "{}",
             serde_json::to_string_pretty(&QualifierListJson {
-                workspace: inspection.root.display().to_string(),
+                package: inspection.root.display().to_string(),
                 qualifiers: inspection
                     .qualifiers
                     .iter()
                     .map(|qualifier| {
-                        workspace_file_json(&qualifier.id, &qualifier.uri, &qualifier.path)
+                        package_file_json(&qualifier.id, &qualifier.uri, &qualifier.path)
                     })
                     .collect(),
             })
@@ -544,20 +544,16 @@ pub(crate) fn print_qualifier_list(inspection: &WorkspaceInspection, json: bool)
     Ok(())
 }
 
-pub(crate) fn print_variable_list(inspection: &WorkspaceInspection, json: bool) -> Result<()> {
+pub(crate) fn print_variable_list(inspection: &PackageInspection, json: bool) -> Result<()> {
     if json {
         println!(
             "{}",
             serde_json::to_string_pretty(&VariableListJson {
-                workspace: inspection.root.display().to_string(),
+                package: inspection.root.display().to_string(),
                 variables: inspection
                     .variables
                     .iter()
-                    .map(|variable| workspace_file_json(
-                        &variable.id,
-                        &variable.uri,
-                        &variable.path
-                    ))
+                    .map(|variable| package_file_json(&variable.id, &variable.uri, &variable.path))
                     .collect(),
             })
             .map_err(|err| RototoError::new(err.to_string()))?
@@ -571,16 +567,16 @@ pub(crate) fn print_variable_list(inspection: &WorkspaceInspection, json: bool) 
     Ok(())
 }
 
-pub(crate) fn print_catalog_list(inspection: &WorkspaceInspection, json: bool) -> Result<()> {
+pub(crate) fn print_catalog_list(inspection: &PackageInspection, json: bool) -> Result<()> {
     if json {
         println!(
             "{}",
             serde_json::to_string_pretty(&CatalogListJson {
-                workspace: inspection.root.display().to_string(),
+                package: inspection.root.display().to_string(),
                 catalogs: inspection
                     .catalogs
                     .iter()
-                    .map(|catalog| workspace_file_json(&catalog.id, &catalog.uri, &catalog.path))
+                    .map(|catalog| package_file_json(&catalog.id, &catalog.uri, &catalog.path))
                     .collect(),
             })
             .map_err(|err| RototoError::new(err.to_string()))?
@@ -595,7 +591,7 @@ pub(crate) fn print_catalog_list(inspection: &WorkspaceInspection, json: bool) -
 }
 
 pub(crate) async fn print_qualifier_get(
-    inspection: &WorkspaceInspection,
+    inspection: &PackageInspection,
     id: &str,
     json: bool,
 ) -> Result<()> {
@@ -608,7 +604,7 @@ pub(crate) async fn print_qualifier_get(
         println!(
             "{}",
             serde_json::to_string_pretty(&QualifierGetJson {
-                workspace: inspection.root.display().to_string(),
+                package: inspection.root.display().to_string(),
                 id: qualifier.id.clone(),
                 uri: qualifier.uri.clone(),
                 path: qualifier.path.display().to_string(),
@@ -619,11 +615,11 @@ pub(crate) async fn print_qualifier_get(
         return Ok(());
     }
 
-    print_workspace_file(&path).await
+    print_package_file(&path).await
 }
 
 pub(crate) async fn print_variable_get(
-    inspection: &WorkspaceInspection,
+    inspection: &PackageInspection,
     id: &str,
     json: bool,
 ) -> Result<()> {
@@ -635,7 +631,7 @@ pub(crate) async fn print_variable_get(
         println!(
             "{}",
             serde_json::to_string_pretty(&VariableGetJson {
-                workspace: inspection.root.display().to_string(),
+                package: inspection.root.display().to_string(),
                 id: variable.id.clone(),
                 uri: variable.uri.clone(),
                 path: variable.path.display().to_string(),
@@ -655,7 +651,7 @@ pub(crate) async fn print_variable_get(
 }
 
 pub(crate) async fn print_catalog_get(
-    inspection: &WorkspaceInspection,
+    inspection: &PackageInspection,
     id: &str,
     json: bool,
 ) -> Result<()> {
@@ -666,7 +662,7 @@ pub(crate) async fn print_catalog_get(
         println!(
             "{}",
             serde_json::to_string_pretty(&CatalogGetJson {
-                workspace: inspection.root.display().to_string(),
+                package: inspection.root.display().to_string(),
                 id: catalog.id.clone(),
                 uri: catalog.uri.clone(),
                 path: catalog.path.display().to_string(),
@@ -708,15 +704,15 @@ pub(crate) fn print_diagnostic_catalog_entry(
     Ok(())
 }
 
-fn workspace_file_json<'a>(id: &'a str, uri: &'a str, path: &Path) -> WorkspaceFileJson<'a> {
-    WorkspaceFileJson {
+fn package_file_json<'a>(id: &'a str, uri: &'a str, path: &Path) -> PackageFileJson<'a> {
+    PackageFileJson {
         id,
         uri,
         path: path.display().to_string(),
     }
 }
 
-async fn print_workspace_file(path: &Path) -> Result<()> {
+async fn print_package_file(path: &Path) -> Result<()> {
     print!(
         "{}",
         tokio::fs::read_to_string(path)
@@ -775,7 +771,7 @@ fn semantic_target_label(target: &SemanticTarget) -> String {
 
 fn semantic_entity_label(entity: &SemanticEntity) -> String {
     match entity {
-        SemanticEntity::Workspace => "workspace".to_owned(),
+        SemanticEntity::Package => "package".to_owned(),
         SemanticEntity::Manifest => "manifest".to_owned(),
         SemanticEntity::Qualifier { id } => format!("qualifier:{id}"),
         SemanticEntity::Predicate { qualifier, index } => {
@@ -801,7 +797,7 @@ fn semantic_entity_label(entity: &SemanticEntity) -> String {
 
 fn semantic_field_label(field: &SemanticField) -> String {
     match field {
-        SemanticField::WorkspaceExtends => "extends".to_owned(),
+        SemanticField::PackageExtends => "extends".to_owned(),
         SemanticField::SchemaVersion => "schema_version".to_owned(),
         SemanticField::Description => "description".to_owned(),
         SemanticField::QualifierWhen => "when".to_owned(),
@@ -852,7 +848,7 @@ fn severity_label(severity: &Severity) -> &'static str {
 
 fn diagnostic_entity_label(entity: &DiagnosticEntity) -> &'static str {
     match entity {
-        DiagnosticEntity::Workspace => "workspace",
+        DiagnosticEntity::Package => "package",
         DiagnosticEntity::Qualifier => "qualifier",
         DiagnosticEntity::Variable => "variable",
         DiagnosticEntity::RequestContext => "request_context",

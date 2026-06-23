@@ -7,7 +7,7 @@ use crate::error::{Result, RototoError};
 
 use super::path::select_subdir;
 use super::types::{
-    LoadedWorkspaceSource, SourceFingerprint, SourceLayer, SourceOptions, SourceProbe,
+    LoadedPackageSource, SourceFingerprint, SourceLayer, SourceOptions, SourceProbe,
     StagedSourceTree,
 };
 use super::uri::SourceUri;
@@ -16,12 +16,12 @@ pub(super) async fn stage_git_repo(
     uri: &SourceUri,
     original: &str,
     options: &SourceOptions,
-) -> Result<LoadedWorkspaceSource> {
+) -> Result<LoadedPackageSource> {
     let tree = stage_git_source_tree(uri, original, options).await?;
     let fingerprint = tree.fingerprint().cloned();
     let immutable = tree.immutable();
-    Ok(LoadedWorkspaceSource {
-        staged: tree.into_staged_workspace(),
+    Ok(LoadedPackageSource {
+        staged: tree.into_staged_package(),
         fingerprint: fingerprint.clone(),
         immutable,
         layers: vec![SourceLayer {
@@ -40,10 +40,10 @@ pub(super) async fn stage_git_source_tree(
     let inner_scheme = uri
         .scheme
         .strip_prefix("git+")
-        .ok_or_else(|| RototoError::new("invalid git workspace source"))?;
+        .ok_or_else(|| RototoError::new("invalid git package source"))?;
     if !matches!(inner_scheme, "file" | "https" | "ssh") {
         return Err(RototoError::new(format!(
-            "git workspace source scheme is not supported: git+{inner_scheme}"
+            "git package source scheme is not supported: git+{inner_scheme}"
         )));
     }
     if let Some(ref_) = uri.ref_.as_deref() {
@@ -73,7 +73,7 @@ pub(super) async fn stage_git_source_tree(
         .await
         .map_err(|_| {
             RototoError::new(format!(
-                "git fetch timed out for workspace source: {original}"
+                "git fetch timed out for package source: {original}"
             ))
         })?
         .map_err(|err| {
@@ -86,7 +86,7 @@ pub(super) async fn stage_git_source_tree(
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr);
         return Err(RototoError::new(format!(
-            "git fetch failed for workspace source: {}",
+            "git fetch failed for package source: {}",
             stderr.trim()
         )));
     }
@@ -136,12 +136,12 @@ async fn git_rev_parse_head(repo: &Path, options: &SourceOptions) -> Result<Stri
     scrub_git_process_variables(&mut command);
     let output = tokio::time::timeout(options.git_timeout(), command.output())
         .await
-        .map_err(|_| RototoError::new("git rev-parse timed out for workspace source"))?
+        .map_err(|_| RototoError::new("git rev-parse timed out for package source"))?
         .map_err(|err| RototoError::new(format!("failed to run git: {err}")))?;
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr);
         return Err(RototoError::new(format!(
-            "git rev-parse failed for workspace source: {}",
+            "git rev-parse failed for package source: {}",
             stderr.trim()
         )));
     }
@@ -160,12 +160,12 @@ async fn git_checkout(repo: &Path, ref_: &str, options: &SourceOptions) -> Resul
     scrub_git_process_variables(&mut command);
     let output = tokio::time::timeout(options.git_timeout(), command.output())
         .await
-        .map_err(|_| RototoError::new("git checkout timed out for workspace source"))?
+        .map_err(|_| RototoError::new("git checkout timed out for package source"))?
         .map_err(|err| RototoError::new(format!("failed to run git: {err}")))?;
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr);
         return Err(RototoError::new(format!(
-            "git checkout failed for workspace source: {}",
+            "git checkout failed for package source: {}",
             stderr.trim()
         )));
     }
@@ -176,12 +176,12 @@ async fn git_ls_remote(uri: &SourceUri, original: &str, options: &SourceOptions)
     let inner_scheme = uri
         .scheme
         .strip_prefix("git+")
-        .ok_or_else(|| RototoError::new("invalid git workspace source"))?;
+        .ok_or_else(|| RototoError::new("invalid git package source"))?;
     let clone_url = format!("{inner_scheme}://{}", uri.base);
     let ref_ = uri
         .ref_
         .as_deref()
-        .ok_or_else(|| RototoError::new("git workspace source has no ref"))?;
+        .ok_or_else(|| RototoError::new("git package source has no ref"))?;
     validate_git_ref(ref_)?;
     let mut command = Command::new("git");
     command.kill_on_drop(true);
@@ -191,7 +191,7 @@ async fn git_ls_remote(uri: &SourceUri, original: &str, options: &SourceOptions)
         .await
         .map_err(|_| {
             RototoError::new(format!(
-                "git check timed out for workspace source: {original}"
+                "git check timed out for package source: {original}"
             ))
         })?
         .map_err(|err| {
@@ -204,7 +204,7 @@ async fn git_ls_remote(uri: &SourceUri, original: &str, options: &SourceOptions)
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr);
         return Err(RototoError::new(format!(
-            "git check failed for workspace source: {}",
+            "git check failed for package source: {}",
             stderr.trim()
         )));
     }
@@ -219,7 +219,7 @@ async fn git_ls_remote(uri: &SourceUri, original: &str, options: &SourceOptions)
 fn validate_git_ref(ref_: &str) -> Result<()> {
     if ref_.starts_with('-') {
         return Err(RototoError::new(format!(
-            "git workspace ref must not begin with '-': {ref_}"
+            "git package ref must not begin with '-': {ref_}"
         )));
     }
     Ok(())

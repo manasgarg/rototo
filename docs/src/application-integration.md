@@ -1,63 +1,63 @@
 # Application Integration
 
-Once the workspace model is clear, the next question is how the application
+Once the package model is clear, the next question is how the application
 should use it. This is where rototo either becomes a clean runtime boundary or
 turns into another config format that application code quietly reimplements.
 
-The application should not parse workspace files. It should not duplicate
+The application should not parse package files. It should not duplicate
 qualifier logic. It should not know how values are arranged on disk. The app is
-deployed with a [workspace source](reference-workspace-sources.html) URI,
+deployed with a [package source](reference-package-sources.html) URI,
 [loads that source through the SDK](reference-sdk-loading.html), builds context
 from facts it owns, and
 [resolves named variables](reference-sdk-resolution.html) at the boundary where
 runtime behavior is selected.
 
 That keeps the control plane in one place. It also gives the service a clear
-answer when someone asks which value was selected, and from which workspace
+answer when someone asks which value was selected, and from which package
 version.
 
-## Load A Workspace Source
+## Load A Package Source
 
-Application configuration should point at a workspace source:
+Application configuration should point at a package source:
 
 ```text
-ROTOTO_WORKSPACE_SOURCE=git+https://github.com/acme/runtime-config.git#main:workspaces/prod
+ROTOTO_PACKAGE_SOURCE=git+https://github.com/acme/runtime-config.git#main:packages/prod
 ```
 
 The app should load that source through the SDK:
 
-:::sdk-snippet application-load-workspace
+:::sdk-snippet application-load-package
 ```rust
-use rototo::Workspace;
+use rototo::Package;
 
-let source = std::env::var("ROTOTO_WORKSPACE_SOURCE")?;
-let workspace = Workspace::load(source).await?;
+let source = std::env::var("ROTOTO_PACKAGE_SOURCE")?;
+let pkg = Package::load(source).await?;
 ```
 
 ```python
 import os
 import rototo
 
-source = os.environ["ROTOTO_WORKSPACE_SOURCE"]
-workspace = await rototo.Workspace.load(source)
+source = os.environ["ROTOTO_PACKAGE_SOURCE"]
+pkg = await rototo.Package.load(source)
 ```
 
 ```typescript
-import { Workspace } from "rototo";
+import { Package } from "rototo";
 
-const source = process.env.ROTOTO_WORKSPACE_SOURCE;
+const source = process.env.ROTOTO_PACKAGE_SOURCE;
 if (!source) {
-  throw new Error("ROTOTO_WORKSPACE_SOURCE is required");
+  throw new Error("ROTOTO_PACKAGE_SOURCE is required");
 }
 
-const workspace = await Workspace.load(source);
+const pkg = await Package.load(source);
 ```
 
 ```java
-import dev.rototo.Workspace;
+import dev.rototo.Package;
 
-String source = System.getenv("ROTOTO_WORKSPACE_SOURCE");
-Workspace workspace = Workspace.load(source).get();
+String source = System.getenv("ROTOTO_PACKAGE_SOURCE");
+Package pkg = Package.load(source).get();
 ```
 
 ```go
@@ -68,24 +68,24 @@ import (
     rototo "github.com/manasgarg/rototo/sdks/go"
 )
 
-source := os.Getenv("ROTOTO_WORKSPACE_SOURCE")
-workspace, err := rototo.Load(context.Background(), source, nil)
+source := os.Getenv("ROTOTO_PACKAGE_SOURCE")
+pkg, err := rototo.Load(context.Background(), source, nil)
 if err != nil {
     return err
 }
-defer workspace.Close()
+defer pkg.Close()
 ```
 :::
 
-`Workspace::load` stages the source, inspects the workspace, runs lint, and
+`Package::load` stages the source, inspects the package, runs lint, and
 compiles the runtime model. If lint fails, load fails. That is the behavior I
 want at application startup: a service should not quietly start from a broken
 control plane.
 
-For tools that need to inspect broken workspaces, use `Workspace::inspect`.
+For tools that need to inspect broken packages, use `Package::inspect`.
 For application runtime paths, prefer
-[`Workspace::load`](reference-sdk-loading.html) or
-[`RefreshingWorkspace::load`](reference-sdk-refresh.html).
+[`Package::load`](reference-sdk-loading.html) or
+[`RefreshingPackage::load`](reference-sdk-refresh.html).
 
 ## Resolve At The Behavior Boundary
 
@@ -108,7 +108,7 @@ let context = ResolveContext::from_json(serde_json::json!({
     }
 }))?;
 
-let resolution = workspace
+let resolution = pkg
     .resolve_variable("account-limit-profile", &context)
     .await?;
 ```
@@ -125,7 +125,7 @@ context = {
     },
 }
 
-resolution = await workspace.resolve_variable(
+resolution = await pkg.resolve_variable(
     "account-limit-profile",
     context,
 )
@@ -143,7 +143,7 @@ const context = {
   },
 };
 
-const resolution = await workspace.resolveVariable(
+const resolution = await pkg.resolveVariable(
   "account-limit-profile",
   context,
 );
@@ -161,7 +161,7 @@ Map<String, Object> context = Map.of(
     )
 );
 
-VariableResolution resolution = workspace
+VariableResolution resolution = pkg
     .resolveVariable("account-limit-profile", context)
     .get();
 ```
@@ -178,7 +178,7 @@ resolveContext := map[string]any{
     },
 }
 
-resolution, err := workspace.ResolveVariable(
+resolution, err := pkg.ResolveVariable(
     ctx,
     "account-limit-profile",
     resolveContext,
@@ -279,92 +279,92 @@ Do not precompute rototo policy in the application context:
 ```
 
 That hides the condition rototo is supposed to explain. The app should provide
-facts. The workspace should decide what those facts mean.
+facts. The package should decide what those facts mean.
 
 [Request context schemas](reference-context.html) are the contract between the
-app and workspace. When a compatible schema exists, SDK resolution validates
+app and package. When a compatible schema exists, SDK resolution validates
 context by default. If the app forgets a required fact or sends the wrong type,
 the failure happens before qualifier evaluation.
 
-## Prefer RefreshingWorkspace For Services
+## Prefer RefreshingPackage For Services
 
 Configuration is deployed separately from the application binary. Long-running
-services usually need to pick up reviewed workspace changes without a restart.
+services usually need to pick up reviewed package changes without a restart.
 
-Use [`RefreshingWorkspace`](reference-sdk-refresh.html) for that path:
+Use [`RefreshingPackage`](reference-sdk-refresh.html) for that path:
 
-:::sdk-snippet application-refreshing-workspace
+:::sdk-snippet application-refreshing-package
 ```rust
 use std::time::Duration;
-use rototo::{RefreshOptions, RefreshingWorkspace};
+use rototo::{RefreshOptions, RefreshingPackage};
 
-let source = std::env::var("ROTOTO_WORKSPACE_SOURCE")?;
+let source = std::env::var("ROTOTO_PACKAGE_SOURCE")?;
 let refresh = RefreshOptions::new().with_period(Duration::from_secs(30));
 
-let workspace = RefreshingWorkspace::load(source, refresh).await?;
+let pkg = RefreshingPackage::load(source, refresh).await?;
 ```
 
 ```python
 import os
 import rototo
 
-source = os.environ["ROTOTO_WORKSPACE_SOURCE"]
-workspace = await rototo.RefreshingWorkspace.load(
+source = os.environ["ROTOTO_PACKAGE_SOURCE"]
+pkg = await rototo.RefreshingPackage.load(
     source,
     period_seconds=30,
 )
 ```
 
 ```typescript
-import { RefreshingWorkspace } from "rototo";
+import { RefreshingPackage } from "rototo";
 
-const source = process.env.ROTOTO_WORKSPACE_SOURCE;
+const source = process.env.ROTOTO_PACKAGE_SOURCE;
 if (!source) {
-  throw new Error("ROTOTO_WORKSPACE_SOURCE is required");
+  throw new Error("ROTOTO_PACKAGE_SOURCE is required");
 }
 
-const workspace = await RefreshingWorkspace.load(source, {
+const pkg = await RefreshingPackage.load(source, {
   periodSeconds: 30,
 });
 ```
 
 ```java
-RefreshingWorkspaceOptions options = RefreshingWorkspaceOptions.builder()
+RefreshingPackageOptions options = RefreshingPackageOptions.builder()
     .periodSeconds(30.0)
     .build();
 
-String source = System.getenv("ROTOTO_WORKSPACE_SOURCE");
-RefreshingWorkspace workspace = RefreshingWorkspace
+String source = System.getenv("ROTOTO_PACKAGE_SOURCE");
+RefreshingPackage pkg = RefreshingPackage
     .load(source, options)
     .get();
 ```
 
 ```go
 periodSeconds := 30.0
-source := os.Getenv("ROTOTO_WORKSPACE_SOURCE")
+source := os.Getenv("ROTOTO_PACKAGE_SOURCE")
 
-workspace, err := rototo.LoadRefreshing(
+pkg, err := rototo.LoadRefreshing(
     ctx,
     source,
-    &rototo.RefreshingWorkspaceOptions{
+    &rototo.RefreshingPackageOptions{
         PeriodSeconds: &periodSeconds,
     },
 )
 if err != nil {
     return err
 }
-defer workspace.Close(ctx)
+defer pkg.Close(ctx)
 ```
 :::
 
 Initial load must succeed. After that, successful refreshes affect future
-resolutions. Failed refreshes keep the last successfully loaded workspace
+resolutions. Failed refreshes keep the last successfully loaded package
 active.
 
-That last-known-good behavior matters in production. A bad workspace commit
-should not take down a running service that already has a valid workspace. It
-should show up as a refresh failure, keep serving the previous workspace, and
-give operators a clear signal to fix or revert the workspace change.
+That last-known-good behavior matters in production. A bad package commit
+should not take down a running service that already has a valid package. It
+should show up as a refresh failure, keep serving the previous package, and
+give operators a clear signal to fix or revert the package change.
 
 Pinned commit sources are different. If the source is pinned to a full commit
 SHA, refresh is reproducible but it will not discover later commits. Use pinned
@@ -374,7 +374,7 @@ URI.
 
 ## Convert To App Types At One Edge
 
-Rototo returns JSON values because the workspace is language-neutral. The app
+Rototo returns JSON values because the package is language-neutral. The app
 should convert those values into app-native types at a narrow edge:
 
 :::sdk-snippet application-convert-value
@@ -487,9 +487,9 @@ assert the app's expectations, and it keeps the rest of the codebase working
 with ordinary domain types instead of raw JSON.
 
 If conversion fails, treat it as a contract failure between the app and
-workspace. In most services that should be logged with enough context to
+package. In most services that should be logged with enough context to
 identify the variable id, source, and
-[workspace fingerprint](reference-workspace-sources.html).
+[package fingerprint](reference-package-sources.html).
 
 ## Log The Selection, Not The Whole Payload
 
@@ -497,7 +497,7 @@ For most production debugging, the important fields are:
 
 - variable id;
 - selected source;
-- workspace fingerprint;
+- package fingerprint;
 - relevant request or account identifier;
 - refresh status when investigating freshness.
 
@@ -508,7 +508,7 @@ For example:
 tracing::info!(
     variable = "account-limit-profile",
     source = %resolution.source,
-    workspace_fingerprint = ?workspace.current().await.source_fingerprint(),
+    package_fingerprint = ?pkg.current().await.source_fingerprint(),
     account_id = %account.id,
     "resolved runtime configuration"
 );
@@ -554,7 +554,7 @@ slog.Info(
 
 Do not log full selected payloads by default. Some configuration is sensitive,
 and even non-sensitive payloads make logs noisy. The source and fingerprint
-usually tell you which reviewed workspace content was used. Use `rototo show`,
+usually tell you which reviewed package content was used. Use `rototo show`,
 `rototo inspect`, or repository history when you need to read the full value.
 
 ## Handle Failures Deliberately
@@ -578,21 +578,21 @@ For refresh failures, keep serving last-known-good and
 
 :::sdk-snippet application-refresh-status
 ```rust
-let status = workspace.status().await;
+let status = pkg.status().await;
 if status.stale(Duration::from_secs(300)) {
     tracing::warn!(
         consecutive_failures = status.consecutive_failures,
         last_error = ?status.last_error,
-        "workspace refresh is stale"
+        "package refresh is stale"
     );
 }
 ```
 
 ```python
-status = await workspace.status()
+status = await pkg.status()
 if status.consecutive_failures > 0:
     logger.warning(
-        "workspace refresh is stale",
+        "package refresh is stale",
         extra={
             "consecutive_failures": status.consecutive_failures,
             "last_error": status.last_error,
@@ -601,9 +601,9 @@ if status.consecutive_failures > 0:
 ```
 
 ```typescript
-const status = await workspace.status();
+const status = await pkg.status();
 if (status.consecutiveFailures > 0) {
-  logger.warn("workspace refresh is stale", {
+  logger.warn("package refresh is stale", {
     consecutiveFailures: status.consecutiveFailures,
     lastError: status.lastError,
   });
@@ -611,10 +611,10 @@ if (status.consecutiveFailures > 0) {
 ```
 
 ```java
-RefreshStatus status = workspace.status().get();
+RefreshStatus status = pkg.status().get();
 if (status.consecutiveFailures() > 0) {
     logger.warn(
-        "workspace refresh is stale consecutiveFailures={} lastError={}",
+        "package refresh is stale consecutiveFailures={} lastError={}",
         status.consecutiveFailures(),
         status.lastError()
     );
@@ -622,13 +622,13 @@ if (status.consecutiveFailures() > 0) {
 ```
 
 ```go
-status, err := workspace.Status(ctx)
+status, err := pkg.Status(ctx)
 if err != nil {
     return err
 }
 if status.ConsecutiveFailures > 0 {
     slog.Warn(
-        "workspace refresh is stale",
+        "package refresh is stale",
         "consecutive_failures", status.ConsecutiveFailures,
         "last_error", status.LastError,
     )
@@ -646,12 +646,12 @@ max_projects(account) -> number
 
 That can be fine if it is the application boundary for account limits. It is a
 problem if dozens of helpers each resolve their own variables and reassemble a
-policy the workspace could have selected as one object.
+policy the package could have selected as one object.
 
 Prefer integration code that makes runtime decisions visible:
 
 ```text
-profile = account_limit_policy.resolve(workspace, account)
+profile = account_limit_policy.resolve(package, account)
 project_service.create_project(account, profile)
 ```
 
@@ -670,20 +670,20 @@ Avoid these patterns:
 - spreading resolution calls so widely that one request's runtime decisions
   are hard to enumerate.
 
-Those patterns usually work at first. They fail later, when a workspace change
+Those patterns usually work at first. They fail later, when a package change
 needs to be reviewed, tested, explained, or rolled back under pressure.
 
 ## What The App Should Own
 
 An idiomatic integration gives the app clear responsibilities:
 
-- configure the workspace source URI;
-- load and refresh the workspace through the SDK;
+- configure the package source URI;
+- load and refresh the package through the SDK;
 - build context from facts the app owns;
 - resolve named variables at behavior boundaries;
 - convert selected JSON values into app types;
-- log the selected source and workspace fingerprint;
+- log the selected source and package fingerprint;
 - expose refresh status.
 
-The workspace owns the policy. The app owns applying the selected policy to
+The package owns the policy. The app owns applying the selected policy to
 runtime behavior.

@@ -1,4 +1,4 @@
-/** Workspace screen section id accepted from route/query state. */
+/** Package screen section id accepted from route/query state. */
 export type SectionId =
     | "overview"
     | "variables"

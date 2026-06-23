@@ -10,10 +10,10 @@ use crate::expression::Expression;
 
 use super::index::*;
 use super::input::LintInput;
-use super::{WorkspaceLintSnapshot, lint_workspace_snapshot};
+use super::{PackageLintSnapshot, lint_package_snapshot};
 
 #[derive(Debug)]
-pub(crate) struct RuntimeWorkspace {
+pub(crate) struct RuntimePackage {
     pub(crate) request_contexts: BTreeMap<String, RuntimeRequestContext>,
     pub(crate) qualifier_request_contexts: BTreeMap<String, BTreeSet<String>>,
     pub(crate) variable_request_contexts: BTreeMap<String, BTreeSet<String>>,
@@ -23,7 +23,7 @@ pub(crate) struct RuntimeWorkspace {
     pub(crate) variables: BTreeMap<String, RuntimeVariable>,
 }
 
-impl RuntimeWorkspace {
+impl RuntimePackage {
     pub(crate) fn validate_context(&self, context: &JsonValue) -> Result<()> {
         self.validate_context_against(context, None)
     }
@@ -157,32 +157,32 @@ impl RuntimeSelectedValue {
     }
 }
 
-pub(crate) async fn compile_runtime_workspace(root: &Path) -> Result<RuntimeWorkspace> {
-    let snapshot = lint_workspace_snapshot(LintInput::new(root.to_path_buf())).await?;
-    compile_runtime_workspace_from_snapshot(&snapshot)
+pub(crate) async fn compile_runtime_package(root: &Path) -> Result<RuntimePackage> {
+    let snapshot = lint_package_snapshot(LintInput::new(root.to_path_buf())).await?;
+    compile_runtime_package_from_snapshot(&snapshot)
 }
 
-pub(crate) fn compile_runtime_workspace_from_snapshot(
-    snapshot: &WorkspaceLintSnapshot,
-) -> Result<RuntimeWorkspace> {
+pub(crate) fn compile_runtime_package_from_snapshot(
+    snapshot: &PackageLintSnapshot,
+) -> Result<RuntimePackage> {
     RuntimeCompiler::new(snapshot).compile()
 }
 
 struct RuntimeCompiler<'a> {
-    snapshot: &'a WorkspaceLintSnapshot,
+    snapshot: &'a PackageLintSnapshot,
 }
 
 impl<'a> RuntimeCompiler<'a> {
-    fn new(snapshot: &'a WorkspaceLintSnapshot) -> Self {
+    fn new(snapshot: &'a PackageLintSnapshot) -> Self {
         Self { snapshot }
     }
 
-    fn compile(&self) -> Result<RuntimeWorkspace> {
+    fn compile(&self) -> Result<RuntimePackage> {
         let index = &self.snapshot.index;
         let _manifest = index
             .manifest
             .as_ref()
-            .ok_or_else(|| RototoError::new("workspace manifest is missing"))?;
+            .ok_or_else(|| RototoError::new("package manifest is missing"))?;
         let request_contexts = self.compile_request_contexts(index)?;
         let compatibility = self.snapshot.request_context_compatibility();
         let catalog_schemas = self.compile_catalog_schemas(index);
@@ -190,7 +190,7 @@ impl<'a> RuntimeCompiler<'a> {
         let qualifiers = self.compile_qualifiers(index)?;
         let variables = self.compile_variables(index)?;
 
-        Ok(RuntimeWorkspace {
+        Ok(RuntimePackage {
             request_contexts,
             qualifier_request_contexts: compatibility.qualifiers,
             variable_request_contexts: compatibility.variables,

@@ -5,7 +5,7 @@ use crate::diagnostics::{
 };
 
 #[derive(Debug)]
-pub struct WorkspaceInspection {
+pub struct PackageInspection {
     pub root: PathBuf,
     pub request_contexts: Vec<RequestContextInspection>,
     pub catalogs: Vec<CatalogInspection>,
@@ -73,13 +73,13 @@ pub struct CatalogConfig {
 }
 
 #[derive(Debug)]
-pub struct WorkspaceLint {
+pub struct PackageLint {
     pub root: PathBuf,
     pub documents: Vec<SourceDocumentSummary>,
     pub diagnostics: Vec<LintDiagnostic>,
 }
 
-impl WorkspaceLint {
+impl PackageLint {
     pub fn has_errors(&self) -> bool {
         self.diagnostics
             .iter()
@@ -180,7 +180,7 @@ pub enum VariableResolutionSource {
 }
 
 #[derive(Debug, serde::Serialize)]
-pub struct WorkspaceDiff {
+pub struct PackageDiff {
     pub before: String,
     pub after: String,
     pub changes: Vec<SemanticChange>,
@@ -220,11 +220,11 @@ pub struct DiagnosticCatalog {
 #[serde(rename_all = "lowercase")]
 pub enum DiagnosticCatalogScope {
     Global,
-    Workspace,
+    Package,
 }
 
 #[derive(Clone, Debug, Default)]
-pub struct WorkspaceInspectRequest {
+pub struct PackageInspectRequest {
     pub variables: InspectSelection,
     pub catalogs: InspectSelection,
     pub qualifiers: InspectSelection,
@@ -260,8 +260,8 @@ impl InspectSelection {
 }
 
 #[derive(Debug, serde::Serialize)]
-pub struct WorkspaceInspectReport {
-    pub workspace: String,
+pub struct PackageInspectReport {
+    pub package: String,
     pub documents: Vec<SourceDocumentSummary>,
     pub runtime: InspectRuntimeStatus,
     pub diagnostics: Vec<LintDiagnostic>,

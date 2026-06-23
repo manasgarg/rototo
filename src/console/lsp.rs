@@ -10,9 +10,9 @@ use tokio::sync::{Mutex, oneshot};
 use tokio::task::JoinHandle;
 
 use crate::error::{Result, RototoError};
-use crate::sdk::Workspace;
+use crate::sdk::Package;
 
-use super::store::WorkspaceRecord;
+use super::store::PackageRecord;
 
 /* Bridges the console editor to the real rototo language server. The console
 never reimplements lint, completion, or hover semantics: a branch editing
@@ -89,7 +89,7 @@ struct SessionShared {
 /// after the idle window.
 struct LspSession {
     /// Keeps the staged checkout's temp directory alive for the session.
-    _staged: Arc<Workspace>,
+    _staged: Arc<Package>,
     root: PathBuf,
     writer: WriteHalf<DuplexStream>,
     shared: Arc<SessionShared>,
@@ -159,15 +159,15 @@ impl LspSessions {
         &self,
         user_id: &str,
         branch_id: &str,
-        staged: Arc<Workspace>,
-        workspace: &WorkspaceRecord,
+        staged: Arc<Package>,
+        package: &PackageRecord,
         path: &str,
         text: &str,
     ) -> Result<Vec<LspDiagnosticWire>> {
         let slot = self.slot(user_id, branch_id).await;
         let mut guard = slot.lock().await;
         let session = self.session(&mut guard, staged).await?;
-        let uri = sync_document(session, workspace, path, text).await?;
+        let uri = sync_document(session, package, path, text).await?;
         // documentSymbol acts as a barrier: the server publishes diagnostics
         // for the didChange before it answers the next request on the same
         // stream.
@@ -193,8 +193,8 @@ impl LspSessions {
         &self,
         user_id: &str,
         branch_id: &str,
-        staged: Arc<Workspace>,
-        workspace: &WorkspaceRecord,
+        staged: Arc<Package>,
+        package: &PackageRecord,
         path: &str,
         text: &str,
         position: JsonValue,
@@ -202,7 +202,7 @@ impl LspSessions {
         let slot = self.slot(user_id, branch_id).await;
         let mut guard = slot.lock().await;
         let session = self.session(&mut guard, staged).await?;
-        let uri = sync_document(session, workspace, path, text).await?;
+        let uri = sync_document(session, package, path, text).await?;
         let result = request(
             session,
             "textDocument/completion",
@@ -236,8 +236,8 @@ impl LspSessions {
         &self,
         user_id: &str,
         branch_id: &str,
-        staged: Arc<Workspace>,
-        workspace: &WorkspaceRecord,
+        staged: Arc<Package>,
+        package: &PackageRecord,
         path: &str,
         text: &str,
         position: JsonValue,
@@ -245,7 +245,7 @@ impl LspSessions {
         let slot = self.slot(user_id, branch_id).await;
         let mut guard = slot.lock().await;
         let session = self.session(&mut guard, staged).await?;
-        let uri = sync_document(session, workspace, path, text).await?;
+        let uri = sync_document(session, package, path, text).await?;
         let result = request(
             session,
             "textDocument/hover",
@@ -287,7 +287,7 @@ impl LspSessions {
     async fn session<'a>(
         &self,
         guard: &'a mut Option<LspSession>,
-        staged: Arc<Workspace>,
+        staged: Arc<Package>,
     ) -> Result<&'a mut LspSession> {
         let stale = guard
             .as_ref()
@@ -309,7 +309,7 @@ impl LspSessions {
     }
 }
 
-async fn create_session(staged: Arc<Workspace>) -> Result<LspSession> {
+async fn create_session(staged: Arc<Package>) -> Result<LspSession> {
     let root = staged.root().to_path_buf();
     let (console_io, server_io) = tokio::io::duplex(4 * 1024 * 1024);
     let (server_read, server_write) = tokio::io::split(server_io);
@@ -450,11 +450,11 @@ async fn request(session: &mut LspSession, method: &str, params: JsonValue) -> R
 
 async fn sync_document(
     session: &mut LspSession,
-    workspace: &WorkspaceRecord,
+    package: &PackageRecord,
     repo_path: &str,
     text: &str,
 ) -> Result<String> {
-    let relative = workspace_relative_path(&workspace.path, repo_path);
+    let relative = package_relative_path(&package.path, repo_path);
     let uri = file_uri(&session.root, Some(&relative));
     match session.open_documents.get_mut(&uri) {
         None => {
@@ -531,12 +531,12 @@ fn simplify_diagnostic(raw: &JsonValue) -> LspDiagnosticWire {
     }
 }
 
-fn workspace_relative_path(workspace_path: &str, repo_path: &str) -> String {
-    if workspace_path == "." {
+fn package_relative_path(package_path: &str, repo_path: &str) -> String {
+    if package_path == "." {
         return repo_path.to_owned();
     }
     repo_path
-        .strip_prefix(&format!("{workspace_path}/"))
+        .strip_prefix(&format!("{package_path}/"))
         .unwrap_or(repo_path)
         .to_owned()
 }

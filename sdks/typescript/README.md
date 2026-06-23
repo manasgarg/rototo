@@ -3,7 +3,7 @@
 # rototo TypeScript SDK
 
 The TypeScript SDK is a thin N-API wrapper around the Rust SDK. TypeScript code
-gets an idiomatic async API with camelCase fields while rototo keeps workspace
+gets an idiomatic async API with camelCase fields while rototo keeps package
 loading, linting, refresh, and resolution behavior in the Rust core.
 
 ## Install
@@ -18,23 +18,23 @@ The package includes native modules for Linux, macOS, and Windows on the
 supported x64 and arm64 targets. The rototo release version stays SemVer, for
 example `0.1.0-alpha.5`.
 
-## Load A Workspace
+## Load A Package
 
 ```typescript
-import { Workspace } from "rototo";
+import { Package } from "rototo";
 
-const workspace = await Workspace.load("examples/basic");
+const pkg = await Package.load("examples/basic");
 ```
 
-`Workspace.load` accepts the same
-[source strings](https://docs.rototo.dev/reference-workspace-sources.html) as the CLI. It
-[lints](https://docs.rototo.dev/reference-lint-overview.html) the workspace and rejects lint failures
+`Package.load` accepts the same
+[source strings](https://docs.rototo.dev/reference-package-sources.html) as the CLI. It
+[lints](https://docs.rototo.dev/reference-lint-overview.html) the package and rejects lint failures
 before returning.
 
 ## Resolve A Variable
 
 ```typescript
-const resolution = await workspace.resolveVariable(
+const resolution = await pkg.resolveVariable(
   "premium-message",
   { user: { tier: "premium" } },
 );
@@ -54,7 +54,7 @@ console.log(resolution.source);
 ## Resolve A Qualifier
 
 ```typescript
-const matches = await workspace.resolveQualifier(
+const matches = await pkg.resolveQualifier(
   "premium-users",
   { user: { tier: "premium" } },
 );
@@ -71,7 +71,7 @@ request context schema by default. Skip validation for one call when a tool
 needs to evaluate partial context:
 
 ```typescript
-const resolution = await workspace.resolveVariable(
+const resolution = await pkg.resolveVariable(
   "premium-message",
   context,
   { validateContext: false },
@@ -83,30 +83,30 @@ The context still must be a JSON object.
 ## Inspect And Lint
 
 ```typescript
-const workspace = await Workspace.inspect("examples/basic");
-const lint = await workspace.lint();
+const pkg = await Package.inspect("examples/basic");
+const lint = await pkg.lint();
 ```
 
-Inspection is for tools. A workspace loaded through `inspect` cannot
+Inspection is for tools. A package loaded through `inspect` cannot
 [resolve variables or qualifiers](https://docs.rototo.dev/reference-sdk-resolution.html) because it
 does not compile the runtime model.
 
-## Refreshing Workspace
+## Refreshing Package
 
 ```typescript
-import { RefreshingWorkspace } from "rototo";
+import { RefreshingPackage } from "rototo";
 
-const workspace = await RefreshingWorkspace.load(source, {
+const pkg = await RefreshingPackage.load(source, {
   periodSeconds: 30,
 });
 
-const resolution = await workspace.resolveVariable("premium-message", context);
-const status = await workspace.status();
-await workspace.shutdown();
+const resolution = await pkg.resolveVariable("premium-message", context);
+const status = await pkg.status();
+await pkg.shutdown();
 ```
 
-[`RefreshingWorkspace`](https://docs.rototo.dev/reference-sdk-refresh.html) keeps serving the last
-successfully loaded workspace when refresh fails. `status` returns a
+[`RefreshingPackage`](https://docs.rototo.dev/reference-sdk-refresh.html) keeps serving the last
+successfully loaded package when refresh fails. `status` returns a
 `RefreshStatus` object with fingerprint, success, attempt, failure, error,
 refreshing, and immutable fields.
 
@@ -118,7 +118,7 @@ Rust `RototoError` values become `RototoError` in TypeScript:
 import { RototoError } from "rototo";
 
 try {
-  await workspace.resolveVariable("missing", {});
+  await pkg.resolveVariable("missing", {});
 } catch (error) {
   if (error instanceof RototoError) {
     console.log(error.message);
@@ -130,8 +130,8 @@ try {
 
 | Type | Purpose |
 | --- | --- |
-| `Workspace` | Loaded workspace handle. |
-| `RefreshingWorkspace` | Refreshing workspace handle for services. |
+| `Package` | Loaded package handle. |
+| `RefreshingPackage` | Refreshing package handle for services. |
 | `VariableResolution` | Selected variable value. |
 | `RefreshStatus` | Refresh state snapshot. |
 | `RototoError` | Error raised for rototo failures. |

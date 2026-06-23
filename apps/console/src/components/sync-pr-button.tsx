@@ -5,10 +5,10 @@ import { apiFetch } from "@/lib/api";
 
 export function SyncPrButton({
     branchId,
-    workspaceId,
+    packageId,
 }: {
     branchId: string;
-    workspaceId: string;
+    packageId: string;
 }) {
     const router = useRouter();
     const [pending, setPending] = useState(false);
@@ -19,7 +19,7 @@ export function SyncPrButton({
         setMessage(null);
         try {
             const response = await apiFetch(
-                `/api/workspaces/${workspaceId}/branches/${branchId}/sync-pr`,
+                `/api/packages/${packageId}/branches/${branchId}/sync-pr`,
                 { method: "POST" },
             );
             const body = (await response.json()) as { error?: string };

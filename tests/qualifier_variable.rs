@@ -14,7 +14,7 @@ fn lists_qualifiers() {
 }
 
 #[test]
-fn lists_variables_from_discovered_workspace() {
+fn lists_variables_from_discovered_package() {
     Command::cargo_bin("rototo")
         .unwrap()
         .current_dir("examples/basic")
@@ -28,7 +28,7 @@ fn lists_variables_from_discovered_workspace() {
 }
 
 #[test]
-fn shows_workspace_inventory_including_linters() {
+fn shows_package_inventory_including_linters() {
     Command::cargo_bin("rototo")
         .unwrap()
         .args(["show", "examples/basic"])
@@ -54,7 +54,7 @@ fn shows_workspace_inventory_including_linters() {
 }
 
 #[test]
-fn shows_workspace_inventory_as_json_including_top_level_entries() {
+fn shows_package_inventory_as_json_including_top_level_entries() {
     Command::cargo_bin("rototo")
         .unwrap()
         .args(["show", "examples/basic", "--json"])
@@ -102,7 +102,7 @@ fn gets_qualifier_by_id() {
 }
 
 #[test]
-fn gets_variable_from_discovered_workspace() {
+fn gets_variable_from_discovered_package() {
     Command::cargo_bin("rototo")
         .unwrap()
         .current_dir("examples/basic")
@@ -149,8 +149,8 @@ fn gets_qualifier_by_id_as_json() {
 
 #[test]
 fn lints_qualifier_by_id() {
-    let workspace = std::path::absolute("examples/basic").unwrap();
-    let expected = format!("ok: {}\n", workspace.display());
+    let package = std::path::absolute("examples/basic").unwrap();
+    let expected = format!("ok: {}\n", package.display());
 
     Command::cargo_bin("rototo")
         .unwrap()
@@ -222,9 +222,9 @@ fn resolves_qualifier_with_trace_output() {
 }
 
 #[test]
-fn lints_variable_from_discovered_workspace() {
-    let workspace = std::path::absolute("examples/basic").unwrap();
-    let expected = format!("ok: {}\n", workspace.display());
+fn lints_variable_from_discovered_package() {
+    let package = std::path::absolute("examples/basic").unwrap();
+    let expected = format!("ok: {}\n", package.display());
 
     Command::cargo_bin("rototo")
         .unwrap()
@@ -371,7 +371,7 @@ fn resolves_variable_with_trace_output() {
 }
 
 #[test]
-fn resolve_rejects_context_that_does_not_match_workspace_schema() {
+fn resolve_rejects_context_that_does_not_match_package_schema() {
     Command::cargo_bin("rototo")
         .unwrap()
         .args([
@@ -473,13 +473,13 @@ fn missing_qualifier_id_fails() {
 }
 
 #[test]
-fn missing_workspace_context_fails() {
+fn missing_package_context_fails() {
     Command::cargo_bin("rototo")
         .unwrap()
         .args(["show", "--qualifiers"])
         .assert()
         .failure()
         .stderr(predicate::str::contains(
-            "workspace not found: pass a workspace source or run inside a rototo workspace",
+            "package not found: pass a package source or run inside a rototo package",
         ));
 }

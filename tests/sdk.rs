@@ -5,11 +5,11 @@ use std::time::{Duration, Instant};
 
 use rototo::model::VariableResolutionSource;
 use rototo::{
-    LintMode, LoadOptions, RefreshOptions, RefreshOutcome, RefreshingWorkspace, ResolveContext,
-    ResolveOptions, SourceOptions, Workspace, diagnostic_for_rule,
-    diagnostics_catalog_for_workspace, inspect_workspace, lint_qualifier, lint_workspace,
-    list_catalogs, list_variables, read_catalog, read_qualifiers, read_variable, read_variables,
-    resolve_qualifier, resolve_variable, stage_workspace_source,
+    LintMode, LoadOptions, Package, RefreshOptions, RefreshOutcome, RefreshingPackage,
+    ResolveContext, ResolveOptions, SourceOptions, diagnostic_for_rule,
+    diagnostics_catalog_for_package, inspect_package, lint_package, lint_qualifier, list_catalogs,
+    list_variables, read_catalog, read_qualifiers, read_variable, read_variables,
+    resolve_qualifier, resolve_variable, stage_package_source,
 };
 
 async fn run_git(repo: &std::path::Path, args: &[&str]) {
@@ -63,16 +63,16 @@ async fn git_output(repo: &std::path::Path, args: &[&str]) -> String {
     String::from_utf8_lossy(&output.stdout).trim().to_owned()
 }
 
-async fn write_minimal_workspace(root: &std::path::Path) {
-    write_minimal_workspace_with_message(root, "hello").await;
+async fn write_minimal_package(root: &std::path::Path) {
+    write_minimal_package_with_message(root, "hello").await;
 }
 
-async fn write_minimal_workspace_with_message(root: &std::path::Path, message: &str) {
+async fn write_minimal_package_with_message(root: &std::path::Path, message: &str) {
     tokio::fs::create_dir_all(root.join("variables"))
         .await
         .unwrap();
     tokio::fs::write(
-        root.join("rototo-workspace.toml"),
+        root.join("rototo-package.toml"),
         r#"schema_version = 1
 "#,
     )
@@ -147,8 +147,8 @@ where
 }
 
 #[tokio::test]
-async fn sdk_inspects_workspace() {
-    let inspection = inspect_workspace("examples/basic".as_ref()).await.unwrap();
+async fn sdk_inspects_package() {
+    let inspection = inspect_package("examples/basic".as_ref()).await.unwrap();
 
     assert!(
         inspection
@@ -174,8 +174,8 @@ async fn sdk_inspects_workspace() {
 }
 
 #[tokio::test]
-async fn sdk_lints_workspace() {
-    let lint = lint_workspace("examples/basic".as_ref()).await.unwrap();
+async fn sdk_lints_package() {
+    let lint = lint_package("examples/basic".as_ref()).await.unwrap();
 
     assert!(lint.diagnostics.is_empty());
 }
@@ -347,7 +347,7 @@ async fn sdk_reads_all_qualifier_configs() {
 
 #[tokio::test]
 async fn sdk_reads_diagnostic_catalog() {
-    let catalog = diagnostics_catalog_for_workspace("examples/basic".as_ref())
+    let catalog = diagnostics_catalog_for_package("examples/basic".as_ref())
         .await
         .unwrap();
     let diagnostic = diagnostic_for_rule(&catalog, "rototo/qualifier-parse-failed").unwrap();
@@ -359,14 +359,14 @@ async fn sdk_reads_diagnostic_catalog() {
 }
 
 #[tokio::test]
-async fn workspace_sdk_loads_file_source() {
+async fn package_sdk_loads_file_source() {
     let root = std::path::absolute("examples/basic").unwrap();
-    let workspace = Workspace::load(format!("file://{}", root.display()))
+    let package = Package::load(format!("file://{}", root.display()))
         .await
         .unwrap();
 
     assert!(
-        workspace
+        package
             .inspection()
             .variables
             .iter()
@@ -375,20 +375,20 @@ async fn workspace_sdk_loads_file_source() {
 }
 
 #[tokio::test]
-async fn workspace_sdk_loads_git_file_source_with_ref_and_subdir() {
+async fn package_sdk_loads_git_file_source_with_ref_and_subdir() {
     let temp = tempfile::TempDir::new().unwrap();
     let repo = temp.path().join("repo");
-    let workspace_root = repo.join("rototo");
+    let package_root = repo.join("rototo");
     tokio::fs::create_dir_all(&repo).await.unwrap();
-    write_minimal_workspace(&workspace_root).await;
+    write_minimal_package(&package_root).await;
     run_git(&repo, &["init", "--initial-branch", "main"]).await;
     commit_all(&repo, "initial").await;
 
     let source = format!("git+file://{}#main:rototo", repo.display());
-    let workspace = Workspace::load(source).await.unwrap();
+    let package = Package::load(source).await.unwrap();
 
-    assert_eq!(workspace.inspection().variables[0].id, "message");
-    let resolution = workspace
+    assert_eq!(package.inspection().variables[0].id, "message");
+    let resolution = package
         .resolve_variable(
             "message",
             &ResolveContext::from_json(serde_json::json!({})).unwrap(),
@@ -399,107 +399,94 @@ async fn workspace_sdk_loads_git_file_source_with_ref_and_subdir() {
 }
 
 #[tokio::test]
-async fn refreshing_workspace_manual_refresh_updates_git_source() {
+async fn refreshing_package_manual_refresh_updates_git_source() {
     let temp = tempfile::TempDir::new().unwrap();
     let repo = temp.path().join("repo");
-    let workspace_root = repo.join("rototo");
+    let package_root = repo.join("rototo");
     tokio::fs::create_dir_all(&repo).await.unwrap();
-    write_minimal_workspace_with_message(&workspace_root, "hello").await;
+    write_minimal_package_with_message(&package_root, "hello").await;
     run_git(&repo, &["init", "--initial-branch", "main"]).await;
     commit_all(&repo, "initial").await;
 
     let source = format!("git+file://{}#main:rototo", repo.display());
-    let workspace = RefreshingWorkspace::load(source, RefreshOptions::new())
+    let package = RefreshingPackage::load(source, RefreshOptions::new())
         .await
         .unwrap();
     let context = ResolveContext::from_json(serde_json::json!({})).unwrap();
 
-    let resolution = workspace
-        .resolve_variable("message", &context)
-        .await
-        .unwrap();
+    let resolution = package.resolve_variable("message", &context).await.unwrap();
     assert_eq!(resolution.value, "hello");
 
-    write_minimal_workspace_with_message(&workspace_root, "goodbye").await;
+    write_minimal_package_with_message(&package_root, "goodbye").await;
     commit_all(&repo, "update").await;
 
     assert_eq!(
-        workspace.refresh_now().await.unwrap(),
+        package.refresh_now().await.unwrap(),
         RefreshOutcome::Refreshed
     );
-    let resolution = workspace
-        .resolve_variable("message", &context)
-        .await
-        .unwrap();
+    let resolution = package.resolve_variable("message", &context).await.unwrap();
     assert_eq!(resolution.value, "goodbye");
-    assert_eq!(workspace.status().await.consecutive_failures, 0);
+    assert_eq!(package.status().await.consecutive_failures, 0);
 }
 
 #[tokio::test]
-async fn refreshing_workspace_failed_refresh_keeps_last_loaded_git_workspace() {
+async fn refreshing_package_failed_refresh_keeps_last_loaded_git_package() {
     let temp = tempfile::TempDir::new().unwrap();
     let repo = temp.path().join("repo");
-    let workspace_root = repo.join("rototo");
+    let package_root = repo.join("rototo");
     tokio::fs::create_dir_all(&repo).await.unwrap();
-    write_minimal_workspace_with_message(&workspace_root, "hello").await;
+    write_minimal_package_with_message(&package_root, "hello").await;
     run_git(&repo, &["init", "--initial-branch", "main"]).await;
     commit_all(&repo, "initial").await;
 
     let source = format!("git+file://{}#main:rototo", repo.display());
-    let workspace = RefreshingWorkspace::load(source, RefreshOptions::new())
+    let package = RefreshingPackage::load(source, RefreshOptions::new())
         .await
         .unwrap();
     let context = ResolveContext::from_json(serde_json::json!({})).unwrap();
 
-    tokio::fs::write(workspace_root.join("rototo-workspace.toml"), "not = [valid")
+    tokio::fs::write(package_root.join("rototo-package.toml"), "not = [valid")
         .await
         .unwrap();
-    commit_all(&repo, "break workspace").await;
+    commit_all(&repo, "break package").await;
 
-    assert!(workspace.refresh_now().await.is_err());
-    let resolution = workspace
-        .resolve_variable("message", &context)
-        .await
-        .unwrap();
+    assert!(package.refresh_now().await.is_err());
+    let resolution = package.resolve_variable("message", &context).await.unwrap();
     assert_eq!(resolution.value, "hello");
-    let status = workspace.status().await;
+    let status = package.status().await;
     assert_eq!(status.consecutive_failures, 1);
     assert!(status.last_error.is_some());
 }
 
 #[tokio::test]
-async fn refreshing_workspace_snapshots_local_source_for_last_known_good_resolution() {
+async fn refreshing_package_snapshots_local_source_for_last_known_good_resolution() {
     let temp = tempfile::TempDir::new().unwrap();
-    let workspace_root = temp.path().join("rototo");
-    write_minimal_workspace_with_message(&workspace_root, "hello").await;
+    let package_root = temp.path().join("rototo");
+    write_minimal_package_with_message(&package_root, "hello").await;
 
-    let workspace =
-        RefreshingWorkspace::load(workspace_root.to_string_lossy(), RefreshOptions::new())
-            .await
-            .unwrap();
+    let package = RefreshingPackage::load(package_root.to_string_lossy(), RefreshOptions::new())
+        .await
+        .unwrap();
     let context = ResolveContext::from_json(serde_json::json!({})).unwrap();
 
-    tokio::fs::write(workspace_root.join("rototo-workspace.toml"), "not = [valid")
+    tokio::fs::write(package_root.join("rototo-package.toml"), "not = [valid")
         .await
         .unwrap();
 
-    assert!(workspace.refresh_now().await.is_err());
-    let resolution = workspace
-        .resolve_variable("message", &context)
-        .await
-        .unwrap();
+    assert!(package.refresh_now().await.is_err());
+    let resolution = package.resolve_variable("message", &context).await.unwrap();
     assert_eq!(resolution.value, "hello");
 }
 
 #[tokio::test]
-async fn refreshing_workspace_refreshes_when_parent_layer_changes() {
+async fn refreshing_package_refreshes_when_parent_layer_changes() {
     let temp = tempfile::TempDir::new().unwrap();
     let base = temp.path().join("base");
     let child = temp.path().join("child");
 
     tokio::fs::create_dir_all(&base).await.unwrap();
     tokio::fs::write(
-        base.join("rototo-workspace.toml"),
+        base.join("rototo-package.toml"),
         r#"schema_version = 1
 "#,
     )
@@ -509,7 +496,7 @@ async fn refreshing_workspace_refreshes_when_parent_layer_changes() {
 
     tokio::fs::create_dir_all(&child).await.unwrap();
     tokio::fs::write(
-        child.join("rototo-workspace.toml"),
+        child.join("rototo-package.toml"),
         r#"schema_version = 1
 extends = ["../base"]
 "#,
@@ -518,13 +505,13 @@ extends = ["../base"]
     .unwrap();
     write_string_variable(&child, "child-only", "child").await;
 
-    let workspace = RefreshingWorkspace::load(child.to_string_lossy(), RefreshOptions::new())
+    let package = RefreshingPackage::load(child.to_string_lossy(), RefreshOptions::new())
         .await
         .unwrap();
     let context = ResolveContext::from_json(serde_json::json!({})).unwrap();
 
     assert_eq!(
-        workspace
+        package
             .resolve_variable("base-only", &context)
             .await
             .unwrap()
@@ -535,11 +522,11 @@ extends = ["../base"]
     write_string_variable(&base, "base-only", "after").await;
 
     assert_eq!(
-        workspace.refresh_now().await.unwrap(),
+        package.refresh_now().await.unwrap(),
         RefreshOutcome::Refreshed
     );
     assert_eq!(
-        workspace
+        package
             .resolve_variable("base-only", &context)
             .await
             .unwrap()
@@ -549,89 +536,89 @@ extends = ["../base"]
 }
 
 #[tokio::test]
-async fn refreshing_workspace_unchanged_git_source_skips_reload() {
+async fn refreshing_package_unchanged_git_source_skips_reload() {
     let temp = tempfile::TempDir::new().unwrap();
     let repo = temp.path().join("repo");
-    let workspace_root = repo.join("rototo");
+    let package_root = repo.join("rototo");
     tokio::fs::create_dir_all(&repo).await.unwrap();
-    write_minimal_workspace(&workspace_root).await;
+    write_minimal_package(&package_root).await;
     run_git(&repo, &["init", "--initial-branch", "main"]).await;
     commit_all(&repo, "initial").await;
 
     let source = format!("git+file://{}#main:rototo", repo.display());
-    let workspace = RefreshingWorkspace::load(source, RefreshOptions::new())
+    let package = RefreshingPackage::load(source, RefreshOptions::new())
         .await
         .unwrap();
 
     assert_eq!(
-        workspace.refresh_now().await.unwrap(),
+        package.refresh_now().await.unwrap(),
         RefreshOutcome::Unchanged
     );
 }
 
 #[tokio::test]
-async fn refreshing_workspace_pinned_git_commit_is_immutable() {
+async fn refreshing_package_pinned_git_commit_is_immutable() {
     let temp = tempfile::TempDir::new().unwrap();
     let repo = temp.path().join("repo");
-    let workspace_root = repo.join("rototo");
+    let package_root = repo.join("rototo");
     tokio::fs::create_dir_all(&repo).await.unwrap();
-    write_minimal_workspace(&workspace_root).await;
+    write_minimal_package(&package_root).await;
     run_git(&repo, &["init", "--initial-branch", "main"]).await;
     commit_all(&repo, "initial").await;
     let commit = git_output(&repo, &["rev-parse", "HEAD"]).await;
 
     let source = format!("git+file://{}#{}:rototo", repo.display(), commit);
-    let workspace = RefreshingWorkspace::load(
+    let package = RefreshingPackage::load(
         source,
         RefreshOptions::new().with_period(std::time::Duration::from_millis(10)),
     )
     .await
     .unwrap();
 
-    assert!(workspace.status().await.immutable);
+    assert!(package.status().await.immutable);
     assert_eq!(
-        workspace.refresh_now().await.unwrap(),
+        package.refresh_now().await.unwrap(),
         RefreshOutcome::Immutable
     );
 }
 
 #[tokio::test(start_paused = true)]
-async fn refreshing_workspace_background_loop_refreshes_local_source() {
+async fn refreshing_package_background_loop_refreshes_local_source() {
     let temp = tempfile::TempDir::new().unwrap();
-    let workspace_root = temp.path().join("rototo");
-    write_minimal_workspace_with_message(&workspace_root, "hello").await;
+    let package_root = temp.path().join("rototo");
+    write_minimal_package_with_message(&package_root, "hello").await;
 
-    let workspace = RefreshingWorkspace::load(
-        workspace_root.to_string_lossy(),
+    let package = RefreshingPackage::load(
+        package_root.to_string_lossy(),
         RefreshOptions::new().with_period(Duration::from_secs(5)),
     )
     .await
     .unwrap();
     let context = ResolveContext::from_json(serde_json::json!({})).unwrap();
 
-    write_minimal_workspace_with_message(&workspace_root, "goodbye").await;
+    write_minimal_package_with_message(&package_root, "goodbye").await;
     tokio::task::yield_now().await;
     tokio::time::advance(Duration::from_secs(5)).await;
     wait_for_condition(|| async {
-        workspace
+        package
             .resolve_variable("message", &context)
             .await
             .is_ok_and(|resolution| resolution.value == "goodbye")
     })
     .await;
 
-    assert_eq!(workspace.status().await.consecutive_failures, 0);
-    workspace.shutdown().await;
+    assert_eq!(package.status().await.consecutive_failures, 0);
+    package.shutdown().await;
 }
 
 #[tokio::test(start_paused = true)]
-async fn refreshing_workspace_background_failures_back_off_and_keep_snapshot() {
+async fn refreshing_package_background_failures_back_off_and_keep_snapshot() {
     let temp = tempfile::TempDir::new().unwrap();
-    let workspace_root = temp.path().join("rototo");
-    write_minimal_workspace_with_message(&workspace_root, "hello").await;
+    let package_root = temp.path().join("rototo");
+    write_minimal_package_with_message(&package_root, "hello").await;
 
-    let workspace = RefreshingWorkspace::load(
-        workspace_root.to_string_lossy(),
+    let package = RefreshingPackage::load(
+        package_root.to_string_lossy(),
         RefreshOptions::new()
             .with_period(Duration::from_secs(5))
             .with_failure_backoff(Duration::from_secs(60), Duration::from_secs(60)),
@@ -640,28 +627,25 @@ async fn refreshing_workspace_background_failures_back_off_and_keep_snapshot() {
     .unwrap();
     let context = ResolveContext::from_json(serde_json::json!({})).unwrap();
 
-    tokio::fs::write(
-        workspace_root.join("variables/message.toml"),
-        "not = [valid",
-    )
-    .await
-    .unwrap();
+    tokio::fs::write(package_root.join("variables/message.toml"), "not = [valid")
+        .await
+        .unwrap();
     tokio::task::yield_now().await;
     tokio::time::advance(Duration::from_secs(5)).await;
     tokio::task::yield_now().await;
     wait_for_condition(|| async {
-        let status = workspace.status().await;
+        let status = package.status().await;
         status.consecutive_failures == 1 && !status.refreshing
     })
     .await;
-    let status = workspace.status().await;
+    let status = package.status().await;
     assert_eq!(status.consecutive_failures, 1, "status: {status:?}");
     let first_attempt = status.last_attempt;
 
     tokio::task::yield_now().await;
     tokio::time::advance(Duration::from_secs(59)).await;
     tokio::task::yield_now().await;
-    let status = workspace.status().await;
+    let status = package.status().await;
     assert_eq!(status.consecutive_failures, 1);
     assert_eq!(status.last_attempt, first_attempt);
 
@@ -670,26 +654,23 @@ async fn refreshing_workspace_background_failures_back_off_and_keep_snapshot() {
     tokio::time::advance(Duration::from_secs(5)).await;
     tokio::task::yield_now().await;
     wait_for_condition(|| async {
-        let status = workspace.status().await;
+        let status = package.status().await;
         status.consecutive_failures == 2 && !status.refreshing
     })
     .await;
-    let resolution = workspace
-        .resolve_variable("message", &context)
-        .await
-        .unwrap();
+    let resolution = package.resolve_variable("message", &context).await.unwrap();
     assert_eq!(resolution.value, "hello");
-    workspace.shutdown().await;
+    package.shutdown().await;
 }
 
 #[tokio::test(start_paused = true)]
-async fn refreshing_workspace_shutdown_stops_background_refresh() {
+async fn refreshing_package_shutdown_stops_background_refresh() {
     let temp = tempfile::TempDir::new().unwrap();
-    let workspace_root = temp.path().join("rototo");
-    write_minimal_workspace(&workspace_root).await;
+    let package_root = temp.path().join("rototo");
+    write_minimal_package(&package_root).await;
 
-    let workspace = RefreshingWorkspace::load(
-        workspace_root.to_string_lossy(),
+    let package = RefreshingPackage::load(
+        package_root.to_string_lossy(),
         RefreshOptions::new().with_period(Duration::from_secs(1)),
     )
     .await
@@ -698,35 +679,35 @@ async fn refreshing_workspace_shutdown_stops_background_refresh() {
     tokio::task::yield_now().await;
     tokio::time::advance(Duration::from_secs(1)).await;
     tokio::task::yield_now().await;
-    wait_for_condition(|| async { workspace.status().await.last_attempt.is_some() }).await;
+    wait_for_condition(|| async { package.status().await.last_attempt.is_some() }).await;
 
-    workspace.shutdown().await;
+    package.shutdown().await;
 }
 
 #[tokio::test]
-async fn refreshing_workspace_resolves_while_manual_refresh_runs() {
+async fn refreshing_package_resolves_while_manual_refresh_runs() {
     let temp = tempfile::TempDir::new().unwrap();
-    let workspace_root = temp.path().join("rototo");
-    write_minimal_workspace_with_message(&workspace_root, "hello").await;
+    let package_root = temp.path().join("rototo");
+    write_minimal_package_with_message(&package_root, "hello").await;
 
-    let workspace = std::sync::Arc::new(
-        RefreshingWorkspace::load(workspace_root.to_string_lossy(), RefreshOptions::new())
+    let package = std::sync::Arc::new(
+        RefreshingPackage::load(package_root.to_string_lossy(), RefreshOptions::new())
             .await
             .unwrap(),
     );
     let context = ResolveContext::from_json(serde_json::json!({})).unwrap();
-    write_minimal_workspace_with_message(&workspace_root, "goodbye").await;
+    write_minimal_package_with_message(&package_root, "goodbye").await;
 
-    let refresh_workspace = workspace.clone();
-    let resolve_workspace = workspace.clone();
+    let refresh_package = package.clone();
+    let resolve_package = package.clone();
     let resolve_context = context.clone();
     let (refresh, resolves) = tokio::join!(
-        async move { refresh_workspace.refresh_now().await },
+        async move { refresh_package.refresh_now().await },
         async move {
             let mut results = Vec::new();
             for _ in 0..10 {
                 results.push(
-                    resolve_workspace
+                    resolve_package
                         .resolve_variable("message", &resolve_context)
                         .await
                         .map(|resolution| resolution.value),
@@ -746,17 +727,14 @@ async fn refreshing_workspace_resolves_while_manual_refresh_runs() {
 }
 
 #[tokio::test]
-async fn workspace_source_rejects_http_archive_source() {
-    let err = stage_workspace_source(
-        "http://127.0.0.1/workspace.tar.gz",
-        &SourceOptions::default(),
-    )
-    .await
-    .unwrap_err();
+async fn package_source_rejects_http_archive_source() {
+    let err = stage_package_source("http://127.0.0.1/package.tar.gz", &SourceOptions::default())
+        .await
+        .unwrap_err();
 
     assert_eq!(
         err.to_string(),
-        "http:// workspace sources are not supported; use https://"
+        "http:// package sources are not supported; use https://"
     );
 }
 
@@ -807,39 +785,36 @@ async fn sdk_resolves_primitive_variable() {
 }
 
 #[tokio::test]
-async fn workspace_sdk_loads_linted_workspace() {
-    let workspace = Workspace::load("examples/basic").await.unwrap();
+async fn package_sdk_loads_linted_package() {
+    let package = Package::load("examples/basic").await.unwrap();
 
-    assert!(workspace.context_schema().is_some());
+    assert!(package.context_schema().is_some());
 }
 
 #[tokio::test]
-async fn workspace_sdk_resolves_from_loaded_runtime_snapshot() {
+async fn package_sdk_resolves_from_loaded_runtime_snapshot() {
     let temp = tempfile::TempDir::new().unwrap();
-    let root = temp.path().join("workspace");
-    write_minimal_workspace_with_message(&root, "loaded").await;
+    let root = temp.path().join("package");
+    write_minimal_package_with_message(&root, "loaded").await;
 
-    let workspace = Workspace::load(root.to_str().unwrap()).await.unwrap();
-    write_minimal_workspace_with_message(&root, "changed").await;
+    let package = Package::load(root.to_str().unwrap()).await.unwrap();
+    write_minimal_package_with_message(&root, "changed").await;
 
     let context = ResolveContext::from_json(serde_json::json!({})).unwrap();
-    let resolution = workspace
-        .resolve_variable("message", &context)
-        .await
-        .unwrap();
+    let resolution = package.resolve_variable("message", &context).await.unwrap();
 
     assert_eq!(resolution.value, "loaded");
 }
 
 #[tokio::test]
-async fn workspace_sdk_loads_layered_workspace_with_child_overrides() {
+async fn package_sdk_loads_layered_package_with_child_overrides() {
     let temp = tempfile::TempDir::new().unwrap();
     let base = temp.path().join("base");
     let child = temp.path().join("child");
 
     tokio::fs::create_dir_all(&base).await.unwrap();
     tokio::fs::write(
-        base.join("rototo-workspace.toml"),
+        base.join("rototo-package.toml"),
         r#"schema_version = 1
 "#,
     )
@@ -850,7 +825,7 @@ async fn workspace_sdk_loads_layered_workspace_with_child_overrides() {
 
     tokio::fs::create_dir_all(&child).await.unwrap();
     tokio::fs::write(
-        child.join("rototo-workspace.toml"),
+        child.join("rototo-package.toml"),
         r#"schema_version = 1
 extends = ["../base"]
 "#,
@@ -860,12 +835,12 @@ extends = ["../base"]
     write_string_variable(&child, "message", "child").await;
     write_string_variable(&child, "child-only", "child-only").await;
 
-    let workspace = Workspace::load(child.to_str().unwrap()).await.unwrap();
+    let package = Package::load(child.to_str().unwrap()).await.unwrap();
     let context = ResolveContext::from_json(serde_json::json!({})).unwrap();
 
-    assert_eq!(workspace.source_layers().len(), 2);
+    assert_eq!(package.source_layers().len(), 2);
     assert_eq!(
-        workspace
+        package
             .resolve_variable("message", &context)
             .await
             .unwrap()
@@ -873,7 +848,7 @@ extends = ["../base"]
         "child"
     );
     assert_eq!(
-        workspace
+        package
             .resolve_variable("base-only", &context)
             .await
             .unwrap()
@@ -881,7 +856,7 @@ extends = ["../base"]
         "base-only"
     );
     assert_eq!(
-        workspace
+        package
             .resolve_variable("child-only", &context)
             .await
             .unwrap()
@@ -891,35 +866,35 @@ extends = ["../base"]
 }
 
 #[tokio::test]
-async fn workspace_sdk_rejects_workspace_when_lint_fails() {
-    let err = Workspace::load("tests/fixtures/workspaces/lint-failures")
+async fn package_sdk_rejects_package_when_lint_fails() {
+    let err = Package::load("tests/fixtures/packages/lint-failures")
         .await
         .unwrap_err();
 
-    assert!(err.to_string().contains("workspace lint failed"));
+    assert!(err.to_string().contains("package lint failed"));
 }
 
 #[tokio::test]
-async fn workspace_sdk_loads_workspace_when_lint_only_warns() {
-    let workspace = Workspace::load("tests/fixtures/workspaces/rules/graph/qualifier-unreferenced")
+async fn package_sdk_loads_package_when_lint_only_warns() {
+    let package = Package::load("tests/fixtures/packages/rules/graph/qualifier-unreferenced")
         .await
         .unwrap();
 
-    assert_eq!(workspace.inspection().qualifiers[0].id, "unused");
+    assert_eq!(package.inspection().qualifiers[0].id, "unused");
 }
 
 #[tokio::test]
-async fn workspace_sdk_can_inspect_without_linting() {
-    let workspace = Workspace::inspect("tests/fixtures/workspaces/lint-failures")
+async fn package_sdk_can_inspect_without_linting() {
+    let package = Package::inspect("tests/fixtures/packages/lint-failures")
         .await
         .unwrap();
 
-    assert!(!workspace.inspection().variables.is_empty());
+    assert!(!package.inspection().variables.is_empty());
 }
 
 #[tokio::test]
-async fn workspace_sdk_resolves_with_context_contract() {
-    let workspace = Workspace::load("examples/basic").await.unwrap();
+async fn package_sdk_resolves_with_context_contract() {
+    let package = Package::load("examples/basic").await.unwrap();
     let context = ResolveContext::from_json(serde_json::json!({
         "user": {
             "tier": "premium"
@@ -927,7 +902,7 @@ async fn workspace_sdk_resolves_with_context_contract() {
     }))
     .unwrap();
 
-    let resolution = workspace
+    let resolution = package
         .resolve_variable("checkout-redesign", &context)
         .await
         .unwrap();
@@ -936,14 +911,14 @@ async fn workspace_sdk_resolves_with_context_contract() {
 }
 
 #[tokio::test]
-async fn workspace_sdk_validates_resolve_context_against_schema() {
-    let workspace = Workspace::load("examples/basic").await.unwrap();
+async fn package_sdk_validates_resolve_context_against_schema() {
+    let package = Package::load("examples/basic").await.unwrap();
     let context = ResolveContext::from_json(serde_json::json!({
         "unknown": true
     }))
     .unwrap();
 
-    let err = workspace
+    let err = package
         .resolve_qualifier("premium-users", &context)
         .await
         .unwrap_err();
@@ -955,8 +930,8 @@ async fn workspace_sdk_validates_resolve_context_against_schema() {
 }
 
 #[tokio::test]
-async fn workspace_sdk_rejects_missing_condition_context_even_when_schema_allows_it() {
-    let workspace = Workspace::load("examples/basic").await.unwrap();
+async fn package_sdk_rejects_missing_condition_context_even_when_schema_allows_it() {
+    let package = Package::load("examples/basic").await.unwrap();
     let context = ResolveContext::from_json(serde_json::json!({
         "user": {
             "id": "user-123"
@@ -964,7 +939,7 @@ async fn workspace_sdk_rejects_missing_condition_context_even_when_schema_allows
     }))
     .unwrap();
 
-    let err = workspace
+    let err = package
         .resolve_qualifier("premium-users", &context)
         .await
         .unwrap_err();
@@ -976,8 +951,8 @@ async fn workspace_sdk_rejects_missing_condition_context_even_when_schema_allows
 }
 
 #[tokio::test]
-async fn workspace_sdk_resolves_from_context_only() {
-    let workspace = Workspace::load("examples/basic").await.unwrap();
+async fn package_sdk_resolves_from_context_only() {
+    let package = Package::load("examples/basic").await.unwrap();
     let context = ResolveContext::from_json(serde_json::json!({
         "lane": "prd",
         "user": {
@@ -986,7 +961,7 @@ async fn workspace_sdk_resolves_from_context_only() {
     }))
     .unwrap();
 
-    let resolution = workspace
+    let resolution = package
         .resolve_variable_with_options(
             "checkout-redesign",
             &context,
@@ -1001,16 +976,16 @@ async fn workspace_sdk_resolves_from_context_only() {
 }
 
 #[tokio::test]
-async fn workspace_sdk_loads_malformed_context_config_when_lint_is_skipped_for_inspection() {
-    let workspace = Workspace::load_with_options(
-        "tests/fixtures/workspaces/bad-context-config",
+async fn package_sdk_loads_malformed_context_config_when_lint_is_skipped_for_inspection() {
+    let package = Package::load_with_options(
+        "tests/fixtures/packages/bad-context-config",
         LoadOptions::new().with_lint(LintMode::Skip),
     )
     .await
     .unwrap();
 
     let context = ResolveContext::from_json(serde_json::json!({})).unwrap();
-    let err = workspace
+    let err = package
         .resolve_qualifier("anything", &context)
         .await
         .unwrap_err();
@@ -1019,14 +994,14 @@ async fn workspace_sdk_loads_malformed_context_config_when_lint_is_skipped_for_i
 
 #[cfg(unix)]
 #[tokio::test]
-async fn workspace_sdk_rejects_context_schema_symlink_escape() {
+async fn package_sdk_rejects_context_schema_symlink_escape() {
     let temp = tempfile::TempDir::new().unwrap();
-    let root = temp.path().join("workspace");
+    let root = temp.path().join("package");
     tokio::fs::create_dir_all(root.join("request-contexts"))
         .await
         .unwrap();
     tokio::fs::write(
-        root.join("rototo-workspace.toml"),
+        root.join("rototo-package.toml"),
         r#"schema_version = 1
 "#,
     )
@@ -1044,33 +1019,33 @@ async fn workspace_sdk_rejects_context_schema_symlink_escape() {
     )
     .unwrap();
 
-    let err = Workspace::load(root.to_str().unwrap()).await.unwrap_err();
+    let err = Package::load(root.to_str().unwrap()).await.unwrap_err();
 
-    assert!(err.to_string().contains("workspace lint failed"));
+    assert!(err.to_string().contains("package lint failed"));
 }
 
 #[tokio::test]
-async fn workspace_sdk_rejects_non_object_resolve_context() {
+async fn package_sdk_rejects_non_object_resolve_context() {
     let err = ResolveContext::from_json(serde_json::json!(["not", "an", "object"])).unwrap_err();
 
     assert_eq!(err.to_string(), "resolve context must be a JSON object");
 }
 
 #[tokio::test]
-async fn workspace_sdk_can_load_with_lint_skipped_for_inspection_tools() {
-    let workspace = Workspace::load_with_options(
-        "tests/fixtures/workspaces/lint-failures",
+async fn package_sdk_can_load_with_lint_skipped_for_inspection_tools() {
+    let package = Package::load_with_options(
+        "tests/fixtures/packages/lint-failures",
         LoadOptions::new().with_lint(LintMode::Skip),
     )
     .await
     .unwrap();
 
-    assert!(!workspace.inspection().variables.is_empty());
+    assert!(!package.inspection().variables.is_empty());
 }
 
 #[tokio::test]
-async fn workspace_sdk_can_bypass_context_validation_explicitly() {
-    let workspace = Workspace::load("examples/basic").await.unwrap();
+async fn package_sdk_can_bypass_context_validation_explicitly() {
+    let package = Package::load("examples/basic").await.unwrap();
     let context = ResolveContext::from_json(serde_json::json!({
         "unknown": true,
         "user": {
@@ -1079,7 +1054,7 @@ async fn workspace_sdk_can_bypass_context_validation_explicitly() {
     }))
     .unwrap();
 
-    let matches = workspace
+    let matches = package
         .resolve_qualifier_with_options(
             "premium-users",
             &context,

@@ -1,8 +1,8 @@
 # CLI Overview Reference
 
 The rototo CLI is where engineers, agents, CI, and release tooling work with
-workspaces. It does not replace the SDK in an application process; it gives
-those tools a consistent way to inspect, lint, and resolve the same workspace
+packages. It does not replace the SDK in an application process; it gives
+those tools a consistent way to inspect, lint, and resolve the same package
 an app will load.
 
 ## Command Groups
@@ -11,15 +11,15 @@ an app will load.
 rototo <command> [options]
 ```
 
-Workspace commands:
+Package commands:
 
 | Command | Purpose |
 | --- | --- |
-| `init` | Create workspace and entity templates. |
+| `init` | Create package and entity templates. |
 | `fixtures` | Generate readable runtime behavior fixtures. |
-| `lint` | Validate a workspace or selected targets. |
-| `inspect` | Explain how rototo sees workspace data. |
-| `show` | Display workspace config, variables, qualifiers, catalogs, and lint metadata. |
+| `lint` | Validate a package or selected targets. |
+| `inspect` | Explain how rototo sees package data. |
+| `show` | Display package config, variables, qualifiers, catalogs, and lint metadata. |
 | `resolve` | Evaluate variables or qualifiers with runtime context. |
 
 Utility commands:
@@ -39,17 +39,17 @@ option placement.
 | --- | --- |
 | `--json` | Emit machine-readable JSON when the command supports it. |
 | `--quiet`, `-q` | Suppress successful lint output. Diagnostics are still printed. |
-| `--workspace-token <token>` | Bearer token for HTTPS archive workspace downloads. |
+| `--package-token <token>` | Bearer token for HTTPS archive package downloads. |
 | `-V`, `--version` | Print CLI version. |
 | `-h`, `--help` | Print help. |
 
-`--workspace-token` can also be supplied with `ROTOTO_WORKSPACE_TOKEN`.
+`--package-token` can also be supplied with `ROTOTO_PACKAGE_TOKEN`.
 
 Global options are accepted at every command level.
 
-## Workspace Source Argument
+## Package Source Argument
 
-Most workspace commands accept an optional `WORKSPACE_SOURCE`:
+Most package commands accept an optional `PACKAGE_SOURCE`:
 
 ```sh
 rototo lint examples/basic
@@ -57,9 +57,9 @@ rototo show git+https://github.com/acme/config.git#main --variables
 ```
 
 When omitted, rototo searches upward from the current directory for
-`rototo-workspace.toml`.
+`rototo-package.toml`.
 
-See [Workspace Sources](reference-workspace-sources.html) for supported source
+See [Package Sources](reference-package-sources.html) for supported source
 forms.
 
 ## Selectors
@@ -101,7 +101,7 @@ Successful commands return exit code `0`.
 `lint` returns a non-zero exit code when selected lint output contains an error
 diagnostic. Warnings do not fail lint by themselves.
 
-Parse errors, unknown selectors, unsupported workspace sources, and resolution
+Parse errors, unknown selectors, unsupported package sources, and resolution
 errors return non-zero exit codes.
 
 ## Choosing A Command
@@ -110,7 +110,7 @@ Use `show` when you need the configured files or
 [diagnostic catalog](reference-diagnostics.html).
 
 Use `inspect` when you need dependencies, consumers, runtime availability, or a
-trace attached to workspace structure.
+trace attached to package structure.
 
 Use `resolve` when you need the exact runtime value for a context.
 

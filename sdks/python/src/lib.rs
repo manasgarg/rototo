@@ -20,31 +20,31 @@ fn version() -> &'static str {
     env!("CARGO_PKG_VERSION")
 }
 
-#[pyclass(name = "_Workspace")]
-struct PyWorkspace {
-    inner: Arc<rototo::Workspace>,
+#[pyclass(name = "_Package")]
+struct PyPackage {
+    inner: Arc<rototo::Package>,
 }
 
 #[pymethods]
-impl PyWorkspace {
+impl PyPackage {
     #[staticmethod]
-    #[pyo3(signature = (source, *, workspace_token = None, lint = "deny"))]
+    #[pyo3(signature = (source, *, package_token = None, lint = "deny"))]
     fn load<'py>(
         py: Python<'py>,
         source: String,
-        workspace_token: Option<String>,
+        package_token: Option<String>,
         lint: &str,
     ) -> PyResult<Bound<'py, PyAny>> {
-        let options = load_options(workspace_token, lint)?;
+        let options = load_options(package_token, lint)?;
         future_into_py(py, async move {
-            let workspace = rototo::Workspace::load_with_options(source, options)
+            let package = rototo::Package::load_with_options(source, options)
                 .await
                 .map_err(py_err)?;
             Python::attach(|py| {
                 Py::new(
                     py,
-                    PyWorkspace {
-                        inner: Arc::new(workspace),
+                    PyPackage {
+                        inner: Arc::new(package),
                     },
                 )
             })
@@ -52,22 +52,22 @@ impl PyWorkspace {
     }
 
     #[staticmethod]
-    #[pyo3(signature = (source, *, workspace_token = None))]
+    #[pyo3(signature = (source, *, package_token = None))]
     fn inspect<'py>(
         py: Python<'py>,
         source: String,
-        workspace_token: Option<String>,
+        package_token: Option<String>,
     ) -> PyResult<Bound<'py, PyAny>> {
-        let options = source_options(workspace_token);
+        let options = source_options(package_token);
         future_into_py(py, async move {
-            let workspace = rototo::Workspace::inspect_with_source_options(source, &options)
+            let package = rototo::Package::inspect_with_source_options(source, &options)
                 .await
                 .map_err(py_err)?;
             Python::attach(|py| {
                 Py::new(
                     py,
-                    PyWorkspace {
-                        inner: Arc::new(workspace),
+                    PyPackage {
+                        inner: Arc::new(package),
                     },
                 )
             })
@@ -79,9 +79,9 @@ impl PyWorkspace {
     }
 
     fn lint<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyAny>> {
-        let workspace = Arc::clone(&self.inner);
+        let package = Arc::clone(&self.inner);
         future_into_py(py, async move {
-            let lint = workspace.lint().await.map_err(py_err)?;
+            let lint = package.lint().await.map_err(py_err)?;
             Python::attach(|py| lint_to_py(py, lint))
         })
     }
@@ -95,10 +95,10 @@ impl PyWorkspace {
         validate_context: bool,
     ) -> PyResult<Bound<'py, PyAny>> {
         let context = json_from_py(&context)?;
-        let workspace = Arc::clone(&self.inner);
+        let package = Arc::clone(&self.inner);
         future_into_py(py, async move {
             let context = ResolveContext::from_json(context).map_err(py_err)?;
-            let resolution = workspace
+            let resolution = package
                 .resolve_variable_with_options(&id, &context, resolve_options(validate_context))
                 .await
                 .map_err(py_err)?;
@@ -115,10 +115,10 @@ impl PyWorkspace {
         validate_context: bool,
     ) -> PyResult<Bound<'py, PyAny>> {
         let context = json_from_py(&context)?;
-        let workspace = Arc::clone(&self.inner);
+        let package = Arc::clone(&self.inner);
         future_into_py(py, async move {
             let context = ResolveContext::from_json(context).map_err(py_err)?;
-            workspace
+            package
                 .resolve_qualifier_with_options(&id, &context, resolve_options(validate_context))
                 .await
                 .map_err(py_err)
@@ -126,37 +126,34 @@ impl PyWorkspace {
     }
 }
 
-#[pyclass(name = "_RefreshingWorkspace")]
-struct PyRefreshingWorkspace {
-    inner: Arc<Mutex<Option<rototo::RefreshingWorkspace>>>,
+#[pyclass(name = "_RefreshingPackage")]
+struct PyRefreshingPackage {
+    inner: Arc<Mutex<Option<rototo::RefreshingPackage>>>,
 }
 
 #[pymethods]
-impl PyRefreshingWorkspace {
+impl PyRefreshingPackage {
     #[staticmethod]
-    #[pyo3(signature = (source, *, period_seconds = None, workspace_token = None, lint = "deny"))]
+    #[pyo3(signature = (source, *, period_seconds = None, package_token = None, lint = "deny"))]
     fn load<'py>(
         py: Python<'py>,
         source: String,
         period_seconds: Option<f64>,
-        workspace_token: Option<String>,
+        package_token: Option<String>,
         lint: &str,
     ) -> PyResult<Bound<'py, PyAny>> {
-        let load_options = load_options(workspace_token, lint)?;
+        let load_options = load_options(package_token, lint)?;
         let refresh_options = refresh_options(period_seconds)?;
         future_into_py(py, async move {
-            let workspace = rototo::RefreshingWorkspace::load_with_options(
-                source,
-                load_options,
-                refresh_options,
-            )
-            .await
-            .map_err(py_err)?;
+            let package =
+                rototo::RefreshingPackage::load_with_options(source, load_options, refresh_options)
+                    .await
+                    .map_err(py_err)?;
             Python::attach(|py| {
                 Py::new(
                     py,
-                    PyRefreshingWorkspace {
-                        inner: Arc::new(Mutex::new(Some(workspace))),
+                    PyRefreshingPackage {
+                        inner: Arc::new(Mutex::new(Some(package))),
                     },
                 )
             })
@@ -176,8 +173,8 @@ impl PyRefreshingWorkspace {
         future_into_py(py, async move {
             let context = ResolveContext::from_json(context).map_err(py_err)?;
             let guard = inner.lock().await;
-            let workspace = active_refreshing_workspace(&guard)?;
-            let resolution = workspace
+            let package = active_refreshing_package(&guard)?;
+            let resolution = package
                 .resolve_variable_with_options(&id, &context, resolve_options(validate_context))
                 .await
                 .map_err(py_err)?;
@@ -198,8 +195,8 @@ impl PyRefreshingWorkspace {
         future_into_py(py, async move {
             let context = ResolveContext::from_json(context).map_err(py_err)?;
             let guard = inner.lock().await;
-            let workspace = active_refreshing_workspace(&guard)?;
-            workspace
+            let package = active_refreshing_package(&guard)?;
+            package
                 .resolve_qualifier_with_options(&id, &context, resolve_options(validate_context))
                 .await
                 .map_err(py_err)
@@ -210,8 +207,8 @@ impl PyRefreshingWorkspace {
         let inner = Arc::clone(&self.inner);
         future_into_py(py, async move {
             let guard = inner.lock().await;
-            let workspace = active_refreshing_workspace(&guard)?;
-            let outcome = workspace.refresh_now().await.map_err(py_err)?;
+            let package = active_refreshing_package(&guard)?;
+            let outcome = package.refresh_now().await.map_err(py_err)?;
             Ok(refresh_outcome_name(outcome).to_owned())
         })
     }
@@ -220,8 +217,8 @@ impl PyRefreshingWorkspace {
         let inner = Arc::clone(&self.inner);
         future_into_py(py, async move {
             let guard = inner.lock().await;
-            let workspace = active_refreshing_workspace(&guard)?;
-            let status = workspace.status().await;
+            let package = active_refreshing_package(&guard)?;
+            let status = package.status().await;
             Python::attach(|py| refresh_status_to_py(py, status))
         })
     }
@@ -229,34 +226,34 @@ impl PyRefreshingWorkspace {
     fn shutdown<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyAny>> {
         let inner = Arc::clone(&self.inner);
         future_into_py(py, async move {
-            let workspace = {
+            let package = {
                 let mut guard = inner.lock().await;
                 guard.take()
             };
-            if let Some(workspace) = workspace {
-                workspace.shutdown().await;
+            if let Some(package) = package {
+                package.shutdown().await;
             }
             Ok(())
         })
     }
 }
 
-fn active_refreshing_workspace(
-    guard: &Option<rototo::RefreshingWorkspace>,
-) -> PyResult<&rototo::RefreshingWorkspace> {
+fn active_refreshing_package(
+    guard: &Option<rototo::RefreshingPackage>,
+) -> PyResult<&rototo::RefreshingPackage> {
     guard
         .as_ref()
-        .ok_or_else(|| RototoError::new_err("refreshing workspace has been shut down"))
+        .ok_or_else(|| RototoError::new_err("refreshing package has been shut down"))
 }
 
-fn source_options(workspace_token: Option<String>) -> SourceOptions {
-    match workspace_token {
+fn source_options(package_token: Option<String>) -> SourceOptions {
+    match package_token {
         Some(token) => SourceOptions::new().with_auth(SourceAuth::Bearer(token)),
         None => SourceOptions::new(),
     }
 }
 
-fn load_options(workspace_token: Option<String>, lint: &str) -> PyResult<LoadOptions> {
+fn load_options(package_token: Option<String>, lint: &str) -> PyResult<LoadOptions> {
     let lint = match lint {
         "deny" => LintMode::Deny,
         "skip" => LintMode::Skip,
@@ -268,7 +265,7 @@ fn load_options(workspace_token: Option<String>, lint: &str) -> PyResult<LoadOpt
     };
     Ok(LoadOptions::new()
         .with_lint(lint)
-        .with_source_auth(match workspace_token {
+        .with_source_auth(match package_token {
             Some(token) => SourceAuth::Bearer(token),
             None => SourceAuth::None,
         }))
@@ -301,7 +298,7 @@ fn py_err(err: rototo::RototoError) -> PyErr {
     RototoError::new_err(err.to_string())
 }
 
-fn lint_to_py(py: Python<'_>, lint: rototo::model::WorkspaceLint) -> PyResult<Py<PyAny>> {
+fn lint_to_py(py: Python<'_>, lint: rototo::model::PackageLint) -> PyResult<Py<PyAny>> {
     let value = serde_json::json!({
         "root": lint.root.display().to_string(),
         "diagnostics": lint.diagnostics,
@@ -354,8 +351,8 @@ fn source_fingerprint_to_json(fingerprint: &SourceFingerprint) -> JsonValue {
         SourceFingerprint::ContentHash(value) => {
             serde_json::json!({ "kind": "content_hash", "value": value })
         }
-        SourceFingerprint::WorkspaceLayers(layers) => serde_json::json!({
-            "kind": "workspace_layers",
+        SourceFingerprint::PackageLayers(layers) => serde_json::json!({
+            "kind": "package_layers",
             "layers": layers.iter().map(source_fingerprint_to_json).collect::<Vec<_>>(),
         }),
     }
@@ -382,7 +379,7 @@ fn refresh_outcome_name(outcome: rototo::RefreshOutcome) -> &'static str {
 fn _rototo(py: Python<'_>, m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add("RototoError", py.get_type::<RototoError>())?;
     m.add_function(wrap_pyfunction!(version, m)?)?;
-    m.add_class::<PyWorkspace>()?;
-    m.add_class::<PyRefreshingWorkspace>()?;
+    m.add_class::<PyPackage>()?;
+    m.add_class::<PyRefreshingPackage>()?;
     Ok(())
 }

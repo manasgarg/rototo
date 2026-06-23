@@ -9,7 +9,7 @@ pub(super) async fn select_subdir(
 ) -> Result<PathBuf> {
     let canonical_root = tokio::fs::canonicalize(root).await.map_err(|err| {
         RototoError::new(format!(
-            "failed to canonicalize staged workspace root {}: {err}",
+            "failed to canonicalize staged package root {}: {err}",
             root.display()
         ))
     })?;
@@ -18,28 +18,28 @@ pub(super) async fn select_subdir(
     };
     if !relative_path_is_safe(Path::new(subdir)) {
         return Err(RototoError::new(format!(
-            "workspace source subdir is unsafe: {subdir}"
+            "package source subdir is unsafe: {subdir}"
         )));
     }
     let target = root.join(subdir);
     let metadata = tokio::fs::metadata(&target).await.map_err(|_| {
         RototoError::new(format!(
-            "workspace source subdir `{subdir}` was not found in `{original}`"
+            "package source subdir `{subdir}` was not found in `{original}`"
         ))
     })?;
     if !metadata.is_dir() {
         return Err(RototoError::new(format!(
-            "workspace source subdir `{subdir}` is not a directory"
+            "package source subdir `{subdir}` is not a directory"
         )));
     }
     let canonical_target = tokio::fs::canonicalize(&target).await.map_err(|err| {
         RototoError::new(format!(
-            "failed to canonicalize workspace source subdir `{subdir}`: {err}"
+            "failed to canonicalize package source subdir `{subdir}`: {err}"
         ))
     })?;
     if !canonical_target.starts_with(&canonical_root) {
         return Err(RototoError::new(format!(
-            "workspace source subdir `{subdir}` escapes staged workspace"
+            "package source subdir `{subdir}` escapes staged package"
         )));
     }
     Ok(canonical_target)

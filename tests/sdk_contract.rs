@@ -1,13 +1,13 @@
 use serde::Deserialize;
 use serde_json::Value as JsonValue;
 
-use rototo::{ResolveContext, Workspace};
+use rototo::{Package, ResolveContext};
 
 #[derive(Debug, Deserialize)]
 struct ContractCase {
     name: String,
     schema_version: u32,
-    workspace: String,
+    package: String,
     operation: String,
     id: Option<String>,
     #[serde(default)]
@@ -57,42 +57,42 @@ async fn shared_sdk_contract_cases_match_rust_sdk() {
 
 async fn run_contract_case(case: &ContractCase) -> Result<JsonValue, String> {
     match case.operation.as_str() {
-        "load_workspace" => {
-            Workspace::load(&case.workspace)
+        "load_package" => {
+            Package::load(&case.package)
                 .await
                 .map_err(|err| err.to_string())?;
             Ok(serde_json::json!({ "ok": true }))
         }
-        "lint_workspace" => {
-            let workspace = Workspace::inspect(&case.workspace)
+        "lint_package" => {
+            let package = Package::inspect(&case.package)
                 .await
                 .map_err(|err| err.to_string())?;
-            let lint = workspace.lint().await.map_err(|err| err.to_string())?;
+            let lint = package.lint().await.map_err(|err| err.to_string())?;
             Ok(serde_json::json!({
                 "diagnostics": lint.diagnostics.len(),
             }))
         }
         "resolve_qualifier" => {
-            let workspace = Workspace::load(&case.workspace)
+            let package = Package::load(&case.package)
                 .await
                 .map_err(|err| err.to_string())?;
             let context =
                 ResolveContext::from_json(case.context.clone()).map_err(|err| err.to_string())?;
             let id = case_id(case)?;
-            let resolution = workspace
+            let resolution = package
                 .resolve_qualifier(id, &context)
                 .await
                 .map_err(|err| err.to_string())?;
             serde_json::to_value(resolution).map_err(|err| err.to_string())
         }
         "resolve_variable" => {
-            let workspace = Workspace::load(&case.workspace)
+            let package = Package::load(&case.package)
                 .await
                 .map_err(|err| err.to_string())?;
             let context =
                 ResolveContext::from_json(case.context.clone()).map_err(|err| err.to_string())?;
             let id = case_id(case)?;
-            let resolution = workspace
+            let resolution = package
                 .resolve_variable(id, &context)
                 .await
                 .map_err(|err| err.to_string())?;

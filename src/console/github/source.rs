@@ -83,7 +83,7 @@ fn strip_prefix_ignore_ascii_case<'a>(value: &'a str, prefix: &str) -> Option<&'
     }
 }
 
-pub fn workspace_git_source(owner: &str, name: &str, git_ref: &str, path: &str) -> String {
+pub fn package_git_source(owner: &str, name: &str, git_ref: &str, path: &str) -> String {
     let remote = format!("git+https://github.com/{}/{}.git", enc(owner), enc(name));
     if path == "." {
         format!("{remote}#{git_ref}")
@@ -92,7 +92,7 @@ pub fn workspace_git_source(owner: &str, name: &str, git_ref: &str, path: &str) 
     }
 }
 
-pub fn stable_workspace_key(source_tree_label: &str, path: &str) -> String {
+pub fn stable_package_key(source_tree_label: &str, path: &str) -> String {
     let digest = ring::digest::digest(
         &ring::digest::SHA256,
         format!("{source_tree_label}:{path}").as_bytes(),
@@ -105,11 +105,11 @@ pub fn stable_workspace_key(source_tree_label: &str, path: &str) -> String {
         .to_owned()
 }
 
-pub fn workspace_repo_path(workspace_path: &str, relative_path: &str) -> String {
-    if workspace_path == "." {
+pub fn package_repo_path(package_path: &str, relative_path: &str) -> String {
+    if package_path == "." {
         relative_path.to_owned()
     } else {
-        format!("{workspace_path}/{relative_path}")
+        format!("{package_path}/{relative_path}")
     }
 }
 
@@ -117,11 +117,11 @@ pub(super) fn encode_repo_path(path: &str) -> String {
     path.split('/').map(enc).collect::<Vec<_>>().join("/")
 }
 
-pub(super) fn manifest_workspace_path(manifest_path: &str) -> String {
+pub(super) fn manifest_package_path(manifest_path: &str) -> String {
     let path = manifest_path
-        .strip_suffix("/rototo-workspace.toml")
+        .strip_suffix("/rototo-package.toml")
         .unwrap_or_else(|| {
-            if manifest_path == "rototo-workspace.toml" {
+            if manifest_path == "rototo-package.toml" {
                 ""
             } else {
                 manifest_path
@@ -214,29 +214,29 @@ mod tests {
     #[test]
     fn git_source_appends_ref_and_subdir_fragment() {
         assert_eq!(
-            workspace_git_source("o", "r", "main", "."),
+            package_git_source("o", "r", "main", "."),
             "git+https://github.com/o/r.git#main"
         );
         assert_eq!(
-            workspace_git_source("o", "r", "main", "payments/flags"),
+            package_git_source("o", "r", "main", "payments/flags"),
             "git+https://github.com/o/r.git#main:payments/flags"
         );
     }
 
     #[test]
-    fn manifest_paths_map_to_workspace_paths() {
-        assert_eq!(manifest_workspace_path("rototo-workspace.toml"), ".");
+    fn manifest_paths_map_to_package_paths() {
+        assert_eq!(manifest_package_path("rototo-package.toml"), ".");
         assert_eq!(
-            manifest_workspace_path("payments/flags/rototo-workspace.toml"),
+            manifest_package_path("payments/flags/rototo-package.toml"),
             "payments/flags"
         );
     }
 
     #[test]
-    fn stable_workspace_key_is_short_hex() {
-        let key = stable_workspace_key("octo/configs", ".");
+    fn stable_package_key_is_short_hex() {
+        let key = stable_package_key("octo/configs", ".");
         assert_eq!(key.len(), 12);
         assert!(key.chars().all(|c| c.is_ascii_hexdigit()));
-        assert_eq!(key, stable_workspace_key("octo/configs", "."));
+        assert_eq!(key, stable_package_key("octo/configs", "."));
     }
 }

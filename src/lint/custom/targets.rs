@@ -23,11 +23,11 @@ pub(super) struct RegisteredLintOutputAnchor {
     pub(super) location: DiagnosticLocation,
 }
 
-pub(super) fn registered_lint_workspace(ctx: &LintContext) -> JsonValue {
+pub(super) fn registered_lint_package(ctx: &LintContext) -> JsonValue {
     serde_json::json!({
         "version": 1,
         "root": ctx.source.root.display().to_string(),
-        "manifest": workspace_manifest_data(ctx),
+        "manifest": package_manifest_data(ctx),
         "qualifiers": ctx.index.qualifiers.iter()
             .map(|(id, qualifier)| (id.clone(), qualifier_data(ctx, qualifier)))
             .collect::<BTreeMap<_, _>>(),
@@ -48,7 +48,7 @@ pub(super) fn registered_lint_targets(
     selector: &RegisteredLintSelector,
 ) -> Vec<RegisteredLintTargetInstance> {
     match &selector.address {
-        RegisteredLintAddress::Workspace => registered_workspace_target(ctx).into_iter().collect(),
+        RegisteredLintAddress::Package => registered_package_target(ctx).into_iter().collect(),
         RegisteredLintAddress::Qualifiers => ctx
             .index
             .qualifiers
@@ -193,7 +193,7 @@ fn resolve_output_pointer(
     tokens: &[String],
 ) -> Option<RegisteredLintOutputAnchor> {
     match entity {
-        SemanticEntity::Workspace => workspace_pointer(ctx, tokens),
+        SemanticEntity::Package => package_pointer(ctx, tokens),
         SemanticEntity::Qualifier { id } => qualifier_pointer(ctx, id, tokens),
         SemanticEntity::Predicate { .. } => None,
         SemanticEntity::Variable { id } => variable_pointer(ctx, id, tokens),
@@ -222,11 +222,11 @@ fn registered_lint_output_location(
         return fallback;
     };
     match (entity, field) {
-        (SemanticEntity::Workspace, SemanticField::WorkspaceExtends) => ctx
+        (SemanticEntity::Package, SemanticField::PackageExtends) => ctx
             .index
             .manifest
             .as_ref()
-            .map(|manifest| registered_workspace_location(ctx, manifest, Some(field)))
+            .map(|manifest| registered_package_location(ctx, manifest, Some(field)))
             .unwrap_or(fallback),
         (SemanticEntity::Qualifier { id }, _) => ctx
             .index
@@ -329,11 +329,11 @@ fn field_anchor(
 
 fn entity_location(ctx: &LintContext, entity: &SemanticEntity) -> Option<DiagnosticLocation> {
     match entity {
-        SemanticEntity::Workspace => ctx
+        SemanticEntity::Package => ctx
             .index
             .manifest
             .as_ref()
-            .map(|manifest| registered_workspace_location(ctx, manifest, None)),
+            .map(|manifest| registered_package_location(ctx, manifest, None)),
         SemanticEntity::Qualifier { id } => ctx
             .index
             .qualifiers
@@ -387,38 +387,38 @@ fn entity_location(ctx: &LintContext, entity: &SemanticEntity) -> Option<Diagnos
     }
 }
 
-fn workspace_pointer(ctx: &LintContext, tokens: &[String]) -> Option<RegisteredLintOutputAnchor> {
+fn package_pointer(ctx: &LintContext, tokens: &[String]) -> Option<RegisteredLintOutputAnchor> {
     if tokens.is_empty() {
-        return registered_lint_output_anchor_for(ctx, SemanticEntity::Workspace, None);
+        return registered_lint_output_anchor_for(ctx, SemanticEntity::Package, None);
     }
     let manifest = ctx.index.manifest.as_ref()?;
     match tokens {
         [segment, ..] if segment == "extends" => Some(field_anchor(
             ctx,
-            SemanticEntity::Workspace,
-            SemanticField::WorkspaceExtends,
-            registered_workspace_location(ctx, manifest, None),
+            SemanticEntity::Package,
+            SemanticField::PackageExtends,
+            registered_package_location(ctx, manifest, None),
         )),
         [segment] if segment == "manifest" => {
-            registered_lint_output_anchor_for(ctx, SemanticEntity::Workspace, None)
+            registered_lint_output_anchor_for(ctx, SemanticEntity::Package, None)
         }
         [segment, field, ..] if segment == "manifest" && field == "extends" => Some(field_anchor(
             ctx,
-            SemanticEntity::Workspace,
-            SemanticField::WorkspaceExtends,
-            registered_workspace_location(ctx, manifest, None),
+            SemanticEntity::Package,
+            SemanticField::PackageExtends,
+            registered_package_location(ctx, manifest, None),
         )),
         [segment, id, rest @ ..] if segment == "qualifiers" => qualifier_pointer(ctx, id, rest)
-            .or_else(|| registered_lint_output_anchor_for(ctx, SemanticEntity::Workspace, None)),
+            .or_else(|| registered_lint_output_anchor_for(ctx, SemanticEntity::Package, None)),
         [segment, id, rest @ ..] if segment == "variables" => variable_pointer(ctx, id, rest)
-            .or_else(|| registered_lint_output_anchor_for(ctx, SemanticEntity::Workspace, None)),
+            .or_else(|| registered_lint_output_anchor_for(ctx, SemanticEntity::Package, None)),
         [segment, id, rest @ ..] if segment == "catalogs" => catalog_pointer(ctx, id, rest)
-            .or_else(|| registered_lint_output_anchor_for(ctx, SemanticEntity::Workspace, None)),
+            .or_else(|| registered_lint_output_anchor_for(ctx, SemanticEntity::Package, None)),
         [segment, id, rest @ ..] if segment == "request_contexts" => {
             request_context_pointer(ctx, id, rest)
-                .or_else(|| registered_lint_output_anchor_for(ctx, SemanticEntity::Workspace, None))
+                .or_else(|| registered_lint_output_anchor_for(ctx, SemanticEntity::Package, None))
         }
-        _ => registered_lint_output_anchor_for(ctx, SemanticEntity::Workspace, None),
+        _ => registered_lint_output_anchor_for(ctx, SemanticEntity::Package, None),
     }
 }
 
@@ -747,12 +747,12 @@ fn request_context_entry_pointer(
     }
 }
 
-fn registered_workspace_target(ctx: &LintContext) -> Option<RegisteredLintTargetInstance> {
+fn registered_package_target(ctx: &LintContext) -> Option<RegisteredLintTargetInstance> {
     let manifest = ctx.index.manifest.as_ref()?;
     Some(RegisteredLintTargetInstance {
-        target: SemanticEntity::Workspace.into(),
-        location: registered_workspace_location(ctx, manifest, None),
-        data: workspace_target_data(ctx),
+        target: SemanticEntity::Package.into(),
+        location: registered_package_location(ctx, manifest, None),
+        data: package_target_data(ctx),
     })
 }
 
@@ -875,43 +875,41 @@ fn registered_request_context_entry_target(
     }
 }
 
-fn workspace_target_data(ctx: &LintContext) -> JsonValue {
+fn package_target_data(ctx: &LintContext) -> JsonValue {
     let extends = ctx
         .index
         .manifest
         .as_ref()
-        .map(workspace_extends_data)
+        .map(package_extends_data)
         .unwrap_or_default();
     serde_json::json!({
-        "kind": "workspace",
+        "kind": "package",
         "root": ctx.source.root.display().to_string(),
-        "manifest": workspace_manifest_data(ctx),
+        "manifest": package_manifest_data(ctx),
         "extends": extends,
     })
 }
 
-fn workspace_manifest_data(ctx: &LintContext) -> JsonValue {
+fn package_manifest_data(ctx: &LintContext) -> JsonValue {
     let Some(manifest) = &ctx.index.manifest else {
         return JsonValue::Null;
     };
     let document = ctx.source.documents.get(&manifest.doc);
     serde_json::json!({
-        "kind": "workspace",
+        "kind": "package",
         "uri": document.map(|document| document.uri.clone()),
-        "path": document.map(|document| document.path.clone()).unwrap_or_else(|| "rototo-workspace.toml".to_owned()),
+        "path": document.map(|document| document.path.clone()).unwrap_or_else(|| "rototo-package.toml".to_owned()),
         "toml": parsed_toml_json(ctx, manifest.doc),
-        "extends": workspace_extends_data(manifest),
+        "extends": package_extends_data(manifest),
     })
 }
 
-fn workspace_extends_data(manifest: &ManifestNode) -> Vec<String> {
+fn package_extends_data(manifest: &ManifestNode) -> Vec<String> {
     match &manifest.extends {
-        WorkspaceExtendsCollection::Sources { values, .. } => {
+        PackageExtendsCollection::Sources { values, .. } => {
             values.iter().map(|value| value.source.clone()).collect()
         }
-        WorkspaceExtendsCollection::Missing | WorkspaceExtendsCollection::Invalid { .. } => {
-            Vec::new()
-        }
+        PackageExtendsCollection::Missing | PackageExtendsCollection::Invalid { .. } => Vec::new(),
     }
 }
 
@@ -1126,13 +1124,13 @@ fn find_rule(variable: &VariableNode, index: usize) -> Option<&VariableRuleNode>
     }
 }
 
-fn registered_workspace_location(
+fn registered_package_location(
     ctx: &LintContext,
     manifest: &ManifestNode,
     field: Option<&SemanticField>,
 ) -> DiagnosticLocation {
     match field {
-        Some(SemanticField::WorkspaceExtends) => {
+        Some(SemanticField::PackageExtends) => {
             toml_root_item_location(ctx, manifest.doc, "extends")
                 .unwrap_or_else(|| manifest.location.clone())
         }

@@ -31,8 +31,8 @@ use super::observability::{
 use super::runtime_config::{ConsoleRuntimeConfig, RequestObservabilityContext};
 use super::stage::StageCache;
 use super::store::{
-    ActiveBranchWithWorkspaceRecord, NewSession, RequestContextNames, SessionUser,
-    SourceTreeWithWorkspaces, Store, WorkspaceRecord,
+    ActiveBranchWithPackageRecord, NewSession, PackageRecord, RequestContextNames, SessionUser,
+    SourceTreeWithPackages, Store,
 };
 
 /// Process-wide console dependencies shared by every API route.
@@ -47,7 +47,7 @@ pub struct ConsoleState {
     pub oauth: Option<HostedOAuth>,
     pub state_mode: ConsoleStateMode,
     pub write_policy: WritePolicy,
-    pub fixed_workspace_source: Option<String>,
+    pub fixed_package_source: Option<String>,
     pub store: Store,
     pub github: GitHubClient,
     pub stage: StageCache,
@@ -150,7 +150,7 @@ pub fn router(state: SharedState) -> axum::Router {
             "/source-trees/{source_tree_id}/refresh",
             post(source_tree_refresh),
         )
-        .merge(super::api_workspace::routes())
+        .merge(super::api_package::routes())
         .merge(super::api_branch::routes());
     if state.observability.is_some() {
         api = api.route("/dev/observability/events", post(dev_observability_event));
@@ -249,9 +249,9 @@ async fn record_api_request(
         deployment = state.deployment.label(),
         host = observed.host.as_deref(),
         repo = observed.names.repo.as_deref(),
-        workspace = observed.names.workspace.as_deref(),
+        package = observed.names.package.as_deref(),
         branch = observed.names.branch.as_deref(),
-        workspace_id = observed.route.workspace_id.as_deref(),
+        package_id = observed.route.package_id.as_deref(),
         branch_id = observed.route.branch_id.as_deref(),
         error_class = error_class(status),
         request_tracing_filter = %policy.tracing.filter,
@@ -272,10 +272,10 @@ async fn record_api_request(
                 "deployment": state.deployment.label(),
                 "host": observed.host.as_deref(),
                 "repo": observed.names.repo.as_deref(),
-                "workspace": observed.names.workspace.as_deref(),
+                "package": observed.names.package.as_deref(),
                 "branch": observed.names.branch.as_deref(),
                 "mutating": observed.mutating,
-                "workspace_id": observed.route.workspace_id.as_deref(),
+                "package_id": observed.route.package_id.as_deref(),
                 "branch_id": observed.route.branch_id.as_deref(),
                 "error_class": error_class(status),
             }),
@@ -306,7 +306,7 @@ impl ObservedApiRequest {
             method: self.method.as_str().to_owned(),
             route: self.route.pattern.clone(),
             repo: self.names.repo.clone(),
-            workspace: self.names.workspace.clone(),
+            package: self.names.package.clone(),
             branch: self.names.branch.clone(),
             mutating: self.mutating,
             response_present,
@@ -320,11 +320,11 @@ impl ObservedApiRequest {
 /// Normalized request identity used by the development observability sink.
 ///
 /// The middleware derives this from the raw path for one request so metrics can
-/// group `/api/workspaces/<id>` style paths without storing every concrete id
+/// group `/api/packages/<id>` style paths without storing every concrete id
 /// as a separate route label.
 struct RouteObservability {
     pattern: String,
-    workspace_id: Option<String>,
+    package_id: Option<String>,
     branch_id: Option<String>,
 }
 
@@ -334,7 +334,7 @@ async fn request_context_names(
 ) -> RequestContextNames {
     match state
         .store
-        .request_context_names(route.workspace_id.as_deref(), route.branch_id.as_deref())
+        .request_context_names(route.package_id.as_deref(), route.branch_id.as_deref())
         .await
     {
         Ok(names) => names,
@@ -342,7 +342,7 @@ async fn request_context_names(
             tracing::warn!(
                 operation = "console.api.request_context",
                 error = %err,
-                workspace_id = route.workspace_id.as_deref(),
+                package_id = route.package_id.as_deref(),
                 branch_id = route.branch_id.as_deref(),
                 "console request context names could not be loaded"
             );
@@ -369,15 +369,15 @@ fn route_observability(path: &str) -> RouteObservability {
         .filter(|segment| !segment.is_empty())
         .collect::<Vec<_>>();
     let mut pattern = Vec::new();
-    let mut workspace_id = None;
+    let mut package_id = None;
     let mut branch_id = None;
     let mut index = 0;
     while index < segments.len() {
         let segment = segments[index];
         pattern.push(segment.to_owned());
-        if segment == "workspaces" && index + 1 < segments.len() {
-            workspace_id = Some(segments[index + 1].to_owned());
-            pattern.push(":workspace_id".to_owned());
+        if segment == "packages" && index + 1 < segments.len() {
+            package_id = Some(segments[index + 1].to_owned());
+            pattern.push(":package_id".to_owned());
             index += 2;
             continue;
         }
@@ -396,7 +396,7 @@ fn route_observability(path: &str) -> RouteObservability {
     }
     RouteObservability {
         pattern: format!("/{}", pattern.join("/")),
-        workspace_id,
+        package_id,
         branch_id,
     }
 }
@@ -466,9 +466,9 @@ pub async fn require_user(state: &ConsoleState, headers: &HeaderMap) -> ApiResul
                 }
                 Ok(None) => {
                     let local_root = state
-                        .fixed_workspace_source
+                        .fixed_package_source
                         .as_deref()
-                        .and_then(|source| local_git::workspace_root(source).ok());
+                        .and_then(|source| local_git::package_root(source).ok());
                     let identity = resolve_git_config_identity(local_root.as_deref())
                         .await
                         .map_err(ApiError::from)?;
@@ -490,9 +490,9 @@ pub async fn require_user(state: &ConsoleState, headers: &HeaderMap) -> ApiResul
                 }
                 Err(err) => {
                     let local_root = state
-                        .fixed_workspace_source
+                        .fixed_package_source
                         .as_deref()
-                        .and_then(|source| local_git::workspace_root(source).ok());
+                        .and_then(|source| local_git::package_root(source).ok());
                     let identity = resolve_git_config_identity(local_root.as_deref())
                         .await
                         .map_err(|_| ApiError {
@@ -534,45 +534,43 @@ pub fn source_token(user: &SessionUser) -> &str {
 pub(crate) async fn fixed_source_scope(
     state: &ConsoleState,
     principal_id: &str,
-) -> ApiResult<Option<SourceTreeWithWorkspaces>> {
-    let Some(source) = state.fixed_workspace_source.as_deref() else {
+) -> ApiResult<Option<SourceTreeWithPackages>> {
+    let Some(source) = state.fixed_package_source.as_deref() else {
         return Ok(None);
     };
-    let source_tree = super::register_fixed_workspace(state, principal_id, source).await?;
+    let source_tree = super::register_fixed_package(state, principal_id, source).await?;
     Ok(Some(source_tree))
 }
 
-pub(crate) fn fixed_source_workspace_ids(
-    fixed_source: &SourceTreeWithWorkspaces,
-) -> HashSet<String> {
+pub(crate) fn fixed_source_package_ids(fixed_source: &SourceTreeWithPackages) -> HashSet<String> {
     fixed_source
-        .workspaces
+        .packages
         .iter()
-        .map(|workspace| workspace.id.clone())
+        .map(|package| package.id.clone())
         .collect()
 }
 
-pub(crate) fn workspace_belongs_to_fixed_source(
-    workspace: &WorkspaceRecord,
-    fixed_source: &SourceTreeWithWorkspaces,
+pub(crate) fn package_belongs_to_fixed_source(
+    package: &PackageRecord,
+    fixed_source: &SourceTreeWithPackages,
 ) -> bool {
-    workspace.source_tree_id == fixed_source.source_tree.id
+    package.source_tree_id == fixed_source.source_tree.id
 }
 
 fn fixed_source_branch_filter(
-    branches: Vec<ActiveBranchWithWorkspaceRecord>,
-    fixed_source: &SourceTreeWithWorkspaces,
-) -> Vec<ActiveBranchWithWorkspaceRecord> {
+    branches: Vec<ActiveBranchWithPackageRecord>,
+    fixed_source: &SourceTreeWithPackages,
+) -> Vec<ActiveBranchWithPackageRecord> {
     branches
         .into_iter()
-        .filter(|entry| workspace_belongs_to_fixed_source(&entry.workspace, fixed_source))
+        .filter(|entry| package_belongs_to_fixed_source(&entry.package, fixed_source))
         .collect()
 }
 
 fn source_tree_management_allowed(state: &ConsoleState) -> ApiResult<()> {
-    if state.fixed_workspace_source.is_some() {
+    if state.fixed_package_source.is_some() {
         return Err(ApiError::bad_request(
-            "this console was started with a fixed workspace source",
+            "this console was started with a fixed package source",
         ));
     }
     Ok(())
@@ -581,8 +579,8 @@ fn source_tree_management_allowed(state: &ConsoleState) -> ApiResult<()> {
 fn console_state_json(state: &ConsoleState) -> JsonValue {
     json!({
         "mode": state.state_mode.label(),
-        "fixedWorkspace": state.fixed_workspace_source.is_some(),
-        "canManageSourceTrees": state.fixed_workspace_source.is_none(),
+        "fixedPackage": state.fixed_package_source.is_some(),
+        "canManageSourceTrees": state.fixed_package_source.is_none(),
     })
 }
 
@@ -620,9 +618,9 @@ async fn me(State(state): State<SharedState>, headers: HeaderMap) -> Response {
                 Ok(Some(user)) => (StatusCode::OK, None, Some(user)),
                 Ok(None) => {
                     let local_root = state
-                        .fixed_workspace_source
+                        .fixed_package_source
                         .as_deref()
-                        .and_then(|source| local_git::workspace_root(source).ok());
+                        .and_then(|source| local_git::package_root(source).ok());
                     match resolve_git_config_identity(local_root.as_deref()).await {
                         Ok(identity) => (
                             StatusCode::OK,
@@ -639,9 +637,9 @@ async fn me(State(state): State<SharedState>, headers: HeaderMap) -> Response {
                 }
                 Err(err) => {
                     let local_root = state
-                        .fixed_workspace_source
+                        .fixed_package_source
                         .as_deref()
-                        .and_then(|source| local_git::workspace_root(source).ok());
+                        .and_then(|source| local_git::package_root(source).ok());
                     let user = resolve_git_config_identity(local_root.as_deref())
                         .await
                         .ok()
@@ -853,7 +851,7 @@ async fn device_start(State(state): State<SharedState>) -> ApiResult<Json<JsonVa
     };
     let Some(client_id) = local.device_client_id() else {
         return Err(ApiError::bad_request(
-            "device flow is not configured; set ROTOTO_GITHUB_CLIENT_ID or supply a token via ROTOTO_WORKSPACE_TOKEN",
+            "device flow is not configured; set ROTOTO_GITHUB_CLIENT_ID or supply a token via ROTOTO_PACKAGE_TOKEN",
         ));
     };
     let device = github::start_device_flow(client_id)
@@ -911,8 +909,8 @@ async fn console_data(
 ) -> ApiResult<Json<JsonValue>> {
     let user = require_user(&state, &headers).await?;
     let fixed_source = fixed_source_scope(&state, &user.principal_id).await?;
-    let (source_trees, workspaces) = match fixed_source.as_ref() {
-        Some(source_tree) => (vec![source_tree.clone()], source_tree.workspaces.clone()),
+    let (source_trees, packages) = match fixed_source.as_ref() {
+        Some(source_tree) => (vec![source_tree.clone()], source_tree.packages.clone()),
         None => (
             state
                 .store
@@ -920,13 +918,13 @@ async fn console_data(
                 .await?,
             state
                 .store
-                .list_workspaces_for_user(&user.principal_id)
+                .list_packages_for_user(&user.principal_id)
                 .await?,
         ),
     };
     let mut branches = state
         .store
-        .list_active_branches_with_workspaces_for_user(&user.principal_id)
+        .list_active_branches_with_packages_for_user(&user.principal_id)
         .await?;
     if let Some(source_tree) = fixed_source.as_ref() {
         branches = fixed_source_branch_filter(branches, source_tree);
@@ -934,7 +932,7 @@ async fn console_data(
     Ok(Json(json!({
         "state": console_state_json(&state),
         "sourceTrees": source_trees,
-        "workspaces": workspaces,
+        "packages": packages,
         "branches": branches,
     })))
 }
@@ -959,8 +957,8 @@ async fn source_trees_list(
 /// Source tree registration request body from the console form.
 ///
 /// It exists to keep user input distinct from a verified GitHub repository.
-/// The route trims and validates it, discovers workspaces, then persists the
-/// resulting source tree/workspace records through `Store`.
+/// The route trims and validates it, discovers packages, then persists the
+/// resulting source tree/package records through `Store`.
 #[derive(serde::Deserialize)]
 struct RegisterSourceTreeBody {
     #[serde(rename = "sourceTree")]
@@ -1009,11 +1007,11 @@ async fn register_github_source_tree(
     git_ref: Option<String>,
 ) -> ApiResult<Json<JsonValue>> {
     let (stored, token) = upsert_github_source_tree(&state, &user, source_tree, git_ref).await?;
-    warm_registered_workspaces(
+    warm_registered_packages(
         state.clone(),
         user.principal_id.clone(),
         token,
-        stored.workspaces.clone(),
+        stored.packages.clone(),
     );
     Ok(Json(json!({ "sourceTree": stored })))
 }
@@ -1023,7 +1021,7 @@ async fn upsert_github_source_tree(
     user: &super::store::SessionUser,
     source_tree: &str,
     git_ref: Option<String>,
-) -> ApiResult<(super::store::SourceTreeWithWorkspaces, String)> {
+) -> ApiResult<(super::store::SourceTreeWithPackages, String)> {
     let token = require_github_token(user, "Registering the configuration source")?;
     let (owner, name) = github::parse_repo_spec(source_tree)
         .map_err(|err| ApiError::bad_request(err.to_string()))?;
@@ -1045,16 +1043,16 @@ async fn upsert_github_source_tree(
         kind = "github",
         repository = %format!("{}/{}", github_repo.owner.login, github_repo.name),
         git_ref = %git_ref,
-        "console source tree workspace discovery starting"
+        "console source tree package discovery starting"
     );
-    let workspaces = state
+    let packages = state
         .github
-        .discover_workspaces(token, &owner, &name, &git_ref)
+        .discover_packages(token, &owner, &name, &git_ref)
         .await
-        .map_err(|err| ApiError::github(&err, "Discovering workspaces"))?;
+        .map_err(|err| ApiError::github(&err, "Discovering packages"))?;
     let stored = state
         .store
-        .upsert_source_tree_with_workspaces(super::store::RegisterSourceTreeInput {
+        .upsert_source_tree_with_packages(super::store::RegisterSourceTreeInput {
             principal_id: user.principal_id.clone(),
             kind: super::store::SourceTreeKind::GitHub,
             source: format!(
@@ -1063,12 +1061,12 @@ async fn upsert_github_source_tree(
             ),
             display_name: format!("{}/{}", github_repo.owner.login, github_repo.name),
             default_revision: git_ref.clone(),
-            workspaces: workspaces
+            packages: packages
                 .into_iter()
-                .map(|workspace| super::store::DiscoveredWorkspaceInput {
-                    path: workspace.path,
-                    revision: workspace.git_ref,
-                    source: workspace.source,
+                .map(|package| super::store::DiscoveredPackageInput {
+                    path: package.path,
+                    revision: package.git_ref,
+                    source: package.source,
                 })
                 .collect(),
         })
@@ -1078,7 +1076,7 @@ async fn upsert_github_source_tree(
         principal_id = %user.principal_id,
         source_tree_id = %stored.source_tree.id,
         kind = "github",
-        workspaces = stored.workspaces.len(),
+        packages = stored.packages.len(),
         "console source tree upserted"
     );
     Ok((stored, token.to_owned()))
@@ -1091,11 +1089,11 @@ async fn register_read_only_source_tree(
     git_ref: Option<String>,
 ) -> ApiResult<Json<JsonValue>> {
     let (stored, token) = upsert_read_only_source_tree(&state, &user, source_tree, git_ref).await?;
-    warm_registered_workspaces(
+    warm_registered_packages(
         state.clone(),
         user.principal_id.clone(),
         token,
-        stored.workspaces.clone(),
+        stored.packages.clone(),
     );
     Ok(Json(json!({ "sourceTree": stored })))
 }
@@ -1105,27 +1103,27 @@ async fn upsert_read_only_source_tree(
     user: &super::store::SessionUser,
     source_tree: &str,
     git_ref: Option<String>,
-) -> ApiResult<(super::store::SourceTreeWithWorkspaces, String)> {
+) -> ApiResult<(super::store::SourceTreeWithPackages, String)> {
     let source = read_only_registration_source(source_tree, git_ref.as_deref())?;
-    let registration = super::fixed_workspace::registration(&source)
+    let registration = super::fixed_package::registration(&source)
         .await
         .map_err(|err| ApiError::bad_request(err.to_string()))?;
     tracing::info!(
         operation = "source_tree.upsert",
         principal_id = %user.principal_id,
         kind = ?registration.kind,
-        workspaces = registration.workspaces.len(),
+        packages = registration.packages.len(),
         "console read-only source tree registration resolved"
     );
     let stored = state
         .store
-        .upsert_source_tree_with_workspaces(super::store::RegisterSourceTreeInput {
+        .upsert_source_tree_with_packages(super::store::RegisterSourceTreeInput {
             principal_id: user.principal_id.clone(),
             kind: registration.kind,
             source: registration.source,
             display_name: registration.display_name,
             default_revision: registration.default_revision,
-            workspaces: registration.workspaces,
+            packages: registration.packages,
         })
         .await?;
     tracing::info!(
@@ -1133,7 +1131,7 @@ async fn upsert_read_only_source_tree(
         principal_id = %user.principal_id,
         source_tree_id = %stored.source_tree.id,
         kind = ?stored.source_tree.kind,
-        workspaces = stored.workspaces.len(),
+        packages = stored.packages.len(),
         "console source tree upserted"
     );
     Ok((stored, source_token(user).to_owned()))
@@ -1186,44 +1184,44 @@ fn read_only_registration_source(source_tree: &str, git_ref: Option<&str>) -> Ap
     Ok(source.to_owned())
 }
 
-fn warm_registered_workspaces(
+fn warm_registered_packages(
     state: SharedState,
     principal_id: String,
     token: String,
-    workspaces: Vec<super::store::WorkspaceRecord>,
+    packages: Vec<super::store::PackageRecord>,
 ) {
-    if workspaces.is_empty() {
+    if packages.is_empty() {
         return;
     }
 
     tokio::spawn(async move {
-        for workspace in workspaces {
+        for package in packages {
             let started = Instant::now();
-            match super::workspace_source::semantic_workspace_for_base(
+            match super::package_source::semantic_package_for_base(
                 &state,
                 &principal_id,
                 &token,
-                &workspace,
+                &package,
             )
             .await
             {
                 Ok(_) => {
                     tracing::debug!(
-                        operation = "workspace.warm",
-                        workspace_id = %workspace.id,
-                        source = %workspace.source,
+                        operation = "package.warm",
+                        package_id = %package.id,
+                        source = %package.source,
                         latency_ms = started.elapsed().as_millis(),
-                        "console workspace warm-up completed"
+                        "console package warm-up completed"
                     );
                 }
                 Err(err) => {
                     tracing::debug!(
-                        operation = "workspace.warm",
-                        workspace_id = %workspace.id,
-                        source = %workspace.source,
+                        operation = "package.warm",
+                        package_id = %package.id,
+                        source = %package.source,
                         error = %err.message,
                         latency_ms = started.elapsed().as_millis(),
-                        "console workspace warm-up failed"
+                        "console package warm-up failed"
                     );
                 }
             }
@@ -1262,7 +1260,7 @@ async fn refresh_source_tree_for_user(
     state: &SharedState,
     user: &super::store::SessionUser,
     source_tree_id: &str,
-) -> ApiResult<super::store::SourceTreeWithWorkspaces> {
+) -> ApiResult<super::store::SourceTreeWithPackages> {
     let fixed_source = fixed_source_scope(state, &user.principal_id).await?;
     if let Some(source_tree) = fixed_source.as_ref()
         && source_tree.source_tree.id != source_tree_id
@@ -1305,11 +1303,11 @@ async fn refresh_source_tree_for_user(
             upsert_read_only_source_tree(state, user, &source_tree.source, None).await?
         }
     };
-    warm_registered_workspaces(
+    warm_registered_packages(
         state.clone(),
         user.principal_id.clone(),
         token,
-        stored.workspaces.clone(),
+        stored.packages.clone(),
     );
     Ok(stored)
 }
@@ -1345,14 +1343,14 @@ mod tests {
     use tempfile::TempDir;
 
     #[test]
-    fn observability_route_extracts_workspace_and_branch_ids() {
-        let route = route_observability("/api/workspaces/ws-1/branches/branch-2/lsp");
+    fn observability_route_extracts_package_and_branch_ids() {
+        let route = route_observability("/api/packages/ws-1/branches/branch-2/lsp");
 
         assert_eq!(
             route.pattern,
-            "/api/workspaces/:workspace_id/branches/:branch_id/lsp"
+            "/api/packages/:package_id/branches/:branch_id/lsp"
         );
-        assert_eq!(route.workspace_id.as_deref(), Some("ws-1"));
+        assert_eq!(route.package_id.as_deref(), Some("ws-1"));
         assert_eq!(route.branch_id.as_deref(), Some("branch-2"));
     }
 
@@ -1361,7 +1359,7 @@ mod tests {
         let route = route_observability("/api/source-trees/tree-1");
 
         assert_eq!(route.pattern, "/api/source-trees/:source_tree_id");
-        assert_eq!(route.workspace_id, None);
+        assert_eq!(route.package_id, None);
         assert_eq!(route.branch_id, None);
     }
 
@@ -1400,34 +1398,34 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn source_tree_refresh_rediscovers_local_workspace_paths() {
+    async fn source_tree_refresh_rediscovers_local_package_paths() {
         let tree = TempDir::new().expect("source tree tempdir");
-        write_workspace(tree.path()).await;
+        write_package(tree.path()).await;
         let state = test_state();
         let user = test_user();
         let source = tree.path().to_str().expect("utf8 temp path");
         let (registered, _) =
             expect_api_ok(upsert_read_only_source_tree(&state, &user, source, None).await);
-        assert_eq!(workspace_paths(&registered.workspaces), vec!["."]);
+        assert_eq!(package_paths(&registered.packages), vec!["."]);
 
-        write_workspace(&tree.path().join("workspaces/payments")).await;
+        write_package(&tree.path().join("packages/payments")).await;
         let refreshed = expect_api_ok(
             refresh_source_tree_for_user(&state, &user, &registered.source_tree.id).await,
         );
 
         assert_eq!(
-            workspace_paths(&refreshed.workspaces),
-            vec![".", "workspaces/payments"]
+            package_paths(&refreshed.packages),
+            vec![".", "packages/payments"]
         );
         assert!(refreshed.source_tree.last_discovered_at.is_some());
     }
 
     #[tokio::test]
-    async fn fixed_workspace_scope_rejects_stale_workspace_ids() {
+    async fn fixed_package_scope_rejects_stale_package_ids() {
         let fixed = TempDir::new().expect("fixed source tempdir");
-        write_workspace(fixed.path()).await;
+        write_package(fixed.path()).await;
         let stale = TempDir::new().expect("stale source tempdir");
-        write_workspace(stale.path()).await;
+        write_package(stale.path()).await;
         let fixed_source = fixed.path().to_str().expect("utf8 temp path");
         let stale_source = stale.path().to_str().expect("utf8 temp path");
         let state = test_state_with_fixed_source(fixed_source);
@@ -1435,20 +1433,20 @@ mod tests {
 
         let (stale_registered, _) =
             expect_api_ok(upsert_read_only_source_tree(&state, &user, stale_source, None).await);
-        let stale_workspace = stale_registered
-            .workspaces
+        let stale_package = stale_registered
+            .packages
             .first()
-            .expect("stale workspace should be discovered");
+            .expect("stale package should be discovered");
 
-        let err = super::super::api_workspace::load_workspace(&state, &user, &stale_workspace.id)
+        let err = super::super::api_package::load_package(&state, &user, &stale_package.id)
             .await
-            .expect_err("fixed source should hide stale workspace rows");
+            .expect_err("fixed source should hide stale package rows");
 
         assert_eq!(err.status, StatusCode::NOT_FOUND);
         let fixed_registered = expect_api_ok(fixed_source_scope(&state, &user.principal_id).await)
             .expect("fixed source should register");
         assert_eq!(fixed_registered.source_tree.source, fixed_source);
-        assert_eq!(workspace_paths(&fixed_registered.workspaces), vec!["."]);
+        assert_eq!(package_paths(&fixed_registered.packages), vec!["."]);
     }
 
     fn expect_api_ok<T>(result: ApiResult<T>) -> T {
@@ -1466,14 +1464,14 @@ mod tests {
         test_state_with_fixed_source_option(Some(source.to_owned()))
     }
 
-    fn test_state_with_fixed_source_option(fixed_workspace_source: Option<String>) -> SharedState {
-        let fixed_workspace = fixed_workspace_source.is_some();
+    fn test_state_with_fixed_source_option(fixed_package_source: Option<String>) -> SharedState {
+        let fixed_package = fixed_package_source.is_some();
         Arc::new(ConsoleState {
             deployment: DeploymentType::Local,
             oauth: None,
             state_mode: ConsoleStateMode::Ephemeral,
             write_policy: WritePolicy::Disabled,
-            fixed_workspace_source,
+            fixed_package_source,
             store: Store::open_in_memory(TokenCrypto::generate().unwrap()).unwrap(),
             github: GitHubClient::new(),
             stage: StageCache::new(),
@@ -1488,7 +1486,7 @@ mod tests {
                     deployment: DeploymentType::Local,
                     write_policy: WritePolicy::Disabled,
                     console_host: Some("127.0.0.1".to_owned()),
-                    fixed_workspace,
+                    fixed_package,
                     secure_cookies: false,
                 },
             ),
@@ -1508,17 +1506,17 @@ mod tests {
         }
     }
 
-    async fn write_workspace(path: &std::path::Path) {
+    async fn write_package(path: &std::path::Path) {
         tokio::fs::create_dir_all(path).await.unwrap();
-        tokio::fs::write(path.join("rototo-workspace.toml"), "schema_version = 1\n")
+        tokio::fs::write(path.join("rototo-package.toml"), "schema_version = 1\n")
             .await
             .unwrap();
     }
 
-    fn workspace_paths(workspaces: &[super::super::store::WorkspaceRecord]) -> Vec<&str> {
-        workspaces
+    fn package_paths(packages: &[super::super::store::PackageRecord]) -> Vec<&str> {
+        packages
             .iter()
-            .map(|workspace| workspace.path.as_str())
+            .map(|package| package.path.as_str())
             .collect()
     }
 }

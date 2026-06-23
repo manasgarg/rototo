@@ -30,7 +30,7 @@ mod tests {
             .await
             .unwrap();
         tokio::fs::write(
-            root.join("rototo-workspace.toml"),
+            root.join("rototo-package.toml"),
             r#"schema_version = 1
 "#,
         )
@@ -48,7 +48,7 @@ default = "hello"
             .unwrap();
 
         let mut server = LspServer::new();
-        server.workspace_root = Some(tokio::fs::canonicalize(root).await.unwrap());
+        server.package_root = Some(tokio::fs::canonicalize(root).await.unwrap());
         let uri = format!("file://{}", variable_path.display());
         // The disk file is valid, but the open editor buffer changes the type
         // to an unknown value. The LSP overlay should win over the file system.
@@ -67,7 +67,7 @@ default = "hello"
             }))
             .unwrap();
 
-        let publications = server.workspace_diagnostics().await.unwrap();
+        let publications = server.package_diagnostics().await.unwrap();
         let variable_publication = publications
             .iter()
             .find(|publication| publication.uri.ends_with("/variables/message.toml"))
@@ -82,8 +82,7 @@ default = "hello"
             "rototo/variable-unknown-type"
         );
         assert!(publications.iter().any(|publication| {
-            publication.uri.ends_with("/rototo-workspace.toml")
-                && publication.diagnostics.is_empty()
+            publication.uri.ends_with("/rototo-package.toml") && publication.diagnostics.is_empty()
         }));
         assert_eq!(
             tokio::fs::read_to_string(&variable_path).await.unwrap(),
@@ -105,7 +104,7 @@ default = "hello"
                 ]
             }))
             .unwrap();
-        let cleared = server.workspace_diagnostics().await.unwrap();
+        let cleared = server.package_diagnostics().await.unwrap();
         let variable_publication = cleared
             .iter()
             .find(|publication| publication.uri.ends_with("/variables/message.toml"))
@@ -117,7 +116,7 @@ default = "hello"
     #[tokio::test]
     async fn lsp_document_symbols_use_snapshot_index_and_unsaved_overlay() {
         // Document symbols power editor outlines. This checks that the outline
-        // is built from rototo's semantic snapshot for every workspace file
+        // is built from rototo's semantic snapshot for every package file
         // kind, not from a shallow TOML/JSON parse of the current document.
         let tempdir = tempfile::tempdir().unwrap();
         let root = tempdir.path();
@@ -131,7 +130,7 @@ default = "hello"
             .await
             .unwrap();
         tokio::fs::create_dir_all(root.join("lint")).await.unwrap();
-        let manifest_path = root.join("rototo-workspace.toml");
+        let manifest_path = root.join("rototo-package.toml");
         tokio::fs::write(
             &manifest_path,
             r#"schema_version = 1
@@ -178,7 +177,7 @@ default = "hello"
             .unwrap();
 
         let mut server = LspServer::new();
-        server.workspace_root = Some(tokio::fs::canonicalize(root).await.unwrap());
+        server.package_root = Some(tokio::fs::canonicalize(root).await.unwrap());
         let variable_uri = format!("file://{}", variable_path.display());
         // The resolve rule exists only in the unsaved overlay. If it appears in
         // the symbols below, the server is indexing editor state correctly.
@@ -283,7 +282,7 @@ value = "welcome"
             .await
             .unwrap();
         tokio::fs::create_dir_all(root.join("lint")).await.unwrap();
-        let manifest_path = root.join("rototo-workspace.toml");
+        let manifest_path = root.join("rototo-package.toml");
         let disk_manifest = r#"schema_version = 1
 "#;
         tokio::fs::write(&manifest_path, disk_manifest)
@@ -359,8 +358,8 @@ end
         .unwrap();
 
         let mut server = LspServer::new();
-        server.workspace_root = Some(tokio::fs::canonicalize(root).await.unwrap());
-        // These overlays add an unsaved workspace extend and an unsaved
+        server.package_root = Some(tokio::fs::canonicalize(root).await.unwrap());
+        // These overlays add an unsaved package extend and an unsaved
         // variable rule. The assertions below verify that completion reads the
         // same snapshot the rest of the language server uses.
         server
@@ -407,15 +406,15 @@ value = "welcome"
             .unwrap();
 
         // In a variable rule's condition expression, qualifier ids are useful; base
-        // workspace paths, variable values, predicate operators, and custom
+        // package paths, variable values, predicate operators, and custom
         // lint field names are not.
-        assert_no_completion(&completions, "../base", "workspace extend");
+        assert_no_completion(&completions, "../base", "package extend");
         assert_completion(&completions, "premium", "qualifier");
         assert_no_completion(&completions, "treatment", "variable value");
         assert_no_completion(&completions, "bucket", "predicate operator");
         assert_no_completion(&completions, "extends", "custom lint field selector");
 
-        // CEL completions use workspace schemas. `context.` suggests top-level
+        // CEL completions use package schemas. `context.` suggests top-level
         // request context properties, and nested context paths continue through
         // the same JSON Schema.
         server
@@ -1101,7 +1100,7 @@ value = ["default"]
             .await
             .unwrap();
         tokio::fs::create_dir_all(root.join("lint")).await.unwrap();
-        let manifest_path = root.join("rototo-workspace.toml");
+        let manifest_path = root.join("rototo-package.toml");
         tokio::fs::write(
             &manifest_path,
             r#"schema_version = 1
@@ -1152,13 +1151,13 @@ default = "hello"
   lint:rule({
     id = "operations/message-not-empty",
     title = "Operational message is empty",
-    help = "Set a non-empty message before releasing the workspace.",
+    help = "Set a non-empty message before releasing the package.",
     target = "/variables/message",
     handler = "check_variable",
   })
 end
 
-function check_variable(workspace, variable)
+function check_variable(package, variable)
   return {}
 end
 "#,
@@ -1167,7 +1166,7 @@ end
         .unwrap();
 
         let mut server = LspServer::new();
-        server.workspace_root = Some(tokio::fs::canonicalize(root).await.unwrap());
+        server.package_root = Some(tokio::fs::canonicalize(root).await.unwrap());
         let variable_uri = format!("file://{}", variable_path.display());
         // The variable description and resolve rule are unsaved. Hover should
         // still show them, which is what an editor user expects while typing.
@@ -1237,7 +1236,7 @@ default = "hello"
             &hover_contents(&server, &variable_path, 2, 8).await,
             "Variable type is unknown",
         );
-        // The invalid overlay is editor state only; the saved workspace file
+        // The invalid overlay is editor state only; the saved package file
         // remains unchanged.
         assert_eq!(
             tokio::fs::read_to_string(&variable_path).await.unwrap(),
@@ -1258,7 +1257,7 @@ default = "hello"
         let variable_path = root.join("variables/message.toml");
 
         let mut server = LspServer::new();
-        server.workspace_root = Some(tokio::fs::canonicalize(root).await.unwrap());
+        server.package_root = Some(tokio::fs::canonicalize(root).await.unwrap());
         let err = server
             .change_document(json!({
                 "textDocument": {
@@ -1296,7 +1295,7 @@ default = "hello"
             .await
             .unwrap();
         tokio::fs::write(
-            root.join("rototo-workspace.toml"),
+            root.join("rototo-package.toml"),
             r#"schema_version = 1
 "#,
         )
@@ -1329,7 +1328,7 @@ default = []
             .unwrap();
 
         let mut server = LspServer::new();
-        server.workspace_root = Some(tokio::fs::canonicalize(root).await.unwrap());
+        server.package_root = Some(tokio::fs::canonicalize(root).await.unwrap());
         server
             .open_document(json!({
                 "textDocument": {
@@ -1408,7 +1407,7 @@ query = 'qualifier["premium"]'
 
     #[tokio::test]
     async fn lsp_definition_uses_snapshot_index_and_unsaved_overlays() {
-        // Go-to-definition should follow rototo references across workspace
+        // Go-to-definition should follow rototo references across package
         // concepts: catalog-backed variable types, qualifier rules, and
         // qualifier composition.
         let tempdir = tempfile::tempdir().unwrap();
@@ -1426,7 +1425,7 @@ query = 'qualifier["premium"]'
             .await
             .unwrap();
         tokio::fs::write(
-            root.join("rototo-workspace.toml"),
+            root.join("rototo-package.toml"),
             r#"schema_version = 1
 "#,
         )
@@ -1472,7 +1471,7 @@ default = "hello"
             .unwrap();
 
         let mut server = LspServer::new();
-        server.workspace_root = Some(tokio::fs::canonicalize(root).await.unwrap());
+        server.package_root = Some(tokio::fs::canonicalize(root).await.unwrap());
         // The variable only becomes catalog-backed and qualifier-referencing in
         // the unsaved editor buffer, so every definition below also checks that
         // go-to-definition is overlay-aware.
@@ -1540,7 +1539,7 @@ value = "welcome"
             .await
             .unwrap();
         tokio::fs::write(
-            root.join("rototo-workspace.toml"),
+            root.join("rototo-package.toml"),
             r#"schema_version = 1
 "#,
         )
@@ -1601,7 +1600,7 @@ default = "hello"
             .unwrap();
 
         let mut server = LspServer::new();
-        server.workspace_root = Some(tokio::fs::canonicalize(root).await.unwrap());
+        server.package_root = Some(tokio::fs::canonicalize(root).await.unwrap());
         // The variable's catalog type, default value, rule condition, and rule
         // value all live in the overlay. Reference search must include those
         // unsaved use sites.
@@ -1745,7 +1744,7 @@ value = "welcome"
         let server =
             tokio::spawn(async move { serve(BufReader::new(server_read), server_write).await });
 
-        // No workspace has been initialized, so a document request fails.
+        // No package has been initialized, so a document request fails.
         write_lsp_message(
             &mut client,
             json!({

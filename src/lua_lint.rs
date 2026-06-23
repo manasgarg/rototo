@@ -32,7 +32,7 @@ pub struct RawCustomLintRegistration {
 
 #[derive(Clone, Debug)]
 pub struct RegisteredLintInput {
-    pub workspace: JsonValue,
+    pub package: JsonValue,
     pub target: JsonValue,
     pub lint_path: PathBuf,
     pub script: String,
@@ -157,14 +157,14 @@ fn lint_registered_target_script(
     let handler = globals
         .get::<mlua::Function>(input.handler.as_str())
         .map_err(|err| RototoError::new(format!("custom lint handler is invalid: {err}")))?;
-    let workspace = lua
-        .to_value(&input.workspace)
-        .map_err(|err| RototoError::new(format!("failed to prepare Lua workspace: {err}")))?;
+    let package = lua
+        .to_value(&input.package)
+        .map_err(|err| RototoError::new(format!("failed to prepare Lua package: {err}")))?;
     let target = lua
         .to_value(&input.target)
         .map_err(|err| RototoError::new(format!("failed to prepare Lua context: {err}")))?;
     let returned: LuaValue = handler
-        .call((workspace, target))
+        .call((package, target))
         .map_err(|err| RototoError::new(format!("custom lint failed: {err}")))?;
     registered_outputs_from_lua(returned)
 }
@@ -329,7 +329,7 @@ mod tests {
                   })
                 end
 
-                function check(workspace, target)
+                function check(package, target)
                   return {}
                 end
             "#
@@ -393,11 +393,11 @@ mod tests {
     #[tokio::test]
     async fn custom_lint_handler_loop_is_bounded() {
         let err = lint_registered_target(RegisteredLintInput {
-            workspace: serde_json::json!({}),
+            package: serde_json::json!({}),
             target: serde_json::json!({}),
             lint_path: PathBuf::from("lint/loop.lua"),
             script: r#"
-                function check(workspace, target)
+                function check(package, target)
                   while true do end
                 end
             "#
@@ -417,13 +417,13 @@ mod tests {
     #[tokio::test]
     async fn custom_lint_handler_errors_use_safe_chunk_names() {
         let err = lint_registered_target(RegisteredLintInput {
-            workspace: serde_json::json!({}),
+            package: serde_json::json!({}),
             target: serde_json::json!({}),
             lint_path: PathBuf::from(
                 "/tmp/.tmpWrGs2H/clone/examples/basic/lint/checkout-redesign.lua",
             ),
             script: r#"
-                function check(workspace, target)
+                function check(package, target)
                   error("handler exploded")
                 end
             "#

@@ -1,13 +1,13 @@
 # Rototo SDK App
 
 This sample embeds the Rototo Rust SDK in an application. It loads the
-`examples/basic` workspace once, validates a request context, resolves
+`examples/basic` package once, validates a request context, resolves
 qualifiers, resolves variables, and deserializes resolved JSON values into
 typed Rust structs.
 
 The SDK load and resolve calls are async, so the sample uses Tokio.
 
-Run it from the `sdk-workspace-api` directory:
+Run it from the `sdk-package-api` directory:
 
 ```sh
 cargo run --manifest-path examples/sdk-app/Cargo.toml
@@ -21,6 +21,6 @@ The app resolves:
   `catalogs/llm-agent-config-entries/*.toml`
 - `support-banner`, a catalog-backed operational banner variable
 
-Applications should use `Workspace::load` instead of shelling out to the CLI so
-workspace lint, context validation, qualifier evaluation, and variable
+Applications should use `Package::load` instead of shelling out to the CLI so
+package lint, context validation, qualifier evaluation, and variable
 resolution all happen in process with typed error handling.

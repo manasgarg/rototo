@@ -1,15 +1,15 @@
 # Custom Lua Lint Reference
 
-[Built-in lint](reference-lint-overview.html) protects rototo's workspace
+[Built-in lint](reference-lint-overview.html) protects rototo's package
 contract: files parse, references resolve, values match their declared types or
 catalog schemas, and request context schemas line up with the qualifiers that
 read them. Custom Lua lint protects local policy: the constraints that belong
-to a team or application and still need to fail review before a workspace is
+to a team or application and still need to fail review before a package is
 released.
 
 Custom lint files live under `lint/*.lua`. Each file defines `register(lint)`.
 Registration declares one or more rules. Each rule selects a target address in
-the semantic workspace model. Rototo expands that address, invokes the handler
+the semantic package model. Rototo expands that address, invokes the handler
 once for each selected target, and attaches returned diagnostics to that target.
 
 ## Minimal File
@@ -26,7 +26,7 @@ function register(lint)
   })
 end
 
-function check_agent_config(workspace, variable)
+function check_agent_config(package, variable)
   local max_tokens = variable.resolve.default.max_tokens
 
   if type(max_tokens) == "number" and max_tokens > 4096 then
@@ -43,7 +43,7 @@ end
 ```
 
 The rule runs once because `/variables/agent-config` addresses one variable.
-The handler receives the whole semantic `workspace` plus the selected
+The handler receives the whole semantic `package` plus the selected
 `variable`. When a diagnostic omits `path`, rototo attaches it to the whole
 target.
 
@@ -77,17 +77,17 @@ A file may register more than one rule. If the same custom rule id appears in
 more than one file, the metadata must match exactly: `title`, `help`, and
 `severity` are part of the rule contract.
 
-Custom lint runs after rototo has built the semantic workspace and reference
+Custom lint runs after rototo has built the semantic package and reference
 model. Registration does not choose a lint stage; custom rules run in the
 policy stage.
 
 ## Target Addresses
 
-Targets use a REST-style address grammar over the semantic workspace model:
+Targets use a REST-style address grammar over the semantic package model:
 
 | Address | Handler invocations |
 | --- | --- |
-| `/` | Once for the workspace. |
+| `/` | Once for the package. |
 | `/qualifiers` | Once for each qualifier. |
 | `/qualifiers/<id>` | Once for that qualifier. |
 | `/variables` | Once for each variable. |
@@ -107,7 +107,7 @@ Targets use a REST-style address grammar over the semantic workspace model:
 
 Collection addresses select members. For example, `/qualifiers` does not pass a
 qualifier collection to the handler; it invokes the handler once for each
-qualifier. Use `/` and inspect `workspace.qualifiers` when a rule needs an
+qualifier. Use `/` and inspect `package.qualifiers` when a rule needs an
 aggregate check over the collection.
 
 Rule indexes are zero-based because they match diagnostic entity indexes. Lua
@@ -119,26 +119,26 @@ carries the zero-based rototo index.
 Each handler receives two arguments:
 
 ```lua
-function handler(workspace, target)
+function handler(package, target)
   return {}
 end
 ```
 
-`workspace` is a read-only semantic projection. It is not a TOML parse tree and
+`package` is a read-only semantic projection. It is not a TOML parse tree and
 it is not rototo's internal Rust index. It is the stable data model available to
 custom lint authors.
 
 `target` is the item selected by the rule address. For `/`, `target` is the
-workspace object. For collection and entity addresses, `target` is the current
+package object. For collection and entity addresses, `target` is the current
 qualifier, variable, value, rule, catalog, catalog entry, request context, or
 request context entry.
 
 Top-level shape:
 
 ```lua
-workspace = {
+package = {
   version = 1,
-  root = "/abs/workspace/path",
+  root = "/abs/package/path",
 
   manifest = manifest,
 
@@ -163,24 +163,24 @@ workspace = {
 Top-level collections are keyed by stable ids. That means direct lookup is:
 
 ```lua
-local qualifier = workspace.qualifiers["premium-users"]
-local variable = workspace.variables["checkout-redesign"]
-local catalog = workspace.catalogs["checkout-redesign"]
+local qualifier = package.qualifiers["premium-users"]
+local variable = package.variables["checkout-redesign"]
+local catalog = package.catalogs["checkout-redesign"]
 ```
 
-Do not use `#workspace.qualifiers` or `ipairs(workspace.qualifiers)` for
+Do not use `#package.qualifiers` or `ipairs(package.qualifiers)` for
 top-level collections. They are maps, not arrays. Ordered child collections
 such as `variable.resolve.rules` are arrays.
 
 ## Semantic Entities
 
-A semantic entity is an object in the projected workspace that rototo can select
+A semantic entity is an object in the projected package that rototo can select
 with a target address and attach diagnostics to. The custom lint target model
 exposes these entities:
 
 | Entity `kind` | Selected by | Stable identity |
 | --- | --- | --- |
-| `workspace` | `/` | The workspace root target. |
+| `package` | `/` | The package root target. |
 | `qualifier` | `/qualifiers`, `/qualifiers/<id>` | `id` |
 | `variable` | `/variables`, `/variables/<id>` | `id` |
 | `value` | `/variables/<id>/values`, `/variables/<id>/values/<key>` | `variable`, `key` |
@@ -196,40 +196,40 @@ it can map semantic diagnostics back to files.
 
 Built-in rototo diagnostics also use entities for the manifest and custom lint
 files. They are not separately addressable custom lint targets. A policy about
-workspace manifest data should target `/` and return a JSON Pointer such as
+package manifest data should target `/` and return a JSON Pointer such as
 `/manifest/extends`.
 
 ## Source Paths
 
-File-backed entities expose a workspace-relative `path` string. Use that only
+File-backed entities expose a package-relative `path` string. Use that only
 when source layout is part of the policy. For ordinary value, schema, reference,
 or naming checks, prefer ids, fields, and diagnostic JSON Pointers.
 
 In practice, most custom lint rules should not branch on source paths. Rototo's
-workspace layout is already part of the built-in contract. The path is mainly
+package layout is already part of the built-in contract. The path is mainly
 provenance for source-aware tools and agents, and a narrow escape hatch for a
 local convention that is genuinely about repository layout. The diagnostic
 still returns no source coordinates; it attaches to the current semantic target,
 and rototo maps that target to the source span internally.
 
-Path fields are available on `workspace.manifest`, `qualifier`, `variable`,
+Path fields are available on `package.manifest`, `qualifier`, `variable`,
 `catalog`, `catalog_entry`, `request_context`, and `request_context_entry`.
 Nested entities such as inline values and resolve rules do not have their own
 path field; use their parent id to look up the containing variable when a
 source-layout rule needs the file path.
 
-## Workspace
+## Package
 
 ```lua
-workspace = {
-  kind = "workspace",
-  root = "/abs/workspace/path",
+package = {
+  kind = "package",
+  root = "/abs/package/path",
   manifest = manifest,
   extends = {},
 }
 ```
 
-The root target `/` passes this workspace object as `target`.
+The root target `/` passes this package object as `target`.
 
 ## Qualifiers
 
@@ -293,7 +293,7 @@ invalid
 ```
 
 `schema` is retained only to describe legacy invalid variable declarations.
-Standalone workspace `schemas/` files are not part of the active model.
+Standalone package `schemas/` files are not part of the active model.
 
 Inline values are exposed under `variable.values`:
 
@@ -398,19 +398,19 @@ return {
 
 Returning `nil` or an empty list means the rule passed.
 
-The pointer is relative to the handler target, not to the whole workspace unless
+The pointer is relative to the handler target, not to the whole package unless
 the rule itself targets `/`. A rule registered for `/variables` receives one
 variable at a time, so `path = "/resolve/default"` means the current variable's
-resolve default. A rule registered for `/` can point into the workspace map with
+resolve default. A rule registered for `/` can point into the package map with
 `path = "/variables/checkout-redesign/resolve/default"`.
 
 Common pointers include:
 
 | Handler target | Pointer |
 | --- | --- |
-| workspace | `/manifest/extends` |
-| workspace | `/variables/<id>/resolve/default` |
-| workspace | `/qualifiers/<id>/when` |
+| package | `/manifest/extends` |
+| package | `/variables/<id>/resolve/default` |
+| package | `/qualifiers/<id>/when` |
 | qualifier | `/description`, `/when` |
 | variable | `/description`, `/declaration/value`, `/resolve`, `/resolve/default` |
 | variable | `/values/<key>/value/max_tokens`, `/resolve/rules/0/value` |
@@ -442,7 +442,7 @@ function register(lint)
   })
 end
 
-function check_enabled_feature_owner(workspace, entry)
+function check_enabled_feature_owner(package, entry)
   if entry.value.enabled == true and entry.value.owner == nil then
     return {
       {
@@ -468,6 +468,6 @@ Custom lint runs in a restricted Lua VM:
 
 Available standard libraries are table, string, UTF-8, and math.
 
-Custom lint should be deterministic and local to the workspace data it
+Custom lint should be deterministic and local to the package data it
 receives. It should not depend on wall-clock time, network calls, subprocesses,
-or machine-local files outside the workspace.
+or machine-local files outside the package.

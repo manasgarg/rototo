@@ -16,36 +16,36 @@ tokio = { version = "1", features = ["macros", "rt-multi-thread", "time"] }
 ## Runtime Handle
 
 ```rust
-use rototo::{ResolveContext, Workspace};
+use rototo::{ResolveContext, Package};
 
-let workspace = Workspace::load("examples/basic").await?;
+let pkg = Package::load("examples/basic").await?;
 let context = ResolveContext::from_json(serde_json::json!({
     "user": {
         "tier": "premium"
     }
 }))?;
 
-let resolution = workspace
+let resolution = pkg
     .resolve_variable("premium-message", &context)
     .await?;
 ```
 
-Use [`Workspace::load`](reference-sdk-loading.html) for application runtime
-paths. Use `Workspace::inspect` for tools that need to load a workspace without
+Use [`Package::load`](reference-sdk-loading.html) for application runtime
+paths. Use `Package::inspect` for tools that need to load a package without
 compiling a runtime model.
 
 ## Refreshing Handle
 
 ```rust
 use std::time::Duration;
-use rototo::{RefreshOptions, RefreshingWorkspace};
+use rototo::{RefreshOptions, RefreshingPackage};
 
 let refresh = RefreshOptions::new().with_period(Duration::from_secs(30));
-let workspace = RefreshingWorkspace::load(source, refresh).await?;
+let pkg = RefreshingPackage::load(source, refresh).await?;
 ```
 
-[`RefreshingWorkspace`](reference-sdk-refresh.html) keeps the last successfully
-loaded workspace active when a later refresh fails.
+[`RefreshingPackage`](reference-sdk-refresh.html) keeps the last successfully
+loaded package active when a later refresh fails.
 
 ## Error Type
 
@@ -57,15 +57,15 @@ The Rust crate exposes the broadest SDK surface:
 
 | API | Purpose |
 | --- | --- |
-| `Workspace::load` | Load, lint, and compile a runtime workspace. |
-| `Workspace::inspect` | Load workspace files without compiling runtime state. |
-| `Workspace::lint` | Run lint against the loaded root. |
-| `Workspace::resolve_variable` | Resolve one variable. |
-| `Workspace::resolve_qualifier` | Resolve one qualifier to a boolean. |
-| `RefreshingWorkspace::load` | Load and optionally start periodic refresh. |
-| `RefreshingWorkspace::refresh_now` | Run a manual refresh. |
-| `RefreshingWorkspace::status` | Read refresh state. |
-| `RefreshingWorkspace::shutdown` | Stop the refresh loop. |
+| `Package::load` | Load, lint, and compile a runtime package. |
+| `Package::inspect` | Load package files without compiling runtime state. |
+| `Package::lint` | Run lint against the loaded root. |
+| `Package::resolve_variable` | Resolve one variable. |
+| `Package::resolve_qualifier` | Resolve one qualifier to a boolean. |
+| `RefreshingPackage::load` | Load and optionally start periodic refresh. |
+| `RefreshingPackage::refresh_now` | Run a manual refresh. |
+| `RefreshingPackage::status` | Read refresh state. |
+| `RefreshingPackage::shutdown` | Stop the refresh loop. |
 
 The crate also exports lower-level list, read, lint, resolve, trace, source,
 catalog, and [testing](testing-runtime-configuration.html) helpers for Rust

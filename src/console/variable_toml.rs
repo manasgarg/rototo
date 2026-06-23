@@ -28,8 +28,8 @@ struct ParsedDefault {
 /// Minimal parse of the variable TOML needed by the friendly default editor.
 ///
 /// It intentionally understands only the fields required for primitive default
-/// replacement and does not become a second workspace parser. The full lint and
-/// semantic model remain owned by rototo's Rust workspace loader.
+/// replacement and does not become a second package parser. The full lint and
+/// semantic model remain owned by rototo's Rust package loader.
 struct VariableParse {
     description: Option<String>,
     variable_type: Option<String>,

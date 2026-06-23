@@ -2,11 +2,11 @@ use std::path::Path;
 
 use crate::error::Result;
 use crate::fixtures::FixtureAssertionReport;
-use crate::sdk::Workspace;
+use crate::sdk::Package;
 
 pub async fn assert_fixtures(
-    workspace: &Workspace,
+    package: &Package,
     suite_path: impl AsRef<Path>,
 ) -> Result<FixtureAssertionReport> {
-    crate::fixtures::assert_fixtures(workspace, suite_path).await
+    crate::fixtures::assert_fixtures(package, suite_path).await
 }

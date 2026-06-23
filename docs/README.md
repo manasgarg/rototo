@@ -16,16 +16,16 @@ docs/src/
   bucketed-rollout.md
   notification-delivery-policy.md
   service-degradation-policy.md
-  workspace-layering.md
+  package-layering.md
   modeling-runtime-configuration.md
   application-integration.md
   testing-runtime-configuration.md
   operating-runtime-configuration.md
   production-workflow.md
-  reference-workspace-manifest.md
-  reference-workspace-layout.md
-  reference-workspace-sources.md
-  reference-workspace-layering.md
+  reference-package-manifest.md
+  reference-package-layout.md
+  reference-package-sources.md
+  reference-package-layering.md
   reference-context.md
   reference-qualifiers.md
   reference-predicate-operators.md
@@ -98,12 +98,12 @@ Use the CLI to inspect the bundled docs:
 ```sh
 rototo docs
 rototo docs -p index
-rototo docs -s "workspace source"
+rototo docs -s "package source"
 rototo docs --export site
 ```
 
 Use `just docs-preview` when you need to review the rendered site over HTTPS
-before merging. The recipe exports the current workspace, deploys it to a
+before merging. The recipe exports the current package, deploys it to a
 Cloudflare Pages preview branch, and leaves the production `main` deployment to
 the GitHub workflow. It requires `CLOUDFLARE_ACCOUNT_ID` and
 `CLOUDFLARE_API_TOKEN`; `CLOUDFLARE_PAGES_PROJECT` defaults to `rototo-docs`.

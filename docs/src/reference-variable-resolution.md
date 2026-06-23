@@ -2,14 +2,14 @@
 
 Variable resolution is where rototo turns a named runtime configuration
 request into one selected value. The app supplies context, rototo evaluates
-rules, and the selected value comes from the workspace version currently loaded
+rules, and the selected value comes from the package version currently loaded
 by the app.
 
 ## Input
 
 Variable resolution needs:
 
-- a [loaded, lint-clean workspace](reference-sdk-loading.html);
+- a [loaded, lint-clean package](reference-sdk-loading.html);
 - a variable id;
 - a [JSON object context](reference-context.html).
 
@@ -25,27 +25,27 @@ SDK:
 
 :::sdk-snippet variable-resolution-sdk
 ```rust
-let resolution = workspace
+let resolution = pkg
     .resolve_variable("account-limits", &context)
     .await?;
 ```
 
 ```python
-resolution = await workspace.resolve_variable("account-limits", context)
+resolution = await pkg.resolve_variable("account-limits", context)
 ```
 
 ```typescript
-const resolution = await workspace.resolveVariable("account-limits", context);
+const resolution = await pkg.resolveVariable("account-limits", context);
 ```
 
 ```java
-VariableResolution resolution = workspace
+VariableResolution resolution = pkg
     .resolveVariable("account-limits", context)
     .get();
 ```
 
 ```go
-resolution, err := workspace.ResolveVariable(
+resolution, err := pkg.ResolveVariable(
     ctx,
     "account-limits",
     resolveContext,
@@ -164,9 +164,9 @@ default is validation on.
 
 ## Multiple Variables
 
-`rototo resolve --variables` resolves all variables in workspace order with the
+`rototo resolve --variables` resolves all variables in package order with the
 same context. The SDK free function `rototo::resolve_variables` does the same
-for a local workspace root.
+for a local package root.
 
 If any variable resolution fails, the command or API call fails. Use targeted
 selectors when debugging a context that is not meant to satisfy every variable.

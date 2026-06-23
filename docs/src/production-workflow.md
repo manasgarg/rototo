@@ -3,17 +3,17 @@
 The Adopt pages before this one define how I would run rototo in production:
 [model the runtime decision](modeling-runtime-configuration.html),
 [integrate through the SDK](application-integration.html),
-[test the app-workspace contract](testing-runtime-configuration.html), and
-[treat workspace changes as releases](operating-runtime-configuration.html).
+[test the app-package contract](testing-runtime-configuration.html), and
+[treat package changes as releases](operating-runtime-configuration.html).
 
 Here is that approach as one concrete path. We continue the `account-config`
-workspace and `account-app` from getting started, then add the pieces I would
+package and `account-app` from getting started, then add the pieces I would
 want before trusting it in a service: a named condition, a context contract, a
-hosted workspace source, workspace policy lint, merge gates, app contract
+hosted package source, package policy lint, merge gates, app contract
 tests, and runtime observability.
 
 The core split does not change. The application is still deployed with a
-workspace source URI. The app still supplies runtime facts. The workspace still
+package source URI. The app still supplies runtime facts. The package still
 owns the policy for selecting the value.
 
 ## Add The Runtime Condition
@@ -53,8 +53,8 @@ defined.
 
 ## Add The Context Contract
 
-The workspace now depends on `account.plan`. That path is part of the
-[context contract](reference-context.html) between the app and workspace, so it
+The package now depends on `account.plan`. That path is part of the
+[context contract](reference-context.html) between the app and package, so it
 should be validated.
 
 Generate a request context schema skeleton:
@@ -63,7 +63,7 @@ Generate a request context schema skeleton:
 rototo init account-config --context
 ```
 
-For this workspace, that writes `account-config/request-contexts/request.schema.json`
+For this package, that writes `account-config/request-contexts/request.schema.json`
 with the context path used by the qualifier:
 
 ```json
@@ -167,15 +167,15 @@ Run the app as a premium account:
 ACCOUNT_PLAN=premium cargo run -- ../account-config
 ```
 
-At this point the split is visible: the app supplies facts, and the workspace
+At this point the split is visible: the app supplies facts, and the package
 decides which configured value those facts select.
 
-## Publish The Workspace Source
+## Publish The Package Source
 
 A production service should load a
-[source](reference-workspace-sources.html) it can fetch from its runtime
+[source](reference-package-sources.html) it can fetch from its runtime
 environment. Since git is the source of truth, publish `account-config` as a
-private repository and pass the app a git workspace URI.
+private repository and pass the app a git package URI.
 
 The following commands use the GitHub CLI and SSH. The runtime environment needs
 an SSH key or deploy key that can read the repository.
@@ -185,7 +185,7 @@ cd /path/to/account-config
 
 git init .
 git add .
-git commit -m "Initialize account config workspace"
+git commit -m "Initialize account config package"
 git branch -M main
 
 GITHUB_OWNER="$(gh api user --jq .login)"
@@ -195,28 +195,28 @@ gh repo create "$GITHUB_OWNER/account-config" \
   --remote origin \
   --push
 
-export WORKSPACE_URI="git+ssh://git@github.com/${GITHUB_OWNER}/account-config.git#main"
+export PACKAGE_URI="git+ssh://git@github.com/${GITHUB_OWNER}/account-config.git#main"
 ```
 
 Run the app with the hosted source:
 
 ```sh
 cd /path/to/account-app
-ACCOUNT_PLAN=premium cargo run -- "$WORKSPACE_URI"
+ACCOUNT_PLAN=premium cargo run -- "$PACKAGE_URI"
 ```
 
 The `#main` ref means refreshes can discover later reviewed commits on `main`.
 Use a full commit SHA when a job or deployment needs exact reproducibility; that
 source will not discover newer commits through refresh.
 
-## Add Workspace Policy Lint
+## Add Package Policy Lint
 
 [Built-in lint](reference-lint-overview.html) protects rototo's structural
-contracts. The workspace also needs local policy: account project limits should
+contracts. The package also needs local policy: account project limits should
 be positive, stay under an operational ceiling, and keep the standard plan from
 accidentally exceeding the premium plan.
 
-That policy belongs with the workspace because reviewers need to see the values
+That policy belongs with the package because reviewers need to see the values
 and the guardrail together.
 
 Create `account-config/lint/max-active-projects.lua`:
@@ -232,7 +232,7 @@ function register(lint)
   })
 end
 
-function check_max_active_projects(workspace, variable)
+function check_max_active_projects(package, variable)
   local values = variable.values or {}
   local diagnostics = {}
 
@@ -269,7 +269,7 @@ under the `rototo/` authority, which keeps diagnostic ownership clear.
 
 ## Put Gates Before Merge
 
-The workspace repository should reject bad edits before they reach the branch
+The package repository should reject bad edits before they reach the branch
 that services refresh from. Use a local hook for fast feedback and CI for the
 shared gate.
 
@@ -316,12 +316,12 @@ jobs:
       - run: rototo lint .
 ```
 
-Now the workspace has the same release discipline as code: edit, lint locally,
+Now the package has the same release discipline as code: edit, lint locally,
 open a PR, run CI, review the runtime behavior delta, and merge.
 
 ## Test The App Contract
 
-Workspace lint proves the workspace is valid.
+Package lint proves the package is valid.
 [App tests](testing-runtime-configuration.html) prove the application can still
 consume the selected values and apply the policy.
 
@@ -344,16 +344,16 @@ Add an app contract test in the app's test framework:
 ```rust
 use std::error::Error;
 
-use rototo::{ResolveContext, Workspace};
+use rototo::{ResolveContext, Package};
 
 #[tokio::test]
-async fn rototo_workspace_fixtures_still_hold() -> Result<(), Box<dyn Error>> {
-    let source = std::env::var("ROTOTO_WORKSPACE_SOURCE")
+async fn rototo_package_fixtures_still_hold() -> Result<(), Box<dyn Error>> {
+    let source = std::env::var("ROTOTO_PACKAGE_SOURCE")
         .unwrap_or_else(|_| "../account-config".to_owned());
-    let workspace = Workspace::load(source).await?;
+    let pkg = Package::load(source).await?;
 
     let report =
-        rototo::testing::assert_fixtures(&workspace, "tests/rototo-fixtures").await?;
+        rototo::testing::assert_fixtures(&package, "tests/rototo-fixtures").await?;
     assert!(report.cases > 0);
 
     Ok(())
@@ -361,9 +361,9 @@ async fn rototo_workspace_fixtures_still_hold() -> Result<(), Box<dyn Error>> {
 
 #[tokio::test]
 async fn max_active_projects_deserializes_for_app_contexts() -> Result<(), Box<dyn Error>> {
-    let source = std::env::var("ROTOTO_WORKSPACE_SOURCE")
+    let source = std::env::var("ROTOTO_PACKAGE_SOURCE")
         .unwrap_or_else(|_| "../account-config".to_owned());
-    let workspace = Workspace::load(source).await?;
+    let pkg = Package::load(source).await?;
 
     let standard = ResolveContext::from_json(serde_json::json!({
         "account": { "plan": "standard" }
@@ -372,10 +372,10 @@ async fn max_active_projects_deserializes_for_app_contexts() -> Result<(), Box<d
         "account": { "plan": "premium" }
     }))?;
 
-    let standard = workspace
+    let standard = pkg
         .resolve_variable("max-active-projects", &standard)
         .await?;
-    let premium = workspace
+    let premium = pkg
         .resolve_variable("max-active-projects", &premium)
         .await?;
 
@@ -395,14 +395,14 @@ import rototo
 
 
 async def test_max_active_projects_deserializes_for_app_contexts():
-    source = os.environ.get("ROTOTO_WORKSPACE_SOURCE", "../account-config")
-    workspace = await rototo.Workspace.load(source)
+    source = os.environ.get("ROTOTO_PACKAGE_SOURCE", "../account-config")
+    pkg = await rototo.Package.load(source)
 
-    standard = await workspace.resolve_variable(
+    standard = await pkg.resolve_variable(
         "max-active-projects",
         {"account": {"plan": "standard"}},
     )
-    premium = await workspace.resolve_variable(
+    premium = await pkg.resolve_variable(
         "max-active-projects",
         {"account": {"plan": "premium"}},
     )
@@ -414,17 +414,17 @@ async def test_max_active_projects_deserializes_for_app_contexts():
 ```typescript
 import assert from "node:assert/strict";
 import test from "node:test";
-import { Workspace } from "rototo";
+import { Package } from "rototo";
 
 test("max-active-projects deserializes for app contexts", async () => {
-  const source = process.env.ROTOTO_WORKSPACE_SOURCE ?? "../account-config";
-  const workspace = await Workspace.load(source);
+  const source = process.env.ROTOTO_PACKAGE_SOURCE ?? "../account-config";
+  const pkg = await Package.load(source);
 
-  const standard = await workspace.resolveVariable(
+  const standard = await pkg.resolveVariable(
     "max-active-projects",
     { account: { plan: "standard" } },
   );
-  const premium = await workspace.resolveVariable(
+  const premium = await pkg.resolveVariable(
     "max-active-projects",
     { account: { plan: "premium" } },
   );
@@ -438,18 +438,18 @@ test("max-active-projects deserializes for app contexts", async () => {
 @Test
 void maxActiveProjectsDeserializesForAppContexts() throws Exception {
     String source = System.getenv().getOrDefault(
-        "ROTOTO_WORKSPACE_SOURCE",
+        "ROTOTO_PACKAGE_SOURCE",
         "../account-config"
     );
 
-    try (Workspace workspace = Workspace.load(source).get()) {
-        VariableResolution standard = workspace
+    try (Package pkg = Package.load(source).get()) {
+        VariableResolution standard = pkg
             .resolveVariable(
                 "max-active-projects",
                 Map.of("account", Map.of("plan", "standard"))
             )
             .get();
-        VariableResolution premium = workspace
+        VariableResolution premium = pkg
             .resolveVariable(
                 "max-active-projects",
                 Map.of("account", Map.of("plan", "premium"))
@@ -464,19 +464,19 @@ void maxActiveProjectsDeserializesForAppContexts() throws Exception {
 
 ```go
 func TestMaxActiveProjectsDeserializesForAppContexts(t *testing.T) {
-    source := os.Getenv("ROTOTO_WORKSPACE_SOURCE")
+    source := os.Getenv("ROTOTO_PACKAGE_SOURCE")
     if source == "" {
         source = "../account-config"
     }
 
     ctx := context.Background()
-    workspace, err := rototo.Load(ctx, source, nil)
+    pkg, err := rototo.Load(ctx, source, nil)
     if err != nil {
         t.Fatal(err)
     }
-    defer workspace.Close()
+    defer pkg.Close()
 
-    standard, err := workspace.ResolveVariable(
+    standard, err := pkg.ResolveVariable(
         ctx,
         "max-active-projects",
         map[string]any{"account": map[string]any{"plan": "standard"}},
@@ -485,7 +485,7 @@ func TestMaxActiveProjectsDeserializesForAppContexts(t *testing.T) {
     if err != nil {
         t.Fatal(err)
     }
-    premium, err := workspace.ResolveVariable(
+    premium, err := pkg.ResolveVariable(
         ctx,
         "max-active-projects",
         map[string]any{"account": map[string]any{"plan": "premium"}},
@@ -502,19 +502,19 @@ func TestMaxActiveProjectsDeserializesForAppContexts(t *testing.T) {
 ```
 :::
 
-Run the app tests against the local workspace:
+Run the app tests against the local package:
 
 ```sh
 cd /path/to/account-app
 cargo test
 ```
 
-In CI, set `ROTOTO_WORKSPACE_SOURCE` to the same git source URI the service
-uses when the app repository should test against the hosted workspace.
+In CI, set `ROTOTO_PACKAGE_SOURCE` to the same git source URI the service
+uses when the app repository should test against the hosted package.
 
 ## Release And Observe
 
-Before merging a workspace change, the pull request should say what behavior
+Before merging a package change, the pull request should say what behavior
 can change and how to recover:
 
 ```text
@@ -523,33 +523,33 @@ Change max-active-projects:
 - standard accounts keep value 3
 - premium accounts select value 25
 - rototo lint and account-app contract tests passed
-- rollback: revert this workspace commit
+- rollback: revert this package commit
 ```
 
 After merge, services following the branch source can
-[refresh](reference-sdk-refresh.html) to the new workspace. The application
+[refresh](reference-sdk-refresh.html) to the new package. The application
 binary does not redeploy, but future resolutions can change.
 
-The service should log the selected source and workspace fingerprint near the
+The service should log the selected source and package fingerprint near the
 behavior boundary:
 
 :::sdk-snippet production-log-selection
 ```rust
-let resolution = workspace
+let resolution = pkg
     .resolve_variable("max-active-projects", &context)
     .await?;
 
 tracing::info!(
     variable = "max-active-projects",
     source = %resolution.source,
-    workspace_fingerprint = ?workspace.current().await.source_fingerprint(),
+    package_fingerprint = ?pkg.current().await.source_fingerprint(),
     account_plan = %account_plan,
     "resolved runtime configuration"
 );
 ```
 
 ```python
-resolution = await workspace.resolve_variable(
+resolution = await pkg.resolve_variable(
     "max-active-projects",
     context,
 )
@@ -564,7 +564,7 @@ logger.info(
 ```
 
 ```typescript
-const resolution = await workspace.resolveVariable(
+const resolution = await pkg.resolveVariable(
   "max-active-projects",
   context,
 );
@@ -576,7 +576,7 @@ logger.info("resolved runtime configuration", {
 ```
 
 ```java
-VariableResolution resolution = workspace
+VariableResolution resolution = pkg
     .resolveVariable("max-active-projects", context)
     .get();
 logger.info(
@@ -588,7 +588,7 @@ logger.info(
 ```
 
 ```go
-resolution, err := workspace.ResolveVariable(
+resolution, err := pkg.ResolveVariable(
     ctx,
     "max-active-projects",
     resolveContext,
@@ -610,21 +610,21 @@ It should also expose refresh status:
 
 :::sdk-snippet production-refresh-status
 ```rust
-let status = workspace.status().await;
+let status = pkg.status().await;
 if status.consecutive_failures > 0 {
     tracing::warn!(
         consecutive_failures = status.consecutive_failures,
         last_error = ?status.last_error,
-        "workspace refresh is failing; serving last-known-good configuration"
+        "package refresh is failing; serving last-known-good configuration"
     );
 }
 ```
 
 ```python
-status = await workspace.status()
+status = await pkg.status()
 if status.consecutive_failures > 0:
     logger.warning(
-        "workspace refresh is failing; serving last-known-good configuration",
+        "package refresh is failing; serving last-known-good configuration",
         extra={
             "consecutive_failures": status.consecutive_failures,
             "last_error": status.last_error,
@@ -633,10 +633,10 @@ if status.consecutive_failures > 0:
 ```
 
 ```typescript
-const status = await workspace.status();
+const status = await pkg.status();
 if (status.consecutiveFailures > 0) {
   logger.warn(
-    "workspace refresh is failing; serving last-known-good configuration",
+    "package refresh is failing; serving last-known-good configuration",
     {
       consecutiveFailures: status.consecutiveFailures,
       lastError: status.lastError,
@@ -646,10 +646,10 @@ if (status.consecutiveFailures > 0) {
 ```
 
 ```java
-RefreshStatus status = workspace.status().get();
+RefreshStatus status = pkg.status().get();
 if (status.consecutiveFailures() > 0) {
     logger.warn(
-        "workspace refresh is failing; serving last-known-good configuration " +
+        "package refresh is failing; serving last-known-good configuration " +
             "consecutiveFailures={} lastError={}",
         status.consecutiveFailures(),
         status.lastError()
@@ -658,13 +658,13 @@ if (status.consecutiveFailures() > 0) {
 ```
 
 ```go
-status, err := workspace.Status(ctx)
+status, err := pkg.Status(ctx)
 if err != nil {
     return err
 }
 if status.ConsecutiveFailures > 0 {
     slog.Warn(
-        "workspace refresh is failing; serving last-known-good configuration",
+        "package refresh is failing; serving last-known-good configuration",
         "consecutive_failures", status.ConsecutiveFailures,
         "last_error", status.LastError,
     )
@@ -672,23 +672,23 @@ if status.ConsecutiveFailures > 0 {
 ```
 :::
 
-If the policy is wrong, revert the workspace commit. If the app sent the wrong
-context or cannot consume the selected value, fix the app-workspace contract and
+If the policy is wrong, revert the package commit. If the app sent the wrong
+context or cannot consume the selected value, fix the app-package contract and
 redeploy the app.
 
 ## What This Workflow Gives You
 
 The final system has one clear path:
 
-1. The app is deployed with a workspace source URI.
+1. The app is deployed with a package source URI.
 2. The SDK loads and lints that source at startup.
 3. The app supplies runtime facts as context.
-4. The workspace evaluates named conditions and variables.
-5. Tests prove the workspace and app still agree.
-6. Refresh lets reviewed workspace commits affect future resolutions.
+4. The package evaluates named conditions and variables.
+5. Tests prove the package and app still agree.
+6. Refresh lets reviewed package commits affect future resolutions.
 7. Last-known-good state protects running services from failed refreshes.
 8. Logs and refresh status explain what value was selected and from which
-   workspace version.
+   package version.
 
 That is the production goal: runtime configuration can move independently from
 the application binary, while still going through review, validation, tests,

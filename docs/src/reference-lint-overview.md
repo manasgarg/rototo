@@ -1,6 +1,6 @@
 # Lint Reference
 
-Lint is the release gate for a rototo workspace. It validates the files as a
+Lint is the release gate for a rototo package. It validates the files as a
 control plane before an application loads them and changes runtime behavior.
 
 Rototo lint runs in stages so diagnostics can point at the right failure
@@ -10,12 +10,12 @@ graph rules, and policy.
 ## Command
 
 ```sh
-rototo lint [WORKSPACE_SOURCE]
-rototo lint [WORKSPACE_SOURCE] --variable account-limits
-rototo lint [WORKSPACE_SOURCE] --lint-authority rototo
+rototo lint [PACKAGE_SOURCE]
+rototo lint [PACKAGE_SOURCE] --variable account-limits
+rototo lint [PACKAGE_SOURCE] --lint-authority rototo
 ```
 
-Without selectors, lint reports all workspace diagnostics. With selectors,
+Without selectors, lint reports all package diagnostics. With selectors,
 lint filters diagnostics to selected targets.
 
 ## Exit Behavior
@@ -29,7 +29,7 @@ With [`--json`](reference-json-output.html), lint returns:
 
 ```json
 {
-  "workspace": "/path/to/workspace",
+  "package": "/path/to/package",
   "documents": [],
   "diagnostics": []
 }
@@ -56,7 +56,7 @@ Built-in lint validates:
 
 | Stage | What it protects |
 | --- | --- |
-| `discover` | Workspace root and known documents. |
+| `discover` | Package root and known documents. |
 | `parse` | TOML, JSON, and Lua file parsing. |
 | `project` | File content shape and required fields. |
 | `register` | Custom Lua lint registration. |
@@ -81,48 +81,48 @@ Custom lint handlers can run in `project`, `reference`, `value`, `graph`, or
 --linter <ID>          --linters
 ```
 
-Selectors do not change how the workspace is validated. They change which
+Selectors do not change how the package is validated. They change which
 diagnostics are reported.
 
 ## SDK
 
-The SDK can lint an inspected workspace handle:
+The SDK can lint an inspected package handle:
 
-:::sdk-snippet lint-workspace-sdk
+:::sdk-snippet lint-package-sdk
 ```rust
-let workspace = Workspace::inspect(workspace_root).await?;
-let lint = workspace.lint().await?;
+let pkg = Package::inspect(package_root).await?;
+let lint = pkg.lint().await?;
 ```
 
 ```python
-workspace = await rototo.Workspace.inspect(workspace_root)
-lint = await workspace.lint()
+pkg = await rototo.Package.inspect(package_root)
+lint = await pkg.lint()
 ```
 
 ```typescript
-const workspace = await Workspace.inspect(workspaceRoot);
-const lint = await workspace.lint();
+const pkg = await Package.inspect(packageRoot);
+const lint = await pkg.lint();
 ```
 
 ```java
-try (Workspace workspace = Workspace.inspect(workspaceRoot).get()) {
-    WorkspaceLint lint = workspace.lint().get();
+try (Package pkg = Package.inspect(packageRoot).get()) {
+    PackageLint lint = pkg.lint().get();
 }
 ```
 
 ```go
-workspace, err := rototo.Inspect(ctx, workspaceRoot, nil)
+pkg, err := rototo.Inspect(ctx, packageRoot, nil)
 if err != nil {
     return err
 }
-defer workspace.Close()
+defer pkg.Close()
 
-lint, err := workspace.Lint(ctx)
+lint, err := pkg.Lint(ctx)
 ```
 :::
 
-`Workspace::load` and the equivalent language SDK load calls also run lint by
-default and reject workspaces with error diagnostics.
+`Package::load` and the equivalent language SDK load calls also run lint by
+default and reject packages with error diagnostics.
 
 ## Custom Policy
 

@@ -1,7 +1,7 @@
 //! A serializable projection of the semantic and reference indexes.
 //!
 //! Tools (the admin app, editors) consume this model instead of parsing
-//! workspace files themselves, so rototo's parse stays the single semantic
+//! package files themselves, so rototo's parse stays the single semantic
 //! authority. Locations carry source ranges so writers can splice edits at
 //! positions reported by the same parse that produced the rendering.
 
@@ -11,7 +11,7 @@ use serde_json::Value as JsonValue;
 use crate::diagnostics::{DiagnosticLocation, SourceRange};
 use crate::expression::Expression;
 
-use super::WorkspaceLintSnapshot;
+use super::PackageLintSnapshot;
 use super::index::{ProjectField, ResolveNode, RuleCollection, TypeSourceNode};
 use super::references::{ReferenceSource, ReferenceTarget};
 
@@ -19,7 +19,7 @@ pub const SEMANTIC_MODEL_VERSION: u32 = 3;
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
-pub struct WorkspaceSemanticModel {
+pub struct PackageSemanticModel {
     pub version: u32,
     pub qualifiers: Vec<QualifierModel>,
     pub variables: Vec<VariableModel>,
@@ -272,8 +272,8 @@ pub enum ModelEntityRef {
     },
 }
 
-impl WorkspaceLintSnapshot {
-    pub(crate) fn semantic_model(&self) -> WorkspaceSemanticModel {
+impl PackageLintSnapshot {
+    pub(crate) fn semantic_model(&self) -> PackageSemanticModel {
         let index = &self.index;
         let qualifiers = index
             .qualifiers
@@ -496,7 +496,7 @@ impl WorkspaceLintSnapshot {
             })
             .collect();
 
-        WorkspaceSemanticModel {
+        PackageSemanticModel {
             version: SEMANTIC_MODEL_VERSION,
             qualifiers,
             variables,

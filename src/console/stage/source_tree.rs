@@ -65,7 +65,7 @@ mod tests {
     async fn stages_local_working_tree_root() {
         let tree = TempDir::new().expect("tree tempdir");
         tokio::fs::write(
-            tree.path().join("rototo-workspace.toml"),
+            tree.path().join("rototo-package.toml"),
             "schema_version = 1\n",
         )
         .await
@@ -83,7 +83,7 @@ mod tests {
         .await
         .unwrap();
 
-        assert!(staged.root().join("rototo-workspace.toml").is_file());
+        assert!(staged.root().join("rototo-package.toml").is_file());
     }
 
     #[tokio::test]

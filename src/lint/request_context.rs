@@ -1,6 +1,6 @@
 use std::collections::{BTreeMap, BTreeSet};
 
-use super::WorkspaceLintSnapshot;
+use super::PackageLintSnapshot;
 use crate::expression::Expression;
 
 use super::index::{ProjectField, SemanticIndex};
@@ -12,7 +12,7 @@ pub(crate) struct RequestContextCompatibility {
     pub(crate) variables: BTreeMap<String, BTreeSet<String>>,
 }
 
-pub(crate) fn compatibility(snapshot: &WorkspaceLintSnapshot) -> RequestContextCompatibility {
+pub(crate) fn compatibility(snapshot: &PackageLintSnapshot) -> RequestContextCompatibility {
     compatibility_for(&snapshot.index, &snapshot.references)
 }
 

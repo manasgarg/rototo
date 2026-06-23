@@ -15,7 +15,7 @@ live in [qualifiers](reference-qualifiers.html). Selected configuration lives
 in [variables](reference-variables.html). Structured payloads live in
 [catalogs](reference-catalogs.html). Schemas and
 [custom lint](reference-custom-lua-lint.html) protect the boundaries.
-Workspaces and [layers](reference-workspace-layering.html) define who owns
+Packages and [layers](reference-package-layering.html) define who owns
 which part of the control plane.
 
 The rest of this guide is about choosing those boundaries deliberately.
@@ -46,33 +46,33 @@ The app now has one stable call:
 
 :::sdk-snippet modeling-runtime-app-call
 ```rust
-let limits = workspace
+let limits = pkg
     .resolve_variable("account-limit-profile", &context)
     .await?;
 ```
 
 ```python
-limits = await workspace.resolve_variable(
+limits = await pkg.resolve_variable(
     "account-limit-profile",
     context,
 )
 ```
 
 ```typescript
-const limits = await workspace.resolveVariable(
+const limits = await pkg.resolveVariable(
   "account-limit-profile",
   context,
 );
 ```
 
 ```java
-VariableResolution limits = workspace
+VariableResolution limits = pkg
     .resolveVariable("account-limit-profile", context)
     .get();
 ```
 
 ```go
-limits, err := workspace.ResolveVariable(
+limits, err := pkg.ResolveVariable(
     ctx,
     "account-limit-profile",
     resolveContext,
@@ -88,12 +88,12 @@ Splitting variables is still right when the app can change, test, observe, or
 fail the decisions independently. What matters is that the split follows the
 application boundary, not the number of fields in a payload.
 
-## Treat The Workspace As An Administrative Boundary
+## Treat The Package As An Administrative Boundary
 
-A workspace is an administrative boundary, not an application deployment
+A package is an administrative boundary, not an application deployment
 boundary.
 
-That distinction matters. A [workspace](reference-workspace-layout.html)
+That distinction matters. A [package](reference-package-layout.html)
 answers:
 
 - who owns this configuration;
@@ -102,16 +102,16 @@ answers:
 - which files form one control-plane unit.
 
 An application deployment answers a different question: which binary is
-running, and which [workspace source](reference-workspace-sources.html) URI is
+running, and which [package source](reference-package-sources.html) URI is
 that binary configured to load?
 
-Those boundaries often overlap, but they are not the same. A single workspace
+Those boundaries often overlap, but they are not the same. A single package
 can be loaded by multiple application deployments. A single application
-deployment can load a layered workspace assembled from multiple administrative
-owners. A workspace change can affect future resolutions in a running service
+deployment can load a layered package assembled from multiple administrative
+owners. A package change can affect future resolutions in a running service
 without redeploying the binary.
 
-I would usually model these as stronger workspace boundaries:
+I would usually model these as stronger package boundaries:
 
 ```text
 product-defaults
@@ -128,7 +128,7 @@ backend-prod
 service-a-config
 ```
 
-Service-specific workspaces are not wrong. Sometimes one service really owns a
+Service-specific packages are not wrong. Sometimes one service really owns a
 policy end to end. But the first question should be ownership and policy, not
 deployment topology.
 
@@ -144,7 +144,7 @@ The app may load `acme-support-team-config`. Rototo still preserves the
 administrative story: product owns the schema and defaults, the customer owns
 account-wide policy, and the support team owns a narrower override.
 
-## Put Facts In Context, Policy In The Workspace
+## Put Facts In Context, Policy In The Package
 
 The runtime context should describe facts the app already knows:
 
@@ -169,7 +169,7 @@ The context should not contain the decision rototo is supposed to make:
 }
 ```
 
-That boolean may feel convenient, but it moves policy out of the workspace.
+That boolean may feel convenient, but it moves policy out of the package.
 Rototo can no longer explain why enterprise limits applied. Reviewers cannot
 inspect the condition. A future operator sees the selected value, but the
 reason already happened somewhere else.
@@ -185,14 +185,14 @@ In rototo, the app supplies facts:
 }
 ```
 
-The workspace owns the policy:
+The package owns the policy:
 
 ```toml
 when = 'context.account.plan == "enterprise"'
 ```
 
 That is the split I want. The application owns what happened in this request.
-The workspace owns what that fact means for runtime behavior.
+The package owns what that fact means for runtime behavior.
 
 ## Use Qualifiers To Name Operational Conditions
 
@@ -293,7 +293,7 @@ monthly_requests = 1000000
 ```
 
 The catalog schema validates the selected entry before the app consumes it.
-That is the practical reason to use catalogs: the workspace can prove the
+That is the practical reason to use catalogs: the package can prove the
 policy entry has the shape the app expects.
 
 Without that, shape errors move back into application code. The app becomes
@@ -334,7 +334,7 @@ selected value and why it wins.
 
 ## Model Buckets Deliberately
 
-Buckets help because assignment happens inside the reviewed workspace, not in
+Buckets help because assignment happens inside the reviewed package, not in
 application-side randomization.
 
 A [bucket condition](reference-predicate-operators.html) looks like this:
@@ -345,7 +345,7 @@ schema_version = 1
 when = 'bucket(context.account.id, "account-limit-profile-2026-06", 0, 1000)'
 ```
 
-The context attribute should be stable. Account id, user id, or workspace id
+The context attribute should be stable. Account id, user id, or package id
 are common choices. Request ids are usually wrong because they change every
 request.
 
@@ -359,9 +359,9 @@ salt reshuffles assignments.
 That makes salt changes operationally significant. Use them when you mean to
 reshuffle, not as an incidental rename.
 
-## Decide Which Workspace Owns The File
+## Decide Which Package Owns The File
 
-In a [layered workspace](workspace-layering.html), ownership is part of the
+In a [layered package](package-layering.html), ownership is part of the
 model.
 
 A common shape is:
@@ -430,10 +430,10 @@ checklist:
 - Is the selected value primitive or structured?
 - What schema validates the app boundary or selected entry?
 - Does any local policy need custom lint?
-- Which workspace layer should own this file?
+- Which package layer should own this file?
 
 If those answers are clear, the
 [production workflow](production-workflow.html) becomes much easier. The next
-step is to wire the model into an application so the service loads a workspace
+step is to wire the model into an application so the service loads a package
 source, resolves named variables, refreshes safely, and reports what it
 selected.

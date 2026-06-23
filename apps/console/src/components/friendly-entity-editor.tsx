@@ -42,7 +42,7 @@ const WIDGET_SPEC = widgetSpec as {
     >;
 };
 
-/** Workspace section edited by the friendly editor. */
+/** Package section edited by the friendly editor. */
 type EntitySection =
     | "variables"
     | "qualifiers"
@@ -73,7 +73,7 @@ type VariableDeclarationKind =
 /**
  * Optional context harvested from sibling entities.
  *
- * The parent screen rebuilds this from the current workspace/branch payload for
+ * The parent screen rebuilds this from the current package/branch payload for
  * each editor instance. Descriptions explain fields, examples show values
  * already in use, and preview truth tables come from the Rust runtime.
  */
@@ -88,7 +88,7 @@ export type FormGuidance = {
 };
 
 /**
- * Saved request context with each workspace qualifier already evaluated.
+ * Saved request context with each package qualifier already evaluated.
  *
  * The editor walks edited rules against these runtime truths so previews update
  * live without reimplementing qualifier semantics in React.
@@ -119,7 +119,7 @@ export function FriendlyEntityEditor({
     catalogIds = [],
     catalogSchema = null,
     sourceMarks = [],
-    workspaceId,
+    packageId,
 }: {
     /* The entity's text at the branch's base ref, when known. Enables the
      changes view in both form and source modes. */
@@ -133,7 +133,7 @@ export function FriendlyEntityEditor({
     catalogIds?: string[];
     catalogSchema?: string | null;
     sourceMarks?: CodeEditorMark[];
-    workspaceId: string;
+    packageId: string;
 }) {
     const router = useRouter();
     const [content, setContent] = useState(entity.text);
@@ -170,7 +170,7 @@ export function FriendlyEntityEditor({
     const lspRequest = useCallback(
         async (body: Record<string, unknown>) => {
             const response = await apiFetch(
-                `/api/workspaces/${workspaceId}/branches/${branchId}/lsp`,
+                `/api/packages/${packageId}/branches/${branchId}/lsp`,
                 {
                     method: "POST",
                     headers: { "Content-Type": "application/json" },
@@ -185,7 +185,7 @@ export function FriendlyEntityEditor({
             }
             return payload;
         },
-        [workspaceId, branchId, entity.path],
+        [packageId, branchId, entity.path],
     );
     const lsp = useMemo<CodeEditorLsp | undefined>(
         () => (disabled ? undefined : { request: lspRequest }),
@@ -232,7 +232,7 @@ export function FriendlyEntityEditor({
         setNote(null);
         try {
             const response = await apiFetch(
-                `/api/workspaces/${workspaceId}/branches/${branchId}/files`,
+                `/api/packages/${packageId}/branches/${branchId}/files`,
                 {
                     method: "POST",
                     headers: { "Content-Type": "application/json" },
@@ -886,7 +886,7 @@ function VariableFields({
 }
 
 /* Shows how the variable as currently edited resolves against each request
-   context saved in the workspace. */
+   context saved in the package. */
 function VariableResolutionPreview({
     model,
     previews,

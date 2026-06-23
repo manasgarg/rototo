@@ -95,9 +95,9 @@ pub const DOCS: &[DocPage] = &[
         markdown: include_str!("../docs/src/service-degradation-policy.md"),
     },
     DocPage {
-        id: "workspace-layering",
-        title: "Workspace Layering",
-        markdown: include_str!("../docs/src/workspace-layering.md"),
+        id: "package-layering",
+        title: "Package Layering",
+        markdown: include_str!("../docs/src/package-layering.md"),
     },
     DocPage {
         id: "modeling-runtime-configuration",
@@ -130,24 +130,24 @@ pub const DOCS: &[DocPage] = &[
         markdown: include_str!("../docs/src/self-hosting-console.md"),
     },
     DocPage {
-        id: "reference-workspace-manifest",
-        title: "Workspace Manifest",
-        markdown: include_str!("../docs/src/reference-workspace-manifest.md"),
+        id: "reference-package-manifest",
+        title: "Package Manifest",
+        markdown: include_str!("../docs/src/reference-package-manifest.md"),
     },
     DocPage {
-        id: "reference-workspace-layout",
-        title: "Workspace Layout",
-        markdown: include_str!("../docs/src/reference-workspace-layout.md"),
+        id: "reference-package-layout",
+        title: "Package Layout",
+        markdown: include_str!("../docs/src/reference-package-layout.md"),
     },
     DocPage {
-        id: "reference-workspace-sources",
-        title: "Workspace Sources",
-        markdown: include_str!("../docs/src/reference-workspace-sources.md"),
+        id: "reference-package-sources",
+        title: "Package Sources",
+        markdown: include_str!("../docs/src/reference-package-sources.md"),
     },
     DocPage {
-        id: "reference-workspace-layering",
-        title: "Workspace Layering",
-        markdown: include_str!("../docs/src/reference-workspace-layering.md"),
+        id: "reference-package-layering",
+        title: "Package Layering",
+        markdown: include_str!("../docs/src/reference-package-layering.md"),
     },
     DocPage {
         id: "reference-context",
@@ -282,7 +282,7 @@ pub const DOC_NAV_SECTIONS: &[DocNavSection] = &[
             "bucketed-rollout",
             "notification-delivery-policy",
             "service-degradation-policy",
-            "workspace-layering",
+            "package-layering",
         ],
     },
     DocNavSection {
@@ -299,10 +299,10 @@ pub const DOC_NAV_SECTIONS: &[DocNavSection] = &[
     DocNavSection {
         title: "Reference",
         pages: &[
-            "reference-workspace-manifest",
-            "reference-workspace-layout",
-            "reference-workspace-sources",
-            "reference-workspace-layering",
+            "reference-package-manifest",
+            "reference-package-layout",
+            "reference-package-sources",
+            "reference-package-layering",
             "reference-context",
             "reference-qualifiers",
             "reference-predicate-operators",
@@ -497,7 +497,7 @@ value = "redesign"
     let resolve_snippet = render_code_block(
         "sh",
         r#"rototo variable resolve checkout-redesign \
-  --workspace git+https://github.com/acme/config#main \
+  --package git+https://github.com/acme/config#main \
   --context user.tier=premium
 "#,
     );
@@ -509,7 +509,7 @@ value = "redesign"
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>rototo — Git-backed runtime configuration</title>
-<meta name="description" content="rototo keeps runtime configuration in a Git workspace: linted, reviewed in pull requests, and resolved at runtime with typed values.">
+<meta name="description" content="rototo keeps runtime configuration in a Git package: linted, reviewed in pull requests, and resolved at runtime with typed values.">
 <link rel="icon" href="assets/favicon.svg" type="image/svg+xml">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -546,7 +546,7 @@ value = "redesign"
   <section class="home-hero">
     <h1>Runtime configuration, reviewed like code.</h1>
     <p>
-      rototo keeps your application's runtime configuration in a Git workspace:
+      rototo keeps your application's runtime configuration in a Git package:
       validated by lint, changed through pull requests, and resolved at runtime
       into typed values your services can trust. No config database, no side
       channel around review — the repository is the control plane.
@@ -558,20 +558,20 @@ value = "redesign"
   </section>
 
   <section>
-    <h2>One workspace, three guarantees</h2>
+    <h2>One package, three guarantees</h2>
     <div class="home-grid">
       <div class="home-card">
         <h3>Declared</h3>
         <p>
           Variables, qualifiers, and JSON Schemas live as files under
-          <code>rototo-workspace.toml</code>. Every change has an author, a
+          <code>rototo-package.toml</code>. Every change has an author, a
           diff, and a history.
         </p>
       </div>
       <div class="home-card">
         <h3>Validated</h3>
         <p>
-          Lint understands the workspace semantically: unknown qualifiers,
+          Lint understands the package semantically: unknown qualifiers,
           values that break their schema, and rules that can never match are
           caught before merge, not in production.
         </p>
@@ -579,7 +579,7 @@ value = "redesign"
       <div class="home-card">
         <h3>Resolved</h3>
         <p>
-          Applications load the workspace by source URI and resolve named
+          Applications load the package by source URI and resolve named
           variables with runtime context. Long-running services refresh from
           the same source and keep last-known-good state when a fetch fails.
         </p>
@@ -615,7 +615,7 @@ value = "redesign"
     <h2>Operate it from the console</h2>
     <p>
       <code>rototo console</code> serves a web console from the same binary as
-      the CLI: browse workspaces, trace how a variable resolves against saved
+      the CLI: browse packages, trace how a variable resolves against saved
       contexts, edit review branches, and publish pull requests. Run it
       on your laptop with your own GitHub token, or behind your proxy with
       GitHub OAuth for the whole team.

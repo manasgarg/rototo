@@ -1,10 +1,10 @@
 # Getting Started
 
 I like starting with one value because it keeps the whole system honest. If
-`max-active-projects` can live in a workspace, pass lint, resolve from the CLI,
+`max-active-projects` can live in a package, pass lint, resolve from the CLI,
 and update inside a running app, then the core rototo loop is working.
 
-So we will build one workspace, one variable, one app process, and one refresh
+So we will build one package, one variable, one app process, and one refresh
 path. The example is small on purpose. Once this loop is clear, the production
 workflow is mostly about adding guardrails around the same loop.
 
@@ -15,10 +15,10 @@ account-config/
 account-app/
 ```
 
-`account-config` is the rototo workspace. `account-app` is a process that
-loads that workspace as its runtime configuration source.
+`account-config` is the rototo package. `account-app` is a process that
+loads that package as its runtime configuration source.
 
-## Create A Workspace
+## Create A Package
 
 Install the rototo CLI:
 
@@ -26,20 +26,20 @@ Install the rototo CLI:
 cargo install rototo
 ```
 
-Create a workspace with one variable template:
+Create a package with one variable template:
 
 ```sh
 rototo init account-config --variable max-active-projects
 ```
 
-The workspace is the control-plane boundary. Everything rototo needs to
+The package is the control-plane boundary. Everything rototo needs to
 understand this configuration starts at
-[`rototo-workspace.toml`](reference-workspace-manifest.html) and lives in the
-[directories beside it](reference-workspace-layout.html):
+[`rototo-package.toml`](reference-package-manifest.html) and lives in the
+[directories beside it](reference-package-layout.html):
 
 ```text
 account-config/
-  rototo-workspace.toml
+  rototo-package.toml
   lint/
   qualifiers/
   catalogs/
@@ -73,7 +73,7 @@ The variable declares one
 `[resolve]` block says that `3` is the value to use when no
 [rule](reference-variable-resolution.html) selects something else.
 
-Before an application uses the workspace, I want the workspace to prove it is
+Before an application uses the package, I want the package to prove it is
 valid on its own:
 
 ```sh
@@ -94,7 +94,7 @@ JSON object, `{}`. The selected path is intentionally plain: no rules match, so
 the default value wins.
 
 ```text
-workspace: account-config
+package: account-config
 variable: max-active-projects
   pathway:
     default -> 3
@@ -103,14 +103,14 @@ variable: max-active-projects
     value: 3
 ```
 
-That CLI check is small, but it matters. It proves the workspace loads, lints,
+That CLI check is small, but it matters. It proves the package loads, lints,
 and resolves before the application is involved.
 
 ## Load From An App
 
 Now we move the same resolution into a process. The app should not parse TOML,
-walk workspace files, or copy resolution rules. It should
-[load a workspace source](reference-sdk-loading.html) and
+walk package files, or copy resolution rules. It should
+[load a package source](reference-sdk-loading.html) and
 [ask for a named variable](reference-sdk-resolution.html).
 
 If you are following the Rust path, create the app next to `account-config`:
@@ -129,7 +129,7 @@ serde_json = "1"
 tokio = { version = "1", features = ["macros", "rt-multi-thread", "time"] }
 ```
 
-The app loop is the same in each SDK: load a refreshing workspace, resolve the
+The app loop is the same in each SDK: load a refreshing package, resolve the
 same variable repeatedly, and let successful refreshes affect later
 resolutions.
 
@@ -137,20 +137,20 @@ resolutions.
 ```rust
 use std::{error::Error, time::Duration};
 
-use rototo::{RefreshOptions, RefreshingWorkspace, ResolveContext};
+use rototo::{RefreshOptions, RefreshingPackage, ResolveContext};
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn Error>> {
     let source = std::env::args()
         .nth(1)
-        .expect("usage: account-app <workspace-source>");
+        .expect("usage: account-app <package-source>");
 
     let refresh = RefreshOptions::new().with_period(Duration::from_secs(5));
-    let workspace = RefreshingWorkspace::load(source, refresh).await?;
+    let pkg = RefreshingPackage::load(source, refresh).await?;
     let context = ResolveContext::from_json(serde_json::json!({}))?;
 
     loop {
-        let resolution = workspace
+        let resolution = pkg
             .resolve_variable("max-active-projects", &context)
             .await?;
 
@@ -172,16 +172,16 @@ import rototo
 
 async def main() -> None:
     if len(sys.argv) != 2:
-        raise SystemExit("usage: account-app <workspace-source>")
+        raise SystemExit("usage: account-app <package-source>")
 
-    workspace = await rototo.RefreshingWorkspace.load(
+    pkg = await rototo.RefreshingPackage.load(
         sys.argv[1],
         period_seconds=5,
     )
 
     try:
         while True:
-            resolution = await workspace.resolve_variable(
+            resolution = await pkg.resolve_variable(
                 "max-active-projects",
                 {},
             )
@@ -191,27 +191,27 @@ async def main() -> None:
             )
             await asyncio.sleep(5)
     finally:
-        await workspace.shutdown()
+        await pkg.shutdown()
 
 
 asyncio.run(main())
 ```
 
 ```typescript
-import { RefreshingWorkspace } from "rototo";
+import { RefreshingPackage } from "rototo";
 
 const source = process.argv[2];
 if (!source) {
-  throw new Error("usage: account-app <workspace-source>");
+  throw new Error("usage: account-app <package-source>");
 }
 
-const workspace = await RefreshingWorkspace.load(source, {
+const pkg = await RefreshingPackage.load(source, {
   periodSeconds: 5,
 });
 
 try {
   while (true) {
-    const resolution = await workspace.resolveVariable(
+    const resolution = await pkg.resolveVariable(
       "max-active-projects",
       {},
     );
@@ -221,22 +221,22 @@ try {
     await new Promise((resolve) => setTimeout(resolve, 5000));
   }
 } finally {
-  await workspace.shutdown();
+  await pkg.shutdown();
 }
 ```
 
 ```java
-RefreshingWorkspaceOptions options = RefreshingWorkspaceOptions.builder()
+RefreshingPackageOptions options = RefreshingPackageOptions.builder()
     .periodSeconds(5.0)
     .build();
 
-RefreshingWorkspace workspace = RefreshingWorkspace
+RefreshingPackage pkg = RefreshingPackage
     .load(args[0], options)
     .get();
 
 try {
     while (true) {
-        VariableResolution resolution = workspace
+        VariableResolution resolution = pkg
             .resolveVariable("max-active-projects", Map.of())
             .get();
 
@@ -248,26 +248,26 @@ try {
         Thread.sleep(5_000);
     }
 } finally {
-    workspace.shutdown().get();
+    pkg.shutdown().get();
 }
 ```
 
 ```go
 periodSeconds := 5.0
-workspace, err := rototo.LoadRefreshing(
+pkg, err := rototo.LoadRefreshing(
     context.Background(),
     os.Args[1],
-    &rototo.RefreshingWorkspaceOptions{
+    &rototo.RefreshingPackageOptions{
         PeriodSeconds: &periodSeconds,
     },
 )
 if err != nil {
     return err
 }
-defer workspace.Close(context.Background())
+defer pkg.Close(context.Background())
 
 for {
-    resolution, err := workspace.ResolveVariable(
+    resolution, err := pkg.ResolveVariable(
         context.Background(),
         "max-active-projects",
         map[string]any{},
@@ -287,18 +287,18 @@ for {
 ```
 :::
 
-I am using [`RefreshingWorkspace`](reference-sdk-refresh.html) even in the
+I am using [`RefreshingPackage`](reference-sdk-refresh.html) even in the
 first app because refresh is part of the runtime model. The service starts with
-one known-good workspace, then future successful refreshes affect future
+one known-good package, then future successful refreshes affect future
 resolutions.
 
-Run the app with the workspace source:
+Run the app with the package source:
 
 ```sh
 cargo run -- ../account-config
 ```
 
-The app loads the workspace, lints it, and resolves the value in process:
+The app loads the package, lints it, and resolves the value in process:
 
 ```text
 max-active-projects: 3 (standard)
@@ -307,10 +307,10 @@ max-active-projects: 3 (standard)
 
 Leave it running.
 
-## Change The Workspace
+## Change The Package
 
-Now change the workspace while the app keeps running. In another terminal, edit
-the workspace value:
+Now change the package while the app keeps running. In another terminal, edit
+the package value:
 
 ```sh
 cd /path/to/account-config
@@ -322,7 +322,7 @@ Change `standard` in `variables/max-active-projects.toml`:
 standard = 5
 ```
 
-Lint the workspace after the edit:
+Lint the package after the edit:
 
 ```sh
 rototo lint .
@@ -335,18 +335,18 @@ max-active-projects: 5 (standard)
 ```
 
 That is the first moment the rototo model pays off. The app process did not
-restart. It loaded a workspace source at startup, resolved a named variable,
+restart. It loaded a package source at startup, resolved a named variable,
 refreshed that same source in the background, and served the last successfully
-loaded workspace while it kept running.
+loaded package while it kept running.
 
 Stop the app with `Ctrl-C`.
 
 ## What Comes Next
 
 This first loop used one unconditional account limit. Production work usually
-adds runtime context, named qualifiers, workspace lint rules, tests, and a
+adds runtime context, named qualifiers, package lint rules, tests, and a
 hosted git source so configuration changes move through review and CI.
 
 The [production workflow](production-workflow.html) builds those pieces onto
-this same `account-config` workspace. The loop stays the same; we just add the
+this same `account-config` package. The loop stays the same; we just add the
 checks I would want before trusting this path in a service.

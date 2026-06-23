@@ -11,11 +11,11 @@ are the stable [JSON contract](reference-json-output.html) returned by
 
 ## Top Level
 
-The top level reports the workspace source and the selected target traces:
+The top level reports the package source and the selected target traces:
 
 ```json
 {
-  "workspace": "examples/basic",
+  "package": "examples/basic",
   "variables": [],
   "qualifiers": []
 }
@@ -23,7 +23,7 @@ The top level reports the workspace source and the selected target traces:
 
 | Field | Type | Meaning |
 | --- | --- | --- |
-| `workspace` | string | Workspace source path used by the command after staging. |
+| `package` | string | Package source path used by the command after staging. |
 | `variables` | array | Variable resolution traces. |
 | `qualifiers` | array | Qualifier resolution traces. |
 

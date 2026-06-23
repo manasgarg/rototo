@@ -9,41 +9,41 @@ async fn test_store() -> Store {
     Store::open_in_memory(TokenCrypto::generate().unwrap()).unwrap()
 }
 
-fn discovered(path: &str) -> DiscoveredWorkspaceInput {
-    DiscoveredWorkspaceInput {
+fn discovered(path: &str) -> DiscoveredPackageInput {
+    DiscoveredPackageInput {
         path: path.to_owned(),
         revision: "main".to_owned(),
         source: format!("https://api.github.com/repos/o/r/tarball/main#:{path}"),
     }
 }
 
-fn local_discovered(path: &str, source: &str) -> DiscoveredWorkspaceInput {
-    DiscoveredWorkspaceInput {
+fn local_discovered(path: &str, source: &str) -> DiscoveredPackageInput {
+    DiscoveredPackageInput {
         path: path.to_owned(),
         revision: "main".to_owned(),
         source: source.to_owned(),
     }
 }
 
-fn github_source_tree(workspaces: Vec<DiscoveredWorkspaceInput>) -> RegisterSourceTreeInput {
+fn github_source_tree(packages: Vec<DiscoveredPackageInput>) -> RegisterSourceTreeInput {
     RegisterSourceTreeInput {
         principal_id: "42".to_owned(),
         kind: SourceTreeKind::GitHub,
         source: "git+https://github.com/octo/configs.git#main".to_owned(),
         display_name: "octo/configs".to_owned(),
         default_revision: "main".to_owned(),
-        workspaces,
+        packages,
     }
 }
 
-fn local_source_tree(workspaces: Vec<DiscoveredWorkspaceInput>) -> RegisterSourceTreeInput {
+fn local_source_tree(packages: Vec<DiscoveredPackageInput>) -> RegisterSourceTreeInput {
     RegisterSourceTreeInput {
         principal_id: "42".to_owned(),
         kind: SourceTreeKind::LocalFolder,
         source: "/tmp/configs".to_owned(),
         display_name: "demo/configs".to_owned(),
         default_revision: "main".to_owned(),
-        workspaces,
+        packages,
     }
 }
 
@@ -75,7 +75,7 @@ fn schema_initialization_sets_store_schema_version() {
             .any(|column| column == "source")
     );
     assert!(
-        table_columns(&conn, "source_tree_workspaces")
+        table_columns(&conn, "source_tree_packages")
             .iter()
             .any(|column| column == "source_tree_id")
     );
@@ -85,12 +85,12 @@ fn schema_initialization_sets_store_schema_version() {
             .any(|column| column == "branch")
     );
     assert!(
-        table_columns(&conn, "active_branch_workspaces")
+        table_columns(&conn, "active_branch_packages")
             .iter()
-            .any(|column| column == "workspace_path")
+            .any(|column| column == "package_path")
     );
     assert!(table_columns(&conn, "repos").is_empty());
-    assert!(table_columns(&conn, "workspaces").is_empty());
+    assert!(table_columns(&conn, "packages").is_empty());
 }
 
 #[test]
@@ -155,10 +155,10 @@ async fn oauth_states_consume_once() {
 }
 
 #[tokio::test]
-async fn source_tree_upsert_lists_workspaces_with_slugs() {
+async fn source_tree_upsert_lists_packages_with_slugs() {
     let store = test_store().await;
     let registered = store
-        .upsert_source_tree_with_workspaces(github_source_tree(vec![
+        .upsert_source_tree_with_packages(github_source_tree(vec![
             discovered("."),
             discovered("payments/flags"),
         ]))
@@ -167,25 +167,25 @@ async fn source_tree_upsert_lists_workspaces_with_slugs() {
     assert_eq!(registered.source_tree.kind, SourceTreeKind::GitHub);
     assert_eq!(registered.source_tree.display_name, "octo/configs");
     assert!(registered.source_tree.capabilities.can_branch);
-    assert_eq!(registered.workspaces.len(), 2);
-    assert_eq!(registered.workspaces[0].slug, "octo-configs");
-    assert_eq!(registered.workspaces[1].slug, "octo-configs-payments-flags");
+    assert_eq!(registered.packages.len(), 2);
+    assert_eq!(registered.packages[0].slug, "octo-configs");
+    assert_eq!(registered.packages[1].slug, "octo-configs-payments-flags");
 
     let by_slug = store
-        .get_workspace_for_user("octo-configs-payments-flags", "42")
+        .get_package_for_user("octo-configs-payments-flags", "42")
         .await
         .unwrap()
         .unwrap();
     assert_eq!(by_slug.path, "payments/flags");
     let by_id = store
-        .get_workspace_for_user(&by_slug.id, "42")
+        .get_package_for_user(&by_slug.id, "42")
         .await
         .unwrap()
         .unwrap();
     assert_eq!(by_id.id, by_slug.id);
     assert!(
         store
-            .get_workspace_for_user(&by_slug.id, "999")
+            .get_package_for_user(&by_slug.id, "999")
             .await
             .unwrap()
             .is_none()
@@ -197,63 +197,57 @@ async fn source_tree_upsert_lists_workspaces_with_slugs() {
             .await
             .unwrap()
     );
-    assert!(
-        store
-            .list_workspaces_for_user("42")
-            .await
-            .unwrap()
-            .is_empty()
-    );
+    assert!(store.list_packages_for_user("42").await.unwrap().is_empty());
 }
 
 #[tokio::test]
 async fn local_source_tree_kind_supports_local_edit_capabilities() {
     let store = test_store().await;
     let registered = store
-        .upsert_source_tree_with_workspaces(local_source_tree(vec![discovered(".")]))
+        .upsert_source_tree_with_packages(local_source_tree(vec![discovered(".")]))
         .await
         .unwrap();
 
     assert_eq!(registered.source_tree.kind, SourceTreeKind::LocalFolder);
-    assert!(registered.source_tree.capabilities.can_load_workspaces);
+    assert!(registered.source_tree.capabilities.can_load_packages);
     assert!(registered.source_tree.capabilities.can_branch);
     assert!(registered.source_tree.capabilities.can_edit);
     assert!(!registered.source_tree.capabilities.can_open_pull_request);
-    assert_eq!(registered.workspaces[0].path, ".");
-    assert_eq!(registered.workspaces[0].display_path, ".");
+    assert_eq!(registered.packages[0].path, ".");
+    assert_eq!(registered.packages[0].display_path, ".");
 }
 
 #[tokio::test]
-async fn root_local_workspace_gets_source_leaf_display_path() {
+async fn root_local_package_gets_source_leaf_display_path() {
     let store = test_store().await;
     let registered = store
-        .upsert_source_tree_with_workspaces(local_source_tree(vec![local_discovered(
+        .upsert_source_tree_with_packages(local_source_tree(vec![local_discovered(
             ".",
             "/tmp/examples/basic",
         )]))
         .await
         .unwrap();
 
-    assert_eq!(registered.workspaces[0].path, ".");
-    assert_eq!(registered.workspaces[0].display_path, "basic");
+    assert_eq!(registered.packages[0].path, ".");
+    assert_eq!(registered.packages[0].display_path, "basic");
 }
 
 #[tokio::test]
-async fn active_branch_can_include_multiple_workspaces() {
+async fn active_branch_can_include_multiple_packages() {
     let store = test_store().await;
     let registered = store
-        .upsert_source_tree_with_workspaces(github_source_tree(vec![
+        .upsert_source_tree_with_packages(github_source_tree(vec![
             discovered("."),
             discovered("payments/flags"),
         ]))
         .await
         .unwrap();
-    let root = registered.workspaces[0].clone();
-    let flags = registered.workspaces[1].clone();
+    let root = registered.packages[0].clone();
+    let flags = registered.packages[1].clone();
 
     let branch = store
         .select_branch(SelectBranchInput {
-            workspace_id: root.id.clone(),
+            package_id: root.id.clone(),
             principal_id: "42".to_owned(),
             branch: "feature/payments".to_owned(),
             base_ref: "main".to_owned(),
@@ -263,7 +257,7 @@ async fn active_branch_can_include_multiple_workspaces() {
         .await
         .unwrap();
     assert_eq!(branch.status, ActiveBranchStatus::Active);
-    assert_eq!(branch.last_selected_workspace_path.as_deref(), Some("."));
+    assert_eq!(branch.last_selected_package_path.as_deref(), Some("."));
 
     let existing = store
         .find_active_branch_for_source_tree_branch(&flags.id, "42", "feature/payments")
@@ -273,50 +267,50 @@ async fn active_branch_can_include_multiple_workspaces() {
     assert_eq!(existing.id, branch.id);
 
     let branch = store
-        .ensure_active_branch_workspace(&branch.id, &flags.id, "42")
+        .ensure_active_branch_package(&branch.id, &flags.id, "42")
         .await
         .unwrap();
     assert_eq!(
-        branch.last_selected_workspace_path.as_deref(),
+        branch.last_selected_package_path.as_deref(),
         Some("payments/flags")
     );
 
     let root_branches = store
-        .list_active_branches_for_workspace(&root.id, "42")
+        .list_active_branches_for_package(&root.id, "42")
         .await
         .unwrap();
     let flags_branches = store
-        .list_active_branches_for_workspace(&flags.id, "42")
+        .list_active_branches_for_package(&flags.id, "42")
         .await
         .unwrap();
     assert_eq!(root_branches[0].id, branch.id);
     assert_eq!(flags_branches[0].id, branch.id);
 
-    let workspaces = store
-        .list_workspaces_for_active_branch(&branch.id)
+    let packages = store
+        .list_packages_for_active_branch(&branch.id)
         .await
         .unwrap();
-    let paths: Vec<&str> = workspaces
+    let paths: Vec<&str> = packages
         .iter()
-        .map(|workspace| workspace.path.as_str())
+        .map(|package| package.path.as_str())
         .collect();
     assert_eq!(paths, [".", "payments/flags"]);
 }
 
 #[tokio::test]
-async fn request_context_names_resolve_repo_workspace_and_branch_labels() {
+async fn request_context_names_resolve_repo_package_and_branch_labels() {
     let store = test_store().await;
     let registered = store
-        .upsert_source_tree_with_workspaces(github_source_tree(vec![
+        .upsert_source_tree_with_packages(github_source_tree(vec![
             discovered("."),
             discovered("payments/flags"),
         ]))
         .await
         .unwrap();
-    let flags = registered.workspaces[1].clone();
+    let flags = registered.packages[1].clone();
     let branch = store
         .select_branch(SelectBranchInput {
-            workspace_id: flags.id.clone(),
+            package_id: flags.id.clone(),
             principal_id: "42".to_owned(),
             branch: "feature/payments".to_owned(),
             base_ref: "main".to_owned(),
@@ -332,7 +326,7 @@ async fn request_context_names_resolve_repo_workspace_and_branch_labels() {
         .unwrap();
 
     assert_eq!(names.repo.as_deref(), Some("octo/configs"));
-    assert_eq!(names.workspace.as_deref(), Some("payments/flags"));
+    assert_eq!(names.package.as_deref(), Some("payments/flags"));
     assert_eq!(names.branch.as_deref(), Some("feature/payments"));
 }
 
@@ -340,14 +334,14 @@ async fn request_context_names_resolve_repo_workspace_and_branch_labels() {
 async fn active_branch_lists_recent_but_not_archived_branches() {
     let store = test_store().await;
     let registered = store
-        .upsert_source_tree_with_workspaces(github_source_tree(vec![discovered(".")]))
+        .upsert_source_tree_with_packages(github_source_tree(vec![discovered(".")]))
         .await
         .unwrap();
-    let workspace = registered.workspaces[0].clone();
+    let package = registered.packages[0].clone();
 
     let active = store
         .select_branch(SelectBranchInput {
-            workspace_id: workspace.id.clone(),
+            package_id: package.id.clone(),
             principal_id: "42".to_owned(),
             branch: "feature/active".to_owned(),
             base_ref: "main".to_owned(),
@@ -358,7 +352,7 @@ async fn active_branch_lists_recent_but_not_archived_branches() {
         .unwrap();
     let recent = store
         .select_branch(SelectBranchInput {
-            workspace_id: workspace.id.clone(),
+            package_id: package.id.clone(),
             principal_id: "42".to_owned(),
             branch: "feature/recent".to_owned(),
             base_ref: "main".to_owned(),
@@ -369,7 +363,7 @@ async fn active_branch_lists_recent_but_not_archived_branches() {
         .unwrap();
     let archived = store
         .select_branch(SelectBranchInput {
-            workspace_id: workspace.id.clone(),
+            package_id: package.id.clone(),
             principal_id: "42".to_owned(),
             branch: "feature/archived".to_owned(),
             base_ref: "main".to_owned(),
@@ -386,7 +380,7 @@ async fn active_branch_lists_recent_but_not_archived_branches() {
     assert!(archived.archived_at.is_some());
 
     let mut branches: Vec<String> = store
-        .list_active_branches_for_workspace(&workspace.id, "42")
+        .list_active_branches_for_package(&package.id, "42")
         .await
         .unwrap()
         .into_iter()
@@ -396,7 +390,7 @@ async fn active_branch_lists_recent_but_not_archived_branches() {
     assert_eq!(branches, ["feature/active", "feature/recent"]);
 
     let fetched = store
-        .get_active_branch_for_user(&archived.id, &workspace.id, "42")
+        .get_active_branch_for_user(&archived.id, &package.id, "42")
         .await
         .unwrap()
         .unwrap();
@@ -408,12 +402,12 @@ async fn active_branch_lists_recent_but_not_archived_branches() {
 async fn active_branch_updates_edit_and_pull_request_metadata() {
     let store = test_store().await;
     let registered = store
-        .upsert_source_tree_with_workspaces(github_source_tree(vec![discovered(".")]))
+        .upsert_source_tree_with_packages(github_source_tree(vec![discovered(".")]))
         .await
         .unwrap();
     let branch = store
         .select_branch(SelectBranchInput {
-            workspace_id: registered.workspaces[0].id.clone(),
+            package_id: registered.packages[0].id.clone(),
             principal_id: "42".to_owned(),
             branch: "feature/pr".to_owned(),
             base_ref: "main".to_owned(),
@@ -452,16 +446,16 @@ async fn active_branch_updates_edit_and_pull_request_metadata() {
 }
 
 #[tokio::test]
-async fn source_tree_upsert_hides_missing_workspace_but_keeps_active_branches() {
+async fn source_tree_upsert_hides_missing_package_but_keeps_active_branches() {
     let store = test_store().await;
     let registered = store
-        .upsert_source_tree_with_workspaces(github_source_tree(vec![discovered(".")]))
+        .upsert_source_tree_with_packages(github_source_tree(vec![discovered(".")]))
         .await
         .unwrap();
-    let workspace = registered.workspaces[0].clone();
+    let package = registered.packages[0].clone();
     let branch = store
         .select_branch(SelectBranchInput {
-            workspace_id: workspace.id.clone(),
+            package_id: package.id.clone(),
             principal_id: "42".to_owned(),
             branch: "feature/root".to_owned(),
             base_ref: "main".to_owned(),
@@ -472,21 +466,15 @@ async fn source_tree_upsert_hides_missing_workspace_but_keeps_active_branches() 
         .unwrap();
 
     let rediscovered = store
-        .upsert_source_tree_with_workspaces(github_source_tree(vec![]))
+        .upsert_source_tree_with_packages(github_source_tree(vec![]))
         .await
         .unwrap();
 
-    assert!(rediscovered.workspaces.is_empty());
+    assert!(rediscovered.packages.is_empty());
+    assert!(store.list_packages_for_user("42").await.unwrap().is_empty());
     assert!(
         store
-            .list_workspaces_for_user("42")
-            .await
-            .unwrap()
-            .is_empty()
-    );
-    assert!(
-        store
-            .get_workspace_for_user(&workspace.id, "42")
+            .get_package_for_user(&package.id, "42")
             .await
             .unwrap()
             .is_some()
@@ -494,9 +482,9 @@ async fn source_tree_upsert_hides_missing_workspace_but_keeps_active_branches() 
     let branches = store.list_active_branches_for_user("42").await.unwrap();
     assert_eq!(branches.len(), 1);
     assert_eq!(branches[0].id, branch.id);
-    let workspaces = store
-        .list_workspaces_for_active_branch(&branch.id)
+    let packages = store
+        .list_packages_for_active_branch(&branch.id)
         .await
         .unwrap();
-    assert_eq!(workspaces[0].id, workspace.id);
+    assert_eq!(packages[0].id, package.id);
 }

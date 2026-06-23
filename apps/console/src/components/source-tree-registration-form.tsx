@@ -79,9 +79,9 @@ export function SourceTreeRegistrationForm() {
                     <h3>Add a configuration source</h3>
                     <p className="hint">
                         rototo scans the ref for{" "}
-                        <span className="mono">rototo-workspace.toml</span>{" "}
-                        files. For git sources, leave the branch empty to use
-                        the source default.
+                        <span className="mono">rototo-package.toml</span> files.
+                        For git sources, leave the branch empty to use the
+                        source default.
                     </p>
                 </div>
                 <button

@@ -2,7 +2,7 @@
 
 Resolution depends on facts the application knows at request time: account
 plan, service lane, country, stable account id, or other runtime state. Rototo
-calls each JSON object a resolve context. A workspace can describe the allowed
+calls each JSON object a resolve context. A package can describe the allowed
 shapes for those objects with request context schemas.
 
 The context is always a JSON object.
@@ -175,4 +175,4 @@ missing resolve context attribute: account.plan required by qualifier://paid-acc
 
 Use context schemas and
 [app tests](testing-runtime-configuration.html) to catch those failures before
-the service depends on the workspace.
+the service depends on the package.

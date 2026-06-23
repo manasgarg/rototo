@@ -1,15 +1,15 @@
 use std::sync::Arc;
 
 use crate::error::Result;
-use crate::sdk::{LoadOptions, Workspace};
+use crate::sdk::{LoadOptions, Package};
 use crate::source::SourceAuth;
 
-pub(super) async fn get_runtime_workspace_from_inspected(
-    inspected: Arc<Workspace>,
+pub(super) async fn get_runtime_package_from_inspected(
+    inspected: Arc<Package>,
     source_token: &str,
-) -> Result<Arc<Workspace>> {
+) -> Result<Arc<Package>> {
     let inspected_root = inspected.root().to_string_lossy().into_owned();
-    let runtime = Workspace::load_snapshot_with_options(
+    let runtime = Package::load_snapshot_with_options(
         inspected_root,
         load_options_for_source_token(source_token),
     )
@@ -36,24 +36,24 @@ mod tests {
     use super::*;
     use crate::console::stage::load;
     use crate::console::stage::{
-        CachedWorkspaceLocator, GitRefName, SourceTreeOrigin, SourceTreeRevision, TokenIdentity,
-        WorkspaceLocator, WorkspacePath,
+        CachedPackageLocator, GitRefName, PackageLocator, PackagePath, SourceTreeOrigin,
+        SourceTreeRevision, TokenIdentity,
     };
     use crate::sdk::ResolveContext;
 
     #[tokio::test]
-    async fn runtime_workspace_resolves_from_local_workspace_source() {
+    async fn runtime_package_resolves_from_local_package_source() {
         let tree = TempDir::new().expect("tree tempdir");
-        write_workspace(&tree.path().join("workspaces/payments")).await;
+        write_package(&tree.path().join("packages/payments")).await;
 
-        let selector = cached_workspace_source(
+        let selector = cached_package_source(
             SourceTreeOrigin::local_folder(tree.path()).await.unwrap(),
             SourceTreeRevision::LocalWorkingTree,
-            "workspaces/payments",
+            "packages/payments",
         );
 
-        let inspected = load::get_inspected_workspace(selector, "").await.unwrap();
-        let runtime = get_runtime_workspace_from_inspected(inspected, "")
+        let inspected = load::get_inspected_package(selector, "").await.unwrap();
+        let runtime = get_runtime_package_from_inspected(inspected, "")
             .await
             .unwrap();
         let resolved = runtime
@@ -68,28 +68,28 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn runtime_workspace_resolves_from_git_revision_and_owns_staged_files() {
+    async fn runtime_package_resolves_from_git_revision_and_owns_staged_files() {
         let repo = TempDir::new().expect("repo tempdir");
         init_repo(repo.path());
-        write_workspace(&repo.path().join("workspaces/payments")).await;
-        commit_all(repo.path(), "add workspace");
+        write_package(&repo.path().join("packages/payments")).await;
+        commit_all(repo.path(), "add package");
 
-        let selector = cached_workspace_source(
+        let selector = cached_package_source(
             SourceTreeOrigin::GitRemote {
                 remote_url: format!("git+file://{}", repo.path().display()),
             },
             SourceTreeRevision::GitRef(GitRefName::new("main").unwrap()),
-            "workspaces/payments",
+            "packages/payments",
         );
 
-        let inspected = load::get_inspected_workspace(selector, "").await.unwrap();
-        let runtime = get_runtime_workspace_from_inspected(inspected, "")
+        let inspected = load::get_inspected_package(selector, "").await.unwrap();
+        let runtime = get_runtime_package_from_inspected(inspected, "")
             .await
             .unwrap();
 
         assert!(
-            runtime.root().join("rototo-workspace.toml").is_file(),
-            "runtime workspace should own a snapshot of the inspected files"
+            runtime.root().join("rototo-package.toml").is_file(),
+            "runtime package should own a snapshot of the inspected files"
         );
         let resolved = runtime
             .resolve_variable(
@@ -102,31 +102,31 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn runtime_workspace_is_lint_gated_but_inspection_still_succeeds() {
+    async fn runtime_package_is_lint_gated_but_inspection_still_succeeds() {
         let tree = TempDir::new().expect("tree tempdir");
-        write_lint_broken_workspace(&tree.path().join("workspaces/payments")).await;
-        let selector = cached_workspace_source(
+        write_lint_broken_package(&tree.path().join("packages/payments")).await;
+        let selector = cached_package_source(
             SourceTreeOrigin::local_folder(tree.path()).await.unwrap(),
             SourceTreeRevision::LocalWorkingTree,
-            "workspaces/payments",
+            "packages/payments",
         );
 
-        let inspected = load::get_inspected_workspace(selector.clone(), "")
+        let inspected = load::get_inspected_package(selector.clone(), "")
             .await
             .unwrap();
-        assert!(inspected.root().join("rototo-workspace.toml").is_file());
+        assert!(inspected.root().join("rototo-package.toml").is_file());
 
-        let err = get_runtime_workspace_from_inspected(inspected, "")
+        let err = get_runtime_package_from_inspected(inspected, "")
             .await
             .unwrap_err();
-        assert!(err.to_string().contains("workspace lint failed"));
+        assert!(err.to_string().contains("package lint failed"));
     }
 
-    async fn write_workspace(path: &Path) {
+    async fn write_package(path: &Path) {
         tokio::fs::create_dir_all(path.join("variables"))
             .await
             .unwrap();
-        tokio::fs::write(path.join("rototo-workspace.toml"), "schema_version = 1\n")
+        tokio::fs::write(path.join("rototo-package.toml"), "schema_version = 1\n")
             .await
             .unwrap();
         tokio::fs::write(
@@ -144,11 +144,11 @@ default = true
         .unwrap();
     }
 
-    async fn write_lint_broken_workspace(path: &Path) {
+    async fn write_lint_broken_package(path: &Path) {
         tokio::fs::create_dir_all(path.join("variables"))
             .await
             .unwrap();
-        tokio::fs::write(path.join("rototo-workspace.toml"), "schema_version = 1\n")
+        tokio::fs::write(path.join("rototo-package.toml"), "schema_version = 1\n")
             .await
             .unwrap();
         tokio::fs::write(
@@ -166,14 +166,14 @@ default = "yes"
         .unwrap();
     }
 
-    fn cached_workspace_source(
+    fn cached_package_source(
         tree: SourceTreeOrigin,
         revision: SourceTreeRevision,
         path: &str,
-    ) -> CachedWorkspaceLocator {
-        CachedWorkspaceLocator::new(
+    ) -> CachedPackageLocator {
+        CachedPackageLocator::new(
             "user_123",
-            WorkspaceLocator::new(tree, revision, WorkspacePath::new(path).unwrap()),
+            PackageLocator::new(tree, revision, PackagePath::new(path).unwrap()),
             TokenIdentity::None,
         )
         .unwrap()

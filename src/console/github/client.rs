@@ -4,7 +4,7 @@ use serde::Deserialize;
 use serde_json::{Value as JsonValue, json};
 
 use super::error::{GitHubApiError, GitHubError, GitHubResult};
-use super::source::{enc, encode_repo_path, manifest_workspace_path, workspace_git_source};
+use super::source::{enc, encode_repo_path, manifest_package_path, package_git_source};
 use super::{GITHUB_API, GITHUB_USER_AGENT};
 
 /// GitHub viewer identity returned by `/user`.
@@ -23,7 +23,7 @@ pub struct GitHubUser {
 /// Repository metadata returned by GitHub.
 ///
 /// Registration and permission checks read this DTO, then persist only the
-/// rototo console repo fields needed for future workspace discovery.
+/// rototo console repo fields needed for future package discovery.
 #[derive(Clone, Debug, Deserialize)]
 pub struct GitHubRepo {
     pub name: String,
@@ -53,12 +53,12 @@ pub struct GitHubRepoPermissions {
     pub push: bool,
 }
 
-/// Rototo workspace found in a GitHub repository tree.
+/// Rototo package found in a GitHub repository tree.
 ///
-/// Discovery creates these from `rototo-workspace.toml` blobs. Store code
-/// upserts them into durable `workspaces` rows for the registering principal.
+/// Discovery creates these from `rototo-package.toml` blobs. Store code
+/// upserts them into durable `packages` rows for the registering principal.
 #[derive(Clone, Debug)]
-pub struct DiscoveredWorkspace {
+pub struct DiscoveredPackage {
     pub path: String,
     pub git_ref: String,
     pub source: String,
@@ -101,7 +101,7 @@ pub struct GitHubTreeEntry {
 /// Branch comparison summary returned by GitHub.
 ///
 /// Branch-candidate scans use it to decide whether a branch changes only files
-/// in the workspace path. It is filtered into a UI summary and not persisted.
+/// in the package path. It is filtered into a UI summary and not persisted.
 #[derive(Clone, Debug)]
 pub struct RefComparison {
     pub ahead_by: i64,
@@ -147,36 +147,36 @@ impl GitHubClient {
         {
             return Err(GitHubError::Other(format!(
                 "Your GitHub credential can read {owner}/{name}, but cannot push to it. Grant \
-                 repository write access before editing this workspace."
+                 repository write access before editing this package."
             )));
         }
         Ok(())
     }
 
-    pub async fn discover_workspaces(
+    pub async fn discover_packages(
         &self,
         token: &str,
         owner: &str,
         name: &str,
         git_ref: &str,
-    ) -> GitHubResult<Vec<DiscoveredWorkspace>> {
+    ) -> GitHubResult<Vec<DiscoveredPackage>> {
         let tree = self.tree(token, owner, name, git_ref).await?;
-        let mut workspaces: Vec<DiscoveredWorkspace> = tree
+        let mut packages: Vec<DiscoveredPackage> = tree
             .into_iter()
             .filter(|entry| {
-                entry.entry_type == "blob" && entry.path.ends_with("rototo-workspace.toml")
+                entry.entry_type == "blob" && entry.path.ends_with("rototo-package.toml")
             })
             .map(|entry| {
-                let path = manifest_workspace_path(&entry.path);
-                DiscoveredWorkspace {
-                    source: workspace_git_source(owner, name, git_ref, &path),
+                let path = manifest_package_path(&entry.path);
+                DiscoveredPackage {
+                    source: package_git_source(owner, name, git_ref, &path),
                     path,
                     git_ref: git_ref.to_owned(),
                 }
             })
             .collect();
-        workspaces.sort_by(|left, right| left.path.cmp(&right.path));
-        Ok(workspaces)
+        packages.sort_by(|left, right| left.path.cmp(&right.path));
+        Ok(packages)
     }
 
     pub async fn branch_head_sha(
@@ -265,7 +265,7 @@ impl GitHubClient {
         /// Changed-file item nested in a GitHub compare response.
         ///
         /// Only the filename is needed to decide whether a branch touches the
-        /// workspace path.
+        /// package path.
         #[derive(Deserialize)]
         struct ComparisonFile {
             filename: String,

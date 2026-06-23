@@ -2,10 +2,10 @@ use std::collections::BTreeMap;
 
 use crate::diagnostics::{DiagnosticLocation, LintDiagnostic, Severity, SourceRange};
 use crate::lint::{
-    WorkspaceCompletionItem, WorkspaceCompletionItemKind, WorkspaceDefinition,
-    WorkspaceDocumentSymbol, WorkspaceDocumentSymbolKind, WorkspaceHover, WorkspaceReference,
+    PackageCompletionItem, PackageCompletionItemKind, PackageDefinition, PackageDocumentSymbol,
+    PackageDocumentSymbolKind, PackageHover, PackageReference,
 };
-use crate::model::WorkspaceLint;
+use crate::model::PackageLint;
 
 use super::protocol::{
     LspCompletionItem, LspDiagnostic, LspDiagnosticData, LspDiagnosticRelatedInformation,
@@ -13,7 +13,7 @@ use super::protocol::{
     PublishDiagnosticsParams,
 };
 
-pub(super) fn publish_diagnostics_params(lint: &WorkspaceLint) -> Vec<PublishDiagnosticsParams> {
+pub(super) fn publish_diagnostics_params(lint: &PackageLint) -> Vec<PublishDiagnosticsParams> {
     let uri_by_path = lint
         .documents
         .iter()
@@ -65,7 +65,7 @@ pub(super) fn lsp_diagnostic(
     }
 }
 
-pub(super) fn lsp_document_symbol(symbol: &WorkspaceDocumentSymbol) -> LspDocumentSymbol {
+pub(super) fn lsp_document_symbol(symbol: &PackageDocumentSymbol) -> LspDocumentSymbol {
     LspDocumentSymbol {
         name: symbol.name.clone(),
         kind: lsp_symbol_kind(symbol.kind),
@@ -75,7 +75,7 @@ pub(super) fn lsp_document_symbol(symbol: &WorkspaceDocumentSymbol) -> LspDocume
     }
 }
 
-pub(super) fn lsp_completion_item(item: &WorkspaceCompletionItem) -> LspCompletionItem {
+pub(super) fn lsp_completion_item(item: &PackageCompletionItem) -> LspCompletionItem {
     LspCompletionItem {
         label: item.label.clone(),
         kind: lsp_completion_item_kind(item.kind),
@@ -84,7 +84,7 @@ pub(super) fn lsp_completion_item(item: &WorkspaceCompletionItem) -> LspCompleti
     }
 }
 
-pub(super) fn lsp_hover(hover: WorkspaceHover) -> LspHover {
+pub(super) fn lsp_hover(hover: PackageHover) -> LspHover {
     LspHover {
         range: hover.location.range.map(lsp_range_from_source),
         contents: LspMarkupContent {
@@ -94,42 +94,42 @@ pub(super) fn lsp_hover(hover: WorkspaceHover) -> LspHover {
     }
 }
 
-pub(super) fn lsp_location(definition: WorkspaceDefinition) -> LspLocation {
+pub(super) fn lsp_location(definition: PackageDefinition) -> LspLocation {
     LspLocation {
         uri: definition.uri,
         range: lsp_range(&definition.location),
     }
 }
 
-pub(super) fn lsp_reference(reference: &WorkspaceReference) -> LspLocation {
+pub(super) fn lsp_reference(reference: &PackageReference) -> LspLocation {
     LspLocation {
         uri: reference.uri.clone(),
         range: lsp_range(&reference.location),
     }
 }
 
-fn lsp_symbol_kind(kind: WorkspaceDocumentSymbolKind) -> u8 {
+fn lsp_symbol_kind(kind: PackageDocumentSymbolKind) -> u8 {
     match kind {
-        WorkspaceDocumentSymbolKind::WorkspaceExtends => 18,
-        WorkspaceDocumentSymbolKind::WorkspaceExtendSource => 15,
-        WorkspaceDocumentSymbolKind::Qualifier => 19,
-        WorkspaceDocumentSymbolKind::Variable => 13,
-        WorkspaceDocumentSymbolKind::Catalog => 13,
-        WorkspaceDocumentSymbolKind::CatalogEntry => 14,
-        WorkspaceDocumentSymbolKind::Values => 18,
-        WorkspaceDocumentSymbolKind::Value => 14,
-        WorkspaceDocumentSymbolKind::Resolve => 3,
-        WorkspaceDocumentSymbolKind::Rule => 8,
+        PackageDocumentSymbolKind::PackageExtends => 18,
+        PackageDocumentSymbolKind::PackageExtendSource => 15,
+        PackageDocumentSymbolKind::Qualifier => 19,
+        PackageDocumentSymbolKind::Variable => 13,
+        PackageDocumentSymbolKind::Catalog => 13,
+        PackageDocumentSymbolKind::CatalogEntry => 14,
+        PackageDocumentSymbolKind::Values => 18,
+        PackageDocumentSymbolKind::Value => 14,
+        PackageDocumentSymbolKind::Resolve => 3,
+        PackageDocumentSymbolKind::Rule => 8,
     }
 }
 
-pub(super) fn lsp_completion_item_kind(kind: WorkspaceCompletionItemKind) -> u8 {
+pub(super) fn lsp_completion_item_kind(kind: PackageCompletionItemKind) -> u8 {
     match kind {
-        WorkspaceCompletionItemKind::Qualifier => 18,
-        WorkspaceCompletionItemKind::Value => 12,
-        WorkspaceCompletionItemKind::FieldSelector => 5,
-        WorkspaceCompletionItemKind::Function => 3,
-        WorkspaceCompletionItemKind::Operator => 24,
+        PackageCompletionItemKind::Qualifier => 18,
+        PackageCompletionItemKind::Value => 12,
+        PackageCompletionItemKind::FieldSelector => 5,
+        PackageCompletionItemKind::Function => 3,
+        PackageCompletionItemKind::Operator => 24,
     }
 }
 
