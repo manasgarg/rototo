@@ -11,7 +11,7 @@ resolution behavior in the Rust core.
 rototo is currently versioned as an alpha Go package:
 
 ```sh
-go get github.com/manasgarg/rototo/sdks/go@v0.1.0-alpha.4
+go get github.com/manasgarg/rototo/sdks/go@v0.1.0-alpha.5
 ```
 
 Import the package with an explicit local name:
@@ -29,7 +29,7 @@ export ROTOTO_GO_NATIVE_PATH="$PWD/target/debug/librototo_go.so"
 ```
 
 Use `librototo_go.dylib` on macOS and `rototo_go.dll` on Windows. The rototo
-release version stays SemVer, for example `0.1.0-alpha.4`.
+release version stays SemVer, for example `0.1.0-alpha.5`.
 
 ## Load A Workspace
 

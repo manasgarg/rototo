@@ -16,7 +16,7 @@ npm install rototo@alpha
 
 The package includes native modules for Linux, macOS, and Windows on the
 supported x64 and arm64 targets. The rototo release version stays SemVer, for
-example `0.1.0-alpha.4`.
+example `0.1.0-alpha.5`.
 
 ## Load A Workspace
 

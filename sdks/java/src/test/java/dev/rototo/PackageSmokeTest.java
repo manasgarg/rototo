@@ -5,8 +5,12 @@ import java.util.concurrent.TimeUnit;
 
 public final class PackageSmokeTest {
     public static void main(String[] args) throws Exception {
-        if (!Rototo.version().equals("0.1.0-alpha.4")) {
-            throw new AssertionError("unexpected version: " + Rototo.version());
+        String expectedVersion = System.getProperty("rototo.expected.version");
+        if (expectedVersion == null || expectedVersion.isBlank()) {
+            throw new AssertionError("missing rototo.expected.version");
+        }
+        if (!Rototo.version().equals(expectedVersion)) {
+            throw new AssertionError("expected version " + expectedVersion + ", got " + Rototo.version());
         }
         try (Workspace workspace = Workspace.load("examples/basic").get(30, TimeUnit.SECONDS)) {
             VariableResolution resolution = workspace.resolveVariable(
