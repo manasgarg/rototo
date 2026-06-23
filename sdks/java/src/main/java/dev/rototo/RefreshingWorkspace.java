@@ -60,13 +60,13 @@ public final class RefreshingWorkspace implements AutoCloseable {
         }, Rototo.executor());
     }
 
-    public CompletableFuture<QualifierResolution> resolveQualifier(
+    public CompletableFuture<Boolean> resolveQualifier(
             String id,
             Map<String, ?> context) {
         return resolveQualifier(id, context, ResolveOptions.defaults());
     }
 
-    public CompletableFuture<QualifierResolution> resolveQualifier(
+    public CompletableFuture<Boolean> resolveQualifier(
             String id,
             Map<String, ?> context,
             ResolveOptions options) {
@@ -79,10 +79,7 @@ public final class RefreshingWorkspace implements AutoCloseable {
                     id,
                     Json.stringify(context),
                     resolved.validateContext());
-            Map<String, Object> value = Json.asObject(Json.parse(json));
-            return new QualifierResolution(
-                    Json.asString(value.get("id")),
-                    Json.asBoolean(value.get("value")));
+            return Json.asBoolean(Json.parse(json));
         }, Rototo.executor());
     }
 

@@ -31,7 +31,7 @@ rototo treats runtime configuration as reviewable workspace files.
 A [workspace](reference-workspace-layout.html) is a directory tree rooted at
 `rototo-workspace.toml`. It is versioned in git and contains the
 [variables](reference-variables.html), [qualifiers](reference-qualifiers.html),
-schemas, [catalogs](reference-catalogs.html), and
+[catalogs](reference-catalogs.html), request contexts, and
 [custom lint rules](reference-custom-lua-lint.html) that define runtime policy.
 
 At runtime, an application is deployed with a
@@ -97,6 +97,10 @@ rototo is not ordinary application storage. User records, transactions, analytic
 
 Start with [Getting Started](getting-started.html). It builds one account
 limit end to end: workspace files, CLI resolution, SDK loading, and refresh.
+
+Then read [Configuration Primitives](configuration-primitives.html) for the
+model the whole system shares: the few primitives, how they compose into one
+resolution, and where the model deliberately stops.
 
 Then read the examples when you want to model a similar production case.
 [Modeling Runtime Configuration](modeling-runtime-configuration.html),

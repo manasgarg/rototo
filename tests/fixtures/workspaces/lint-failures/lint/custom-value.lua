@@ -1,25 +1,19 @@
 function register(lint)
-  lint:on({
-    stage = "value",
-    entity = "variable",
-    field = "resolve",
-    rule = {
-          id = "fixture/custom-value-rejected",
-          title = "Custom value lint rejected a value",
-          help = "Change the fixture value or the Lua lint rule.",
-        },
+  lint:rule({
+    id = "fixture/custom-value-rejected",
+    title = "Custom value lint rejected a value",
+    help = "Change the fixture value or the Lua lint rule.",
+    target = "/variables/custom-value-lint",
     handler = "reject_value",
   })
 end
 
-function reject_value(ctx)
-  if ctx.target.id == "custom-value-lint" then
-    return {
-      {
-        message = "custom value lint rejected "
-          .. ctx.target.id .. ".default"
-      }
+function reject_value(workspace, variable)
+  return {
+    {
+      message = "custom value lint rejected "
+        .. variable.id .. ".default",
+      path = "/resolve/default",
     }
-  end
-  return {}
+  }
 end

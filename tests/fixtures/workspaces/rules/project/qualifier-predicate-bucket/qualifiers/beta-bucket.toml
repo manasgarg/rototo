@@ -1,7 +1,4 @@
 schema_version = 1
+description = "Runtime condition for beta bucket."
 
-[[predicate]]
-attribute = "account.id"
-op = "bucket"
-salt = "checkout"
-range = [0, 20000]
+when = '(bucket(context.account.id, "checkout", 0, 20000))'

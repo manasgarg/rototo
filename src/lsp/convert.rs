@@ -80,6 +80,7 @@ pub(super) fn lsp_completion_item(item: &WorkspaceCompletionItem) -> LspCompleti
         label: item.label.clone(),
         kind: lsp_completion_item_kind(item.kind),
         detail: item.detail,
+        insert_text: item.insert_text.clone(),
     }
 }
 
@@ -112,7 +113,6 @@ fn lsp_symbol_kind(kind: WorkspaceDocumentSymbolKind) -> u8 {
         WorkspaceDocumentSymbolKind::WorkspaceExtends => 18,
         WorkspaceDocumentSymbolKind::WorkspaceExtendSource => 15,
         WorkspaceDocumentSymbolKind::Qualifier => 19,
-        WorkspaceDocumentSymbolKind::Predicate => 17,
         WorkspaceDocumentSymbolKind::Variable => 13,
         WorkspaceDocumentSymbolKind::Catalog => 13,
         WorkspaceDocumentSymbolKind::CatalogEntry => 14,
@@ -127,8 +127,9 @@ pub(super) fn lsp_completion_item_kind(kind: WorkspaceCompletionItemKind) -> u8 
     match kind {
         WorkspaceCompletionItemKind::Qualifier => 18,
         WorkspaceCompletionItemKind::Value => 12,
-        WorkspaceCompletionItemKind::PredicateOperator => 24,
         WorkspaceCompletionItemKind::FieldSelector => 5,
+        WorkspaceCompletionItemKind::Function => 3,
+        WorkspaceCompletionItemKind::Operator => 24,
     }
 }
 

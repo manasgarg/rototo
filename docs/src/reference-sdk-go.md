@@ -88,7 +88,7 @@ fmt.Println(resolution.Source)
 ## Resolve A Qualifier
 
 ```go
-resolution, err := workspace.ResolveQualifier(
+matches, err := workspace.ResolveQualifier(
     context.Background(),
     "premium-users",
     resolveContext,
@@ -98,15 +98,16 @@ if err != nil {
     return err
 }
 
-fmt.Println(resolution.Value)
+fmt.Println(matches)
 ```
 
-`QualifierResolution` has `ID` and `Value`.
+Qualifier resolution returns the final boolean result.
 
 ## Context Validation
 
-Resolution validates context against `schemas/context.schema.json` by default.
-Skip validation for one call when a tool needs to evaluate partial context:
+Resolution validates context against a compatible request context schema by
+default. Skip validation for one call when a tool needs to evaluate partial
+context:
 
 ```go
 resolution, err := workspace.ResolveVariable(
@@ -192,7 +193,6 @@ standard Go errors.
 | `RefreshingWorkspaceOptions` | Refreshing workspace load options. |
 | `ResolveOptions` | Per-call resolution options. |
 | `VariableResolution` | Selected variable value. |
-| `QualifierResolution` | Qualifier boolean result. |
 | `RefreshStatus` | Refresh state snapshot. |
 | `WorkspaceLint` | Lint result for a loaded or inspected workspace. |
 | `Error` | Error raised for rototo failures. |

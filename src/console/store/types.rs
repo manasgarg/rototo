@@ -70,8 +70,8 @@ impl SourceTreeKind {
             can_refresh: true,
             can_discover_workspaces: true,
             can_load_workspaces: true,
-            can_branch: matches!(self, Self::GitHub),
-            can_edit: matches!(self, Self::GitHub),
+            can_branch: matches!(self, Self::GitHub | Self::LocalFolder),
+            can_edit: matches!(self, Self::GitHub | Self::LocalFolder),
             can_open_pull_request: matches!(self, Self::GitHub),
         }
     }
@@ -102,6 +102,9 @@ pub struct WorkspaceRecord {
     pub slug: String,
     pub source_tree_id: String,
     pub source_tree_label: String,
+    /// Browser-facing label for the workspace. Root workspaces keep `path = "."`
+    /// as their source-tree identity but can still render a useful local name.
+    pub display_path: String,
     pub path: String,
     pub revision: String,
     pub source: String,

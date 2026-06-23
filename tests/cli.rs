@@ -82,6 +82,8 @@ fn generates_zsh_completions() {
 
 #[test]
 fn exposes_lsp_command() {
+    // The server is useful to editors only if the public CLI exposes the stdio
+    // entry point they can launch.
     Command::cargo_bin("rototo")
         .unwrap()
         .args(["lsp", "--help"])

@@ -76,21 +76,21 @@ pub struct LocalAuth {
     token: RwLock<Option<AmbientToken>>,
     identity: RwLock<Option<(String, SessionUser)>>,
     pub device_flow: Mutex<Option<DeviceFlowState>>,
-    credentials_path: PathBuf,
+    credentials_path: Option<PathBuf>,
     device_client_id: Option<String>,
 }
 
 impl LocalAuth {
     pub fn new(
         initial: Option<AmbientToken>,
-        data_dir: &std::path::Path,
+        data_dir: Option<&std::path::Path>,
         device_client_id: Option<String>,
     ) -> Self {
         Self {
             token: RwLock::new(initial),
             identity: RwLock::new(None),
             device_flow: Mutex::new(None),
-            credentials_path: data_dir.join("credentials.json"),
+            credentials_path: data_dir.map(|dir| dir.join("credentials.json")),
             device_client_id,
         }
     }
@@ -108,8 +108,10 @@ impl LocalAuth {
     }
 
     pub async fn set_device_token(&self, token: String) -> Result<()> {
-        let credentials = serde_json::json!({ "github_token": token });
-        write_private_file(&self.credentials_path, &credentials.to_string()).await?;
+        if let Some(credentials_path) = self.credentials_path.as_ref() {
+            let credentials = serde_json::json!({ "github_token": token });
+            write_private_file(credentials_path, &credentials.to_string()).await?;
+        }
         *self.token.write().await = Some(AmbientToken {
             token,
             source: GitHubCredentialSource::DeviceFlow,
@@ -163,7 +165,7 @@ pub(super) fn baked_device_client_id() -> Option<String> {
 /// token stored by a previous device-flow sign-in, then the GitHub CLI.
 pub async fn resolve_ambient_token(
     flag_token: Option<&str>,
-    data_dir: &std::path::Path,
+    data_dir: Option<&std::path::Path>,
 ) -> Option<AmbientToken> {
     if let Some(token) = flag_token {
         let token = token.trim();
@@ -187,24 +189,31 @@ pub async fn resolve_ambient_token(
         }
     }
 
-    let credentials_path = data_dir.join("credentials.json");
-    if let Ok(contents) = tokio::fs::read_to_string(&credentials_path).await
-        && let Ok(credentials) = serde_json::from_str::<serde_json::Value>(&contents)
-        && let Some(token) = credentials
-            .get("github_token")
-            .and_then(serde_json::Value::as_str)
-        && !token.trim().is_empty()
-    {
-        tracing::info!(
+    if let Some(data_dir) = data_dir {
+        let credentials_path = data_dir.join("credentials.json");
+        if let Ok(contents) = tokio::fs::read_to_string(&credentials_path).await
+            && let Ok(credentials) = serde_json::from_str::<serde_json::Value>(&contents)
+            && let Some(token) = credentials
+                .get("github_token")
+                .and_then(serde_json::Value::as_str)
+            && !token.trim().is_empty()
+        {
+            tracing::info!(
+                operation = "console.auth.ambient_token",
+                source = ?GitHubCredentialSource::DeviceFlow,
+                credentials_path = %credentials_path.display(),
+                "console local auth token resolved from stored device-flow credentials"
+            );
+            return Some(AmbientToken {
+                token: token.trim().to_owned(),
+                source: GitHubCredentialSource::DeviceFlow,
+            });
+        }
+    } else {
+        tracing::debug!(
             operation = "console.auth.ambient_token",
-            source = ?GitHubCredentialSource::DeviceFlow,
-            credentials_path = %credentials_path.display(),
-            "console local auth token resolved from stored device-flow credentials"
+            "console local auth skipped stored device-flow credentials in ephemeral state mode"
         );
-        return Some(AmbientToken {
-            token: token.trim().to_owned(),
-            source: GitHubCredentialSource::DeviceFlow,
-        });
     }
 
     let started = std::time::Instant::now();

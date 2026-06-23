@@ -7,5 +7,5 @@ type = "catalog:bad-resolve"
 default = "control"
 
 [[resolve.rule]]
-qualifier = "missing-qualifier"
+when = 'qualifier["missing-qualifier"]'
 value = "another-missing-value"

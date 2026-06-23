@@ -566,6 +566,11 @@ h3 {
     align-content: start;
 }
 
+.content-inner-wide {
+    width: 100%;
+    max-width: none;
+}
+
 /* grid/flex children must be allowed to shrink below their content width,
    or long mono strings force a horizontal page scroll on small screens */
 .content-inner > *,
@@ -575,8 +580,7 @@ h3 {
 .card > *,
 .field-stack,
 .row-text,
-.diagnostic,
-.reference-grid > * {
+.diagnostic {
     min-width: 0;
 }
 
@@ -939,6 +943,10 @@ a.pill-sea:hover {
     gap: 14px;
 }
 
+.workspace-overview > :not(.graph-card) {
+    max-width: 1060px;
+}
+
 .section-header {
     display: flex;
     align-items: flex-end;
@@ -1201,12 +1209,6 @@ a.row:hover {
 .btn-remove:hover {
     background: var(--err-bg);
     color: var(--err-700);
-}
-
-.reference-grid {
-    display: grid;
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-    gap: 10px;
 }
 
 .reference-links {
@@ -1633,12 +1635,221 @@ select.input {
     flex: 1;
 }
 
-.graph-scroll {
+.graph-visuals {
+    min-width: 0;
+}
+
+.graph-canvases {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+}
+
+.graph-canvas {
     overflow: hidden;
+    border: 1px solid var(--line-1);
+    border-radius: var(--radius-2);
+    background: var(--paper-1);
+}
+
+.graph-canvas-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 9px 10px;
+    border-bottom: 1px solid var(--line-1);
+    background: var(--paper-2);
+}
+
+.graph-canvas-body,
+.graph-isolated-body {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(320px, 390px);
+    gap: 12px;
+    align-items: start;
 }
 
 .graph-scroll {
     overflow: hidden;
+    padding: 8px;
+}
+
+.graph-isolated {
+    margin-top: 14px;
+    padding-top: 14px;
+    border-top: 1px solid var(--line-1);
+}
+
+.graph-isolated-head {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 12px;
+    margin-bottom: 9px;
+}
+
+.graph-isolated-list {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    min-width: 0;
+}
+
+.graph-isolated-node {
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
+    min-width: 0;
+    min-height: 28px;
+    padding: 5px 9px;
+    border: 1px solid var(--line-1);
+    border-radius: var(--radius-2);
+    background: var(--paper-1);
+    color: var(--ink-0);
+    box-shadow: var(--shadow-1);
+    transition:
+        border-color var(--dur-fast) var(--ease-out),
+        opacity var(--dur-fast) var(--ease-out),
+        transform var(--dur-fast) var(--ease-out);
+}
+
+.graph-isolated-node:hover {
+    border-color: var(--sea-300);
+    transform: translateY(-1px);
+}
+
+.graph-isolated-node:focus-visible {
+    outline: none;
+    box-shadow: var(--focus-ring);
+}
+
+.graph-isolated-node.is-highlighted {
+    border-color: var(--sea-400);
+    background: var(--sea-50);
+}
+
+.graph-isolated-node.is-active {
+    border-color: var(--ink-0);
+    background: var(--ink-0);
+    color: var(--paper-0);
+}
+
+.graph-isolated-node.is-active .graph-isolated-kind {
+    background: var(--paper-0);
+    color: var(--ink-0);
+}
+
+.graph-isolated-node.is-dimmed {
+    opacity: 0.34;
+}
+
+.graph-isolated-kind {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    height: 18px;
+    padding: 0 6px;
+    border-radius: 999px;
+    background: var(--paper-2);
+    color: var(--ink-2);
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+}
+
+.graph-isolated-kind[data-kind="qualifier"] {
+    color: var(--cyan-700);
+}
+
+.graph-isolated-kind[data-kind="variable"] {
+    color: var(--sea-700);
+}
+
+.graph-isolated-kind[data-kind="catalog"] {
+    color: var(--ok-700);
+}
+
+.graph-isolated-kind[data-kind="catalogEntry"] {
+    color: var(--ink-1);
+}
+
+.graph-edited-mark {
+    color: var(--warn-700);
+    font-family: var(--font-mono), ui-monospace, monospace;
+    font-weight: 700;
+}
+
+.graph-empty {
+    padding: 18px;
+    border: 1px dashed var(--line-2);
+    border-radius: var(--radius-2);
+    background: var(--paper-1);
+}
+
+.graph-preview {
+    position: sticky;
+    top: 14px;
+    display: flex;
+    min-width: 0;
+    max-height: min(72vh, 720px);
+    flex-direction: column;
+    overflow: hidden;
+    border: 1px solid var(--line-1);
+    border-radius: var(--radius-2);
+    background: var(--paper-1);
+}
+
+.graph-preview-head {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 10px;
+    padding: 10px 11px;
+    border-bottom: 1px solid var(--line-1);
+    background: var(--paper-2);
+}
+
+.graph-preview-title {
+    min-width: 0;
+}
+
+.graph-preview-title h4 {
+    margin: 2px 0 0;
+    overflow-wrap: anywhere;
+    font-size: 13px;
+    font-weight: 650;
+    line-height: 1.35;
+}
+
+.graph-preview-source {
+    min-height: 0;
+    border: 0;
+    border-radius: 0;
+}
+
+.graph-preview-source .codehead {
+    border-top: 0;
+}
+
+.graph-preview-source .code-editor-shell {
+    border: 0;
+    border-radius: 0;
+}
+
+.graph-preview-source .code-editor-shell .cm-editor {
+    min-height: 260px;
+    font-size: 11.5px;
+    max-height: min(56vh, 610px);
+}
+
+.graph-preview-source .code-editor-shell .cm-scroller {
+    overflow: auto;
+}
+
+.graph-preview-empty {
+    padding: 18px;
 }
 
 /* Entry pills inside a catalog row */
@@ -2692,9 +2903,22 @@ select.input {
     .field-grid,
     .field-grid.three,
     .field-row,
-    .reference-grid,
     .inline-form {
         grid-template-columns: 1fr;
+    }
+
+    .graph-canvas-body,
+    .graph-isolated-body {
+        grid-template-columns: 1fr;
+    }
+
+    .graph-preview {
+        position: static;
+        max-height: none;
+    }
+
+    .graph-preview-source .code-editor-shell .cm-editor {
+        max-height: 420px;
     }
 
     .value-row {

@@ -69,10 +69,7 @@ Create
 schema_version = 1
 description = "Accounts marked for live configuration testing"
 
-[[predicate]]
-attribute = "account.kind"
-op = "eq"
-value = "test"
+when = 'context.account.kind == "test"'
 ```
 
 Create `onboarding-config/qualifiers/enterprise-accounts.toml`:
@@ -81,10 +78,7 @@ Create `onboarding-config/qualifiers/enterprise-accounts.toml`:
 schema_version = 1
 description = "Enterprise plan accounts"
 
-[[predicate]]
-attribute = "account.plan"
-op = "eq"
-value = "enterprise"
+when = 'context.account.plan == "enterprise"'
 ```
 
 Create `onboarding-config/qualifiers/eu-accounts.toml`:
@@ -93,10 +87,7 @@ Create `onboarding-config/qualifiers/eu-accounts.toml`:
 schema_version = 1
 description = "Accounts operating in the European region"
 
-[[predicate]]
-attribute = "account.region"
-op = "eq"
-value = "eu"
+when = 'context.account.region == "eu"'
 ```
 
 Those qualifiers name raw runtime facts. Now
@@ -109,15 +100,9 @@ Create `onboarding-config/qualifiers/test-enterprise-accounts.toml`:
 schema_version = 1
 description = "Test accounts on the enterprise plan"
 
-[[predicate]]
-attribute = "qualifier.test-accounts"
-op = "eq"
-value = true
+when = 'qualifier["test-accounts"] == true'
 
-[[predicate]]
-attribute = "qualifier.enterprise-accounts"
-op = "eq"
-value = true
+when = 'qualifier["enterprise-accounts"] == true'
 ```
 
 Create `onboarding-config/qualifiers/eu-enterprise-accounts.toml`:
@@ -126,20 +111,14 @@ Create `onboarding-config/qualifiers/eu-enterprise-accounts.toml`:
 schema_version = 1
 description = "Enterprise accounts operating in the European region"
 
-[[predicate]]
-attribute = "qualifier.enterprise-accounts"
-op = "eq"
-value = true
+when = 'qualifier["enterprise-accounts"] == true'
 
-[[predicate]]
-attribute = "qualifier.eu-accounts"
-op = "eq"
-value = true
+when = 'qualifier["eu-accounts"] == true'
 ```
 
 Composition keeps the vocabulary readable. The variable can talk about
 `test-enterprise-accounts` and `eu-enterprise-accounts` without repeating the
-raw `account.*` predicates.
+raw `account.*` conditions.
 
 Create `onboarding-config/qualifiers/test-eu-enterprise-accounts.toml`:
 
@@ -147,15 +126,9 @@ Create `onboarding-config/qualifiers/test-eu-enterprise-accounts.toml`:
 schema_version = 1
 description = "Test accounts on the enterprise plan in the European region"
 
-[[predicate]]
-attribute = "qualifier.test-accounts"
-op = "eq"
-value = true
+when = 'qualifier["test-accounts"] == true'
 
-[[predicate]]
-attribute = "qualifier.eu-enterprise-accounts"
-op = "eq"
-value = true
+when = 'qualifier["eu-enterprise-accounts"] == true'
 ```
 
 ## Enable The Checklist For Test Accounts
@@ -174,11 +147,11 @@ type = "list"
 default = ["create_project", "invite_teammate", "configure_profile"]
 
 [[resolve.rule]]
-qualifier = "test-eu-enterprise-accounts"
+when = 'qualifier["test-eu-enterprise-accounts"]'
 value = ["create_project", "invite_teammate", "configure_sso", "review_data_processing", "add_billing_contact"]
 
 [[resolve.rule]]
-qualifier = "test-enterprise-accounts"
+when = 'qualifier["test-enterprise-accounts"]'
 value = ["create_project", "invite_teammate", "configure_sso", "add_billing_contact"]
 ```
 
@@ -198,7 +171,7 @@ rototo init onboarding-config --context
 ```
 
 On this workspace, rototo writes
-`onboarding-config/schemas/context.schema.json`:
+`onboarding-config/request-contexts/request.schema.json`:
 
 ```json
 {
@@ -298,19 +271,19 @@ ongoing canary path, then add the wider rules after them:
 default = "standard"
 
 [[resolve.rule]]
-qualifier = "test-eu-enterprise-accounts"
+when = 'qualifier["test-eu-enterprise-accounts"]'
 value = "eu_enterprise"
 
 [[resolve.rule]]
-qualifier = "test-enterprise-accounts"
+when = 'qualifier["test-enterprise-accounts"]'
 value = "enterprise"
 
 [[resolve.rule]]
-qualifier = "eu-enterprise-accounts"
+when = 'qualifier["eu-enterprise-accounts"]'
 value = "eu_enterprise"
 
 [[resolve.rule]]
-qualifier = "enterprise-accounts"
+when = 'qualifier["enterprise-accounts"]'
 value = "enterprise"
 ```
 

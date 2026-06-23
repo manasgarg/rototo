@@ -2,12 +2,4 @@ schema_version = 1
 
 description = "Console startup using the dev host"
 
-[[predicate]]
-attribute = "phase"
-op = "eq"
-value = "startup"
-
-[[predicate]]
-attribute = "console.host"
-op = "eq"
-value = "dev.rototo.dev"
+when = '(context.phase == "startup") && (context.console.host == "dev.rototo.dev")'

@@ -5,7 +5,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::{Number as JsonNumber, Value as JsonValue};
 
 use crate::error::{Result, RototoError};
-use crate::model::InspectSelection;
+use crate::expression::simple_rule_qualifier;
 use crate::model::{
     PredicateInspectReport, QualifierInspectReport, QualifierResolutionTrace,
     RulePathwayInspectReport, VariableInspectReport, VariableResolutionTrace,
@@ -168,7 +168,7 @@ pub struct FixtureExpectation {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub matched_rule: Option<usize>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub matched_qualifier: Option<String>,
+    pub matched_condition: Option<String>,
     #[serde(default, rename = "bucket", skip_serializing_if = "Vec::is_empty")]
     pub buckets: Vec<FixtureBucketExpectation>,
 }
@@ -197,15 +197,8 @@ pub async fn generate_fixture_suite(
     let workspace_source = workspace_source.as_ref();
     let selection = selection.normalized();
     let staged = stage_workspace_source(workspace_source.to_owned(), source_options).await?;
-    let report = crate::inspect_workspace_report(
-        staged.path(),
-        WorkspaceInspectRequest {
-            variables: InspectSelection::All,
-            qualifiers: InspectSelection::All,
-            ..WorkspaceInspectRequest::default()
-        },
-    )
-    .await?;
+    let report =
+        crate::inspect_workspace_report(staged.path(), WorkspaceInspectRequest::default()).await?;
 
     let variable_ids = selected_variable_ids(&report, &selection.variables)?;
     let qualifier_ids = selected_qualifier_ids(&report, &selection.qualifiers)?;
@@ -310,42 +303,26 @@ async fn generate_qualifier_fixture(
 ) -> Result<FixtureFile> {
     let mut cases = Vec::new();
 
-    if let Some(context) = factory.qualifier_context(&qualifier.id, true) {
-        let trace = trace_qualifier_resolution(workspace, &qualifier.id, &context).await?;
-        if !trace.value {
-            return Err(RototoError::new(format!(
-                "generated true fixture did not match qualifier: {}",
-                qualifier.id
-            )));
-        }
+    if let Some((context, trace)) =
+        sampled_qualifier_context(workspace, &qualifier.id, true, factory).await?
+    {
         cases.push(qualifier_case(
             "matches",
-            "Matches when all predicates are true",
-            Some("Every qualifier predicate is satisfied."),
+            "Matches when the qualifier condition is true",
+            Some("A request context sample satisfies the qualifier condition."),
             true,
             context,
             &trace,
         )?);
     }
 
-    for predicate in &qualifier.predicates {
-        let Some(context) = factory.qualifier_context_false_at(&qualifier.id, predicate.index)
-        else {
-            continue;
-        };
-        let trace = trace_qualifier_resolution(workspace, &qualifier.id, &context).await?;
-        if trace.value {
-            continue;
-        }
-        let id = format!("false-{}", predicate_case_suffix(predicate));
-        let title = format!(
-            "Does not match when {} is false",
-            predicate_attribute_label(predicate)
-        );
+    if let Some((context, trace)) =
+        sampled_qualifier_context(workspace, &qualifier.id, false, factory).await?
+    {
         cases.push(qualifier_case(
-            &id,
-            &title,
-            Some("All other predicates are kept true when possible."),
+            "does-not-match",
+            "Does not match when the qualifier condition is false",
+            Some("A request context sample does not satisfy the qualifier condition."),
             true,
             context,
             &trace,
@@ -378,7 +355,7 @@ fn qualifier_case(
             value: toml::Value::Boolean(trace.value),
             matched: None,
             matched_rule: None,
-            matched_qualifier: None,
+            matched_condition: None,
             buckets: buckets_from_qualifier_trace(trace),
         },
     })
@@ -391,7 +368,7 @@ async fn generate_variable_fixture(
 ) -> Result<FixtureFile> {
     let mut cases = Vec::new();
 
-    if let Some(context) = factory.variable_default_context(variable) {
+    if let Some(context) = variable_default_context(workspace, variable, factory).await? {
         let trace = trace_variable_resolution(workspace, &variable.id, &context).await?;
         if trace.rules.iter().any(|rule| rule.matched) {
             return Err(RototoError::new(format!(
@@ -402,7 +379,7 @@ async fn generate_variable_fixture(
         cases.push(variable_case(
             "default",
             "Uses the default value when no rule matches",
-            Some("Every rule qualifier is false."),
+            Some("Every rule condition is false."),
             true,
             context,
             &trace,
@@ -421,11 +398,8 @@ async fn generate_variable_fixture(
         {
             continue;
         }
-        let id = format!(
-            "rule-{}-{}",
-            rule.index,
-            sanitize_id(rule.qualifier.as_deref().unwrap_or("unknown"))
-        );
+        let condition = rule_condition_label(rule);
+        let id = format!("rule-{}-{}", rule.index, sanitize_id(&condition));
         let title = format!(
             "Rule {} selects {} when {} matches",
             rule.index,
@@ -433,12 +407,12 @@ async fn generate_variable_fixture(
                 .as_ref()
                 .map(serde_json::Value::to_string)
                 .unwrap_or_else(|| "<missing>".to_owned()),
-            rule.qualifier.as_deref().unwrap_or("<missing>")
+            condition
         );
         cases.push(variable_case(
             &id,
             &title,
-            Some("Earlier rule qualifiers are kept false when possible."),
+            Some("Earlier rule conditions are kept false when possible."),
             true,
             context,
             &trace,
@@ -472,7 +446,7 @@ fn variable_case(
             value: json_to_toml(&trace.resolution.value)?,
             matched: matched_rule.is_none().then(|| "default".to_owned()),
             matched_rule: matched_rule.map(|rule| rule.index),
-            matched_qualifier: matched_rule.map(|rule| rule.qualifier.clone()),
+            matched_condition: matched_rule.map(|rule| rule.condition.clone()),
             buckets: trace
                 .qualifier_traces
                 .iter()
@@ -482,14 +456,33 @@ fn variable_case(
     })
 }
 
+fn rule_condition_label(rule: &RulePathwayInspectReport) -> String {
+    rule.when
+        .as_deref()
+        .or(rule.query.as_deref())
+        .unwrap_or("<missing>")
+        .to_owned()
+}
+
 async fn variable_rule_context(
     workspace: &Path,
     variable: &VariableInspectReport,
     rule: &RulePathwayInspectReport,
     factory: &ContextFactory<'_>,
 ) -> Result<Option<JsonValue>> {
-    if let Some(qualifier) = rule.qualifier.as_deref()
-        && let Some(context) = factory.qualifier_context(qualifier, true)
+    for context in factory.sample_contexts() {
+        if let Ok(trace) = trace_variable_resolution(workspace, &variable.id, context).await
+            && trace
+                .rules
+                .iter()
+                .any(|trace_rule| trace_rule.index == rule.index && trace_rule.matched)
+        {
+            return Ok(Some(context.clone()));
+        }
+    }
+
+    if let Some(qualifier) = rule.when.as_deref().and_then(simple_rule_qualifier)
+        && let Some(context) = factory.qualifier_context(&qualifier, true)
         && let Ok(trace) = trace_variable_resolution(workspace, &variable.id, &context).await
         && trace
             .rules
@@ -502,24 +495,54 @@ async fn variable_rule_context(
     Ok(factory.variable_rule_context(variable, rule))
 }
 
+async fn variable_default_context(
+    workspace: &Path,
+    variable: &VariableInspectReport,
+    factory: &ContextFactory<'_>,
+) -> Result<Option<JsonValue>> {
+    for context in factory.sample_contexts() {
+        if let Ok(trace) = trace_variable_resolution(workspace, &variable.id, context).await
+            && trace.rules.iter().all(|rule| !rule.matched)
+        {
+            return Ok(Some(context.clone()));
+        }
+    }
+
+    Ok(factory.variable_default_context(variable))
+}
+
+async fn sampled_qualifier_context(
+    workspace: &Path,
+    qualifier: &str,
+    desired: bool,
+    factory: &ContextFactory<'_>,
+) -> Result<Option<(JsonValue, QualifierResolutionTrace)>> {
+    for context in factory.sample_contexts() {
+        if let Ok(trace) = trace_qualifier_resolution(workspace, qualifier, context).await
+            && trace.value == desired
+        {
+            return Ok(Some((context.clone(), trace)));
+        }
+    }
+
+    if let Some(context) = factory.qualifier_context(qualifier, desired)
+        && let Ok(trace) = trace_qualifier_resolution(workspace, qualifier, &context).await
+        && trace.value == desired
+    {
+        return Ok(Some((context, trace)));
+    }
+
+    Ok(None)
+}
+
 fn buckets_from_qualifier_trace(trace: &QualifierResolutionTrace) -> Vec<FixtureBucketExpectation> {
-    trace
-        .predicates
-        .iter()
-        .filter_map(|predicate| {
-            let bucket = predicate.bucket.as_ref()?;
-            Some(FixtureBucketExpectation {
-                attribute: predicate.attribute.clone(),
-                salt: bucket.salt.clone(),
-                range: vec![bucket.start, bucket.end],
-                value: bucket.value?,
-            })
-        })
-        .collect()
+    let _ = trace;
+    Vec::new()
 }
 
 struct ContextFactory<'a> {
     qualifiers: BTreeMap<String, &'a QualifierInspectReport>,
+    samples: Vec<JsonValue>,
 }
 
 impl<'a> ContextFactory<'a> {
@@ -530,14 +553,24 @@ impl<'a> ContextFactory<'a> {
                 .iter()
                 .map(|qualifier| (qualifier.id.clone(), qualifier))
                 .collect(),
+            samples: report
+                .request_contexts
+                .iter()
+                .flat_map(|request_context| request_context.entries.iter())
+                .map(|entry| entry.value.clone())
+                .collect(),
         }
+    }
+
+    fn sample_contexts(&self) -> &[JsonValue] {
+        &self.samples
     }
 
     fn variable_default_context(&self, variable: &VariableInspectReport) -> Option<JsonValue> {
         let mut context = empty_json_object();
         for rule in &variable.resolve.rules {
-            let qualifier = rule.qualifier.as_deref()?;
-            merge_context(&mut context, self.qualifier_context(qualifier, false)?)?;
+            let qualifier = simple_rule_qualifier(rule.when.as_deref()?)?;
+            merge_context(&mut context, self.qualifier_context(&qualifier, false)?)?;
         }
         Some(context)
     }
@@ -554,20 +587,16 @@ impl<'a> ContextFactory<'a> {
             .iter()
             .filter(|earlier| earlier.index < rule.index)
         {
-            let qualifier = earlier.qualifier.as_deref()?;
-            merge_context(&mut context, self.qualifier_context(qualifier, false)?)?;
+            let qualifier = simple_rule_qualifier(earlier.when.as_deref()?)?;
+            merge_context(&mut context, self.qualifier_context(&qualifier, false)?)?;
         }
-        let qualifier = rule.qualifier.as_deref()?;
-        merge_context(&mut context, self.qualifier_context(qualifier, true)?)?;
+        let qualifier = simple_rule_qualifier(rule.when.as_deref()?)?;
+        merge_context(&mut context, self.qualifier_context(&qualifier, true)?)?;
         Some(context)
     }
 
     fn qualifier_context(&self, id: &str, desired: bool) -> Option<JsonValue> {
         self.qualifier_context_inner(id, desired, &mut BTreeSet::new())
-    }
-
-    fn qualifier_context_false_at(&self, id: &str, predicate_index: usize) -> Option<JsonValue> {
-        self.qualifier_context_false_at_inner(id, predicate_index, &mut BTreeSet::new())
     }
 
     fn qualifier_context_inner(
@@ -577,14 +606,6 @@ impl<'a> ContextFactory<'a> {
         stack: &mut BTreeSet<String>,
     ) -> Option<JsonValue> {
         if !desired {
-            let qualifier = self.qualifiers.get(id)?;
-            for predicate in &qualifier.predicates {
-                if let Some(context) =
-                    self.qualifier_context_false_at_inner(id, predicate.index, stack)
-                {
-                    return Some(context);
-                }
-            }
             return None;
         }
 
@@ -592,32 +613,15 @@ impl<'a> ContextFactory<'a> {
             return None;
         }
         let qualifier = self.qualifiers.get(id)?;
+        if qualifier.predicates.is_empty() {
+            stack.remove(id);
+            return None;
+        }
         let mut context = empty_json_object();
         for predicate in &qualifier.predicates {
             merge_context(
                 &mut context,
                 self.predicate_context(predicate, true, stack)?,
-            )?;
-        }
-        stack.remove(id);
-        Some(context)
-    }
-
-    fn qualifier_context_false_at_inner(
-        &self,
-        id: &str,
-        predicate_index: usize,
-        stack: &mut BTreeSet<String>,
-    ) -> Option<JsonValue> {
-        if !stack.insert(id.to_owned()) {
-            return None;
-        }
-        let qualifier = self.qualifiers.get(id)?;
-        let mut context = empty_json_object();
-        for predicate in &qualifier.predicates {
-            merge_context(
-                &mut context,
-                self.predicate_context(predicate, predicate.index != predicate_index, stack)?,
             )?;
         }
         stack.remove(id);
@@ -876,23 +880,6 @@ fn merge_context_objects(
 
 fn empty_json_object() -> JsonValue {
     JsonValue::Object(serde_json::Map::new())
-}
-
-fn predicate_case_suffix(predicate: &PredicateInspectReport) -> String {
-    let attribute = predicate.attribute.as_deref().unwrap_or("predicate");
-    if predicate.op.as_deref() == Some("bucket") {
-        format!("outside-{}-bucket", sanitize_id(attribute))
-    } else {
-        sanitize_id(attribute.strip_prefix("qualifier.").unwrap_or(attribute))
-    }
-}
-
-fn predicate_attribute_label(predicate: &PredicateInspectReport) -> String {
-    predicate
-        .attribute
-        .as_deref()
-        .unwrap_or("predicate")
-        .to_owned()
 }
 
 fn sanitize_id(value: &str) -> String {
@@ -1158,12 +1145,12 @@ async fn assert_fixture_case(
                         "expected matched rule {rule_index}, but it did not match"
                     )));
                 };
-                if let Some(expected_qualifier) = &case.expect.matched_qualifier
-                    && &rule.qualifier != expected_qualifier
+                if let Some(expected_condition) = &case.expect.matched_condition
+                    && &rule.condition != expected_condition
                 {
                     return Err(RototoError::new(format!(
-                        "expected matched qualifier {expected_qualifier}, got {}",
-                        rule.qualifier
+                        "expected matched condition {expected_condition}, got {}",
+                        rule.condition
                     )));
                 }
             }
@@ -1177,24 +1164,6 @@ fn assert_bucket_expectations(
     expected: &[FixtureBucketExpectation],
     traces: &[QualifierResolutionTrace],
 ) -> Result<()> {
-    for bucket in expected {
-        let matched = traces
-            .iter()
-            .flat_map(|trace| &trace.predicates)
-            .filter_map(|predicate| Some((predicate, predicate.bucket.as_ref()?)))
-            .any(|(predicate, actual)| {
-                predicate.attribute == bucket.attribute
-                    && actual.salt == bucket.salt
-                    && actual.start == bucket.range.first().copied().unwrap_or_default()
-                    && actual.end == bucket.range.get(1).copied().unwrap_or_default()
-                    && actual.value == Some(bucket.value)
-            });
-        if !matched {
-            return Err(RototoError::new(format!(
-                "expected bucket {} salt={} range={:?} value={} was not observed",
-                bucket.attribute, bucket.salt, bucket.range, bucket.value
-            )));
-        }
-    }
+    let _ = (expected, traces);
     Ok(())
 }

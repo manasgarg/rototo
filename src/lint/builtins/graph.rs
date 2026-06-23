@@ -145,34 +145,32 @@ pub(super) fn lint_shadowed_variable_rules(ctx: &mut LintContext) {
         let RuleCollection::Rules(rules) = rules else {
             continue;
         };
-        let mut seen_qualifiers: BTreeMap<String, DiagnosticLocation> = BTreeMap::new();
+        let mut seen_conditions: BTreeMap<String, DiagnosticLocation> = BTreeMap::new();
 
         for rule in rules {
             if rule.invalid_shape {
                 continue;
             }
-            let ProjectField::Present(qualifier) = &rule.qualifier else {
+            let Some(ProjectField::Present(when)) = &rule.when else {
                 continue;
             };
+            let condition = when.value.source().to_owned();
 
-            if let Some(first_location) = seen_qualifiers.get(&qualifier.value) {
+            if let Some(first_location) = seen_conditions.get(&condition) {
                 let mut diagnostic = LintDiagnostic::rototo(
                     RototoRuleId::VariableRuleShadowed,
                     LintStage::Graph,
-                    rule.field_target(&variable.id, SemanticField::VariableRuleQualifier),
-                    qualifier.location.clone(),
-                    format!(
-                        "rule is shadowed by an earlier rule with qualifier: {}",
-                        qualifier.value
-                    ),
+                    rule.field_target(&variable.id, SemanticField::VariableRuleWhen),
+                    when.location.clone(),
+                    format!("rule is shadowed by an earlier rule with condition: {condition}"),
                 );
                 diagnostic.related.push(RelatedLocation {
                     location: first_location.clone(),
-                    message: format!("first rule using qualifier: {}", qualifier.value),
+                    message: format!("first rule using condition: {condition}"),
                 });
                 diagnostics.push(diagnostic);
             } else {
-                seen_qualifiers.insert(qualifier.value.clone(), qualifier.location.clone());
+                seen_conditions.insert(condition, when.location.clone());
             }
         }
     }

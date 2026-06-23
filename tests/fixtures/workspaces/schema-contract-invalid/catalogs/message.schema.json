@@ -1,0 +1,4 @@
+{
+  "description": "Catalog whose schema cannot compile",
+  "type": "definitely-not-a-json-schema-type"
+}

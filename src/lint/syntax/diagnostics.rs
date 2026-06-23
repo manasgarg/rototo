@@ -54,7 +54,7 @@ pub(super) fn json_parse_diagnostic(
     let start = document.line_index.offset_for_line_character(line, column);
     let end = start.saturating_add(1).min(document.text.len());
     LintDiagnostic::rototo(
-        RototoRuleId::SchemaParseFailed,
+        parse_failed_rule(&document.kind),
         LintStage::Parse,
         entity_for_document(document),
         document.span_location(start..end),
@@ -83,7 +83,8 @@ fn parse_failed_rule(kind: &DocumentKind) -> RototoRuleId {
         DocumentKind::Variable { .. } => RototoRuleId::VariableParseFailed,
         DocumentKind::Catalog { .. } => RototoRuleId::CatalogParseFailed,
         DocumentKind::CatalogEntry { .. } => RototoRuleId::CatalogEntryParseFailed,
-        DocumentKind::Schema => RototoRuleId::SchemaParseFailed,
+        DocumentKind::RequestContext { .. } => RototoRuleId::RequestContextParseFailed,
+        DocumentKind::RequestContextEntry { .. } => RototoRuleId::RequestContextEntryParseFailed,
         DocumentKind::CustomLint => RototoRuleId::CustomLintFailed,
     }
 }
@@ -101,8 +102,13 @@ fn entity_for_document(document: &SourceDocument) -> SemanticEntity {
             catalog: catalog_id.clone(),
             key: entry_id.clone(),
         },
-        DocumentKind::Schema => SemanticEntity::Schema {
-            path: document.path.clone(),
+        DocumentKind::RequestContext { id } => SemanticEntity::RequestContext { id: id.clone() },
+        DocumentKind::RequestContextEntry {
+            request_context_id,
+            entry_id,
+        } => SemanticEntity::RequestContextEntry {
+            request_context: request_context_id.clone(),
+            key: entry_id.clone(),
         },
         DocumentKind::CustomLint => SemanticEntity::CustomLint {
             path: document.path.clone(),

@@ -1,0 +1,13 @@
+{
+  "description": "Agent config catalog with custom target coverage",
+  "type": "object",
+  "required": [
+    "max_output_tokens"
+  ],
+  "properties": {
+    "max_output_tokens": {
+      "type": "integer"
+    }
+  },
+  "additionalProperties": false
+}

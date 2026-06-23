@@ -2,7 +2,4 @@ schema_version = 1
 
 description = "Users on the premium plan"
 
-[[predicate]]
-attribute = "user.tier"
-op = "eq"
-value = "premium"
+when = '(context.user.tier == "premium")'

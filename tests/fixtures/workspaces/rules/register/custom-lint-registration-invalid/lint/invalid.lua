@@ -1,16 +1,13 @@
 function register(lint)
-  lint:on({
-    stage = "parse",
-    entity = "workspace",
-    rule = {
-          id = "payments/check",
-          title = "Payments check",
-          help = "Fix the payments policy.",
-        },
+  lint:rule({
+    id = "payments/check",
+    title = "Payments check",
+    help = "Fix the payments policy.",
+    target = "workspace",
     handler = "check",
   })
 end
 
-function check(ctx)
+function check(workspace, target)
   return {}
 end

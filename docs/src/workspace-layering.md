@@ -30,7 +30,6 @@ The layers look like this:
 ```text
 product-config/
   rototo-workspace.toml
-  schemas/
   catalogs/
   variables/
 
@@ -44,7 +43,7 @@ team-config/
   qualifiers/
   catalogs/
   variables/
-  schemas/
+  request-contexts/
 ```
 
 The application should load the most specific
@@ -74,20 +73,12 @@ type = "catalog:inference-routing-policy"
 default = "product_default"
 ```
 
-Create `product-config/catalogs/inference-routing-policy.toml`:
-
-```toml
-schema_version = 1
-
-description = "Inference routing policy values"
-schema = "../schemas/inference-routing-policy.schema.json"
-```
-
-Create `product-config/schemas/inference-routing-policy.schema.json`:
+Create `product-config/catalogs/inference-routing-policy.schema.json`:
 
 ```json
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "description": "Inference routing policy values",
   "type": "object",
   "required": ["mode", "primary_provider", "fallback_provider", "allowed_tasks", "timeout_ms"],
   "properties": {
@@ -225,10 +216,7 @@ Then they name the [runtime condition](reference-qualifiers.html):
 schema_version = 1
 description = "Team summarization requests routed through the trial policy"
 
-[[predicate]]
-attribute = "task.kind"
-op = "eq"
-value = "summarization"
+when = 'context.task.kind == "summarization"'
 ```
 
 Because the qualifier introduced `task.kind`, the team workspace needs the
@@ -265,7 +253,7 @@ type = "catalog:inference-routing-policy"
 default = "customer_default"
 
 [[resolve.rule]]
-qualifier = "summarization-trial"
+when = 'qualifier["summarization-trial"]'
 value = "team_fast_summarization"
 ```
 

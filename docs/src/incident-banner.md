@@ -40,15 +40,6 @@ type = "catalog:support-banner"
 default = "none"
 ```
 
-Then replace `communications-config/catalogs/support-banner.toml`:
-
-```toml
-schema_version = 1
-
-description = "Support banner payloads"
-schema = "../schemas/support-banner.schema.json"
-```
-
 The variable now has a type, but its values live as catalog values. Resolution
 stays in the variable, while value validation belongs to the catalog.
 
@@ -56,7 +47,7 @@ stays in the variable, while value validation belongs to the catalog.
 
 Before writing banner values, define the
 [shape the app is willing to consume](reference-catalogs.html).
-Replace `communications-config/schemas/support-banner.schema.json`:
+Replace `communications-config/catalogs/support-banner.schema.json`:
 
 ```json
 {
@@ -143,10 +134,7 @@ Create `communications-config/qualifiers/eu-accounts.toml`:
 schema_version = 1
 description = "Accounts operating in the European region"
 
-[[predicate]]
-attribute = "account.region"
-op = "eq"
-value = "eu"
+when = 'context.account.region == "eu"'
 ```
 
 Then update the variable so the named condition selects the incident payload:
@@ -161,7 +149,7 @@ type = "catalog:support-banner"
 default = "none"
 
 [[resolve.rule]]
-qualifier = "eu-accounts"
+when = 'qualifier["eu-accounts"]'
 value = "eu-incident"
 ```
 
@@ -178,7 +166,7 @@ rototo init communications-config --context
 ```
 
 On this workspace, rototo writes
-`communications-config/schemas/context.schema.json`:
+`communications-config/request-contexts/request.schema.json`:
 
 ```json
 {

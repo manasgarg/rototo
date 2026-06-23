@@ -48,7 +48,7 @@ Examples:
 
 ```text
 rototo/workspace-manifest-missing
-rototo/qualifier-predicate-unknown-op
+rototo/qualifier-when-shape
 rototo/variable-unknown-value
 rototo/catalog-entry-schema-mismatch
 ```
@@ -83,7 +83,6 @@ Diagnostics can target:
 workspace
 manifest
 qualifier
-predicate
 variable
 catalog
 catalog_entry

@@ -217,7 +217,7 @@ type = "bool"
 default = false
 
 [[resolve.rule]]
-qualifier = "premium-users"
+when = 'qualifier["premium-users"]'
 value = true
 "#;
 
@@ -228,7 +228,11 @@ value = true
         assert_eq!(update.after_literal, "true");
         assert!(update.text.contains("default = true"));
         assert!(update.text.contains("value = true"));
-        assert!(update.text.contains("qualifier = \"premium-users\""));
+        assert!(
+            update
+                .text
+                .contains("when = 'qualifier[\"premium-users\"]'")
+        );
         // Only the default line changed.
         let changed: Vec<(&str, &str)> = VARIABLE
             .lines()
@@ -251,7 +255,7 @@ value = true
 
     #[test]
     fn non_primitive_variables_are_not_editable() {
-        let schema_variable = "schema_version = 1\nschema = \"schemas/x.json\"\n";
+        let schema_variable = "schema_version = 1\nschema = \"x.json\"\n";
         assert!(update_primitive_variable_default(schema_variable, "1").is_err());
     }
 }

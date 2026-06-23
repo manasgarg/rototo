@@ -61,7 +61,7 @@ The Rust crate exposes the broadest SDK surface:
 | `Workspace::inspect` | Load workspace files without compiling runtime state. |
 | `Workspace::lint` | Run lint against the loaded root. |
 | `Workspace::resolve_variable` | Resolve one variable. |
-| `Workspace::resolve_qualifier` | Resolve one qualifier. |
+| `Workspace::resolve_qualifier` | Resolve one qualifier to a boolean. |
 | `RefreshingWorkspace::load` | Load and optionally start periodic refresh. |
 | `RefreshingWorkspace::refresh_now` | Run a manual refresh. |
 | `RefreshingWorkspace::status` | Read refresh state. |

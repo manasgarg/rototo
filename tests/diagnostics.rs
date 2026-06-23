@@ -78,6 +78,13 @@ fn retired_rototo_rules_are_not_listed() {
         "rototo/variable-missing-table",
         "rototo/variable-values-missing",
         "rototo/variable-value-unused",
+        "rototo/workspace-context-schema-ref",
+        "rototo/workspace-context-schema-attribute",
+        "rototo/workspace-context-schema-reserved-field",
+        "rototo/workspace-context-schema-missing",
+        "rototo/qualifier-predicate-context-type-mismatch",
+        "rototo/catalog-schema-version",
+        "rototo/catalog-schema-ref",
     ] {
         assert!(
             !rules.contains(&retired),
@@ -127,7 +134,7 @@ fn lists_workspace_level_custom_diagnostics() {
         .assert()
         .success()
         .stdout(predicate::str::contains("targets/variable-type"))
-        .stdout(predicate::str::contains("targets/schema-json"));
+        .stdout(predicate::str::contains("targets/workspace-extends"));
 }
 
 #[test]
@@ -161,14 +168,14 @@ fn custom_diagnostic_catalog_entries_do_not_claim_variable_entity() {
 
     assert!(output.status.success());
     let catalog: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
-    let schema_rule = catalog["lint_rules"]
+    let custom_rule = catalog["lint_rules"]
         .as_array()
         .unwrap()
         .iter()
-        .find(|diagnostic| diagnostic["rule"] == "targets/schema-json")
+        .find(|diagnostic| diagnostic["rule"] == "targets/variable-type")
         .unwrap();
 
-    assert!(schema_rule.get("entity").is_none(), "{schema_rule:#}");
+    assert!(custom_rule.get("entity").is_none(), "{custom_rule:#}");
 }
 
 #[test]

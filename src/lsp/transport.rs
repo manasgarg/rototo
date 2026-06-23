@@ -164,6 +164,8 @@ mod tests {
 
     #[tokio::test]
     async fn read_message_rejects_oversized_content_length_before_allocation() {
+        // LSP messages are framed with Content-Length. Rejecting huge lengths
+        // before allocation keeps a bad client from forcing a large buffer.
         let input = format!(
             "Content-Length: {}\r\n\r\n",
             MAX_CONTENT_LENGTH.saturating_add(1)
@@ -177,6 +179,8 @@ mod tests {
 
     #[tokio::test]
     async fn read_message_rejects_missing_and_malformed_content_length() {
+        // Without a valid Content-Length header, the server cannot know where
+        // the JSON body ends, so malformed framing is a protocol error.
         let missing = read_message(&mut BufReader::new("\r\n{}".as_bytes()))
             .await
             .unwrap_err();
@@ -192,6 +196,8 @@ mod tests {
 
     #[tokio::test]
     async fn read_message_accepts_valid_framing() {
+        // This is the happy-path framing shape sent by real LSP clients:
+        // headers, a blank line, then exactly Content-Length bytes of JSON.
         let body = r#"{"jsonrpc":"2.0","method":"ping"}"#;
         let input = format!("Content-Length: {}\r\n\r\n{body}", body.len());
         let mut input = BufReader::new(input.as_bytes());

@@ -179,7 +179,8 @@ rototo console
 ```
 
 It starts on `http://127.0.0.1:7686` with no sign-in. Local workspaces can be
-read from disk, and GitHub workspaces use your ambient GitHub token
+read from disk and edited in the local working tree when writes are enabled.
+GitHub workspaces use your ambient GitHub token
 (`ROTOTO_WORKSPACE_TOKEN` or `gh auth token`) when a credential is needed.
 Hosted deployments configure GitHub OAuth. Fixed-source deployments use
 `--workspace <source>` and choose writes with

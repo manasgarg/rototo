@@ -123,41 +123,41 @@ method casing.
 
 :::sdk-snippet resolve-qualifier
 ```rust
-let resolution = workspace
+let matches = workspace
     .resolve_qualifier("enterprise-account", &context)
     .await?;
 
-println!("{}", resolution.value);
+println!("{matches}");
 ```
 
 ```python
-resolution = await workspace.resolve_qualifier(
+matches = await workspace.resolve_qualifier(
     "enterprise-account",
     context,
 )
 
-print(resolution.value)
+print(matches)
 ```
 
 ```typescript
-const resolution = await workspace.resolveQualifier(
+const matches = await workspace.resolveQualifier(
   "enterprise-account",
   context,
 );
 
-console.log(resolution.value);
+console.log(matches);
 ```
 
 ```java
-QualifierResolution resolution = workspace
+boolean matches = workspace
     .resolveQualifier("enterprise-account", context)
     .get();
 
-System.out.println(resolution.value());
+System.out.println(matches);
 ```
 
 ```go
-resolution, err := workspace.ResolveQualifier(
+matches, err := workspace.ResolveQualifier(
     ctx,
     "enterprise-account",
     resolveContext,
@@ -167,21 +167,16 @@ if err != nil {
     return err
 }
 
-fmt.Println(resolution.Value)
+fmt.Println(matches)
 ```
 :::
 
-`QualifierResolution` contains:
-
-| Field | Type | Meaning |
-| --- | --- | --- |
-| `id` | string | Qualifier id. |
-| `value` | boolean | Final qualifier result. |
+Qualifier resolution returns the final boolean result.
 
 ## Context Validation Options
 
-By default, SDK resolution validates context against
-`schemas/context.schema.json` when the workspace provides that schema.
+By default, SDK resolution validates context against a compatible request
+context schema when the workspace provides one.
 
 To skip validation for a specific call:
 

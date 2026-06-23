@@ -8,10 +8,8 @@ use crate::lua_lint;
 
 use super::super::engine::LintContext;
 use super::super::stages::push_stage_diagnostic;
-use super::marshal::{lint_stage_label, registered_lint_entity_label};
-use super::registry::parse_registered_lint_output_field;
 use super::targets::{
-    registered_lint_output_location, registered_lint_output_target, registered_lint_targets,
+    registered_lint_output_anchor, registered_lint_targets, registered_lint_workspace,
 };
 
 pub(super) async fn register_pipeline_lint(
@@ -22,16 +20,15 @@ pub(super) async fn register_pipeline_lint(
 }
 
 async fn lint_registered_target(
-    stage: LintStage,
-    entity: String,
-    data: JsonValue,
+    workspace: JsonValue,
+    target: JsonValue,
     lint_path: PathBuf,
     script: String,
     handler: String,
 ) -> Result<Vec<lua_lint::RegisteredCustomLintOutput>> {
     lua_lint::lint_registered_target(lua_lint::RegisteredLintInput {
-        stage: lint_stage_label(stage).to_owned(),
-        target: lua_lint::RegisteredLintTarget { entity, data },
+        workspace,
+        target,
         lint_path,
         script,
         handler,
@@ -72,12 +69,12 @@ pub(crate) async fn run_registered_custom_lints(ctx: &mut LintContext, stage: Li
         else {
             continue;
         };
+        let workspace = registered_lint_workspace(ctx);
         for target in targets {
             match lint_registered_target(
-                stage,
-                registered_lint_entity_label(registration.selector.entity).to_owned(),
+                workspace.clone(),
                 target.data.clone(),
-                ctx.source.root.join(&registration.file_path),
+                std::path::PathBuf::from(&registration.file_path),
                 document.text.clone(),
                 registration.handler.clone(),
             )
@@ -85,16 +82,13 @@ pub(crate) async fn run_registered_custom_lints(ctx: &mut LintContext, stage: Li
             {
                 Ok(outputs) => {
                     for output in outputs {
-                        let output_field = output.field.as_deref().and_then(|field| {
-                            parse_registered_lint_output_field(registration.selector.entity, field)
-                        });
-                        let location =
-                            registered_lint_output_location(ctx, &target, output_field.as_ref());
+                        let anchor =
+                            registered_lint_output_anchor(ctx, &target, output.path.as_deref());
                         ctx.diagnostics.push(LintDiagnostic::custom(
                             &definition,
                             stage,
-                            registered_lint_output_target(&target, output_field.as_ref()),
-                            location,
+                            anchor.target,
+                            anchor.location,
                             output.message,
                         ));
                     }

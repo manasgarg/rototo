@@ -5,6 +5,8 @@
 export type ConsoleDeployment = "local" | "hosted";
 /** Server write policy resolved once at console startup. */
 export type ConsoleWritePolicy = "disabled" | "pull-request" | "direct-push";
+/** Console state persistence mode resolved at startup. */
+export type ConsoleStateMode = "ephemeral" | "persistent";
 /** Explanation of where the active GitHub token came from. */
 export type GitHubTokenSource =
     | "flag"
@@ -66,7 +68,7 @@ export type WorkspaceCapability =
 export type WorkspaceWriteCapability =
     | { kind: "disabled"; reason: string }
     | { kind: "pullRequest"; backend: "gitHubApi" }
-    | { kind: "directPush"; backend: "gitHubApi" };
+    | { kind: "directPush"; backend: "gitHubApi" | "localWorkingTree" };
 
 /** Combined read/write capability summary for one workspace response. */
 export type WorkspaceCapabilities = {
@@ -105,12 +107,20 @@ export type SourceTreeWithWorkspaces = SourceTreeRecord & {
     workspaces: WorkspaceRecord[];
 };
 
+/** Console source-management and persistence state. */
+export type ConsoleState = {
+    mode: ConsoleStateMode;
+    fixedWorkspace: boolean;
+    canManageSourceTrees: boolean;
+};
+
 /** Persisted workspace discovery row inside a registered source tree. */
 export type WorkspaceRecord = {
     id: string;
     slug: string;
     sourceTreeId: string;
     sourceTreeLabel: string;
+    displayPath: string;
     path: string;
     revision: string;
     source: string;
@@ -201,12 +211,13 @@ export type ModelValueField = {
     location: ModelLocation;
 };
 
-/** Qualifier predicate as described by the semantic model. */
+/** Legacy qualifier predicate shape retained only for older payloads. */
 export type PredicateModel = {
     index: number;
     location: ModelLocation;
     attribute?: ModelField;
     op?: ModelField;
+    not?: boolean;
     value?: unknown;
 };
 
@@ -215,6 +226,7 @@ export type QualifierModel = {
     id: string;
     location: ModelLocation;
     description?: string;
+    when?: ModelField;
     predicates: PredicateModel[];
 };
 
@@ -237,6 +249,8 @@ export type RuleModel = {
     index: number;
     location: ModelLocation;
     qualifier?: ModelField;
+    when?: ModelField;
+    query?: ModelField;
     value?: ModelValueField;
 };
 
@@ -260,9 +274,10 @@ export type VariableModel = {
 /** Catalog declaration from the semantic model. */
 export type CatalogModel = {
     id: string;
+    path: string;
     location: ModelLocation;
     description?: string;
-    schema?: ModelField;
+    json?: unknown;
 };
 
 /** Catalog value value from the semantic model. */
@@ -273,11 +288,33 @@ export type CatalogEntryModel = {
     value: unknown;
 };
 
-/** JSON Schema file from the semantic model. */
-export type SchemaModel = {
+/** Request context schema from the semantic model. */
+export type RequestContextModel = {
+    id: string;
     path: string;
     location: ModelLocation;
+    title?: string;
+    description?: string;
     json?: unknown;
+};
+
+/** Saved request context sample from the semantic model. */
+export type RequestContextEntryModel = {
+    requestContext: string;
+    key: string;
+    path: string;
+    location: ModelLocation;
+    value?: unknown;
+};
+
+export type QualifierRequestContextModel = {
+    qualifier: string;
+    requestContexts: string[];
+};
+
+export type VariableRequestContextModel = {
+    variable: string;
+    requestContexts: string[];
 };
 
 /** Custom Lua linter file and the rules it declares. */
@@ -293,18 +330,18 @@ export type ModelEntityRef =
     | { kind: "variable"; id: string }
     | { kind: "catalog"; id: string }
     | { kind: "catalogEntry"; catalog: string; key: string }
-    | { kind: "schema"; path: string }
+    | { kind: "requestContext"; id: string }
+    | { kind: "requestContextEntry"; requestContext: string; key: string }
     | { kind: "value"; variable: string; key: string }
     | { kind: "contextAttribute"; name: string };
 
 /** Edge reason used by semantic references. */
 export type ModelReferenceVia =
-    | { kind: "predicateQualifier"; index: number }
-    | { kind: "predicateContextAttribute"; index: number }
+    | { kind: "qualifierWhen" }
+    | { kind: "qualifierWhenContextAttribute" }
     | { kind: "variableCatalog" }
-    | { kind: "catalogSchema" }
     | { kind: "resolveDefault" }
-    | { kind: "ruleQualifier"; index: number }
+    | { kind: "ruleCondition"; index: number }
     | { kind: "ruleValue"; index: number };
 
 /** Directed semantic reference from one workspace entity to another. */
@@ -322,9 +359,12 @@ export type WorkspaceSemanticModel = {
     variables: VariableModel[];
     catalogs: CatalogModel[];
     catalogEntries: CatalogEntryModel[];
-    schemas: SchemaModel[];
+    requestContexts: RequestContextModel[];
+    requestContextEntries: RequestContextEntryModel[];
     linters: LinterModel[];
     references: ReferenceModel[];
+    qualifierRequestContexts: QualifierRequestContextModel[];
+    variableRequestContexts: VariableRequestContextModel[];
 };
 
 /* Workspace inventory, computed server-side from the semantic model. */
@@ -339,7 +379,6 @@ export type VariableInventoryItem = {
     qualifierReferences: string[];
     ruleValues: string[];
     catalogReference: string | null;
-    schemaReference: string | null;
 };
 
 /** Qualifier inventory row derived from the semantic model. */
@@ -357,7 +396,6 @@ export type CatalogInventoryItem = {
     path: string;
     description: string | null;
     schema: string | null;
-    schemaReference: string | null;
     entryCount: number;
 };
 
@@ -369,11 +407,19 @@ export type CatalogEntryInventoryItem = {
     path: string;
 };
 
-/** Standalone schema inventory row for editor navigation. */
-export type SchemaInventoryItem = {
+export type RequestContextInventoryItem = {
     id: string;
     path: string;
     title: string | null;
+    description: string | null;
+    entryCount: number;
+};
+
+export type RequestContextEntryInventoryItem = {
+    requestContextId: string;
+    key: string;
+    id: string;
+    path: string;
 };
 
 /** Custom lint rule or script inventory row for editor navigation. */
@@ -384,9 +430,10 @@ export type LinterInventoryItem = {
     kind: "rule" | "script";
 };
 
-/** Context schema/example summary discovered for preview inputs. */
+/** Request context schema/sample summary discovered for preview inputs. */
 export type ContextInventory = {
-    schemaPath: string | null;
+    requestContexts: RequestContextInventoryItem[];
+    entries: RequestContextEntryInventoryItem[];
     exampleCount: number;
     examples: string[];
 };
@@ -397,7 +444,6 @@ export type WorkspaceInventory = {
     qualifiers: QualifierInventoryItem[];
     catalogs: CatalogInventoryItem[];
     catalogEntries: CatalogEntryInventoryItem[];
-    schemas: SchemaInventoryItem[];
     linters: LinterInventoryItem[];
     context: ContextInventory;
 };
@@ -411,14 +457,16 @@ export type WorkspaceDefinition = {
 
 /* Resolution previews against saved request contexts, computed server-side
    by the real runtime. */
-/** Runtime qualifier evaluation annotated with predicate-level detail. */
+/** Runtime qualifier evaluation annotated with the condition expression. */
 export type QualifierEvaluation = {
     id: string;
     matched: boolean | null;
+    when: string | null;
     predicates: Array<{
         index: number;
         attribute: string | null;
         op: string | null;
+        not: boolean;
         valueLiteral: string | null;
         contextValue: string | null;
         nested: QualifierEvaluation | null;
@@ -428,6 +476,7 @@ export type QualifierEvaluation = {
 /** Variable preview result for one saved request context. */
 export type SavedContextResolution = {
     name: string;
+    requestContext: string;
     path: string;
     ok: boolean;
     value?: unknown;
@@ -449,6 +498,7 @@ export type VariableResolutionSource =
 /** Qualifier preview result for one saved request context. */
 export type QualifierContextEvaluation = {
     name: string;
+    requestContext: string;
     path: string;
     evaluation: QualifierEvaluation | null;
     error?: string;
@@ -457,19 +507,14 @@ export type QualifierContextEvaluation = {
 /** Branch edit preview truth table for one saved request context. */
 export type EditContextPreview = {
     name: string;
+    requestContext: string;
     qualifierTruth: Record<string, boolean>;
 };
 
 /* Branch editing: each editable entity arrives with its branch text. */
 /** Branch-branch entity text and metadata used by the editor screens. */
 export type EditableEntity = {
-    section:
-        | "variables"
-        | "qualifiers"
-        | "catalogs"
-        | "schemas"
-        | "context"
-        | "linters";
+    section: "variables" | "qualifiers" | "catalogs" | "context" | "linters";
     id: string;
     kind: string;
     path: string;
@@ -484,6 +529,7 @@ export type EditableEntity = {
 /* Screen payloads. */
 /** App shell payload: source trees, workspaces, and active branch rows. */
 export type ConsoleData = {
+    state: ConsoleState;
     sourceTrees: SourceTreeWithWorkspaces[];
     workspaces: WorkspaceRecord[];
     branches: Array<{ branch: BranchRecord; workspace: WorkspaceRecord }>;
@@ -494,7 +540,6 @@ export type WorkspaceSummary = {
     variables: number;
     qualifiers: number;
     catalogs: number;
-    schemas: number;
     error: string | null;
 };
 
@@ -515,6 +560,7 @@ export type WorkspaceData = {
     branches: BranchRecord[];
     inventory: WorkspaceInventory;
     inventoryError: string | null;
+    definitions: WorkspaceDefinition[];
     lint: WorkspaceLintLoad;
     model: WorkspaceSemanticModel | null;
     sourceKind: WorkspaceSourceKind;

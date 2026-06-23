@@ -7,7 +7,7 @@ range after the team has observed the behavior.
 
 The important word is stable. The same account should get the same result on
 every request while the rollout policy is unchanged. Rototo
-[bucket predicates](reference-predicate-operators.html) give us that behavior
+[bucket conditions](reference-predicate-operators.html) give us that behavior
 without putting random selection in app code.
 
 We will model that as `rollout-config`, with one variable named
@@ -61,10 +61,7 @@ Create [`rollout-config/qualifiers/test-accounts.toml`](reference-qualifiers.htm
 schema_version = 1
 description = "Accounts marked for live configuration testing"
 
-[[predicate]]
-attribute = "account.kind"
-op = "eq"
-value = "test"
+when = 'context.account.kind == "test"'
 ```
 
 Update `rollout-config/variables/search-ranking-mode.toml`:
@@ -79,20 +76,20 @@ type = "string"
 default = "stable"
 
 [[resolve.rule]]
-qualifier = "test-accounts"
+when = 'qualifier["test-accounts"]'
 value = "hybrid"
 ```
 
 This is the first PR I would ship. The service can refresh the workspace, and
 test accounts can use `hybrid` while every regular account stays on `stable`.
 
-Generate the first [context schema](reference-context.html):
+Generate the first [request context schema](reference-context.html):
 
 ```sh
 rototo init rollout-config --context
 ```
 
-On this workspace, rototo writes `rollout-config/schemas/context.schema.json`:
+On this workspace, rototo writes `rollout-config/request-contexts/request.schema.json`:
 
 ```json
 {
@@ -150,17 +147,13 @@ Create `rollout-config/qualifiers/hybrid-ranking-bucket.toml`:
 schema_version = 1
 description = "Stable five percent rollout bucket for hybrid ranking"
 
-[[predicate]]
-attribute = "account.id"
-op = "bucket"
-salt = "search-ranking-hybrid-2026-06"
-range = [0, 500]
+when = 'bucket(context.account.id, "search-ranking-hybrid-2026-06", 0, 500)'
 ```
 
 The bucket range is on a 0 to 10000 scale, so `[0, 500]` is five percent. The
 salt names this rollout. Keep it stable while you widen the range; changing the
 salt reshuffles account assignment. The exact operator rules are in
-[Predicate Operators](reference-predicate-operators.html).
+[Expressions](reference-predicate-operators.html).
 
 Now update the variable:
 
@@ -174,11 +167,11 @@ type = "string"
 default = "stable"
 
 [[resolve.rule]]
-qualifier = "test-accounts"
+when = 'qualifier["test-accounts"]'
 value = "hybrid"
 
 [[resolve.rule]]
-qualifier = "hybrid-ranking-bucket"
+when = 'qualifier["hybrid-ranking-bucket"]'
 value = "hybrid"
 ```
 
@@ -188,16 +181,16 @@ bucket covers regular accounts after that.
 
 ## Regenerate The Context Contract
 
-The new bucket qualifier introduced `account.id`. Regenerate the context schema
-after that path exists. Since the file already exists from the test-account
-phase, use `--force` and review the resulting diff:
+The new bucket qualifier introduced `account.id`. Regenerate the request
+context schema after that path exists. Since the file already exists from the
+test-account phase, use `--force` and review the resulting diff:
 
 ```sh
 rototo init rollout-config --context --force
 ```
 
 On this workspace, the regenerated
-`rollout-config/schemas/context.schema.json` includes both paths:
+`rollout-config/request-contexts/request.schema.json` includes both paths:
 
 ```json
 {
@@ -266,11 +259,7 @@ When the five percent rollout looks healthy, widen the same bucket by changing
 the range:
 
 ```toml
-[[predicate]]
-attribute = "account.id"
-op = "bucket"
-salt = "search-ranking-hybrid-2026-06"
-range = [0, 2000]
+when = 'bucket(context.account.id, "search-ranking-hybrid-2026-06", 0, 2000)'
 ```
 
 That moves the rollout to twenty percent without changing the salt. Existing

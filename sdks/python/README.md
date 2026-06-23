@@ -61,21 +61,21 @@ print(resolution.source)
 ## Resolve A Qualifier
 
 ```python
-resolution = await workspace.resolve_qualifier(
+matches = await workspace.resolve_qualifier(
     "premium-users",
     {"user": {"tier": "premium"}},
 )
 
-print(resolution.value)
+print(matches)
 ```
 
-`QualifierResolution` has `id` and `value`.
+Qualifier resolution returns the final boolean result.
 
 ## Context Validation
 
-Resolution validates [context](https://docs.rototo.dev/reference-context.html) against
-`schemas/context.schema.json` by default. Skip validation for one call when a
-tool needs to evaluate partial context:
+Resolution validates [context](https://docs.rototo.dev/reference-context.html) against a compatible
+request context schema by default. Skip validation for one call when a tool
+needs to evaluate partial context:
 
 ```python
 resolution = await workspace.resolve_variable(
@@ -137,6 +137,5 @@ Invalid Python option values, such as an unknown lint mode, raise Python
 | `Workspace` | Loaded workspace handle. |
 | `RefreshingWorkspace` | Refreshing workspace handle for services. |
 | `VariableResolution` | Selected variable value. |
-| `QualifierResolution` | Qualifier boolean result. |
 | `RefreshStatus` | Refresh state snapshot. |
 | `RototoError` | Error raised for rototo failures. |

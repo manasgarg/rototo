@@ -38,7 +38,9 @@ use self::auth::{
     GITHUB_CLIENT_ID_ENV, GITHUB_CLIENT_SECRET_ENV, HostedOAuth, LocalAuth, baked_device_client_id,
     resolve_ambient_token,
 };
-use self::capabilities::{DeploymentType, WritePolicy};
+use self::capabilities::{
+    DeploymentType, WorkspaceSourceKind, WritePolicy, classify_workspace_source,
+};
 use self::github::GitHubClient;
 use self::lsp::LspSessions;
 use self::observability::DevObservability;
@@ -76,9 +78,26 @@ pub struct ConsoleOptions {
     pub public_url: Option<String>,
     pub data_dir: Option<PathBuf>,
     pub workspace: Option<String>,
+    pub state_mode: Option<ConsoleStateMode>,
     pub deployment: Option<ConsoleDeployment>,
-    pub write_policy: WritePolicy,
+    pub write_policy: Option<WritePolicy>,
     pub workspace_token: Option<String>,
+}
+
+/// Whether console state is scoped to this process or persisted in the data dir.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ConsoleStateMode {
+    Ephemeral,
+    Persistent,
+}
+
+impl ConsoleStateMode {
+    pub(crate) fn label(self) -> &'static str {
+        match self {
+            Self::Ephemeral => "ephemeral",
+            Self::Persistent => "persistent",
+        }
+    }
 }
 
 /// Optional per-user console startup environment.
@@ -162,12 +181,6 @@ pub async fn run(options: ConsoleOptions) -> Result<()> {
             None => default_data_dir()?,
         },
     };
-    tokio::fs::create_dir_all(&data_dir).await.map_err(|err| {
-        RototoError::new(format!(
-            "failed to create console data directory {}: {err}",
-            data_dir.display()
-        ))
-    })?;
 
     let deployment_selection = resolve_deployment(
         options.deployment.clone(),
@@ -176,11 +189,26 @@ pub async fn run(options: ConsoleOptions) -> Result<()> {
     )?;
     let deployment = deployment_selection.deployment;
     let oauth = deployment_selection.oauth;
+    let state_mode = resolve_state_mode(
+        options.state_mode,
+        &deployment,
+        options.workspace.as_deref(),
+    );
+    let write_policy = resolve_write_policy(options.write_policy, options.workspace.as_deref());
+    if matches!(state_mode, ConsoleStateMode::Persistent) {
+        tokio::fs::create_dir_all(&data_dir).await.map_err(|err| {
+            RototoError::new(format!(
+                "failed to create console data directory {}: {err}",
+                data_dir.display()
+            ))
+        })?;
+    }
     tracing::info!(
         operation = "console.startup",
         deployment = deployment.label(),
         deployment_source = deployment_selection.reason.label(),
-        write_policy = options.write_policy.label(),
+        state_mode = state_mode.label(),
+        write_policy = write_policy.label(),
         data_dir = %data_dir.display(),
         fixed_workspace = options.workspace.is_some(),
         "console startup configuration resolved"
@@ -204,7 +232,7 @@ pub async fn run(options: ConsoleOptions) -> Result<()> {
     let console_host = public_url_host(&public_url);
     let runtime_config = ConsoleRuntimeConfig::load(ConsoleRuntimeBase {
         deployment: deployment.clone(),
-        write_policy: options.write_policy,
+        write_policy,
         console_host: console_host.clone(),
         fixed_workspace: options.workspace.is_some(),
         secure_cookies,
@@ -225,8 +253,12 @@ pub async fn run(options: ConsoleOptions) -> Result<()> {
     );
 
     let token_key = admin_env.get(token_crypto::KEY_ENV);
-    let crypto = resolve_token_crypto(&deployment, &data_dir, token_key.as_deref()).await?;
-    let store = Store::open(&data_dir.join("console.db"), crypto)?;
+    let crypto =
+        resolve_token_crypto(&deployment, state_mode, &data_dir, token_key.as_deref()).await?;
+    let store = match state_mode {
+        ConsoleStateMode::Ephemeral => Store::open_in_memory(crypto)?,
+        ConsoleStateMode::Persistent => Store::open(&data_dir.join("console.db"), crypto)?,
+    };
 
     let local = match deployment {
         DeploymentType::Local => {
@@ -234,11 +266,13 @@ pub async fn run(options: ConsoleOptions) -> Result<()> {
                 .workspace_token
                 .clone()
                 .or_else(|| admin_env.get(WORKSPACE_TOKEN_ENV));
-            let ambient = resolve_ambient_token(workspace_token.as_deref(), &data_dir).await;
+            let credential_dir =
+                matches!(state_mode, ConsoleStateMode::Persistent).then_some(data_dir.as_path());
+            let ambient = resolve_ambient_token(workspace_token.as_deref(), credential_dir).await;
             let device_client_id = admin_env
                 .get(GITHUB_CLIENT_ID_ENV)
                 .or_else(baked_device_client_id);
-            Some(LocalAuth::new(ambient, &data_dir, device_client_id))
+            Some(LocalAuth::new(ambient, credential_dir, device_client_id))
         }
         DeploymentType::Hosted => None,
     };
@@ -246,7 +280,8 @@ pub async fn run(options: ConsoleOptions) -> Result<()> {
     let state = Arc::new(ConsoleState {
         deployment: deployment.clone(),
         oauth,
-        write_policy: options.write_policy,
+        state_mode,
+        write_policy,
         fixed_workspace_source: options.workspace.clone(),
         store,
         github: GitHubClient::new(),
@@ -268,9 +303,10 @@ pub async fn run(options: ConsoleOptions) -> Result<()> {
     }
 
     println!(
-        "rototo console ({}, write: {}) listening on {public_url}",
+        "rototo console ({}, state: {}, write: {}) listening on {public_url}",
         deployment.label(),
-        options.write_policy.label()
+        state_mode.label(),
+        write_policy.label()
     );
     match &deployment {
         DeploymentType::Local => {
@@ -386,6 +422,44 @@ fn resolve_deployment(
     })
 }
 
+fn resolve_state_mode(
+    explicit: Option<ConsoleStateMode>,
+    deployment: &DeploymentType,
+    workspace: Option<&str>,
+) -> ConsoleStateMode {
+    if let Some(mode) = explicit {
+        return mode;
+    }
+    let Some(workspace) = workspace else {
+        return ConsoleStateMode::Persistent;
+    };
+    if !matches!(deployment, DeploymentType::Local) {
+        return ConsoleStateMode::Persistent;
+    }
+    match classify_workspace_source(workspace) {
+        WorkspaceSourceKind::LocalPath | WorkspaceSourceKind::FileUrl => {
+            ConsoleStateMode::Ephemeral
+        }
+        WorkspaceSourceKind::GitFile
+        | WorkspaceSourceKind::GitHubArchive
+        | WorkspaceSourceKind::GitHubGit
+        | WorkspaceSourceKind::HttpsArchive
+        | WorkspaceSourceKind::GenericGitRemote => ConsoleStateMode::Persistent,
+    }
+}
+
+fn resolve_write_policy(explicit: Option<WritePolicy>, workspace: Option<&str>) -> WritePolicy {
+    if let Some(policy) = explicit {
+        return policy;
+    }
+    match workspace.map(classify_workspace_source) {
+        Some(WorkspaceSourceKind::LocalPath | WorkspaceSourceKind::FileUrl) => {
+            WritePolicy::DirectPush
+        }
+        _ => WritePolicy::PullRequest,
+    }
+}
+
 fn resolve_hosted_oauth(admin_env: &ConsoleAdminEnv) -> Result<HostedOAuth> {
     let client_id = admin_env.get(GITHUB_CLIENT_ID_ENV).unwrap_or_default();
     let client_secret = admin_env.get(GITHUB_CLIENT_SECRET_ENV).unwrap_or_default();
@@ -406,11 +480,15 @@ fn resolve_hosted_oauth_from_env(client_id: &str, client_secret: &str) -> Result
 
 async fn resolve_token_crypto(
     deployment: &DeploymentType,
+    state_mode: ConsoleStateMode,
     data_dir: &std::path::Path,
     env_value: Option<&str>,
 ) -> Result<TokenCrypto> {
     if let Some(raw) = env_value {
         return TokenCrypto::from_env_value(raw);
+    }
+    if matches!(state_mode, ConsoleStateMode::Ephemeral) {
+        return TokenCrypto::generate();
     }
     if matches!(deployment, DeploymentType::Hosted) {
         return Err(RototoError::new(format!(
@@ -663,9 +741,9 @@ pub(crate) async fn register_fixed_workspace(
     state: &ConsoleState,
     principal_id: &str,
     source: &str,
-) -> Result<()> {
+) -> Result<store::SourceTreeWithWorkspaces> {
     let registration = fixed_workspace::registration(source).await?;
-    state
+    let stored = state
         .store
         .upsert_source_tree_with_workspaces(store::RegisterSourceTreeInput {
             principal_id: principal_id.to_owned(),
@@ -676,7 +754,7 @@ pub(crate) async fn register_fixed_workspace(
             workspaces: registration.workspaces,
         })
         .await?;
-    Ok(())
+    Ok(stored)
 }
 
 #[cfg(test)]
@@ -769,6 +847,71 @@ mod tests {
         assert_eq!(selection.deployment, DeploymentType::Hosted);
         assert_eq!(selection.reason, DeploymentSelectionReason::ExplicitFlag);
         assert!(selection.oauth.is_some());
+    }
+
+    #[test]
+    fn resolve_state_mode_defaults_ephemeral_for_local_folder_workspace() {
+        assert_eq!(
+            resolve_state_mode(
+                Some(ConsoleStateMode::Persistent),
+                &DeploymentType::Local,
+                Some(".")
+            ),
+            ConsoleStateMode::Persistent
+        );
+        assert_eq!(
+            resolve_state_mode(None, &DeploymentType::Local, Some(".")),
+            ConsoleStateMode::Ephemeral
+        );
+        assert_eq!(
+            resolve_state_mode(None, &DeploymentType::Local, Some("file:///tmp/configs")),
+            ConsoleStateMode::Ephemeral
+        );
+    }
+
+    #[test]
+    fn resolve_state_mode_defaults_persistent_for_remote_or_hosted_sources() {
+        assert_eq!(
+            resolve_state_mode(
+                None,
+                &DeploymentType::Local,
+                Some("git+https://github.com/acme/configs.git#main")
+            ),
+            ConsoleStateMode::Persistent
+        );
+        assert_eq!(
+            resolve_state_mode(None, &DeploymentType::Hosted, Some(".")),
+            ConsoleStateMode::Persistent
+        );
+        assert_eq!(
+            resolve_state_mode(None, &DeploymentType::Local, None),
+            ConsoleStateMode::Persistent
+        );
+    }
+
+    #[test]
+    fn resolve_write_policy_defaults_direct_push_for_local_fixed_workspaces() {
+        assert_eq!(
+            resolve_write_policy(None, Some("examples/basic")),
+            WritePolicy::DirectPush
+        );
+        assert_eq!(
+            resolve_write_policy(None, Some("file:///tmp/configs")),
+            WritePolicy::DirectPush
+        );
+        assert_eq!(
+            resolve_write_policy(Some(WritePolicy::PullRequest), Some("examples/basic")),
+            WritePolicy::PullRequest
+        );
+    }
+
+    #[test]
+    fn resolve_write_policy_defaults_pull_request_for_remote_or_unscoped_console() {
+        assert_eq!(resolve_write_policy(None, None), WritePolicy::PullRequest);
+        assert_eq!(
+            resolve_write_policy(None, Some("git+https://github.com/acme/configs.git#main")),
+            WritePolicy::PullRequest
+        );
     }
 
     #[test]

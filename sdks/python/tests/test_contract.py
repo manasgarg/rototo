@@ -52,8 +52,7 @@ async def run_case(case: dict[str, Any]) -> dict[str, Any]:
 
     if operation == "resolve_qualifier":
         workspace = await rototo.Workspace.load(workspace_source)
-        result = await workspace.resolve_qualifier(case["id"], case.get("context", {}))
-        return {"id": result.id, "value": result.value}
+        return await workspace.resolve_qualifier(case["id"], case.get("context", {}))
 
     raise AssertionError(f"unsupported contract operation: {operation}")
 

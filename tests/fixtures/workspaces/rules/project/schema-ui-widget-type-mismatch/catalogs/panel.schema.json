@@ -1,0 +1,17 @@
+{
+  "description": "Panel catalog",
+  "type": "object",
+  "required": [
+    "title"
+  ],
+  "properties": {
+    "title": {
+      "type": "string",
+      "x-rototo-ui": {
+        "widget": "slider",
+        "min": 0,
+        "max": 10
+      }
+    }
+  }
+}

@@ -47,7 +47,6 @@ type EntitySection =
     | "variables"
     | "qualifiers"
     | "catalogs"
-    | "schemas"
     | "context"
     | "linters";
 
@@ -65,10 +64,14 @@ type FriendlyEntity = {
 type EditorTab = "form" | "source";
 
 /** Variable declaration mode understood by the friendly variable editor. */
-type VariableDeclarationKind = "primitive" | "catalog" | "schema";
+type VariableDeclarationKind =
+    | "primitive"
+    | "catalog"
+    | "primitiveList"
+    | "catalogList";
 
 /**
- * Optional context harvested from sibling entities and related schemas.
+ * Optional context harvested from sibling entities.
  *
  * The parent screen rebuilds this from the current workspace/branch payload for
  * each editor instance. Descriptions explain fields, examples show values
@@ -77,7 +80,6 @@ type VariableDeclarationKind = "primitive" | "catalog" | "schema";
 export type FormGuidance = {
     contextAttributeDocs?: Record<string, string>;
     attributeValueExamples?: Record<string, string[]>;
-    schemaDocs?: Record<string, string>;
     catalogDocs?: Record<string, string>;
     propertyExamples?: Record<string, string[]>;
     qualifierIds?: string[];
@@ -96,36 +98,14 @@ export type EditContextPreview = {
     qualifierTruth: Record<string, boolean>;
 };
 
-const PREDICATE_OPERATORS = [
-    "eq",
-    "neq",
-    "in",
-    "not_in",
-    "gt",
-    "gte",
-    "lt",
-    "lte",
-    "bucket",
-];
-
-const OPERATOR_HINTS: Record<string, string> = {
-    eq: "Matches when the attribute equals this value exactly.",
-    neq: "Matches when the attribute differs from this value.",
-    in: 'Matches when the attribute is in this list, e.g. ["premium", "enterprise"].',
-    not_in: 'Matches when the attribute is not in this list, e.g. ["trial"].',
-    gt: "Numeric: matches when the attribute is greater than this value.",
-    gte: "Numeric: matches when the attribute is at least this value.",
-    lt: "Numeric: matches when the attribute is less than this value.",
-    lte: "Numeric: matches when the attribute is at most this value.",
-    bucket: "Bucketed rollout — edit the percentage and salt in source mode.",
-};
-
 const PRIMITIVE_TYPES = ["bool", "int", "number", "string", "list"];
+const LIST_PRIMITIVE_TYPES = ["bool", "int", "number", "string"];
 
 const DECLARATION_HINTS: Record<VariableDeclarationKind, string> = {
     primitive: "Resolve values must match this primitive type.",
     catalog: "Resolve values select values from this catalog.",
-    schema: "Resolve values must validate against this JSON Schema.",
+    primitiveList: "Resolve values must be a list of this primitive type.",
+    catalogList: "Resolve values select a list of values from this catalog.",
 };
 
 export function FriendlyEntityEditor({
@@ -138,7 +118,6 @@ export function FriendlyEntityEditor({
     guidance = {},
     catalogIds = [],
     catalogSchema = null,
-    schemaPaths = [],
     sourceMarks = [],
     workspaceId,
 }: {
@@ -153,7 +132,6 @@ export function FriendlyEntityEditor({
     guidance?: FormGuidance;
     catalogIds?: string[];
     catalogSchema?: string | null;
-    schemaPaths?: string[];
     sourceMarks?: CodeEditorMark[];
     workspaceId: string;
 }) {
@@ -174,7 +152,6 @@ export function FriendlyEntityEditor({
         onChange: setContent,
         catalogIds,
         catalogSchema,
-        schemaPaths,
     });
     const [activeTab, setActiveTab] = useState<EditorTab>(
         form ? "form" : "source",
@@ -242,7 +219,6 @@ export function FriendlyEntityEditor({
                 onChange: setContent,
                 catalogIds,
                 catalogSchema,
-                schemaPaths,
             })
                 ? "form"
                 : "source",
@@ -414,7 +390,6 @@ function editorForm({
     onChange,
     catalogIds = [],
     catalogSchema,
-    schemaPaths = [],
 }: {
     content: string;
     contextAttributes: string[];
@@ -425,7 +400,6 @@ function editorForm({
     onChange: (content: string) => void;
     catalogIds?: string[];
     catalogSchema?: string | null;
-    schemaPaths?: string[];
 }): ReactNode | null {
     if (entity.language !== "toml") {
         return null;
@@ -435,12 +409,12 @@ function editorForm({
         return (
             <VariableFields
                 content={content}
+                contextAttributes={contextAttributes}
                 diagnostics={diagnostics}
                 disabled={disabled}
                 guidance={guidance}
                 onChange={onChange}
                 catalogIds={catalogIds}
-                schemaPaths={schemaPaths}
             />
         );
     }
@@ -454,18 +428,6 @@ function editorForm({
                 entityId={entity.id}
                 guidance={guidance}
                 onChange={onChange}
-            />
-        );
-    }
-    if (entity.kind === "catalog") {
-        return (
-            <CatalogFields
-                content={content}
-                diagnostics={diagnostics}
-                disabled={disabled}
-                guidance={guidance}
-                onChange={onChange}
-                schemaPaths={schemaPaths}
             />
         );
     }
@@ -547,23 +509,8 @@ function skeletonContent(input: {
         if (!has("description")) {
             missing.push('description = ""');
         }
-        if (!hasSection("[[predicate]]")) {
-            missing.push(
-                "[[predicate]]",
-                'attribute = "user.tier"',
-                'op = "eq"',
-                'value = "premium"',
-            );
-        }
-    } else if (entity.kind === "catalog") {
-        if (!has("schema_version")) {
-            missing.push("schema_version = 1");
-        }
-        if (!has("description")) {
-            missing.push('description = ""');
-        }
-        if (!has("schema")) {
-            missing.push(`schema = "../schemas/${entity.id}.schema.json"`);
+        if (!has("when")) {
+            missing.push('when = "context.user.tier == \\"premium\\""');
         }
     } else if (entity.kind === "catalog value") {
         const schema = parseObjectSchema(catalogSchema);
@@ -650,35 +597,33 @@ function targetFieldKind(diagnostic: LintDiagnostic): string | null {
 
 function VariableFields({
     content,
+    contextAttributes,
     diagnostics = [],
     disabled,
     guidance = {},
     onChange,
     catalogIds,
-    schemaPaths,
 }: {
     content: string;
+    contextAttributes: string[];
     diagnostics?: LintDiagnostic[];
     disabled?: boolean;
     guidance?: FormGuidance;
     onChange: (content: string) => void;
     catalogIds: string[];
-    schemaPaths: string[];
 }) {
     const fields = useMemo(() => variableFields(content), [content]);
     const model = useMemo(() => variableModel(content), [content]);
     const catalogValueOptions =
-        fields.declarationKind === "catalog"
+        fields.declarationKind === "catalog" ||
+        fields.declarationKind === "catalogList"
             ? (guidance.catalogEntryKeys?.[fields.declarationValue] ?? [])
             : [];
     const declarationDoc =
-        fields.declarationKind === "schema"
-            ? guidance.schemaDocs?.[
-                  fields.declarationValue.split("/").pop() ?? ""
-              ]
-            : fields.declarationKind === "catalog"
-              ? guidance.catalogDocs?.[fields.declarationValue]
-              : undefined;
+        fields.declarationKind === "catalog" ||
+        fields.declarationKind === "catalogList"
+            ? guidance.catalogDocs?.[fields.declarationValue]
+            : undefined;
     const declarationNotes = diagnostics.filter((diagnostic) => {
         const kind = targetFieldKind(diagnostic);
         return (
@@ -696,10 +641,14 @@ function VariableFields({
         let text = removeSectionBlock(content, "[values]");
         text = removeTopLevelField(text, "type");
         text = removeTopLevelField(text, "schema");
-        if (kind === "schema") {
-            onChange(setTopLevelStringField(text, "schema", value));
-        } else if (kind === "catalog") {
+        if (kind === "catalog") {
             onChange(setTopLevelStringField(text, "type", `catalog:${value}`));
+        } else if (kind === "catalogList") {
+            onChange(
+                setTopLevelStringField(text, "type", `list<catalog:${value}>`),
+            );
+        } else if (kind === "primitiveList") {
+            onChange(setTopLevelStringField(text, "type", `list<${value}>`));
         } else {
             onChange(setTopLevelStringField(text, "type", value));
         }
@@ -711,10 +660,10 @@ function VariableFields({
         }
         if (kind === "primitive") {
             updateDeclaration(kind, "string");
-        } else if (kind === "catalog") {
-            updateDeclaration(kind, catalogIds[0] ?? "");
+        } else if (kind === "primitiveList") {
+            updateDeclaration(kind, "string");
         } else {
-            updateDeclaration(kind, schemaPaths[0] ?? "");
+            updateDeclaration(kind, catalogIds[0] ?? "");
         }
     }
 
@@ -740,13 +689,29 @@ function VariableFields({
                 ))}
             </select>
         );
+    } else if (fields.declarationKind === "primitiveList") {
+        declarationControl = (
+            <select
+                className="input mono"
+                disabled={disabled}
+                onChange={(event) =>
+                    updateDeclaration("primitiveList", event.target.value)
+                }
+                value={
+                    LIST_PRIMITIVE_TYPES.includes(fields.declarationValue)
+                        ? fields.declarationValue
+                        : "string"
+                }
+            >
+                {LIST_PRIMITIVE_TYPES.map((type) => (
+                    <option key={type} value={type}>
+                        {type}
+                    </option>
+                ))}
+            </select>
+        );
     } else {
-        const listId =
-            fields.declarationKind === "catalog"
-                ? "variable-catalog-ids"
-                : "variable-schema-paths";
-        const suggestions =
-            fields.declarationKind === "catalog" ? catalogIds : schemaPaths;
+        const listId = "variable-catalog-ids";
         declarationControl = (
             <>
                 <input
@@ -762,7 +727,7 @@ function VariableFields({
                     value={fields.declarationValue}
                 />
                 <datalist id={listId}>
-                    {suggestions.map((suggestion) => (
+                    {catalogIds.map((suggestion) => (
                         <option key={suggestion} value={suggestion} />
                     ))}
                 </datalist>
@@ -805,7 +770,12 @@ function VariableFields({
                     >
                         <option value="primitive">primitive type</option>
                         <option value="catalog">catalog type</option>
-                        <option value="schema">schema path</option>
+                        <option value="primitiveList">
+                            list of primitive values
+                        </option>
+                        <option value="catalogList">
+                            list of catalog values
+                        </option>
                     </select>
                 </label>
                 <label className="field-stack">
@@ -855,6 +825,7 @@ function VariableFields({
                     </select>
                 ) : (
                     <VariableValueControl
+                        catalogValueOptions={catalogValueOptions}
                         declarationKind={model.declarationKind}
                         declarationValue={model.declarationValue}
                         disabled={disabled}
@@ -881,7 +852,9 @@ function VariableFields({
                 <span className="field-hint">
                     {fields.declarationKind === "catalog"
                         ? "Selects which catalog value applies when no rule matches."
-                        : "Applies when no rule matches."}
+                        : fields.declarationKind === "catalogList"
+                          ? "Selects which catalog values apply when no rule matches."
+                          : "Applies when no rule matches."}
                 </span>
             </label>
             <VariableRulesEditor
@@ -898,6 +871,7 @@ function VariableFields({
                         ),
                     )
                 }
+                contextAttributes={contextAttributes}
                 qualifierIds={guidance.qualifierIds ?? []}
                 valueOptions={catalogValueOptions}
             />
@@ -936,7 +910,7 @@ function VariableResolutionPreview({
                 ))}
             </div>
             <span className="field-hint">
-                Qualifiers are evaluated by rototo on the branch; the pathway
+                Conditions are evaluated by rototo on the branch; the pathway
                 follows your edits before you save.
             </span>
         </div>
@@ -949,15 +923,22 @@ function previewOutcome(
 ): string {
     for (let index = 0; index < model.rules.length; index += 1) {
         const rule = model.rules[index];
-        if (!rule.qualifier) {
+        if (rule.selectionKind === "query") {
+            return `rule[${index}] query — preview unavailable`;
+        }
+        const qualifier = simpleRuleQualifierId(rule);
+        if (qualifier === null) {
+            return `rule[${index}] expression — preview unavailable`;
+        }
+        if (!qualifier) {
             continue;
         }
-        const matched = preview.qualifierTruth[rule.qualifier];
+        const matched = preview.qualifierTruth[qualifier];
         if (matched === undefined) {
-            return `rule[${index}] ${rule.qualifier} — qualifier not evaluable yet`;
+            return `rule[${index}] ${qualifier} — condition not evaluable yet`;
         }
         if (matched) {
-            return `rule[${index}] ${rule.qualifier} → ${rule.value || "unset"}`;
+            return `rule[${index}] ${qualifier} → ${rule.value || "unset"}`;
         }
     }
     return model.defaultValue !== null
@@ -968,12 +949,14 @@ function previewOutcome(
 /* The value control morphs with the declaration: bool gets true/false,
    numbers get a number input, lists get a stacked item editor. */
 function VariableValueControl({
+    catalogValueOptions = [],
     declarationKind,
     declarationValue,
     disabled,
     literal,
     onUpdate,
 }: {
+    catalogValueOptions?: string[];
     declarationKind: VariableDeclarationKind;
     declarationValue: string;
     disabled?: boolean;
@@ -1033,6 +1016,27 @@ function VariableValueControl({
             />
         );
     }
+    if (declarationKind === "primitiveList") {
+        return (
+            <ListLiteralEditor
+                disabled={disabled}
+                itemType={declarationValue}
+                literal={literal}
+                onUpdate={onUpdate}
+            />
+        );
+    }
+    if (declarationKind === "catalogList") {
+        return (
+            <ListLiteralEditor
+                disabled={disabled}
+                itemType="string"
+                literal={literal}
+                onUpdate={onUpdate}
+                suggestions={catalogValueOptions}
+            />
+        );
+    }
     if (declarationKind === "primitive" && declarationValue === "list") {
         return (
             <ListLiteralEditor
@@ -1042,7 +1046,7 @@ function VariableValueControl({
             />
         );
     }
-    // schema-backed values and anything unrecognized: raw TOML literal
+    // anything unrecognized: raw TOML literal
     return (
         <input
             className="input mono"
@@ -1056,12 +1060,16 @@ function VariableValueControl({
 /* A list value as stacked items: add, edit, remove. */
 function ListLiteralEditor({
     disabled,
+    itemType = null,
     literal,
     onUpdate,
+    suggestions = [],
 }: {
     disabled?: boolean;
+    itemType?: string | null;
     literal: string;
     onUpdate: (literal: string) => void;
+    suggestions?: string[];
 }) {
     let items: unknown[] | null = null;
     try {
@@ -1083,24 +1091,51 @@ function ListLiteralEditor({
         );
     }
     const write = (next: unknown[]) => onUpdate(JSON.stringify(next));
+    const appendValue = suggestions[0] ?? defaultListItem(itemType);
     return (
         <div className="list-editor">
             {items.map((item, index) => (
                 <div className="list-item-row" key={index}>
-                    <input
-                        className="input mono"
-                        disabled={disabled}
-                        onChange={(event) => {
-                            const next = [...items];
-                            next[index] = parseListItem(event.target.value);
-                            write(next);
-                        }}
-                        value={
-                            typeof item === "string"
-                                ? item
-                                : JSON.stringify(item)
-                        }
-                    />
+                    {suggestions.length > 0 ? (
+                        <select
+                            className="input mono"
+                            disabled={disabled}
+                            onChange={(event) => {
+                                const next = [...items];
+                                next[index] = event.target.value;
+                                write(next);
+                            }}
+                            value={typeof item === "string" ? item : ""}
+                        >
+                            {suggestions.map((suggestion) => (
+                                <option key={suggestion} value={suggestion}>
+                                    {suggestion}
+                                </option>
+                            ))}
+                            {typeof item === "string" &&
+                            !suggestions.includes(item) ? (
+                                <option value={item}>{item}</option>
+                            ) : null}
+                        </select>
+                    ) : (
+                        <input
+                            className="input mono"
+                            disabled={disabled}
+                            onChange={(event) => {
+                                const next = [...items];
+                                next[index] = parseListItem(
+                                    event.target.value,
+                                    itemType,
+                                );
+                                write(next);
+                            }}
+                            value={
+                                typeof item === "string"
+                                    ? item
+                                    : JSON.stringify(item)
+                            }
+                        />
+                    )}
                     <button
                         aria-label="Remove item"
                         className="btn btn-ghost btn-icon btn-remove"
@@ -1117,7 +1152,7 @@ function ListLiteralEditor({
             <button
                 className="btn btn-ghost btn-sm"
                 disabled={disabled}
-                onClick={() => write([...items, ""])}
+                onClick={() => write([...items, appendValue])}
                 style={{ width: "fit-content" }}
                 type="button"
             >
@@ -1128,16 +1163,49 @@ function ListLiteralEditor({
     );
 }
 
-function parseListItem(value: string): unknown {
+function parseListItem(value: string, itemType?: string | null): unknown {
     const trimmed = value.trim();
+    if (itemType === "string") {
+        return value;
+    }
+    if (itemType === "bool") {
+        return trimmed === "true";
+    }
+    if (itemType === "int") {
+        return Number.parseInt(trimmed || "0", 10);
+    }
+    if (itemType === "number") {
+        return Number(trimmed || "0");
+    }
     if (trimmed === "true") return true;
     if (trimmed === "false") return false;
     if (/^-?\d+(?:\.\d+)?$/.test(trimmed)) return Number(trimmed);
     return value;
 }
 
-/* Resolve rules: if <qualifier> → <value>, in evaluation order. */
+function defaultListItem(itemType?: string | null): unknown {
+    switch (itemType) {
+        case "bool":
+            return false;
+        case "int":
+        case "number":
+            return 0;
+        default:
+            return "";
+    }
+}
+
+/* Resolve rules: optional condition plus either an explicit value or a catalog query. */
+type VariableRuleModel = {
+    condition: string;
+    conditionKind: "qualifier" | "expression";
+    query: string;
+    selectionKind: "value" | "query";
+    value: string;
+};
+
 function VariableRulesEditor({
+    contextAttributes,
     diagnostics,
     disabled,
     model,
@@ -1145,10 +1213,11 @@ function VariableRulesEditor({
     qualifierIds,
     valueOptions,
 }: {
+    contextAttributes: string[];
     diagnostics: LintDiagnostic[];
     disabled?: boolean;
     model: VariableModel;
-    onChange: (rules: Array<{ qualifier: string; value: string }>) => void;
+    onChange: (rules: VariableRuleModel[]) => void;
     qualifierIds: string[];
     valueOptions: string[];
 }) {
@@ -1158,6 +1227,16 @@ function VariableRulesEditor({
     const [dragIndex, setDragIndex] = useState<number | null>(null);
     const [dropIndex, setDropIndex] = useState<number | null>(null);
     const reorderable = !disabled && model.rules.length > 1;
+    const conditionSuggestions = ruleExpressionSuggestions({
+        contextAttributes,
+        includeEntry: false,
+        qualifierIds,
+    });
+    const querySuggestions = ruleExpressionSuggestions({
+        contextAttributes,
+        includeEntry: true,
+        qualifierIds,
+    });
 
     function moveRule(from: number, to: number) {
         if (from === to || to < 0 || to >= model.rules.length) {
@@ -1183,7 +1262,7 @@ function VariableRulesEditor({
             {model.rules.length === 0 ? (
                 <span className="field-hint">
                     No rules: every resolution gets the default value. Add a
-                    rule to vary the value by a qualifier.
+                    rule to vary the value by a condition.
                 </span>
             ) : null}
             {model.rules.map((rule, index) => {
@@ -1248,29 +1327,34 @@ function VariableRulesEditor({
                             ) : null}
                             <span className="rule-word">if</span>
                             <input
-                                aria-label="Rule qualifier"
+                                aria-label="Rule CEL condition"
                                 className="input mono"
                                 disabled={disabled}
-                                list="variable-rule-qualifiers"
+                                list="variable-rule-condition-expressions"
                                 onChange={(event) =>
                                     onChange(
                                         model.rules.map((candidate, at) =>
                                             at === index
-                                                ? {
-                                                      ...candidate,
-                                                      qualifier:
-                                                          event.target.value,
-                                                  }
+                                                ? updateRuleCondition(
+                                                      candidate,
+                                                      event.target.value,
+                                                      qualifierIds,
+                                                  )
                                                 : candidate,
                                         ),
                                     )
                                 }
-                                value={rule.qualifier}
+                                placeholder={
+                                    rule.selectionKind === "query"
+                                        ? "optional CEL condition"
+                                        : (conditionSuggestions[0] ??
+                                          'context.user.tier == "premium"')
+                                }
+                                value={rule.condition}
                             />
-                            <span className="rule-word">→</span>
-                            {model.declarationKind === "catalog" ? (
+                            {model.declarationKind === "catalogList" ? (
                                 <select
-                                    aria-label="Rule value"
+                                    aria-label="Rule selection"
                                     className="input mono"
                                     disabled={disabled}
                                     onChange={(event) =>
@@ -1279,51 +1363,122 @@ function VariableRulesEditor({
                                                 at === index
                                                     ? {
                                                           ...candidate,
-                                                          value: event.target
-                                                              .value,
+                                                          selectionKind: event
+                                                              .target.value as
+                                                              | "value"
+                                                              | "query",
                                                       }
                                                     : candidate,
                                             ),
                                         )
                                     }
-                                    value={rule.value}
+                                    value={rule.selectionKind}
                                 >
-                                    {valueOptions.map((option) => (
-                                        <option key={option} value={option}>
-                                            {option}
-                                        </option>
-                                    ))}
-                                    {!valueOptions.includes(rule.value) ? (
-                                        <option value={rule.value}>
-                                            {rule.value || "unset"}
-                                        </option>
-                                    ) : null}
+                                    <option value="value">value list</option>
+                                    <option value="query">query</option>
                                 </select>
+                            ) : null}
+                            {rule.selectionKind === "query" ? (
+                                <>
+                                    <span className="rule-word">query</span>
+                                    <input
+                                        aria-label="Rule query"
+                                        className="input mono"
+                                        disabled={disabled}
+                                        list="variable-rule-query-expressions"
+                                        onChange={(event) =>
+                                            onChange(
+                                                model.rules.map(
+                                                    (candidate, at) =>
+                                                        at === index
+                                                            ? {
+                                                                  ...candidate,
+                                                                  query: event
+                                                                      .target
+                                                                      .value,
+                                                              }
+                                                            : candidate,
+                                                ),
+                                            )
+                                        }
+                                        placeholder="entry.field == context.field"
+                                        value={rule.query}
+                                    />
+                                </>
                             ) : (
-                                <VariableValueControl
-                                    declarationKind={model.declarationKind}
-                                    declarationValue={model.declarationValue}
-                                    disabled={disabled}
-                                    literal={
-                                        rule.value ||
-                                        emptyLiteralFor(
-                                            model.declarationValue,
-                                            model.declarationKind,
-                                        )
-                                    }
-                                    onUpdate={(literal) =>
-                                        onChange(
-                                            model.rules.map((candidate, at) =>
-                                                at === index
-                                                    ? {
-                                                          ...candidate,
-                                                          value: literal,
-                                                      }
-                                                    : candidate,
-                                            ),
-                                        )
-                                    }
-                                />
+                                <>
+                                    <span className="rule-word">→</span>
+                                    {model.declarationKind === "catalog" ? (
+                                        <select
+                                            aria-label="Rule value"
+                                            className="input mono"
+                                            disabled={disabled}
+                                            onChange={(event) =>
+                                                onChange(
+                                                    model.rules.map(
+                                                        (candidate, at) =>
+                                                            at === index
+                                                                ? {
+                                                                      ...candidate,
+                                                                      value: event
+                                                                          .target
+                                                                          .value,
+                                                                  }
+                                                                : candidate,
+                                                    ),
+                                                )
+                                            }
+                                            value={rule.value}
+                                        >
+                                            {valueOptions.map((option) => (
+                                                <option
+                                                    key={option}
+                                                    value={option}
+                                                >
+                                                    {option}
+                                                </option>
+                                            ))}
+                                            {!valueOptions.includes(
+                                                rule.value,
+                                            ) ? (
+                                                <option value={rule.value}>
+                                                    {rule.value || "unset"}
+                                                </option>
+                                            ) : null}
+                                        </select>
+                                    ) : (
+                                        <VariableValueControl
+                                            catalogValueOptions={valueOptions}
+                                            declarationKind={
+                                                model.declarationKind
+                                            }
+                                            declarationValue={
+                                                model.declarationValue
+                                            }
+                                            disabled={disabled}
+                                            literal={
+                                                rule.value ||
+                                                emptyLiteralFor(
+                                                    model.declarationValue,
+                                                    model.declarationKind,
+                                                )
+                                            }
+                                            onUpdate={(literal) =>
+                                                onChange(
+                                                    model.rules.map(
+                                                        (candidate, at) =>
+                                                            at === index
+                                                                ? {
+                                                                      ...candidate,
+                                                                      value: literal,
+                                                                  }
+                                                                : candidate,
+                                                    ),
+                                                )
+                                            }
+                                        />
+                                    )}
+                                </>
                             )}
                             <button
                                 aria-label="Remove rule"
@@ -1345,19 +1500,31 @@ function VariableRulesEditor({
                     </div>
                 );
             })}
-            <datalist id="variable-rule-qualifiers">
-                {qualifierIds.map((id) => (
-                    <option key={id} value={id} />
+            <datalist id="variable-rule-condition-expressions">
+                {conditionSuggestions.map((suggestion) => (
+                    <option key={suggestion} value={suggestion} />
+                ))}
+            </datalist>
+            <datalist id="variable-rule-query-expressions">
+                {querySuggestions.map((suggestion) => (
+                    <option key={suggestion} value={suggestion} />
                 ))}
             </datalist>
             <button
                 className="btn btn-ghost btn-sm"
                 disabled={disabled}
-                onClick={() =>
+                onClick={() => {
+                    const selectionKind =
+                        model.declarationKind === "catalogList"
+                            ? "query"
+                            : "value";
                     onChange([
                         ...model.rules,
                         {
-                            qualifier: qualifierIds[0] ?? "",
+                            condition: "",
+                            conditionKind: "expression",
+                            query: "",
+                            selectionKind,
                             value:
                                 model.declarationKind === "catalog"
                                     ? (valueOptions[0] ?? "")
@@ -1366,8 +1533,8 @@ function VariableRulesEditor({
                                           model.declarationKind,
                                       ),
                         },
-                    ])
-                }
+                    ]);
+                }}
                 style={{ width: "fit-content" }}
                 type="button"
             >
@@ -1378,13 +1545,65 @@ function VariableRulesEditor({
     );
 }
 
+function updateRuleCondition(
+    rule: VariableRuleModel,
+    condition: string,
+    qualifierIds: string[],
+): VariableRuleModel {
+    const conditionKind = inferRuleConditionKind(condition, qualifierIds);
+    return {
+        ...rule,
+        condition,
+        conditionKind,
+    };
+}
+
+function inferRuleConditionKind(
+    condition: string,
+    qualifierIds: string[],
+): VariableRuleModel["conditionKind"] {
+    const trimmed = condition.trim();
+    if (qualifierIds.includes(trimmed)) {
+        return "qualifier";
+    }
+    return "expression";
+}
+
+function ruleExpressionSuggestions({
+    contextAttributes,
+    includeEntry,
+    qualifierIds,
+}: {
+    contextAttributes: string[];
+    includeEntry: boolean;
+    qualifierIds: string[];
+}): string[] {
+    return [
+        ...contextAttributes.map((attribute) => `context.${attribute}`),
+        ...(includeEntry ? ["entry."] : []),
+        ...qualifierIds.map((id) => `qualifier[${JSON.stringify(id)}]`),
+        "has(context.)",
+        'bucket(context.user.id, "salt", 0, 50)',
+        'contains(context., "")',
+        'startsWith(context., "")',
+    ];
+}
+
+function simpleRuleQualifierId(rule: VariableRuleModel): string | null {
+    if (!rule.condition) {
+        return "";
+    }
+    if (rule.conditionKind === "qualifier") {
+        return rule.condition;
+    }
+    return qualifierIdFromWhenExpression(rule.condition);
+}
+
 function QualifierFields({
     content,
     contextAttributes,
     diagnostics = [],
     disabled,
-    entityId,
-    guidance = {},
     onChange,
 }: {
     content: string;
@@ -1396,25 +1615,14 @@ function QualifierFields({
     onChange: (content: string) => void;
 }) {
     const fields = useMemo(() => qualifierFields(content), [content]);
-    const datalistId = `context-attributes-${entityId}`;
-    const attributeDoc = guidance.contextAttributeDocs?.[fields.attribute];
-    const valueExamples = (
-        guidance.attributeValueExamples?.[fields.attribute] ?? []
-    ).map(inputFromLiteral);
-    // The form edits the first [[predicate]] block; only attach its findings.
-    const firstPredicate = diagnostics.filter(
+    const contextExpressions = contextAttributes.map(
+        (attribute) => `context.${attribute}`,
+    );
+    const whenNotes = diagnostics.filter(
         (diagnostic) =>
-            targetEntityKind(diagnostic) === "predicate" &&
-            (targetEntityValue(diagnostic, "index") === 0 ||
-                targetEntityValue(diagnostic, "index") === undefined),
+            targetEntityKind(diagnostic) === "qualifier" &&
+            targetFieldKind(diagnostic) === "qualifier_when",
     );
-    const noteFor = (kinds: string[]) =>
-        firstPredicate.filter((diagnostic) =>
-            kinds.includes(targetFieldKind(diagnostic) ?? ""),
-        );
-    const attributeNotes = noteFor(["predicate_attribute"]);
-    const opNotes = noteFor(["predicate_op"]);
-    const valueNotes = noteFor(["predicate_value", "predicate_range"]);
 
     return (
         <div className="form-fields">
@@ -1435,164 +1643,28 @@ function QualifierFields({
                     value={fields.description}
                 />
             </label>
-            <div className="field-grid three">
-                <label className="field-stack">
-                    <span className="label">attribute</span>
-                    <input
-                        className="input mono"
-                        disabled={disabled}
-                        list={datalistId}
-                        onChange={(event) =>
-                            onChange(
-                                setPredicateStringField(
-                                    content,
-                                    "attribute",
-                                    event.target.value,
-                                ),
-                            )
-                        }
-                        value={fields.attribute}
-                    />
-                    <datalist id={datalistId}>
-                        {contextAttributes.map((attribute) => (
-                            <option key={attribute} value={attribute} />
-                        ))}
-                    </datalist>
-                    <FieldNotes items={attributeNotes} />
-                    {attributeDoc ? (
-                        <span className="field-hint">{attributeDoc}</span>
-                    ) : null}
-                </label>
-                <label className="field-stack">
-                    <span className="label">operator</span>
-                    <select
-                        className="input mono"
-                        disabled={disabled}
-                        onChange={(event) =>
-                            onChange(
-                                setPredicateStringField(
-                                    content,
-                                    "op",
-                                    event.target.value,
-                                ),
-                            )
-                        }
-                        value={fields.op}
-                    >
-                        {PREDICATE_OPERATORS.map((operator) => (
-                            <option key={operator} value={operator}>
-                                {operator}
-                            </option>
-                        ))}
-                    </select>
-                    <FieldNotes items={opNotes} />
-                </label>
-                <label className="field-stack">
-                    <span className="label">value</span>
-                    <input
-                        className="input mono"
-                        disabled={disabled || fields.op === "bucket"}
-                        onChange={(event) =>
-                            onChange(
-                                setPredicateValueField(
-                                    content,
-                                    event.target.value,
-                                ),
-                            )
-                        }
-                        placeholder={
-                            fields.op === "in" || fields.op === "not_in"
-                                ? '["a", "b"]'
-                                : undefined
-                        }
-                        value={fields.value}
-                    />
-                    <FieldNotes items={valueNotes} />
-                    {valueExamples.length > 0 ? (
-                        <span className="field-hint">
-                            Used elsewhere with {fields.attribute}:{" "}
-                            {valueExamples.slice(0, 3).join(" · ")}
-                        </span>
-                    ) : null}
-                </label>
-            </div>
-            <span className="field-hint">
-                {OPERATOR_HINTS[fields.op] ??
-                    "Pick an operator to compare the context attribute against the value."}
-            </span>
-        </div>
-    );
-}
-
-function CatalogFields({
-    content,
-    diagnostics = [],
-    disabled,
-    guidance = {},
-    onChange,
-    schemaPaths,
-}: {
-    content: string;
-    diagnostics?: LintDiagnostic[];
-    disabled?: boolean;
-    guidance?: FormGuidance;
-    onChange: (content: string) => void;
-    schemaPaths: string[];
-}) {
-    const fields = useMemo(() => catalogFields(content), [content]);
-    const schemaNotes = diagnostics.filter(
-        (diagnostic) => targetFieldKind(diagnostic) === "catalog_schema",
-    );
-    const schemaDoc =
-        guidance.schemaDocs?.[fields.schema.split("/").pop() ?? ""];
-
-    return (
-        <div className="form-fields">
             <label className="field-stack">
-                <span className="label">description</span>
-                <input
-                    className="input"
-                    disabled={disabled}
-                    onChange={(event) =>
-                        onChange(
-                            setTopLevelStringField(
-                                content,
-                                "description",
-                                event.target.value,
-                            ),
-                        )
-                    }
-                    placeholder="What these values represent"
-                    value={fields.description}
-                />
-            </label>
-            <label className="field-stack">
-                <span className="label">schema</span>
-                <input
+                <span className="label">when</span>
+                <textarea
                     className="input mono"
                     disabled={disabled}
-                    list="catalog-schema-paths"
                     onChange={(event) =>
                         onChange(
                             setTopLevelStringField(
                                 content,
-                                "schema",
+                                "when",
                                 event.target.value,
                             ),
                         )
                     }
-                    value={fields.schema}
+                    rows={3}
+                    value={fields.when}
                 />
-                <datalist id="catalog-schema-paths">
-                    {schemaPaths.map((path) => (
-                        <option key={path} value={`../${path}`} />
-                    ))}
-                </datalist>
-                <FieldNotes items={schemaNotes} />
+                <FieldNotes items={whenNotes} />
                 <span className="field-hint">
-                    Every entry of this catalog must validate against this
-                    schema. The path is relative to this file.
-                    {schemaDoc ? ` — ${schemaDoc}` : ""}
+                    Expression over context and qualifier, for example{" "}
+                    {contextExpressions[0] ?? "context.user.tier"} == "premium"
+                    .
                 </span>
             </label>
         </div>
@@ -2388,7 +2460,7 @@ type VariableModel = {
     declarationKind: VariableDeclarationKind;
     declarationValue: string;
     defaultValue: string | null;
-    rules: Array<{ qualifier: string; value: string }>;
+    rules: VariableRuleModel[];
 };
 
 function variableModel(text: string): VariableModel {
@@ -2408,9 +2480,9 @@ function variableModel(text: string): VariableModel {
 function resolveRuleBlocks(
     text: string,
     declarationKind: VariableDeclarationKind,
-): Array<{ qualifier: string; value: string }> {
+): VariableRuleModel[] {
     const lines = text.split(/\r?\n/);
-    const rules: Array<{ qualifier: string; value: string }> = [];
+    const rules: VariableRuleModel[] = [];
     for (let index = 0; index < lines.length; index += 1) {
         if (lines[index].trim() !== "[[resolve.rule]]") {
             continue;
@@ -2419,11 +2491,20 @@ function resolveRuleBlocks(
         const blockFields = lines.slice(index + 1, end).flatMap(parseFieldLine);
         const value =
             blockFields.find((field) => field.key === "value")?.value ?? "";
+        const whenField = blockFields.find(
+            (field) => field.key === "when",
+        )?.value;
+        const queryField = blockFields.find(
+            (field) => field.key === "query",
+        )?.value;
+        const parsedWhen = qualifierConditionFromWhenExpression(
+            parseTomlStringLiteral(whenField ?? '""'),
+        );
         rules.push({
-            qualifier: parseTomlStringLiteral(
-                blockFields.find((field) => field.key === "qualifier")?.value ??
-                    '""',
-            ),
+            condition: parsedWhen.condition,
+            conditionKind: parsedWhen.conditionKind,
+            query: parseTomlStringLiteral(queryField ?? '""'),
+            selectionKind: queryField ? "query" : "value",
             value:
                 declarationKind === "catalog"
                     ? parseTomlStringLiteral(value || '""')
@@ -2451,7 +2532,7 @@ function tidyToml(text: string): string {
 
 function rewriteResolveRules(
     text: string,
-    rules: Array<{ qualifier: string; value: string }>,
+    rules: VariableRuleModel[],
     declarationKind: VariableDeclarationKind,
     declarationValue: string,
 ): string {
@@ -2474,18 +2555,90 @@ function rewriteResolveRules(
                     ? JSON.stringify(rule.value)
                     : rule.value ||
                       emptyLiteralFor(declarationValue, declarationKind);
-            return `[[resolve.rule]]\nqualifier = ${JSON.stringify(rule.qualifier)}\nvalue = ${value}`;
+            const fields: string[] = [];
+            const condition = rule.condition.trim();
+            if (condition !== "") {
+                fields.push(
+                    `when = ${tomlLiteralString(ruleWhenExpression(rule))}`,
+                );
+            }
+            if (rule.selectionKind === "query") {
+                fields.push(`query = ${tomlLiteralString(rule.query)}`);
+            } else {
+                fields.push(`value = ${value}`);
+            }
+            return `[[resolve.rule]]\n${fields.join("\n")}`;
         })
         .join("\n\n");
     return tidyToml(`${without.trimEnd()}\n\n${blocks}`);
+}
+
+function ruleWhenExpression(rule: VariableRuleModel): string {
+    return rule.conditionKind === "qualifier"
+        ? `qualifier[${JSON.stringify(rule.condition.trim())}]`
+        : rule.condition;
+}
+
+function qualifierConditionFromWhenExpression(expression: string): {
+    condition: string;
+    conditionKind: VariableRuleModel["conditionKind"];
+} {
+    return { condition: expression, conditionKind: "expression" };
+}
+
+function qualifierIdFromWhenExpression(expression: string): string | null {
+    const trimmed = stripOuterParens(expression.trim());
+    const match = trimmed.match(/^qualifier\[(.+)\]$/);
+    return match ? parseTomlStringLiteral(match[1].trim()) : null;
+}
+
+function stripOuterParens(value: string): string {
+    let current = value;
+    while (
+        current.startsWith("(") &&
+        current.endsWith(")") &&
+        outerParensWrapExpression(current)
+    ) {
+        current = current.slice(1, -1).trim();
+    }
+    return current;
+}
+
+function outerParensWrapExpression(value: string): boolean {
+    let depth = 0;
+    for (let index = 0; index < value.length; index += 1) {
+        const char = value[index];
+        if (char === "(") {
+            depth += 1;
+        } else if (char === ")") {
+            depth -= 1;
+            if (depth === 0 && index < value.length - 1) {
+                return false;
+            }
+        }
+        if (depth < 0) {
+            return false;
+        }
+    }
+    return depth === 0;
+}
+
+function tomlLiteralString(value: string): string {
+    return value.includes("'") ? JSON.stringify(value) : `'${value}'`;
 }
 
 function emptyLiteralFor(
     declarationValue: string,
     declarationKind: VariableDeclarationKind,
 ): string {
-    if (declarationKind !== "primitive") {
-        return "{}";
+    if (
+        declarationKind === "primitiveList" ||
+        declarationKind === "catalogList"
+    ) {
+        return "[]";
+    }
+    if (declarationKind === "catalog") {
+        return '""';
     }
     switch (declarationValue) {
         case "bool":
@@ -2504,26 +2657,33 @@ function defaultLiteralFor(fields: {
     declarationKind: VariableDeclarationKind;
     declarationValue: string;
 }): string {
-    if (fields.declarationKind === "catalog") {
-        return '""';
-    }
     return emptyLiteralFor(fields.declarationValue, fields.declarationKind);
 }
 
 function variableFields(text: string) {
     const type = topLevelStringField(text, "type");
-    const schema = topLevelStringField(text, "schema");
     const base = {
         description: topLevelStringField(text, "description"),
         defaultValue: inputFromLiteral(
             tomlSectionRawField(text, "[resolve]", "default") ?? "",
         ),
     };
-    if (schema) {
+    const listInner = type
+        ?.trim()
+        .match(/^list<(.+)>$/)?.[1]
+        ?.trim();
+    if (listInner?.startsWith("catalog:")) {
         return {
             ...base,
-            declarationKind: "schema" as VariableDeclarationKind,
-            declarationValue: schema,
+            declarationKind: "catalogList" as VariableDeclarationKind,
+            declarationValue: listInner.slice("catalog:".length),
+        };
+    }
+    if (listInner) {
+        return {
+            ...base,
+            declarationKind: "primitiveList" as VariableDeclarationKind,
+            declarationValue: listInner,
         };
     }
     if (type?.startsWith("catalog:")) {
@@ -2543,27 +2703,16 @@ function variableFields(text: string) {
 function qualifierFields(text: string) {
     return {
         description: topLevelStringField(text, "description"),
-        attribute: predicateStringField(text, "attribute") ?? "user.tier",
-        op: predicateStringField(text, "op") ?? "eq",
-        value: inputFromLiteral(
-            predicateRawField(text, "value") ?? '"premium"',
-        ),
-    };
-}
-
-function catalogFields(text: string) {
-    return {
-        description: topLevelStringField(text, "description"),
-        schema: topLevelStringField(text, "schema"),
+        when: topLevelStringField(text, "when") ?? "",
     };
 }
 
 function declarationLabel(kind: VariableDeclarationKind): string {
-    if (kind === "catalog") {
+    if (kind === "catalog" || kind === "catalogList") {
         return "catalog id";
     }
-    if (kind === "schema") {
-        return "schema path";
+    if (kind === "primitiveList") {
+        return "item type";
     }
     return "primitive type";
 }
@@ -2650,56 +2799,6 @@ function setTomlSectionField(
     return lines.join("\n");
 }
 
-function predicateStringField(text: string, key: string): string | null {
-    const raw = predicateRawField(text, key);
-    return raw ? parseTomlStringLiteral(raw) : null;
-}
-
-function predicateRawField(text: string, key: string): string | null {
-    return (
-        predicateBlockLines(text).find((candidate) => candidate.key === key)
-            ?.value ?? null
-    );
-}
-
-function setPredicateStringField(
-    text: string,
-    key: string,
-    value: string,
-): string {
-    return setPredicateRawField(text, key, JSON.stringify(value));
-}
-
-function setPredicateValueField(text: string, value: string): string {
-    return setPredicateRawField(text, "value", literalFromInput(value));
-}
-
-function setPredicateRawField(
-    text: string,
-    key: string,
-    value: string,
-): string {
-    const lines = ensurePredicateBlock(text).split(/\r?\n/);
-    const start = lines.findIndex((line) => line.trim() === "[[predicate]]");
-    const end = nextSectionLine(lines, start + 1);
-    const encoded = `${key} = ${value}`;
-    for (let index = start + 1; index < end; index += 1) {
-        if (fieldKey(lines[index]) === key) {
-            lines[index] = encoded;
-            return lines.join("\n");
-        }
-    }
-    lines.splice(end, 0, encoded);
-    return lines.join("\n");
-}
-
-function ensurePredicateBlock(text: string): string {
-    if (text.split(/\r?\n/).some((line) => line.trim() === "[[predicate]]")) {
-        return text;
-    }
-    return `${text.trimEnd()}\n\n[[predicate]]\nattribute = "user.tier"\nop = "eq"\nvalue = "premium"\n`;
-}
-
 function ensureSection(text: string, section: string): string {
     if (text.split(/\r?\n/).some((line) => line.trim() === section)) {
         return text;
@@ -2715,17 +2814,6 @@ function topLevelLines(text: string) {
 function sectionLines(text: string, section: string) {
     const lines = text.split(/\r?\n/);
     const start = lines.findIndex((line) => line.trim() === section);
-    if (start === -1) {
-        return [];
-    }
-    return lines
-        .slice(start + 1, nextSectionLine(lines, start + 1))
-        .flatMap(parseFieldLine);
-}
-
-function predicateBlockLines(text: string) {
-    const lines = text.split(/\r?\n/);
-    const start = lines.findIndex((line) => line.trim() === "[[predicate]]");
     if (start === -1) {
         return [];
     }
@@ -2770,7 +2858,7 @@ function schemaVersionInsertLine(lines: string[], end: number): number {
 
 function inputFromLiteral(literal: string): string {
     const trimmed = literal.trim();
-    if (trimmed.startsWith('"')) {
+    if (trimmed.startsWith('"') || trimmed.startsWith("'")) {
         return parseTomlStringLiteral(trimmed);
     }
     return trimmed;
@@ -2791,9 +2879,13 @@ function literalFromInput(value: string): string {
 }
 
 function parseTomlStringLiteral(value: string): string {
+    const trimmed = value.trim();
+    if (trimmed.startsWith("'") && trimmed.endsWith("'")) {
+        return trimmed.slice(1, -1);
+    }
     try {
-        return JSON.parse(value) as string;
+        return JSON.parse(trimmed) as string;
     } catch {
-        return value.replace(/^"|"$/g, "");
+        return trimmed.replace(/^"|"$/g, "");
     }
 }

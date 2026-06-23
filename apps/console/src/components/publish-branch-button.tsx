@@ -8,17 +8,20 @@ export function PublishBranchButton({
     branchId,
     disabled,
     writeKind = "pullRequest",
+    writeBackend = "gitHubApi",
 }: {
     workspaceId: string;
     branchId: string;
     disabled?: boolean;
     writeKind?: "disabled" | "pullRequest" | "directPush";
+    writeBackend?: "gitHubApi" | "localWorkingTree";
 }) {
     const router = useRouter();
     const [pending, setPending] = useState(false);
     const [message, setMessage] = useState<string | null>(null);
     const [pullRequestUrl, setPullRequestUrl] = useState<string | null>(null);
     const [directPublished, setDirectPublished] = useState(false);
+    const [workingTreeReviewed, setWorkingTreeReviewed] = useState(false);
 
     if (pullRequestUrl) {
         return (
@@ -47,6 +50,16 @@ export function PublishBranchButton({
             </div>
         );
     }
+    if (workingTreeReviewed) {
+        return (
+            <div className="applied-row">
+                <p className="form-note" data-tone="ok">
+                    Working tree validated. Commit and push it with git when
+                    ready.
+                </p>
+            </div>
+        );
+    }
 
     async function publish() {
         setPending(true);
@@ -61,13 +74,19 @@ export function PublishBranchButton({
             const body = (await response.json()) as {
                 pullRequest?: { html_url: string };
                 directPush?: unknown;
+                workingTree?: unknown;
                 error?: string;
             };
-            if (!response.ok || (!body.pullRequest && !body.directPush)) {
+            if (
+                !response.ok ||
+                (!body.pullRequest && !body.directPush && !body.workingTree)
+            ) {
                 throw new Error(body.error ?? "failed to publish branch");
             }
             if (body.pullRequest) {
                 setPullRequestUrl(body.pullRequest.html_url);
+            } else if (body.workingTree) {
+                setWorkingTreeReviewed(true);
             } else {
                 setDirectPublished(true);
             }
@@ -93,10 +112,14 @@ export function PublishBranchButton({
                     <GitPullRequest aria-hidden size={15} />
                 )}
                 {pending
-                    ? "Publishing"
-                    : writeKind === "directPush"
-                      ? "Publish by direct push"
-                      : "Publish as pull request"}
+                    ? writeBackend === "localWorkingTree"
+                        ? "Validating"
+                        : "Publishing"
+                    : writeBackend === "localWorkingTree"
+                      ? "Validate working tree"
+                      : writeKind === "directPush"
+                        ? "Publish by direct push"
+                        : "Publish as pull request"}
             </button>
             {message ? (
                 <p className="form-note" data-tone="err">

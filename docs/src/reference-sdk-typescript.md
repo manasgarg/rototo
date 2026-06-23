@@ -52,21 +52,21 @@ console.log(resolution.source);
 ## Resolve A Qualifier
 
 ```typescript
-const resolution = await workspace.resolveQualifier(
+const matches = await workspace.resolveQualifier(
   "premium-users",
   { user: { tier: "premium" } },
 );
 
-console.log(resolution.value);
+console.log(matches);
 ```
 
-`QualifierResolution` has `id` and `value`.
+Qualifier resolution returns the final boolean result.
 
 ## Context Validation
 
-Resolution validates [context](reference-context.html) against
-`schemas/context.schema.json` by default. Skip validation for one call when a
-tool needs to evaluate partial context:
+Resolution validates [context](reference-context.html) against a compatible
+request context schema by default. Skip validation for one call when a tool
+needs to evaluate partial context:
 
 ```typescript
 const resolution = await workspace.resolveVariable(
@@ -131,6 +131,5 @@ try {
 | `Workspace` | Loaded workspace handle. |
 | `RefreshingWorkspace` | Refreshing workspace handle for services. |
 | `VariableResolution` | Selected variable value. |
-| `QualifierResolution` | Qualifier boolean result. |
 | `RefreshStatus` | Refresh state snapshot. |
 | `RototoError` | Error raised for rototo failures. |

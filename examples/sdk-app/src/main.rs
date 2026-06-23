@@ -67,8 +67,8 @@ async fn main() -> Result<(), Box<dyn Error>> {
         .await?;
     let message: String = serde_json::from_value(message.value)?;
 
-    println!("premium-users: {}", premium_users.value);
-    println!("enterprise-accounts: {}", enterprise_accounts.value);
+    println!("premium-users: {premium_users}");
+    println!("enterprise-accounts: {enterprise_accounts}");
     println!();
     println!("checkout variant: {}", checkout.variant);
     println!("checkout heading: {}", checkout.heading);

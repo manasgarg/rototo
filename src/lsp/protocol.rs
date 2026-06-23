@@ -56,6 +56,8 @@ pub(super) struct LspCompletionItem {
     pub(super) label: String,
     pub(super) kind: u8,
     pub(super) detail: &'static str,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(super) insert_text: Option<String>,
 }
 
 #[derive(Debug, Serialize)]
@@ -103,7 +105,7 @@ pub(super) fn initialize_result() -> JsonValue {
             "documentSymbolProvider": true,
             "completionProvider": {
                 "resolveProvider": false,
-                "triggerCharacters": [".", "\""]
+                "triggerCharacters": [".", "\"", "&", "|"]
             },
             "hoverProvider": true,
             "definitionProvider": true,

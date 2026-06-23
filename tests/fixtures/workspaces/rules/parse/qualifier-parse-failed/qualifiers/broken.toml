@@ -1,4 +1,5 @@
 schema_version = 1
+description = "Runtime condition for broken."
 
 [predicate
 attribute = "account.tier"

@@ -1,6 +1,4 @@
 schema_version = 1
+description = "Runtime condition for integer eq string."
 
-[[predicate]]
-attribute = "account.seats"
-op = "eq"
-value = "5"
+when = '(context.account.seats == "5")'

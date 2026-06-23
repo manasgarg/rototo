@@ -2,7 +2,7 @@ mod catalog;
 mod fields;
 mod manifest;
 mod qualifier;
-mod schema;
+mod request_context;
 mod variable;
 
 use super::index::{CustomLintFileNode, SemanticIndex};
@@ -39,12 +39,9 @@ pub(super) fn build_semantic_index(source: &SourceStore, syntax: &SyntaxIndex) -
                     .insert(id.clone(), variable::project_variable(document, toml, id));
             }
             DocumentKind::Catalog { id } => {
-                let Some(toml) = syntax.toml.get(&document.id) else {
-                    continue;
-                };
                 index
                     .catalogs
-                    .insert(id.clone(), catalog::project_catalog(document, toml, id));
+                    .insert(id.clone(), catalog::project_catalog(document, syntax, id));
             }
             DocumentKind::CatalogEntry {
                 catalog_id,
@@ -62,11 +59,29 @@ pub(super) fn build_semantic_index(source: &SourceStore, syntax: &SyntaxIndex) -
                         catalog::project_catalog_entry(document, toml, catalog_id, entry_id),
                     );
             }
-            DocumentKind::Schema => {
-                index.schemas.insert(
-                    document.path.clone(),
-                    schema::project_schema(document, syntax),
+            DocumentKind::RequestContext { id } => {
+                index.request_contexts.insert(
+                    id.clone(),
+                    request_context::project_request_context(document, syntax, id),
                 );
+            }
+            DocumentKind::RequestContextEntry {
+                request_context_id,
+                entry_id,
+            } => {
+                index
+                    .request_context_entries
+                    .entry(request_context_id.clone())
+                    .or_default()
+                    .insert(
+                        entry_id.clone(),
+                        request_context::project_request_context_entry(
+                            document,
+                            syntax,
+                            request_context_id,
+                            entry_id,
+                        ),
+                    );
             }
             DocumentKind::CustomLint => {
                 index.custom_lints.files.insert(
@@ -80,5 +95,6 @@ pub(super) fn build_semantic_index(source: &SourceStore, syntax: &SyntaxIndex) -
             }
         }
     }
+    catalog::compile_catalog_validators(&mut index);
     index
 }

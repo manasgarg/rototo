@@ -1,12 +1,14 @@
+use std::collections::BTreeMap;
 use std::path::Path;
 
 use crate::diagnostics::{
-    DiagnosticCatalogEntry, LintDiagnostic, LintStage, RototoRuleId, SemanticEntity, SourcePosition,
+    DiagnosticCatalogEntry, LintDiagnostic, RototoRuleId, SemanticEntity, SourcePosition,
 };
 use crate::error::{Result, RototoError};
 use crate::model::{CatalogLint, QualifierLint, VariableLint, WorkspaceDiff, WorkspaceLint};
 
 mod builtins;
+mod catalog_schema;
 mod custom;
 mod diff;
 mod engine;
@@ -16,6 +18,7 @@ mod inspect;
 mod output;
 mod project;
 mod references;
+mod request_context;
 mod runtime;
 mod semantic_model;
 mod source;
@@ -27,15 +30,17 @@ use index::*;
 pub(crate) use input::{LintInput, OverlayDocument};
 pub(crate) use inspect::inspect_snapshot;
 use references::ReferenceIndex;
+pub(crate) use request_context::RequestContextCompatibility;
 pub(crate) use runtime::{
-    RuntimeAttribute, RuntimeCompareOp, RuntimePredicate, RuntimeSelectedValue, RuntimeWorkspace,
+    RuntimeCatalogQuery, RuntimeRule, RuntimeRuleSelection, RuntimeSelectedValue, RuntimeWorkspace,
     compile_runtime_workspace, compile_runtime_workspace_from_snapshot,
 };
 pub use semantic_model::{
     CatalogEntryModel, CatalogModel, DeclarationModel, LinterModel, LinterRuleModel,
     ModelEntityRef, ModelField, ModelLocation, ModelReferenceVia, ModelValueField, PredicateModel,
-    QualifierModel, ReferenceModel, ResolveModel, RuleModel, SchemaModel, ValueModel,
-    VariableModel, WorkspaceSemanticModel,
+    QualifierModel, QualifierRequestContextModel, ReferenceModel, RequestContextEntryModel,
+    RequestContextModel, ResolveModel, RuleModel, ValueModel, VariableModel,
+    VariableRequestContextModel, WorkspaceSemanticModel,
 };
 pub(crate) use symbols::{
     WorkspaceCompletionItem, WorkspaceCompletionItemKind, WorkspaceDefinition,
@@ -104,7 +109,7 @@ pub async fn lint_variable(workspace_root: &Path, id: &str) -> Result<VariableLi
 
 pub async fn lint_catalog(workspace_root: &Path, id: &str) -> Result<CatalogLint> {
     let lint = lint_workspace(workspace_root).await?;
-    let path = format!("catalogs/{id}.toml");
+    let path = format!("catalogs/{id}.schema.json");
     if !lint.documents.iter().any(|document| document.path == path) {
         return Err(RototoError::new(format!(
             "catalog not found: catalog://{id}"
@@ -151,18 +156,11 @@ pub(crate) async fn lint_workspace_snapshot(input: LintInput) -> Result<Workspac
     engine::lint_workspace_snapshot(input).await
 }
 
-#[allow(dead_code)]
-pub(crate) async fn lint_workspace_until(
-    input: LintInput,
-    stage: LintStage,
-) -> Result<engine::LintContext> {
-    engine::lint_workspace_until(input, stage).await
-}
-
 pub(crate) struct WorkspaceLintSnapshot {
     pub(crate) lint: WorkspaceLint,
     index: SemanticIndex,
     references: ReferenceIndex,
+    source_texts: BTreeMap<String, String>,
 }
 
 impl WorkspaceLintSnapshot {
@@ -190,7 +188,7 @@ impl WorkspaceLintSnapshot {
         path: &str,
         position: SourcePosition,
     ) -> Vec<WorkspaceCompletionItem> {
-        symbols::completion_items(&self.index, path, position)
+        symbols::completion_items(self, path, position)
     }
 
     pub(crate) fn hover(&self, path: &str, position: SourcePosition) -> Option<WorkspaceHover> {
@@ -212,5 +210,13 @@ impl WorkspaceLintSnapshot {
         include_declaration: bool,
     ) -> Vec<WorkspaceReference> {
         symbols::references(self, path, position, include_declaration)
+    }
+
+    pub(crate) fn request_context_compatibility(&self) -> RequestContextCompatibility {
+        request_context::compatibility(self)
+    }
+
+    pub(crate) fn source_text(&self, path: &str) -> Option<&str> {
+        self.source_texts.get(path).map(String::as_str)
     }
 }

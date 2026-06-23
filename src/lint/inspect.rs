@@ -1,14 +1,15 @@
 use std::collections::{BTreeMap, BTreeSet};
-use std::path::Path;
 
 use crate::diagnostics::{DiagnosticCatalogEntry, LintDiagnostic, RototoRuleId, SemanticEntity};
 use crate::error::{Result, RototoError};
+use crate::expression::Expression;
 use crate::model::{
     CatalogEntryInspectReport, CatalogInspectReport, DependencyInspectReport, InspectRuntimeStatus,
     InspectSelection, LintAuthorityInspectReport, LintRuleInspectReport, LinterInspectReport,
-    LinterRegistrationInspectReport, PredicateInspectReport, QualifierInspectReport,
-    ReferenceInspectReport, ResolveInspectReport, RulePathwayInspectReport, SchemaInspectReport,
-    ValueInspectReport, VariableInspectReport, WorkspaceInspectReport, WorkspaceInspectRequest,
+    LinterRegistrationInspectReport, QualifierInspectReport, ReferenceInspectReport,
+    RequestContextEntryInspectReport, RequestContextInspectReport, ResolveInspectReport,
+    RulePathwayInspectReport, ValueInspectReport, VariableInspectReport, WorkspaceInspectReport,
+    WorkspaceInspectRequest,
 };
 use crate::resolve::{trace_qualifier_unchecked, trace_variable_unchecked};
 
@@ -64,7 +65,7 @@ pub(crate) async fn inspect_snapshot(
         catalogs.push(inspect_catalog(snapshot, &id)?);
     }
 
-    let schemas = selected_schemas(snapshot, inventory);
+    let request_contexts = selected_request_contexts(snapshot, inventory);
     let lint_rules = selected_lint_rules(snapshot, request, &catalog);
     let lint_authorities = selected_lint_authorities(snapshot, request, &catalog, inventory);
     let linters = selected_linters(snapshot, request, inventory);
@@ -78,7 +79,7 @@ pub(crate) async fn inspect_snapshot(
             None => InspectRuntimeStatus::Available,
         },
         diagnostics,
-        schemas,
+        request_contexts,
         catalogs,
         variables,
         qualifiers,
@@ -158,54 +159,80 @@ fn validate_request(
     Ok(())
 }
 
-fn selected_schemas(
+fn selected_request_contexts(
     snapshot: &WorkspaceLintSnapshot,
     include_all_for_none: bool,
-) -> Vec<SchemaInspectReport> {
+) -> Vec<RequestContextInspectReport> {
     if !include_all_for_none {
         return Vec::new();
     }
     snapshot
         .index
-        .schemas
+        .request_contexts
         .values()
-        .map(|schema| schema_report(snapshot, schema))
+        .map(|request_context| request_context_report(snapshot, request_context))
         .collect()
 }
 
-fn schema_report(snapshot: &WorkspaceLintSnapshot, schema: &SchemaNode) -> SchemaInspectReport {
-    let path = schema.path.clone();
+fn request_context_report(
+    snapshot: &WorkspaceLintSnapshot,
+    request_context: &RequestContextNode,
+) -> RequestContextInspectReport {
     let diagnostics = snapshot
         .lint
         .diagnostics
         .iter()
-        .filter(|diagnostic| diagnostic_belongs_to_schema(diagnostic, &path))
+        .filter(|diagnostic| diagnostic_belongs_to_request_context(diagnostic, &request_context.id))
         .cloned()
         .collect();
-    let (status, error) = if let Some(message) = &schema.invalid_message {
+    let (status, error) = if let Some(message) = &request_context.invalid_message {
         ("invalid".to_owned(), Some(message.clone()))
-    } else if schema.validator.is_some() {
+    } else if request_context.validator.is_some() {
         ("valid".to_owned(), None)
     } else {
         ("unavailable".to_owned(), None)
     };
+    let json = request_context.json.as_ref();
 
-    SchemaInspectReport {
-        id: schema_id(&path),
-        path: path.clone(),
+    RequestContextInspectReport {
+        id: request_context.id.clone(),
+        path: request_context.path.clone(),
         status,
         error,
-        consumers: schema_consumers(snapshot, &path),
+        title: json
+            .and_then(|json| json.get("title"))
+            .and_then(serde_json::Value::as_str)
+            .map(str::to_owned),
+        description: json
+            .and_then(|json| json.get("description"))
+            .and_then(serde_json::Value::as_str)
+            .map(str::to_owned),
+        entries: request_context_entries(snapshot, &request_context.id),
         diagnostics,
     }
 }
 
-fn schema_id(path: &str) -> String {
-    Path::new(path)
-        .file_stem()
-        .and_then(|stem| stem.to_str())
-        .unwrap_or(path)
-        .to_owned()
+fn request_context_entries(
+    snapshot: &WorkspaceLintSnapshot,
+    request_context: &str,
+) -> Vec<RequestContextEntryInspectReport> {
+    snapshot
+        .index
+        .request_context_entries
+        .get(request_context)
+        .into_iter()
+        .flat_map(|entries| entries.values())
+        .filter_map(|entry| {
+            entry
+                .value
+                .as_ref()
+                .map(|value| RequestContextEntryInspectReport {
+                    key: entry.key.clone(),
+                    value: value.clone(),
+                    location: entry.location.clone(),
+                })
+        })
+        .collect()
 }
 
 async fn inspect_variable(
@@ -230,16 +257,25 @@ async fn inspect_variable(
         .collect();
     let trace = match (runtime, &request.context) {
         (Some(runtime), Some(context)) => {
-            runtime.validate_context(context)?;
+            runtime.validate_context_for_variable(id, context)?;
             Some(trace_variable_unchecked(runtime, id, context).await?)
         }
         _ => None,
     };
+    let request_contexts = snapshot
+        .request_context_compatibility()
+        .variables
+        .remove(id)
+        .unwrap_or_default()
+        .into_iter()
+        .collect();
 
     Ok(VariableInspectReport {
         id: id.to_owned(),
         uri: format!("variable://{id}"),
         path,
+        description: variable.description.as_ref().and_then(present_string_value),
+        request_contexts,
         type_source: variable_type_source_label(variable),
         schema: variable_schema_dependency(snapshot, id),
         values: variable_values(variable, &snapshot.index),
@@ -271,17 +307,30 @@ async fn inspect_qualifier(
         .collect();
     let trace = match (runtime, &request.context) {
         (Some(runtime), Some(context)) => {
-            runtime.validate_context(context)?;
+            runtime.validate_context_for_qualifier(id, context)?;
             Some(trace_qualifier_unchecked(runtime, id, context).await?)
         }
         _ => None,
     };
+    let request_contexts = snapshot
+        .request_context_compatibility()
+        .qualifiers
+        .remove(id)
+        .unwrap_or_default()
+        .into_iter()
+        .collect();
 
     Ok(QualifierInspectReport {
         id: id.to_owned(),
         uri: format!("qualifier://{id}"),
         path,
-        predicates: qualifier_predicates(qualifier),
+        description: qualifier
+            .description
+            .as_ref()
+            .and_then(present_string_value),
+        request_contexts,
+        when: qualifier_when(qualifier),
+        predicates: Vec::new(),
         dependencies: qualifier_dependencies(snapshot, id),
         consumers: qualifier_consumers(snapshot, id),
         diagnostics,
@@ -308,7 +357,13 @@ fn inspect_catalog(snapshot: &WorkspaceLintSnapshot, id: &str) -> Result<Catalog
         id: id.to_owned(),
         uri: format!("catalog://{id}"),
         path,
-        schema: catalog_schema_dependency(snapshot, id),
+        description: catalog
+            .json
+            .as_ref()
+            .and_then(|json| json.get("description"))
+            .and_then(serde_json::Value::as_str)
+            .map(str::to_owned),
+        schema: Some(catalog.path.clone()),
         entries: catalog_entries(snapshot, id),
         dependencies: catalog_dependencies(snapshot, id),
         consumers: catalog_consumers(snapshot, id),
@@ -389,22 +444,6 @@ fn variable_schema_dependency(
     None
 }
 
-fn catalog_schema_dependency(snapshot: &WorkspaceLintSnapshot, catalog: &str) -> Option<String> {
-    snapshot
-        .references
-        .edges()
-        .iter()
-        .find_map(|edge| match (&edge.source, &edge.target) {
-            (
-                ReferenceSource::CatalogSchema {
-                    catalog: source_catalog,
-                },
-                ReferenceTarget::Schema(schema),
-            ) if source_catalog == catalog => Some(schema.clone()),
-            _ => None,
-        })
-}
-
 fn variable_values(variable: &VariableNode, _index: &SemanticIndex) -> Vec<ValueInspectReport> {
     let mut values = Vec::new();
     for value in variable.values.inline_values.values() {
@@ -444,7 +483,8 @@ fn variable_resolve(variable: &VariableNode) -> ResolveInspectReport {
             .iter()
             .map(|rule| RulePathwayInspectReport {
                 index: rule.index,
-                qualifier: present_string_value(&rule.qualifier),
+                when: present_expression_source(&rule.when),
+                query: present_expression_source(&rule.query),
                 value: present_json_value(&rule.value),
                 location: rule.location.clone(),
             })
@@ -472,6 +512,13 @@ fn present_json_value(field: &ProjectField<serde_json::Value>) -> Option<serde_j
     }
 }
 
+fn present_expression_source(field: &Option<ProjectField<Expression>>) -> Option<String> {
+    match field {
+        Some(ProjectField::Present(value)) => Some(value.value.source().to_owned()),
+        Some(ProjectField::Invalid { .. } | ProjectField::Missing { .. }) | None => None,
+    }
+}
+
 fn variable_dependencies(
     snapshot: &WorkspaceLintSnapshot,
     variable: &str,
@@ -483,7 +530,7 @@ fn variable_dependencies(
     for edge in snapshot.references.edges() {
         match (&edge.source, &edge.target) {
             (
-                ReferenceSource::VariableRuleQualifier {
+                ReferenceSource::VariableRuleConditionQualifier {
                     variable: source_variable,
                     ..
                 },
@@ -512,35 +559,17 @@ fn variable_dependencies(
     DependencyInspectReport {
         qualifiers: qualifiers.into_iter().collect(),
         context_paths: context_paths.into_iter().collect(),
-        schemas: Vec::new(),
         catalogs: catalogs.into_iter().collect(),
     }
 }
 
 fn catalog_dependencies(
-    snapshot: &WorkspaceLintSnapshot,
-    catalog: &str,
+    _snapshot: &WorkspaceLintSnapshot,
+    _catalog: &str,
 ) -> DependencyInspectReport {
-    let mut schemas = BTreeSet::new();
-
-    for edge in snapshot.references.edges() {
-        match (&edge.source, &edge.target) {
-            (
-                ReferenceSource::CatalogSchema {
-                    catalog: source_catalog,
-                },
-                ReferenceTarget::Schema(schema),
-            ) if source_catalog == catalog && edge.is_resolved() => {
-                schemas.insert(schema.clone());
-            }
-            _ => {}
-        }
-    }
-
     DependencyInspectReport {
         qualifiers: Vec::new(),
         context_paths: Vec::new(),
-        schemas: schemas.into_iter().collect(),
         catalogs: Vec::new(),
     }
 }
@@ -562,7 +591,6 @@ fn qualifier_dependencies(
     DependencyInspectReport {
         qualifiers: qualifiers.into_iter().collect(),
         context_paths: context_paths.into_iter().collect(),
-        schemas: Vec::new(),
         catalogs: Vec::new(),
     }
 }
@@ -581,18 +609,16 @@ fn collect_qualifier_dependencies(
     for edge in snapshot.references.edges() {
         match (&edge.source, &edge.target) {
             (
-                ReferenceSource::QualifierPredicateContextAttribute {
+                ReferenceSource::QualifierWhenContextAttribute {
                     qualifier: source_qualifier,
-                    ..
                 },
                 ReferenceTarget::ContextAttribute(context_path),
             ) if source_qualifier == qualifier => {
                 context_paths.insert(context_path.clone());
             }
             (
-                ReferenceSource::QualifierPredicateQualifier {
+                ReferenceSource::QualifierWhenQualifier {
                     qualifier: source_qualifier,
-                    ..
                 },
                 ReferenceTarget::Qualifier(nested),
             ) if source_qualifier == qualifier && edge.is_resolved() => {
@@ -603,32 +629,9 @@ fn collect_qualifier_dependencies(
     }
 }
 
-fn qualifier_predicates(qualifier: &QualifierNode) -> Vec<PredicateInspectReport> {
-    let PredicateCollection::Predicates(predicates) = &qualifier.predicates else {
-        return Vec::new();
-    };
-    predicates
-        .iter()
-        .map(|predicate| PredicateInspectReport {
-            index: predicate.index,
-            attribute: present_string_value(&predicate.attribute),
-            op: present_predicate_op_value(&predicate.op),
-            value: predicate.value.as_ref().map(|value| value.value.clone()),
-            salt: predicate.salt.as_ref().and_then(present_string_value),
-            range: predicate.range.as_ref().and_then(|range| {
-                let (Some(start), Some(end)) = (range.start, range.end) else {
-                    return None;
-                };
-                Some(vec![start, end])
-            }),
-            location: predicate.location.clone(),
-        })
-        .collect()
-}
-
-fn present_predicate_op_value(field: &ProjectField<PredicateOp>) -> Option<String> {
-    match field {
-        ProjectField::Present(value) => Some(value.value.as_str().to_owned()),
+fn qualifier_when(qualifier: &QualifierNode) -> Option<String> {
+    match &qualifier.when {
+        ProjectField::Present(when) => Some(when.value.source().to_owned()),
         ProjectField::Invalid { .. } | ProjectField::Missing { .. } => None,
     }
 }
@@ -683,10 +686,9 @@ fn catalog_consumers(
 
 fn reference_source_kind(source: &ReferenceSource) -> &'static str {
     match source {
-        ReferenceSource::QualifierPredicateQualifier { .. }
-        | ReferenceSource::QualifierPredicateContextAttribute { .. } => "qualifier",
-        ReferenceSource::CatalogSchema { .. } => "catalog",
-        ReferenceSource::VariableRuleQualifier { .. }
+        ReferenceSource::QualifierWhenQualifier { .. }
+        | ReferenceSource::QualifierWhenContextAttribute { .. } => "qualifier",
+        ReferenceSource::VariableRuleConditionQualifier { .. }
         | ReferenceSource::VariableRuleValue { .. }
         | ReferenceSource::VariableResolveDefault { .. }
         | ReferenceSource::VariableCatalog { .. } => "variable",
@@ -695,15 +697,11 @@ fn reference_source_kind(source: &ReferenceSource) -> &'static str {
 
 fn reference_source_label(source: &ReferenceSource) -> String {
     match source {
-        ReferenceSource::QualifierPredicateQualifier {
-            qualifier,
-            predicate,
+        ReferenceSource::QualifierWhenQualifier { qualifier }
+        | ReferenceSource::QualifierWhenContextAttribute { qualifier } => {
+            format!("qualifier {qualifier} when")
         }
-        | ReferenceSource::QualifierPredicateContextAttribute {
-            qualifier,
-            predicate,
-        } => format!("qualifier {qualifier} predicate[{predicate}]"),
-        ReferenceSource::VariableRuleQualifier { variable, rule }
+        ReferenceSource::VariableRuleConditionQualifier { variable, rule }
         | ReferenceSource::VariableRuleValue { variable, rule } => {
             format!("variable {variable} resolve.rule[{rule}]")
         }
@@ -711,7 +709,6 @@ fn reference_source_label(source: &ReferenceSource) -> String {
             format!("variable {variable} resolve.default")
         }
         ReferenceSource::VariableCatalog { variable } => format!("variable {variable}"),
-        ReferenceSource::CatalogSchema { catalog } => format!("catalog {catalog} schema"),
     }
 }
 
@@ -829,7 +826,7 @@ fn diagnostic_is_catalog_related(diagnostic: &LintDiagnostic) -> bool {
 }
 
 fn diagnostic_belongs_to_catalog(diagnostic: &LintDiagnostic, id: &str) -> bool {
-    let catalog_path = format!("catalogs/{id}.toml");
+    let catalog_path = format!("catalogs/{id}.schema.json");
     let catalog_entries_prefix = format!("catalogs/{id}-entries/");
     matches!(&diagnostic.target.entity, SemanticEntity::Catalog { id: diagnostic_id } if diagnostic_id == id)
         || matches!(&diagnostic.target.entity, SemanticEntity::CatalogEntry { catalog, .. } if catalog == id)
@@ -863,9 +860,13 @@ fn diagnostic_belongs_to_linter(diagnostic: &LintDiagnostic, id: &str) -> bool {
         || diagnostic.primary.path == path
 }
 
-fn diagnostic_belongs_to_schema(diagnostic: &LintDiagnostic, path: &str) -> bool {
-    matches!(&diagnostic.target.entity, SemanticEntity::Schema { path: diagnostic_path } if diagnostic_path == path)
-        || diagnostic.primary.path == path
+fn diagnostic_belongs_to_request_context(diagnostic: &LintDiagnostic, id: &str) -> bool {
+    let schema_path = format!("request-contexts/{id}.schema.json");
+    let entries_prefix = format!("request-contexts/{id}-entries/");
+    matches!(&diagnostic.target.entity, SemanticEntity::RequestContext { id: diagnostic_id } if diagnostic_id == id)
+        || matches!(&diagnostic.target.entity, SemanticEntity::RequestContextEntry { request_context, .. } if request_context == id)
+        || diagnostic.primary.path == schema_path
+        || diagnostic.primary.path.starts_with(&entries_prefix)
 }
 
 fn selected_lint_rules(
@@ -927,30 +928,6 @@ fn selected_lint_authorities(
         .collect()
 }
 
-fn schema_consumers(
-    snapshot: &WorkspaceLintSnapshot,
-    schema_path: &str,
-) -> Vec<ReferenceInspectReport> {
-    snapshot
-        .references
-        .edges()
-        .iter()
-        .filter_map(|edge| {
-            let ReferenceTarget::Schema(target) = &edge.target else {
-                return None;
-            };
-            if target != schema_path || !edge.is_resolved() {
-                return None;
-            }
-            Some(ReferenceInspectReport {
-                kind: reference_source_kind(&edge.source).to_owned(),
-                label: reference_source_label(&edge.source),
-                location: edge.location.clone(),
-            })
-        })
-        .collect()
-}
-
 fn lint_rule_report(
     snapshot: &WorkspaceLintSnapshot,
     entry: &DiagnosticCatalogEntry,
@@ -1006,12 +983,7 @@ fn selected_linters(
                 .filter(|registration| registration.file_path == file.path)
                 .map(|registration| LinterRegistrationInspectReport {
                     stage: format!("{:?}", registration.stage).to_lowercase(),
-                    entity: registered_entity_label(&registration.selector.entity).to_owned(),
-                    field: registration
-                        .selector
-                        .field
-                        .as_ref()
-                        .map(registered_field_label),
+                    target: registered_address_label(&registration.selector.address),
                     rule: registration.rule.as_str().to_owned(),
                     handler: registration.handler.clone(),
                 })
@@ -1069,36 +1041,41 @@ fn linter_id(path: &str) -> Option<String> {
         .map(str::to_owned)
 }
 
-fn registered_entity_label(entity: &RegisteredLintEntity) -> &'static str {
-    match entity {
-        RegisteredLintEntity::Workspace => "workspace",
-        RegisteredLintEntity::Qualifier => "qualifier",
-        RegisteredLintEntity::Variable => "variable",
-        RegisteredLintEntity::Value => "value",
-        RegisteredLintEntity::Schema => "schema",
-    }
-}
-
-fn registered_field_label(field: &RegisteredLintField) -> String {
-    match field {
-        RegisteredLintField::Workspace(WorkspaceLintField::Extends) => "extends".to_owned(),
-        RegisteredLintField::Qualifier(QualifierLintField::Id) => "id".to_owned(),
-        RegisteredLintField::Qualifier(QualifierLintField::Description) => "description".to_owned(),
-        RegisteredLintField::Qualifier(QualifierLintField::Predicates) => "predicates".to_owned(),
-        RegisteredLintField::Variable(VariableLintField::Id) => "id".to_owned(),
-        RegisteredLintField::Variable(VariableLintField::Description) => "description".to_owned(),
-        RegisteredLintField::Variable(VariableLintField::Type) => "type".to_owned(),
-        RegisteredLintField::Variable(VariableLintField::Schema) => "schema".to_owned(),
-        RegisteredLintField::Variable(VariableLintField::Values) => "values".to_owned(),
-        RegisteredLintField::Variable(VariableLintField::Resolve) => "resolve".to_owned(),
-        RegisteredLintField::Value(ValueLintField::JsonPath(path)) => {
-            format!("value.{}", path.join("."))
+fn registered_address_label(address: &RegisteredLintAddress) -> String {
+    match address {
+        RegisteredLintAddress::Workspace => "/".to_owned(),
+        RegisteredLintAddress::Qualifiers => "/qualifiers".to_owned(),
+        RegisteredLintAddress::Qualifier { id } => format!("/qualifiers/{id}"),
+        RegisteredLintAddress::Variables => "/variables".to_owned(),
+        RegisteredLintAddress::Variable { id } => format!("/variables/{id}"),
+        RegisteredLintAddress::VariableValues { variable } => {
+            format!("/variables/{variable}/values")
         }
-        RegisteredLintField::Value(ValueLintField::Key) => "key".to_owned(),
-        RegisteredLintField::Value(ValueLintField::Value) => "value".to_owned(),
-        RegisteredLintField::Schema(SchemaLintField::JsonPath(path)) => {
-            format!("json.{}", path.join("."))
+        RegisteredLintAddress::VariableValue { variable, key } => {
+            format!("/variables/{variable}/values/{key}")
         }
-        RegisteredLintField::Schema(SchemaLintField::Json) => "json".to_owned(),
+        RegisteredLintAddress::VariableRules { variable } => {
+            format!("/variables/{variable}/rules")
+        }
+        RegisteredLintAddress::VariableRule { variable, index } => {
+            format!("/variables/{variable}/rules/{index}")
+        }
+        RegisteredLintAddress::Catalogs => "/catalogs".to_owned(),
+        RegisteredLintAddress::Catalog { id } => format!("/catalogs/{id}"),
+        RegisteredLintAddress::CatalogEntries { catalog } => {
+            format!("/catalogs/{catalog}/entries")
+        }
+        RegisteredLintAddress::CatalogEntry { catalog, key } => {
+            format!("/catalogs/{catalog}/entries/{key}")
+        }
+        RegisteredLintAddress::RequestContexts => "/request-contexts".to_owned(),
+        RegisteredLintAddress::RequestContext { id } => format!("/request-contexts/{id}"),
+        RegisteredLintAddress::RequestContextEntries { request_context } => {
+            format!("/request-contexts/{request_context}/entries")
+        }
+        RegisteredLintAddress::RequestContextEntry {
+            request_context,
+            key,
+        } => format!("/request-contexts/{request_context}/entries/{key}"),
     }
 }

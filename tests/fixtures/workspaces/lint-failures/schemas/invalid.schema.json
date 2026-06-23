@@ -1,8 +1,0 @@
-{
-  "type": "object",
-  "properties": {
-    "name": {
-      "type": "definitely-not-a-json-schema-type"
-    }
-  }
-}

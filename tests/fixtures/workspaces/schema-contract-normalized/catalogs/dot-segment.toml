@@ -1,3 +1,0 @@
-schema_version = 1
-schema = "./../schemas/value.schema.json"
-description = "Catalog with a dot-segment schema reference"

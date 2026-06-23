@@ -98,21 +98,16 @@ impl JsWorkspace {
         id: String,
         context: JsonValue,
         validate_context: Option<bool>,
-    ) -> Result<JsonValue> {
+    ) -> Result<bool> {
         let context = ResolveContext::from_json(context).map_err(js_err)?;
-        let resolution = self
-            .inner
+        self.inner
             .resolve_qualifier_with_options(
                 &id,
                 &context,
                 resolve_options(validate_context.unwrap_or(true)),
             )
             .await
-            .map_err(js_err)?;
-        Ok(serde_json::json!({
-            "id": resolution.id,
-            "value": resolution.value,
-        }))
+            .map_err(js_err)
     }
 }
 
@@ -172,22 +167,18 @@ impl JsRefreshingWorkspace {
         id: String,
         context: JsonValue,
         validate_context: Option<bool>,
-    ) -> Result<JsonValue> {
+    ) -> Result<bool> {
         let context = ResolveContext::from_json(context).map_err(js_err)?;
         let guard = self.inner.lock().await;
         let workspace = active_refreshing_workspace(&guard)?;
-        let resolution = workspace
+        workspace
             .resolve_qualifier_with_options(
                 &id,
                 &context,
                 resolve_options(validate_context.unwrap_or(true)),
             )
             .await
-            .map_err(js_err)?;
-        Ok(serde_json::json!({
-            "id": resolution.id,
-            "value": resolution.value,
-        }))
+            .map_err(js_err)
     }
 
     #[napi(js_name = "refreshNow")]

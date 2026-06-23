@@ -8,7 +8,7 @@ import { RototoError, Workspace } from "../dist/index.js";
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "../../..");
 const EXAMPLES_BASIC = resolve(ROOT, "examples/basic");
 
-test("workspace exposes TypeScript resolution objects", async () => {
+test("workspace exposes TypeScript runtime resolution API", async () => {
     const workspace = await Workspace.load(EXAMPLES_BASIC);
 
     const variable = await workspace.resolveVariable("premium-message", {
@@ -21,8 +21,7 @@ test("workspace exposes TypeScript resolution objects", async () => {
     assert.equal(variable.id, "premium-message");
     assert.deepEqual(variable.source, { kind: "literal" });
     assert.equal(variable.value, "Welcome back, premium member.");
-    assert.equal(qualifier.id, "premium-users");
-    assert.equal(qualifier.value, true);
+    assert.equal(qualifier, true);
 });
 
 test("inspected workspace can lint but not resolve", async () => {

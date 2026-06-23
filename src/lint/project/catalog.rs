@@ -1,35 +1,78 @@
+use std::sync::Arc;
+
+use super::super::catalog_schema::catalog_schema_uri;
 use super::super::index::*;
 use super::super::source::SourceDocument;
-use super::super::syntax::{ParsedToml, table_location};
-use super::fields::{integer_field, json_from_toml_value, optional_string_field, string_field};
+use super::super::syntax::{ParsedToml, SyntaxIndex, table_location};
+use super::fields::json_from_toml_value;
 
 pub(crate) fn project_catalog(
     document: &SourceDocument,
-    toml: &ParsedToml,
+    syntax: &SyntaxIndex,
     id: &str,
 ) -> CatalogNode {
-    let root = toml.root_table();
-    let location = document.document_location();
-    let schema_version = root
-        .map(|root| integer_field(document, root, "schema_version", location.clone()))
-        .unwrap_or_else(|| ProjectField::Missing {
-            location: location.clone(),
-        });
-    let description = root.and_then(|root| optional_string_field(document, root, "description"));
-    let schema = root
-        .map(|root| string_field(document, root, "schema", location.clone()))
-        .unwrap_or_else(|| ProjectField::Missing {
-            location: location.clone(),
-        });
+    let json = syntax.json.get(&document.id).cloned();
 
     CatalogNode {
         doc: document.id,
         id: id.to_owned(),
-        location,
-        schema_version,
-        description,
-        schema,
+        path: document.path.clone(),
+        location: document.document_location(),
+        json,
+        validator: None,
+        invalid_message: None,
     }
+}
+
+pub(crate) fn compile_catalog_validators(index: &mut SemanticIndex) {
+    let resources = catalog_schema_resources(index);
+    for catalog in index.catalogs.values_mut() {
+        let Some(json) = catalog.json.as_ref() else {
+            continue;
+        };
+        let base_uri = catalog_schema_uri(&catalog.id);
+        match jsonschema::options()
+            .with_base_uri(base_uri)
+            .with_resources(resources.clone().into_iter())
+            .build(json)
+        {
+            Ok(validator) => {
+                catalog.validator = Some(Arc::new(validator));
+                catalog.invalid_message = None;
+            }
+            Err(err) => {
+                catalog.validator = None;
+                catalog.invalid_message = Some(err.to_string());
+            }
+        }
+    }
+}
+
+fn catalog_schema_resources(index: &SemanticIndex) -> Vec<(String, jsonschema::Resource)> {
+    let mut resources = Vec::new();
+    for catalog in index.catalogs.values() {
+        let Some(json) = catalog.json.as_ref() else {
+            continue;
+        };
+        let Ok(resource) = jsonschema::Resource::from_contents(json.clone()) else {
+            continue;
+        };
+
+        resources.push((catalog_schema_uri(&catalog.id), resource.clone()));
+        if let Some(id) = json
+            .get("$id")
+            .and_then(serde_json::Value::as_str)
+            .map(normalize_schema_uri)
+            .filter(|id| !id.is_empty())
+        {
+            resources.push((id, resource));
+        }
+    }
+    resources
+}
+
+fn normalize_schema_uri(uri: &str) -> String {
+    uri.trim_end_matches('#').to_owned()
 }
 
 pub(crate) fn project_catalog_entry(

@@ -7,9 +7,9 @@ type = "string"
 default = "risk-standard"
 
 [[resolve.rule]]
-qualifier = "high-value-cart"
+when = 'qualifier["high-value-cart"]'
 value = "risk-priority"
 
 [[resolve.rule]]
-qualifier = "eu-users"
+when = 'qualifier["eu-users"]'
 value = "risk-eu"

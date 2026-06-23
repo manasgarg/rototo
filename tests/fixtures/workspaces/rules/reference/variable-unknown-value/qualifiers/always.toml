@@ -1,6 +1,4 @@
 schema_version = 1
+description = "Runtime condition for always."
 
-[[predicate]]
-attribute = "account.tier"
-op = "eq"
-value = "premium"
+when = '(context.account.tier == "premium")'

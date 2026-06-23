@@ -5,6 +5,7 @@
 
 /** Workspace entity kind that can appear as a graph node. */
 export type GraphNodeKind =
+    | "requestContext"
     | "qualifier"
     | "variable"
     | "catalog"
@@ -17,6 +18,7 @@ export type GraphNode = {
     kind: GraphNodeKind;
     label: string;
     href: string;
+    path: string;
     /* The entity's source text, for hover previews. May be truncated. */
     source?: string;
     language?: "json" | "lua" | "toml" | "text";
@@ -30,7 +32,12 @@ export type GraphNode = {
 };
 
 /** Relationship kind between two semantic graph nodes. */
-export type GraphEdgeKind = "checks" | "selects" | "contains" | "requires";
+export type GraphEdgeKind =
+    | "supports"
+    | "checks"
+    | "selects"
+    | "contains"
+    | "requires";
 
 /** Directed graph edge derived from semantic references or containment. */
 export type GraphEdge = {

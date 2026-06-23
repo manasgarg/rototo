@@ -1,3 +1,5 @@
+use std::path::Path;
+
 use super::source_trees::workspace_slug;
 use super::types::{ActiveBranchRecord, ActiveBranchStatus, SourceTreeRecord, WorkspaceRecord};
 
@@ -30,16 +32,35 @@ pub(super) fn workspace_from_row_at(
 ) -> rusqlite::Result<WorkspaceRecord> {
     let source_tree_label: String = row.get(offset + 4)?;
     let path: String = row.get(offset + 2)?;
+    let source: String = row.get(offset + 5)?;
     Ok(WorkspaceRecord {
         id: row.get(offset)?,
         slug: workspace_slug(&source_tree_label, &path),
         source_tree_id: row.get(offset + 1)?,
         source_tree_label,
+        display_path: workspace_display_path(&path, &source),
         path,
         revision: row.get(offset + 3)?,
-        source: row.get(offset + 5)?,
+        source,
         discovered_at: row.get(offset + 6)?,
     })
+}
+
+fn workspace_display_path(path: &str, source: &str) -> String {
+    if path != "." {
+        return path.to_owned();
+    }
+    let local_source = source.strip_prefix("file://").unwrap_or(source);
+    if local_source.contains("://") || local_source.starts_with("git+") {
+        return path.to_owned();
+    }
+    let trimmed = local_source.trim_end_matches(['/', '\\']);
+    Path::new(trimmed)
+        .file_name()
+        .and_then(|name| name.to_str())
+        .filter(|name| !name.is_empty())
+        .unwrap_or(path)
+        .to_owned()
 }
 
 pub(super) fn active_branch_from_row(

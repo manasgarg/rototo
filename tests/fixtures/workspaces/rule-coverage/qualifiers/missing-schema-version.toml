@@ -1,6 +1,3 @@
 description = "Missing qualifier schema_version"
 
-[[predicate]]
-attribute = "user.tier"
-op = "eq"
-value = "premium"
+when = '(context.user.tier == "premium")'

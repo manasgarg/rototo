@@ -1,6 +1,4 @@
 schema_version = 1
+description = "Runtime condition for derived."
 
-[[predicate]]
-attribute = "qualifier.missing"
-op = "eq"
-value = true
+when = '(qualifier["missing"])'

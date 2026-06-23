@@ -9,11 +9,10 @@ use serde::Serialize;
 use serde_json::Value as JsonValue;
 
 use crate::diagnostics::{DiagnosticLocation, SourceRange};
+use crate::expression::Expression;
 
 use super::WorkspaceLintSnapshot;
-use super::index::{
-    PredicateCollection, ProjectField, ResolveNode, RuleCollection, TypeSourceNode,
-};
+use super::index::{ProjectField, ResolveNode, RuleCollection, TypeSourceNode};
 use super::references::{ReferenceSource, ReferenceTarget};
 
 pub const SEMANTIC_MODEL_VERSION: u32 = 3;
@@ -26,9 +25,12 @@ pub struct WorkspaceSemanticModel {
     pub variables: Vec<VariableModel>,
     pub catalogs: Vec<CatalogModel>,
     pub catalog_entries: Vec<CatalogEntryModel>,
-    pub schemas: Vec<SchemaModel>,
+    pub request_contexts: Vec<RequestContextModel>,
+    pub request_context_entries: Vec<RequestContextEntryModel>,
     pub linters: Vec<LinterModel>,
     pub references: Vec<ReferenceModel>,
+    pub qualifier_request_contexts: Vec<QualifierRequestContextModel>,
+    pub variable_request_contexts: Vec<VariableRequestContextModel>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -65,6 +67,8 @@ pub struct QualifierModel {
     pub location: ModelLocation,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub description: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub when: Option<ModelField>,
     pub predicates: Vec<PredicateModel>,
 }
 
@@ -77,6 +81,8 @@ pub struct PredicateModel {
     pub attribute: Option<ModelField>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub op: Option<ModelField>,
+    #[serde(skip_serializing_if = "is_false")]
+    pub not: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub value: Option<JsonValue>,
 }
@@ -129,7 +135,9 @@ pub struct RuleModel {
     pub index: usize,
     pub location: ModelLocation,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub qualifier: Option<ModelField>,
+    pub when: Option<ModelField>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub query: Option<ModelField>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub value: Option<ModelValueField>,
 }
@@ -138,11 +146,12 @@ pub struct RuleModel {
 #[serde(rename_all = "camelCase")]
 pub struct CatalogModel {
     pub id: String,
+    pub path: String,
     pub location: ModelLocation,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub description: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub schema: Option<ModelField>,
+    pub json: Option<JsonValue>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -156,11 +165,41 @@ pub struct CatalogEntryModel {
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
-pub struct SchemaModel {
+pub struct RequestContextModel {
+    pub id: String,
     pub path: String,
     pub location: ModelLocation,
     #[serde(skip_serializing_if = "Option::is_none")]
+    pub title: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub description: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub json: Option<JsonValue>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RequestContextEntryModel {
+    pub request_context: String,
+    pub key: String,
+    pub path: String,
+    pub location: ModelLocation,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub value: Option<JsonValue>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct QualifierRequestContextModel {
+    pub qualifier: String,
+    pub request_contexts: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct VariableRequestContextModel {
+    pub variable: String,
+    pub request_contexts: Vec<String>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -193,25 +232,44 @@ pub struct ReferenceModel {
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase", tag = "kind")]
 pub enum ModelReferenceVia {
-    PredicateQualifier { index: usize },
-    PredicateContextAttribute { index: usize },
+    QualifierWhen,
+    QualifierWhenContextAttribute,
     VariableCatalog,
-    CatalogSchema,
     ResolveDefault,
-    RuleQualifier { index: usize },
+    RuleCondition { index: usize },
     RuleValue { index: usize },
 }
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase", tag = "kind")]
 pub enum ModelEntityRef {
-    Qualifier { id: String },
-    Variable { id: String },
-    Catalog { id: String },
-    CatalogEntry { catalog: String, key: String },
-    Schema { path: String },
-    Value { variable: String, key: String },
-    ContextAttribute { name: String },
+    Qualifier {
+        id: String,
+    },
+    Variable {
+        id: String,
+    },
+    Catalog {
+        id: String,
+    },
+    CatalogEntry {
+        catalog: String,
+        key: String,
+    },
+    RequestContext {
+        id: String,
+    },
+    RequestContextEntry {
+        request_context: String,
+        key: String,
+    },
+    Value {
+        variable: String,
+        key: String,
+    },
+    ContextAttribute {
+        name: String,
+    },
 }
 
 impl WorkspaceLintSnapshot {
@@ -224,27 +282,14 @@ impl WorkspaceLintSnapshot {
                 id: node.id.clone(),
                 location: model_location(&node.location),
                 description: present_string(&node.description),
-                predicates: match &node.predicates {
-                    PredicateCollection::Predicates(predicates) => predicates
-                        .iter()
-                        .map(|predicate| PredicateModel {
-                            index: predicate.index,
-                            location: model_location(&predicate.location),
-                            attribute: Some(model_field(&predicate.attribute)),
-                            op: Some(ModelField {
-                                value: match &predicate.op {
-                                    ProjectField::Present(op) => Some(op.value.as_str().to_owned()),
-                                    _ => None,
-                                },
-                                location: model_location(&predicate.op.location()),
-                            }),
-                            value: predicate.value.as_ref().map(|value| value.value.clone()),
-                        })
-                        .collect(),
-                    PredicateCollection::Missing { .. } | PredicateCollection::Invalid { .. } => {
-                        Vec::new()
-                    }
-                },
+                when: Some(ModelField {
+                    value: match &node.when {
+                        ProjectField::Present(when) => Some(when.value.source().to_owned()),
+                        ProjectField::Invalid { .. } | ProjectField::Missing { .. } => None,
+                    },
+                    location: model_location(&node.when.location()),
+                }),
+                predicates: Vec::new(),
             })
             .collect();
 
@@ -298,7 +343,8 @@ impl WorkspaceLintSnapshot {
                                 .map(|rule| RuleModel {
                                     index: rule.index,
                                     location: model_location(&rule.location),
-                                    qualifier: Some(model_field(&rule.qualifier)),
+                                    when: rule.when.as_ref().map(model_expression_field),
+                                    query: rule.query.as_ref().map(model_expression_field),
                                     value: Some(model_value_field(&rule.value)),
                                 })
                                 .collect(),
@@ -331,11 +377,18 @@ impl WorkspaceLintSnapshot {
         let catalogs = index
             .catalogs
             .values()
-            .map(|node| CatalogModel {
-                id: node.id.clone(),
-                location: model_location(&node.location),
-                description: present_string(&node.description),
-                schema: Some(model_field(&node.schema)),
+            .map(|node| {
+                let json = node.json.as_ref();
+                CatalogModel {
+                    id: node.id.clone(),
+                    path: node.path.clone(),
+                    location: model_location(&node.location),
+                    description: json
+                        .and_then(|json| json.get("description"))
+                        .and_then(JsonValue::as_str)
+                        .map(str::to_owned),
+                    json: node.json.clone(),
+                }
             })
             .collect();
 
@@ -351,13 +404,38 @@ impl WorkspaceLintSnapshot {
             })
             .collect();
 
-        let schemas = index
-            .schemas
+        let request_contexts = index
+            .request_contexts
             .values()
-            .map(|node| SchemaModel {
+            .map(|node| {
+                let json = node.json.as_ref();
+                RequestContextModel {
+                    id: node.id.clone(),
+                    path: node.path.clone(),
+                    location: model_location(&node.location),
+                    title: json
+                        .and_then(|json| json.get("title"))
+                        .and_then(JsonValue::as_str)
+                        .map(str::to_owned),
+                    description: json
+                        .and_then(|json| json.get("description"))
+                        .and_then(JsonValue::as_str)
+                        .map(str::to_owned),
+                    json: node.json.clone(),
+                }
+            })
+            .collect();
+
+        let request_context_entries = index
+            .request_context_entries
+            .values()
+            .flat_map(|entries| entries.values())
+            .map(|node| RequestContextEntryModel {
+                request_context: node.request_context_id.clone(),
+                key: node.key.clone(),
                 path: node.path.clone(),
                 location: model_location(&node.location),
-                json: node.json.clone(),
+                value: node.value.clone(),
             })
             .collect();
 
@@ -400,15 +478,36 @@ impl WorkspaceLintSnapshot {
             })
             .collect();
 
+        let compatibility = self.request_context_compatibility();
+        let qualifier_request_contexts = compatibility
+            .qualifiers
+            .into_iter()
+            .map(|(qualifier, contexts)| QualifierRequestContextModel {
+                qualifier,
+                request_contexts: contexts.into_iter().collect(),
+            })
+            .collect();
+        let variable_request_contexts = compatibility
+            .variables
+            .into_iter()
+            .map(|(variable, contexts)| VariableRequestContextModel {
+                variable,
+                request_contexts: contexts.into_iter().collect(),
+            })
+            .collect();
+
         WorkspaceSemanticModel {
             version: SEMANTIC_MODEL_VERSION,
             qualifiers,
             variables,
             catalogs,
             catalog_entries,
-            schemas,
+            request_contexts,
+            request_context_entries,
             linters,
             references,
+            qualifier_request_contexts,
+            variable_request_contexts,
         }
     }
 }
@@ -420,10 +519,10 @@ fn model_location(location: &DiagnosticLocation) -> ModelLocation {
     }
 }
 
-fn model_field(field: &ProjectField<String>) -> ModelField {
+fn model_expression_field(field: &ProjectField<Expression>) -> ModelField {
     ModelField {
         value: match field {
-            ProjectField::Present(value) => Some(value.value.clone()),
+            ProjectField::Present(value) => Some(value.value.source().to_owned()),
             ProjectField::Invalid { .. } | ProjectField::Missing { .. } => None,
         },
         location: model_location(&field.location()),
@@ -447,19 +546,20 @@ fn present_string(field: &Option<ProjectField<String>>) -> Option<String> {
     }
 }
 
+fn is_false(value: &bool) -> bool {
+    !*value
+}
+
 fn reference_via(source: &ReferenceSource) -> ModelReferenceVia {
     match source {
-        ReferenceSource::QualifierPredicateQualifier { predicate, .. } => {
-            ModelReferenceVia::PredicateQualifier { index: *predicate }
-        }
-        ReferenceSource::QualifierPredicateContextAttribute { predicate, .. } => {
-            ModelReferenceVia::PredicateContextAttribute { index: *predicate }
+        ReferenceSource::QualifierWhenQualifier { .. } => ModelReferenceVia::QualifierWhen,
+        ReferenceSource::QualifierWhenContextAttribute { .. } => {
+            ModelReferenceVia::QualifierWhenContextAttribute
         }
         ReferenceSource::VariableCatalog { .. } => ModelReferenceVia::VariableCatalog,
-        ReferenceSource::CatalogSchema { .. } => ModelReferenceVia::CatalogSchema,
         ReferenceSource::VariableResolveDefault { .. } => ModelReferenceVia::ResolveDefault,
-        ReferenceSource::VariableRuleQualifier { rule, .. } => {
-            ModelReferenceVia::RuleQualifier { index: *rule }
+        ReferenceSource::VariableRuleConditionQualifier { rule, .. } => {
+            ModelReferenceVia::RuleCondition { index: *rule }
         }
         ReferenceSource::VariableRuleValue { rule, .. } => {
             ModelReferenceVia::RuleValue { index: *rule }
@@ -469,20 +569,17 @@ fn reference_via(source: &ReferenceSource) -> ModelReferenceVia {
 
 fn reference_source_ref(source: &ReferenceSource) -> ModelEntityRef {
     match source {
-        ReferenceSource::QualifierPredicateQualifier { qualifier, .. }
-        | ReferenceSource::QualifierPredicateContextAttribute { qualifier, .. } => {
+        ReferenceSource::QualifierWhenQualifier { qualifier }
+        | ReferenceSource::QualifierWhenContextAttribute { qualifier } => {
             ModelEntityRef::Qualifier {
                 id: qualifier.clone(),
             }
         }
         ReferenceSource::VariableCatalog { variable }
         | ReferenceSource::VariableResolveDefault { variable }
-        | ReferenceSource::VariableRuleQualifier { variable, .. }
+        | ReferenceSource::VariableRuleConditionQualifier { variable, .. }
         | ReferenceSource::VariableRuleValue { variable, .. } => ModelEntityRef::Variable {
             id: variable.clone(),
-        },
-        ReferenceSource::CatalogSchema { catalog } => ModelEntityRef::Catalog {
-            id: catalog.clone(),
         },
     }
 }
@@ -498,7 +595,6 @@ fn reference_target_ref(target: &ReferenceTarget) -> ModelEntityRef {
             catalog: catalog.clone(),
             key: value.clone(),
         },
-        ReferenceTarget::Schema(path) => ModelEntityRef::Schema { path: path.clone() },
         ReferenceTarget::VariableValue { variable, value } => ModelEntityRef::Value {
             variable: variable.clone(),
             key: value.clone(),

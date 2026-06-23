@@ -22,14 +22,6 @@ class VariableResolution:
 
 
 @dataclass(frozen=True)
-class QualifierResolution:
-    """Boolean result for a rototo qualifier."""
-
-    id: str
-    value: bool
-
-
-@dataclass(frozen=True)
 class RefreshStatus:
     """Current refresh state for a long-running workspace handle."""
 
@@ -104,13 +96,12 @@ class Workspace:
         context: JsonObject,
         *,
         validate_context: bool = True,
-    ) -> QualifierResolution:
-        result = await self._inner.resolve_qualifier(
+    ) -> bool:
+        return await self._inner.resolve_qualifier(
             id,
             context,
             validate_context=validate_context,
         )
-        return QualifierResolution(id=result["id"], value=result["value"])
 
 
 class RefreshingWorkspace:
@@ -160,13 +151,12 @@ class RefreshingWorkspace:
         context: JsonObject,
         *,
         validate_context: bool = True,
-    ) -> QualifierResolution:
-        result = await self._inner.resolve_qualifier(
+    ) -> bool:
+        return await self._inner.resolve_qualifier(
             id,
             context,
             validate_context=validate_context,
         )
-        return QualifierResolution(id=result["id"], value=result["value"])
 
     async def refresh_now(self) -> str:
         return await self._inner.refresh_now()
@@ -181,7 +171,6 @@ class RefreshingWorkspace:
 
 __all__ = [
     "JsonObject",
-    "QualifierResolution",
     "RefreshingWorkspace",
     "RefreshStatus",
     "RototoError",

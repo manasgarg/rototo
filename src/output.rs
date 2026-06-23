@@ -1,3 +1,5 @@
+use std::path::Path;
+
 use serde::Serialize;
 
 use crate::style;
@@ -7,12 +9,10 @@ use rototo::diagnostics::{
     SemanticField, SemanticTarget, Severity,
 };
 use rototo::error::{Result, RototoError};
-use rototo::model::{
-    CatalogInspection, QualifierInspection, VariableInspection, WorkspaceInspection, WorkspaceLint,
-};
 use rototo::model::{InspectRuntimeStatus, WorkspaceDiff, WorkspaceInspectReport};
+use rototo::model::{WorkspaceInspection, WorkspaceLint};
 use rototo::workspace::{
-    catalog_for_id, qualifier_for_id, read_catalog_toml, read_toml, read_variable_toml,
+    catalog_for_id, qualifier_for_id, read_catalog_json, read_toml, read_variable_toml,
     variable_for_id,
 };
 
@@ -131,38 +131,45 @@ pub(crate) fn print_inspect_report(report: &WorkspaceInspectReport, json: bool) 
         print_diagnostics(&report.diagnostics);
     }
 
-    if !report.schemas.is_empty() {
-        println!("{}", style::label("schemas"));
-        let count = report.schemas.len();
-        for (index, schema) in report.schemas.iter().enumerate() {
+    if !report.request_contexts.is_empty() {
+        println!("{}", style::label("request contexts"));
+        let count = report.request_contexts.len();
+        for (index, request_context) in report.request_contexts.iter().enumerate() {
             print_entity_separator(index, count);
-            println!("  schema: {}", style::sea(&schema.id));
-            println!("    {} {}", style::dim("path:"), style::dim(&schema.path));
+            println!("  request context: {}", style::sea(&request_context.id));
+            println!(
+                "    {} {}",
+                style::dim("path:"),
+                style::dim(&request_context.path)
+            );
             println!(
                 "    {} {}",
                 style::dim("status:"),
-                if schema.status == "valid" {
-                    style::ok(&schema.status)
+                if request_context.status == "valid" {
+                    style::ok(&request_context.status)
                 } else {
-                    style::err(&schema.status)
+                    style::err(&request_context.status)
                 }
             );
-            if let Some(error) = &schema.error {
-                println!("    error: {error}");
+            if let Some(title) = &request_context.title {
+                println!("    title: {title}");
             }
-            if !schema.consumers.is_empty() {
-                println!("    {}", style::subhead("consumed by"));
-                for consumer in &schema.consumers {
+            if let Some(description) = &request_context.description {
+                println!("    description: {description}");
+            }
+            if !request_context.entries.is_empty() {
+                println!("    {}", style::subhead("samples"));
+                for entry in &request_context.entries {
                     println!(
-                        "      {}  {}",
-                        style::sea(&consumer.label),
-                        style::dim(&consumer.location.path)
+                        "      {} = {}",
+                        style::sea(&entry.key),
+                        compact_json(&entry.value)?
                     );
                 }
             }
-            if !schema.diagnostics.is_empty() {
+            if !request_context.diagnostics.is_empty() {
                 println!("    {}", style::subhead("diagnostics"));
-                print_diagnostics(&schema.diagnostics);
+                print_diagnostics(&request_context.diagnostics);
             }
         }
     }
@@ -173,21 +180,13 @@ pub(crate) fn print_inspect_report(report: &WorkspaceInspectReport, json: bool) 
         for (index, qualifier) in report.qualifiers.iter().enumerate() {
             print_entity_separator(index, count);
             println!("  qualifier: {}", style::sea(&qualifier.id));
-            if !qualifier.predicates.is_empty() {
-                println!("    {}", style::subhead("predicates"));
-                for predicate in &qualifier.predicates {
-                    let attribute = predicate.attribute.as_deref().unwrap_or("<missing>");
-                    let op = predicate.op.as_deref().unwrap_or("<missing>");
-                    let predicate_value = predicate_value_label(predicate)?;
-                    println!(
-                        "      {} {} {}{}",
-                        style::dim(&format!("[{}]", predicate.index)),
-                        style::info(attribute),
-                        style::bold(op),
-                        predicate_value
-                    );
-                }
+            if let Some(description) = &qualifier.description {
+                println!("    description: {description}");
             }
+            if let Some(when) = &qualifier.when {
+                println!("    {} {}", style::subhead("when"), style::info(when));
+            }
+            print_compatible_request_contexts(&qualifier.request_contexts, "    ");
             print_dependencies(&qualifier.dependencies, "    ");
             if !qualifier.consumers.is_empty() {
                 println!("    {}", style::subhead("consumed by"));
@@ -213,19 +212,11 @@ pub(crate) fn print_inspect_report(report: &WorkspaceInspectReport, json: bool) 
                         style::dim("false")
                     }
                 );
-                for predicate in &trace.predicates {
-                    println!(
-                        "      {} {} {} {}",
-                        style::dim(&format!("[{}]", predicate.index)),
-                        style::info(&predicate.attribute),
-                        style::arrow(),
-                        if predicate.result {
-                            style::ok("true")
-                        } else {
-                            style::dim("false")
-                        }
-                    );
-                }
+                println!(
+                    "      {} {}",
+                    style::subhead("when"),
+                    style::info(&trace.when)
+                );
             }
         }
     }
@@ -237,6 +228,9 @@ pub(crate) fn print_inspect_report(report: &WorkspaceInspectReport, json: bool) 
             print_entity_separator(index, count);
             println!("  catalog: {}", style::sea(&catalog.id));
             println!("    {} {}", style::dim("path:"), style::dim(&catalog.path));
+            if let Some(description) = &catalog.description {
+                println!("    description: {description}");
+            }
             if let Some(schema) = &catalog.schema {
                 println!("    schema: {}", style::info(schema));
             }
@@ -274,6 +268,9 @@ pub(crate) fn print_inspect_report(report: &WorkspaceInspectReport, json: bool) 
         for (index, variable) in report.variables.iter().enumerate() {
             print_entity_separator(index, count);
             println!("  variable: {}", style::sea(&variable.id));
+            if let Some(description) = &variable.description {
+                println!("    description: {description}");
+            }
             println!(
                 "    {} {}",
                 style::dim("type:"),
@@ -296,12 +293,12 @@ pub(crate) fn print_inspect_report(report: &WorkspaceInspectReport, json: bool) 
             if variable.resolve.default_value.is_some() || !variable.resolve.rules.is_empty() {
                 println!("    {}", style::subhead("resolve"));
                 for rule in &variable.resolve.rules {
-                    let qualifier = rule.qualifier.as_deref().unwrap_or("<missing>");
+                    let condition = variable_rule_condition(rule);
                     let value = compact_json_option(&rule.value)?;
                     println!(
                         "      {} if {} {} {}",
                         style::dim(&format!("rule[{}]", rule.index)),
-                        style::sea(qualifier),
+                        style::sea(condition),
                         style::arrow(),
                         value
                     );
@@ -313,6 +310,7 @@ pub(crate) fn print_inspect_report(report: &WorkspaceInspectReport, json: bool) 
                     style::arrow()
                 );
             }
+            print_compatible_request_contexts(&variable.request_contexts, "    ");
             print_dependencies(&variable.dependencies, "    ");
             if !variable.diagnostics.is_empty() {
                 println!("    {}", style::subhead("diagnostics"));
@@ -327,7 +325,7 @@ pub(crate) fn print_inspect_report(report: &WorkspaceInspectReport, json: bool) 
                     println!(
                         "      {} if {} {} {} ({})",
                         style::dim(&format!("rule[{}]", rule.index)),
-                        style::sea(&rule.qualifier),
+                        style::sea(&rule.condition),
                         style::arrow(),
                         compact_json(&rule.value)?,
                         if rule.matched {
@@ -394,6 +392,16 @@ pub(crate) fn print_inspect_report(report: &WorkspaceInspectReport, json: bool) 
     Ok(())
 }
 
+fn print_compatible_request_contexts(request_contexts: &[String], indent: &str) {
+    if request_contexts.is_empty() {
+        return;
+    }
+    println!("{indent}{}", style::subhead("request contexts"));
+    for request_context in request_contexts {
+        println!("{indent}  {}", style::sea(request_context));
+    }
+}
+
 pub(crate) fn print_workspace_diff(diff: &WorkspaceDiff, json: bool) -> Result<()> {
     if json {
         println!(
@@ -458,6 +466,9 @@ fn resolution_source_label(source: &rototo::model::VariableResolutionSource) -> 
         rototo::model::VariableResolutionSource::Catalog { catalog, value } => {
             format!("{catalog}:{value}")
         }
+        rototo::model::VariableResolutionSource::CatalogList { catalog, values } => {
+            format!("{catalog}:[{}]", values.join(","))
+        }
     }
 }
 
@@ -471,42 +482,15 @@ fn compact_json(value: &serde_json::Value) -> Result<String> {
     serde_json::to_string(value).map_err(|err| RototoError::new(err.to_string()))
 }
 
-fn predicate_value_label(predicate: &rototo::model::PredicateInspectReport) -> Result<String> {
-    if let Some(value) = &predicate.value {
-        return Ok(format!(" {}", compact_json(value)?));
-    }
-    match (&predicate.salt, &predicate.range) {
-        (Some(salt), Some(range)) => Ok(format!(
-            " salt={} range={}",
-            salt,
-            compact_json(&serde_json::json!(range))?
-        )),
-        (Some(salt), None) => Ok(format!(" salt={salt}")),
-        (None, Some(range)) => Ok(format!(
-            " range={}",
-            compact_json(&serde_json::json!(range))?
-        )),
-        (None, None) => Ok(String::new()),
-    }
-}
-
 fn linter_registration_target(
     registration: &rototo::model::LinterRegistrationInspectReport,
 ) -> String {
-    let Some(field) = registration.field.as_deref() else {
-        return registration.entity.clone();
-    };
-    if field.starts_with("value.") || field.starts_with("json.") {
-        field.to_owned()
-    } else {
-        format!("{}.{}", registration.entity, field)
-    }
+    registration.target.clone()
 }
 
 fn print_dependencies(dependencies: &rototo::model::DependencyInspectReport, indent: &str) {
     if dependencies.qualifiers.is_empty()
         && dependencies.context_paths.is_empty()
-        && dependencies.schemas.is_empty()
         && dependencies.catalogs.is_empty()
     {
         return;
@@ -526,9 +510,6 @@ fn print_dependencies(dependencies: &rototo::model::DependencyInspectReport, ind
             style::info(context_path)
         );
     }
-    for schema in &dependencies.schemas {
-        println!("{indent}  {} {}", style::dim("schema"), style::sea(schema));
-    }
     for catalog in &dependencies.catalogs {
         println!(
             "{indent}  {} {}",
@@ -544,7 +525,13 @@ pub(crate) fn print_qualifier_list(inspection: &WorkspaceInspection, json: bool)
             "{}",
             serde_json::to_string_pretty(&QualifierListJson {
                 workspace: inspection.root.display().to_string(),
-                qualifiers: inspection.qualifiers.iter().map(qualifier_json).collect(),
+                qualifiers: inspection
+                    .qualifiers
+                    .iter()
+                    .map(|qualifier| {
+                        workspace_file_json(&qualifier.id, &qualifier.uri, &qualifier.path)
+                    })
+                    .collect(),
             })
             .map_err(|err| RototoError::new(err.to_string()))?
         );
@@ -563,7 +550,15 @@ pub(crate) fn print_variable_list(inspection: &WorkspaceInspection, json: bool) 
             "{}",
             serde_json::to_string_pretty(&VariableListJson {
                 workspace: inspection.root.display().to_string(),
-                variables: inspection.variables.iter().map(variable_json).collect(),
+                variables: inspection
+                    .variables
+                    .iter()
+                    .map(|variable| workspace_file_json(
+                        &variable.id,
+                        &variable.uri,
+                        &variable.path
+                    ))
+                    .collect(),
             })
             .map_err(|err| RototoError::new(err.to_string()))?
         );
@@ -582,7 +577,11 @@ pub(crate) fn print_catalog_list(inspection: &WorkspaceInspection, json: bool) -
             "{}",
             serde_json::to_string_pretty(&CatalogListJson {
                 workspace: inspection.root.display().to_string(),
-                catalogs: inspection.catalogs.iter().map(catalog_json).collect(),
+                catalogs: inspection
+                    .catalogs
+                    .iter()
+                    .map(|catalog| workspace_file_json(&catalog.id, &catalog.uri, &catalog.path))
+                    .collect(),
             })
             .map_err(|err| RototoError::new(err.to_string()))?
         );
@@ -663,8 +662,7 @@ pub(crate) async fn print_catalog_get(
     let catalog = catalog_for_id(inspection, id)?;
 
     if json {
-        let value = serde_json::to_value(read_catalog_toml(&inspection.root, catalog).await?)
-            .map_err(|err| RototoError::new(err.to_string()))?;
+        let value = read_catalog_json(&inspection.root, catalog).await?;
         println!(
             "{}",
             serde_json::to_string_pretty(&CatalogGetJson {
@@ -679,10 +677,10 @@ pub(crate) async fn print_catalog_get(
         return Ok(());
     }
 
-    let value = read_catalog_toml(&inspection.root, catalog).await?;
+    let value = read_catalog_json(&inspection.root, catalog).await?;
     print!(
         "{}",
-        toml::to_string_pretty(&value).map_err(|err| RototoError::new(err.to_string()))?
+        serde_json::to_string_pretty(&value).map_err(|err| RototoError::new(err.to_string()))?
     );
     Ok(())
 }
@@ -710,31 +708,15 @@ pub(crate) fn print_diagnostic_catalog_entry(
     Ok(())
 }
 
-fn qualifier_json(qualifier: &QualifierInspection) -> WorkspaceFileJson<'_> {
+fn workspace_file_json<'a>(id: &'a str, uri: &'a str, path: &Path) -> WorkspaceFileJson<'a> {
     WorkspaceFileJson {
-        id: &qualifier.id,
-        uri: &qualifier.uri,
-        path: qualifier.path.display().to_string(),
+        id,
+        uri,
+        path: path.display().to_string(),
     }
 }
 
-fn variable_json(variable: &VariableInspection) -> WorkspaceFileJson<'_> {
-    WorkspaceFileJson {
-        id: &variable.id,
-        uri: &variable.uri,
-        path: variable.path.display().to_string(),
-    }
-}
-
-fn catalog_json(catalog: &CatalogInspection) -> WorkspaceFileJson<'_> {
-    WorkspaceFileJson {
-        id: &catalog.id,
-        uri: &catalog.uri,
-        path: catalog.path.display().to_string(),
-    }
-}
-
-async fn print_workspace_file(path: &std::path::Path) -> Result<()> {
+async fn print_workspace_file(path: &Path) -> Result<()> {
     print!(
         "{}",
         tokio::fs::read_to_string(path)
@@ -800,6 +782,13 @@ fn semantic_entity_label(entity: &SemanticEntity) -> String {
             format!("qualifier:{qualifier}.predicate[{index}]")
         }
         SemanticEntity::Variable { id } => format!("variable:{id}"),
+        SemanticEntity::RequestContext { id } => format!("request-context:{id}"),
+        SemanticEntity::RequestContextEntry {
+            request_context,
+            key,
+        } => {
+            format!("request-context:{request_context}.entry:{key}")
+        }
         SemanticEntity::Catalog { id } => format!("catalog:{id}"),
         SemanticEntity::CatalogEntry { catalog, key } => format!("catalog:{catalog}.value:{key}"),
         SemanticEntity::Value { variable, key } => format!("variable:{variable}.value:{key}"),
@@ -807,7 +796,6 @@ fn semantic_entity_label(entity: &SemanticEntity) -> String {
             format!("variable:{variable}.rule[{index}]")
         }
         SemanticEntity::CustomLint { path } => format!("lint:{path}"),
-        SemanticEntity::Schema { path } => format!("schema:{path}"),
     }
 }
 
@@ -816,9 +804,11 @@ fn semantic_field_label(field: &SemanticField) -> String {
         SemanticField::WorkspaceExtends => "extends".to_owned(),
         SemanticField::SchemaVersion => "schema_version".to_owned(),
         SemanticField::Description => "description".to_owned(),
+        SemanticField::QualifierWhen => "when".to_owned(),
         SemanticField::QualifierPredicates => "predicates".to_owned(),
         SemanticField::PredicateAttribute => "attribute".to_owned(),
         SemanticField::PredicateOp => "op".to_owned(),
+        SemanticField::PredicateNot => "not".to_owned(),
         SemanticField::PredicateValue => "value".to_owned(),
         SemanticField::PredicateSalt => "salt".to_owned(),
         SemanticField::PredicateRange => "range".to_owned(),
@@ -827,13 +817,14 @@ fn semantic_field_label(field: &SemanticField) -> String {
         SemanticField::VariableValues => "values".to_owned(),
         SemanticField::VariableResolve => "resolve".to_owned(),
         SemanticField::VariableResolveDefault => "resolve.default".to_owned(),
-        SemanticField::VariableRuleQualifier => "qualifier".to_owned(),
+        SemanticField::VariableRuleWhen => "when".to_owned(),
+        SemanticField::VariableRuleQuery => "query".to_owned(),
         SemanticField::VariableRuleValue => "value".to_owned(),
         SemanticField::Value => "value".to_owned(),
         SemanticField::ValueJsonPath { path } => format!("value.{}", path.join(".")),
         SemanticField::SchemaJson => "json".to_owned(),
         SemanticField::SchemaJsonPath { path } => format!("json.{}", path.join(".")),
-        SemanticField::CatalogSchema => "schema".to_owned(),
+        SemanticField::RequestContextEntry => "entry".to_owned(),
         SemanticField::CatalogEntry => "value".to_owned(),
     }
 }
@@ -843,6 +834,13 @@ fn compact_json_option(value: &Option<serde_json::Value>) -> Result<String> {
         Some(value) => compact_json(value),
         None => Ok("<none>".to_owned()),
     }
+}
+
+fn variable_rule_condition(rule: &rototo::model::RulePathwayInspectReport) -> &str {
+    rule.when
+        .as_deref()
+        .or(rule.query.as_deref())
+        .unwrap_or("<missing>")
 }
 
 fn severity_label(severity: &Severity) -> &'static str {
@@ -857,10 +855,11 @@ fn diagnostic_entity_label(entity: &DiagnosticEntity) -> &'static str {
         DiagnosticEntity::Workspace => "workspace",
         DiagnosticEntity::Qualifier => "qualifier",
         DiagnosticEntity::Variable => "variable",
+        DiagnosticEntity::RequestContext => "request_context",
+        DiagnosticEntity::RequestContextEntry => "request_context_entry",
         DiagnosticEntity::Catalog => "catalog",
         DiagnosticEntity::CatalogEntry => "catalog_entry",
         DiagnosticEntity::Value => "value",
         DiagnosticEntity::Rule => "rule",
-        DiagnosticEntity::Schema => "schema",
     }
 }

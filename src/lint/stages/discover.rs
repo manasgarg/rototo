@@ -76,10 +76,8 @@ pub(super) async fn run(ctx: &mut LintContext) -> Result<()> {
     ctx.source
         .add_named_toml_documents("variables", DocumentCollection::Variables)
         .await?;
-    ctx.source
-        .add_named_toml_documents("catalogs", DocumentCollection::Catalogs)
-        .await?;
-    ctx.source.add_schema_documents().await?;
+    ctx.source.add_catalog_documents().await?;
+    ctx.source.add_request_context_documents().await?;
     ctx.source.add_custom_lint_documents().await?;
     ctx.source.add_overlay_documents().await?;
 

@@ -1,5 +1,6 @@
 schema_version = 1
-schema = "../schemas/message.schema.json"
+description = "Configuration value for external message."
+schema = "message.schema.json"
 values = "not a table"
 
 [resolve]

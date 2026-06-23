@@ -1,0 +1,14 @@
+{
+  "description": "Request context contract for request runtime inputs.",
+  "type": "object",
+  "properties": {
+    "account": {
+      "type": "object",
+      "properties": {
+        "tier": {
+          "type": "string"
+        }
+      }
+    }
+  }
+}

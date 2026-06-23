@@ -1,6 +1,3 @@
 description = "Missing schema version"
 
-[[predicate]]
-attribute = "account.tier"
-op = "eq"
-value = "premium"
+when = '(context.account.tier == "premium")'

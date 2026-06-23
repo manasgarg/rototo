@@ -32,9 +32,10 @@ Rototo discovers these workspace paths:
 | --- | --- | --- | --- |
 | `qualifiers/*.toml` | TOML | File stem | Named runtime conditions. |
 | `variables/*.toml` | TOML | File stem | Named values resolved by applications. |
-| `catalogs/*.toml` | TOML | File stem | Schemas for structured catalog values. |
+| `catalogs/*.schema.json` | JSON | Name before `.schema.json` | Schemas for structured catalog values. |
 | `catalogs/<catalog-id>-entries/*.toml` | TOML | File stem | Values selectable by `catalog:<catalog-id>` variables. |
-| `schemas/*.json` | JSON | File stem | JSON Schemas used for context and catalog validation. |
+| `request-contexts/*.schema.json` | JSON | Name before `.schema.json` | Request context schemas. |
+| `request-contexts/<context-id>-entries/*.json` | JSON | File stem | Stored request context samples. |
 | `lint/*.lua` | Lua | File stem | Custom lint handlers. |
 
 Only files with the listed extensions are discovered. Other files may live in
@@ -42,7 +43,8 @@ the repository for humans or local tooling, but rototo does not treat them as
 workspace documents.
 
 Directories are optional. A workspace can start with only `variables/` and add
-`qualifiers/`, `catalogs/`, `schemas/`, or `lint/` later.
+`qualifiers/`, `catalogs/`, `request-contexts/`, or `lint/`
+later.
 
 ## Ids
 
@@ -51,8 +53,10 @@ The file stem is the id:
 ```text
 variables/account-limits.toml       -> variable://account-limits
 qualifiers/paid-account.toml        -> qualifier://paid-account
-catalogs/banner.toml               -> catalog://banner
+catalogs/banner.schema.json        -> catalog://banner
 catalogs/banner-entries/hidden.toml -> catalog value name hidden
+request-contexts/request.schema.json -> request_context://request
+request-contexts/request-entries/premium.json -> request context entry premium
 ```
 
 Ids are references in other files, CLI selectors, SDK calls, diagnostics, and
@@ -66,26 +70,29 @@ catalog:
 
 ```text
 catalogs/
-  banner.toml
+  banner.schema.json
   banner-entries/
     hidden.toml
     incident.toml
 ```
 
-Here `banner.toml` declares the catalog and its schema. The two value files
-define value names `hidden` and `incident`.
+Here `banner.schema.json` declares the catalog and its schema. The two value
+files define value names `hidden` and `incident`.
 
 If the catalog file does not exist, rototo does not treat the matching
 `*-entries/` directory as an independent catalog family.
 
-## Special Schema Path
+## Request Contexts
 
-[`schemas/context.schema.json`](reference-context.html) has a reserved meaning.
-When present, it is the schema for the runtime context an application passes
-during resolution.
+[`request-contexts/<id>.schema.json`](reference-context.html) files declare
+the runtime context shapes a workspace supports. Qualifiers are compatible with
+the request contexts that can satisfy their expression context references. Variables
+inherit request context compatibility from the qualifiers in their resolve
+rules.
 
-Other JSON Schemas under `schemas/` validate catalog values when referenced
-from a catalog file.
+Stored samples live under `request-contexts/<id>-entries/*.json`. They are
+validated against the matching request context schema and are used by CLI and
+console previews.
 
 ## Document Kinds
 
@@ -97,6 +104,8 @@ qualifier
 variable
 catalog
 catalog_entry
+request_context
+request_context_entry
 schema
 custom_lint
 ```

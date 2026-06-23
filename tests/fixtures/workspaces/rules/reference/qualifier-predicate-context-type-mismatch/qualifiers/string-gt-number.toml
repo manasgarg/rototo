@@ -1,6 +1,4 @@
 schema_version = 1
+description = "Runtime condition for string gt number."
 
-[[predicate]]
-attribute = "user.tier"
-op = "gt"
-value = 10
+when = "(context.user.tier > 10)"

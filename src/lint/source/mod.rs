@@ -13,7 +13,6 @@ use super::input::OverlayDocument;
 use line_index::LineIndex;
 use path::{file_uri, path_containment_error};
 
-pub(super) use path::resolve_workspace_relative_path;
 pub(super) use path::workspace_path;
 
 pub(super) struct SourceStore {
@@ -93,6 +92,13 @@ impl SourceStore {
             })
             .collect()
     }
+
+    pub(super) fn document_texts(&self) -> BTreeMap<String, String> {
+        self.documents
+            .values()
+            .map(|document| (document.path.clone(), document.text.clone()))
+            .collect()
+    }
 }
 
 #[derive(Clone)]
@@ -111,7 +117,13 @@ pub(super) enum DocumentKind {
         catalog_id: String,
         entry_id: String,
     },
-    Schema,
+    RequestContext {
+        id: String,
+    },
+    RequestContextEntry {
+        request_context_id: String,
+        entry_id: String,
+    },
     CustomLint,
 }
 
@@ -123,7 +135,8 @@ impl DocumentKind {
             Self::Variable { .. } => SourceKind::Variable,
             Self::Catalog { .. } => SourceKind::Catalog,
             Self::CatalogEntry { .. } => SourceKind::CatalogEntry,
-            Self::Schema => SourceKind::Schema,
+            Self::RequestContext { .. } => SourceKind::RequestContext,
+            Self::RequestContextEntry { .. } => SourceKind::RequestContextEntry,
             Self::CustomLint => SourceKind::CustomLint,
         }
     }
@@ -161,5 +174,4 @@ impl SourceDocument {
 pub(super) enum DocumentCollection {
     Qualifiers,
     Variables,
-    Catalogs,
 }

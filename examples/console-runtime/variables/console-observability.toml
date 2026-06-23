@@ -7,5 +7,5 @@ type = "catalog:console-observability"
 default = "standard"
 
 [[resolve.rule]]
-qualifier = "startup-dev-console"
+when = 'qualifier["startup-dev-console"]'
 value = "dev"

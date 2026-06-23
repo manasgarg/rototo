@@ -3,6 +3,7 @@ use toml_span::Value as TomlValue;
 use toml_span::value::Table;
 
 use crate::diagnostics::DiagnosticLocation;
+use crate::expression::Expression;
 
 use super::super::index::*;
 use super::super::source::SourceDocument;
@@ -18,28 +19,6 @@ pub(super) fn integer_field(
         Some(item) => match item.as_integer() {
             Some(value) => ProjectField::Present(Spanned {
                 value,
-                location: item_location(document, item),
-            }),
-            None => ProjectField::Invalid {
-                location: item_location(document, item),
-            },
-        },
-        None => ProjectField::Missing {
-            location: missing_location,
-        },
-    }
-}
-
-pub(super) fn string_field(
-    document: &SourceDocument,
-    table: &Table<'_>,
-    key: &str,
-    missing_location: DiagnosticLocation,
-) -> ProjectField<String> {
-    match table.get(key) {
-        Some(item) => match item.as_str() {
-            Some(value) => ProjectField::Present(Spanned {
-                value: value.to_owned(),
                 location: item_location(document, item),
             }),
             None => ProjectField::Invalid {
@@ -86,70 +65,53 @@ pub(super) fn optional_string_field(
     })
 }
 
-pub(super) fn predicate_op_field(
+pub(super) fn expression_field(
     document: &SourceDocument,
     table: &Table<'_>,
+    key: &str,
     missing_location: DiagnosticLocation,
-) -> ProjectField<PredicateOp> {
-    match string_field(document, table, "op", missing_location) {
-        ProjectField::Present(op) => ProjectField::Present(Spanned {
-            value: PredicateOp::from_str(&op.value),
-            location: op.location,
-        }),
-        ProjectField::Invalid { location } => ProjectField::Invalid { location },
-        ProjectField::Missing { location } => ProjectField::Missing { location },
+) -> ProjectField<Expression> {
+    match table.get(key) {
+        Some(item) => match item.as_str() {
+            Some(value) => match Expression::parse(value) {
+                Ok(expression) => ProjectField::Present(Spanned {
+                    value: expression,
+                    location: item_location(document, item),
+                }),
+                Err(_) => ProjectField::Invalid {
+                    location: item_location(document, item),
+                },
+            },
+            None => ProjectField::Invalid {
+                location: item_location(document, item),
+            },
+        },
+        None => ProjectField::Missing {
+            location: missing_location,
+        },
     }
 }
 
-pub(super) fn project_value_shape(
+pub(super) fn optional_expression_field(
     document: &SourceDocument,
-    item: &TomlValue<'_>,
-) -> ValueShapeNode {
-    ValueShapeNode {
-        location: item_location(document, item),
-        shape: value_shape(item),
-        value: json_from_toml_value(item),
-    }
-}
-
-pub(super) fn project_bucket_range(
-    document: &SourceDocument,
-    item: &TomlValue<'_>,
-) -> BucketRangeNode {
-    let location = item_location(document, item);
-    let Some(array) = item.as_array() else {
-        return BucketRangeNode {
-            location,
-            is_array: false,
-            len: 0,
-            start: None,
-            end: None,
-        };
-    };
-    let values: Vec<_> = array.iter().collect();
-    BucketRangeNode {
-        location,
-        is_array: true,
-        len: values.len(),
-        start: values.first().and_then(|value| value.as_integer()),
-        end: values.get(1).and_then(|value| value.as_integer()),
-    }
-}
-
-fn value_shape(item: &TomlValue<'_>) -> ValueShape {
-    if item.as_str().is_some() {
-        ValueShape::String
-    } else if item.as_integer().is_some() {
-        ValueShape::Integer
-    } else if item.as_float().is_some() {
-        ValueShape::Float
-    } else if item.as_bool().is_some() {
-        ValueShape::Boolean
-    } else if item.as_array().is_some() {
-        ValueShape::Array
-    } else {
-        ValueShape::Table
-    }
+    table: &Table<'_>,
+    key: &str,
+) -> Option<ProjectField<Expression>> {
+    let item = table.get(key)?;
+    Some(match item.as_str() {
+        Some(value) => match Expression::parse(value) {
+            Ok(expression) => ProjectField::Present(Spanned {
+                value: expression,
+                location: item_location(document, item),
+            }),
+            Err(_) => ProjectField::Invalid {
+                location: item_location(document, item),
+            },
+        },
+        None => ProjectField::Invalid {
+            location: item_location(document, item),
+        },
+    })
 }
 
 pub(crate) fn json_from_toml_value(value: &TomlValue<'_>) -> JsonValue {

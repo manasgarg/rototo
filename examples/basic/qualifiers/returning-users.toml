@@ -2,7 +2,4 @@ schema_version = 1
 
 description = "Users with more than one prior session"
 
-[[predicate]]
-attribute = "user.session_count"
-op = "gte"
-value = 2
+when = "(context.user.session_count >= 2)"

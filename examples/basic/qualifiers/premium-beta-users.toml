@@ -2,12 +2,4 @@ schema_version = 1
 
 description = "Premium users who are also in the beta rollout bucket"
 
-[[predicate]]
-attribute = "qualifier.premium-users"
-op = "eq"
-value = true
-
-[[predicate]]
-attribute = "qualifier.beta-rollout-bucket"
-op = "eq"
-value = true
+when = '(qualifier["premium-users"]) && (qualifier["beta-rollout-bucket"])'

@@ -48,6 +48,7 @@ pub struct LspCompletionWire {
     pub label: String,
     pub kind: i64,
     pub detail: Option<String>,
+    pub insert_text: Option<String>,
 }
 
 /// Hover response shape returned from the console LSP endpoint.
@@ -220,6 +221,10 @@ impl LspSessions {
                 kind: item.get("kind").and_then(JsonValue::as_i64).unwrap_or(0),
                 detail: item
                     .get("detail")
+                    .and_then(JsonValue::as_str)
+                    .map(str::to_owned),
+                insert_text: item
+                    .get("insertText")
                     .and_then(JsonValue::as_str)
                     .map(str::to_owned),
             })

@@ -40,7 +40,7 @@ const result = await workspace.resolveQualifier("paid-account", context);
 ```
 
 ```java
-QualifierResolution result = workspace
+boolean result = workspace
     .resolveQualifier("paid-account", context)
     .get();
 ```
@@ -57,37 +57,31 @@ result, err := workspace.ResolveQualifier(
 
 ## Evaluation
 
-Rototo evaluates predicates in file order.
-
-For each predicate:
-
-1. Read the predicate attribute.
-2. Apply the predicate operator.
-3. Record the trace result.
-
-All predicates are ANDed. If any predicate is false, the qualifier is false.
+Rototo evaluates the qualifier's `when` expression as a boolean expression.
+Boolean operators short-circuit, so later paths are not read when an earlier
+`&&` operand is already false or an earlier `||` operand is already true.
 
 ## Context Attributes
 
-For a context attribute:
+For a context path:
 
 ```toml
-attribute = "account.plan"
+when = 'context.account.plan == "enterprise"'
 ```
 
 rototo reads the JSON path from the context object. Missing paths fail
 resolution.
 
-## Qualifier Attributes
+## Qualifier References
 
-For a qualifier attribute:
+For a qualifier reference:
 
 ```toml
-attribute = "qualifier.paid-account"
+when = 'qualifier["paid-account"]'
 ```
 
-rototo resolves the referenced qualifier and uses its boolean result as the
-actual value for the predicate.
+rototo resolves the referenced qualifier and uses its boolean result in the
+expression.
 
 If qualifier references form a cycle, resolution fails with a qualifier cycle
 error.
@@ -100,37 +94,13 @@ qualifier traces:
 ```json
 {
   "id": "paid-account",
-  "value": true,
-  "predicates": [
-    {
-      "index": 0,
-      "kind": "compare",
-      "attribute": "account.plan",
-      "op": "in",
-      "expected": ["growth", "enterprise"],
-      "actual": "enterprise",
-      "result": true
-    }
-  ]
+  "when": "context.account.plan in [\"growth\", \"enterprise\"]",
+  "value": true
 }
 ```
 
-Bucket predicates include a `bucket` object:
-
-```json
-{
-  "index": 0,
-  "kind": "bucket",
-  "attribute": "account.id",
-  "bucket": {
-    "salt": "billing-policy-2026-06",
-    "start": 0,
-    "end": 1000,
-    "value": 427
-  },
-  "result": true
-}
-```
+The trace records the expression and final result. It does not currently expose
+per-subexpression evaluation details.
 
 ## Error Boundaries
 
@@ -140,7 +110,7 @@ what the qualifier needs.
 
 The usual production checks are:
 
-- keep [`schemas/context.schema.json`](reference-context.html) current;
+- keep [request context schemas](reference-context.html) current;
 - exercise important contexts in
   [app tests](testing-runtime-configuration.html);
 - log enough [trace](reference-resolution-output.html) or selected metadata to

@@ -9,8 +9,11 @@ fn inspects_basic_workspace() {
         .assert()
         .success()
         .stdout(predicate::str::contains("workspace: "))
-        .stdout(predicate::str::contains("schemas:"))
-        .stdout(predicate::str::contains("schema: checkout-page.schema"))
+        .stdout(predicate::str::contains("catalogs:"))
+        .stdout(predicate::str::contains("catalog: checkout-redesign"))
+        .stdout(predicate::str::contains(
+            "schema: catalogs/checkout-redesign.schema.json",
+        ))
         .stdout(predicate::str::contains("qualifiers:"))
         .stdout(predicate::str::contains("qualifier: premium-users"))
         .stdout(predicate::str::contains("qualifier: premium-beta-users"))
@@ -45,13 +48,15 @@ fn inspects_discovered_workspace() {
 }
 
 #[test]
-fn inspect_human_predicates_show_values() {
+fn inspect_human_conditions_show_values() {
     Command::cargo_bin("rototo")
         .unwrap()
         .args(["inspect", "examples/basic", "--qualifier", "premium-users"])
         .assert()
         .success()
-        .stdout(predicate::str::contains(r#"[0] user.tier eq "premium""#));
+        .stdout(predicate::str::contains(
+            r#"when: (context.user.tier == "premium")"#,
+        ));
 
     Command::cargo_bin("rototo")
         .unwrap()
@@ -64,7 +69,7 @@ fn inspect_human_predicates_show_values() {
         .assert()
         .success()
         .stdout(predicate::str::contains(
-            "[0] user.id bucket salt=checkout-redesign-2026-05 range=[0,1000]",
+            r#"when: (bucket(context.user.id, "checkout-redesign-2026-05", 0, 1000))"#,
         ));
 }
 
@@ -86,15 +91,39 @@ fn inspect_human_values_show_config_values() {
 }
 
 #[test]
+fn inspect_human_variable_rules_show_when_expressions() {
+    Command::cargo_bin("rototo")
+        .unwrap()
+        .args([
+            "inspect",
+            "examples/console-runtime",
+            "--variable",
+            "console-request-observability",
+        ])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains(
+            r#"rule[0] if qualifier["request-dev-console"] -> "dev-all""#,
+        ))
+        .stdout(predicate::str::contains(
+            r#"rule[1] if qualifier["request-server-error"] -> "retain-errors""#,
+        ))
+        .stdout(predicate::str::contains(
+            r#"rule[2] if qualifier["request-slow"] -> "retain-slow""#,
+        ))
+        .stdout(predicate::str::contains("if <missing>").not());
+}
+
+#[test]
 fn inspects_basic_workspace_as_json() {
     Command::cargo_bin("rototo")
         .unwrap()
         .args(["--json", "inspect", "examples/basic"])
         .assert()
         .success()
-        .stdout(predicate::str::contains(r#""schemas": ["#))
+        .stdout(predicate::str::contains(r#""catalogs": ["#))
         .stdout(predicate::str::contains(
-            r#""path": "schemas/checkout-page.schema.json""#,
+            r#""path": "catalogs/checkout-redesign.schema.json""#,
         ))
         .stdout(predicate::str::contains(r#""qualifiers": ["#))
         .stdout(predicate::str::contains(r#""variables": ["#))
@@ -107,6 +136,24 @@ fn inspects_basic_workspace_as_json() {
         ))
         .stdout(predicate::str::contains(
             r#""uri": "variable://checkout-redesign""#,
+        ));
+}
+
+#[test]
+fn inspect_json_variable_rules_include_when_expressions() {
+    Command::cargo_bin("rototo")
+        .unwrap()
+        .args([
+            "--json",
+            "inspect",
+            "examples/basic",
+            "--variable",
+            "checkout-redesign",
+        ])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains(
+            r#""when": "qualifier[\"premium-users\"]""#,
         ));
 }
 
@@ -125,9 +172,8 @@ fn inspect_json_hides_structural_text_spans() {
         .success()
         .stdout(predicate::str::contains(r#""id": "returning-users""#))
         .stdout(predicate::str::contains(
-            r#""attribute": "user.session_count""#,
+            r#""when": "(context.user.session_count >= 2)""#,
         ))
-        .stdout(predicate::str::contains(r#""value": 2"#))
         .stdout(predicate::str::contains(r#""location": {"#).not())
         .stdout(predicate::str::contains(r#""character":"#).not());
 }
@@ -166,7 +212,9 @@ fn inspects_variable_resolution_trace_as_json() {
         .stdout(predicate::str::contains(r#""value": "premium""#))
         .stdout(predicate::str::contains(r#""matched": true"#))
         .stdout(predicate::str::contains(r#""qualifier_traces": ["#))
-        .stdout(predicate::str::contains(r#""actual": "premium""#));
+        .stdout(predicate::str::contains(
+            r#""when": "(context.user.tier == \"premium\")""#,
+        ));
 }
 
 #[test]
@@ -221,8 +269,10 @@ fn inspect_linter_output_is_readable() {
         .stdout(predicate::str::contains(
             "[0] consumer-experience/checkout-heading-required",
         ))
-        .stdout(predicate::str::contains("target: value.heading"))
-        .stdout(predicate::str::contains("runs during: value lint stage"))
+        .stdout(predicate::str::contains(
+            "target: /catalogs/checkout-redesign/entries",
+        ))
+        .stdout(predicate::str::contains("runs during: policy lint stage"))
         .stdout(predicate::str::contains("handler: check_heading"))
         .stdout(predicate::str::contains("value value field=").not());
 }

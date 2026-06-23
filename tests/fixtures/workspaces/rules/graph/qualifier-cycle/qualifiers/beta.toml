@@ -1,6 +1,4 @@
 schema_version = 1
+description = "Runtime condition for beta."
 
-[[predicate]]
-attribute = "qualifier.alpha"
-op = "eq"
-value = true
+when = '(qualifier["alpha"])'

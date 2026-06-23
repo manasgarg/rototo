@@ -205,9 +205,9 @@ Do not retain paths into the staged root after dropping the workspace.
 
 ## Context Schema
 
-When the loaded workspace contains `schemas/context.schema.json`,
-[resolution](reference-sdk-resolution.html) validates context against that
-schema by default.
+When the loaded workspace contains request context schemas,
+[resolution](reference-sdk-resolution.html) validates context against a
+compatible schema by default.
 
 See [Resolve Context](reference-context.html) and
 [SDK Resolution](reference-sdk-resolution.html).

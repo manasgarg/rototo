@@ -35,10 +35,10 @@ fn shows_workspace_inventory_including_linters() {
         .assert()
         .success()
         .stdout(predicate::str::contains("qualifiers:"))
+        .stdout(predicate::str::contains("catalogs:"))
         .stdout(predicate::str::contains("variables:"))
-        .stdout(predicate::str::contains("schemas:"))
         .stdout(predicate::str::contains(
-            "checkout-page.schema  schemas/checkout-page.schema.json",
+            "llm-agent-config  catalog://llm-agent-config  catalogs/llm-agent-config.schema.json",
         ))
         .stdout(predicate::str::contains("lint authorities:"))
         .stdout(predicate::str::contains(
@@ -60,10 +60,10 @@ fn shows_workspace_inventory_as_json_including_top_level_entries() {
         .args(["show", "examples/basic", "--json"])
         .assert()
         .success()
-        .stdout(predicate::str::contains(r#""schemas": ["#))
         .stdout(predicate::str::contains(
-            r#""path": "schemas/context.schema.json""#,
+            r#""path": "request-contexts/request.schema.json""#,
         ))
+        .stdout(predicate::str::contains(r#""catalogs": ["#))
         .stdout(predicate::str::contains(r#""qualifiers": ["#))
         .stdout(predicate::str::contains(r#""variables": ["#))
         .stdout(predicate::str::contains(r#""lint_authorities": ["#))
@@ -96,7 +96,9 @@ fn gets_qualifier_by_id() {
         .stdout(predicate::str::contains(
             "description = \"Users on the premium plan\"",
         ))
-        .stdout(predicate::str::contains("attribute = \"user.tier\""));
+        .stdout(predicate::str::contains(
+            "when = '(context.user.tier == \"premium\")'",
+        ));
 }
 
 #[test]
@@ -117,9 +119,10 @@ fn gets_catalog_with_entries() {
         .args(["show", "examples/basic", "--catalog", "llm-agent-config"])
         .assert()
         .success()
-        .stdout(predicate::str::contains("[entries.local]"))
-        .stdout(predicate::str::contains("model = \"local-small\""))
-        .stdout(predicate::str::contains("model = \"gpt-5\""));
+        .stdout(predicate::str::contains(r#""entries": {"#))
+        .stdout(predicate::str::contains(r#""local": {"#))
+        .stdout(predicate::str::contains(r#""model": "local-small""#))
+        .stdout(predicate::str::contains(r#""model": "gpt-5""#));
 }
 
 #[test]
@@ -139,7 +142,9 @@ fn gets_qualifier_by_id_as_json() {
         .stdout(predicate::str::contains(
             r#""uri": "qualifier://premium-users""#,
         ))
-        .stdout(predicate::str::contains(r#""attribute": "user.tier""#));
+        .stdout(predicate::str::contains(
+            r#""when": "(context.user.tier == \"premium\")""#,
+        ));
 }
 
 #[test]
@@ -210,12 +215,10 @@ fn resolves_qualifier_with_trace_output() {
     let stdout = String::from_utf8(assert.get_output().stdout.clone()).unwrap();
 
     assert!(stdout.contains("qualifier: premium-users"));
-    assert!(stdout.contains(r#"[0] context user.tier = "premium""#));
-    assert!(stdout.contains(r#"test: eq "premium""#));
-    assert!(stdout.contains("matched: true"));
+    assert!(stdout.contains(r#"when: (context.user.tier == "premium")"#));
     assert!(stdout.contains("result: true"));
     assert!(!stdout.contains("premium-users=true"));
-    assert!(stdout.find("predicates:").unwrap() < stdout.find("result: true").unwrap());
+    assert!(stdout.find("when:").unwrap() < stdout.find("result: true").unwrap());
 }
 
 #[test]
@@ -283,7 +286,7 @@ fn resolves_production_example_enterprise_profile() {
             "--variable",
             "agent-config",
             "--context",
-            "@examples/production/contexts/eu-enterprise.json",
+            "@examples/production/request-contexts/request-entries/eu-enterprise.json",
             "--json",
         ])
         .assert()
@@ -303,7 +306,7 @@ fn resolves_all_variables() {
             "examples/basic",
             "--variables",
             "--context",
-            "@examples/basic/contexts/premium-enterprise.json",
+            "@examples/basic/request-contexts/request-entries/premium-enterprise.json",
             "--context",
             "lane=prod",
             "--json",
@@ -356,16 +359,14 @@ fn resolves_variable_with_trace_output() {
 
     assert!(stdout.contains("variable: checkout-redesign"));
     assert!(stdout.contains("qualifier: premium-users"));
-    assert!(stdout.contains(r#"[0] context user.tier = "premium""#));
-    assert!(stdout.contains(r#"test: eq "premium""#));
-    assert!(stdout.contains("matched: true"));
-    assert!(stdout.contains("rule[0] if premium-users ->"));
+    assert!(stdout.contains(r#"when: (context.user.tier == "premium")"#));
+    assert!(stdout.contains(r#"rule[0] if qualifier["premium-users"] ->"#));
     assert!(stdout.contains(r#""variant":"premium""#));
     assert!(stdout.contains("default ->"));
     assert!(stdout.contains("source: checkout-redesign:premium"));
     assert!(
         stdout.find("qualifiers:").unwrap() < stdout.find("  result:").unwrap(),
-        "qualifier predicates should be printed before the final variable result"
+        "qualifier conditions should be printed before the final variable result"
     );
 }
 
@@ -384,12 +385,12 @@ fn resolve_rejects_context_that_does_not_match_workspace_schema() {
         .assert()
         .failure()
         .stderr(predicate::str::contains(
-            "resolve context does not match schema",
+            "resolve context does not match any compatible request context",
         ));
 }
 
 #[test]
-fn resolve_rejects_missing_predicate_context_even_when_schema_allows_it() {
+fn resolve_rejects_missing_condition_context_even_when_schema_allows_it() {
     Command::cargo_bin("rototo")
         .unwrap()
         .args([
@@ -403,7 +404,7 @@ fn resolve_rejects_missing_predicate_context_even_when_schema_allows_it() {
         .assert()
         .failure()
         .stderr(predicate::str::contains(
-            "missing resolve context attribute: user.tier required by qualifier://premium-users",
+            "expression path is missing: context.user.tier",
         ));
 }
 
@@ -445,7 +446,7 @@ fn resolve_rejects_missing_context_for_variable_rules() {
         .assert()
         .failure()
         .stderr(predicate::str::contains(
-            "missing resolve context attribute: user.tier required by qualifier://premium-users",
+            "expression path is missing: context.user.tier",
         ));
 }
 

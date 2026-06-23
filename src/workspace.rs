@@ -1,11 +1,12 @@
 use std::path::{Path, PathBuf};
 
+use serde_json::Value as JsonValue;
 use toml::Value;
 
 use crate::error::{Result, RototoError};
 use crate::model::{
     CatalogConfig, CatalogInspection, LinterInspection, QualifierConfig, QualifierInspection,
-    SchemaInspection, VariableConfig, VariableInspection, WorkspaceInspection,
+    RequestContextInspection, VariableConfig, VariableInspection, WorkspaceInspection,
 };
 
 const WORKSPACE_MANIFEST: &str = "rototo-workspace.toml";
@@ -17,7 +18,7 @@ pub async fn inspect_workspace(workspace_root: &Path) -> Result<WorkspaceInspect
         .map_err(|err| RototoError::new(format!("workspace not found: {err}")))?;
     let manifest = read_toml(&workspace_root.join(WORKSPACE_MANIFEST)).await?;
     validate_workspace_manifest(&manifest)?;
-    let schemas = discover_schemas(&workspace_root).await?;
+    let request_contexts = discover_request_contexts(&workspace_root).await?;
     let catalogs = discover_catalogs(&workspace_root).await?;
     let qualifiers = discover_qualifiers(&workspace_root).await?;
     let variables = discover_variables(&workspace_root).await?;
@@ -25,7 +26,7 @@ pub async fn inspect_workspace(workspace_root: &Path) -> Result<WorkspaceInspect
 
     Ok(WorkspaceInspection {
         root: workspace_root,
-        schemas,
+        request_contexts,
         catalogs,
         qualifiers,
         variables,
@@ -59,6 +60,14 @@ pub async fn read_toml(path: &Path) -> Result<Value> {
         .await
         .map_err(|err| RototoError::new(format!("failed to read {}: {err}", path.display())))?;
     text.parse::<Value>()
+        .map_err(|err| RototoError::new(format!("failed to parse {}: {err}", path.display())))
+}
+
+pub async fn read_json(path: &Path) -> Result<JsonValue> {
+    let text = tokio::fs::read_to_string(path)
+        .await
+        .map_err(|err| RototoError::new(format!("failed to read {}: {err}", path.display())))?;
+    serde_json::from_str::<JsonValue>(&text)
         .map_err(|err| RototoError::new(format!("failed to parse {}: {err}", path.display())))
 }
 
@@ -237,8 +246,7 @@ async fn catalog_config(
     workspace_root: &Path,
     catalog: &CatalogInspection,
 ) -> Result<CatalogConfig> {
-    let value = serde_json::to_value(read_catalog_toml(workspace_root, catalog).await?)
-        .map_err(|err| RototoError::new(err.to_string()))?;
+    let value = read_catalog_json(workspace_root, catalog).await?;
 
     Ok(CatalogConfig {
         id: catalog.id.clone(),
@@ -248,30 +256,30 @@ async fn catalog_config(
     })
 }
 
-pub async fn read_catalog_toml(
+pub async fn read_catalog_json(
     workspace_root: &Path,
     catalog: &CatalogInspection,
-) -> Result<Value> {
-    let mut toml = read_toml(&workspace_root.join(&catalog.path)).await?;
+) -> Result<JsonValue> {
+    let mut json = read_json(&workspace_root.join(&catalog.path)).await?;
     let entries = read_catalog_entries_toml(workspace_root, catalog).await?;
     if entries.is_empty() {
-        return Ok(toml);
+        return Ok(json);
     }
-    let Some(root_table) = toml.as_table_mut() else {
-        return Ok(toml);
+    let Some(root_object) = json.as_object_mut() else {
+        return Ok(json);
     };
-    root_table.insert("entries".to_owned(), Value::Table(entries));
-    Ok(toml)
+    root_object.insert("entries".to_owned(), JsonValue::Object(entries));
+    Ok(json)
 }
 
 async fn read_catalog_entries_toml(
     workspace_root: &Path,
     catalog: &CatalogInspection,
-) -> Result<toml::map::Map<String, Value>> {
+) -> Result<serde_json::Map<String, JsonValue>> {
     let entries_dir = workspace_root
         .join("catalogs")
         .join(format!("{}-entries", catalog.id));
-    let mut catalog_entries = toml::map::Map::new();
+    let mut catalog_entries = serde_json::Map::new();
     let Ok(mut entries) = tokio::fs::read_dir(&entries_dir).await else {
         return Ok(catalog_entries);
     };
@@ -287,7 +295,11 @@ async fn read_catalog_entries_toml(
             continue;
         }
         let id = id_from_path(&path)?;
-        catalog_entries.insert(id, read_toml(&path).await?);
+        catalog_entries.insert(
+            id,
+            serde_json::to_value(read_toml(&path).await?)
+                .map_err(|err| RototoError::new(err.to_string()))?,
+        );
     }
     Ok(catalog_entries)
 }
@@ -324,8 +336,10 @@ async fn discover_variables(workspace_root: &Path) -> Result<Vec<VariableInspect
 
 async fn discover_catalogs(workspace_root: &Path) -> Result<Vec<CatalogInspection>> {
     let mut catalogs = Vec::new();
-    for path in discover_named_toml_files(workspace_root, "catalogs").await? {
-        let id = id_from_path(&path)?;
+    for path in discover_named_files(workspace_root, "catalogs", "json").await? {
+        let Some(id) = catalog_id_from_path(&path) else {
+            continue;
+        };
         let relative_path = relative_path(workspace_root, &path)?;
         catalogs.push(CatalogInspection {
             uri: format!("catalog://{id}"),
@@ -337,18 +351,21 @@ async fn discover_catalogs(workspace_root: &Path) -> Result<Vec<CatalogInspectio
     Ok(catalogs)
 }
 
-async fn discover_schemas(workspace_root: &Path) -> Result<Vec<SchemaInspection>> {
-    let mut schemas = Vec::new();
-    for path in discover_named_files(workspace_root, "schemas", "json").await? {
-        let id = id_from_path(&path)?;
+async fn discover_request_contexts(workspace_root: &Path) -> Result<Vec<RequestContextInspection>> {
+    let mut request_contexts = Vec::new();
+    for path in discover_named_files(workspace_root, "request-contexts", "json").await? {
+        let Some(id) = request_context_id_from_path(&path) else {
+            continue;
+        };
         let relative_path = relative_path(workspace_root, &path)?;
-        schemas.push(SchemaInspection {
+        request_contexts.push(RequestContextInspection {
+            uri: format!("request-context://{id}"),
             id,
             path: relative_path,
         });
     }
-    schemas.sort_by(|left, right| left.path.cmp(&right.path));
-    Ok(schemas)
+    request_contexts.sort_by(|left, right| left.uri.cmp(&right.uri));
+    Ok(request_contexts)
 }
 
 async fn discover_linters(workspace_root: &Path) -> Result<Vec<LinterInspection>> {
@@ -416,6 +433,22 @@ fn id_from_path(path: &Path) -> Result<String> {
         .and_then(|stem| stem.to_str())
         .map(str::to_owned)
         .ok_or_else(|| RototoError::new(format!("path has no valid id: {path:?}")))
+}
+
+fn request_context_id_from_path(path: &Path) -> Option<String> {
+    path.file_name()
+        .and_then(|file_name| file_name.to_str())
+        .and_then(|file_name| file_name.strip_suffix(".schema.json"))
+        .filter(|id| !id.is_empty())
+        .map(str::to_owned)
+}
+
+fn catalog_id_from_path(path: &Path) -> Option<String> {
+    path.file_name()
+        .and_then(|file_name| file_name.to_str())
+        .and_then(|file_name| file_name.strip_suffix(".schema.json"))
+        .filter(|id| !id.is_empty())
+        .map(str::to_owned)
 }
 
 fn relative_path(workspace_root: &Path, path: &Path) -> Result<PathBuf> {

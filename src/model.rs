@@ -7,17 +7,11 @@ use crate::diagnostics::{
 #[derive(Debug)]
 pub struct WorkspaceInspection {
     pub root: PathBuf,
-    pub schemas: Vec<SchemaInspection>,
+    pub request_contexts: Vec<RequestContextInspection>,
     pub catalogs: Vec<CatalogInspection>,
     pub qualifiers: Vec<QualifierInspection>,
     pub variables: Vec<VariableInspection>,
     pub linters: Vec<LinterInspection>,
-}
-
-#[derive(Clone, Debug, serde::Serialize)]
-pub struct SchemaInspection {
-    pub id: String,
-    pub path: PathBuf,
 }
 
 #[derive(Clone, Debug)]
@@ -36,6 +30,13 @@ pub struct VariableInspection {
 
 #[derive(Clone, Debug)]
 pub struct CatalogInspection {
+    pub id: String,
+    pub uri: String,
+    pub path: PathBuf,
+}
+
+#[derive(Clone, Debug)]
+pub struct RequestContextInspection {
     pub id: String,
     pub uri: String,
     pub path: PathBuf,
@@ -125,7 +126,8 @@ pub enum SourceKind {
     Variable,
     Catalog,
     CatalogEntry,
-    Schema,
+    RequestContext,
+    RequestContextEntry,
     CustomLint,
 }
 
@@ -167,7 +169,14 @@ pub struct VariableResolution {
 #[serde(rename_all = "snake_case", tag = "kind")]
 pub enum VariableResolutionSource {
     Literal,
-    Catalog { catalog: String, value: String },
+    Catalog {
+        catalog: String,
+        value: String,
+    },
+    CatalogList {
+        catalog: String,
+        values: Vec<String>,
+    },
 }
 
 #[derive(Debug, serde::Serialize)]
@@ -256,7 +265,7 @@ pub struct WorkspaceInspectReport {
     pub documents: Vec<SourceDocumentSummary>,
     pub runtime: InspectRuntimeStatus,
     pub diagnostics: Vec<LintDiagnostic>,
-    pub schemas: Vec<SchemaInspectReport>,
+    pub request_contexts: Vec<RequestContextInspectReport>,
     pub catalogs: Vec<CatalogInspectReport>,
     pub variables: Vec<VariableInspectReport>,
     pub qualifiers: Vec<QualifierInspectReport>,
@@ -270,6 +279,8 @@ pub struct CatalogInspectReport {
     pub id: String,
     pub uri: String,
     pub path: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub description: Option<String>,
     pub schema: Option<String>,
     pub entries: Vec<CatalogEntryInspectReport>,
     pub dependencies: DependencyInspectReport,
@@ -297,6 +308,9 @@ pub struct VariableInspectReport {
     pub id: String,
     pub uri: String,
     pub path: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub description: Option<String>,
+    pub request_contexts: Vec<String>,
     pub type_source: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub schema: Option<String>,
@@ -328,7 +342,10 @@ pub struct ResolveInspectReport {
 #[derive(Debug, serde::Serialize)]
 pub struct RulePathwayInspectReport {
     pub index: usize,
-    pub qualifier: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub when: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub query: Option<String>,
     pub value: Option<serde_json::Value>,
     #[serde(skip_serializing)]
     pub location: DiagnosticLocation,
@@ -338,7 +355,6 @@ pub struct RulePathwayInspectReport {
 pub struct DependencyInspectReport {
     pub qualifiers: Vec<String>,
     pub context_paths: Vec<String>,
-    pub schemas: Vec<String>,
     pub catalogs: Vec<String>,
 }
 
@@ -347,6 +363,11 @@ pub struct QualifierInspectReport {
     pub id: String,
     pub uri: String,
     pub path: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub description: Option<String>,
+    pub request_contexts: Vec<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub when: Option<String>,
     pub predicates: Vec<PredicateInspectReport>,
     pub dependencies: DependencyInspectReport,
     pub consumers: Vec<ReferenceInspectReport>,
@@ -356,14 +377,26 @@ pub struct QualifierInspectReport {
 }
 
 #[derive(Debug, serde::Serialize)]
-pub struct SchemaInspectReport {
+pub struct RequestContextInspectReport {
     pub id: String,
     pub path: String,
     pub status: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub error: Option<String>,
-    pub consumers: Vec<ReferenceInspectReport>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub title: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub description: Option<String>,
+    pub entries: Vec<RequestContextEntryInspectReport>,
     pub diagnostics: Vec<LintDiagnostic>,
+}
+
+#[derive(Debug, serde::Serialize)]
+pub struct RequestContextEntryInspectReport {
+    pub key: String,
+    pub value: serde_json::Value,
+    #[serde(skip_serializing)]
+    pub location: DiagnosticLocation,
 }
 
 #[derive(Debug, serde::Serialize)]
@@ -371,6 +404,8 @@ pub struct PredicateInspectReport {
     pub index: usize,
     pub attribute: Option<String>,
     pub op: Option<String>,
+    #[serde(skip_serializing_if = "is_false")]
+    pub not: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub value: Option<serde_json::Value>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -417,9 +452,7 @@ pub struct LinterInspectReport {
 #[derive(Debug, serde::Serialize)]
 pub struct LinterRegistrationInspectReport {
     pub stage: String,
-    pub entity: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub field: Option<String>,
+    pub target: String,
     pub rule: String,
     pub handler: String,
 }
@@ -427,8 +460,8 @@ pub struct LinterRegistrationInspectReport {
 #[derive(Debug, Clone, serde::Serialize)]
 pub struct QualifierResolutionTrace {
     pub id: String,
+    pub when: String,
     pub value: bool,
-    pub predicates: Vec<PredicateResolutionTrace>,
 }
 
 #[derive(Debug, Clone, serde::Serialize)]
@@ -438,6 +471,8 @@ pub struct PredicateResolutionTrace {
     pub attribute: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub op: Option<String>,
+    #[serde(skip_serializing_if = "is_false")]
+    pub not: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub expected: Option<serde_json::Value>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -458,6 +493,10 @@ pub struct BucketResolutionTrace {
     pub value: Option<u16>,
 }
 
+fn is_false(value: &bool) -> bool {
+    !*value
+}
+
 #[derive(Debug, Clone, serde::Serialize)]
 pub struct VariableResolutionTrace {
     pub resolution: VariableResolution,
@@ -470,7 +509,7 @@ pub struct VariableResolutionTrace {
 #[derive(Debug, Clone, serde::Serialize)]
 pub struct VariableRuleResolutionTrace {
     pub index: usize,
-    pub qualifier: String,
+    pub condition: String,
     pub value: serde_json::Value,
     pub source: VariableResolutionSource,
     pub matched: bool,

@@ -1,0 +1,32 @@
+{
+  "description": "LLM settings for the main agent loop",
+  "type": "object",
+  "required": [
+    "model",
+    "gateway",
+    "prompt",
+    "max_output_tokens",
+    "temperature"
+  ],
+  "properties": {
+    "model": {
+      "type": "string"
+    },
+    "gateway": {
+      "type": "string"
+    },
+    "prompt": {
+      "type": "string"
+    },
+    "max_output_tokens": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "temperature": {
+      "type": "number",
+      "minimum": 0,
+      "maximum": 2
+    }
+  },
+  "additionalProperties": false
+}

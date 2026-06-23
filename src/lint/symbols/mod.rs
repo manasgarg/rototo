@@ -44,7 +44,6 @@ pub(crate) enum WorkspaceDocumentSymbolKind {
     WorkspaceExtends,
     WorkspaceExtendSource,
     Qualifier,
-    Predicate,
     Variable,
     Catalog,
     CatalogEntry,
@@ -59,6 +58,7 @@ pub(crate) struct WorkspaceCompletionItem {
     pub(crate) label: String,
     pub(crate) kind: WorkspaceCompletionItemKind,
     pub(crate) detail: &'static str,
+    pub(crate) insert_text: Option<String>,
 }
 
 impl WorkspaceCompletionItem {
@@ -71,7 +71,13 @@ impl WorkspaceCompletionItem {
             label: label.into(),
             kind,
             detail,
+            insert_text: None,
         }
+    }
+
+    fn with_insert_text(mut self, insert_text: impl Into<String>) -> Self {
+        self.insert_text = Some(insert_text.into());
+        self
     }
 }
 
@@ -79,8 +85,9 @@ impl WorkspaceCompletionItem {
 pub(crate) enum WorkspaceCompletionItemKind {
     Qualifier,
     Value,
-    PredicateOperator,
     FieldSelector,
+    Function,
+    Operator,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]

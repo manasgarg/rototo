@@ -1,21 +1,22 @@
 schema_version = 1
+description = "Configuration value for message."
 type = "string"
 
 [resolve]
 default = "control"
 
 [[resolve.rule]]
-qualifier = "boolean-in-string"
+when = 'qualifier["boolean-in-string"]'
 value = "treatment"
 
 [[resolve.rule]]
-qualifier = "integer-eq-string"
+when = 'qualifier["integer-eq-string"]'
 value = "treatment"
 
 [[resolve.rule]]
-qualifier = "object-bucket"
+when = 'qualifier["object-bucket"]'
 value = "treatment"
 
 [[resolve.rule]]
-qualifier = "string-gt-number"
+when = 'qualifier["string-gt-number"]'
 value = "treatment"

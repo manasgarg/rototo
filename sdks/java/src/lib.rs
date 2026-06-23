@@ -140,20 +140,14 @@ pub extern "system" fn Java_dev_rototo_Native_workspaceResolveQualifierNative(
         let workspace = workspace_from_handle(handle)?;
         let id = required_string(env, id, "id")?;
         let context = resolve_context(env, context_json)?;
-        let resolution = runtime()
+        let value = runtime()
             .block_on(workspace.resolve_qualifier_with_options(
                 &id,
                 &context,
                 resolve_options(validate_context),
             ))
             .map_err(|err| err.to_string())?;
-        env_json(
-            env,
-            serde_json::json!({
-                "id": resolution.id,
-                "value": resolution.value,
-            }),
-        )
+        env_json(env, serde_json::json!(value))
     })
 }
 
@@ -244,7 +238,7 @@ pub extern "system" fn Java_dev_rototo_Native_refreshingWorkspaceResolveQualifie
         let workspace = refreshing_workspace_from_handle(handle)?;
         let id = required_string(env, id, "id")?;
         let context = resolve_context(env, context_json)?;
-        let resolution = runtime().block_on(async {
+        let value = runtime().block_on(async {
             let guard = workspace.inner.lock().await;
             let workspace = active_refreshing_workspace(&guard)?;
             workspace
@@ -252,13 +246,7 @@ pub extern "system" fn Java_dev_rototo_Native_refreshingWorkspaceResolveQualifie
                 .await
                 .map_err(|err| err.to_string())
         })?;
-        env_json(
-            env,
-            serde_json::json!({
-                "id": resolution.id,
-                "value": resolution.value,
-            }),
-        )
+        env_json(env, serde_json::json!(value))
     })
 }
 

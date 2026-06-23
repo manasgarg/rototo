@@ -25,11 +25,10 @@ public final class JavaSdkTest {
             assertEquals(Map.of("kind", "literal"), variable.source(), "source");
             assertEquals("Welcome back, premium member.", variable.value(), "value");
 
-            QualifierResolution qualifier = await(workspace.resolveQualifier(
+            Boolean qualifier = await(workspace.resolveQualifier(
                     "premium-users",
                     Map.of("user", Map.of("tier", "free"))));
-            assertEquals("premium-users", qualifier.id(), "qualifier id");
-            assertEquals(false, qualifier.value(), "qualifier value");
+            assertEquals(false, qualifier, "qualifier value");
 
             VariableResolution skippedValidation = await(workspace.resolveVariable(
                     "premium-message",
@@ -102,17 +101,15 @@ public final class JavaSdkTest {
             Map<String, Object> testCase,
             Map<String, Object> expect,
             boolean ok) throws Exception {
-        CompletableFuture<QualifierResolution> future = workspace.resolveQualifier(
+        CompletableFuture<Boolean> future = workspace.resolveQualifier(
                 Json.asString(testCase.get("id")),
                 Json.asObject(testCase.get("context")));
         if (!ok) {
             assertRototoError(future, expectedError(expect));
             return;
         }
-        Map<String, Object> result = Json.asObject(expect.get("result"));
-        QualifierResolution actual = await(future);
-        assertEquals(Json.asString(result.get("id")), actual.id(), name + " id");
-        assertEquals(Json.asBoolean(result.get("value")), actual.value(), name + " value");
+        Boolean actual = await(future);
+        assertEquals(Json.asBoolean(expect.get("result")), actual, name + " value");
     }
 
     private static void runVariableCase(

@@ -281,10 +281,10 @@ Do not precompute rototo policy in the application context:
 That hides the condition rototo is supposed to explain. The app should provide
 facts. The workspace should decide what those facts mean.
 
-[`schemas/context.schema.json`](reference-context.html) is the contract between
-the app and workspace. When the schema exists, SDK resolution validates context
-by default. If the app forgets a required fact or sends the wrong type, the
-failure happens before predicate evaluation.
+[Request context schemas](reference-context.html) are the contract between the
+app and workspace. When a compatible schema exists, SDK resolution validates
+context by default. If the app forgets a required fact or sends the wrong type,
+the failure happens before qualifier evaluation.
 
 ## Prefer RefreshingWorkspace For Services
 
@@ -662,8 +662,8 @@ testable, and observable.
 
 Avoid these patterns:
 
-- parsing `variables/*.toml` or `catalogs/*.toml` from application code;
-- duplicating qualifier predicates in app conditionals;
+- parsing `variables/*.toml` or `catalogs/*.schema.json` from application code;
+- duplicating qualifier conditions in app conditionals;
 - putting policy decisions into context booleans;
 - caching selected values forever when refresh is part of the runtime model;
 - logging full selected payloads as the normal observability path;

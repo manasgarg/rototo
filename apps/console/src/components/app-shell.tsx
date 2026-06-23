@@ -19,6 +19,7 @@ export function AppShell({
     nav,
     title,
     user,
+    wide,
 }: {
     actions?: ReactNode;
     children: ReactNode;
@@ -29,6 +30,7 @@ export function AppShell({
     nav: ReactNode;
     title: string;
     user: { githubLogin: string; githubAvatarUrl: string | null };
+    wide?: boolean;
 }) {
     return (
         <div className="shell">
@@ -109,7 +111,13 @@ export function AppShell({
                 ) : null}
                 <MobileNav title={title}>{nav}</MobileNav>
                 <main className="content">
-                    <div className="content-inner">{children}</div>
+                    <div
+                        className={`content-inner ${
+                            wide ? "content-inner-wide" : ""
+                        }`}
+                    >
+                        {children}
+                    </div>
                 </main>
             </div>
         </div>
