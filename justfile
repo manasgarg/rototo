@@ -332,6 +332,10 @@ test-sdk-java:
     fi
 
     cargo build --locked --package rototo-java
+    expected_version="$(
+        cargo metadata --locked --format-version=1 --no-deps |
+        python3 -c 'import json, sys; data = json.load(sys.stdin); print(next(package["version"] for package in data["packages"] if package["name"] == "rototo"))'
+    )"
 
     classes="sdks/java/target/classes"
     test_classes="sdks/java/target/test-classes"
@@ -357,12 +361,12 @@ test-sdk-java:
     esac
     native_path="$PWD/target/debug/$native_file"
 
-    "${JAVA[@]}" -Drototo.native.path="$native_path" -cp "$classes:$test_classes" dev.rototo.JavaSdkTest
+    "${JAVA[@]}" -Drototo.native.path="$native_path" -Drototo.expected.version="$expected_version" -cp "$classes:$test_classes" dev.rototo.JavaSdkTest
 
     mkdir -p "$resources/dev/rototo/native/$resource_platform"
     cp "$native_path" "$resources/dev/rototo/native/$resource_platform/$native_file"
     "${JAR[@]}" --create --file "$jar_file" -C "$classes" . -C "$resources" .
-    "${JAVA[@]}" -cp "$test_classes:$jar_file" dev.rototo.PackageSmokeTest
+    "${JAVA[@]}" -Drototo.expected.version="$expected_version" -cp "$test_classes:$jar_file" dev.rototo.PackageSmokeTest
 
 # Backward-compatible alias.
 [group('04. test')]
@@ -511,8 +515,13 @@ release-package-dry-run version:
     #!/bin/bash
     set -euo pipefail
     version="{{version}}"
+    if [[ -n "$(git status --porcelain --untracked-files=normal)" ]]; then
+        echo "release-package-dry-run expects a clean worktree before generating package artifacts" >&2
+        git status --short
+        exit 1
+    fi
     just console-build
-    cargo publish --package rototo --dry-run --locked
+    cargo publish --package rototo --dry-run --locked --allow-dirty
     if command -v npm >/dev/null; then
         (cd sdks/typescript && npm pack --dry-run)
     fi
