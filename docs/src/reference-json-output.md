@@ -89,7 +89,6 @@ to read configured workspace data or the diagnostic catalog:
 {
   "command": "show",
   "workspace": "/workspace",
-  "schemas": [],
   "catalogs": [],
   "variables": [],
   "qualifiers": [],
@@ -115,7 +114,6 @@ needs dependencies, consumers, runtime status, and optional resolution traces:
   "documents": [],
   "runtime": { "status": "available" },
   "diagnostics": [],
-  "schemas": [],
   "catalogs": [],
   "variables": [],
   "qualifiers": [],
@@ -125,7 +123,7 @@ needs dependencies, consumers, runtime status, and optional resolution traces:
 }
 ```
 
-Selected variables, catalogs, qualifiers, and schemas include dependencies,
+Selected variables, catalogs, and qualifiers include dependencies,
 consumers, and diagnostics. When `--context` is supplied, selected variables
 and qualifiers can include `trace`.
 

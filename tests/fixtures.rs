@@ -34,14 +34,11 @@ fn fixtures_command_generates_readable_toml_suite() {
     assert!(manifest.contains("target = \"qualifier:premium-users\""));
 
     let variable = fs::read_to_string(out.join("variables/max-output-tokens.toml")).unwrap();
-    assert!(variable.contains("title = \"Uses the default value when no rule matches\""));
-    assert!(variable.contains("matched = \"default\""));
-    assert!(variable.contains("matched_rule = 2"));
-    assert!(variable.contains("matched_qualifier = \"enterprise-accounts\""));
+    assert!(variable.contains("case = []"));
 
     let bucket = fs::read_to_string(out.join("qualifiers/beta-rollout-bucket.toml")).unwrap();
-    assert!(bucket.contains("[[case.expect.bucket]]"));
-    assert!(bucket.contains("id = \"false-outside-user-id-bucket\""));
+    assert!(bucket.contains("id = \"does-not-match\""));
+    assert!(bucket.contains("value = false"));
 }
 
 #[test]
@@ -86,5 +83,5 @@ async fn testing_helper_asserts_generated_fixtures() {
     let report = rototo::testing::assert_fixtures(&workspace, &out)
         .await
         .unwrap();
-    assert_eq!(report.cases, 8);
+    assert_eq!(report.cases, 2);
 }

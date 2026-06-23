@@ -2,12 +2,4 @@ schema_version = 1
 
 description = "Request completed with a server error"
 
-[[predicate]]
-attribute = "phase"
-op = "eq"
-value = "request"
-
-[[predicate]]
-attribute = "response.status_class"
-op = "eq"
-value = "server_error"
+when = '(context.phase == "request") && (context.response.status_class == "server_error")'

@@ -12,5 +12,4 @@ class PackagingTest(unittest.TestCase):
         self.assertIsNotNone(rototo.Workspace)
         self.assertIsNotNone(rototo.RefreshingWorkspace)
         self.assertIsNotNone(rototo.VariableResolution)
-        self.assertIsNotNone(rototo.QualifierResolution)
         self.assertIsNotNone(rototo.RefreshStatus)

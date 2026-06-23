@@ -2,6 +2,7 @@ import CodeMirror from "@uiw/react-codemirror";
 import {
     autocompletion,
     completionKeymap,
+    startCompletion,
     type CompletionContext,
     type CompletionResult,
 } from "@codemirror/autocomplete";
@@ -99,7 +100,12 @@ type LspUpdateResponse = {
 
 /** Response body from the branch LSP `completion` operation. */
 type LspCompletionResponse = {
-    items?: Array<{ label: string; kind: number; detail?: string | null }>;
+    items?: Array<{
+        label: string;
+        kind: number;
+        detail?: string | null;
+        insertText?: string | null;
+    }>;
 };
 
 /** Response body from the branch LSP `hover` operation. */
@@ -143,7 +149,7 @@ export function CodeEditor({
             ...((marks && marks.length > 0) || lsp
                 ? [diagnosticLineField(marks ?? [])]
                 : []),
-            ...(lsp ? lspExtensions(lsp) : []),
+            ...(lsp ? lspExtensions(lsp, language) : []),
             ...(diffBase !== undefined && diffBase !== null
                 ? [
                       unifiedMergeView({
@@ -228,7 +234,10 @@ function markDecorations(doc: Text, marks: CodeEditorMark[]): DecorationSet {
     return builder.finish();
 }
 
-function lspExtensions(lsp: CodeEditorLsp): Extension[] {
+function lspExtensions(
+    lsp: CodeEditorLsp,
+    language: CodeEditorLanguage,
+): Extension[] {
     // Shared between the diagnostics plugin and hover: the lint tooltip already
     // explains diagnostics on hover, so the LSP hover skips those ranges.
     const lastDiagnostics: {
@@ -240,9 +249,12 @@ function lspExtensions(lsp: CodeEditorLsp): Extension[] {
     };
     return [
         lspDiagnosticsPlugin(lsp, lastDiagnostics),
-        autocompletion({ override: [lspCompletionSource(lsp)] }),
+        autocompletion({ override: [lspCompletionSource(lsp, language)] }),
         keymap.of(completionKeymap),
         lspHoverTooltip(lsp, lastDiagnostics),
+        ...(language === "toml"
+            ? [tomlBlankLineCompletionActivator(), celCompletionActivator()]
+            : []),
     ];
 }
 
@@ -326,12 +338,13 @@ function lspDiagnosticsPlugin(
     });
 }
 
-function lspCompletionSource(lsp: CodeEditorLsp) {
+function lspCompletionSource(lsp: CodeEditorLsp, language: CodeEditorLanguage) {
     return async (
         context: CompletionContext,
     ): Promise<CompletionResult | null> => {
         const word = context.matchBefore(/[\w.-]+/);
-        if (!context.explicit && !word) {
+        const operator = context.matchBefore(/[&|]+/);
+        if (!shouldRequestLspCompletion(context, word, language)) {
             return null;
         }
         let response: LspCompletionResponse;
@@ -348,16 +361,144 @@ function lspCompletionSource(lsp: CodeEditorLsp) {
         if (items.length === 0) {
             return null;
         }
+        const allOperators = items.every((item) => item.kind === 24);
         return {
-            from: word ? word.from : context.pos,
-            validFor: /^[\w.-]*$/,
-            options: items.map((item) => ({
+            from:
+                allOperators && operator
+                    ? operator.from
+                    : word
+                      ? word.from
+                      : context.pos,
+            validFor: allOperators ? /^[&|]*$/ : /^[\w.[\]-]*$/,
+            options: items.map((item, index) => ({
                 label: item.label,
                 type: completionType(item.kind),
                 detail: item.detail ?? undefined,
+                apply: item.insertText ?? item.label,
+                boost: items.length - index,
             })),
         };
     };
+}
+
+function shouldRequestLspCompletion(
+    context: CompletionContext,
+    word: ReturnType<CompletionContext["matchBefore"]>,
+    language: CodeEditorLanguage,
+): boolean {
+    return (
+        context.explicit ||
+        word !== null ||
+        (language === "toml" &&
+            cursorLooksAtBlankTomlLine(context.state.doc, context.pos)) ||
+        cursorLooksInsideCelExpression(context.state.doc, context.pos)
+    );
+}
+
+function celCompletionActivator(): Extension {
+    return EditorView.updateListener.of((update) => {
+        if (!update.docChanged || !update.view.hasFocus) {
+            return;
+        }
+        const selection = update.state.selection.main;
+        if (
+            !selection.empty ||
+            !cursorLooksInsideCelExpression(update.state.doc, selection.head)
+        ) {
+            return;
+        }
+        const line = update.state.doc.lineAt(selection.head);
+        const beforeCursor = line.text.slice(0, selection.head - line.from);
+        if (!/[&|\s]$/.test(beforeCursor)) {
+            return;
+        }
+        globalThis.setTimeout(() => {
+            const selection = update.view.state.selection.main;
+            if (
+                update.view.hasFocus &&
+                selection.empty &&
+                cursorLooksInsideCelExpression(
+                    update.view.state.doc,
+                    selection.head,
+                )
+            ) {
+                startCompletion(update.view);
+            }
+        }, 0);
+    });
+}
+
+function tomlBlankLineCompletionActivator(): Extension {
+    return EditorView.updateListener.of((update) => {
+        if (!update.docChanged || !update.view.hasFocus) {
+            return;
+        }
+        const selection = update.state.selection.main;
+        if (
+            !selection.empty ||
+            !cursorLooksAtBlankTomlLine(update.state.doc, selection.head)
+        ) {
+            return;
+        }
+        globalThis.setTimeout(() => {
+            if (
+                update.view.hasFocus &&
+                cursorLooksAtBlankTomlLine(
+                    update.view.state.doc,
+                    update.view.state.selection.main.head,
+                )
+            ) {
+                startCompletion(update.view);
+            }
+        }, 0);
+    });
+}
+
+function cursorLooksAtBlankTomlLine(doc: Text, offset: number): boolean {
+    const line = doc.lineAt(offset);
+    const beforeCursor = line.text.slice(0, offset - line.from);
+    return beforeCursor.trim().length === 0;
+}
+
+function cursorLooksInsideCelExpression(doc: Text, offset: number): boolean {
+    const line = doc.lineAt(offset);
+    const beforeCursor = line.text.slice(0, offset - line.from);
+    const equals = beforeCursor.indexOf("=");
+    if (equals < 0) {
+        return false;
+    }
+    const key = beforeCursor
+        .slice(0, equals)
+        .trimEnd()
+        .match(/([\w-]+)$/)?.[1];
+    if (key !== "when" && key !== "query") {
+        return false;
+    }
+    const valuePrefix = beforeCursor.slice(equals + 1).trimStart();
+    const quote = valuePrefix[0];
+    if (quote !== `"` && quote !== `'`) {
+        return false;
+    }
+    return !containsClosingTomlStringQuote(valuePrefix.slice(1), quote);
+}
+
+function containsClosingTomlStringQuote(value: string, quote: string): boolean {
+    let escaped = false;
+    for (const character of value) {
+        if (quote === `"` && escaped) {
+            escaped = false;
+            continue;
+        }
+        if (quote === `"` && character === "\\") {
+            escaped = true;
+            continue;
+        }
+        if (character === quote) {
+            return true;
+        }
+        escaped = false;
+    }
+    return false;
 }
 
 function lspHoverTooltip(
@@ -429,6 +570,8 @@ function completionType(kind: number): string {
             return "keyword";
         case 5:
             return "property";
+        case 3:
+            return "function";
         default:
             return "text";
     }

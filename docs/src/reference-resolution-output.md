@@ -2,7 +2,7 @@
 
 Resolution output is the operational explanation for a selected value. It
 answers three questions: what value was selected, which rule selected it, and
-which qualifier predicates caused that rule to match or skip.
+which qualifier conditions caused that rule to match or skip.
 
 Use this output when logs, CI, tests, or support tools need to explain runtime
 selection without reimplementing rototo's resolution logic. The shapes below
@@ -88,94 +88,22 @@ the [variable file](reference-variables.html).
 
 ## Qualifier Trace
 
-A qualifier trace shows the final boolean value and every predicate that
-contributed to it:
+A qualifier trace shows the condition rototo evaluated and the final boolean
+value:
 
 ```json
 {
   "id": "enterprise-account",
-  "value": true,
-  "predicates": [
-    {
-      "index": 0,
-      "kind": "compare",
-      "attribute": "account.plan",
-      "op": "eq",
-      "expected": "enterprise",
-      "actual": "enterprise",
-      "result": true
-    }
-  ]
+  "when": "context.account.plan == \"enterprise\"",
+  "value": true
 }
 ```
 
 | Field | Type | Meaning |
 | --- | --- | --- |
 | `id` | string | Qualifier id. |
+| `when` | string | Expression from the qualifier file. |
 | `value` | boolean | Final qualifier result. |
-| `predicates` | array | Predicate traces in qualifier file order. |
-
-Predicate indexes are zero-based and match the order of `[[predicate]]`
-tables.
-
-## Compare Predicate Trace
-
-Compare predicates read either
-[runtime context](reference-context.html) or another
-[qualifier](reference-qualifiers.html) and compare the actual value against the
-configured expectation:
-
-```json
-{
-  "index": 0,
-  "kind": "compare",
-  "attribute": "account.plan",
-  "op": "in",
-  "expected": ["growth", "enterprise"],
-  "actual": "enterprise",
-  "result": true
-}
-```
-
-`expected` is the predicate value from the workspace. `actual` is the value read
-from context or from a referenced qualifier.
-
-When the predicate reads another qualifier, the trace also includes
-`qualifier`:
-
-```json
-{
-  "attribute": "qualifier.paid-account",
-  "qualifier": "paid-account",
-  "actual": true
-}
-```
-
-## Bucket Predicate Trace
-
-[Bucket predicates](reference-predicate-operators.html) only help if the
-assignment is explainable. The trace includes the computed bucket value so
-operators can see why a stable input fell inside or outside the configured
-range:
-
-```json
-{
-  "index": 0,
-  "kind": "bucket",
-  "attribute": "account.id",
-  "bucket": {
-    "salt": "billing-policy-2026-06",
-    "start": 0,
-    "end": 1000,
-    "value": 427
-  },
-  "result": true
-}
-```
-
-`bucket.value` is omitted only when the runtime context value was unavailable,
-which normally appears as a resolution error before a successful trace is
-returned.
 
 ## Human Output
 

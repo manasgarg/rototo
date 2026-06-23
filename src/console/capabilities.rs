@@ -52,6 +52,7 @@ impl WritePolicy {
 #[serde(rename_all = "camelCase")]
 pub enum WriteBackend {
     GitHubApi,
+    LocalWorkingTree,
 }
 
 /// Read capability for a workspace under the current credential.
@@ -138,6 +139,7 @@ pub fn classify_workspace_source(source: &str) -> WorkspaceSourceKind {
 pub fn workspace_capabilities(
     kind: WorkspaceSourceKind,
     policy: WritePolicy,
+    deployment: &DeploymentType,
     has_github_token: bool,
 ) -> WorkspaceCapabilities {
     let read = match kind {
@@ -170,7 +172,7 @@ pub fn workspace_capabilities(
                 }
             }
             _ => WriteCapability::Disabled {
-                reason: "only GitHub configuration sources support branch edits".to_owned(),
+                reason: "only GitHub configuration sources support pull-request edits".to_owned(),
             },
         },
         WritePolicy::DirectPush => match kind {
@@ -185,8 +187,21 @@ pub fn workspace_capabilities(
                     }
                 }
             }
+            WorkspaceSourceKind::LocalPath | WorkspaceSourceKind::FileUrl
+                if deployment == &DeploymentType::Local =>
+            {
+                WriteCapability::DirectPush {
+                    backend: WriteBackend::LocalWorkingTree,
+                }
+            }
+            WorkspaceSourceKind::LocalPath | WorkspaceSourceKind::FileUrl => {
+                WriteCapability::Disabled {
+                    reason: "local folder edits require a local console deployment".to_owned(),
+                }
+            }
             _ => WriteCapability::Disabled {
-                reason: "only GitHub configuration sources support branch edits".to_owned(),
+                reason: "only GitHub or local folder configuration sources support direct edits"
+                    .to_owned(),
             },
         },
     };
@@ -202,6 +217,7 @@ mod tests {
         let capabilities = workspace_capabilities(
             WorkspaceSourceKind::GitHubGit,
             WritePolicy::PullRequest,
+            &DeploymentType::Local,
             true,
         );
 
@@ -214,7 +230,7 @@ mod tests {
     }
 
     #[test]
-    fn non_github_sources_are_read_only_under_write_policies() {
+    fn non_github_sources_do_not_support_pull_request_writes() {
         for kind in [
             WorkspaceSourceKind::LocalPath,
             WorkspaceSourceKind::FileUrl,
@@ -222,11 +238,65 @@ mod tests {
             WorkspaceSourceKind::HttpsArchive,
             WorkspaceSourceKind::GenericGitRemote,
         ] {
-            let capabilities = workspace_capabilities(kind, WritePolicy::PullRequest, true);
+            let capabilities = workspace_capabilities(
+                kind,
+                WritePolicy::PullRequest,
+                &DeploymentType::Local,
+                true,
+            );
             assert!(matches!(
                 capabilities.write,
                 WriteCapability::Disabled { .. }
             ));
         }
+    }
+
+    #[test]
+    fn local_sources_use_local_working_tree_for_direct_writes() {
+        for kind in [WorkspaceSourceKind::LocalPath, WorkspaceSourceKind::FileUrl] {
+            let capabilities = workspace_capabilities(
+                kind,
+                WritePolicy::DirectPush,
+                &DeploymentType::Local,
+                false,
+            );
+            assert!(matches!(
+                capabilities.write,
+                WriteCapability::DirectPush {
+                    backend: WriteBackend::LocalWorkingTree
+                }
+            ));
+        }
+    }
+
+    #[test]
+    fn unsupported_sources_stay_read_only_under_direct_writes() {
+        for kind in [
+            WorkspaceSourceKind::GitFile,
+            WorkspaceSourceKind::HttpsArchive,
+            WorkspaceSourceKind::GenericGitRemote,
+        ] {
+            let capabilities =
+                workspace_capabilities(kind, WritePolicy::DirectPush, &DeploymentType::Local, true);
+            assert!(matches!(
+                capabilities.write,
+                WriteCapability::Disabled { .. }
+            ));
+        }
+    }
+
+    #[test]
+    fn local_sources_are_read_only_in_hosted_deployments() {
+        let capabilities = workspace_capabilities(
+            WorkspaceSourceKind::LocalPath,
+            WritePolicy::DirectPush,
+            &DeploymentType::Hosted,
+            false,
+        );
+
+        assert!(matches!(
+            capabilities.write,
+            WriteCapability::Disabled { .. }
+        ));
     }
 }

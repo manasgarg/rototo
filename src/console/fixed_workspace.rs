@@ -142,12 +142,8 @@ fn synthetic_registration(source: &str) -> (String, String, String) {
         }
     }
     // Local paths and anything else.
-    let name = base
-        .trim_end_matches('/')
-        .rsplit('/')
-        .next()
-        .filter(|name| !name.is_empty())
-        .unwrap_or("workspace");
+    let name = base.trim_end_matches(['/', '\\']);
+    let name = if name.is_empty() { base } else { name };
     (
         name.to_owned(),
         ref_from_fragment.unwrap_or("main").to_owned(),
@@ -248,7 +244,11 @@ mod tests {
         );
         assert_eq!(
             synthetic_registration("examples/basic"),
-            ("basic".to_owned(), "main".to_owned(), ".".to_owned())
+            (
+                "examples/basic".to_owned(),
+                "main".to_owned(),
+                ".".to_owned()
+            )
         );
     }
 
@@ -300,14 +300,7 @@ mod tests {
             .expect("fixed workspace registration");
 
         assert_eq!(registration.kind, SourceTreeKind::LocalFolder);
-        assert_eq!(
-            registration.display_name,
-            temp.path()
-                .file_name()
-                .unwrap()
-                .to_string_lossy()
-                .to_string()
-        );
+        assert_eq!(registration.display_name, path_str(temp.path()));
         assert_workspace_paths(&registration.workspaces, &[".", "apps/payments"]);
         assert_eq!(
             registration.workspaces[1].source,

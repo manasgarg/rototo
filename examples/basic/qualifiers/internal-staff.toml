@@ -2,7 +2,4 @@ schema_version = 1
 
 description = "Employees using internal accounts"
 
-[[predicate]]
-attribute = "user.email_domain"
-op = "eq"
-value = "rototo.dev"
+when = '(context.user.email_domain == "rototo.dev")'

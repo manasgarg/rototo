@@ -69,15 +69,6 @@ type = "catalog:notification-delivery-policy"
 default = "product_digest"
 ```
 
-Replace `notification-config/catalogs/notification-delivery-policy.toml`:
-
-```toml
-schema_version = 1
-
-description = "Notification delivery policy values"
-schema = "../schemas/notification-delivery-policy.schema.json"
-```
-
 The default is a digest policy. The notification service gets a valid answer
 before any special runtime conditions are introduced.
 
@@ -85,8 +76,7 @@ before any special runtime conditions are introduced.
 
 Before adding policy values, define
 [what the notification service is willing to consume](reference-catalogs.html).
-Replace
-`notification-config/schemas/notification-delivery-policy.schema.json`:
+Replace `notification-config/catalogs/notification-delivery-policy.schema.json`:
 
 ```json
 {
@@ -176,10 +166,7 @@ Create `notification-config/qualifiers/security-alerts.toml`:
 schema_version = 1
 description = "Security notifications that should be delivered immediately"
 
-[[predicate]]
-attribute = "notification.kind"
-op = "eq"
-value = "security_alert"
+when = 'context.notification.kind == "security_alert"'
 ```
 
 Create `notification-config/qualifiers/enterprise-accounts.toml`:
@@ -188,10 +175,7 @@ Create `notification-config/qualifiers/enterprise-accounts.toml`:
 schema_version = 1
 description = "Enterprise plan accounts"
 
-[[predicate]]
-attribute = "account.plan"
-op = "eq"
-value = "enterprise"
+when = 'context.account.plan == "enterprise"'
 ```
 
 Create `notification-config/qualifiers/active-incidents.toml`:
@@ -200,10 +184,7 @@ Create `notification-config/qualifiers/active-incidents.toml`:
 schema_version = 1
 description = "Requests made while an operational incident is active"
 
-[[predicate]]
-attribute = "incident.active"
-op = "eq"
-value = true
+when = 'context.incident.active == true'
 ```
 
 Create `notification-config/qualifiers/incident-updates.toml`:
@@ -212,10 +193,7 @@ Create `notification-config/qualifiers/incident-updates.toml`:
 schema_version = 1
 description = "Notifications about an operational incident"
 
-[[predicate]]
-attribute = "notification.kind"
-op = "eq"
-value = "incident_update"
+when = 'context.notification.kind == "incident_update"'
 ```
 
 Those qualifiers name the raw facts. The delivery policy cares about a
@@ -228,25 +206,16 @@ Create `notification-config/qualifiers/enterprise-incident-updates.toml`:
 schema_version = 1
 description = "Enterprise accounts receiving active incident updates"
 
-[[predicate]]
-attribute = "qualifier.enterprise-accounts"
-op = "eq"
-value = true
+when = 'qualifier["enterprise-accounts"] == true'
 
-[[predicate]]
-attribute = "qualifier.active-incidents"
-op = "eq"
-value = true
+when = 'qualifier["active-incidents"] == true'
 
-[[predicate]]
-attribute = "qualifier.incident-updates"
-op = "eq"
-value = true
+when = 'qualifier["incident-updates"] == true'
 ```
 
 Composition keeps the variable readable. The variable can select
 `enterprise_incident` without repeating the raw `account.*`, `incident.*`, and
-`notification.*` predicates.
+`notification.*` conditions.
 
 ## Select The Policies
 
@@ -262,11 +231,11 @@ type = "catalog:notification-delivery-policy"
 default = "product_digest"
 
 [[resolve.rule]]
-qualifier = "security-alerts"
+when = 'qualifier["security-alerts"]'
 value = "security_alert"
 
 [[resolve.rule]]
-qualifier = "enterprise-incident-updates"
+when = 'qualifier["enterprise-incident-updates"]'
 value = "enterprise_incident"
 ```
 
@@ -286,7 +255,7 @@ rototo init notification-config --context
 ```
 
 On this workspace, rototo writes
-`notification-config/schemas/context.schema.json`:
+`notification-config/request-contexts/request.schema.json`:
 
 ```json
 {

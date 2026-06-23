@@ -9,8 +9,8 @@ use super::super::WorkspaceLintSnapshot;
 use super::super::index::*;
 use super::WorkspaceHover;
 use super::common::{
-    json_project_field_label, location_contains_position, predicate_op_project_field_value,
-    source_range_size, string_project_field_value,
+    expression_project_field_label, json_project_field_label, location_contains_position,
+    source_range_size,
 };
 
 pub(crate) fn hover(
@@ -79,38 +79,6 @@ fn push_qualifier_hover_candidates(
                 2,
                 qualifier_hover_contents(qualifier),
             );
-        }
-
-        if let PredicateCollection::Predicates(predicates) = &qualifier.predicates {
-            for predicate in predicates {
-                push_hover_candidate(
-                    candidates,
-                    path,
-                    position,
-                    &predicate.location,
-                    3,
-                    predicate_hover_contents(qualifier, predicate),
-                );
-                for location in [
-                    Some(predicate.attribute.location()),
-                    Some(predicate.op.location()),
-                    predicate.value.as_ref().map(|value| value.location.clone()),
-                    predicate.salt.as_ref().map(ProjectField::location),
-                    predicate.range.as_ref().map(|range| range.location.clone()),
-                ]
-                .into_iter()
-                .flatten()
-                {
-                    push_hover_candidate(
-                        candidates,
-                        path,
-                        position,
-                        &location,
-                        2,
-                        predicate_hover_contents(qualifier, predicate),
-                    );
-                }
-            }
         }
     }
 }
@@ -197,7 +165,14 @@ fn push_variable_hover_candidates(
                         3,
                         variable_rule_hover_contents(variable, rule),
                     );
-                    for location in [rule.qualifier.location(), rule.value.location()] {
+                    for location in [
+                        rule.when.as_ref().map(ProjectField::location),
+                        rule.query.as_ref().map(ProjectField::location),
+                        Some(rule.value.location()),
+                    ]
+                    .into_iter()
+                    .flatten()
+                    {
                         push_hover_candidate(
                             candidates,
                             path,
@@ -231,16 +206,6 @@ fn push_catalog_hover_candidates(
             2,
             catalog_hover_contents(catalog),
         );
-        if let Some(ProjectField::Present(description)) = &catalog.description {
-            push_hover_candidate(
-                candidates,
-                path,
-                position,
-                &description.location,
-                2,
-                catalog_hover_contents(catalog),
-            );
-        }
     }
 
     for entries in index.catalog_entries.values() {
@@ -376,33 +341,6 @@ fn qualifier_hover_contents(qualifier: &QualifierNode) -> String {
     contents
 }
 
-fn predicate_hover_contents(qualifier: &QualifierNode, predicate: &PredicateNode) -> String {
-    let mut contents = format!(
-        "### Predicate {} for `{}`\n\n{}",
-        predicate.index + 1,
-        qualifier.id,
-        predicate_summary(predicate)
-    );
-    if let Some(value) = &predicate.value {
-        contents.push_str("\n\nValue shape: `");
-        contents.push_str(value.shape.as_str());
-        contents.push('`');
-    }
-    contents
-}
-
-fn predicate_summary(predicate: &PredicateNode) -> String {
-    match (
-        string_project_field_value(&predicate.attribute),
-        predicate_op_project_field_value(&predicate.op),
-    ) {
-        (Some(attribute), Some(op)) => format!("`{attribute}` `{op}`"),
-        (Some(attribute), None) => format!("`{attribute}`"),
-        (None, Some(op)) => format!("operator `{op}`"),
-        (None, None) => "Incomplete predicate".to_owned(),
-    }
-}
-
 fn variable_hover_contents(variable: &VariableNode) -> String {
     let mut contents = format!(
         "### Variable `{}`\n\n{}",
@@ -448,7 +386,12 @@ fn value_hover_contents(variable_id: &str, value: &ValueNode) -> String {
 
 fn catalog_hover_contents(catalog: &CatalogNode) -> String {
     let mut contents = format!("### Catalog `{}`", catalog.id);
-    if let Some(description) = project_field_string(&catalog.description) {
+    if let Some(description) = catalog
+        .json
+        .as_ref()
+        .and_then(|json| json.get("description"))
+        .and_then(JsonValue::as_str)
+    {
         contents.push_str("\n\n");
         contents.push_str(description);
     }
@@ -487,14 +430,13 @@ fn variable_rule_hover_contents(variable: &VariableNode, rule: &VariableRuleNode
 }
 
 fn variable_rule_summary(rule: &VariableRuleNode) -> String {
-    match (
-        string_project_field_value(&rule.qualifier),
-        json_project_field_label(&rule.value),
-    ) {
-        (Some(qualifier), Some(value)) => {
-            format!("Qualifier `{qualifier}` selects value `{value}`.")
+    let selector = expression_project_field_label(&rule.when)
+        .or_else(|| expression_project_field_label(&rule.query));
+    match (selector, json_project_field_label(&rule.value)) {
+        (Some(condition), Some(value)) => {
+            format!("Condition `{condition}` selects value `{value}`.")
         }
-        (Some(qualifier), None) => format!("Qualifier `{qualifier}`."),
+        (Some(condition), None) => format!("Condition `{condition}`."),
         (None, Some(value)) => format!("Selects value `{value}`."),
         (None, None) => "Incomplete rule.".to_owned(),
     }

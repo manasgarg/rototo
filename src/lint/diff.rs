@@ -24,7 +24,6 @@ pub(crate) async fn diff_workspaces(
     diff_variables(&before_model, &after_model, &mut changes);
     diff_qualifiers(&before_model, &after_model, &mut changes);
     diff_catalogs(&before_model, &after_model, &mut changes);
-    diff_schemas(&before_model, &after_model, &mut changes);
 
     let resolution_impacts = match context {
         Some(context) => resolution_impacts(&before, &after, context).await?,
@@ -45,7 +44,6 @@ struct WorkspaceSemanticModel {
     qualifiers: BTreeMap<String, QualifierSemantic>,
     catalogs: BTreeMap<String, CatalogSemantic>,
     catalog_entries: BTreeMap<(String, String), CatalogEntrySemantic>,
-    schemas: BTreeMap<String, SchemaSemantic>,
 }
 
 impl WorkspaceSemanticModel {
@@ -85,12 +83,6 @@ impl WorkspaceSemanticModel {
                         CatalogEntrySemantic::from_node(entry),
                     )
                 })
-                .collect(),
-            schemas: snapshot
-                .index
-                .schemas
-                .values()
-                .map(|schema| (schema.path.clone(), SchemaSemantic::from_node(schema)))
                 .collect(),
         }
     }
@@ -161,22 +153,23 @@ impl VariableSemantic {
 struct QualifierSemantic {
     target: SemanticTarget,
     location: DiagnosticLocation,
-    predicates: Vec<PredicateSemantic>,
+    when: Option<FieldSemantic<String>>,
 }
 
 impl QualifierSemantic {
     fn from_node(qualifier: &QualifierNode) -> Self {
-        let predicates = match &qualifier.predicates {
-            PredicateCollection::Predicates(predicates) => predicates
-                .iter()
-                .map(|predicate| PredicateSemantic::from_node(&qualifier.id, predicate))
-                .collect(),
-            PredicateCollection::Missing { .. } | PredicateCollection::Invalid { .. } => Vec::new(),
+        let when = match &qualifier.when {
+            ProjectField::Present(value) => Some(FieldSemantic {
+                target: qualifier.field_target(SemanticField::QualifierWhen),
+                location: value.location.clone(),
+                value: value.value.source().to_owned(),
+            }),
+            ProjectField::Invalid { .. } | ProjectField::Missing { .. } => None,
         };
         Self {
             target: qualifier.target(),
             location: qualifier.location.clone(),
-            predicates,
+            when,
         }
     }
 }
@@ -184,7 +177,7 @@ impl QualifierSemantic {
 struct CatalogSemantic {
     target: SemanticTarget,
     location: DiagnosticLocation,
-    schema: Option<FieldSemantic<String>>,
+    json: Option<JsonValue>,
 }
 
 impl CatalogSemantic {
@@ -192,10 +185,7 @@ impl CatalogSemantic {
         Self {
             target: catalog.target(),
             location: catalog.location.clone(),
-            schema: present_string_field(
-                &catalog.schema,
-                catalog.field_target(SemanticField::CatalogSchema),
-            ),
+            json: catalog.json.clone(),
         }
     }
 }
@@ -212,22 +202,6 @@ impl CatalogEntrySemantic {
             target: entry.target(),
             location: entry.location.clone(),
             value: entry.value.clone(),
-        }
-    }
-}
-
-struct SchemaSemantic {
-    target: SemanticTarget,
-    location: DiagnosticLocation,
-    json: Option<JsonValue>,
-}
-
-impl SchemaSemantic {
-    fn from_node(schema: &SchemaNode) -> Self {
-        Self {
-            target: schema.target(),
-            location: schema.location.clone(),
-            json: schema.json.clone(),
         }
     }
 }
@@ -251,7 +225,8 @@ impl ValueSemantic {
 struct RuleSemantic {
     target: SemanticTarget,
     location: DiagnosticLocation,
-    qualifier: Option<FieldSemantic<String>>,
+    when: Option<FieldSemantic<String>>,
+    query: Option<FieldSemantic<String>>,
     value: Option<FieldSemantic<JsonValue>>,
 }
 
@@ -260,57 +235,22 @@ impl RuleSemantic {
         Self {
             target: rule.target(variable_id),
             location: rule.location.clone(),
-            qualifier: present_string_field(
-                &rule.qualifier,
-                rule.field_target(variable_id, SemanticField::VariableRuleQualifier),
-            ),
+            when: rule.when.as_ref().and_then(|field| {
+                present_expression_field(
+                    field,
+                    rule.field_target(variable_id, SemanticField::VariableRuleWhen),
+                )
+            }),
+            query: rule.query.as_ref().and_then(|field| {
+                present_expression_field(
+                    field,
+                    rule.field_target(variable_id, SemanticField::VariableRuleQuery),
+                )
+            }),
             value: present_json_field(
                 &rule.value,
                 rule.field_target(variable_id, SemanticField::VariableRuleValue),
             ),
-        }
-    }
-}
-
-struct PredicateSemantic {
-    target: SemanticTarget,
-    location: DiagnosticLocation,
-    attribute: Option<FieldSemantic<String>>,
-    op: Option<FieldSemantic<String>>,
-    value: Option<FieldSemantic<JsonValue>>,
-    salt: Option<FieldSemantic<String>>,
-    range: Option<FieldSemantic<JsonValue>>,
-}
-
-impl PredicateSemantic {
-    fn from_node(qualifier_id: &str, predicate: &PredicateNode) -> Self {
-        Self {
-            target: predicate.target(qualifier_id),
-            location: predicate.location.clone(),
-            attribute: present_string_field(
-                &predicate.attribute,
-                predicate.field_target(qualifier_id, SemanticField::PredicateAttribute),
-            ),
-            op: present_predicate_op_field(
-                &predicate.op,
-                predicate.field_target(qualifier_id, SemanticField::PredicateOp),
-            ),
-            value: predicate.value.as_ref().map(|value| FieldSemantic {
-                target: predicate.field_target(qualifier_id, SemanticField::PredicateValue),
-                location: value.location.clone(),
-                value: value.value.clone(),
-            }),
-            salt: predicate.salt.as_ref().and_then(|salt| {
-                present_string_field(
-                    salt,
-                    predicate.field_target(qualifier_id, SemanticField::PredicateSalt),
-                )
-            }),
-            range: predicate.range.as_ref().map(|range| FieldSemantic {
-                target: predicate.field_target(qualifier_id, SemanticField::PredicateRange),
-                location: range.location.clone(),
-                value: serde_json::json!([range.start, range.end]),
-            }),
         }
     }
 }
@@ -418,9 +358,15 @@ fn diff_rules(before: &[RuleSemantic], after: &[RuleSemantic], changes: &mut Vec
             (Some(before), Some(after)) => {
                 diff_optional_field(
                     changes,
-                    "variable_rule_qualifier_changed",
-                    &before.qualifier,
-                    &after.qualifier,
+                    "variable_rule_when_changed",
+                    &before.when,
+                    &after.when,
+                );
+                diff_optional_field(
+                    changes,
+                    "variable_rule_query_changed",
+                    &before.query,
+                    &after.query,
                 );
                 diff_optional_field(
                     changes,
@@ -451,64 +397,7 @@ fn diff_qualifiers(
                 &before.location,
             ),
             (Some(before), Some(after)) => {
-                diff_predicates(&before.predicates, &after.predicates, changes);
-            }
-            (None, None) => {}
-        }
-    }
-}
-
-fn diff_predicates(
-    before: &[PredicateSemantic],
-    after: &[PredicateSemantic],
-    changes: &mut Vec<SemanticChange>,
-) {
-    let max = before.len().max(after.len());
-    for index in 0..max {
-        match (before.get(index), after.get(index)) {
-            (None, Some(after)) => push_added(
-                changes,
-                "qualifier_predicate_added",
-                &after.target,
-                &after.location,
-            ),
-            (Some(before), None) => push_removed(
-                changes,
-                "qualifier_predicate_removed",
-                &before.target,
-                &before.location,
-            ),
-            (Some(before), Some(after)) => {
-                diff_optional_field(
-                    changes,
-                    "qualifier_predicate_attribute_changed",
-                    &before.attribute,
-                    &after.attribute,
-                );
-                diff_optional_field(
-                    changes,
-                    "qualifier_predicate_op_changed",
-                    &before.op,
-                    &after.op,
-                );
-                diff_optional_field(
-                    changes,
-                    "qualifier_predicate_value_changed",
-                    &before.value,
-                    &after.value,
-                );
-                diff_optional_field(
-                    changes,
-                    "qualifier_predicate_salt_changed",
-                    &before.salt,
-                    &after.salt,
-                );
-                diff_optional_field(
-                    changes,
-                    "qualifier_predicate_range_changed",
-                    &before.range,
-                    &after.range,
-                );
+                diff_optional_field(changes, "qualifier_when_changed", &before.when, &after.when);
             }
             (None, None) => {}
         }
@@ -529,12 +418,23 @@ fn diff_catalogs(
                 push_removed(changes, "catalog_removed", &before.target, &before.location)
             }
             (Some(before), Some(after)) => {
-                diff_optional_field(
-                    changes,
-                    "catalog_schema_changed",
-                    &before.schema,
-                    &after.schema,
-                );
+                if let (Some(before_json), Some(after_json)) = (&before.json, &after.json) {
+                    diff_json_value(
+                        changes,
+                        JsonDiffSide {
+                            target: &before.target,
+                            location: &before.location,
+                            value: before_json,
+                        },
+                        JsonDiffSide {
+                            target: &after.target,
+                            location: &after.location,
+                            value: after_json,
+                        },
+                        Vec::new(),
+                        "catalog_schema_changed",
+                    );
+                }
             }
             (None, None) => {}
         }
@@ -573,43 +473,6 @@ fn diff_catalogs(
                 Vec::new(),
                 "catalog_entry_changed",
             ),
-            (None, None) => {}
-        }
-    }
-}
-
-fn diff_schemas(
-    before: &WorkspaceSemanticModel,
-    after: &WorkspaceSemanticModel,
-    changes: &mut Vec<SemanticChange>,
-) {
-    for path in sorted_keys(before.schemas.keys(), after.schemas.keys()) {
-        match (before.schemas.get(&path), after.schemas.get(&path)) {
-            (None, Some(after)) => {
-                push_added(changes, "schema_added", &after.target, &after.location)
-            }
-            (Some(before), None) => {
-                push_removed(changes, "schema_removed", &before.target, &before.location)
-            }
-            (Some(before), Some(after)) => {
-                if let (Some(before_json), Some(after_json)) = (&before.json, &after.json) {
-                    diff_json_value(
-                        changes,
-                        JsonDiffSide {
-                            target: &before.target,
-                            location: &before.location,
-                            value: before_json,
-                        },
-                        JsonDiffSide {
-                            target: &after.target,
-                            location: &after.location,
-                            value: after_json,
-                        },
-                        Vec::new(),
-                        "schema_changed",
-                    );
-                }
-            }
             (None, None) => {}
         }
     }
@@ -766,10 +629,6 @@ fn target_with_json_path(target: &SemanticTarget, path: Vec<String>) -> Semantic
         SemanticEntity::Value { .. } | SemanticEntity::CatalogEntry { .. } => {
             SemanticTarget::field(target.entity.clone(), SemanticField::ValueJsonPath { path })
         }
-        SemanticEntity::Schema { .. } => SemanticTarget::field(
-            target.entity.clone(),
-            SemanticField::SchemaJsonPath { path },
-        ),
         _ => target.clone(),
     }
 }
@@ -855,15 +714,15 @@ fn variable_type_source(
     }
 }
 
-fn present_string_field(
-    field: &ProjectField<String>,
+fn present_expression_field(
+    field: &ProjectField<crate::expression::Expression>,
     target: SemanticTarget,
 ) -> Option<FieldSemantic<String>> {
     match field {
         ProjectField::Present(value) => Some(FieldSemantic {
             target,
             location: value.location.clone(),
-            value: value.value.clone(),
+            value: value.value.source().to_owned(),
         }),
         ProjectField::Invalid { .. } | ProjectField::Missing { .. } => None,
     }
@@ -878,20 +737,6 @@ fn present_json_field(
             target,
             location: value.location.clone(),
             value: value.value.clone(),
-        }),
-        ProjectField::Invalid { .. } | ProjectField::Missing { .. } => None,
-    }
-}
-
-fn present_predicate_op_field(
-    field: &ProjectField<PredicateOp>,
-    target: SemanticTarget,
-) -> Option<FieldSemantic<String>> {
-    match field {
-        ProjectField::Present(value) => Some(FieldSemantic {
-            target,
-            location: value.location.clone(),
-            value: value.value.as_str().to_owned(),
         }),
         ProjectField::Invalid { .. } | ProjectField::Missing { .. } => None,
     }

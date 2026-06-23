@@ -105,7 +105,6 @@ pub enum EntityKind {
     Qualifiers,
     Catalogs,
     CatalogEntries,
-    Schemas,
     Context,
     Linters,
 }
@@ -130,14 +129,37 @@ pub fn parse_entity_id(value: Option<&str>) -> Option<String> {
     .then(|| id.to_owned())
 }
 
-pub fn parse_variable_type(value: Option<&str>) -> &'static str {
-    match value {
-        Some("bool") => "bool",
-        Some("int") => "int",
-        Some("number") => "number",
-        Some("list") => "list",
-        _ => "string",
+pub fn parse_variable_type(value: Option<&str>) -> String {
+    let Some(value) = value.map(str::trim).filter(|value| !value.is_empty()) else {
+        return "string".to_owned();
+    };
+    if is_supported_variable_type(value) {
+        value.to_owned()
+    } else {
+        "string".to_owned()
     }
+}
+
+fn is_supported_variable_type(value: &str) -> bool {
+    if matches!(value, "bool" | "int" | "number" | "string" | "list") {
+        return true;
+    }
+    if let Some(catalog) = value.strip_prefix("catalog:") {
+        return parse_entity_id(Some(catalog)).is_some();
+    }
+    let Some(inner) = value
+        .strip_prefix("list<")
+        .and_then(|value| value.strip_suffix('>'))
+        .map(str::trim)
+    else {
+        return false;
+    };
+    if matches!(inner, "bool" | "int" | "number" | "string") {
+        return true;
+    }
+    inner
+        .strip_prefix("catalog:")
+        .is_some_and(|catalog| parse_entity_id(Some(catalog)).is_some())
 }
 
 pub fn entity_template_files(
@@ -159,11 +181,7 @@ pub fn entity_template_files(
         }],
         EntityKind::Catalogs => vec![
             PlannedFile {
-                path: path(&format!("catalogs/{id}.toml")),
-                content: catalog_template(id),
-            },
-            PlannedFile {
-                path: path(&format!("schemas/{id}.schema.json")),
+                path: path(&format!("catalogs/{id}.schema.json")),
                 content: catalog_schema_template(),
             },
             PlannedFile {
@@ -178,14 +196,16 @@ pub fn entity_template_files(
                 content: catalog_entry_template().to_owned(),
             }]
         }
-        EntityKind::Schemas => vec![PlannedFile {
-            path: path(&format!("schemas/{}", json_file_name(id))),
-            content: schema_template(id),
-        }],
-        EntityKind::Context => vec![PlannedFile {
-            path: path(&format!("contexts/{}", json_file_name(id))),
-            content: "{\n}\n".to_owned(),
-        }],
+        EntityKind::Context => vec![
+            PlannedFile {
+                path: path(&format!("request-contexts/{id}.schema.json")),
+                content: request_context_schema_template(),
+            },
+            PlannedFile {
+                path: path(&format!("request-contexts/{id}-entries/default.json")),
+                content: "{\n}\n".to_owned(),
+            },
+        ],
         EntityKind::Linters => vec![PlannedFile {
             path: path(&format!("lint/{id}.lua")),
             content: linter_template().to_owned(),
@@ -198,6 +218,8 @@ fn variable_template(id: &str, variable_type: &str) -> String {
         "bool" => "false",
         "int" | "number" => "0",
         "list" => "[]",
+        value if value.starts_with("list<") => "[]",
+        value if value.starts_with("catalog:") => "\"\"",
         _ => "\"control\"",
     };
     format!(
@@ -217,31 +239,17 @@ fn qualifier_template(id: &str) -> String {
     format!(
         "schema_version = 1\n\n\
          description = {description}\n\n\
-         [[predicate]]\n\
-         attribute = \"user.tier\"\n\
-         op = \"eq\"\n\
-         value = \"premium\"\n",
+         when = \"context.user.tier == \\\"premium\\\"\"\n",
         description = toml_string(&format!(
             "Edit this description to explain when {id} should match"
         )),
     )
 }
 
-fn catalog_template(id: &str) -> String {
-    format!(
-        "schema_version = 1\n\n\
-         description = {description}\n\
-         schema = {schema}\n",
-        description = toml_string(&format!(
-            "Edit this description to explain the {id} catalog values"
-        )),
-        schema = toml_string(&format!("../schemas/{id}.schema.json")),
-    )
-}
-
 fn catalog_schema_template() -> String {
     let schema = serde_json::json!({
         "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "description": "Edit this description to explain the catalog values",
         "type": "object",
         "additionalProperties": false,
         "properties": {
@@ -260,29 +268,13 @@ fn catalog_entry_template() -> &'static str {
     "heading = \"Edit this heading\"\nenabled = false\n"
 }
 
-fn schema_template(id: &str) -> String {
-    let schema = serde_json::json!({
-        "$schema": "https://json-schema.org/draft/2020-12/schema",
-        "title": id,
-        "type": "object",
-        "additionalProperties": true,
-    });
-    format!(
-        "{}\n",
-        serde_json::to_string_pretty(&schema).expect("static schema serializes")
-    )
+fn request_context_schema_template() -> String {
+    "{\n  \"$schema\": \"https://json-schema.org/draft/2020-12/schema\",\n  \"type\": \"object\",\n  \"additionalProperties\": true,\n  \"properties\": {}\n}\n"
+        .to_owned()
 }
 
 fn linter_template() -> &'static str {
     "function register(lint)\n  -- Register custom lint handlers here.\nend\n"
-}
-
-fn json_file_name(id: &str) -> String {
-    if id.ends_with(".json") {
-        id.to_owned()
-    } else {
-        format!("{id}.json")
-    }
 }
 
 fn toml_string(value: &str) -> String {
@@ -299,6 +291,7 @@ mod tests {
             slug: "configs".to_owned(),
             source_tree_id: "r1".to_owned(),
             source_tree_label: "octo/configs".to_owned(),
+            display_path: path.to_owned(),
             path: path.to_owned(),
             revision: "main".to_owned(),
             source: source.to_owned(),
@@ -348,8 +341,7 @@ mod tests {
         assert_eq!(
             paths,
             [
-                "catalogs/banner.toml",
-                "schemas/banner.schema.json",
+                "catalogs/banner.schema.json",
                 "catalogs/banner-entries/default.toml",
             ]
         );
@@ -364,6 +356,21 @@ mod tests {
             nested[0].path,
             "payments/catalogs/banner-entries/summer.toml"
         );
+    }
+
+    #[test]
+    fn variable_type_parser_keeps_list_and_catalog_types() {
+        assert_eq!(parse_variable_type(Some("list<string>")), "list<string>");
+        assert_eq!(
+            parse_variable_type(Some("list<catalog:banner>")),
+            "list<catalog:banner>"
+        );
+        assert_eq!(
+            parse_variable_type(Some("catalog:banner")),
+            "catalog:banner"
+        );
+        assert_eq!(parse_variable_type(Some("list<list<string>>")), "string");
+        assert_eq!(parse_variable_type(Some("catalog:bad id")), "string");
     }
 
     #[test]

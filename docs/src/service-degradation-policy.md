@@ -52,15 +52,6 @@ type = "catalog:service-degradation-policy"
 default = "normal"
 ```
 
-Replace `degradation-config/catalogs/service-degradation-policy.toml`:
-
-```toml
-schema_version = 1
-
-description = "Service degradation policy values"
-schema = "../schemas/service-degradation-policy.schema.json"
-```
-
 The variable chooses a policy key. The catalog validates the policy entry
 behind that key. During an incident, the app should not have to trust a
 half-shaped entry while operators are making fast changes.
@@ -68,7 +59,7 @@ half-shaped entry while operators are making fast changes.
 ## Define The Policy Shape
 
 Before adding policies, define the knobs the service is willing to apply.
-Replace `degradation-config/schemas/service-degradation-policy.schema.json`:
+Replace `degradation-config/catalogs/service-degradation-policy.schema.json`:
 
 ```json
 {
@@ -150,10 +141,7 @@ Create `degradation-config/qualifiers/high-queue-pressure.toml`:
 schema_version = 1
 description = "Service reports high queue pressure"
 
-[[predicate]]
-attribute = "service.queue_pressure"
-op = "eq"
-value = "high"
+when = 'context.service.queue_pressure == "high"'
 ```
 
 Update `degradation-config/variables/service-degradation-policy.toml`:
@@ -168,7 +156,7 @@ type = "catalog:service-degradation-policy"
 default = "normal"
 
 [[resolve.rule]]
-qualifier = "high-queue-pressure"
+when = 'qualifier["high-queue-pressure"]'
 value = "degraded"
 ```
 
@@ -185,7 +173,7 @@ rototo init degradation-config --context
 ```
 
 On this workspace, rototo writes
-`degradation-config/schemas/context.schema.json`:
+`degradation-config/request-contexts/request.schema.json`:
 
 ```json
 {
@@ -258,11 +246,7 @@ Create `degradation-config/qualifiers/degradation-trial-bucket.toml`:
 schema_version = 1
 description = "Stable account bucket for trying a stronger recovery policy"
 
-[[predicate]]
-attribute = "account.id"
-op = "bucket"
-salt = "service-degradation-recovery-2026-06"
-range = [0, 1000]
+when = 'bucket(context.account.id, "service-degradation-recovery-2026-06", 0, 1000)'
 ```
 
 The bucket range is on a 0 to 10000 scale, so `[0, 1000]` is ten percent.
@@ -275,15 +259,9 @@ Create `degradation-config/qualifiers/severe-recovery-trial.toml`:
 schema_version = 1
 description = "High-pressure requests in the severe recovery trial bucket"
 
-[[predicate]]
-attribute = "qualifier.high-queue-pressure"
-op = "eq"
-value = true
+when = 'qualifier["high-queue-pressure"] == true'
 
-[[predicate]]
-attribute = "qualifier.degradation-trial-bucket"
-op = "eq"
-value = true
+when = 'qualifier["degradation-trial-bucket"] == true'
 ```
 
 Update the variable so the severe trial wins before the broader degraded rule:
@@ -298,11 +276,11 @@ type = "catalog:service-degradation-policy"
 default = "normal"
 
 [[resolve.rule]]
-qualifier = "severe-recovery-trial"
+when = 'qualifier["severe-recovery-trial"]'
 value = "severe"
 
 [[resolve.rule]]
-qualifier = "high-queue-pressure"
+when = 'qualifier["high-queue-pressure"]'
 value = "degraded"
 ```
 
@@ -320,7 +298,7 @@ rototo init degradation-config --context --force
 ```
 
 On this workspace, the regenerated
-`degradation-config/schemas/context.schema.json` includes both runtime facts:
+`degradation-config/request-contexts/request.schema.json` includes both runtime facts:
 
 ```json
 {
@@ -397,11 +375,7 @@ To widen the severe policy without reshuffling account assignment, keep the
 salt and expand the range:
 
 ```toml
-[[predicate]]
-attribute = "account.id"
-op = "bucket"
-salt = "service-degradation-recovery-2026-06"
-range = [0, 3000]
+when = 'bucket(context.account.id, "service-degradation-recovery-2026-06", 0, 3000)'
 ```
 
 To make the severe policy stronger without widening it, change the policy

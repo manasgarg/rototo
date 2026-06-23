@@ -18,7 +18,7 @@ type = "int"
 default = 3
 
 [[resolve.rule]]
-qualifier = "paid-account"
+when = 'qualifier["paid-account"]'
 value = 25
 ```
 
@@ -70,7 +70,7 @@ type = "string"
 default = "standard"
 
 [[resolve.rule]]
-qualifier = "priority-account"
+when = 'qualifier["priority-account"]'
 value = "priority"
 ```
 
@@ -92,7 +92,7 @@ type = "catalog:account-limit-profile"
 default = "growth"
 
 [[resolve.rule]]
-qualifier = "enterprise-account"
+when = 'qualifier["enterprise-account"]'
 value = "enterprise"
 ```
 
@@ -114,7 +114,7 @@ Every variable must contain `[resolve]`:
 default = "standard"
 
 [[resolve.rule]]
-qualifier = "paid-account"
+when = 'qualifier["paid-account"]'
 value = "expanded"
 ```
 
@@ -138,7 +138,7 @@ schema_version = 1
 
 ```toml
 # Schema-backed variables are no longer supported
-schema = "../schemas/value.schema.json"
+schema = "value.schema.json"
 ```
 
 ```toml

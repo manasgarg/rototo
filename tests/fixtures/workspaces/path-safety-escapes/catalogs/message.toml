@@ -1,3 +1,0 @@
-schema_version = 1
-schema = "../../value.schema.json"
-description = "Catalog with an escaping schema reference"

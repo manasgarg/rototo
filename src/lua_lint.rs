@@ -1,5 +1,5 @@
 use std::cell::Cell;
-use std::path::PathBuf;
+use std::path::{Component, Path, PathBuf};
 use std::rc::Rc;
 use std::time::{Duration, Instant};
 
@@ -21,41 +21,28 @@ pub struct RegisterLintInput {
 
 #[derive(Clone, Debug)]
 pub struct RawCustomLintRegistration {
-    pub stage: String,
-    pub entity: String,
-    pub field: Option<String>,
-    pub rule: RawCustomLintRule,
+    pub target: String,
+    pub id: String,
+    pub title: String,
+    pub help: String,
+    pub severity: Option<String>,
     pub handler: String,
     pub handler_exists: bool,
 }
 
 #[derive(Clone, Debug)]
-pub struct RawCustomLintRule {
-    pub id: String,
-    pub title: String,
-    pub help: String,
-    pub severity: Option<String>,
-}
-
-#[derive(Clone, Debug)]
 pub struct RegisteredLintInput {
-    pub stage: String,
-    pub target: RegisteredLintTarget,
+    pub workspace: JsonValue,
+    pub target: JsonValue,
     pub lint_path: PathBuf,
     pub script: String,
     pub handler: String,
 }
 
-#[derive(Clone, Debug)]
-pub struct RegisteredLintTarget {
-    pub entity: String,
-    pub data: JsonValue,
-}
-
 #[derive(Debug)]
 pub struct RegisteredCustomLintOutput {
     pub message: String,
-    pub field: Option<String>,
+    pub path: Option<String>,
 }
 
 pub async fn register_pipeline_lint(
@@ -72,7 +59,7 @@ fn register_pipeline_lint_script(
 ) -> Result<Vec<RawCustomLintRegistration>> {
     let lua = custom_lint_lua()?;
     lua.load(&input.script)
-        .set_name(input.lint_path.display().to_string())
+        .set_name(lua_chunk_name(&input.lint_path))
         .exec()
         .map_err(|err| RototoError::new(format!("failed to execute custom lint: {err}")))?;
 
@@ -87,11 +74,11 @@ fn register_pipeline_lint_script(
     };
 
     let registrations = std::rc::Rc::new(std::cell::RefCell::new(Vec::new()));
-    let on_registrations = registrations.clone();
-    let on = lua
+    let rule_registrations = registrations.clone();
+    let rule = lua
         .create_function_mut(move |_, args: mlua::Variadic<LuaValue>| {
             let table = registration_arg_table(args)?;
-            on_registrations
+            rule_registrations
                 .borrow_mut()
                 .push(registration_from_lua_table(table)?);
             Ok(())
@@ -101,7 +88,7 @@ fn register_pipeline_lint_script(
         .create_table()
         .map_err(|err| RototoError::new(format!("failed to prepare custom lint API: {err}")))?;
     lint_api
-        .set("on", on)
+        .set("rule", rule)
         .map_err(|err| RototoError::new(format!("failed to prepare custom lint API: {err}")))?;
 
     register
@@ -125,31 +112,22 @@ fn registration_arg_table(args: mlua::Variadic<LuaValue>) -> mlua::Result<Table>
     match value {
         Some(LuaValue::Table(table)) => Ok(table),
         _ => Err(mlua::Error::external(
-            "lint:on expects a single registration table",
+            "lint:rule expects a single registration table",
         )),
     }
 }
 
 fn registration_from_lua_table(table: Table) -> mlua::Result<RawCustomLintRegistration> {
     Ok(RawCustomLintRegistration {
-        stage: required_registration_string(&table, "stage")?,
-        entity: required_registration_string(&table, "entity")?,
-        field: table.get::<Option<String>>("field")?,
-        rule: registration_rule_from_lua_table(&table)?,
+        target: table
+            .get::<Option<String>>("target")?
+            .unwrap_or_else(|| "/".to_owned()),
+        id: required_registration_string(&table, "id")?,
+        title: required_registration_string(&table, "title")?,
+        help: required_registration_string(&table, "help")?,
+        severity: table.get::<Option<String>>("severity")?,
         handler: required_registration_string(&table, "handler")?,
         handler_exists: false,
-    })
-}
-
-fn registration_rule_from_lua_table(table: &Table) -> mlua::Result<RawCustomLintRule> {
-    let rule = table
-        .get::<Option<Table>>("rule")?
-        .ok_or_else(|| mlua::Error::external("registration must contain rule metadata"))?;
-    Ok(RawCustomLintRule {
-        id: required_registration_string(&rule, "id")?,
-        title: required_registration_string(&rule, "title")?,
-        help: required_registration_string(&rule, "help")?,
-        severity: rule.get::<Option<String>>("severity")?,
     })
 }
 
@@ -171,7 +149,7 @@ fn lint_registered_target_script(
 ) -> Result<Vec<RegisteredCustomLintOutput>> {
     let lua = custom_lint_lua()?;
     lua.load(&input.script)
-        .set_name(input.lint_path.display().to_string())
+        .set_name(lua_chunk_name(&input.lint_path))
         .exec()
         .map_err(|err| RototoError::new(format!("failed to execute custom lint: {err}")))?;
 
@@ -179,15 +157,14 @@ fn lint_registered_target_script(
     let handler = globals
         .get::<mlua::Function>(input.handler.as_str())
         .map_err(|err| RototoError::new(format!("custom lint handler is invalid: {err}")))?;
-    let ctx = lua
-        .to_value(&serde_json::json!({
-            "stage": input.stage,
-            "entity": input.target.entity,
-            "target": input.target.data,
-        }))
+    let workspace = lua
+        .to_value(&input.workspace)
+        .map_err(|err| RototoError::new(format!("failed to prepare Lua workspace: {err}")))?;
+    let target = lua
+        .to_value(&input.target)
         .map_err(|err| RototoError::new(format!("failed to prepare Lua context: {err}")))?;
     let returned: LuaValue = handler
-        .call(ctx)
+        .call((workspace, target))
         .map_err(|err| RototoError::new(format!("custom lint failed: {err}")))?;
     registered_outputs_from_lua(returned)
 }
@@ -253,6 +230,29 @@ fn custom_lint_lua() -> Result<Lua> {
     Ok(lua)
 }
 
+fn lua_chunk_name(lint_path: &Path) -> String {
+    format!("={}", safe_lua_chunk_label(lint_path))
+}
+
+fn safe_lua_chunk_label(lint_path: &Path) -> String {
+    let segments = lint_path
+        .components()
+        .filter_map(|component| match component {
+            Component::Normal(segment) => Some(segment.to_string_lossy().into_owned()),
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+
+    if let Some(index) = segments.iter().rposition(|segment| segment == "lint") {
+        return segments[index..].join("/");
+    }
+
+    lint_path
+        .file_name()
+        .map(|file_name| format!("lint/{}", file_name.to_string_lossy()))
+        .unwrap_or_else(|| "lint/custom.lua".to_owned())
+}
+
 fn registered_outputs_from_lua(returned: LuaValue) -> Result<Vec<RegisteredCustomLintOutput>> {
     match returned {
         LuaValue::Nil => Ok(Vec::new()),
@@ -270,10 +270,13 @@ fn registered_outputs_from_lua(returned: LuaValue) -> Result<Vec<RegisteredCusto
                     .ok_or_else(|| {
                         RototoError::new("custom lint diagnostic must contain message")
                     })?;
-                let field = entry.get::<Option<String>>("field").map_err(|err| {
-                    RototoError::new(format!("custom lint field is invalid: {err}"))
-                })?;
-                diagnostics.push(RegisteredCustomLintOutput { message, field });
+                let path = entry
+                    .get::<Option<String>>("path")
+                    .map_err(|err| RototoError::new(format!("custom lint path is invalid: {err}")))?
+                    .or(entry.get::<Option<String>>("field").map_err(|err| {
+                        RototoError::new(format!("custom lint field is invalid: {err}"))
+                    })?);
+                diagnostics.push(RegisteredCustomLintOutput { message, path });
             }
             Ok(diagnostics)
         }
@@ -318,19 +321,15 @@ mod tests {
                 assert(loadfile == nil, "loadfile global is available")
 
                 function register(lint)
-                  lint:on({
-                    stage = "policy",
-                    entity = "workspace",
-                    rule = {
-                      id = "policy/sandbox",
-                      title = "Sandbox",
-                      help = "Sandbox policy.",
-                    },
+                  lint:rule({
+                    id = "policy/sandbox",
+                    title = "Sandbox",
+                    help = "Sandbox policy.",
                     handler = "check"
                   })
                 end
 
-                function check(ctx)
+                function check(workspace, target)
                   return {}
                 end
             "#
@@ -372,16 +371,33 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn custom_lint_registration_errors_use_safe_chunk_names() {
+        let err = register_pipeline_lint(RegisterLintInput {
+            lint_path: PathBuf::from(
+                "/tmp/.tmpWrGs2H/clone/examples/basic/lint/checkout-redesign.lua",
+            ),
+            script: "function register(lint)\n  lint:on({})\nend".to_owned(),
+        })
+        .await
+        .unwrap_err();
+        let message = err.to_string();
+
+        assert!(
+            message.contains("lint/checkout-redesign.lua:2"),
+            "{message}"
+        );
+        assert!(!message.contains("/tmp"), "{message}");
+        assert!(!message.contains("clone/examples/basic"), "{message}");
+    }
+
+    #[tokio::test]
     async fn custom_lint_handler_loop_is_bounded() {
         let err = lint_registered_target(RegisteredLintInput {
-            stage: "policy".to_owned(),
-            target: RegisteredLintTarget {
-                entity: "workspace".to_owned(),
-                data: serde_json::json!({}),
-            },
+            workspace: serde_json::json!({}),
+            target: serde_json::json!({}),
             lint_path: PathBuf::from("lint/loop.lua"),
             script: r#"
-                function check(ctx)
+                function check(workspace, target)
                   while true do end
                 end
             "#
@@ -396,5 +412,33 @@ mod tests {
                 || err.to_string().contains("execution timeout"),
             "{err}"
         );
+    }
+
+    #[tokio::test]
+    async fn custom_lint_handler_errors_use_safe_chunk_names() {
+        let err = lint_registered_target(RegisteredLintInput {
+            workspace: serde_json::json!({}),
+            target: serde_json::json!({}),
+            lint_path: PathBuf::from(
+                "/tmp/.tmpWrGs2H/clone/examples/basic/lint/checkout-redesign.lua",
+            ),
+            script: r#"
+                function check(workspace, target)
+                  error("handler exploded")
+                end
+            "#
+            .to_owned(),
+            handler: "check".to_owned(),
+        })
+        .await
+        .unwrap_err();
+        let message = err.to_string();
+
+        assert!(
+            message.contains("lint/checkout-redesign.lua:3"),
+            "{message}"
+        );
+        assert!(!message.contains("/tmp"), "{message}");
+        assert!(!message.contains("clone/examples/basic"), "{message}");
     }
 }

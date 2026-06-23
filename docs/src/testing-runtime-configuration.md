@@ -56,7 +56,7 @@ Use built-in lint for rototo's own contracts:
 
 - workspace layout;
 - qualifier and variable references;
-- predicate operators;
+- expression helpers;
 - primitive and schema-backed values;
 - context schema compatibility;
 - custom Lua lint registration.
@@ -159,7 +159,7 @@ record of expected runtime behavior. When a policy change intentionally changes
 selection, regenerate the fixture, review the diff, and make sure the app
 tests still explain why the new behavior is acceptable.
 
-Bucket predicates are a good example. A bucket change can look small in TOML
+Bucket conditions are a good example. A bucket change can look small in TOML
 but move a stable account from one source to another. The fixture diff makes
 that visible.
 

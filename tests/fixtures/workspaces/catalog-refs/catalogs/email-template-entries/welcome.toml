@@ -1,0 +1,5 @@
+subject = "Welcome"
+body = "Welcome body"
+
+[variants.default]
+subject = "Default welcome"

@@ -63,11 +63,11 @@ Variable rules are evaluated in file order:
 default = "growth"
 
 [[resolve.rule]]
-qualifier = "enterprise-account"
+when = 'qualifier["enterprise-account"]'
 value = "enterprise"
 
 [[resolve.rule]]
-qualifier = "paid-account"
+when = 'qualifier["paid-account"]'
 value = "paid"
 ```
 
@@ -145,8 +145,8 @@ guess whether a later rule is meaningful.
   "qualifier_traces": [
     {
       "id": "enterprise-account",
-      "value": true,
-      "predicates": []
+      "when": "context.account.plan == \"enterprise\"",
+      "value": true
     }
   ]
 }
@@ -157,10 +157,10 @@ variable. Use it to explain why the selected value won.
 
 ## Context Validation
 
-If [`schemas/context.schema.json`](reference-context.html) exists, rototo
-validates context before resolution. SDK callers can disable that with
-[`ResolveOptions`](reference-sdk-resolution.html), but the default is validation
-on.
+Rototo validates context against a compatible
+[request context schema](reference-context.html) before resolution. SDK callers
+can disable that with [`ResolveOptions`](reference-sdk-resolution.html), but the
+default is validation on.
 
 ## Multiple Variables
 

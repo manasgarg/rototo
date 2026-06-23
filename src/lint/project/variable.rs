@@ -9,7 +9,8 @@ use super::super::index::*;
 use super::super::source::SourceDocument;
 use super::super::syntax::{ParsedToml, item_location, value_location};
 use super::fields::{
-    integer_field, json_field, json_from_toml_value, optional_string_field, string_field,
+    integer_field, json_field, json_from_toml_value, optional_expression_field,
+    optional_string_field,
 };
 
 pub(crate) fn project_variable(
@@ -206,9 +207,9 @@ fn project_rule_from_value(
         return VariableRuleNode {
             index,
             location: location.clone(),
-            qualifier: ProjectField::Invalid {
-                location: location.clone(),
-            },
+            legacy_qualifier: None,
+            when: None,
+            query: None,
             value: ProjectField::Invalid { location },
             invalid_shape: true,
         };
@@ -227,7 +228,11 @@ fn project_rule_from_table_like(
     VariableRuleNode {
         index,
         location: location.clone(),
-        qualifier: string_field(document, table, "qualifier", location.clone()),
+        legacy_qualifier: table
+            .get("qualifier")
+            .map(|item| item_location(document, item)),
+        when: optional_expression_field(document, table, "when"),
+        query: optional_expression_field(document, table, "query"),
         value: json_field(document, table, "value", location.clone()),
         invalid_shape,
     }

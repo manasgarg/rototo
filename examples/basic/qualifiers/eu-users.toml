@@ -2,7 +2,4 @@ schema_version = 1
 
 description = "Users whose country is in the European operating region"
 
-[[predicate]]
-attribute = "request.country"
-op = "in"
-value = ["DE", "FR", "ES", "IT", "NL", "SE"]
+when = '(context.request.country in ["DE","FR","ES","IT","NL","SE"])'

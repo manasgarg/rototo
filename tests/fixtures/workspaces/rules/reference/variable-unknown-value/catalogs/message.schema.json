@@ -1,0 +1,4 @@
+{
+  "description": "Schema for message catalog values.",
+  "type": "object"
+}

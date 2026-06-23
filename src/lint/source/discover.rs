@@ -38,14 +38,40 @@ impl SourceStore {
                 DocumentCollection::Variables => DocumentKind::Variable {
                     id: stem.to_owned(),
                 },
-                DocumentCollection::Catalogs => DocumentKind::Catalog {
-                    id: stem.to_owned(),
-                },
             };
             self.add_disk_document(relative_path, kind).await;
-            if matches!(collection, DocumentCollection::Catalogs) {
-                self.add_catalog_entry_documents(stem).await?;
+        }
+
+        Ok(())
+    }
+
+    pub(crate) async fn add_catalog_documents(&mut self) -> Result<()> {
+        let directory = self.root.join("catalogs");
+        let entries = match sorted_directory_entries(&directory).await {
+            Ok(entries) => entries,
+            Err(err) if err.kind() == std::io::ErrorKind::NotFound => return Ok(()),
+            Err(err) => {
+                return Err(RototoError::new(format!(
+                    "failed to read {}: {err}",
+                    directory.display()
+                )));
             }
+        };
+
+        for path in entries {
+            let Some(file_name) = path.file_name().and_then(|file_name| file_name.to_str()) else {
+                continue;
+            };
+            let Some(id) = file_name.strip_suffix(".schema.json") else {
+                continue;
+            };
+            if id.is_empty() {
+                continue;
+            }
+            let relative_path = PathBuf::from("catalogs").join(file_name);
+            self.add_disk_document(relative_path, DocumentKind::Catalog { id: id.to_owned() })
+                .await;
+            self.add_catalog_entry_documents(id).await?;
         }
 
         Ok(())
@@ -95,7 +121,7 @@ impl SourceStore {
             .cloned()
             .collect::<Vec<_>>();
         for path in overlay_paths {
-            let Some(entry_id) = overlay_entry_id(&path, &overlay_prefix) else {
+            let Some(entry_id) = overlay_entry_id(&path, &overlay_prefix, ".toml") else {
                 continue;
             };
             self.add_disk_document(
@@ -111,15 +137,56 @@ impl SourceStore {
         Ok(())
     }
 
-    pub(crate) async fn add_schema_documents(&mut self) -> Result<()> {
-        let schemas = self.root.join("schemas");
-        let entries = match sorted_directory_entries(&schemas).await {
+    pub(crate) async fn add_request_context_documents(&mut self) -> Result<()> {
+        let directory = self.root.join("request-contexts");
+        let entries = match sorted_directory_entries(&directory).await {
             Ok(entries) => entries,
             Err(err) if err.kind() == std::io::ErrorKind::NotFound => return Ok(()),
             Err(err) => {
                 return Err(RototoError::new(format!(
                     "failed to read {}: {err}",
-                    schemas.display()
+                    directory.display()
+                )));
+            }
+        };
+
+        for path in entries {
+            let Some(file_name) = path.file_name().and_then(|file_name| file_name.to_str()) else {
+                continue;
+            };
+            let Some(id) = file_name.strip_suffix(".schema.json") else {
+                continue;
+            };
+            if id.is_empty() {
+                continue;
+            }
+            let relative_path = PathBuf::from("request-contexts").join(file_name);
+            self.add_disk_document(
+                relative_path,
+                DocumentKind::RequestContext { id: id.to_owned() },
+            )
+            .await;
+            self.add_request_context_entry_documents(id).await?;
+        }
+
+        Ok(())
+    }
+
+    pub(crate) async fn add_request_context_entry_documents(
+        &mut self,
+        request_context_id: &str,
+    ) -> Result<()> {
+        let entries_dir = self
+            .root
+            .join("request-contexts")
+            .join(format!("{request_context_id}-entries"));
+        let entries = match sorted_directory_entries(&entries_dir).await {
+            Ok(entries) => entries,
+            Err(err) if err.kind() == std::io::ErrorKind::NotFound => return Ok(()),
+            Err(err) => {
+                return Err(RototoError::new(format!(
+                    "failed to read {}: {err}",
+                    entries_dir.display()
                 )));
             }
         };
@@ -128,10 +195,41 @@ impl SourceStore {
             if path.extension().and_then(|extension| extension.to_str()) != Some("json") {
                 continue;
             }
-            let relative_path =
-                PathBuf::from("schemas").join(path.file_name().expect("entry has filename"));
-            self.add_disk_document(relative_path, DocumentKind::Schema)
-                .await;
+            let Some(entry_id) = path.file_stem().and_then(|stem| stem.to_str()) else {
+                continue;
+            };
+            let relative_path = PathBuf::from("request-contexts")
+                .join(format!("{request_context_id}-entries"))
+                .join(path.file_name().expect("entry has filename"));
+            self.add_disk_document(
+                relative_path,
+                DocumentKind::RequestContextEntry {
+                    request_context_id: request_context_id.to_owned(),
+                    entry_id: entry_id.to_owned(),
+                },
+            )
+            .await;
+        }
+
+        let overlay_prefix = format!("request-contexts/{request_context_id}-entries/");
+        let overlay_paths = self
+            .overlays
+            .keys()
+            .filter(|path| path.starts_with(&overlay_prefix) && path.ends_with(".json"))
+            .cloned()
+            .collect::<Vec<_>>();
+        for path in overlay_paths {
+            let Some(entry_id) = overlay_entry_id(&path, &overlay_prefix, ".json") else {
+                continue;
+            };
+            self.add_disk_document(
+                PathBuf::from(&path),
+                DocumentKind::RequestContextEntry {
+                    request_context_id: request_context_id.to_owned(),
+                    entry_id,
+                },
+            )
+            .await;
         }
 
         Ok(())
@@ -176,9 +274,17 @@ impl SourceStore {
                 DocumentKind::Catalog { id } => Some(id.clone()),
                 _ => None,
             };
+            let request_context_id = match &kind {
+                DocumentKind::RequestContext { id } => Some(id.clone()),
+                _ => None,
+            };
             self.add_disk_document(PathBuf::from(&path), kind).await;
             if let Some(catalog_id) = catalog_id {
                 self.add_catalog_entry_documents(&catalog_id).await?;
+            }
+            if let Some(request_context_id) = request_context_id {
+                self.add_request_context_entry_documents(&request_context_id)
+                    .await?;
             }
         }
         Ok(())
@@ -199,8 +305,8 @@ fn overlay_document_kind(path: &str) -> Option<DocumentKind> {
             let id = file.strip_suffix(".toml")?;
             (!id.is_empty()).then(|| DocumentKind::Variable { id: id.to_owned() })
         }
-        ["catalogs", file] if file.ends_with(".toml") => {
-            let id = file.strip_suffix(".toml")?;
+        ["catalogs", file] if file.ends_with(".schema.json") => {
+            let id = file.strip_suffix(".schema.json")?;
             (!id.is_empty()).then(|| DocumentKind::Catalog { id: id.to_owned() })
         }
         ["catalogs", dir, file] if dir.ends_with("-entries") && file.ends_with(".toml") => {
@@ -211,18 +317,31 @@ fn overlay_document_kind(path: &str) -> Option<DocumentKind> {
                 entry_id: entry_id.to_owned(),
             })
         }
-        ["schemas", file] if file.ends_with(".json") => Some(DocumentKind::Schema),
+        ["request-contexts", file] if file.ends_with(".schema.json") => {
+            let id = file.strip_suffix(".schema.json")?;
+            (!id.is_empty()).then(|| DocumentKind::RequestContext { id: id.to_owned() })
+        }
+        ["request-contexts", dir, file] if dir.ends_with("-entries") && file.ends_with(".json") => {
+            let request_context_id = dir.strip_suffix("-entries")?;
+            let entry_id = file.strip_suffix(".json")?;
+            (!request_context_id.is_empty() && !entry_id.is_empty()).then(|| {
+                DocumentKind::RequestContextEntry {
+                    request_context_id: request_context_id.to_owned(),
+                    entry_id: entry_id.to_owned(),
+                }
+            })
+        }
         ["lint", file] if file.ends_with(".lua") => Some(DocumentKind::CustomLint),
         _ => None,
     }
 }
 
-fn overlay_entry_id(path: &str, prefix: &str) -> Option<String> {
+fn overlay_entry_id(path: &str, prefix: &str, suffix: &str) -> Option<String> {
     let file = path.strip_prefix(prefix)?;
     if file.contains('/') {
         return None;
     }
-    let key = file.strip_suffix(".toml")?;
+    let key = file.strip_suffix(suffix)?;
     (!key.is_empty()).then(|| key.to_owned())
 }
 

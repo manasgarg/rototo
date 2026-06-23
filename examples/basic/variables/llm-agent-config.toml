@@ -7,5 +7,5 @@ type = "catalog:llm-agent-config"
 default = "standard"
 
 [[resolve.rule]]
-qualifier = "enterprise-accounts"
+when = 'qualifier["enterprise-accounts"]'
 value = "enterprise"

@@ -7,9 +7,9 @@ type = "string"
 default = "control"
 
 [[resolve.rule]]
-qualifier = "self-cycle"
+when = 'qualifier["self-cycle"]'
 value = "first"
 
 [[resolve.rule]]
-qualifier = "self-cycle"
+when = 'qualifier["self-cycle"]'
 value = "duplicate"

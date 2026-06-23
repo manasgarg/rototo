@@ -28,10 +28,7 @@ Create `account-config/qualifiers/premium-account.toml`:
 schema_version = 1
 description = "Requests from premium accounts"
 
-[[predicate]]
-attribute = "account.plan"
-op = "eq"
-value = "premium"
+when = 'context.account.plan == "premium"'
 ```
 
 Update `account-config/variables/max-active-projects.toml`:
@@ -46,7 +43,7 @@ type = "int"
 default = 3
 
 [[resolve.rule]]
-qualifier = "premium-account"
+when = 'qualifier["premium-account"]'
 value = 25
 ```
 
@@ -60,13 +57,13 @@ The workspace now depends on `account.plan`. That path is part of the
 [context contract](reference-context.html) between the app and workspace, so it
 should be validated.
 
-Generate a context schema skeleton:
+Generate a request context schema skeleton:
 
 ```sh
 rototo init account-config --context
 ```
 
-For this workspace, that writes `account-config/schemas/context.schema.json`
+For this workspace, that writes `account-config/request-contexts/request.schema.json`
 with the context path used by the qualifier:
 
 ```json
@@ -226,37 +223,32 @@ Create `account-config/lint/max-active-projects.lua`:
 
 ```lua
 function register(lint)
-  lint:on({
-    stage = "policy",
-    entity = "variable",
-    rule = {
-      id = "operations/max-active-projects-policy",
-      title = "Account project limit violates operations policy",
-      help = "Keep max-active-projects values between 1 and 100 and keep standard <= premium.",
-    },
+  lint:rule({
+    id = "operations/max-active-projects-policy",
+    title = "Account project limit violates operations policy",
+    help = "Keep max-active-projects values between 1 and 100 and keep standard <= premium.",
+    target = "/variables/max-active-projects",
     handler = "check_max_active_projects",
   })
 end
 
-function check_max_active_projects(ctx)
-  if ctx.target.id ~= "max-active-projects" then
-    return {}
-  end
-
-  local values = ctx.target.toml.values or {}
+function check_max_active_projects(workspace, variable)
+  local values = variable.values or {}
   local diagnostics = {}
 
   for name, value in pairs(values) do
-    if type(value) ~= "number" or value < 1 or value > 100 then
+    if type(value.value) ~= "number" or value.value < 1 or value.value > 100 then
       table.insert(diagnostics, {
         message = "max-active-projects." .. name .. " must be between 1 and 100"
       })
     end
   end
 
-  if type(values.standard) == "number"
-      and type(values.premium) == "number"
-      and values.standard > values.premium then
+  if values.standard ~= nil
+      and values.premium ~= nil
+      and type(values.standard.value) == "number"
+      and type(values.premium.value) == "number"
+      and values.standard.value > values.premium.value then
     table.insert(diagnostics, {
       message = "max-active-projects.standard must not exceed max-active-projects.premium"
     })

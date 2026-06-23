@@ -8,7 +8,6 @@ type EntityKind =
     | "variables"
     | "qualifiers"
     | "catalogs"
-    | "schemas"
     | "context"
     | "linters";
 
@@ -16,11 +15,13 @@ type EntityKind =
 type FormNote = { tone: "ok" | "err"; text: string };
 
 export function AddEntityForm({
+    catalogIds = [],
     disabled,
     branchId,
     kind,
     workspaceId,
 }: {
+    catalogIds?: string[];
     disabled?: boolean;
     branchId: string;
     kind: EntityKind;
@@ -84,7 +85,7 @@ export function AddEntityForm({
                 </label>
                 {kind === "variables" ? (
                     <label className="field-stack">
-                        <span className="label">primitive type</span>
+                        <span className="label">type</span>
                         <select
                             className="input mono"
                             disabled={disabled || pending}
@@ -98,6 +99,30 @@ export function AddEntityForm({
                             <option value="int">int</option>
                             <option value="number">number</option>
                             <option value="list">list</option>
+                            <option value="list<string>">
+                                list&lt;string&gt;
+                            </option>
+                            <option value="list<bool>">list&lt;bool&gt;</option>
+                            <option value="list<int>">list&lt;int&gt;</option>
+                            <option value="list<number>">
+                                list&lt;number&gt;
+                            </option>
+                            {catalogIds.map((catalogId) => (
+                                <option
+                                    key={`catalog:${catalogId}`}
+                                    value={`catalog:${catalogId}`}
+                                >
+                                    catalog:{catalogId}
+                                </option>
+                            ))}
+                            {catalogIds.map((catalogId) => (
+                                <option
+                                    key={`list<catalog:${catalogId}>`}
+                                    value={`list<catalog:${catalogId}>`}
+                                >
+                                    list&lt;catalog:{catalogId}&gt;
+                                </option>
+                            ))}
                         </select>
                     </label>
                 ) : null}
@@ -291,7 +316,7 @@ export function DeleteEntityButton({
 
 function kindLabel(kind: EntityKind): string {
     if (kind === "context") {
-        return "context example";
+        return "request context";
     }
     return kind.slice(0, -1);
 }
@@ -301,17 +326,14 @@ function addHelp(kind: EntityKind): string {
         return "Creates a catalog file, its schema, and a default catalog value.";
     }
     if (kind === "context") {
-        return "Creates a JSON context example.";
+        return "Creates a request context schema and a default sample.";
     }
     return "Creates a starter definition on the branch.";
 }
 
 function placeholder(kind: EntityKind): string {
-    if (kind === "schemas") {
-        return "example.schema";
-    }
     if (kind === "context") {
-        return "premium-enterprise";
+        return "request";
     }
     return "new-entity";
 }

@@ -2,12 +2,4 @@ schema_version = 1
 
 description = "Request latency exceeded the baseline observability threshold"
 
-[[predicate]]
-attribute = "phase"
-op = "eq"
-value = "request"
-
-[[predicate]]
-attribute = "response.latency_ms"
-op = "gt"
-value = 750
+when = '(context.phase == "request") && (context.response.latency_ms > 750)'

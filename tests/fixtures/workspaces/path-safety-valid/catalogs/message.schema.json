@@ -1,0 +1,12 @@
+{
+  "description": "Catalog with a normalized schema reference",
+  "type": "object",
+  "required": [
+    "message"
+  ],
+  "properties": {
+    "message": {
+      "type": "string"
+    }
+  }
+}

@@ -1,5 +1,4 @@
 schema_version = 1
+description = "Runtime condition for premium users."
 
-[[predicate]]
-attribute = "account.tier"
-value = "premium"
+when = "context.user.tier ="

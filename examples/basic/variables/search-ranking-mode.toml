@@ -7,13 +7,13 @@ type = "string"
 default = "classic"
 
 [[resolve.rule]]
-qualifier = "lane-dev"
+when = 'qualifier["lane-dev"]'
 value = "semantic"
 
 [[resolve.rule]]
-qualifier = "lane-stage"
+when = 'qualifier["lane-stage"]'
 value = "hybrid"
 
 [[resolve.rule]]
-qualifier = "premium-beta-users"
+when = 'qualifier["premium-beta-users"]'
 value = "hybrid"

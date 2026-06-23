@@ -96,11 +96,11 @@ type = "catalog:account-limit-profile"
 default = "standard"
 
 [[resolve.rule]]
-qualifier = "test-enterprise-account"
+when = 'qualifier["test-enterprise-account"]'
 value = "preview_enterprise"
 
 [[resolve.rule]]
-qualifier = "enterprise-account"
+when = 'qualifier["enterprise-account"]'
 value = "enterprise"
 ```
 

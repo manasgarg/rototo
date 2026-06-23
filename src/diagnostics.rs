@@ -10,9 +10,10 @@ pub enum DiagnosticEntity {
     Variable,
     Catalog,
     CatalogEntry,
+    RequestContext,
+    RequestContextEntry,
     Value,
     Rule,
-    Schema,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -52,7 +53,30 @@ macro_rules! rototo_rules {
             ];
 
             pub fn iter() -> impl Iterator<Item = Self> {
-                Self::ALL.iter().copied()
+                Self::ALL
+                    .iter()
+                    .copied()
+                    .filter(|rule| !rule.is_retired())
+            }
+
+            pub fn is_retired(self) -> bool {
+                matches!(
+                    self,
+                    Self::WorkspaceContextSchemaRef
+                        | Self::WorkspaceContextSchemaAttribute
+                        | Self::WorkspaceContextSchemaReservedField
+                        | Self::WorkspaceContextSchemaMissing
+                        | Self::QualifierPredicateMissing
+                        | Self::QualifierPredicateShape
+                        | Self::QualifierPredicateUnknownOp
+                        | Self::QualifierPredicateUnknownQualifier
+                        | Self::QualifierPredicateBucket
+                        | Self::QualifierPredicateValue
+                        | Self::QualifierPredicateContextTypeMismatch
+                        | Self::QualifierPredicateDuplicate
+                        | Self::CatalogSchemaVersion
+                        | Self::CatalogSchemaRef
+                )
             }
 
             pub fn meta(self) -> RuleMeta {
@@ -99,7 +123,7 @@ rototo_rules! {
         id: "workspace-context-schema-ref",
         entity: Workspace,
         title: "Resolve context schema is invalid",
-        help: "Fix schemas/context.schema.json or remove it to disable context validation.",
+        help: "Retired. Use request-contexts/<id>.schema.json for request context validation.",
     },
     WorkspaceContextSchemaAttribute => {
         id: "workspace-context-schema-attribute",
@@ -117,8 +141,32 @@ rototo_rules! {
         id: "workspace-context-schema-missing",
         entity: Workspace,
         title: "Resolve context schema is missing",
-        help: "Add schemas/context.schema.json to validate context attributes read by qualifiers.",
+        help: "Retired. Add request-contexts/<id>.schema.json for request context validation.",
         severity: Warning,
+    },
+    RequestContextSchemaInvalid => {
+        id: "request-context-schema-invalid",
+        entity: RequestContext,
+        title: "Request context schema is invalid",
+        help: "Fix the request-contexts/<id>.schema.json file so it parses and compiles as JSON Schema.",
+    },
+    RequestContextReservedField => {
+        id: "request-context-reserved-field",
+        entity: RequestContext,
+        title: "Request context schema declares a reserved field",
+        help: "Rename the request context field; qualifier is reserved for qualifier.<id> predicate references.",
+    },
+    RequestContextEntrySchemaMismatch => {
+        id: "request-context-entry-schema-mismatch",
+        entity: RequestContextEntry,
+        title: "Request context sample does not match its schema",
+        help: "Update the request context sample so it validates against the owning request context schema.",
+    },
+    RequestContextEntryShape => {
+        id: "request-context-entry-shape",
+        entity: RequestContextEntry,
+        title: "Request context sample is invalid",
+        help: "Request context samples must parse as JSON objects.",
     },
     QualifierParseFailed => {
         id: "qualifier-parse-failed",
@@ -132,23 +180,41 @@ rototo_rules! {
         title: "Qualifier schema version is missing or unsupported",
         help: "Declare schema_version = 1 in the qualifier file.",
     },
+    QualifierWhenMissing => {
+        id: "qualifier-when-missing",
+        entity: Qualifier,
+        title: "Qualifier condition is missing",
+        help: "Add an expression with when = \"...\".",
+    },
+    QualifierWhenShape => {
+        id: "qualifier-when-shape",
+        entity: Qualifier,
+        title: "Qualifier condition is invalid",
+        help: "Use when = \"...\" with a valid expression.",
+    },
+    QualifierWhenUnknownQualifier => {
+        id: "qualifier-when-unknown-qualifier",
+        entity: Qualifier,
+        title: "Qualifier condition references an unknown qualifier",
+        help: "Create the referenced qualifier or update the qualifier reference in the when expression.",
+    },
     QualifierPredicateMissing => {
         id: "qualifier-predicate-missing",
         entity: Qualifier,
         title: "Qualifier predicate is missing",
-        help: "Add at least one [[predicate]] table.",
+        help: "Retired. Use when = \"...\" with a valid expression.",
     },
     QualifierPredicateShape => {
         id: "qualifier-predicate-shape",
         entity: Qualifier,
         title: "Qualifier predicate has the wrong shape",
-        help: "Use [[predicate]] tables with attribute, op, and value fields.",
+        help: "Retired. Use when = \"...\" with a valid expression.",
     },
     QualifierPredicateUnknownOp => {
         id: "qualifier-predicate-unknown-op",
         entity: Qualifier,
         title: "Qualifier predicate uses an unknown operator",
-        help: "Use one of eq, neq, in, not_in, gt, gte, lt, lte, or bucket.",
+        help: "Use a supported predicate operator such as eq, in, gte, prefix, regex, semver, time_between, exists, between, contains_any, cidr, or bucket.",
     },
     QualifierPredicateUnknownQualifier => {
         id: "qualifier-predicate-unknown-qualifier",
@@ -173,6 +239,12 @@ rototo_rules! {
         entity: Qualifier,
         title: "Qualifier predicate does not match the resolve context schema type",
         help: "Update the predicate operator or value so it matches the context schema field type.",
+    },
+    QualifierNoCompatibleRequestContext => {
+        id: "qualifier-no-compatible-request-context",
+        entity: Qualifier,
+        title: "Qualifier has no compatible request context",
+        help: "Add a request-contexts/<id>.schema.json schema that declares the qualifier's context attributes, or update the qualifier predicates.",
     },
     QualifierPredicateDuplicate => {
         id: "qualifier-predicate-duplicate",
@@ -252,8 +324,8 @@ rototo_rules! {
     CatalogParseFailed => {
         id: "catalog-parse-failed",
         entity: Catalog,
-        title: "Catalog TOML file could not be parsed",
-        help: "Fix the TOML syntax so rototo can parse the catalog file.",
+        title: "Catalog schema file could not be parsed",
+        help: "Fix the JSON syntax so rototo can parse the catalog schema file.",
     },
     CatalogEntryParseFailed => {
         id: "catalog-entry-parse-failed",
@@ -273,6 +345,12 @@ rototo_rules! {
         title: "Catalog schema reference is invalid",
         help: "Point schema to a readable valid JSON Schema file.",
     },
+    CatalogSchemaInvalid => {
+        id: "catalog-schema-invalid",
+        entity: Catalog,
+        title: "Catalog schema is invalid",
+        help: "Update catalogs/<id>.schema.json so it is a valid JSON Schema.",
+    },
     CatalogEntrySchemaMismatch => {
         id: "catalog-entry-schema-mismatch",
         entity: CatalogEntry,
@@ -282,8 +360,8 @@ rototo_rules! {
     CatalogEntryUnknownReference => {
         id: "catalog-entry-unknown-reference",
         entity: CatalogEntry,
-        title: "Catalog value references an unknown entry",
-        help: "Create the referenced catalog value or update the x-rototo-catalog field.",
+        title: "Catalog value references an invalid catalog entry",
+        help: "Create the referenced catalog entry, fix the pointer, or update the x-rototo-catalog-ref field.",
     },
     VariableResolveMissingDefault => {
         id: "variable-resolve-missing-default",
@@ -323,6 +401,24 @@ rototo_rules! {
         help: "Remove the rule or update it to select a value that differs from the resolve default.",
         severity: Warning,
     },
+    VariableRequestContextConflict => {
+        id: "variable-request-context-conflict",
+        entity: Variable,
+        title: "Variable rules require incompatible request contexts",
+        help: "Use rule conditions that share at least one compatible request context, or split the behavior into separate variables.",
+    },
+    RequestContextParseFailed => {
+        id: "request-context-parse-failed",
+        entity: RequestContext,
+        title: "Request context schema JSON file could not be parsed",
+        help: "Fix the JSON syntax so rototo can parse the request context schema file.",
+    },
+    RequestContextEntryParseFailed => {
+        id: "request-context-entry-parse-failed",
+        entity: RequestContextEntry,
+        title: "Request context sample JSON file could not be parsed",
+        help: "Fix the JSON syntax so rototo can parse the request context sample file.",
+    },
     CustomLintFailed => {
         id: "custom-lint-failed",
         entity: Workspace,
@@ -355,42 +451,23 @@ rototo_rules! {
         help: "Remove duplicate custom lint registrations so handlers run once per target.",
         severity: Warning,
     },
-    SchemaParseFailed => {
-        id: "schema-parse-failed",
-        entity: Schema,
-        title: "JSON Schema file could not be parsed",
-        help: "Fix the JSON syntax so rototo can parse the schema file.",
-    },
-    SchemaInvalid => {
-        id: "schema-invalid",
-        entity: Schema,
-        title: "JSON Schema is invalid",
-        help: "Update the schema file so it is valid JSON Schema.",
-    },
-    SchemaUnreferenced => {
-        id: "schema-unreferenced",
-        entity: Schema,
-        title: "JSON Schema is not referenced",
-        help: "Reference the schema as schemas/context.schema.json or from a catalog schema field, or remove it.",
-        severity: Warning,
-    },
     SchemaUiUnknownWidget => {
         id: "schema-ui-unknown-widget",
-        entity: Schema,
+        entity: Catalog,
         title: "UI widget hint names an unknown widget",
         help: "Use a widget from the x-rototo-ui vocabulary: color, slider, textarea.",
         severity: Warning,
     },
     SchemaUiWidgetTypeMismatch => {
         id: "schema-ui-widget-type-mismatch",
-        entity: Schema,
+        entity: Catalog,
         title: "UI widget hint does not fit the property type",
         help: "Pick a widget that supports the property's declared type, or change the type.",
         severity: Warning,
     },
     SchemaUiWidgetParams => {
         id: "schema-ui-widget-params",
-        entity: Schema,
+        entity: Catalog,
         title: "UI widget hint parameters are invalid",
         help: "Fix the x-rototo-ui object: declare a widget string, use only the widget's parameters, and give sliders bounds.",
         severity: Warning,
@@ -597,15 +674,41 @@ pub enum LintStage {
 pub enum SemanticEntity {
     Workspace,
     Manifest,
-    Qualifier { id: String },
-    Predicate { qualifier: String, index: usize },
-    Variable { id: String },
-    Catalog { id: String },
-    CatalogEntry { catalog: String, key: String },
-    Value { variable: String, key: String },
-    Rule { variable: String, index: usize },
-    CustomLint { path: String },
-    Schema { path: String },
+    Qualifier {
+        id: String,
+    },
+    Predicate {
+        qualifier: String,
+        index: usize,
+    },
+    Variable {
+        id: String,
+    },
+    Catalog {
+        id: String,
+    },
+    CatalogEntry {
+        catalog: String,
+        key: String,
+    },
+    RequestContext {
+        id: String,
+    },
+    RequestContextEntry {
+        request_context: String,
+        key: String,
+    },
+    Value {
+        variable: String,
+        key: String,
+    },
+    Rule {
+        variable: String,
+        index: usize,
+    },
+    CustomLint {
+        path: String,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Serialize)]
@@ -614,9 +717,11 @@ pub enum SemanticField {
     WorkspaceExtends,
     SchemaVersion,
     Description,
+    QualifierWhen,
     QualifierPredicates,
     PredicateAttribute,
     PredicateOp,
+    PredicateNot,
     PredicateValue,
     PredicateSalt,
     PredicateRange,
@@ -625,13 +730,14 @@ pub enum SemanticField {
     VariableValues,
     VariableResolve,
     VariableResolveDefault,
-    VariableRuleQualifier,
+    VariableRuleWhen,
+    VariableRuleQuery,
     VariableRuleValue,
     Value,
     ValueJsonPath { path: Vec<String> },
     SchemaJson,
     SchemaJsonPath { path: Vec<String> },
-    CatalogSchema,
+    RequestContextEntry,
     CatalogEntry,
 }
 

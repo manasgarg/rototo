@@ -1,0 +1,5 @@
+unknown_catalog = "welcome"
+unknown_entry = "absent"
+invalid_pointer = "welcome#body"
+missing_pointer = "welcome#/missing"
+ambiguous_template = "shared"

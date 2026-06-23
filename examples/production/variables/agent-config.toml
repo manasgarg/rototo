@@ -7,5 +7,5 @@ type = "catalog:agent-config"
 default = "standard"
 
 [[resolve.rule]]
-qualifier = "eu-enterprise-accounts"
+when = 'qualifier["eu-enterprise-accounts"]'
 value = "enterprise"

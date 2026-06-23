@@ -7,8 +7,12 @@ use crate::diagnostics::{
     CustomRuleDefinition, CustomRuleId, DiagnosticLocation, DocId, LintStage, SemanticEntity,
     SemanticField, SemanticTarget,
 };
+use crate::expression::Expression;
 
-use super::ids::{CatalogId, QualifierId, ValueKey, VariableId, WorkspacePath};
+use super::ids::{
+    CatalogId, QualifierId, RequestContextEntryId, RequestContextId, ValueKey, VariableId,
+    WorkspacePath,
+};
 use super::targets::RegisteredLintSelector;
 
 pub(in crate::lint) struct ManifestNode {
@@ -20,11 +24,6 @@ pub(in crate::lint) struct ManifestNode {
 impl ManifestNode {
     pub(in crate::lint) fn target(&self) -> SemanticTarget {
         SemanticEntity::Manifest.into()
-    }
-
-    #[allow(dead_code)]
-    pub(in crate::lint) fn field_target(&self, field: SemanticField) -> SemanticTarget {
-        SemanticTarget::field(SemanticEntity::Manifest, field)
     }
 }
 
@@ -50,6 +49,7 @@ pub(in crate::lint) struct QualifierNode {
     pub(in crate::lint) location: DiagnosticLocation,
     pub(in crate::lint) schema_version: ProjectField<i64>,
     pub(in crate::lint) description: Option<ProjectField<String>>,
+    pub(in crate::lint) when: ProjectField<Expression>,
     pub(in crate::lint) predicates: PredicateCollection,
 }
 
@@ -71,103 +71,9 @@ impl QualifierNode {
     }
 }
 
-pub(in crate::lint) struct PredicateNode {
-    pub(in crate::lint) index: usize,
-    pub(in crate::lint) location: DiagnosticLocation,
-    pub(in crate::lint) attribute: ProjectField<String>,
-    pub(in crate::lint) op: ProjectField<PredicateOp>,
-    pub(in crate::lint) value: Option<ValueShapeNode>,
-    pub(in crate::lint) salt: Option<ProjectField<String>>,
-    pub(in crate::lint) range: Option<BucketRangeNode>,
-    pub(in crate::lint) has_bucket_value: bool,
-}
-
-impl PredicateNode {
-    pub(in crate::lint) fn target(&self, qualifier_id: &str) -> SemanticTarget {
-        SemanticEntity::Predicate {
-            qualifier: qualifier_id.to_owned(),
-            index: self.index,
-        }
-        .into()
-    }
-
-    pub(in crate::lint) fn field_target(
-        &self,
-        qualifier_id: &str,
-        field: SemanticField,
-    ) -> SemanticTarget {
-        SemanticTarget::field(
-            SemanticEntity::Predicate {
-                qualifier: qualifier_id.to_owned(),
-                index: self.index,
-            },
-            field,
-        )
-    }
-}
-
 pub(in crate::lint) enum PredicateCollection {
-    Missing { location: DiagnosticLocation },
+    Absent,
     Invalid { location: DiagnosticLocation },
-    Predicates(Vec<PredicateNode>),
-}
-
-#[derive(Clone)]
-pub(in crate::lint) enum PredicateOp {
-    Eq,
-    Neq,
-    In,
-    NotIn,
-    Gt,
-    Gte,
-    Lt,
-    Lte,
-    Bucket,
-    Unknown(String),
-}
-
-impl PredicateOp {
-    pub(in crate::lint) const COMPLETION_LABELS: &'static [&'static str] = &[
-        "eq", "neq", "in", "not_in", "gt", "gte", "lt", "lte", "bucket",
-    ];
-
-    pub(in crate::lint) fn from_str(op: &str) -> Self {
-        match op {
-            "eq" => Self::Eq,
-            "neq" => Self::Neq,
-            "in" => Self::In,
-            "not_in" => Self::NotIn,
-            "gt" => Self::Gt,
-            "gte" => Self::Gte,
-            "lt" => Self::Lt,
-            "lte" => Self::Lte,
-            "bucket" => Self::Bucket,
-            op => Self::Unknown(op.to_owned()),
-        }
-    }
-
-    pub(in crate::lint) fn as_str(&self) -> &str {
-        match self {
-            Self::Eq => "eq",
-            Self::Neq => "neq",
-            Self::In => "in",
-            Self::NotIn => "not_in",
-            Self::Gt => "gt",
-            Self::Gte => "gte",
-            Self::Lt => "lt",
-            Self::Lte => "lte",
-            Self::Bucket => "bucket",
-            Self::Unknown(op) => op,
-        }
-    }
-}
-
-pub(in crate::lint) struct BucketRangeNode {
-    pub(in crate::lint) location: DiagnosticLocation,
-    pub(in crate::lint) is_array: bool,
-    pub(in crate::lint) len: usize,
-    pub(in crate::lint) start: Option<i64>,
-    pub(in crate::lint) end: Option<i64>,
 }
 
 pub(in crate::lint) struct VariableNode {
@@ -221,13 +127,79 @@ impl TypeSourceNode {
     }
 }
 
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(in crate::lint) enum VariableTypeKind {
+    Primitive(String),
+    Catalog(String),
+    List(Box<VariableTypeKind>),
+}
+
+impl VariableTypeKind {
+    pub(in crate::lint) fn catalog_ids(&self) -> Vec<&str> {
+        match self {
+            Self::Primitive(_) => Vec::new(),
+            Self::Catalog(catalog) => vec![catalog.as_str()],
+            Self::List(item) => item.catalog_ids(),
+        }
+    }
+
+    pub(in crate::lint) fn list_catalog(&self) -> Option<&str> {
+        match self {
+            Self::List(item) => match item.as_ref() {
+                Self::Catalog(catalog) => Some(catalog.as_str()),
+                _ => None,
+            },
+            _ => None,
+        }
+    }
+}
+
+pub(in crate::lint) fn variable_type_kind(
+    source: &TypeSourceNode,
+) -> Option<Spanned<VariableTypeKind>> {
+    match source {
+        TypeSourceNode::Primitive(type_name) => {
+            parse_variable_type(&type_name.value).map(|value| Spanned {
+                value,
+                location: type_name.location.clone(),
+            })
+        }
+        TypeSourceNode::Catalog(catalog) => Some(Spanned {
+            value: VariableTypeKind::Catalog(catalog.value.clone()),
+            location: catalog.location.clone(),
+        }),
+        TypeSourceNode::Schema(_)
+        | TypeSourceNode::Missing { .. }
+        | TypeSourceNode::Conflict { .. }
+        | TypeSourceNode::Invalid { .. } => None,
+    }
+}
+
+fn parse_variable_type(value: &str) -> Option<VariableTypeKind> {
+    let value = value.trim();
+    if let Some(inner) = value
+        .strip_prefix("list<")
+        .and_then(|value| value.strip_suffix('>'))
+    {
+        return parse_variable_type(inner).map(|item| VariableTypeKind::List(Box::new(item)));
+    }
+    if let Some(catalog) = value.strip_prefix("catalog:") {
+        if catalog.is_empty() {
+            return None;
+        }
+        return Some(VariableTypeKind::Catalog(catalog.to_owned()));
+    }
+    Some(VariableTypeKind::Primitive(value.to_owned()))
+}
+
 pub(in crate::lint) struct CatalogNode {
     pub(in crate::lint) doc: DocId,
     pub(in crate::lint) id: CatalogId,
+    pub(in crate::lint) path: WorkspacePath,
     pub(in crate::lint) location: DiagnosticLocation,
-    pub(in crate::lint) schema_version: ProjectField<i64>,
-    pub(in crate::lint) description: Option<ProjectField<String>>,
-    pub(in crate::lint) schema: ProjectField<String>,
+    pub(in crate::lint) json: Option<JsonValue>,
+    pub(in crate::lint) validator: Option<Arc<jsonschema::Validator>>,
+    pub(in crate::lint) invalid_message: Option<String>,
 }
 
 impl CatalogNode {
@@ -275,6 +247,61 @@ impl CatalogEntryNode {
     }
 }
 
+pub(in crate::lint) struct RequestContextNode {
+    pub(in crate::lint) id: RequestContextId,
+    pub(in crate::lint) path: WorkspacePath,
+    pub(in crate::lint) location: DiagnosticLocation,
+    pub(in crate::lint) json: Option<JsonValue>,
+    pub(in crate::lint) validator: Option<Arc<jsonschema::Validator>>,
+    pub(in crate::lint) invalid_message: Option<String>,
+}
+
+impl RequestContextNode {
+    pub(in crate::lint) fn target(&self) -> SemanticTarget {
+        SemanticEntity::RequestContext {
+            id: self.id.clone(),
+        }
+        .into()
+    }
+
+    pub(in crate::lint) fn field_target(&self, field: SemanticField) -> SemanticTarget {
+        SemanticTarget::field(
+            SemanticEntity::RequestContext {
+                id: self.id.clone(),
+            },
+            field,
+        )
+    }
+}
+
+pub(in crate::lint) struct RequestContextEntryNode {
+    pub(in crate::lint) request_context_id: RequestContextId,
+    pub(in crate::lint) key: RequestContextEntryId,
+    pub(in crate::lint) path: WorkspacePath,
+    pub(in crate::lint) location: DiagnosticLocation,
+    pub(in crate::lint) value: Option<JsonValue>,
+}
+
+impl RequestContextEntryNode {
+    pub(in crate::lint) fn target(&self) -> SemanticTarget {
+        SemanticEntity::RequestContextEntry {
+            request_context: self.request_context_id.clone(),
+            key: self.key.clone(),
+        }
+        .into()
+    }
+
+    pub(in crate::lint) fn field_target(&self, field: SemanticField) -> SemanticTarget {
+        SemanticTarget::field(
+            SemanticEntity::RequestContextEntry {
+                request_context: self.request_context_id.clone(),
+                key: self.key.clone(),
+            },
+            field,
+        )
+    }
+}
+
 pub(in crate::lint) struct ValuesNode {
     pub(in crate::lint) location: DiagnosticLocation,
     pub(in crate::lint) inline_values: BTreeMap<ValueKey, ValueNode>,
@@ -303,34 +330,6 @@ pub(in crate::lint) enum ValueOrigin {
     Inline { variable_doc: DocId },
 }
 
-pub(in crate::lint) struct SchemaNode {
-    #[allow(dead_code)]
-    pub(in crate::lint) doc: DocId,
-    pub(in crate::lint) path: WorkspacePath,
-    pub(in crate::lint) location: DiagnosticLocation,
-    pub(in crate::lint) json: Option<JsonValue>,
-    pub(in crate::lint) validator: Option<Arc<jsonschema::Validator>>,
-    pub(in crate::lint) invalid_message: Option<String>,
-}
-
-impl SchemaNode {
-    pub(in crate::lint) fn target(&self) -> SemanticTarget {
-        SemanticEntity::Schema {
-            path: self.path.clone(),
-        }
-        .into()
-    }
-
-    pub(in crate::lint) fn field_target(&self, field: SemanticField) -> SemanticTarget {
-        SemanticTarget::field(
-            SemanticEntity::Schema {
-                path: self.path.clone(),
-            },
-            field,
-        )
-    }
-}
-
 #[derive(Default)]
 pub(in crate::lint) struct CustomLintRegistry {
     pub(in crate::lint) rules: BTreeMap<CustomRuleId, CustomRuleDefinitionNode>,
@@ -341,8 +340,6 @@ pub(in crate::lint) struct CustomLintRegistry {
 #[derive(Clone)]
 pub(in crate::lint) struct CustomRuleDefinitionNode {
     pub(in crate::lint) definition: CustomRuleDefinition,
-    #[allow(dead_code)]
-    pub(in crate::lint) location: DiagnosticLocation,
 }
 
 #[derive(Clone)]
@@ -352,16 +349,6 @@ pub(in crate::lint) struct CustomLintFileNode {
     pub(in crate::lint) location: DiagnosticLocation,
 }
 
-impl CustomLintFileNode {
-    #[allow(dead_code)]
-    pub(in crate::lint) fn target(&self) -> SemanticTarget {
-        SemanticEntity::CustomLint {
-            path: self.path.clone(),
-        }
-        .into()
-    }
-}
-
 #[derive(Clone)]
 pub(in crate::lint) struct CustomLintRegistration {
     pub(in crate::lint) file_path: WorkspacePath,
@@ -369,7 +356,6 @@ pub(in crate::lint) struct CustomLintRegistration {
     pub(in crate::lint) stage: LintStage,
     pub(in crate::lint) selector: RegisteredLintSelector,
     pub(in crate::lint) handler: String,
-    #[allow(dead_code)]
     pub(in crate::lint) location: DiagnosticLocation,
 }
 
@@ -405,7 +391,9 @@ pub(in crate::lint) enum RuleCollection {
 pub(in crate::lint) struct VariableRuleNode {
     pub(in crate::lint) index: usize,
     pub(in crate::lint) location: DiagnosticLocation,
-    pub(in crate::lint) qualifier: ProjectField<String>,
+    pub(in crate::lint) legacy_qualifier: Option<DiagnosticLocation>,
+    pub(in crate::lint) when: Option<ProjectField<Expression>>,
+    pub(in crate::lint) query: Option<ProjectField<Expression>>,
     pub(in crate::lint) value: ProjectField<JsonValue>,
     pub(in crate::lint) invalid_shape: bool,
 }
@@ -451,68 +439,6 @@ impl<T> ProjectField<T> {
         match self {
             Self::Present(value) => value.location.clone(),
             Self::Invalid { location } | Self::Missing { location } => location.clone(),
-        }
-    }
-}
-
-pub(in crate::lint) struct ValueShapeNode {
-    pub(in crate::lint) location: DiagnosticLocation,
-    pub(in crate::lint) shape: ValueShape,
-    pub(in crate::lint) value: JsonValue,
-}
-
-#[derive(Clone, Copy, PartialEq, Eq)]
-pub(in crate::lint) enum ValueShape {
-    String,
-    Integer,
-    Float,
-    Boolean,
-    Array,
-    Table,
-}
-
-impl ValueShape {
-    pub(in crate::lint) fn as_str(self) -> &'static str {
-        match self {
-            Self::String => "string",
-            Self::Integer => "int",
-            Self::Float => "number",
-            Self::Boolean => "bool",
-            Self::Array => "list",
-            Self::Table => "table",
-        }
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn predicate_completion_labels_stay_in_sync_with_known_ops() {
-        for label in PredicateOp::COMPLETION_LABELS {
-            let op = PredicateOp::from_str(label);
-            assert_eq!(op.as_str(), *label);
-            assert!(!matches!(op, PredicateOp::Unknown(_)));
-        }
-
-        let known = [
-            PredicateOp::Eq,
-            PredicateOp::Neq,
-            PredicateOp::In,
-            PredicateOp::NotIn,
-            PredicateOp::Gt,
-            PredicateOp::Gte,
-            PredicateOp::Lt,
-            PredicateOp::Lte,
-            PredicateOp::Bucket,
-        ];
-        for op in known {
-            assert!(
-                PredicateOp::COMPLETION_LABELS.contains(&op.as_str()),
-                "missing completion label for {}",
-                op.as_str()
-            );
         }
     }
 }

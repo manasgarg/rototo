@@ -64,12 +64,6 @@ type VariableResolution struct {
 	Source any    `json:"source"`
 }
 
-// QualifierResolution is the evaluated qualifier result.
-type QualifierResolution struct {
-	ID    string `json:"id"`
-	Value bool   `json:"value"`
-}
-
 // WorkspaceLint is the lint result for a loaded or inspected workspace.
 type WorkspaceLint struct {
 	Root        string `json:"root"`
@@ -207,28 +201,28 @@ func (w *Workspace) ResolveQualifier(
 	id string,
 	resolveContext map[string]any,
 	options *ResolveOptions,
-) (*QualifierResolution, error) {
+) (bool, error) {
 	if err := checkContext(ctx); err != nil {
-		return nil, err
+		return false, err
 	}
 	contextJSON, err := marshalContext(resolveContext)
 	if err != nil {
-		return nil, err
+		return false, err
 	}
 	handle, unlock, err := w.activeHandle()
 	if err != nil {
-		return nil, err
+		return false, err
 	}
 	defer unlock()
 	text, err := nativeWorkspaceResolveQualifier(handle, id, contextJSON, validateContext(options))
 	if err != nil {
-		return nil, err
+		return false, err
 	}
-	var resolution QualifierResolution
-	if err := json.Unmarshal([]byte(text), &resolution); err != nil {
-		return nil, err
+	var value bool
+	if err := json.Unmarshal([]byte(text), &value); err != nil {
+		return false, err
 	}
-	return &resolution, checkContext(ctx)
+	return value, checkContext(ctx)
 }
 
 // Close releases the native workspace handle.
@@ -316,17 +310,17 @@ func (w *RefreshingWorkspace) ResolveQualifier(
 	id string,
 	resolveContext map[string]any,
 	options *ResolveOptions,
-) (*QualifierResolution, error) {
+) (bool, error) {
 	if err := checkContext(ctx); err != nil {
-		return nil, err
+		return false, err
 	}
 	contextJSON, err := marshalContext(resolveContext)
 	if err != nil {
-		return nil, err
+		return false, err
 	}
 	handle, unlock, err := w.activeHandle()
 	if err != nil {
-		return nil, err
+		return false, err
 	}
 	defer unlock()
 	text, err := nativeRefreshingWorkspaceResolveQualifier(
@@ -336,13 +330,13 @@ func (w *RefreshingWorkspace) ResolveQualifier(
 		validateContext(options),
 	)
 	if err != nil {
-		return nil, err
+		return false, err
 	}
-	var resolution QualifierResolution
-	if err := json.Unmarshal([]byte(text), &resolution); err != nil {
-		return nil, err
+	var value bool
+	if err := json.Unmarshal([]byte(text), &value); err != nil {
+		return false, err
 	}
-	return &resolution, checkContext(ctx)
+	return value, checkContext(ctx)
 }
 
 // RefreshNow refreshes the workspace immediately and returns "unchanged",

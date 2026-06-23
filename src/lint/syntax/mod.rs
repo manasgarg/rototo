@@ -19,8 +19,6 @@ pub(super) struct SyntaxIndex {
 }
 
 pub(super) struct ParsedToml {
-    #[allow(dead_code)]
-    pub(super) doc: DocId,
     pub(super) spanned_root: SpannedTomlValue,
 }
 
@@ -29,9 +27,8 @@ pub(super) struct SpannedTomlValue {
 }
 
 impl ParsedToml {
-    pub(super) fn new(doc: DocId, value: ::toml_span::Value<'_>) -> Self {
+    pub(super) fn new(value: ::toml_span::Value<'_>) -> Self {
         Self {
-            doc,
             spanned_root: SpannedTomlValue {
                 inner: own_toml_span_value(value),
             },
@@ -68,11 +65,12 @@ pub(super) fn parse_sources(
             DocumentKind::Manifest
             | DocumentKind::Qualifier { .. }
             | DocumentKind::Variable { .. }
-            | DocumentKind::Catalog { .. }
             | DocumentKind::CatalogEntry { .. } => {
                 toml::parse_toml_document(document, &mut syntax, diagnostics);
             }
-            DocumentKind::Schema => {
+            DocumentKind::Catalog { .. }
+            | DocumentKind::RequestContext { .. }
+            | DocumentKind::RequestContextEntry { .. } => {
                 json::parse_json_document(document, &mut syntax, diagnostics);
             }
             DocumentKind::CustomLint => {}

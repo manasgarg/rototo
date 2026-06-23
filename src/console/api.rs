@@ -1,3 +1,4 @@
+use std::collections::HashSet;
 use std::sync::Arc;
 use std::time::Instant;
 
@@ -14,6 +15,7 @@ use serde_json::{Value as JsonValue, json};
 
 use crate::error::RototoError;
 
+use super::ConsoleStateMode;
 use super::auth::{
     GITHUB_OAUTH_SCOPES, GitHubCredentialSource, HostedOAuth, LocalAuth, OAUTH_STATE_COOKIE,
     SESSION_COOKIE, cookie_value, session_from_headers, set_cookie,
@@ -28,7 +30,10 @@ use super::observability::{
 };
 use super::runtime_config::{ConsoleRuntimeConfig, RequestObservabilityContext};
 use super::stage::StageCache;
-use super::store::{NewSession, RequestContextNames, SessionUser, Store};
+use super::store::{
+    ActiveBranchWithWorkspaceRecord, NewSession, RequestContextNames, SessionUser,
+    SourceTreeWithWorkspaces, Store, WorkspaceRecord,
+};
 
 /// Process-wide console dependencies shared by every API route.
 ///
@@ -40,6 +45,7 @@ use super::store::{NewSession, RequestContextNames, SessionUser, Store};
 pub struct ConsoleState {
     pub deployment: DeploymentType,
     pub oauth: Option<HostedOAuth>,
+    pub state_mode: ConsoleStateMode,
     pub write_policy: WritePolicy,
     pub fixed_workspace_source: Option<String>,
     pub store: Store,
@@ -525,6 +531,61 @@ pub fn source_token(user: &SessionUser) -> &str {
     user.github_token.as_deref().unwrap_or("")
 }
 
+pub(crate) async fn fixed_source_scope(
+    state: &ConsoleState,
+    principal_id: &str,
+) -> ApiResult<Option<SourceTreeWithWorkspaces>> {
+    let Some(source) = state.fixed_workspace_source.as_deref() else {
+        return Ok(None);
+    };
+    let source_tree = super::register_fixed_workspace(state, principal_id, source).await?;
+    Ok(Some(source_tree))
+}
+
+pub(crate) fn fixed_source_workspace_ids(
+    fixed_source: &SourceTreeWithWorkspaces,
+) -> HashSet<String> {
+    fixed_source
+        .workspaces
+        .iter()
+        .map(|workspace| workspace.id.clone())
+        .collect()
+}
+
+pub(crate) fn workspace_belongs_to_fixed_source(
+    workspace: &WorkspaceRecord,
+    fixed_source: &SourceTreeWithWorkspaces,
+) -> bool {
+    workspace.source_tree_id == fixed_source.source_tree.id
+}
+
+fn fixed_source_branch_filter(
+    branches: Vec<ActiveBranchWithWorkspaceRecord>,
+    fixed_source: &SourceTreeWithWorkspaces,
+) -> Vec<ActiveBranchWithWorkspaceRecord> {
+    branches
+        .into_iter()
+        .filter(|entry| workspace_belongs_to_fixed_source(&entry.workspace, fixed_source))
+        .collect()
+}
+
+fn source_tree_management_allowed(state: &ConsoleState) -> ApiResult<()> {
+    if state.fixed_workspace_source.is_some() {
+        return Err(ApiError::bad_request(
+            "this console was started with a fixed workspace source",
+        ));
+    }
+    Ok(())
+}
+
+fn console_state_json(state: &ConsoleState) -> JsonValue {
+    json!({
+        "mode": state.state_mode.label(),
+        "fixedWorkspace": state.fixed_workspace_source.is_some(),
+        "canManageSourceTrees": state.fixed_workspace_source.is_none(),
+    })
+}
+
 async fn dev_observability_event(
     State(state): State<SharedState>,
     Json(event): Json<JsonValue>,
@@ -849,22 +910,29 @@ async fn console_data(
     headers: HeaderMap,
 ) -> ApiResult<Json<JsonValue>> {
     let user = require_user(&state, &headers).await?;
-    if let Some(source) = state.fixed_workspace_source.as_deref() {
-        super::register_fixed_workspace(&state, &user.principal_id, source).await?;
-    }
-    let source_trees = state
-        .store
-        .list_source_trees_for_user(&user.principal_id)
-        .await?;
-    let workspaces = state
-        .store
-        .list_workspaces_for_user(&user.principal_id)
-        .await?;
-    let branches = state
+    let fixed_source = fixed_source_scope(&state, &user.principal_id).await?;
+    let (source_trees, workspaces) = match fixed_source.as_ref() {
+        Some(source_tree) => (vec![source_tree.clone()], source_tree.workspaces.clone()),
+        None => (
+            state
+                .store
+                .list_source_trees_for_user(&user.principal_id)
+                .await?,
+            state
+                .store
+                .list_workspaces_for_user(&user.principal_id)
+                .await?,
+        ),
+    };
+    let mut branches = state
         .store
         .list_active_branches_with_workspaces_for_user(&user.principal_id)
         .await?;
+    if let Some(source_tree) = fixed_source.as_ref() {
+        branches = fixed_source_branch_filter(branches, source_tree);
+    }
     Ok(Json(json!({
+        "state": console_state_json(&state),
         "sourceTrees": source_trees,
         "workspaces": workspaces,
         "branches": branches,
@@ -876,10 +944,15 @@ async fn source_trees_list(
     headers: HeaderMap,
 ) -> ApiResult<Json<JsonValue>> {
     let user = require_user(&state, &headers).await?;
-    let source_trees = state
-        .store
-        .list_source_trees_for_user(&user.principal_id)
-        .await?;
+    let source_trees = match fixed_source_scope(&state, &user.principal_id).await? {
+        Some(source_tree) => vec![source_tree],
+        None => {
+            state
+                .store
+                .list_source_trees_for_user(&user.principal_id)
+                .await?
+        }
+    };
     Ok(Json(json!({ "sourceTrees": source_trees })))
 }
 
@@ -902,6 +975,7 @@ async fn source_trees_register(
     Json(body): Json<RegisterSourceTreeBody>,
 ) -> ApiResult<Json<JsonValue>> {
     let user = require_user(&state, &headers).await?;
+    source_tree_management_allowed(&state)?;
     let source_tree = body
         .source_tree
         .as_deref()
@@ -1163,6 +1237,7 @@ async fn source_tree_delete(
     axum::extract::Path(source_tree_id): axum::extract::Path<String>,
 ) -> ApiResult<Json<JsonValue>> {
     let user = require_user(&state, &headers).await?;
+    source_tree_management_allowed(&state)?;
     let removed = state
         .store
         .delete_source_tree_for_user(&source_tree_id, &user.principal_id)
@@ -1188,6 +1263,12 @@ async fn refresh_source_tree_for_user(
     user: &super::store::SessionUser,
     source_tree_id: &str,
 ) -> ApiResult<super::store::SourceTreeWithWorkspaces> {
+    let fixed_source = fixed_source_scope(state, &user.principal_id).await?;
+    if let Some(source_tree) = fixed_source.as_ref()
+        && source_tree.source_tree.id != source_tree_id
+    {
+        return Err(ApiError::not_found("configuration source not found"));
+    }
     let existing = state
         .store
         .get_source_tree_for_user(source_tree_id, &user.principal_id)
@@ -1341,6 +1422,35 @@ mod tests {
         assert!(refreshed.source_tree.last_discovered_at.is_some());
     }
 
+    #[tokio::test]
+    async fn fixed_workspace_scope_rejects_stale_workspace_ids() {
+        let fixed = TempDir::new().expect("fixed source tempdir");
+        write_workspace(fixed.path()).await;
+        let stale = TempDir::new().expect("stale source tempdir");
+        write_workspace(stale.path()).await;
+        let fixed_source = fixed.path().to_str().expect("utf8 temp path");
+        let stale_source = stale.path().to_str().expect("utf8 temp path");
+        let state = test_state_with_fixed_source(fixed_source);
+        let user = test_user();
+
+        let (stale_registered, _) =
+            expect_api_ok(upsert_read_only_source_tree(&state, &user, stale_source, None).await);
+        let stale_workspace = stale_registered
+            .workspaces
+            .first()
+            .expect("stale workspace should be discovered");
+
+        let err = super::super::api_workspace::load_workspace(&state, &user, &stale_workspace.id)
+            .await
+            .expect_err("fixed source should hide stale workspace rows");
+
+        assert_eq!(err.status, StatusCode::NOT_FOUND);
+        let fixed_registered = expect_api_ok(fixed_source_scope(&state, &user.principal_id).await)
+            .expect("fixed source should register");
+        assert_eq!(fixed_registered.source_tree.source, fixed_source);
+        assert_eq!(workspace_paths(&fixed_registered.workspaces), vec!["."]);
+    }
+
     fn expect_api_ok<T>(result: ApiResult<T>) -> T {
         match result {
             Ok(value) => value,
@@ -1349,11 +1459,21 @@ mod tests {
     }
 
     fn test_state() -> SharedState {
+        test_state_with_fixed_source_option(None)
+    }
+
+    fn test_state_with_fixed_source(source: &str) -> SharedState {
+        test_state_with_fixed_source_option(Some(source.to_owned()))
+    }
+
+    fn test_state_with_fixed_source_option(fixed_workspace_source: Option<String>) -> SharedState {
+        let fixed_workspace = fixed_workspace_source.is_some();
         Arc::new(ConsoleState {
             deployment: DeploymentType::Local,
             oauth: None,
+            state_mode: ConsoleStateMode::Ephemeral,
             write_policy: WritePolicy::Disabled,
-            fixed_workspace_source: None,
+            fixed_workspace_source,
             store: Store::open_in_memory(TokenCrypto::generate().unwrap()).unwrap(),
             github: GitHubClient::new(),
             stage: StageCache::new(),
@@ -1368,7 +1488,7 @@ mod tests {
                     deployment: DeploymentType::Local,
                     write_policy: WritePolicy::Disabled,
                     console_host: Some("127.0.0.1".to_owned()),
-                    fixed_workspace: false,
+                    fixed_workspace,
                     secure_cookies: false,
                 },
             ),

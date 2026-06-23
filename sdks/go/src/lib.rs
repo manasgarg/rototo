@@ -133,17 +133,14 @@ pub extern "C" fn rototo_go_workspace_resolve_qualifier(
         let workspace = workspace_from_handle(handle)?;
         let id = required_string(id, "id")?;
         let context = resolve_context(context_json)?;
-        let resolution = runtime()
+        let value = runtime()
             .block_on(workspace.resolve_qualifier_with_options(
                 &id,
                 &context,
                 resolve_options(validate_context),
             ))
             .map_err(|err| err.to_string())?;
-        json_string(serde_json::json!({
-            "id": resolution.id,
-            "value": resolution.value,
-        }))
+        json_string(serde_json::json!(value))
     })
 }
 
@@ -221,7 +218,7 @@ pub extern "C" fn rototo_go_refreshing_workspace_resolve_qualifier(
         let workspace = refreshing_workspace_from_handle(handle)?;
         let id = required_string(id, "id")?;
         let context = resolve_context(context_json)?;
-        let resolution = runtime().block_on(async {
+        let value = runtime().block_on(async {
             let guard = workspace.inner.lock().await;
             let workspace = active_refreshing_workspace(&guard)?;
             workspace
@@ -229,10 +226,7 @@ pub extern "C" fn rototo_go_refreshing_workspace_resolve_qualifier(
                 .await
                 .map_err(|err| err.to_string())
         })?;
-        json_string(serde_json::json!({
-            "id": resolution.id,
-            "value": resolution.value,
-        }))
+        json_string(serde_json::json!(value))
     })
 }
 

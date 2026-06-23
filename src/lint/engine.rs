@@ -1,4 +1,4 @@
-use crate::diagnostics::{LintDiagnostic, LintStage};
+use crate::diagnostics::LintDiagnostic;
 use crate::error::Result;
 use crate::model::WorkspaceLint;
 
@@ -14,13 +14,6 @@ pub(super) async fn lint_workspace_snapshot(input: LintInput) -> Result<Workspac
     LintEngine::new().lint_workspace(input).await
 }
 
-pub(crate) async fn lint_workspace_until(
-    input: LintInput,
-    stage: LintStage,
-) -> Result<LintContext> {
-    LintEngine::new().lint_workspace_until(input, stage).await
-}
-
 struct LintEngine;
 
 impl LintEngine {
@@ -32,16 +25,6 @@ impl LintEngine {
         let mut ctx = LintContext::new(input);
         stages::run_pipeline(&mut ctx).await?;
         Ok(ctx.finish())
-    }
-
-    async fn lint_workspace_until(
-        &self,
-        input: LintInput,
-        stage: LintStage,
-    ) -> Result<LintContext> {
-        let mut ctx = LintContext::new(input);
-        stages::run_until(&mut ctx, stage).await?;
-        Ok(ctx)
     }
 }
 
@@ -70,6 +53,7 @@ impl LintContext {
     fn finish(mut self) -> WorkspaceLintSnapshot {
         sort_diagnostics(&mut self.diagnostics);
         let documents = self.source.document_summaries();
+        let source_texts = self.source.document_texts();
         let lint = WorkspaceLint {
             root: self.source.root,
             documents,
@@ -79,6 +63,7 @@ impl LintContext {
             lint,
             index: self.index,
             references: self.references,
+            source_texts,
         }
     }
 }
@@ -94,11 +79,10 @@ pub(super) fn variable_values<'a>(
 mod tests {
     use std::path::PathBuf;
 
-    use crate::diagnostics::{CustomRuleId, DiagnosticRule, RototoRuleId, SemanticEntity};
+    use crate::diagnostics::{CustomRuleId, LintStage};
 
     use super::super::WORKSPACE_MANIFEST;
-    use super::super::index::GateEntity;
-    use super::super::index::{RegisteredLintEntity, RegisteredLintField, SchemaLintField};
+    use super::super::index::RegisteredLintAddress;
     use super::super::input::OverlayDocument;
     use super::*;
 
@@ -213,11 +197,7 @@ default = "hello"
             (
                 "qualifiers/premium.toml",
                 r#"schema_version = 1
-
-[[predicate]]
-attribute = "account.tier"
-op = "eq"
-value = "premium"
+when = "context.account.tier == \"premium\""
 "#,
             ),
             (
@@ -229,15 +209,18 @@ type = "catalog:message"
 default = "default"
 
 [[resolve.rule]]
-qualifier = "premium"
+when = 'qualifier["premium"]'
 value = "premium"
 "#,
             ),
             (
-                "catalogs/message.toml",
-                r#"schema_version = 1
-schema = "../schemas/message.schema.json"
-"#,
+                "catalogs/message.schema.json",
+                r#"{
+  "type": "object",
+  "properties": { "message": { "type": "string" } },
+  "required": ["message"],
+  "additionalProperties": false
+}"#,
             ),
             (
                 "catalogs/message-entries/default.toml",
@@ -248,16 +231,7 @@ schema = "../schemas/message.schema.json"
                 r#"message = "premium""#,
             ),
             (
-                "schemas/message.schema.json",
-                r#"{
-  "type": "object",
-  "properties": { "message": { "type": "string" } },
-  "required": ["message"],
-  "additionalProperties": false
-}"#,
-            ),
-            (
-                "schemas/context.schema.json",
+                "request-contexts/request.schema.json",
                 r#"{
   "type": "object",
   "properties": {
@@ -273,19 +247,15 @@ schema = "../schemas/message.schema.json"
             (
                 "lint/noop.lua",
                 r#"function register(lint)
-  lint:on({
-    stage = "policy",
-    entity = "workspace",
-    rule = {
-      id = "policy/noop",
-      title = "No-op policy",
-      help = "No-op policy used by tests.",
-    },
+  lint:rule({
+    id = "policy/noop",
+    title = "No-op policy",
+    help = "No-op policy used by tests.",
     handler = "check_workspace",
   })
 end
 
-function check_workspace(ctx)
+function check_workspace(workspace, target)
   return {}
 end
 "#,
@@ -313,11 +283,10 @@ end
             WORKSPACE_MANIFEST,
             "qualifiers/premium.toml",
             "variables/message.toml",
-            "catalogs/message.toml",
+            "catalogs/message.schema.json",
             "catalogs/message-entries/default.toml",
             "catalogs/message-entries/premium.toml",
-            "schemas/message.schema.json",
-            "schemas/context.schema.json",
+            "request-contexts/request.schema.json",
             "lint/noop.lua",
         ] {
             assert!(
@@ -342,10 +311,10 @@ end
             "rototo/variable-rule-unknown-qualifier",
         );
         assert_eq!(reference.primary.path, "variables/checkout-redesign.toml");
-        assert_eq!(reference.primary.range.unwrap().start.line, 7);
-        assert_eq!(reference.primary.range.unwrap().start.character, 12);
-        assert_eq!(reference.primary.range.unwrap().end.line, 7);
-        assert_eq!(reference.primary.range.unwrap().end.character, 27);
+        assert_eq!(reference.primary.range.unwrap().start.line, 8);
+        assert_eq!(reference.primary.range.unwrap().start.character, 7);
+        assert_eq!(reference.primary.range.unwrap().end.line, 8);
+        assert_eq!(reference.primary.range.unwrap().end.character, 35);
     }
 
     #[tokio::test]
@@ -357,13 +326,12 @@ end
         .unwrap();
         let registry = &snapshot.index.custom_lints;
 
-        let schema_rule = CustomRuleId::parse("targets/schema-json").unwrap();
-        let schema_definition = registry.rules.get(&schema_rule).unwrap();
+        let variable_rule = CustomRuleId::parse("targets/variable-type").unwrap();
+        let variable_definition = registry.rules.get(&variable_rule).unwrap();
         assert_eq!(
-            schema_definition.definition.title,
-            "Schema JSON target was checked"
+            variable_definition.definition.title,
+            "Variable type target was checked"
         );
-        assert_eq!(schema_definition.location.path, "lint/targets.lua");
 
         let file = registry.files.get("lint/targets.lua").unwrap();
         assert_eq!(file.path, "lint/targets.lua");
@@ -372,39 +340,29 @@ end
         let registration = registry
             .registrations
             .iter()
-            .find(|registration| registration.rule == schema_rule)
+            .find(|registration| registration.rule == variable_rule)
             .unwrap();
         assert_eq!(registration.file_path, "lint/targets.lua");
-        assert_eq!(registration.stage, LintStage::Value);
+        assert_eq!(registration.stage, LintStage::Policy);
         assert_eq!(registration.location.path, "lint/targets.lua");
         assert!(matches!(
-            registration.selector.entity,
-            RegisteredLintEntity::Schema
-        ));
-        assert!(matches!(
-            &registration.selector.field,
-            Some(RegisteredLintField::Schema(SchemaLintField::JsonPath(path)))
-                if path.as_slice() == ["properties"]
+            &registration.selector.address,
+            RegisteredLintAddress::Variable { id } if id == "agent-config"
         ));
     }
 
     #[tokio::test]
-    async fn snapshot_gate_index_records_source_backed_failures() {
+    async fn snapshot_records_source_backed_failure_diagnostics() {
         let parse_snapshot = lint_workspace_snapshot(LintInput::new(PathBuf::from(
             "tests/fixtures/workspaces/rules/parse/variable-parse-failed",
         )))
         .await
         .unwrap();
-        let parse_gate = parse_snapshot
-            .index
-            .gates
-            .entity_state
-            .get(&GateEntity::Variable("broken".to_owned()))
-            .expect("variable parse gate");
-        assert_eq!(parse_gate.blocked_at, LintStage::Parse);
-        assert_eq!(
-            parse_gate.diagnostic.as_ref(),
-            Some(&DiagnosticRule::Rototo(RototoRuleId::VariableParseFailed))
+        assert!(
+            diagnostic_by_rule(&parse_snapshot.lint, "rototo/variable-parse-failed")
+                .primary
+                .path
+                .ends_with("variables/broken.toml")
         );
 
         let register_snapshot = lint_workspace_snapshot(LintInput::new(PathBuf::from(
@@ -412,16 +370,11 @@ end
         )))
         .await
         .unwrap();
-        let register_gate = register_snapshot
-            .index
-            .gates
-            .entity_state
-            .get(&GateEntity::CustomLintFile("lint/broken.lua".to_owned()))
-            .expect("custom lint file gate");
-        assert_eq!(register_gate.blocked_at, LintStage::Register);
-        assert_eq!(
-            register_gate.diagnostic.as_ref(),
-            Some(&DiagnosticRule::Rototo(RototoRuleId::CustomLintFailed))
+        assert!(
+            diagnostic_by_rule(&register_snapshot.lint, "rototo/custom-lint-failed")
+                .primary
+                .path
+                .ends_with("lint/broken.lua")
         );
     }
 
@@ -440,7 +393,7 @@ end
         tokio::fs::create_dir_all(root.join("catalogs/message-entries"))
             .await
             .unwrap();
-        tokio::fs::create_dir_all(root.join("schemas"))
+        tokio::fs::create_dir_all(root.join("request-contexts"))
             .await
             .unwrap();
         tokio::fs::write(
@@ -453,11 +406,7 @@ end
         tokio::fs::write(
             root.join("qualifiers/beta.toml"),
             r#"schema_version = 1
-
-[[predicate]]
-attribute = "account.beta"
-op = "eq"
-value = true
+when = "context.account.beta == true"
 "#,
         )
         .await
@@ -465,16 +414,7 @@ value = true
         tokio::fs::write(
             root.join("qualifiers/premium.toml"),
             r#"schema_version = 1
-
-[[predicate]]
-attribute = "qualifier.beta"
-op = "eq"
-value = true
-
-[[predicate]]
-attribute = "account.region"
-op = "eq"
-value = "eu"
+when = "qualifier[\"beta\"] && context.account.region == \"eu\""
 "#,
         )
         .await
@@ -488,20 +428,24 @@ type = "catalog:message"
 default = "missing"
 
 [[resolve.rule]]
-qualifier = "premium"
+when = 'qualifier["premium"]'
 value = "welcome"
 
 [[resolve.rule]]
-qualifier = "missing"
+when = 'qualifier["missing"]'
 value = "absent"
 "#,
         )
         .await
         .unwrap();
         tokio::fs::write(
-            root.join("catalogs/message.toml"),
-            r#"schema_version = 1
-schema = "../schemas/message.schema.json"
+            root.join("catalogs/message.schema.json"),
+            r#"{
+  "type": "object",
+  "properties": { "text": { "type": "string" } },
+  "required": ["text"],
+  "additionalProperties": false
+}
 "#,
         )
         .await
@@ -514,38 +458,31 @@ schema = "../schemas/message.schema.json"
         .await
         .unwrap();
         tokio::fs::write(
-            root.join("schemas/context.schema.json"),
+            root.join("request-contexts/request.schema.json"),
             r#"{"type":"object"}"#,
         )
         .await
         .unwrap();
-        tokio::fs::write(
-            root.join("schemas/message.schema.json"),
-            r#"{"type":"object"}"#,
-        )
-        .await
-        .unwrap();
-
         let snapshot = lint_workspace_snapshot(LintInput::new(root.to_path_buf()))
             .await
             .unwrap();
 
         assert!(snapshot.references.edges().iter().any(|edge| {
-            matches!(
-                edge.source,
-                ReferenceSource::QualifierPredicateQualifier { .. }
-            ) && edge.target == ReferenceTarget::Qualifier("beta".to_owned())
+            matches!(edge.source, ReferenceSource::QualifierWhenQualifier { .. })
+                && edge.target == ReferenceTarget::Qualifier("beta".to_owned())
                 && edge.is_resolved()
         }));
         assert!(snapshot.references.edges().iter().any(|edge| {
             matches!(
                 edge.source,
-                ReferenceSource::QualifierPredicateContextAttribute { .. }
+                ReferenceSource::QualifierWhenContextAttribute { .. }
             ) && edge.target == ReferenceTarget::ContextAttribute("account.region".to_owned())
         }));
         assert!(snapshot.references.edges().iter().any(|edge| {
-            matches!(edge.source, ReferenceSource::VariableRuleQualifier { .. })
-                && edge.target == ReferenceTarget::Qualifier("missing".to_owned())
+            matches!(
+                edge.source,
+                ReferenceSource::VariableRuleConditionQualifier { .. }
+            ) && edge.target == ReferenceTarget::Qualifier("missing".to_owned())
                 && !edge.is_resolved()
         }));
         assert!(snapshot.references.edges().iter().any(|edge| {
@@ -561,46 +498,45 @@ schema = "../schemas/message.schema.json"
         let referenced_qualifiers = snapshot.references.referenced_qualifier_ids();
         assert!(referenced_qualifiers.contains("beta"));
         assert!(referenced_qualifiers.contains("premium"));
-        assert!(
-            snapshot
-                .references
-                .qualifier_reference_sites("premium")
-                .iter()
-                .any(|site| matches!(
-                site.from,
-                SemanticEntity::Rule {
-                    ref variable,
-                    index: 0,
-                } if variable == "message"
-                ) && site.location.path == "variables/message.toml")
-        );
-        assert!(
-            snapshot
-                .references
-                .catalog_entry_reference_sites("message", "welcome")
-                .iter()
-                .any(|site| matches!(
-                    site.from,
-                    SemanticEntity::Rule {
-                        ref variable,
-                        index: 0,
-                    } if variable == "message"
-                ))
-        );
-        assert!(
-            snapshot
-                .references
-                .catalog_entry_reference_sites("message", "absent")
-                .is_empty()
-        );
+        assert!(snapshot.references.edges().iter().any(|edge| {
+            matches!(
+                &edge.source,
+                ReferenceSource::VariableRuleConditionQualifier { variable, rule }
+                    if variable == "message" && *rule == 0
+            ) && edge.target == ReferenceTarget::Qualifier("premium".to_owned())
+                && edge.location.path == "variables/message.toml"
+                && edge.is_resolved()
+        }));
+        assert!(snapshot.references.edges().iter().any(|edge| {
+            matches!(
+                &edge.source,
+                ReferenceSource::VariableRuleValue { variable, rule }
+                    if variable == "message" && *rule == 0
+            ) && edge.target
+                == ReferenceTarget::CatalogEntry {
+                    catalog: "message".to_owned(),
+                    value: "welcome".to_owned(),
+                }
+                && edge.is_resolved()
+        }));
+        assert!(!snapshot.references.edges().iter().any(|edge| {
+            matches!(
+                &edge.source,
+                ReferenceSource::VariableRuleValue { variable, .. } if variable == "message"
+            ) && edge.target
+                == ReferenceTarget::CatalogEntry {
+                    catalog: "message".to_owned(),
+                    value: "absent".to_owned(),
+                }
+                && edge.is_resolved()
+        }));
 
         let context_schema = snapshot
             .index
-            .schemas
-            .get("schemas/context.schema.json")
+            .request_contexts
+            .get("request")
             .expect("context schema node");
-        assert_eq!(context_schema.doc, context_schema.location.doc().unwrap());
-        assert_eq!(context_schema.path, "schemas/context.schema.json");
+        assert_eq!(context_schema.path, "request-contexts/request.schema.json");
         assert!(context_schema.json.is_some());
         assert!(context_schema.validator.is_some());
         assert!(context_schema.invalid_message.is_none());

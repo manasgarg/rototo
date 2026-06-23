@@ -43,7 +43,7 @@ account-config/
   lint/
   qualifiers/
   catalogs/
-  schemas/
+  request-contexts/
   variables/
     max-active-projects.toml
 ```
@@ -51,8 +51,8 @@ account-config/
 For the first pass, we only need one
 [variable](reference-variables.html). The other directories are not ceremony;
 they are places we will use later for
-[conditions](reference-qualifiers.html), schemas,
-[catalogs](reference-catalogs.html), and
+[conditions](reference-qualifiers.html),
+[catalogs](reference-catalogs.html), request contexts, and
 [custom lint](reference-custom-lua-lint.html).
 
 Replace `account-config/variables/max-active-projects.toml` with one variable

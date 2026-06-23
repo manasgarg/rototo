@@ -40,6 +40,9 @@ fn assert_catalog_source(source: &VariableResolutionSource, catalog: &str, value
             assert_eq!(actual_value, value);
         }
         VariableResolutionSource::Literal => panic!("expected catalog-backed resolution source"),
+        VariableResolutionSource::CatalogList { .. } => {
+            panic!("expected scalar catalog-backed resolution source")
+        }
     }
 }
 
@@ -159,12 +162,9 @@ async fn sdk_inspects_workspace() {
             .iter()
             .any(|variable| variable.uri == "variable://checkout-redesign")
     );
-    assert!(
-        inspection
-            .schemas
-            .iter()
-            .any(|schema| schema.path == std::path::Path::new("schemas/context.schema.json"))
-    );
+    assert!(inspection.request_contexts.iter().any(
+        |context| context.path == std::path::Path::new("request-contexts/request.schema.json")
+    ));
     assert!(
         inspection
             .linters
@@ -768,11 +768,11 @@ async fn sdk_resolves_qualifier() {
         }
     });
 
-    let resolution = resolve_qualifier("examples/basic".as_ref(), "premium-users", &context)
+    let matches = resolve_qualifier("examples/basic".as_ref(), "premium-users", &context)
         .await
         .unwrap();
 
-    assert!(resolution.value);
+    assert!(matches);
 }
 
 #[tokio::test]
@@ -950,12 +950,12 @@ async fn workspace_sdk_validates_resolve_context_against_schema() {
 
     assert!(
         err.to_string()
-            .contains("resolve context does not match schema")
+            .contains("resolve context does not match any compatible request context")
     );
 }
 
 #[tokio::test]
-async fn workspace_sdk_rejects_missing_predicate_context_even_when_schema_allows_it() {
+async fn workspace_sdk_rejects_missing_condition_context_even_when_schema_allows_it() {
     let workspace = Workspace::load("examples/basic").await.unwrap();
     let context = ResolveContext::from_json(serde_json::json!({
         "user": {
@@ -971,7 +971,7 @@ async fn workspace_sdk_rejects_missing_predicate_context_even_when_schema_allows
 
     assert_eq!(
         err.to_string(),
-        "missing resolve context attribute: user.tier required by qualifier://premium-users"
+        "expression path is missing: context.user.tier"
     );
 }
 
@@ -1022,7 +1022,7 @@ async fn workspace_sdk_loads_malformed_context_config_when_lint_is_skipped_for_i
 async fn workspace_sdk_rejects_context_schema_symlink_escape() {
     let temp = tempfile::TempDir::new().unwrap();
     let root = temp.path().join("workspace");
-    tokio::fs::create_dir_all(root.join("schemas"))
+    tokio::fs::create_dir_all(root.join("request-contexts"))
         .await
         .unwrap();
     tokio::fs::write(
@@ -1040,7 +1040,7 @@ async fn workspace_sdk_rejects_context_schema_symlink_escape() {
     .unwrap();
     std::os::unix::fs::symlink(
         temp.path().join("outside.schema.json"),
-        root.join("schemas/context.schema.json"),
+        root.join("request-contexts/request.schema.json"),
     )
     .unwrap();
 
@@ -1079,7 +1079,7 @@ async fn workspace_sdk_can_bypass_context_validation_explicitly() {
     }))
     .unwrap();
 
-    let resolution = workspace
+    let matches = workspace
         .resolve_qualifier_with_options(
             "premium-users",
             &context,
@@ -1090,5 +1090,5 @@ async fn workspace_sdk_can_bypass_context_validation_explicitly() {
         .await
         .unwrap();
 
-    assert!(!resolution.value);
+    assert!(!matches);
 }

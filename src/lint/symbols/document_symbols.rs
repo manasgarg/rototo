@@ -1,7 +1,5 @@
 use super::super::index::*;
-use super::common::{
-    json_project_field_label, predicate_op_project_field_value, string_project_field_value,
-};
+use super::common::{expression_project_field_label, json_project_field_label};
 use super::{WorkspaceDocumentSymbol, WorkspaceDocumentSymbolKind};
 
 pub(crate) fn document_symbols(index: &SemanticIndex, path: &str) -> Vec<WorkspaceDocumentSymbol> {
@@ -77,26 +75,10 @@ fn workspace_extends_symbol(
 }
 
 fn qualifier_document_symbol(qualifier: &QualifierNode) -> WorkspaceDocumentSymbol {
-    let children = match &qualifier.predicates {
-        PredicateCollection::Predicates(predicates) => predicates
-            .iter()
-            .map(predicate_document_symbol)
-            .collect::<Vec<_>>(),
-        PredicateCollection::Missing { .. } | PredicateCollection::Invalid { .. } => Vec::new(),
-    };
     WorkspaceDocumentSymbol::new(
         qualifier.id.clone(),
         WorkspaceDocumentSymbolKind::Qualifier,
         qualifier.location.clone(),
-        children,
-    )
-}
-
-fn predicate_document_symbol(predicate: &PredicateNode) -> WorkspaceDocumentSymbol {
-    WorkspaceDocumentSymbol::new(
-        predicate_symbol_name(predicate),
-        WorkspaceDocumentSymbolKind::Predicate,
-        predicate.location.clone(),
         Vec::new(),
     )
 }
@@ -194,25 +176,13 @@ fn value_document_symbol(value: &ValueNode) -> WorkspaceDocumentSymbol {
     )
 }
 
-fn predicate_symbol_name(predicate: &PredicateNode) -> String {
-    let index = predicate.index + 1;
-    let Some(attribute) = string_project_field_value(&predicate.attribute) else {
-        return format!("predicate {index}");
-    };
-    let Some(op) = predicate_op_project_field_value(&predicate.op) else {
-        return format!("predicate {index}: {attribute}");
-    };
-    format!("predicate {index}: {attribute} {op}")
-}
-
 fn variable_rule_symbol_name(rule: &VariableRuleNode) -> String {
     let index = rule.index + 1;
-    match (
-        string_project_field_value(&rule.qualifier),
-        json_project_field_label(&rule.value),
-    ) {
-        (Some(qualifier), Some(value)) => format!("rule {index}: {qualifier} -> {value}"),
-        (Some(qualifier), None) => format!("rule {index}: {qualifier}"),
+    let selector = expression_project_field_label(&rule.when)
+        .or_else(|| expression_project_field_label(&rule.query));
+    match (selector, json_project_field_label(&rule.value)) {
+        (Some(condition), Some(value)) => format!("rule {index}: {condition} -> {value}"),
+        (Some(condition), None) => format!("rule {index}: {condition}"),
         (None, Some(value)) => format!("rule {index}: {value}"),
         (None, None) => format!("rule {index}"),
     }

@@ -11,7 +11,7 @@ EXAMPLES_BASIC = str(ROOT / "examples" / "basic")
 
 
 class ApiTest(unittest.IsolatedAsyncioTestCase):
-    async def test_workspace_exposes_python_resolution_objects(self) -> None:
+    async def test_workspace_exposes_python_runtime_resolution_api(self) -> None:
         workspace = await rototo.Workspace.load(EXAMPLES_BASIC)
 
         variable = await workspace.resolve_variable(
@@ -26,8 +26,7 @@ class ApiTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(variable.id, "premium-message")
         self.assertEqual(variable.source, {"kind": "literal"})
         self.assertEqual(variable.value, "Welcome back, premium member.")
-        self.assertEqual(qualifier.id, "premium-users")
-        self.assertTrue(qualifier.value)
+        self.assertTrue(qualifier)
 
     async def test_inspected_workspace_can_lint_but_not_resolve(self) -> None:
         workspace = await rototo.Workspace.inspect(EXAMPLES_BASIC)

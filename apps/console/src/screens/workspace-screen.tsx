@@ -3,11 +3,9 @@ import {
     ArrowLeft,
     Boxes,
     Braces,
-    CheckCircle2,
     ChevronRight,
     Database,
     FileCode2,
-    FileJson2,
     GitBranch,
     ListChecks,
     Pencil,
@@ -29,6 +27,7 @@ import {
     DiagnosticList,
     DiagnosticSummary,
 } from "@/components/diagnostic-list";
+import { CatalogValueList } from "@/components/catalog-value-list";
 import { LoadingScreen } from "@/components/loading-screen";
 import { SearchableList } from "@/components/searchable-list";
 import { BranchCandidates } from "@/components/branch-candidates";
@@ -47,10 +46,6 @@ import type { SectionId } from "@/lib/route-normalizers";
 import type {
     BranchRecord,
     LintDiagnostic,
-    QualifierContextEvaluation,
-    QualifierEvaluation,
-    ReferenceModel,
-    SavedContextResolution,
     VariableModel,
     WorkspaceData,
     WorkspaceDefinition,
@@ -85,7 +80,6 @@ const SECTION_TITLES: Record<SectionId, string> = {
     variables: "Variables",
     qualifiers: "Qualifiers",
     catalogs: "Catalogs",
-    schemas: "Schemas",
     linters: "Linters",
     context: "Context",
     diagnostics: "Diagnostics",
@@ -98,7 +92,6 @@ const SECTION_HINTS: Partial<Record<SectionId, string>> = {
     qualifiers:
         "Named runtime conditions. Rules reference them to select values.",
     catalogs: "Typed values that catalog-backed variables can point at.",
-    schemas: "JSON Schemas that validate context and selected values.",
     linters: "Custom lint rules this workspace declares beyond the built-ins.",
     context: "The context contract: schema plus example resolution contexts.",
 };
@@ -148,11 +141,19 @@ export function WorkspaceScreen({
         branches,
         inventory,
         inventoryError,
+        definitions,
         model,
         capabilities,
     } = data.data;
     const lint = data.data.lint as LintLoad;
     const writeDisabled = capabilities.write.kind === "disabled";
+    const writeDisabledReason =
+        capabilities.write.kind === "disabled"
+            ? capabilities.write.reason
+            : undefined;
+    const localWorkingTree =
+        capabilities.write.kind === "directPush" &&
+        capabilities.write.backend === "localWorkingTree";
 
     // Canonical URLs use the friendly slug; id URLs redirect to it.
     if (workspaceId !== workspace.slug) {
@@ -173,11 +174,10 @@ export function WorkspaceScreen({
         variables: inventory.variables.length,
         qualifiers: inventory.qualifiers.length,
         catalogs: inventory.catalogs.length,
-        schemas: inventory.schemas.length,
         linters: inventory.linters.length,
         context:
             inventory.context.exampleCount +
-            (inventory.context.schemaPath ? 1 : 0),
+            inventory.context.requestContexts.length,
     };
     const selectedPath = path;
     const selectedNode = selectedPath
@@ -195,23 +195,30 @@ export function WorkspaceScreen({
         entity.data?.definition ?? null;
     const definitionError: string | null =
         entity.data?.definitionError ?? entity.error;
-    const contextResolutions: SavedContextResolution[] =
-        entity.data?.contextResolutions ?? [];
-    const qualifierEvaluations: QualifierContextEvaluation[] =
-        entity.data?.qualifierEvaluations ?? [];
 
-    // Graph data for the overview, built from the semantic model with entity
-    // hrefs resolved per node.
-    let graphData: WorkspaceGraphData | null = null;
-    if (selectedSection === "overview" && !selectedNode && model !== null) {
-        graphData = workspaceGraphData({
-            model,
-            pathForKey: new Map(
-                nodes.map((node) => [node.targetKey, node.path]),
-            ),
-            hrefFor: (entityPath) => entityHref(workspace.slug, entityPath),
-        });
-    }
+    // Graph data is shared by the overview and focused entity pages. Entity
+    // pages filter this to the same directly connected set lit by overview
+    // hover.
+    const graphData =
+        model !== null
+            ? workspaceGraphData({
+                  model,
+                  pathForKey: new Map(
+                      nodes.map((node) => [node.targetKey, node.path]),
+                  ),
+                  sourceByPath: new Map(
+                      definitions.map((definition) => [
+                          definition.path,
+                          {
+                              language: definition.language,
+                              text: definition.text,
+                          },
+                      ]),
+                  ),
+                  hrefFor: (entityPath) =>
+                      entityHref(workspace.slug, entityPath),
+              })
+            : null;
     const diagnosticCount = "error" in lint ? 0 : lint.diagnostics.length;
     const parentCatalogNode =
         selectedNode?.kind === "catalog value"
@@ -239,7 +246,7 @@ export function WorkspaceScreen({
         ...(selectedNode || selectedSection !== "overview"
             ? [
                   {
-                      label: workspace.path,
+                      label: workspace.displayPath,
                       href: `/app/workspaces/${workspace.slug}`,
                   },
               ]
@@ -291,9 +298,11 @@ export function WorkspaceScreen({
                                 />
                             )}
                         </Link>
-                        {!writeDisabled ? (
-                            <StartBranchButton workspaceId={workspace.slug} />
-                        ) : null}
+                        <StartBranchButton
+                            disabled={writeDisabled}
+                            disabledReason={writeDisabledReason}
+                            workspaceId={workspace.slug}
+                        />
                     </>
                 }
                 crumbs={crumbs}
@@ -306,7 +315,7 @@ export function WorkspaceScreen({
                         <NavContext
                             href={`/app/workspaces/${workspace.slug}`}
                             label="workspace"
-                            value={`${workspaceName} · ${workspace.path}`}
+                            value={`${workspaceName} · ${workspace.displayPath}`}
                         />
                         <NavGroupLabel>Inspect</NavGroupLabel>
                         <NavLink
@@ -318,13 +327,6 @@ export function WorkspaceScreen({
                             label="Overview"
                         />
                         <NavLink
-                            active={selectedSection === "variables"}
-                            count={entityCounts.variables}
-                            href={sectionHref(workspace.slug, "variables")}
-                            icon={<FileCode2 aria-hidden size={16} />}
-                            label="Variables"
-                        />
-                        <NavLink
                             active={selectedSection === "qualifiers"}
                             count={entityCounts.qualifiers}
                             href={sectionHref(workspace.slug, "qualifiers")}
@@ -332,18 +334,18 @@ export function WorkspaceScreen({
                             label="Qualifiers"
                         />
                         <NavLink
+                            active={selectedSection === "variables"}
+                            count={entityCounts.variables}
+                            href={sectionHref(workspace.slug, "variables")}
+                            icon={<FileCode2 aria-hidden size={16} />}
+                            label="Variables"
+                        />
+                        <NavLink
                             active={selectedSection === "catalogs"}
                             count={entityCounts.catalogs}
                             href={sectionHref(workspace.slug, "catalogs")}
                             icon={<Database aria-hidden size={16} />}
                             label="Catalogs"
-                        />
-                        <NavLink
-                            active={selectedSection === "schemas"}
-                            count={entityCounts.schemas}
-                            href={sectionHref(workspace.slug, "schemas")}
-                            icon={<FileJson2 aria-hidden size={16} />}
-                            label="Schemas"
                         />
                         <NavLink
                             active={selectedSection === "linters"}
@@ -379,7 +381,11 @@ export function WorkspaceScreen({
                                 count={branches.length}
                                 href={sectionHref(workspace.slug, "branches")}
                                 icon={<GitBranch aria-hidden size={16} />}
-                                label="Branches"
+                                label={
+                                    localWorkingTree
+                                        ? "Working Tree"
+                                        : "Branches"
+                                }
                             />
                         ) : null}
                     </>
@@ -390,11 +396,11 @@ export function WorkspaceScreen({
                         : SECTION_TITLES[selectedSection]
                 }
                 user={user}
+                wide={!selectedNode && selectedSection === "overview"}
             >
                 {selectedNode ? (
                     <EntityDefinition
                         allNodes={nodes}
-                        contextResolutions={contextResolutions}
                         definition={definition}
                         diagnostics={entityDiagnostics}
                         error={definitionError}
@@ -406,7 +412,14 @@ export function WorkspaceScreen({
                             ) ?? null
                         }
                         parentCatalog={parentCatalogNode}
-                        qualifierEvaluations={qualifierEvaluations}
+                        graphData={
+                            selectedNode && graphData
+                                ? focusedGraphData(
+                                      graphData,
+                                      selectedNode.targetKey,
+                                  )
+                                : null
+                        }
                         workspaceId={workspace.slug}
                     />
                 ) : (
@@ -415,6 +428,7 @@ export function WorkspaceScreen({
                         branches={branches}
                         graphData={graphData}
                         capabilities={capabilities}
+                        localWorkingTree={localWorkingTree}
                         inventory={inventory}
                         inventoryError={inventoryError}
                         lint={lint}
@@ -433,6 +447,7 @@ function WorkspaceSection({
     diagnosticCount,
     branches,
     graphData,
+    localWorkingTree,
     inventory,
     inventoryError,
     lint,
@@ -444,6 +459,7 @@ function WorkspaceSection({
     diagnosticCount: number;
     branches: BranchRecord[];
     graphData: WorkspaceGraphData | null;
+    localWorkingTree: boolean;
     inventory: WorkspaceInventory;
     inventoryError: string | null;
     lint: WorkspaceLintView | { root: string; diagnostics: []; error: string };
@@ -456,10 +472,10 @@ function WorkspaceSection({
             (branch) => branch.status === "active",
         );
         return (
-            <section className="section">
+            <section className="section workspace-overview">
                 <div className="section-header">
                     <div className="section-header-text">
-                        <h1 className="mono">{workspace.path}</h1>
+                        <h1 className="mono">{workspace.displayPath}</h1>
                         <p className="hint">
                             What this workspace declares, and whether it lints
                             clean right now.
@@ -481,7 +497,7 @@ function WorkspaceSection({
                     <div className="meta-item">
                         <span className="label">workspace path</span>
                         <span className="meta-value mono">
-                            {workspace.path}
+                            {workspace.displayPath}
                         </span>
                     </div>
                     <div className="meta-item">
@@ -563,15 +579,19 @@ function WorkspaceSection({
         return (
             <section className="section">
                 <div className="section-header-text">
-                    <h1>Branches</h1>
+                    <h1>{localWorkingTree ? "Working Tree" : "Branches"}</h1>
                     <p className="hint">
-                        {capabilities.write.kind === "pullRequest"
-                            ? "Each branch is a branch created from "
-                            : "Each branch edits "}
+                        {localWorkingTree
+                            ? "Edits write to the local checkout on "
+                            : capabilities.write.kind === "pullRequest"
+                              ? "Each branch is a branch created from "
+                              : "Each branch edits "}
                         <span className="mono">{workspace.revision}</span>
-                        {capabilities.write.kind === "pullRequest"
-                            ? ". Edits commit to the branch; publishing opens a pull request."
-                            : ". Publishing applies the configured direct-push workflow."}
+                        {localWorkingTree
+                            ? ". Validate changes in the console, then commit and push with git."
+                            : capabilities.write.kind === "pullRequest"
+                              ? ". Edits commit to the branch; publishing opens a pull request."
+                              : ". Publishing applies the configured direct-push workflow."}
                     </p>
                 </div>
                 {capabilities.write.kind === "pullRequest" ? (
@@ -586,8 +606,9 @@ function WorkspaceSection({
                             <GitBranch aria-hidden size={18} />
                         </span>
                         <p>
-                            No branches yet. Use “Edit workspace” to start one,
-                            or open an existing branch above.
+                            {localWorkingTree
+                                ? "No working tree session yet. Use “Edit workspace” to start one."
+                                : "No branches yet. Use “Edit workspace” to start one, or open an existing branch above."}
                         </p>
                     </div>
                 ) : (
@@ -777,30 +798,27 @@ function WorkspaceSection({
 
 function EntityDefinition({
     allNodes,
-    contextResolutions,
     definition,
     diagnostics,
     error,
+    graphData,
     model,
     node,
     activeBranch,
     parentCatalog,
-    qualifierEvaluations,
     workspaceId,
 }: {
     allNodes: EntityNode[];
-    contextResolutions: SavedContextResolution[];
     definition: WorkspaceDefinition | null;
     diagnostics: LintDiagnostic[];
     error: string | null;
+    graphData: WorkspaceGraphData | null;
     model: WorkspaceSemanticModel | null;
     node: EntityNode;
     activeBranch: BranchRecord | null;
     parentCatalog: EntityNode | null;
-    qualifierEvaluations: QualifierContextEvaluation[];
     workspaceId: string;
 }) {
-    const relations = entityRelations({ allNodes, model, node, workspaceId });
     const editHref = activeBranch
         ? `/app/workspaces/${workspaceId}/branches/${activeBranch.id}/tree/${encodeEntityPath(node.path)}`
         : null;
@@ -821,9 +839,6 @@ function EntityDefinition({
                     ) : null}
                 </div>
                 <div className="action-row">
-                    {node.badge && !parentCatalog ? (
-                        <span className="tag">{node.badge}</span>
-                    ) : null}
                     {parentCatalog ? (
                         <Link
                             className="btn btn-secondary btn-sm"
@@ -868,26 +883,24 @@ function EntityDefinition({
             {definition ? (
                 <EntitySummary
                     allNodes={allNodes}
-                    contextResolutions={contextResolutions}
                     model={model}
                     node={node}
-                    qualifierEvaluations={qualifierEvaluations}
                     text={definition.text}
                     workspaceId={workspaceId}
                 />
             ) : null}
-            <div className="reference-grid">
-                <RelationList
-                    emptyLabel="References nothing else."
-                    label="references"
-                    relations={relations.outbound}
-                />
-                <RelationList
-                    emptyLabel="Nothing references this entity."
-                    label="referenced by"
-                    relations={relations.inbound}
-                />
-            </div>
+            {graphData ? (
+                <div className="card graph-card">
+                    <div className="card-head-text">
+                        <h3>Connected entities</h3>
+                    </div>
+                    <WorkspaceGraph
+                        currentEntityId={node.targetKey}
+                        data={graphData}
+                        showToolbar={false}
+                    />
+                </div>
+            ) : null}
             {error ? (
                 <div className="banner banner-err">
                     <TriangleAlert aria-hidden size={16} />
@@ -908,36 +921,17 @@ function EntityDefinition({
 /* CLI-inspect-style declaration summary: what the file declares, in order. */
 function EntitySummary({
     allNodes,
-    contextResolutions,
     model,
     node,
-    qualifierEvaluations,
     text,
     workspaceId,
 }: {
     allNodes: EntityNode[];
-    contextResolutions: SavedContextResolution[];
     model: WorkspaceSemanticModel | null;
     node: EntityNode;
-    qualifierEvaluations: QualifierContextEvaluation[];
     text: string;
     workspaceId: string;
 }) {
-    const qualifierHref = (id: string): string | null => {
-        const match = allNodes.find(
-            (candidate) =>
-                candidate.section === "qualifiers" && candidate.id === id,
-        );
-        return match ? entityHref(workspaceId, match.path) : null;
-    };
-    const qualifierLabel = (id: string | null): ReactNode => {
-        if (!id) {
-            return "?";
-        }
-        const href = qualifierHref(id);
-        return href ? <Link href={href}>{id}</Link> : id;
-    };
-
     if (node.kind === "variable") {
         const variable = model?.variables.find(
             (candidate) => candidate.id === node.id,
@@ -978,21 +972,12 @@ function EntitySummary({
                 label
             );
         };
-        const resolvedValueLabel = (resolution: SavedContextResolution) => {
-            if (
-                resolution.source?.kind === "catalog" &&
-                resolution.source.catalog === catalogId
-            ) {
-                return valueLabel(resolution.source.value);
-            }
-            return valueLabel(resolution.value);
-        };
         return (
             <div className="card">
                 <div className="card-head-text">
                     <h3>Values and resolution</h3>
                     <p className="hint">
-                        Rules are checked in order; the first matching qualifier
+                        Rules are checked in order; the first matching rule
                         wins, otherwise the default value applies.
                     </p>
                 </div>
@@ -1003,7 +988,9 @@ function EntitySummary({
                             <span className="g">rule[{rule.index}]</span>
                             <span>
                                 if{" "}
-                                {qualifierLabel(rule.qualifier?.value ?? null)}{" "}
+                                {rule.when?.value ??
+                                    rule.query?.value ??
+                                    "missing condition"}{" "}
                                 <span className="g">→</span>{" "}
                                 {valueLabel(rule.value?.value)}
                             </span>
@@ -1019,184 +1006,12 @@ function EntitySummary({
                         </span>
                     </div>
                 </div>
-                {contextResolutions.length > 0 ? (
-                    <>
-                        <span className="label">with saved contexts</span>
-                        <div className="spec">
-                            {contextResolutions.map((resolution) => (
-                                <div className="spec-row" key={resolution.path}>
-                                    <span className="g">
-                                        <Link
-                                            href={entityHref(
-                                                workspaceId,
-                                                resolution.path,
-                                            )}
-                                        >
-                                            {resolution.name}
-                                        </Link>
-                                    </span>
-                                    {resolution.ok ? (
-                                        <span>
-                                            {(resolution.steps ?? []).map(
-                                                (step, at, steps) => (
-                                                    <span key={step.index}>
-                                                        <span className="g">
-                                                            rule[{step.index}]
-                                                        </span>{" "}
-                                                        {qualifierLabel(
-                                                            step.qualifier,
-                                                        )}{" "}
-                                                        {step.matched ? (
-                                                            "✓"
-                                                        ) : (
-                                                            <span className="g">
-                                                                ✗
-                                                            </span>
-                                                        )}
-                                                        {at <
-                                                            steps.length - 1 ||
-                                                        resolution.usedDefault ? (
-                                                            <span className="g">
-                                                                {" "}
-                                                                ·{" "}
-                                                            </span>
-                                                        ) : (
-                                                            " "
-                                                        )}
-                                                    </span>
-                                                ),
-                                            )}
-                                            {resolution.usedDefault ? (
-                                                <span className="g">
-                                                    default{" "}
-                                                </span>
-                                            ) : null}
-                                            <span className="g">→</span>{" "}
-                                            {resolvedValueLabel(resolution)}
-                                        </span>
-                                    ) : (
-                                        <span className="g">
-                                            did not resolve: {resolution.error}
-                                        </span>
-                                    )}
-                                </div>
-                            ))}
-                        </div>
-                        {contextResolutions
-                            .filter(
-                                (resolution) =>
-                                    resolution.ok &&
-                                    (resolution.steps?.length ?? 0) > 0,
-                            )
-                            .map((resolution) => (
-                                <div key={`detail:${resolution.path}`}>
-                                    <span className="label">
-                                        qualifier resolution — {resolution.name}
-                                    </span>
-                                    <div className="spec">
-                                        {(resolution.steps ?? []).map(
-                                            (step) => (
-                                                <QualifierEvaluationRows
-                                                    depth={0}
-                                                    evaluation={step.evaluation}
-                                                    key={`${resolution.path}:${step.index}`}
-                                                    qualifierLabel={
-                                                        qualifierLabel
-                                                    }
-                                                />
-                                            ),
-                                        )}
-                                    </div>
-                                </div>
-                            ))}
-                    </>
-                ) : null}
             </div>
         );
     }
 
     if (node.kind === "qualifier") {
-        const qualifier = model?.qualifiers.find(
-            (candidate) => candidate.id === node.id,
-        );
-        const predicates = qualifier?.predicates ?? [];
-        if (predicates.length === 0) {
-            return null;
-        }
-        return (
-            <div className="card">
-                <div className="card-head-text">
-                    <h3>Predicates</h3>
-                    <p className="hint">
-                        All predicates must match for the qualifier to apply.
-                    </p>
-                </div>
-                {qualifierEvaluations.length > 0 ? (
-                    <>
-                        <span className="label">with saved contexts</span>
-                        <div className="spec">
-                            {qualifierEvaluations.map((entry) => (
-                                <div key={entry.path}>
-                                    <div className="spec-row">
-                                        <span className="g">
-                                            <Link
-                                                href={entityHref(
-                                                    workspaceId,
-                                                    entry.path,
-                                                )}
-                                            >
-                                                {entry.name}
-                                            </Link>
-                                        </span>
-                                        <span>
-                                            {entry.evaluation === null ||
-                                            entry.evaluation.matched ===
-                                                null ? (
-                                                <span className="g">
-                                                    not evaluable
-                                                    {entry.error
-                                                        ? `: ${entry.error}`
-                                                        : ""}
-                                                </span>
-                                            ) : entry.evaluation.matched ? (
-                                                "✓ matches"
-                                            ) : (
-                                                <span className="g">
-                                                    ✗ does not match
-                                                </span>
-                                            )}
-                                        </span>
-                                    </div>
-                                    {entry.evaluation ? (
-                                        <QualifierEvaluationRows
-                                            depth={0}
-                                            evaluation={entry.evaluation}
-                                            qualifierLabel={qualifierLabel}
-                                            showHeader={false}
-                                        />
-                                    ) : null}
-                                </div>
-                            ))}
-                        </div>
-                        <span className="label">declared predicates</span>
-                    </>
-                ) : null}
-                <div className="spec">
-                    {predicates.map((predicate) => (
-                        <div className="spec-row" key={predicate.index}>
-                            <span className="g">[{predicate.index}]</span>
-                            <span>
-                                {predicate.attribute?.value ?? "?"}{" "}
-                                <strong>{predicate.op?.value ?? "?"}</strong>{" "}
-                                {predicate.value !== undefined
-                                    ? JSON.stringify(predicate.value)
-                                    : ""}
-                            </span>
-                        </div>
-                    ))}
-                </div>
-            </div>
-        );
+        return null;
     }
 
     if (node.kind === "catalog") {
@@ -1215,76 +1030,27 @@ function EntitySummary({
                         Variables select these catalog values by name.
                     </p>
                 </div>
-                <div className="row-list">
-                    {entries.map((entry) => {
+                <CatalogValueList
+                    items={entries.map((entry) => {
                         const entryNode = allNodes.find(
                             (candidate) =>
                                 candidate.targetKey ===
                                 `catalog_entries:${node.id}:${entry.key}`,
                         );
-                        const fields =
-                            typeof entry.value === "object" &&
-                            entry.value !== null &&
-                            !Array.isArray(entry.value)
-                                ? Object.entries(
-                                      entry.value as Record<string, unknown>,
-                                  )
-                                : [];
-                        return (
-                            <Link
-                                className="row"
-                                href={
-                                    entryNode
-                                        ? entityHref(
-                                              workspaceId,
-                                              entryNode.path,
-                                          )
-                                        : "#"
-                                }
-                                key={entry.key}
-                            >
-                                <span className="row-icon">
-                                    <Database aria-hidden size={16} />
-                                </span>
-                                <span className="row-text">
-                                    <span className="row-title mono">
-                                        {entry.key}
-                                    </span>
-                                    <span className="row-sub mono">
-                                        {fields
-                                            .slice(0, 4)
-                                            .map(
-                                                ([key, value]) =>
-                                                    `${key} = ${JSON.stringify(value)}`,
-                                            )
-                                            .join("  ·  ")}
-                                        {fields.length > 4
-                                            ? `  ·  +${fields.length - 4} more`
-                                            : ""}
-                                    </span>
-                                </span>
-                                <span className="row-side">
-                                    <span className="tag">
-                                        {fields.length}{" "}
-                                        {fields.length === 1
-                                            ? "field"
-                                            : "fields"}
-                                    </span>
-                                    <ChevronRight
-                                        aria-hidden
-                                        className="muted"
-                                        size={15}
-                                    />
-                                </span>
-                            </Link>
-                        );
+                        return {
+                            key: entry.key,
+                            href: entryNode
+                                ? entityHref(workspaceId, entryNode.path)
+                                : "#",
+                            value: entry.value,
+                        };
                     })}
-                </div>
+                />
             </div>
         );
     }
 
-    if (node.kind === "schema" || node.kind === "context schema") {
+    if (node.kind === "schema") {
         const summary = schemaSummary(text);
         if (!summary || summary.properties.length === 0) {
             return null;
@@ -1294,9 +1060,7 @@ function EntitySummary({
                 <div className="card-head-text">
                     <h3>Contract</h3>
                     <p className="hint">
-                        {node.kind === "context schema"
-                            ? "Context the application must supply at resolution time."
-                            : "Values must validate against these properties."}
+                        Values must validate against these properties.
                         {summary.additionalProperties === false
                             ? " Additional properties are rejected."
                             : ""}
@@ -1377,77 +1141,20 @@ function SourceWell({
     );
 }
 
-/* One qualifier's evaluation against a context: the qualifier with its
-   verdict, then each predicate with the context value it read; nested
-   qualifier references recurse with indentation. */
-function QualifierEvaluationRows({
-    depth,
-    evaluation,
-    qualifierLabel,
-    showHeader = true,
-}: {
-    depth: number;
-    evaluation: QualifierEvaluation;
-    qualifierLabel: (id: string | null) => ReactNode;
-    showHeader?: boolean;
-}) {
-    return (
-        <>
-            {showHeader ? (
-                <div className="spec-row" style={{ paddingLeft: depth * 18 }}>
-                    <span>
-                        {qualifierLabel(evaluation.id)}{" "}
-                        {evaluation.matched === null ? (
-                            <span className="g">not evaluable</span>
-                        ) : evaluation.matched ? (
-                            "✓"
-                        ) : (
-                            <span className="g">✗</span>
-                        )}
-                    </span>
-                </div>
-            ) : null}
-            {evaluation.predicates.map((predicate) =>
-                predicate.nested ? (
-                    <QualifierEvaluationRows
-                        depth={depth + 1}
-                        evaluation={predicate.nested}
-                        key={`${evaluation.id}:${predicate.index}`}
-                        qualifierLabel={qualifierLabel}
-                    />
-                ) : (
-                    <div
-                        className="spec-row"
-                        key={`${evaluation.id}:${predicate.index}`}
-                        style={{ paddingLeft: (depth + 1) * 18 }}
-                    >
-                        <span className="g">[{predicate.index}]</span>
-                        <span>
-                            {predicate.attribute ?? "?"}{" "}
-                            <strong>{predicate.op ?? "?"}</strong>{" "}
-                            {predicate.valueLiteral ?? ""}
-                            <span className="g">
-                                {" "}
-                                · context: {predicate.contextValue ?? "missing"}
-                            </span>
-                        </span>
-                    </div>
-                ),
-            )}
-        </>
-    );
-}
-
 /* Builds the graph data contract from the semantic model. Rendering concepts
    live in components/workspace-graph. Callers supply entity paths per target
    key, the href builder, and optionally the set of paths edited in a branch. */
 export function workspaceGraphData(input: {
     model: WorkspaceSemanticModel;
     pathForKey: Map<string, string>;
+    sourceByPath?: Map<
+        string,
+        { language: WorkspaceDefinition["language"]; text: string }
+    >;
     hrefFor: (path: string) => string;
     editedPaths?: Set<string>;
 }): WorkspaceGraphData {
-    const { model, pathForKey, hrefFor, editedPaths } = input;
+    const { model, pathForKey, sourceByPath, hrefFor, editedPaths } = input;
     const graphNodes: WorkspaceGraphData["nodes"] = [];
     const seenNodes = new Set<string>();
     const pushNode = (
@@ -1460,11 +1167,15 @@ export function workspaceGraphData(input: {
             return;
         }
         seenNodes.add(key);
+        const source = sourceByPath?.get(path);
         graphNodes.push({
             id: key,
             kind,
             label,
+            path,
             href: hrefFor(path),
+            source: source?.text,
+            language: source?.language,
             edited: editedPaths?.has(path) || undefined,
         });
     };
@@ -1477,6 +1188,13 @@ export function workspaceGraphData(input: {
     for (const catalog of model.catalogs) {
         pushNode(`catalogs:${catalog.id}`, "catalog", catalog.id);
     }
+    for (const requestContext of model.requestContexts) {
+        pushNode(
+            `request_contexts:${requestContext.id}`,
+            "requestContext",
+            requestContext.id,
+        );
+    }
     for (const entry of model.catalogEntries) {
         pushNode(
             `catalog_entries:${entry.catalog}:${entry.key}`,
@@ -1487,7 +1205,7 @@ export function workspaceGraphData(input: {
     const edges: WorkspaceGraphData["edges"] = [];
     const seenEdges = new Set<string>();
     const relatedByNode = new Map<string, Set<string>>();
-    const ruleQualifierByKey = new Map<string, string>();
+    const ruleConditionQualifierByKey = new Map<string, string>();
     const ruleEntryByKey = new Map<
         string,
         { catalog: string; entry: string }
@@ -1512,10 +1230,27 @@ export function workspaceGraphData(input: {
         related.add(to);
         relatedByNode.set(from, related);
     };
+    for (const compatibility of model.qualifierRequestContexts) {
+        for (const requestContext of compatibility.requestContexts) {
+            pushEdge(
+                `request_contexts:${requestContext}`,
+                `qualifiers:${compatibility.qualifier}`,
+                "supports",
+            );
+        }
+    }
+    for (const compatibility of model.variableRequestContexts) {
+        for (const requestContext of compatibility.requestContexts) {
+            pushRelated(
+                `request_contexts:${requestContext}`,
+                `variables:${compatibility.variable}`,
+            );
+        }
+    }
     for (const reference of model.references) {
         const { from, to, via } = reference;
         if (
-            via.kind === "predicateQualifier" &&
+            via.kind === "qualifierWhen" &&
             from.kind === "qualifier" &&
             to.kind === "qualifier"
         ) {
@@ -1526,12 +1261,12 @@ export function workspaceGraphData(input: {
             );
         }
         if (
-            via.kind === "ruleQualifier" &&
+            via.kind === "ruleCondition" &&
             from.kind === "variable" &&
             to.kind === "qualifier"
         ) {
             pushEdge(`qualifiers:${to.id}`, `variables:${from.id}`, "checks");
-            ruleQualifierByKey.set(
+            ruleConditionQualifierByKey.set(
                 `${from.id}:${via.index}`,
                 `qualifiers:${to.id}`,
             );
@@ -1562,7 +1297,7 @@ export function workspaceGraphData(input: {
         }
     }
     for (const [ruleKey, entry] of ruleEntryByKey) {
-        const qualifierKey = ruleQualifierByKey.get(ruleKey);
+        const qualifierKey = ruleConditionQualifierByKey.get(ruleKey);
         if (!qualifierKey) {
             continue;
         }
@@ -1588,283 +1323,46 @@ export function workspaceGraphData(input: {
     return { nodes: graphNodes, edges };
 }
 
-/** Render-ready relationship row for the current entity detail panel. */
-type EntityRelation = { key: string; content: ReactNode };
+function focusedGraphData(
+    data: WorkspaceGraphData,
+    targetId: string,
+): WorkspaceGraphData | null {
+    const nodesById = new Map(data.nodes.map((node) => [node.id, node]));
+    if (!nodesById.has(targetId)) {
+        return null;
+    }
 
-function RelationList({
-    emptyLabel,
-    label,
-    relations,
-}: {
-    emptyLabel: string;
-    label: string;
-    relations: EntityRelation[];
-}) {
-    return (
-        <div className="card">
-            <span className="label">{label}</span>
-            {relations.length === 0 ? (
-                <p className="muted" style={{ fontSize: 13 }}>
-                    {emptyLabel}
-                </p>
-            ) : (
-                <div className="spec">
-                    {relations.map((relation) => (
-                        <div className="spec-row" key={relation.key}>
-                            <span>{relation.content}</span>
-                        </div>
-                    ))}
-                </div>
-            )}
-        </div>
+    const nodeIds = new Set<string>([targetId]);
+    for (const edge of data.edges) {
+        if (edge.from === targetId) {
+            nodeIds.add(edge.to);
+        }
+        if (edge.to === targetId) {
+            nodeIds.add(edge.from);
+        }
+    }
+    for (const node of data.nodes) {
+        for (const related of node.related ?? []) {
+            if (node.id === targetId) {
+                nodeIds.add(related);
+            }
+            if (related === targetId) {
+                nodeIds.add(node.id);
+            }
+        }
+    }
+
+    const nodes = data.nodes
+        .filter((node) => nodeIds.has(node.id))
+        .map((node) => ({
+            ...node,
+            related: node.related?.filter((related) => nodeIds.has(related)),
+        }));
+    const edges = data.edges.filter(
+        (edge) => nodeIds.has(edge.from) && nodeIds.has(edge.to),
     );
-}
 
-/* Relation sentences for the reference panels, derived from the semantic
-   model's edges so each reference names its site: "rule[1] checks ...",
-   "default selects ...". */
-function entityRelations(input: {
-    allNodes: EntityNode[];
-    model: WorkspaceSemanticModel | null;
-    node: EntityNode;
-    workspaceId: string;
-}): { outbound: EntityRelation[]; inbound: EntityRelation[] } {
-    const { allNodes, model, node, workspaceId } = input;
-    if (!model) {
-        return { outbound: [], inbound: [] };
-    }
-    const targetKeyForRef = (ref: ReferenceModel["from"]): string | null => {
-        switch (ref.kind) {
-            case "qualifier":
-                return `qualifiers:${ref.id}`;
-            case "variable":
-                return `variables:${ref.id}`;
-            case "catalog":
-                return `catalogs:${ref.id}`;
-            case "catalogEntry":
-                return `catalog_entries:${ref.catalog}:${ref.key}`;
-            case "schema":
-                return `schemas:${ref.path.split("/").pop() ?? ref.path}`;
-            case "value":
-                return `variables:${ref.variable}`;
-            default:
-                return null;
-        }
-    };
-    const entityLink = (ref: ReferenceModel["from"]): ReactNode => {
-        const key = targetKeyForRef(ref);
-        const match = key
-            ? allNodes.find((candidate) => candidate.targetKey === key)
-            : undefined;
-        const text =
-            ref.kind === "catalogEntry"
-                ? ref.key
-                : ref.kind === "schema"
-                  ? (ref.path.split("/").pop() ?? ref.path)
-                  : ref.kind === "value"
-                    ? ref.variable
-                    : ref.kind === "contextAttribute"
-                      ? ref.name
-                      : ref.id;
-        return match ? (
-            <Link href={entityHref(workspaceId, match.path)}>{text}</Link>
-        ) : (
-            text
-        );
-    };
-    const g = (text: string) => <span className="g">{text}</span>;
-    const matchesNode = (ref: ReferenceModel["from"]): boolean =>
-        targetKeyForRef(ref) === node.targetKey;
-
-    const outbound: EntityRelation[] = [];
-    const inbound: EntityRelation[] = [];
-    for (const [index, reference] of model.references.entries()) {
-        const { from, to, via } = reference;
-        if (to.kind === "contextAttribute") {
-            continue;
-        }
-        // Internal references (a variable's rules naming direct values) are
-        // declaration detail, not cross-entity references.
-        if (targetKeyForRef(from) === targetKeyForRef(to)) {
-            continue;
-        }
-        if (matchesNode(from)) {
-            const link = entityLink(to);
-            switch (via.kind) {
-                case "ruleQualifier":
-                    outbound.push({
-                        key: `out:${index}`,
-                        content: (
-                            <>
-                                {g(`rule[${via.index}]`)} checks {link}
-                            </>
-                        ),
-                    });
-                    break;
-                case "ruleValue":
-                    if (to.kind === "catalogEntry") {
-                        outbound.push({
-                            key: `out:${index}`,
-                            content: (
-                                <>
-                                    {g(`rule[${via.index}]`)} selects value{" "}
-                                    {link}
-                                </>
-                            ),
-                        });
-                    }
-                    break;
-                case "resolveDefault":
-                    if (to.kind === "catalogEntry") {
-                        outbound.push({
-                            key: `out:${index}`,
-                            content: (
-                                <>
-                                    {g("default")} selects value {link}
-                                </>
-                            ),
-                        });
-                    }
-                    break;
-                case "variableCatalog":
-                    outbound.push({
-                        key: `out:${index}`,
-                        content: <>values come from catalog {link}</>,
-                    });
-                    break;
-                case "catalogSchema":
-                    outbound.push({
-                        key: `out:${index}`,
-                        content: <>values validate against {link}</>,
-                    });
-                    break;
-                case "predicateQualifier":
-                    outbound.push({
-                        key: `out:${index}`,
-                        content: (
-                            <>
-                                {g(`predicate[${via.index}]`)} requires {link}
-                            </>
-                        ),
-                    });
-                    break;
-                default:
-                    break;
-            }
-        }
-        if (matchesNode(to)) {
-            const link = entityLink(from);
-            switch (via.kind) {
-                case "ruleQualifier":
-                    inbound.push({
-                        key: `in:${index}`,
-                        content: (
-                            <>
-                                {link} checks this {g(`in rule[${via.index}]`)}
-                            </>
-                        ),
-                    });
-                    break;
-                case "ruleValue":
-                    inbound.push({
-                        key: `in:${index}`,
-                        content: (
-                            <>
-                                {link} selects this {g(`in rule[${via.index}]`)}
-                            </>
-                        ),
-                    });
-                    break;
-                case "resolveDefault":
-                    inbound.push({
-                        key: `in:${index}`,
-                        content: (
-                            <>
-                                {link} selects this {g("as default")}
-                            </>
-                        ),
-                    });
-                    break;
-                case "variableCatalog":
-                    inbound.push({
-                        key: `in:${index}`,
-                        content: <>{link} takes its values from this catalog</>,
-                    });
-                    break;
-                case "catalogSchema":
-                    inbound.push({
-                        key: `in:${index}`,
-                        content: <>{link} validates its values against this</>,
-                    });
-                    break;
-                case "predicateQualifier":
-                    inbound.push({
-                        key: `in:${index}`,
-                        content: (
-                            <>
-                                {link} requires this{" "}
-                                {g(`in predicate[${via.index}]`)}
-                            </>
-                        ),
-                    });
-                    break;
-                default:
-                    break;
-            }
-        }
-    }
-
-    // Declaration-derived relations the edge list does not carry.
-    if (node.kind === "variable") {
-        const variable = model.variables.find(
-            (candidate) => candidate.id === node.id,
-        );
-        if (
-            variable?.declaration.kind === "schema" &&
-            variable.declaration.value
-        ) {
-            const schemaRef = {
-                kind: "schema",
-                path: variable.declaration.value,
-            } as const;
-            outbound.push({
-                key: "out:declaration-schema",
-                content: <>values validate against {entityLink(schemaRef)}</>,
-            });
-        }
-    }
-    if (node.kind === "schema") {
-        for (const variable of model.variables) {
-            if (
-                variable.declaration.kind === "schema" &&
-                (variable.declaration.value?.split("/").pop() ?? "") === node.id
-            ) {
-                inbound.push({
-                    key: `in:declaration:${variable.id}`,
-                    content: (
-                        <>
-                            {entityLink({ kind: "variable", id: variable.id })}{" "}
-                            validates its values against this
-                        </>
-                    ),
-                });
-            }
-        }
-    }
-    if (node.kind === "catalog value") {
-        const catalogId = node.badge ?? "";
-        outbound.push({
-            key: "out:membership",
-            content: (
-                <>
-                    entry of catalog{" "}
-                    {entityLink({ kind: "catalog", id: catalogId })}
-                </>
-            ),
-        });
-    }
-
-    return { outbound, inbound };
+    return { nodes, edges };
 }
 
 function OverviewAttention({
@@ -1889,6 +1387,9 @@ function OverviewAttention({
         lintError === null &&
         ranked.length === 0 &&
         activeBranches.length === 0;
+    if (allClear) {
+        return null;
+    }
 
     return (
         <div className="card">
@@ -1906,102 +1407,84 @@ function OverviewAttention({
                     <span>Lint failed to run: {lintError}</span>
                 </div>
             ) : null}
-            {allClear ? (
-                <div className="publish-check" data-ok="true">
-                    <CheckCircle2 aria-hidden size={16} />
-                    <span>
-                        Nothing needs you right now — lint is clean and there
-                        are no active branches.
+            {shown.map((diagnostic, index) => {
+                const match = nodes.find((node) =>
+                    diagnosticMatchesNode(diagnostic, node, nodes),
+                );
+                const entity = attentionEntity(match, diagnostic);
+                const content = (
+                    <>
+                        <span className="attn-entity">
+                            <span className="attn-entity-kind">
+                                {entity.kind}
+                            </span>
+                            <span className="attn-entity-id mono">
+                                {entity.id}
+                            </span>
+                        </span>
+                        <span className="attn-diagnostic">
+                            <span className="attn-severity">
+                                {diagnostic.severity ?? "warning"}
+                            </span>
+                            <span className="attn-message">
+                                {diagnostic.message ?? "Diagnostic"}
+                            </span>
+                        </span>
+                    </>
+                );
+                return match ? (
+                    <Link
+                        aria-label={`Open ${match.kind} ${match.id}: ${diagnostic.message ?? "Diagnostic"}`}
+                        className={`attn-row attn-link ${diagnostic.severity ?? ""}`}
+                        href={entityHref(workspaceId, match.path)}
+                        key={index}
+                    >
+                        {content}
+                        <ChevronRight
+                            aria-hidden
+                            className="attn-arrow"
+                            size={15}
+                        />
+                    </Link>
+                ) : (
+                    <div
+                        className={`attn-row ${diagnostic.severity ?? ""}`}
+                        key={index}
+                    >
+                        {content}
+                    </div>
+                );
+            })}
+            {ranked.length > shown.length ? (
+                <Link
+                    className="entity-card-more"
+                    href={sectionHref(workspaceId, "diagnostics")}
+                >
+                    … all {ranked.length} diagnostics
+                </Link>
+            ) : null}
+            {activeBranches.map((branch) => (
+                <Link
+                    className="row"
+                    href={`/app/workspaces/${workspaceId}/branches/${branch.id}`}
+                    key={branch.id}
+                >
+                    <span className="row-icon">
+                        <GitBranch aria-hidden size={16} />
                     </span>
-                </div>
-            ) : (
-                <>
-                    {shown.map((diagnostic, index) => {
-                        const match = nodes.find((node) =>
-                            diagnosticMatchesNode(diagnostic, node, nodes),
-                        );
-                        const entity = attentionEntity(match, diagnostic);
-                        const content = (
-                            <>
-                                <span className="attn-entity">
-                                    <span className="attn-entity-kind">
-                                        {entity.kind}
-                                    </span>
-                                    <span className="attn-entity-id mono">
-                                        {entity.id}
-                                    </span>
-                                </span>
-                                <span className="attn-diagnostic">
-                                    <span className="attn-severity">
-                                        {diagnostic.severity ?? "warning"}
-                                    </span>
-                                    <span className="attn-message">
-                                        {diagnostic.message ?? "Diagnostic"}
-                                    </span>
-                                </span>
-                            </>
-                        );
-                        return match ? (
-                            <Link
-                                aria-label={`Open ${match.kind} ${match.id}: ${diagnostic.message ?? "Diagnostic"}`}
-                                className={`attn-row attn-link ${diagnostic.severity ?? ""}`}
-                                href={entityHref(workspaceId, match.path)}
-                                key={index}
-                            >
-                                {content}
-                                <ChevronRight
-                                    aria-hidden
-                                    className="attn-arrow"
-                                    size={15}
-                                />
-                            </Link>
-                        ) : (
-                            <div
-                                className={`attn-row ${diagnostic.severity ?? ""}`}
-                                key={index}
-                            >
-                                {content}
-                            </div>
-                        );
-                    })}
-                    {ranked.length > shown.length ? (
-                        <Link
-                            className="entity-card-more"
-                            href={sectionHref(workspaceId, "diagnostics")}
-                        >
-                            … all {ranked.length} diagnostics
-                        </Link>
-                    ) : null}
-                    {activeBranches.map((branch) => (
-                        <Link
-                            className="row"
-                            href={`/app/workspaces/${workspaceId}/branches/${branch.id}`}
-                            key={branch.id}
-                        >
-                            <span className="row-icon">
-                                <GitBranch aria-hidden size={16} />
-                            </span>
-                            <span className="row-text">
-                                <span className="row-title mono">
-                                    {branch.branch}
-                                </span>
-                                <span className="row-sub">
-                                    active branch · updated{" "}
-                                    {formatDate(branchUpdatedAt(branch))}
-                                </span>
-                            </span>
-                            <span className="row-side">
-                                <BranchStatusPill branch={branch} />
-                                <ChevronRight
-                                    aria-hidden
-                                    className="muted"
-                                    size={15}
-                                />
-                            </span>
-                        </Link>
-                    ))}
-                </>
-            )}
+                    <span className="row-text">
+                        <span className="row-title mono">{branch.branch}</span>
+                        <span className="row-sub">
+                            active branch · updated{" "}
+                            {formatDate(branchUpdatedAt(branch))}
+                        </span>
+                    </span>
+                    <span className="row-side">
+                        <BranchStatusPill branch={branch} />
+                        <ChevronRight aria-hidden className="muted" size={15} />
+                    </span>
+                </Link>
+            ))}
         </div>
     );
 }
@@ -2010,7 +1493,6 @@ const OVERVIEW_CARD_SECTIONS: SectionId[] = [
     "variables",
     "qualifiers",
     "catalogs",
-    "schemas",
     "linters",
     "context",
 ];
@@ -2023,8 +1505,6 @@ function sectionIcon(section: SectionId, size: number): ReactNode {
             return <Tags aria-hidden size={size} />;
         case "catalogs":
             return <Database aria-hidden size={size} />;
-        case "schemas":
-            return <FileJson2 aria-hidden size={size} />;
         case "linters":
             return <Wrench aria-hidden size={size} />;
         case "context":
@@ -2036,28 +1516,29 @@ function sectionIcon(section: SectionId, size: number): ReactNode {
 
 function entityNodes(inventory: WorkspaceInventory): EntityNode[] {
     const contextNodes: EntityNode[] = [];
-    if (inventory.context.schemaPath) {
+    for (const item of inventory.context.requestContexts) {
         contextNodes.push({
             section: "context",
             kind: "context schema",
-            id: "context.schema.json",
-            path: inventory.context.schemaPath,
-            description: "Workspace context schema",
+            id: item.id,
+            path: item.path,
+            description:
+                item.description ?? item.title ?? "Request context schema",
             badge: "schema",
-            targetKey: "context:context.schema.json",
+            targetKey: `request_contexts:${item.id}`,
             outboundKeys: [],
         });
     }
-    for (const path of inventory.context.examples) {
+    for (const item of inventory.context.entries) {
         contextNodes.push({
             section: "context",
             kind: "context example",
-            id: path.split("/").pop() ?? path,
-            path,
-            description: "Example resolution context",
-            badge: "example",
-            targetKey: `context:${path}`,
-            outboundKeys: [],
+            id: item.id,
+            path: item.path,
+            description: `Sample ${item.key} for request context ${item.requestContextId}`,
+            badge: item.requestContextId,
+            targetKey: `request_context_entries:${item.requestContextId}:${item.key}`,
+            outboundKeys: [`request_contexts:${item.requestContextId}`],
         });
     }
 
@@ -2088,7 +1569,6 @@ function entityNodes(inventory: WorkspaceInventory): EntityNode[] {
                               `catalog_entries:${item.catalogReference}:${key}`,
                       )
                     : []),
-                item.schemaReference ? `schemas:${item.schemaReference}` : null,
             ].filter((key): key is string => key !== null),
         })),
         ...inventory.qualifiers.map((item) => ({
@@ -2097,7 +1577,7 @@ function entityNodes(inventory: WorkspaceInventory): EntityNode[] {
             id: item.id,
             path: item.path,
             description: item.description,
-            badge: `${item.predicateCount} predicates`,
+            badge: null,
             targetKey: `qualifiers:${item.id}`,
             outboundKeys: item.qualifierReferences.map(
                 (id) => `qualifiers:${id}`,
@@ -2111,9 +1591,7 @@ function entityNodes(inventory: WorkspaceInventory): EntityNode[] {
             description: item.description,
             badge: `${item.entryCount} values`,
             targetKey: `catalogs:${item.id}`,
-            outboundKeys: item.schemaReference
-                ? [`schemas:${item.schemaReference}`]
-                : [],
+            outboundKeys: [],
         })),
         ...inventory.catalogEntries.map((item) => ({
             section: "catalogs" as const,
@@ -2124,16 +1602,6 @@ function entityNodes(inventory: WorkspaceInventory): EntityNode[] {
             badge: item.catalogId,
             targetKey: `catalog_entries:${item.catalogId}:${item.key}`,
             outboundKeys: [`catalogs:${item.catalogId}`],
-        })),
-        ...inventory.schemas.map((item) => ({
-            section: "schemas" as const,
-            kind: "schema",
-            id: item.id,
-            path: item.path,
-            description: item.title,
-            badge: "json",
-            targetKey: `schemas:${item.id}`,
-            outboundKeys: [],
         })),
         ...inventory.linters
             .filter((item) => item.path !== null)
@@ -2205,6 +1673,17 @@ function semanticTargetKey(entity: Record<string, unknown>): string | null {
         return typeof entity.key === "string"
             ? `catalog_entries:${entity.catalog}:${entity.key}`
             : `catalog_entries:${entity.catalog}:*`;
+    }
+    if (entity.kind === "request_context" && typeof entity.id === "string") {
+        return `request_contexts:${entity.id}`;
+    }
+    if (
+        entity.kind === "request_context_entry" &&
+        typeof entity.request_context === "string"
+    ) {
+        return typeof entity.key === "string"
+            ? `request_context_entries:${entity.request_context}:${entity.key}`
+            : `request_context_entries:${entity.request_context}:*`;
     }
     return null;
 }

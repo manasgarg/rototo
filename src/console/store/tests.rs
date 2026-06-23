@@ -17,6 +17,14 @@ fn discovered(path: &str) -> DiscoveredWorkspaceInput {
     }
 }
 
+fn local_discovered(path: &str, source: &str) -> DiscoveredWorkspaceInput {
+    DiscoveredWorkspaceInput {
+        path: path.to_owned(),
+        revision: "main".to_owned(),
+        source: source.to_owned(),
+    }
+}
+
 fn github_source_tree(workspaces: Vec<DiscoveredWorkspaceInput>) -> RegisterSourceTreeInput {
     RegisterSourceTreeInput {
         principal_id: "42".to_owned(),
@@ -199,7 +207,7 @@ async fn source_tree_upsert_lists_workspaces_with_slugs() {
 }
 
 #[tokio::test]
-async fn read_only_source_tree_kind_disables_branch_capabilities() {
+async fn local_source_tree_kind_supports_local_edit_capabilities() {
     let store = test_store().await;
     let registered = store
         .upsert_source_tree_with_workspaces(local_source_tree(vec![discovered(".")]))
@@ -208,9 +216,26 @@ async fn read_only_source_tree_kind_disables_branch_capabilities() {
 
     assert_eq!(registered.source_tree.kind, SourceTreeKind::LocalFolder);
     assert!(registered.source_tree.capabilities.can_load_workspaces);
-    assert!(!registered.source_tree.capabilities.can_branch);
-    assert!(!registered.source_tree.capabilities.can_edit);
+    assert!(registered.source_tree.capabilities.can_branch);
+    assert!(registered.source_tree.capabilities.can_edit);
     assert!(!registered.source_tree.capabilities.can_open_pull_request);
+    assert_eq!(registered.workspaces[0].path, ".");
+    assert_eq!(registered.workspaces[0].display_path, ".");
+}
+
+#[tokio::test]
+async fn root_local_workspace_gets_source_leaf_display_path() {
+    let store = test_store().await;
+    let registered = store
+        .upsert_source_tree_with_workspaces(local_source_tree(vec![local_discovered(
+            ".",
+            "/tmp/examples/basic",
+        )]))
+        .await
+        .unwrap();
+
+    assert_eq!(registered.workspaces[0].path, ".");
+    assert_eq!(registered.workspaces[0].display_path, "basic");
 }
 
 #[tokio::test]

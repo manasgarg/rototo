@@ -1,35 +1,30 @@
 mod catalog;
 mod graph;
 mod qualifier;
+mod request_context;
 mod schema;
 mod variable;
 mod workspace;
 
 use super::engine::LintContext;
-use super::index::{PredicateOp, ProjectField};
+use super::index::ProjectField;
 
 pub(super) fn run_project(ctx: &mut LintContext) {
     workspace::lint_manifest_shape(ctx);
-    schema::lint_context_schema_reference(ctx);
-    schema::lint_context_schema_reserved_fields(ctx);
-    schema::lint_schema_documents(ctx);
-    schema::lint_schema_ui_hints(ctx);
+    request_context::lint_request_context_schemas(ctx);
+    request_context::lint_request_context_reserved_fields(ctx);
     qualifier::lint_qualifier_shapes(ctx);
     catalog::lint_catalog_shapes(ctx);
     variable::lint_variable_shapes(ctx);
 }
 
 pub(super) fn run_reference(ctx: &mut LintContext) {
-    schema::lint_qualifier_context_schema_attributes(ctx);
-    schema::lint_qualifier_context_schema_types(ctx);
-    schema::lint_unreferenced_schemas(ctx);
     qualifier::lint_qualifier_references(ctx);
-    catalog::lint_catalog_references(ctx);
     variable::lint_variable_references(ctx);
-    schema::lint_missing_context_schema_for_qualifier_attributes(ctx);
 }
 
 pub(super) fn run_value(ctx: &mut LintContext) {
+    request_context::lint_request_context_entries(ctx);
     catalog::lint_catalog_entries(ctx);
     variable::lint_variable_values(ctx);
 }
@@ -40,7 +35,7 @@ pub(super) fn run_graph(ctx: &mut LintContext) {
     graph::lint_unreachable_qualifiers(ctx);
     graph::lint_shadowed_variable_rules(ctx);
     graph::lint_rules_selecting_default_value(ctx);
-    qualifier::lint_duplicate_predicates(ctx);
+    request_context::lint_request_context_compatibility(ctx);
 }
 
 fn field_is_not_present<T>(field: &ProjectField<T>) -> bool {
@@ -49,19 +44,4 @@ fn field_is_not_present<T>(field: &ProjectField<T>) -> bool {
 
 fn field_is_integer(field: &ProjectField<i64>, expected: i64) -> bool {
     matches!(field, ProjectField::Present(value) if value.value == expected)
-}
-
-fn predicate_op_label(op: &PredicateOp) -> &'static str {
-    match op {
-        PredicateOp::Eq => "eq",
-        PredicateOp::Neq => "neq",
-        PredicateOp::In => "in",
-        PredicateOp::NotIn => "not_in",
-        PredicateOp::Gt => "gt",
-        PredicateOp::Gte => "gte",
-        PredicateOp::Lt => "lt",
-        PredicateOp::Lte => "lte",
-        PredicateOp::Bucket => "bucket",
-        PredicateOp::Unknown(_) => "unknown",
-    }
 }

@@ -4,34 +4,46 @@ Catalogs are for structured configuration that deserves its own schema. Use
 them when the application should receive one reviewed value, not a loose group
 of primitive variables.
 
-Catalog files live under `catalogs/*.toml`. The file stem is the catalog id.
-Values for that catalog live under `catalogs/<catalog-id>-entries/*.toml`.
-[Variables](reference-variables.html) then select value names from that
-catalog.
+Catalog schema files live under `catalogs/<catalog-id>.schema.json`. The name
+before `.schema.json` is the catalog id. Values for that catalog live under
+`catalogs/<catalog-id>-entries/*.toml`. [Variables](reference-variables.html)
+then select value names from that catalog.
 
 ## Catalog File
 
-A catalog file declares the schema for a family of values. It does not hold
-the values themselves.
+A catalog file is the JSON Schema for a family of values. It does not hold the
+values themselves.
 
-```toml
-schema_version = 1
-
-description = "Account limit profiles"
-schema = "../schemas/account-limit-profile.schema.json"
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "description": "Account limit profiles",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "enabled_features": {
+      "type": "array",
+      "items": { "type": "string" }
+    },
+    "limits": {
+      "type": "object",
+      "properties": {
+        "projects": { "type": "integer" },
+        "members": { "type": "integer" }
+      },
+      "required": ["projects", "members"],
+      "additionalProperties": false
+    }
+  },
+  "required": ["enabled_features", "limits"]
+}
 ```
 
 ## Fields
 
-| Field | Required | Type | Meaning |
-| --- | --- | --- | --- |
-| `schema_version` | Yes | integer | Catalog format version. The only supported value is `1`. |
-| `description` | No | string | Human description shown by inspect and editor tooling. |
-| `schema` | Yes | string | Workspace-relative path to a JSON Schema file. |
-
-The `schema` path is resolved relative to the catalog file. It must stay
-inside the workspace and must point to a discovered schema document under
-`schemas/`.
+Catalog files are JSON Schema documents. The schema's `description` is shown
+by inspect and editor tooling when present. Rototo parses and compiles the file
+as JSON Schema before validating entries.
 
 ## Value Files
 
@@ -39,7 +51,7 @@ Values live beside the catalog in a directory named for that catalog:
 
 ```text
 catalogs/
-  account-limit-profile.toml
+  account-limit-profile.schema.json
   account-limit-profile-entries/
     growth.toml
     enterprise.toml
@@ -77,7 +89,7 @@ type = "catalog:account-limit-profile"
 default = "growth"
 
 [[resolve.rule]]
-qualifier = "enterprise-account"
+when = 'qualifier["enterprise-account"]'
 value = "enterprise"
 ```
 
@@ -88,7 +100,7 @@ come from value files.
 
 Sometimes one structured value needs to point at another reviewed value. JSON
 Schemas may mark string fields as references to other catalog values with
-`x-rototo-catalog`:
+`x-rototo-catalog-ref`:
 
 ```json
 {
@@ -96,7 +108,7 @@ Schemas may mark string fields as references to other catalog values with
   "properties": {
     "banner_id": {
       "type": "string",
-      "x-rototo-catalog": "support-banner"
+      "x-rototo-catalog-ref": "support-banner"
     }
   }
 }
@@ -107,8 +119,60 @@ When a value contains `banner_id = "incident"`, rototo checks that:
 - `catalog://support-banner` exists;
 - `catalogs/support-banner-entries/incident.toml` exists.
 
-Rototo follows `x-rototo-catalog` through `properties`, `items`, `allOf`,
-`anyOf`, and `oneOf`.
+The string may point at a path inside the target entry by appending a JSON
+Pointer fragment:
+
+```json
+{
+  "banner_id": "incident#/variants/eu/title"
+}
+```
+
+That reference points at entry `incident` in `catalog://support-banner`, then at
+`/variants/eu/title` inside the loaded entry value.
+
+When a field may point at one of several catalogs, list the allowed catalogs:
+
+```json
+{
+  "type": "string",
+  "x-rototo-catalog-ref": ["email-template", "sms-template"]
+}
+```
+
+Rototo searches those catalogs for the referenced entry. Zero matches are an
+unknown reference. More than one match is ambiguous, so the value should use the
+explicit object form:
+
+```json
+{
+  "type": "object",
+  "required": ["catalog", "entry"],
+  "properties": {
+    "catalog": { "enum": ["email-template", "sms-template"] },
+    "entry": { "type": "string" },
+    "pointer": { "type": "string", "format": "json-pointer" }
+  },
+  "additionalProperties": false,
+  "x-rototo-catalog-ref": true
+}
+```
+
+The corresponding value is:
+
+```json
+{
+  "catalog": "sms-template",
+  "entry": "payment_failed",
+  "pointer": "/body"
+}
+```
+
+Rototo follows catalog reference annotations through `properties`, `items`,
+`prefixItems`, `allOf`, `anyOf`, `oneOf`, `$defs`, and local or workspace-local
+`$ref` references. Workspace-local schemas are addressed as
+`rototo://catalogs/<catalog-id>.schema.json`; rototo does not fetch schemas from
+the network during lint.
 
 ## Editor Hints In Schemas
 
@@ -181,10 +245,10 @@ Common catalog diagnostics include:
 
 | Rule | Meaning |
 | --- | --- |
-| `rototo/catalog-schema-version` | Catalog file does not declare `schema_version = 1`. |
-| `rototo/catalog-schema-ref` | `schema` is missing, invalid, or points outside the workspace contract. |
+| `rototo/catalog-parse-failed` | Catalog schema JSON could not be parsed. |
+| `rototo/catalog-schema-invalid` | Catalog schema JSON could not compile as JSON Schema. |
 | `rototo/catalog-entry-schema-mismatch` | Entry does not match its catalog schema. |
-| `rototo/catalog-entry-unknown-reference` | Entry references a missing catalog or entry through `x-rototo-catalog`. |
+| `rototo/catalog-entry-unknown-reference` | Entry references a missing catalog, missing entry, invalid pointer, missing pointer path, or ambiguous entry through `x-rototo-catalog-ref`. |
 
 ## What Catalogs Do Not Do
 

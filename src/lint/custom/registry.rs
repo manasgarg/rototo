@@ -1,19 +1,15 @@
 use std::collections::BTreeMap;
 
 use crate::diagnostics::{
-    CustomRuleDefinition, CustomRuleId, DiagnosticRule, LintStage, RototoRuleId, SemanticEntity,
-    Severity,
+    CustomRuleDefinition, CustomRuleId, LintStage, RototoRuleId, SemanticEntity, Severity,
 };
 use crate::lua_lint;
 
 use super::super::engine::LintContext;
-use super::super::index::{CustomLintRegistration, CustomRuleDefinitionNode, GateEntity};
+use super::super::index::{CustomLintRegistration, CustomRuleDefinitionNode};
 use super::super::stages::push_register_diagnostic;
 use super::runner;
-use super::{
-    QualifierLintField, RegisteredLintEntity, RegisteredLintField, RegisteredLintSelector,
-    SchemaLintField, ValueLintField, VariableLintField, WorkspaceLintField,
-};
+use super::{RegisteredLintAddress, RegisteredLintSelector};
 
 pub(crate) async fn register_custom_lints(ctx: &mut LintContext) {
     let files = ctx
@@ -29,11 +25,6 @@ pub(crate) async fn register_custom_lints(ctx: &mut LintContext) {
             continue;
         };
         if let Some(read_error) = &document.read_error {
-            ctx.index.gates.block(
-                GateEntity::CustomLintFile(file.path.clone()),
-                LintStage::Register,
-                Some(DiagnosticRule::Rototo(RototoRuleId::CustomLintFailed)),
-            );
             push_register_diagnostic(
                 &mut ctx.diagnostics,
                 RototoRuleId::CustomLintFailed,
@@ -47,18 +38,13 @@ pub(crate) async fn register_custom_lints(ctx: &mut LintContext) {
         }
 
         let registrations = match runner::register_pipeline_lint(
-            ctx.source.root.join(&file.path),
+            std::path::PathBuf::from(&file.path),
             document.text.clone(),
         )
         .await
         {
             Ok(registrations) => registrations,
             Err(err) => {
-                ctx.index.gates.block(
-                    GateEntity::CustomLintFile(file.path.clone()),
-                    LintStage::Register,
-                    Some(DiagnosticRule::Rototo(RototoRuleId::CustomLintFailed)),
-                );
                 push_register_diagnostic(
                     &mut ctx.diagnostics,
                     RototoRuleId::CustomLintFailed,
@@ -103,13 +89,10 @@ pub(crate) async fn register_custom_lints(ctx: &mut LintContext) {
                         }
                         Some(_) => {}
                         None => {
-                            ctx.index.custom_lints.rules.insert(
-                                rule.clone(),
-                                CustomRuleDefinitionNode {
-                                    definition,
-                                    location: file.location.clone(),
-                                },
-                            );
+                            ctx.index
+                                .custom_lints
+                                .rules
+                                .insert(rule.clone(), CustomRuleDefinitionNode { definition });
                         }
                     }
                     ctx.index
@@ -197,70 +180,44 @@ fn lint_stage_key(stage: LintStage) -> &'static str {
 }
 
 fn selector_key(selector: &RegisteredLintSelector) -> String {
-    format!(
-        "{}:{}",
-        registered_entity_key(selector.entity),
-        selector
-            .field
-            .as_ref()
-            .map(registered_field_key)
-            .unwrap_or_else(|| "*".to_owned())
-    )
+    address_key(&selector.address)
 }
 
-fn registered_entity_key(entity: RegisteredLintEntity) -> &'static str {
-    match entity {
-        RegisteredLintEntity::Workspace => "workspace",
-        RegisteredLintEntity::Qualifier => "qualifier",
-        RegisteredLintEntity::Variable => "variable",
-        RegisteredLintEntity::Value => "value",
-        RegisteredLintEntity::Schema => "schema",
+fn address_key(address: &RegisteredLintAddress) -> String {
+    match address {
+        RegisteredLintAddress::Workspace => "/".to_owned(),
+        RegisteredLintAddress::Qualifiers => "/qualifiers".to_owned(),
+        RegisteredLintAddress::Qualifier { id } => format!("/qualifiers/{id}"),
+        RegisteredLintAddress::Variables => "/variables".to_owned(),
+        RegisteredLintAddress::Variable { id } => format!("/variables/{id}"),
+        RegisteredLintAddress::VariableValues { variable } => {
+            format!("/variables/{variable}/values")
+        }
+        RegisteredLintAddress::VariableValue { variable, key } => {
+            format!("/variables/{variable}/values/{key}")
+        }
+        RegisteredLintAddress::VariableRules { variable } => {
+            format!("/variables/{variable}/rules")
+        }
+        RegisteredLintAddress::VariableRule { variable, index } => {
+            format!("/variables/{variable}/rules/{index}")
+        }
+        RegisteredLintAddress::Catalogs => "/catalogs".to_owned(),
+        RegisteredLintAddress::Catalog { id } => format!("/catalogs/{id}"),
+        RegisteredLintAddress::CatalogEntries { catalog } => format!("/catalogs/{catalog}/entries"),
+        RegisteredLintAddress::CatalogEntry { catalog, key } => {
+            format!("/catalogs/{catalog}/entries/{key}")
+        }
+        RegisteredLintAddress::RequestContexts => "/request-contexts".to_owned(),
+        RegisteredLintAddress::RequestContext { id } => format!("/request-contexts/{id}"),
+        RegisteredLintAddress::RequestContextEntries { request_context } => {
+            format!("/request-contexts/{request_context}/entries")
+        }
+        RegisteredLintAddress::RequestContextEntry {
+            request_context,
+            key,
+        } => format!("/request-contexts/{request_context}/entries/{key}"),
     }
-}
-
-fn registered_field_key(field: &RegisteredLintField) -> String {
-    match field {
-        RegisteredLintField::Workspace(field) => match field {
-            WorkspaceLintField::Extends => "workspace.extends".to_owned(),
-        },
-        RegisteredLintField::Qualifier(field) => match field {
-            QualifierLintField::Id => "qualifier.id".to_owned(),
-            QualifierLintField::Description => "qualifier.description".to_owned(),
-            QualifierLintField::Predicates => "qualifier.predicates".to_owned(),
-        },
-        RegisteredLintField::Variable(field) => match field {
-            VariableLintField::Id => "variable.id".to_owned(),
-            VariableLintField::Description => "variable.description".to_owned(),
-            VariableLintField::Type => "variable.type".to_owned(),
-            VariableLintField::Schema => "variable.schema".to_owned(),
-            VariableLintField::Values => "variable.values".to_owned(),
-            VariableLintField::Resolve => "variable.resolve".to_owned(),
-        },
-        RegisteredLintField::Value(field) => match field {
-            ValueLintField::Key => "value.key".to_owned(),
-            ValueLintField::Value => "value.value".to_owned(),
-            ValueLintField::JsonPath(path) => format!("value.json_path.{}", path.join(".")),
-        },
-        RegisteredLintField::Schema(field) => match field {
-            SchemaLintField::Json => "schema.json".to_owned(),
-            SchemaLintField::JsonPath(path) => format!("schema.json_path.{}", path.join(".")),
-        },
-    }
-}
-
-pub(super) fn parse_registered_lint_output_field(
-    entity: RegisteredLintEntity,
-    field: &str,
-) -> Option<RegisteredLintField> {
-    match entity {
-        RegisteredLintEntity::Workspace => parse_workspace_lint_field(Some(field)),
-        RegisteredLintEntity::Qualifier => parse_qualifier_lint_field(Some(field)),
-        RegisteredLintEntity::Variable => parse_variable_lint_field(Some(field)),
-        RegisteredLintEntity::Value => parse_value_lint_field(Some(field)),
-        RegisteredLintEntity::Schema => parse_schema_lint_field(Some(field)),
-    }
-    .ok()
-    .flatten()
 }
 
 fn validate_custom_registration(
@@ -269,9 +226,8 @@ fn validate_custom_registration(
     (LintStage, RegisteredLintSelector, CustomRuleDefinition),
     (RototoRuleId, String),
 > {
-    let stage = parse_registered_lint_stage(&registration.stage)?;
-    let selector =
-        parse_registered_lint_selector(&registration.entity, registration.field.as_deref())?;
+    let stage = LintStage::Policy;
+    let selector = parse_registered_lint_selector(&registration.target)?;
     if !registration.handler_exists {
         return Err((
             RototoRuleId::CustomLintRegistrationInvalid,
@@ -282,16 +238,16 @@ fn validate_custom_registration(
         ));
     }
 
-    let rule = CustomRuleId::parse(&registration.rule.id).map_err(|err| {
+    let rule = CustomRuleId::parse(&registration.id).map_err(|err| {
         (
             RototoRuleId::CustomLintRegistrationInvalid,
             format!(
                 "custom lint registration rule id is invalid: {}: {err}",
-                registration.rule.id
+                registration.id
             ),
         )
     })?;
-    let severity = match registration.rule.severity.as_deref() {
+    let severity = match registration.severity.as_deref() {
         None | Some("error") => Severity::Error,
         Some("warning") => Severity::Warning,
         Some(severity) => {
@@ -304,169 +260,122 @@ fn validate_custom_registration(
     let definition = CustomRuleDefinition::with_severity(
         rule,
         severity,
-        registration.rule.title.clone(),
-        registration.rule.help.clone(),
+        registration.title.clone(),
+        registration.help.clone(),
     );
 
     Ok((stage, selector, definition))
 }
 
-fn parse_registered_lint_stage(
-    stage: &str,
-) -> std::result::Result<LintStage, (RototoRuleId, String)> {
-    match stage {
-        "project" => Ok(LintStage::Project),
-        "reference" => Ok(LintStage::Reference),
-        "value" => Ok(LintStage::Value),
-        "graph" => Ok(LintStage::Graph),
-        "policy" => Ok(LintStage::Policy),
-        _ => Err((
-            RototoRuleId::CustomLintRegistrationInvalid,
-            format!("custom lint registration has unsupported stage: {stage}"),
-        )),
-    }
-}
-
 fn parse_registered_lint_selector(
-    entity: &str,
-    field: Option<&str>,
+    target: &str,
 ) -> std::result::Result<RegisteredLintSelector, (RototoRuleId, String)> {
-    match entity {
-        "workspace" => Ok(RegisteredLintSelector {
-            entity: RegisteredLintEntity::Workspace,
-            field: parse_workspace_lint_field(field)?,
-        }),
-        "qualifier" => Ok(RegisteredLintSelector {
-            entity: RegisteredLintEntity::Qualifier,
-            field: parse_qualifier_lint_field(field)?,
-        }),
-        "variable" => Ok(RegisteredLintSelector {
-            entity: RegisteredLintEntity::Variable,
-            field: parse_variable_lint_field(field)?,
-        }),
-        "value" => Ok(RegisteredLintSelector {
-            entity: RegisteredLintEntity::Value,
-            field: parse_value_lint_field(field)?,
-        }),
-        "schema" => Ok(RegisteredLintSelector {
-            entity: RegisteredLintEntity::Schema,
-            field: parse_schema_lint_field(field)?,
-        }),
-        _ => Err((
-            RototoRuleId::CustomLintRegistrationInvalid,
-            format!("custom lint registration has unsupported entity: {entity}"),
-        )),
-    }
+    let address = parse_registered_lint_address(target)?;
+    Ok(RegisteredLintSelector { address })
 }
 
-fn parse_workspace_lint_field(
-    field: Option<&str>,
-) -> std::result::Result<Option<RegisteredLintField>, (RototoRuleId, String)> {
-    match field {
-        None => Ok(None),
-        Some("extends") => Ok(Some(RegisteredLintField::Workspace(
-            WorkspaceLintField::Extends,
-        ))),
-        Some(field) => unsupported_registration_field(field),
+fn parse_registered_lint_address(
+    target: &str,
+) -> std::result::Result<RegisteredLintAddress, (RototoRuleId, String)> {
+    let normalized = if target == "/" {
+        "/"
+    } else {
+        target.trim_end_matches('/')
+    };
+    if !normalized.starts_with('/') {
+        return unsupported_registration_target(target);
     }
+    let segments = normalized
+        .trim_start_matches('/')
+        .split('/')
+        .filter(|segment| !segment.is_empty())
+        .collect::<Vec<_>>();
+    let address = match segments.as_slice() {
+        [] => RegisteredLintAddress::Workspace,
+        ["qualifiers"] => RegisteredLintAddress::Qualifiers,
+        ["qualifiers", id] => RegisteredLintAddress::Qualifier {
+            id: parse_address_id(target, id)?,
+        },
+        ["variables"] => RegisteredLintAddress::Variables,
+        ["variables", id] => RegisteredLintAddress::Variable {
+            id: parse_address_id(target, id)?,
+        },
+        ["variables", variable, "values"] => RegisteredLintAddress::VariableValues {
+            variable: parse_address_id(target, variable)?,
+        },
+        ["variables", variable, "values", key] => RegisteredLintAddress::VariableValue {
+            variable: parse_address_id(target, variable)?,
+            key: parse_address_id(target, key)?,
+        },
+        ["variables", variable, "rules"] => RegisteredLintAddress::VariableRules {
+            variable: parse_address_id(target, variable)?,
+        },
+        ["variables", variable, "rules", index] => RegisteredLintAddress::VariableRule {
+            variable: parse_address_id(target, variable)?,
+            index: parse_address_index(target, index)?,
+        },
+        ["catalogs"] => RegisteredLintAddress::Catalogs,
+        ["catalogs", id] => RegisteredLintAddress::Catalog {
+            id: parse_address_id(target, id)?,
+        },
+        ["catalogs", catalog, "entries"] => RegisteredLintAddress::CatalogEntries {
+            catalog: parse_address_id(target, catalog)?,
+        },
+        ["catalogs", catalog, "entries", key] => RegisteredLintAddress::CatalogEntry {
+            catalog: parse_address_id(target, catalog)?,
+            key: parse_address_id(target, key)?,
+        },
+        ["request-contexts"] => RegisteredLintAddress::RequestContexts,
+        ["request-contexts", id] => RegisteredLintAddress::RequestContext {
+            id: parse_address_id(target, id)?,
+        },
+        ["request-contexts", request_context, "entries"] => {
+            RegisteredLintAddress::RequestContextEntries {
+                request_context: parse_address_id(target, request_context)?,
+            }
+        }
+        ["request-contexts", request_context, "entries", key] => {
+            RegisteredLintAddress::RequestContextEntry {
+                request_context: parse_address_id(target, request_context)?,
+                key: parse_address_id(target, key)?,
+            }
+        }
+        _ => return unsupported_registration_target(target),
+    };
+    Ok(address)
 }
 
-fn parse_qualifier_lint_field(
-    field: Option<&str>,
-) -> std::result::Result<Option<RegisteredLintField>, (RototoRuleId, String)> {
-    match field {
-        None => Ok(None),
-        Some("id") => Ok(Some(RegisteredLintField::Qualifier(QualifierLintField::Id))),
-        Some("description") => Ok(Some(RegisteredLintField::Qualifier(
-            QualifierLintField::Description,
-        ))),
-        Some("predicates") => Ok(Some(RegisteredLintField::Qualifier(
-            QualifierLintField::Predicates,
-        ))),
-        Some(field) => unsupported_registration_field(field),
-    }
-}
-
-fn parse_variable_lint_field(
-    field: Option<&str>,
-) -> std::result::Result<Option<RegisteredLintField>, (RototoRuleId, String)> {
-    match field {
-        None => Ok(None),
-        Some("id") => Ok(Some(RegisteredLintField::Variable(VariableLintField::Id))),
-        Some("description") => Ok(Some(RegisteredLintField::Variable(
-            VariableLintField::Description,
-        ))),
-        Some("type") => Ok(Some(RegisteredLintField::Variable(VariableLintField::Type))),
-        Some("schema") => Ok(Some(RegisteredLintField::Variable(
-            VariableLintField::Schema,
-        ))),
-        Some("values") => Ok(Some(RegisteredLintField::Variable(
-            VariableLintField::Values,
-        ))),
-        Some("resolve") => Ok(Some(RegisteredLintField::Variable(
-            VariableLintField::Resolve,
-        ))),
-        Some(field) => unsupported_registration_field(field),
-    }
-}
-
-fn parse_value_lint_field(
-    field: Option<&str>,
-) -> std::result::Result<Option<RegisteredLintField>, (RototoRuleId, String)> {
-    match field {
-        None => Ok(None),
-        Some("key") => Ok(Some(RegisteredLintField::Value(ValueLintField::Key))),
-        Some("value") => Ok(Some(RegisteredLintField::Value(ValueLintField::Value))),
-        Some(field) if field.starts_with("value.") => Ok(Some(RegisteredLintField::Value(
-            ValueLintField::JsonPath(parse_json_path_selector(field, "value.")?),
-        ))),
-        Some(field) => unsupported_registration_field(field),
-    }
-}
-
-fn parse_schema_lint_field(
-    field: Option<&str>,
-) -> std::result::Result<Option<RegisteredLintField>, (RototoRuleId, String)> {
-    match field {
-        None => Ok(None),
-        Some("json") => Ok(Some(RegisteredLintField::Schema(SchemaLintField::Json))),
-        Some(field) if field.starts_with("json.") => Ok(Some(RegisteredLintField::Schema(
-            SchemaLintField::JsonPath(parse_json_path_selector(field, "json.")?),
-        ))),
-        Some(field) => unsupported_registration_field(field),
-    }
-}
-
-fn parse_json_path_selector(
-    field: &str,
-    prefix: &str,
-) -> std::result::Result<Vec<String>, (RototoRuleId, String)> {
-    let path = field.strip_prefix(prefix).unwrap_or_default();
-    let segments = path.split('.').map(str::to_owned).collect::<Vec<_>>();
-    if segments
-        .iter()
-        .any(|segment| !valid_json_path_segment(segment))
+fn parse_address_id(
+    target: &str,
+    segment: &str,
+) -> std::result::Result<String, (RototoRuleId, String)> {
+    if segment
+        .bytes()
+        .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'_' | b'-' | b'.'))
     {
-        return Err((
-            RototoRuleId::CustomLintRegistrationInvalid,
-            format!("custom lint registration has unsupported field: {field}"),
-        ));
+        Ok(segment.to_owned())
+    } else {
+        unsupported_registration_target(target)
     }
-    Ok(segments)
 }
 
-fn valid_json_path_segment(segment: &str) -> bool {
-    !segment.is_empty()
-        && segment
-            .bytes()
-            .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'_' | b'-'))
+fn parse_address_index(
+    target: &str,
+    segment: &str,
+) -> std::result::Result<usize, (RototoRuleId, String)> {
+    segment.parse::<usize>().map_err(|_| {
+        (
+            RototoRuleId::CustomLintRegistrationInvalid,
+            format!("custom lint registration has unsupported target: {target}"),
+        )
+    })
 }
 
-fn unsupported_registration_field<T>(
-    field: &str,
-) -> std::result::Result<Option<T>, (RototoRuleId, String)> {
+fn unsupported_registration_target<T>(
+    target: &str,
+) -> std::result::Result<T, (RototoRuleId, String)> {
     Err((
         RototoRuleId::CustomLintRegistrationInvalid,
-        format!("custom lint registration has unsupported field: {field}"),
+        format!("custom lint registration has unsupported target: {target}"),
     ))
 }

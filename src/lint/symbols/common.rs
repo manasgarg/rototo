@@ -1,13 +1,7 @@
 use crate::diagnostics::{DiagnosticLocation, SourcePosition, SourceRange};
+use crate::expression::Expression;
 
 use super::super::index::*;
-
-pub(super) fn string_project_field_value(field: &ProjectField<String>) -> Option<&str> {
-    match field {
-        ProjectField::Present(value) => Some(&value.value),
-        ProjectField::Invalid { .. } | ProjectField::Missing { .. } => None,
-    }
-}
 
 pub(super) fn json_project_field_label(field: &ProjectField<serde_json::Value>) -> Option<String> {
     match field {
@@ -16,10 +10,12 @@ pub(super) fn json_project_field_label(field: &ProjectField<serde_json::Value>) 
     }
 }
 
-pub(super) fn predicate_op_project_field_value(field: &ProjectField<PredicateOp>) -> Option<&str> {
+pub(super) fn expression_project_field_label(
+    field: &Option<ProjectField<Expression>>,
+) -> Option<&str> {
     match field {
-        ProjectField::Present(value) => Some(value.value.as_str()),
-        ProjectField::Invalid { .. } | ProjectField::Missing { .. } => None,
+        Some(ProjectField::Present(value)) => Some(value.value.source()),
+        Some(ProjectField::Invalid { .. }) | Some(ProjectField::Missing { .. }) | None => None,
     }
 }
 

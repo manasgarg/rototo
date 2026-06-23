@@ -18,14 +18,14 @@ fn init_creates_workspace_skeleton() {
         .stdout(predicate::str::contains("qualifiers"))
         .stdout(predicate::str::contains("variables"))
         .stdout(predicate::str::contains("catalogs"))
-        .stdout(predicate::str::contains("schemas"))
+        .stdout(predicate::str::contains("request-contexts"))
         .stdout(predicate::str::contains("lint"));
 
     assert!(workspace.join("rototo-workspace.toml").is_file());
     assert!(workspace.join("qualifiers").is_dir());
     assert!(workspace.join("variables").is_dir());
     assert!(workspace.join("catalogs").is_dir());
-    assert!(workspace.join("schemas").is_dir());
+    assert!(workspace.join("request-contexts").is_dir());
     assert!(workspace.join("lint").is_dir());
 
     Command::cargo_bin("rototo")
@@ -57,7 +57,7 @@ fn init_entity_implicitly_creates_workspace_skeleton() {
     assert!(workspace.join("qualifiers").is_dir());
     assert!(workspace.join("variables").is_dir());
     assert!(workspace.join("catalogs").is_dir());
-    assert!(workspace.join("schemas").is_dir());
+    assert!(workspace.join("request-contexts").is_dir());
     assert!(workspace.join("lint").is_dir());
     assert!(workspace.join("variables/max-output-tokens.toml").is_file());
 
@@ -93,12 +93,12 @@ fn init_qualifier_and_context_templates() {
 
     let qualifier = fs::read_to_string(workspace.join("qualifiers/premium-users.toml")).unwrap();
     assert!(qualifier.contains("schema_version = 1"));
-    assert!(qualifier.contains("[[predicate]]"));
-    assert!(qualifier.contains("attribute = \"user.tier\""));
-    assert!(qualifier.contains("# attribute = \"request.country\""));
+    assert!(qualifier.contains("when = \"context.user.tier == \\\"premium\\\"\""));
+    assert!(qualifier.contains("context.request.country in"));
+    assert!(qualifier.contains("bucket(context.user.id"));
 
     let schema: serde_json::Value = serde_json::from_str(
-        &fs::read_to_string(workspace.join("schemas/context.schema.json")).unwrap(),
+        &fs::read_to_string(workspace.join("request-contexts/request.schema.json")).unwrap(),
     )
     .unwrap();
     assert_eq!(
@@ -146,8 +146,9 @@ fn init_variable_and_catalog_templates() {
     assert!(variable.contains("[resolve]"));
     assert!(!variable.contains("[env."));
 
-    let catalog = fs::read_to_string(workspace.join("catalogs/checkout-redesign.toml")).unwrap();
-    assert!(catalog.contains("schema = \"../schemas/checkout-redesign.schema.json\""));
+    let catalog =
+        fs::read_to_string(workspace.join("catalogs/checkout-redesign.schema.json")).unwrap();
+    assert!(catalog.contains("\"$schema\""));
     assert!(
         workspace
             .join("catalogs/checkout-redesign-entries/default.toml")

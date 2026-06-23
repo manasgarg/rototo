@@ -7,5 +7,5 @@ type = "string"
 default = "Welcome back."
 
 [[resolve.rule]]
-qualifier = "premium-users"
+when = 'qualifier["premium-users"]'
 value = "Welcome back, premium member."

@@ -40,14 +40,14 @@ With [`--json`](reference-json-output.html), lint returns:
 Built-in lint validates:
 
 - manifest presence, TOML syntax, `schema_version = 1`, and `extends` shape;
-- qualifier syntax, schema version, predicates, operators, bucket ranges, and
+- qualifier syntax, schema version, expressions, helper calls, and
   referenced qualifiers;
 - variable syntax, type source, primitive values, resolve defaults, resolve
   rules, catalog references, and value references;
 - catalog syntax, schema references, entry schema validation, and
-  `x-rototo-catalog` references;
+  `x-rototo-catalog-ref` references;
 - standalone JSON Schema parsing and compilation;
-- context schema path declarations and predicate type compatibility;
+- request context compatibility for context attributes read by expressions;
 - custom Lua lint registration and handler execution;
 - graph issues such as unreferenced qualifiers, shadowed rules, and unused
   values.
@@ -60,8 +60,8 @@ Built-in lint validates:
 | `parse` | TOML, JSON, and Lua file parsing. |
 | `project` | File content shape and required fields. |
 | `register` | Custom Lua lint registration. |
-| `reference` | Links between variables, qualifiers, catalogs, schemas, and context paths. |
-| `value` | Primitive values, schemas, catalog values, and custom value rules. |
+| `reference` | Links between variables, qualifiers, catalogs, and context paths. |
+| `value` | Primitive values, catalog schemas, catalog values, and custom value rules. |
 | `graph` | Relationships that are valid syntax but suspicious behavior. |
 | `policy` | Custom policy checks. |
 

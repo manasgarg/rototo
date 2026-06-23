@@ -8,6 +8,7 @@ import type { GraphNode, GraphNodeKind, WorkspaceGraphData } from "./types";
    neighbors and previews its source; clicking opens the entity. */
 
 const COLUMNS: Array<{ kind: GraphNodeKind; title: string }> = [
+    { kind: "requestContext", title: "request contexts" },
     { kind: "qualifier", title: "qualifiers" },
     { kind: "variable", title: "variables" },
     { kind: "catalog", title: "catalogs" },
@@ -15,6 +16,7 @@ const COLUMNS: Array<{ kind: GraphNodeKind; title: string }> = [
 ];
 
 const KIND_COLOR: Record<GraphNodeKind, string> = {
+    requestContext: "var(--cyan-600)",
     qualifier: "var(--cyan-600)",
     variable: "var(--sea-600)",
     catalog: "var(--ok-700)",
@@ -31,10 +33,14 @@ const CHAR_WIDTH = 6.6;
 
 export function ColumnsGraph({
     data,
+    currentEntityId,
+    inspectedId,
     onInspect,
     query = "",
 }: {
     data: WorkspaceGraphData;
+    currentEntityId?: string | null;
+    inspectedId?: string | null;
     onInspect?: (node: GraphNode | null) => void;
     query?: string;
 }) {
@@ -245,6 +251,8 @@ export function ColumnsGraph({
                         }
                         return (
                             <GraphNodeBox
+                                active={inspectedId === node.id}
+                                current={currentEntityId === node.id}
                                 dimmed={isDimmed(node.id)}
                                 highlighted={matches?.has(node.id) ?? false}
                                 key={node.id}
@@ -265,6 +273,8 @@ export function ColumnsGraph({
 }
 
 function GraphNodeBox({
+    active,
+    current,
     dimmed,
     highlighted,
     maxLabelChars,
@@ -275,6 +285,8 @@ function GraphNodeBox({
     x,
     y,
 }: {
+    active: boolean;
+    current: boolean;
     dimmed: boolean;
     highlighted: boolean;
     maxLabelChars: number;
@@ -291,30 +303,69 @@ function GraphNodeBox({
             : node.label;
     return (
         <g
+            aria-current={current ? "page" : undefined}
+            aria-label={`${node.kind} ${node.label}${current ? " current entity" : ""}`}
             onClick={onOpen}
+            onFocus={() => onHover(node.id)}
+            onBlur={() => onHover(null)}
+            onKeyDown={(event) => {
+                if (event.key === "Enter" || event.key === " ") {
+                    event.preventDefault();
+                    onOpen();
+                }
+            }}
             onMouseEnter={() => onHover(node.id)}
             onMouseLeave={() => onHover(null)}
-            opacity={dimmed ? 0.3 : 1}
+            opacity={dimmed ? (current ? 0.72 : 0.3) : 1}
+            role="link"
             style={{ cursor: "pointer" }}
+            tabIndex={0}
         >
+            {current ? (
+                <>
+                    <rect
+                        fill="var(--sea-50)"
+                        height={NODE_HEIGHT + 8}
+                        opacity={active ? 0.22 : 0.62}
+                        rx={8}
+                        width={width + 8}
+                        x={x - 4}
+                        y={y - 4}
+                    />
+                    <rect
+                        fill="none"
+                        height={NODE_HEIGHT + 6}
+                        rx={7}
+                        stroke="var(--sea-600)"
+                        strokeWidth={2}
+                        width={width + 6}
+                        x={x - 3}
+                        y={y - 3}
+                    />
+                </>
+            ) : null}
             <rect
                 fill={
-                    highlighted
-                        ? "var(--sea-50)"
-                        : node.edited
-                          ? "var(--warn-bg)"
-                          : "var(--paper-1)"
+                    active
+                        ? "var(--ink-0)"
+                        : highlighted
+                          ? "var(--sea-50)"
+                          : node.edited
+                            ? "var(--warn-bg)"
+                            : "var(--paper-1)"
                 }
                 height={NODE_HEIGHT}
                 rx={5}
                 stroke={
-                    highlighted
-                        ? "var(--sea-400)"
-                        : node.edited
-                          ? "var(--warn-500)"
-                          : "var(--line-2)"
+                    active
+                        ? "var(--ink-0)"
+                        : highlighted
+                          ? "var(--sea-400)"
+                          : node.edited
+                            ? "var(--warn-500)"
+                            : "var(--line-2)"
                 }
-                strokeWidth={highlighted || node.edited ? 1.4 : 1}
+                strokeWidth={active || highlighted || node.edited ? 1.4 : 1}
                 width={width}
                 x={x}
                 y={y}
@@ -322,12 +373,12 @@ function GraphNodeBox({
             <circle
                 cx={x + 11}
                 cy={y + NODE_HEIGHT / 2}
-                fill={KIND_COLOR[node.kind]}
+                fill={active ? "var(--paper-0)" : KIND_COLOR[node.kind]}
                 r={3}
             />
             {node.edited ? (
                 <text
-                    fill="var(--warn-700)"
+                    fill={active ? "var(--warn-500)" : "var(--warn-700)"}
                     fontFamily="var(--font-mono), ui-monospace, monospace"
                     fontSize={12}
                     fontWeight={700}
@@ -339,7 +390,7 @@ function GraphNodeBox({
                 </text>
             ) : null}
             <text
-                fill="var(--ink-0)"
+                fill={active ? "var(--paper-0)" : "var(--ink-0)"}
                 fontFamily="var(--font-mono), ui-monospace, monospace"
                 fontSize={11.5}
                 x={x + 21}

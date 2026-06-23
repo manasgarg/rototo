@@ -2,7 +2,4 @@ schema_version = 1
 
 description = "Qualifier referencing a missing qualifier"
 
-[[predicate]]
-attribute = "qualifier.missing-qualifier"
-op = "eq"
-value = true
+when = '(qualifier["missing-qualifier"])'

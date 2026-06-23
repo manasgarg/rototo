@@ -2,17 +2,15 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::path::Path;
 
 use serde::Serialize;
-use serde_json::Value as JsonValue;
 
 use crate::error::{Result, RototoError};
-use crate::lint::WorkspaceSemanticModel;
+use crate::lint::{ModelEntityRef, ModelReferenceVia, WorkspaceSemanticModel};
 
 use super::github::workspace_repo_path;
 use super::store::WorkspaceRecord;
 
 /* The inventory derives from rototo's semantic model — the console does not
-parse workspace files itself. Only context examples are enumerated from the
-contexts/ directory, which is file listing, not parsing. */
+parse workspace files itself. */
 
 /// Browser inventory for one staged workspace.
 ///
@@ -26,7 +24,6 @@ pub struct WorkspaceInventory {
     pub qualifiers: Vec<QualifierInventoryItem>,
     pub catalogs: Vec<CatalogInventoryItem>,
     pub catalog_entries: Vec<CatalogEntryInventoryItem>,
-    pub schemas: Vec<SchemaInventoryItem>,
     pub linters: Vec<LinterInventoryItem>,
     pub context: ContextInventory,
 }
@@ -50,7 +47,6 @@ pub struct VariableInventoryItem {
     /// these name catalog values; primitive literals are not inventory links.
     pub rule_values: Vec<String>,
     pub catalog_reference: Option<String>,
-    pub schema_reference: Option<String>,
 }
 
 /// Qualifier row in the console inventory.
@@ -80,7 +76,6 @@ pub struct CatalogInventoryItem {
     pub path: String,
     pub description: Option<String>,
     pub schema: Option<String>,
-    pub schema_reference: Option<String>,
     pub entry_count: usize,
 }
 
@@ -97,19 +92,6 @@ pub struct CatalogEntryInventoryItem {
     pub path: String,
 }
 
-/// Standalone schema row in the console inventory.
-///
-/// It represents user-editable JSON Schema files, excluding the special
-/// context schema. The projection is transient and follows the staged semantic
-/// model.
-#[derive(Clone, Debug, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct SchemaInventoryItem {
-    pub id: String,
-    pub path: String,
-    pub title: Option<String>,
-}
-
 /// Custom linter row in the console inventory.
 ///
 /// It lets the UI navigate Lua lint scripts and show the rules declared by
@@ -124,17 +106,37 @@ pub struct LinterInventoryItem {
     pub kind: &'static str,
 }
 
-/// Context support files discovered for one workspace.
+/// Request context schemas and sample entries discovered for one workspace.
 ///
-/// The semantic model owns `schemas/context.schema.json`; examples are found by
-/// listing `contexts/`. The projection is rebuilt with the inventory and used
-/// only for preview inputs.
+/// The semantic model owns `request-contexts/<id>.schema.json` and
+/// `request-contexts/<id>-entries/*.json`. The projection is rebuilt with the
+/// inventory and used for preview inputs.
 #[derive(Clone, Debug, Default, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ContextInventory {
-    pub schema_path: Option<String>,
+    pub request_contexts: Vec<RequestContextInventoryItem>,
+    pub entries: Vec<RequestContextEntryInventoryItem>,
     pub example_count: usize,
     pub examples: Vec<String>,
+}
+
+#[derive(Clone, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RequestContextInventoryItem {
+    pub id: String,
+    pub path: String,
+    pub title: Option<String>,
+    pub description: Option<String>,
+    pub entry_count: usize,
+}
+
+#[derive(Clone, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RequestContextEntryInventoryItem {
+    pub request_context_id: String,
+    pub key: String,
+    pub id: String,
+    pub path: String,
 }
 
 /// Source text loaded for one workspace definition file.
@@ -152,9 +154,9 @@ pub struct WorkspaceDefinition {
 pub async fn inspect_workspace_inventory(
     workspace: &WorkspaceRecord,
     model: &WorkspaceSemanticModel,
-    staged_root: &Path,
+    _staged_root: &Path,
 ) -> Result<WorkspaceInventory> {
-    let context = inspect_context(workspace, staged_root).await?;
+    let context = inspect_context(workspace, model);
     Ok(inventory_from_model(workspace, model, context))
 }
 
@@ -190,6 +192,17 @@ fn inventory_from_model(
                 .as_ref()
                 .map(|resolve| resolve.rules.as_slice())
                 .unwrap_or_default();
+            let qualifier_references =
+                distinct_sorted(model.references.iter().filter_map(|reference| {
+                    match (&reference.from, &reference.to, &reference.via) {
+                        (
+                            ModelEntityRef::Variable { id: variable_id },
+                            ModelEntityRef::Qualifier { id: qualifier_id },
+                            ModelReferenceVia::RuleCondition { .. },
+                        ) if variable_id == &variable.id => Some(qualifier_id.clone()),
+                        _ => None,
+                    }
+                }));
             VariableInventoryItem {
                 id: variable.id.clone(),
                 path: repo_path(&variable.location.path),
@@ -207,12 +220,7 @@ fn inventory_from_model(
                     })
                     .flatten(),
                 rule_count: rules.len(),
-                qualifier_references: distinct_sorted(
-                    rules
-                        .iter()
-                        .filter_map(|rule| rule.qualifier.as_ref())
-                        .filter_map(|qualifier| qualifier.value.clone()),
-                ),
+                qualifier_references,
                 rule_values: if variable.declaration.kind == "catalog" {
                     distinct_sorted(
                         rules
@@ -227,16 +235,6 @@ fn inventory_from_model(
                 },
                 catalog_reference: (variable.declaration.kind == "catalog")
                     .then(|| variable.declaration.value.clone())
-                    .flatten(),
-                schema_reference: (variable.declaration.kind == "schema")
-                    .then(|| {
-                        variable
-                            .declaration
-                            .value
-                            .as_ref()
-                            .and_then(|value| value.rsplit('/').next())
-                            .map(str::to_owned)
-                    })
                     .flatten(),
             }
         })
@@ -277,25 +275,15 @@ fn inventory_from_model(
     let catalogs = model
         .catalogs
         .iter()
-        .map(|catalog| {
-            let schema = catalog
-                .schema
-                .as_ref()
-                .and_then(|schema| schema.value.clone());
-            CatalogInventoryItem {
-                id: catalog.id.clone(),
-                path: repo_path(&catalog.location.path),
-                description: catalog.description.clone(),
-                schema_reference: schema
-                    .as_ref()
-                    .and_then(|value| value.rsplit('/').next())
-                    .map(str::to_owned),
-                schema,
-                entry_count: entry_counts
-                    .get(catalog.id.as_str())
-                    .copied()
-                    .unwrap_or_default(),
-            }
+        .map(|catalog| CatalogInventoryItem {
+            id: catalog.id.clone(),
+            path: repo_path(&catalog.location.path),
+            description: catalog.description.clone(),
+            schema: Some(catalog.path.clone()),
+            entry_count: entry_counts
+                .get(catalog.id.as_str())
+                .copied()
+                .unwrap_or_default(),
         })
         .collect();
 
@@ -307,33 +295,6 @@ fn inventory_from_model(
             key: entry.key.clone(),
             id: format!("{}/{}", entry.catalog, entry.key),
             path: repo_path(&entry.location.path),
-        })
-        .collect();
-
-    let schemas = model
-        .schemas
-        .iter()
-        .filter(|schema| !schema.path.ends_with("context.schema.json"))
-        .map(|schema| {
-            let json = schema.json.as_ref();
-            let title = json
-                .and_then(|json| json.get("title"))
-                .and_then(JsonValue::as_str)
-                .or_else(|| {
-                    json.and_then(|json| json.get("$id"))
-                        .and_then(JsonValue::as_str)
-                })
-                .map(str::to_owned);
-            SchemaInventoryItem {
-                id: schema
-                    .path
-                    .rsplit('/')
-                    .next()
-                    .unwrap_or(schema.path.as_str())
-                    .to_owned(),
-                path: repo_path(&schema.path),
-                title,
-            }
         })
         .collect();
 
@@ -365,7 +326,6 @@ fn inventory_from_model(
         qualifiers,
         catalogs,
         catalog_entries,
-        schemas,
         linters,
         context,
     }
@@ -384,59 +344,52 @@ fn declaration_label(declaration: &crate::lint::DeclarationModel) -> String {
     }
 }
 
-async fn inspect_context(
+fn inspect_context(
     workspace: &WorkspaceRecord,
-    staged_root: &Path,
-) -> Result<ContextInventory> {
-    let schema_entries = read_dir_file_names(&staged_root.join("schemas")).await?;
-    let has_context_schema = schema_entries
-        .iter()
-        .any(|name| name == "context.schema.json");
-    let mut examples: Vec<String> = read_dir_file_names(&staged_root.join("contexts"))
-        .await?
-        .into_iter()
-        .filter(|name| name.ends_with(".json"))
-        .map(|name| workspace_repo_path(&workspace.path, &format!("contexts/{name}")))
-        .collect();
-    examples.sort();
-    Ok(ContextInventory {
-        schema_path: has_context_schema
-            .then(|| workspace_repo_path(&workspace.path, "schemas/context.schema.json")),
-        example_count: examples.len(),
-        examples,
-    })
-}
-
-async fn read_dir_file_names(path: &Path) -> Result<Vec<String>> {
-    let mut entries = match tokio::fs::read_dir(path).await {
-        Ok(entries) => entries,
-        Err(err) if err.kind() == std::io::ErrorKind::NotFound => return Ok(Vec::new()),
-        Err(err) => {
-            return Err(RototoError::new(format!(
-                "failed to list {}: {err}",
-                path.display()
-            )));
-        }
-    };
-    let mut names = Vec::new();
-    loop {
-        let entry = entries
-            .next_entry()
-            .await
-            .map_err(|err| RototoError::new(format!("failed to list {}: {err}", path.display())))?;
-        let Some(entry) = entry else {
-            break;
-        };
-        let is_file = entry
-            .file_type()
-            .await
-            .map(|file_type| file_type.is_file())
-            .unwrap_or(false);
-        if is_file && let Some(name) = entry.file_name().to_str() {
-            names.push(name.to_owned());
-        }
+    model: &WorkspaceSemanticModel,
+) -> ContextInventory {
+    let repo_path = |path: &str| workspace_repo_path(&workspace.path, path);
+    let mut entry_counts: BTreeMap<&str, usize> = BTreeMap::new();
+    for entry in &model.request_context_entries {
+        *entry_counts
+            .entry(entry.request_context.as_str())
+            .or_default() += 1;
     }
-    Ok(names)
+    let request_contexts = model
+        .request_contexts
+        .iter()
+        .map(|context| RequestContextInventoryItem {
+            id: context.id.clone(),
+            path: repo_path(&context.path),
+            title: context.title.clone(),
+            description: context.description.clone(),
+            entry_count: entry_counts
+                .get(context.id.as_str())
+                .copied()
+                .unwrap_or_default(),
+        })
+        .collect();
+    let entries = model
+        .request_context_entries
+        .iter()
+        .map(|entry| RequestContextEntryInventoryItem {
+            request_context_id: entry.request_context.clone(),
+            key: entry.key.clone(),
+            id: format!("{}/{}", entry.request_context, entry.key),
+            path: repo_path(&entry.path),
+        })
+        .collect::<Vec<_>>();
+    let mut examples = entries
+        .iter()
+        .map(|entry| entry.path.clone())
+        .collect::<Vec<_>>();
+    examples.sort();
+    ContextInventory {
+        request_contexts,
+        example_count: entries.len(),
+        examples,
+        entries,
+    }
 }
 
 /// Maps a repo path to a staged-checkout-relative path, rejecting anything

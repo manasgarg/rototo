@@ -24,6 +24,7 @@ import { RefreshScope } from "@/lib/refresh";
 import type {
     ConsoleData,
     BranchRecord,
+    ConsoleState,
     SourceTreeWithWorkspaces,
     WorkspaceRecord,
     WorkspaceSummary,
@@ -110,7 +111,6 @@ export function ConsoleScreen({ screen }: { screen: AppScreen }) {
                                     variables: 0,
                                     qualifiers: 0,
                                     catalogs: 0,
-                                    schemas: 0,
                                     error: message,
                                 },
                             ]),
@@ -213,7 +213,10 @@ export function ConsoleScreen({ screen }: { screen: AppScreen }) {
                 user={user}
             >
                 {selectedScreen === "configuration-sources" ? (
-                    <SourceTreesScreen sourceTrees={sourceTrees} />
+                    <SourceTreesScreen
+                        consoleState={data.state}
+                        sourceTrees={sourceTrees}
+                    />
                 ) : null}
                 {selectedScreen === "workspaces" ? (
                     <WorkspacesScreen
@@ -242,8 +245,10 @@ export function ConsoleScreen({ screen }: { screen: AppScreen }) {
 }
 
 function SourceTreesScreen({
+    consoleState,
     sourceTrees,
 }: {
+    consoleState: ConsoleState;
     sourceTrees: SourceTreeWithWorkspaces[];
 }) {
     return (
@@ -251,22 +256,30 @@ function SourceTreesScreen({
             <div className="section-header-text">
                 <h1>Configuration Sources</h1>
                 <p className="hint">
-                    rototo discovers workspaces by scanning a configuration
-                    source for{" "}
-                    <span className="mono">rototo-workspace.toml</span> files.
-                    Register a GitHub repo, local folder, git remote, or archive
-                    this console can read.
+                    {consoleState.fixedWorkspace
+                        ? "This console is scoped to the workspace source it was started with."
+                        : "rototo discovers workspaces by scanning a configuration source for "}
+                    {!consoleState.fixedWorkspace ? (
+                        <>
+                            <span className="mono">rototo-workspace.toml</span>{" "}
+                            files. Register a GitHub repo, local folder, git
+                            remote, or archive this console can read.
+                        </>
+                    ) : null}
                 </p>
             </div>
-            <SourceTreeRegistrationForm />
+            {consoleState.canManageSourceTrees ? (
+                <SourceTreeRegistrationForm />
+            ) : null}
             {sourceTrees.length === 0 ? (
                 <div className="empty-state">
                     <span className="empty-puck">
                         <FolderGit2 aria-hidden size={18} />
                     </span>
                     <p>
-                        No configuration sources yet. Add one above to discover
-                        workspaces.
+                        {consoleState.fixedWorkspace
+                            ? "No workspaces were discovered in the startup configuration source."
+                            : "No configuration sources yet. Add one above to discover workspaces."}
                     </p>
                 </div>
             ) : (
@@ -324,10 +337,14 @@ function SourceTreesScreen({
                                         sourceTreeId={sourceTree.id}
                                         sourceTreeName={sourceTree.displayName}
                                     />
-                                    <RemoveSourceTreeButton
-                                        sourceTreeId={sourceTree.id}
-                                        sourceTreeName={sourceTree.displayName}
-                                    />
+                                    {consoleState.canManageSourceTrees ? (
+                                        <RemoveSourceTreeButton
+                                            sourceTreeId={sourceTree.id}
+                                            sourceTreeName={
+                                                sourceTree.displayName
+                                            }
+                                        />
+                                    ) : null}
                                 </span>
                             </div>
                             <div className="kv">
@@ -407,7 +424,7 @@ function WorkspacesScreen({
                 >
                     {workspaces.map((workspace) => (
                         <WorkspaceRow
-                            data-search={`${workspace.sourceTreeLabel} ${workspace.path} ${workspace.revision}`}
+                            data-search={`${workspace.sourceTreeLabel} ${workspace.displayPath} ${workspace.path} ${workspace.revision}`}
                             branchesCount={
                                 branches.filter(
                                     (entry) =>
@@ -462,7 +479,7 @@ function WorkspaceRow({
                 <Boxes aria-hidden size={16} />
             </span>
             <span className="row-text">
-                <span className="row-title mono">{workspace.path}</span>
+                <span className="row-title mono">{workspace.displayPath}</span>
                 <span className="row-sub">{workspace.sourceTreeLabel}</span>
                 <span
                     aria-busy={summary ? undefined : true}
@@ -484,9 +501,6 @@ function WorkspaceRow({
                                 </span>
                                 <span>
                                     {countLabel(summary.catalogs, "catalog")}
-                                </span>
-                                <span>
-                                    {countLabel(summary.schemas, "schema")}
                                 </span>
                             </>
                         )
@@ -578,7 +592,7 @@ function BranchesScreen({ branches }: { branches: BranchEntry[] }) {
                     {branches.map(({ branch, workspace }) => (
                         <div
                             className="row"
-                            data-search={`${workspace.sourceTreeLabel} ${workspace.path} ${branch.branch} ${branch.status} ${branch.prState ?? ""}`}
+                            data-search={`${workspace.sourceTreeLabel} ${workspace.displayPath} ${workspace.path} ${branch.branch} ${branch.status} ${branch.prState ?? ""}`}
                             key={branch.id}
                         >
                             <span className="row-icon">
@@ -596,7 +610,7 @@ function BranchesScreen({ branches }: { branches: BranchEntry[] }) {
                                         href={`/app/workspaces/${workspace.slug}`}
                                     >
                                         {workspace.sourceTreeLabel} ·{" "}
-                                        {workspace.path}
+                                        {workspace.displayPath}
                                     </Link>
                                 </span>
                             </span>
@@ -679,7 +693,7 @@ function ActivityScreen({
                     {recentFirst.map(({ branch, workspace }) => (
                         <div
                             className="row"
-                            data-search={`${workspace.sourceTreeLabel} ${workspace.path} ${branch.branch} ${branch.status} ${branch.prUrl ?? ""} ${branch.prState ?? ""}`}
+                            data-search={`${workspace.sourceTreeLabel} ${workspace.displayPath} ${workspace.path} ${branch.branch} ${branch.status} ${branch.prUrl ?? ""} ${branch.prState ?? ""}`}
                             key={branch.id}
                         >
                             <span className="row-icon">
@@ -696,7 +710,7 @@ function ActivityScreen({
                                     <Link
                                         href={`/app/workspaces/${workspace.slug}`}
                                     >
-                                        {workspace.path}
+                                        {workspace.displayPath}
                                     </Link>{" "}
                                     · updated{" "}
                                     {formatDate(branchUpdatedAt(branch))}

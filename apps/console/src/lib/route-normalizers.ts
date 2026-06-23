@@ -4,7 +4,6 @@ export type SectionId =
     | "variables"
     | "qualifiers"
     | "catalogs"
-    | "schemas"
     | "linters"
     | "context"
     | "diagnostics"
@@ -15,7 +14,6 @@ export type EditKind =
     | "variables"
     | "qualifiers"
     | "catalogs"
-    | "schemas"
     | "context"
     | "linters";
 
@@ -25,7 +23,6 @@ export function normalizeSection(value: string | null): SectionId | null {
         value === "variables" ||
         value === "qualifiers" ||
         value === "catalogs" ||
-        value === "schemas" ||
         value === "linters" ||
         value === "context" ||
         value === "diagnostics" ||
@@ -41,7 +38,6 @@ export function normalizeEditKind(value: string | null): EditKind | null {
         value === "variables" ||
         value === "qualifiers" ||
         value === "catalogs" ||
-        value === "schemas" ||
         value === "context" ||
         value === "linters"
     ) {

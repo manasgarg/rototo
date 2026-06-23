@@ -11,7 +11,7 @@ import (
 	"testing"
 )
 
-func TestWorkspaceExposesGoResolutionObjects(t *testing.T) {
+func TestWorkspaceExposesGoRuntimeResolutionAPI(t *testing.T) {
 	workspace := loadBasicWorkspace(t)
 	defer closeWorkspace(t, workspace)
 
@@ -43,10 +43,7 @@ func TestWorkspaceExposesGoResolutionObjects(t *testing.T) {
 	if variable.Value != "Welcome back, premium member." {
 		t.Fatalf("value = %#v", variable.Value)
 	}
-	if qualifier.ID != "premium-users" {
-		t.Fatalf("qualifier id = %q", qualifier.ID)
-	}
-	if !qualifier.Value {
+	if !qualifier {
 		t.Fatalf("qualifier value = false")
 	}
 }
@@ -201,7 +198,7 @@ type contractCase struct {
 type contractExpect struct {
 	OK          bool                  `json:"ok"`
 	Diagnostics *int                  `json:"diagnostics"`
-	Result      map[string]any        `json:"result"`
+	Result      any                   `json:"result"`
 	Error       contractErrorExpected `json:"error"`
 }
 
@@ -209,7 +206,7 @@ type contractErrorExpected struct {
 	Contains string `json:"contains"`
 }
 
-func runContractCase(t *testing.T, sdkCase contractCase) (map[string]any, error) {
+func runContractCase(t *testing.T, sdkCase contractCase) (any, error) {
 	t.Helper()
 	source := filepath.Join(repoRoot(t), filepath.FromSlash(sdkCase.Workspace))
 
@@ -257,7 +254,7 @@ func runContractCase(t *testing.T, sdkCase contractCase) (map[string]any, error)
 		if err != nil {
 			return nil, err
 		}
-		return map[string]any{"id": result.ID, "value": result.Value}, nil
+		return result, nil
 	default:
 		t.Fatalf("unsupported contract operation: %s", sdkCase.Operation)
 		return nil, nil
@@ -291,11 +288,15 @@ func contractCases(t *testing.T) []contractCase {
 	return cases
 }
 
-func assertExpectedSubset(t *testing.T, actual map[string]any, expect contractExpect) {
+func assertExpectedSubset(t *testing.T, actual any, expect contractExpect) {
 	t.Helper()
 	if expect.Diagnostics != nil {
-		if actual["diagnostics"] != *expect.Diagnostics {
-			t.Fatalf("diagnostics = %#v, want %d", actual["diagnostics"], *expect.Diagnostics)
+		actualMap, ok := actual.(map[string]any)
+		if !ok {
+			t.Fatalf("actual = %#v, expected object", actual)
+		}
+		if actualMap["diagnostics"] != *expect.Diagnostics {
+			t.Fatalf("diagnostics = %#v, want %d", actualMap["diagnostics"], *expect.Diagnostics)
 		}
 	}
 	if expect.Result != nil {

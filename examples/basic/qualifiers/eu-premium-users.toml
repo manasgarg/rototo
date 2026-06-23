@@ -2,12 +2,4 @@ schema_version = 1
 
 description = "Premium users in the European operating region"
 
-[[predicate]]
-attribute = "qualifier.premium-users"
-op = "eq"
-value = true
-
-[[predicate]]
-attribute = "qualifier.eu-users"
-op = "eq"
-value = true
+when = '(qualifier["premium-users"]) && (qualifier["eu-users"])'

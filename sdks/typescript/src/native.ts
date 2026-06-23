@@ -15,7 +15,7 @@ type NativeWorkspace = {
         id: string,
         context: JsonValue,
         validateContext?: boolean,
-    ): Promise<QualifierResolutionJson>;
+    ): Promise<boolean>;
 };
 
 type NativeWorkspaceConstructor = {
@@ -37,7 +37,7 @@ type NativeRefreshingWorkspace = {
         id: string,
         context: JsonValue,
         validateContext?: boolean,
-    ): Promise<QualifierResolutionJson>;
+    ): Promise<boolean>;
     refreshNow(): Promise<RefreshOutcome>;
     status(): Promise<RefreshStatusJson>;
     shutdown(): Promise<void>;
@@ -74,11 +74,6 @@ export type VariableResolutionJson = {
 export type VariableResolutionSourceJson =
     | { kind: "literal" }
     | { kind: "catalog"; catalog: string; value: string };
-
-export type QualifierResolutionJson = {
-    id: string;
-    value: boolean;
-};
 
 export type RefreshOutcome = "unchanged" | "refreshed" | "immutable";
 

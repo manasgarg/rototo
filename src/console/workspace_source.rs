@@ -41,12 +41,16 @@ pub(crate) async fn cached_workspace_locator_for_branch(
     branch: impl AsRef<str>,
 ) -> Result<CachedWorkspaceLocator> {
     let parsed = ParsedWorkspaceSource::parse(input.source).await?;
-    if !matches!(parsed.kind, WorkspaceSourceBacking::Git) {
-        return Err(RototoError::new(
-            "branch workspace sources require a git branch source tree",
-        ));
-    }
-    cached_workspace_from_parts(input, parsed.tree, SourceTreeRevision::git_branch(branch)?)
+    let revision = match parsed.kind {
+        WorkspaceSourceBacking::Git => SourceTreeRevision::git_branch(branch)?,
+        WorkspaceSourceBacking::LocalFolder => SourceTreeRevision::LocalWorkingTree,
+        WorkspaceSourceBacking::Archive => {
+            return Err(RototoError::new(
+                "branch workspace sources require a git branch or local working tree source",
+            ));
+        }
+    };
+    cached_workspace_from_parts(input, parsed.tree, revision)
 }
 
 pub(crate) fn github_repo_for_workspace(workspace: &WorkspaceRecord) -> Result<GitHubRepoIdentity> {
@@ -345,6 +349,7 @@ mod tests {
             source_tree_id: "repo_1".to_owned(),
             slug: "octo-configs-root".to_owned(),
             source_tree_label: "octo/configs".to_owned(),
+            display_path: ".".to_owned(),
             path: ".".to_owned(),
             revision: "main".to_owned(),
             source: "https://api.github.com/repos/octo/configs/tarball/main".to_owned(),

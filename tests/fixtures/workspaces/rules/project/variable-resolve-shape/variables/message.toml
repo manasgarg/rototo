@@ -1,4 +1,5 @@
 schema_version = 1
+description = "Configuration value for message."
 type = "string"
 
 resolve = "bad"

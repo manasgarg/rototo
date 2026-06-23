@@ -1,6 +1,4 @@
 schema_version = 1
+description = "Runtime condition for dead leaf."
 
-[[predicate]]
-attribute = "feature.enabled"
-op = "eq"
-value = true
+when = "(context.feature.enabled == true)"

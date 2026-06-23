@@ -1,0 +1,11 @@
+schema_version = 1
+
+description = "Variable using the removed rule qualifier field"
+type = "bool"
+
+[resolve]
+default = false
+
+[[resolve.rule]]
+qualifier = "premium-users"
+value = true

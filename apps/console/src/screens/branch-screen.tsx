@@ -3,12 +3,10 @@ import {
     ArrowLeft,
     Braces,
     CheckCircle2,
-    ChevronRight,
     Circle,
     Database,
     ExternalLink,
     FileCode2,
-    FileJson2,
     GitBranch,
     GitCompare,
     GitPullRequest,
@@ -27,6 +25,7 @@ import {
     NavLink,
 } from "@/components/app-shell";
 import { ArchiveBranchButton } from "@/components/archive-branch-button";
+import { CatalogValueList } from "@/components/catalog-value-list";
 import {
     DiagnosticCard,
     DiagnosticList,
@@ -94,7 +93,6 @@ const EDIT_KIND_TITLES: Record<EditKind, string> = {
     variables: "Variables",
     qualifiers: "Qualifiers",
     catalogs: "Catalogs",
-    schemas: "Schemas",
     context: "Context",
     linters: "Linters",
 };
@@ -157,6 +155,9 @@ export function BranchScreen({
         capabilities,
     } = load.data;
     const lint = load.data.lint as BranchLintLoad;
+    const localWorkingTree =
+        capabilities.write.kind === "directPush" &&
+        capabilities.write.backend === "localWorkingTree";
 
     const lintHasErrors =
         "error" in lint ||
@@ -200,6 +201,15 @@ export function BranchScreen({
         branchGraphData = workspaceGraphData({
             model: branchModel,
             pathForKey,
+            sourceByPath: new Map(
+                editableEntities.map((entity) => [
+                    entity.path,
+                    {
+                        language: entity.language,
+                        text: entity.text,
+                    },
+                ]),
+            ),
             hrefFor: (entityPath) =>
                 editEntityHref(workspace.slug, branch.id, entityPath),
             editedPaths: new Set(editedPaths),
@@ -207,9 +217,6 @@ export function BranchScreen({
     }
     const editableEntityCounts = editKindCounts(editableEntities);
     const contextAttributes = contextAttributeSuggestions(editableEntities);
-    const schemaPathSuggestions = editableEntities
-        .filter((entity) => entity.section === "schemas")
-        .map((entity) => workspaceRelativePath(workspace.path, entity.path));
     const catalogIdSuggestions = editableEntities
         .filter((entity) => entity.kind === "catalog")
         .map((entity) => entity.id);
@@ -232,7 +239,10 @@ export function BranchScreen({
     const crumbs = [
         { label: "console", href: "/app" },
         { label: "workspaces", href: "/app/workspaces" },
-        { label: workspace.path, href: `/app/workspaces/${workspace.slug}` },
+        {
+            label: workspace.displayPath,
+            href: `/app/workspaces/${workspace.slug}`,
+        },
         ...(selectedScreen !== "overview"
             ? [
                   {
@@ -274,7 +284,7 @@ export function BranchScreen({
         ? entityCrumbLabel
         : selectedScreen === "edit"
           ? `Edit ${EDIT_KIND_TITLES[selectedEditKind].toLowerCase()}`
-          : branchScreenTitle(selectedScreen);
+          : branchScreenTitle(selectedScreen, localWorkingTree);
 
     return (
         <RefreshScope
@@ -322,10 +332,12 @@ export function BranchScreen({
                 }
                 crumbs={crumbs}
                 editing={{
-                    label: branch.branch,
+                    label: localWorkingTree ? "working tree" : branch.branch,
                     detail:
                         branch.status === "active"
-                            ? "Saves commit to this branch — nothing reaches the base ref without review."
+                            ? localWorkingTree
+                                ? "Saves write to the local checkout. Commit and push with git when ready."
+                                : "Saves commit to this branch — nothing reaches the base ref without review."
                             : "This branch is not active; editing is locked.",
                 }}
                 nav={
@@ -340,10 +352,12 @@ export function BranchScreen({
                                 branch.id,
                                 "overview",
                             )}
-                            label="branch"
+                            label={localWorkingTree ? "working tree" : "branch"}
                             value={branch.branch}
                         />
-                        <NavGroupLabel>Branch</NavGroupLabel>
+                        <NavGroupLabel>
+                            {localWorkingTree ? "Working Tree" : "Branch"}
+                        </NavGroupLabel>
                         <NavLink
                             active={selectedScreen === "overview"}
                             href={branchScreenHref(
@@ -388,23 +402,9 @@ export function BranchScreen({
                                 "publish",
                             )}
                             icon={<GitPullRequest aria-hidden size={16} />}
-                            label="Publish"
+                            label={localWorkingTree ? "Review" : "Publish"}
                         />
                         <NavGroupLabel>Edit</NavGroupLabel>
-                        <NavLink
-                            active={
-                                selectedScreen === "edit" &&
-                                selectedEditKind === "variables"
-                            }
-                            count={editableEntityCounts.variables}
-                            href={editKindHref(
-                                workspace.slug,
-                                branch.id,
-                                "variables",
-                            )}
-                            icon={<FileCode2 aria-hidden size={16} />}
-                            label="Variables"
-                        />
                         <NavLink
                             active={
                                 selectedScreen === "edit" &&
@@ -422,6 +422,20 @@ export function BranchScreen({
                         <NavLink
                             active={
                                 selectedScreen === "edit" &&
+                                selectedEditKind === "variables"
+                            }
+                            count={editableEntityCounts.variables}
+                            href={editKindHref(
+                                workspace.slug,
+                                branch.id,
+                                "variables",
+                            )}
+                            icon={<FileCode2 aria-hidden size={16} />}
+                            label="Variables"
+                        />
+                        <NavLink
+                            active={
+                                selectedScreen === "edit" &&
                                 selectedEditKind === "catalogs"
                             }
                             count={editableEntityCounts.catalogs}
@@ -432,20 +446,6 @@ export function BranchScreen({
                             )}
                             icon={<Database aria-hidden size={16} />}
                             label="Catalogs"
-                        />
-                        <NavLink
-                            active={
-                                selectedScreen === "edit" &&
-                                selectedEditKind === "schemas"
-                            }
-                            count={editableEntityCounts.schemas}
-                            href={editKindHref(
-                                workspace.slug,
-                                branch.id,
-                                "schemas",
-                            )}
-                            icon={<FileJson2 aria-hidden size={16} />}
-                            label="Schemas"
                         />
                         <NavLink
                             active={
@@ -485,6 +485,7 @@ export function BranchScreen({
                         changesCount={changes.length}
                         branch={branch}
                         graphData={branchGraphData}
+                        localWorkingTree={localWorkingTree}
                         workspaceId={workspace.slug}
                     />
                 ) : null}
@@ -494,12 +495,12 @@ export function BranchScreen({
                         contextAttributes={contextAttributes}
                         contextPreviews={contextPreviews}
                         branch={branch}
+                        localWorkingTree={localWorkingTree}
                         model={branchModel}
                         editableEntities={editableEntities}
                         entityDiagnostics={selectedEntityDiagnostics}
                         loadError={editLoadError}
                         catalogIds={catalogIdSuggestions}
-                        schemaPaths={schemaPathSuggestions}
                         selectedEntity={selectedEntity}
                         selectedKind={selectedEditKind}
                         workspaceId={workspace.slug}
@@ -555,11 +556,13 @@ function BranchOverview({
     changesCount,
     branch,
     graphData,
+    localWorkingTree,
     workspaceId,
 }: {
     changesCount: number;
     branch: BranchRecord;
     graphData: WorkspaceGraphData | null;
+    localWorkingTree: boolean;
     workspaceId: string;
 }) {
     return (
@@ -568,9 +571,9 @@ function BranchOverview({
                 <div className="section-header-text">
                     <h1 className="mono">{branch.branch}</h1>
                     <p className="hint">
-                        Edits commit directly to this branch. When the branch is
-                        ready, publish it as a pull request from the publish
-                        screen.
+                        {localWorkingTree
+                            ? "Edits save directly to the local checkout. Validate the working tree here, then commit and push with git."
+                            : "Edits commit directly to this branch. When the branch is ready, publish it as a pull request from the publish screen."}
                     </p>
                 </div>
                 <BranchStatusPill branch={branch} />
@@ -597,21 +600,23 @@ function BranchOverview({
                     </span>
                 </div>
             </div>
-            <div className="card">
-                <div className="card-head-text">
-                    <h3>Branch name</h3>
-                    <p className="hint">
-                        Renaming moves the branch on GitHub. Locked once the
-                        branch has a pull request.
-                    </p>
+            {!localWorkingTree ? (
+                <div className="card">
+                    <div className="card-head-text">
+                        <h3>Branch name</h3>
+                        <p className="hint">
+                            Renaming moves the branch on GitHub. Locked once the
+                            branch has a pull request.
+                        </p>
+                    </div>
+                    <BranchNameEditor
+                        branch={branch.branch}
+                        disabled={branch.status !== "active"}
+                        branchId={branch.id}
+                        workspaceId={workspaceId}
+                    />
                 </div>
-                <BranchNameEditor
-                    branch={branch.branch}
-                    disabled={branch.status !== "active"}
-                    branchId={branch.id}
-                    workspaceId={workspaceId}
-                />
-            </div>
+            ) : null}
             {graphData ? (
                 <div className="card graph-card">
                     <div className="card-head-text">
@@ -640,12 +645,12 @@ function BranchEditScreen({
     contextAttributes,
     contextPreviews,
     branch,
+    localWorkingTree,
     editableEntities,
     entityDiagnostics,
     loadError,
     model,
     catalogIds,
-    schemaPaths,
     selectedEntity,
     selectedKind,
     workspaceId,
@@ -654,12 +659,12 @@ function BranchEditScreen({
     contextAttributes: string[];
     contextPreviews: EditContextPreview[];
     branch: BranchRecord;
+    localWorkingTree: boolean;
     editableEntities: EditableEntity[];
     entityDiagnostics: LintDiagnostic[];
     loadError: string | null;
     model: WorkspaceSemanticModel | null;
     catalogIds: string[];
-    schemaPaths: string[];
     selectedEntity: EditableEntity | null;
     selectedKind: EditKind;
     workspaceId: string;
@@ -687,9 +692,9 @@ function BranchEditScreen({
                     diagnostics={entityDiagnostics}
                     branch={branch}
                     entity={selectedEntity}
+                    localWorkingTree={localWorkingTree}
                     model={model}
                     catalogIds={catalogIds}
-                    schemaPaths={schemaPaths}
                     workspaceId={workspaceId}
                 />
             ) : (
@@ -698,10 +703,13 @@ function BranchEditScreen({
                         <h1>{EDIT_KIND_TITLES[selectedKind]}</h1>
                         <p className="hint">
                             Pick an entity to edit it with a form or as source.
-                            Saves commit to the branch.
+                            {localWorkingTree
+                                ? " Saves write to the local checkout."
+                                : " Saves commit to the branch."}
                         </p>
                     </div>
                     <EditableEntityList
+                        catalogIds={catalogIds}
                         disabled={branch.status !== "active"}
                         branchId={branch.id}
                         entities={entities}
@@ -715,12 +723,14 @@ function BranchEditScreen({
 }
 
 function EditableEntityList({
+    catalogIds,
     disabled,
     branchId,
     entities,
     kind,
     workspaceId,
 }: {
+    catalogIds: string[];
     disabled?: boolean;
     branchId: string;
     entities: EditableEntity[];
@@ -730,6 +740,7 @@ function EditableEntityList({
     return (
         <>
             <AddEntityForm
+                catalogIds={catalogIds}
                 disabled={disabled}
                 branchId={branchId}
                 kind={kind}
@@ -798,9 +809,9 @@ function EditableEntityDetail({
     diagnostics,
     branch,
     entity,
+    localWorkingTree,
     model,
     catalogIds,
-    schemaPaths,
     workspaceId,
 }: {
     allEntities: EditableEntity[];
@@ -810,9 +821,9 @@ function EditableEntityDetail({
     diagnostics: LintDiagnostic[];
     branch: BranchRecord;
     entity: EditableEntity;
+    localWorkingTree: boolean;
     model: WorkspaceSemanticModel | null;
     catalogIds: string[];
-    schemaPaths: string[];
     workspaceId: string;
 }) {
     const catalogEntries =
@@ -823,6 +834,11 @@ function EditableEntityDetail({
                       candidate.catalogId === entity.id,
               )
             : [];
+    const catalogEntryValues = new Map(
+        (model?.catalogEntries ?? [])
+            .filter((entry) => entry.catalog === entity.id)
+            .map((entry) => [entry.key, entry.value] as const),
+    );
     const parentCatalog =
         entity.kind === "catalog value"
             ? (allEntities.find(
@@ -934,7 +950,6 @@ function EditableEntityDetail({
                 }}
                 catalogIds={catalogIds}
                 catalogSchema={catalogEntrySchemaText(entity, allEntities)}
-                schemaPaths={schemaPaths}
                 sourceMarks={sourceMarks}
                 workspaceId={workspaceId}
             />
@@ -949,26 +964,28 @@ function EditableEntityDetail({
             {catalogEntries.length > 0 ? (
                 <div className="card">
                     <div className="card-head-text">
-                        <h3>Catalog values</h3>
+                        <h3>Values</h3>
                         <p className="hint">
-                            Values available for this catalog.
+                            Variables select these catalog values by name.
                         </p>
                     </div>
-                    <div className="reference-links">
-                        {catalogEntries.map((entry) => (
-                            <Link
-                                className="pill pill-neutral"
-                                href={editEntityHref(
+                    <CatalogValueList
+                        items={catalogEntries.map((entry) => {
+                            const key =
+                                entry.entryKey ??
+                                entry.id.split("/").pop() ??
+                                entry.id;
+                            return {
+                                key,
+                                href: editEntityHref(
                                     workspaceId,
                                     branch.id,
                                     entry.path,
-                                )}
-                                key={entry.path}
-                            >
-                                {entry.entryKey ?? entry.id}
-                            </Link>
-                        ))}
-                    </div>
+                                ),
+                                value: catalogEntryValues.get(key),
+                            };
+                        })}
+                    />
                 </div>
             ) : null}
             <div className="card">
@@ -977,8 +994,9 @@ function EditableEntityDetail({
                         <h3>Delete from branch</h3>
                         <p className="hint">
                             Removes <span className="mono">{entity.path}</span>{" "}
-                            from the branch. The base ref is untouched until the
-                            pull request merges.
+                            {localWorkingTree
+                                ? "from the local checkout."
+                                : "from the branch. The base ref is untouched until the pull request merges."}
                         </p>
                     </div>
                     <DeleteEntityButton
@@ -1108,16 +1126,23 @@ function BranchPublishScreen({
 }) {
     const published = Boolean(branch.prUrl);
     const directPush = writeCapability.kind === "directPush";
+    const localWorkingTree =
+        writeCapability.kind === "directPush" &&
+        writeCapability.backend === "localWorkingTree";
     return (
         <section className="section">
             <div className="section-header-text">
-                <h1>Publish</h1>
+                <h1>{localWorkingTree ? "Review" : "Publish"}</h1>
                 <p className="hint">
-                    {directPush
-                        ? "Publishing applies the configured direct-push workflow for "
-                        : "Publishing opens a pull request from "}
+                    {localWorkingTree
+                        ? "Validate the local working tree for "
+                        : directPush
+                          ? "Publishing applies the configured direct-push workflow for "
+                          : "Publishing opens a pull request from "}
                     <span className="mono">{branch.branch}</span>
-                    {directPush ? (
+                    {localWorkingTree ? (
+                        ". Commit and push it with git when ready."
+                    ) : directPush ? (
                         "."
                     ) : (
                         <>
@@ -1170,11 +1195,17 @@ function BranchPublishScreen({
                 <>
                     <div className="card">
                         <div className="card-head-text">
-                            <h3>Ready to publish?</h3>
+                            <h3>
+                                {localWorkingTree
+                                    ? "Ready to review?"
+                                    : "Ready to publish?"}
+                            </h3>
                         </div>
                         <PublishCheck ok={changesCount > 0}>
                             {changesCount > 0
-                                ? `${changesCount} changed ${changesCount === 1 ? "change" : "changes"} to publish`
+                                ? localWorkingTree
+                                    ? `${changesCount} changed ${changesCount === 1 ? "file" : "files"} in the working tree`
+                                    : `${changesCount} changed ${changesCount === 1 ? "change" : "changes"} to publish`
                                 : "No changed files yet — save an edit first"}
                         </PublishCheck>
                         <PublishCheck ok={!lintHasErrors}>
@@ -1184,7 +1215,9 @@ function BranchPublishScreen({
                         </PublishCheck>
                         <PublishCheck ok={branch.status === "active"}>
                             {branch.status === "active"
-                                ? "Branch is active"
+                                ? localWorkingTree
+                                    ? "Working tree session is active"
+                                    : "Branch is active"
                                 : `Branch is ${branch.status}`}
                         </PublishCheck>
                         <div className="action-row">
@@ -1195,6 +1228,11 @@ function BranchPublishScreen({
                                     lintHasErrors
                                 }
                                 branchId={branch.id}
+                                writeBackend={
+                                    writeCapability.kind === "directPush"
+                                        ? writeCapability.backend
+                                        : undefined
+                                }
                                 writeKind={writeCapability.kind}
                                 workspaceId={workspaceId}
                             />
@@ -1202,11 +1240,15 @@ function BranchPublishScreen({
                     </div>
                     <div className="card">
                         <div className="card-head-text">
-                            <h3>Archive this branch</h3>
+                            <h3>
+                                {localWorkingTree
+                                    ? "Archive this working tree session"
+                                    : "Archive this branch"}
+                            </h3>
                             <p className="hint">
-                                Hide this branch from the console without
-                                deleting it from the repository. It can be
-                                opened again later.
+                                {localWorkingTree
+                                    ? "Hide this working tree session from the console without touching local files. It can be opened again later."
+                                    : "Hide this branch from the console without deleting it from the repository. It can be opened again later."}
                             </p>
                         </div>
                         <ArchiveBranchButton
@@ -1243,8 +1285,6 @@ function editKindIcon(kind: EditKind, size: number): ReactNode {
             return <Tags aria-hidden size={size} />;
         case "catalogs":
             return <Database aria-hidden size={size} />;
-        case "schemas":
-            return <FileJson2 aria-hidden size={size} />;
         case "context":
             return <Braces aria-hidden size={size} />;
         case "linters":
@@ -1252,10 +1292,13 @@ function editKindIcon(kind: EditKind, size: number): ReactNode {
     }
 }
 
-function branchScreenTitle(screen: BranchScreenId): string {
+function branchScreenTitle(
+    screen: BranchScreenId,
+    localWorkingTree = false,
+): string {
     switch (screen) {
         case "overview":
-            return "Branch overview";
+            return localWorkingTree ? "Working tree" : "Branch overview";
         case "edit":
             return "Edit";
         case "changes":
@@ -1263,7 +1306,7 @@ function branchScreenTitle(screen: BranchScreenId): string {
         case "validate":
             return "Validate";
         case "publish":
-            return "Publish";
+            return localWorkingTree ? "Review" : "Publish";
     }
 }
 
@@ -1335,7 +1378,6 @@ function editKindCounts(entities: EditableEntity[]): Record<EditKind, number> {
         variables: 0,
         qualifiers: 0,
         catalogs: 0,
-        schemas: 0,
         context: 0,
         linters: 0,
     };
@@ -1365,20 +1407,31 @@ function editableEntityTargetKey(entity: EditableEntity): string | null {
 }
 
 function contextAttributeSuggestions(entities: EditableEntity[]): string[] {
-    const contextSchema = entities.find((entity) =>
-        entity.path.endsWith("schemas/context.schema.json"),
+    const suggestions = new Set<string>();
+    for (const contextSchema of requestContextSchemaEntities(entities)) {
+        try {
+            const parsed = JSON.parse(contextSchema.text) as unknown;
+            for (const attribute of collectSchemaAttributes(parsed)) {
+                if (!attribute.startsWith("qualifier.")) {
+                    suggestions.add(attribute);
+                }
+            }
+        } catch {
+            // Draft text can be malformed while editing; lint owns diagnostics.
+        }
+    }
+    return [...suggestions].sort((left, right) => left.localeCompare(right));
+}
+
+function requestContextSchemaEntities(
+    entities: EditableEntity[],
+): EditableEntity[] {
+    return entities.filter(
+        (entity) =>
+            entity.kind === "context schema" ||
+            (entity.path.includes("request-contexts/") &&
+                entity.path.endsWith(".schema.json")),
     );
-    if (!contextSchema) {
-        return [];
-    }
-    try {
-        const parsed = JSON.parse(contextSchema.text) as unknown;
-        return collectSchemaAttributes(parsed)
-            .filter((attribute) => !attribute.startsWith("qualifier."))
-            .sort((left, right) => left.localeCompare(right));
-    } catch {
-        return [];
-    }
 }
 
 function collectSchemaAttributes(schema: unknown, prefix = ""): string[] {
@@ -1398,8 +1451,8 @@ function collectSchemaAttributes(schema: unknown, prefix = ""): string[] {
     });
 }
 
-/* Descriptions from related schemas and example values harvested from
-   sibling entities, so forms can show what good input looks like. */
+/* Descriptions and example values harvested from sibling entities, so forms
+   can show what good input looks like. */
 function buildFormGuidance(
     entity: EditableEntity,
     entities: EditableEntity[],
@@ -1408,28 +1461,6 @@ function buildFormGuidance(
     const guidance: FormGuidance = {};
     if (entity.section === "qualifiers") {
         guidance.contextAttributeDocs = contextAttributeDocs(entities);
-        const examples: Record<string, string[]> = {};
-        for (const qualifier of model?.qualifiers ?? []) {
-            if (qualifier.id === entity.id) {
-                continue;
-            }
-            for (const predicate of qualifier.predicates) {
-                const subject = predicate.attribute?.value;
-                if (
-                    !subject ||
-                    subject.startsWith("qualifier.") ||
-                    predicate.value === undefined
-                ) {
-                    continue;
-                }
-                const literal = JSON.stringify(predicate.value);
-                const list = (examples[subject] ??= []);
-                if (!list.includes(literal) && list.length < 6) {
-                    list.push(literal);
-                }
-            }
-        }
-        guidance.attributeValueExamples = examples;
     }
     if (entity.section === "variables") {
         guidance.qualifierIds = entities
@@ -1450,18 +1481,6 @@ function buildFormGuidance(
         guidance.catalogEntryKeys = entryKeys;
     }
     if (entity.section === "variables" || entity.kind === "catalog") {
-        guidance.schemaDocs = Object.fromEntries(
-            entities
-                .filter(
-                    (candidate) =>
-                        candidate.section === "schemas" &&
-                        candidate.description,
-                )
-                .map((candidate) => [
-                    candidate.path.split("/").pop() ?? candidate.path,
-                    candidate.description as string,
-                ]),
-        );
         guidance.catalogDocs = Object.fromEntries(
             entities
                 .filter(
@@ -1505,19 +1524,15 @@ function buildFormGuidance(
 function contextAttributeDocs(
     entities: EditableEntity[],
 ): Record<string, string> {
-    const schema = entities.find((candidate) =>
-        candidate.path.endsWith("schemas/context.schema.json"),
-    );
-    if (!schema) {
-        return {};
+    const docs: Record<string, string> = {};
+    for (const schema of requestContextSchemaEntities(entities)) {
+        try {
+            collectAttributeDocs(JSON.parse(schema.text), "", docs);
+        } catch {
+            // Draft text can be malformed while editing; lint owns diagnostics.
+        }
     }
-    try {
-        const docs: Record<string, string> = {};
-        collectAttributeDocs(JSON.parse(schema.text), "", docs);
-        return docs;
-    } catch {
-        return {};
-    }
+    return docs;
 }
 
 function collectAttributeDocs(
@@ -1559,17 +1574,7 @@ function catalogEntrySchemaText(
     if (!catalog) {
         return null;
     }
-    const schemaRef = /^\s*schema\s*=\s*"([^"]+)"\s*$/m.exec(catalog.text)?.[1];
-    const basename = schemaRef?.split("/").pop();
-    if (!basename) {
-        return null;
-    }
-    const schema = entities.find(
-        (candidate) =>
-            candidate.section === "schemas" &&
-            candidate.path.split("/").pop() === basename,
-    );
-    return schema?.text ?? null;
+    return catalog.text;
 }
 
 function diagnosticMatchesEntity(
@@ -1664,15 +1669,6 @@ function entityFromSemanticTarget(
             ) ?? null
         );
     }
-    if (entity.kind === "predicate" && typeof entity.qualifier === "string") {
-        return (
-            entities.find(
-                (candidate) =>
-                    candidate.section === "qualifiers" &&
-                    candidate.id === entity.qualifier,
-            ) ?? null
-        );
-    }
     if (entity.kind === "catalog" && typeof entity.id === "string") {
         return (
             entities.find(
@@ -1691,9 +1687,6 @@ function entityFromSemanticTarget(
                         candidate.entryKey === entity.key),
             ) ?? null
         );
-    }
-    if (entity.kind === "schema" && typeof entity.path === "string") {
-        return entityForDiagnosticPath(entities, entity.path);
     }
     if (entity.kind === "custom_lint" && typeof entity.path === "string") {
         return entityForDiagnosticPath(entities, entity.path);

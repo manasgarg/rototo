@@ -16,12 +16,9 @@ export type VariableSummary = {
     rules: VariableRuleSummary[];
 };
 
-/** Predicate summary parsed from qualifier TOML for display-only panels. */
-export type QualifierPredicateSummary = {
-    index: number;
-    subject: string | null;
-    op: string | null;
-    valueLiteral: string | null;
+/** Qualifier condition parsed from qualifier TOML for display-only panels. */
+export type QualifierSummary = {
+    when: string | null;
 };
 
 /** JSON Schema property summary shown in compact inspect views. */
@@ -62,21 +59,10 @@ export function variableSummary(text: string): VariableSummary {
     };
 }
 
-export function qualifierSummary(text: string): QualifierPredicateSummary[] {
-    return tomlBlocks(text)
-        .filter((block) => block.header === "predicate")
-        .map((block, index) => {
-            const attribute = stringLiteral(blockField(block, "attribute"));
-            const qualifierRef = stringLiteral(blockField(block, "qualifier"));
-            return {
-                index,
-                subject:
-                    attribute ??
-                    (qualifierRef ? `qualifier.${qualifierRef}` : null),
-                op: stringLiteral(blockField(block, "op")),
-                valueLiteral: blockField(block, "value"),
-            };
-        });
+export function qualifierSummary(text: string): QualifierSummary {
+    return {
+        when: stringLiteral(blockField(tomlBlocks(text)[0], "when")),
+    };
 }
 
 export function schemaSummary(text: string): SchemaSummary | null {

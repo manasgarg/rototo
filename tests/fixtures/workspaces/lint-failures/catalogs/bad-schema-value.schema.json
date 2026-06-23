@@ -1,0 +1,32 @@
+{
+  "description": "Catalog with an entry that does not match",
+  "type": "object",
+  "required": [
+    "heading",
+    "enabled"
+  ],
+  "properties": {
+    "heading": {
+      "type": "string",
+      "x-rototo-ui": {
+        "widget": "slider",
+        "min": 0,
+        "max": 10
+      }
+    },
+    "enabled": {
+      "type": "boolean",
+      "x-rototo-ui": {
+        "widget": "toggle",
+        "style": "switch"
+      }
+    },
+    "mode": {
+      "type": "string",
+      "x-rototo-ui": {
+        "widget": "unknown"
+      }
+    }
+  },
+  "additionalProperties": false
+}

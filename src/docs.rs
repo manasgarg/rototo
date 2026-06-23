@@ -60,6 +60,11 @@ pub const DOCS: &[DocPage] = &[
         markdown: include_str!("../docs/src/getting-started.md"),
     },
     DocPage {
+        id: "configuration-primitives",
+        title: "Configuration Primitives",
+        markdown: include_str!("../docs/src/configuration-primitives.md"),
+    },
+    DocPage {
         id: "operational-switches",
         title: "Operational Switches",
         markdown: include_str!("../docs/src/operational-switches.md"),
@@ -156,7 +161,7 @@ pub const DOCS: &[DocPage] = &[
     },
     DocPage {
         id: "reference-predicate-operators",
-        title: "Predicate Operators",
+        title: "Expressions",
         markdown: include_str!("../docs/src/reference-predicate-operators.md"),
     },
     DocPage {
@@ -270,6 +275,7 @@ pub const DOC_NAV_SECTIONS: &[DocNavSection] = &[
         title: "Learn",
         pages: &[
             "getting-started",
+            "configuration-primitives",
             "operational-switches",
             "incident-banner",
             "onboarding-checklist",
@@ -484,7 +490,7 @@ type = "string"
 default = "classic"
 
 [[resolve.rule]]
-qualifier = "premium-users"
+when = 'qualifier["premium-users"]'
 value = "redesign"
 "#,
     );

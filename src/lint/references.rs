@@ -1,7 +1,7 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use super::index::*;
-use super::source::{DocumentKind, SourceStore, resolve_workspace_relative_path};
+use super::source::SourceStore;
 use super::syntax::SyntaxIndex;
 use crate::diagnostics::{
     DiagnosticLocation, SemanticEntity, SemanticField, SemanticTarget, SourcePosition, SourceRange,
@@ -11,9 +11,6 @@ use crate::diagnostics::{
 pub(super) struct ReferenceIndex {
     declarations: BTreeMap<ReferenceTarget, DiagnosticLocation>,
     edges: Vec<ReferenceEdge>,
-    qualifier_referenced_by: BTreeMap<QualifierId, Vec<ReferenceSite>>,
-    value_referenced_by: BTreeMap<(VariableId, ValueKey), Vec<ReferenceSite>>,
-    catalog_entry_referenced_by: BTreeMap<(CatalogId, ValueKey), Vec<ReferenceSite>>,
 }
 
 #[derive(Clone)]
@@ -27,12 +24,11 @@ pub(super) struct ReferenceEdge {
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(super) enum ReferenceSource {
-    QualifierPredicateQualifier { qualifier: String, predicate: usize },
-    QualifierPredicateContextAttribute { qualifier: String, predicate: usize },
+    QualifierWhenQualifier { qualifier: String },
+    QualifierWhenContextAttribute { qualifier: String },
     VariableCatalog { variable: String },
-    CatalogSchema { catalog: String },
     VariableResolveDefault { variable: String },
-    VariableRuleQualifier { variable: String, rule: usize },
+    VariableRuleConditionQualifier { variable: String, rule: usize },
     VariableRuleValue { variable: String, rule: usize },
 }
 
@@ -42,7 +38,6 @@ pub(super) enum ReferenceTarget {
     Qualifier(String),
     Catalog(String),
     CatalogEntry { catalog: String, value: String },
-    Schema(String),
     VariableValue { variable: String, value: String },
 }
 
@@ -53,21 +48,14 @@ pub(super) struct QualifierReferenceEdge {
     pub(super) location: DiagnosticLocation,
 }
 
-#[derive(Clone)]
-#[allow(dead_code)]
-pub(super) struct ReferenceSite {
-    pub(super) from: SemanticEntity,
-    pub(super) location: DiagnosticLocation,
-}
-
 impl ReferenceIndex {
     pub(super) fn build(
         index: &SemanticIndex,
-        source: &SourceStore,
+        _source: &SourceStore,
         _syntax: &SyntaxIndex,
     ) -> Self {
         let mut references = Self::default();
-        references.add_declarations(index, source);
+        references.add_declarations(index);
         references.add_qualifier_references(index);
         references.add_variable_references(index);
         references
@@ -119,15 +107,6 @@ impl ReferenceIndex {
                         target: target.clone(),
                     });
                 }
-                ReferenceTarget::Schema(_)
-                    if location.path == path && self.has_references(target) =>
-                {
-                    candidates.push(ReferenceTargetCandidate {
-                        priority: 5,
-                        span_size: usize::MAX,
-                        target: target.clone(),
-                    });
-                }
                 ReferenceTarget::VariableValue { .. }
                     if location_contains_position(location, path, position) =>
                 {
@@ -150,7 +129,6 @@ impl ReferenceIndex {
                 ReferenceTarget::Qualifier(_)
                 | ReferenceTarget::Catalog(_)
                 | ReferenceTarget::CatalogEntry { .. }
-                | ReferenceTarget::Schema(_)
                 | ReferenceTarget::VariableValue { .. } => {}
             }
         }
@@ -179,8 +157,7 @@ impl ReferenceIndex {
             .collect::<BTreeMap<_, _>>();
 
         for edge in &self.edges {
-            let ReferenceSource::QualifierPredicateQualifier { qualifier, .. } = &edge.source
-            else {
+            let ReferenceSource::QualifierWhenQualifier { qualifier } = &edge.source else {
                 continue;
             };
             let ReferenceTarget::Qualifier(target) = &edge.target else {
@@ -214,8 +191,10 @@ impl ReferenceIndex {
         }
 
         for edge in &self.edges {
-            if !matches!(edge.source, ReferenceSource::VariableRuleQualifier { .. })
-                || !edge.is_resolved()
+            if !matches!(
+                edge.source,
+                ReferenceSource::VariableRuleConditionQualifier { .. }
+            ) || !edge.is_resolved()
             {
                 continue;
             }
@@ -234,8 +213,10 @@ impl ReferenceIndex {
         let mut stack = Vec::new();
 
         for edge in &self.edges {
-            if !matches!(edge.source, ReferenceSource::VariableRuleQualifier { .. })
-                || !edge.is_resolved()
+            if !matches!(
+                edge.source,
+                ReferenceSource::VariableRuleConditionQualifier { .. }
+            ) || !edge.is_resolved()
             {
                 continue;
             }
@@ -258,39 +239,7 @@ impl ReferenceIndex {
         reachable
     }
 
-    #[allow(dead_code)]
-    pub(super) fn qualifier_reference_sites(&self, qualifier: &str) -> &[ReferenceSite] {
-        self.qualifier_referenced_by
-            .get(qualifier)
-            .map(Vec::as_slice)
-            .unwrap_or(&[])
-    }
-
-    #[allow(dead_code)]
-    pub(super) fn variable_value_reference_sites(
-        &self,
-        variable: &str,
-        value: &str,
-    ) -> &[ReferenceSite] {
-        self.value_referenced_by
-            .get(&(variable.to_owned(), value.to_owned()))
-            .map(Vec::as_slice)
-            .unwrap_or(&[])
-    }
-
-    #[allow(dead_code)]
-    pub(super) fn catalog_entry_reference_sites(
-        &self,
-        catalog: &str,
-        value: &str,
-    ) -> &[ReferenceSite] {
-        self.catalog_entry_referenced_by
-            .get(&(catalog.to_owned(), value.to_owned()))
-            .map(Vec::as_slice)
-            .unwrap_or(&[])
-    }
-
-    fn add_declarations(&mut self, index: &SemanticIndex, source: &SourceStore) {
+    fn add_declarations(&mut self, index: &SemanticIndex) {
         for qualifier in index.qualifiers.values() {
             self.declarations.insert(
                 ReferenceTarget::Qualifier(qualifier.id.clone()),
@@ -328,66 +277,32 @@ impl ReferenceIndex {
                 );
             }
         }
-
-        for document in source.documents.values() {
-            match &document.kind {
-                DocumentKind::Schema => {
-                    self.declarations.insert(
-                        ReferenceTarget::Schema(document.path.clone()),
-                        document.document_location(),
-                    );
-                }
-                DocumentKind::Manifest
-                | DocumentKind::Qualifier { .. }
-                | DocumentKind::Variable { .. }
-                | DocumentKind::Catalog { .. }
-                | DocumentKind::CatalogEntry { .. }
-                | DocumentKind::CustomLint => {}
-            }
-        }
     }
 
     fn add_qualifier_references(&mut self, index: &SemanticIndex) {
         for qualifier in index.qualifiers.values() {
-            let PredicateCollection::Predicates(predicates) = &qualifier.predicates else {
-                continue;
-            };
-
-            for predicate in predicates {
-                let ProjectField::Present(attribute) = &predicate.attribute else {
-                    continue;
-                };
-                if let Some(target) = qualifier_reference(&attribute.value) {
+            if let ProjectField::Present(when) = &qualifier.when {
+                for target in &when.value.references().qualifiers {
                     self.push_edge(
-                        ReferenceSource::QualifierPredicateQualifier {
+                        ReferenceSource::QualifierWhenQualifier {
                             qualifier: qualifier.id.clone(),
-                            predicate: predicate.index,
                         },
-                        SemanticTarget::field(
-                            SemanticEntity::Predicate {
-                                qualifier: qualifier.id.clone(),
-                                index: predicate.index,
-                            },
-                            SemanticField::PredicateAttribute,
-                        ),
-                        attribute.location.clone(),
-                        ReferenceTarget::Qualifier(target.to_owned()),
+                        qualifier.field_target(SemanticField::QualifierWhen),
+                        when.location.clone(),
+                        ReferenceTarget::Qualifier(target.clone()),
                     );
-                } else {
+                }
+                for path in &when.value.references().context_paths {
+                    if path.is_empty() {
+                        continue;
+                    }
                     self.push_edge(
-                        ReferenceSource::QualifierPredicateContextAttribute {
+                        ReferenceSource::QualifierWhenContextAttribute {
                             qualifier: qualifier.id.clone(),
-                            predicate: predicate.index,
                         },
-                        SemanticTarget::field(
-                            SemanticEntity::Predicate {
-                                qualifier: qualifier.id.clone(),
-                                index: predicate.index,
-                            },
-                            SemanticField::PredicateAttribute,
-                        ),
-                        attribute.location.clone(),
-                        ReferenceTarget::ContextAttribute(attribute.value.clone()),
+                        qualifier.field_target(SemanticField::QualifierWhen),
+                        when.location.clone(),
+                        ReferenceTarget::ContextAttribute(path.clone()),
                     );
                 }
             }
@@ -396,7 +311,23 @@ impl ReferenceIndex {
 
     fn add_variable_references(&mut self, index: &SemanticIndex) {
         for variable in index.variables.values() {
-            if let TypeSourceNode::Catalog(catalog) = &variable.type_source {
+            if let Some(type_kind) = variable_type_kind(&variable.type_source) {
+                for catalog in type_kind.value.catalog_ids() {
+                    self.push_edge(
+                        ReferenceSource::VariableCatalog {
+                            variable: variable.id.clone(),
+                        },
+                        SemanticTarget::field(
+                            SemanticEntity::Variable {
+                                id: variable.id.clone(),
+                            },
+                            SemanticField::VariableType,
+                        ),
+                        type_kind.location.clone(),
+                        ReferenceTarget::Catalog(catalog.to_owned()),
+                    );
+                }
+            } else if let TypeSourceNode::Catalog(catalog) = &variable.type_source {
                 self.push_edge(
                     ReferenceSource::VariableCatalog {
                         variable: variable.id.clone(),
@@ -445,16 +376,26 @@ impl ReferenceIndex {
                     variable: variable.id.clone(),
                     index: rule.index,
                 };
-                if let ProjectField::Present(qualifier) = &rule.qualifier {
-                    self.push_edge(
-                        ReferenceSource::VariableRuleQualifier {
-                            variable: variable.id.clone(),
-                            rule: rule.index,
-                        },
-                        SemanticTarget::field(entity.clone(), SemanticField::VariableRuleQualifier),
-                        qualifier.location.clone(),
-                        ReferenceTarget::Qualifier(qualifier.value.clone()),
-                    );
+                for (field, expression) in [
+                    (SemanticField::VariableRuleWhen, &rule.when),
+                    (SemanticField::VariableRuleQuery, &rule.query),
+                ]
+                .into_iter()
+                .filter_map(|(field, expression)| expression.as_ref().map(|expr| (field, expr)))
+                {
+                    if let ProjectField::Present(expression) = expression {
+                        for qualifier in &expression.value.references().qualifiers {
+                            self.push_edge(
+                                ReferenceSource::VariableRuleConditionQualifier {
+                                    variable: variable.id.clone(),
+                                    rule: rule.index,
+                                },
+                                SemanticTarget::field(entity.clone(), field.clone()),
+                                expression.location.clone(),
+                                ReferenceTarget::Qualifier(qualifier.clone()),
+                            );
+                        }
+                    }
                 }
                 if let ProjectField::Present(value) = &rule.value
                     && let Some(target) = variable_value_target(variable, &value.value)
@@ -471,29 +412,6 @@ impl ReferenceIndex {
                 }
             }
         }
-
-        for catalog in index.catalogs.values() {
-            let ProjectField::Present(schema) = &catalog.schema else {
-                continue;
-            };
-            if let Some(schema_path) =
-                resolve_workspace_relative_path(&catalog.location.path, &schema.value)
-            {
-                self.push_edge(
-                    ReferenceSource::CatalogSchema {
-                        catalog: catalog.id.clone(),
-                    },
-                    SemanticTarget::field(
-                        SemanticEntity::Catalog {
-                            id: catalog.id.clone(),
-                        },
-                        SemanticField::CatalogSchema,
-                    ),
-                    schema.location.clone(),
-                    ReferenceTarget::Schema(schema_path),
-                );
-            }
-        }
     }
 
     fn push_edge(
@@ -505,35 +423,6 @@ impl ReferenceIndex {
     ) {
         let semantic_target = semantic_target.into();
         let declaration = self.declarations.get(&target).cloned();
-        if declaration.is_some() {
-            let site = ReferenceSite {
-                from: semantic_target.entity.clone(),
-                location: location.clone(),
-            };
-            match &target {
-                ReferenceTarget::Qualifier(qualifier) => {
-                    self.qualifier_referenced_by
-                        .entry(qualifier.clone())
-                        .or_default()
-                        .push(site);
-                }
-                ReferenceTarget::VariableValue { variable, value } => {
-                    self.value_referenced_by
-                        .entry((variable.clone(), value.clone()))
-                        .or_default()
-                        .push(site);
-                }
-                ReferenceTarget::CatalogEntry { catalog, value } => {
-                    self.catalog_entry_referenced_by
-                        .entry((catalog.clone(), value.clone()))
-                        .or_default()
-                        .push(site);
-                }
-                ReferenceTarget::ContextAttribute(_)
-                | ReferenceTarget::Catalog(_)
-                | ReferenceTarget::Schema(_) => {}
-            }
-        }
         self.edges.push(ReferenceEdge {
             source,
             semantic_target,
@@ -542,17 +431,13 @@ impl ReferenceIndex {
             declaration,
         });
     }
-
-    pub(super) fn has_references(&self, target: &ReferenceTarget) -> bool {
-        self.edges.iter().any(|edge| &edge.target == target)
-    }
 }
 
-fn variable_catalog_id(variable: &VariableNode) -> Option<&str> {
-    match &variable.type_source {
-        TypeSourceNode::Catalog(catalog) => Some(&catalog.value),
+fn variable_catalog_id(variable: &VariableNode) -> Option<String> {
+    variable_type_kind(&variable.type_source).and_then(|type_kind| match type_kind.value {
+        VariableTypeKind::Catalog(catalog) => Some(catalog),
         _ => None,
-    }
+    })
 }
 
 fn variable_value_target(
@@ -562,7 +447,7 @@ fn variable_value_target(
     let catalog = variable_catalog_id(variable)?;
     let value = value.as_str()?;
     Some(ReferenceTarget::CatalogEntry {
-        catalog: catalog.to_owned(),
+        catalog,
         value: value.to_owned(),
     })
 }
@@ -577,10 +462,6 @@ struct ReferenceTargetCandidate {
     priority: u8,
     span_size: usize,
     target: ReferenceTarget,
-}
-
-pub(super) fn qualifier_reference(attribute: &str) -> Option<&str> {
-    attribute.strip_prefix("qualifier.")
 }
 
 fn location_contains_position(

@@ -9,6 +9,7 @@ use clap::{ArgAction, Args, CommandFactory, Parser, Subcommand, ValueEnum};
 use clap_complete::{Shell, generate};
 use regex::Regex;
 use serde::Serialize;
+use serde_json::Value as JsonValue;
 
 use crate::output::{
     print_catalog_get, print_catalog_list, print_diagnostic_catalog_entry, print_inspect_report,
@@ -17,21 +18,19 @@ use crate::output::{
 };
 use rototo::diagnostics::{DiagnosticCatalogEntry, LintDiagnostic, SemanticEntity, Severity};
 use rototo::model::{
-    CatalogInspection, DiagnosticCatalog, InspectSelection, LinterInspection,
-    PredicateInspectReport, QualifierInspection, QualifierResolutionTrace, SchemaInspection,
-    VariableInspection, VariableResolutionTrace, WorkspaceInspectRequest, WorkspaceInspection,
-    WorkspaceLint,
+    CatalogInspection, DiagnosticCatalog, InspectSelection, LinterInspection, QualifierInspection,
+    QualifierResolutionTrace, RequestContextInspection, VariableInspection,
+    VariableResolutionTrace, WorkspaceInspectRequest, WorkspaceInspection, WorkspaceLint,
 };
 use rototo::workspace::{
-    catalog_for_id, qualifier_for_id, read_catalog_toml, read_toml, read_variable_toml,
+    catalog_for_id, qualifier_for_id, read_catalog_json, read_toml, read_variable_toml,
     variable_for_id, workspace_extends_sources,
 };
 use rototo::{
     Result, RototoError, SourceAuth, SourceOptions, StagedWorkspace, diagnostic_for_rule,
     diagnostics_catalog, diagnostics_catalog_for_workspace, diff_workspaces, find_workspace_root,
     inspect_workspace, inspect_workspace_report, lint_workspace, stage_workspace_source,
-    trace_qualifier_resolution, trace_qualifier_resolutions, trace_variable_resolution,
-    trace_variable_resolutions,
+    trace_qualifier_resolution, trace_variable_resolution,
 };
 
 #[derive(Debug, Parser)]
@@ -350,13 +349,19 @@ struct ConsoleArgs {
     #[arg(long = "workspace", value_name = "WORKSPACE_SOURCE")]
     workspace: Option<String>,
 
+    /// Console state persistence mode. Defaults to ephemeral for local folder
+    /// workspaces and persistent otherwise.
+    #[arg(long = "state", value_enum)]
+    state: Option<ConsoleStateArg>,
+
     /// Console deployment mode. Defaults to local with --workspace, hosted otherwise.
     #[arg(long = "deployment", value_enum)]
     deployment: Option<ConsoleDeploymentArg>,
 
-    /// Write behavior for console branch edits.
-    #[arg(long = "write", value_enum, default_value_t = ConsoleWriteArg::PullRequest)]
-    write: ConsoleWriteArg,
+    /// Write behavior for console branch edits. Defaults to direct-push for local
+    /// fixed workspaces and pull-request otherwise.
+    #[arg(long = "write", value_enum)]
+    write: Option<ConsoleWriteArg>,
 }
 
 #[cfg(feature = "console")]
@@ -372,6 +377,23 @@ impl From<ConsoleDeploymentArg> for rototo::console::ConsoleDeployment {
         match value {
             ConsoleDeploymentArg::Local => Self::Local,
             ConsoleDeploymentArg::Hosted => Self::Hosted,
+        }
+    }
+}
+
+#[cfg(feature = "console")]
+#[derive(Clone, Copy, Debug, ValueEnum)]
+enum ConsoleStateArg {
+    Ephemeral,
+    Persistent,
+}
+
+#[cfg(feature = "console")]
+impl From<ConsoleStateArg> for rototo::console::ConsoleStateMode {
+    fn from(value: ConsoleStateArg) -> Self {
+        match value {
+            ConsoleStateArg::Ephemeral => Self::Ephemeral,
+            ConsoleStateArg::Persistent => Self::Persistent,
         }
     }
 }
@@ -658,8 +680,9 @@ async fn run() -> Result<ExitCode> {
                 public_url: args.public_url,
                 data_dir: args.data_dir,
                 workspace: args.workspace,
+                state_mode: args.state.map(Into::into),
                 deployment: args.deployment.map(Into::into),
-                write_policy: args.write.into(),
+                write_policy: args.write.map(Into::into),
                 workspace_token: cli.workspace_token.clone(),
             })
             .await?;
@@ -871,18 +894,12 @@ async fn build_init_plan(workspace: &Path, target: InitTarget) -> Result<Vec<Ini
             let mut plan = implicit_workspace_init_plan(workspace, initialized);
             if initialized {
                 plan.push(InitPlanEntry::directory(workspace.join("catalogs")));
-                plan.push(InitPlanEntry::directory(workspace.join("schemas")));
             }
             plan.extend([
                 InitPlanEntry::directory(workspace.join("catalogs").join(format!("{id}-entries"))),
                 InitPlanEntry::file(
                     "catalog",
-                    workspace.join("catalogs").join(format!("{id}.toml")),
-                    catalog_template(&id),
-                ),
-                InitPlanEntry::file(
-                    "schema",
-                    workspace.join("schemas").join(format!("{id}.schema.json")),
+                    workspace.join("catalogs").join(format!("{id}.schema.json")),
                     catalog_schema_template()?,
                 ),
                 InitPlanEntry::file(
@@ -899,7 +916,7 @@ async fn build_init_plan(workspace: &Path, target: InitTarget) -> Result<Vec<Ini
         InitTarget::Context => {
             let mut plan = implicit_workspace_init_plan(workspace, initialized);
             if initialized {
-                plan.push(InitPlanEntry::directory(workspace.join("schemas")));
+                plan.push(InitPlanEntry::directory(workspace.join("request-contexts")));
             }
             let content = if initialized {
                 context_schema_template(workspace).await?
@@ -907,8 +924,10 @@ async fn build_init_plan(workspace: &Path, target: InitTarget) -> Result<Vec<Ini
                 starter_context_schema_template()?
             };
             plan.push(InitPlanEntry::file(
-                "context_schema",
-                workspace.join("schemas").join("context.schema.json"),
+                "request_context",
+                workspace
+                    .join("request-contexts")
+                    .join("request.schema.json"),
                 content,
             ));
             Ok(plan)
@@ -935,7 +954,7 @@ fn workspace_init_plan(workspace: &Path) -> Vec<InitPlanEntry> {
         InitPlanEntry::directory(workspace.join("qualifiers")),
         InitPlanEntry::directory(workspace.join("variables")),
         InitPlanEntry::directory(workspace.join("catalogs")),
-        InitPlanEntry::directory(workspace.join("schemas")),
+        InitPlanEntry::directory(workspace.join("request-contexts")),
         InitPlanEntry::directory(workspace.join("lint")),
     ]
 }
@@ -1191,32 +1210,19 @@ fn qualifier_template(id: &str) -> String {
 
 description = {description}
 
-[[predicate]]
-attribute = "user.tier"
-op = "eq"
-value = "premium"
+when = "context.user.tier == \"premium\""
 
-# Additional predicates are ANDed with the predicate above.
+# Compose multiple conditions with boolean operators.
 #
-# [[predicate]]
-# attribute = "request.country"
-# op = "in"
-# value = ["DE", "FR", "NL"]
+# when = 'context.user.tier == "premium" && context.request.country in ["DE", "FR", "NL"]'
 #
 # Qualifiers can reference other qualifiers.
 #
-# [[predicate]]
-# attribute = "qualifier.beta-rollout"
-# op = "eq"
-# value = true
+# when = 'qualifier["beta-rollout"] && context.user.tier == "premium"'
 #
-# Bucket predicates produce stable rollout membership for a context value.
+# bucket(...) produces stable rollout membership for a context value.
 #
-# [[predicate]]
-# attribute = "user.id"
-# op = "bucket"
-# salt = "{id}-rollout"
-# range = [0, 1000]
+# when = 'bucket(context.user.id, "{id}-rollout", 0, 1000)'
 "#
     )
 }
@@ -1234,10 +1240,10 @@ type = "string"
 [resolve]
 default = "control"
 
-# Rules are evaluated in order. The first matching qualifier selects its value.
+# Rules are evaluated in order. The first matching condition selects its value.
 #
 # [[resolve.rule]]
-# qualifier = "premium-users"
+# when = 'qualifier["premium-users"]'
 # value = "treatment"
 #
 # For catalog-backed values, use a catalog type:
@@ -1249,23 +1255,10 @@ default = "control"
     )
 }
 
-fn catalog_template(id: &str) -> String {
-    let description = toml_string(&format!(
-        "Edit this description to explain the {id} catalog values"
-    ));
-    let schema = toml_string(&format!("../schemas/{id}.schema.json"));
-    format!(
-        r#"schema_version = 1
-
-description = {description}
-schema = {schema}
-"#
-    )
-}
-
 fn catalog_schema_template() -> Result<String> {
     let schema = serde_json::json!({
         "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "description": "Edit this description to explain the catalog values",
         "type": "object",
         "additionalProperties": false,
         "properties": {
@@ -1296,8 +1289,8 @@ async fn context_schema_template(workspace: &Path) -> Result<String> {
 
     let mut builder = ContextSchemaBuilder::default();
     for qualifier in &report.qualifiers {
-        for predicate in &qualifier.predicates {
-            builder.add_predicate(predicate);
+        for path in &qualifier.dependencies.context_paths {
+            builder.add_context_path(path);
         }
     }
 
@@ -1333,24 +1326,13 @@ struct ContextSchemaBuilder {
 }
 
 impl ContextSchemaBuilder {
-    fn add_predicate(&mut self, predicate: &PredicateInspectReport) {
-        let Some(attribute) = predicate.attribute.as_deref() else {
-            return;
-        };
-        if attribute.starts_with("qualifier.") {
-            return;
-        }
-
-        let types = infer_context_schema_types(predicate);
-        if types.is_empty() {
-            return;
-        }
-
-        let segments = attribute.split('.').collect::<Vec<_>>();
+    fn add_context_path(&mut self, path: &str) {
+        let segments = path.split('.').collect::<Vec<_>>();
         if segments.is_empty() || segments.iter().any(|segment| segment.is_empty()) {
             return;
         }
 
+        let types = BTreeSet::from([ContextSchemaType::String]);
         insert_context_schema_path(&mut self.properties, &segments, &types);
     }
 
@@ -1370,75 +1352,27 @@ impl ContextSchemaBuilder {
 
 #[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
 enum ContextSchemaType {
+    Null,
     Boolean,
     Integer,
     Number,
     String,
+    Array,
+    Object,
 }
 
 impl ContextSchemaType {
     fn as_str(self) -> &'static str {
         match self {
+            Self::Null => "null",
             Self::Boolean => "boolean",
             Self::Integer => "integer",
             Self::Number => "number",
             Self::String => "string",
+            Self::Array => "array",
+            Self::Object => "object",
         }
     }
-}
-
-fn infer_context_schema_types(predicate: &PredicateInspectReport) -> BTreeSet<ContextSchemaType> {
-    let mut types = match predicate.op.as_deref() {
-        Some("eq" | "neq") => predicate
-            .value
-            .as_ref()
-            .map(context_schema_types_from_json)
-            .unwrap_or_default(),
-        Some("in" | "not_in") => {
-            let mut types = BTreeSet::new();
-            if let Some(values) = predicate
-                .value
-                .as_ref()
-                .and_then(serde_json::Value::as_array)
-            {
-                for value in values {
-                    types.extend(context_schema_types_from_json(value));
-                }
-            }
-            types
-        }
-        Some("gt" | "gte" | "lt" | "lte") => BTreeSet::from([ContextSchemaType::Number]),
-        Some("bucket") => BTreeSet::from([
-            ContextSchemaType::Boolean,
-            ContextSchemaType::Integer,
-            ContextSchemaType::Number,
-            ContextSchemaType::String,
-        ]),
-        _ => BTreeSet::new(),
-    };
-    normalize_context_schema_types(&mut types);
-    types
-}
-
-fn context_schema_types_from_json(value: &serde_json::Value) -> BTreeSet<ContextSchemaType> {
-    let mut types = BTreeSet::new();
-    match value {
-        serde_json::Value::Bool(_) => {
-            types.insert(ContextSchemaType::Boolean);
-        }
-        serde_json::Value::Number(number) => {
-            types.insert(if number.is_i64() || number.is_u64() {
-                ContextSchemaType::Integer
-            } else {
-                ContextSchemaType::Number
-            });
-        }
-        serde_json::Value::String(_) => {
-            types.insert(ContextSchemaType::String);
-        }
-        serde_json::Value::Null | serde_json::Value::Array(_) | serde_json::Value::Object(_) => {}
-    }
-    types
 }
 
 fn insert_context_schema_path(
@@ -1566,6 +1500,9 @@ fn context_schema_type_from_str(value: &str) -> Option<ContextSchemaType> {
         "integer" => Some(ContextSchemaType::Integer),
         "number" => Some(ContextSchemaType::Number),
         "string" => Some(ContextSchemaType::String),
+        "array" => Some(ContextSchemaType::Array),
+        "object" => Some(ContextSchemaType::Object),
+        "null" => Some(ContextSchemaType::Null),
         _ => None,
     }
 }
@@ -1758,42 +1695,266 @@ async fn run_resolve(
     let catalog = diagnostics_catalog_for_workspace(workspace.path()).await?;
     validate_workspace_selectors(&selectors, &inspection, &catalog)?;
 
+    if args.context.is_empty() {
+        let model = rototo::lint::workspace_semantic_model(workspace.path()).await?;
+        let contexts =
+            trace_sample_resolutions(workspace.path(), &inspection, &selectors, &model).await?;
+        print_resolutions(workspace.path(), &[], &[], &contexts, json)?;
+        return Ok(ExitCode::SUCCESS);
+    }
+
     let context = parse_context(&args.context).await?;
-    let mut variables = Vec::new();
-    let mut qualifiers = Vec::new();
-
-    if selectors.variables.is_some_or_all() {
-        match selected_variable_ids(&inspection, &selectors.variables) {
-            SelectedIds::All => {
-                variables.extend(trace_variable_resolutions(workspace.path(), &context).await?)
-            }
-            SelectedIds::Some(ids) => {
-                for id in ids {
-                    variables
-                        .push(trace_variable_resolution(workspace.path(), &id, &context).await?);
-                }
-            }
-            SelectedIds::None => {}
-        }
-    }
-
-    if selectors.qualifiers.is_some_or_all() {
-        match selected_qualifier_ids(&inspection, &selectors.qualifiers) {
-            SelectedIds::All => {
-                qualifiers.extend(trace_qualifier_resolutions(workspace.path(), &context).await?)
-            }
-            SelectedIds::Some(ids) => {
-                for id in ids {
-                    qualifiers
-                        .push(trace_qualifier_resolution(workspace.path(), &id, &context).await?);
-                }
-            }
-            SelectedIds::None => {}
-        }
-    }
-
-    print_resolutions(workspace.path(), &variables, &qualifiers, json)?;
+    let (variables, qualifiers) =
+        trace_selected_resolutions(workspace.path(), &inspection, &selectors, &context).await?;
+    print_resolutions(workspace.path(), &variables, &qualifiers, &[], json)?;
     Ok(ExitCode::SUCCESS)
+}
+
+async fn trace_selected_resolutions(
+    workspace: &Path,
+    inspection: &WorkspaceInspection,
+    selectors: &TargetSelectors,
+    context: &JsonValue,
+) -> Result<(Vec<VariableResolutionTrace>, Vec<QualifierResolutionTrace>)> {
+    let mut variables = Vec::new();
+    for id in selected_variable_id_list(inspection, &selectors.variables) {
+        variables.push(trace_variable_resolution(workspace, &id, context).await?);
+    }
+
+    let mut qualifiers = Vec::new();
+    for id in selected_qualifier_id_list(inspection, &selectors.qualifiers) {
+        qualifiers.push(trace_qualifier_resolution(workspace, &id, context).await?);
+    }
+
+    Ok((variables, qualifiers))
+}
+
+async fn trace_sample_resolutions(
+    workspace: &Path,
+    inspection: &WorkspaceInspection,
+    selectors: &TargetSelectors,
+    model: &rototo::lint::WorkspaceSemanticModel,
+) -> Result<Vec<ContextResolveOutput>> {
+    let variable_ids = selected_variable_id_list(inspection, &selectors.variables);
+    let qualifier_ids = selected_qualifier_id_list(inspection, &selectors.qualifiers);
+    let variable_contexts = variable_request_contexts(model);
+    let qualifier_contexts = qualifier_request_contexts(model);
+    let variable_has_rules = variable_rule_presence(model);
+    let samples = stored_request_contexts(model);
+
+    let mut requested_contexts = BTreeSet::new();
+    let mut context_independent_variables = BTreeSet::new();
+    for variable in &variable_ids {
+        let contexts = variable_contexts.get(variable).cloned().unwrap_or_default();
+        if contexts.is_empty() && !variable_has_rules.get(variable).copied().unwrap_or(false) {
+            context_independent_variables.insert(variable.clone());
+        } else {
+            requested_contexts.extend(contexts);
+        }
+    }
+    for qualifier in &qualifier_ids {
+        requested_contexts.extend(
+            qualifier_contexts
+                .get(qualifier)
+                .cloned()
+                .unwrap_or_default(),
+        );
+    }
+
+    let mut runs = Vec::new();
+    let mut resolved_variables = BTreeSet::new();
+    let mut resolved_qualifiers = BTreeSet::new();
+    for sample in samples
+        .iter()
+        .filter(|sample| requested_contexts.contains(&sample.request_context))
+    {
+        let mut variables = Vec::new();
+        for variable in &variable_ids {
+            let contexts = variable_contexts.get(variable).cloned().unwrap_or_default();
+            if contexts.contains(&sample.request_context)
+                || context_independent_variables.contains(variable)
+            {
+                variables
+                    .push(trace_variable_resolution(workspace, variable, &sample.value).await?);
+                resolved_variables.insert(variable.clone());
+            }
+        }
+
+        let mut qualifiers = Vec::new();
+        for qualifier in &qualifier_ids {
+            if qualifier_contexts
+                .get(qualifier)
+                .is_some_and(|contexts| contexts.contains(&sample.request_context))
+            {
+                qualifiers
+                    .push(trace_qualifier_resolution(workspace, qualifier, &sample.value).await?);
+                resolved_qualifiers.insert(qualifier.clone());
+            }
+        }
+
+        if !variables.is_empty() || !qualifiers.is_empty() {
+            runs.push(ContextResolveOutput {
+                request_context: Some(sample.request_context.clone()),
+                sample: Some(sample.key.clone()),
+                variables,
+                qualifiers,
+            });
+        }
+    }
+
+    let unresolved_context_independent = context_independent_variables
+        .iter()
+        .filter(|variable| !resolved_variables.contains(*variable))
+        .cloned()
+        .collect::<Vec<_>>();
+    if !unresolved_context_independent.is_empty() {
+        let empty_context = JsonValue::Object(serde_json::Map::new());
+        let mut variables = Vec::new();
+        for variable in unresolved_context_independent {
+            variables.push(trace_variable_resolution(workspace, &variable, &empty_context).await?);
+            resolved_variables.insert(variable);
+        }
+        runs.push(ContextResolveOutput {
+            request_context: None,
+            sample: None,
+            variables,
+            qualifiers: Vec::new(),
+        });
+    }
+
+    let unresolved = unresolved_resolution_targets(
+        &variable_ids,
+        &qualifier_ids,
+        &resolved_variables,
+        &resolved_qualifiers,
+    );
+    if !unresolved.is_empty() {
+        return Err(RototoError::new(format!(
+            "no stored request context sample matched selected target(s): {}",
+            unresolved.join(", ")
+        )));
+    }
+
+    Ok(runs)
+}
+
+#[derive(Debug)]
+struct StoredRequestContext {
+    request_context: String,
+    key: String,
+    value: JsonValue,
+}
+
+fn stored_request_contexts(
+    model: &rototo::lint::WorkspaceSemanticModel,
+) -> Vec<StoredRequestContext> {
+    model
+        .request_context_entries
+        .iter()
+        .filter_map(|entry| {
+            entry.value.as_ref().map(|value| StoredRequestContext {
+                request_context: entry.request_context.clone(),
+                key: entry.key.clone(),
+                value: value.clone(),
+            })
+        })
+        .collect()
+}
+
+fn variable_request_contexts(
+    model: &rototo::lint::WorkspaceSemanticModel,
+) -> BTreeMap<String, BTreeSet<String>> {
+    model
+        .variable_request_contexts
+        .iter()
+        .map(|compatibility| {
+            (
+                compatibility.variable.clone(),
+                compatibility.request_contexts.iter().cloned().collect(),
+            )
+        })
+        .collect()
+}
+
+fn qualifier_request_contexts(
+    model: &rototo::lint::WorkspaceSemanticModel,
+) -> BTreeMap<String, BTreeSet<String>> {
+    model
+        .qualifier_request_contexts
+        .iter()
+        .map(|compatibility| {
+            (
+                compatibility.qualifier.clone(),
+                compatibility.request_contexts.iter().cloned().collect(),
+            )
+        })
+        .collect()
+}
+
+fn variable_rule_presence(model: &rototo::lint::WorkspaceSemanticModel) -> BTreeMap<String, bool> {
+    model
+        .variables
+        .iter()
+        .map(|variable| {
+            (
+                variable.id.clone(),
+                variable
+                    .resolve
+                    .as_ref()
+                    .is_some_and(|resolve| !resolve.rules.is_empty()),
+            )
+        })
+        .collect()
+}
+
+fn unresolved_resolution_targets(
+    variable_ids: &[String],
+    qualifier_ids: &[String],
+    resolved_variables: &BTreeSet<String>,
+    resolved_qualifiers: &BTreeSet<String>,
+) -> Vec<String> {
+    let mut unresolved = Vec::new();
+    for variable in variable_ids {
+        if !resolved_variables.contains(variable) {
+            unresolved.push(format!("variable://{variable}"));
+        }
+    }
+    for qualifier in qualifier_ids {
+        if !resolved_qualifiers.contains(qualifier) {
+            unresolved.push(format!("qualifier://{qualifier}"));
+        }
+    }
+    unresolved
+}
+
+fn selected_variable_id_list(
+    inspection: &WorkspaceInspection,
+    selection: &Selection<String>,
+) -> Vec<String> {
+    match selected_variable_ids(inspection, selection) {
+        SelectedIds::None => Vec::new(),
+        SelectedIds::Some(ids) => ids,
+        SelectedIds::All => inspection
+            .variables
+            .iter()
+            .map(|variable| variable.id.clone())
+            .collect(),
+    }
+}
+
+fn selected_qualifier_id_list(
+    inspection: &WorkspaceInspection,
+    selection: &Selection<String>,
+) -> Vec<String> {
+    match selected_qualifier_ids(inspection, selection) {
+        SelectedIds::None => Vec::new(),
+        SelectedIds::Some(ids) => ids,
+        SelectedIds::All => inspection
+            .qualifiers
+            .iter()
+            .map(|qualifier| qualifier.id.clone())
+            .collect(),
+    }
 }
 
 async fn run_docs(args: DocsArgs, json: bool) -> Result<ExitCode> {
@@ -2053,7 +2214,7 @@ fn diagnostic_is_catalog_related(diagnostic: &LintDiagnostic) -> bool {
 }
 
 fn diagnostic_belongs_to_catalog(diagnostic: &LintDiagnostic, id: &str) -> bool {
-    let catalog_path = format!("catalogs/{id}.toml");
+    let catalog_path = format!("catalogs/{id}.schema.json");
     let catalog_entries_prefix = format!("catalogs/{id}-entries/");
     matches!(&diagnostic.target.entity, SemanticEntity::Catalog { id: diagnostic_id } if diagnostic_id == id)
         || matches!(&diagnostic.target.entity, SemanticEntity::CatalogEntry { catalog, .. } if catalog == id)
@@ -2142,7 +2303,7 @@ async fn show_selected_targets(
 struct WorkspaceView {
     command: String,
     workspace: String,
-    schemas: Vec<SchemaInspection>,
+    request_contexts: Vec<WorkspaceFileView>,
     catalogs: Vec<WorkspaceFileView>,
     variables: Vec<WorkspaceFileView>,
     qualifiers: Vec<WorkspaceFileView>,
@@ -2195,10 +2356,16 @@ async fn workspace_inventory_view(
         qualifiers.push(qualifier_view(inspection, qualifier, false).await?);
     }
 
+    let request_contexts = inspection
+        .request_contexts
+        .iter()
+        .map(request_context_view)
+        .collect();
+
     Ok(WorkspaceView {
         command: String::new(),
         workspace: inspection.root.display().to_string(),
-        schemas: inspection.schemas.clone(),
+        request_contexts,
         catalogs,
         variables,
         qualifiers,
@@ -2277,7 +2444,7 @@ async fn selected_workspace_view(
     Ok(WorkspaceView {
         command: String::new(),
         workspace: inspection.root.display().to_string(),
-        schemas: Vec::new(),
+        request_contexts: Vec::new(),
         catalogs,
         variables,
         qualifiers,
@@ -2314,10 +2481,7 @@ async fn catalog_view(
     include_value: bool,
 ) -> Result<WorkspaceFileView> {
     let value = if include_value {
-        Some(
-            serde_json::to_value(read_catalog_toml(&inspection.root, catalog).await?)
-                .map_err(|err| RototoError::new(err.to_string()))?,
-        )
+        Some(read_catalog_json(&inspection.root, catalog).await?)
     } else {
         None
     };
@@ -2350,6 +2514,15 @@ async fn qualifier_view(
     })
 }
 
+fn request_context_view(request_context: &RequestContextInspection) -> WorkspaceFileView {
+    WorkspaceFileView {
+        id: request_context.id.clone(),
+        uri: request_context.uri.clone(),
+        path: request_context.path.display().to_string(),
+        value: None,
+    }
+}
+
 fn print_workspace_view(command: &str, view: &WorkspaceView, json: bool) -> Result<()> {
     if json {
         let mut view =
@@ -2372,13 +2545,14 @@ fn print_workspace_view(command: &str, view: &WorkspaceView, json: bool) -> Resu
         style::label("workspace"),
         style::bold(&view.workspace)
     );
-    if !view.schemas.is_empty() {
-        println!("{}", style::label("schemas"));
-        for schema in &view.schemas {
+    if !view.request_contexts.is_empty() {
+        println!("{}", style::label("request contexts"));
+        for request_context in &view.request_contexts {
             println!(
-                "  {}  {}",
-                style::sea(&schema.id),
-                style::dim(&schema.path.display().to_string())
+                "  {}  {}  {}",
+                style::sea(&request_context.id),
+                style::dim(&request_context.uri),
+                style::dim(&request_context.path)
             );
         }
     }
@@ -2654,12 +2828,29 @@ struct ResolveOutput<'a> {
     workspace: String,
     variables: &'a [VariableResolutionTrace],
     qualifiers: &'a [QualifierResolutionTrace],
+    #[serde(skip_serializing_if = "is_empty_slice")]
+    contexts: &'a [ContextResolveOutput],
+}
+
+#[derive(Debug, Serialize)]
+struct ContextResolveOutput {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    request_context: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    sample: Option<String>,
+    variables: Vec<VariableResolutionTrace>,
+    qualifiers: Vec<QualifierResolutionTrace>,
+}
+
+fn is_empty_slice<T>(value: &&[T]) -> bool {
+    value.is_empty()
 }
 
 fn print_resolutions(
     workspace: &Path,
     variables: &[VariableResolutionTrace],
     qualifiers: &[QualifierResolutionTrace],
+    contexts: &[ContextResolveOutput],
     json: bool,
 ) -> Result<()> {
     if json {
@@ -2669,6 +2860,7 @@ fn print_resolutions(
                 workspace: workspace.display().to_string(),
                 variables,
                 qualifiers,
+                contexts,
             })
             .map_err(|err| RototoError::new(err.to_string()))?
         );
@@ -2692,6 +2884,13 @@ fn print_resolutions(
         index += 1;
         print_qualifier_resolution_trace(trace)?;
     }
+    if !contexts.is_empty() {
+        let count = contexts.len();
+        for (index, context) in contexts.iter().enumerate() {
+            print_resolve_separator(index, count);
+            print_context_resolution_trace(context)?;
+        }
+    }
     Ok(())
 }
 
@@ -2714,7 +2913,7 @@ fn print_variable_resolution_trace(trace: &VariableResolutionTrace) -> Result<()
         println!(
             "    {} if {} {} {} ({})",
             style::dim(&format!("rule[{}]", rule.index)),
-            style::sea(&rule.qualifier),
+            style::sea(&rule.condition),
             style::arrow(),
             compact_json(&rule.value)?,
             if rule.matched {
@@ -2745,17 +2944,15 @@ fn resolution_source_label(source: &rototo::model::VariableResolutionSource) -> 
         rototo::model::VariableResolutionSource::Catalog { catalog, value } => {
             format!("{catalog}:{value}")
         }
+        rototo::model::VariableResolutionSource::CatalogList { catalog, values } => {
+            format!("{catalog}:[{}]", values.join(","))
+        }
     }
 }
 
 fn print_qualifier_resolution_trace(trace: &QualifierResolutionTrace) -> Result<()> {
     println!("qualifier: {}", style::sea(&trace.id));
-    if !trace.predicates.is_empty() {
-        println!("  {}", style::subhead("predicates"));
-        for predicate in &trace.predicates {
-            print_predicate_resolution(predicate, "    ")?;
-        }
-    }
+    println!("  {} {}", style::subhead("when"), style::info(&trace.when));
     println!(
         "  result: {}",
         if trace.value {
@@ -2767,14 +2964,39 @@ fn print_qualifier_resolution_trace(trace: &QualifierResolutionTrace) -> Result<
     Ok(())
 }
 
-fn print_nested_qualifier_resolution_trace(trace: &QualifierResolutionTrace) -> Result<()> {
-    println!("    qualifier: {}", style::sea(&trace.id));
-    if !trace.predicates.is_empty() {
-        println!("      {}", style::subhead("predicates"));
-        for predicate in &trace.predicates {
-            print_predicate_resolution(predicate, "        ")?;
+fn print_context_resolution_trace(context: &ContextResolveOutput) -> Result<()> {
+    match (&context.request_context, &context.sample) {
+        (Some(request_context), Some(sample)) => {
+            println!("request context: {}", style::sea(request_context));
+            println!("sample: {}", style::info(sample));
+        }
+        _ => {
+            println!("request context: {}", style::dim("<none>"));
         }
     }
+
+    let count = context.variables.len() + context.qualifiers.len();
+    let mut index = 0;
+    for trace in &context.variables {
+        print_resolve_separator(index, count);
+        index += 1;
+        print_variable_resolution_trace(trace)?;
+    }
+    for trace in &context.qualifiers {
+        print_resolve_separator(index, count);
+        index += 1;
+        print_qualifier_resolution_trace(trace)?;
+    }
+    Ok(())
+}
+
+fn print_nested_qualifier_resolution_trace(trace: &QualifierResolutionTrace) -> Result<()> {
+    println!("    qualifier: {}", style::sea(&trace.id));
+    println!(
+        "      {} {}",
+        style::subhead("when"),
+        style::info(&trace.when)
+    );
     println!(
         "      result: {}",
         if trace.value {
@@ -2784,62 +3006,6 @@ fn print_nested_qualifier_resolution_trace(trace: &QualifierResolutionTrace) -> 
         }
     );
     Ok(())
-}
-
-fn print_predicate_resolution(
-    predicate: &rototo::model::PredicateResolutionTrace,
-    indent: &str,
-) -> Result<()> {
-    println!(
-        "{indent}[{}] {}",
-        predicate.index,
-        predicate_source_label(predicate)?
-    );
-    match &predicate.bucket {
-        Some(bucket) => {
-            let bucket_value = bucket
-                .value
-                .map(|value| value.to_string())
-                .unwrap_or_else(|| "<missing>".to_owned());
-            println!(
-                "{indent}    test: bucket salt={} range=[{},{}] bucket={}",
-                bucket.salt, bucket.start, bucket.end, bucket_value
-            );
-        }
-        None => {
-            let op = predicate.op.as_deref().unwrap_or("<op>");
-            let expected = predicate
-                .expected
-                .as_ref()
-                .map(compact_json)
-                .transpose()?
-                .unwrap_or_else(|| "<missing>".to_owned());
-            println!("{indent}    test: {op} {expected}");
-        }
-    }
-    println!(
-        "{indent}    matched: {}",
-        if predicate.result {
-            style::ok("true")
-        } else {
-            style::dim("false")
-        }
-    );
-    Ok(())
-}
-
-fn predicate_source_label(predicate: &rototo::model::PredicateResolutionTrace) -> Result<String> {
-    let actual = predicate
-        .actual
-        .as_ref()
-        .map(compact_json)
-        .transpose()?
-        .unwrap_or_else(|| "<missing>".to_owned());
-    if let Some(qualifier) = &predicate.qualifier {
-        Ok(format!("qualifier {qualifier} = {actual}"))
-    } else {
-        Ok(format!("context {} = {actual}", predicate.attribute))
-    }
 }
 
 fn compact_json(value: &serde_json::Value) -> Result<String> {

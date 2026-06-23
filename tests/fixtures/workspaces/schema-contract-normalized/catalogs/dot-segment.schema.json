@@ -1,0 +1,12 @@
+{
+  "description": "Catalog with a dot-segment schema reference",
+  "type": "object",
+  "required": [
+    "enabled"
+  ],
+  "properties": {
+    "enabled": {
+      "type": "boolean"
+    }
+  }
+}

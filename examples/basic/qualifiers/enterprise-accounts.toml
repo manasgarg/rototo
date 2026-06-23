@@ -2,12 +2,4 @@ schema_version = 1
 
 description = "Users attached to large enterprise accounts"
 
-[[predicate]]
-attribute = "account.plan"
-op = "eq"
-value = "enterprise"
-
-[[predicate]]
-attribute = "account.seats"
-op = "gte"
-value = 100
+when = '(context.account.plan == "enterprise") && (context.account.seats >= 100)'

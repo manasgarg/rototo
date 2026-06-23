@@ -1,4 +1,5 @@
 use std::collections::{BTreeSet, HashSet};
+use std::path::{Path as FsPath, PathBuf};
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -20,13 +21,16 @@ use super::api_workspace::{
     EntityQuery, lint_error_json, lint_json, load_saved_contexts, load_workspace,
     workspace_capabilities_json,
 };
-use super::capabilities::{WorkspaceSourceKind, WritePolicy, classify_workspace_source};
+use super::capabilities::{
+    DeploymentType, WorkspaceSourceKind, WritePolicy, classify_workspace_source,
+};
 use super::github::workspace_repo_path;
 use super::inventory::{
     WorkspaceInventory, inspect_workspace_inventory, language_for_path, read_workspace_definition,
 };
+use super::local_git;
 use super::resolve_preview::edit_context_previews;
-use super::stage::{BranchName, GitRefName};
+use super::stage::{BranchName, GitRefName, SourceTreeRevision};
 use super::store::{
     ActiveBranchRecord, ActiveBranchStatus, BranchPullRequestInput, SelectBranchInput, SessionUser,
     WorkspaceRecord,
@@ -93,11 +97,12 @@ struct BranchContext {
     user: SessionUser,
     workspace: WorkspaceRecord,
     branch: ActiveBranchRecord,
-    github_repo: super::github::GitHubRepoIdentity,
+    github_repo: Option<super::github::GitHubRepoIdentity>,
 }
 
 enum BranchBackend<'a> {
     GitHub { token: &'a str, direct: bool },
+    LocalWorkingTree,
 }
 
 #[derive(Clone, Debug, Serialize)]
@@ -127,7 +132,7 @@ fn branch_backend<'a>(
                 })
             }
             _ => Err(ApiError::bad_request(
-                "only GitHub configuration sources support branch edits",
+                "only GitHub configuration sources support pull-request edits",
             )),
         },
         WritePolicy::DirectPush => match kind {
@@ -138,8 +143,16 @@ fn branch_backend<'a>(
                     direct: true,
                 })
             }
+            WorkspaceSourceKind::LocalPath | WorkspaceSourceKind::FileUrl
+                if state.deployment == DeploymentType::Local =>
+            {
+                Ok(BranchBackend::LocalWorkingTree)
+            }
+            WorkspaceSourceKind::LocalPath | WorkspaceSourceKind::FileUrl => Err(
+                ApiError::bad_request("local folder edits require a local console deployment"),
+            ),
             _ => Err(ApiError::bad_request(
-                "only GitHub configuration sources support branch edits",
+                "only GitHub or local folder configuration sources support direct edits",
             )),
         },
     }
@@ -150,6 +163,20 @@ fn context_is_github_workspace(workspace: &WorkspaceRecord) -> bool {
         classify_workspace_source(&workspace.source),
         WorkspaceSourceKind::GitHubArchive | WorkspaceSourceKind::GitHubGit
     )
+}
+
+fn context_is_local_workspace(workspace: &WorkspaceRecord) -> bool {
+    matches!(
+        classify_workspace_source(&workspace.source),
+        WorkspaceSourceKind::LocalPath | WorkspaceSourceKind::FileUrl
+    )
+}
+
+fn context_github_repo(context: &BranchContext) -> ApiResult<&super::github::GitHubRepoIdentity> {
+    context
+        .github_repo
+        .as_ref()
+        .ok_or_else(|| ApiError::bad_request("GitHub repository not found"))
 }
 
 async fn load_branch(
@@ -171,8 +198,14 @@ async fn load_branch(
     }
     Ok(BranchContext {
         user,
-        github_repo: github_repo_for_workspace(&workspace)
-            .map_err(|err| ApiError::bad_request(err.to_string()))?,
+        github_repo: if context_is_github_workspace(&workspace) {
+            Some(
+                github_repo_for_workspace(&workspace)
+                    .map_err(|err| ApiError::bad_request(err.to_string()))?,
+            )
+        } else {
+            None
+        },
         workspace,
         branch,
     })
@@ -194,7 +227,9 @@ async fn invalidate_branch(
     )
     .await
     {
-        if let Ok(cached_tree) = source.cached_source_tree_origin() {
+        if source.workspace.source_tree.revision == SourceTreeRevision::LocalWorkingTree {
+            state.stage.invalidate_workspace(&source).await;
+        } else if let Ok(cached_tree) = source.cached_source_tree_origin() {
             state
                 .stage
                 .invalidate_branch(&cached_tree, &branch.branch)
@@ -249,13 +284,19 @@ async fn branch_select(
 
     let base_ref = workspace.revision.clone();
     let backend = branch_backend(&state, &user, &workspace, "Opening a branch")?;
-    let github_repo = github_repo_for_workspace(&workspace)
-        .map_err(|err| ApiError::bad_request(err.to_string()))?;
+    let github_repo = if context_is_github_workspace(&workspace) {
+        Some(
+            github_repo_for_workspace(&workspace)
+                .map_err(|err| ApiError::bad_request(err.to_string()))?,
+        )
+    } else {
+        None
+    };
     let target = branch_selection_target(
         &state,
         &user,
         &workspace,
-        &github_repo,
+        github_repo.as_ref(),
         &backend,
         requested_branch,
         &base_ref,
@@ -320,7 +361,7 @@ async fn branch_selection_target<'a>(
     state: &ConsoleState,
     user: &SessionUser,
     workspace: &WorkspaceRecord,
-    github_repo: &super::github::GitHubRepoIdentity,
+    github_repo: Option<&super::github::GitHubRepoIdentity>,
     backend: &BranchBackend<'a>,
     requested_branch: Option<String>,
     base_ref: &str,
@@ -339,6 +380,8 @@ async fn branch_selection_target<'a>(
                 requested_branch = ?requested_branch.as_deref(),
                 "console branch target resolving direct-push branch"
             );
+            let github_repo =
+                github_repo.ok_or_else(|| ApiError::bad_request("GitHub repository not found"))?;
             if let Some(requested) = requested_branch.as_deref()
                 && requested != base_ref
             {
@@ -375,6 +418,8 @@ async fn branch_selection_target<'a>(
                 requested_branch = ?requested_branch.as_deref(),
                 "console branch target resolving pull-request branch"
             );
+            let github_repo =
+                github_repo.ok_or_else(|| ApiError::bad_request("GitHub repository not found"))?;
             state
                 .github
                 .assert_repo_write_access(token, &github_repo.owner, &github_repo.name)
@@ -442,6 +487,25 @@ async fn branch_selection_target<'a>(
                 last_seen_commit,
             })
         }
+        BranchBackend::LocalWorkingTree => {
+            if requested_branch.is_some() {
+                return Err(ApiError::bad_request(
+                    "local folder edits use the current working tree branch",
+                ));
+            }
+            let root = local_source_root(state, workspace).await?;
+            let branch = local_git::current_branch_at(&root)
+                .await
+                .map_err(|err| ApiError::bad_request(err.to_string()))?;
+            let head = local_git::head_commit(&root)
+                .await
+                .map_err(|err| ApiError::bad_request(err.to_string()))?;
+            Ok(BranchSelectionTarget {
+                branch,
+                base_commit: Some(head.clone()),
+                last_seen_commit: Some(head),
+            })
+        }
     }
 }
 
@@ -489,12 +553,13 @@ async fn branch_rename(
             "branch rename only applies to GitHub pull-request branches",
         ));
     };
+    let github_repo = context_github_repo(&context)?;
     let renamed = state
         .github
         .rename_branch(
             token,
-            &context.github_repo.owner,
-            &context.github_repo.name,
+            &github_repo.owner,
+            &github_repo.name,
             &context.branch.branch,
             &branch,
         )
@@ -537,7 +602,7 @@ async fn branch_sync_pr(
     let branch = sync_pull_request(
         &state,
         &context.user,
-        &context.github_repo,
+        context_github_repo(&context)?,
         &context.branch,
         pr_number,
     )
@@ -645,6 +710,7 @@ async fn branch_publish(
             token,
             direct: false,
         } => {
+            let github_repo = context_github_repo(&context)?;
             tracing::info!(
                 operation = "branch.publish",
                 principal_id = %context.user.principal_id,
@@ -658,8 +724,8 @@ async fn branch_publish(
                 .github
                 .create_pull_request(
                     token,
-                    &context.github_repo.owner,
-                    &context.github_repo.name,
+                    &github_repo.owner,
+                    &github_repo.name,
                     &branch_pr_title(&context.workspace),
                     &branch_pr_body(
                         &context.workspace,
@@ -726,6 +792,24 @@ async fn branch_publish(
             Ok(Json(json!({
                 "branch": branch,
                 "directPush": { "backend": "githubApi" },
+            })))
+        }
+        BranchBackend::LocalWorkingTree => {
+            tracing::info!(
+                operation = "branch.publish",
+                principal_id = %context.user.principal_id,
+                workspace_id = %context.workspace.id,
+                branch_id = %context.branch.id,
+                mode = "local_working_tree",
+                "console branch publish validated local working tree edits"
+            );
+            let branch = state
+                .store
+                .record_active_branch_edit(&context.branch.id, None)
+                .await?;
+            Ok(Json(json!({
+                "branch": branch,
+                "workingTree": { "backend": "localWorkingTree" },
             })))
         }
     }
@@ -946,6 +1030,7 @@ async fn branch_file_delete(
         "Deleting the branch file",
     )? {
         BranchBackend::GitHub { token, .. } => {
+            let github_repo = context_github_repo(&context)?;
             tracing::info!(
                 operation = "branch.file_delete",
                 principal_id = %context.user.principal_id,
@@ -958,8 +1043,8 @@ async fn branch_file_delete(
                 .github
                 .file(
                     token,
-                    &context.github_repo.owner,
-                    &context.github_repo.name,
+                    &github_repo.owner,
+                    &github_repo.name,
                     &file_path,
                     &context.branch.branch,
                 )
@@ -969,8 +1054,8 @@ async fn branch_file_delete(
                 .github
                 .delete_file(
                     token,
-                    &context.github_repo.owner,
-                    &context.github_repo.name,
+                    &github_repo.owner,
+                    &github_repo.name,
                     &file_path,
                     &context.branch.branch,
                     &file.sha,
@@ -978,6 +1063,17 @@ async fn branch_file_delete(
                 )
                 .await
                 .map_err(|err| ApiError::github(&err, "Deleting the branch file"))?;
+        }
+        BranchBackend::LocalWorkingTree => {
+            tracing::info!(
+                operation = "branch.file_delete",
+                principal_id = %context.user.principal_id,
+                workspace_id = %context.workspace.id,
+                branch_id = %context.branch.id,
+                file_path = %file_path,
+                "console branch file delete removing local file"
+            );
+            delete_local_file(&state, &context.workspace, &file_path).await?;
         }
     }
     record_branch_edit(&state, &context, None).await?;
@@ -1012,12 +1108,13 @@ async fn branch_entity_create(
         return Err(invalid_entity_request());
     }
 
+    let variable_type = parse_variable_type(body.variable_type.as_deref());
     let files = entity_template_files(
         kind,
         &id,
         catalog_id.as_deref(),
         &context.workspace.path,
-        parse_variable_type(body.variable_type.as_deref()),
+        &variable_type,
     );
     let backend = branch_backend(
         &state,
@@ -1025,27 +1122,49 @@ async fn branch_entity_create(
         &context.workspace,
         "Creating the branch entity",
     )?;
-    let existing: HashSet<String> = match backend {
-        BranchBackend::GitHub { token, .. } => state
-            .github
-            .tree(
-                token,
-                &context.github_repo.owner,
-                &context.github_repo.name,
-                &context.branch.branch,
-            )
-            .await
-            .map_err(|err| ApiError::github(&err, "Creating the branch entity"))?
-            .into_iter()
-            .filter(|entry| entry.entry_type == "blob")
-            .map(|entry| entry.path)
-            .collect(),
+    let existing: HashSet<String> = match &backend {
+        BranchBackend::GitHub { token, .. } => {
+            let github_repo = context_github_repo(&context)?;
+            state
+                .github
+                .tree(
+                    token,
+                    &github_repo.owner,
+                    &github_repo.name,
+                    &context.branch.branch,
+                )
+                .await
+                .map_err(|err| ApiError::github(&err, "Creating the branch entity"))?
+                .into_iter()
+                .filter(|entry| entry.entry_type == "blob")
+                .map(|entry| entry.path)
+                .collect()
+        }
+        BranchBackend::LocalWorkingTree => {
+            let mut existing = HashSet::new();
+            for file in &files {
+                if local_file_exists(&state, &context.workspace, &file.path).await? {
+                    existing.insert(file.path.clone());
+                }
+            }
+            if kind == EntityKind::CatalogEntries {
+                let catalog_id = catalog_id.as_deref().expect("validated above");
+                let catalog_path = workspace_repo_path(
+                    &context.workspace.path,
+                    &format!("catalogs/{catalog_id}.schema.json"),
+                );
+                if local_file_exists(&state, &context.workspace, &catalog_path).await? {
+                    existing.insert(catalog_path);
+                }
+            }
+            existing
+        }
     };
     if kind == EntityKind::CatalogEntries {
         let catalog_id = catalog_id.as_deref().expect("validated above");
         let catalog_path = workspace_repo_path(
             &context.workspace.path,
-            &format!("catalogs/{catalog_id}.toml"),
+            &format!("catalogs/{catalog_id}.schema.json"),
         );
         if !existing.contains(&catalog_path) {
             return Err(ApiError::not_found(format!(
@@ -1067,13 +1186,14 @@ async fn branch_entity_create(
         "Creating the branch entity",
     )? {
         BranchBackend::GitHub { token, .. } => {
+            let github_repo = context_github_repo(&context)?;
             for file in &files {
                 state
                     .github
                     .create_file(
                         token,
-                        &context.github_repo.owner,
-                        &context.github_repo.name,
+                        &github_repo.owner,
+                        &github_repo.name,
                         &file.path,
                         &context.branch.branch,
                         &file.content,
@@ -1081,6 +1201,11 @@ async fn branch_entity_create(
                     )
                     .await
                     .map_err(|err| ApiError::github(&err, "Creating the branch entity"))?;
+            }
+        }
+        BranchBackend::LocalWorkingTree => {
+            for file in &files {
+                write_local_file(&state, &context.workspace, &file.path, &file.content).await?;
             }
         }
     }
@@ -1214,10 +1339,13 @@ async fn branch_data(
         .is_some_and(|synced_at| synced_at > super::time::now_iso_minus(PR_SYNC_FRESH).as_str());
     if let Some(pr_number) = pr_number
         && !synced_recently
+        && let Some(github_repo) = github_repo.as_ref()
     {
-        match sync_pull_request(&state, &user, &github_repo, &branch, pr_number).await {
+        match sync_pull_request(&state, &user, github_repo, &branch, pr_number).await {
             Ok(updated) => branch = updated,
-            Err(error) => pr_sync_error = Some(error),
+            Err(error) => {
+                pr_sync_error = Some(error);
+            }
         }
     }
 
@@ -1411,6 +1539,14 @@ async fn branch_changed_paths(
             .map_err(|err| ApiError::github(&err, "Loading branch changes"))?;
         return Ok(filter_workspace_paths(workspace, comparison.files));
     }
+    if context_is_local_workspace(workspace) {
+        let root = local_source_root(state, workspace).await?;
+        let scope = local_workspace_scope(state, workspace);
+        let paths = local_git::changed_paths(&root, &scope)
+            .await
+            .map_err(|err| ApiError::bad_request(err.to_string()))?;
+        return Ok(filter_workspace_paths(workspace, paths));
+    }
     let selector = workspace_source_for_branch(
         state,
         &user.principal_id,
@@ -1455,6 +1591,203 @@ fn filter_workspace_paths(workspace: &WorkspaceRecord, paths: Vec<String>) -> Ve
         .collect()
 }
 
+async fn local_source_root(
+    state: &ConsoleState,
+    workspace: &WorkspaceRecord,
+) -> ApiResult<PathBuf> {
+    let source = state
+        .fixed_workspace_source
+        .as_deref()
+        .unwrap_or(&workspace.source);
+    let root =
+        local_git::workspace_root(source).map_err(|err| ApiError::bad_request(err.to_string()))?;
+    tokio::fs::canonicalize(&root).await.map_err(|err| {
+        ApiError::bad_request(format!(
+            "failed to resolve local workspace source {}: {err}",
+            root.display()
+        ))
+    })
+}
+
+fn local_workspace_scope(state: &ConsoleState, workspace: &WorkspaceRecord) -> String {
+    if state.fixed_workspace_source.is_some() {
+        workspace.path.clone()
+    } else {
+        ".".to_owned()
+    }
+}
+
+fn local_relative_path(
+    state: &ConsoleState,
+    workspace: &WorkspaceRecord,
+    file_path: &str,
+) -> ApiResult<String> {
+    let relative = if state.fixed_workspace_source.is_some() || workspace.path == "." {
+        file_path.trim()
+    } else {
+        file_path
+            .strip_prefix(&format!("{}/", workspace.path))
+            .ok_or_else(|| ApiError::bad_request("file path does not belong to workspace"))?
+    };
+    if relative.is_empty()
+        || relative.starts_with('/')
+        || relative
+            .split('/')
+            .any(|segment| segment.is_empty() || segment == "." || segment == "..")
+    {
+        return Err(ApiError::bad_request("file path is not valid"));
+    }
+    Ok(relative.to_owned())
+}
+
+async fn local_existing_file_path(
+    state: &ConsoleState,
+    workspace: &WorkspaceRecord,
+    file_path: &str,
+) -> ApiResult<PathBuf> {
+    let root = local_source_root(state, workspace).await?;
+    let relative = local_relative_path(state, workspace, file_path)?;
+    let path = root.join(relative);
+    let canonical = tokio::fs::canonicalize(&path).await.map_err(|err| {
+        if err.kind() == std::io::ErrorKind::NotFound {
+            ApiError::not_found(format!("file not found: {file_path}"))
+        } else {
+            ApiError::bad_request(format!("failed to resolve {file_path}: {err}"))
+        }
+    })?;
+    if !canonical.starts_with(&root) {
+        return Err(ApiError::bad_request(
+            "file path escapes the local workspace source",
+        ));
+    }
+    Ok(canonical)
+}
+
+async fn local_writable_file_path(
+    state: &ConsoleState,
+    workspace: &WorkspaceRecord,
+    file_path: &str,
+) -> ApiResult<PathBuf> {
+    let root = local_source_root(state, workspace).await?;
+    let relative = local_relative_path(state, workspace, file_path)?;
+    ensure_local_parent_dir(&root, &relative).await?;
+    let path = root.join(relative);
+    if let Ok(metadata) = tokio::fs::symlink_metadata(&path).await
+        && metadata.file_type().is_symlink()
+    {
+        return Err(ApiError::bad_request(
+            "local workspace edits do not follow symlink files",
+        ));
+    }
+    Ok(path)
+}
+
+async fn ensure_local_parent_dir(root: &FsPath, relative: &str) -> ApiResult<()> {
+    let parent = FsPath::new(relative)
+        .parent()
+        .ok_or_else(|| ApiError::bad_request("file path must have a parent directory"))?;
+    let mut current = root.to_path_buf();
+    for component in parent.components() {
+        let std::path::Component::Normal(segment) = component else {
+            return Err(ApiError::bad_request("file path is not valid"));
+        };
+        current.push(segment);
+        match tokio::fs::symlink_metadata(&current).await {
+            Ok(metadata) => {
+                if metadata.file_type().is_symlink() {
+                    return Err(ApiError::bad_request(
+                        "local workspace edits do not follow symlink directories",
+                    ));
+                }
+                if !metadata.is_dir() {
+                    return Err(ApiError::bad_request(format!(
+                        "local workspace path is not a directory: {}",
+                        current.display()
+                    )));
+                }
+            }
+            Err(err) if err.kind() == std::io::ErrorKind::NotFound => {
+                tokio::fs::create_dir(&current).await.map_err(|err| {
+                    ApiError::bad_request(format!(
+                        "failed to create parent directory {}: {err}",
+                        current.display()
+                    ))
+                })?;
+            }
+            Err(err) => {
+                return Err(ApiError::bad_request(format!(
+                    "failed to resolve parent directory {}: {err}",
+                    current.display()
+                )));
+            }
+        }
+    }
+    let canonical_parent = tokio::fs::canonicalize(&current).await.map_err(|err| {
+        ApiError::bad_request(format!("failed to resolve parent directory: {err}"))
+    })?;
+    if !canonical_parent.starts_with(root) {
+        return Err(ApiError::bad_request(
+            "file path escapes the local workspace source",
+        ));
+    }
+    Ok(())
+}
+
+async fn local_file_exists(
+    state: &ConsoleState,
+    workspace: &WorkspaceRecord,
+    file_path: &str,
+) -> ApiResult<bool> {
+    match local_existing_file_path(state, workspace, file_path).await {
+        Ok(path) => Ok(path.is_file()),
+        Err(err) if err.status == axum::http::StatusCode::NOT_FOUND => Ok(false),
+        Err(err) => Err(err),
+    }
+}
+
+async fn read_local_file(
+    state: &ConsoleState,
+    workspace: &WorkspaceRecord,
+    file_path: &str,
+) -> ApiResult<String> {
+    let path = local_existing_file_path(state, workspace, file_path).await?;
+    tokio::fs::read_to_string(&path).await.map_err(|err| {
+        ApiError::bad_request(format!(
+            "failed to read local file {}: {err}",
+            path.display()
+        ))
+    })
+}
+
+async fn write_local_file(
+    state: &ConsoleState,
+    workspace: &WorkspaceRecord,
+    file_path: &str,
+    content: &str,
+) -> ApiResult<()> {
+    let path = local_writable_file_path(state, workspace, file_path).await?;
+    tokio::fs::write(&path, content).await.map_err(|err| {
+        ApiError::bad_request(format!(
+            "failed to write local file {}: {err}",
+            path.display()
+        ))
+    })
+}
+
+async fn delete_local_file(
+    state: &ConsoleState,
+    workspace: &WorkspaceRecord,
+    file_path: &str,
+) -> ApiResult<()> {
+    let path = local_existing_file_path(state, workspace, file_path).await?;
+    tokio::fs::remove_file(&path).await.map_err(|err| {
+        ApiError::bad_request(format!(
+            "failed to delete local file {}: {err}",
+            path.display()
+        ))
+    })
+}
+
 async fn branch_file_text_and_sha(
     state: &ConsoleState,
     context: &BranchContext,
@@ -1463,18 +1796,23 @@ async fn branch_file_text_and_sha(
 ) -> ApiResult<(String, Option<String>)> {
     match backend {
         BranchBackend::GitHub { token, .. } => {
+            let github_repo = context_github_repo(context)?;
             let file = state
                 .github
                 .file(
                     token,
-                    &context.github_repo.owner,
-                    &context.github_repo.name,
+                    &github_repo.owner,
+                    &github_repo.name,
                     file_path,
                     &context.branch.branch,
                 )
                 .await
                 .map_err(|err| ApiError::github(&err, "Reading the branch file"))?;
             Ok((file.content, Some(file.sha)))
+        }
+        BranchBackend::LocalWorkingTree => {
+            let text = read_local_file(state, &context.workspace, file_path).await?;
+            Ok((text, None))
         }
     }
 }
@@ -1494,12 +1832,13 @@ async fn write_branch_file(
         "Writing the branch file",
     )? {
         BranchBackend::GitHub { token, .. } => {
+            let github_repo = context_github_repo(context)?;
             state
                 .github
                 .update_file(
                     token,
-                    &context.github_repo.owner,
-                    &context.github_repo.name,
+                    &github_repo.owner,
+                    &github_repo.name,
                     file_path,
                     &context.branch.branch,
                     sha.expect("GitHub file reads include a sha"),
@@ -1508,6 +1847,11 @@ async fn write_branch_file(
                 )
                 .await
                 .map_err(|err| ApiError::github(&err, "Writing the branch file"))?;
+        }
+        BranchBackend::LocalWorkingTree => {
+            let _ = message;
+            let _ = sha;
+            write_local_file(state, &context.workspace, file_path, content).await?;
         }
     }
     Ok(())
@@ -1522,16 +1866,19 @@ async fn record_branch_edit(
         Some(commit) => Some(commit),
         None if context_is_github_workspace(&context.workspace) => {
             match context.user.github_token.as_deref() {
-                Some(token) => state
-                    .github
-                    .branch_head_sha(
-                        token,
-                        &context.github_repo.owner,
-                        &context.github_repo.name,
-                        &context.branch.branch,
-                    )
-                    .await
-                    .ok(),
+                Some(token) => match context_github_repo(context) {
+                    Ok(github_repo) => state
+                        .github
+                        .branch_head_sha(
+                            token,
+                            &github_repo.owner,
+                            &github_repo.name,
+                            &context.branch.branch,
+                        )
+                        .await
+                        .ok(),
+                    Err(_) => None,
+                },
                 None => None,
             }
         }
@@ -1549,13 +1896,22 @@ async fn base_entity_text(
     context: &BranchContext,
     path: &str,
 ) -> Option<String> {
+    if context_is_local_workspace(&context.workspace) {
+        let root = local_source_root(state, &context.workspace).await.ok()?;
+        let relative = local_relative_path(state, &context.workspace, path).ok()?;
+        return local_git::file_at_head(&root, &relative)
+            .await
+            .ok()
+            .flatten();
+    }
     let token = context.user.github_token.as_deref()?;
+    let github_repo = context_github_repo(context).ok()?;
     state
         .github
         .file(
             token,
-            &context.github_repo.owner,
-            &context.github_repo.name,
+            &github_repo.owner,
+            &github_repo.name,
             path,
             &context.branch.base_ref,
         )
@@ -1600,7 +1956,7 @@ async fn editable_entities(
             kind: "qualifier",
             path: item.path.clone(),
             description: item.description.clone(),
-            badge: Some(format!("{} predicates", item.predicate_count)),
+            badge: Some("condition".to_owned()),
             catalog_id: None,
             entry_key: None,
         });
@@ -1632,18 +1988,6 @@ async fn editable_entities(
             entry_key: Some(item.key.clone()),
         });
     }
-    for item in &inventory.schemas {
-        nodes.push(Node {
-            section: "schemas",
-            id: item.id.clone(),
-            kind: "schema",
-            path: item.path.clone(),
-            description: item.title.clone(),
-            badge: Some("json".to_owned()),
-            catalog_id: None,
-            entry_key: None,
-        });
-    }
     for item in &inventory.linters {
         let Some(path) = item.path.clone() else {
             continue;
@@ -1659,26 +2003,33 @@ async fn editable_entities(
             entry_key: None,
         });
     }
-    if let Some(schema_path) = &inventory.context.schema_path {
+    for item in &inventory.context.request_contexts {
         nodes.push(Node {
             section: "context",
-            id: "context.schema.json".to_owned(),
+            id: item.id.clone(),
             kind: "context schema",
-            path: schema_path.clone(),
-            description: Some("Workspace context schema".to_owned()),
+            path: item.path.clone(),
+            description: item
+                .description
+                .clone()
+                .or_else(|| item.title.clone())
+                .or_else(|| Some("Request context schema".to_owned())),
             badge: Some("schema".to_owned()),
             catalog_id: None,
             entry_key: None,
         });
     }
-    for path in &inventory.context.examples {
+    for item in &inventory.context.entries {
         nodes.push(Node {
             section: "context",
-            id: path.rsplit('/').next().unwrap_or(path).to_owned(),
+            id: item.id.clone(),
             kind: "context example",
-            path: path.clone(),
-            description: Some("Example resolution context".to_owned()),
-            badge: Some("example".to_owned()),
+            path: item.path.clone(),
+            description: Some(format!(
+                "Sample {} for request context {}",
+                item.key, item.request_context_id
+            )),
+            badge: Some(item.request_context_id.clone()),
             catalog_id: None,
             entry_key: None,
         });
@@ -1709,7 +2060,6 @@ fn parse_kind(value: &str) -> Option<EntityKind> {
         "qualifiers" => Some(EntityKind::Qualifiers),
         "catalogs" => Some(EntityKind::Catalogs),
         "catalog_entries" => Some(EntityKind::CatalogEntries),
-        "schemas" => Some(EntityKind::Schemas),
         "context" => Some(EntityKind::Context),
         "linters" => Some(EntityKind::Linters),
         _ => None,
@@ -1752,6 +2102,7 @@ fn pull_request_state(state: Option<&str>, merged_at: Option<&str>) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use tempfile::TempDir;
 
     fn workspace(path: &str) -> WorkspaceRecord {
         WorkspaceRecord {
@@ -1759,6 +2110,7 @@ mod tests {
             slug: "configs".to_owned(),
             source_tree_id: "repo-id".to_owned(),
             source_tree_label: "octo/configs".to_owned(),
+            display_path: path.to_owned(),
             path: path.to_owned(),
             revision: "main".to_owned(),
             source: "git+https://github.com/octo/configs.git#main".to_owned(),
@@ -1798,6 +2150,42 @@ mod tests {
                 vec!["variables/a.toml".to_owned(), "README.md".to_owned()],
             ),
             vec!["README.md".to_owned(), "variables/a.toml".to_owned()]
+        );
+    }
+
+    #[tokio::test]
+    async fn local_parent_dir_creation_stays_under_root() {
+        let root = TempDir::new().expect("temp dir");
+
+        if let Err(error) =
+            ensure_local_parent_dir(root.path(), "variables/nested/value.toml").await
+        {
+            panic!("parent directories should be created: {}", error.message);
+        }
+
+        assert!(root.path().join("variables/nested").is_dir());
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn local_parent_dir_creation_rejects_symlink_ancestors() {
+        let root = TempDir::new().expect("temp dir");
+        let outside = TempDir::new().expect("outside temp dir");
+        std::os::unix::fs::symlink(outside.path(), root.path().join("variables"))
+            .expect("symlink should be created");
+
+        let error = ensure_local_parent_dir(root.path(), "variables/nested/value.toml")
+            .await
+            .expect_err("symlink ancestors should be rejected");
+
+        assert!(
+            error.message.contains("symlink directories"),
+            "{}",
+            error.message
+        );
+        assert!(
+            !outside.path().join("nested").exists(),
+            "guard must not create directories through a symlink ancestor"
         );
     }
 

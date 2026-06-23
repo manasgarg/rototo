@@ -221,10 +221,7 @@ Restore the default to `enabled`, then create
 schema_version = 1
 description = "Accounts operating in the European region"
 
-[[predicate]]
-attribute = "account.region"
-op = "eq"
-value = "eu"
+when = 'context.account.region == "eu"'
 ```
 
 Now update `operations-config/variables/project-creation-enabled.toml` so only
@@ -240,7 +237,7 @@ type = "bool"
 default = true
 
 [[resolve.rule]]
-qualifier = "eu-accounts"
+when = 'qualifier["eu-accounts"]'
 value = false
 ```
 
@@ -257,7 +254,7 @@ rototo init operations-config --context
 ```
 
 On this workspace, rototo writes
-`operations-config/schemas/context.schema.json`:
+`operations-config/request-contexts/request.schema.json`:
 
 ```json
 {

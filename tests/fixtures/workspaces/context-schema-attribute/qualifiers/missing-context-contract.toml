@@ -2,7 +2,4 @@ schema_version = 1
 
 description = "References a context path not declared in the workspace context schema"
 
-[[predicate]]
-attribute = "account.plan"
-op = "eq"
-value = "enterprise"
+when = '(context.account.plan == "enterprise")'

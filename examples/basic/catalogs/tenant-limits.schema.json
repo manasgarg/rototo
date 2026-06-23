@@ -1,0 +1,58 @@
+{
+  "description": "Account limit profile entries",
+  "type": "object",
+  "required": [
+    "limits",
+    "enabled_features",
+    "metadata"
+  ],
+  "properties": {
+    "limits": {
+      "type": "object",
+      "required": [
+        "projects",
+        "members",
+        "monthly_requests"
+      ],
+      "properties": {
+        "projects": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "members": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "monthly_requests": {
+          "type": "integer",
+          "minimum": 1
+        }
+      },
+      "additionalProperties": false
+    },
+    "enabled_features": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "metadata": {
+      "type": "object",
+      "required": [
+        "support_tier",
+        "audit_retention_days"
+      ],
+      "properties": {
+        "support_tier": {
+          "type": "string"
+        },
+        "audit_retention_days": {
+          "type": "integer",
+          "minimum": 0
+        }
+      },
+      "additionalProperties": false
+    }
+  },
+  "additionalProperties": false
+}

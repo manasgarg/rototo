@@ -118,11 +118,10 @@ impl PyWorkspace {
         let workspace = Arc::clone(&self.inner);
         future_into_py(py, async move {
             let context = ResolveContext::from_json(context).map_err(py_err)?;
-            let resolution = workspace
+            workspace
                 .resolve_qualifier_with_options(&id, &context, resolve_options(validate_context))
                 .await
-                .map_err(py_err)?;
-            Python::attach(|py| qualifier_resolution_to_py(py, resolution))
+                .map_err(py_err)
         })
     }
 }
@@ -200,11 +199,10 @@ impl PyRefreshingWorkspace {
             let context = ResolveContext::from_json(context).map_err(py_err)?;
             let guard = inner.lock().await;
             let workspace = active_refreshing_workspace(&guard)?;
-            let resolution = workspace
+            workspace
                 .resolve_qualifier_with_options(&id, &context, resolve_options(validate_context))
                 .await
-                .map_err(py_err)?;
-            Python::attach(|py| qualifier_resolution_to_py(py, resolution))
+                .map_err(py_err)
         })
     }
 
@@ -325,16 +323,6 @@ fn variable_resolution_to_py(
             &serde_json::to_value(resolution.source).unwrap_or(JsonValue::Null),
         )?,
     )?;
-    Ok(dict.into_any().unbind())
-}
-
-fn qualifier_resolution_to_py(
-    py: Python<'_>,
-    resolution: rototo::model::QualifierResolution,
-) -> PyResult<Py<PyAny>> {
-    let dict = PyDict::new(py);
-    dict.set_item("id", resolution.id)?;
-    dict.set_item("value", resolution.value)?;
     Ok(dict.into_any().unbind())
 }
 

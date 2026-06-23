@@ -2,7 +2,4 @@ schema_version = 1
 
 description = "Checkout sessions with a high cart value"
 
-[[predicate]]
-attribute = "cart.total_usd"
-op = "gte"
-value = 250
+when = "(context.cart.total_usd >= 250)"

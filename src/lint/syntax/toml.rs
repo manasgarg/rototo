@@ -11,9 +11,7 @@ pub(super) fn parse_toml_document(
 ) {
     match ::toml_span::parse(&document.text) {
         Ok(value) => {
-            syntax
-                .toml
-                .insert(document.id, ParsedToml::new(document.id, value));
+            syntax.toml.insert(document.id, ParsedToml::new(value));
         }
         Err(err) => {
             diagnostics.push(toml_span_parse_diagnostic(document, &err));

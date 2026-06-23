@@ -1,7 +1,6 @@
 import {
     type JsonObject,
     type JsonValue,
-    type QualifierResolutionJson,
     type RefreshOutcome,
     type RefreshStatusJson,
     type VariableResolutionJson,
@@ -13,7 +12,6 @@ import {
 export type {
     JsonObject,
     JsonValue,
-    QualifierResolutionJson,
     RefreshOutcome,
     RefreshStatusJson,
     VariableResolutionJson,
@@ -44,11 +42,6 @@ export type VariableResolution = {
     id: string;
     value: JsonValue;
     source: VariableResolutionSourceJson;
-};
-
-export type QualifierResolution = {
-    id: string;
-    value: boolean;
 };
 
 export type RefreshStatus = {
@@ -121,9 +114,10 @@ export type VariableModel = {
 
 export type CatalogModel = {
     id: string;
+    path: string;
     location: ModelLocation;
     description?: string;
-    schema?: ModelField;
+    json?: JsonValue;
 };
 
 export type CatalogEntryModel = {
@@ -158,7 +152,6 @@ export type ModelReferenceVia =
     | { kind: "predicateQualifier"; index: number }
     | { kind: "predicateContextAttribute"; index: number }
     | { kind: "variableCatalog" }
-    | { kind: "catalogSchema" }
     | { kind: "resolveDefault" }
     | { kind: "ruleQualifier"; index: number }
     | { kind: "ruleValue"; index: number };
@@ -272,7 +265,7 @@ export class Workspace {
         id: string,
         context: JsonObject,
         options: ResolveOptions = {},
-    ): Promise<QualifierResolution> {
+    ): Promise<boolean> {
         try {
             return await this.inner.resolveQualifier(
                 id,
@@ -327,7 +320,7 @@ export class RefreshingWorkspace {
         id: string,
         context: JsonObject,
         options: ResolveOptions = {},
-    ): Promise<QualifierResolution> {
+    ): Promise<boolean> {
         try {
             return await this.inner.resolveQualifier(
                 id,

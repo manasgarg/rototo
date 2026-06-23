@@ -1,13 +1,14 @@
 schema_version = 1
+description = "Configuration value for checkout."
 type = "string"
 
 [resolve]
 default = "control"
 
 [[resolve.rule]]
-qualifier = "premium-users"
+when = 'qualifier["premium-users"]'
 value = "premium"
 
 [[resolve.rule]]
-qualifier = "premium-users"
+when = 'qualifier["premium-users"]'
 value = "alternate"

@@ -130,6 +130,8 @@ mod tests {
 
     #[test]
     fn file_uri_paths_percent_decode_special_and_multibyte_bytes() {
+        // Editors send file paths as file:// URIs. Decoding must preserve
+        // spaces, punctuation, percent signs, and multibyte UTF-8 path bytes.
         assert_eq!(
             path_from_file_uri("file:///tmp/rototo%20%23%C3%A9%25.toml")
                 .unwrap()
@@ -140,6 +142,8 @@ mod tests {
 
     #[test]
     fn file_uri_paths_reject_bad_percent_encoding_and_utf8() {
+        // Bad URI escapes and non-file schemes should fail before the server
+        // tries to map an editor document into a workspace-relative path.
         assert!(path_from_file_uri("file:///tmp/%").is_err());
         assert!(path_from_file_uri("file:///tmp/%GG").is_err());
         assert!(path_from_file_uri("file:///tmp/%FF").is_err());

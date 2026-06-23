@@ -117,12 +117,14 @@ local paths, `git+https://`, or archive URLs, with `#ref:subdir` selection.
   and lint the workspace, but branch edits and publishing are rejected.
 - `--write pull-request` creates review branches and pull requests for GitHub
   workspaces.
-- `--write direct-push` commits directly to the configured GitHub ref.
+- `--write direct-push` commits directly to the configured GitHub ref, or
+  writes local folder workspaces directly to the local working tree.
 
 ## The boundary worth knowing
 
 Reading workspaces works from any source rototo supports. Editing is narrower:
-the console can write GitHub workspaces through the GitHub API. Local folders,
-generic git remotes, and archive sources are read-only in the console. Other
-write backends are a deliberate, separate piece of work rather than something
-half-supported behind a generic mode flag.
+the console can write GitHub workspaces through the GitHub API, and local
+deployments can edit local folder workspaces in the current working tree when
+`--write direct-push` is set. Generic git remotes and archive sources are
+read-only in the console. Other write backends are a deliberate, separate piece
+of work rather than something half-supported behind a generic mode flag.

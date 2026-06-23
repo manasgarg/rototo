@@ -1,6 +1,4 @@
 schema_version = 1
+description = "Runtime condition for boolean in string."
 
-[[predicate]]
-attribute = "user.active"
-op = "in"
-value = ["true"]
+when = '(context.user.active in ["true"])'

@@ -35,7 +35,6 @@ impl Store {
         Self::initialize(conn, crypto)
     }
 
-    #[cfg(test)]
     pub fn open_in_memory(crypto: TokenCrypto) -> Result<Self> {
         let conn = Connection::open_in_memory().map_err(|err| {
             RototoError::new(format!("failed to open in-memory console database: {err}"))

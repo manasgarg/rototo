@@ -2,7 +2,4 @@ schema_version = 1
 
 description = "Qualifier that nothing references"
 
-[[predicate]]
-attribute = "user.plan"
-op = "eq"
-value = "legacy"
+when = '(context.user.plan == "legacy")'

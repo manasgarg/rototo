@@ -1,11 +1,4 @@
 schema_version = 1
+description = "Runtime condition for premium users."
 
-[[predicate]]
-attribute = "user.tier"
-op = "eq"
-value = "premium"
-
-[[predicate]]
-attribute = "user.tier"
-op = "eq"
-value = "premium"
+when = '(context.user.tier == "premium") && (context.user.tier == "premium")'

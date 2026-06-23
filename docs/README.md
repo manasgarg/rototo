@@ -9,6 +9,7 @@ The publishable pages live under `docs/src/`:
 docs/src/
   index.md
   getting-started.md
+  configuration-primitives.md
   operational-switches.md
   incident-banner.md
   onboarding-checklist.md

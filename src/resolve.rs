@@ -1,27 +1,25 @@
-use std::cmp::Ordering;
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeSet, HashMap, HashSet};
 use std::path::Path;
 
 use serde_json::Value as JsonValue;
 
 use crate::error::{Result, RototoError};
 use crate::lint::{
-    RuntimeAttribute, RuntimeCompareOp, RuntimePredicate, RuntimeSelectedValue, RuntimeWorkspace,
+    RuntimeCatalogQuery, RuntimeRule, RuntimeRuleSelection, RuntimeSelectedValue, RuntimeWorkspace,
     compile_runtime_workspace,
 };
-use crate::model::{
-    BucketResolutionTrace, PredicateResolutionTrace, QualifierResolutionTrace,
-    VariableResolutionTrace, VariableRuleResolutionTrace,
-};
 use crate::model::{QualifierResolution, VariableResolution, VariableResolutionSource};
+use crate::model::{
+    QualifierResolutionTrace, VariableResolutionTrace, VariableRuleResolutionTrace,
+};
 
 pub async fn resolve_qualifier(
     workspace_root: &Path,
     id: &str,
     context: &JsonValue,
-) -> Result<QualifierResolution> {
+) -> Result<bool> {
     let runtime = compile_runtime_workspace(workspace_root).await?;
-    runtime.validate_context(context)?;
+    runtime.validate_context_for_qualifier(id, context)?;
     resolve_qualifier_unchecked(&runtime, id, context).await
 }
 
@@ -31,7 +29,7 @@ pub async fn trace_qualifier_resolution(
     context: &JsonValue,
 ) -> Result<QualifierResolutionTrace> {
     let runtime = compile_runtime_workspace(workspace_root).await?;
-    runtime.validate_context(context)?;
+    runtime.validate_context_for_qualifier(id, context)?;
     trace_qualifier_unchecked(&runtime, id, context).await
 }
 
@@ -39,13 +37,9 @@ pub(crate) async fn resolve_qualifier_unchecked(
     runtime: &RuntimeWorkspace,
     id: &str,
     context: &JsonValue,
-) -> Result<QualifierResolution> {
+) -> Result<bool> {
     let mut state = QualifierState::new(runtime, context);
-    let value = state.resolve(id)?;
-    Ok(QualifierResolution {
-        id: id.to_owned(),
-        value,
-    })
+    state.resolve(id)
 }
 
 pub(crate) async fn trace_qualifier_unchecked(
@@ -116,7 +110,7 @@ pub async fn resolve_variable(
     context: &JsonValue,
 ) -> Result<VariableResolution> {
     let runtime = compile_runtime_workspace(workspace_root).await?;
-    runtime.validate_context(context)?;
+    runtime.validate_context_for_variable(id, context)?;
     resolve_variable_unchecked(&runtime, id, context).await
 }
 
@@ -126,7 +120,7 @@ pub async fn trace_variable_resolution(
     context: &JsonValue,
 ) -> Result<VariableResolutionTrace> {
     let runtime = compile_runtime_workspace(workspace_root).await?;
-    runtime.validate_context(context)?;
+    runtime.validate_context_for_variable(id, context)?;
     trace_variable_unchecked(&runtime, id, context).await
 }
 
@@ -215,16 +209,37 @@ fn resolve_variable_trace_with_state(
     let mut selected = None;
     let mut rules = Vec::new();
     for rule in &variable.rules {
-        let matched = state.resolve(&rule.qualifier)?;
+        let matched = evaluate_rule_selector(state, rule)?;
+        let rule_value = if matched {
+            Some(resolve_rule_selection(runtime, state, &rule.selection)?)
+        } else {
+            None
+        };
+        let trace_value = rule_value
+            .as_ref()
+            .map(|value| value.value().clone())
+            .or_else(|| {
+                static_rule_selection_value(&rule.selection).map(|value| value.value().clone())
+            })
+            .unwrap_or(JsonValue::Null);
+        let trace_source = rule_value
+            .as_ref()
+            .map(selected_value_source)
+            .or_else(|| static_rule_selection_value(&rule.selection).map(selected_value_source))
+            .unwrap_or(VariableResolutionSource::Literal);
         rules.push(VariableRuleResolutionTrace {
             index: rule.index,
-            qualifier: rule.qualifier.clone(),
-            value: rule.value.value().clone(),
-            source: selected_value_source(&rule.value),
+            condition: rule
+                .when
+                .as_ref()
+                .map(|when| when.source().to_owned())
+                .unwrap_or_else(|| "<query>".to_owned()),
+            value: trace_value,
+            source: trace_source,
             matched,
         });
         if matched {
-            selected = Some(rule.value.clone());
+            selected = rule_value;
             break;
         }
     }
@@ -254,7 +269,268 @@ fn selected_value_source(value: &RuntimeSelectedValue) -> VariableResolutionSour
             catalog: catalog.clone(),
             value: name.clone(),
         },
+        RuntimeSelectedValue::CatalogList { catalog, names, .. } => {
+            VariableResolutionSource::CatalogList {
+                catalog: catalog.clone(),
+                values: names.clone(),
+            }
+        }
     }
+}
+
+fn evaluate_rule_selector(state: &mut QualifierState<'_>, rule: &RuntimeRule) -> Result<bool> {
+    if let Some(when) = &rule.when {
+        let context = state.context;
+        let mut resolve_qualifier = |id: &str| state.resolve(id);
+        return when.evaluate_bool(context, None, &mut resolve_qualifier);
+    }
+    Ok(matches!(rule.selection, RuntimeRuleSelection::Query(_)))
+}
+
+fn static_rule_selection_value(selection: &RuntimeRuleSelection) -> Option<&RuntimeSelectedValue> {
+    match selection {
+        RuntimeRuleSelection::Value(value) => Some(value),
+        RuntimeRuleSelection::Query(_) => None,
+    }
+}
+
+fn resolve_rule_selection(
+    runtime: &RuntimeWorkspace,
+    state: &mut QualifierState<'_>,
+    selection: &RuntimeRuleSelection,
+) -> Result<RuntimeSelectedValue> {
+    match selection {
+        RuntimeRuleSelection::Value(value) => Ok(value.clone()),
+        RuntimeRuleSelection::Query(query) => resolve_catalog_query(runtime, state, query),
+    }
+}
+
+fn resolve_catalog_query(
+    runtime: &RuntimeWorkspace,
+    state: &mut QualifierState<'_>,
+    query: &RuntimeCatalogQuery,
+) -> Result<RuntimeSelectedValue> {
+    let entries = runtime
+        .catalog_entries
+        .get(&query.catalog)
+        .ok_or_else(|| RototoError::new(format!("catalog has no entries: {}", query.catalog)))?;
+    let mut names = Vec::new();
+    let mut values = Vec::new();
+    for (name, entry) in entries {
+        let entry_view = catalog_entry_view(runtime, &query.catalog, name, entry);
+        let context = state.context;
+        let mut resolve_qualifier = |id: &str| state.resolve(id);
+        if query
+            .expression
+            .evaluate_bool(context, Some(&entry_view), &mut resolve_qualifier)?
+        {
+            names.push(name.clone());
+            values.push(entry_view);
+        }
+    }
+    Ok(RuntimeSelectedValue::CatalogList {
+        catalog: query.catalog.clone(),
+        names,
+        value: JsonValue::Array(values),
+    })
+}
+
+fn catalog_entry_view(
+    runtime: &RuntimeWorkspace,
+    catalog: &str,
+    name: &str,
+    entry: &JsonValue,
+) -> JsonValue {
+    let mut stack = BTreeSet::new();
+    hydrate_catalog_entry(runtime, catalog, name, entry, &mut stack)
+}
+
+fn hydrate_catalog_entry(
+    runtime: &RuntimeWorkspace,
+    catalog: &str,
+    name: &str,
+    entry: &JsonValue,
+    stack: &mut BTreeSet<(String, String)>,
+) -> JsonValue {
+    let mut value = entry.clone();
+    if let JsonValue::Object(object) = &mut value {
+        object.insert("id".to_owned(), JsonValue::String(name.to_owned()));
+    }
+    if !stack.insert((catalog.to_owned(), name.to_owned())) {
+        return value;
+    }
+    let hydrated = runtime
+        .catalog_schemas
+        .get(catalog)
+        .map(|schema| hydrate_schema_value(runtime, catalog, schema, &value, stack))
+        .unwrap_or(value);
+    stack.remove(&(catalog.to_owned(), name.to_owned()));
+    hydrated
+}
+
+fn hydrate_schema_value(
+    runtime: &RuntimeWorkspace,
+    schema_catalog: &str,
+    schema: &JsonValue,
+    value: &JsonValue,
+    stack: &mut BTreeSet<(String, String)>,
+) -> JsonValue {
+    if let Some(reference) = schema.get("$ref").and_then(JsonValue::as_str)
+        && let Some((catalog, schema)) = resolve_schema_ref(runtime, schema_catalog, reference)
+    {
+        return hydrate_schema_value(runtime, &catalog, schema, value, stack);
+    }
+
+    if let Some(ref_value) = schema.get("x-rototo-catalog-ref")
+        && let Some(hydrated) = hydrate_catalog_reference(runtime, ref_value, value, stack)
+    {
+        return hydrated;
+    }
+
+    let mut hydrated = value.clone();
+
+    if let (Some(properties), JsonValue::Object(object)) = (
+        schema.get("properties").and_then(JsonValue::as_object),
+        &mut hydrated,
+    ) {
+        for (key, subschema) in properties {
+            let Some(child) = object.get(key).cloned() else {
+                continue;
+            };
+            object.insert(
+                key.clone(),
+                hydrate_schema_value(runtime, schema_catalog, subschema, &child, stack),
+            );
+        }
+    }
+
+    if let (Some(items), JsonValue::Array(values)) = (schema.get("items"), &mut hydrated) {
+        for value in values {
+            let child = value.clone();
+            *value = hydrate_schema_value(runtime, schema_catalog, items, &child, stack);
+        }
+    }
+
+    for keyword in ["allOf", "anyOf", "oneOf"] {
+        let Some(schemas) = schema.get(keyword).and_then(JsonValue::as_array) else {
+            continue;
+        };
+        for subschema in schemas {
+            hydrated = hydrate_schema_value(runtime, schema_catalog, subschema, &hydrated, stack);
+        }
+    }
+
+    hydrated
+}
+
+fn hydrate_catalog_reference(
+    runtime: &RuntimeWorkspace,
+    ref_spec: &JsonValue,
+    value: &JsonValue,
+    stack: &mut BTreeSet<(String, String)>,
+) -> Option<JsonValue> {
+    if ref_spec == &JsonValue::Bool(true) {
+        let object = value.as_object()?;
+        let catalog = object.get("catalog")?.as_str()?;
+        let entry = object.get("entry")?.as_str()?;
+        let pointer = object.get("pointer").and_then(JsonValue::as_str);
+        return hydrate_catalog_reference_target(runtime, catalog, entry, pointer, value, stack);
+    }
+
+    let target_catalogs = if let Some(catalog) = ref_spec.as_str() {
+        vec![catalog]
+    } else if let Some(catalogs) = ref_spec.as_array() {
+        catalogs.iter().filter_map(JsonValue::as_str).collect()
+    } else {
+        return None;
+    };
+
+    let target = value.as_str()?;
+    let (entry, pointer) = split_catalog_entry_ref(target)?;
+    for catalog in target_catalogs {
+        if runtime
+            .catalog_entries
+            .get(catalog)
+            .is_some_and(|entries| entries.contains_key(entry))
+        {
+            return hydrate_catalog_reference_target(
+                runtime, catalog, entry, pointer, value, stack,
+            );
+        }
+    }
+    None
+}
+
+fn hydrate_catalog_reference_target(
+    runtime: &RuntimeWorkspace,
+    catalog: &str,
+    entry: &str,
+    pointer: Option<&str>,
+    fallback: &JsonValue,
+    stack: &mut BTreeSet<(String, String)>,
+) -> Option<JsonValue> {
+    if stack.contains(&(catalog.to_owned(), entry.to_owned())) {
+        return Some(fallback.clone());
+    }
+    let entry_value = runtime.catalog_entries.get(catalog)?.get(entry)?;
+    let hydrated = hydrate_catalog_entry(runtime, catalog, entry, entry_value, stack);
+    match pointer {
+        Some(pointer) => hydrated
+            .pointer(pointer)
+            .cloned()
+            .or_else(|| Some(fallback.clone())),
+        None => Some(hydrated),
+    }
+}
+
+fn split_catalog_entry_ref(value: &str) -> Option<(&str, Option<&str>)> {
+    let Some((entry, pointer)) = value.split_once('#') else {
+        return (!value.is_empty()).then_some((value, None));
+    };
+    if entry.is_empty() || !is_json_pointer(pointer) {
+        return None;
+    }
+    Some((entry, (!pointer.is_empty()).then_some(pointer)))
+}
+
+fn is_json_pointer(value: &str) -> bool {
+    value.is_empty() || value.starts_with('/')
+}
+
+fn resolve_schema_ref<'a>(
+    runtime: &'a RuntimeWorkspace,
+    current_catalog: &str,
+    reference: &str,
+) -> Option<(String, &'a JsonValue)> {
+    let (uri, pointer) = reference
+        .split_once('#')
+        .map_or((reference, ""), |(uri, pointer)| (uri, pointer));
+    let catalog = if uri.is_empty() {
+        current_catalog.to_owned()
+    } else if let Some(catalog) = uri
+        .strip_prefix("rototo://catalogs/")
+        .and_then(|path| path.strip_suffix(".schema.json"))
+    {
+        catalog.to_owned()
+    } else {
+        runtime
+            .catalog_schemas
+            .iter()
+            .find_map(|(catalog, schema)| {
+                (schema.get("$id").and_then(JsonValue::as_str) == Some(uri))
+                    .then(|| catalog.clone())
+            })?
+    };
+    let schema = runtime.catalog_schemas.get(&catalog)?;
+    if pointer.is_empty() {
+        return Some((catalog, schema));
+    }
+    let pointer = if pointer.starts_with('/') {
+        pointer
+    } else {
+        return None;
+    };
+    schema.pointer(pointer).map(|schema| (catalog, schema))
 }
 
 struct QualifierState<'a> {
@@ -298,147 +574,20 @@ impl<'a> QualifierState<'a> {
             self.runtime.qualifiers.get(id).ok_or_else(|| {
                 RototoError::new(format!("qualifier not found: qualifier://{id}"))
             })?;
-        let mut predicate_traces = Vec::new();
-        for predicate in &qualifier.predicates {
-            self.validate_predicate_context(id, predicate)?;
-        }
-        for predicate in &qualifier.predicates {
-            let trace = self.evaluate_predicate(id, predicate)?;
-            let result = trace.result;
-            predicate_traces.push(trace);
-            if !result {
-                self.traces.insert(
-                    id.to_owned(),
-                    QualifierResolutionTrace {
-                        id: id.to_owned(),
-                        value: false,
-                        predicates: predicate_traces,
-                    },
-                );
-                return Ok(false);
-            }
-        }
+        let context = self.context;
+        let mut resolve_qualifier = |qualifier_id: &str| self.resolve(qualifier_id);
+        let value = qualifier
+            .when
+            .evaluate_bool(context, None, &mut resolve_qualifier)?;
         self.traces.insert(
             id.to_owned(),
             QualifierResolutionTrace {
                 id: id.to_owned(),
-                value: true,
-                predicates: predicate_traces,
+                when: qualifier.when.source().to_owned(),
+                value,
             },
         );
-        Ok(true)
-    }
-
-    fn validate_predicate_context(
-        &self,
-        qualifier_id: &str,
-        predicate: &RuntimePredicate,
-    ) -> Result<()> {
-        match predicate {
-            RuntimePredicate::Bucket { attribute, .. } => {
-                require_context_path(self.context, qualifier_id, attribute)?;
-            }
-            RuntimePredicate::Compare {
-                attribute: RuntimeAttribute::ContextPath(path),
-                ..
-            } => {
-                require_context_path(self.context, qualifier_id, path)?;
-            }
-            RuntimePredicate::Compare {
-                attribute: RuntimeAttribute::Qualifier(_),
-                ..
-            } => {}
-        }
-        Ok(())
-    }
-
-    fn evaluate_predicate(
-        &mut self,
-        qualifier_id: &str,
-        predicate: &RuntimePredicate,
-    ) -> Result<PredicateResolutionTrace> {
-        match predicate {
-            RuntimePredicate::Bucket {
-                index,
-                attribute,
-                salt,
-                start,
-                end,
-            } => {
-                let context_value = require_context_path(self.context, qualifier_id, attribute)?;
-                let bucket = bucket_value(salt, context_value);
-                Ok(PredicateResolutionTrace {
-                    index: *index,
-                    kind: "bucket".to_owned(),
-                    attribute: attribute.clone(),
-                    op: None,
-                    expected: None,
-                    actual: Some(context_value.clone()),
-                    bucket: Some(BucketResolutionTrace {
-                        salt: salt.clone(),
-                        start: *start,
-                        end: *end,
-                        value: Some(bucket),
-                    }),
-                    qualifier: None,
-                    result: i64::from(bucket) >= *start && i64::from(bucket) < *end,
-                })
-            }
-            RuntimePredicate::Compare {
-                index,
-                attribute,
-                op,
-                value,
-            } => {
-                let (attribute_label, qualifier, actual) = match attribute {
-                    RuntimeAttribute::Qualifier(qualifier) => (
-                        format!("qualifier.{qualifier}"),
-                        Some(qualifier.clone()),
-                        JsonValue::Bool(self.resolve(qualifier)?),
-                    ),
-                    RuntimeAttribute::ContextPath(path) => {
-                        let value = require_context_path(self.context, qualifier_id, path)?;
-                        (path.clone(), None, value.clone())
-                    }
-                };
-
-                let result = match op {
-                    RuntimeCompareOp::Eq => json_values_equal(&actual, value),
-                    RuntimeCompareOp::Neq => !json_values_equal(&actual, value),
-                    RuntimeCompareOp::In => value.as_array().is_some_and(|values| {
-                        values.iter().any(|value| json_values_equal(value, &actual))
-                    }),
-                    RuntimeCompareOp::NotIn => value.as_array().is_some_and(|values| {
-                        values
-                            .iter()
-                            .all(|value| !json_values_equal(value, &actual))
-                    }),
-                    RuntimeCompareOp::Gt => {
-                        numeric_compare(&actual, value, |ordering| ordering == Ordering::Greater)
-                    }
-                    RuntimeCompareOp::Gte => numeric_compare(&actual, value, |ordering| {
-                        matches!(ordering, Ordering::Greater | Ordering::Equal)
-                    }),
-                    RuntimeCompareOp::Lt => {
-                        numeric_compare(&actual, value, |ordering| ordering == Ordering::Less)
-                    }
-                    RuntimeCompareOp::Lte => numeric_compare(&actual, value, |ordering| {
-                        matches!(ordering, Ordering::Less | Ordering::Equal)
-                    }),
-                };
-                Ok(PredicateResolutionTrace {
-                    index: *index,
-                    kind: "compare".to_owned(),
-                    attribute: attribute_label,
-                    op: Some(runtime_compare_op_label(*op).to_owned()),
-                    expected: Some(value.clone()),
-                    actual: Some(actual),
-                    bucket: None,
-                    qualifier,
-                    result,
-                })
-            }
-        }
+        Ok(value)
     }
 
     fn qualifier_traces(&self) -> Vec<QualifierResolutionTrace> {
@@ -450,115 +599,6 @@ impl<'a> QualifierState<'a> {
     fn take_qualifier_trace(&mut self, id: &str) -> Option<QualifierResolutionTrace> {
         self.traces.remove(id)
     }
-}
-
-fn runtime_compare_op_label(op: RuntimeCompareOp) -> &'static str {
-    match op {
-        RuntimeCompareOp::Eq => "eq",
-        RuntimeCompareOp::Neq => "neq",
-        RuntimeCompareOp::In => "in",
-        RuntimeCompareOp::NotIn => "not_in",
-        RuntimeCompareOp::Gt => "gt",
-        RuntimeCompareOp::Gte => "gte",
-        RuntimeCompareOp::Lt => "lt",
-        RuntimeCompareOp::Lte => "lte",
-    }
-}
-
-fn require_context_path<'a>(
-    context: &'a JsonValue,
-    qualifier_id: &str,
-    path: &str,
-) -> Result<&'a JsonValue> {
-    context_path(context, path).ok_or_else(|| {
-        RototoError::new(format!(
-            "missing resolve context attribute: {path} required by qualifier://{qualifier_id}"
-        ))
-    })
-}
-
-fn context_path<'a>(context: &'a JsonValue, path: &str) -> Option<&'a JsonValue> {
-    let mut current = context;
-    for segment in path.split('.') {
-        current = current.get(segment)?;
-    }
-    Some(current)
-}
-
-fn json_values_equal(left: &JsonValue, right: &JsonValue) -> bool {
-    match (left.as_number(), right.as_number()) {
-        (Some(left), Some(right)) => exact_number_ordering(left, right) == Some(Ordering::Equal),
-        _ => left == right,
-    }
-}
-
-fn numeric_compare(
-    actual: &JsonValue,
-    expected: &JsonValue,
-    compare: impl FnOnce(Ordering) -> bool,
-) -> bool {
-    let (Some(actual), Some(expected)) = (actual.as_number(), expected.as_number()) else {
-        return false;
-    };
-    exact_number_ordering(actual, expected).is_some_and(compare)
-}
-
-fn exact_number_ordering(
-    left: &serde_json::Number,
-    right: &serde_json::Number,
-) -> Option<Ordering> {
-    match (number_integer(left), number_integer(right)) {
-        (Some(IntegerNumber::Signed(left)), Some(IntegerNumber::Signed(right))) => {
-            return Some(left.cmp(&right));
-        }
-        (Some(IntegerNumber::Unsigned(left)), Some(IntegerNumber::Unsigned(right))) => {
-            return Some(left.cmp(&right));
-        }
-        (Some(IntegerNumber::Signed(left)), Some(IntegerNumber::Unsigned(right))) => {
-            return if left < 0 {
-                Some(Ordering::Less)
-            } else {
-                Some((left as u64).cmp(&right))
-            };
-        }
-        (Some(IntegerNumber::Unsigned(left)), Some(IntegerNumber::Signed(right))) => {
-            return if right < 0 {
-                Some(Ordering::Greater)
-            } else {
-                Some(left.cmp(&(right as u64)))
-            };
-        }
-        _ => {}
-    }
-
-    let left = exact_f64(left)?;
-    let right = exact_f64(right)?;
-    left.partial_cmp(&right)
-}
-
-#[derive(Clone, Copy)]
-enum IntegerNumber {
-    Signed(i64),
-    Unsigned(u64),
-}
-
-fn number_integer(number: &serde_json::Number) -> Option<IntegerNumber> {
-    number
-        .as_i64()
-        .map(IntegerNumber::Signed)
-        .or_else(|| number.as_u64().map(IntegerNumber::Unsigned))
-}
-
-fn exact_f64(number: &serde_json::Number) -> Option<f64> {
-    if let Some(value) = number.as_i64() {
-        let as_f64 = value as f64;
-        return ((as_f64 as i64) == value).then_some(as_f64);
-    }
-    if let Some(value) = number.as_u64() {
-        let as_f64 = value as f64;
-        return ((as_f64 as u64) == value).then_some(as_f64);
-    }
-    number.as_f64().filter(|value| value.is_finite())
 }
 
 pub(crate) fn bucket_value(salt: &str, value: &JsonValue) -> u16 {
@@ -632,8 +672,7 @@ mod tests {
             assert!(
                 resolve_qualifier(workspace.path(), id, &context)
                     .await
-                    .unwrap()
-                    .value,
+                    .unwrap(),
                 "{id}"
             );
         }
@@ -651,8 +690,7 @@ mod tests {
             assert!(
                 !resolve_qualifier(workspace.path(), id, &context)
                     .await
-                    .unwrap()
-                    .value,
+                    .unwrap(),
                 "{id}"
             );
         }
@@ -672,16 +710,7 @@ mod tests {
             (
                 "missing-after-false",
                 r#"schema_version = 1
-
-[[predicate]]
-attribute = "user.tier"
-op = "eq"
-value = "premium"
-
-[[predicate]]
-attribute = "missing.path"
-op = "eq"
-value = "anything"
+when = "context.user.tier == \"premium\" && context.missing.path == \"anything\""
 "#
                 .to_owned(),
             ),
@@ -696,7 +725,7 @@ value = "anything"
             .unwrap_err();
         assert_eq!(
             err.to_string(),
-            "missing resolve context attribute: missing.path required by qualifier://missing-compare"
+            "expression path is missing: context.missing.path"
         );
 
         let err = resolve_qualifier(workspace.path(), "missing-bucket", &context)
@@ -704,19 +733,28 @@ value = "anything"
             .unwrap_err();
         assert_eq!(
             err.to_string(),
-            "missing resolve context attribute: missing.id required by qualifier://missing-bucket"
+            "expression path is missing: context.missing.id"
         );
 
+        assert!(
+            !resolve_qualifier(
+                workspace.path(),
+                "missing-after-false",
+                &non_matching_context,
+            )
+            .await
+            .unwrap()
+        );
         let err = resolve_qualifier(
             workspace.path(),
             "missing-after-false",
-            &non_matching_context,
+            &serde_json::json!({ "user": { "tier": "premium" } }),
         )
         .await
         .unwrap_err();
         assert_eq!(
             err.to_string(),
-            "missing resolve context attribute: missing.path required by qualifier://missing-after-false"
+            "expression path is missing: context.missing.path"
         );
     }
 
@@ -741,20 +779,195 @@ value = "anything"
             resolve_qualifier(workspace.path(), "bucket-in", &context)
                 .await
                 .unwrap()
-                .value
         );
         assert!(
             !resolve_qualifier(workspace.path(), "bucket-start-exclusive", &context)
                 .await
                 .unwrap()
-                .value
         );
         assert!(
             !resolve_qualifier(workspace.path(), "bucket-end-exclusive", &context)
                 .await
                 .unwrap()
-                .value
         );
+    }
+
+    #[tokio::test]
+    async fn resolves_expanded_predicate_operators() {
+        let workspace = workspace_with_qualifiers(&[
+            (
+                "prefix-true",
+                predicate("user.email", "prefix", r#""ava@""#),
+            ),
+            (
+                "prefix-false",
+                predicate("user.email", "prefix", r#""sam@""#),
+            ),
+            (
+                "suffix-true",
+                predicate("user.email", "suffix", r#""example.com""#),
+            ),
+            (
+                "contains-true",
+                predicate("user.email", "contains", r#""@example.""#),
+            ),
+            (
+                "regex-true",
+                predicate("user.email", "regex", r#""^ava@.*\\.com$""#),
+            ),
+            (
+                "glob-true",
+                predicate("user.email", "glob", r#""ava@*.com""#),
+            ),
+            (
+                "semver-true",
+                predicate("app.version", "semver", r#"">=1.7.0, <2.0.0""#),
+            ),
+            (
+                "semver-false",
+                predicate("app.version", "semver", r#"">=2.0.0""#),
+            ),
+            (
+                "time-gt-true",
+                predicate("request.time", "time_gt", r#""2026-07-10T09:00:00Z""#),
+            ),
+            (
+                "time-gt-false",
+                predicate("request.time", "time_gt", r#""2026-07-10T11:00:00Z""#),
+            ),
+            (
+                "time-between-true",
+                condition(
+                    r#"time_between(context.request.time, "2026-07-10T10:00:00Z", "2026-07-10T11:00:00Z")"#,
+                ),
+            ),
+            (
+                "time-between-false",
+                condition(
+                    r#"time_between(context.request.time, "2026-07-10T09:00:00Z", "2026-07-10T10:30:00Z")"#,
+                ),
+            ),
+            (
+                "between-true",
+                condition("context.cart.total >= 40 && context.cart.total < 50"),
+            ),
+            (
+                "between-false",
+                condition("context.cart.total >= 0 && context.cart.total < 42"),
+            ),
+            (
+                "contains-any-true",
+                predicate("user.roles", "contains_any", r#"["admin", "owner"]"#),
+            ),
+            (
+                "contains-all-true",
+                predicate("user.roles", "contains_all", r#"["admin", "billing"]"#),
+            ),
+            (
+                "contains-none-true",
+                predicate("user.roles", "contains_none", r#"["owner"]"#),
+            ),
+            (
+                "contains-none-false",
+                predicate("user.roles", "contains_none", r#"["admin"]"#),
+            ),
+            (
+                "cidr-true",
+                predicate("request.ip", "cidr", r#""10.0.0.0/8""#),
+            ),
+            (
+                "cidr-false",
+                predicate("request.ip", "cidr", r#""192.168.0.0/16""#),
+            ),
+            (
+                "exists-true",
+                predicate_without_value("user.nickname", "exists"),
+            ),
+            (
+                "exists-false",
+                predicate_without_value("user.missing", "exists"),
+            ),
+            (
+                "missing-true",
+                predicate_without_value("user.missing", "missing"),
+            ),
+            (
+                "is-null-true",
+                predicate_without_value("user.nickname", "is_null"),
+            ),
+            (
+                "not-null-true",
+                predicate_without_value("user.email", "not_null"),
+            ),
+            (
+                "not-true",
+                negated_predicate("user.email", "prefix", r#""sam@""#),
+            ),
+            (
+                "not-false",
+                negated_predicate("user.email", "prefix", r#""ava@""#),
+            ),
+        ]);
+        let context = serde_json::json!({
+            "app": { "version": "1.7.3" },
+            "cart": { "total": 42 },
+            "request": {
+                "ip": "10.2.3.4",
+                "time": "2026-07-10T12:30:00+02:00"
+            },
+            "user": {
+                "email": "ava@example.com",
+                "nickname": null,
+                "roles": ["admin", "billing"]
+            }
+        });
+
+        for id in [
+            "prefix-true",
+            "suffix-true",
+            "contains-true",
+            "regex-true",
+            "glob-true",
+            "semver-true",
+            "time-gt-true",
+            "time-between-true",
+            "between-true",
+            "contains-any-true",
+            "contains-all-true",
+            "contains-none-true",
+            "cidr-true",
+            "exists-true",
+            "missing-true",
+            "is-null-true",
+            "not-null-true",
+            "not-true",
+        ] {
+            assert!(
+                resolve_qualifier(workspace.path(), id, &context)
+                    .await
+                    .unwrap(),
+                "{id}"
+            );
+        }
+
+        for id in [
+            "prefix-false",
+            "semver-false",
+            "time-gt-false",
+            "time-between-false",
+            "between-false",
+            "contains-none-false",
+            "cidr-false",
+            "exists-false",
+            "not-false",
+        ] {
+            assert!(
+                !resolve_qualifier(workspace.path(), id, &context)
+                    .await
+                    .unwrap(),
+                "{id}"
+            );
+        }
     }
 
     #[tokio::test]
@@ -762,13 +975,10 @@ value = "anything"
         let workspace = workspace_with_qualifiers(&[
             ("premium", predicate("user.tier", "eq", r#""premium""#)),
             ("free", predicate("user.tier", "eq", r#""free""#)),
-            (
-                "premium-derived",
-                predicate("qualifier.premium", "eq", "true"),
-            ),
-            ("free-derived", predicate("qualifier.free", "eq", "true")),
-            ("cycle-a", predicate("qualifier.cycle-b", "eq", "true")),
-            ("cycle-b", predicate("qualifier.cycle-a", "eq", "true")),
+            ("premium-derived", condition(r#"qualifier["premium"]"#)),
+            ("free-derived", condition(r#"qualifier["free"]"#)),
+            ("cycle-a", condition(r#"qualifier["cycle-b"]"#)),
+            ("cycle-b", condition(r#"qualifier["cycle-a"]"#)),
         ]);
         let context = serde_json::json!({ "user": { "tier": "premium" } });
 
@@ -776,13 +986,11 @@ value = "anything"
             resolve_qualifier(workspace.path(), "premium-derived", &context)
                 .await
                 .unwrap()
-                .value
         );
         assert!(
             !resolve_qualifier(workspace.path(), "free-derived", &context)
                 .await
                 .unwrap()
-                .value
         );
         let err = resolve_qualifier(workspace.path(), "cycle-a", &context)
             .await
@@ -804,7 +1012,7 @@ type = "string"
 default = "control"
 
 [[resolve.rule]]
-qualifier = "premium"
+when = 'qualifier["premium"]'
 value = "premium"
 "#,
         )
@@ -855,61 +1063,210 @@ rule = ["not-a-table"]
             resolve_qualifier(workspace.path(), "int-float-equal", &context)
                 .await
                 .unwrap()
-                .value
         );
         assert!(
             !resolve_qualifier(workspace.path(), "large-int-float-not-equal", &context)
                 .await
                 .unwrap()
-                .value
         );
         assert!(
             resolve_qualifier(workspace.path(), "large-int-self-equal", &context)
                 .await
                 .unwrap()
-                .value
         );
     }
 
     #[tokio::test]
-    async fn malformed_predicates_return_errors_during_unchecked_resolution() {
+    async fn resolves_when_qualifiers_and_catalog_query_variables() {
+        let workspace = workspace_with_qualifiers(&[(
+            "premium",
+            r#"schema_version = 1
+when = "context.user.tier == \"premium\""
+"#
+            .to_owned(),
+        )]);
+        std::fs::create_dir_all(workspace.path().join("catalogs/message-template-entries"))
+            .unwrap();
+        std::fs::create_dir_all(workspace.path().join("catalogs/hero-banner-entries")).unwrap();
+        std::fs::create_dir_all(workspace.path().join("catalogs/page-entries")).unwrap();
+        std::fs::create_dir_all(workspace.path().join("variables")).unwrap();
+        std::fs::write(
+            workspace
+                .path()
+                .join("catalogs/message-template.schema.json"),
+            r#"{
+  "type": "object",
+  "required": ["channel", "active", "body"],
+  "properties": {
+    "channel": { "type": "string" },
+    "active": { "type": "boolean" },
+    "body": { "type": "string" }
+  }
+}
+"#,
+        )
+        .unwrap();
+        std::fs::write(
+            workspace
+                .path()
+                .join("catalogs/message-template-entries/email.toml"),
+            r#"channel = "email"
+active = true
+body = "Email body"
+"#,
+        )
+        .unwrap();
+        std::fs::write(
+            workspace
+                .path()
+                .join("catalogs/message-template-entries/sms.toml"),
+            r#"channel = "sms"
+active = false
+body = "SMS body"
+"#,
+        )
+        .unwrap();
+        std::fs::write(
+            workspace.path().join("variables/templates.toml"),
+            r#"schema_version = 1
+type = "list<catalog:message-template>"
+
+[resolve]
+default = []
+
+[[resolve.rule]]
+query = "entry.channel == context.channel && entry.active == true && qualifier[\"premium\"]"
+"#,
+        )
+        .unwrap();
+        std::fs::write(
+            workspace.path().join("catalogs/hero-banner.schema.json"),
+            r#"{
+  "type": "object",
+  "required": ["cta"],
+  "properties": {
+    "cta": { "type": "string" }
+  }
+}
+"#,
+        )
+        .unwrap();
+        std::fs::write(
+            workspace
+                .path()
+                .join("catalogs/hero-banner-entries/home.toml"),
+            r#"cta = "Buy"
+"#,
+        )
+        .unwrap();
+        std::fs::write(
+            workspace.path().join("catalogs/page.schema.json"),
+            r#"{
+  "type": "object",
+  "required": ["hero", "title"],
+  "properties": {
+    "hero": {
+      "type": "string",
+      "x-rototo-catalog-ref": "hero-banner"
+    },
+    "title": { "type": "string" }
+  }
+}
+"#,
+        )
+        .unwrap();
+        std::fs::write(
+            workspace.path().join("catalogs/page-entries/home.toml"),
+            r#"hero = "home"
+title = "Home"
+"#,
+        )
+        .unwrap();
+        std::fs::write(
+            workspace.path().join("variables/pages.toml"),
+            r#"schema_version = 1
+type = "list<catalog:page>"
+
+[resolve]
+default = []
+
+[[resolve.rule]]
+query = "entry.hero.cta == \"Buy\""
+"#,
+        )
+        .unwrap();
+
+        let context = serde_json::json!({
+            "channel": "email",
+            "user": { "tier": "premium" }
+        });
+
+        assert!(
+            resolve_qualifier(workspace.path(), "premium", &context)
+                .await
+                .unwrap()
+        );
+        let resolution = resolve_variable(workspace.path(), "templates", &context)
+            .await
+            .unwrap();
+        assert_eq!(
+            resolution.value,
+            serde_json::json!([
+                {
+                    "id": "email",
+                    "channel": "email",
+                    "active": true,
+                    "body": "Email body"
+                }
+            ])
+        );
+
+        let pages = resolve_variable(workspace.path(), "pages", &context)
+            .await
+            .unwrap();
+        assert_eq!(
+            pages.value,
+            serde_json::json!([
+                {
+                    "id": "home",
+                    "title": "Home",
+                    "hero": {
+                        "id": "home",
+                        "cta": "Buy"
+                    }
+                }
+            ])
+        );
+    }
+
+    #[tokio::test]
+    async fn malformed_qualifier_conditions_return_errors_during_unchecked_resolution() {
         let context = serde_json::json!({ "user": { "tier": "premium", "id": "user-123" } });
 
         let workspace = workspace_with_qualifiers(&[(
-            "unknown-op",
-            predicate("user.tier", "contains", r#""premium""#),
+            "unknown-function",
+            condition(r#"not_a_real_function(context.user.tier, "premium")"#),
         )]);
-        let err = resolve_qualifier(workspace.path(), "unknown-op", &context)
+        let err = resolve_qualifier(workspace.path(), "unknown-function", &context)
             .await
             .unwrap_err();
-        assert!(err.to_string().contains("unknown predicate operator"));
+        assert!(err.to_string().contains("unknown expression function"));
 
-        let workspace = workspace_with_qualifiers(&[(
-            "empty",
-            String::from("schema_version = 1\npredicate = []\n"),
-        )]);
-        let err = resolve_qualifier(workspace.path(), "empty", &context)
+        let workspace =
+            workspace_with_qualifiers(&[("missing-when", String::from("schema_version = 1\n"))]);
+        let err = resolve_qualifier(workspace.path(), "missing-when", &context)
             .await
             .unwrap_err();
-        assert!(err.to_string().contains("at least one predicate"));
+        assert!(err.to_string().contains("qualifier must declare when"));
 
-        let workspace = workspace_with_qualifiers(&[(
-            "bad-bucket",
-            String::from(
-                r#"schema_version = 1
-
-[[predicate]]
-attribute = "user.id"
-op = "bucket"
-salt = "known-salt"
-range = [1.5, 2.5]
-"#,
-            ),
-        )]);
-        let err = resolve_qualifier(workspace.path(), "bad-bucket", &context)
+        let workspace = workspace_with_qualifiers(&[("non-bool", condition("context.user.tier"))]);
+        let err = resolve_qualifier(workspace.path(), "non-bool", &context)
             .await
             .unwrap_err();
-        assert!(err.to_string().contains("range must contain two integers"));
+        assert!(
+            err.to_string()
+                .contains("expression did not evaluate to bool")
+        );
     }
 
     fn workspace_with_qualifiers(qualifiers: &[(&str, String)]) -> tempfile::TempDir {
@@ -932,15 +1289,18 @@ range = [1.5, 2.5]
     }
 
     fn predicate(attribute: &str, op: &str, value: &str) -> String {
-        format!(
-            r#"schema_version = 1
+        condition(&predicate_expression(attribute, op, value))
+    }
 
-[[predicate]]
-attribute = "{attribute}"
-op = "{op}"
-value = {value}
-"#
-        )
+    fn predicate_without_value(attribute: &str, op: &str) -> String {
+        condition(&predicate_without_value_expression(attribute, op))
+    }
+
+    fn negated_predicate(attribute: &str, op: &str, value: &str) -> String {
+        condition(&format!(
+            "!({})",
+            predicate_expression(attribute, op, value)
+        ))
     }
 
     fn bucket_predicate(range: &str) -> String {
@@ -948,15 +1308,84 @@ value = {value}
     }
 
     fn bucket_predicate_for(attribute: &str, range: &str) -> String {
-        format!(
-            r#"schema_version = 1
+        let [start, end] = parse_range(range);
+        condition(&format!(
+            "bucket({}, \"known-salt\", {start}, {end})",
+            attribute_expression(attribute)
+        ))
+    }
 
-[[predicate]]
-attribute = "{attribute}"
-op = "bucket"
-salt = "known-salt"
-range = [{range}]
-"#
-        )
+    fn condition(expression: &str) -> String {
+        let escaped = expression.replace('\\', "\\\\").replace('"', "\\\"");
+        format!("schema_version = 1\nwhen = \"{escaped}\"\n")
+    }
+
+    fn predicate_expression(attribute: &str, op: &str, value: &str) -> String {
+        let actual = attribute_expression(attribute);
+        match op {
+            "eq" => format!("{actual} == {value}"),
+            "neq" => format!("{actual} != {value}"),
+            "in" => format!("{actual} in {value}"),
+            "not_in" => format!("!({actual} in {value})"),
+            "gt" => format!("{actual} > {value}"),
+            "gte" => format!("{actual} >= {value}"),
+            "lt" => format!("{actual} < {value}"),
+            "lte" => format!("{actual} <= {value}"),
+            "prefix" => format!("prefix({actual}, {value})"),
+            "suffix" => format!("suffix({actual}, {value})"),
+            "contains" => format!("contains({actual}, {value})"),
+            "regex" => format!("regex({actual}, {value})"),
+            "glob" => format!("glob({actual}, {value})"),
+            "semver" => format!("semver({actual}, {value})"),
+            "time_gt" => format!("time_after({actual}, {value})"),
+            "time_gte" => format!("time_at_or_after({actual}, {value})"),
+            "time_lt" => format!("time_before({actual}, {value})"),
+            "time_lte" => format!("time_at_or_before({actual}, {value})"),
+            "contains_any" => contains_expression(&actual, value, "||", false),
+            "contains_all" => contains_expression(&actual, value, "&&", false),
+            "contains_none" => contains_expression(&actual, value, "&&", true),
+            "cidr" => format!("cidr({actual}, {value})"),
+            _ => panic!("unsupported test operator: {op}"),
+        }
+    }
+
+    fn predicate_without_value_expression(attribute: &str, op: &str) -> String {
+        let actual = attribute_expression(attribute);
+        match op {
+            "exists" => format!("has({actual})"),
+            "missing" => format!("!has({actual})"),
+            "is_null" => format!("has({actual}) && {actual} == null"),
+            "not_null" => format!("has({actual}) && {actual} != null"),
+            _ => panic!("unsupported test operator: {op}"),
+        }
+    }
+
+    fn attribute_expression(attribute: &str) -> String {
+        if let Some(qualifier) = attribute.strip_prefix("qualifier.") {
+            format!("qualifier[\"{qualifier}\"]")
+        } else {
+            format!("context.{attribute}")
+        }
+    }
+
+    fn contains_expression(actual: &str, value: &str, join: &str, negate: bool) -> String {
+        let values = serde_json::from_str::<serde_json::Value>(value).unwrap();
+        let values = values.as_array().unwrap();
+        values
+            .iter()
+            .map(|value| {
+                let call = format!("contains({actual}, {})", value);
+                if negate { format!("!{call}") } else { call }
+            })
+            .collect::<Vec<_>>()
+            .join(&format!(" {join} "))
+    }
+
+    fn parse_range(range: &str) -> [i64; 2] {
+        let parts = range
+            .split(',')
+            .map(|part| part.trim().parse::<i64>().unwrap())
+            .collect::<Vec<_>>();
+        [parts[0], parts[1]]
     }
 }

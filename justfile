@@ -121,9 +121,41 @@ console-dev workspace_source="":
         echo "using workspace source: $workspace_source"
     fi
 
-    (cargo_watch -w src -w Cargo.toml -w Cargo.lock -w build.rs -x "$run_cmd" 2>&1 | tee -a "$log") &
-    api_pid=$!
-    trap 'kill "$api_pid" 2>/dev/null || true; wait "$api_pid" 2>/dev/null || true' EXIT
+    api_pid=""
+    api_process_group=0
+
+    start_api() {
+        if command -v setsid >/dev/null 2>&1; then
+            export -f cargo_watch
+            setsid bash -c 'cargo_watch -w src -w Cargo.toml -w Cargo.lock -w build.rs -x "$1" 2>&1 | tee -a "$2"' bash "$run_cmd" "$log" &
+            api_pid=$!
+            api_process_group=1
+        else
+            (cargo_watch -w src -w Cargo.toml -w Cargo.lock -w build.rs -x "$run_cmd" 2>&1 | tee -a "$log") &
+            api_pid=$!
+        fi
+    }
+
+    cleanup() {
+        status=$?
+        trap - EXIT INT TERM HUP
+        if [[ -n "$api_pid" ]]; then
+            if [[ "$api_process_group" -eq 1 ]]; then
+                kill -- "-$api_pid" 2>/dev/null || true
+            else
+                kill "$api_pid" 2>/dev/null || true
+            fi
+            wait "$api_pid" 2>/dev/null || true
+        fi
+        exit "$status"
+    }
+
+    trap cleanup EXIT
+    trap 'exit 130' INT
+    trap 'exit 143' TERM
+    trap 'exit 129' HUP
+
+    start_api
     ready=0
     for _ in $(seq 1 120); do
         if curl --silent --output /dev/null --max-time 1 http://127.0.0.1:7686/api/me; then

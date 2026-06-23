@@ -2,8 +2,4 @@ schema_version = 1
 
 description = "Stable ten percent rollout bucket for experiments"
 
-[[predicate]]
-attribute = "user.id"
-op = "bucket"
-salt = "checkout-redesign-2026-05"
-range = [0, 1000]
+when = '(bucket(context.user.id, "checkout-redesign-2026-05", 0, 1000))'

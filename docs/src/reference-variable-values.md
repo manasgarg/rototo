@@ -22,7 +22,7 @@ type = "int"
 default = 3
 
 [[resolve.rule]]
-qualifier = "paid-account"
+when = 'qualifier["paid-account"]'
 value = 25
 ```
 
@@ -51,7 +51,7 @@ type = "bool"
 default = false
 
 [[resolve.rule]]
-qualifier = "enabled-account"
+when = 'qualifier["enabled-account"]'
 value = true
 ```
 
@@ -62,7 +62,7 @@ type = "list"
 default = ["email"]
 
 [[resolve.rule]]
-qualifier = "expanded-notifications"
+when = 'qualifier["expanded-notifications"]'
 value = ["email", "sms"]
 ```
 
@@ -77,18 +77,20 @@ before the application receives the selected payload:
 
 ```text
 catalogs/
-  account-limit-profile.toml
+  account-limit-profile.schema.json
   account-limit-profile-entries/
     growth.toml
     enterprise.toml
 ```
 
-The catalog file declares the schema:
+The catalog file is the schema:
 
-```toml
-schema_version = 1
-description = "Account limit profiles"
-schema = "../schemas/account-limit-profile.schema.json"
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "description": "Account limit profiles",
+  "type": "object"
+}
 ```
 
 Each value file contains the payload:
@@ -110,7 +112,7 @@ type = "catalog:account-limit-profile"
 default = "growth"
 
 [[resolve.rule]]
-qualifier = "enterprise-account"
+when = 'qualifier["enterprise-account"]'
 value = "enterprise"
 ```
 

@@ -1,23 +1,19 @@
 function register(lint)
-  lint:on({
-    stage = "policy",
-    entity = "variable",
-    field = "type",
-    rule = {
-          id = "policy/advisory",
-          title = "Workspace policy advisory",
-          help = "Review the advisory before release.",
-          severity = "warning",
-        },
+  lint:rule({
+    id = "policy/advisory",
+    title = "Workspace policy advisory",
+    help = "Review the advisory before release.",
+    severity = "warning",
+    target = "/variables/message",
     handler = "check_variable",
   })
 end
 
-function check_variable(ctx)
-  if ctx.target.id == "message" then
-    return {
-      { message = "message variable has an advisory" },
-    }
-  end
-  return {}
+function check_variable(workspace, variable)
+  return {
+    {
+      message = "message variable has an advisory",
+      path = "/declaration/value",
+    },
+  }
 end

@@ -2,8 +2,4 @@ schema_version = 1
 
 description = "Invalid bucket qualifier"
 
-[[predicate]]
-attribute = "user.id"
-op = "bucket"
-salt = "bad-bucket"
-range = [9000, 1000]
+when = '(bucket(context.user.id, "bad-bucket", 9000, 1000))'

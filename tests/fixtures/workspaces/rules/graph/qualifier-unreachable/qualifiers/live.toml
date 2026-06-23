@@ -1,6 +1,4 @@
 schema_version = 1
+description = "Runtime condition for live."
 
-[[predicate]]
-attribute = "feature.enabled"
-op = "eq"
-value = true
+when = "(context.feature.enabled == true)"

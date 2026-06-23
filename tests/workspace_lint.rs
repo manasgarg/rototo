@@ -25,11 +25,11 @@ fn lints_basic_workspace_as_json_with_documents() {
     assert!(document_paths(&lint).contains(&"rototo-workspace.toml".to_owned()));
     assert!(document_paths(&lint).contains(&"qualifiers/premium-users.toml".to_owned()));
     assert!(document_paths(&lint).contains(&"variables/checkout-redesign.toml".to_owned()));
-    assert!(document_paths(&lint).contains(&"catalogs/llm-agent-config.toml".to_owned()));
+    assert!(document_paths(&lint).contains(&"catalogs/llm-agent-config.schema.json".to_owned()));
     assert!(
         document_paths(&lint).contains(&"catalogs/llm-agent-config-entries/local.toml".to_owned())
     );
-    assert!(document_paths(&lint).contains(&"schemas/context.schema.json".to_owned()));
+    assert!(document_paths(&lint).contains(&"request-contexts/request.schema.json".to_owned()));
 }
 
 #[test]
@@ -43,6 +43,35 @@ fn lints_curated_examples() {
         assert!(
             lint["diagnostics"].as_array().unwrap().is_empty(),
             "{workspace} should stay lint-clean\n{lint:#}"
+        );
+    }
+}
+
+#[test]
+fn lints_catalog_references() {
+    let lint = lint_json("tests/fixtures/workspaces/catalog-refs", true);
+    assert!(
+        lint["diagnostics"].as_array().unwrap().is_empty(),
+        "{lint:#}"
+    );
+}
+
+#[test]
+fn reports_catalog_reference_failures() {
+    let lint = lint_json("tests/fixtures/workspaces/catalog-ref-failures", false);
+    let messages = diagnostic_messages_for_rule(&lint, "rototo/catalog-entry-unknown-reference");
+
+    assert_eq!(messages.len(), 5, "{lint:#}");
+    for expected in [
+        "$.unknown_catalog references unknown catalog: missing-template",
+        "$.unknown_entry references unknown email-template entry: absent",
+        "$.invalid_pointer references invalid JSON Pointer: body",
+        "$.missing_pointer references missing path /missing in email-template entry: welcome",
+        "$.ambiguous_template references ambiguous catalog entry shared; found in catalogs: email-template, sms-template",
+    ] {
+        assert!(
+            messages.contains(&expected.to_owned()),
+            "missing {expected:?} in {messages:#?}"
         );
     }
 }
@@ -288,34 +317,15 @@ fn reports_workspace_file_parse_failed() {
 }
 
 #[test]
-fn reports_schema_parse_failed() {
-    let lint = lint_json("tests/fixtures/workspaces/lint-failures", false);
-    let diagnostic = diagnostic_for_rule(&lint, "rototo/schema-parse-failed");
-
-    assert_eq!(diagnostic["rule"], "rototo/schema-parse-failed");
-    assert_eq!(diagnostic["stage"], "parse");
-    assert_eq!(diagnostic["target"]["entity"]["kind"], "schema");
-    assert_eq!(
-        diagnostic["target"]["entity"]["path"],
-        "schemas/invalid-json.schema.json"
-    );
-    assert_eq!(
-        diagnostic["location"]["path"],
-        "schemas/invalid-json.schema.json"
-    );
-    assert!(diagnostic["location"]["range"].is_object());
-}
-
-#[test]
 fn reports_schema_ui_hint_rules() {
-    let lint = lint_json("tests/fixtures/workspaces/lint-failures", false);
-
+    let lint = lint_json(
+        "tests/fixtures/workspaces/rules/project/schema-ui-unknown-widget",
+        true,
+    );
     let unknown = diagnostic_for_rule(&lint, "rototo/schema-ui-unknown-widget");
     assert_eq!(unknown["severity"], "warning");
-    assert_eq!(
-        unknown["target"]["entity"]["path"],
-        "schemas/bad-ui-hints.schema.json"
-    );
+    assert_eq!(unknown["target"]["entity"]["kind"], "catalog");
+    assert_eq!(unknown["target"]["entity"]["id"], "panel");
     assert!(
         unknown["message"]
             .as_str()
@@ -324,35 +334,31 @@ fn reports_schema_ui_hint_rules() {
         "{unknown:#}"
     );
 
+    let lint = lint_json(
+        "tests/fixtures/workspaces/rules/project/schema-ui-widget-type-mismatch",
+        true,
+    );
     let mismatch = diagnostic_for_rule(&lint, "rototo/schema-ui-widget-type-mismatch");
     assert!(
         mismatch["message"]
             .as_str()
             .unwrap()
-            .contains("ui widget textarea supports string"),
+            .contains("ui widget slider supports integer, number"),
         "{mismatch:#}"
     );
 
+    let lint = lint_json(
+        "tests/fixtures/workspaces/rules/project/schema-ui-widget-params",
+        true,
+    );
     let params = diagnostic_messages_for_rule(&lint, "rototo/schema-ui-widget-params");
-    assert_eq!(params.len(), 4, "{lint:#}");
+    assert_eq!(params.len(), 1, "{lint:#}");
     assert!(
         params
             .iter()
-            .any(|message| message.contains("unknown x-rototo-ui parameter rows"))
+            .any(|message| message.contains("unknown x-rototo-ui parameter steps")),
+        "{params:#?}"
     );
-    assert!(
-        params
-            .iter()
-            .any(|message| message.contains("needs bounds"))
-    );
-    assert!(
-        params
-            .iter()
-            .any(|message| message.contains("requires an enum"))
-    );
-    assert!(params.iter().any(|message| {
-        message.contains("parameter language for widget code must be a string")
-    }));
 }
 
 #[test]
@@ -372,44 +378,49 @@ fn parse_diagnostics_handle_multibyte_text_near_syntax_errors() {
     );
 
     let json_root = temp.path().join("json");
-    std::fs::create_dir_all(json_root.join("schemas")).unwrap();
+    std::fs::create_dir_all(json_root.join("catalogs")).unwrap();
     std::fs::write(
         json_root.join("rototo-workspace.toml"),
         "schema_version = 1\n",
     )
     .unwrap();
     std::fs::write(
-        json_root.join("schemas/broken.schema.json"),
+        json_root.join("catalogs/broken.schema.json"),
         "{\"title\":\"café\",\"type\":}",
     )
     .unwrap();
     let json_lint = lint_json(json_root.to_str().unwrap(), false);
     assert_eq!(
         only_diagnostic(&json_lint)["rule"],
-        "rototo/schema-parse-failed"
+        "rototo/catalog-parse-failed"
     );
 }
 
 #[test]
 fn reports_workspace_context_schema_ref_failures() {
-    for workspace in [
+    let parse_lint = lint_json(
         "tests/fixtures/workspaces/context-schema-invalid-json",
-        "tests/fixtures/workspaces/context-schema-invalid-schema",
-    ] {
-        let lint = lint_json(workspace, false);
-        assert_project_rule(
-            &lint,
-            "rototo/workspace-context-schema-ref",
-            "schemas/context.schema.json",
-        );
+        false,
+    );
+    let parse_diagnostic = only_diagnostic(&parse_lint);
+    assert_eq!(
+        parse_diagnostic["rule"],
+        "rototo/request-context-parse-failed"
+    );
+    assert_eq!(
+        parse_diagnostic["location"]["path"],
+        "request-contexts/request.schema.json"
+    );
 
-        let diagnostic = diagnostic_for_rule(&lint, "rototo/workspace-context-schema-ref");
-        assert_eq!(diagnostic["target"]["entity"]["kind"], "schema");
-        assert_eq!(
-            diagnostic["target"]["entity"]["path"],
-            "schemas/context.schema.json"
-        );
-    }
+    let schema_lint = lint_json(
+        "tests/fixtures/workspaces/context-schema-invalid-schema",
+        false,
+    );
+    assert_project_rule(
+        &schema_lint,
+        "rototo/request-context-schema-invalid",
+        "request-contexts/request.schema.json",
+    );
 }
 
 #[test]
@@ -418,10 +429,9 @@ fn accepts_path_safety_normalized_refs() {
 
     assert!(lint["diagnostics"].as_array().unwrap().is_empty());
     assert!(document_paths(&lint).contains(&"rototo-workspace.toml".to_owned()));
-    assert!(document_paths(&lint).contains(&"schemas/context.schema.json".to_owned()));
-    assert!(document_paths(&lint).contains(&"schemas/value.schema.json".to_owned()));
+    assert!(document_paths(&lint).contains(&"request-contexts/request.schema.json".to_owned()));
     assert!(document_paths(&lint).contains(&"variables/message.toml".to_owned()));
-    assert!(document_paths(&lint).contains(&"catalogs/message.toml".to_owned()));
+    assert!(document_paths(&lint).contains(&"catalogs/message.schema.json".to_owned()));
     assert!(document_paths(&lint).contains(&"catalogs/message-entries/default.toml".to_owned()));
     assert!(document_paths(&lint).contains(&"lint/ok.lua".to_owned()));
 }
@@ -430,7 +440,6 @@ fn accepts_path_safety_normalized_refs() {
 fn rejects_path_safety_escaping_refs_and_lint_files() {
     let lint = lint_json("tests/fixtures/workspaces/path-safety-escapes", false);
 
-    assert_reference_rule(&lint, "rototo/catalog-schema-ref", "catalogs/message.toml");
     assert_register_rule(&lint, "rototo/custom-lint-failed", "lint/escape.lua");
 
     let lint_file = diagnostic_for_rule(&lint, "rototo/custom-lint-failed");
@@ -451,15 +460,19 @@ fn reports_workspace_context_schema_attribute_failures() {
 
     assert_eq!(
         diagnostic["rule"],
-        "rototo/workspace-context-schema-attribute"
+        "rototo/qualifier-no-compatible-request-context"
     );
-    assert_eq!(diagnostic["stage"], "reference");
-    assert_eq!(diagnostic["target"]["entity"]["kind"], "predicate");
+    assert_eq!(diagnostic["stage"], "graph");
+    assert_eq!(diagnostic["target"]["entity"]["kind"], "qualifier");
+    assert_eq!(
+        diagnostic["target"]["entity"]["id"],
+        "missing-context-contract"
+    );
     assert_eq!(
         diagnostic["location"]["path"],
         "qualifiers/missing-context-contract.toml"
     );
-    assert!(diagnostic["location"]["range"].is_object());
+    assert!(diagnostic["location"]["range"].is_null());
 }
 
 #[test]
@@ -473,12 +486,12 @@ fn reports_project_stage_qualifier_shape_failures() {
     );
     assert_project_rule(
         &lint,
-        "rototo/qualifier-predicate-missing",
+        "rototo/qualifier-when-missing",
         "qualifiers/missing-predicate.toml",
     );
     assert_project_rule(
         &lint,
-        "rototo/qualifier-predicate-shape",
+        "rototo/qualifier-when-shape",
         "qualifiers/predicate-shape.toml",
     );
 }
@@ -515,23 +528,24 @@ fn reports_project_stage_variable_shape_failures() {
 }
 
 #[test]
-fn reports_project_stage_predicate_failures() {
+fn reports_project_stage_qualifier_when_failures() {
     let lint = lint_json("tests/fixtures/workspaces/lint-failures", false);
 
     assert_project_rule(
         &lint,
-        "rototo/qualifier-predicate-bucket",
-        "qualifiers/bad-bucket.toml",
-    );
-    assert_project_rule(
-        &lint,
-        "rototo/qualifier-predicate-unknown-op",
+        "rototo/qualifier-when-shape",
         "qualifiers/bad-value-shape.toml",
     );
+}
+
+#[test]
+fn reports_legacy_variable_rule_qualifier_field() {
+    let lint = lint_json("tests/fixtures/workspaces/lint-failures", false);
+
     assert_project_rule(
         &lint,
-        "rototo/qualifier-predicate-value",
-        "qualifiers/bad-value-shape.toml",
+        "rototo/variable-rule-shape",
+        "variables/legacy-rule-qualifier.toml",
     );
 }
 
@@ -541,7 +555,6 @@ fn catalog_value_file_can_represent_object_with_value_field() {
     let root = temp.path();
     std::fs::create_dir_all(root.join("variables")).unwrap();
     std::fs::create_dir_all(root.join("catalogs/message-entries")).unwrap();
-    std::fs::create_dir_all(root.join("schemas")).unwrap();
     std::fs::write(
         root.join("rototo-workspace.toml"),
         r#"schema_version = 1
@@ -549,20 +562,13 @@ fn catalog_value_file_can_represent_object_with_value_field() {
     )
     .unwrap();
     std::fs::write(
-        root.join("schemas/message.schema.json"),
+        root.join("catalogs/message.schema.json"),
         r#"{
   "type": "object",
   "properties": { "value": { "type": "string" } },
   "required": ["value"],
   "additionalProperties": false
 }"#,
-    )
-    .unwrap();
-    std::fs::write(
-        root.join("catalogs/message.toml"),
-        r#"schema_version = 1
-schema = "../schemas/message.schema.json"
-"#,
     )
     .unwrap();
     std::fs::write(
@@ -594,7 +600,6 @@ fn catalog_backed_variable_values_are_rejected_before_value_validation() {
     let root = temp.path();
     std::fs::create_dir_all(root.join("variables")).unwrap();
     std::fs::create_dir_all(root.join("catalogs/message-entries")).unwrap();
-    std::fs::create_dir_all(root.join("schemas")).unwrap();
     std::fs::write(
         root.join("rototo-workspace.toml"),
         r#"schema_version = 1
@@ -602,20 +607,13 @@ fn catalog_backed_variable_values_are_rejected_before_value_validation() {
     )
     .unwrap();
     std::fs::write(
-        root.join("schemas/message.schema.json"),
+        root.join("catalogs/message.schema.json"),
         r#"{
   "type": "object",
   "properties": { "value": { "type": "string" } },
   "required": ["value"],
   "additionalProperties": false
 }"#,
-    )
-    .unwrap();
-    std::fs::write(
-        root.join("catalogs/message.toml"),
-        r#"schema_version = 1
-schema = "../schemas/message.schema.json"
-"#,
     )
     .unwrap();
     std::fs::write(
@@ -653,7 +651,7 @@ fn reports_reference_stage_failures() {
 
     assert_reference_rule(
         &lint,
-        "rototo/qualifier-predicate-unknown-qualifier",
+        "rototo/qualifier-when-unknown-qualifier",
         "qualifiers/bad-reference.toml",
     );
     assert_reference_rule(
@@ -666,16 +664,10 @@ fn reports_reference_stage_failures() {
         "rototo/variable-unknown-value",
         "variables/bad-resolve.toml",
     );
-    assert_reference_rule(
-        &lint,
-        "rototo/catalog-schema-ref",
-        "catalogs/bad-schema-ref.toml",
-    );
-
-    let qualifier = diagnostic_for_rule(&lint, "rototo/qualifier-predicate-unknown-qualifier");
-    assert_eq!(qualifier["target"]["entity"]["kind"], "predicate");
-    assert_eq!(qualifier["target"]["entity"]["qualifier"], "bad-reference");
-    assert_eq!(qualifier["target"]["entity"]["index"], 0);
+    let qualifier = diagnostic_for_rule(&lint, "rototo/qualifier-when-unknown-qualifier");
+    assert_eq!(qualifier["target"]["entity"]["kind"], "qualifier");
+    assert_eq!(qualifier["target"]["entity"]["id"], "bad-reference");
+    assert_eq!(qualifier["target"]["field"]["kind"], "qualifier_when");
 
     let unknown_value_messages =
         diagnostic_messages_for_rule(&lint, "rototo/variable-unknown-value");
@@ -705,20 +697,17 @@ fn canonical_reference_fixture_reports_variable_rule_unknown_qualifier() {
             primary: ExpectedPrimaryLocation::Document {
                 path: "variables/checkout-redesign.toml",
                 range: Some(ExpectedRange {
-                    start_line: 7,
-                    start_character: 12,
-                    end_line: 7,
-                    end_character: 27,
+                    start_line: 8,
+                    start_character: 7,
+                    end_line: 8,
+                    end_character: 35,
                 }),
             },
             related: &[],
         },
     );
     let diagnostic = only_diagnostic(&lint);
-    assert_eq!(
-        diagnostic["target"]["field"]["kind"],
-        "variable_rule_qualifier"
-    );
+    assert_eq!(diagnostic["target"]["field"]["kind"], "variable_rule_when");
 }
 
 #[test]
@@ -765,15 +754,15 @@ fn reports_value_stage_failures() {
 }
 
 #[test]
-fn schema_contract_normalizes_and_deduplicates_schema_documents() {
+fn schema_contract_discovers_direct_catalog_schema_documents() {
     let lint = lint_json("tests/fixtures/workspaces/schema-contract-normalized", true);
-    let schema_documents = document_paths(&lint)
+    let catalog_schema_documents = document_paths(&lint)
         .into_iter()
-        .filter(|path| path == "schemas/value.schema.json")
+        .filter(|path| path.starts_with("catalogs/") && path.ends_with(".schema.json"))
         .count();
 
     assert!(lint["diagnostics"].as_array().unwrap().is_empty());
-    assert_eq!(schema_documents, 1, "{lint:#}");
+    assert_eq!(catalog_schema_documents, 2, "{lint:#}");
 }
 
 #[test]
@@ -781,15 +770,15 @@ fn schema_contract_skips_value_validation_when_schema_cannot_compile() {
     let lint = lint_json("tests/fixtures/workspaces/schema-contract-invalid", false);
     let rules = diagnostic_rules(&lint);
 
-    assert_eq!(rules, vec!["rototo/schema-invalid"], "{lint:#}");
+    assert_eq!(rules, vec!["rototo/catalog-schema-invalid"], "{lint:#}");
     let diagnostic = only_diagnostic(&lint);
     assert_eq!(diagnostic["stage"], "project");
-    assert_eq!(diagnostic["target"]["entity"]["kind"], "schema");
+    assert_eq!(diagnostic["target"]["entity"]["kind"], "catalog");
+    assert_eq!(diagnostic["target"]["entity"]["id"], "message");
     assert_eq!(
-        diagnostic["target"]["entity"]["path"],
-        "schemas/value.schema.json"
+        diagnostic["location"]["path"],
+        "catalogs/message.schema.json"
     );
-    assert_eq!(diagnostic["location"]["path"], "schemas/value.schema.json");
 }
 
 #[test]
@@ -800,14 +789,14 @@ fn schema_contract_skips_value_validation_when_schema_cannot_parse() {
     );
     let rules = diagnostic_rules(&lint);
 
-    assert_eq!(rules, vec!["rototo/schema-parse-failed"], "{lint:#}");
+    assert_eq!(rules, vec!["rototo/catalog-parse-failed"], "{lint:#}");
     let diagnostic = only_diagnostic(&lint);
-    assert_eq!(diagnostic["target"]["entity"]["kind"], "schema");
+    assert_eq!(diagnostic["target"]["entity"]["kind"], "catalog");
+    assert_eq!(diagnostic["target"]["entity"]["id"], "message");
     assert_eq!(
-        diagnostic["target"]["entity"]["path"],
-        "schemas/value.schema.json"
+        diagnostic["location"]["path"],
+        "catalogs/message.schema.json"
     );
-    assert_eq!(diagnostic["location"]["path"], "schemas/value.schema.json");
 }
 
 #[test]
@@ -891,10 +880,7 @@ fn self_referencing_qualifier_does_not_also_report_unreferenced() {
         root.join("qualifiers/self.toml"),
         r#"schema_version = 1
 
-[[predicate]]
-attribute = "qualifier.self"
-op = "eq"
-value = true
+when = "qualifier[\"self\"]"
 "#,
     )
     .unwrap();
@@ -963,7 +949,7 @@ fn reports_workspace_custom_lint_failures() {
         "fixture/custom-variable-rejected",
         "variables/custom-lint.toml",
     );
-    assert_value_rule(
+    assert_policy_rule(
         &lint,
         "fixture/custom-value-rejected",
         "variables/custom-value-lint.toml",
@@ -976,7 +962,7 @@ fn reports_workspace_custom_lint_failures() {
     let value = diagnostic_for_rule(&lint, "fixture/custom-value-rejected");
     assert_eq!(value["target"]["entity"]["kind"], "variable");
     assert_eq!(value["target"]["entity"]["id"], "custom-value-lint");
-    assert_eq!(value["target"]["field"]["kind"], "variable_resolve");
+    assert_eq!(value["target"]["field"]["kind"], "variable_resolve_default");
 }
 
 #[test]
@@ -1004,7 +990,7 @@ fn reports_registered_custom_lint_failures() {
         "rototo/custom-lint-registration-invalid",
         "lint/payments.lua",
     );
-    assert_value_rule(
+    assert_policy_rule(
         &lint,
         "payments/max-token-budget",
         "variables/agent-config.toml",
@@ -1013,7 +999,7 @@ fn reports_registered_custom_lint_failures() {
     let diagnostic = diagnostic_for_rule(&lint, "payments/max-token-budget");
     assert_eq!(diagnostic["target"]["entity"]["kind"], "variable");
     assert_eq!(diagnostic["target"]["entity"]["id"], "agent-config");
-    assert_eq!(diagnostic["stage"], "value");
+    assert_eq!(diagnostic["stage"], "policy");
     assert!(diagnostic["location"]["range"].is_object());
 }
 
@@ -1027,23 +1013,17 @@ fn reports_custom_registration_contract_failures() {
         diagnostic_messages_for_rule(&lint, "rototo/custom-lint-registration-invalid");
 
     assert_eq!(invalid_messages.len(), 4, "{lint:#}");
-    assert!(
-        invalid_messages
-            .contains(&"custom lint registration has unsupported stage: parse".to_owned())
-    );
-    assert!(
-        invalid_messages
-            .contains(&"custom lint registration has unsupported entity: predicate".to_owned())
-    );
-    assert!(
-        invalid_messages
-            .contains(&"custom lint registration has unsupported field: value.".to_owned())
-    );
-    assert!(
-        invalid_messages.contains(
-            &"custom lint registration has unsupported field: value.bad segment".to_owned()
-        )
-    );
+    for expected in [
+        "custom lint registration has unsupported target: variables",
+        "custom lint registration has unsupported target: /unknown",
+        "custom lint registration has unsupported target: /variables/message/value",
+        "custom lint registration has unsupported target: /variables/message/rules/not-number",
+    ] {
+        assert!(
+            invalid_messages.contains(&expected.to_owned()),
+            "missing {expected:?} in {invalid_messages:#?}"
+        );
+    }
     for diagnostic in diagnostics_for_rule(&lint, "rototo/custom-lint-registration-invalid") {
         assert_eq!(diagnostic["stage"], "register");
         assert_eq!(diagnostic["location"]["path"], "lint/register.lua");
@@ -1054,44 +1034,53 @@ fn reports_custom_registration_contract_failures() {
 fn reports_registered_custom_lint_targets() {
     let lint = lint_json("tests/fixtures/workspaces/custom-targets", false);
 
-    assert_project_rule(&lint, "targets/workspace-extends", "rototo-workspace.toml");
-    assert_project_rule(
+    assert_policy_rule(&lint, "targets/workspace-extends", "rototo-workspace.toml");
+    assert_policy_rule(
         &lint,
-        "targets/qualifier-predicates",
+        "targets/qualifier-when",
         "qualifiers/premium-users.toml",
     );
-    assert_value_rule(
+    assert_policy_rule(
         &lint,
         "targets/variable-type",
         "variables/agent-config.toml",
     );
-    assert_value_rule(
+    assert_policy_rule(
         &lint,
         "targets/returned-variable-type",
         "variables/agent-config.toml",
     );
-    assert_value_rule(
+    assert_policy_rule(
         &lint,
         "targets/invalid-returned-field",
         "variables/agent-config.toml",
     );
-    assert_value_rule(&lint, "targets/schema-json", "schemas/config.schema.json");
-
+    assert_policy_rule(
+        &lint,
+        "targets/workspace-variable-default",
+        "variables/agent-config.toml",
+    );
+    assert_policy_rule(
+        &lint,
+        "targets/catalog-entry-json-pointer",
+        "catalogs/agent-config-entries/standard.toml",
+    );
     let workspace = diagnostic_for_rule(&lint, "targets/workspace-extends");
     assert_eq!(workspace["target"]["entity"]["kind"], "workspace");
-    assert_eq!(workspace["stage"], "project");
+    assert_eq!(workspace["stage"], "policy");
     assert!(workspace["location"]["range"].is_object());
 
-    let qualifier = diagnostic_for_rule(&lint, "targets/qualifier-predicates");
+    let qualifier = diagnostic_for_rule(&lint, "targets/qualifier-when");
     assert_eq!(qualifier["target"]["entity"]["kind"], "qualifier");
     assert_eq!(qualifier["target"]["entity"]["id"], "premium-users");
-    assert_eq!(qualifier["stage"], "project");
+    assert_eq!(qualifier["target"]["field"]["kind"], "qualifier_when");
+    assert_eq!(qualifier["stage"], "policy");
     assert!(qualifier["location"]["range"].is_object());
 
     let variable = diagnostic_for_rule(&lint, "targets/variable-type");
     assert_eq!(variable["target"]["entity"]["kind"], "variable");
     assert_eq!(variable["target"]["entity"]["id"], "agent-config");
-    assert_eq!(variable["stage"], "value");
+    assert_eq!(variable["stage"], "policy");
     assert!(variable["location"]["range"].is_object());
 
     let returned = diagnostic_for_rule(&lint, "targets/returned-variable-type");
@@ -1110,13 +1099,24 @@ fn reports_registered_custom_lint_targets() {
     assert_eq!(invalid["target"]["entity"]["id"], "agent-config");
     assert!(invalid["location"]["range"].is_null());
 
-    let schema = diagnostic_for_rule(&lint, "targets/schema-json");
-    assert_eq!(schema["target"]["entity"]["kind"], "schema");
+    let default = diagnostic_for_rule(&lint, "targets/workspace-variable-default");
+    assert_eq!(default["target"]["entity"]["kind"], "variable");
+    assert_eq!(default["target"]["entity"]["id"], "agent-config");
     assert_eq!(
-        schema["target"]["entity"]["path"],
-        "schemas/config.schema.json"
+        default["target"]["field"]["kind"],
+        "variable_resolve_default"
     );
-    assert_eq!(schema["stage"], "value");
+    assert!(default["location"]["range"].is_object());
+
+    let catalog_entry = diagnostic_for_rule(&lint, "targets/catalog-entry-json-pointer");
+    assert_eq!(catalog_entry["target"]["entity"]["kind"], "catalog_entry");
+    assert_eq!(catalog_entry["target"]["entity"]["catalog"], "agent-config");
+    assert_eq!(catalog_entry["target"]["entity"]["key"], "standard");
+    assert_eq!(catalog_entry["target"]["field"]["kind"], "value_json_path");
+    assert_eq!(
+        catalog_entry["target"]["field"]["path"],
+        serde_json::json!(["max_output_tokens"])
+    );
 }
 
 #[test]
@@ -1313,7 +1313,7 @@ enum ExpectedEntity {
         variable: &'static str,
         index: usize,
     },
-    Schema(&'static str),
+    Catalog(&'static str),
     CustomLintFile(&'static str),
     CustomRule(&'static str),
 }
@@ -1387,9 +1387,9 @@ fn canonical_rule_fixtures() -> &'static [CanonicalRuleFixture] {
                 primary: ExpectedPrimaryLocation::Document {
                     path: "qualifiers/broken.toml",
                     range: Some(ExpectedRange {
-                        start_line: 2,
+                        start_line: 3,
                         start_character: 10,
-                        end_line: 3,
+                        end_line: 4,
                         end_character: 0,
                     }),
                 },
@@ -1408,31 +1408,10 @@ fn canonical_rule_fixtures() -> &'static [CanonicalRuleFixture] {
                 primary: ExpectedPrimaryLocation::Document {
                     path: "variables/broken.toml",
                     range: Some(ExpectedRange {
-                        start_line: 3,
+                        start_line: 4,
                         start_character: 8,
-                        end_line: 4,
+                        end_line: 5,
                         end_character: 0,
-                    }),
-                },
-                related: &[],
-            }],
-        },
-        CanonicalRuleFixture {
-            rule: RototoRuleId::SchemaParseFailed,
-            workspace: "tests/fixtures/workspaces/rules/parse/schema-parse-failed",
-            success: false,
-            expected: &[ExpectedDiagnostic {
-                rule: "rototo/schema-parse-failed",
-                severity: "error",
-                stage: LintStage::Parse,
-                entity: ExpectedEntity::Schema("schemas/broken.schema.json"),
-                primary: ExpectedPrimaryLocation::Document {
-                    path: "schemas/broken.schema.json",
-                    range: Some(ExpectedRange {
-                        start_line: 2,
-                        start_character: 0,
-                        end_line: 2,
-                        end_character: 1,
                     }),
                 },
                 related: &[],
@@ -1471,11 +1450,11 @@ fn canonical_rule_fixtures() -> &'static [CanonicalRuleFixture] {
             }],
         },
         CanonicalRuleFixture {
-            rule: RototoRuleId::QualifierPredicateMissing,
+            rule: RototoRuleId::QualifierWhenMissing,
             workspace: "tests/fixtures/workspaces/rules/project/qualifier-predicate-missing",
             success: false,
             expected: &[ExpectedDiagnostic {
-                rule: "rototo/qualifier-predicate-missing",
+                rule: "rototo/qualifier-when-missing",
                 severity: "error",
                 stage: LintStage::Project,
                 entity: ExpectedEntity::Qualifier("premium-users"),
@@ -1487,96 +1466,21 @@ fn canonical_rule_fixtures() -> &'static [CanonicalRuleFixture] {
             }],
         },
         CanonicalRuleFixture {
-            rule: RototoRuleId::QualifierPredicateShape,
+            rule: RototoRuleId::QualifierWhenShape,
             workspace: "tests/fixtures/workspaces/rules/project/qualifier-predicate-shape",
             success: false,
             expected: &[ExpectedDiagnostic {
-                rule: "rototo/qualifier-predicate-shape",
+                rule: "rototo/qualifier-when-shape",
                 severity: "error",
                 stage: LintStage::Project,
-                entity: ExpectedEntity::Predicate {
-                    qualifier: "premium-users",
-                    index: 0,
-                },
+                entity: ExpectedEntity::Qualifier("premium-users"),
                 primary: ExpectedPrimaryLocation::Document {
                     path: "qualifiers/premium-users.toml",
                     range: Some(ExpectedRange {
-                        start_line: 2,
-                        start_character: 0,
-                        end_line: 4,
-                        end_character: 17,
-                    }),
-                },
-                related: &[],
-            }],
-        },
-        CanonicalRuleFixture {
-            rule: RototoRuleId::QualifierPredicateUnknownOp,
-            workspace: "tests/fixtures/workspaces/rules/project/qualifier-predicate-unknown-op",
-            success: false,
-            expected: &[ExpectedDiagnostic {
-                rule: "rototo/qualifier-predicate-unknown-op",
-                severity: "error",
-                stage: LintStage::Project,
-                entity: ExpectedEntity::Predicate {
-                    qualifier: "premium-users",
-                    index: 0,
-                },
-                primary: ExpectedPrimaryLocation::Document {
-                    path: "qualifiers/premium-users.toml",
-                    range: Some(ExpectedRange {
-                        start_line: 4,
-                        start_character: 5,
-                        end_line: 4,
-                        end_character: 15,
-                    }),
-                },
-                related: &[],
-            }],
-        },
-        CanonicalRuleFixture {
-            rule: RototoRuleId::QualifierPredicateBucket,
-            workspace: "tests/fixtures/workspaces/rules/project/qualifier-predicate-bucket",
-            success: false,
-            expected: &[ExpectedDiagnostic {
-                rule: "rototo/qualifier-predicate-bucket",
-                severity: "error",
-                stage: LintStage::Project,
-                entity: ExpectedEntity::Predicate {
-                    qualifier: "beta-bucket",
-                    index: 0,
-                },
-                primary: ExpectedPrimaryLocation::Document {
-                    path: "qualifiers/beta-bucket.toml",
-                    range: Some(ExpectedRange {
-                        start_line: 6,
-                        start_character: 8,
-                        end_line: 6,
-                        end_character: 18,
-                    }),
-                },
-                related: &[],
-            }],
-        },
-        CanonicalRuleFixture {
-            rule: RototoRuleId::QualifierPredicateValue,
-            workspace: "tests/fixtures/workspaces/rules/project/qualifier-predicate-value",
-            success: false,
-            expected: &[ExpectedDiagnostic {
-                rule: "rototo/qualifier-predicate-value",
-                severity: "error",
-                stage: LintStage::Project,
-                entity: ExpectedEntity::Predicate {
-                    qualifier: "premium-users",
-                    index: 0,
-                },
-                primary: ExpectedPrimaryLocation::Document {
-                    path: "qualifiers/premium-users.toml",
-                    range: Some(ExpectedRange {
-                        start_line: 5,
-                        start_character: 8,
-                        end_line: 5,
-                        end_character: 17,
+                        start_line: 3,
+                        start_character: 7,
+                        end_line: 3,
+                        end_character: 28,
                     }),
                 },
                 related: &[],
@@ -1610,9 +1514,9 @@ fn canonical_rule_fixtures() -> &'static [CanonicalRuleFixture] {
                 primary: ExpectedPrimaryLocation::Document {
                     path: "variables/message.toml",
                     range: Some(ExpectedRange {
-                        start_line: 3,
+                        start_line: 4,
                         start_character: 0,
-                        end_line: 4,
+                        end_line: 5,
                         end_character: 0,
                     }),
                 },
@@ -1631,9 +1535,9 @@ fn canonical_rule_fixtures() -> &'static [CanonicalRuleFixture] {
                 primary: ExpectedPrimaryLocation::Document {
                     path: "variables/message.toml",
                     range: Some(ExpectedRange {
-                        start_line: 3,
+                        start_line: 4,
                         start_character: 10,
-                        end_line: 3,
+                        end_line: 4,
                         end_character: 15,
                     }),
                 },
@@ -1655,9 +1559,9 @@ fn canonical_rule_fixtures() -> &'static [CanonicalRuleFixture] {
                 primary: ExpectedPrimaryLocation::Document {
                     path: "variables/message.toml",
                     range: Some(ExpectedRange {
-                        start_line: 6,
+                        start_line: 7,
                         start_character: 8,
-                        end_line: 6,
+                        end_line: 7,
                         end_character: 21,
                     }),
                 },
@@ -1681,215 +1585,19 @@ fn canonical_rule_fixtures() -> &'static [CanonicalRuleFixture] {
             }],
         },
         CanonicalRuleFixture {
-            rule: RototoRuleId::WorkspaceContextSchemaRef,
-            workspace: "tests/fixtures/workspaces/rules/project/workspace-context-schema-ref",
-            success: false,
-            expected: &[
-                ExpectedDiagnostic {
-                    rule: "rototo/workspace-context-schema-ref",
-                    severity: "error",
-                    stage: LintStage::Project,
-                    entity: ExpectedEntity::Schema("schemas/context.schema.json"),
-                    primary: ExpectedPrimaryLocation::Document {
-                        path: "schemas/context.schema.json",
-                        range: None,
-                    },
-                    related: &[],
-                },
-                ExpectedDiagnostic {
-                    rule: "rototo/schema-invalid",
-                    severity: "error",
-                    stage: LintStage::Project,
-                    entity: ExpectedEntity::Schema("schemas/context.schema.json"),
-                    primary: ExpectedPrimaryLocation::Document {
-                        path: "schemas/context.schema.json",
-                        range: None,
-                    },
-                    related: &[],
-                },
-            ],
-        },
-        CanonicalRuleFixture {
-            rule: RototoRuleId::WorkspaceContextSchemaReservedField,
-            workspace: "tests/fixtures/workspaces/rules/project/workspace-context-schema-reserved-field",
-            success: false,
-            expected: &[ExpectedDiagnostic {
-                rule: "rototo/workspace-context-schema-reserved-field",
-                severity: "error",
-                stage: LintStage::Project,
-                entity: ExpectedEntity::Schema("schemas/context.schema.json"),
-                primary: ExpectedPrimaryLocation::Document {
-                    path: "schemas/context.schema.json",
-                    range: None,
-                },
-                related: &[],
-            }],
-        },
-        CanonicalRuleFixture {
-            rule: RototoRuleId::WorkspaceContextSchemaAttribute,
-            workspace: "tests/fixtures/workspaces/rules/reference/workspace-context-schema-attribute",
-            success: false,
-            expected: &[ExpectedDiagnostic {
-                rule: "rototo/workspace-context-schema-attribute",
-                severity: "error",
-                stage: LintStage::Reference,
-                entity: ExpectedEntity::Predicate {
-                    qualifier: "missing-context",
-                    index: 0,
-                },
-                primary: ExpectedPrimaryLocation::Document {
-                    path: "qualifiers/missing-context.toml",
-                    range: Some(ExpectedRange {
-                        start_line: 3,
-                        start_character: 12,
-                        end_line: 3,
-                        end_character: 28,
-                    }),
-                },
-                related: &[],
-            }],
-        },
-        CanonicalRuleFixture {
-            rule: RototoRuleId::WorkspaceContextSchemaMissing,
-            workspace: "tests/fixtures/workspaces/rules/reference/workspace-context-schema-missing",
-            success: true,
-            expected: &[ExpectedDiagnostic {
-                rule: "rototo/workspace-context-schema-missing",
-                severity: "warning",
-                stage: LintStage::Reference,
-                entity: ExpectedEntity::Manifest,
-                primary: ExpectedPrimaryLocation::Document {
-                    path: "rototo-workspace.toml",
-                    range: None,
-                },
-                related: &[ExpectedRelatedLocation {
-                    path: "qualifiers/premium-users.toml",
-                    range: Some(ExpectedRange {
-                        start_line: 3,
-                        start_character: 12,
-                        end_line: 3,
-                        end_character: 23,
-                    }),
-                    message: "context attribute read here: user.tier",
-                }],
-            }],
-        },
-        CanonicalRuleFixture {
-            rule: RototoRuleId::QualifierPredicateContextTypeMismatch,
-            workspace: "tests/fixtures/workspaces/rules/reference/qualifier-predicate-context-type-mismatch",
-            success: false,
-            expected: &[
-                ExpectedDiagnostic {
-                    rule: "rototo/qualifier-predicate-context-type-mismatch",
-                    severity: "error",
-                    stage: LintStage::Reference,
-                    entity: ExpectedEntity::Predicate {
-                        qualifier: "boolean-in-string",
-                        index: 0,
-                    },
-                    primary: ExpectedPrimaryLocation::Document {
-                        path: "qualifiers/boolean-in-string.toml",
-                        range: Some(ExpectedRange {
-                            start_line: 5,
-                            start_character: 8,
-                            end_line: 5,
-                            end_character: 16,
-                        }),
-                    },
-                    related: &[],
-                },
-                ExpectedDiagnostic {
-                    rule: "rototo/qualifier-predicate-context-type-mismatch",
-                    severity: "error",
-                    stage: LintStage::Reference,
-                    entity: ExpectedEntity::Predicate {
-                        qualifier: "integer-eq-string",
-                        index: 0,
-                    },
-                    primary: ExpectedPrimaryLocation::Document {
-                        path: "qualifiers/integer-eq-string.toml",
-                        range: Some(ExpectedRange {
-                            start_line: 5,
-                            start_character: 8,
-                            end_line: 5,
-                            end_character: 11,
-                        }),
-                    },
-                    related: &[],
-                },
-                ExpectedDiagnostic {
-                    rule: "rototo/qualifier-predicate-context-type-mismatch",
-                    severity: "error",
-                    stage: LintStage::Reference,
-                    entity: ExpectedEntity::Predicate {
-                        qualifier: "object-bucket",
-                        index: 0,
-                    },
-                    primary: ExpectedPrimaryLocation::Document {
-                        path: "qualifiers/object-bucket.toml",
-                        range: Some(ExpectedRange {
-                            start_line: 4,
-                            start_character: 5,
-                            end_line: 4,
-                            end_character: 13,
-                        }),
-                    },
-                    related: &[],
-                },
-                ExpectedDiagnostic {
-                    rule: "rototo/qualifier-predicate-context-type-mismatch",
-                    severity: "error",
-                    stage: LintStage::Reference,
-                    entity: ExpectedEntity::Predicate {
-                        qualifier: "string-gt-number",
-                        index: 0,
-                    },
-                    primary: ExpectedPrimaryLocation::Document {
-                        path: "qualifiers/string-gt-number.toml",
-                        range: Some(ExpectedRange {
-                            start_line: 4,
-                            start_character: 5,
-                            end_line: 4,
-                            end_character: 9,
-                        }),
-                    },
-                    related: &[],
-                },
-            ],
-        },
-        CanonicalRuleFixture {
-            rule: RototoRuleId::SchemaUnreferenced,
-            workspace: "tests/fixtures/workspaces/rules/reference/schema-unreferenced",
-            success: true,
-            expected: &[ExpectedDiagnostic {
-                rule: "rototo/schema-unreferenced",
-                severity: "warning",
-                stage: LintStage::Reference,
-                entity: ExpectedEntity::Schema("schemas/unused.schema.json"),
-                primary: ExpectedPrimaryLocation::Document {
-                    path: "schemas/unused.schema.json",
-                    range: None,
-                },
-                related: &[],
-            }],
-        },
-        CanonicalRuleFixture {
-            rule: RototoRuleId::QualifierPredicateUnknownQualifier,
+            rule: RototoRuleId::QualifierWhenUnknownQualifier,
             workspace: "tests/fixtures/workspaces/rules/reference/qualifier-predicate-unknown-qualifier",
             success: false,
             expected: &[ExpectedDiagnostic {
-                rule: "rototo/qualifier-predicate-unknown-qualifier",
+                rule: "rototo/qualifier-when-unknown-qualifier",
                 severity: "error",
                 stage: LintStage::Reference,
-                entity: ExpectedEntity::Predicate {
-                    qualifier: "derived",
-                    index: 0,
-                },
+                entity: ExpectedEntity::Qualifier("derived"),
                 primary: ExpectedPrimaryLocation::Document {
                     path: "qualifiers/derived.toml",
                     range: Some(ExpectedRange {
                         start_line: 3,
-                        start_character: 12,
+                        start_character: 7,
                         end_line: 3,
                         end_character: 31,
                     }),
@@ -1909,9 +1617,9 @@ fn canonical_rule_fixtures() -> &'static [CanonicalRuleFixture] {
                 primary: ExpectedPrimaryLocation::Document {
                     path: "variables/message.toml",
                     range: Some(ExpectedRange {
-                        start_line: 4,
+                        start_line: 5,
                         start_character: 10,
-                        end_line: 4,
+                        end_line: 5,
                         end_character: 19,
                     }),
                 },
@@ -1933,10 +1641,10 @@ fn canonical_rule_fixtures() -> &'static [CanonicalRuleFixture] {
                 primary: ExpectedPrimaryLocation::Document {
                     path: "variables/checkout-redesign.toml",
                     range: Some(ExpectedRange {
-                        start_line: 7,
-                        start_character: 12,
-                        end_line: 7,
-                        end_character: 27,
+                        start_line: 8,
+                        start_character: 7,
+                        end_line: 8,
+                        end_character: 35,
                     }),
                 },
                 related: &[],
@@ -1954,9 +1662,9 @@ fn canonical_rule_fixtures() -> &'static [CanonicalRuleFixture] {
                 primary: ExpectedPrimaryLocation::Document {
                     path: "variables/message.toml",
                     range: Some(ExpectedRange {
-                        start_line: 1,
+                        start_line: 2,
                         start_character: 7,
-                        end_line: 1,
+                        end_line: 2,
                         end_character: 13,
                     }),
                 },
@@ -1975,27 +1683,11 @@ fn canonical_rule_fixtures() -> &'static [CanonicalRuleFixture] {
                 primary: ExpectedPrimaryLocation::Document {
                     path: "variables/enabled.toml",
                     range: Some(ExpectedRange {
-                        start_line: 4,
+                        start_line: 5,
                         start_character: 10,
-                        end_line: 4,
+                        end_line: 5,
                         end_character: 22,
                     }),
-                },
-                related: &[],
-            }],
-        },
-        CanonicalRuleFixture {
-            rule: RototoRuleId::SchemaInvalid,
-            workspace: "tests/fixtures/workspaces/rules/project/schema-invalid",
-            success: false,
-            expected: &[ExpectedDiagnostic {
-                rule: "rototo/schema-invalid",
-                severity: "error",
-                stage: LintStage::Project,
-                entity: ExpectedEntity::Schema("schemas/broken.schema.json"),
-                primary: ExpectedPrimaryLocation::Document {
-                    path: "schemas/broken.schema.json",
-                    range: None,
                 },
                 related: &[],
             }],
@@ -2014,7 +1706,7 @@ fn canonical_rule_fixtures() -> &'static [CanonicalRuleFixture] {
                         path: "qualifiers/alpha.toml",
                         range: Some(ExpectedRange {
                             start_line: 3,
-                            start_character: 12,
+                            start_character: 7,
                             end_line: 3,
                             end_character: 28,
                         }),
@@ -2023,7 +1715,7 @@ fn canonical_rule_fixtures() -> &'static [CanonicalRuleFixture] {
                         path: "qualifiers/beta.toml",
                         range: Some(ExpectedRange {
                             start_line: 3,
-                            start_character: 12,
+                            start_character: 7,
                             end_line: 3,
                             end_character: 29,
                         }),
@@ -2039,7 +1731,7 @@ fn canonical_rule_fixtures() -> &'static [CanonicalRuleFixture] {
                         path: "qualifiers/beta.toml",
                         range: Some(ExpectedRange {
                             start_line: 3,
-                            start_character: 12,
+                            start_character: 7,
                             end_line: 3,
                             end_character: 29,
                         }),
@@ -2048,7 +1740,7 @@ fn canonical_rule_fixtures() -> &'static [CanonicalRuleFixture] {
                         path: "qualifiers/alpha.toml",
                         range: Some(ExpectedRange {
                             start_line: 3,
-                            start_character: 12,
+                            start_character: 7,
                             end_line: 3,
                             end_character: 28,
                         }),
@@ -2064,7 +1756,7 @@ fn canonical_rule_fixtures() -> &'static [CanonicalRuleFixture] {
                         path: "qualifiers/self.toml",
                         range: Some(ExpectedRange {
                             start_line: 3,
-                            start_character: 12,
+                            start_character: 7,
                             end_line: 3,
                             end_character: 28,
                         }),
@@ -2119,39 +1811,6 @@ fn canonical_rule_fixtures() -> &'static [CanonicalRuleFixture] {
             ],
         },
         CanonicalRuleFixture {
-            rule: RototoRuleId::QualifierPredicateDuplicate,
-            workspace: "tests/fixtures/workspaces/rules/graph/qualifier-predicate-duplicate",
-            success: true,
-            expected: &[ExpectedDiagnostic {
-                rule: "rototo/qualifier-predicate-duplicate",
-                severity: "warning",
-                stage: LintStage::Graph,
-                entity: ExpectedEntity::Predicate {
-                    qualifier: "premium-users",
-                    index: 1,
-                },
-                primary: ExpectedPrimaryLocation::Document {
-                    path: "qualifiers/premium-users.toml",
-                    range: Some(ExpectedRange {
-                        start_line: 7,
-                        start_character: 0,
-                        end_line: 10,
-                        end_character: 17,
-                    }),
-                },
-                related: &[ExpectedRelatedLocation {
-                    path: "qualifiers/premium-users.toml",
-                    range: Some(ExpectedRange {
-                        start_line: 2,
-                        start_character: 0,
-                        end_line: 5,
-                        end_character: 17,
-                    }),
-                    message: "first matching predicate: 1",
-                }],
-            }],
-        },
-        CanonicalRuleFixture {
             rule: RototoRuleId::VariableRuleShadowed,
             workspace: "tests/fixtures/workspaces/rules/graph/variable-rule-shadowed",
             success: true,
@@ -2166,21 +1825,21 @@ fn canonical_rule_fixtures() -> &'static [CanonicalRuleFixture] {
                 primary: ExpectedPrimaryLocation::Document {
                     path: "variables/checkout.toml",
                     range: Some(ExpectedRange {
-                        start_line: 11,
-                        start_character: 12,
-                        end_line: 11,
-                        end_character: 27,
+                        start_line: 12,
+                        start_character: 7,
+                        end_line: 12,
+                        end_character: 35,
                     }),
                 },
                 related: &[ExpectedRelatedLocation {
                     path: "variables/checkout.toml",
                     range: Some(ExpectedRange {
-                        start_line: 7,
-                        start_character: 12,
-                        end_line: 7,
-                        end_character: 27,
+                        start_line: 8,
+                        start_character: 7,
+                        end_line: 8,
+                        end_character: 35,
                     }),
-                    message: "first rule using qualifier: premium-users",
+                    message: "first rule using condition: qualifier[\"premium-users\"]",
                 }],
             }],
         },
@@ -2199,18 +1858,18 @@ fn canonical_rule_fixtures() -> &'static [CanonicalRuleFixture] {
                 primary: ExpectedPrimaryLocation::Document {
                     path: "variables/message.toml",
                     range: Some(ExpectedRange {
-                        start_line: 8,
+                        start_line: 9,
                         start_character: 8,
-                        end_line: 8,
+                        end_line: 9,
                         end_character: 17,
                     }),
                 },
                 related: &[ExpectedRelatedLocation {
                     path: "variables/message.toml",
                     range: Some(ExpectedRange {
-                        start_line: 4,
+                        start_line: 5,
                         start_character: 10,
-                        end_line: 4,
+                        end_line: 5,
                         end_character: 19,
                     }),
                     message: "resolve default value: \"control\"",
@@ -2293,9 +1952,9 @@ fn canonical_rule_fixtures() -> &'static [CanonicalRuleFixture] {
                 rule: "rototo/schema-ui-unknown-widget",
                 severity: "warning",
                 stage: LintStage::Project,
-                entity: ExpectedEntity::Schema("schemas/value.schema.json"),
+                entity: ExpectedEntity::Catalog("panel"),
                 primary: ExpectedPrimaryLocation::Document {
-                    path: "schemas/value.schema.json",
+                    path: "catalogs/panel.schema.json",
                     range: None,
                 },
                 related: &[],
@@ -2309,9 +1968,9 @@ fn canonical_rule_fixtures() -> &'static [CanonicalRuleFixture] {
                 rule: "rototo/schema-ui-widget-type-mismatch",
                 severity: "warning",
                 stage: LintStage::Project,
-                entity: ExpectedEntity::Schema("schemas/value.schema.json"),
+                entity: ExpectedEntity::Catalog("panel"),
                 primary: ExpectedPrimaryLocation::Document {
-                    path: "schemas/value.schema.json",
+                    path: "catalogs/panel.schema.json",
                     range: None,
                 },
                 related: &[],
@@ -2325,9 +1984,9 @@ fn canonical_rule_fixtures() -> &'static [CanonicalRuleFixture] {
                 rule: "rototo/schema-ui-widget-params",
                 severity: "warning",
                 stage: LintStage::Project,
-                entity: ExpectedEntity::Schema("schemas/value.schema.json"),
+                entity: ExpectedEntity::Catalog("panel"),
                 primary: ExpectedPrimaryLocation::Document {
-                    path: "schemas/value.schema.json",
+                    path: "catalogs/panel.schema.json",
                     range: None,
                 },
                 related: &[],
@@ -2354,16 +2013,37 @@ fn pending_canonical_rule_fixtures() -> &'static [PendingCanonicalRuleFixture] {
             rule: RototoRuleId::CatalogEntryParseFailed,
         },
         PendingCanonicalRuleFixture {
-            rule: RototoRuleId::CatalogSchemaVersion,
-        },
-        PendingCanonicalRuleFixture {
-            rule: RototoRuleId::CatalogSchemaRef,
+            rule: RototoRuleId::CatalogSchemaInvalid,
         },
         PendingCanonicalRuleFixture {
             rule: RototoRuleId::CatalogEntrySchemaMismatch,
         },
         PendingCanonicalRuleFixture {
             rule: RototoRuleId::CatalogEntryUnknownReference,
+        },
+        PendingCanonicalRuleFixture {
+            rule: RototoRuleId::RequestContextSchemaInvalid,
+        },
+        PendingCanonicalRuleFixture {
+            rule: RototoRuleId::RequestContextReservedField,
+        },
+        PendingCanonicalRuleFixture {
+            rule: RototoRuleId::RequestContextEntrySchemaMismatch,
+        },
+        PendingCanonicalRuleFixture {
+            rule: RototoRuleId::RequestContextEntryShape,
+        },
+        PendingCanonicalRuleFixture {
+            rule: RototoRuleId::QualifierNoCompatibleRequestContext,
+        },
+        PendingCanonicalRuleFixture {
+            rule: RototoRuleId::VariableRequestContextConflict,
+        },
+        PendingCanonicalRuleFixture {
+            rule: RototoRuleId::RequestContextParseFailed,
+        },
+        PendingCanonicalRuleFixture {
+            rule: RototoRuleId::RequestContextEntryParseFailed,
         },
     ]
 }
@@ -2563,8 +2243,8 @@ fn expected_entity_value(entity: ExpectedEntity) -> serde_json::Value {
                 "index": index,
             })
         }
-        ExpectedEntity::Schema(path) => {
-            serde_json::json!({ "kind": "schema", "path": path })
+        ExpectedEntity::Catalog(id) => {
+            serde_json::json!({ "kind": "catalog", "id": id })
         }
         ExpectedEntity::CustomLintFile(path) => {
             serde_json::json!({ "kind": "custom_lint", "path": path })
@@ -2602,20 +2282,17 @@ fn lint_failures_expected_rule_ids() -> &'static [&'static str] {
         "fixture/custom-value-rejected",
         "fixture/custom-variable-rejected",
         "rototo/catalog-entry-schema-mismatch",
-        "rototo/catalog-schema-ref",
+        "rototo/catalog-schema-invalid",
         "rototo/qualifier-cycle",
-        "rototo/qualifier-predicate-bucket",
-        "rototo/qualifier-predicate-unknown-op",
-        "rototo/qualifier-predicate-unknown-qualifier",
-        "rototo/qualifier-predicate-value",
+        "rototo/qualifier-no-compatible-request-context",
         "rototo/qualifier-unreferenced",
-        "rototo/schema-invalid",
-        "rototo/schema-parse-failed",
+        "rototo/qualifier-when-shape",
+        "rototo/qualifier-when-unknown-qualifier",
         "rototo/schema-ui-unknown-widget",
         "rototo/schema-ui-widget-params",
         "rototo/schema-ui-widget-type-mismatch",
-        "rototo/schema-unreferenced",
         "rototo/variable-rule-shadowed",
+        "rototo/variable-rule-shape",
         "rototo/variable-rule-unknown-qualifier",
         "rototo/variable-unknown-type",
         "rototo/variable-unknown-value",
@@ -2625,17 +2302,15 @@ fn lint_failures_expected_rule_ids() -> &'static [&'static str] {
 
 fn intentionally_malformed_fixture_files() -> &'static [&'static str] {
     &[
-        "context-schema-invalid-json/schemas/context.schema.json",
+        "context-schema-invalid-json/request-contexts/request.schema.json",
         "invalid-workspace-file-toml/qualifiers/broken.toml",
         "invalid-workspace-file-toml/variables/broken.toml",
         "invalid-workspace-toml/rototo-workspace.toml",
-        "lint-failures/schemas/invalid-json.schema.json",
         "rules/parse/qualifier-parse-failed/qualifiers/broken.toml",
-        "rules/parse/schema-parse-failed/schemas/broken.schema.json",
         "rules/parse/variable-external-value-parse-failed/variables/external-message-values/broken.toml",
         "rules/parse/variable-parse-failed/variables/broken.toml",
         "rules/parse/workspace-manifest-parse-failed/rototo-workspace.toml",
-        "schema-contract-parse-failed/schemas/value.schema.json",
+        "schema-contract-parse-failed/catalogs/message.schema.json",
     ]
 }
 

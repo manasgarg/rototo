@@ -2,5 +2,4 @@ schema_version = 1
 
 description = "Predicate missing required fields"
 
-[[predicate]]
-attribute = "user.tier"
+when = "context.user.tier ="

@@ -1,8 +1,7 @@
 # Qualifiers Reference
 
 Qualifiers turn request-time facts into named runtime conditions. Variables
-refer to those names instead of repeating predicate logic in every resolve
-rule.
+refer to those names instead of repeating condition logic in every resolve rule.
 
 Qualifier files live under `qualifiers/*.toml`. The file stem is the qualifier
 id.
@@ -14,10 +13,7 @@ schema_version = 1
 
 description = "Paid accounts"
 
-[[predicate]]
-attribute = "account.plan"
-op = "in"
-value = ["growth", "enterprise"]
+when = 'context.account.plan in ["growth", "enterprise"]'
 ```
 
 ## Fields
@@ -26,60 +22,61 @@ value = ["growth", "enterprise"]
 | --- | --- | --- | --- |
 | `schema_version` | Yes | integer | Qualifier format version. The only supported value is `1`. |
 | `description` | No | string | Human description shown by inspect and editor tooling. |
-| `predicate` | Yes | array of tables | Predicates that must all match. |
+| `when` | Yes | string | Expression that must evaluate to `true` for the qualifier to match. |
 
-`[[predicate]]` must be an array of tables. A qualifier with no predicates is
-invalid.
+`when` uses rototo's expression profile. It can read `context`, call supported helper
+functions, and reference other qualifiers with `qualifier["id"]`.
 
-## Predicate Shape
+## Condition Shape
 
-Comparison predicates use `attribute`, `op`, and `value`:
+Most comparisons read a request context path:
 
 ```toml
-[[predicate]]
-attribute = "account.plan"
-op = "eq"
-value = "enterprise"
+when = 'context.account.plan == "enterprise"'
 ```
 
-Bucket predicates use `attribute`, `op`, `salt`, and `range`:
+Presence checks use `has(...)`:
 
 ```toml
-[[predicate]]
-attribute = "account.id"
-op = "bucket"
-salt = "account-limit-policy-2026-06"
-range = [0, 1000]
+when = '!has(context.account.contract_end)'
+```
+
+Bucket checks call `bucket(value, salt, start, end)`:
+
+```toml
+when = 'bucket(context.account.id, "account-limit-policy-2026-06", 0, 1000)'
 ```
 
 Bucket ranges are half-open: `[start, end)`. The allowed bucket space is
 `0..10000`.
 
+Use `!` to invert any condition:
+
+```toml
+when = '!suffix(context.user.email, "@example.com")'
+```
+
 ## Runtime Context Attributes
 
-Most predicates read paths from the runtime context supplied by the
+Most qualifier expressions read paths from the runtime context supplied by the
 application:
 
 ```toml
-attribute = "account.plan"
+when = 'context.account.plan == "enterprise"'
 ```
 
 During resolution, rototo reads `context.account.plan`. Missing paths fail
 resolution.
 
-If [`schemas/context.schema.json`](reference-context.html) exists, lint checks
-that context attributes are declared in that schema and that predicate values
-are compatible with the declared types.
+Lint checks that every context attribute is satisfied by at least one
+[request context schema](reference-context.html).
 
 ## Qualifier References
 
-A predicate can read another qualifier:
+A qualifier can read another qualifier:
 
 ```toml
-[[predicate]]
-attribute = "qualifier.paid-account"
-op = "eq"
-value = true
+when = 'qualifier["paid-account"]'
 ```
 
 This composes named conditions. The referenced qualifier must exist. Rototo
@@ -89,23 +86,18 @@ The top-level context field `qualifier` is reserved for these references. A
 context schema that declares `qualifier` as an application-provided field is
 invalid.
 
-## AND Semantics
+## Boolean Semantics
 
-All predicates in a qualifier are ANDed. The qualifier resolves to `true` only
-when every predicate resolves to `true`.
+Use `&&`, `||`, and `!` for composition. Rototo short-circuits boolean
+operators during resolution, so `false && context.missing.path == "x"` does not
+read the missing path.
 
-Rototo records predicate traces in order. If a predicate is false, the
-qualifier is false. That trace is the debugging trail for why a rule did or did
-not match.
-
-## Duplicate Predicates
-
-Rototo reports duplicate predicates with
-`rototo/qualifier-predicate-duplicate`. A duplicate usually means a condition
-was copied without changing the attribute, operator, or value.
+Rototo records the `when` expression and final boolean value in qualifier
+traces. Missing paths fail resolution unless guarded with `has(...)` or boolean
+short-circuiting.
 
 ## Related Pages
 
-See [Predicate Operators](reference-predicate-operators.html) for operator
+See [Expressions](reference-predicate-operators.html) for expression helper
 semantics and [Qualifier Resolution](reference-qualifier-resolution.html) for
 trace behavior.

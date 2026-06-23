@@ -1,3 +1,4 @@
+description = "Configuration value for message."
 type = "string"
 
 [resolve]

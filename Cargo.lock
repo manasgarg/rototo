@@ -1945,6 +1945,7 @@ dependencies = [
  "ring",
  "rusqlite",
  "rust-embed",
+ "semver",
  "serde",
  "serde_json",
  "tar",

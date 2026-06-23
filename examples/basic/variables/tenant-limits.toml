@@ -7,5 +7,5 @@ type = "catalog:tenant-limits"
 default = "growth"
 
 [[resolve.rule]]
-qualifier = "enterprise-accounts"
+when = 'qualifier["enterprise-accounts"]'
 value = "enterprise"

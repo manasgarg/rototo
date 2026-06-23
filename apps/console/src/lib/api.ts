@@ -22,15 +22,14 @@ export function apiFetch(
 ): Promise<Response> {
     const started = performance.now();
     const path = input;
+    const headers = new Headers(init.headers);
+    headers.set("x-rototo-console", "1");
+    if (init.body !== undefined && !headers.has("content-type")) {
+        headers.set("content-type", "application/json");
+    }
     return fetch(input, {
         ...init,
-        headers: {
-            "x-rototo-console": "1",
-            ...(init.body !== undefined
-                ? { "content-type": "application/json" }
-                : {}),
-            ...init.headers,
-        },
+        headers,
     }).then(
         (response) => {
             if (!path.startsWith("/api/dev/observability/")) {

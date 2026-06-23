@@ -1,6 +1,4 @@
 schema_version = 1
+description = "Runtime condition for missing context."
 
-[[predicate]]
-attribute = "account.region"
-op = "eq"
-value = "eu"
+when = '(context.account.region == "eu")'

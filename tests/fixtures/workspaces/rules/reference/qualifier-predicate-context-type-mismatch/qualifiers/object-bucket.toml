@@ -1,7 +1,4 @@
 schema_version = 1
+description = "Runtime condition for object bucket."
 
-[[predicate]]
-attribute = "account.profile"
-op = "bucket"
-salt = "profile"
-range = [0, 1000]
+when = '(bucket(context.account.profile, "profile", 0, 1000))'

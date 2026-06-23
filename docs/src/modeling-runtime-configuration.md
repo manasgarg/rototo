@@ -188,10 +188,7 @@ In rototo, the app supplies facts:
 The workspace owns the policy:
 
 ```toml
-[[predicate]]
-attribute = "account.plan"
-op = "eq"
-value = "enterprise"
+when = 'context.account.plan == "enterprise"'
 ```
 
 That is the split I want. The application owns what happened in this request.
@@ -199,7 +196,7 @@ The workspace owns what that fact means for runtime behavior.
 
 ## Use Qualifiers To Name Operational Conditions
 
-[Qualifiers](reference-qualifiers.html) are not just reusable predicates. They
+[Qualifiers](reference-qualifiers.html) are not just reusable conditions. They
 are the vocabulary that shows up in rules, traces, tests, and debugging
 conversations.
 
@@ -209,17 +206,14 @@ For example:
 # qualifiers/enterprise-account.toml
 schema_version = 1
 
-[[predicate]]
-attribute = "account.plan"
-op = "eq"
-value = "enterprise"
+when = 'context.account.plan == "enterprise"'
 ```
 
 Now a variable rule can say what it means:
 
 ```toml
 [[resolve.rule]]
-qualifier = "enterprise-account"
+when = 'qualifier["enterprise-account"]'
 value = "enterprise"
 ```
 
@@ -233,15 +227,9 @@ Create a qualifier when the condition explains why behavior changes. Compose
 qualifiers when the composed name carries meaning:
 
 ```toml
-[[predicate]]
-attribute = "qualifier.enterprise-account"
-op = "eq"
-value = true
+when = 'qualifier["enterprise-account"] == true'
 
-[[predicate]]
-attribute = "account.seats"
-op = "gte"
-value = 100
+when = 'context.account.seats >= 100'
 ```
 
 That could be named `large-enterprise-account`.
@@ -263,7 +251,7 @@ type = "int"
 default = 3
 
 [[resolve.rule]]
-qualifier = "expanded-account"
+when = 'qualifier["expanded-account"]'
 value = 25
 ```
 
@@ -288,7 +276,7 @@ type = "catalog:account-limit-profile"
 default = "growth"
 
 [[resolve.rule]]
-qualifier = "enterprise-account"
+when = 'qualifier["enterprise-account"]'
 value = "enterprise"
 ```
 
@@ -324,11 +312,11 @@ In a healthy variable, the default is normal behavior and rules are exceptions:
 default = "growth"
 
 [[resolve.rule]]
-qualifier = "enterprise-account"
+when = 'qualifier["enterprise-account"]'
 value = "enterprise"
 
 [[resolve.rule]]
-qualifier = "free-account"
+when = 'qualifier["free-account"]'
 value = "starter"
 ```
 
@@ -349,16 +337,12 @@ selected value and why it wins.
 Buckets help because assignment happens inside the reviewed workspace, not in
 application-side randomization.
 
-A [bucket qualifier](reference-predicate-operators.html) looks like this:
+A [bucket condition](reference-predicate-operators.html) looks like this:
 
 ```toml
 schema_version = 1
 
-[[predicate]]
-attribute = "account.id"
-op = "bucket"
-salt = "account-limit-profile-2026-06"
-range = [0, 1000]
+when = 'bucket(context.account.id, "account-limit-profile-2026-06", 0, 1000)'
 ```
 
 The context attribute should be stable. Account id, user id, or workspace id
@@ -384,8 +368,7 @@ A common shape is:
 
 ```text
 product-defaults
-  schemas/account-limit-profile.schema.json
-  catalogs/account-limit-profile.toml
+  catalogs/account-limit-profile.schema.json
   variables/account-limit-profile.toml
 
 customer-acme-config

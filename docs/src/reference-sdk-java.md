@@ -66,19 +66,20 @@ System.out.println(resolution.source());
 ## Resolve A Qualifier
 
 ```java
-QualifierResolution resolution = workspace
+boolean matches = workspace
     .resolveQualifier("premium-users", context)
     .get();
 
-System.out.println(resolution.value());
+System.out.println(matches);
 ```
 
-`QualifierResolution` has `id()` and `value()`.
+Qualifier resolution returns the final boolean result.
 
 ## Context Validation
 
-Resolution validates context against `schemas/context.schema.json` by default.
-Skip validation for one call when a tool needs to evaluate partial context:
+Resolution validates context against a compatible request context schema by
+default. Skip validation for one call when a tool needs to evaluate partial
+context:
 
 ```java
 VariableResolution resolution = workspace
@@ -147,7 +148,6 @@ try {
 | `Workspace` | Loaded workspace handle. |
 | `RefreshingWorkspace` | Refreshing workspace handle for services. |
 | `VariableResolution` | Selected variable value. |
-| `QualifierResolution` | Qualifier boolean result. |
 | `RefreshStatus` | Refresh state snapshot. |
 | `WorkspaceLint` | Lint result for a loaded or inspected workspace. |
 | `RototoException` | Error raised for rototo failures. |

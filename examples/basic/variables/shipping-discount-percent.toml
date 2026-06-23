@@ -7,13 +7,13 @@ type = "int"
 default = 0
 
 [[resolve.rule]]
-qualifier = "lane-stage"
+when = 'qualifier["lane-stage"]'
 value = 5
 
 [[resolve.rule]]
-qualifier = "premium-users"
+when = 'qualifier["premium-users"]'
 value = 15
 
 [[resolve.rule]]
-qualifier = "high-value-cart"
+when = 'qualifier["high-value-cart"]'
 value = 25

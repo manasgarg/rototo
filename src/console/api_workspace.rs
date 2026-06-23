@@ -3,9 +3,11 @@ use axum::extract::{Path, Query, State};
 use axum::http::HeaderMap;
 use axum::routing::get;
 use serde_json::{Value as JsonValue, json};
+use std::collections::HashSet;
 
 use super::api::{
-    ApiError, ApiResult, SharedState, require_github_token, require_user, source_token,
+    ApiError, ApiResult, SharedState, fixed_source_scope, fixed_source_workspace_ids,
+    require_github_token, require_user, source_token, workspace_belongs_to_fixed_source,
 };
 use super::capabilities::{classify_workspace_source, workspace_capabilities};
 use super::inventory::{
@@ -60,14 +62,18 @@ pub async fn load_workspace(
     user: &SessionUser,
     workspace_id: &str,
 ) -> ApiResult<WorkspaceRecord> {
-    if let Some(source) = state.fixed_workspace_source.as_deref() {
-        super::register_fixed_workspace(state, &user.principal_id, source).await?;
-    }
-    state
+    let fixed_source = fixed_source_scope(state, &user.principal_id).await?;
+    let workspace = state
         .store
         .get_workspace_for_user(workspace_id, &user.principal_id)
         .await?
-        .ok_or_else(|| ApiError::not_found("workspace not found"))
+        .ok_or_else(|| ApiError::not_found("workspace not found"))?;
+    if let Some(source_tree) = fixed_source.as_ref()
+        && !workspace_belongs_to_fixed_source(&workspace, source_tree)
+    {
+        return Err(ApiError::not_found("workspace not found"));
+    }
+    Ok(workspace)
 }
 
 /// `{root, diagnostics}` with the wire shape the TypeScript SDK produced.
@@ -93,6 +99,7 @@ pub fn workspace_capabilities_json(
         "capabilities": workspace_capabilities(
             source_kind,
             state.write_policy,
+            &state.deployment,
             user.github_token.is_some(),
         ),
     })
@@ -138,10 +145,15 @@ async fn workspace_summaries(
     Query(query): Query<WorkspaceSummariesQuery>,
 ) -> ApiResult<Json<JsonValue>> {
     let user = require_user(&state, &headers).await?;
+    let fixed_source = fixed_source_scope(&state, &user.principal_id).await?;
     let mut workspaces = state
         .store
         .list_workspaces_for_user(&user.principal_id)
         .await?;
+    if let Some(source_tree) = fixed_source.as_ref() {
+        let workspace_ids = fixed_source_workspace_ids(source_tree);
+        workspaces.retain(|workspace| workspace_ids.contains(&workspace.id));
+    }
     if let Some(source_tree_id) = query.source_tree_id.as_deref() {
         workspaces.retain(|workspace| workspace.source_tree_id == source_tree_id);
     }
@@ -207,7 +219,6 @@ async fn workspace_summary_json(
             "variables": 0,
             "qualifiers": 0,
             "catalogs": 0,
-            "schemas": 0,
             "error": error,
         }),
     }
@@ -223,7 +234,6 @@ fn workspace_summary_success_json(
         "variables": inventory.variables.len(),
         "qualifiers": inventory.qualifiers.len(),
         "catalogs": inventory.catalogs.len(),
-        "schemas": inventory.schemas.len(),
         "error": JsonValue::Null,
     })
 }
@@ -243,7 +253,7 @@ async fn workspace_data(
     let staged =
         semantic_workspace_for_base(&state, &user.principal_id, source_token(&user), &workspace)
             .await;
-    let (inventory, inventory_error, lint, model) = match staged {
+    let (inventory, inventory_error, lint, model, definitions) = match staged {
         Ok(semantic) => {
             let inventory =
                 inspect_workspace_inventory(&workspace, &semantic.model, semantic.workspace.root())
@@ -253,18 +263,25 @@ async fn workspace_data(
                 Err(err) => lint_error_json(&workspace.source, &err.to_string()),
             };
             match inventory {
-                Ok(inventory) => (
-                    serde_json::to_value(inventory).expect("inventory serializes"),
-                    JsonValue::Null,
-                    lint,
-                    serde_json::to_value(semantic.model.as_ref()).expect("model serializes"),
-                ),
+                Ok(inventory) => {
+                    let definitions =
+                        workspace_definitions(&workspace, semantic.workspace.root(), &inventory)
+                            .await;
+                    (
+                        serde_json::to_value(inventory).expect("inventory serializes"),
+                        JsonValue::Null,
+                        lint,
+                        serde_json::to_value(semantic.model.as_ref()).expect("model serializes"),
+                        definitions,
+                    )
+                }
                 Err(err) => (
                     serde_json::to_value(WorkspaceInventory::default())
                         .expect("inventory serializes"),
                     json!(err.to_string()),
                     lint,
                     serde_json::to_value(semantic.model.as_ref()).expect("model serializes"),
+                    JsonValue::Array(Vec::new()),
                 ),
             }
         }
@@ -275,6 +292,7 @@ async fn workspace_data(
                 json!(message.clone()),
                 lint_error_json(&workspace.source, &message),
                 JsonValue::Null,
+                JsonValue::Array(Vec::new()),
             )
         }
     };
@@ -285,11 +303,64 @@ async fn workspace_data(
         "branches": branches,
         "inventory": inventory,
         "inventoryError": inventory_error,
+        "definitions": definitions,
         "lint": lint,
         "model": model,
         "sourceKind": capabilities["sourceKind"].clone(),
         "capabilities": capabilities["capabilities"].clone(),
     })))
+}
+
+async fn workspace_definitions(
+    workspace: &WorkspaceRecord,
+    staged_root: &std::path::Path,
+    inventory: &WorkspaceInventory,
+) -> JsonValue {
+    let mut seen = HashSet::new();
+    let mut definitions = Vec::new();
+    for path in workspace_definition_paths(inventory) {
+        if !seen.insert(path.clone()) {
+            continue;
+        }
+        if let Ok(definition) = read_workspace_definition(workspace, staged_root, &path).await {
+            definitions.push(serde_json::to_value(definition).expect("definition serializes"));
+        }
+    }
+    JsonValue::Array(definitions)
+}
+
+fn workspace_definition_paths(inventory: &WorkspaceInventory) -> Vec<String> {
+    let mut paths = Vec::new();
+    paths.extend(inventory.variables.iter().map(|item| item.path.clone()));
+    paths.extend(inventory.qualifiers.iter().map(|item| item.path.clone()));
+    paths.extend(inventory.catalogs.iter().map(|item| item.path.clone()));
+    paths.extend(
+        inventory
+            .catalog_entries
+            .iter()
+            .map(|item| item.path.clone()),
+    );
+    paths.extend(
+        inventory
+            .linters
+            .iter()
+            .filter_map(|item| item.path.clone()),
+    );
+    paths.extend(
+        inventory
+            .context
+            .request_contexts
+            .iter()
+            .map(|item| item.path.clone()),
+    );
+    paths.extend(
+        inventory
+            .context
+            .entries
+            .iter()
+            .map(|item| item.path.clone()),
+    );
+    paths
 }
 
 /// Query string used to fetch one workspace file for inspect/edit screens.
@@ -347,6 +418,7 @@ async fn workspace_entity(
             runtime_workspace_for_base(&state, &user.principal_id, source_token(&user), &workspace)
                 .await
     {
+        let contexts = compatible_variable_contexts(&semantic.model, &variable.id, &contexts);
         let resolutions =
             resolve_saved_contexts(&runtime, &semantic.model, &variable.id, &contexts).await;
         context_resolutions = serde_json::to_value(resolutions).expect("resolutions serialize");
@@ -364,6 +436,7 @@ async fn workspace_entity(
             runtime_workspace_for_base(&state, &user.principal_id, source_token(&user), &workspace)
                 .await
     {
+        let contexts = compatible_qualifier_contexts(&semantic.model, &qualifier.id, &contexts);
         let evaluations =
             qualifier_context_evaluations(&runtime, &semantic.model, &qualifier.id, &contexts)
                 .await;
@@ -376,6 +449,54 @@ async fn workspace_entity(
         "contextResolutions": context_resolutions,
         "qualifierEvaluations": qualifier_evaluations,
     })))
+}
+
+fn compatible_variable_contexts(
+    model: &crate::lint::WorkspaceSemanticModel,
+    variable_id: &str,
+    contexts: &[SavedContextInput],
+) -> Vec<SavedContextInput> {
+    let Some(compatibility) = model
+        .variable_request_contexts
+        .iter()
+        .find(|compatibility| compatibility.variable == variable_id)
+    else {
+        return Vec::new();
+    };
+    contexts
+        .iter()
+        .filter(|context| {
+            compatibility
+                .request_contexts
+                .iter()
+                .any(|id| id == &context.request_context)
+        })
+        .cloned()
+        .collect()
+}
+
+fn compatible_qualifier_contexts(
+    model: &crate::lint::WorkspaceSemanticModel,
+    qualifier_id: &str,
+    contexts: &[SavedContextInput],
+) -> Vec<SavedContextInput> {
+    let Some(compatibility) = model
+        .qualifier_request_contexts
+        .iter()
+        .find(|compatibility| compatibility.qualifier == qualifier_id)
+    else {
+        return Vec::new();
+    };
+    contexts
+        .iter()
+        .filter(|context| {
+            compatibility
+                .request_contexts
+                .iter()
+                .any(|id| id == &context.request_context)
+        })
+        .cloned()
+        .collect()
 }
 
 async fn branch_candidates(
@@ -521,19 +642,15 @@ pub async fn load_saved_contexts(
     limit: usize,
 ) -> Vec<SavedContextInput> {
     let mut contexts = Vec::new();
-    for example_path in inventory.context.examples.iter().take(limit) {
-        let name = example_path
-            .rsplit('/')
-            .next()
-            .unwrap_or(example_path)
-            .to_owned();
-        let Ok(definition) = read_workspace_definition(workspace, staged_root, example_path).await
+    for entry in inventory.context.entries.iter().take(limit) {
+        let Ok(definition) = read_workspace_definition(workspace, staged_root, &entry.path).await
         else {
             continue;
         };
         contexts.push(SavedContextInput {
-            name,
-            path: example_path.clone(),
+            name: entry.key.clone(),
+            request_context: entry.request_context_id.clone(),
+            path: entry.path.clone(),
             text: definition.text,
         });
     }
@@ -550,6 +667,7 @@ mod tests {
             slug: "configs".to_owned(),
             source_tree_id: "repo-id".to_owned(),
             source_tree_label: "octo/configs".to_owned(),
+            display_path: ".".to_owned(),
             path: ".".to_owned(),
             revision: "main".to_owned(),
             source: "https://api.github.com/repos/octo/configs/tarball/main".to_owned(),
@@ -560,10 +678,9 @@ mod tests {
     fn catalog(id: &str) -> super::super::inventory::CatalogInventoryItem {
         super::super::inventory::CatalogInventoryItem {
             id: id.to_owned(),
-            path: format!("catalogs/{id}.toml"),
+            path: format!("catalogs/{id}.schema.json"),
             description: None,
             schema: None,
-            schema_reference: None,
             entry_count: 0,
         }
     }
@@ -576,7 +693,7 @@ mod tests {
             catalog_id: catalog_id.to_owned(),
             key: key.to_owned(),
             id: format!("{catalog_id}/{key}"),
-            path: format!("catalogs/{catalog_id}-values/{key}.toml"),
+            path: format!("catalogs/{catalog_id}-entries/{key}.toml"),
         }
     }
 

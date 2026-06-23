@@ -10,7 +10,7 @@ use crate::error::{Result, RototoError};
 use crate::lint::{
     LintInput, RuntimeWorkspace, compile_runtime_workspace_from_snapshot, lint_workspace_snapshot,
 };
-use crate::model::{QualifierResolution, VariableResolution, WorkspaceInspection, WorkspaceLint};
+use crate::model::{VariableResolution, WorkspaceInspection, WorkspaceLint};
 use crate::source::{
     SourceAuth, SourceFingerprint, SourceLayer, SourceOptions, SourceProbe, StagedWorkspace,
     load_workspace_source, load_workspace_source_snapshot, probe_workspace_source,
@@ -117,7 +117,8 @@ impl Workspace {
     pub fn context_schema(&self) -> Option<&JsonValue> {
         self.runtime
             .as_ref()
-            .and_then(|runtime| runtime.context_schema.as_ref())
+            .and_then(|runtime| runtime.request_contexts.values().next())
+            .map(|request_context| &request_context.schema)
     }
 
     pub fn source_fingerprint(&self) -> Option<&SourceFingerprint> {
@@ -151,7 +152,7 @@ impl Workspace {
         &self,
         id: impl AsRef<str>,
         context: &ResolveContext,
-    ) -> Result<QualifierResolution> {
+    ) -> Result<bool> {
         self.resolve_qualifier_with_options(id, context, ResolveOptions::default())
             .await
     }
@@ -161,9 +162,10 @@ impl Workspace {
         id: impl AsRef<str>,
         context: &ResolveContext,
         options: ResolveOptions,
-    ) -> Result<QualifierResolution> {
+    ) -> Result<bool> {
         if options.validate_context {
-            self.validate_context(context).await?;
+            self.runtime()?
+                .validate_context_for_qualifier(id.as_ref(), context.value())?;
         }
         crate::resolve::resolve_qualifier_unchecked(self.runtime()?, id.as_ref(), context.value())
             .await
@@ -185,7 +187,8 @@ impl Workspace {
         options: ResolveOptions,
     ) -> Result<VariableResolution> {
         if options.validate_context {
-            self.validate_context(context).await?;
+            self.runtime()?
+                .validate_context_for_variable(id.as_ref(), context.value())?;
         }
         crate::resolve::resolve_variable_unchecked(self.runtime()?, id.as_ref(), context.value())
             .await
@@ -297,7 +300,7 @@ impl RefreshingWorkspace {
         &self,
         id: impl AsRef<str>,
         context: &ResolveContext,
-    ) -> Result<QualifierResolution> {
+    ) -> Result<bool> {
         self.current()
             .await
             .resolve_qualifier(id.as_ref(), context)
@@ -309,7 +312,7 @@ impl RefreshingWorkspace {
         id: impl AsRef<str>,
         context: &ResolveContext,
         options: ResolveOptions,
-    ) -> Result<QualifierResolution> {
+    ) -> Result<bool> {
         self.current()
             .await
             .resolve_qualifier_with_options(id.as_ref(), context, options)

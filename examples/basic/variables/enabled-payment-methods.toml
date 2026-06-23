@@ -7,9 +7,9 @@ type = "list"
 default = ["card", "paypal"]
 
 [[resolve.rule]]
-qualifier = "mobile-users"
+when = 'qualifier["mobile-users"]'
 value = ["card", "apple_pay", "google_pay"]
 
 [[resolve.rule]]
-qualifier = "enterprise-accounts"
+when = 'qualifier["enterprise-accounts"]'
 value = ["card", "invoice", "wire_transfer"]
