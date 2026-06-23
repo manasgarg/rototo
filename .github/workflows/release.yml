@@ -60,7 +60,7 @@ jobs:
         run: just check
 
       - name: Verify Rust package
-        run: cargo publish --package rototo --dry-run --locked
+        run: cargo publish --package rototo --dry-run --locked --allow-dirty
 
   python-sdist:
     name: Build Python sdist
@@ -331,14 +331,14 @@ jobs:
           npm --prefix apps/console run build
 
       - name: Build Rust crate package for manifest
-        run: cargo package --package rototo --locked
+        run: cargo package --package rototo --locked --allow-dirty
 
       - name: Authenticate to crates.io
         id: auth
         uses: rust-lang/crates-io-auth-action@v1
 
       - name: Publish Rust crate
-        run: cargo publish --package rototo --locked
+        run: cargo publish --package rototo --locked --allow-dirty
         env:
           CARGO_REGISTRY_TOKEN: ${{ steps.auth.outputs.token }}
 
