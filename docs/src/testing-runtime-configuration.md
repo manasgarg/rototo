@@ -192,8 +192,7 @@ async fn enterprise_account_receives_enterprise_limits() -> Result<(), Box<dyn E
     }))?;
 
     let resolution = pkg
-        .resolve_variable("account-limit-profile", &context)
-        .await?;
+        .resolve_variable("account-limit-profile", &context)?;
 
     let profile: AccountLimitProfile = serde_json::from_value(resolution.value)?;
     assert_eq!(profile.max_projects, 100);
@@ -216,7 +215,7 @@ class AccountLimitProfile:
 
 async def test_enterprise_account_receives_enterprise_limits():
     pkg = await rototo.Package.load("account-config")
-    resolution = await pkg.resolve_variable(
+    resolution = pkg.resolve_variable(
         "account-limit-profile",
         {
             "account": {
@@ -244,7 +243,7 @@ type AccountLimitProfile = {
 
 test("enterprise account receives enterprise limits", async () => {
   const pkg = await Package.load("account-config");
-  const resolution = await pkg.resolveVariable(
+  const resolution = pkg.resolveVariable(
     "account-limit-profile",
     {
       account: {
@@ -365,8 +364,7 @@ let standard = ResolveContext::from_json(serde_json::json!({
 }))?;
 
 let resolution = pkg
-    .resolve_variable("account-limit-profile", &standard)
-    .await?;
+    .resolve_variable("account-limit-profile", &standard)?;
 ```
 
 ```python
@@ -377,7 +375,7 @@ standard = {
     },
 }
 
-resolution = await pkg.resolve_variable(
+resolution = pkg.resolve_variable(
     "account-limit-profile",
     standard,
 )
@@ -391,7 +389,7 @@ const standard = {
   },
 };
 
-const resolution = await pkg.resolveVariable(
+const resolution = pkg.resolveVariable(
   "account-limit-profile",
   standard,
 );
@@ -479,39 +477,37 @@ let pkg = RefreshingPackage::load(source, RefreshOptions::new()).await?;
 let context = ResolveContext::from_json(serde_json::json!({}))?;
 
 let before = pkg
-    .resolve_variable("support-banner", &context)
-    .await?;
+    .resolve_variable("support-banner", &context)?;
 
 publish_package_change_that_turns_banner_on().await?;
 pkg.refresh_now().await?;
 
 let after = pkg
-    .resolve_variable("support-banner", &context)
-    .await?;
+    .resolve_variable("support-banner", &context)?;
 ```
 
 ```python
 pkg = await rototo.RefreshingPackage.load(source)
 context = {}
 
-before = await pkg.resolve_variable("support-banner", context)
+before = pkg.resolve_variable("support-banner", context)
 
 await publish_package_change_that_turns_banner_on()
 await pkg.refresh_now()
 
-after = await pkg.resolve_variable("support-banner", context)
+after = pkg.resolve_variable("support-banner", context)
 ```
 
 ```typescript
 const pkg = await RefreshingPackage.load(source);
 const context = {};
 
-const before = await pkg.resolveVariable("support-banner", context);
+const before = pkg.resolveVariable("support-banner", context);
 
 await publishPackageChangeThatTurnsBannerOn();
 await pkg.refreshNow();
 
-const after = await pkg.resolveVariable("support-banner", context);
+const after = pkg.resolveVariable("support-banner", context);
 ```
 
 ```java
@@ -574,10 +570,9 @@ publish_broken_package_change().await?;
 assert!(pkg.refresh_now().await.is_err());
 
 let still_valid = pkg
-    .resolve_variable("support-banner", &context)
-    .await?;
+    .resolve_variable("support-banner", &context)?;
 
-let status = pkg.status().await;
+let status = pkg.status();
 assert!(status.last_error.is_some());
 assert_eq!(status.consecutive_failures, 1);
 ```
@@ -589,7 +584,7 @@ try:
 except rototo.RototoError:
     pass
 
-still_valid = await pkg.resolve_variable("support-banner", context)
+still_valid = pkg.resolve_variable("support-banner", context)
 
 status = await pkg.status()
 assert status.last_error is not None
@@ -600,7 +595,7 @@ assert status.consecutive_failures == 1
 await publishBrokenPackageChange();
 await assert.rejects(() => pkg.refreshNow());
 
-const stillValid = await pkg.resolveVariable("support-banner", context);
+const stillValid = pkg.resolveVariable("support-banner", context);
 
 const status = await pkg.status();
 assert.ok(status.lastError);

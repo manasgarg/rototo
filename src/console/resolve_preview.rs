@@ -131,7 +131,6 @@ fn evaluate_recursive<'a>(
         let matched = match ResolveContext::from_json(context.clone()) {
             Ok(resolve_context) => runtime
                 .resolve_qualifier(qualifier_id, &resolve_context)
-                .await
                 .ok(),
             Err(_) => None,
         };
@@ -253,7 +252,6 @@ async fn resolve_one(
         ResolveContext::from_json(context.clone()).map_err(|err| err.to_string())?;
     let resolution = runtime
         .resolve_variable(variable_id, &resolve_context)
-        .await
         .map_err(|err| err.to_string())?;
 
     let mut steps = Vec::new();
@@ -313,10 +311,7 @@ pub async fn edit_context_previews(
         };
         let mut qualifier_truth = BTreeMap::new();
         for qualifier_id in qualifier_ids {
-            if let Ok(resolution) = runtime
-                .resolve_qualifier(qualifier_id, &resolve_context)
-                .await
-            {
+            if let Ok(resolution) = runtime.resolve_qualifier(qualifier_id, &resolve_context) {
                 qualifier_truth.insert(qualifier_id.clone(), resolution);
             }
         }

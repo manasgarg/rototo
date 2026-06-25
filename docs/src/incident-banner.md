@@ -262,8 +262,7 @@ async fn support_banner_for_request(
     }))?;
 
     let resolution = pkg
-        .resolve_variable("support-banner", &context)
-        .await?;
+        .resolve_variable("support-banner", &context)?;
     let source = resolution.source.clone();
     let banner: SupportBanner = serde_json::from_value(resolution.value)?;
 
@@ -298,7 +297,7 @@ async def support_banner_for_request(
     package: rototo.Package,
     account_region: str,
 ) -> SupportBanner | None:
-    resolution = await pkg.resolve_variable(
+    resolution = pkg.resolve_variable(
         "support-banner",
         {"account": {"region": account_region}},
     )
@@ -321,7 +320,7 @@ async function supportBannerForRequest(
   package: Package,
   accountRegion: string,
 ): Promise<SupportBanner | undefined> {
-  const resolution = await pkg.resolveVariable(
+  const resolution = pkg.resolveVariable(
     "support-banner",
     { account: { region: accountRegion } },
   );

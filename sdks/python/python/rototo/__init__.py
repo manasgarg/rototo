@@ -72,14 +72,14 @@ class Package:
     async def lint(self) -> dict[str, Any]:
         return await self._inner.lint()
 
-    async def resolve_variable(
+    def resolve_variable(
         self,
         id: str,
         context: JsonObject,
         *,
         validate_context: bool = True,
     ) -> VariableResolution:
-        result = await self._inner.resolve_variable(
+        result = self._inner.resolve_variable(
             id,
             context,
             validate_context=validate_context,
@@ -90,14 +90,14 @@ class Package:
             source=result["source"],
         )
 
-    async def resolve_qualifier(
+    def resolve_qualifier(
         self,
         id: str,
         context: JsonObject,
         *,
         validate_context: bool = True,
     ) -> bool:
-        return await self._inner.resolve_qualifier(
+        return self._inner.resolve_qualifier(
             id,
             context,
             validate_context=validate_context,
@@ -127,14 +127,14 @@ class RefreshingPackage:
         )
         return cls(inner)
 
-    async def resolve_variable(
+    def resolve_variable(
         self,
         id: str,
         context: JsonObject,
         *,
         validate_context: bool = True,
     ) -> VariableResolution:
-        result = await self._inner.resolve_variable(
+        result = self._inner.resolve_variable(
             id,
             context,
             validate_context=validate_context,
@@ -145,14 +145,14 @@ class RefreshingPackage:
             source=result["source"],
         )
 
-    async def resolve_qualifier(
+    def resolve_qualifier(
         self,
         id: str,
         context: JsonObject,
         *,
         validate_context: bool = True,
     ) -> bool:
-        return await self._inner.resolve_qualifier(
+        return self._inner.resolve_qualifier(
             id,
             context,
             validate_context=validate_context,

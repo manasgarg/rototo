@@ -313,8 +313,7 @@ async fn route_for_task(
     }))?;
 
     let resolution = pkg
-        .resolve_variable("inference-routing-policy", &context)
-        .await?;
+        .resolve_variable("inference-routing-policy", &context)?;
 
     Ok(resolution.value)
 }
@@ -326,7 +325,7 @@ async def route_for_task(
     task_kind: str,
 ) -> object:
     pkg = await rototo.Package.load(package_source)
-    resolution = await pkg.resolve_variable(
+    resolution = pkg.resolve_variable(
         "inference-routing-policy",
         {"task": {"kind": task_kind}},
     )
@@ -339,7 +338,7 @@ async function routeForTask(
   taskKind: string,
 ): Promise<unknown> {
   const pkg = await Package.load(packageSource);
-  const resolution = await pkg.resolveVariable(
+  const resolution = pkg.resolveVariable(
     "inference-routing-policy",
     { task: { kind: taskKind } },
   );

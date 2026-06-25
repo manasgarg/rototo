@@ -642,13 +642,11 @@ async fn resolution_impacts(
     let after_runtime = compile_runtime_package_from_snapshot(after)?;
     before_runtime.validate_context(context)?;
     after_runtime.validate_context(context)?;
-    let before_resolutions = crate::resolve::resolve_variables_unchecked(&before_runtime, context)
-        .await?
+    let before_resolutions = crate::resolve::resolve_variables_unchecked(&before_runtime, context)?
         .into_iter()
         .map(|resolution| (resolution.id.clone(), resolution))
         .collect::<BTreeMap<_, _>>();
-    let after_resolutions = crate::resolve::resolve_variables_unchecked(&after_runtime, context)
-        .await?
+    let after_resolutions = crate::resolve::resolve_variables_unchecked(&after_runtime, context)?
         .into_iter()
         .map(|resolution| (resolution.id.clone(), resolution))
         .collect::<BTreeMap<_, _>>();

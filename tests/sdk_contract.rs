@@ -81,7 +81,6 @@ async fn run_contract_case(case: &ContractCase) -> Result<JsonValue, String> {
             let id = case_id(case)?;
             let resolution = package
                 .resolve_qualifier(id, &context)
-                .await
                 .map_err(|err| err.to_string())?;
             serde_json::to_value(resolution).map_err(|err| err.to_string())
         }
@@ -94,7 +93,6 @@ async fn run_contract_case(case: &ContractCase) -> Result<JsonValue, String> {
             let id = case_id(case)?;
             let resolution = package
                 .resolve_variable(id, &context)
-                .await
                 .map_err(|err| err.to_string())?;
             serde_json::to_value(resolution).map_err(|err| err.to_string())
         }

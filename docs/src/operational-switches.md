@@ -72,8 +72,7 @@ use rototo::{ResolveContext, Package};
 async fn create_project(package: &Package) -> Result<(), Box<dyn std::error::Error>> {
     let context = ResolveContext::from_json(serde_json::json!({}))?;
     let resolution = pkg
-        .resolve_variable("project-creation-enabled", &context)
-        .await?;
+        .resolve_variable("project-creation-enabled", &context)?;
 
     let source = resolution.source.clone();
     let creation_enabled: bool = serde_json::from_value(resolution.value)?;
@@ -94,7 +93,7 @@ async fn create_project(package: &Package) -> Result<(), Box<dyn std::error::Err
 
 ```python
 async def create_project(package: rototo.Package) -> None:
-    resolution = await pkg.resolve_variable(
+    resolution = pkg.resolve_variable(
         "project-creation-enabled",
         {},
     )
@@ -112,7 +111,7 @@ async def create_project(package: rototo.Package) -> None:
 
 ```typescript
 async function createProject(package: Package): Promise<void> {
-  const resolution = await pkg.resolveVariable(
+  const resolution = pkg.resolveVariable(
     "project-creation-enabled",
     {},
   );

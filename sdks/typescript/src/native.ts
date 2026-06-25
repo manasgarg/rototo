@@ -10,12 +10,12 @@ type NativePackage = {
         id: string,
         context: JsonValue,
         validateContext?: boolean,
-    ): Promise<VariableResolutionJson>;
+    ): VariableResolutionJson;
     resolveQualifier(
         id: string,
         context: JsonValue,
         validateContext?: boolean,
-    ): Promise<boolean>;
+    ): boolean;
 };
 
 type NativePackageConstructor = {
@@ -32,12 +32,12 @@ type NativeRefreshingPackage = {
         id: string,
         context: JsonValue,
         validateContext?: boolean,
-    ): Promise<VariableResolutionJson>;
+    ): VariableResolutionJson;
     resolveQualifier(
         id: string,
         context: JsonValue,
         validateContext?: boolean,
-    ): Promise<boolean>;
+    ): boolean;
     refreshNow(): Promise<RefreshOutcome>;
     status(): Promise<RefreshStatusJson>;
     shutdown(): Promise<void>;

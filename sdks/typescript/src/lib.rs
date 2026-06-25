@@ -69,7 +69,7 @@ impl JsPackage {
     }
 
     #[napi(js_name = "resolveVariable")]
-    pub async fn resolve_variable(
+    pub fn resolve_variable(
         &self,
         id: String,
         context: JsonValue,
@@ -83,7 +83,6 @@ impl JsPackage {
                 &context,
                 resolve_options(validate_context.unwrap_or(true)),
             )
-            .await
             .map_err(js_err)?;
         Ok(serde_json::json!({
             "id": resolution.id,
@@ -93,7 +92,7 @@ impl JsPackage {
     }
 
     #[napi(js_name = "resolveQualifier")]
-    pub async fn resolve_qualifier(
+    pub fn resolve_qualifier(
         &self,
         id: String,
         context: JsonValue,
@@ -106,7 +105,6 @@ impl JsPackage {
                 &context,
                 resolve_options(validate_context.unwrap_or(true)),
             )
-            .await
             .map_err(js_err)
     }
 }
@@ -137,14 +135,14 @@ impl JsRefreshingPackage {
     }
 
     #[napi(js_name = "resolveVariable")]
-    pub async fn resolve_variable(
+    pub fn resolve_variable(
         &self,
         id: String,
         context: JsonValue,
         validate_context: Option<bool>,
     ) -> Result<JsonValue> {
         let context = ResolveContext::from_json(context).map_err(js_err)?;
-        let guard = self.inner.lock().await;
+        let guard = self.inner.blocking_lock();
         let package = active_refreshing_package(&guard)?;
         let resolution = package
             .resolve_variable_with_options(
@@ -152,7 +150,6 @@ impl JsRefreshingPackage {
                 &context,
                 resolve_options(validate_context.unwrap_or(true)),
             )
-            .await
             .map_err(js_err)?;
         Ok(serde_json::json!({
             "id": resolution.id,
@@ -162,14 +159,14 @@ impl JsRefreshingPackage {
     }
 
     #[napi(js_name = "resolveQualifier")]
-    pub async fn resolve_qualifier(
+    pub fn resolve_qualifier(
         &self,
         id: String,
         context: JsonValue,
         validate_context: Option<bool>,
     ) -> Result<bool> {
         let context = ResolveContext::from_json(context).map_err(js_err)?;
-        let guard = self.inner.lock().await;
+        let guard = self.inner.blocking_lock();
         let package = active_refreshing_package(&guard)?;
         package
             .resolve_qualifier_with_options(
@@ -177,7 +174,6 @@ impl JsRefreshingPackage {
                 &context,
                 resolve_options(validate_context.unwrap_or(true)),
             )
-            .await
             .map_err(js_err)
     }
 
@@ -193,7 +189,7 @@ impl JsRefreshingPackage {
     pub async fn status(&self) -> Result<JsonValue> {
         let guard = self.inner.lock().await;
         let package = active_refreshing_package(&guard)?;
-        let status = package.status().await;
+        let status = package.status();
         Ok(refresh_status_to_json(status))
     }
 

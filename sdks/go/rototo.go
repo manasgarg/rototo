@@ -167,14 +167,10 @@ func (w *Package) Lint(ctx context.Context) (*PackageLint, error) {
 
 // ResolveVariable resolves a variable with a JSON-object context.
 func (w *Package) ResolveVariable(
-	ctx context.Context,
 	id string,
 	resolveContext map[string]any,
 	options *ResolveOptions,
 ) (*VariableResolution, error) {
-	if err := checkContext(ctx); err != nil {
-		return nil, err
-	}
 	contextJSON, err := marshalContext(resolveContext)
 	if err != nil {
 		return nil, err
@@ -192,19 +188,15 @@ func (w *Package) ResolveVariable(
 	if err := json.Unmarshal([]byte(text), &resolution); err != nil {
 		return nil, err
 	}
-	return &resolution, checkContext(ctx)
+	return &resolution, nil
 }
 
 // ResolveQualifier resolves a qualifier with a JSON-object context.
 func (w *Package) ResolveQualifier(
-	ctx context.Context,
 	id string,
 	resolveContext map[string]any,
 	options *ResolveOptions,
 ) (bool, error) {
-	if err := checkContext(ctx); err != nil {
-		return false, err
-	}
 	contextJSON, err := marshalContext(resolveContext)
 	if err != nil {
 		return false, err
@@ -222,7 +214,7 @@ func (w *Package) ResolveQualifier(
 	if err := json.Unmarshal([]byte(text), &value); err != nil {
 		return false, err
 	}
-	return value, checkContext(ctx)
+	return value, nil
 }
 
 // Close releases the native package handle.
@@ -271,14 +263,10 @@ func LoadRefreshing(
 
 // ResolveVariable resolves a variable against the current active package.
 func (w *RefreshingPackage) ResolveVariable(
-	ctx context.Context,
 	id string,
 	resolveContext map[string]any,
 	options *ResolveOptions,
 ) (*VariableResolution, error) {
-	if err := checkContext(ctx); err != nil {
-		return nil, err
-	}
 	contextJSON, err := marshalContext(resolveContext)
 	if err != nil {
 		return nil, err
@@ -301,19 +289,15 @@ func (w *RefreshingPackage) ResolveVariable(
 	if err := json.Unmarshal([]byte(text), &resolution); err != nil {
 		return nil, err
 	}
-	return &resolution, checkContext(ctx)
+	return &resolution, nil
 }
 
 // ResolveQualifier resolves a qualifier against the current active package.
 func (w *RefreshingPackage) ResolveQualifier(
-	ctx context.Context,
 	id string,
 	resolveContext map[string]any,
 	options *ResolveOptions,
 ) (bool, error) {
-	if err := checkContext(ctx); err != nil {
-		return false, err
-	}
 	contextJSON, err := marshalContext(resolveContext)
 	if err != nil {
 		return false, err
@@ -336,7 +320,7 @@ func (w *RefreshingPackage) ResolveQualifier(
 	if err := json.Unmarshal([]byte(text), &value); err != nil {
 		return false, err
 	}
-	return value, checkContext(ctx)
+	return value, nil
 }
 
 // RefreshNow refreshes the package immediately and returns "unchanged",

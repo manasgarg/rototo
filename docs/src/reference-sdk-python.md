@@ -39,7 +39,7 @@ before returning.
 ## Resolve A Variable
 
 ```python
-resolution = await pkg.resolve_variable(
+resolution = pkg.resolve_variable(
     "premium-message",
     {"user": {"tier": "premium"}},
 )
@@ -59,7 +59,7 @@ print(resolution.source)
 ## Resolve A Qualifier
 
 ```python
-matches = await pkg.resolve_qualifier(
+matches = pkg.resolve_qualifier(
     "premium-users",
     {"user": {"tier": "premium"}},
 )
@@ -76,7 +76,7 @@ request context schema by default. Skip validation for one call when a tool
 needs to evaluate partial context:
 
 ```python
-resolution = await pkg.resolve_variable(
+resolution = pkg.resolve_variable(
     "premium-message",
     context,
     validate_context=False,
@@ -104,7 +104,7 @@ pkg = await rototo.RefreshingPackage.load(
     period_seconds=30,
 )
 
-resolution = await pkg.resolve_variable("premium-message", context)
+resolution = pkg.resolve_variable("premium-message", context)
 status = await pkg.status()
 await pkg.shutdown()
 ```
@@ -120,7 +120,7 @@ Rust `RototoError` values become `rototo.RototoError` in Python:
 
 ```python
 try:
-    await pkg.resolve_variable("missing", {})
+    pkg.resolve_variable("missing", {})
 except rototo.RototoError as error:
     print(error)
 ```

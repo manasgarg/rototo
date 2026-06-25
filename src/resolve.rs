@@ -16,7 +16,7 @@ use crate::model::{
 pub async fn resolve_qualifier(package_root: &Path, id: &str, context: &JsonValue) -> Result<bool> {
     let runtime = compile_runtime_package(package_root).await?;
     runtime.validate_context_for_qualifier(id, context)?;
-    resolve_qualifier_unchecked(&runtime, id, context).await
+    resolve_qualifier_unchecked(&runtime, id, context)
 }
 
 pub async fn trace_qualifier_resolution(
@@ -26,10 +26,10 @@ pub async fn trace_qualifier_resolution(
 ) -> Result<QualifierResolutionTrace> {
     let runtime = compile_runtime_package(package_root).await?;
     runtime.validate_context_for_qualifier(id, context)?;
-    trace_qualifier_unchecked(&runtime, id, context).await
+    trace_qualifier_unchecked(&runtime, id, context)
 }
 
-pub(crate) async fn resolve_qualifier_unchecked(
+pub(crate) fn resolve_qualifier_unchecked(
     runtime: &RuntimePackage,
     id: &str,
     context: &JsonValue,
@@ -38,7 +38,7 @@ pub(crate) async fn resolve_qualifier_unchecked(
     state.resolve(id)
 }
 
-pub(crate) async fn trace_qualifier_unchecked(
+pub(crate) fn trace_qualifier_unchecked(
     runtime: &RuntimePackage,
     id: &str,
     context: &JsonValue,
@@ -56,7 +56,7 @@ pub async fn resolve_qualifiers(
 ) -> Result<Vec<QualifierResolution>> {
     let runtime = compile_runtime_package(package_root).await?;
     runtime.validate_context(context)?;
-    resolve_qualifiers_unchecked(&runtime, context).await
+    resolve_qualifiers_unchecked(&runtime, context)
 }
 
 pub async fn trace_qualifier_resolutions(
@@ -65,10 +65,10 @@ pub async fn trace_qualifier_resolutions(
 ) -> Result<Vec<QualifierResolutionTrace>> {
     let runtime = compile_runtime_package(package_root).await?;
     runtime.validate_context(context)?;
-    trace_qualifier_resolutions_unchecked(&runtime, context).await
+    trace_qualifier_resolutions_unchecked(&runtime, context)
 }
 
-pub(crate) async fn resolve_qualifiers_unchecked(
+pub(crate) fn resolve_qualifiers_unchecked(
     runtime: &RuntimePackage,
     context: &JsonValue,
 ) -> Result<Vec<QualifierResolution>> {
@@ -83,7 +83,7 @@ pub(crate) async fn resolve_qualifiers_unchecked(
     Ok(resolutions)
 }
 
-pub(crate) async fn trace_qualifier_resolutions_unchecked(
+pub(crate) fn trace_qualifier_resolutions_unchecked(
     runtime: &RuntimePackage,
     context: &JsonValue,
 ) -> Result<Vec<QualifierResolutionTrace>> {
@@ -107,7 +107,7 @@ pub async fn resolve_variable(
 ) -> Result<VariableResolution> {
     let runtime = compile_runtime_package(package_root).await?;
     runtime.validate_context_for_variable(id, context)?;
-    resolve_variable_unchecked(&runtime, id, context).await
+    resolve_variable_unchecked(&runtime, id, context)
 }
 
 pub async fn trace_variable_resolution(
@@ -117,10 +117,10 @@ pub async fn trace_variable_resolution(
 ) -> Result<VariableResolutionTrace> {
     let runtime = compile_runtime_package(package_root).await?;
     runtime.validate_context_for_variable(id, context)?;
-    trace_variable_unchecked(&runtime, id, context).await
+    trace_variable_unchecked(&runtime, id, context)
 }
 
-pub(crate) async fn resolve_variable_unchecked(
+pub(crate) fn resolve_variable_unchecked(
     runtime: &RuntimePackage,
     id: &str,
     context: &JsonValue,
@@ -129,7 +129,7 @@ pub(crate) async fn resolve_variable_unchecked(
     resolve_variable_with_state(runtime, &mut state, id)
 }
 
-pub(crate) async fn trace_variable_unchecked(
+pub(crate) fn trace_variable_unchecked(
     runtime: &RuntimePackage,
     id: &str,
     context: &JsonValue,
@@ -144,7 +144,7 @@ pub async fn resolve_variables(
 ) -> Result<Vec<VariableResolution>> {
     let runtime = compile_runtime_package(package_root).await?;
     runtime.validate_context(context)?;
-    resolve_variables_unchecked(&runtime, context).await
+    resolve_variables_unchecked(&runtime, context)
 }
 
 pub async fn trace_variable_resolutions(
@@ -153,10 +153,10 @@ pub async fn trace_variable_resolutions(
 ) -> Result<Vec<VariableResolutionTrace>> {
     let runtime = compile_runtime_package(package_root).await?;
     runtime.validate_context(context)?;
-    trace_variable_resolutions_unchecked(&runtime, context).await
+    trace_variable_resolutions_unchecked(&runtime, context)
 }
 
-pub(crate) async fn resolve_variables_unchecked(
+pub(crate) fn resolve_variables_unchecked(
     runtime: &RuntimePackage,
     context: &JsonValue,
 ) -> Result<Vec<VariableResolution>> {
@@ -170,7 +170,7 @@ pub(crate) async fn resolve_variables_unchecked(
     Ok(resolutions)
 }
 
-pub(crate) async fn trace_variable_resolutions_unchecked(
+pub(crate) fn trace_variable_resolutions_unchecked(
     runtime: &RuntimePackage,
     context: &JsonValue,
 ) -> Result<Vec<VariableResolutionTrace>> {

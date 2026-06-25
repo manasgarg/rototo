@@ -344,7 +344,7 @@ fn exports_bundled_docs_as_static_site() {
     assert!(sdk_page.contains(r#"<pre class="code-block language-java sdk-snippet""#));
     assert!(sdk_page.contains(r#"<pre class="code-block language-go sdk-snippet""#));
     assert!(sdk_page.contains(r#"<code class="language-typescript">const context = {"#));
-    assert!(sdk_page.contains("await pkg.resolveVariable"));
+    assert!(sdk_page.contains("pkg.resolveVariable"));
     assert!(!sdk_page.contains(r#"<p><span class="sx-"#));
     assert!(!sdk_page.contains(r#"<span class="sx-"#));
 }

@@ -391,8 +391,7 @@ async fn delivery_policy(
     }))?;
 
     let resolution = pkg
-        .resolve_variable("notification-delivery-policy", &context)
-        .await?;
+        .resolve_variable("notification-delivery-policy", &context)?;
     let source = resolution.source.clone();
     let policy: DeliveryPolicy = serde_json::from_value(resolution.value)?;
 
@@ -430,7 +429,7 @@ async def delivery_policy(
         "notification": {"kind": notification_kind},
         "incident": {"active": incident_active},
     }
-    resolution = await pkg.resolve_variable(
+    resolution = pkg.resolve_variable(
         "notification-delivery-policy",
         context,
     )
@@ -455,7 +454,7 @@ async function deliveryPolicy(
   notificationKind: string,
   incidentActive: boolean,
 ): Promise<DeliveryPolicy> {
-  const resolution = await pkg.resolveVariable(
+  const resolution = pkg.resolveVariable(
     "notification-delivery-policy",
     {
       account: { plan: accountPlan },

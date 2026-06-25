@@ -34,7 +34,7 @@ before returning.
 ## Resolve A Variable
 
 ```typescript
-const resolution = await pkg.resolveVariable(
+const resolution = pkg.resolveVariable(
   "premium-message",
   { user: { tier: "premium" } },
 );
@@ -54,7 +54,7 @@ console.log(resolution.source);
 ## Resolve A Qualifier
 
 ```typescript
-const matches = await pkg.resolveQualifier(
+const matches = pkg.resolveQualifier(
   "premium-users",
   { user: { tier: "premium" } },
 );
@@ -71,7 +71,7 @@ request context schema by default. Skip validation for one call when a tool
 needs to evaluate partial context:
 
 ```typescript
-const resolution = await pkg.resolveVariable(
+const resolution = pkg.resolveVariable(
   "premium-message",
   context,
   { validateContext: false },
@@ -100,7 +100,7 @@ const pkg = await RefreshingPackage.load(source, {
   periodSeconds: 30,
 });
 
-const resolution = await pkg.resolveVariable("premium-message", context);
+const resolution = pkg.resolveVariable("premium-message", context);
 const status = await pkg.status();
 await pkg.shutdown();
 ```
@@ -118,7 +118,7 @@ Rust `RototoError` values become `RototoError` in TypeScript:
 import { RototoError } from "rototo";
 
 try {
-  await pkg.resolveVariable("missing", {});
+  pkg.resolveVariable("missing", {});
 } catch (error) {
   if (error instanceof RototoError) {
     console.log(error.message);

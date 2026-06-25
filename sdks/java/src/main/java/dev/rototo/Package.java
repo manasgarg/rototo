@@ -55,54 +55,50 @@ public final class Package implements AutoCloseable {
         }, Rototo.executor());
     }
 
-    public CompletableFuture<VariableResolution> resolveVariable(
+    public VariableResolution resolveVariable(
             String id,
             Map<String, ?> context) {
         return resolveVariable(id, context, ResolveOptions.defaults());
     }
 
-    public CompletableFuture<VariableResolution> resolveVariable(
+    public VariableResolution resolveVariable(
             String id,
             Map<String, ?> context,
             ResolveOptions options) {
         Objects.requireNonNull(id, "id");
         Objects.requireNonNull(context, "context");
         ResolveOptions resolved = options == null ? ResolveOptions.defaults() : options;
-        return CompletableFuture.supplyAsync(() -> {
-            String json = Native.packageResolveVariableNative(
-                    openHandle(),
-                    id,
-                    Json.stringify(context),
-                    resolved.validateContext());
-            Map<String, Object> value = Json.asObject(Json.parse(json));
-            return new VariableResolution(
-                    Json.asString(value.get("id")),
-                    value.get("value"),
-                    value.get("source"));
-        }, Rototo.executor());
+        String json = Native.packageResolveVariableNative(
+                openHandle(),
+                id,
+                Json.stringify(context),
+                resolved.validateContext());
+        Map<String, Object> value = Json.asObject(Json.parse(json));
+        return new VariableResolution(
+                Json.asString(value.get("id")),
+                value.get("value"),
+                value.get("source"));
     }
 
-    public CompletableFuture<Boolean> resolveQualifier(
+    public Boolean resolveQualifier(
             String id,
             Map<String, ?> context) {
         return resolveQualifier(id, context, ResolveOptions.defaults());
     }
 
-    public CompletableFuture<Boolean> resolveQualifier(
+    public Boolean resolveQualifier(
             String id,
             Map<String, ?> context,
             ResolveOptions options) {
         Objects.requireNonNull(id, "id");
         Objects.requireNonNull(context, "context");
         ResolveOptions resolved = options == null ? ResolveOptions.defaults() : options;
-        return CompletableFuture.supplyAsync(() -> {
-            String json = Native.packageResolveQualifierNative(
-                    openHandle(),
-                    id,
-                    Json.stringify(context),
-                    resolved.validateContext());
-            return Json.asBoolean(Json.parse(json));
-        }, Rototo.executor());
+        String json = Native.packageResolveQualifierNative(
+                openHandle(),
+                id,
+                Json.stringify(context),
+                resolved.validateContext());
+        return Json.asBoolean(Json.parse(json));
     }
 
     @Override

@@ -146,9 +146,7 @@ async fn resolve_startup_observability(
     context: &JsonValue,
 ) -> Result<ConsoleObservabilityConfig> {
     let context = ResolveContext::from_json(context.clone())?;
-    let resolution = package
-        .resolve_variable(STARTUP_OBSERVABILITY_VARIABLE, &context)
-        .await?;
+    let resolution = package.resolve_variable(STARTUP_OBSERVABILITY_VARIABLE, &context)?;
     let config: ConsoleObservabilityConfig = serde_json::from_value(resolution.value).map_err(|err| {
         RototoError::new(format!(
             "console runtime variable {STARTUP_OBSERVABILITY_VARIABLE} resolved invalid value: {err}"
@@ -163,9 +161,7 @@ async fn resolve_request_observability(
     context: &JsonValue,
 ) -> Result<ConsoleRequestObservabilityConfig> {
     let context = ResolveContext::from_json(context.clone())?;
-    let resolution = package
-        .resolve_variable(REQUEST_OBSERVABILITY_VARIABLE, &context)
-        .await?;
+    let resolution = package.resolve_variable(REQUEST_OBSERVABILITY_VARIABLE, &context)?;
     let config: ConsoleRequestObservabilityConfig =
         serde_json::from_value(resolution.value).map_err(|err| {
         RototoError::new(format!(

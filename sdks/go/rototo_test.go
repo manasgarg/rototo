@@ -16,7 +16,6 @@ func TestPackageExposesGoRuntimeResolutionAPI(t *testing.T) {
 	defer closePackage(t, pkg)
 
 	variable, err := pkg.ResolveVariable(
-		context.Background(),
 		"premium-message",
 		map[string]any{"user": map[string]any{"tier": "premium"}},
 		nil,
@@ -25,7 +24,6 @@ func TestPackageExposesGoRuntimeResolutionAPI(t *testing.T) {
 		t.Fatal(err)
 	}
 	qualifier, err := pkg.ResolveQualifier(
-		context.Background(),
 		"premium-users",
 		map[string]any{"user": map[string]any{"tier": "premium"}},
 		nil,
@@ -63,7 +61,7 @@ func TestInspectedPackageCanLintButNotResolve(t *testing.T) {
 		t.Fatalf("diagnostics = %#v", lint.Diagnostics)
 	}
 
-	_, err = pkg.ResolveVariable(context.Background(), "premium-message", map[string]any{}, nil)
+	_, err = pkg.ResolveVariable("premium-message", map[string]any{}, nil)
 	if err == nil {
 		t.Fatal("expected inspected package resolution to fail")
 	}
@@ -77,7 +75,6 @@ func TestContextValidationCanBeSkipped(t *testing.T) {
 	defer closePackage(t, pkg)
 
 	result, err := pkg.ResolveVariable(
-		context.Background(),
 		"premium-message",
 		map[string]any{"user": map[string]any{"tier": map[string]any{"bad": "shape"}}},
 		&ResolveOptions{SkipContextValidation: true},
@@ -110,7 +107,7 @@ func TestRefreshingPackageRefreshesLocalSource(t *testing.T) {
 	}
 	defer closeRefreshingPackage(t, pkg)
 
-	initial, err := pkg.ResolveVariable(context.Background(), "message", map[string]any{}, nil)
+	initial, err := pkg.ResolveVariable("message", map[string]any{}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -127,7 +124,7 @@ func TestRefreshingPackageRefreshesLocalSource(t *testing.T) {
 		t.Fatalf("unexpected refresh outcome: %s", outcome)
 	}
 
-	refreshed, err := pkg.ResolveVariable(context.Background(), "message", map[string]any{}, nil)
+	refreshed, err := pkg.ResolveVariable("message", map[string]any{}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -149,7 +146,7 @@ func TestRefreshingPackageRefreshesLocalSource(t *testing.T) {
 	if err := pkg.Close(context.Background()); err != nil {
 		t.Fatal(err)
 	}
-	_, err = pkg.ResolveVariable(context.Background(), "message", map[string]any{}, nil)
+	_, err = pkg.ResolveVariable("message", map[string]any{}, nil)
 	if err == nil {
 		t.Fatal("expected closed refreshing package resolution to fail")
 	}
@@ -235,7 +232,7 @@ func runContractCase(t *testing.T, sdkCase contractCase) (any, error) {
 			return nil, err
 		}
 		defer closePackage(t, pkg)
-		result, err := pkg.ResolveVariable(context.Background(), sdkCase.ID, sdkCase.Context, nil)
+		result, err := pkg.ResolveVariable(sdkCase.ID, sdkCase.Context, nil)
 		if err != nil {
 			return nil, err
 		}
@@ -250,7 +247,7 @@ func runContractCase(t *testing.T, sdkCase contractCase) (any, error) {
 			return nil, err
 		}
 		defer closePackage(t, pkg)
-		result, err := pkg.ResolveQualifier(context.Background(), sdkCase.ID, sdkCase.Context, nil)
+		result, err := pkg.ResolveQualifier(sdkCase.ID, sdkCase.Context, nil)
 		if err != nil {
 			return nil, err
 		}

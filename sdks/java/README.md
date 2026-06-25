@@ -2,9 +2,9 @@
 
 # rototo Java SDK
 
-The Java SDK is a thin JNI wrapper around the Rust SDK. Java code gets an
-idiomatic `CompletableFuture` API while rototo keeps package loading,
-linting, refresh, and resolution behavior in the Rust core.
+The Java SDK is a thin JNI wrapper around the Rust SDK. Java loading, lint,
+refresh, and shutdown use `CompletableFuture`; loaded-package resolution is a
+direct in-memory call into the Rust core.
 
 ## Install
 
@@ -50,8 +50,7 @@ Map<String, Object> context = Map.of(
 );
 
 VariableResolution resolution = pkg
-    .resolveVariable("premium-message", context)
-    .get();
+    .resolveVariable("premium-message", context);
 
 System.out.println(resolution.value());
 System.out.println(resolution.source());
@@ -69,8 +68,7 @@ System.out.println(resolution.source());
 
 ```java
 boolean matches = pkg
-    .resolveQualifier("premium-users", context)
-    .get();
+    .resolveQualifier("premium-users", context);
 
 System.out.println(matches);
 ```
@@ -89,8 +87,7 @@ VariableResolution resolution = pkg
         "premium-message",
         context,
         ResolveOptions.validateContext(false)
-    )
-    .get();
+    );
 ```
 
 The context still must be a JSON object represented as a `Map<String, ?>`.
@@ -118,8 +115,7 @@ RefreshingPackage pkg = RefreshingPackage
     .get();
 
 VariableResolution resolution = pkg
-    .resolveVariable("premium-message", context)
-    .get();
+    .resolveVariable("premium-message", context);
 RefreshStatus status = pkg.status().get();
 pkg.shutdown().get();
 ```
@@ -130,16 +126,15 @@ success, attempt, failure, error, refreshing, and immutable fields.
 
 ## Errors
 
-Rust `RototoError` values become `RototoException` in Java. Because public SDK
-methods return `CompletableFuture`, errors are available as the future cause:
+Rust `RototoError` values become `RototoException` in Java. Loading, lint, and
+refresh methods still report errors through `CompletableFuture`; resolution
+methods throw `RototoException` directly:
 
 ```java
 try {
-    pkg.resolveVariable("missing", Map.of()).get();
-} catch (ExecutionException error) {
-    if (error.getCause() instanceof RototoException rototoError) {
-        System.out.println(rototoError.getMessage());
-    }
+    pkg.resolveVariable("missing", Map.of());
+} catch (RototoException error) {
+    System.out.println(error.getMessage());
 }
 ```
 

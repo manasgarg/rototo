@@ -373,11 +373,9 @@ async fn max_active_projects_deserializes_for_app_contexts() -> Result<(), Box<d
     }))?;
 
     let standard = pkg
-        .resolve_variable("max-active-projects", &standard)
-        .await?;
+        .resolve_variable("max-active-projects", &standard)?;
     let premium = pkg
-        .resolve_variable("max-active-projects", &premium)
-        .await?;
+        .resolve_variable("max-active-projects", &premium)?;
 
     let standard: i64 = serde_json::from_value(standard.value)?;
     let premium: i64 = serde_json::from_value(premium.value)?;
@@ -398,11 +396,11 @@ async def test_max_active_projects_deserializes_for_app_contexts():
     source = os.environ.get("ROTOTO_PACKAGE_SOURCE", "../account-config")
     pkg = await rototo.Package.load(source)
 
-    standard = await pkg.resolve_variable(
+    standard = pkg.resolve_variable(
         "max-active-projects",
         {"account": {"plan": "standard"}},
     )
-    premium = await pkg.resolve_variable(
+    premium = pkg.resolve_variable(
         "max-active-projects",
         {"account": {"plan": "premium"}},
     )
@@ -420,11 +418,11 @@ test("max-active-projects deserializes for app contexts", async () => {
   const source = process.env.ROTOTO_PACKAGE_SOURCE ?? "../account-config";
   const pkg = await Package.load(source);
 
-  const standard = await pkg.resolveVariable(
+  const standard = pkg.resolveVariable(
     "max-active-projects",
     { account: { plan: "standard" } },
   );
-  const premium = await pkg.resolveVariable(
+  const premium = pkg.resolveVariable(
     "max-active-projects",
     { account: { plan: "premium" } },
   );
@@ -536,20 +534,19 @@ behavior boundary:
 :::sdk-snippet production-log-selection
 ```rust
 let resolution = pkg
-    .resolve_variable("max-active-projects", &context)
-    .await?;
+    .resolve_variable("max-active-projects", &context)?;
 
 tracing::info!(
     variable = "max-active-projects",
     source = %resolution.source,
-    package_fingerprint = ?pkg.current().await.source_fingerprint(),
+    package_fingerprint = ?pkg.current().source_fingerprint(),
     account_plan = %account_plan,
     "resolved runtime configuration"
 );
 ```
 
 ```python
-resolution = await pkg.resolve_variable(
+resolution = pkg.resolve_variable(
     "max-active-projects",
     context,
 )
@@ -564,7 +561,7 @@ logger.info(
 ```
 
 ```typescript
-const resolution = await pkg.resolveVariable(
+const resolution = pkg.resolveVariable(
   "max-active-projects",
   context,
 );
@@ -610,7 +607,7 @@ It should also expose refresh status:
 
 :::sdk-snippet production-refresh-status
 ```rust
-let status = pkg.status().await;
+let status = pkg.status();
 if status.consecutive_failures > 0 {
     tracing::warn!(
         consecutive_failures = status.consecutive_failures,

@@ -66,7 +66,6 @@ resolveContext := map[string]any{
 }
 
 resolution, err := pkg.ResolveVariable(
-    context.Background(),
     "premium-message",
     resolveContext,
     nil,
@@ -91,7 +90,6 @@ fmt.Println(resolution.Source)
 
 ```go
 matches, err := pkg.ResolveQualifier(
-    context.Background(),
     "premium-users",
     resolveContext,
     nil,
@@ -113,7 +111,6 @@ context:
 
 ```go
 resolution, err := pkg.ResolveVariable(
-    context.Background(),
     "premium-message",
     resolveContext,
     &rototo.ResolveOptions{SkipContextValidation: true},
@@ -155,7 +152,6 @@ if err != nil {
 defer pkg.Close(context.Background())
 
 resolution, err := pkg.ResolveVariable(
-    context.Background(),
     "premium-message",
     resolveContext,
     nil,
@@ -173,7 +169,7 @@ success, attempt, failure, error, refreshing, and immutable fields.
 Rust `RototoError` values become `*rototo.Error` in Go:
 
 ```go
-_, err := pkg.ResolveVariable(context.Background(), "missing", nil, nil)
+_, err := pkg.ResolveVariable("missing", nil, nil)
 if err != nil {
     var rototoError *rototo.Error
     if errors.As(err, &rototoError) {

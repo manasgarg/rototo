@@ -109,8 +109,7 @@ let context = ResolveContext::from_json(serde_json::json!({
 }))?;
 
 let resolution = pkg
-    .resolve_variable("account-limit-profile", &context)
-    .await?;
+    .resolve_variable("account-limit-profile", &context)?;
 ```
 
 ```python
@@ -125,7 +124,7 @@ context = {
     },
 }
 
-resolution = await pkg.resolve_variable(
+resolution = pkg.resolve_variable(
     "account-limit-profile",
     context,
 )
@@ -143,7 +142,7 @@ const context = {
   },
 };
 
-const resolution = await pkg.resolveVariable(
+const resolution = pkg.resolveVariable(
   "account-limit-profile",
   context,
 );
@@ -395,7 +394,7 @@ struct AccountLimits {
 }
 
 let profile: AccountLimitProfile =
-    serde_json::from_value(resolution.value.clone())?;
+    serde_json::from_value(resolution.value.clone()?;
 ```
 
 ```python
@@ -508,7 +507,7 @@ For example:
 tracing::info!(
     variable = "account-limit-profile",
     source = %resolution.source,
-    package_fingerprint = ?pkg.current().await.source_fingerprint(),
+    package_fingerprint = ?pkg.current().source_fingerprint(),
     account_id = %account.id,
     "resolved runtime configuration"
 );
@@ -578,7 +577,7 @@ For refresh failures, keep serving last-known-good and
 
 :::sdk-snippet application-refresh-status
 ```rust
-let status = pkg.status().await;
+let status = pkg.status();
 if status.stale(Duration::from_secs(300)) {
     tracing::warn!(
         consecutive_failures = status.consecutive_failures,

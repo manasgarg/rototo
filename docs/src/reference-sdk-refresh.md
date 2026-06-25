@@ -75,19 +75,18 @@ fails, the service has no active package and the call returns an error.
 :::sdk-snippet refreshing-resolution
 ```rust
 let resolution = pkg
-    .resolve_variable("account-limits", &context)
-    .await?;
+    .resolve_variable("account-limits", &context)?;
 ```
 
 ```python
-resolution = await pkg.resolve_variable(
+resolution = pkg.resolve_variable(
     "account-limits",
     context,
 )
 ```
 
 ```typescript
-const resolution = await pkg.resolveVariable(
+const resolution = pkg.resolveVariable(
   "account-limits",
   context,
 );
@@ -211,7 +210,7 @@ reviewed configuration updates.
 
 :::sdk-snippet refresh-status
 ```rust
-let status = pkg.status().await;
+let status = pkg.status();
 ```
 
 ```python

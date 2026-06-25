@@ -436,8 +436,7 @@ async fn degradation_policy(
     }))?;
 
     let resolution = pkg
-        .resolve_variable("service-degradation-policy", &context)
-        .await?;
+        .resolve_variable("service-degradation-policy", &context)?;
     let source = resolution.source.clone();
     let policy: DegradationPolicy = serde_json::from_value(resolution.value)?;
 
@@ -473,7 +472,7 @@ async def degradation_policy(
         "service": {"queue_pressure": queue_pressure},
         "account": {"id": account_id},
     }
-    resolution = await pkg.resolve_variable(
+    resolution = pkg.resolve_variable(
         "service-degradation-policy",
         context,
     )
@@ -497,7 +496,7 @@ async function degradationPolicy(
   queuePressure: string,
   accountId: string,
 ): Promise<DegradationPolicy> {
-  const resolution = await pkg.resolveVariable(
+  const resolution = pkg.resolveVariable(
     "service-degradation-policy",
     {
       service: { queue_pressure: queuePressure },

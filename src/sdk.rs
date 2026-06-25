@@ -1,9 +1,9 @@
 use std::path::Path;
-use std::sync::Arc;
+use std::sync::{Arc, RwLock};
 use std::time::{Duration, SystemTime};
 
 use serde_json::Value as JsonValue;
-use tokio::sync::{Mutex, RwLock, watch};
+use tokio::sync::{Mutex, watch};
 use tokio::task::JoinHandle;
 
 use crate::error::{Result, RototoError};
@@ -144,20 +144,15 @@ impl Package {
         crate::lint::package_semantic_model(self.root()).await
     }
 
-    pub async fn validate_context(&self, context: &ResolveContext) -> Result<()> {
+    pub fn validate_context(&self, context: &ResolveContext) -> Result<()> {
         self.runtime()?.validate_context(context.value())
     }
 
-    pub async fn resolve_qualifier(
-        &self,
-        id: impl AsRef<str>,
-        context: &ResolveContext,
-    ) -> Result<bool> {
+    pub fn resolve_qualifier(&self, id: impl AsRef<str>, context: &ResolveContext) -> Result<bool> {
         self.resolve_qualifier_with_options(id, context, ResolveOptions::default())
-            .await
     }
 
-    pub async fn resolve_qualifier_with_options(
+    pub fn resolve_qualifier_with_options(
         &self,
         id: impl AsRef<str>,
         context: &ResolveContext,
@@ -168,19 +163,17 @@ impl Package {
                 .validate_context_for_qualifier(id.as_ref(), context.value())?;
         }
         crate::resolve::resolve_qualifier_unchecked(self.runtime()?, id.as_ref(), context.value())
-            .await
     }
 
-    pub async fn resolve_variable(
+    pub fn resolve_variable(
         &self,
         id: impl AsRef<str>,
         context: &ResolveContext,
     ) -> Result<VariableResolution> {
         self.resolve_variable_with_options(id, context, ResolveOptions::default())
-            .await
     }
 
-    pub async fn resolve_variable_with_options(
+    pub fn resolve_variable_with_options(
         &self,
         id: impl AsRef<str>,
         context: &ResolveContext,
@@ -191,7 +184,6 @@ impl Package {
                 .validate_context_for_variable(id.as_ref(), context.value())?;
         }
         crate::resolve::resolve_variable_unchecked(self.runtime()?, id.as_ref(), context.value())
-            .await
     }
 
     fn runtime(&self) -> Result<&RuntimePackage> {
@@ -277,12 +269,20 @@ impl RefreshingPackage {
         })
     }
 
-    pub async fn current(&self) -> Arc<Package> {
-        self.state.current.read().await.clone()
+    pub fn current(&self) -> Arc<Package> {
+        self.state
+            .current
+            .read()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .clone()
     }
 
-    pub async fn status(&self) -> RefreshStatus {
-        self.state.status.read().await.clone()
+    pub fn status(&self) -> RefreshStatus {
+        self.state
+            .status
+            .read()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .clone()
     }
 
     pub async fn refresh_now(&self) -> Result<RefreshOutcome> {
@@ -296,50 +296,36 @@ impl RefreshingPackage {
         }
     }
 
-    pub async fn resolve_qualifier(
-        &self,
-        id: impl AsRef<str>,
-        context: &ResolveContext,
-    ) -> Result<bool> {
-        self.current()
-            .await
-            .resolve_qualifier(id.as_ref(), context)
-            .await
+    pub fn resolve_qualifier(&self, id: impl AsRef<str>, context: &ResolveContext) -> Result<bool> {
+        self.current().resolve_qualifier(id.as_ref(), context)
     }
 
-    pub async fn resolve_qualifier_with_options(
+    pub fn resolve_qualifier_with_options(
         &self,
         id: impl AsRef<str>,
         context: &ResolveContext,
         options: ResolveOptions,
     ) -> Result<bool> {
         self.current()
-            .await
             .resolve_qualifier_with_options(id.as_ref(), context, options)
-            .await
     }
 
-    pub async fn resolve_variable(
+    pub fn resolve_variable(
         &self,
         id: impl AsRef<str>,
         context: &ResolveContext,
     ) -> Result<VariableResolution> {
-        self.current()
-            .await
-            .resolve_variable(id.as_ref(), context)
-            .await
+        self.current().resolve_variable(id.as_ref(), context)
     }
 
-    pub async fn resolve_variable_with_options(
+    pub fn resolve_variable_with_options(
         &self,
         id: impl AsRef<str>,
         context: &ResolveContext,
         options: ResolveOptions,
     ) -> Result<VariableResolution> {
         self.current()
-            .await
             .resolve_variable_with_options(id.as_ref(), context, options)
-            .await
     }
 
     pub fn refresh_options(&self) -> &RefreshOptions {
@@ -462,7 +448,11 @@ fn spawn_refresh_loop(
             let outcome = refresh_once(&source, &load_options, &state).await;
             if let Err(err) = &outcome {
                 let delay = failure_backoff(
-                    state.status.read().await.consecutive_failures,
+                    state
+                        .status
+                        .read()
+                        .unwrap_or_else(|poisoned| poisoned.into_inner())
+                        .consecutive_failures,
                     &refresh_options,
                 );
                 tracing::warn!(
@@ -491,13 +481,19 @@ async fn refresh_once(
 ) -> Result<RefreshOutcome> {
     let _guard = state.refresh_lock.lock().await;
     {
-        let mut status = state.status.write().await;
+        let mut status = state
+            .status
+            .write()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
         status.last_attempt = Some(SystemTime::now());
         status.refreshing = true;
     }
     let result = refresh_once_inner(source, load_options, state).await;
     {
-        let mut status = state.status.write().await;
+        let mut status = state
+            .status
+            .write()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
         status.refreshing = false;
         if let Err(err) = &result {
             status.consecutive_failures = status.consecutive_failures.saturating_add(1);
@@ -512,10 +508,16 @@ async fn refresh_once_inner(
     load_options: &LoadOptions,
     state: &RefreshState,
 ) -> Result<RefreshOutcome> {
-    let current = state.current.read().await;
-    let previous = current.source_fingerprint().cloned();
-    let layers = current.source_layers().to_vec();
-    drop(current);
+    let (previous, layers) = {
+        let current = state
+            .current
+            .read()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        (
+            current.source_fingerprint().cloned(),
+            current.source_layers().to_vec(),
+        )
+    };
     match probe_package_source_graph(source, load_options.source(), previous.as_ref(), &layers)
         .await?
     {
@@ -528,7 +530,10 @@ async fn refresh_once_inner(
                 source = %redacted_source(source),
                 "package source is pinned to an immutable commit; periodic refresh is disabled"
             );
-            let mut status = state.status.write().await;
+            let mut status = state
+                .status
+                .write()
+                .unwrap_or_else(|poisoned| poisoned.into_inner());
             status.current_fingerprint = Some(fingerprint);
             status.immutable = true;
             return Ok(RefreshOutcome::Immutable);
@@ -549,11 +554,17 @@ async fn refresh_once_inner(
     let fingerprint = package.source_fingerprint().cloned();
     let immutable = package.immutable_source();
     {
-        let mut current = state.current.write().await;
+        let mut current = state
+            .current
+            .write()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
         *current = package;
     }
     {
-        let mut status = state.status.write().await;
+        let mut status = state
+            .status
+            .write()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
         status.current_fingerprint = fingerprint;
         status.last_success = Some(SystemTime::now());
         status.consecutive_failures = 0;

@@ -27,16 +27,15 @@ SDK:
 :::sdk-snippet qualifier-resolution-sdk
 ```rust
 let result = pkg
-    .resolve_qualifier("paid-account", &context)
-    .await?;
+    .resolve_qualifier("paid-account", &context)?;
 ```
 
 ```python
-result = await pkg.resolve_qualifier("paid-account", context)
+result = pkg.resolve_qualifier("paid-account", context)
 ```
 
 ```typescript
-const result = await pkg.resolveQualifier("paid-account", context);
+const result = pkg.resolveQualifier("paid-account", context);
 ```
 
 ```java

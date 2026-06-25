@@ -107,12 +107,8 @@ pub extern "C" fn rototo_go_package_resolve_variable(
         let package = package_from_handle(handle)?;
         let id = required_string(id, "id")?;
         let context = resolve_context(context_json)?;
-        let resolution = runtime()
-            .block_on(package.resolve_variable_with_options(
-                &id,
-                &context,
-                resolve_options(validate_context),
-            ))
+        let resolution = package
+            .resolve_variable_with_options(&id, &context, resolve_options(validate_context))
             .map_err(|err| err.to_string())?;
         json_string(serde_json::json!({
             "id": resolution.id,
@@ -133,12 +129,8 @@ pub extern "C" fn rototo_go_package_resolve_qualifier(
         let package = package_from_handle(handle)?;
         let id = required_string(id, "id")?;
         let context = resolve_context(context_json)?;
-        let value = runtime()
-            .block_on(package.resolve_qualifier_with_options(
-                &id,
-                &context,
-                resolve_options(validate_context),
-            ))
+        let value = package
+            .resolve_qualifier_with_options(&id, &context, resolve_options(validate_context))
             .map_err(|err| err.to_string())?;
         json_string(serde_json::json!(value))
     })
@@ -191,14 +183,11 @@ pub extern "C" fn rototo_go_refreshing_package_resolve_variable(
         let package = refreshing_package_from_handle(handle)?;
         let id = required_string(id, "id")?;
         let context = resolve_context(context_json)?;
-        let resolution = runtime().block_on(async {
-            let guard = package.inner.lock().await;
-            let package = active_refreshing_package(&guard)?;
-            package
-                .resolve_variable_with_options(&id, &context, resolve_options(validate_context))
-                .await
-                .map_err(|err| err.to_string())
-        })?;
+        let guard = package.inner.blocking_lock();
+        let package = active_refreshing_package(&guard)?;
+        let resolution = package
+            .resolve_variable_with_options(&id, &context, resolve_options(validate_context))
+            .map_err(|err| err.to_string())?;
         json_string(serde_json::json!({
             "id": resolution.id,
             "value": resolution.value,
@@ -218,14 +207,11 @@ pub extern "C" fn rototo_go_refreshing_package_resolve_qualifier(
         let package = refreshing_package_from_handle(handle)?;
         let id = required_string(id, "id")?;
         let context = resolve_context(context_json)?;
-        let value = runtime().block_on(async {
-            let guard = package.inner.lock().await;
-            let package = active_refreshing_package(&guard)?;
-            package
-                .resolve_qualifier_with_options(&id, &context, resolve_options(validate_context))
-                .await
-                .map_err(|err| err.to_string())
-        })?;
+        let guard = package.inner.blocking_lock();
+        let package = active_refreshing_package(&guard)?;
+        let value = package
+            .resolve_qualifier_with_options(&id, &context, resolve_options(validate_context))
+            .map_err(|err| err.to_string())?;
         json_string(serde_json::json!(value))
     })
 }
@@ -252,7 +238,7 @@ pub extern "C" fn rototo_go_refreshing_package_status(handle: *mut c_void) -> Ro
         let status = runtime().block_on(async {
             let guard = package.inner.lock().await;
             let package = active_refreshing_package(&guard)?;
-            Ok::<_, String>(package.status().await)
+            Ok::<_, String>(package.status())
         })?;
         json_string(refresh_status_to_json(status))
     })

@@ -26,8 +26,7 @@ let context = ResolveContext::from_json(serde_json::json!({
 }))?;
 
 let resolution = pkg
-    .resolve_variable("premium-message", &context)
-    .await?;
+    .resolve_variable("premium-message", &context)?;
 ```
 
 Use [`Package::load`](reference-sdk-loading.html) for application runtime

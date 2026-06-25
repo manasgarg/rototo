@@ -61,7 +61,6 @@ mod tests {
                 "checkout",
                 &ResolveContext::from_json(json!({})).expect("object context"),
             )
-            .await
             .unwrap();
 
         assert_eq!(resolved.value, json!(true));
@@ -96,7 +95,6 @@ mod tests {
                 "checkout",
                 &ResolveContext::from_json(json!({})).expect("object context"),
             )
-            .await
             .unwrap();
         assert_eq!(resolved.value, json!(true));
     }

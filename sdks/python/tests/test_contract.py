@@ -43,7 +43,7 @@ async def run_case(case: dict[str, Any]) -> dict[str, Any]:
 
     if operation == "resolve_variable":
         package = await rototo.Package.load(package_source)
-        result = await package.resolve_variable(case["id"], case.get("context", {}))
+        result = package.resolve_variable(case["id"], case.get("context", {}))
         return {
             "id": result.id,
             "value": result.value,
@@ -52,7 +52,7 @@ async def run_case(case: dict[str, Any]) -> dict[str, Any]:
 
     if operation == "resolve_qualifier":
         package = await rototo.Package.load(package_source)
-        return await package.resolve_qualifier(case["id"], case.get("context", {}))
+        return package.resolve_qualifier(case["id"], case.get("context", {}))
 
     raise AssertionError(f"unsupported contract operation: {operation}")
 

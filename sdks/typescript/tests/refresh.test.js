@@ -27,14 +27,14 @@ default = "hello"
         const pkg = await RefreshingPackage.load(root, {
             periodSeconds: 60,
         });
-        const resolution = await pkg.resolveVariable("message", {});
+        const resolution = pkg.resolveVariable("message", {});
         const status = await pkg.status();
 
         assert.equal(resolution.value, "hello");
         assert.equal(status.consecutiveFailures, 0);
 
         await pkg.shutdown();
-        await assert.rejects(
+        assert.throws(
             () => pkg.resolveVariable("message", {}),
             (error) =>
                 error instanceof RototoError &&

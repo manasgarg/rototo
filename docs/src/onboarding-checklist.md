@@ -346,8 +346,7 @@ async fn onboarding_steps_for_account(
     }))?;
 
     let resolution = pkg
-        .resolve_variable("onboarding-steps", &context)
-        .await?;
+        .resolve_variable("onboarding-steps", &context)?;
     let source = resolution.source.clone();
     let steps: Vec<String> = serde_json::from_value(resolution.value)?;
 
@@ -375,7 +374,7 @@ async def onboarding_steps_for_account(
             "region": region,
         },
     }
-    resolution = await pkg.resolve_variable("onboarding-steps", context)
+    resolution = pkg.resolve_variable("onboarding-steps", context)
     steps = list(resolution.value)
 
     print(f"selected onboarding-steps `{resolution.source}`")
@@ -392,7 +391,7 @@ async function onboardingStepsForAccount(
   const context = {
     account: { kind, plan, region },
   };
-  const resolution = await pkg.resolveVariable(
+  const resolution = pkg.resolveVariable(
     "onboarding-steps",
     context,
   );

@@ -258,7 +258,7 @@ async fn inspect_variable(
     let trace = match (runtime, &request.context) {
         (Some(runtime), Some(context)) => {
             runtime.validate_context_for_variable(id, context)?;
-            Some(trace_variable_unchecked(runtime, id, context).await?)
+            Some(trace_variable_unchecked(runtime, id, context)?)
         }
         _ => None,
     };
@@ -308,7 +308,7 @@ async fn inspect_qualifier(
     let trace = match (runtime, &request.context) {
         (Some(runtime), Some(context)) => {
             runtime.validate_context_for_qualifier(id, context)?;
-            Some(trace_qualifier_unchecked(runtime, id, context).await?)
+            Some(trace_qualifier_unchecked(runtime, id, context)?)
         }
         _ => None,
     };

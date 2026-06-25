@@ -93,36 +93,29 @@ impl PyPackage {
         id: String,
         context: Bound<'py, PyAny>,
         validate_context: bool,
-    ) -> PyResult<Bound<'py, PyAny>> {
+    ) -> PyResult<Py<PyAny>> {
         let context = json_from_py(&context)?;
-        let package = Arc::clone(&self.inner);
-        future_into_py(py, async move {
-            let context = ResolveContext::from_json(context).map_err(py_err)?;
-            let resolution = package
-                .resolve_variable_with_options(&id, &context, resolve_options(validate_context))
-                .await
-                .map_err(py_err)?;
-            Python::attach(|py| variable_resolution_to_py(py, resolution))
-        })
+        let context = ResolveContext::from_json(context).map_err(py_err)?;
+        let resolution = self
+            .inner
+            .resolve_variable_with_options(&id, &context, resolve_options(validate_context))
+            .map_err(py_err)?;
+        variable_resolution_to_py(py, resolution)
     }
 
     #[pyo3(signature = (id, context, *, validate_context = true))]
     fn resolve_qualifier<'py>(
         &self,
-        py: Python<'py>,
+        _py: Python<'py>,
         id: String,
         context: Bound<'py, PyAny>,
         validate_context: bool,
-    ) -> PyResult<Bound<'py, PyAny>> {
+    ) -> PyResult<bool> {
         let context = json_from_py(&context)?;
-        let package = Arc::clone(&self.inner);
-        future_into_py(py, async move {
-            let context = ResolveContext::from_json(context).map_err(py_err)?;
-            package
-                .resolve_qualifier_with_options(&id, &context, resolve_options(validate_context))
-                .await
-                .map_err(py_err)
-        })
+        let context = ResolveContext::from_json(context).map_err(py_err)?;
+        self.inner
+            .resolve_qualifier_with_options(&id, &context, resolve_options(validate_context))
+            .map_err(py_err)
     }
 }
 
@@ -167,40 +160,32 @@ impl PyRefreshingPackage {
         id: String,
         context: Bound<'py, PyAny>,
         validate_context: bool,
-    ) -> PyResult<Bound<'py, PyAny>> {
+    ) -> PyResult<Py<PyAny>> {
         let context = json_from_py(&context)?;
-        let inner = Arc::clone(&self.inner);
-        future_into_py(py, async move {
-            let context = ResolveContext::from_json(context).map_err(py_err)?;
-            let guard = inner.lock().await;
-            let package = active_refreshing_package(&guard)?;
-            let resolution = package
-                .resolve_variable_with_options(&id, &context, resolve_options(validate_context))
-                .await
-                .map_err(py_err)?;
-            Python::attach(|py| variable_resolution_to_py(py, resolution))
-        })
+        let context = ResolveContext::from_json(context).map_err(py_err)?;
+        let guard = self.inner.blocking_lock();
+        let package = active_refreshing_package(&guard)?;
+        let resolution = package
+            .resolve_variable_with_options(&id, &context, resolve_options(validate_context))
+            .map_err(py_err)?;
+        variable_resolution_to_py(py, resolution)
     }
 
     #[pyo3(signature = (id, context, *, validate_context = true))]
     fn resolve_qualifier<'py>(
         &self,
-        py: Python<'py>,
+        _py: Python<'py>,
         id: String,
         context: Bound<'py, PyAny>,
         validate_context: bool,
-    ) -> PyResult<Bound<'py, PyAny>> {
+    ) -> PyResult<bool> {
         let context = json_from_py(&context)?;
-        let inner = Arc::clone(&self.inner);
-        future_into_py(py, async move {
-            let context = ResolveContext::from_json(context).map_err(py_err)?;
-            let guard = inner.lock().await;
-            let package = active_refreshing_package(&guard)?;
-            package
-                .resolve_qualifier_with_options(&id, &context, resolve_options(validate_context))
-                .await
-                .map_err(py_err)
-        })
+        let context = ResolveContext::from_json(context).map_err(py_err)?;
+        let guard = self.inner.blocking_lock();
+        let package = active_refreshing_package(&guard)?;
+        package
+            .resolve_qualifier_with_options(&id, &context, resolve_options(validate_context))
+            .map_err(py_err)
     }
 
     fn refresh_now<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyAny>> {
@@ -218,7 +203,7 @@ impl PyRefreshingPackage {
         future_into_py(py, async move {
             let guard = inner.lock().await;
             let package = active_refreshing_package(&guard)?;
-            let status = package.status().await;
+            let status = package.status();
             Python::attach(|py| refresh_status_to_py(py, status))
         })
     }

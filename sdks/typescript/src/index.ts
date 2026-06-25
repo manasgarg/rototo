@@ -245,13 +245,13 @@ export class Package {
         }
     }
 
-    async resolveVariable(
+    resolveVariable(
         id: string,
         context: JsonObject,
         options: ResolveOptions = {},
-    ): Promise<VariableResolution> {
+    ): VariableResolution {
         try {
-            return await this.inner.resolveVariable(
+            return this.inner.resolveVariable(
                 id,
                 context,
                 options.validateContext ?? true,
@@ -261,13 +261,13 @@ export class Package {
         }
     }
 
-    async resolveQualifier(
+    resolveQualifier(
         id: string,
         context: JsonObject,
         options: ResolveOptions = {},
-    ): Promise<boolean> {
+    ): boolean {
         try {
-            return await this.inner.resolveQualifier(
+            return this.inner.resolveQualifier(
                 id,
                 context,
                 options.validateContext ?? true,
@@ -300,13 +300,13 @@ export class RefreshingPackage {
         }
     }
 
-    async resolveVariable(
+    resolveVariable(
         id: string,
         context: JsonObject,
         options: ResolveOptions = {},
-    ): Promise<VariableResolution> {
+    ): VariableResolution {
         try {
-            return await this.inner.resolveVariable(
+            return this.inner.resolveVariable(
                 id,
                 context,
                 options.validateContext ?? true,
@@ -316,13 +316,13 @@ export class RefreshingPackage {
         }
     }
 
-    async resolveQualifier(
+    resolveQualifier(
         id: string,
         context: JsonObject,
         options: ResolveOptions = {},
-    ): Promise<boolean> {
+    ): boolean {
         try {
-            return await this.inner.resolveQualifier(
+            return this.inner.resolveQualifier(
                 id,
                 context,
                 options.validateContext ?? true,

@@ -297,8 +297,7 @@ async fn search_ranking_mode(
     }))?;
 
     let resolution = pkg
-        .resolve_variable("search-ranking-mode", &context)
-        .await?;
+        .resolve_variable("search-ranking-mode", &context)?;
     let source = resolution.source.clone();
     let mode: String = serde_json::from_value(resolution.value)?;
 
@@ -324,7 +323,7 @@ async def search_ranking_mode(
             "id": account_id,
         },
     }
-    resolution = await pkg.resolve_variable("search-ranking-mode", context)
+    resolution = pkg.resolve_variable("search-ranking-mode", context)
     mode = str(resolution.value)
 
     print(f"selected search-ranking-mode `{resolution.source}`")
@@ -337,7 +336,7 @@ async function searchRankingMode(
   accountKind: string,
   accountId: string,
 ): Promise<string> {
-  const resolution = await pkg.resolveVariable(
+  const resolution = pkg.resolveVariable(
     "search-ranking-mode",
     { account: { kind: accountKind, id: accountId } },
   );

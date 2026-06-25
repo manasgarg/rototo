@@ -393,7 +393,6 @@ async fn package_sdk_loads_git_file_source_with_ref_and_subdir() {
             "message",
             &ResolveContext::from_json(serde_json::json!({})).unwrap(),
         )
-        .await
         .unwrap();
     assert_eq!(resolution.value, "hello");
 }
@@ -414,7 +413,7 @@ async fn refreshing_package_manual_refresh_updates_git_source() {
         .unwrap();
     let context = ResolveContext::from_json(serde_json::json!({})).unwrap();
 
-    let resolution = package.resolve_variable("message", &context).await.unwrap();
+    let resolution = package.resolve_variable("message", &context).unwrap();
     assert_eq!(resolution.value, "hello");
 
     write_minimal_package_with_message(&package_root, "goodbye").await;
@@ -424,9 +423,9 @@ async fn refreshing_package_manual_refresh_updates_git_source() {
         package.refresh_now().await.unwrap(),
         RefreshOutcome::Refreshed
     );
-    let resolution = package.resolve_variable("message", &context).await.unwrap();
+    let resolution = package.resolve_variable("message", &context).unwrap();
     assert_eq!(resolution.value, "goodbye");
-    assert_eq!(package.status().await.consecutive_failures, 0);
+    assert_eq!(package.status().consecutive_failures, 0);
 }
 
 #[tokio::test]
@@ -451,9 +450,9 @@ async fn refreshing_package_failed_refresh_keeps_last_loaded_git_package() {
     commit_all(&repo, "break package").await;
 
     assert!(package.refresh_now().await.is_err());
-    let resolution = package.resolve_variable("message", &context).await.unwrap();
+    let resolution = package.resolve_variable("message", &context).unwrap();
     assert_eq!(resolution.value, "hello");
-    let status = package.status().await;
+    let status = package.status();
     assert_eq!(status.consecutive_failures, 1);
     assert!(status.last_error.is_some());
 }
@@ -474,7 +473,7 @@ async fn refreshing_package_snapshots_local_source_for_last_known_good_resolutio
         .unwrap();
 
     assert!(package.refresh_now().await.is_err());
-    let resolution = package.resolve_variable("message", &context).await.unwrap();
+    let resolution = package.resolve_variable("message", &context).unwrap();
     assert_eq!(resolution.value, "hello");
 }
 
@@ -513,7 +512,6 @@ extends = ["../base"]
     assert_eq!(
         package
             .resolve_variable("base-only", &context)
-            .await
             .unwrap()
             .value,
         "before"
@@ -528,7 +526,6 @@ extends = ["../base"]
     assert_eq!(
         package
             .resolve_variable("base-only", &context)
-            .await
             .unwrap()
             .value,
         "after"
@@ -575,7 +572,7 @@ async fn refreshing_package_pinned_git_commit_is_immutable() {
     .await
     .unwrap();
 
-    assert!(package.status().await.immutable);
+    assert!(package.status().immutable);
     assert_eq!(
         package.refresh_now().await.unwrap(),
         RefreshOutcome::Immutable
@@ -602,12 +599,11 @@ async fn refreshing_package_background_loop_refreshes_local_source() {
     wait_for_condition(|| async {
         package
             .resolve_variable("message", &context)
-            .await
             .is_ok_and(|resolution| resolution.value == "goodbye")
     })
     .await;
 
-    assert_eq!(package.status().await.consecutive_failures, 0);
+    assert_eq!(package.status().consecutive_failures, 0);
     package.shutdown().await;
 }
 
@@ -634,18 +630,18 @@ async fn refreshing_package_background_failures_back_off_and_keep_snapshot() {
     tokio::time::advance(Duration::from_secs(5)).await;
     tokio::task::yield_now().await;
     wait_for_condition(|| async {
-        let status = package.status().await;
+        let status = package.status();
         status.consecutive_failures == 1 && !status.refreshing
     })
     .await;
-    let status = package.status().await;
+    let status = package.status();
     assert_eq!(status.consecutive_failures, 1, "status: {status:?}");
     let first_attempt = status.last_attempt;
 
     tokio::task::yield_now().await;
     tokio::time::advance(Duration::from_secs(59)).await;
     tokio::task::yield_now().await;
-    let status = package.status().await;
+    let status = package.status();
     assert_eq!(status.consecutive_failures, 1);
     assert_eq!(status.last_attempt, first_attempt);
 
@@ -654,11 +650,11 @@ async fn refreshing_package_background_failures_back_off_and_keep_snapshot() {
     tokio::time::advance(Duration::from_secs(5)).await;
     tokio::task::yield_now().await;
     wait_for_condition(|| async {
-        let status = package.status().await;
+        let status = package.status();
         status.consecutive_failures == 2 && !status.refreshing
     })
     .await;
-    let resolution = package.resolve_variable("message", &context).await.unwrap();
+    let resolution = package.resolve_variable("message", &context).unwrap();
     assert_eq!(resolution.value, "hello");
     package.shutdown().await;
 }
@@ -679,7 +675,7 @@ async fn refreshing_package_shutdown_stops_background_refresh() {
     tokio::task::yield_now().await;
     tokio::time::advance(Duration::from_secs(1)).await;
     tokio::task::yield_now().await;
-    wait_for_condition(|| async { package.status().await.last_attempt.is_some() }).await;
+    wait_for_condition(|| async { package.status().last_attempt.is_some() }).await;
 
     package.shutdown().await;
 }
@@ -709,7 +705,6 @@ async fn refreshing_package_resolves_while_manual_refresh_runs() {
                 results.push(
                     resolve_package
                         .resolve_variable("message", &resolve_context)
-                        .await
                         .map(|resolution| resolution.value),
                 );
             }
@@ -801,7 +796,7 @@ async fn package_sdk_resolves_from_loaded_runtime_snapshot() {
     write_minimal_package_with_message(&root, "changed").await;
 
     let context = ResolveContext::from_json(serde_json::json!({})).unwrap();
-    let resolution = package.resolve_variable("message", &context).await.unwrap();
+    let resolution = package.resolve_variable("message", &context).unwrap();
 
     assert_eq!(resolution.value, "loaded");
 }
@@ -840,17 +835,12 @@ extends = ["../base"]
 
     assert_eq!(package.source_layers().len(), 2);
     assert_eq!(
-        package
-            .resolve_variable("message", &context)
-            .await
-            .unwrap()
-            .value,
+        package.resolve_variable("message", &context).unwrap().value,
         "child"
     );
     assert_eq!(
         package
             .resolve_variable("base-only", &context)
-            .await
             .unwrap()
             .value,
         "base-only"
@@ -858,7 +848,6 @@ extends = ["../base"]
     assert_eq!(
         package
             .resolve_variable("child-only", &context)
-            .await
             .unwrap()
             .value,
         "child-only"
@@ -904,7 +893,6 @@ async fn package_sdk_resolves_with_context_contract() {
 
     let resolution = package
         .resolve_variable("checkout-redesign", &context)
-        .await
         .unwrap();
 
     assert_catalog_source(&resolution.source, "checkout-redesign", "premium");
@@ -920,7 +908,6 @@ async fn package_sdk_validates_resolve_context_against_schema() {
 
     let err = package
         .resolve_qualifier("premium-users", &context)
-        .await
         .unwrap_err();
 
     assert!(
@@ -941,7 +928,6 @@ async fn package_sdk_rejects_missing_condition_context_even_when_schema_allows_i
 
     let err = package
         .resolve_qualifier("premium-users", &context)
-        .await
         .unwrap_err();
 
     assert_eq!(
@@ -969,7 +955,6 @@ async fn package_sdk_resolves_from_context_only() {
                 validate_context: false,
             },
         )
-        .await
         .unwrap();
 
     assert_catalog_source(&resolution.source, "checkout-redesign", "premium");
@@ -985,10 +970,7 @@ async fn package_sdk_loads_malformed_context_config_when_lint_is_skipped_for_ins
     .unwrap();
 
     let context = ResolveContext::from_json(serde_json::json!({})).unwrap();
-    let err = package
-        .resolve_qualifier("anything", &context)
-        .await
-        .unwrap_err();
+    let err = package.resolve_qualifier("anything", &context).unwrap_err();
     assert!(err.to_string().contains("loaded without a runtime model"));
 }
 
@@ -1062,7 +1044,6 @@ async fn package_sdk_can_bypass_context_validation_explicitly() {
                 validate_context: false,
             },
         )
-        .await
         .unwrap();
 
     assert!(!matches);

@@ -16,14 +16,14 @@ class RefreshingPackageTest(unittest.IsolatedAsyncioTestCase):
 
             package = await rototo.RefreshingPackage.load(str(root))
             try:
-                initial = await package.resolve_variable("message", {})
+                initial = package.resolve_variable("message", {})
                 self.assertEqual(initial.value, "hello")
 
                 write_package(root, "updated")
                 outcome = await package.refresh_now()
                 self.assertIn(outcome, {"refreshed", "unchanged"})
 
-                refreshed = await package.resolve_variable("message", {})
+                refreshed = package.resolve_variable("message", {})
                 self.assertEqual(refreshed.value, "updated")
 
                 status = await package.status()
@@ -33,7 +33,7 @@ class RefreshingPackageTest(unittest.IsolatedAsyncioTestCase):
                 await package.shutdown()
 
             with self.assertRaises(rototo.RototoError):
-                await package.resolve_variable("message", {})
+                package.resolve_variable("message", {})
 
 
 def write_package(root: Path, message: str) -> None:

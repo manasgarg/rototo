@@ -15,7 +15,7 @@ public final class PackageSmokeTest {
         try (Package pkg = Package.load("examples/basic").get(30, TimeUnit.SECONDS)) {
             VariableResolution resolution = pkg.resolveVariable(
                     "premium-message",
-                    Map.of("user", Map.of("tier", "premium"))).get(30, TimeUnit.SECONDS);
+                    Map.of("user", Map.of("tier", "premium")));
             if (!resolution.value().equals("Welcome back, premium member.")
                     || !resolution.source().equals(Map.of("kind", "literal"))) {
                 throw new AssertionError("unexpected package smoke resolution: " + resolution.value());

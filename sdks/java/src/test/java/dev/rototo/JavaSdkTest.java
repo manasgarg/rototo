@@ -18,22 +18,22 @@ public final class JavaSdkTest {
     private static void api() throws Exception {
         assertEquals(expectedVersion(), Rototo.version(), "version");
         try (Package pkg = await(Package.load("examples/basic"))) {
-            VariableResolution variable = await(pkg.resolveVariable(
+            VariableResolution variable = pkg.resolveVariable(
                     "premium-message",
-                    Map.of("user", Map.of("tier", "premium"))));
+                    Map.of("user", Map.of("tier", "premium")));
             assertEquals("premium-message", variable.id(), "variable id");
             assertEquals(Map.of("kind", "literal"), variable.source(), "source");
             assertEquals("Welcome back, premium member.", variable.value(), "value");
 
-            Boolean qualifier = await(pkg.resolveQualifier(
+            Boolean qualifier = pkg.resolveQualifier(
                     "premium-users",
-                    Map.of("user", Map.of("tier", "free"))));
+                    Map.of("user", Map.of("tier", "free")));
             assertEquals(false, qualifier, "qualifier value");
 
-            VariableResolution skippedValidation = await(pkg.resolveVariable(
+            VariableResolution skippedValidation = pkg.resolveVariable(
                     "premium-message",
                     Map.of("user", Map.of("tier", Map.of("bad", "shape"))),
-                    ResolveOptions.validateContext(false)));
+                    ResolveOptions.validateContext(false));
             assertEquals(Map.of("kind", "literal"), skippedValidation.source(), "validation skip fallback");
         }
 
@@ -41,7 +41,7 @@ public final class JavaSdkTest {
             PackageLint lint = await(inspected.lint());
             assertEquals(0, lint.diagnostics().size(), "inspection lint diagnostics");
             assertRototoError(
-                    inspected.resolveVariable("premium-message", Map.of()),
+                    () -> inspected.resolveVariable("premium-message", Map.of()),
                     "package was loaded without a runtime model");
         }
     }
@@ -101,14 +101,17 @@ public final class JavaSdkTest {
             Map<String, Object> testCase,
             Map<String, Object> expect,
             boolean ok) throws Exception {
-        CompletableFuture<Boolean> future = pkg.resolveQualifier(
-                Json.asString(testCase.get("id")),
-                Json.asObject(testCase.get("context")));
         if (!ok) {
-            assertRototoError(future, expectedError(expect));
+            assertRototoError(
+                    () -> pkg.resolveQualifier(
+                            Json.asString(testCase.get("id")),
+                            Json.asObject(testCase.get("context"))),
+                    expectedError(expect));
             return;
         }
-        Boolean actual = await(future);
+        Boolean actual = pkg.resolveQualifier(
+                Json.asString(testCase.get("id")),
+                Json.asObject(testCase.get("context")));
         assertEquals(Json.asBoolean(expect.get("result")), actual, name + " value");
     }
 
@@ -118,15 +121,18 @@ public final class JavaSdkTest {
             Map<String, Object> testCase,
             Map<String, Object> expect,
             boolean ok) throws Exception {
-        CompletableFuture<VariableResolution> future = pkg.resolveVariable(
-                Json.asString(testCase.get("id")),
-                Json.asObject(testCase.get("context")));
         if (!ok) {
-            assertRototoError(future, expectedError(expect));
+            assertRototoError(
+                    () -> pkg.resolveVariable(
+                            Json.asString(testCase.get("id")),
+                            Json.asObject(testCase.get("context"))),
+                    expectedError(expect));
             return;
         }
         Map<String, Object> result = Json.asObject(expect.get("result"));
-        VariableResolution actual = await(future);
+        VariableResolution actual = pkg.resolveVariable(
+                Json.asString(testCase.get("id")),
+                Json.asObject(testCase.get("context")));
         assertEquals(Json.asString(result.get("id")), actual.id(), name + " id");
         assertEquals(result.get("value"), actual.value(), name + " value");
         assertEquals(result.get("source"), actual.source(), name + " source");
@@ -137,9 +143,9 @@ public final class JavaSdkTest {
                 .periodSeconds(30.0)
                 .build();
         try (RefreshingPackage pkg = await(RefreshingPackage.load("examples/basic", options))) {
-            VariableResolution resolution = await(pkg.resolveVariable(
+            VariableResolution resolution = pkg.resolveVariable(
                     "premium-message",
-                    Map.of("user", Map.of("tier", "premium"))));
+                    Map.of("user", Map.of("tier", "premium")));
             assertEquals(Map.of("kind", "literal"), resolution.source(), "refreshing resolution");
             RefreshStatus status = await(pkg.status());
             assertEquals(0L, status.consecutiveFailures(), "consecutive failures");
@@ -171,6 +177,24 @@ public final class JavaSdkTest {
             return;
         }
         throw new AssertionError("expected RototoException containing " + contains);
+    }
+
+    private static void assertRototoError(ThrowingRunnable runnable, String contains) throws Exception {
+        try {
+            runnable.run();
+        } catch (RototoException error) {
+            if (!error.getMessage().contains(contains)) {
+                throw new AssertionError(
+                        "expected error containing " + contains + ", got " + error.getMessage());
+            }
+            return;
+        }
+        throw new AssertionError("expected RototoException containing " + contains);
+    }
+
+    @FunctionalInterface
+    private interface ThrowingRunnable {
+        void run() throws Exception;
     }
 
     private static void assertEquals(Object expected, Object actual, String label) {

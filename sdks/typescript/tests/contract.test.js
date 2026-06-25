@@ -42,15 +42,12 @@ async function runCase(contractCase) {
 
     if (operation === "resolve_variable") {
         const pkg = await Package.load(packageSource);
-        return await pkg.resolveVariable(
-            contractCase.id,
-            contractCase.context ?? {},
-        );
+        return pkg.resolveVariable(contractCase.id, contractCase.context ?? {});
     }
 
     if (operation === "resolve_qualifier") {
         const pkg = await Package.load(packageSource);
-        return await pkg.resolveQualifier(
+        return pkg.resolveQualifier(
             contractCase.id,
             contractCase.context ?? {},
         );

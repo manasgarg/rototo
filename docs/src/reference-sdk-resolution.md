@@ -61,14 +61,13 @@ The JSON value must be an object.
 :::sdk-snippet resolve-variable
 ```rust
 let resolution = pkg
-    .resolve_variable("account-limits", &context)
-    .await?;
+    .resolve_variable("account-limits", &context)?;
 
 println!("{:?} -> {}", resolution.source, resolution.value);
 ```
 
 ```python
-resolution = await pkg.resolve_variable(
+resolution = pkg.resolve_variable(
     "account-limits",
     context,
 )
@@ -77,7 +76,7 @@ print(f"{resolution.source} -> {resolution.value}")
 ```
 
 ```typescript
-const resolution = await pkg.resolveVariable(
+const resolution = pkg.resolveVariable(
   "account-limits",
   context,
 );
@@ -124,14 +123,13 @@ method casing.
 :::sdk-snippet resolve-qualifier
 ```rust
 let matches = pkg
-    .resolve_qualifier("enterprise-account", &context)
-    .await?;
+    .resolve_qualifier("enterprise-account", &context)?;
 
 println!("{matches}");
 ```
 
 ```python
-matches = await pkg.resolve_qualifier(
+matches = pkg.resolve_qualifier(
     "enterprise-account",
     context,
 )
@@ -140,7 +138,7 @@ print(matches)
 ```
 
 ```typescript
-const matches = await pkg.resolveQualifier(
+const matches = pkg.resolveQualifier(
   "enterprise-account",
   context,
 );
@@ -189,12 +187,11 @@ let options = ResolveOptions {
 };
 
 let resolution = pkg
-    .resolve_variable_with_options("account-limits", &context, options)
-    .await?;
+    .resolve_variable_with_options("account-limits", &context, options)?;
 ```
 
 ```python
-resolution = await pkg.resolve_variable(
+resolution = pkg.resolve_variable(
     "account-limits",
     context,
     validate_context=False,
@@ -202,7 +199,7 @@ resolution = await pkg.resolve_variable(
 ```
 
 ```typescript
-const resolution = await pkg.resolveVariable(
+const resolution = pkg.resolveVariable(
   "account-limits",
   context,
   { validateContext: false },

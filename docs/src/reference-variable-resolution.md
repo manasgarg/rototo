@@ -26,16 +26,15 @@ SDK:
 :::sdk-snippet variable-resolution-sdk
 ```rust
 let resolution = pkg
-    .resolve_variable("account-limits", &context)
-    .await?;
+    .resolve_variable("account-limits", &context)?;
 ```
 
 ```python
-resolution = await pkg.resolve_variable("account-limits", context)
+resolution = pkg.resolve_variable("account-limits", context)
 ```
 
 ```typescript
-const resolution = await pkg.resolveVariable("account-limits", context);
+const resolution = pkg.resolveVariable("account-limits", context);
 ```
 
 ```java

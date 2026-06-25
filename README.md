@@ -1,23 +1,9 @@
 # So, what is rototo?
 
-Have you dealt with configuration that lives beyond deployment?
-
-Not the kind you set once via env vars. Instead, the one that evolves at runtime, letting product teams, operators, or admins change behavior without redeploying code.
-
-This is where things usually fall apart: ad hoc consoles, fragile overrides, and configuration that drifts away from the code it’s supposed to control.
-
-rototo is a fresh take on runtime configuration.
-
-It's built around the simple principle that runtime configuration should be treated like code.
-To that end, rototo organizes and distributes configuration as rototo packages that are kept in git alongside the code.
-Furthermore, rototo avoids software/configuration drift via rigorous contract enforcement during pre-commit, pre-push and CI stages.
-
-Functionally, rototo offers:
-- `rototo` cli that can be used by human and agents alike to develop and test rototo packages.
-- Powerful primitives to express a wide variety of configuration data models.
-- LSP server that cuts down guess work during configuration editing.
-- Console UI to examine and edit packages.
-- SDK in multiple languages that can load a rototo package from remote location and resolve runtime configuration.
+Every substantial software system eventually externalizes behavior into configuration: feature availability, model selection, tenant overrides, offers, prompts, retry policies, logging controls, and rollout rules.
+The problem is that this configuration usually leaves the engineering lifecycle and moves into databases, dashboards, spreadsheets, admin consoles, and feature-flag systems.
+It becomes harder to validate, test, review, promote, and explain.
+Rototo provides a coherent control plane for behavioral configuration: versioned, reviewable, testable, contract-enforced configuration that applications can resolve at runtime.
 
 ## rototo's hello world
 
@@ -117,7 +103,7 @@ def print_threshold(app_config: rototo.RefreshingPackage, tier: str) -> None:
     )
 
     threshold = resolution.value
-    print(f'{tier}: {threshold["amount"]} {threshold["currency"]}')
+    print(f'{tier}: {threshold} USD')
 
 
 async def main() -> None:
@@ -131,8 +117,8 @@ async def main() -> None:
     try:
         while True:
             print("---")
-            await print_threshold(app_config, "standard")
-            await print_threshold(app_config, "premium")
+            print_threshold(app_config, "standard")
+            print_threshold(app_config, "premium")
             await asyncio.sleep(2.0)
     finally:
         await app_config.shutdown()
@@ -146,6 +132,20 @@ if __name__ == "__main__":
 Run it with:
 ```sh
 python hello-rototo.py app-config/
+```
+
+It would print the following:
+```
+---
+standard: 50 USD
+premium: 25 USD
+```
+
+Now, go ahead and edit `free-shipping-threshold.toml` and change the default value to 35. You would now see the following on console:
+```
+---
+standard: 50 USD
+premium: 35 USD
 ```
 
 ## Documentation
@@ -167,7 +167,7 @@ rototo docs -p anatomy-of
 
 ## rototo is designed for people and agents
 
-Agents are now among the most important stakeholders of any development tool.
+Agents are now among the most important users of any development tool.
 Hence, rototo is designed from ground up to work well both for people and agents.
 - The configuration package is simply a dir tree of files that brings battle-tested ergnomics of file organization and editing.
 - `rototo docs` to discover rototo's capabilities and the recipes to use it.

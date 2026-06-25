@@ -109,12 +109,8 @@ pub extern "system" fn Java_dev_rototo_Native_packageResolveVariableNative(
         let package = package_from_handle(handle)?;
         let id = required_string(env, id, "id")?;
         let context = resolve_context(env, context_json)?;
-        let resolution = runtime()
-            .block_on(package.resolve_variable_with_options(
-                &id,
-                &context,
-                resolve_options(validate_context),
-            ))
+        let resolution = package
+            .resolve_variable_with_options(&id, &context, resolve_options(validate_context))
             .map_err(|err| err.to_string())?;
         env_json(
             env,
@@ -140,12 +136,8 @@ pub extern "system" fn Java_dev_rototo_Native_packageResolveQualifierNative(
         let package = package_from_handle(handle)?;
         let id = required_string(env, id, "id")?;
         let context = resolve_context(env, context_json)?;
-        let value = runtime()
-            .block_on(package.resolve_qualifier_with_options(
-                &id,
-                &context,
-                resolve_options(validate_context),
-            ))
+        let value = package
+            .resolve_qualifier_with_options(&id, &context, resolve_options(validate_context))
             .map_err(|err| err.to_string())?;
         env_json(env, serde_json::json!(value))
     })
@@ -206,14 +198,11 @@ pub extern "system" fn Java_dev_rototo_Native_refreshingPackageResolveVariableNa
         let package = refreshing_package_from_handle(handle)?;
         let id = required_string(env, id, "id")?;
         let context = resolve_context(env, context_json)?;
-        let resolution = runtime().block_on(async {
-            let guard = package.inner.lock().await;
-            let package = active_refreshing_package(&guard)?;
-            package
-                .resolve_variable_with_options(&id, &context, resolve_options(validate_context))
-                .await
-                .map_err(|err| err.to_string())
-        })?;
+        let guard = package.inner.blocking_lock();
+        let package = active_refreshing_package(&guard)?;
+        let resolution = package
+            .resolve_variable_with_options(&id, &context, resolve_options(validate_context))
+            .map_err(|err| err.to_string())?;
         env_json(
             env,
             serde_json::json!({
@@ -238,14 +227,11 @@ pub extern "system" fn Java_dev_rototo_Native_refreshingPackageResolveQualifierN
         let package = refreshing_package_from_handle(handle)?;
         let id = required_string(env, id, "id")?;
         let context = resolve_context(env, context_json)?;
-        let value = runtime().block_on(async {
-            let guard = package.inner.lock().await;
-            let package = active_refreshing_package(&guard)?;
-            package
-                .resolve_qualifier_with_options(&id, &context, resolve_options(validate_context))
-                .await
-                .map_err(|err| err.to_string())
-        })?;
+        let guard = package.inner.blocking_lock();
+        let package = active_refreshing_package(&guard)?;
+        let value = package
+            .resolve_qualifier_with_options(&id, &context, resolve_options(validate_context))
+            .map_err(|err| err.to_string())?;
         env_json(env, serde_json::json!(value))
     })
 }
@@ -278,7 +264,7 @@ pub extern "system" fn Java_dev_rototo_Native_refreshingPackageStatusNative(
         let status = runtime().block_on(async {
             let guard = package.inner.lock().await;
             let package = active_refreshing_package(&guard)?;
-            Ok::<_, String>(package.status().await)
+            Ok::<_, String>(package.status())
         })?;
         env_json(env, refresh_status_to_json(status))
     })

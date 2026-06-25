@@ -151,8 +151,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
 
     loop {
         let resolution = pkg
-            .resolve_variable("max-active-projects", &context)
-            .await?;
+            .resolve_variable("max-active-projects", &context)?;
 
         println!(
             "max-active-projects: {} ({})",
@@ -181,7 +180,7 @@ async def main() -> None:
 
     try:
         while True:
-            resolution = await pkg.resolve_variable(
+            resolution = pkg.resolve_variable(
                 "max-active-projects",
                 {},
             )
@@ -211,7 +210,7 @@ const pkg = await RefreshingPackage.load(source, {
 
 try {
   while (true) {
-    const resolution = await pkg.resolveVariable(
+    const resolution = pkg.resolveVariable(
       "max-active-projects",
       {},
     );

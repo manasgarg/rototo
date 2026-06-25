@@ -47,19 +47,18 @@ The app now has one stable call:
 :::sdk-snippet modeling-runtime-app-call
 ```rust
 let limits = pkg
-    .resolve_variable("account-limit-profile", &context)
-    .await?;
+    .resolve_variable("account-limit-profile", &context)?;
 ```
 
 ```python
-limits = await pkg.resolve_variable(
+limits = pkg.resolve_variable(
     "account-limit-profile",
     context,
 )
 ```
 
 ```typescript
-const limits = await pkg.resolveVariable(
+const limits = pkg.resolveVariable(
   "account-limit-profile",
   context,
 );

@@ -11,10 +11,10 @@ const EXAMPLES_BASIC = resolve(ROOT, "examples/basic");
 test("package exposes TypeScript runtime resolution API", async () => {
     const pkg = await Package.load(EXAMPLES_BASIC);
 
-    const variable = await pkg.resolveVariable("premium-message", {
+    const variable = pkg.resolveVariable("premium-message", {
         user: { tier: "premium" },
     });
-    const qualifier = await pkg.resolveQualifier("premium-users", {
+    const qualifier = pkg.resolveQualifier("premium-users", {
         user: { tier: "premium" },
     });
 
@@ -29,7 +29,7 @@ test("inspected package can lint but not resolve", async () => {
     const lint = await pkg.lint();
 
     assert.deepEqual(lint.diagnostics, []);
-    await assert.rejects(
+    assert.throws(
         () => pkg.resolveVariable("premium-message", {}),
         (error) =>
             error instanceof RototoError &&
@@ -42,7 +42,7 @@ test("inspected package can lint but not resolve", async () => {
 test("context must be a JSON object", async () => {
     const pkg = await Package.load(EXAMPLES_BASIC);
 
-    await assert.rejects(
+    assert.throws(
         () => pkg.resolveVariable("premium-message", ["not", "an", "object"]),
         (error) =>
             error instanceof RototoError &&
@@ -53,7 +53,7 @@ test("context must be a JSON object", async () => {
 test("context validation can be skipped", async () => {
     const pkg = await Package.load(EXAMPLES_BASIC);
 
-    const result = await pkg.resolveVariable(
+    const result = pkg.resolveVariable(
         "premium-message",
         { user: { tier: { bad: "shape" } } },
         { validateContext: false },
