@@ -1,6 +1,7 @@
 use std::path::Path;
 
 use serde::Serialize;
+use toml::Value as TomlValue;
 
 use crate::style;
 
@@ -522,7 +523,7 @@ fn print_dependencies(dependencies: &rototo::model::DependencyInspectReport, ind
     }
 }
 
-pub(crate) fn print_qualifier_list(inspection: &PackageInspection, json: bool) -> Result<()> {
+pub(crate) async fn print_qualifier_list(inspection: &PackageInspection, json: bool) -> Result<()> {
     if json {
         println!(
             "{}",
@@ -541,13 +542,26 @@ pub(crate) fn print_qualifier_list(inspection: &PackageInspection, json: bool) -
         return Ok(());
     }
 
+    println!(
+        "{} {}",
+        style::label("qualifiers"),
+        style::bold(&inspection.qualifiers.len().to_string())
+    );
     for qualifier in &inspection.qualifiers {
-        println!("{}", qualifier.id);
+        match read_toml(&inspection.root.join(&qualifier.path)).await {
+            Ok(value) => print_qualifier_summary(qualifier.id.as_str(), &qualifier.path, &value),
+            Err(err) => print_unavailable_summary(
+                qualifier.id.as_str(),
+                "path",
+                &qualifier.path,
+                &err.to_string(),
+            ),
+        }
     }
     Ok(())
 }
 
-pub(crate) fn print_variable_list(inspection: &PackageInspection, json: bool) -> Result<()> {
+pub(crate) async fn print_variable_list(inspection: &PackageInspection, json: bool) -> Result<()> {
     if json {
         println!(
             "{}",
@@ -564,13 +578,26 @@ pub(crate) fn print_variable_list(inspection: &PackageInspection, json: bool) ->
         return Ok(());
     }
 
+    println!(
+        "{} {}",
+        style::label("variables"),
+        style::bold(&inspection.variables.len().to_string())
+    );
     for variable in &inspection.variables {
-        println!("{}", variable.id);
+        match read_variable_toml(&inspection.root, variable).await {
+            Ok(value) => print_variable_summary(variable.id.as_str(), &variable.path, &value)?,
+            Err(err) => print_unavailable_summary(
+                variable.id.as_str(),
+                "path",
+                &variable.path,
+                &err.to_string(),
+            ),
+        }
     }
     Ok(())
 }
 
-pub(crate) fn print_catalog_list(inspection: &PackageInspection, json: bool) -> Result<()> {
+pub(crate) async fn print_catalog_list(inspection: &PackageInspection, json: bool) -> Result<()> {
     if json {
         println!(
             "{}",
@@ -587,8 +614,21 @@ pub(crate) fn print_catalog_list(inspection: &PackageInspection, json: bool) -> 
         return Ok(());
     }
 
+    println!(
+        "{} {}",
+        style::label("catalogs"),
+        style::bold(&inspection.catalogs.len().to_string())
+    );
     for catalog in &inspection.catalogs {
-        println!("{}", catalog.id);
+        match read_catalog_json(&inspection.root, catalog).await {
+            Ok(value) => print_catalog_summary(catalog.id.as_str(), &catalog.path, &value),
+            Err(err) => print_unavailable_summary(
+                catalog.id.as_str(),
+                "schema",
+                &catalog.path,
+                &err.to_string(),
+            ),
+        }
     }
     Ok(())
 }
@@ -618,6 +658,9 @@ pub(crate) async fn print_qualifier_get(
         return Ok(());
     }
 
+    let value = read_toml(&path).await?;
+    print_qualifier_detail(qualifier.id.as_str(), &qualifier.path, &value);
+    print_source_header();
     print_package_file(&path).await
 }
 
@@ -646,6 +689,8 @@ pub(crate) async fn print_variable_get(
     }
 
     let value = read_variable_toml(&inspection.root, variable).await?;
+    print_variable_detail(variable.id.as_str(), &variable.path, &value)?;
+    print_source_header();
     print!(
         "{}",
         toml::to_string_pretty(&value).map_err(|err| RototoError::new(err.to_string()))?
@@ -677,11 +722,210 @@ pub(crate) async fn print_catalog_get(
     }
 
     let value = read_catalog_json(&inspection.root, catalog).await?;
+    print_catalog_detail(catalog.id.as_str(), &catalog.path, &value);
+    print_source_header();
     print!(
         "{}",
         serde_json::to_string_pretty(&value).map_err(|err| RototoError::new(err.to_string()))?
     );
     Ok(())
+}
+
+fn print_qualifier_summary(id: &str, path: &Path, value: &TomlValue) {
+    println!("  {}", style::sea(id));
+    println!(
+        "    {} {}",
+        style::dim("path:"),
+        style::dim(&path.display().to_string())
+    );
+    if let Some(description) = toml_string(value, "description") {
+        println!("    description: {description}");
+    }
+    if let Some(when) = toml_string(value, "when") {
+        println!("    {} {}", style::subhead("when"), style::info(when));
+    }
+}
+
+fn print_variable_summary(id: &str, path: &Path, value: &TomlValue) -> Result<()> {
+    let type_label = toml_string(value, "type").unwrap_or("<missing>");
+    println!("  {}", style::sea(id));
+    println!("    {} {}", style::dim("type:"), style::info(type_label));
+    if let Some(description) = toml_string(value, "description") {
+        println!("    description: {description}");
+    }
+    println!(
+        "    {} {}",
+        style::dim("path:"),
+        style::dim(&path.display().to_string())
+    );
+    print_variable_resolve_summary(value, "    ")?;
+    Ok(())
+}
+
+fn print_catalog_summary(id: &str, path: &Path, value: &serde_json::Value) {
+    println!("  {}", style::sea(id));
+    println!(
+        "    {} {}",
+        style::dim("schema:"),
+        style::dim(&path.display().to_string())
+    );
+    if let Some(description) = value.get("description").and_then(serde_json::Value::as_str) {
+        println!("    description: {description}");
+    }
+    if let Some(schema_type) = value.get("type").and_then(serde_json::Value::as_str) {
+        println!("    {} {}", style::dim("type:"), style::info(schema_type));
+    }
+    if let Some(entries) = value.get("entries").and_then(serde_json::Value::as_object) {
+        println!(
+            "    {} {}",
+            style::dim("values:"),
+            plural_count(entries.len(), "entry", "entries")
+        );
+    }
+}
+
+fn print_unavailable_summary(id: &str, path_label: &str, path: &Path, reason: &str) {
+    println!("  {}", style::sea(id));
+    println!(
+        "    {} {}",
+        style::dim(&format!("{path_label}:")),
+        style::dim(&path.display().to_string())
+    );
+    println!("    status: {}", style::warn("unavailable"));
+    println!("    reason: {reason}");
+}
+
+fn print_qualifier_detail(id: &str, path: &Path, value: &TomlValue) {
+    println!("qualifier: {}", style::sea(id));
+    println!(
+        "  {} {}",
+        style::dim("path:"),
+        style::dim(&path.display().to_string())
+    );
+    if let Some(description) = toml_string(value, "description") {
+        println!("  description: {description}");
+    }
+    if let Some(when) = toml_string(value, "when") {
+        println!("  {} {}", style::subhead("when"), style::info(when));
+    }
+}
+
+fn print_variable_detail(id: &str, path: &Path, value: &TomlValue) -> Result<()> {
+    println!("variable: {}", style::sea(id));
+    println!(
+        "  {} {}",
+        style::dim("path:"),
+        style::dim(&path.display().to_string())
+    );
+    if let Some(description) = toml_string(value, "description") {
+        println!("  description: {description}");
+    }
+    let type_label = toml_string(value, "type").unwrap_or("<missing>");
+    println!("  {} {}", style::dim("type:"), style::info(type_label));
+    print_variable_resolve_detail(value)?;
+    Ok(())
+}
+
+fn print_catalog_detail(id: &str, path: &Path, value: &serde_json::Value) {
+    println!("catalog: {}", style::sea(id));
+    println!(
+        "  {} {}",
+        style::dim("schema:"),
+        style::dim(&path.display().to_string())
+    );
+    if let Some(description) = value.get("description").and_then(serde_json::Value::as_str) {
+        println!("  description: {description}");
+    }
+    if let Some(schema_type) = value.get("type").and_then(serde_json::Value::as_str) {
+        println!("  {} {}", style::dim("type:"), style::info(schema_type));
+    }
+    if let Some(entries) = value.get("entries").and_then(serde_json::Value::as_object) {
+        println!(
+            "  {} {}",
+            style::dim("values:"),
+            plural_count(entries.len(), "entry", "entries")
+        );
+    }
+}
+
+fn print_variable_resolve_summary(value: &TomlValue, indent: &str) -> Result<()> {
+    let Some(resolve) = value.get("resolve").and_then(TomlValue::as_table) else {
+        return Ok(());
+    };
+    let default = resolve
+        .get("default")
+        .map(compact_toml_value)
+        .transpose()?
+        .unwrap_or_else(|| "<none>".to_owned());
+    let rules = resolve
+        .get("rule")
+        .and_then(TomlValue::as_array)
+        .map(Vec::len)
+        .unwrap_or(0);
+    println!(
+        "{indent}{} default {} / {}",
+        style::dim("resolve:"),
+        default,
+        plural_count(rules, "rule", "rules")
+    );
+    Ok(())
+}
+
+fn print_variable_resolve_detail(value: &TomlValue) -> Result<()> {
+    let Some(resolve) = value.get("resolve").and_then(TomlValue::as_table) else {
+        return Ok(());
+    };
+    println!("  {}", style::subhead("resolve"));
+    if let Some(rules) = resolve.get("rule").and_then(TomlValue::as_array) {
+        for (index, rule) in rules.iter().enumerate() {
+            let condition = rule
+                .get("when")
+                .and_then(TomlValue::as_str)
+                .or_else(|| rule.get("query").and_then(TomlValue::as_str))
+                .unwrap_or("<missing>");
+            let rule_value = rule
+                .get("value")
+                .map(compact_toml_value)
+                .transpose()?
+                .unwrap_or_else(|| "<none>".to_owned());
+            println!(
+                "    {} if {} {} {}",
+                style::dim(&format!("rule[{index}]")),
+                style::sea(condition),
+                style::arrow(),
+                rule_value
+            );
+        }
+    }
+    let default = resolve
+        .get("default")
+        .map(compact_toml_value)
+        .transpose()?
+        .unwrap_or_else(|| "<none>".to_owned());
+    println!("    {} {} {default}", style::dim("default"), style::arrow());
+    Ok(())
+}
+
+fn print_source_header() {
+    println!();
+    println!("{}", style::subhead("source"));
+}
+
+fn toml_string<'a>(value: &'a TomlValue, key: &str) -> Option<&'a str> {
+    value.get(key).and_then(TomlValue::as_str)
+}
+
+fn compact_toml_value(value: &TomlValue) -> Result<String> {
+    let value = serde_json::to_value(value).map_err(|err| RototoError::new(err.to_string()))?;
+    compact_json(&value)
+}
+
+fn plural_count(count: usize, singular: &str, plural: &str) -> String {
+    if count == 1 {
+        format!("{count} {singular}")
+    } else {
+        format!("{count} {plural}")
+    }
 }
 
 pub(crate) fn print_diagnostic_catalog_entry(

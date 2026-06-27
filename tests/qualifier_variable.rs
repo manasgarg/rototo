@@ -24,7 +24,12 @@ fn lists_variables_from_discovered_package() {
         .stdout(predicate::str::contains("checkout-redesign"))
         .stdout(predicate::str::contains("llm-agent-config"))
         .stdout(predicate::str::contains("tenant-limits"))
-        .stdout(predicate::str::contains("user-is-admin"));
+        .stdout(predicate::str::contains("user-is-admin"))
+        .stdout(predicate::str::contains("type: catalog:checkout-redesign"))
+        .stdout(predicate::str::contains(
+            "resolve: default \"control\" / 1 rule",
+        ))
+        .stdout(predicate::str::contains("variable://checkout-redesign").not());
 }
 
 #[test]
@@ -38,8 +43,9 @@ fn shows_package_inventory_including_linters() {
         .stdout(predicate::str::contains("catalogs:"))
         .stdout(predicate::str::contains("variables:"))
         .stdout(predicate::str::contains(
-            "llm-agent-config  catalog://llm-agent-config  catalogs/llm-agent-config.schema.json",
+            "llm-agent-config  catalogs/llm-agent-config.schema.json",
         ))
+        .stdout(predicate::str::contains("catalog://llm-agent-config").not())
         .stdout(predicate::str::contains("lint authorities:"))
         .stdout(predicate::str::contains(
             "consumer-experience/checkout-heading-required",
@@ -93,6 +99,11 @@ fn gets_qualifier_by_id() {
         .args(["show", "examples/basic", "--qualifier", "premium-users"])
         .assert()
         .success()
+        .stdout(predicate::str::contains("qualifier: premium-users"))
+        .stdout(predicate::str::contains(
+            "path: qualifiers/premium-users.toml",
+        ))
+        .stdout(predicate::str::contains("source:"))
         .stdout(predicate::str::contains(
             "description = \"Users on the premium plan\"",
         ))
@@ -119,6 +130,9 @@ fn gets_catalog_with_entries() {
         .args(["show", "examples/basic", "--catalog", "llm-agent-config"])
         .assert()
         .success()
+        .stdout(predicate::str::contains("catalog: llm-agent-config"))
+        .stdout(predicate::str::contains("values: 3 entries"))
+        .stdout(predicate::str::contains("source:"))
         .stdout(predicate::str::contains(r#""entries": {"#))
         .stdout(predicate::str::contains(r#""local": {"#))
         .stdout(predicate::str::contains(r#""model": "local-small""#))

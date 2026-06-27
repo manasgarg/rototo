@@ -2995,7 +2995,7 @@ async fn show_selected_targets(
     catalog: &DiagnosticCatalog,
 ) -> Result<()> {
     match &selectors.variables {
-        Selection::All => print_variable_list(inspection, false)?,
+        Selection::All => print_variable_list(inspection, false).await?,
         Selection::Some(ids) => {
             for id in ordered_selected_ids(ids, inspection.variables.iter().map(|v| v.id.as_str()))
             {
@@ -3005,7 +3005,7 @@ async fn show_selected_targets(
         Selection::None => {}
     }
     match &selectors.catalogs {
-        Selection::All => print_catalog_list(inspection, false)?,
+        Selection::All => print_catalog_list(inspection, false).await?,
         Selection::Some(ids) => {
             for id in ordered_selected_ids(ids, inspection.catalogs.iter().map(|r| r.id.as_str())) {
                 print_catalog_get(inspection, &id, false).await?;
@@ -3014,7 +3014,7 @@ async fn show_selected_targets(
         Selection::None => {}
     }
     match &selectors.qualifiers {
-        Selection::All => print_qualifier_list(inspection, false)?,
+        Selection::All => print_qualifier_list(inspection, false).await?,
         Selection::Some(ids) => {
             for id in ordered_selected_ids(ids, inspection.qualifiers.iter().map(|q| q.id.as_str()))
             {
@@ -3271,45 +3271,57 @@ fn print_package_view(command: &str, view: &PackageView, json: bool) -> Result<(
 
     println!("{} {}", style::label("package"), style::bold(&view.package));
     if !view.evaluation_contexts.is_empty() {
-        println!("{}", style::label("evaluation contexts"));
+        println!(
+            "{} {}",
+            style::label("evaluation contexts"),
+            style::bold(&view.evaluation_contexts.len().to_string())
+        );
         for evaluation_context in &view.evaluation_contexts {
             println!(
-                "  {}  {}  {}",
+                "  {}  {}",
                 style::sea(&evaluation_context.id),
-                style::dim(&evaluation_context.uri),
                 style::dim(&evaluation_context.path)
             );
         }
     }
     if !view.qualifiers.is_empty() {
-        println!("{}", style::label("qualifiers"));
+        println!(
+            "{} {}",
+            style::label("qualifiers"),
+            style::bold(&view.qualifiers.len().to_string())
+        );
         for qualifier in &view.qualifiers {
             println!(
-                "  {}  {}  {}",
+                "  {}  {}",
                 style::sea(&qualifier.id),
-                style::dim(&qualifier.uri),
                 style::dim(&qualifier.path)
             );
         }
     }
     if !view.catalogs.is_empty() {
-        println!("{}", style::label("catalogs"));
+        println!(
+            "{} {}",
+            style::label("catalogs"),
+            style::bold(&view.catalogs.len().to_string())
+        );
         for catalog in &view.catalogs {
             println!(
-                "  {}  {}  {}",
+                "  {}  {}",
                 style::sea(&catalog.id),
-                style::dim(&catalog.uri),
                 style::dim(&catalog.path)
             );
         }
     }
     if !view.variables.is_empty() {
-        println!("{}", style::label("variables"));
+        println!(
+            "{} {}",
+            style::label("variables"),
+            style::bold(&view.variables.len().to_string())
+        );
         for variable in &view.variables {
             println!(
-                "  {}  {}  {}",
+                "  {}  {}",
                 style::sea(&variable.id),
-                style::dim(&variable.uri),
                 style::dim(&variable.path)
             );
         }
