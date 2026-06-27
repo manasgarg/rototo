@@ -2,6 +2,7 @@ mod output;
 mod style;
 
 use std::collections::{BTreeMap, BTreeSet};
+use std::io::IsTerminal;
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
@@ -84,13 +85,13 @@ enum Command {
     Resolve(ResolveArgs),
     /// Read bundled documentation.
     Docs(DocsArgs),
+    /// Configure shell, editor, and agent integrations.
+    Setup(SetupArgs),
     /// Serve the rototo console: web UI plus JSON API over a package.
     #[cfg(feature = "console")]
     Console(ConsoleArgs),
     /// Run the rototo Language Server Protocol server over stdio.
     Lsp,
-    /// Generate shell completion scripts.
-    Completions { shell: CompletionShell },
 }
 
 #[derive(Debug, Args)]
@@ -325,6 +326,37 @@ struct DocsArgs {
     docs_base_url: Option<String>,
 }
 
+#[derive(Debug, Args)]
+struct SetupArgs {
+    /// Set up every supported local integration.
+    #[arg(long = "all", action = ArgAction::SetTrue)]
+    all: bool,
+
+    /// Shell completion target.
+    #[arg(long = "shell", value_name = "SHELL", value_enum)]
+    shell: Option<SetupShellArg>,
+
+    /// Editor integration target.
+    #[arg(long = "editor", value_name = "EDITOR", value_enum)]
+    editor: Option<SetupEditorArg>,
+
+    /// Agent guidance target.
+    #[arg(long = "agent", value_name = "AGENT", value_enum)]
+    agent: Option<SetupAgentArg>,
+
+    /// Print generated setup content instead of writing files.
+    #[arg(long = "print", action = ArgAction::SetTrue)]
+    print: bool,
+
+    /// Print planned setup changes without changing the filesystem.
+    #[arg(long = "dry-run", action = ArgAction::SetTrue)]
+    dry_run: bool,
+
+    /// Overwrite rototo-owned generated setup files when they already exist.
+    #[arg(long = "force", action = ArgAction::SetTrue)]
+    force: bool,
+}
+
 #[cfg(feature = "console")]
 #[derive(Debug, Args)]
 struct ConsoleArgs {
@@ -437,25 +469,58 @@ impl PackageReadmeTarget {
     }
 }
 
-#[derive(Clone, Copy, Debug, ValueEnum)]
-enum CompletionShell {
+#[derive(Clone, Copy, Debug, Eq, PartialEq, ValueEnum)]
+enum SetupShellArg {
+    Auto,
     Bash,
     Elvish,
     Fish,
+    #[value(name = "powershell", alias = "power-shell")]
     PowerShell,
     Zsh,
+    None,
 }
 
-impl From<CompletionShell> for Shell {
-    fn from(shell: CompletionShell) -> Self {
-        match shell {
-            CompletionShell::Bash => Shell::Bash,
-            CompletionShell::Elvish => Shell::Elvish,
-            CompletionShell::Fish => Shell::Fish,
-            CompletionShell::PowerShell => Shell::PowerShell,
-            CompletionShell::Zsh => Shell::Zsh,
+impl SetupShellArg {
+    fn completion_shell(self) -> Option<Shell> {
+        match self {
+            SetupShellArg::Auto | SetupShellArg::None => None,
+            SetupShellArg::Bash => Some(Shell::Bash),
+            SetupShellArg::Elvish => Some(Shell::Elvish),
+            SetupShellArg::Fish => Some(Shell::Fish),
+            SetupShellArg::PowerShell => Some(Shell::PowerShell),
+            SetupShellArg::Zsh => Some(Shell::Zsh),
         }
     }
+
+    fn label(self) -> &'static str {
+        match self {
+            SetupShellArg::Auto => "auto",
+            SetupShellArg::Bash => "bash",
+            SetupShellArg::Elvish => "elvish",
+            SetupShellArg::Fish => "fish",
+            SetupShellArg::PowerShell => "powershell",
+            SetupShellArg::Zsh => "zsh",
+            SetupShellArg::None => "none",
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq, ValueEnum)]
+enum SetupEditorArg {
+    All,
+    Neovim,
+    #[value(name = "vscode", alias = "vs-code")]
+    VsCode,
+    None,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq, ValueEnum)]
+enum SetupAgentArg {
+    All,
+    Claude,
+    Codex,
+    None,
 }
 
 #[derive(Clone, Debug, Default)]
@@ -577,6 +642,7 @@ fn top_level_help() -> String {
         "show examples/basic --variables",
         "resolve examples/basic --variable checkout-redesign --context lane=prod --context user.tier=premium",
         "docs -p motivation",
+        "setup --shell zsh",
     ] {
         out.push_str(&format!("  {} {}\n", style::sea("rototo"), example));
     }
@@ -622,10 +688,13 @@ fn top_level_help_template() -> String {
     out.push_str(&style::bold("Utility commands:"));
     out.push('\n');
     out.push_str(&command("docs", "Read bundled documentation"));
+    out.push_str(&command(
+        "setup",
+        "Configure shell, editor, and agent integrations",
+    ));
     #[cfg(feature = "console")]
     out.push_str(&command("console", "Serve the web console and JSON API"));
     out.push_str(&command("lsp", "Run the language server over stdio"));
-    out.push_str(&command("completions", "Generate shell completions"));
     out.push_str(&command(
         "help",
         "Print this message or the help of the given subcommand(s)",
@@ -670,6 +739,7 @@ async fn run() -> Result<ExitCode> {
         Command::Show(args) => run_show(args, &source_options, cli.json).await,
         Command::Resolve(args) => run_resolve(args, &source_options, cli.json).await,
         Command::Docs(args) => run_docs(args, cli.json).await,
+        Command::Setup(args) => run_setup(args, cli.json, cli.quiet).await,
         #[cfg(feature = "console")]
         Command::Console(args) => {
             rototo::console::run(rototo::console::ConsoleOptions {
@@ -689,18 +759,680 @@ async fn run() -> Result<ExitCode> {
             rototo::lsp::serve_stdio().await?;
             Ok(ExitCode::SUCCESS)
         }
-        Command::Completions { shell } => {
-            let mut command = Cli::command();
-            let name = command.get_name().to_owned();
-            generate(
-                Shell::from(shell),
-                &mut command,
-                name,
-                &mut std::io::stdout(),
-            );
-            Ok(ExitCode::SUCCESS)
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum SetupTarget {
+    Shell(SetupShellArg),
+    Neovim,
+    VsCode,
+    Claude,
+    Codex,
+}
+
+#[derive(Debug, Serialize)]
+struct SetupReport {
+    command: &'static str,
+    dry_run: bool,
+    changes: Vec<SetupChange>,
+}
+
+#[derive(Debug, Serialize)]
+struct SetupChange {
+    target: &'static str,
+    status: SetupStatus,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    path: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    message: Option<String>,
+}
+
+#[derive(Clone, Copy, Debug, Serialize)]
+#[serde(rename_all = "snake_case")]
+enum SetupStatus {
+    Changed,
+    Unchanged,
+    NeedsManualStep,
+}
+
+impl SetupStatus {
+    fn label(self, dry_run: bool) -> &'static str {
+        match (self, dry_run) {
+            (Self::Changed, true) => "would change",
+            (Self::Changed, false) => "changed",
+            (Self::Unchanged, _) => "unchanged",
+            (Self::NeedsManualStep, _) => "needs_manual_step",
         }
     }
+}
+
+struct SetupRunOptions {
+    dry_run: bool,
+    force: bool,
+}
+
+const SETUP_GENERATED_MARKER: &str = "Generated by rototo setup. Do not edit manually.";
+const AGENT_SETUP_BEGIN: &str = "<!-- BEGIN rototo setup -->";
+const AGENT_SETUP_END: &str = "<!-- END rototo setup -->";
+
+async fn run_setup(args: SetupArgs, json: bool, quiet: bool) -> Result<ExitCode> {
+    let targets = setup_targets(&args)?;
+    if args.print {
+        print_setup_targets(&targets)?;
+        return Ok(ExitCode::SUCCESS);
+    }
+
+    let options = SetupRunOptions {
+        dry_run: args.dry_run,
+        force: args.force,
+    };
+    let mut changes = Vec::new();
+    for target in targets {
+        match target {
+            SetupTarget::Shell(shell) => setup_shell(shell, &options, &mut changes).await?,
+            SetupTarget::Neovim => setup_neovim(&options, &mut changes).await?,
+            SetupTarget::VsCode => setup_vscode(&mut changes),
+            SetupTarget::Claude => {
+                setup_agent("CLAUDE.md", "claude-guidance", &options, &mut changes).await?
+            }
+            SetupTarget::Codex => {
+                setup_agent("AGENTS.md", "codex-guidance", &options, &mut changes).await?
+            }
+        }
+    }
+
+    print_setup_report(
+        &SetupReport {
+            command: "setup",
+            dry_run: options.dry_run,
+            changes,
+        },
+        json,
+        quiet,
+    )?;
+    Ok(ExitCode::SUCCESS)
+}
+
+fn setup_targets(args: &SetupArgs) -> Result<Vec<SetupTarget>> {
+    let explicit =
+        args.all || args.shell.is_some() || args.editor.is_some() || args.agent.is_some();
+    if !explicit {
+        if !std::io::stdin().is_terminal() || !std::io::stdout().is_terminal() {
+            return Err(RototoError::new(
+                "rototo setup needs a terminal. Use --all or select targets with flags.",
+            ));
+        }
+        return interactive_setup_targets();
+    }
+
+    let mut targets = Vec::new();
+    if args.all {
+        add_target(&mut targets, SetupTarget::Shell(SetupShellArg::Auto));
+        add_target(&mut targets, SetupTarget::Neovim);
+        add_target(&mut targets, SetupTarget::VsCode);
+        add_target(&mut targets, SetupTarget::Claude);
+        add_target(&mut targets, SetupTarget::Codex);
+    }
+
+    if let Some(shell) = args.shell {
+        targets.retain(|target| !matches!(target, SetupTarget::Shell(_)));
+        if shell != SetupShellArg::None {
+            add_target(&mut targets, SetupTarget::Shell(shell));
+        }
+    }
+
+    if let Some(editor) = args.editor {
+        targets.retain(|target| !matches!(target, SetupTarget::Neovim | SetupTarget::VsCode));
+        match editor {
+            SetupEditorArg::All => {
+                add_target(&mut targets, SetupTarget::Neovim);
+                add_target(&mut targets, SetupTarget::VsCode);
+            }
+            SetupEditorArg::Neovim => add_target(&mut targets, SetupTarget::Neovim),
+            SetupEditorArg::VsCode => add_target(&mut targets, SetupTarget::VsCode),
+            SetupEditorArg::None => {}
+        }
+    }
+
+    if let Some(agent) = args.agent {
+        targets.retain(|target| !matches!(target, SetupTarget::Claude | SetupTarget::Codex));
+        match agent {
+            SetupAgentArg::All => {
+                add_target(&mut targets, SetupTarget::Claude);
+                add_target(&mut targets, SetupTarget::Codex);
+            }
+            SetupAgentArg::Claude => add_target(&mut targets, SetupTarget::Claude),
+            SetupAgentArg::Codex => add_target(&mut targets, SetupTarget::Codex),
+            SetupAgentArg::None => {}
+        }
+    }
+
+    if args.print && targets.len() != 1 {
+        return Err(RototoError::new(
+            "rototo setup --print requires exactly one explicit target",
+        ));
+    }
+
+    Ok(targets)
+}
+
+fn interactive_setup_targets() -> Result<Vec<SetupTarget>> {
+    let mut targets = Vec::new();
+    if prompt_setup_target("Shell completions", true)? {
+        add_target(&mut targets, SetupTarget::Shell(SetupShellArg::Auto));
+    }
+    if prompt_setup_target("Neovim LSP", true)? {
+        add_target(&mut targets, SetupTarget::Neovim);
+    }
+    if prompt_setup_target("VS Code LSP", false)? {
+        add_target(&mut targets, SetupTarget::VsCode);
+    }
+    if prompt_setup_target("Claude agent guidance", true)? {
+        add_target(&mut targets, SetupTarget::Claude);
+    }
+    if prompt_setup_target("Codex agent guidance", true)? {
+        add_target(&mut targets, SetupTarget::Codex);
+    }
+    Ok(targets)
+}
+
+fn prompt_setup_target(label: &str, default: bool) -> Result<bool> {
+    use std::io::Write;
+
+    let suffix = if default { "Y/n" } else { "y/N" };
+    print!("{label}? [{suffix}] ");
+    std::io::stdout()
+        .flush()
+        .map_err(|err| RototoError::new(format!("failed to write setup prompt: {err}")))?;
+    let mut answer = String::new();
+    std::io::stdin()
+        .read_line(&mut answer)
+        .map_err(|err| RototoError::new(format!("failed to read setup prompt: {err}")))?;
+    let answer = answer.trim().to_ascii_lowercase();
+    match answer.as_str() {
+        "" => Ok(default),
+        "y" | "yes" => Ok(true),
+        "n" | "no" => Ok(false),
+        _ => Err(RototoError::new(format!(
+            "invalid setup answer for {label}: expected yes or no"
+        ))),
+    }
+}
+
+fn add_target(targets: &mut Vec<SetupTarget>, target: SetupTarget) {
+    if !targets.contains(&target) {
+        targets.push(target);
+    }
+}
+
+fn print_setup_targets(targets: &[SetupTarget]) -> Result<()> {
+    let target = targets.first().ok_or_else(|| {
+        RototoError::new("rototo setup --print requires exactly one explicit target")
+    })?;
+    match *target {
+        SetupTarget::Shell(shell) => {
+            let shell = resolve_setup_shell(shell)?;
+            let completion_shell = shell.completion_shell().ok_or_else(|| {
+                RototoError::new("setup --print requires a concrete shell target")
+            })?;
+            print!("{}", completion_script(shell, completion_shell)?);
+        }
+        SetupTarget::Neovim => print!("{}", neovim_lsp_config()),
+        SetupTarget::VsCode => {
+            println!("Configure a VS Code LSP client to launch `rototo lsp`.");
+        }
+        SetupTarget::Claude | SetupTarget::Codex => print!("{}", agent_guidance_block()),
+    }
+    Ok(())
+}
+
+async fn setup_shell(
+    shell: SetupShellArg,
+    options: &SetupRunOptions,
+    changes: &mut Vec<SetupChange>,
+) -> Result<()> {
+    let shell = resolve_setup_shell(shell)?;
+    if shell == SetupShellArg::PowerShell {
+        changes.push(setup_change(
+            "shell-completions",
+            SetupStatus::NeedsManualStep,
+            None,
+            Some(
+                "run `rototo setup --shell powershell --print` and add the output to your PowerShell profile",
+            ),
+        ));
+        return Ok(());
+    }
+
+    let completion_shell = shell.completion_shell().ok_or_else(|| {
+        RototoError::new(format!("unsupported shell setup target: {}", shell.label()))
+    })?;
+    let path = shell_completion_path(shell)?;
+    let content = completion_script(shell, completion_shell)?;
+    let status = write_generated_file(&path, &content, options).await?;
+    changes.push(setup_change(
+        "shell-completions",
+        status,
+        Some(path.display().to_string()),
+        None,
+    ));
+
+    if shell == SetupShellArg::Zsh {
+        changes.push(setup_change(
+            "zsh-profile",
+            SetupStatus::NeedsManualStep,
+            None,
+            Some("ensure `${ZDOTDIR:-$HOME}/.zfunc` is in fpath before compinit"),
+        ));
+    }
+    Ok(())
+}
+
+fn resolve_setup_shell(shell: SetupShellArg) -> Result<SetupShellArg> {
+    match shell {
+        SetupShellArg::Auto => detect_setup_shell(),
+        SetupShellArg::None => Err(RototoError::new("no shell setup target selected")),
+        shell => Ok(shell),
+    }
+}
+
+fn detect_setup_shell() -> Result<SetupShellArg> {
+    let shell = std::env::var_os("SHELL")
+        .ok_or_else(|| RototoError::new("could not detect shell from SHELL; pass --shell"))?;
+    let name = Path::new(&shell)
+        .file_name()
+        .and_then(|name| name.to_str())
+        .unwrap_or_default()
+        .to_ascii_lowercase();
+    let name = name.strip_suffix(".exe").unwrap_or(&name);
+    match name {
+        "bash" => Ok(SetupShellArg::Bash),
+        "elvish" => Ok(SetupShellArg::Elvish),
+        "fish" => Ok(SetupShellArg::Fish),
+        "powershell" | "pwsh" => Ok(SetupShellArg::PowerShell),
+        "zsh" => Ok(SetupShellArg::Zsh),
+        _ => Err(RototoError::new(format!(
+            "could not detect a supported shell from SHELL={}; pass --shell",
+            shell.to_string_lossy()
+        ))),
+    }
+}
+
+fn shell_completion_path(shell: SetupShellArg) -> Result<PathBuf> {
+    match shell {
+        SetupShellArg::Bash => {
+            Ok(home_dir()?.join(".local/share/bash-completion/completions/rototo"))
+        }
+        SetupShellArg::Elvish => Ok(home_dir()?.join(".elvish/lib/rototo-completions.elv")),
+        SetupShellArg::Fish => Ok(config_home()?.join("fish/completions/rototo.fish")),
+        SetupShellArg::Zsh => Ok(zdotdir()?.join(".zfunc/_rototo")),
+        SetupShellArg::Auto | SetupShellArg::PowerShell | SetupShellArg::None => {
+            Err(RototoError::new(format!(
+                "unsupported shell completion path: {}",
+                shell.label()
+            )))
+        }
+    }
+}
+
+fn completion_script(shell: SetupShellArg, completion_shell: Shell) -> Result<String> {
+    let mut command = Cli::command();
+    let name = command.get_name().to_owned();
+    let mut bytes = Vec::new();
+    generate(completion_shell, &mut command, name, &mut bytes);
+    let script = String::from_utf8(bytes)
+        .map_err(|err| RototoError::new(format!("generated completion was not utf-8: {err}")))?;
+    Ok(with_generated_marker(shell, script))
+}
+
+fn with_generated_marker(shell: SetupShellArg, script: String) -> String {
+    let marker = format!("# {SETUP_GENERATED_MARKER}\n");
+    if shell == SetupShellArg::Zsh
+        && script
+            .lines()
+            .next()
+            .is_some_and(|line| line.starts_with("#compdef "))
+        && let Some((first, rest)) = script.split_once('\n')
+    {
+        return format!("{first}\n{marker}{rest}");
+    }
+    format!("{marker}{script}")
+}
+
+async fn setup_neovim(options: &SetupRunOptions, changes: &mut Vec<SetupChange>) -> Result<()> {
+    let nvim = config_home()?.join("nvim");
+    let rototo_lua = nvim.join("lua/rototo.lua");
+    let status = write_generated_file(&rototo_lua, &neovim_lsp_config(), options).await?;
+    changes.push(setup_change(
+        "neovim-lsp",
+        status,
+        Some(rototo_lua.display().to_string()),
+        None,
+    ));
+
+    let init_lua = nvim.join("init.lua");
+    let init_vim = nvim.join("init.vim");
+    let (init_path, line, alternatives) =
+        if path_exists(&init_lua).await? || !path_exists(&init_vim).await? {
+            (
+                init_lua,
+                "require(\"rototo\")",
+                vec!["require(\"rototo\")", "require('rototo')"],
+            )
+        } else {
+            (
+                init_vim,
+                "lua require(\"rototo\")",
+                vec!["lua require(\"rototo\")", "lua require('rototo')"],
+            )
+        };
+    let status = ensure_config_line(&init_path, line, &alternatives, options.dry_run).await?;
+    changes.push(setup_change(
+        "neovim-init",
+        status,
+        Some(init_path.display().to_string()),
+        None,
+    ));
+    Ok(())
+}
+
+fn neovim_lsp_config() -> String {
+    let marker = format!("-- {SETUP_GENERATED_MARKER}");
+    format!(
+        r#"{marker}
+local root_markers = {{ "rototo-package.toml" }}
+
+local function rototo_root(path)
+  local marker = vim.fs.find(root_markers, {{ upward = true, path = vim.fs.dirname(path) }})[1]
+  if marker == nil then
+    return nil
+  end
+  return vim.fs.dirname(marker)
+end
+
+vim.api.nvim_create_autocmd("FileType", {{
+  pattern = {{ "toml", "json", "lua" }},
+  callback = function(event)
+    local root = rototo_root(vim.api.nvim_buf_get_name(event.buf))
+    if root == nil then
+      return
+    end
+    vim.lsp.start({{
+      name = "rototo",
+      cmd = {{ "rototo", "lsp" }},
+      root_dir = root,
+    }}, {{ bufnr = event.buf }})
+  end,
+}})
+"#,
+    )
+}
+
+fn setup_vscode(changes: &mut Vec<SetupChange>) {
+    changes.push(setup_change(
+        "vscode",
+        SetupStatus::NeedsManualStep,
+        None,
+        Some("install or configure a VS Code LSP client to launch `rototo lsp`"),
+    ));
+}
+
+async fn setup_agent(
+    file_name: &str,
+    target: &'static str,
+    options: &SetupRunOptions,
+    changes: &mut Vec<SetupChange>,
+) -> Result<()> {
+    let path = nearest_agent_file(file_name).await?;
+    let status =
+        upsert_managed_markdown_block(&path, &agent_guidance_block(), options.dry_run).await?;
+    changes.push(setup_change(
+        target,
+        status,
+        Some(path.display().to_string()),
+        None,
+    ));
+    Ok(())
+}
+
+async fn nearest_agent_file(file_name: &str) -> Result<PathBuf> {
+    let start = std::env::current_dir()
+        .map_err(|err| RototoError::new(format!("failed to read current directory: {err}")))?;
+    let mut dir = start.as_path();
+    loop {
+        let candidate = dir.join(file_name);
+        if path_exists(&candidate).await? {
+            return Ok(candidate);
+        }
+        match dir.parent() {
+            Some(parent) => dir = parent,
+            None => return Ok(start.join(file_name)),
+        }
+    }
+}
+
+fn agent_guidance_block() -> String {
+    format!(
+        r#"{AGENT_SETUP_BEGIN}
+## rototo
+
+When changing runtime behavior, use rototo package files as the control plane. Use `rototo docs` for concepts, `rototo inspect` to understand package shape, `rototo resolve` with realistic context to verify behavior, and `rototo lint` before finishing. Use `rototo lsp` in editors when available.
+{AGENT_SETUP_END}
+"#
+    )
+}
+
+async fn write_generated_file(
+    path: &Path,
+    content: &str,
+    options: &SetupRunOptions,
+) -> Result<SetupStatus> {
+    match tokio::fs::read_to_string(path).await {
+        Ok(existing) if existing == content => Ok(SetupStatus::Unchanged),
+        Ok(existing) => {
+            if !options.force && !existing.contains(SETUP_GENERATED_MARKER) {
+                return Err(RototoError::new(format!(
+                    "file already exists with different content: {} (use --force to overwrite)",
+                    path.display()
+                )));
+            }
+            if !options.dry_run {
+                write_file_creating_parent(path, content).await?;
+            }
+            Ok(SetupStatus::Changed)
+        }
+        Err(err) if err.kind() == std::io::ErrorKind::NotFound => {
+            if !options.dry_run {
+                write_file_creating_parent(path, content).await?;
+            }
+            Ok(SetupStatus::Changed)
+        }
+        Err(err) => Err(RototoError::new(format!(
+            "failed to read {}: {err}",
+            path.display()
+        ))),
+    }
+}
+
+async fn ensure_config_line(
+    path: &Path,
+    line: &str,
+    alternatives: &[&str],
+    dry_run: bool,
+) -> Result<SetupStatus> {
+    match tokio::fs::read_to_string(path).await {
+        Ok(existing) => {
+            if alternatives
+                .iter()
+                .any(|alternative| existing.contains(alternative))
+            {
+                return Ok(SetupStatus::Unchanged);
+            }
+            let mut updated = existing;
+            if !updated.ends_with('\n') {
+                updated.push('\n');
+            }
+            updated.push_str(line);
+            updated.push('\n');
+            if !dry_run {
+                write_file_creating_parent(path, &updated).await?;
+            }
+            Ok(SetupStatus::Changed)
+        }
+        Err(err) if err.kind() == std::io::ErrorKind::NotFound => {
+            if !dry_run {
+                write_file_creating_parent(path, &format!("{line}\n")).await?;
+            }
+            Ok(SetupStatus::Changed)
+        }
+        Err(err) => Err(RototoError::new(format!(
+            "failed to read {}: {err}",
+            path.display()
+        ))),
+    }
+}
+
+async fn upsert_managed_markdown_block(
+    path: &Path,
+    block: &str,
+    dry_run: bool,
+) -> Result<SetupStatus> {
+    match tokio::fs::read_to_string(path).await {
+        Ok(existing) => {
+            let updated = replace_or_append_managed_block(&existing, block)?;
+            if updated == existing {
+                return Ok(SetupStatus::Unchanged);
+            }
+            if !dry_run {
+                write_file_creating_parent(path, &updated).await?;
+            }
+            Ok(SetupStatus::Changed)
+        }
+        Err(err) if err.kind() == std::io::ErrorKind::NotFound => {
+            if !dry_run {
+                write_file_creating_parent(path, block).await?;
+            }
+            Ok(SetupStatus::Changed)
+        }
+        Err(err) => Err(RototoError::new(format!(
+            "failed to read {}: {err}",
+            path.display()
+        ))),
+    }
+}
+
+fn replace_or_append_managed_block(existing: &str, block: &str) -> Result<String> {
+    match (
+        existing.find(AGENT_SETUP_BEGIN),
+        existing.find(AGENT_SETUP_END),
+    ) {
+        (Some(begin), Some(end)) if begin <= end => {
+            let after_end = end + AGENT_SETUP_END.len();
+            let mut updated = String::new();
+            updated.push_str(&existing[..begin]);
+            updated.push_str(block);
+            updated.push_str(existing[after_end..].trim_start_matches('\n'));
+            Ok(updated)
+        }
+        (None, None) => {
+            let mut updated = existing.to_owned();
+            if !updated.is_empty() {
+                if !updated.ends_with('\n') {
+                    updated.push('\n');
+                }
+                updated.push('\n');
+            }
+            updated.push_str(block);
+            Ok(updated)
+        }
+        _ => Err(RototoError::new(
+            "existing agent instructions contain an incomplete rototo setup block",
+        )),
+    }
+}
+
+async fn write_file_creating_parent(path: &Path, content: &str) -> Result<()> {
+    if let Some(parent) = path.parent() {
+        tokio::fs::create_dir_all(parent).await.map_err(|err| {
+            RototoError::new(format!(
+                "failed to create directory {}: {err}",
+                parent.display()
+            ))
+        })?;
+    }
+    tokio::fs::write(path, content)
+        .await
+        .map_err(|err| RototoError::new(format!("failed to write {}: {err}", path.display())))
+}
+
+fn setup_change(
+    target: &'static str,
+    status: SetupStatus,
+    path: Option<String>,
+    message: Option<&str>,
+) -> SetupChange {
+    SetupChange {
+        target,
+        status,
+        path,
+        message: message.map(str::to_owned),
+    }
+}
+
+fn print_setup_report(report: &SetupReport, json: bool, quiet: bool) -> Result<()> {
+    if json {
+        println!(
+            "{}",
+            serde_json::to_string_pretty(report)
+                .map_err(|err| RototoError::new(err.to_string()))?
+        );
+        return Ok(());
+    }
+
+    if quiet {
+        return Ok(());
+    }
+
+    println!("rototo setup");
+    println!();
+    for change in &report.changes {
+        let label = change.status.label(report.dry_run);
+        match (&change.path, &change.message) {
+            (Some(path), Some(message)) => {
+                println!("{label:<17} {}: {path} ({message})", change.target)
+            }
+            (Some(path), None) => println!("{label:<17} {}: {path}", change.target),
+            (None, Some(message)) => println!("{label:<17} {}: {message}", change.target),
+            (None, None) => println!("{label:<17} {}", change.target),
+        }
+    }
+    Ok(())
+}
+
+fn home_dir() -> Result<PathBuf> {
+    for name in ["HOME", "USERPROFILE"] {
+        if let Some(value) = std::env::var_os(name).filter(|value| !value.is_empty()) {
+            return Ok(PathBuf::from(value));
+        }
+    }
+    Err(RototoError::new(
+        "could not find a home directory from HOME or USERPROFILE",
+    ))
+}
+
+fn config_home() -> Result<PathBuf> {
+    if let Some(value) = std::env::var_os("XDG_CONFIG_HOME").filter(|value| !value.is_empty()) {
+        return Ok(PathBuf::from(value));
+    }
+    Ok(home_dir()?.join(".config"))
+}
+
+fn zdotdir() -> Result<PathBuf> {
+    if let Some(value) = std::env::var_os("ZDOTDIR").filter(|value| !value.is_empty()) {
+        return Ok(PathBuf::from(value));
+    }
+    home_dir()
 }
 
 async fn run_init(args: InitArgs, json: bool, quiet: bool) -> Result<ExitCode> {

@@ -27,6 +27,8 @@ fn top_level_help_is_task_oriented() {
         .stdout(predicate::str::contains("Package commands"))
         .stdout(predicate::str::contains("Utility commands"))
         .stdout(predicate::str::contains("lint"))
+        .stdout(predicate::str::contains("setup"))
+        .stdout(predicate::str::contains("completions").not())
         .stdout(predicate::str::contains("rototo docs -p motivation"))
         .stdout(predicate::str::contains("rototo help package-sources").not())
         .stdout(predicate::str::contains("git+https://").not());
@@ -71,13 +73,81 @@ fn old_noun_commands_are_removed() {
 }
 
 #[test]
-fn generates_zsh_completions() {
+fn prints_zsh_completions_through_setup() {
+    Command::cargo_bin("rototo")
+        .unwrap()
+        .args(["setup", "--shell", "zsh", "--print"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("#compdef rototo"));
+}
+
+#[test]
+fn old_completions_command_is_removed() {
     Command::cargo_bin("rototo")
         .unwrap()
         .args(["completions", "zsh"])
         .assert()
+        .failure();
+}
+
+#[test]
+fn bare_setup_requires_tty_or_explicit_targets() {
+    Command::cargo_bin("rototo")
+        .unwrap()
+        .arg("setup")
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("rototo setup needs a terminal"));
+}
+
+#[test]
+fn setup_neovim_lsp_uses_rototo_package_root_marker() {
+    let temp = tempfile::tempdir().unwrap();
+    let home = temp.path().join("home");
+    let config = temp.path().join("config");
+    fs::create_dir_all(&home).unwrap();
+    fs::create_dir_all(&config).unwrap();
+
+    Command::cargo_bin("rototo")
+        .unwrap()
+        .env("HOME", &home)
+        .env("XDG_CONFIG_HOME", &config)
+        .args(["setup", "--editor", "neovim"])
+        .assert()
         .success()
-        .stdout(predicate::str::contains("#compdef rototo"));
+        .stdout(predicate::str::contains("neovim-lsp"));
+
+    let lsp_config = fs::read_to_string(config.join("nvim/lua/rototo.lua")).unwrap();
+    assert!(lsp_config.contains(r#"root_markers = { "rototo-package.toml" }"#));
+    assert!(!lsp_config.contains(".git"));
+    assert!(lsp_config.contains(r#"cmd = { "rototo", "lsp" }"#));
+
+    let init = fs::read_to_string(config.join("nvim/init.lua")).unwrap();
+    assert!(init.contains(r#"require("rototo")"#));
+}
+
+#[test]
+fn setup_agent_walks_upward_to_existing_instruction_file() {
+    let temp = tempfile::tempdir().unwrap();
+    let root = temp.path().join("repo");
+    let nested = root.join("packages/checkout");
+    fs::create_dir_all(&nested).unwrap();
+    fs::write(root.join("AGENTS.md"), "# Existing instructions\n").unwrap();
+
+    Command::cargo_bin("rototo")
+        .unwrap()
+        .current_dir(&nested)
+        .args(["setup", "--agent", "codex"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("codex-guidance"));
+
+    let instructions = fs::read_to_string(root.join("AGENTS.md")).unwrap();
+    assert!(instructions.contains("# Existing instructions"));
+    assert!(instructions.contains("<!-- BEGIN rototo setup -->"));
+    assert!(instructions.contains("rototo package files as the control plane"));
+    assert!(!nested.join("AGENTS.md").exists());
 }
 
 #[test]
