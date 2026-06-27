@@ -4,7 +4,7 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use napi::bindgen_prelude::*;
 use napi_derive::napi;
 use rototo::{
-    LintMode, LoadOptions, RefreshOptions, ResolveContext, ResolveOptions, SourceAuth,
+    EvaluationContext, LintMode, LoadOptions, RefreshOptions, ResolveOptions, SourceAuth,
     SourceFingerprint, SourceOptions,
 };
 use serde_json::Value as JsonValue;
@@ -75,7 +75,7 @@ impl JsPackage {
         context: JsonValue,
         validate_context: Option<bool>,
     ) -> Result<JsonValue> {
-        let context = ResolveContext::from_json(context).map_err(js_err)?;
+        let context = EvaluationContext::from_json(context).map_err(js_err)?;
         let resolution = self
             .inner
             .resolve_variable_with_options(
@@ -98,7 +98,7 @@ impl JsPackage {
         context: JsonValue,
         validate_context: Option<bool>,
     ) -> Result<bool> {
-        let context = ResolveContext::from_json(context).map_err(js_err)?;
+        let context = EvaluationContext::from_json(context).map_err(js_err)?;
         self.inner
             .resolve_qualifier_with_options(
                 &id,
@@ -141,7 +141,7 @@ impl JsRefreshingPackage {
         context: JsonValue,
         validate_context: Option<bool>,
     ) -> Result<JsonValue> {
-        let context = ResolveContext::from_json(context).map_err(js_err)?;
+        let context = EvaluationContext::from_json(context).map_err(js_err)?;
         let guard = self.inner.blocking_lock();
         let package = active_refreshing_package(&guard)?;
         let resolution = package
@@ -165,7 +165,7 @@ impl JsRefreshingPackage {
         context: JsonValue,
         validate_context: Option<bool>,
     ) -> Result<bool> {
-        let context = ResolveContext::from_json(context).map_err(js_err)?;
+        let context = EvaluationContext::from_json(context).map_err(js_err)?;
         let guard = self.inner.blocking_lock();
         let package = active_refreshing_package(&guard)?;
         package

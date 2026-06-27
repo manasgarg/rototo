@@ -7,7 +7,7 @@ use serde_json::{Value as JsonValue, json};
 use tracing_subscriber::EnvFilter;
 
 use crate::error::{Result, RototoError};
-use crate::{Package, ResolveContext};
+use crate::{EvaluationContext, Package};
 
 use super::capabilities::{DeploymentType, WritePolicy};
 
@@ -106,7 +106,7 @@ impl ConsoleRuntimeConfig {
         &self,
         request: RequestObservabilityContext,
     ) -> ConsoleRequestObservabilityConfig {
-        let context = self.base.request_context(&request);
+        let context = self.base.evaluation_context(&request);
         let resolved = match &self.package {
             Some(package) => resolve_request_observability(package, &context).await,
             None => Ok(self.resolve_built_in_request_observability(&request)),
@@ -145,7 +145,7 @@ async fn resolve_startup_observability(
     package: &Package,
     context: &JsonValue,
 ) -> Result<ConsoleObservabilityConfig> {
-    let context = ResolveContext::from_json(context.clone())?;
+    let context = EvaluationContext::from_json(context.clone())?;
     let resolution = package.resolve_variable(STARTUP_OBSERVABILITY_VARIABLE, &context)?;
     let config: ConsoleObservabilityConfig = serde_json::from_value(resolution.value).map_err(|err| {
         RototoError::new(format!(
@@ -160,7 +160,7 @@ async fn resolve_request_observability(
     package: &Package,
     context: &JsonValue,
 ) -> Result<ConsoleRequestObservabilityConfig> {
-    let context = ResolveContext::from_json(context.clone())?;
+    let context = EvaluationContext::from_json(context.clone())?;
     let resolution = package.resolve_variable(REQUEST_OBSERVABILITY_VARIABLE, &context)?;
     let config: ConsoleRequestObservabilityConfig =
         serde_json::from_value(resolution.value).map_err(|err| {
@@ -217,7 +217,7 @@ impl ConsoleRuntimeBase {
         })
     }
 
-    fn request_context(&self, request: &RequestObservabilityContext) -> JsonValue {
+    fn evaluation_context(&self, request: &RequestObservabilityContext) -> JsonValue {
         json!({
             "phase": "request",
             "deployment": self.deployment.label(),

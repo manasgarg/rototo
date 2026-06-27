@@ -18,14 +18,14 @@ fn init_creates_package_skeleton() {
         .stdout(predicate::str::contains("qualifiers"))
         .stdout(predicate::str::contains("variables"))
         .stdout(predicate::str::contains("catalogs"))
-        .stdout(predicate::str::contains("request-contexts"))
+        .stdout(predicate::str::contains("evaluation-contexts"))
         .stdout(predicate::str::contains("lint"));
 
     assert!(package.join("rototo-package.toml").is_file());
     assert!(package.join("qualifiers").is_dir());
     assert!(package.join("variables").is_dir());
     assert!(package.join("catalogs").is_dir());
-    assert!(package.join("request-contexts").is_dir());
+    assert!(package.join("evaluation-contexts").is_dir());
     assert!(package.join("lint").is_dir());
 
     Command::cargo_bin("rototo")
@@ -57,7 +57,7 @@ fn init_entity_implicitly_creates_package_skeleton() {
     assert!(package.join("qualifiers").is_dir());
     assert!(package.join("variables").is_dir());
     assert!(package.join("catalogs").is_dir());
-    assert!(package.join("request-contexts").is_dir());
+    assert!(package.join("evaluation-contexts").is_dir());
     assert!(package.join("lint").is_dir());
     assert!(package.join("variables/max-output-tokens.toml").is_file());
 
@@ -87,7 +87,7 @@ fn init_qualifier_and_context_templates() {
 
     Command::cargo_bin("rototo")
         .unwrap()
-        .args(["init", package.to_str().unwrap(), "--context"])
+        .args(["init", package.to_str().unwrap(), "--evaluation-context"])
         .assert()
         .success();
 
@@ -98,7 +98,7 @@ fn init_qualifier_and_context_templates() {
     assert!(qualifier.contains("bucket(context.user.id"));
 
     let schema: serde_json::Value = serde_json::from_str(
-        &fs::read_to_string(package.join("request-contexts/request.schema.json")).unwrap(),
+        &fs::read_to_string(package.join("evaluation-contexts/request.schema.json")).unwrap(),
     )
     .unwrap();
     assert_eq!(

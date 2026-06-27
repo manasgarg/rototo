@@ -61,7 +61,7 @@ fn shows_package_inventory_as_json_including_top_level_entries() {
         .assert()
         .success()
         .stdout(predicate::str::contains(
-            r#""path": "request-contexts/request.schema.json""#,
+            r#""path": "evaluation-contexts/request.schema.json""#,
         ))
         .stdout(predicate::str::contains(r#""catalogs": ["#))
         .stdout(predicate::str::contains(r#""qualifiers": ["#))
@@ -286,7 +286,7 @@ fn resolves_production_example_enterprise_profile() {
             "--variable",
             "agent-config",
             "--context",
-            "@examples/production/request-contexts/request-entries/eu-enterprise.json",
+            "@examples/production/evaluation-contexts/request-samples/eu-enterprise.json",
             "--json",
         ])
         .assert()
@@ -306,7 +306,7 @@ fn resolves_all_variables() {
             "examples/basic",
             "--variables",
             "--context",
-            "@examples/basic/request-contexts/request-entries/premium-enterprise.json",
+            "@examples/basic/evaluation-contexts/request-samples/premium-enterprise.json",
             "--context",
             "lane=prod",
             "--json",
@@ -385,7 +385,7 @@ fn resolve_rejects_context_that_does_not_match_package_schema() {
         .assert()
         .failure()
         .stderr(predicate::str::contains(
-            "resolve context does not match any compatible request context",
+            "evaluation context does not match any compatible evaluation context",
         ));
 }
 

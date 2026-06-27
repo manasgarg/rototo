@@ -12,13 +12,13 @@ mod catalog_schema;
 mod custom;
 mod diff;
 mod engine;
+mod evaluation_context;
 mod index;
 pub(crate) mod input;
 mod inspect;
 mod output;
 mod project;
 mod references;
-mod request_context;
 mod runtime;
 mod semantic_model;
 mod source;
@@ -26,21 +26,21 @@ mod stages;
 mod symbols;
 mod syntax;
 
+pub(crate) use evaluation_context::EvaluationContextCompatibility;
 use index::*;
 pub(crate) use input::{LintInput, OverlayDocument};
 pub(crate) use inspect::inspect_snapshot;
 use references::ReferenceIndex;
-pub(crate) use request_context::RequestContextCompatibility;
 pub(crate) use runtime::{
     RuntimeCatalogQuery, RuntimePackage, RuntimeRule, RuntimeRuleSelection, RuntimeSelectedValue,
     compile_runtime_package, compile_runtime_package_from_snapshot,
 };
 pub use semantic_model::{
-    CatalogEntryModel, CatalogModel, DeclarationModel, LinterModel, LinterRuleModel,
-    ModelEntityRef, ModelField, ModelLocation, ModelReferenceVia, ModelValueField,
-    PackageSemanticModel, PredicateModel, QualifierModel, QualifierRequestContextModel,
-    ReferenceModel, RequestContextEntryModel, RequestContextModel, ResolveModel, RuleModel,
-    ValueModel, VariableModel, VariableRequestContextModel,
+    CatalogEntryModel, CatalogModel, DeclarationModel, EvaluationContextModel,
+    EvaluationContextSampleModel, LinterModel, LinterRuleModel, ModelEntityRef, ModelField,
+    ModelLocation, ModelReferenceVia, ModelValueField, PackageSemanticModel, PredicateModel,
+    QualifierEvaluationContextModel, QualifierModel, ReferenceModel, ResolveModel, RuleModel,
+    ValueModel, VariableEvaluationContextModel, VariableModel,
 };
 pub(crate) use symbols::{
     PackageCompletionItem, PackageCompletionItemKind, PackageDefinition, PackageDocumentSymbol,
@@ -212,8 +212,8 @@ impl PackageLintSnapshot {
         symbols::references(self, path, position, include_declaration)
     }
 
-    pub(crate) fn request_context_compatibility(&self) -> RequestContextCompatibility {
-        request_context::compatibility(self)
+    pub(crate) fn evaluation_context_compatibility(&self) -> EvaluationContextCompatibility {
+        evaluation_context::compatibility(self)
     }
 
     pub(crate) fn source_text(&self, path: &str) -> Option<&str> {

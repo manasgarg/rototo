@@ -34,8 +34,8 @@ pub use resolve::{
     trace_variable_resolutions,
 };
 pub use sdk::{
-    LintMode, LoadOptions, Package, RefreshOptions, RefreshOutcome, RefreshStatus,
-    RefreshingPackage, ResolveContext, ResolveOptions,
+    EvaluationContext, LintMode, LoadOptions, Package, RefreshOptions, RefreshOutcome,
+    RefreshStatus, RefreshingPackage, ResolveOptions,
 };
 pub use source::{
     SourceAuth, SourceFingerprint, SourceLayer, SourceOptions, SourceProbe, StagedPackage,

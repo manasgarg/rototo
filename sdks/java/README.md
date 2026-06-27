@@ -77,7 +77,7 @@ Qualifier resolution returns the final boolean result.
 
 ## Context Validation
 
-Resolution validates context against a compatible request context schema by
+Resolution validates context against a compatible evaluation context schema by
 default. Skip validation for one call when a tool needs to evaluate partial
 context:
 

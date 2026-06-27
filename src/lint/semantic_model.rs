@@ -25,12 +25,12 @@ pub struct PackageSemanticModel {
     pub variables: Vec<VariableModel>,
     pub catalogs: Vec<CatalogModel>,
     pub catalog_entries: Vec<CatalogEntryModel>,
-    pub request_contexts: Vec<RequestContextModel>,
-    pub request_context_entries: Vec<RequestContextEntryModel>,
+    pub evaluation_contexts: Vec<EvaluationContextModel>,
+    pub evaluation_context_samples: Vec<EvaluationContextSampleModel>,
     pub linters: Vec<LinterModel>,
     pub references: Vec<ReferenceModel>,
-    pub qualifier_request_contexts: Vec<QualifierRequestContextModel>,
-    pub variable_request_contexts: Vec<VariableRequestContextModel>,
+    pub qualifier_evaluation_contexts: Vec<QualifierEvaluationContextModel>,
+    pub variable_evaluation_contexts: Vec<VariableEvaluationContextModel>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -165,7 +165,7 @@ pub struct CatalogEntryModel {
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
-pub struct RequestContextModel {
+pub struct EvaluationContextModel {
     pub id: String,
     pub path: String,
     pub location: ModelLocation,
@@ -179,8 +179,8 @@ pub struct RequestContextModel {
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
-pub struct RequestContextEntryModel {
-    pub request_context: String,
+pub struct EvaluationContextSampleModel {
+    pub evaluation_context: String,
     pub key: String,
     pub path: String,
     pub location: ModelLocation,
@@ -190,16 +190,16 @@ pub struct RequestContextEntryModel {
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
-pub struct QualifierRequestContextModel {
+pub struct QualifierEvaluationContextModel {
     pub qualifier: String,
-    pub request_contexts: Vec<String>,
+    pub evaluation_contexts: Vec<String>,
 }
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
-pub struct VariableRequestContextModel {
+pub struct VariableEvaluationContextModel {
     pub variable: String,
-    pub request_contexts: Vec<String>,
+    pub evaluation_contexts: Vec<String>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -256,11 +256,11 @@ pub enum ModelEntityRef {
         catalog: String,
         key: String,
     },
-    RequestContext {
+    EvaluationContext {
         id: String,
     },
-    RequestContextEntry {
-        request_context: String,
+    EvaluationContextSample {
+        evaluation_context: String,
         key: String,
     },
     Value {
@@ -404,12 +404,12 @@ impl PackageLintSnapshot {
             })
             .collect();
 
-        let request_contexts = index
-            .request_contexts
+        let evaluation_contexts = index
+            .evaluation_contexts
             .values()
             .map(|node| {
                 let json = node.json.as_ref();
-                RequestContextModel {
+                EvaluationContextModel {
                     id: node.id.clone(),
                     path: node.path.clone(),
                     location: model_location(&node.location),
@@ -426,12 +426,12 @@ impl PackageLintSnapshot {
             })
             .collect();
 
-        let request_context_entries = index
-            .request_context_entries
+        let evaluation_context_samples = index
+            .evaluation_context_samples
             .values()
             .flat_map(|entries| entries.values())
-            .map(|node| RequestContextEntryModel {
-                request_context: node.request_context_id.clone(),
+            .map(|node| EvaluationContextSampleModel {
+                evaluation_context: node.evaluation_context_id.clone(),
                 key: node.key.clone(),
                 path: node.path.clone(),
                 location: model_location(&node.location),
@@ -478,21 +478,21 @@ impl PackageLintSnapshot {
             })
             .collect();
 
-        let compatibility = self.request_context_compatibility();
-        let qualifier_request_contexts = compatibility
+        let compatibility = self.evaluation_context_compatibility();
+        let qualifier_evaluation_contexts = compatibility
             .qualifiers
             .into_iter()
-            .map(|(qualifier, contexts)| QualifierRequestContextModel {
+            .map(|(qualifier, contexts)| QualifierEvaluationContextModel {
                 qualifier,
-                request_contexts: contexts.into_iter().collect(),
+                evaluation_contexts: contexts.into_iter().collect(),
             })
             .collect();
-        let variable_request_contexts = compatibility
+        let variable_evaluation_contexts = compatibility
             .variables
             .into_iter()
-            .map(|(variable, contexts)| VariableRequestContextModel {
+            .map(|(variable, contexts)| VariableEvaluationContextModel {
                 variable,
-                request_contexts: contexts.into_iter().collect(),
+                evaluation_contexts: contexts.into_iter().collect(),
             })
             .collect();
 
@@ -502,12 +502,12 @@ impl PackageLintSnapshot {
             variables,
             catalogs,
             catalog_entries,
-            request_contexts,
-            request_context_entries,
+            evaluation_contexts,
+            evaluation_context_samples,
             linters,
             references,
-            qualifier_request_contexts,
-            variable_request_contexts,
+            qualifier_evaluation_contexts,
+            variable_evaluation_contexts,
         }
     }
 }

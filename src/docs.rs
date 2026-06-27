@@ -50,283 +50,25 @@ pub const SDK_LANGUAGES: &[SdkLanguage] = &[
 
 pub const DOCS: &[DocPage] = &[
     DocPage {
-        id: "index",
-        title: "rototo",
-        markdown: include_str!("../docs/src/index.md"),
+        id: "motivation",
+        title: "Introducing Rototo",
+        markdown: include_str!("../docs/src/motivation.md"),
     },
     DocPage {
-        id: "getting-started",
-        title: "Getting Started",
-        markdown: include_str!("../docs/src/getting-started.md"),
-    },
-    DocPage {
-        id: "configuration-primitives",
-        title: "Configuration Primitives",
-        markdown: include_str!("../docs/src/configuration-primitives.md"),
-    },
-    DocPage {
-        id: "operational-switches",
-        title: "Operational Switches",
-        markdown: include_str!("../docs/src/operational-switches.md"),
-    },
-    DocPage {
-        id: "incident-banner",
-        title: "Incident Banner",
-        markdown: include_str!("../docs/src/incident-banner.md"),
-    },
-    DocPage {
-        id: "onboarding-checklist",
-        title: "Onboarding Checklist",
-        markdown: include_str!("../docs/src/onboarding-checklist.md"),
-    },
-    DocPage {
-        id: "bucketed-rollout",
-        title: "Bucketed Rollout",
-        markdown: include_str!("../docs/src/bucketed-rollout.md"),
-    },
-    DocPage {
-        id: "notification-delivery-policy",
-        title: "Notification Delivery Policy",
-        markdown: include_str!("../docs/src/notification-delivery-policy.md"),
-    },
-    DocPage {
-        id: "service-degradation-policy",
-        title: "Service Degradation Policy",
-        markdown: include_str!("../docs/src/service-degradation-policy.md"),
-    },
-    DocPage {
-        id: "package-layering",
-        title: "Package Layering",
-        markdown: include_str!("../docs/src/package-layering.md"),
-    },
-    DocPage {
-        id: "modeling-runtime-configuration",
-        title: "Modeling Runtime Configuration",
-        markdown: include_str!("../docs/src/modeling-runtime-configuration.md"),
-    },
-    DocPage {
-        id: "application-integration",
-        title: "Application Integration",
-        markdown: include_str!("../docs/src/application-integration.md"),
-    },
-    DocPage {
-        id: "testing-runtime-configuration",
-        title: "Testing Runtime Configuration",
-        markdown: include_str!("../docs/src/testing-runtime-configuration.md"),
-    },
-    DocPage {
-        id: "operating-runtime-configuration",
-        title: "Operating Runtime Configuration",
-        markdown: include_str!("../docs/src/operating-runtime-configuration.md"),
-    },
-    DocPage {
-        id: "production-workflow",
-        title: "Production Workflow",
-        markdown: include_str!("../docs/src/production-workflow.md"),
-    },
-    DocPage {
-        id: "self-hosting-console",
-        title: "Self-Hosting the Console",
-        markdown: include_str!("../docs/src/self-hosting-console.md"),
-    },
-    DocPage {
-        id: "reference-package-manifest",
-        title: "Package Manifest",
-        markdown: include_str!("../docs/src/reference-package-manifest.md"),
-    },
-    DocPage {
-        id: "reference-package-layout",
-        title: "Package Layout",
-        markdown: include_str!("../docs/src/reference-package-layout.md"),
-    },
-    DocPage {
-        id: "reference-package-sources",
-        title: "Package Sources",
-        markdown: include_str!("../docs/src/reference-package-sources.md"),
-    },
-    DocPage {
-        id: "reference-package-layering",
-        title: "Package Layering",
-        markdown: include_str!("../docs/src/reference-package-layering.md"),
-    },
-    DocPage {
-        id: "reference-context",
-        title: "Resolve Context",
-        markdown: include_str!("../docs/src/reference-context.md"),
-    },
-    DocPage {
-        id: "reference-qualifiers",
-        title: "Qualifiers",
-        markdown: include_str!("../docs/src/reference-qualifiers.md"),
-    },
-    DocPage {
-        id: "reference-predicate-operators",
-        title: "Expressions",
-        markdown: include_str!("../docs/src/reference-predicate-operators.md"),
-    },
-    DocPage {
-        id: "reference-variables",
-        title: "Variables",
-        markdown: include_str!("../docs/src/reference-variables.md"),
-    },
-    DocPage {
-        id: "reference-variable-values",
-        title: "Variable Values",
-        markdown: include_str!("../docs/src/reference-variable-values.md"),
-    },
-    DocPage {
-        id: "reference-catalogs",
-        title: "Catalogs",
-        markdown: include_str!("../docs/src/reference-catalogs.md"),
-    },
-    DocPage {
-        id: "reference-qualifier-resolution",
-        title: "Qualifier Resolution",
-        markdown: include_str!("../docs/src/reference-qualifier-resolution.md"),
-    },
-    DocPage {
-        id: "reference-variable-resolution",
-        title: "Variable Resolution",
-        markdown: include_str!("../docs/src/reference-variable-resolution.md"),
-    },
-    DocPage {
-        id: "reference-resolution-output",
-        title: "Resolution Output",
-        markdown: include_str!("../docs/src/reference-resolution-output.md"),
-    },
-    DocPage {
-        id: "reference-cli-overview",
-        title: "CLI Overview",
-        markdown: include_str!("../docs/src/reference-cli-overview.md"),
-    },
-    DocPage {
-        id: "reference-cli-commands",
-        title: "CLI Commands",
-        markdown: include_str!("../docs/src/reference-cli-commands.md"),
-    },
-    DocPage {
-        id: "reference-sdk-loading",
-        title: "SDK Loading",
-        markdown: include_str!("../docs/src/reference-sdk-loading.md"),
-    },
-    DocPage {
-        id: "reference-sdk-resolution",
-        title: "SDK Resolution",
-        markdown: include_str!("../docs/src/reference-sdk-resolution.md"),
-    },
-    DocPage {
-        id: "reference-sdk-refresh",
-        title: "SDK Refresh",
-        markdown: include_str!("../docs/src/reference-sdk-refresh.md"),
-    },
-    DocPage {
-        id: "reference-sdk-rust",
-        title: "Rust SDK",
-        markdown: include_str!("../docs/src/reference-sdk-rust.md"),
-    },
-    DocPage {
-        id: "reference-sdk-python",
-        title: "Python SDK",
-        markdown: include_str!("../docs/src/reference-sdk-python.md"),
-    },
-    DocPage {
-        id: "reference-sdk-typescript",
-        title: "TypeScript SDK",
-        markdown: include_str!("../docs/src/reference-sdk-typescript.md"),
-    },
-    DocPage {
-        id: "reference-sdk-java",
-        title: "Java SDK",
-        markdown: include_str!("../docs/src/reference-sdk-java.md"),
-    },
-    DocPage {
-        id: "reference-sdk-go",
-        title: "Go SDK",
-        markdown: include_str!("../docs/src/reference-sdk-go.md"),
-    },
-    DocPage {
-        id: "reference-lint-overview",
-        title: "Lint",
-        markdown: include_str!("../docs/src/reference-lint-overview.md"),
-    },
-    DocPage {
-        id: "reference-diagnostics",
-        title: "Diagnostics",
-        markdown: include_str!("../docs/src/reference-diagnostics.md"),
-    },
-    DocPage {
-        id: "reference-custom-lua-lint",
-        title: "Custom Lua Lint",
-        markdown: include_str!("../docs/src/reference-custom-lua-lint.md"),
-    },
-    DocPage {
-        id: "reference-json-output",
-        title: "JSON Output",
-        markdown: include_str!("../docs/src/reference-json-output.md"),
+        id: "concepts",
+        title: "Rototo Concepts",
+        markdown: include_str!("../docs/src/concepts.md"),
     },
 ];
 
 pub const DOC_NAV_SECTIONS: &[DocNavSection] = &[
     DocNavSection {
         title: "Start",
-        pages: &["index"],
+        pages: &["motivation"],
     },
     DocNavSection {
         title: "Learn",
-        pages: &[
-            "getting-started",
-            "configuration-primitives",
-            "operational-switches",
-            "incident-banner",
-            "onboarding-checklist",
-            "bucketed-rollout",
-            "notification-delivery-policy",
-            "service-degradation-policy",
-            "package-layering",
-        ],
-    },
-    DocNavSection {
-        title: "Adopt",
-        pages: &[
-            "modeling-runtime-configuration",
-            "application-integration",
-            "testing-runtime-configuration",
-            "operating-runtime-configuration",
-            "production-workflow",
-            "self-hosting-console",
-        ],
-    },
-    DocNavSection {
-        title: "Reference",
-        pages: &[
-            "reference-package-manifest",
-            "reference-package-layout",
-            "reference-package-sources",
-            "reference-package-layering",
-            "reference-context",
-            "reference-qualifiers",
-            "reference-predicate-operators",
-            "reference-variables",
-            "reference-variable-values",
-            "reference-catalogs",
-            "reference-qualifier-resolution",
-            "reference-variable-resolution",
-            "reference-resolution-output",
-            "reference-cli-overview",
-            "reference-cli-commands",
-            "reference-sdk-loading",
-            "reference-sdk-resolution",
-            "reference-sdk-refresh",
-            "reference-sdk-rust",
-            "reference-sdk-python",
-            "reference-sdk-typescript",
-            "reference-sdk-java",
-            "reference-sdk-go",
-            "reference-lint-overview",
-            "reference-diagnostics",
-            "reference-custom-lua-lint",
-            "reference-json-output",
-        ],
+        pages: &["concepts"],
     },
 ];
 
@@ -337,6 +79,7 @@ const MARK_SVG: &str = include_str!("../docs/theme/rototo-mark.svg");
 const WORDMARK_SVG: &str = include_str!("../docs/theme/rototo-wordmark.svg");
 pub const DEFAULT_DOCS_BASE_URL: &str = "https://docs.rototo.dev";
 const HIGHLIGHT_JS_VERSION: &str = "11.9.0";
+const DOCS_ENTRY_PAGE: &str = "motivation";
 
 /// Brand fonts referenced by the stylesheet: Manrope for display headings,
 /// Hanken Grotesk for body text, and JetBrains Mono for code and labels.
@@ -344,7 +87,7 @@ const GOOGLE_FONTS_HREF: &str = "https://fonts.googleapis.com/css2?family=Hanken
 
 /// Top navigation bar entries as (label, href relative to the docs pages).
 /// The homepage lives one level above the docs directory.
-const TOPNAV_LINKS: &[(&str, &str)] = &[("Home", "../index.html"), ("Docs", "index.html")];
+const TOPNAV_LINKS: &[(&str, &str)] = &[("Home", "../index.html"), ("Docs", "motivation.html")];
 
 /// The rototo GitHub repository, linked from the public site.
 const GITHUB_URL: &str = "https://github.com/manasgarg/rototo";
@@ -378,7 +121,7 @@ pub fn render_page_html(page: &DocPage) -> String {
 </head>
 <body>
 <header class="topbar">
-  <a class="brand" href="index.html"><img class="brand-wordmark" src="assets/rototo-wordmark.svg" alt="rototo"></a>
+  <a class="brand" href="../index.html"><img class="brand-wordmark" src="assets/rototo-wordmark.svg" alt="rototo"></a>
   <nav class="topnav" aria-label="Primary">
 {topnav}  </nav>
 </header>
@@ -530,7 +273,7 @@ value = "redesign"
 .home-split {{ display: grid; grid-template-columns: repeat(auto-fit, minmax(20rem, 1fr)); gap: 1.25rem; align-items: start; }}
 .home h2 {{ margin-top: 3rem; }}
 .home-sdks {{ display: flex; gap: 0.6rem; flex-wrap: wrap; margin-top: 1rem; }}
-.home-sdks a {{ border: 1px solid rgba(22, 36, 44, 0.2); border-radius: 999px; padding: 0.35rem 0.9rem; text-decoration: none; font-weight: 600; }}
+.home-sdks span {{ border: 1px solid rgba(22, 36, 44, 0.2); border-radius: 999px; padding: 0.35rem 0.9rem; font-weight: 600; }}
 .home-footer {{ margin-top: 4rem; padding-top: 1.5rem; border-top: 1px solid rgba(22, 36, 44, 0.14); display: flex; gap: 1.25rem; flex-wrap: wrap; }}
 </style>
 </head>
@@ -538,7 +281,7 @@ value = "redesign"
 <header class="topbar">
   <a class="brand" href="index.html"><img class="brand-wordmark" src="assets/rototo-wordmark.svg" alt="rototo"></a>
   <nav class="topnav" aria-label="Primary">
-    <a href="docs/index.html">Docs</a>
+    <a href="docs/motivation.html">Docs</a>
     <a href="{github}">GitHub</a>
   </nav>
 </header>
@@ -552,8 +295,8 @@ value = "redesign"
       channel around review — the repository is the control plane.
     </p>
     <div class="home-cta">
-      <a class="primary" href="docs/getting-started.html">Get started</a>
-      <a class="secondary" href="docs/index.html">Read the docs</a>
+      <a class="primary" href="docs/motivation.html">Read the docs</a>
+      <a class="secondary" href="docs/concepts.html">Concepts</a>
     </div>
   </section>
 
@@ -603,11 +346,11 @@ value = "redesign"
       language.
     </p>
     <div class="home-sdks">
-      <a href="docs/reference-sdk-rust.html">Rust</a>
-      <a href="docs/reference-sdk-python.html">Python</a>
-      <a href="docs/reference-sdk-typescript.html">TypeScript</a>
-      <a href="docs/reference-sdk-java.html">Java</a>
-      <a href="docs/reference-sdk-go.html">Go</a>
+      <span>Rust</span>
+      <span>Python</span>
+      <span>TypeScript</span>
+      <span>Java</span>
+      <span>Go</span>
     </div>
   </section>
 
@@ -620,11 +363,11 @@ value = "redesign"
       on your laptop with your own GitHub token, or behind your proxy with
       GitHub OAuth for the whole team.
     </p>
-    <p><a href="docs/self-hosting-console.html">Self-hosting the console →</a></p>
+    <p><a href="docs/concepts.html">Read the concepts →</a></p>
   </section>
 
   <footer class="home-footer">
-    <a href="docs/index.html">Documentation</a>
+    <a href="docs/motivation.html">Documentation</a>
     <a href="{github}">GitHub</a>
     <span>MIT or Apache-2.0</span>
   </footer>
@@ -894,7 +637,7 @@ fn render_nav(current: &str) -> String {
 fn render_topnav(current: &str) -> String {
     let mut nav = String::new();
     for (label, href) in TOPNAV_LINKS {
-        let current_attr = if *label == "Docs" && current == "index" {
+        let current_attr = if *label == "Docs" && current == DOCS_ENTRY_PAGE {
             r#" aria-current="page""#
         } else {
             ""
@@ -1054,7 +797,7 @@ fn page_href(id: &str) -> String {
 
 fn normalize_page_id(id: &str) -> &str {
     match id {
-        "" | "/" | "index.html" => "index",
+        "" | "/" | "index" | "index.html" => DOCS_ENTRY_PAGE,
         _ => id.strip_suffix(".html").unwrap_or(id),
     }
 }

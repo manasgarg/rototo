@@ -83,8 +83,10 @@ fn parse_failed_rule(kind: &DocumentKind) -> RototoRuleId {
         DocumentKind::Variable { .. } => RototoRuleId::VariableParseFailed,
         DocumentKind::Catalog { .. } => RototoRuleId::CatalogParseFailed,
         DocumentKind::CatalogEntry { .. } => RototoRuleId::CatalogEntryParseFailed,
-        DocumentKind::RequestContext { .. } => RototoRuleId::RequestContextParseFailed,
-        DocumentKind::RequestContextEntry { .. } => RototoRuleId::RequestContextEntryParseFailed,
+        DocumentKind::EvaluationContext { .. } => RototoRuleId::EvaluationContextParseFailed,
+        DocumentKind::EvaluationContextSample { .. } => {
+            RototoRuleId::EvaluationContextSampleParseFailed
+        }
         DocumentKind::CustomLint => RototoRuleId::CustomLintFailed,
     }
 }
@@ -102,13 +104,15 @@ fn entity_for_document(document: &SourceDocument) -> SemanticEntity {
             catalog: catalog_id.clone(),
             key: entry_id.clone(),
         },
-        DocumentKind::RequestContext { id } => SemanticEntity::RequestContext { id: id.clone() },
-        DocumentKind::RequestContextEntry {
-            request_context_id,
-            entry_id,
-        } => SemanticEntity::RequestContextEntry {
-            request_context: request_context_id.clone(),
-            key: entry_id.clone(),
+        DocumentKind::EvaluationContext { id } => {
+            SemanticEntity::EvaluationContext { id: id.clone() }
+        }
+        DocumentKind::EvaluationContextSample {
+            evaluation_context_id,
+            sample_id,
+        } => SemanticEntity::EvaluationContextSample {
+            evaluation_context: evaluation_context_id.clone(),
+            key: sample_id.clone(),
         },
         DocumentKind::CustomLint => SemanticEntity::CustomLint {
             path: document.path.clone(),

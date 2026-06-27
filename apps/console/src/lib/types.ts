@@ -288,8 +288,8 @@ export type CatalogEntryModel = {
     value: unknown;
 };
 
-/** Request context schema from the semantic model. */
-export type RequestContextModel = {
+/** Evaluation context schema from the semantic model. */
+export type EvaluationContextModel = {
     id: string;
     path: string;
     location: ModelLocation;
@@ -298,23 +298,23 @@ export type RequestContextModel = {
     json?: unknown;
 };
 
-/** Saved request context sample from the semantic model. */
-export type RequestContextEntryModel = {
-    requestContext: string;
+/** Saved evaluation context sample from the semantic model. */
+export type EvaluationContextSampleModel = {
+    evaluationContext: string;
     key: string;
     path: string;
     location: ModelLocation;
     value?: unknown;
 };
 
-export type QualifierRequestContextModel = {
+export type QualifierEvaluationContextModel = {
     qualifier: string;
-    requestContexts: string[];
+    evaluationContexts: string[];
 };
 
-export type VariableRequestContextModel = {
+export type VariableEvaluationContextModel = {
     variable: string;
-    requestContexts: string[];
+    evaluationContexts: string[];
 };
 
 /** Custom Lua linter file and the rules it declares. */
@@ -330,8 +330,12 @@ export type ModelEntityRef =
     | { kind: "variable"; id: string }
     | { kind: "catalog"; id: string }
     | { kind: "catalogEntry"; catalog: string; key: string }
-    | { kind: "requestContext"; id: string }
-    | { kind: "requestContextEntry"; requestContext: string; key: string }
+    | { kind: "evaluationContext"; id: string }
+    | {
+          kind: "evaluationContextSample";
+          evaluationContext: string;
+          key: string;
+      }
     | { kind: "value"; variable: string; key: string }
     | { kind: "contextAttribute"; name: string };
 
@@ -359,12 +363,12 @@ export type PackageSemanticModel = {
     variables: VariableModel[];
     catalogs: CatalogModel[];
     catalogEntries: CatalogEntryModel[];
-    requestContexts: RequestContextModel[];
-    requestContextEntries: RequestContextEntryModel[];
+    evaluationContexts: EvaluationContextModel[];
+    evaluationContextSamples: EvaluationContextSampleModel[];
     linters: LinterModel[];
     references: ReferenceModel[];
-    qualifierRequestContexts: QualifierRequestContextModel[];
-    variableRequestContexts: VariableRequestContextModel[];
+    qualifierEvaluationContexts: QualifierEvaluationContextModel[];
+    variableEvaluationContexts: VariableEvaluationContextModel[];
 };
 
 /* Package inventory, computed server-side from the semantic model. */
@@ -407,7 +411,7 @@ export type CatalogEntryInventoryItem = {
     path: string;
 };
 
-export type RequestContextInventoryItem = {
+export type EvaluationContextInventoryItem = {
     id: string;
     path: string;
     title: string | null;
@@ -415,8 +419,8 @@ export type RequestContextInventoryItem = {
     entryCount: number;
 };
 
-export type RequestContextEntryInventoryItem = {
-    requestContextId: string;
+export type EvaluationContextSampleInventoryItem = {
+    evaluationContextId: string;
     key: string;
     id: string;
     path: string;
@@ -430,10 +434,10 @@ export type LinterInventoryItem = {
     kind: "rule" | "script";
 };
 
-/** Request context schema/sample summary discovered for preview inputs. */
+/** Evaluation context schema/sample summary discovered for preview inputs. */
 export type ContextInventory = {
-    requestContexts: RequestContextInventoryItem[];
-    entries: RequestContextEntryInventoryItem[];
+    evaluationContexts: EvaluationContextInventoryItem[];
+    samples: EvaluationContextSampleInventoryItem[];
     exampleCount: number;
     examples: string[];
 };
@@ -455,7 +459,7 @@ export type PackageDefinition = {
     language: "json" | "lua" | "toml" | "text";
 };
 
-/* Resolution previews against saved request contexts, computed server-side
+/* Resolution previews against saved evaluation contexts, computed server-side
    by the real runtime. */
 /** Runtime qualifier evaluation annotated with the condition expression. */
 export type QualifierEvaluation = {
@@ -473,10 +477,10 @@ export type QualifierEvaluation = {
     }>;
 };
 
-/** Variable preview result for one saved request context. */
+/** Variable preview result for one saved evaluation context. */
 export type SavedContextResolution = {
     name: string;
-    requestContext: string;
+    evaluationContext: string;
     path: string;
     ok: boolean;
     value?: unknown;
@@ -495,19 +499,19 @@ export type VariableResolutionSource =
     | { kind: "literal" }
     | { kind: "catalog"; catalog: string; value: string };
 
-/** Qualifier preview result for one saved request context. */
+/** Qualifier preview result for one saved evaluation context. */
 export type QualifierContextEvaluation = {
     name: string;
-    requestContext: string;
+    evaluationContext: string;
     path: string;
     evaluation: QualifierEvaluation | null;
     error?: string;
 };
 
-/** Branch edit preview truth table for one saved request context. */
+/** Branch edit preview truth table for one saved evaluation context. */
 export type EditContextPreview = {
     name: string;
-    requestContext: string;
+    evaluationContext: string;
     qualifierTruth: Record<string, boolean>;
 };
 

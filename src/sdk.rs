@@ -117,8 +117,8 @@ impl Package {
     pub fn context_schema(&self) -> Option<&JsonValue> {
         self.runtime
             .as_ref()
-            .and_then(|runtime| runtime.request_contexts.values().next())
-            .map(|request_context| &request_context.schema)
+            .and_then(|runtime| runtime.evaluation_contexts.values().next())
+            .map(|evaluation_context| &evaluation_context.schema)
     }
 
     pub fn source_fingerprint(&self) -> Option<&SourceFingerprint> {
@@ -144,18 +144,22 @@ impl Package {
         crate::lint::package_semantic_model(self.root()).await
     }
 
-    pub fn validate_context(&self, context: &ResolveContext) -> Result<()> {
+    pub fn validate_context(&self, context: &EvaluationContext) -> Result<()> {
         self.runtime()?.validate_context(context.value())
     }
 
-    pub fn resolve_qualifier(&self, id: impl AsRef<str>, context: &ResolveContext) -> Result<bool> {
+    pub fn resolve_qualifier(
+        &self,
+        id: impl AsRef<str>,
+        context: &EvaluationContext,
+    ) -> Result<bool> {
         self.resolve_qualifier_with_options(id, context, ResolveOptions::default())
     }
 
     pub fn resolve_qualifier_with_options(
         &self,
         id: impl AsRef<str>,
-        context: &ResolveContext,
+        context: &EvaluationContext,
         options: ResolveOptions,
     ) -> Result<bool> {
         if options.validate_context {
@@ -168,7 +172,7 @@ impl Package {
     pub fn resolve_variable(
         &self,
         id: impl AsRef<str>,
-        context: &ResolveContext,
+        context: &EvaluationContext,
     ) -> Result<VariableResolution> {
         self.resolve_variable_with_options(id, context, ResolveOptions::default())
     }
@@ -176,7 +180,7 @@ impl Package {
     pub fn resolve_variable_with_options(
         &self,
         id: impl AsRef<str>,
-        context: &ResolveContext,
+        context: &EvaluationContext,
         options: ResolveOptions,
     ) -> Result<VariableResolution> {
         if options.validate_context {
@@ -296,14 +300,18 @@ impl RefreshingPackage {
         }
     }
 
-    pub fn resolve_qualifier(&self, id: impl AsRef<str>, context: &ResolveContext) -> Result<bool> {
+    pub fn resolve_qualifier(
+        &self,
+        id: impl AsRef<str>,
+        context: &EvaluationContext,
+    ) -> Result<bool> {
         self.current().resolve_qualifier(id.as_ref(), context)
     }
 
     pub fn resolve_qualifier_with_options(
         &self,
         id: impl AsRef<str>,
-        context: &ResolveContext,
+        context: &EvaluationContext,
         options: ResolveOptions,
     ) -> Result<bool> {
         self.current()
@@ -313,7 +321,7 @@ impl RefreshingPackage {
     pub fn resolve_variable(
         &self,
         id: impl AsRef<str>,
-        context: &ResolveContext,
+        context: &EvaluationContext,
     ) -> Result<VariableResolution> {
         self.current().resolve_variable(id.as_ref(), context)
     }
@@ -321,7 +329,7 @@ impl RefreshingPackage {
     pub fn resolve_variable_with_options(
         &self,
         id: impl AsRef<str>,
-        context: &ResolveContext,
+        context: &EvaluationContext,
         options: ResolveOptions,
     ) -> Result<VariableResolution> {
         self.current()
@@ -678,14 +686,14 @@ impl Default for ResolveOptions {
 }
 
 #[derive(Clone, Debug, PartialEq)]
-pub struct ResolveContext {
+pub struct EvaluationContext {
     value: JsonValue,
 }
 
-impl ResolveContext {
+impl EvaluationContext {
     pub fn from_json(value: JsonValue) -> Result<Self> {
         if !value.is_object() {
-            return Err(RototoError::new("resolve context must be a JSON object"));
+            return Err(RototoError::new("evaluation context must be a JSON object"));
         }
         Ok(Self { value })
     }

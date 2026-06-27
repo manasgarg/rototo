@@ -1,8 +1,8 @@
 mod catalog;
+mod evaluation_context;
 mod graph;
 mod package;
 mod qualifier;
-mod request_context;
 mod schema;
 mod variable;
 
@@ -11,8 +11,8 @@ use super::index::ProjectField;
 
 pub(super) fn run_project(ctx: &mut LintContext) {
     package::lint_manifest_shape(ctx);
-    request_context::lint_request_context_schemas(ctx);
-    request_context::lint_request_context_reserved_fields(ctx);
+    evaluation_context::lint_evaluation_context_schemas(ctx);
+    evaluation_context::lint_evaluation_context_reserved_fields(ctx);
     qualifier::lint_qualifier_shapes(ctx);
     catalog::lint_catalog_shapes(ctx);
     variable::lint_variable_shapes(ctx);
@@ -24,7 +24,7 @@ pub(super) fn run_reference(ctx: &mut LintContext) {
 }
 
 pub(super) fn run_value(ctx: &mut LintContext) {
-    request_context::lint_request_context_entries(ctx);
+    evaluation_context::lint_evaluation_context_samples(ctx);
     catalog::lint_catalog_entries(ctx);
     variable::lint_variable_values(ctx);
 }
@@ -35,7 +35,7 @@ pub(super) fn run_graph(ctx: &mut LintContext) {
     graph::lint_unreachable_qualifiers(ctx);
     graph::lint_shadowed_variable_rules(ctx);
     graph::lint_rules_selecting_default_value(ctx);
-    request_context::lint_request_context_compatibility(ctx);
+    evaluation_context::lint_evaluation_context_compatibility(ctx);
 }
 
 fn field_is_not_present<T>(field: &ProjectField<T>) -> bool {

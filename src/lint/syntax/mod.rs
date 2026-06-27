@@ -69,8 +69,8 @@ pub(super) fn parse_sources(
                 toml::parse_toml_document(document, &mut syntax, diagnostics);
             }
             DocumentKind::Catalog { .. }
-            | DocumentKind::RequestContext { .. }
-            | DocumentKind::RequestContextEntry { .. } => {
+            | DocumentKind::EvaluationContext { .. }
+            | DocumentKind::EvaluationContextSample { .. } => {
                 json::parse_json_document(document, &mut syntax, diagnostics);
             }
             DocumentKind::CustomLint => {}

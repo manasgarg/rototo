@@ -7,58 +7,18 @@ The publishable pages live under `docs/src/`:
 
 ```text
 docs/src/
-  index.md
-  getting-started.md
-  configuration-primitives.md
-  operational-switches.md
-  incident-banner.md
-  onboarding-checklist.md
-  bucketed-rollout.md
-  notification-delivery-policy.md
-  service-degradation-policy.md
-  package-layering.md
-  modeling-runtime-configuration.md
-  application-integration.md
-  testing-runtime-configuration.md
-  operating-runtime-configuration.md
-  production-workflow.md
-  reference-package-manifest.md
-  reference-package-layout.md
-  reference-package-sources.md
-  reference-package-layering.md
-  reference-context.md
-  reference-qualifiers.md
-  reference-predicate-operators.md
-  reference-variables.md
-  reference-variable-values.md
-  reference-catalogs.md
-  reference-qualifier-resolution.md
-  reference-variable-resolution.md
-  reference-resolution-output.md
-  reference-cli-overview.md
-  reference-cli-commands.md
-  reference-sdk-loading.md
-  reference-sdk-resolution.md
-  reference-sdk-refresh.md
-  reference-sdk-rust.md
-  reference-sdk-python.md
-  reference-sdk-typescript.md
-  reference-sdk-java.md
-  reference-sdk-go.md
-  reference-lint-overview.md
-  reference-diagnostics.md
-  reference-custom-lua-lint.md
-  reference-json-output.md
+  motivation.md
+  concepts.md
 ```
 
 The CLI embeds the pages registered in `src/docs.rs`. When adding, moving, or
-renaming a page, update that registry and the bundled documentation list in
-`docs/src/index.md`.
+renaming a page, update that registry and `DOC_NAV_SECTIONS` in the same file.
+The consistency tests require every Markdown file under `docs/src/` to be
+registered and listed in navigation exactly once.
 
-Learning pages explain rototo through representative operational examples.
-Adoption pages turn those examples into production habits and workflow.
-Reference pages specify exact file formats, commands, SDK APIs, and output
-contracts.
+The current source tree is intentionally small while the public docs are being
+rewritten. SDK package README generation is temporarily ignored until the new
+SDK reference source exists again.
 
 ## Writing Voice
 
@@ -97,8 +57,8 @@ Use the CLI to inspect the bundled docs:
 
 ```sh
 rototo docs
-rototo docs -p index
-rototo docs -s "package source"
+rototo docs -p motivation
+rototo docs -s "configuration"
 rototo docs --export site
 ```
 

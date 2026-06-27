@@ -1,7 +1,7 @@
 # Rototo SDK App
 
 This sample embeds the Rototo Rust SDK in an application. It loads the
-`examples/basic` package once, validates a request context, resolves
+`examples/basic` package once, validates an evaluation context, resolves
 qualifiers, resolves variables, and deserializes resolved JSON values into
 typed Rust structs.
 

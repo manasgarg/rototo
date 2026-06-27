@@ -137,8 +137,8 @@ impl SourceStore {
         Ok(())
     }
 
-    pub(crate) async fn add_request_context_documents(&mut self) -> Result<()> {
-        let directory = self.root.join("request-contexts");
+    pub(crate) async fn add_evaluation_context_documents(&mut self) -> Result<()> {
+        let directory = self.root.join("evaluation-contexts");
         let entries = match sorted_directory_entries(&directory).await {
             Ok(entries) => entries,
             Err(err) if err.kind() == std::io::ErrorKind::NotFound => return Ok(()),
@@ -160,58 +160,58 @@ impl SourceStore {
             if id.is_empty() {
                 continue;
             }
-            let relative_path = PathBuf::from("request-contexts").join(file_name);
+            let relative_path = PathBuf::from("evaluation-contexts").join(file_name);
             self.add_disk_document(
                 relative_path,
-                DocumentKind::RequestContext { id: id.to_owned() },
+                DocumentKind::EvaluationContext { id: id.to_owned() },
             )
             .await;
-            self.add_request_context_entry_documents(id).await?;
+            self.add_evaluation_context_sample_documents(id).await?;
         }
 
         Ok(())
     }
 
-    pub(crate) async fn add_request_context_entry_documents(
+    pub(crate) async fn add_evaluation_context_sample_documents(
         &mut self,
-        request_context_id: &str,
+        evaluation_context_id: &str,
     ) -> Result<()> {
-        let entries_dir = self
+        let samples_dir = self
             .root
-            .join("request-contexts")
-            .join(format!("{request_context_id}-entries"));
-        let entries = match sorted_directory_entries(&entries_dir).await {
-            Ok(entries) => entries,
+            .join("evaluation-contexts")
+            .join(format!("{evaluation_context_id}-samples"));
+        let samples = match sorted_directory_entries(&samples_dir).await {
+            Ok(samples) => samples,
             Err(err) if err.kind() == std::io::ErrorKind::NotFound => return Ok(()),
             Err(err) => {
                 return Err(RototoError::new(format!(
                     "failed to read {}: {err}",
-                    entries_dir.display()
+                    samples_dir.display()
                 )));
             }
         };
 
-        for path in entries {
+        for path in samples {
             if path.extension().and_then(|extension| extension.to_str()) != Some("json") {
                 continue;
             }
-            let Some(entry_id) = path.file_stem().and_then(|stem| stem.to_str()) else {
+            let Some(sample_id) = path.file_stem().and_then(|stem| stem.to_str()) else {
                 continue;
             };
-            let relative_path = PathBuf::from("request-contexts")
-                .join(format!("{request_context_id}-entries"))
+            let relative_path = PathBuf::from("evaluation-contexts")
+                .join(format!("{evaluation_context_id}-samples"))
                 .join(path.file_name().expect("entry has filename"));
             self.add_disk_document(
                 relative_path,
-                DocumentKind::RequestContextEntry {
-                    request_context_id: request_context_id.to_owned(),
-                    entry_id: entry_id.to_owned(),
+                DocumentKind::EvaluationContextSample {
+                    evaluation_context_id: evaluation_context_id.to_owned(),
+                    sample_id: sample_id.to_owned(),
                 },
             )
             .await;
         }
 
-        let overlay_prefix = format!("request-contexts/{request_context_id}-entries/");
+        let overlay_prefix = format!("evaluation-contexts/{evaluation_context_id}-samples/");
         let overlay_paths = self
             .overlays
             .keys()
@@ -219,14 +219,14 @@ impl SourceStore {
             .cloned()
             .collect::<Vec<_>>();
         for path in overlay_paths {
-            let Some(entry_id) = overlay_entry_id(&path, &overlay_prefix, ".json") else {
+            let Some(sample_id) = overlay_entry_id(&path, &overlay_prefix, ".json") else {
                 continue;
             };
             self.add_disk_document(
                 PathBuf::from(&path),
-                DocumentKind::RequestContextEntry {
-                    request_context_id: request_context_id.to_owned(),
-                    entry_id,
+                DocumentKind::EvaluationContextSample {
+                    evaluation_context_id: evaluation_context_id.to_owned(),
+                    sample_id,
                 },
             )
             .await;
@@ -274,16 +274,16 @@ impl SourceStore {
                 DocumentKind::Catalog { id } => Some(id.clone()),
                 _ => None,
             };
-            let request_context_id = match &kind {
-                DocumentKind::RequestContext { id } => Some(id.clone()),
+            let evaluation_context_id = match &kind {
+                DocumentKind::EvaluationContext { id } => Some(id.clone()),
                 _ => None,
             };
             self.add_disk_document(PathBuf::from(&path), kind).await;
             if let Some(catalog_id) = catalog_id {
                 self.add_catalog_entry_documents(&catalog_id).await?;
             }
-            if let Some(request_context_id) = request_context_id {
-                self.add_request_context_entry_documents(&request_context_id)
+            if let Some(evaluation_context_id) = evaluation_context_id {
+                self.add_evaluation_context_sample_documents(&evaluation_context_id)
                     .await?;
             }
         }
@@ -317,17 +317,19 @@ fn overlay_document_kind(path: &str) -> Option<DocumentKind> {
                 entry_id: entry_id.to_owned(),
             })
         }
-        ["request-contexts", file] if file.ends_with(".schema.json") => {
+        ["evaluation-contexts", file] if file.ends_with(".schema.json") => {
             let id = file.strip_suffix(".schema.json")?;
-            (!id.is_empty()).then(|| DocumentKind::RequestContext { id: id.to_owned() })
+            (!id.is_empty()).then(|| DocumentKind::EvaluationContext { id: id.to_owned() })
         }
-        ["request-contexts", dir, file] if dir.ends_with("-entries") && file.ends_with(".json") => {
-            let request_context_id = dir.strip_suffix("-entries")?;
-            let entry_id = file.strip_suffix(".json")?;
-            (!request_context_id.is_empty() && !entry_id.is_empty()).then(|| {
-                DocumentKind::RequestContextEntry {
-                    request_context_id: request_context_id.to_owned(),
-                    entry_id: entry_id.to_owned(),
+        ["evaluation-contexts", dir, file]
+            if dir.ends_with("-samples") && file.ends_with(".json") =>
+        {
+            let evaluation_context_id = dir.strip_suffix("-samples")?;
+            let sample_id = file.strip_suffix(".json")?;
+            (!evaluation_context_id.is_empty() && !sample_id.is_empty()).then(|| {
+                DocumentKind::EvaluationContextSample {
+                    evaluation_context_id: evaluation_context_id.to_owned(),
+                    sample_id: sample_id.to_owned(),
                 }
             })
         }

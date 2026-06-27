@@ -180,7 +180,7 @@ export function BranchScreen({
     // base text is unavailable.
     const selectedEntityBaseText = entityExtras.data?.baseText ?? null;
     // Editing a variable: the server pre-evaluates every qualifier against each
-    // saved request context so the form can preview resolution pathways live.
+    // saved evaluation context so the form can preview resolution pathways live.
     const contextPreviews: EditContextPreview[] =
         entityExtras.data?.contextPreviews ?? [];
 
@@ -1383,7 +1383,7 @@ function editableEntityTargetKey(entity: EditableEntity): string | null {
 
 function contextAttributeSuggestions(entities: EditableEntity[]): string[] {
     const suggestions = new Set<string>();
-    for (const contextSchema of requestContextSchemaEntities(entities)) {
+    for (const contextSchema of evaluationContextSchemaEntities(entities)) {
         try {
             const parsed = JSON.parse(contextSchema.text) as unknown;
             for (const attribute of collectSchemaAttributes(parsed)) {
@@ -1398,13 +1398,13 @@ function contextAttributeSuggestions(entities: EditableEntity[]): string[] {
     return [...suggestions].sort((left, right) => left.localeCompare(right));
 }
 
-function requestContextSchemaEntities(
+function evaluationContextSchemaEntities(
     entities: EditableEntity[],
 ): EditableEntity[] {
     return entities.filter(
         (entity) =>
             entity.kind === "context schema" ||
-            (entity.path.includes("request-contexts/") &&
+            (entity.path.includes("evaluation-contexts/") &&
                 entity.path.endsWith(".schema.json")),
     );
 }
@@ -1500,7 +1500,7 @@ function contextAttributeDocs(
     entities: EditableEntity[],
 ): Record<string, string> {
     const docs: Record<string, string> = {};
-    for (const schema of requestContextSchemaEntities(entities)) {
+    for (const schema of evaluationContextSchemaEntities(entities)) {
         try {
             collectAttributeDocs(JSON.parse(schema.text), "", docs);
         } catch {

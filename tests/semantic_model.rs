@@ -106,13 +106,13 @@ async fn semantic_model_projects_entities_references_and_ranges() {
 }
 
 #[tokio::test]
-async fn semantic_model_projects_query_rules_and_request_context_compatibility() {
+async fn semantic_model_projects_query_rules_and_evaluation_context_compatibility() {
     let temp = tempfile::TempDir::new().unwrap();
     let root = temp.path();
     write_file(root, "rototo-package.toml", "schema_version = 1\n");
     write_file(
         root,
-        "request-contexts/request.schema.json",
+        "evaluation-contexts/request.schema.json",
         r#"{
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "type": "object",
@@ -130,7 +130,7 @@ async fn semantic_model_projects_query_rules_and_request_context_compatibility()
     );
     write_file(
         root,
-        "request-contexts/request-entries/premium-email.json",
+        "evaluation-contexts/request-samples/premium-email.json",
         r#"{
   "channel": "email",
   "user": { "tier": "premium" }
@@ -211,25 +211,25 @@ query = 'entry.channel == context.channel && entry.active == true && qualifier["
     );
 
     let sample = model
-        .request_context_entries
+        .evaluation_context_samples
         .iter()
-        .find(|entry| entry.request_context == "request" && entry.key == "premium-email")
-        .expect("request context sample");
+        .find(|entry| entry.evaluation_context == "request" && entry.key == "premium-email")
+        .expect("evaluation context sample");
     assert_eq!(sample.value.as_ref().unwrap()["channel"], "email");
 
     let qualifier_contexts = model
-        .qualifier_request_contexts
+        .qualifier_evaluation_contexts
         .iter()
         .find(|entry| entry.qualifier == "premium")
-        .expect("premium request-context compatibility");
-    assert_eq!(qualifier_contexts.request_contexts, vec!["request"]);
+        .expect("premium evaluation-context compatibility");
+    assert_eq!(qualifier_contexts.evaluation_contexts, vec!["request"]);
 
     let variable_contexts = model
-        .variable_request_contexts
+        .variable_evaluation_contexts
         .iter()
         .find(|entry| entry.variable == "templates")
-        .expect("templates request-context compatibility");
-    assert_eq!(variable_contexts.request_contexts, vec!["request"]);
+        .expect("templates evaluation-context compatibility");
+    assert_eq!(variable_contexts.evaluation_contexts, vec!["request"]);
 
     let query_qualifier_edge = model.references.iter().any(|reference| {
         matches!(&reference.from, ModelEntityRef::Variable { id } if id == "templates")

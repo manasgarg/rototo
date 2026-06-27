@@ -18,10 +18,9 @@ use crate::output::{
 };
 use rototo::diagnostics::{DiagnosticCatalogEntry, LintDiagnostic, SemanticEntity, Severity};
 use rototo::model::{
-    CatalogInspection, DiagnosticCatalog, InspectSelection, LinterInspection,
-    PackageInspectRequest, PackageInspection, PackageLint, QualifierInspection,
-    QualifierResolutionTrace, RequestContextInspection, VariableInspection,
-    VariableResolutionTrace,
+    CatalogInspection, DiagnosticCatalog, EvaluationContextInspection, InspectSelection,
+    LinterInspection, PackageInspectRequest, PackageInspection, PackageLint, QualifierInspection,
+    QualifierResolutionTrace, VariableInspection, VariableResolutionTrace,
 };
 use rototo::package::{
     catalog_for_id, package_extends_sources, qualifier_for_id, read_catalog_json, read_toml,
@@ -112,8 +111,8 @@ struct InitArgs {
     #[arg(long = "catalog", value_name = "ID")]
     catalog: Option<String>,
 
-    /// Create or infer the request context schema template.
-    #[arg(long = "context", action = ArgAction::SetTrue)]
+    /// Create or infer the evaluation context schema template.
+    #[arg(long = "evaluation-context", action = ArgAction::SetTrue)]
     context: bool,
 
     /// Overwrite files created by this command.
@@ -577,7 +576,7 @@ fn top_level_help() -> String {
         "lint examples/basic",
         "show examples/basic --variables",
         "resolve examples/basic --variable checkout-redesign --context lane=prod --context user.tier=premium",
-        "docs -p index",
+        "docs -p motivation",
     ] {
         out.push_str(&format!("  {} {}\n", style::sea("rototo"), example));
     }
@@ -820,7 +819,7 @@ fn init_target(args: &InitArgs) -> Result<InitTarget> {
 
     if count > 1 {
         return Err(RototoError::new(
-            "init accepts one entity flag at a time: --qualifier, --variable, --catalog, or --context",
+            "init accepts one entity flag at a time: --qualifier, --variable, --catalog, or --evaluation-context",
         ));
     }
 
@@ -913,7 +912,9 @@ async fn build_init_plan(package: &Path, target: InitTarget) -> Result<Vec<InitP
         InitTarget::Context => {
             let mut plan = implicit_package_init_plan(package, initialized);
             if initialized {
-                plan.push(InitPlanEntry::directory(package.join("request-contexts")));
+                plan.push(InitPlanEntry::directory(
+                    package.join("evaluation-contexts"),
+                ));
             }
             let content = if initialized {
                 context_schema_template(package).await?
@@ -921,8 +922,10 @@ async fn build_init_plan(package: &Path, target: InitTarget) -> Result<Vec<InitP
                 starter_context_schema_template()?
             };
             plan.push(InitPlanEntry::file(
-                "request_context",
-                package.join("request-contexts").join("request.schema.json"),
+                "evaluation_context",
+                package
+                    .join("evaluation-contexts")
+                    .join("request.schema.json"),
                 content,
             ));
             Ok(plan)
@@ -949,7 +952,7 @@ fn package_init_plan(package: &Path) -> Vec<InitPlanEntry> {
         InitPlanEntry::directory(package.join("qualifiers")),
         InitPlanEntry::directory(package.join("variables")),
         InitPlanEntry::directory(package.join("catalogs")),
-        InitPlanEntry::directory(package.join("request-contexts")),
+        InitPlanEntry::directory(package.join("evaluation-contexts")),
         InitPlanEntry::directory(package.join("lint")),
     ]
 }
@@ -1732,10 +1735,10 @@ async fn trace_sample_resolutions(
 ) -> Result<Vec<ContextResolveOutput>> {
     let variable_ids = selected_variable_id_list(inspection, &selectors.variables);
     let qualifier_ids = selected_qualifier_id_list(inspection, &selectors.qualifiers);
-    let variable_contexts = variable_request_contexts(model);
-    let qualifier_contexts = qualifier_request_contexts(model);
+    let variable_contexts = variable_evaluation_contexts(model);
+    let qualifier_contexts = qualifier_evaluation_contexts(model);
     let variable_has_rules = variable_rule_presence(model);
-    let samples = stored_request_contexts(model);
+    let samples = stored_evaluation_contexts(model);
 
     let mut requested_contexts = BTreeSet::new();
     let mut context_independent_variables = BTreeSet::new();
@@ -1761,12 +1764,12 @@ async fn trace_sample_resolutions(
     let mut resolved_qualifiers = BTreeSet::new();
     for sample in samples
         .iter()
-        .filter(|sample| requested_contexts.contains(&sample.request_context))
+        .filter(|sample| requested_contexts.contains(&sample.evaluation_context))
     {
         let mut variables = Vec::new();
         for variable in &variable_ids {
             let contexts = variable_contexts.get(variable).cloned().unwrap_or_default();
-            if contexts.contains(&sample.request_context)
+            if contexts.contains(&sample.evaluation_context)
                 || context_independent_variables.contains(variable)
             {
                 variables.push(trace_variable_resolution(package, variable, &sample.value).await?);
@@ -1778,7 +1781,7 @@ async fn trace_sample_resolutions(
         for qualifier in &qualifier_ids {
             if qualifier_contexts
                 .get(qualifier)
-                .is_some_and(|contexts| contexts.contains(&sample.request_context))
+                .is_some_and(|contexts| contexts.contains(&sample.evaluation_context))
             {
                 qualifiers
                     .push(trace_qualifier_resolution(package, qualifier, &sample.value).await?);
@@ -1788,7 +1791,7 @@ async fn trace_sample_resolutions(
 
         if !variables.is_empty() || !qualifiers.is_empty() {
             runs.push(ContextResolveOutput {
-                request_context: Some(sample.request_context.clone()),
+                evaluation_context: Some(sample.evaluation_context.clone()),
                 sample: Some(sample.key.clone()),
                 variables,
                 qualifiers,
@@ -1809,7 +1812,7 @@ async fn trace_sample_resolutions(
             resolved_variables.insert(variable);
         }
         runs.push(ContextResolveOutput {
-            request_context: None,
+            evaluation_context: None,
             sample: None,
             variables,
             qualifiers: Vec::new(),
@@ -1824,7 +1827,7 @@ async fn trace_sample_resolutions(
     );
     if !unresolved.is_empty() {
         return Err(RototoError::new(format!(
-            "no stored request context sample matched selected target(s): {}",
+            "no stored evaluation context sample matched selected target(s): {}",
             unresolved.join(", ")
         )));
     }
@@ -1833,21 +1836,21 @@ async fn trace_sample_resolutions(
 }
 
 #[derive(Debug)]
-struct StoredRequestContext {
-    request_context: String,
+struct StoredEvaluationContext {
+    evaluation_context: String,
     key: String,
     value: JsonValue,
 }
 
-fn stored_request_contexts(
+fn stored_evaluation_contexts(
     model: &rototo::lint::PackageSemanticModel,
-) -> Vec<StoredRequestContext> {
+) -> Vec<StoredEvaluationContext> {
     model
-        .request_context_entries
+        .evaluation_context_samples
         .iter()
         .filter_map(|entry| {
-            entry.value.as_ref().map(|value| StoredRequestContext {
-                request_context: entry.request_context.clone(),
+            entry.value.as_ref().map(|value| StoredEvaluationContext {
+                evaluation_context: entry.evaluation_context.clone(),
                 key: entry.key.clone(),
                 value: value.clone(),
             })
@@ -1855,31 +1858,31 @@ fn stored_request_contexts(
         .collect()
 }
 
-fn variable_request_contexts(
+fn variable_evaluation_contexts(
     model: &rototo::lint::PackageSemanticModel,
 ) -> BTreeMap<String, BTreeSet<String>> {
     model
-        .variable_request_contexts
+        .variable_evaluation_contexts
         .iter()
         .map(|compatibility| {
             (
                 compatibility.variable.clone(),
-                compatibility.request_contexts.iter().cloned().collect(),
+                compatibility.evaluation_contexts.iter().cloned().collect(),
             )
         })
         .collect()
 }
 
-fn qualifier_request_contexts(
+fn qualifier_evaluation_contexts(
     model: &rototo::lint::PackageSemanticModel,
 ) -> BTreeMap<String, BTreeSet<String>> {
     model
-        .qualifier_request_contexts
+        .qualifier_evaluation_contexts
         .iter()
         .map(|compatibility| {
             (
                 compatibility.qualifier.clone(),
-                compatibility.request_contexts.iter().cloned().collect(),
+                compatibility.evaluation_contexts.iter().cloned().collect(),
             )
         })
         .collect()
@@ -2297,7 +2300,7 @@ async fn show_selected_targets(
 struct PackageView {
     command: String,
     package: String,
-    request_contexts: Vec<PackageFileView>,
+    evaluation_contexts: Vec<PackageFileView>,
     catalogs: Vec<PackageFileView>,
     variables: Vec<PackageFileView>,
     qualifiers: Vec<PackageFileView>,
@@ -2350,16 +2353,16 @@ async fn package_inventory_view(
         qualifiers.push(qualifier_view(inspection, qualifier, false).await?);
     }
 
-    let request_contexts = inspection
-        .request_contexts
+    let evaluation_contexts = inspection
+        .evaluation_contexts
         .iter()
-        .map(request_context_view)
+        .map(evaluation_context_view)
         .collect();
 
     Ok(PackageView {
         command: String::new(),
         package: inspection.root.display().to_string(),
-        request_contexts,
+        evaluation_contexts,
         catalogs,
         variables,
         qualifiers,
@@ -2438,7 +2441,7 @@ async fn selected_package_view(
     Ok(PackageView {
         command: String::new(),
         package: inspection.root.display().to_string(),
-        request_contexts: Vec::new(),
+        evaluation_contexts: Vec::new(),
         catalogs,
         variables,
         qualifiers,
@@ -2508,11 +2511,11 @@ async fn qualifier_view(
     })
 }
 
-fn request_context_view(request_context: &RequestContextInspection) -> PackageFileView {
+fn evaluation_context_view(evaluation_context: &EvaluationContextInspection) -> PackageFileView {
     PackageFileView {
-        id: request_context.id.clone(),
-        uri: request_context.uri.clone(),
-        path: request_context.path.display().to_string(),
+        id: evaluation_context.id.clone(),
+        uri: evaluation_context.uri.clone(),
+        path: evaluation_context.path.display().to_string(),
         value: None,
     }
 }
@@ -2535,14 +2538,14 @@ fn print_package_view(command: &str, view: &PackageView, json: bool) -> Result<(
     }
 
     println!("{} {}", style::label("package"), style::bold(&view.package));
-    if !view.request_contexts.is_empty() {
-        println!("{}", style::label("request contexts"));
-        for request_context in &view.request_contexts {
+    if !view.evaluation_contexts.is_empty() {
+        println!("{}", style::label("evaluation contexts"));
+        for evaluation_context in &view.evaluation_contexts {
             println!(
                 "  {}  {}  {}",
-                style::sea(&request_context.id),
-                style::dim(&request_context.uri),
-                style::dim(&request_context.path)
+                style::sea(&evaluation_context.id),
+                style::dim(&evaluation_context.uri),
+                style::dim(&evaluation_context.path)
             );
         }
     }
@@ -2825,7 +2828,7 @@ struct ResolveOutput<'a> {
 #[derive(Debug, Serialize)]
 struct ContextResolveOutput {
     #[serde(skip_serializing_if = "Option::is_none")]
-    request_context: Option<String>,
+    evaluation_context: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     sample: Option<String>,
     variables: Vec<VariableResolutionTrace>,
@@ -2955,13 +2958,13 @@ fn print_qualifier_resolution_trace(trace: &QualifierResolutionTrace) -> Result<
 }
 
 fn print_context_resolution_trace(context: &ContextResolveOutput) -> Result<()> {
-    match (&context.request_context, &context.sample) {
-        (Some(request_context), Some(sample)) => {
-            println!("request context: {}", style::sea(request_context));
+    match (&context.evaluation_context, &context.sample) {
+        (Some(evaluation_context), Some(sample)) => {
+            println!("evaluation context: {}", style::sea(evaluation_context));
             println!("sample: {}", style::info(sample));
         }
         _ => {
-            println!("request context: {}", style::dim("<none>"));
+            println!("evaluation context: {}", style::dim("<none>"));
         }
     }
 

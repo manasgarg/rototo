@@ -67,7 +67,7 @@ Qualifier resolution returns the final boolean result.
 ## Context Validation
 
 Resolution validates [context](https://docs.rototo.dev/reference-context.html) against a compatible
-request context schema by default. Skip validation for one call when a tool
+evaluation context schema by default. Skip validation for one call when a tool
 needs to evaluate partial context:
 
 ```typescript

@@ -168,10 +168,10 @@ func (w *Package) Lint(ctx context.Context) (*PackageLint, error) {
 // ResolveVariable resolves a variable with a JSON-object context.
 func (w *Package) ResolveVariable(
 	id string,
-	resolveContext map[string]any,
+	evaluationContext map[string]any,
 	options *ResolveOptions,
 ) (*VariableResolution, error) {
-	contextJSON, err := marshalContext(resolveContext)
+	contextJSON, err := marshalContext(evaluationContext)
 	if err != nil {
 		return nil, err
 	}
@@ -194,10 +194,10 @@ func (w *Package) ResolveVariable(
 // ResolveQualifier resolves a qualifier with a JSON-object context.
 func (w *Package) ResolveQualifier(
 	id string,
-	resolveContext map[string]any,
+	evaluationContext map[string]any,
 	options *ResolveOptions,
 ) (bool, error) {
-	contextJSON, err := marshalContext(resolveContext)
+	contextJSON, err := marshalContext(evaluationContext)
 	if err != nil {
 		return false, err
 	}
@@ -264,10 +264,10 @@ func LoadRefreshing(
 // ResolveVariable resolves a variable against the current active package.
 func (w *RefreshingPackage) ResolveVariable(
 	id string,
-	resolveContext map[string]any,
+	evaluationContext map[string]any,
 	options *ResolveOptions,
 ) (*VariableResolution, error) {
-	contextJSON, err := marshalContext(resolveContext)
+	contextJSON, err := marshalContext(evaluationContext)
 	if err != nil {
 		return nil, err
 	}
@@ -295,10 +295,10 @@ func (w *RefreshingPackage) ResolveVariable(
 // ResolveQualifier resolves a qualifier against the current active package.
 func (w *RefreshingPackage) ResolveQualifier(
 	id string,
-	resolveContext map[string]any,
+	evaluationContext map[string]any,
 	options *ResolveOptions,
 ) (bool, error) {
-	contextJSON, err := marshalContext(resolveContext)
+	contextJSON, err := marshalContext(evaluationContext)
 	if err != nil {
 		return false, err
 	}
@@ -436,7 +436,7 @@ func marshalContext(context map[string]any) (string, error) {
 		return "", err
 	}
 	if len(data) == 0 || data[0] != '{' {
-		return "", fmt.Errorf("resolve context must be a JSON object")
+		return "", fmt.Errorf("evaluation context must be a JSON object")
 	}
 	return string(data), nil
 }

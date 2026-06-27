@@ -336,14 +336,14 @@ fn package_definition_paths(inventory: &PackageInventory) -> Vec<String> {
     paths.extend(
         inventory
             .context
-            .request_contexts
+            .evaluation_contexts
             .iter()
             .map(|item| item.path.clone()),
     );
     paths.extend(
         inventory
             .context
-            .entries
+            .samples
             .iter()
             .map(|item| item.path.clone()),
     );
@@ -443,7 +443,7 @@ fn compatible_variable_contexts(
     contexts: &[SavedContextInput],
 ) -> Vec<SavedContextInput> {
     let Some(compatibility) = model
-        .variable_request_contexts
+        .variable_evaluation_contexts
         .iter()
         .find(|compatibility| compatibility.variable == variable_id)
     else {
@@ -453,9 +453,9 @@ fn compatible_variable_contexts(
         .iter()
         .filter(|context| {
             compatibility
-                .request_contexts
+                .evaluation_contexts
                 .iter()
-                .any(|id| id == &context.request_context)
+                .any(|id| id == &context.evaluation_context)
         })
         .cloned()
         .collect()
@@ -467,7 +467,7 @@ fn compatible_qualifier_contexts(
     contexts: &[SavedContextInput],
 ) -> Vec<SavedContextInput> {
     let Some(compatibility) = model
-        .qualifier_request_contexts
+        .qualifier_evaluation_contexts
         .iter()
         .find(|compatibility| compatibility.qualifier == qualifier_id)
     else {
@@ -477,9 +477,9 @@ fn compatible_qualifier_contexts(
         .iter()
         .filter(|context| {
             compatibility
-                .request_contexts
+                .evaluation_contexts
                 .iter()
-                .any(|id| id == &context.request_context)
+                .any(|id| id == &context.evaluation_context)
         })
         .cloned()
         .collect()
@@ -619,7 +619,7 @@ pub async fn package_inventory(
     Ok((semantic.package, inventory))
 }
 
-/// Reads up to `limit` saved request contexts from the staged checkout.
+/// Reads up to `limit` saved evaluation contexts from the staged checkout.
 pub async fn load_saved_contexts(
     package: &PackageRecord,
     staged_root: &std::path::Path,
@@ -627,15 +627,15 @@ pub async fn load_saved_contexts(
     limit: usize,
 ) -> Vec<SavedContextInput> {
     let mut contexts = Vec::new();
-    for entry in inventory.context.entries.iter().take(limit) {
-        let Ok(definition) = read_package_definition(package, staged_root, &entry.path).await
+    for sample in inventory.context.samples.iter().take(limit) {
+        let Ok(definition) = read_package_definition(package, staged_root, &sample.path).await
         else {
             continue;
         };
         contexts.push(SavedContextInput {
-            name: entry.key.clone(),
-            request_context: entry.request_context_id.clone(),
-            path: entry.path.clone(),
+            name: sample.key.clone(),
+            evaluation_context: sample.evaluation_context_id.clone(),
+            path: sample.path.clone(),
             text: definition.text,
         });
     }

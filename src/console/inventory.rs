@@ -106,23 +106,23 @@ pub struct LinterInventoryItem {
     pub kind: &'static str,
 }
 
-/// Request context schemas and sample entries discovered for one package.
+/// Evaluation context schemas and saved samples discovered for one package.
 ///
-/// The semantic model owns `request-contexts/<id>.schema.json` and
-/// `request-contexts/<id>-entries/*.json`. The projection is rebuilt with the
+/// The semantic model owns `evaluation-contexts/<id>.schema.json` and
+/// `evaluation-contexts/<id>-samples/*.json`. The projection is rebuilt with the
 /// inventory and used for preview inputs.
 #[derive(Clone, Debug, Default, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ContextInventory {
-    pub request_contexts: Vec<RequestContextInventoryItem>,
-    pub entries: Vec<RequestContextEntryInventoryItem>,
+    pub evaluation_contexts: Vec<EvaluationContextInventoryItem>,
+    pub samples: Vec<EvaluationContextSampleInventoryItem>,
     pub example_count: usize,
     pub examples: Vec<String>,
 }
 
 #[derive(Clone, Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
-pub struct RequestContextInventoryItem {
+pub struct EvaluationContextInventoryItem {
     pub id: String,
     pub path: String,
     pub title: Option<String>,
@@ -132,8 +132,8 @@ pub struct RequestContextInventoryItem {
 
 #[derive(Clone, Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
-pub struct RequestContextEntryInventoryItem {
-    pub request_context_id: String,
+pub struct EvaluationContextSampleInventoryItem {
+    pub evaluation_context_id: String,
     pub key: String,
     pub id: String,
     pub path: String,
@@ -347,15 +347,15 @@ fn declaration_label(declaration: &crate::lint::DeclarationModel) -> String {
 fn inspect_context(package: &PackageRecord, model: &PackageSemanticModel) -> ContextInventory {
     let repo_path = |path: &str| package_repo_path(&package.path, path);
     let mut entry_counts: BTreeMap<&str, usize> = BTreeMap::new();
-    for entry in &model.request_context_entries {
+    for entry in &model.evaluation_context_samples {
         *entry_counts
-            .entry(entry.request_context.as_str())
+            .entry(entry.evaluation_context.as_str())
             .or_default() += 1;
     }
-    let request_contexts = model
-        .request_contexts
+    let evaluation_contexts = model
+        .evaluation_contexts
         .iter()
-        .map(|context| RequestContextInventoryItem {
+        .map(|context| EvaluationContextInventoryItem {
             id: context.id.clone(),
             path: repo_path(&context.path),
             title: context.title.clone(),
@@ -366,26 +366,26 @@ fn inspect_context(package: &PackageRecord, model: &PackageSemanticModel) -> Con
                 .unwrap_or_default(),
         })
         .collect();
-    let entries = model
-        .request_context_entries
+    let samples = model
+        .evaluation_context_samples
         .iter()
-        .map(|entry| RequestContextEntryInventoryItem {
-            request_context_id: entry.request_context.clone(),
+        .map(|entry| EvaluationContextSampleInventoryItem {
+            evaluation_context_id: entry.evaluation_context.clone(),
             key: entry.key.clone(),
-            id: format!("{}/{}", entry.request_context, entry.key),
+            id: format!("{}/{}", entry.evaluation_context, entry.key),
             path: repo_path(&entry.path),
         })
         .collect::<Vec<_>>();
-    let mut examples = entries
+    let mut examples = samples
         .iter()
         .map(|entry| entry.path.clone())
         .collect::<Vec<_>>();
     examples.sort();
     ContextInventory {
-        request_contexts,
-        example_count: entries.len(),
+        evaluation_contexts,
+        example_count: samples.len(),
         examples,
-        entries,
+        samples,
     }
 }
 

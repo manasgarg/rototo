@@ -36,27 +36,44 @@ The package format is rooted at `rototo-package.toml`:
   qualifier id.
 - `variables/*.toml`: named variable definitions. The file stem is the variable
   id.
-- `schemas/*.json`: JSON Schemas referenced by schema-backed variables.
+- `catalogs/*.schema.json`: JSON Schemas for catalog-backed values. The catalog
+  id is the file name before `.schema.json`.
+- `catalogs/<catalog-id>-entries/*.toml`: catalog value definitions. The file
+  stem is the catalog value id.
+- `evaluation-contexts/*.schema.json`: JSON Schemas for runtime context
+  objects. The evaluation context id is the file name before `.schema.json`.
+- `evaluation-contexts/<context-id>-samples/*.json`: optional sample contexts
+  used for fixtures, lint coverage, and docs examples.
+- `lint/*.lua`: package-local custom lint rules.
 
 The example package at `examples/basic` is intentionally broad and should stay
-lint-clean. It covers primitive variables, schema-backed nested values,
-default values, override rules, qualifier composition, and bucket predicates.
-
-There is no package model right now. Do not add package scaffolding unless the
-design is reopened.
+lint-clean. It covers primitive variables, catalog-backed nested values, default
+values, override rules, qualifier composition, bucket predicates, evaluation
+context schemas, and custom lint.
 
 ## CLI
 
-The CLI intentionally makes qualifiers and variables first-class:
+The CLI uses top-level workflow verbs with selector flags for rototo concepts:
 
 ```text
-rototo package inspect [package] [--package <package>]
-rototo package lint [package] [--package <package>]
-rototo qualifier list|get|lint|resolve|resolve-all ...
-rototo variable list|get|lint|resolve|resolve-all ...
-rototo diagnostics list|get ... [--package <package>]
+rototo init <package> [--qualifier <id> | --variable <id> | --catalog <id> | --evaluation-context]
+rototo fixtures <package-source> --out <dir> [--variable <id> ... | --variables] [--qualifier <id> ... | --qualifiers]
+rototo lint [package-source] [selectors]
+rototo inspect [package-source] [selectors] [--context <context> ...]
+rototo diff <before-package-source> <after-package-source> [--context <context> ...]
+rototo show [package-source] [selectors]
+rototo resolve [package-source] [--variable <id> ... | --variables] [--qualifier <id> ... | --qualifiers] [--context <context> ...]
+rototo docs [-p <page-prefix>]
+rototo console ...
+rototo lsp
 rototo completions <shell>
 ```
+
+Selectors for `lint`, `inspect`, and `show` include `--variable`/`--variables`,
+`--catalog`/`--catalogs`, `--qualifier`/`--qualifiers`,
+`--lint-rule`/`--lint-rules`, `--lint-authority`/`--lint-authorities`, and
+`--linter`/`--linters`. `resolve` intentionally selects only variables and
+qualifiers.
 
 Package arguments are sources, not only local paths. They can be local paths,
 `file://`, `git+file://`, `git+https://`, `git+ssh://`, or `https://` archive
@@ -65,27 +82,28 @@ sources support `#ref:subdir`; archive URLs support `#:subdir`. Bearer auth for
 HTTPS archive sources comes from `--package-token` or
 `ROTOTO_PACKAGE_TOKEN`.
 
-Do not add `rototo catalog ...`. Qualifier and variable command enums are kept
-separate in `src/main.rs` even when they currently share verbs, so each noun can
-evolve independently.
+Do not add noun subcommands such as `rototo qualifier ...`,
+`rototo variable ...`, or `rototo catalog ...` unless the CLI design is
+reopened. Keep the top-level verbs in `src/main.rs` as the source of truth.
 
 Global flags are supported at every level:
 
 - `--json`
-- `--quiet`, `-q`
+- `--quiet`
+- `--package-token <token>`
 
 Resolution takes repeatable `--context` inputs in the CLI: raw JSON object,
-`@path/to/context.json`, or `path=value`, merged left to right. Qualifiers are
-ANDed predicates. A predicate can read context paths such as `user.tier` or
-another qualifier via `qualifier.<id>`. Variables resolve by taking the first
-matching rule value, otherwise the default value.
+`@path/to/context.json`, or `path=value`, merged left to right. Qualifier `when`
+expressions read context paths as `context.user.tier` and other qualifiers as
+`qualifier["<id>"]`. Variables resolve by taking the first matching rule value,
+otherwise the default value.
 
 ```sh
-rototo qualifier resolve premium-users --package examples/basic \
+rototo resolve examples/basic --qualifier premium-users \
   --context user.tier=premium
 
-rototo variable resolve checkout-redesign --package examples/basic \
-  --context @examples/basic/contexts/premium-enterprise.json
+rototo resolve examples/basic --variable checkout-redesign \
+  --context @examples/basic/evaluation-contexts/request-samples/premium-enterprise.json
 ```
 
 ## Console
@@ -121,23 +139,28 @@ Lint is core behavior, not just smoke testing. It should validate rototo's own
 package structure and files:
 
 - Package manifest exists, parses, and declares `schema_version = 1`.
-- Qualifier files parse, declare `schema_version = 1`, contain at least one
-  `[[predicate]]`, reference known qualifiers when
-  using `qualifier.<id>`, use known predicate operators, and validate bucket and
-  operator value shapes.
-- Variable files parse, declare `schema_version = 1`, declare exactly one of
-  `type` or `catalog`, declare `[resolve]`, put primitive values directly in
-  resolve defaults and rules, reference known catalog values for catalog-backed
-  variables, and reference known qualifiers from rules.
-- Primitive variable values match `bool`, `int`, `number`, `string`, or `list`.
-- Schema-backed variable values validate against their JSON Schema.
-- Packages can declare custom rules in `rototo-package.toml` under
-  `[[lint.rule]]` with `id`, `title`, and `help`. Lua files under `lint/*.lua`
-  define `register(lint)` and register handlers with stage, entity, optional
-  field, declared rule, and handler name. Handlers return diagnostics with
-  `message`; the registration owns the rule id. `rototo` is reserved for
+- Qualifier files parse, declare `schema_version = 1`, declare a `when`
+  expression, reject legacy `[[predicate]]`, reference known qualifiers with
+  `qualifier["<id>"]`, and validate expression, bucket, and operator shapes.
+- Variable files parse, declare `schema_version = 1`, declare `type`, reject
+  legacy `schema` and `[values]`, declare `[resolve]`, put literal values
+  directly in resolve defaults and rules, reference known catalog values for
+  catalog-backed variables, and reference known qualifiers from rule `when`
+  expressions.
+- Variable types support `bool`, `int`, `number`, `string`, `list`,
+  `catalog:<id>`, and `list<...>` where the list item is a primitive or catalog
+  type. Resolve defaults and rule values must match the declared type.
+- Catalog schemas under `catalogs/*.schema.json` parse and compile as JSON
+  Schema. Catalog entries under `catalogs/<id>-entries/*.toml` validate against
+  their catalog schema.
+- Evaluation context schemas under `evaluation-contexts/*.schema.json` parse
+  and compile as JSON Schema. Samples under
+  `evaluation-contexts/<id>-samples/*.json` validate against their evaluation
+  context schema.
+- Lua files under `lint/*.lua` define `register(lint)` and register rules with
+  `lint:rule({ id, title, help, target, handler })`. Handlers return diagnostics
+  with `message`; the registration owns the rule id. `rototo` is reserved for
   built-in diagnostics.
-- Standalone `schemas/*.json` files parse and compile as JSON Schema.
 
 Diagnostics use one stable `rule` identity. Built-in rototo rules use
 `rototo/<rule-id>` with a flat rule id, for example
@@ -156,9 +179,10 @@ rules.
 The Rust SDK mirrors the first-class model. Prefer explicit APIs such as:
 
 - `inspect_package`
-- `lint_package`, `lint_qualifier`, `lint_variable`
-- `list_qualifiers`, `list_variables`
+- `lint_package`, `lint_qualifier`, `lint_variable`, `lint_catalog`
+- `list_qualifiers`, `list_variables`, `list_catalogs`
 - `read_qualifier`, `read_qualifiers`, `read_variable`, `read_variables`
+- `read_catalog`, `read_catalogs`
 - `resolve_qualifier`, `resolve_qualifiers`
 - `resolve_variable`, `resolve_variables`
 
@@ -169,8 +193,9 @@ lints the loaded package, and rejects lint failures.
 staged package data without running lint. Both APIs own any temporary staged
 checkout/archive extraction needed by remote sources.
 
-Returned config types are `QualifierConfig` and `VariableConfig`. Avoid adding a
-generic public "read by kind" API unless there is a concrete app-facing need.
+Returned config types are `QualifierConfig`, `VariableConfig`, and
+`CatalogConfig`. Avoid adding a generic public "read by kind" API unless there
+is a concrete app-facing need.
 SDK resolution APIs take a JSON object context directly; the CLI-only
 convenience forms for `--context` are parsed in `src/main.rs`.
 

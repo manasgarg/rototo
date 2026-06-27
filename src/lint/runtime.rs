@@ -14,9 +14,9 @@ use super::{PackageLintSnapshot, lint_package_snapshot};
 
 #[derive(Debug)]
 pub(crate) struct RuntimePackage {
-    pub(crate) request_contexts: BTreeMap<String, RuntimeRequestContext>,
-    pub(crate) qualifier_request_contexts: BTreeMap<String, BTreeSet<String>>,
-    pub(crate) variable_request_contexts: BTreeMap<String, BTreeSet<String>>,
+    pub(crate) evaluation_contexts: BTreeMap<String, RuntimeEvaluationContext>,
+    pub(crate) qualifier_evaluation_contexts: BTreeMap<String, BTreeSet<String>>,
+    pub(crate) variable_evaluation_contexts: BTreeMap<String, BTreeSet<String>>,
     pub(crate) catalog_schemas: BTreeMap<String, JsonValue>,
     pub(crate) catalog_entries: BTreeMap<String, BTreeMap<String, JsonValue>>,
     pub(crate) qualifiers: BTreeMap<String, RuntimeQualifier>,
@@ -34,7 +34,7 @@ impl RuntimePackage {
         context: &JsonValue,
     ) -> Result<()> {
         let allowed = self
-            .qualifier_request_contexts
+            .qualifier_evaluation_contexts
             .get(qualifier)
             .ok_or_else(|| {
                 RototoError::new(format!("qualifier not found: qualifier://{qualifier}"))
@@ -48,7 +48,7 @@ impl RuntimePackage {
         context: &JsonValue,
     ) -> Result<()> {
         let allowed = self
-            .variable_request_contexts
+            .variable_evaluation_contexts
             .get(variable)
             .ok_or_else(|| {
                 RototoError::new(format!("variable not found: variable://{variable}"))
@@ -69,35 +69,35 @@ impl RuntimePackage {
         context: &JsonValue,
         allowed: Option<&BTreeSet<String>>,
     ) -> Result<()> {
-        if self.request_contexts.is_empty() {
+        if self.evaluation_contexts.is_empty() {
             return Ok(());
         }
         let mut saw_candidate = false;
         let mut errors = Vec::new();
-        for (id, request_context) in &self.request_contexts {
+        for (id, evaluation_context) in &self.evaluation_contexts {
             if allowed.is_some_and(|allowed| !allowed.contains(id)) {
                 continue;
             }
             saw_candidate = true;
-            match request_context.validator.validate(context) {
+            match evaluation_context.validator.validate(context) {
                 Ok(()) => return Ok(()),
                 Err(err) => errors.push(format!("{id}: {err}")),
             }
         }
         if !saw_candidate {
             return Err(RototoError::new(
-                "resolve context does not match any compatible request context",
+                "evaluation context does not match any compatible evaluation context",
             ));
         }
         Err(RototoError::new(format!(
-            "resolve context does not match any compatible request context: {}",
+            "evaluation context does not match any compatible evaluation context: {}",
             errors.join("; ")
         )))
     }
 }
 
 #[derive(Debug)]
-pub(crate) struct RuntimeRequestContext {
+pub(crate) struct RuntimeEvaluationContext {
     pub(crate) schema: JsonValue,
     pub(crate) validator: Arc<Validator>,
 }
@@ -183,17 +183,17 @@ impl<'a> RuntimeCompiler<'a> {
             .manifest
             .as_ref()
             .ok_or_else(|| RototoError::new("package manifest is missing"))?;
-        let request_contexts = self.compile_request_contexts(index)?;
-        let compatibility = self.snapshot.request_context_compatibility();
+        let evaluation_contexts = self.compile_evaluation_contexts(index)?;
+        let compatibility = self.snapshot.evaluation_context_compatibility();
         let catalog_schemas = self.compile_catalog_schemas(index);
         let catalog_entries = self.compile_catalog_entries(index);
         let qualifiers = self.compile_qualifiers(index)?;
         let variables = self.compile_variables(index)?;
 
         Ok(RuntimePackage {
-            request_contexts,
-            qualifier_request_contexts: compatibility.qualifiers,
-            variable_request_contexts: compatibility.variables,
+            evaluation_contexts,
+            qualifier_evaluation_contexts: compatibility.qualifiers,
+            variable_evaluation_contexts: compatibility.variables,
             catalog_schemas,
             catalog_entries,
             qualifiers,
@@ -228,36 +228,36 @@ impl<'a> RuntimeCompiler<'a> {
             .collect()
     }
 
-    fn compile_request_contexts(
+    fn compile_evaluation_contexts(
         &self,
         index: &SemanticIndex,
-    ) -> Result<BTreeMap<String, RuntimeRequestContext>> {
-        let mut request_contexts = BTreeMap::new();
-        for context in index.request_contexts.values() {
+    ) -> Result<BTreeMap<String, RuntimeEvaluationContext>> {
+        let mut evaluation_contexts = BTreeMap::new();
+        for context in index.evaluation_contexts.values() {
             let json = context.json.clone().ok_or_else(|| {
                 RototoError::new(format!(
-                    "request context schema file could not be parsed: {}",
+                    "evaluation context schema file could not be parsed: {}",
                     context.path
                 ))
             })?;
             let validator = context.validator.clone().ok_or_else(|| {
                 RototoError::new(format!(
-                    "request context schema is invalid: {}",
+                    "evaluation context schema is invalid: {}",
                     context
                         .invalid_message
                         .as_deref()
                         .unwrap_or("schema did not compile")
                 ))
             })?;
-            request_contexts.insert(
+            evaluation_contexts.insert(
                 context.id.clone(),
-                RuntimeRequestContext {
+                RuntimeEvaluationContext {
                     schema: json,
                     validator,
                 },
             );
         }
-        Ok(request_contexts)
+        Ok(evaluation_contexts)
     }
 
     fn compile_qualifiers(

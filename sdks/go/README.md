@@ -59,7 +59,7 @@ rejects lint failures before returning.
 ## Resolve A Variable
 
 ```go
-resolveContext := map[string]any{
+evaluationContext := map[string]any{
     "user": map[string]any{
         "tier": "premium",
     },
@@ -67,7 +67,7 @@ resolveContext := map[string]any{
 
 resolution, err := pkg.ResolveVariable(
     "premium-message",
-    resolveContext,
+    evaluationContext,
     nil,
 )
 if err != nil {
@@ -91,7 +91,7 @@ fmt.Println(resolution.Source)
 ```go
 matches, err := pkg.ResolveQualifier(
     "premium-users",
-    resolveContext,
+    evaluationContext,
     nil,
 )
 if err != nil {
@@ -105,14 +105,14 @@ Qualifier resolution returns the final boolean result.
 
 ## Context Validation
 
-Resolution validates context against a compatible request context schema by
+Resolution validates context against a compatible evaluation context schema by
 default. Skip validation for one call when a tool needs to evaluate partial
 context:
 
 ```go
 resolution, err := pkg.ResolveVariable(
     "premium-message",
-    resolveContext,
+    evaluationContext,
     &rototo.ResolveOptions{SkipContextValidation: true},
 )
 ```
@@ -153,7 +153,7 @@ defer pkg.Close(context.Background())
 
 resolution, err := pkg.ResolveVariable(
     "premium-message",
-    resolveContext,
+    evaluationContext,
     nil,
 )
 status, err := pkg.Status(context.Background())

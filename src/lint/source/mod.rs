@@ -117,12 +117,12 @@ pub(super) enum DocumentKind {
         catalog_id: String,
         entry_id: String,
     },
-    RequestContext {
+    EvaluationContext {
         id: String,
     },
-    RequestContextEntry {
-        request_context_id: String,
-        entry_id: String,
+    EvaluationContextSample {
+        evaluation_context_id: String,
+        sample_id: String,
     },
     CustomLint,
 }
@@ -135,8 +135,8 @@ impl DocumentKind {
             Self::Variable { .. } => SourceKind::Variable,
             Self::Catalog { .. } => SourceKind::Catalog,
             Self::CatalogEntry { .. } => SourceKind::CatalogEntry,
-            Self::RequestContext { .. } => SourceKind::RequestContext,
-            Self::RequestContextEntry { .. } => SourceKind::RequestContextEntry,
+            Self::EvaluationContext { .. } => SourceKind::EvaluationContext,
+            Self::EvaluationContextSample { .. } => SourceKind::EvaluationContextSample,
             Self::CustomLint => SourceKind::CustomLint,
         }
     }

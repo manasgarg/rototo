@@ -316,7 +316,7 @@ export function DeleteEntityButton({
 
 function kindLabel(kind: EntityKind): string {
     if (kind === "context") {
-        return "request context";
+        return "evaluation context";
     }
     return kind.slice(0, -1);
 }
@@ -326,7 +326,7 @@ function addHelp(kind: EntityKind): string {
         return "Creates a catalog file, its schema, and a default catalog value.";
     }
     if (kind === "context") {
-        return "Creates a request context schema and a default sample.";
+        return "Creates an evaluation context schema and a default sample.";
     }
     return "Creates a starter definition on the branch.";
 }

@@ -1982,7 +1982,7 @@ async fn editable_entities(
             entry_key: None,
         });
     }
-    for item in &inventory.context.request_contexts {
+    for item in &inventory.context.evaluation_contexts {
         nodes.push(Node {
             section: "context",
             id: item.id.clone(),
@@ -1992,23 +1992,23 @@ async fn editable_entities(
                 .description
                 .clone()
                 .or_else(|| item.title.clone())
-                .or_else(|| Some("Request context schema".to_owned())),
+                .or_else(|| Some("Evaluation context schema".to_owned())),
             badge: Some("schema".to_owned()),
             catalog_id: None,
             entry_key: None,
         });
     }
-    for item in &inventory.context.entries {
+    for item in &inventory.context.samples {
         nodes.push(Node {
             section: "context",
             id: item.id.clone(),
             kind: "context example",
             path: item.path.clone(),
             description: Some(format!(
-                "Sample {} for request context {}",
-                item.key, item.request_context_id
+                "Sample {} for evaluation context {}",
+                item.key, item.evaluation_context_id
             )),
-            badge: Some(item.request_context_id.clone()),
+            badge: Some(item.evaluation_context_id.clone()),
             catalog_id: None,
             entry_key: None,
         });

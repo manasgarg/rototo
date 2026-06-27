@@ -29,7 +29,7 @@ fn lints_basic_package_as_json_with_documents() {
     assert!(
         document_paths(&lint).contains(&"catalogs/llm-agent-config-entries/local.toml".to_owned())
     );
-    assert!(document_paths(&lint).contains(&"request-contexts/request.schema.json".to_owned()));
+    assert!(document_paths(&lint).contains(&"evaluation-contexts/request.schema.json".to_owned()));
 }
 
 #[test]
@@ -390,11 +390,11 @@ fn reports_package_context_schema_ref_failures() {
     let parse_diagnostic = only_diagnostic(&parse_lint);
     assert_eq!(
         parse_diagnostic["rule"],
-        "rototo/request-context-parse-failed"
+        "rototo/evaluation-context-parse-failed"
     );
     assert_eq!(
         parse_diagnostic["location"]["path"],
-        "request-contexts/request.schema.json"
+        "evaluation-contexts/request.schema.json"
     );
 
     let schema_lint = lint_json(
@@ -403,8 +403,8 @@ fn reports_package_context_schema_ref_failures() {
     );
     assert_project_rule(
         &schema_lint,
-        "rototo/request-context-schema-invalid",
-        "request-contexts/request.schema.json",
+        "rototo/evaluation-context-schema-invalid",
+        "evaluation-contexts/request.schema.json",
     );
 }
 
@@ -414,7 +414,7 @@ fn accepts_path_safety_normalized_refs() {
 
     assert!(lint["diagnostics"].as_array().unwrap().is_empty());
     assert!(document_paths(&lint).contains(&"rototo-package.toml".to_owned()));
-    assert!(document_paths(&lint).contains(&"request-contexts/request.schema.json".to_owned()));
+    assert!(document_paths(&lint).contains(&"evaluation-contexts/request.schema.json".to_owned()));
     assert!(document_paths(&lint).contains(&"variables/message.toml".to_owned()));
     assert!(document_paths(&lint).contains(&"catalogs/message.schema.json".to_owned()));
     assert!(document_paths(&lint).contains(&"catalogs/message-entries/default.toml".to_owned()));
@@ -445,7 +445,7 @@ fn reports_package_context_schema_attribute_failures() {
 
     assert_eq!(
         diagnostic["rule"],
-        "rototo/qualifier-no-compatible-request-context"
+        "rototo/qualifier-no-compatible-evaluation-context"
     );
     assert_eq!(diagnostic["stage"], "graph");
     assert_eq!(diagnostic["target"]["entity"]["kind"], "qualifier");
@@ -2004,28 +2004,28 @@ fn pending_canonical_rule_fixtures() -> &'static [PendingCanonicalRuleFixture] {
             rule: RototoRuleId::CatalogEntryUnknownReference,
         },
         PendingCanonicalRuleFixture {
-            rule: RototoRuleId::RequestContextSchemaInvalid,
+            rule: RototoRuleId::EvaluationContextSchemaInvalid,
         },
         PendingCanonicalRuleFixture {
-            rule: RototoRuleId::RequestContextReservedField,
+            rule: RototoRuleId::EvaluationContextReservedField,
         },
         PendingCanonicalRuleFixture {
-            rule: RototoRuleId::RequestContextEntrySchemaMismatch,
+            rule: RototoRuleId::EvaluationContextSampleSchemaMismatch,
         },
         PendingCanonicalRuleFixture {
-            rule: RototoRuleId::RequestContextEntryShape,
+            rule: RototoRuleId::EvaluationContextSampleShape,
         },
         PendingCanonicalRuleFixture {
-            rule: RototoRuleId::QualifierNoCompatibleRequestContext,
+            rule: RototoRuleId::QualifierNoCompatibleEvaluationContext,
         },
         PendingCanonicalRuleFixture {
-            rule: RototoRuleId::VariableRequestContextConflict,
+            rule: RototoRuleId::VariableEvaluationContextConflict,
         },
         PendingCanonicalRuleFixture {
-            rule: RototoRuleId::RequestContextParseFailed,
+            rule: RototoRuleId::EvaluationContextParseFailed,
         },
         PendingCanonicalRuleFixture {
-            rule: RototoRuleId::RequestContextEntryParseFailed,
+            rule: RototoRuleId::EvaluationContextSampleParseFailed,
         },
     ]
 }
@@ -2266,7 +2266,7 @@ fn lint_failures_expected_rule_ids() -> &'static [&'static str] {
         "rototo/catalog-entry-schema-mismatch",
         "rototo/catalog-schema-invalid",
         "rototo/qualifier-cycle",
-        "rototo/qualifier-no-compatible-request-context",
+        "rototo/qualifier-no-compatible-evaluation-context",
         "rototo/qualifier-unreferenced",
         "rototo/qualifier-when-shape",
         "rototo/qualifier-when-unknown-qualifier",
@@ -2284,7 +2284,7 @@ fn lint_failures_expected_rule_ids() -> &'static [&'static str] {
 
 fn intentionally_malformed_fixture_files() -> &'static [&'static str] {
     &[
-        "context-schema-invalid-json/request-contexts/request.schema.json",
+        "context-schema-invalid-json/evaluation-contexts/request.schema.json",
         "invalid-package-file-toml/qualifiers/broken.toml",
         "invalid-package-file-toml/variables/broken.toml",
         "invalid-package-toml/rototo-package.toml",

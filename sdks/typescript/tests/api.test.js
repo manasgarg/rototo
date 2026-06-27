@@ -46,7 +46,7 @@ test("context must be a JSON object", async () => {
         () => pkg.resolveVariable("premium-message", ["not", "an", "object"]),
         (error) =>
             error instanceof RototoError &&
-            error.message.includes("resolve context must be a JSON object"),
+            error.message.includes("evaluation context must be a JSON object"),
     );
 });
 

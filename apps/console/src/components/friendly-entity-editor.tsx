@@ -88,7 +88,7 @@ export type FormGuidance = {
 };
 
 /**
- * Saved request context with each package qualifier already evaluated.
+ * Saved evaluation context with each package qualifier already evaluated.
  *
  * The editor walks edited rules against these runtime truths so previews update
  * live without reimplementing qualifier semantics in React.

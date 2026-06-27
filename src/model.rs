@@ -7,7 +7,7 @@ use crate::diagnostics::{
 #[derive(Debug)]
 pub struct PackageInspection {
     pub root: PathBuf,
-    pub request_contexts: Vec<RequestContextInspection>,
+    pub evaluation_contexts: Vec<EvaluationContextInspection>,
     pub catalogs: Vec<CatalogInspection>,
     pub qualifiers: Vec<QualifierInspection>,
     pub variables: Vec<VariableInspection>,
@@ -36,7 +36,7 @@ pub struct CatalogInspection {
 }
 
 #[derive(Clone, Debug)]
-pub struct RequestContextInspection {
+pub struct EvaluationContextInspection {
     pub id: String,
     pub uri: String,
     pub path: PathBuf,
@@ -126,8 +126,8 @@ pub enum SourceKind {
     Variable,
     Catalog,
     CatalogEntry,
-    RequestContext,
-    RequestContextEntry,
+    EvaluationContext,
+    EvaluationContextSample,
     CustomLint,
 }
 
@@ -265,7 +265,7 @@ pub struct PackageInspectReport {
     pub documents: Vec<SourceDocumentSummary>,
     pub runtime: InspectRuntimeStatus,
     pub diagnostics: Vec<LintDiagnostic>,
-    pub request_contexts: Vec<RequestContextInspectReport>,
+    pub evaluation_contexts: Vec<EvaluationContextInspectReport>,
     pub catalogs: Vec<CatalogInspectReport>,
     pub variables: Vec<VariableInspectReport>,
     pub qualifiers: Vec<QualifierInspectReport>,
@@ -310,7 +310,7 @@ pub struct VariableInspectReport {
     pub path: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub description: Option<String>,
-    pub request_contexts: Vec<String>,
+    pub evaluation_contexts: Vec<String>,
     pub type_source: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub schema: Option<String>,
@@ -365,7 +365,7 @@ pub struct QualifierInspectReport {
     pub path: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub description: Option<String>,
-    pub request_contexts: Vec<String>,
+    pub evaluation_contexts: Vec<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub when: Option<String>,
     pub predicates: Vec<PredicateInspectReport>,
@@ -377,7 +377,7 @@ pub struct QualifierInspectReport {
 }
 
 #[derive(Debug, serde::Serialize)]
-pub struct RequestContextInspectReport {
+pub struct EvaluationContextInspectReport {
     pub id: String,
     pub path: String,
     pub status: String,
@@ -387,12 +387,12 @@ pub struct RequestContextInspectReport {
     pub title: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub description: Option<String>,
-    pub entries: Vec<RequestContextEntryInspectReport>,
+    pub samples: Vec<EvaluationContextSampleInspectReport>,
     pub diagnostics: Vec<LintDiagnostic>,
 }
 
 #[derive(Debug, serde::Serialize)]
-pub struct RequestContextEntryInspectReport {
+pub struct EvaluationContextSampleInspectReport {
     pub key: String,
     pub value: serde_json::Value,
     #[serde(skip_serializing)]

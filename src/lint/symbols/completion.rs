@@ -684,7 +684,7 @@ fn context_path_completion_items(
     let parent = parent_path_segments(path);
     let mut fields = BTreeSet::new();
 
-    for context in snapshot.index.request_contexts.values() {
+    for context in snapshot.index.evaluation_contexts.values() {
         if let Some(properties) = context
             .json
             .as_ref()

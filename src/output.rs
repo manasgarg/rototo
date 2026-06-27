@@ -131,45 +131,48 @@ pub(crate) fn print_inspect_report(report: &PackageInspectReport, json: bool) ->
         print_diagnostics(&report.diagnostics);
     }
 
-    if !report.request_contexts.is_empty() {
-        println!("{}", style::label("request contexts"));
-        let count = report.request_contexts.len();
-        for (index, request_context) in report.request_contexts.iter().enumerate() {
+    if !report.evaluation_contexts.is_empty() {
+        println!("{}", style::label("evaluation contexts"));
+        let count = report.evaluation_contexts.len();
+        for (index, evaluation_context) in report.evaluation_contexts.iter().enumerate() {
             print_entity_separator(index, count);
-            println!("  request context: {}", style::sea(&request_context.id));
+            println!(
+                "  evaluation context: {}",
+                style::sea(&evaluation_context.id)
+            );
             println!(
                 "    {} {}",
                 style::dim("path:"),
-                style::dim(&request_context.path)
+                style::dim(&evaluation_context.path)
             );
             println!(
                 "    {} {}",
                 style::dim("status:"),
-                if request_context.status == "valid" {
-                    style::ok(&request_context.status)
+                if evaluation_context.status == "valid" {
+                    style::ok(&evaluation_context.status)
                 } else {
-                    style::err(&request_context.status)
+                    style::err(&evaluation_context.status)
                 }
             );
-            if let Some(title) = &request_context.title {
+            if let Some(title) = &evaluation_context.title {
                 println!("    title: {title}");
             }
-            if let Some(description) = &request_context.description {
+            if let Some(description) = &evaluation_context.description {
                 println!("    description: {description}");
             }
-            if !request_context.entries.is_empty() {
+            if !evaluation_context.samples.is_empty() {
                 println!("    {}", style::subhead("samples"));
-                for entry in &request_context.entries {
+                for sample in &evaluation_context.samples {
                     println!(
                         "      {} = {}",
-                        style::sea(&entry.key),
-                        compact_json(&entry.value)?
+                        style::sea(&sample.key),
+                        compact_json(&sample.value)?
                     );
                 }
             }
-            if !request_context.diagnostics.is_empty() {
+            if !evaluation_context.diagnostics.is_empty() {
                 println!("    {}", style::subhead("diagnostics"));
-                print_diagnostics(&request_context.diagnostics);
+                print_diagnostics(&evaluation_context.diagnostics);
             }
         }
     }
@@ -186,7 +189,7 @@ pub(crate) fn print_inspect_report(report: &PackageInspectReport, json: bool) ->
             if let Some(when) = &qualifier.when {
                 println!("    {} {}", style::subhead("when"), style::info(when));
             }
-            print_compatible_request_contexts(&qualifier.request_contexts, "    ");
+            print_compatible_evaluation_contexts(&qualifier.evaluation_contexts, "    ");
             print_dependencies(&qualifier.dependencies, "    ");
             if !qualifier.consumers.is_empty() {
                 println!("    {}", style::subhead("consumed by"));
@@ -310,7 +313,7 @@ pub(crate) fn print_inspect_report(report: &PackageInspectReport, json: bool) ->
                     style::arrow()
                 );
             }
-            print_compatible_request_contexts(&variable.request_contexts, "    ");
+            print_compatible_evaluation_contexts(&variable.evaluation_contexts, "    ");
             print_dependencies(&variable.dependencies, "    ");
             if !variable.diagnostics.is_empty() {
                 println!("    {}", style::subhead("diagnostics"));
@@ -392,13 +395,13 @@ pub(crate) fn print_inspect_report(report: &PackageInspectReport, json: bool) ->
     Ok(())
 }
 
-fn print_compatible_request_contexts(request_contexts: &[String], indent: &str) {
-    if request_contexts.is_empty() {
+fn print_compatible_evaluation_contexts(evaluation_contexts: &[String], indent: &str) {
+    if evaluation_contexts.is_empty() {
         return;
     }
-    println!("{indent}{}", style::subhead("request contexts"));
-    for request_context in request_contexts {
-        println!("{indent}  {}", style::sea(request_context));
+    println!("{indent}{}", style::subhead("evaluation contexts"));
+    for evaluation_context in evaluation_contexts {
+        println!("{indent}  {}", style::sea(evaluation_context));
     }
 }
 
@@ -778,12 +781,12 @@ fn semantic_entity_label(entity: &SemanticEntity) -> String {
             format!("qualifier:{qualifier}.predicate[{index}]")
         }
         SemanticEntity::Variable { id } => format!("variable:{id}"),
-        SemanticEntity::RequestContext { id } => format!("request-context:{id}"),
-        SemanticEntity::RequestContextEntry {
-            request_context,
+        SemanticEntity::EvaluationContext { id } => format!("evaluation-context:{id}"),
+        SemanticEntity::EvaluationContextSample {
+            evaluation_context,
             key,
         } => {
-            format!("request-context:{request_context}.entry:{key}")
+            format!("evaluation-context:{evaluation_context}.entry:{key}")
         }
         SemanticEntity::Catalog { id } => format!("catalog:{id}"),
         SemanticEntity::CatalogEntry { catalog, key } => format!("catalog:{catalog}.value:{key}"),
@@ -820,7 +823,7 @@ fn semantic_field_label(field: &SemanticField) -> String {
         SemanticField::ValueJsonPath { path } => format!("value.{}", path.join(".")),
         SemanticField::SchemaJson => "json".to_owned(),
         SemanticField::SchemaJsonPath { path } => format!("json.{}", path.join(".")),
-        SemanticField::RequestContextEntry => "entry".to_owned(),
+        SemanticField::EvaluationContextSample => "entry".to_owned(),
         SemanticField::CatalogEntry => "value".to_owned(),
     }
 }
@@ -851,8 +854,8 @@ fn diagnostic_entity_label(entity: &DiagnosticEntity) -> &'static str {
         DiagnosticEntity::Package => "package",
         DiagnosticEntity::Qualifier => "qualifier",
         DiagnosticEntity::Variable => "variable",
-        DiagnosticEntity::RequestContext => "request_context",
-        DiagnosticEntity::RequestContextEntry => "request_context_entry",
+        DiagnosticEntity::EvaluationContext => "evaluation_context",
+        DiagnosticEntity::EvaluationContextSample => "evaluation_context_sample",
         DiagnosticEntity::Catalog => "catalog",
         DiagnosticEntity::CatalogEntry => "catalog_entry",
         DiagnosticEntity::Value => "value",

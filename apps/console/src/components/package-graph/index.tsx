@@ -25,7 +25,7 @@ const CONCEPTS: Array<{
 }> = [{ id: "columns", label: "Columns", Component: ColumnsGraph }];
 
 const KIND_LABEL: Record<GraphNode["kind"], string> = {
-    requestContext: "request context",
+    evaluationContext: "evaluation context",
     qualifier: "qualifier",
     variable: "variable",
     catalog: "catalog",

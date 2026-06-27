@@ -28,7 +28,7 @@ fn diff_json_reports_semantic_value_change_and_resolution_impact() {
         &after,
         &[
             "--context",
-            "@examples/basic/request-contexts/request-entries/premium-enterprise.json",
+            "@examples/basic/evaluation-contexts/request-samples/premium-enterprise.json",
             "--context",
             "lane=stage",
         ],

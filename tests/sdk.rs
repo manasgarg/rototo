@@ -5,8 +5,8 @@ use std::time::{Duration, Instant};
 
 use rototo::model::VariableResolutionSource;
 use rototo::{
-    LintMode, LoadOptions, Package, RefreshOptions, RefreshOutcome, RefreshingPackage,
-    ResolveContext, ResolveOptions, SourceOptions, diagnostic_for_rule,
+    EvaluationContext, LintMode, LoadOptions, Package, RefreshOptions, RefreshOutcome,
+    RefreshingPackage, ResolveOptions, SourceOptions, diagnostic_for_rule,
     diagnostics_catalog_for_package, inspect_package, lint_package, lint_qualifier, list_catalogs,
     list_variables, read_catalog, read_qualifiers, read_variable, read_variables,
     resolve_qualifier, resolve_variable, stage_package_source,
@@ -162,9 +162,13 @@ async fn sdk_inspects_package() {
             .iter()
             .any(|variable| variable.uri == "variable://checkout-redesign")
     );
-    assert!(inspection.request_contexts.iter().any(
-        |context| context.path == std::path::Path::new("request-contexts/request.schema.json")
-    ));
+    assert!(
+        inspection
+            .evaluation_contexts
+            .iter()
+            .any(|context| context.path
+                == std::path::Path::new("evaluation-contexts/request.schema.json"))
+    );
     assert!(
         inspection
             .linters
@@ -391,7 +395,7 @@ async fn package_sdk_loads_git_file_source_with_ref_and_subdir() {
     let resolution = package
         .resolve_variable(
             "message",
-            &ResolveContext::from_json(serde_json::json!({})).unwrap(),
+            &EvaluationContext::from_json(serde_json::json!({})).unwrap(),
         )
         .unwrap();
     assert_eq!(resolution.value, "hello");
@@ -411,7 +415,7 @@ async fn refreshing_package_manual_refresh_updates_git_source() {
     let package = RefreshingPackage::load(source, RefreshOptions::new())
         .await
         .unwrap();
-    let context = ResolveContext::from_json(serde_json::json!({})).unwrap();
+    let context = EvaluationContext::from_json(serde_json::json!({})).unwrap();
 
     let resolution = package.resolve_variable("message", &context).unwrap();
     assert_eq!(resolution.value, "hello");
@@ -442,7 +446,7 @@ async fn refreshing_package_failed_refresh_keeps_last_loaded_git_package() {
     let package = RefreshingPackage::load(source, RefreshOptions::new())
         .await
         .unwrap();
-    let context = ResolveContext::from_json(serde_json::json!({})).unwrap();
+    let context = EvaluationContext::from_json(serde_json::json!({})).unwrap();
 
     tokio::fs::write(package_root.join("rototo-package.toml"), "not = [valid")
         .await
@@ -466,7 +470,7 @@ async fn refreshing_package_snapshots_local_source_for_last_known_good_resolutio
     let package = RefreshingPackage::load(package_root.to_string_lossy(), RefreshOptions::new())
         .await
         .unwrap();
-    let context = ResolveContext::from_json(serde_json::json!({})).unwrap();
+    let context = EvaluationContext::from_json(serde_json::json!({})).unwrap();
 
     tokio::fs::write(package_root.join("rototo-package.toml"), "not = [valid")
         .await
@@ -507,7 +511,7 @@ extends = ["../base"]
     let package = RefreshingPackage::load(child.to_string_lossy(), RefreshOptions::new())
         .await
         .unwrap();
-    let context = ResolveContext::from_json(serde_json::json!({})).unwrap();
+    let context = EvaluationContext::from_json(serde_json::json!({})).unwrap();
 
     assert_eq!(
         package
@@ -591,7 +595,7 @@ async fn refreshing_package_background_loop_refreshes_local_source() {
     )
     .await
     .unwrap();
-    let context = ResolveContext::from_json(serde_json::json!({})).unwrap();
+    let context = EvaluationContext::from_json(serde_json::json!({})).unwrap();
 
     write_minimal_package_with_message(&package_root, "goodbye").await;
     tokio::task::yield_now().await;
@@ -621,7 +625,7 @@ async fn refreshing_package_background_failures_back_off_and_keep_snapshot() {
     )
     .await
     .unwrap();
-    let context = ResolveContext::from_json(serde_json::json!({})).unwrap();
+    let context = EvaluationContext::from_json(serde_json::json!({})).unwrap();
 
     tokio::fs::write(package_root.join("variables/message.toml"), "not = [valid")
         .await
@@ -691,12 +695,12 @@ async fn refreshing_package_resolves_while_manual_refresh_runs() {
             .await
             .unwrap(),
     );
-    let context = ResolveContext::from_json(serde_json::json!({})).unwrap();
+    let context = EvaluationContext::from_json(serde_json::json!({})).unwrap();
     write_minimal_package_with_message(&package_root, "goodbye").await;
 
     let refresh_package = package.clone();
     let resolve_package = package.clone();
-    let resolve_context = context.clone();
+    let evaluation_context = context.clone();
     let (refresh, resolves) = tokio::join!(
         async move { refresh_package.refresh_now().await },
         async move {
@@ -704,7 +708,7 @@ async fn refreshing_package_resolves_while_manual_refresh_runs() {
             for _ in 0..10 {
                 results.push(
                     resolve_package
-                        .resolve_variable("message", &resolve_context)
+                        .resolve_variable("message", &evaluation_context)
                         .map(|resolution| resolution.value),
                 );
             }
@@ -795,7 +799,7 @@ async fn package_sdk_resolves_from_loaded_runtime_snapshot() {
     let package = Package::load(root.to_str().unwrap()).await.unwrap();
     write_minimal_package_with_message(&root, "changed").await;
 
-    let context = ResolveContext::from_json(serde_json::json!({})).unwrap();
+    let context = EvaluationContext::from_json(serde_json::json!({})).unwrap();
     let resolution = package.resolve_variable("message", &context).unwrap();
 
     assert_eq!(resolution.value, "loaded");
@@ -831,7 +835,7 @@ extends = ["../base"]
     write_string_variable(&child, "child-only", "child-only").await;
 
     let package = Package::load(child.to_str().unwrap()).await.unwrap();
-    let context = ResolveContext::from_json(serde_json::json!({})).unwrap();
+    let context = EvaluationContext::from_json(serde_json::json!({})).unwrap();
 
     assert_eq!(package.source_layers().len(), 2);
     assert_eq!(
@@ -884,7 +888,7 @@ async fn package_sdk_can_inspect_without_linting() {
 #[tokio::test]
 async fn package_sdk_resolves_with_context_contract() {
     let package = Package::load("examples/basic").await.unwrap();
-    let context = ResolveContext::from_json(serde_json::json!({
+    let context = EvaluationContext::from_json(serde_json::json!({
         "user": {
             "tier": "premium"
         }
@@ -899,9 +903,9 @@ async fn package_sdk_resolves_with_context_contract() {
 }
 
 #[tokio::test]
-async fn package_sdk_validates_resolve_context_against_schema() {
+async fn package_sdk_validates_evaluation_context_against_schema() {
     let package = Package::load("examples/basic").await.unwrap();
-    let context = ResolveContext::from_json(serde_json::json!({
+    let context = EvaluationContext::from_json(serde_json::json!({
         "unknown": true
     }))
     .unwrap();
@@ -912,14 +916,14 @@ async fn package_sdk_validates_resolve_context_against_schema() {
 
     assert!(
         err.to_string()
-            .contains("resolve context does not match any compatible request context")
+            .contains("evaluation context does not match any compatible evaluation context")
     );
 }
 
 #[tokio::test]
 async fn package_sdk_rejects_missing_condition_context_even_when_schema_allows_it() {
     let package = Package::load("examples/basic").await.unwrap();
-    let context = ResolveContext::from_json(serde_json::json!({
+    let context = EvaluationContext::from_json(serde_json::json!({
         "user": {
             "id": "user-123"
         }
@@ -939,7 +943,7 @@ async fn package_sdk_rejects_missing_condition_context_even_when_schema_allows_i
 #[tokio::test]
 async fn package_sdk_resolves_from_context_only() {
     let package = Package::load("examples/basic").await.unwrap();
-    let context = ResolveContext::from_json(serde_json::json!({
+    let context = EvaluationContext::from_json(serde_json::json!({
         "lane": "prd",
         "user": {
             "tier": "premium"
@@ -969,7 +973,7 @@ async fn package_sdk_loads_malformed_context_config_when_lint_is_skipped_for_ins
     .await
     .unwrap();
 
-    let context = ResolveContext::from_json(serde_json::json!({})).unwrap();
+    let context = EvaluationContext::from_json(serde_json::json!({})).unwrap();
     let err = package.resolve_qualifier("anything", &context).unwrap_err();
     assert!(err.to_string().contains("loaded without a runtime model"));
 }
@@ -979,7 +983,7 @@ async fn package_sdk_loads_malformed_context_config_when_lint_is_skipped_for_ins
 async fn package_sdk_rejects_context_schema_symlink_escape() {
     let temp = tempfile::TempDir::new().unwrap();
     let root = temp.path().join("package");
-    tokio::fs::create_dir_all(root.join("request-contexts"))
+    tokio::fs::create_dir_all(root.join("evaluation-contexts"))
         .await
         .unwrap();
     tokio::fs::write(
@@ -997,7 +1001,7 @@ async fn package_sdk_rejects_context_schema_symlink_escape() {
     .unwrap();
     std::os::unix::fs::symlink(
         temp.path().join("outside.schema.json"),
-        root.join("request-contexts/request.schema.json"),
+        root.join("evaluation-contexts/request.schema.json"),
     )
     .unwrap();
 
@@ -1007,10 +1011,10 @@ async fn package_sdk_rejects_context_schema_symlink_escape() {
 }
 
 #[tokio::test]
-async fn package_sdk_rejects_non_object_resolve_context() {
-    let err = ResolveContext::from_json(serde_json::json!(["not", "an", "object"])).unwrap_err();
+async fn package_sdk_rejects_non_object_evaluation_context() {
+    let err = EvaluationContext::from_json(serde_json::json!(["not", "an", "object"])).unwrap_err();
 
-    assert_eq!(err.to_string(), "resolve context must be a JSON object");
+    assert_eq!(err.to_string(), "evaluation context must be a JSON object");
 }
 
 #[tokio::test]
@@ -1028,7 +1032,7 @@ async fn package_sdk_can_load_with_lint_skipped_for_inspection_tools() {
 #[tokio::test]
 async fn package_sdk_can_bypass_context_validation_explicitly() {
     let package = Package::load("examples/basic").await.unwrap();
-    let context = ResolveContext::from_json(serde_json::json!({
+    let context = EvaluationContext::from_json(serde_json::json!({
         "unknown": true,
         "user": {
             "tier": "free"

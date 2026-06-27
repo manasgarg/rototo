@@ -1,7 +1,7 @@
 use serde::Deserialize;
 use serde_json::Value as JsonValue;
 
-use rototo::{Package, ResolveContext};
+use rototo::{EvaluationContext, Package};
 
 #[derive(Debug, Deserialize)]
 struct ContractCase {
@@ -76,8 +76,8 @@ async fn run_contract_case(case: &ContractCase) -> Result<JsonValue, String> {
             let package = Package::load(&case.package)
                 .await
                 .map_err(|err| err.to_string())?;
-            let context =
-                ResolveContext::from_json(case.context.clone()).map_err(|err| err.to_string())?;
+            let context = EvaluationContext::from_json(case.context.clone())
+                .map_err(|err| err.to_string())?;
             let id = case_id(case)?;
             let resolution = package
                 .resolve_qualifier(id, &context)
@@ -88,8 +88,8 @@ async fn run_contract_case(case: &ContractCase) -> Result<JsonValue, String> {
             let package = Package::load(&case.package)
                 .await
                 .map_err(|err| err.to_string())?;
-            let context =
-                ResolveContext::from_json(case.context.clone()).map_err(|err| err.to_string())?;
+            let context = EvaluationContext::from_json(case.context.clone())
+                .map_err(|err| err.to_string())?;
             let id = case_id(case)?;
             let resolution = package
                 .resolve_variable(id, &context)

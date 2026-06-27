@@ -8,7 +8,7 @@ import type { GraphNode, GraphNodeKind, PackageGraphData } from "./types";
    neighbors and previews its source; clicking opens the entity. */
 
 const COLUMNS: Array<{ kind: GraphNodeKind; title: string }> = [
-    { kind: "requestContext", title: "request contexts" },
+    { kind: "evaluationContext", title: "evaluation contexts" },
     { kind: "qualifier", title: "qualifiers" },
     { kind: "variable", title: "variables" },
     { kind: "catalog", title: "catalogs" },
@@ -16,7 +16,7 @@ const COLUMNS: Array<{ kind: GraphNodeKind; title: string }> = [
 ];
 
 const KIND_COLOR: Record<GraphNodeKind, string> = {
-    requestContext: "var(--cyan-600)",
+    evaluationContext: "var(--cyan-600)",
     qualifier: "var(--cyan-600)",
     variable: "var(--sea-600)",
     catalog: "var(--ok-700)",

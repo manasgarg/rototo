@@ -1,7 +1,7 @@
 # Package Terminology Cut
 
 Rototo now uses `package` for the filesystem boundary that contains
-qualifiers, variables, catalogs, schemas, request contexts, and lint rules.
+qualifiers, variables, catalogs, schemas, evaluation contexts, and lint rules.
 That noun is meant to signal the mental model: a rototo directory tree is a
 configuration package that teams build, review, lint, publish, and load from
 applications.

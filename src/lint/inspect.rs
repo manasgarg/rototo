@@ -4,11 +4,11 @@ use crate::diagnostics::{DiagnosticCatalogEntry, LintDiagnostic, RototoRuleId, S
 use crate::error::{Result, RototoError};
 use crate::expression::Expression;
 use crate::model::{
-    CatalogEntryInspectReport, CatalogInspectReport, DependencyInspectReport, InspectRuntimeStatus,
+    CatalogEntryInspectReport, CatalogInspectReport, DependencyInspectReport,
+    EvaluationContextInspectReport, EvaluationContextSampleInspectReport, InspectRuntimeStatus,
     InspectSelection, LintAuthorityInspectReport, LintRuleInspectReport, LinterInspectReport,
     LinterRegistrationInspectReport, PackageInspectReport, PackageInspectRequest,
-    QualifierInspectReport, ReferenceInspectReport, RequestContextEntryInspectReport,
-    RequestContextInspectReport, ResolveInspectReport, RulePathwayInspectReport,
+    QualifierInspectReport, ReferenceInspectReport, ResolveInspectReport, RulePathwayInspectReport,
     ValueInspectReport, VariableInspectReport,
 };
 use crate::resolve::{trace_qualifier_unchecked, trace_variable_unchecked};
@@ -65,7 +65,7 @@ pub(crate) async fn inspect_snapshot(
         catalogs.push(inspect_catalog(snapshot, &id)?);
     }
 
-    let request_contexts = selected_request_contexts(snapshot, inventory);
+    let evaluation_contexts = selected_evaluation_contexts(snapshot, inventory);
     let lint_rules = selected_lint_rules(snapshot, request, &catalog);
     let lint_authorities = selected_lint_authorities(snapshot, request, &catalog, inventory);
     let linters = selected_linters(snapshot, request, inventory);
@@ -79,7 +79,7 @@ pub(crate) async fn inspect_snapshot(
             None => InspectRuntimeStatus::Available,
         },
         diagnostics,
-        request_contexts,
+        evaluation_contexts,
         catalogs,
         variables,
         qualifiers,
@@ -159,44 +159,46 @@ fn validate_request(
     Ok(())
 }
 
-fn selected_request_contexts(
+fn selected_evaluation_contexts(
     snapshot: &PackageLintSnapshot,
     include_all_for_none: bool,
-) -> Vec<RequestContextInspectReport> {
+) -> Vec<EvaluationContextInspectReport> {
     if !include_all_for_none {
         return Vec::new();
     }
     snapshot
         .index
-        .request_contexts
+        .evaluation_contexts
         .values()
-        .map(|request_context| request_context_report(snapshot, request_context))
+        .map(|evaluation_context| evaluation_context_report(snapshot, evaluation_context))
         .collect()
 }
 
-fn request_context_report(
+fn evaluation_context_report(
     snapshot: &PackageLintSnapshot,
-    request_context: &RequestContextNode,
-) -> RequestContextInspectReport {
+    evaluation_context: &EvaluationContextNode,
+) -> EvaluationContextInspectReport {
     let diagnostics = snapshot
         .lint
         .diagnostics
         .iter()
-        .filter(|diagnostic| diagnostic_belongs_to_request_context(diagnostic, &request_context.id))
+        .filter(|diagnostic| {
+            diagnostic_belongs_to_evaluation_context(diagnostic, &evaluation_context.id)
+        })
         .cloned()
         .collect();
-    let (status, error) = if let Some(message) = &request_context.invalid_message {
+    let (status, error) = if let Some(message) = &evaluation_context.invalid_message {
         ("invalid".to_owned(), Some(message.clone()))
-    } else if request_context.validator.is_some() {
+    } else if evaluation_context.validator.is_some() {
         ("valid".to_owned(), None)
     } else {
         ("unavailable".to_owned(), None)
     };
-    let json = request_context.json.as_ref();
+    let json = evaluation_context.json.as_ref();
 
-    RequestContextInspectReport {
-        id: request_context.id.clone(),
-        path: request_context.path.clone(),
+    EvaluationContextInspectReport {
+        id: evaluation_context.id.clone(),
+        path: evaluation_context.path.clone(),
         status,
         error,
         title: json
@@ -207,26 +209,26 @@ fn request_context_report(
             .and_then(|json| json.get("description"))
             .and_then(serde_json::Value::as_str)
             .map(str::to_owned),
-        entries: request_context_entries(snapshot, &request_context.id),
+        samples: evaluation_context_samples(snapshot, &evaluation_context.id),
         diagnostics,
     }
 }
 
-fn request_context_entries(
+fn evaluation_context_samples(
     snapshot: &PackageLintSnapshot,
-    request_context: &str,
-) -> Vec<RequestContextEntryInspectReport> {
+    evaluation_context: &str,
+) -> Vec<EvaluationContextSampleInspectReport> {
     snapshot
         .index
-        .request_context_entries
-        .get(request_context)
+        .evaluation_context_samples
+        .get(evaluation_context)
         .into_iter()
         .flat_map(|entries| entries.values())
         .filter_map(|entry| {
             entry
                 .value
                 .as_ref()
-                .map(|value| RequestContextEntryInspectReport {
+                .map(|value| EvaluationContextSampleInspectReport {
                     key: entry.key.clone(),
                     value: value.clone(),
                     location: entry.location.clone(),
@@ -262,8 +264,8 @@ async fn inspect_variable(
         }
         _ => None,
     };
-    let request_contexts = snapshot
-        .request_context_compatibility()
+    let evaluation_contexts = snapshot
+        .evaluation_context_compatibility()
         .variables
         .remove(id)
         .unwrap_or_default()
@@ -275,7 +277,7 @@ async fn inspect_variable(
         uri: format!("variable://{id}"),
         path,
         description: variable.description.as_ref().and_then(present_string_value),
-        request_contexts,
+        evaluation_contexts,
         type_source: variable_type_source_label(variable),
         schema: variable_schema_dependency(snapshot, id),
         values: variable_values(variable, &snapshot.index),
@@ -312,8 +314,8 @@ async fn inspect_qualifier(
         }
         _ => None,
     };
-    let request_contexts = snapshot
-        .request_context_compatibility()
+    let evaluation_contexts = snapshot
+        .evaluation_context_compatibility()
         .qualifiers
         .remove(id)
         .unwrap_or_default()
@@ -328,7 +330,7 @@ async fn inspect_qualifier(
             .description
             .as_ref()
             .and_then(present_string_value),
-        request_contexts,
+        evaluation_contexts,
         when: qualifier_when(qualifier),
         predicates: Vec::new(),
         dependencies: qualifier_dependencies(snapshot, id),
@@ -854,13 +856,13 @@ fn diagnostic_belongs_to_linter(diagnostic: &LintDiagnostic, id: &str) -> bool {
         || diagnostic.primary.path == path
 }
 
-fn diagnostic_belongs_to_request_context(diagnostic: &LintDiagnostic, id: &str) -> bool {
-    let schema_path = format!("request-contexts/{id}.schema.json");
-    let entries_prefix = format!("request-contexts/{id}-entries/");
-    matches!(&diagnostic.target.entity, SemanticEntity::RequestContext { id: diagnostic_id } if diagnostic_id == id)
-        || matches!(&diagnostic.target.entity, SemanticEntity::RequestContextEntry { request_context, .. } if request_context == id)
+fn diagnostic_belongs_to_evaluation_context(diagnostic: &LintDiagnostic, id: &str) -> bool {
+    let schema_path = format!("evaluation-contexts/{id}.schema.json");
+    let samples_prefix = format!("evaluation-contexts/{id}-samples/");
+    matches!(&diagnostic.target.entity, SemanticEntity::EvaluationContext { id: diagnostic_id } if diagnostic_id == id)
+        || matches!(&diagnostic.target.entity, SemanticEntity::EvaluationContextSample { evaluation_context, .. } if evaluation_context == id)
         || diagnostic.primary.path == schema_path
-        || diagnostic.primary.path.starts_with(&entries_prefix)
+        || diagnostic.primary.path.starts_with(&samples_prefix)
 }
 
 fn selected_lint_rules(
@@ -1062,14 +1064,14 @@ fn registered_address_label(address: &RegisteredLintAddress) -> String {
         RegisteredLintAddress::CatalogEntry { catalog, key } => {
             format!("/catalogs/{catalog}/entries/{key}")
         }
-        RegisteredLintAddress::RequestContexts => "/request-contexts".to_owned(),
-        RegisteredLintAddress::RequestContext { id } => format!("/request-contexts/{id}"),
-        RegisteredLintAddress::RequestContextEntries { request_context } => {
-            format!("/request-contexts/{request_context}/entries")
+        RegisteredLintAddress::EvaluationContexts => "/evaluation-contexts".to_owned(),
+        RegisteredLintAddress::EvaluationContext { id } => format!("/evaluation-contexts/{id}"),
+        RegisteredLintAddress::EvaluationContextSamples { evaluation_context } => {
+            format!("/evaluation-contexts/{evaluation_context}/samples")
         }
-        RegisteredLintAddress::RequestContextEntry {
-            request_context,
+        RegisteredLintAddress::EvaluationContextSample {
+            evaluation_context,
             key,
-        } => format!("/request-contexts/{request_context}/entries/{key}"),
+        } => format!("/evaluation-contexts/{evaluation_context}/samples/{key}"),
     }
 }

@@ -37,8 +37,8 @@ pub(super) fn registered_lint_package(ctx: &LintContext) -> JsonValue {
         "catalogs": ctx.index.catalogs.iter()
             .map(|(id, catalog)| (id.clone(), catalog_data(ctx, catalog)))
             .collect::<BTreeMap<_, _>>(),
-        "request_contexts": ctx.index.request_contexts.iter()
-            .map(|(id, request_context)| (id.clone(), request_context_data(ctx, request_context)))
+        "evaluation_contexts": ctx.index.evaluation_contexts.iter()
+            .map(|(id, evaluation_context)| (id.clone(), evaluation_context_data(ctx, evaluation_context)))
             .collect::<BTreeMap<_, _>>(),
     })
 }
@@ -131,39 +131,39 @@ pub(super) fn registered_lint_targets(
             .map(registered_catalog_entry_target)
             .into_iter()
             .collect(),
-        RegisteredLintAddress::RequestContexts => ctx
+        RegisteredLintAddress::EvaluationContexts => ctx
             .index
-            .request_contexts
+            .evaluation_contexts
             .values()
-            .map(|request_context| registered_request_context_target(ctx, request_context))
+            .map(|evaluation_context| registered_evaluation_context_target(ctx, evaluation_context))
             .collect(),
-        RegisteredLintAddress::RequestContext { id } => ctx
+        RegisteredLintAddress::EvaluationContext { id } => ctx
             .index
-            .request_contexts
+            .evaluation_contexts
             .get(id)
-            .map(|request_context| registered_request_context_target(ctx, request_context))
+            .map(|evaluation_context| registered_evaluation_context_target(ctx, evaluation_context))
             .into_iter()
             .collect(),
-        RegisteredLintAddress::RequestContextEntries { request_context } => ctx
+        RegisteredLintAddress::EvaluationContextSamples { evaluation_context } => ctx
             .index
-            .request_context_entries
-            .get(request_context)
+            .evaluation_context_samples
+            .get(evaluation_context)
             .into_iter()
             .flat_map(|entries| {
                 entries
                     .values()
-                    .map(registered_request_context_entry_target)
+                    .map(registered_evaluation_context_sample_target)
             })
             .collect(),
-        RegisteredLintAddress::RequestContextEntry {
-            request_context,
+        RegisteredLintAddress::EvaluationContextSample {
+            evaluation_context,
             key,
         } => ctx
             .index
-            .request_context_entries
-            .get(request_context)
+            .evaluation_context_samples
+            .get(evaluation_context)
             .and_then(|entries| entries.get(key))
-            .map(registered_request_context_entry_target)
+            .map(registered_evaluation_context_sample_target)
             .into_iter()
             .collect(),
     }
@@ -203,11 +203,11 @@ fn resolve_output_pointer(
         SemanticEntity::CatalogEntry { catalog, key } => {
             catalog_entry_pointer(ctx, catalog, key, tokens)
         }
-        SemanticEntity::RequestContext { id } => request_context_pointer(ctx, id, tokens),
-        SemanticEntity::RequestContextEntry {
-            request_context,
+        SemanticEntity::EvaluationContext { id } => evaluation_context_pointer(ctx, id, tokens),
+        SemanticEntity::EvaluationContextSample {
+            evaluation_context,
             key,
-        } => request_context_entry_pointer(ctx, request_context, key, tokens),
+        } => evaluation_context_sample_pointer(ctx, evaluation_context, key, tokens),
         SemanticEntity::Manifest | SemanticEntity::CustomLint { .. } => None,
     }
 }
@@ -267,22 +267,22 @@ fn registered_lint_output_location(
             .and_then(|entries| entries.get(key))
             .map(|entry| entry.location.clone())
             .unwrap_or(fallback),
-        (SemanticEntity::RequestContext { id }, _) => ctx
+        (SemanticEntity::EvaluationContext { id }, _) => ctx
             .index
-            .request_contexts
+            .evaluation_contexts
             .get(id)
-            .map(|request_context| request_context.location.clone())
+            .map(|evaluation_context| evaluation_context.location.clone())
             .unwrap_or(fallback),
         (
-            SemanticEntity::RequestContextEntry {
-                request_context,
+            SemanticEntity::EvaluationContextSample {
+                evaluation_context,
                 key,
             },
             _,
         ) => ctx
             .index
-            .request_context_entries
-            .get(request_context)
+            .evaluation_context_samples
+            .get(evaluation_context)
             .and_then(|entries| entries.get(key))
             .map(|entry| entry.location.clone())
             .unwrap_or(fallback),
@@ -367,18 +367,18 @@ fn entity_location(ctx: &LintContext, entity: &SemanticEntity) -> Option<Diagnos
             .get(catalog)
             .and_then(|entries| entries.get(key))
             .map(|entry| entry.location.clone()),
-        SemanticEntity::RequestContext { id } => ctx
+        SemanticEntity::EvaluationContext { id } => ctx
             .index
-            .request_contexts
+            .evaluation_contexts
             .get(id)
-            .map(|request_context| request_context.location.clone()),
-        SemanticEntity::RequestContextEntry {
-            request_context,
+            .map(|evaluation_context| evaluation_context.location.clone()),
+        SemanticEntity::EvaluationContextSample {
+            evaluation_context,
             key,
         } => ctx
             .index
-            .request_context_entries
-            .get(request_context)
+            .evaluation_context_samples
+            .get(evaluation_context)
             .and_then(|entries| entries.get(key))
             .map(|entry| entry.location.clone()),
         SemanticEntity::Predicate { .. }
@@ -414,8 +414,8 @@ fn package_pointer(ctx: &LintContext, tokens: &[String]) -> Option<RegisteredLin
             .or_else(|| registered_lint_output_anchor_for(ctx, SemanticEntity::Package, None)),
         [segment, id, rest @ ..] if segment == "catalogs" => catalog_pointer(ctx, id, rest)
             .or_else(|| registered_lint_output_anchor_for(ctx, SemanticEntity::Package, None)),
-        [segment, id, rest @ ..] if segment == "request_contexts" => {
-            request_context_pointer(ctx, id, rest)
+        [segment, id, rest @ ..] if segment == "evaluation_contexts" => {
+            evaluation_context_pointer(ctx, id, rest)
                 .or_else(|| registered_lint_output_anchor_for(ctx, SemanticEntity::Package, None))
         }
         _ => registered_lint_output_anchor_for(ctx, SemanticEntity::Package, None),
@@ -677,13 +677,13 @@ fn catalog_entry_pointer(
     }
 }
 
-fn request_context_pointer(
+fn evaluation_context_pointer(
     ctx: &LintContext,
     id: &str,
     tokens: &[String],
 ) -> Option<RegisteredLintOutputAnchor> {
-    let request_context = ctx.index.request_contexts.get(id)?;
-    let entity = SemanticEntity::RequestContext { id: id.to_owned() };
+    let evaluation_context = ctx.index.evaluation_contexts.get(id)?;
+    let entity = SemanticEntity::EvaluationContext { id: id.to_owned() };
     if tokens.is_empty() {
         return registered_lint_output_anchor_for(ctx, entity, None);
     }
@@ -692,7 +692,7 @@ fn request_context_pointer(
             ctx,
             entity,
             SemanticField::SchemaJson,
-            request_context.location.clone(),
+            evaluation_context.location.clone(),
         )),
         [segment, rest @ ..] if segment == "json" => Some(field_anchor(
             ctx,
@@ -700,29 +700,29 @@ fn request_context_pointer(
             SemanticField::SchemaJsonPath {
                 path: rest.to_vec(),
             },
-            request_context.location.clone(),
+            evaluation_context.location.clone(),
         )),
-        [segment, key, rest @ ..] if segment == "entries" => {
-            request_context_entry_pointer(ctx, id, key, rest)
+        [segment, key, rest @ ..] if segment == "samples" => {
+            evaluation_context_sample_pointer(ctx, id, key, rest)
                 .or_else(|| registered_lint_output_anchor_for(ctx, entity, None))
         }
         _ => registered_lint_output_anchor_for(ctx, entity, None),
     }
 }
 
-fn request_context_entry_pointer(
+fn evaluation_context_sample_pointer(
     ctx: &LintContext,
-    request_context_id: &str,
+    evaluation_context_id: &str,
     key: &str,
     tokens: &[String],
 ) -> Option<RegisteredLintOutputAnchor> {
     let entry = ctx
         .index
-        .request_context_entries
-        .get(request_context_id)?
+        .evaluation_context_samples
+        .get(evaluation_context_id)?
         .get(key)?;
-    let entity = SemanticEntity::RequestContextEntry {
-        request_context: request_context_id.to_owned(),
+    let entity = SemanticEntity::EvaluationContextSample {
+        evaluation_context: evaluation_context_id.to_owned(),
         key: key.to_owned(),
     };
     if tokens.is_empty() {
@@ -732,7 +732,7 @@ fn request_context_entry_pointer(
         [segment] if segment == "value" => Some(field_anchor(
             ctx,
             entity,
-            SemanticField::RequestContextEntry,
+            SemanticField::EvaluationContextSample,
             entry.location.clone(),
         )),
         [segment, rest @ ..] if segment == "value" => Some(field_anchor(
@@ -854,24 +854,24 @@ fn registered_catalog_entry_target(entry: &CatalogEntryNode) -> RegisteredLintTa
     }
 }
 
-fn registered_request_context_target(
+fn registered_evaluation_context_target(
     ctx: &LintContext,
-    request_context: &RequestContextNode,
+    evaluation_context: &EvaluationContextNode,
 ) -> RegisteredLintTargetInstance {
     RegisteredLintTargetInstance {
-        target: request_context.target(),
-        location: request_context.location.clone(),
-        data: request_context_data(ctx, request_context),
+        target: evaluation_context.target(),
+        location: evaluation_context.location.clone(),
+        data: evaluation_context_data(ctx, evaluation_context),
     }
 }
 
-fn registered_request_context_entry_target(
-    entry: &RequestContextEntryNode,
+fn registered_evaluation_context_sample_target(
+    entry: &EvaluationContextSampleNode,
 ) -> RegisteredLintTargetInstance {
     RegisteredLintTargetInstance {
         target: entry.target(),
         location: entry.location.clone(),
-        data: request_context_entry_data(entry),
+        data: evaluation_context_sample_data(entry),
     }
 }
 
@@ -988,24 +988,27 @@ fn catalog_entry_data(entry: &CatalogEntryNode) -> JsonValue {
     })
 }
 
-fn request_context_data(ctx: &LintContext, request_context: &RequestContextNode) -> JsonValue {
+fn evaluation_context_data(
+    ctx: &LintContext,
+    evaluation_context: &EvaluationContextNode,
+) -> JsonValue {
     serde_json::json!({
-        "kind": "request_context",
-        "id": request_context.id,
-        "path": request_context.path,
-        "json": request_context.json.clone().unwrap_or(JsonValue::Null),
-        "entries": ctx.index.request_context_entries.get(&request_context.id)
-            .map(|entries| entries.iter()
-                .map(|(key, entry)| (key.clone(), request_context_entry_data(entry)))
+        "kind": "evaluation_context",
+        "id": evaluation_context.id,
+        "path": evaluation_context.path,
+        "json": evaluation_context.json.clone().unwrap_or(JsonValue::Null),
+        "samples": ctx.index.evaluation_context_samples.get(&evaluation_context.id)
+            .map(|samples| samples.iter()
+                .map(|(key, entry)| (key.clone(), evaluation_context_sample_data(entry)))
                 .collect::<BTreeMap<_, _>>())
             .unwrap_or_default(),
     })
 }
 
-fn request_context_entry_data(entry: &RequestContextEntryNode) -> JsonValue {
+fn evaluation_context_sample_data(entry: &EvaluationContextSampleNode) -> JsonValue {
     serde_json::json!({
-        "kind": "request_context_entry",
-        "request_context": entry.request_context_id,
+        "kind": "evaluation_context_sample",
+        "evaluation_context": entry.evaluation_context_id,
         "key": entry.key,
         "path": entry.path,
         "value": entry.value.clone().unwrap_or(JsonValue::Null),

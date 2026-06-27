@@ -12,7 +12,7 @@ use crate::model::{
     VariableResolutionTrace,
 };
 use crate::resolve::{bucket_value, trace_qualifier_resolution, trace_variable_resolution};
-use crate::sdk::{Package, ResolveContext};
+use crate::sdk::{EvaluationContext, Package};
 use crate::source::{SourceOptions, stage_package_source};
 
 const SUITE_FILE: &str = "rototo-fixtures.toml";
@@ -309,7 +309,7 @@ async fn generate_qualifier_fixture(
         cases.push(qualifier_case(
             "matches",
             "Matches when the qualifier condition is true",
-            Some("A request context sample satisfies the qualifier condition."),
+            Some("An evaluation context sample satisfies the qualifier condition."),
             true,
             context,
             &trace,
@@ -322,7 +322,7 @@ async fn generate_qualifier_fixture(
         cases.push(qualifier_case(
             "does-not-match",
             "Does not match when the qualifier condition is false",
-            Some("A request context sample does not satisfy the qualifier condition."),
+            Some("An evaluation context sample does not satisfy the qualifier condition."),
             true,
             context,
             &trace,
@@ -554,10 +554,10 @@ impl<'a> ContextFactory<'a> {
                 .map(|qualifier| (qualifier.id.clone(), qualifier))
                 .collect(),
             samples: report
-                .request_contexts
+                .evaluation_contexts
                 .iter()
-                .flat_map(|request_context| request_context.entries.iter())
-                .map(|entry| entry.value.clone())
+                .flat_map(|evaluation_context| evaluation_context.samples.iter())
+                .map(|sample| sample.value.clone())
                 .collect(),
         }
     }
@@ -1104,7 +1104,7 @@ async fn assert_fixture_case(
     case: &FixtureCase,
 ) -> Result<()> {
     let context = toml_to_json(&case.context)?;
-    let context = ResolveContext::from_json(context)?;
+    let context = EvaluationContext::from_json(context)?;
     match target {
         FixtureTarget::Qualifier(id) => {
             let trace = trace_qualifier_resolution(package.root(), id, context.value()).await?;

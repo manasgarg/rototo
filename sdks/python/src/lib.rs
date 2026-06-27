@@ -7,7 +7,7 @@ use pyo3::types::{PyAny, PyDict, PyModule};
 use pyo3_async_runtimes::tokio::future_into_py;
 use pythonize::{depythonize, pythonize};
 use rototo::{
-    LintMode, LoadOptions, RefreshOptions, ResolveContext, ResolveOptions, SourceAuth,
+    EvaluationContext, LintMode, LoadOptions, RefreshOptions, ResolveOptions, SourceAuth,
     SourceFingerprint, SourceOptions,
 };
 use serde_json::Value as JsonValue;
@@ -95,7 +95,7 @@ impl PyPackage {
         validate_context: bool,
     ) -> PyResult<Py<PyAny>> {
         let context = json_from_py(&context)?;
-        let context = ResolveContext::from_json(context).map_err(py_err)?;
+        let context = EvaluationContext::from_json(context).map_err(py_err)?;
         let resolution = self
             .inner
             .resolve_variable_with_options(&id, &context, resolve_options(validate_context))
@@ -112,7 +112,7 @@ impl PyPackage {
         validate_context: bool,
     ) -> PyResult<bool> {
         let context = json_from_py(&context)?;
-        let context = ResolveContext::from_json(context).map_err(py_err)?;
+        let context = EvaluationContext::from_json(context).map_err(py_err)?;
         self.inner
             .resolve_qualifier_with_options(&id, &context, resolve_options(validate_context))
             .map_err(py_err)
@@ -162,7 +162,7 @@ impl PyRefreshingPackage {
         validate_context: bool,
     ) -> PyResult<Py<PyAny>> {
         let context = json_from_py(&context)?;
-        let context = ResolveContext::from_json(context).map_err(py_err)?;
+        let context = EvaluationContext::from_json(context).map_err(py_err)?;
         let guard = self.inner.blocking_lock();
         let package = active_refreshing_package(&guard)?;
         let resolution = package
@@ -180,7 +180,7 @@ impl PyRefreshingPackage {
         validate_context: bool,
     ) -> PyResult<bool> {
         let context = json_from_py(&context)?;
-        let context = ResolveContext::from_json(context).map_err(py_err)?;
+        let context = EvaluationContext::from_json(context).map_err(py_err)?;
         let guard = self.inner.blocking_lock();
         let package = active_refreshing_package(&guard)?;
         package

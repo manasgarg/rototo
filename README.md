@@ -1,21 +1,24 @@
-# So, what is rototo?
+# So, what is Rototo?
 
-Every substantial software system eventually externalizes behavior into configuration: feature availability, model selection, tenant overrides, offers, prompts, retry policies, logging controls, and rollout rules.
-The problem is that this configuration usually leaves the engineering lifecycle and moves into databases, dashboards, spreadsheets, admin consoles, and feature-flag systems.
-It becomes harder to validate, test, review, promote, and explain.
-Rototo provides a coherent control plane for behavioral configuration: versioned, reviewable, testable, contract-enforced configuration that applications can resolve at runtime.
+Every substantial software system eventually needs a configuration subsystem. The software provides the underlying capabilities; configuration steers those capabilities to behave in a particular way.
 
-## rototo's hello world
+Some configuration is settings-style: things like database URLs and encryption keys, usually held in environment variables and fixed once the software is deployed. That's not the kind we're concerned with here. What interests us instead is the configuration that governs the system's runtime behavior: feature availability, model selection, tenant overrides, offers, retry policies, logging controls, rollout plans, and so on.
+
+Rototo provides a control plane for this kind of runtime configuration. It rests on a simple premise: runtime configuration should be treated like code. It should live alongside the code and follow a similar release cycle, and it should be testable and contract-enforced in the same way.
+
+To that end, Rototo models configuration as files that are versioned, reviewed, tested, and released as packages. The Rototo SDK loads these packages within the application runtime to guide the application's behavior. Configuration thus follows the same release process as code, while gaining a hot-swappable deployment mechanism.
+
+## Rototo's hello world
 
 Let's take a simple use case: we want to vary the order amount beyond which customers get free shipping.
 Customers in `standard` tier must have at least $50 as cart total while customers in `premium` tier get free shipping after $25.
 To accomplish this, we would do two things:
-- Create a rototo configuration package.
+- Create a Rototo configuration package.
 - Load the configuration package and resolve free shipping threshold in our application.
 
 ### Create and publish a configuration package
 
-First, install the rototo cli from crates.io:
+First, install the Rototo cli from crates.io:
 ```sh
 cargo install rototo --version 0.1.0-alpha.5
 ```
@@ -31,7 +34,7 @@ You should see the following in `app-config/` dir:
 $> tree app-config
 app-config
 ├── rototo-package.toml
-├── request-contexts
+├── evaluation-contexts
 ├── qualifiers
 └── variables
     └── free-shipping-threshold.toml
@@ -40,7 +43,7 @@ app-config
 6 directories, 2 files
 ```
 
-We explain the full package structure in [Anatomy of a rototo package](docs/src/anatomy-of-a-rototo-package). For now, we would focus on the variable `free-shipping-threshold`. Replace the contents of `free-shipping-threshold.toml` with the following:
+We explain the package model in [Rototo Concepts](docs/src/concepts.md). For now, we would focus on the variable `free-shipping-threshold`. Replace the contents of `free-shipping-threshold.toml` with the following:
 ```toml
 schema_version = 1
 description = "$ threshold for free shipping."
@@ -78,7 +81,7 @@ rototo resolve app-config --variable free-shipping-threshold --context account.t
 
 ### Load the configuration package and resolve free shipping threshold
 
-Install the rototo's python package:
+Install Rototo's python package:
 ```sh
 python -m pip install rototo
 ```
@@ -151,7 +154,7 @@ premium: 35 USD
 ## Documentation
 
 Public docs are available on [rototo.dev](https://rototo.dev).
-The rototo cli also ships with the same documents in markdown.
+The `rototo` cli also ships with the same documents in markdown.
 
 You and your agent can use the `docs` command in the cli:
 ```sh
@@ -162,15 +165,15 @@ rototo docs
 rototo docs -s <search terms>
 
 # fetch doc based on doc id prefix
-rototo docs -p anatomy-of
+rototo docs -p concepts
 ```
 
-## rototo is designed for people and agents
+## Rototo is designed for people and agents
 
 Agents are now among the most important users of any development tool.
-Hence, rototo is designed from ground up to work well both for people and agents.
+Hence, Rototo is designed from ground up to work well both for people and agents.
 - The configuration package is simply a dir tree of files that brings battle-tested ergnomics of file organization and editing.
-- `rototo docs` to discover rototo's capabilities and the recipes to use it.
+- `rototo docs` to discover Rototo's capabilities and the recipes to use it.
 - `rototo lint` as the backbone for configuration validation that can be run after every edit.
 - `rototo inspect` to reason about the package structure and how everything resolves at runtime.
 - `rototo resolve` for test automation of invariants (e.g. customer X must always receive configuration Y otherwise something is wrong).

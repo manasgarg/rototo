@@ -177,7 +177,7 @@ export function PackageScreen({
         linters: inventory.linters.length,
         context:
             inventory.context.exampleCount +
-            inventory.context.requestContexts.length,
+            inventory.context.evaluationContexts.length,
     };
     const selectedPath = path;
     const selectedNode = selectedPath
@@ -1172,11 +1172,11 @@ export function packageGraphData(input: {
     for (const catalog of model.catalogs) {
         pushNode(`catalogs:${catalog.id}`, "catalog", catalog.id);
     }
-    for (const requestContext of model.requestContexts) {
+    for (const evaluationContext of model.evaluationContexts) {
         pushNode(
-            `request_contexts:${requestContext.id}`,
-            "requestContext",
-            requestContext.id,
+            `evaluation_contexts:${evaluationContext.id}`,
+            "evaluationContext",
+            evaluationContext.id,
         );
     }
     for (const entry of model.catalogEntries) {
@@ -1214,19 +1214,19 @@ export function packageGraphData(input: {
         related.add(to);
         relatedByNode.set(from, related);
     };
-    for (const compatibility of model.qualifierRequestContexts) {
-        for (const requestContext of compatibility.requestContexts) {
+    for (const compatibility of model.qualifierEvaluationContexts) {
+        for (const evaluationContext of compatibility.evaluationContexts) {
             pushEdge(
-                `request_contexts:${requestContext}`,
+                `evaluation_contexts:${evaluationContext}`,
                 `qualifiers:${compatibility.qualifier}`,
                 "supports",
             );
         }
     }
-    for (const compatibility of model.variableRequestContexts) {
-        for (const requestContext of compatibility.requestContexts) {
+    for (const compatibility of model.variableEvaluationContexts) {
+        for (const evaluationContext of compatibility.evaluationContexts) {
             pushRelated(
-                `request_contexts:${requestContext}`,
+                `evaluation_contexts:${evaluationContext}`,
                 `variables:${compatibility.variable}`,
             );
         }
@@ -1500,29 +1500,29 @@ function sectionIcon(section: SectionId, size: number): ReactNode {
 
 function entityNodes(inventory: PackageInventory): EntityNode[] {
     const contextNodes: EntityNode[] = [];
-    for (const item of inventory.context.requestContexts) {
+    for (const item of inventory.context.evaluationContexts) {
         contextNodes.push({
             section: "context",
             kind: "context schema",
             id: item.id,
             path: item.path,
             description:
-                item.description ?? item.title ?? "Request context schema",
+                item.description ?? item.title ?? "Evaluation context schema",
             badge: "schema",
-            targetKey: `request_contexts:${item.id}`,
+            targetKey: `evaluation_contexts:${item.id}`,
             outboundKeys: [],
         });
     }
-    for (const item of inventory.context.entries) {
+    for (const item of inventory.context.samples) {
         contextNodes.push({
             section: "context",
             kind: "context example",
             id: item.id,
             path: item.path,
-            description: `Sample ${item.key} for request context ${item.requestContextId}`,
-            badge: item.requestContextId,
-            targetKey: `request_context_entries:${item.requestContextId}:${item.key}`,
-            outboundKeys: [`request_contexts:${item.requestContextId}`],
+            description: `Sample ${item.key} for evaluation context ${item.evaluationContextId}`,
+            badge: item.evaluationContextId,
+            targetKey: `evaluation_context_samples:${item.evaluationContextId}:${item.key}`,
+            outboundKeys: [`evaluation_contexts:${item.evaluationContextId}`],
         });
     }
 
@@ -1658,16 +1658,16 @@ function semanticTargetKey(entity: Record<string, unknown>): string | null {
             ? `catalog_entries:${entity.catalog}:${entity.key}`
             : `catalog_entries:${entity.catalog}:*`;
     }
-    if (entity.kind === "request_context" && typeof entity.id === "string") {
-        return `request_contexts:${entity.id}`;
+    if (entity.kind === "evaluation_context" && typeof entity.id === "string") {
+        return `evaluation_contexts:${entity.id}`;
     }
     if (
-        entity.kind === "request_context_entry" &&
-        typeof entity.request_context === "string"
+        entity.kind === "evaluation_context_sample" &&
+        typeof entity.evaluation_context === "string"
     ) {
         return typeof entity.key === "string"
-            ? `request_context_entries:${entity.request_context}:${entity.key}`
-            : `request_context_entries:${entity.request_context}:*`;
+            ? `evaluation_context_samples:${entity.evaluation_context}:${entity.key}`
+            : `evaluation_context_samples:${entity.evaluation_context}:*`;
     }
     return null;
 }

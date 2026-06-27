@@ -5,8 +5,8 @@ use toml::Value;
 
 use crate::error::{Result, RototoError};
 use crate::model::{
-    CatalogConfig, CatalogInspection, LinterInspection, PackageInspection, QualifierConfig,
-    QualifierInspection, RequestContextInspection, VariableConfig, VariableInspection,
+    CatalogConfig, CatalogInspection, EvaluationContextInspection, LinterInspection,
+    PackageInspection, QualifierConfig, QualifierInspection, VariableConfig, VariableInspection,
 };
 
 const PACKAGE_MANIFEST: &str = "rototo-package.toml";
@@ -18,7 +18,7 @@ pub async fn inspect_package(package_root: &Path) -> Result<PackageInspection> {
         .map_err(|err| RototoError::new(format!("package not found: {err}")))?;
     let manifest = read_toml(&package_root.join(PACKAGE_MANIFEST)).await?;
     validate_package_manifest(&manifest)?;
-    let request_contexts = discover_request_contexts(&package_root).await?;
+    let evaluation_contexts = discover_evaluation_contexts(&package_root).await?;
     let catalogs = discover_catalogs(&package_root).await?;
     let qualifiers = discover_qualifiers(&package_root).await?;
     let variables = discover_variables(&package_root).await?;
@@ -26,7 +26,7 @@ pub async fn inspect_package(package_root: &Path) -> Result<PackageInspection> {
 
     Ok(PackageInspection {
         root: package_root,
-        request_contexts,
+        evaluation_contexts,
         catalogs,
         qualifiers,
         variables,
@@ -344,21 +344,23 @@ async fn discover_catalogs(package_root: &Path) -> Result<Vec<CatalogInspection>
     Ok(catalogs)
 }
 
-async fn discover_request_contexts(package_root: &Path) -> Result<Vec<RequestContextInspection>> {
-    let mut request_contexts = Vec::new();
-    for path in discover_named_files(package_root, "request-contexts", "json").await? {
-        let Some(id) = request_context_id_from_path(&path) else {
+async fn discover_evaluation_contexts(
+    package_root: &Path,
+) -> Result<Vec<EvaluationContextInspection>> {
+    let mut evaluation_contexts = Vec::new();
+    for path in discover_named_files(package_root, "evaluation-contexts", "json").await? {
+        let Some(id) = evaluation_context_id_from_path(&path) else {
             continue;
         };
         let relative_path = relative_path(package_root, &path)?;
-        request_contexts.push(RequestContextInspection {
-            uri: format!("request-context://{id}"),
+        evaluation_contexts.push(EvaluationContextInspection {
+            uri: format!("evaluation-context://{id}"),
             id,
             path: relative_path,
         });
     }
-    request_contexts.sort_by(|left, right| left.uri.cmp(&right.uri));
-    Ok(request_contexts)
+    evaluation_contexts.sort_by(|left, right| left.uri.cmp(&right.uri));
+    Ok(evaluation_contexts)
 }
 
 async fn discover_linters(package_root: &Path) -> Result<Vec<LinterInspection>> {
@@ -428,7 +430,7 @@ fn id_from_path(path: &Path) -> Result<String> {
         .ok_or_else(|| RototoError::new(format!("path has no valid id: {path:?}")))
 }
 
-fn request_context_id_from_path(path: &Path) -> Option<String> {
+fn evaluation_context_id_from_path(path: &Path) -> Option<String> {
     path.file_name()
         .and_then(|file_name| file_name.to_str())
         .and_then(|file_name| file_name.strip_suffix(".schema.json"))

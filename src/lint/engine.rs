@@ -231,7 +231,7 @@ value = "premium"
                 r#"message = "premium""#,
             ),
             (
-                "request-contexts/request.schema.json",
+                "evaluation-contexts/request.schema.json",
                 r#"{
   "type": "object",
   "properties": {
@@ -286,7 +286,7 @@ end
             "catalogs/message.schema.json",
             "catalogs/message-entries/default.toml",
             "catalogs/message-entries/premium.toml",
-            "request-contexts/request.schema.json",
+            "evaluation-contexts/request.schema.json",
             "lint/noop.lua",
         ] {
             assert!(
@@ -393,7 +393,7 @@ end
         tokio::fs::create_dir_all(root.join("catalogs/message-entries"))
             .await
             .unwrap();
-        tokio::fs::create_dir_all(root.join("request-contexts"))
+        tokio::fs::create_dir_all(root.join("evaluation-contexts"))
             .await
             .unwrap();
         tokio::fs::write(
@@ -458,7 +458,7 @@ value = "absent"
         .await
         .unwrap();
         tokio::fs::write(
-            root.join("request-contexts/request.schema.json"),
+            root.join("evaluation-contexts/request.schema.json"),
             r#"{"type":"object"}"#,
         )
         .await
@@ -533,10 +533,13 @@ value = "absent"
 
         let context_schema = snapshot
             .index
-            .request_contexts
+            .evaluation_contexts
             .get("request")
             .expect("context schema node");
-        assert_eq!(context_schema.path, "request-contexts/request.schema.json");
+        assert_eq!(
+            context_schema.path,
+            "evaluation-contexts/request.schema.json"
+        );
         assert!(context_schema.json.is_some());
         assert!(context_schema.validator.is_some());
         assert!(context_schema.invalid_message.is_none());

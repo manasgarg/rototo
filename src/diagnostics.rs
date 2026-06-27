@@ -10,8 +10,8 @@ pub enum DiagnosticEntity {
     Variable,
     Catalog,
     CatalogEntry,
-    RequestContext,
-    RequestContextEntry,
+    EvaluationContext,
+    EvaluationContextSample,
     Value,
     Rule,
 }
@@ -122,51 +122,51 @@ rototo_rules! {
     PackageContextSchemaRef => {
         id: "package-context-schema-ref",
         entity: Package,
-        title: "Resolve context schema is invalid",
-        help: "Retired. Use request-contexts/<id>.schema.json for request context validation.",
+        title: "Evaluation context schema is invalid",
+        help: "Retired. Use evaluation-contexts/<id>.schema.json for evaluation context validation.",
     },
     PackageContextSchemaAttribute => {
         id: "package-context-schema-attribute",
         entity: Package,
-        title: "Qualifier context attribute is not declared by the resolve context schema",
+        title: "Qualifier context attribute is not declared by the evaluation context schema",
         help: "Declare the context path in the package context schema or update the qualifier.",
     },
     PackageContextSchemaReservedField => {
         id: "package-context-schema-reserved-field",
         entity: Package,
-        title: "Resolve context schema declares a reserved field",
-        help: "Rename the request context field; qualifier is reserved for qualifier.<id> predicate references.",
+        title: "Evaluation context schema declares a reserved field",
+        help: "Rename the evaluation context field; qualifier is reserved for qualifier.<id> predicate references.",
     },
     PackageContextSchemaMissing => {
         id: "package-context-schema-missing",
         entity: Package,
-        title: "Resolve context schema is missing",
-        help: "Retired. Add request-contexts/<id>.schema.json for request context validation.",
+        title: "Evaluation context schema is missing",
+        help: "Retired. Add evaluation-contexts/<id>.schema.json for evaluation context validation.",
         severity: Warning,
     },
-    RequestContextSchemaInvalid => {
-        id: "request-context-schema-invalid",
-        entity: RequestContext,
-        title: "Request context schema is invalid",
-        help: "Fix the request-contexts/<id>.schema.json file so it parses and compiles as JSON Schema.",
+    EvaluationContextSchemaInvalid => {
+        id: "evaluation-context-schema-invalid",
+        entity: EvaluationContext,
+        title: "Evaluation context schema is invalid",
+        help: "Fix the evaluation-contexts/<id>.schema.json file so it parses and compiles as JSON Schema.",
     },
-    RequestContextReservedField => {
-        id: "request-context-reserved-field",
-        entity: RequestContext,
-        title: "Request context schema declares a reserved field",
-        help: "Rename the request context field; qualifier is reserved for qualifier.<id> predicate references.",
+    EvaluationContextReservedField => {
+        id: "evaluation-context-reserved-field",
+        entity: EvaluationContext,
+        title: "Evaluation context schema declares a reserved field",
+        help: "Rename the evaluation context field; qualifier is reserved for qualifier.<id> predicate references.",
     },
-    RequestContextEntrySchemaMismatch => {
-        id: "request-context-entry-schema-mismatch",
-        entity: RequestContextEntry,
-        title: "Request context sample does not match its schema",
-        help: "Update the request context sample so it validates against the owning request context schema.",
+    EvaluationContextSampleSchemaMismatch => {
+        id: "evaluation-context-sample-schema-mismatch",
+        entity: EvaluationContextSample,
+        title: "Evaluation context sample does not match its schema",
+        help: "Update the evaluation context sample so it validates against the owning evaluation context schema.",
     },
-    RequestContextEntryShape => {
-        id: "request-context-entry-shape",
-        entity: RequestContextEntry,
-        title: "Request context sample is invalid",
-        help: "Request context samples must parse as JSON objects.",
+    EvaluationContextSampleShape => {
+        id: "evaluation-context-sample-shape",
+        entity: EvaluationContextSample,
+        title: "Evaluation context sample is invalid",
+        help: "Evaluation context samples must parse as JSON objects.",
     },
     QualifierParseFailed => {
         id: "qualifier-parse-failed",
@@ -237,14 +237,14 @@ rototo_rules! {
     QualifierPredicateContextTypeMismatch => {
         id: "qualifier-predicate-context-type-mismatch",
         entity: Qualifier,
-        title: "Qualifier predicate does not match the resolve context schema type",
+        title: "Qualifier predicate does not match the evaluation context schema type",
         help: "Update the predicate operator or value so it matches the context schema field type.",
     },
-    QualifierNoCompatibleRequestContext => {
-        id: "qualifier-no-compatible-request-context",
+    QualifierNoCompatibleEvaluationContext => {
+        id: "qualifier-no-compatible-evaluation-context",
         entity: Qualifier,
-        title: "Qualifier has no compatible request context",
-        help: "Add a request-contexts/<id>.schema.json schema that declares the qualifier's context attributes, or update the qualifier predicates.",
+        title: "Qualifier has no compatible evaluation context",
+        help: "Add an evaluation context schema under evaluation-contexts/<id>.schema.json that declares the qualifier's context attributes, or update the qualifier predicates.",
     },
     QualifierPredicateDuplicate => {
         id: "qualifier-predicate-duplicate",
@@ -401,23 +401,23 @@ rototo_rules! {
         help: "Remove the rule or update it to select a value that differs from the resolve default.",
         severity: Warning,
     },
-    VariableRequestContextConflict => {
-        id: "variable-request-context-conflict",
+    VariableEvaluationContextConflict => {
+        id: "variable-evaluation-context-conflict",
         entity: Variable,
-        title: "Variable rules require incompatible request contexts",
-        help: "Use rule conditions that share at least one compatible request context, or split the behavior into separate variables.",
+        title: "Variable rules require incompatible evaluation contexts",
+        help: "Use rule conditions that share at least one compatible evaluation context, or split the behavior into separate variables.",
     },
-    RequestContextParseFailed => {
-        id: "request-context-parse-failed",
-        entity: RequestContext,
-        title: "Request context schema JSON file could not be parsed",
-        help: "Fix the JSON syntax so rototo can parse the request context schema file.",
+    EvaluationContextParseFailed => {
+        id: "evaluation-context-parse-failed",
+        entity: EvaluationContext,
+        title: "Evaluation context schema JSON file could not be parsed",
+        help: "Fix the JSON syntax so rototo can parse the evaluation context schema file.",
     },
-    RequestContextEntryParseFailed => {
-        id: "request-context-entry-parse-failed",
-        entity: RequestContextEntry,
-        title: "Request context sample JSON file could not be parsed",
-        help: "Fix the JSON syntax so rototo can parse the request context sample file.",
+    EvaluationContextSampleParseFailed => {
+        id: "evaluation-context-sample-parse-failed",
+        entity: EvaluationContextSample,
+        title: "Evaluation context sample JSON file could not be parsed",
+        help: "Fix the JSON syntax so rototo can parse the evaluation context sample file.",
     },
     CustomLintFailed => {
         id: "custom-lint-failed",
@@ -691,11 +691,11 @@ pub enum SemanticEntity {
         catalog: String,
         key: String,
     },
-    RequestContext {
+    EvaluationContext {
         id: String,
     },
-    RequestContextEntry {
-        request_context: String,
+    EvaluationContextSample {
+        evaluation_context: String,
         key: String,
     },
     Value {
@@ -737,7 +737,7 @@ pub enum SemanticField {
     ValueJsonPath { path: Vec<String> },
     SchemaJson,
     SchemaJsonPath { path: Vec<String> },
-    RequestContextEntry,
+    EvaluationContextSample,
     CatalogEntry,
 }
 

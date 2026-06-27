@@ -7,13 +7,13 @@ use serde_json::Value as JsonValue;
 use crate::expression::simple_rule_qualifier;
 use crate::lint::PackageSemanticModel;
 use crate::model::VariableResolutionSource;
-use crate::sdk::{Package, ResolveContext};
+use crate::sdk::{EvaluationContext, Package};
 
-/* Resolution previews against saved request contexts. These run the real
+/* Resolution previews against saved evaluation contexts. These run the real
 runtime (the same evaluation applications get) and then annotate the declared
 rules and qualifier conditions with what each one saw. */
 
-/// Variable resolution result for one saved request context.
+/// Variable resolution result for one saved evaluation context.
 ///
 /// The console computes this on demand with the same runtime path applications
 /// use, then decorates it with rule-walk detail for the UI. It is never stored;
@@ -22,7 +22,7 @@ rules and qualifier conditions with what each one saw. */
 #[serde(rename_all = "camelCase")]
 pub struct SavedContextResolution {
     pub name: String,
-    pub request_context: String,
+    pub evaluation_context: String,
     pub path: String,
     pub ok: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -52,7 +52,7 @@ pub struct ResolutionStep {
     pub evaluation: QualifierEvaluation,
 }
 
-/// Qualifier preview for one saved request context.
+/// Qualifier preview for one saved evaluation context.
 ///
 /// This is used on inspect screens to explain named conditions outside a
 /// variable rule walk. It is computed per request and may carry an error when
@@ -61,7 +61,7 @@ pub struct ResolutionStep {
 #[serde(rename_all = "camelCase")]
 pub struct QualifierContextEvaluation {
     pub name: String,
-    pub request_context: String,
+    pub evaluation_context: String,
     pub path: String,
     pub evaluation: Option<QualifierEvaluation>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -106,7 +106,7 @@ pub struct PredicateEvaluation {
 #[serde(rename_all = "camelCase")]
 pub struct EditContextPreview {
     pub name: String,
-    pub request_context: String,
+    pub evaluation_context: String,
     pub qualifier_truth: BTreeMap<String, bool>,
 }
 
@@ -128,9 +128,9 @@ fn evaluate_recursive<'a>(
     seen: &'a mut Vec<String>,
 ) -> Pin<Box<dyn Future<Output = QualifierEvaluation> + Send + 'a>> {
     Box::pin(async move {
-        let matched = match ResolveContext::from_json(context.clone()) {
-            Ok(resolve_context) => runtime
-                .resolve_qualifier(qualifier_id, &resolve_context)
+        let matched = match EvaluationContext::from_json(context.clone()) {
+            Ok(evaluation_context) => runtime
+                .resolve_qualifier(qualifier_id, &evaluation_context)
                 .ok(),
             Err(_) => None,
         };
@@ -191,15 +191,15 @@ fn context_path_value<'a>(context: &'a JsonValue, path: &str) -> Option<&'a Json
     Some(current)
 }
 
-/// Source text for one saved request context sample.
+/// Source text for one saved evaluation context sample.
 ///
-/// Package routes build these from `request-contexts/<id>-entries/*.json`
+/// Package routes build these from `evaluation-contexts/<id>-samples/*.json`
 /// in the staged checkout, then pass them into preview functions. The struct
 /// is an in-memory transfer object, not a persisted console record.
 #[derive(Clone)]
 pub struct SavedContextInput {
     pub name: String,
-    pub request_context: String,
+    pub evaluation_context: String,
     pub path: String,
     pub text: String,
 }
@@ -225,7 +225,7 @@ pub async fn resolve_saved_contexts(
             Ok(resolution) => resolutions.push(resolution),
             Err(error) => resolutions.push(SavedContextResolution {
                 name: context_input.name.clone(),
-                request_context: context_input.request_context.clone(),
+                evaluation_context: context_input.evaluation_context.clone(),
                 path: context_input.path.clone(),
                 ok: false,
                 value: None,
@@ -248,10 +248,10 @@ async fn resolve_one(
 ) -> std::result::Result<SavedContextResolution, String> {
     let context: JsonValue =
         serde_json::from_str(&context_input.text).map_err(|err| err.to_string())?;
-    let resolve_context =
-        ResolveContext::from_json(context.clone()).map_err(|err| err.to_string())?;
+    let evaluation_context =
+        EvaluationContext::from_json(context.clone()).map_err(|err| err.to_string())?;
     let resolution = runtime
-        .resolve_variable(variable_id, &resolve_context)
+        .resolve_variable(variable_id, &evaluation_context)
         .map_err(|err| err.to_string())?;
 
     let mut steps = Vec::new();
@@ -284,7 +284,7 @@ async fn resolve_one(
 
     Ok(SavedContextResolution {
         name: context_input.name.clone(),
-        request_context: context_input.request_context.clone(),
+        evaluation_context: context_input.evaluation_context.clone(),
         path: context_input.path.clone(),
         ok: true,
         value: Some(resolution.value),
@@ -295,7 +295,7 @@ async fn resolve_one(
     })
 }
 
-/// Evaluates every package qualifier against each saved request context.
+/// Evaluates every package qualifier against each saved evaluation context.
 pub async fn edit_context_previews(
     runtime: &Package,
     qualifier_ids: &[String],
@@ -306,18 +306,18 @@ pub async fn edit_context_previews(
         let Ok(context) = serde_json::from_str::<JsonValue>(&context_input.text) else {
             continue;
         };
-        let Ok(resolve_context) = ResolveContext::from_json(context) else {
+        let Ok(evaluation_context) = EvaluationContext::from_json(context) else {
             continue;
         };
         let mut qualifier_truth = BTreeMap::new();
         for qualifier_id in qualifier_ids {
-            if let Ok(resolution) = runtime.resolve_qualifier(qualifier_id, &resolve_context) {
+            if let Ok(resolution) = runtime.resolve_qualifier(qualifier_id, &evaluation_context) {
                 qualifier_truth.insert(qualifier_id.clone(), resolution);
             }
         }
         previews.push(EditContextPreview {
             name: context_input.name.clone(),
-            request_context: context_input.request_context.clone(),
+            evaluation_context: context_input.evaluation_context.clone(),
             qualifier_truth,
         });
     }
@@ -338,7 +338,7 @@ pub async fn qualifier_context_evaluations(
                     evaluate_qualifier_with_context(runtime, model, qualifier_id, &context).await;
                 evaluations.push(QualifierContextEvaluation {
                     name: context_input.name.clone(),
-                    request_context: context_input.request_context.clone(),
+                    evaluation_context: context_input.evaluation_context.clone(),
                     path: context_input.path.clone(),
                     evaluation: Some(evaluation),
                     error: None,
@@ -346,7 +346,7 @@ pub async fn qualifier_context_evaluations(
             }
             Err(error) => evaluations.push(QualifierContextEvaluation {
                 name: context_input.name.clone(),
-                request_context: context_input.request_context.clone(),
+                evaluation_context: context_input.evaluation_context.clone(),
                 path: context_input.path.clone(),
                 evaluation: None,
                 error: Some(error.to_string()),

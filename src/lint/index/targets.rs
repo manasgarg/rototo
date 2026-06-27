@@ -39,15 +39,15 @@ pub(in crate::lint) enum RegisteredLintAddress {
         catalog: String,
         key: String,
     },
-    RequestContexts,
-    RequestContext {
+    EvaluationContexts,
+    EvaluationContext {
         id: String,
     },
-    RequestContextEntries {
-        request_context: String,
+    EvaluationContextSamples {
+        evaluation_context: String,
     },
-    RequestContextEntry {
-        request_context: String,
+    EvaluationContextSample {
+        evaluation_context: String,
         key: String,
     },
 }

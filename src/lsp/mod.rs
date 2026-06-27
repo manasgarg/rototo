@@ -278,7 +278,7 @@ value = "welcome"
         tokio::fs::create_dir_all(root.join("catalogs/message-entries"))
             .await
             .unwrap();
-        tokio::fs::create_dir_all(root.join("request-contexts"))
+        tokio::fs::create_dir_all(root.join("evaluation-contexts"))
             .await
             .unwrap();
         tokio::fs::create_dir_all(root.join("lint")).await.unwrap();
@@ -324,8 +324,8 @@ body = "World"
         tokio::fs::write(&catalog_entry_path, disk_catalog_entry)
             .await
             .unwrap();
-        let request_context_path = root.join("request-contexts/request.schema.json");
-        let disk_request_context = r#"{
+        let evaluation_context_path = root.join("evaluation-contexts/request.schema.json");
+        let disk_evaluation_context = r#"{
   "type": "object",
   "properties": {
     "account": {
@@ -344,7 +344,7 @@ body = "World"
   }
 }
 "#;
-        tokio::fs::write(&request_context_path, disk_request_context)
+        tokio::fs::write(&evaluation_context_path, disk_evaluation_context)
             .await
             .unwrap();
         let lint_path = root.join("lint/fields.lua");
@@ -415,7 +415,7 @@ value = "welcome"
         assert_no_completion(&completions, "extends", "custom lint field selector");
 
         // CEL completions use package schemas. `context.` suggests top-level
-        // request context properties, and nested context paths continue through
+        // evaluation context properties, and nested context paths continue through
         // the same JSON Schema.
         server
             .change_document(json!({
@@ -1073,10 +1073,10 @@ value = ["default"]
             disk_catalog_entry
         );
         assert_eq!(
-            tokio::fs::read_to_string(&request_context_path)
+            tokio::fs::read_to_string(&evaluation_context_path)
                 .await
                 .unwrap(),
-            disk_request_context
+            disk_evaluation_context
         );
     }
 
@@ -1096,7 +1096,7 @@ value = ["default"]
         tokio::fs::create_dir_all(root.join("catalogs/message-entries"))
             .await
             .unwrap();
-        tokio::fs::create_dir_all(root.join("request-contexts"))
+        tokio::fs::create_dir_all(root.join("evaluation-contexts"))
             .await
             .unwrap();
         tokio::fs::create_dir_all(root.join("lint")).await.unwrap();
@@ -1130,7 +1130,7 @@ default = "hello"
             .await
             .unwrap();
         tokio::fs::write(
-            root.join("request-contexts/request.schema.json"),
+            root.join("evaluation-contexts/request.schema.json"),
             r#"{
   "type": "object",
   "properties": {
@@ -1421,7 +1421,7 @@ query = 'qualifier["premium"]'
         tokio::fs::create_dir_all(root.join("catalogs/message-entries"))
             .await
             .unwrap();
-        tokio::fs::create_dir_all(root.join("request-contexts"))
+        tokio::fs::create_dir_all(root.join("evaluation-contexts"))
             .await
             .unwrap();
         tokio::fs::write(
@@ -1535,7 +1535,7 @@ value = "welcome"
         tokio::fs::create_dir_all(root.join("catalogs/message-entries"))
             .await
             .unwrap();
-        tokio::fs::create_dir_all(root.join("request-contexts"))
+        tokio::fs::create_dir_all(root.join("evaluation-contexts"))
             .await
             .unwrap();
         tokio::fs::write(
@@ -1573,7 +1573,7 @@ when = "qualifier[\"beta\"]"
         .await
         .unwrap();
         tokio::fs::write(
-            root.join("request-contexts/request.schema.json"),
+            root.join("evaluation-contexts/request.schema.json"),
             r#"{"type":"object","properties":{"account":{"type":"object","properties":{"beta":{"type":"boolean"}}}}}"#,
         )
         .await

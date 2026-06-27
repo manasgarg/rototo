@@ -195,11 +195,11 @@ pub fn entity_template_files(
         }
         EntityKind::Context => vec![
             PlannedFile {
-                path: path(&format!("request-contexts/{id}.schema.json")),
-                content: request_context_schema_template(),
+                path: path(&format!("evaluation-contexts/{id}.schema.json")),
+                content: evaluation_context_schema_template(),
             },
             PlannedFile {
-                path: path(&format!("request-contexts/{id}-entries/default.json")),
+                path: path(&format!("evaluation-contexts/{id}-samples/default.json")),
                 content: "{\n}\n".to_owned(),
             },
         ],
@@ -265,7 +265,7 @@ fn catalog_entry_template() -> &'static str {
     "heading = \"Edit this heading\"\nenabled = false\n"
 }
 
-fn request_context_schema_template() -> String {
+fn evaluation_context_schema_template() -> String {
     "{\n  \"$schema\": \"https://json-schema.org/draft/2020-12/schema\",\n  \"type\": \"object\",\n  \"additionalProperties\": true,\n  \"properties\": {}\n}\n"
         .to_owned()
 }

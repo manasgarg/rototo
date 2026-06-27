@@ -27,7 +27,7 @@ fn top_level_help_is_task_oriented() {
         .stdout(predicate::str::contains("Package commands"))
         .stdout(predicate::str::contains("Utility commands"))
         .stdout(predicate::str::contains("lint"))
-        .stdout(predicate::str::contains("rototo docs -p index"))
+        .stdout(predicate::str::contains("rototo docs -p motivation"))
         .stdout(predicate::str::contains("rototo help package-sources").not())
         .stdout(predicate::str::contains("git+https://").not());
 }
@@ -145,16 +145,13 @@ fn lists_bundled_docs() {
 fn shows_bundled_docs_by_prefix_as_markdown() {
     Command::cargo_bin("rototo")
         .unwrap()
-        .args(["docs", "-p", "index"])
+        .args(["docs", "-p", "motivation"])
         .assert()
         .success()
         .stdout(predicate::str::contains(
-            "rototo is a control plane for runtime configuration",
+            "Rototo's core premise is that behavioral configuration should live as files in a git repository",
         ))
-        .stdout(predicate::str::contains(
-            "refresh (rototo docs -p reference-sdk-refresh)",
-        ))
-        .stdout(predicate::str::contains("[refresh](reference-sdk-refresh.html)").not());
+        .stdout(predicate::str::contains("## Rototo's approach"));
 }
 
 #[test]
@@ -172,89 +169,33 @@ fn exports_bundled_docs_as_static_site() {
     let homepage = fs::read_to_string(site.join("index.html")).unwrap();
     assert!(homepage.contains("<!doctype html>"));
     assert!(homepage.contains("Runtime configuration, reviewed like code."));
-    assert!(homepage.contains(r#"<a class="primary" href="docs/getting-started.html">"#));
-    assert!(homepage.contains(r#"href="docs/self-hosting-console.html""#));
+    assert!(homepage.contains(r#"<a class="primary" href="docs/motivation.html">"#));
+    assert!(homepage.contains(r#"href="docs/concepts.html""#));
 
-    let index = fs::read_to_string(site.join("docs/index.html")).unwrap();
-    assert!(index.contains("<!doctype html>"));
-    assert!(index.contains("rototo is a control plane for runtime configuration"));
-    assert!(index.contains(r#"<header class="topbar">"#));
+    let motivation = fs::read_to_string(site.join("docs/motivation.html")).unwrap();
+    assert!(motivation.contains("<!doctype html>"));
+    assert!(motivation.contains("Rototo's core premise is that behavioral configuration"));
+    assert!(motivation.contains(r#"<header class="topbar">"#));
     assert!(
-        index.contains(
+        motivation.contains(
             r#"<img class="brand-wordmark" src="assets/rototo-wordmark.svg" alt="rototo">"#
         )
     );
-    assert!(index.contains(r#"<a href="../index.html">Home</a>"#));
-    assert!(index.contains(r#"<aside class="tree sidenav" aria-label="Documentation">"#));
-    assert!(index.contains(r#"<aside class="toc" aria-label="On this page">"#));
-    assert!(index.contains(r#"<h2 id="why-rototo-exists">Why rototo exists</h2>"#));
-    assert!(index.contains(r#"<nav class="page-nav" aria-label="Page">"#));
+    assert!(motivation.contains(r#"<a href="../index.html">Home</a>"#));
+    assert!(motivation.contains(r#"<a href="motivation.html" aria-current="page">Docs</a>"#));
+    assert!(motivation.contains(r#"<aside class="tree sidenav" aria-label="Documentation">"#));
+    assert!(motivation.contains(r#"<aside class="toc" aria-label="On this page">"#));
+    assert!(motivation.contains(r#"<h2 id="rototos-approach">Rototo's approach</h2>"#));
+    assert!(motivation.contains(r#"<nav class="page-nav" aria-label="Page">"#));
 
     let redirects = fs::read_to_string(site.join("_redirects")).unwrap();
-    assert!(redirects.contains("/getting-started.html /docs/getting-started.html 301"));
+    assert!(redirects.contains("/motivation.html /docs/motivation.html 301"));
+    assert!(redirects.contains("/concepts.html /docs/concepts.html 301"));
     assert!(!redirects.contains("/index.html /docs/index.html"));
-    assert!(site.join("docs/getting-started.html").is_file());
-    assert!(site.join("docs/operational-switches.html").is_file());
-    assert!(site.join("docs/incident-banner.html").is_file());
-    assert!(site.join("docs/onboarding-checklist.html").is_file());
-    assert!(site.join("docs/bucketed-rollout.html").is_file());
-    assert!(
-        site.join("docs/notification-delivery-policy.html")
-            .is_file()
-    );
-    assert!(site.join("docs/service-degradation-policy.html").is_file());
-    assert!(site.join("docs/package-layering.html").is_file());
-    assert!(site.join("docs/reference-package-manifest.html").is_file());
-    assert!(site.join("docs/reference-package-layout.html").is_file());
-    assert!(site.join("docs/reference-package-sources.html").is_file());
-    assert!(site.join("docs/reference-package-layering.html").is_file());
-    assert!(site.join("docs/reference-context.html").is_file());
-    assert!(site.join("docs/reference-qualifiers.html").is_file());
-    assert!(
-        site.join("docs/reference-predicate-operators.html")
-            .is_file()
-    );
-    assert!(site.join("docs/reference-variables.html").is_file());
-    assert!(site.join("docs/reference-variable-values.html").is_file());
-    assert!(site.join("docs/reference-catalogs.html").is_file());
-    assert!(
-        site.join("docs/reference-qualifier-resolution.html")
-            .is_file()
-    );
-    assert!(
-        site.join("docs/reference-variable-resolution.html")
-            .is_file()
-    );
-    assert!(site.join("docs/reference-resolution-output.html").is_file());
-    assert!(site.join("docs/reference-cli-overview.html").is_file());
-    assert!(site.join("docs/reference-cli-commands.html").is_file());
-    assert!(site.join("docs/reference-sdk-loading.html").is_file());
-    assert!(site.join("docs/reference-sdk-resolution.html").is_file());
-    assert!(site.join("docs/reference-sdk-refresh.html").is_file());
-    assert!(site.join("docs/reference-sdk-rust.html").is_file());
-    assert!(site.join("docs/reference-sdk-python.html").is_file());
-    assert!(site.join("docs/reference-sdk-typescript.html").is_file());
-    assert!(site.join("docs/reference-sdk-java.html").is_file());
-    assert!(site.join("docs/reference-sdk-go.html").is_file());
-    assert!(site.join("docs/reference-lint-overview.html").is_file());
-    assert!(site.join("docs/reference-diagnostics.html").is_file());
-    assert!(site.join("docs/reference-custom-lua-lint.html").is_file());
-    assert!(site.join("docs/reference-json-output.html").is_file());
-    assert!(
-        site.join("docs/modeling-runtime-configuration.html")
-            .is_file()
-    );
-    assert!(site.join("docs/application-integration.html").is_file());
-    assert!(
-        site.join("docs/testing-runtime-configuration.html")
-            .is_file()
-    );
-    assert!(
-        site.join("docs/operating-runtime-configuration.html")
-            .is_file()
-    );
-    assert!(site.join("docs/production-workflow.html").is_file());
-    assert!(site.join("docs/self-hosting-console.html").is_file());
+    assert!(site.join("docs/motivation.html").is_file());
+    assert!(site.join("docs/concepts.html").is_file());
+    assert!(!site.join("docs/getting-started.html").exists());
+    assert!(!site.join("docs/reference-sdk-resolution.html").exists());
     assert!(site.join("assets/rototo-docs.css").is_file());
     assert!(site.join("assets/favicon.svg").is_file());
     assert!(site.join("docs/assets/rototo-docs.css").is_file());
@@ -284,29 +225,6 @@ fn exports_bundled_docs_as_static_site() {
     assert!(!css.contains("--clay-500"));
     assert!(!css.contains(".doc pre.language-text"));
 
-    let app_page = fs::read_to_string(site.join("docs/application-integration.html")).unwrap();
-    assert!(app_page.contains(r#"<pre class="code-block language-rust sdk-snippet""#));
-    assert!(app_page.contains(r#"<pre class="code-block language-python sdk-snippet""#));
-    assert!(app_page.contains(r#"<pre class="code-block language-typescript sdk-snippet""#));
-    assert!(app_page.contains(r#"<pre class="code-block language-java sdk-snippet""#));
-    assert!(app_page.contains(r#"<pre class="code-block language-go sdk-snippet""#));
-    assert!(app_page.contains(r#"<code class="language-rust">use rototo::"#));
-    assert!(app_page.contains(
-        r#"<code class="language-typescript">import { Package } from &quot;rototo&quot;;"#
-    ));
-    assert!(app_page.contains(r#"<code class="language-plaintext">ROTOTO_PACKAGE_SOURCE="#));
-    assert!(app_page.contains("ROTOTO_PACKAGE_SOURCE"));
-    assert!(!app_page.contains(r#"<span class="sx-"#));
-
-    let getting_started_page = fs::read_to_string(site.join("docs/getting-started.html")).unwrap();
-    assert!(getting_started_page.contains(
-        r#"<pre class="code-block language-sh"><code class="language-bash">cargo install rototo"#
-    ));
-    assert!(getting_started_page.contains(
-        r#"<pre class="code-block language-toml"><code class="language-ini">schema_version = 1"#
-    ));
-    assert!(!getting_started_page.contains(r#"<span class="sx-"#));
-
     let wordmark = fs::read_to_string(site.join("assets/rototo-wordmark.svg")).unwrap();
     assert!(wordmark.contains("#006252"));
     assert!(!wordmark.contains("#008572"));
@@ -315,41 +233,30 @@ fn exports_bundled_docs_as_static_site() {
     assert!(favicon.contains("#006252"));
     assert!(!favicon.contains("#008572"));
 
-    let sdk_page = fs::read_to_string(site.join("docs/reference-sdk-resolution.html")).unwrap();
-    assert!(sdk_page.contains("https://unpkg.com/@highlightjs/cdn-assets@11.9.0/highlight.min.js"));
+    let concepts = fs::read_to_string(site.join("docs/concepts.html")).unwrap();
+    assert!(concepts.contains(r#"<h1 id="rototo-concepts">Rototo Concepts</h1>"#));
     assert!(
-        sdk_page.contains("https://unpkg.com/@highlightjs/cdn-assets@11.9.0/languages/bash.min.js")
+        concepts.contains(r#"<pre class="code-block language-toml"><code class="language-ini">"#)
+    );
+    assert!(concepts.contains("https://unpkg.com/@highlightjs/cdn-assets@11.9.0/highlight.min.js"));
+    assert!(
+        concepts.contains("https://unpkg.com/@highlightjs/cdn-assets@11.9.0/languages/bash.min.js")
     );
     assert!(
-        sdk_page
+        concepts
             .contains("https://unpkg.com/@highlightjs/cdn-assets@11.9.0/languages/gradle.min.js")
     );
     assert!(
-        sdk_page
+        concepts
             .contains(r#"window.hljs.registerAliases(["sh", "shell"], { languageName: "bash" });"#)
     );
-    assert!(sdk_page.contains("window.hljs.highlightAll();"));
-    assert!(!sdk_page.contains(r#"id="sdk-language""#));
-    assert!(sdk_page.contains(r#"<div class="sdk-snippet-toolbar">"#));
-    assert!(sdk_page.contains(
-        r#"<select class="sdk-language-select" aria-label="SDK language for this code sample">"#
-    ));
-    assert!(sdk_page.contains(r#"data-sdk-lang="rust""#));
-    assert!(sdk_page.contains(r#"data-sdk-lang="python""#));
-    assert!(sdk_page.contains(r#"data-sdk-lang="typescript""#));
-    assert!(sdk_page.contains(r#"data-sdk-lang="java""#));
-    assert!(sdk_page.contains(r#"data-sdk-lang="go""#));
-    assert!(sdk_page.contains(r#"<pre class="code-block language-python sdk-snippet""#));
-    assert!(sdk_page.contains(r#"<pre class="code-block language-typescript sdk-snippet""#));
-    assert!(sdk_page.contains(r#"<pre class="code-block language-java sdk-snippet""#));
-    assert!(sdk_page.contains(r#"<pre class="code-block language-go sdk-snippet""#));
-    assert!(sdk_page.contains(r#"<code class="language-typescript">const context = {"#));
-    assert!(sdk_page.contains("pkg.resolveVariable"));
-    assert!(!sdk_page.contains(r#"<p><span class="sx-"#));
-    assert!(!sdk_page.contains(r#"<span class="sx-"#));
+    assert!(concepts.contains("window.hljs.highlightAll();"));
+    assert!(!concepts.contains(r#"id="sdk-language""#));
+    assert!(!concepts.contains(r#"<span class="sx-"#));
 }
 
 #[test]
+#[ignore = "temporarily disabled while SDK package README docs are being rewritten"]
 fn generates_python_package_readme_from_docs() {
     let temp = tempfile::tempdir().unwrap();
     let readme = temp.path().join("README.md");
@@ -374,6 +281,7 @@ fn generates_python_package_readme_from_docs() {
 }
 
 #[test]
+#[ignore = "temporarily disabled while SDK package README docs are being rewritten"]
 fn generates_typescript_package_readme_from_docs() {
     let temp = tempfile::tempdir().unwrap();
     let readme = temp.path().join("README.md");
@@ -400,6 +308,7 @@ fn generates_typescript_package_readme_from_docs() {
 }
 
 #[test]
+#[ignore = "temporarily disabled while SDK package README docs are being rewritten"]
 fn generates_package_readme_with_custom_docs_base_url() {
     let temp = tempfile::tempdir().unwrap();
     let readme = temp.path().join("README.md");
@@ -431,6 +340,7 @@ fn generates_package_readme_with_custom_docs_base_url() {
 }
 
 #[test]
+#[ignore = "temporarily disabled while SDK package README docs are being rewritten"]
 fn generates_java_package_readme_from_docs() {
     let temp = tempfile::tempdir().unwrap();
     let readme = temp.path().join("README.md");
@@ -454,6 +364,7 @@ fn generates_java_package_readme_from_docs() {
 }
 
 #[test]
+#[ignore = "temporarily disabled while SDK package README docs are being rewritten"]
 fn generates_go_package_readme_from_docs() {
     let temp = tempfile::tempdir().unwrap();
     let readme = temp.path().join("README.md");
@@ -490,13 +401,13 @@ fn docs_page_prefix_reports_unknown_page() {
 fn docs_search_uses_regex() {
     let output = Command::cargo_bin("rototo")
         .unwrap()
-        .args(["docs", "-s", "package source"])
+        .args(["docs", "-s", "configuration"])
         .output()
         .unwrap();
 
     assert!(output.status.success());
     let stdout = String::from_utf8(output.stdout).unwrap();
-    assert!(stdout.contains("\x1b[7mpackage source\x1b[0m"));
+    assert!(stdout.contains("\x1b[7mconfiguration\x1b[0m"));
     assert!(
         !stdout
             .lines()

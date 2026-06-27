@@ -1,8 +1,8 @@
 mod catalog;
+mod evaluation_context;
 mod fields;
 mod manifest;
 mod qualifier;
-mod request_context;
 mod variable;
 
 use super::index::{CustomLintFileNode, SemanticIndex};
@@ -59,27 +59,27 @@ pub(super) fn build_semantic_index(source: &SourceStore, syntax: &SyntaxIndex) -
                         catalog::project_catalog_entry(document, toml, catalog_id, entry_id),
                     );
             }
-            DocumentKind::RequestContext { id } => {
-                index.request_contexts.insert(
+            DocumentKind::EvaluationContext { id } => {
+                index.evaluation_contexts.insert(
                     id.clone(),
-                    request_context::project_request_context(document, syntax, id),
+                    evaluation_context::project_evaluation_context(document, syntax, id),
                 );
             }
-            DocumentKind::RequestContextEntry {
-                request_context_id,
-                entry_id,
+            DocumentKind::EvaluationContextSample {
+                evaluation_context_id,
+                sample_id,
             } => {
                 index
-                    .request_context_entries
-                    .entry(request_context_id.clone())
+                    .evaluation_context_samples
+                    .entry(evaluation_context_id.clone())
                     .or_default()
                     .insert(
-                        entry_id.clone(),
-                        request_context::project_request_context_entry(
+                        sample_id.clone(),
+                        evaluation_context::project_evaluation_context_sample(
                             document,
                             syntax,
-                            request_context_id,
-                            entry_id,
+                            evaluation_context_id,
+                            sample_id,
                         ),
                     );
             }

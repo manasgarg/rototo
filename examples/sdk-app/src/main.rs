@@ -1,7 +1,7 @@
 use std::error::Error;
 use std::path::Path;
 
-use rototo::{Package, ResolveContext};
+use rototo::{EvaluationContext, Package};
 use serde::Deserialize;
 
 #[derive(Debug, Deserialize)]
@@ -26,7 +26,7 @@ struct LlmConfig {
 async fn main() -> Result<(), Box<dyn Error>> {
     let package_root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../basic");
     let package = Package::load(package_root.to_string_lossy()).await?;
-    let context = ResolveContext::from_json(serde_json::json!({
+    let context = EvaluationContext::from_json(serde_json::json!({
         "lane": "prod",
         "user": {
             "id": "user-123",

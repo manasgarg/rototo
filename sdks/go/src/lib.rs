@@ -5,7 +5,7 @@ use std::sync::OnceLock;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use rototo::{
-    LintMode, LoadOptions, RefreshOptions, ResolveContext, ResolveOptions, SourceAuth,
+    EvaluationContext, LintMode, LoadOptions, RefreshOptions, ResolveOptions, SourceAuth,
     SourceFingerprint, SourceOptions,
 };
 use tokio::runtime::{Builder, Runtime};
@@ -106,7 +106,7 @@ pub extern "C" fn rototo_go_package_resolve_variable(
     string_result(|| {
         let package = package_from_handle(handle)?;
         let id = required_string(id, "id")?;
-        let context = resolve_context(context_json)?;
+        let context = evaluation_context(context_json)?;
         let resolution = package
             .resolve_variable_with_options(&id, &context, resolve_options(validate_context))
             .map_err(|err| err.to_string())?;
@@ -128,7 +128,7 @@ pub extern "C" fn rototo_go_package_resolve_qualifier(
     string_result(|| {
         let package = package_from_handle(handle)?;
         let id = required_string(id, "id")?;
-        let context = resolve_context(context_json)?;
+        let context = evaluation_context(context_json)?;
         let value = package
             .resolve_qualifier_with_options(&id, &context, resolve_options(validate_context))
             .map_err(|err| err.to_string())?;
@@ -182,7 +182,7 @@ pub extern "C" fn rototo_go_refreshing_package_resolve_variable(
     string_result(|| {
         let package = refreshing_package_from_handle(handle)?;
         let id = required_string(id, "id")?;
-        let context = resolve_context(context_json)?;
+        let context = evaluation_context(context_json)?;
         let guard = package.inner.blocking_lock();
         let package = active_refreshing_package(&guard)?;
         let resolution = package
@@ -206,7 +206,7 @@ pub extern "C" fn rototo_go_refreshing_package_resolve_qualifier(
     string_result(|| {
         let package = refreshing_package_from_handle(handle)?;
         let id = required_string(id, "id")?;
-        let context = resolve_context(context_json)?;
+        let context = evaluation_context(context_json)?;
         let guard = package.inner.blocking_lock();
         let package = active_refreshing_package(&guard)?;
         let value = package
@@ -450,11 +450,11 @@ fn refresh_options(
     Ok(options)
 }
 
-fn resolve_context(context_json: *const c_char) -> Result<ResolveContext, String> {
+fn evaluation_context(context_json: *const c_char) -> Result<EvaluationContext, String> {
     let context_json = required_string(context_json, "context_json")?;
     let context = serde_json::from_str(&context_json)
-        .map_err(|err| format!("resolve context must be valid JSON: {err}"))?;
-    ResolveContext::from_json(context).map_err(|err| err.to_string())
+        .map_err(|err| format!("evaluation context must be valid JSON: {err}"))?;
+    EvaluationContext::from_json(context).map_err(|err| err.to_string())
 }
 
 fn resolve_options(validate_context: c_int) -> ResolveOptions {

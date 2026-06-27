@@ -44,7 +44,7 @@ class ApiTest(unittest.IsolatedAsyncioTestCase):
         with self.assertRaises(rototo.RototoError) as raised:
             package.resolve_variable("premium-message", ["not", "an", "object"])
 
-        self.assertIn("resolve context must be a JSON object", str(raised.exception))
+        self.assertIn("evaluation context must be a JSON object", str(raised.exception))
 
     async def test_context_validation_can_be_skipped(self) -> None:
         package = await rototo.Package.load(EXAMPLES_BASIC)

@@ -10,7 +10,7 @@ use crate::diagnostics::{
 use crate::expression::Expression;
 
 use super::ids::{
-    CatalogId, PackagePath, QualifierId, RequestContextEntryId, RequestContextId, ValueKey,
+    CatalogId, EvaluationContextId, EvaluationContextSampleId, PackagePath, QualifierId, ValueKey,
     VariableId,
 };
 use super::targets::RegisteredLintSelector;
@@ -247,8 +247,8 @@ impl CatalogEntryNode {
     }
 }
 
-pub(in crate::lint) struct RequestContextNode {
-    pub(in crate::lint) id: RequestContextId,
+pub(in crate::lint) struct EvaluationContextNode {
+    pub(in crate::lint) id: EvaluationContextId,
     pub(in crate::lint) path: PackagePath,
     pub(in crate::lint) location: DiagnosticLocation,
     pub(in crate::lint) json: Option<JsonValue>,
@@ -256,9 +256,9 @@ pub(in crate::lint) struct RequestContextNode {
     pub(in crate::lint) invalid_message: Option<String>,
 }
 
-impl RequestContextNode {
+impl EvaluationContextNode {
     pub(in crate::lint) fn target(&self) -> SemanticTarget {
-        SemanticEntity::RequestContext {
+        SemanticEntity::EvaluationContext {
             id: self.id.clone(),
         }
         .into()
@@ -266,7 +266,7 @@ impl RequestContextNode {
 
     pub(in crate::lint) fn field_target(&self, field: SemanticField) -> SemanticTarget {
         SemanticTarget::field(
-            SemanticEntity::RequestContext {
+            SemanticEntity::EvaluationContext {
                 id: self.id.clone(),
             },
             field,
@@ -274,18 +274,18 @@ impl RequestContextNode {
     }
 }
 
-pub(in crate::lint) struct RequestContextEntryNode {
-    pub(in crate::lint) request_context_id: RequestContextId,
-    pub(in crate::lint) key: RequestContextEntryId,
+pub(in crate::lint) struct EvaluationContextSampleNode {
+    pub(in crate::lint) evaluation_context_id: EvaluationContextId,
+    pub(in crate::lint) key: EvaluationContextSampleId,
     pub(in crate::lint) path: PackagePath,
     pub(in crate::lint) location: DiagnosticLocation,
     pub(in crate::lint) value: Option<JsonValue>,
 }
 
-impl RequestContextEntryNode {
+impl EvaluationContextSampleNode {
     pub(in crate::lint) fn target(&self) -> SemanticTarget {
-        SemanticEntity::RequestContextEntry {
-            request_context: self.request_context_id.clone(),
+        SemanticEntity::EvaluationContextSample {
+            evaluation_context: self.evaluation_context_id.clone(),
             key: self.key.clone(),
         }
         .into()
@@ -293,8 +293,8 @@ impl RequestContextEntryNode {
 
     pub(in crate::lint) fn field_target(&self, field: SemanticField) -> SemanticTarget {
         SemanticTarget::field(
-            SemanticEntity::RequestContextEntry {
-                request_context: self.request_context_id.clone(),
+            SemanticEntity::EvaluationContextSample {
+                evaluation_context: self.evaluation_context_id.clone(),
                 key: self.key.clone(),
             },
             field,

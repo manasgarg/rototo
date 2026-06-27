@@ -5,7 +5,7 @@ use jni::JNIEnv;
 use jni::objects::{JClass, JString};
 use jni::sys::{jboolean, jdouble, jlong, jstring};
 use rototo::{
-    LintMode, LoadOptions, RefreshOptions, ResolveContext, ResolveOptions, SourceAuth,
+    EvaluationContext, LintMode, LoadOptions, RefreshOptions, ResolveOptions, SourceAuth,
     SourceFingerprint, SourceOptions,
 };
 use serde_json::Value as JsonValue;
@@ -108,7 +108,7 @@ pub extern "system" fn Java_dev_rototo_Native_packageResolveVariableNative(
     jni_call_string(&mut env, |env| {
         let package = package_from_handle(handle)?;
         let id = required_string(env, id, "id")?;
-        let context = resolve_context(env, context_json)?;
+        let context = evaluation_context(env, context_json)?;
         let resolution = package
             .resolve_variable_with_options(&id, &context, resolve_options(validate_context))
             .map_err(|err| err.to_string())?;
@@ -135,7 +135,7 @@ pub extern "system" fn Java_dev_rototo_Native_packageResolveQualifierNative(
     jni_call_string(&mut env, |env| {
         let package = package_from_handle(handle)?;
         let id = required_string(env, id, "id")?;
-        let context = resolve_context(env, context_json)?;
+        let context = evaluation_context(env, context_json)?;
         let value = package
             .resolve_qualifier_with_options(&id, &context, resolve_options(validate_context))
             .map_err(|err| err.to_string())?;
@@ -197,7 +197,7 @@ pub extern "system" fn Java_dev_rototo_Native_refreshingPackageResolveVariableNa
     jni_call_string(&mut env, |env| {
         let package = refreshing_package_from_handle(handle)?;
         let id = required_string(env, id, "id")?;
-        let context = resolve_context(env, context_json)?;
+        let context = evaluation_context(env, context_json)?;
         let guard = package.inner.blocking_lock();
         let package = active_refreshing_package(&guard)?;
         let resolution = package
@@ -226,7 +226,7 @@ pub extern "system" fn Java_dev_rototo_Native_refreshingPackageResolveQualifierN
     jni_call_string(&mut env, |env| {
         let package = refreshing_package_from_handle(handle)?;
         let id = required_string(env, id, "id")?;
-        let context = resolve_context(env, context_json)?;
+        let context = evaluation_context(env, context_json)?;
         let guard = package.inner.blocking_lock();
         let package = active_refreshing_package(&guard)?;
         let value = package
@@ -354,11 +354,14 @@ fn resolve_options(validate_context: jboolean) -> ResolveOptions {
     }
 }
 
-fn resolve_context(env: &mut JNIEnv<'_>, value: JString<'_>) -> Result<ResolveContext, String> {
+fn evaluation_context(
+    env: &mut JNIEnv<'_>,
+    value: JString<'_>,
+) -> Result<EvaluationContext, String> {
     let context_json = required_string(env, value, "contextJson")?;
     let context: JsonValue = serde_json::from_str(&context_json)
         .map_err(|err| format!("failed to parse JSON context: {err}"))?;
-    ResolveContext::from_json(context).map_err(|err| err.to_string())
+    EvaluationContext::from_json(context).map_err(|err| err.to_string())
 }
 
 fn package_from_handle(handle: jlong) -> Result<&'static rototo::Package, String> {

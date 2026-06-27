@@ -39,7 +39,7 @@ mod tests {
         CachedPackageLocator, GitRefName, PackageLocator, PackagePath, SourceTreeOrigin,
         SourceTreeRevision, TokenIdentity,
     };
-    use crate::sdk::ResolveContext;
+    use crate::sdk::EvaluationContext;
 
     #[tokio::test]
     async fn runtime_package_resolves_from_local_package_source() {
@@ -59,7 +59,7 @@ mod tests {
         let resolved = runtime
             .resolve_variable(
                 "checkout",
-                &ResolveContext::from_json(json!({})).expect("object context"),
+                &EvaluationContext::from_json(json!({})).expect("object context"),
             )
             .unwrap();
 
@@ -93,7 +93,7 @@ mod tests {
         let resolved = runtime
             .resolve_variable(
                 "checkout",
-                &ResolveContext::from_json(json!({})).expect("object context"),
+                &EvaluationContext::from_json(json!({})).expect("object context"),
             )
             .unwrap();
         assert_eq!(resolved.value, json!(true));

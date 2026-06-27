@@ -5,7 +5,7 @@
 
 /** Package entity kind that can appear as a graph node. */
 export type GraphNodeKind =
-    | "requestContext"
+    | "evaluationContext"
     | "qualifier"
     | "variable"
     | "catalog"
