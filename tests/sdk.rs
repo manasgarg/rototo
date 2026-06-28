@@ -934,10 +934,7 @@ async fn package_sdk_rejects_missing_condition_context_even_when_schema_allows_i
         .resolve_qualifier("premium-users", &context)
         .unwrap_err();
 
-    assert_eq!(
-        err.to_string(),
-        "expression path is missing: context.user.tier"
-    );
+    assert!(err.to_string().contains("No such key"));
 }
 
 #[tokio::test]

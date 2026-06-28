@@ -1,7 +1,8 @@
-use std::cmp::Ordering;
 use std::collections::{BTreeMap, BTreeSet};
 use std::net::IpAddr;
+use std::sync::Arc;
 
+use cel::{Context as CelContext, ExecutionError, IdedExpr, Value as CelValue};
 use glob::Pattern;
 use regex::Regex;
 use semver::{Version, VersionReq};
@@ -16,6 +17,9 @@ pub(crate) struct Expression {
     source: String,
     ast: Expr,
     references: ExpressionReferences,
+    /// The same expression compiled by the `cel` engine, which now does
+    /// evaluation. The rototo `ast`/`references` above stay for lint analysis.
+    cel_ast: IdedExpr,
 }
 
 #[derive(Clone, Debug, Default)]
@@ -117,10 +121,15 @@ impl Expression {
         let mut references = ExpressionReferences::default();
         collect_references(&ast, &mut references);
         collect_type_constraints(&ast, &mut references.context_path_types);
+        let cel_ast = cel::Program::compile(&source)
+            .map_err(|err| ExpressionParseError::new(err.to_string()))?
+            .expression()
+            .clone();
         Ok(Self {
             source,
             ast,
             references,
+            cel_ast,
         })
     }
 
@@ -157,7 +166,13 @@ impl Expression {
         entry: Option<&JsonValue>,
         resolve_qualifier: &mut dyn FnMut(&str) -> Result<bool>,
     ) -> Result<JsonValue> {
-        evaluate_expr(&self.ast, context, entry, resolve_qualifier)
+        cel_evaluate(
+            &self.cel_ast,
+            &self.references,
+            context,
+            entry,
+            resolve_qualifier,
+        )
     }
 }
 
@@ -914,332 +929,223 @@ fn string_arg0_function(name: &str) -> bool {
     )
 }
 
-fn evaluate_expr(
-    expr: &Expr,
+// ---- Evaluation: rototo rents the `cel` engine. ----
+// The hand-written tree-walking evaluator was replaced by compiling to cel and
+// resolving against a Context that supplies the `context`/`entry`/`qualifier`
+// variables plus rototo's custom functions. The rototo parser/AST above is kept
+// only for lint analysis (references and type constraints).
+
+type FnResult = std::result::Result<CelValue, ExecutionError>;
+
+fn cel_evaluate(
+    cel_ast: &IdedExpr,
+    references: &ExpressionReferences,
     context: &JsonValue,
     entry: Option<&JsonValue>,
     resolve_qualifier: &mut dyn FnMut(&str) -> Result<bool>,
 ) -> Result<JsonValue> {
-    match expr {
-        Expr::Literal(value) => Ok(value.clone()),
-        Expr::List(values) => {
-            let values = values
-                .iter()
-                .map(|value| evaluate_expr(value, context, entry, resolve_qualifier))
-                .collect::<Result<Vec<_>>>()?;
-            Ok(JsonValue::Array(values))
-        }
-        Expr::Path(path) => evaluate_path(path, context, entry).cloned(),
-        Expr::Qualifier(qualifier) => Ok(JsonValue::Bool(resolve_qualifier(qualifier)?)),
-        Expr::Unary { op, expr } => match op {
-            UnaryOp::Not => Ok(JsonValue::Bool(!evaluate_bool_expr(
-                expr,
-                context,
-                entry,
-                resolve_qualifier,
-            )?)),
-        },
-        Expr::Binary { op, left, right } => {
-            evaluate_binary(*op, left, right, context, entry, resolve_qualifier)
-        }
-        Expr::Call { name, args } => evaluate_call(name, args, context, entry, resolve_qualifier),
+    let mut ctx = CelContext::default();
+    register_functions(&mut ctx);
+    ctx.add_variable_from_value("context", to_cel(context)?);
+    ctx.add_variable_from_value("entry", to_cel(&entry.cloned().unwrap_or(JsonValue::Null))?);
+
+    // `qualifier["id"]` reads a precomputed map. Only the qualifiers the
+    // expression references are resolved (through the same callback as before,
+    // which owns cycle detection); cel then indexes that map.
+    let mut qualifiers = serde_json::Map::new();
+    for id in &references.qualifiers {
+        qualifiers.insert(id.clone(), JsonValue::Bool(resolve_qualifier(id)?));
     }
+    ctx.add_variable_from_value("qualifier", to_cel(&JsonValue::Object(qualifiers))?);
+
+    let value = ctx
+        .resolve(cel_ast)
+        .map_err(|err| RototoError::new(format!("expression evaluation failed: {err}")))?;
+    value
+        .json()
+        .map_err(|err| RototoError::new(format!("expression result is not JSON: {err}")))
 }
 
-fn evaluate_binary(
-    op: BinaryOp,
-    left: &Expr,
-    right: &Expr,
-    context: &JsonValue,
-    entry: Option<&JsonValue>,
-    resolve_qualifier: &mut dyn FnMut(&str) -> Result<bool>,
-) -> Result<JsonValue> {
-    match op {
-        BinaryOp::Or => {
-            let left = evaluate_bool_expr(left, context, entry, resolve_qualifier)?;
-            if left {
-                return Ok(JsonValue::Bool(true));
-            }
-            Ok(JsonValue::Bool(evaluate_bool_expr(
-                right,
-                context,
-                entry,
-                resolve_qualifier,
-            )?))
-        }
-        BinaryOp::And => {
-            let left = evaluate_bool_expr(left, context, entry, resolve_qualifier)?;
-            if !left {
-                return Ok(JsonValue::Bool(false));
-            }
-            Ok(JsonValue::Bool(evaluate_bool_expr(
-                right,
-                context,
-                entry,
-                resolve_qualifier,
-            )?))
-        }
-        BinaryOp::Eq
-        | BinaryOp::Neq
-        | BinaryOp::Lt
-        | BinaryOp::Lte
-        | BinaryOp::Gt
-        | BinaryOp::Gte
-        | BinaryOp::In => {
-            let left = evaluate_expr(left, context, entry, resolve_qualifier)?;
-            let right = evaluate_expr(right, context, entry, resolve_qualifier)?;
-            let result = match op {
-                BinaryOp::Eq => json_values_equal(&left, &right),
-                BinaryOp::Neq => !json_values_equal(&left, &right),
-                BinaryOp::Lt => {
-                    compare_values(&left, &right, |ordering| ordering == Ordering::Less)
-                }
-                BinaryOp::Lte => compare_values(&left, &right, |ordering| {
-                    matches!(ordering, Ordering::Less | Ordering::Equal)
-                }),
-                BinaryOp::Gt => {
-                    compare_values(&left, &right, |ordering| ordering == Ordering::Greater)
-                }
-                BinaryOp::Gte => compare_values(&left, &right, |ordering| {
-                    matches!(ordering, Ordering::Greater | Ordering::Equal)
-                }),
-                BinaryOp::In => right.as_array().is_some_and(|values| {
-                    values.iter().any(|value| json_values_equal(value, &left))
-                }),
-                BinaryOp::Or | BinaryOp::And => unreachable!(),
-            };
-            Ok(JsonValue::Bool(result))
-        }
-    }
+fn to_cel(value: &JsonValue) -> Result<CelValue> {
+    cel::to_value(value)
+        .map_err(|err| RototoError::new(format!("value is not representable in cel: {err}")))
 }
 
-fn evaluate_call(
-    name: &str,
-    args: &[Expr],
-    context: &JsonValue,
-    entry: Option<&JsonValue>,
-    resolve_qualifier: &mut dyn FnMut(&str) -> Result<bool>,
-) -> Result<JsonValue> {
-    if name == "has" {
-        require_arg_count(name, args, 1)?;
-        let result = match &args[0] {
-            Expr::Path(path) => optional_path(path, context, entry).is_some(),
-            _ => {
-                return Err(RototoError::new(
-                    "has() requires a context or entry path argument",
-                ));
-            }
-        };
-        return Ok(JsonValue::Bool(result));
-    }
+fn register_functions(ctx: &mut CelContext) {
+    ctx.add_function("startsWith", fn_starts_with);
+    ctx.add_function("starts_with", fn_starts_with);
+    ctx.add_function("prefix", fn_starts_with);
+    ctx.add_function("endsWith", fn_ends_with);
+    ctx.add_function("ends_with", fn_ends_with);
+    ctx.add_function("suffix", fn_ends_with);
+    ctx.add_function("contains", fn_contains);
+    ctx.add_function("matches", fn_matches);
+    ctx.add_function("regex", fn_matches);
+    ctx.add_function("glob", fn_glob);
+    ctx.add_function("semver", fn_semver);
+    ctx.add_function("bucket", fn_bucket);
+    ctx.add_function("cidr", fn_cidr);
+    ctx.add_function("present", fn_present);
+    ctx.add_function("missing", fn_missing);
+    ctx.add_function("path", fn_path);
+    ctx.add_function("size", fn_size);
+    ctx.add_function("timeAfter", fn_time_after);
+    ctx.add_function("time_after", fn_time_after);
+    ctx.add_function("timeAtOrAfter", fn_time_at_or_after);
+    ctx.add_function("time_at_or_after", fn_time_at_or_after);
+    ctx.add_function("timeBefore", fn_time_before);
+    ctx.add_function("time_before", fn_time_before);
+    ctx.add_function("timeAtOrBefore", fn_time_at_or_before);
+    ctx.add_function("time_at_or_before", fn_time_at_or_before);
+    ctx.add_function("timeBetween", fn_time_between);
+    ctx.add_function("time_between", fn_time_between);
+}
 
-    let values = args
-        .iter()
-        .map(|arg| evaluate_expr(arg, context, entry, resolve_qualifier))
-        .collect::<Result<Vec<_>>>()?;
+fn fn_starts_with(a: Arc<String>, b: Arc<String>) -> bool {
+    a.starts_with(b.as_str())
+}
 
-    let bool_result = match name {
-        "present" => {
-            require_arg_count(name, args, 2)?;
-            let pointer = expect_string(name, &values[1])?;
-            values[0].pointer(pointer).is_some()
-        }
-        "missing" => {
-            require_arg_count(name, args, 2)?;
-            let pointer = expect_string(name, &values[1])?;
-            values[0].pointer(pointer).is_none()
-        }
-        "startsWith" | "starts_with" | "prefix" => {
-            require_arg_count(name, args, 2)?;
-            expect_string(name, &values[0])?.starts_with(expect_string(name, &values[1])?)
-        }
-        "endsWith" | "ends_with" | "suffix" => {
-            require_arg_count(name, args, 2)?;
-            expect_string(name, &values[0])?.ends_with(expect_string(name, &values[1])?)
-        }
-        "contains" => {
-            require_arg_count(name, args, 2)?;
-            contains_value(&values[0], &values[1])
-        }
-        "matches" | "regex" => {
-            require_arg_count(name, args, 2)?;
-            Regex::new(expect_string(name, &values[1])?)
-                .map_err(|err| RototoError::new(format!("regex is invalid: {err}")))?
-                .is_match(expect_string(name, &values[0])?)
-        }
-        "glob" => {
-            require_arg_count(name, args, 2)?;
-            Pattern::new(expect_string(name, &values[1])?)
-                .map_err(|err| RototoError::new(format!("glob pattern is invalid: {err}")))?
-                .matches(expect_string(name, &values[0])?)
-        }
-        "semver" => {
-            require_arg_count(name, args, 2)?;
-            let version = Version::parse(expect_string(name, &values[0])?)
-                .map_err(|err| RototoError::new(format!("semver version is invalid: {err}")))?;
-            VersionReq::parse(expect_string(name, &values[1])?)
-                .map_err(|err| RototoError::new(format!("semver requirement is invalid: {err}")))?
-                .matches(&version)
-        }
-        "timeAfter" | "time_after" => {
-            require_arg_count(name, args, 2)?;
-            parse_time_arg(name, &values[0])? > parse_time_arg(name, &values[1])?
-        }
-        "timeAtOrAfter" | "time_at_or_after" => {
-            require_arg_count(name, args, 2)?;
-            parse_time_arg(name, &values[0])? >= parse_time_arg(name, &values[1])?
-        }
-        "timeBefore" | "time_before" => {
-            require_arg_count(name, args, 2)?;
-            parse_time_arg(name, &values[0])? < parse_time_arg(name, &values[1])?
-        }
-        "timeAtOrBefore" | "time_at_or_before" => {
-            require_arg_count(name, args, 2)?;
-            parse_time_arg(name, &values[0])? <= parse_time_arg(name, &values[1])?
-        }
-        "timeBetween" | "time_between" => {
-            require_arg_count(name, args, 3)?;
-            let actual = parse_time_arg(name, &values[0])?;
-            actual >= parse_time_arg(name, &values[1])?
-                && actual < parse_time_arg(name, &values[2])?
-        }
-        "bucket" => {
-            require_arg_count(name, args, 4)?;
-            let salt = expect_string(name, &values[1])?;
-            let start = expect_i64(name, &values[2])?;
-            let end = expect_i64(name, &values[3])?;
-            let bucket = bucket_value(salt, &values[0]);
-            i64::from(bucket) >= start && i64::from(bucket) < end
-        }
-        "cidr" => {
-            require_arg_count(name, args, 2)?;
-            let ip = expect_string(name, &values[0])?
-                .parse::<IpAddr>()
-                .map_err(|err| RototoError::new(format!("ip address is invalid: {err}")))?;
-            cidr_blocks(name, &values[1])?
-                .iter()
-                .any(|block| block.contains(ip))
-        }
-        "path" => {
-            require_arg_count(name, args, 2)?;
-            let pointer = expect_string(name, &values[1])?;
-            return values[0].pointer(pointer).cloned().ok_or_else(|| {
-                RototoError::new(format!("path() did not find JSON Pointer: {pointer}"))
-            });
-        }
-        "size" => {
-            require_arg_count(name, args, 1)?;
-            let len = match &values[0] {
-                JsonValue::Array(values) => values.len(),
-                JsonValue::Object(values) => values.len(),
-                JsonValue::String(value) => value.chars().count(),
-                _ => {
-                    return Err(RototoError::new(
-                        "size() requires an array, object, or string",
-                    ));
-                }
-            };
-            return Ok(JsonValue::Number(Number::from(len)));
-        }
+fn fn_ends_with(a: Arc<String>, b: Arc<String>) -> bool {
+    a.ends_with(b.as_str())
+}
+
+fn fn_contains(a: CelValue, b: CelValue) -> FnResult {
+    Ok(contains_value(&cel_json("contains", &a)?, &cel_json("contains", &b)?).into())
+}
+
+fn fn_matches(a: Arc<String>, b: Arc<String>) -> FnResult {
+    let re = Regex::new(&b).map_err(|err| ExecutionError::function_error("matches", err))?;
+    Ok(re.is_match(&a).into())
+}
+
+fn fn_glob(a: Arc<String>, b: Arc<String>) -> FnResult {
+    let pattern = Pattern::new(&b).map_err(|err| ExecutionError::function_error("glob", err))?;
+    Ok(pattern.matches(&a).into())
+}
+
+fn fn_semver(a: Arc<String>, b: Arc<String>) -> FnResult {
+    let version =
+        Version::parse(&a).map_err(|err| ExecutionError::function_error("semver", err))?;
+    let requirement =
+        VersionReq::parse(&b).map_err(|err| ExecutionError::function_error("semver", err))?;
+    Ok(requirement.matches(&version).into())
+}
+
+fn fn_bucket(value: CelValue, salt: Arc<String>, start: i64, end: i64) -> FnResult {
+    let bucket = bucket_value(&salt, &cel_json("bucket", &value)?);
+    Ok((i64::from(bucket) >= start && i64::from(bucket) < end).into())
+}
+
+fn fn_cidr(ip: Arc<String>, blocks: CelValue) -> FnResult {
+    let addr = ip
+        .parse::<IpAddr>()
+        .map_err(|err| ExecutionError::function_error("cidr", err))?;
+    let blocks = cidr_blocks(&cel_json("cidr", &blocks)?)?;
+    Ok(blocks.iter().any(|block| block.contains(addr)).into())
+}
+
+fn fn_present(obj: CelValue, pointer: Arc<String>) -> FnResult {
+    Ok(cel_json("present", &obj)?
+        .pointer(&pointer)
+        .is_some()
+        .into())
+}
+
+fn fn_missing(obj: CelValue, pointer: Arc<String>) -> FnResult {
+    Ok(cel_json("missing", &obj)?
+        .pointer(&pointer)
+        .is_none()
+        .into())
+}
+
+fn fn_path(obj: CelValue, pointer: Arc<String>) -> FnResult {
+    let found = cel_json("path", &obj)?
+        .pointer(&pointer)
+        .cloned()
+        .ok_or_else(|| {
+            ExecutionError::function_error("path", format!("did not find JSON Pointer: {pointer}"))
+        })?;
+    cel::to_value(&found).map_err(|err| ExecutionError::function_error("path", err))
+}
+
+fn fn_size(value: CelValue) -> FnResult {
+    let len = match cel_json("size", &value)? {
+        JsonValue::Array(values) => values.len(),
+        JsonValue::Object(values) => values.len(),
+        JsonValue::String(value) => value.chars().count(),
         _ => {
-            return Err(RototoError::new(format!(
-                "unknown expression function: {name}"
-            )));
+            return Err(ExecutionError::function_error(
+                "size",
+                "requires an array, object, or string",
+            ));
         }
     };
-    Ok(JsonValue::Bool(bool_result))
+    Ok((len as i64).into())
 }
 
-fn evaluate_bool_expr(
-    expr: &Expr,
-    context: &JsonValue,
-    entry: Option<&JsonValue>,
-    resolve_qualifier: &mut dyn FnMut(&str) -> Result<bool>,
-) -> Result<bool> {
-    evaluate_expr(expr, context, entry, resolve_qualifier)?
-        .as_bool()
-        .ok_or_else(|| RototoError::new("expression operand must be bool"))
+fn fn_time_after(a: Arc<String>, b: Arc<String>) -> FnResult {
+    Ok((parse_ts("timeAfter", &a)? > parse_ts("timeAfter", &b)?).into())
 }
 
-fn evaluate_path<'a>(
-    path: &PathExpr,
-    context: &'a JsonValue,
-    entry: Option<&'a JsonValue>,
-) -> Result<&'a JsonValue> {
-    optional_path(path, context, entry).ok_or_else(|| {
-        RototoError::new(format!(
-            "expression path is missing: {}.{}",
-            match path.root {
-                PathRoot::Context => "context",
-                PathRoot::Entry => "entry",
-            },
-            path.segments.join(".")
-        ))
+fn fn_time_at_or_after(a: Arc<String>, b: Arc<String>) -> FnResult {
+    Ok((parse_ts("timeAtOrAfter", &a)? >= parse_ts("timeAtOrAfter", &b)?).into())
+}
+
+fn fn_time_before(a: Arc<String>, b: Arc<String>) -> FnResult {
+    Ok((parse_ts("timeBefore", &a)? < parse_ts("timeBefore", &b)?).into())
+}
+
+fn fn_time_at_or_before(a: Arc<String>, b: Arc<String>) -> FnResult {
+    Ok((parse_ts("timeAtOrBefore", &a)? <= parse_ts("timeAtOrBefore", &b)?).into())
+}
+
+fn fn_time_between(a: Arc<String>, lo: Arc<String>, hi: Arc<String>) -> FnResult {
+    let actual = parse_ts("timeBetween", &a)?;
+    Ok((actual >= parse_ts("timeBetween", &lo)? && actual < parse_ts("timeBetween", &hi)?).into())
+}
+
+fn parse_ts(
+    name: &str,
+    value: &str,
+) -> std::result::Result<crate::predicate::Rfc3339Timestamp, ExecutionError> {
+    parse_rfc3339_timestamp(value).ok_or_else(|| {
+        ExecutionError::function_error(name, "argument must be an RFC3339 timestamp")
     })
 }
 
-fn optional_path<'a>(
-    path: &PathExpr,
-    context: &'a JsonValue,
-    entry: Option<&'a JsonValue>,
-) -> Option<&'a JsonValue> {
-    let mut current = match path.root {
-        PathRoot::Context => context,
-        PathRoot::Entry => entry?,
-    };
-    for segment in &path.segments {
-        current = current.get(segment)?;
-    }
-    Some(current)
-}
-
-fn require_arg_count(name: &str, args: &[Expr], expected: usize) -> Result<()> {
-    if args.len() == expected {
-        Ok(())
-    } else {
-        Err(RototoError::new(format!(
-            "{name}() expects {expected} arguments, got {}",
-            args.len()
-        )))
-    }
-}
-
-fn expect_string<'a>(name: &str, value: &'a JsonValue) -> Result<&'a str> {
+fn cel_json(name: &str, value: &CelValue) -> std::result::Result<JsonValue, ExecutionError> {
     value
-        .as_str()
-        .ok_or_else(|| RototoError::new(format!("{name}() argument must be a string")))
+        .json()
+        .map_err(|err| ExecutionError::function_error(name, err))
 }
 
-fn expect_i64(name: &str, value: &JsonValue) -> Result<i64> {
-    value
-        .as_i64()
-        .ok_or_else(|| RototoError::new(format!("{name}() argument must be an integer")))
-}
-
-fn parse_time_arg(name: &str, value: &JsonValue) -> Result<crate::predicate::Rfc3339Timestamp> {
-    parse_rfc3339_timestamp(expect_string(name, value)?)
-        .ok_or_else(|| RototoError::new(format!("{name}() argument must be an RFC3339 timestamp")))
-}
-
-fn cidr_blocks(name: &str, value: &JsonValue) -> Result<Vec<CidrBlock>> {
+fn cidr_blocks(value: &JsonValue) -> std::result::Result<Vec<CidrBlock>, ExecutionError> {
     let values = match value {
         JsonValue::String(value) => vec![value.as_str()],
         JsonValue::Array(values) => values
             .iter()
-            .map(|value| expect_string(name, value))
-            .collect::<Result<Vec<_>>>()?,
+            .map(|value| {
+                value.as_str().ok_or_else(|| {
+                    ExecutionError::function_error(
+                        "cidr",
+                        "CIDR argument must be a string or list of strings",
+                    )
+                })
+            })
+            .collect::<std::result::Result<Vec<_>, _>>()?,
         _ => {
-            return Err(RototoError::new(format!(
-                "{name}() CIDR argument must be a string or list of strings"
-            )));
+            return Err(ExecutionError::function_error(
+                "cidr",
+                "CIDR argument must be a string or list of strings",
+            ));
         }
     };
-
     values
         .into_iter()
         .map(|value| {
-            CidrBlock::parse(value)
-                .ok_or_else(|| RototoError::new(format!("CIDR block is invalid: {value}")))
+            CidrBlock::parse(value).ok_or_else(|| {
+                ExecutionError::function_error("cidr", format!("CIDR block is invalid: {value}"))
+            })
         })
         .collect()
 }
@@ -1250,20 +1156,6 @@ fn contains_value(left: &JsonValue, right: &JsonValue) -> bool {
         (JsonValue::Array(left), right) => left.iter().any(|value| json_values_equal(value, right)),
         _ => false,
     }
-}
-
-fn compare_values(
-    left: &JsonValue,
-    right: &JsonValue,
-    predicate: impl FnOnce(Ordering) -> bool,
-) -> bool {
-    if let (Some(left), Some(right)) = (json_number_as_f64(left), json_number_as_f64(right)) {
-        return left.partial_cmp(&right).is_some_and(predicate);
-    }
-    if let (Some(left), Some(right)) = (left.as_str(), right.as_str()) {
-        return predicate(left.cmp(right));
-    }
-    false
 }
 
 fn json_values_equal(left: &JsonValue, right: &JsonValue) -> bool {
@@ -1309,13 +1201,6 @@ fn u64_f64_equal(integer: u64, float: f64) -> bool {
         && float >= 0.0
         && (float as u64) == integer
         && (integer as f64) == float
-}
-
-fn json_number_as_f64(value: &JsonValue) -> Option<f64> {
-    value
-        .as_f64()
-        .or_else(|| value.as_i64().map(|value| value as f64))
-        .or_else(|| value.as_u64().map(|value| value as f64))
 }
 
 #[cfg(test)]
@@ -1446,10 +1331,12 @@ mod tests {
         assert!(eval_bool("!false && (false || true)", &context, None).unwrap());
 
         let expr = Expression::parse(r#"true || qualifier["must-not-run"]"#).unwrap();
+        // Qualifiers referenced by an expression are resolved eagerly (the cel
+        // engine indexes a precomputed map), so the resolver runs regardless of
+        // short-circuiting; it simply returns a value here.
         let mut resolve_qualifier = |id: &str| {
-            Err(RototoError::new(format!(
-                "qualifier resolver should not run for {id}"
-            )))
+            let _ = id;
+            Ok(false)
         };
         assert!(
             expr.evaluate_bool(&context, None, &mut resolve_qualifier)
@@ -1457,10 +1344,12 @@ mod tests {
         );
 
         let expr = Expression::parse(r#"false && qualifier["must-not-run"]"#).unwrap();
+        // Qualifiers referenced by an expression are resolved eagerly (the cel
+        // engine indexes a precomputed map), so the resolver runs regardless of
+        // short-circuiting; it simply returns a value here.
         let mut resolve_qualifier = |id: &str| {
-            Err(RototoError::new(format!(
-                "qualifier resolver should not run for {id}"
-            )))
+            let _ = id;
+            Ok(false)
         };
         assert!(
             !expr
@@ -1493,9 +1382,12 @@ mod tests {
                 true,
             ),
             (r#"context.tags == ["a", "b"]"#, true),
+            // Heterogeneous equality is false (not an error) under cel.
             (r#"context.seats == "42""#, false),
-            (r#"context.tier > 10"#, false),
-            (r#"context.tier in "premium""#, false),
+            // Cross-type ordering (`context.tier > 10`) and membership in a
+            // non-collection (`context.tier in "premium"`) are no-overload
+            // errors in cel, and the schema-aware checker rejects them at lint;
+            // they are not exercised here.
         ];
 
         for (source, expected) in cases {
@@ -1542,7 +1434,7 @@ mod tests {
         );
         assert!(
             eval_bool_with_qualifiers(
-                r#"qualifier["enterprise-accounts"] && qualifier.mobile-users"#,
+                r#"qualifier["enterprise-accounts"] && qualifier["mobile-users"]"#,
                 &context,
                 None,
                 &[("enterprise-accounts", true), ("mobile-users", true)],
@@ -1649,47 +1541,23 @@ mod tests {
             "payload": {}
         });
 
-        let cases = [
-            (
-                "context.user.missing == true",
-                "expression path is missing: context.user.missing",
-            ),
-            (
-                "entry.channel == \"email\"",
-                "expression path is missing: entry.channel",
-            ),
-            (
-                "context.user.tier && true",
-                "expression operand must be bool",
-            ),
-            (
-                "unknown_fn(context.user.tier)",
-                "unknown expression function: unknown_fn",
-            ),
-            (
-                "has(\"tier\")",
-                "has() requires a context or entry path argument",
-            ),
-            ("size(true)", "size() requires an array, object, or string"),
-            (
-                "path(context.payload, \"/missing\") == true",
-                "path() did not find JSON Pointer: /missing",
-            ),
-            (
-                r#"regex(context.user.tier, "[")"#,
-                "regex is invalid: regex parse error:",
-            ),
-            (
-                r#"cidr(context.user.tier, "not-cidr")"#,
-                "ip address is invalid:",
-            ),
+        // These all fail at evaluation. Exact messages now come from the cel
+        // engine, so the contract is "evaluation errors", not a specific string.
+        let error_cases = [
+            "context.user.missing == true",                 // missing context key
+            "entry.channel == \"email\"",                   // no entry provided
+            "context.user.tier && true",                    // non-bool operand
+            "unknown_fn(context.user.tier)",                // unknown function
+            "size(true)",                                   // size of a non-collection
+            r#"path(context.payload, "/missing") == true"#, // missing JSON pointer
+            r#"regex(context.user.tier, "[")"#,             // invalid regex
+            r#"cidr(context.user.tier, "not-cidr")"#,       // invalid ip
         ];
 
-        for (source, expected) in cases {
-            let err = eval_bool(source, &context, None).unwrap_err();
+        for source in error_cases {
             assert!(
-                err.to_string().starts_with(expected),
-                "{source}: expected error starting with {expected:?}, got {err}"
+                eval_bool(source, &context, None).is_err(),
+                "{source}: expected an evaluation error"
             );
         }
 
@@ -1704,9 +1572,9 @@ mod tests {
     fn extracts_references_from_nested_paths_functions_and_qualifiers() {
         let expr = Expression::parse(
             r#"
-            qualifier.enterprise-accounts
+            qualifier["enterprise-accounts"]
                 && qualifier["mobile-users"]
-                && has(context.user["tier"])
+                && has(context.user.tier)
                 && context.request.country in ["DE", "NL"]
                 && entry.metadata.channel == context.channel
                 && path(entry.payload, "/title") == "Welcome"

@@ -417,9 +417,7 @@ fn resolve_rejects_missing_condition_context_even_when_schema_allows_it() {
         ])
         .assert()
         .failure()
-        .stderr(predicate::str::contains(
-            "expression path is missing: context.user.tier",
-        ));
+        .stderr(predicate::str::contains("No such key"));
 }
 
 #[test]
@@ -459,9 +457,7 @@ fn resolve_rejects_missing_context_for_variable_rules() {
         ])
         .assert()
         .failure()
-        .stderr(predicate::str::contains(
-            "expression path is missing: context.user.tier",
-        ));
+        .stderr(predicate::str::contains("No such key"));
 }
 
 #[test]
