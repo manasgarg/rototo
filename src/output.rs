@@ -526,53 +526,196 @@ pub(crate) fn print_package_diff(diff: &PackageDiff, json: bool) -> Result<()> {
         return Ok(());
     }
 
-    println!("before: {}", diff.before);
-    println!("after: {}", diff.after);
+    println!("{} {}", style::label("before"), style::bold(&diff.before));
+    println!("{} {}", style::label("after"), style::bold(&diff.after));
     if diff.changes.is_empty() {
-        println!("semantic changes: none");
+        println!(
+            "{} {}",
+            style::label("semantic changes"),
+            style::dim("none")
+        );
     } else {
-        println!("semantic changes:");
+        println!("{}", style::label("semantic changes"));
         for change in &diff.changes {
-            println!(
-                "  {}  {}",
-                change.kind,
-                semantic_target_label(&change.target)
-            );
+            print_semantic_change_header(change);
             if let Some(location) = &change.before_location {
                 println!(
-                    "    before location: {}",
-                    diagnostic_location_label_for_location(location)
+                    "    {} {}",
+                    style::dim("before location:"),
+                    style::info(&diagnostic_location_label_for_location(location))
                 );
             }
             if let Some(location) = &change.after_location {
                 println!(
-                    "    after location: {}",
-                    diagnostic_location_label_for_location(location)
+                    "    {} {}",
+                    style::dim("after location:"),
+                    style::info(&diagnostic_location_label_for_location(location))
                 );
             }
             if change.before.is_some() || change.after.is_some() {
-                println!("    before: {}", compact_json_option(&change.before)?);
-                println!("    after: {}", compact_json_option(&change.after)?);
+                print_diff_value_line("before", &change.before, DiffSide::Before)?;
+                print_diff_value_line("after", &change.after, DiffSide::After)?;
             }
         }
     }
     if !diff.resolution_impacts.is_empty() {
-        println!("resolution impact:");
+        println!("{}", style::label("resolution impact"));
         for impact in &diff.resolution_impacts {
-            println!("  variable: {}", impact.variable);
             println!(
-                "    before: {} {}",
-                resolution_source_label(&impact.before.source),
-                compact_json(&impact.before.value)?
+                "  {} {}",
+                style::dim("variable:"),
+                style::sea(&impact.variable)
             );
-            println!(
-                "    after: {} {}",
-                resolution_source_label(&impact.after.source),
-                compact_json(&impact.after.value)?
-            );
+            print_resolution_impact_line("before", &impact.before, DiffSide::Before)?;
+            print_resolution_impact_line("after", &impact.after, DiffSide::After)?;
         }
     }
     Ok(())
+}
+
+#[derive(Clone, Copy)]
+enum DiffSide {
+    Before,
+    After,
+}
+
+fn print_semantic_change_header(change: &rototo::model::SemanticChange) {
+    let target = semantic_target_label(&change.target);
+    let description = semantic_change_description(&change.kind);
+    if !style::enabled() {
+        println!("  {}  {}", change.kind, target);
+        println!("    change: {description}");
+        return;
+    }
+
+    let marker = semantic_change_marker(change);
+    println!(
+        "  {} {}  {}",
+        style_diff_marker(marker),
+        style_diff_kind(description, marker),
+        style::sea(&target)
+    );
+    println!("    {} {}", style::dim("kind:"), style::dim(&change.kind));
+}
+
+fn semantic_change_marker(change: &rototo::model::SemanticChange) -> DiffChangeMarker {
+    if change.kind.ends_with("_added") || (change.before.is_none() && change.after.is_some()) {
+        DiffChangeMarker::Added
+    } else if change.kind.ends_with("_removed")
+        || (change.before.is_some() && change.after.is_none())
+    {
+        DiffChangeMarker::Removed
+    } else {
+        DiffChangeMarker::Changed
+    }
+}
+
+#[derive(Clone, Copy)]
+enum DiffChangeMarker {
+    Added,
+    Removed,
+    Changed,
+}
+
+fn style_diff_marker(marker: DiffChangeMarker) -> String {
+    match marker {
+        DiffChangeMarker::Added => style::ok("+"),
+        DiffChangeMarker::Removed => style::err("−"),
+        DiffChangeMarker::Changed => style::warn("~"),
+    }
+}
+
+fn style_diff_kind(kind: &str, marker: DiffChangeMarker) -> String {
+    match marker {
+        DiffChangeMarker::Added => style::ok(kind),
+        DiffChangeMarker::Removed => style::err(kind),
+        DiffChangeMarker::Changed => style::warn(kind),
+    }
+}
+
+fn semantic_change_description(kind: &str) -> &'static str {
+    match kind {
+        "variable_added" => "variable added",
+        "variable_removed" => "variable removed",
+        "variable_type_changed" => "variable type changed",
+        "variable_value_added" => "variable value added",
+        "variable_value_removed" => "variable value removed",
+        "variable_value_changed" => "variable value changed",
+        "variable_resolve_default_changed" => "variable resolve default changed",
+        "variable_rule_added" => "variable resolve rule added",
+        "variable_rule_removed" => "variable resolve rule removed",
+        "variable_rule_when_changed" => "variable rule condition changed",
+        "variable_rule_query_changed" => "variable rule catalog query changed",
+        "variable_rule_value_changed" => "variable rule value changed",
+        "qualifier_added" => "qualifier added",
+        "qualifier_removed" => "qualifier removed",
+        "qualifier_when_changed" => "qualifier condition changed",
+        "catalog_added" => "catalog added",
+        "catalog_removed" => "catalog removed",
+        "catalog_schema_changed" => "catalog schema changed",
+        "catalog_entry_added" => "catalog value added",
+        "catalog_entry_removed" => "catalog value removed",
+        "catalog_entry_changed" => "catalog value changed",
+        _ => "semantic change",
+    }
+}
+
+fn print_diff_value_line(
+    label: &str,
+    value: &Option<serde_json::Value>,
+    side: DiffSide,
+) -> Result<()> {
+    let value = compact_json_option(value)?;
+    if !style::enabled() {
+        println!("    {label}: {value}");
+        return Ok(());
+    }
+
+    println!(
+        "    {} {}",
+        style_diff_side_label(label, side),
+        style_diff_side_value(&value, side)
+    );
+    Ok(())
+}
+
+fn print_resolution_impact_line(
+    label: &str,
+    resolution: &rototo::model::VariableResolution,
+    side: DiffSide,
+) -> Result<()> {
+    let source = resolution_source_label(&resolution.source);
+    let value = compact_json(&resolution.value)?;
+    if !style::enabled() {
+        println!("    {label}: {source} {value}");
+        return Ok(());
+    }
+
+    println!(
+        "    {} {} {}",
+        style_diff_side_label(label, side),
+        style::dim(&source),
+        style_diff_side_value(&value, side)
+    );
+    Ok(())
+}
+
+fn style_diff_side_label(label: &str, side: DiffSide) -> String {
+    let label = format!("{label}:");
+    match side {
+        DiffSide::Before => style::err(&label),
+        DiffSide::After => style::ok(&label),
+    }
+}
+
+fn style_diff_side_value(value: &str, side: DiffSide) -> String {
+    if value == "<none>" {
+        return style::dim(value);
+    }
+    match side {
+        DiffSide::Before => style::err(value),
+        DiffSide::After => style::ok(value),
+    }
 }
 
 fn resolution_source_label(source: &rototo::model::VariableResolutionSource) -> String {

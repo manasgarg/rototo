@@ -199,6 +199,9 @@ fn diff_defaults_to_head_vs_worktree_for_local_package() {
         .stdout(predicate::str::contains("before: HEAD:config"))
         .stdout(predicate::str::contains("after: worktree:config"))
         .stdout(predicate::str::contains("variable_resolve_default_changed"))
+        .stdout(predicate::str::contains(
+            "change: variable resolve default changed",
+        ))
         .stdout(predicate::str::contains("before: 1800"))
         .stdout(predicate::str::contains("after: 2400"))
         .stdout(predicate::str::contains("resolution impact:"));
@@ -232,6 +235,43 @@ fn diff_compares_explicit_git_refs() {
         .stdout(predicate::str::contains("before: 1800"))
         .stdout(predicate::str::contains("after: 2400"))
         .stdout(predicate::str::contains("resolution impact:").not());
+}
+
+#[test]
+fn diff_uses_cli_design_system_colors_when_forced() {
+    let temp = tempfile::tempdir().unwrap();
+    let repo = temp.path().join("repo");
+    let package = repo.join("config");
+    write_basic_package(&package, 1800);
+    init_git_repo(&repo);
+
+    fs::write(
+        package.join("variables/summary-token-budget.toml"),
+        variable_toml(2400),
+    )
+    .unwrap();
+
+    Command::cargo_bin("rototo")
+        .unwrap()
+        .current_dir(&repo)
+        .env("FORCE_COLOR", "1")
+        .env_remove("NO_COLOR")
+        .env_remove("COLORTERM")
+        .args(["diff", "config", "--context", "{}"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains(
+            "\u{1b}[38;5;220mSEMANTIC CHANGES\u{1b}[0m",
+        ))
+        .stdout(predicate::str::contains("\u{1b}[38;5;220m~\u{1b}[0m"))
+        .stdout(predicate::str::contains(
+            "\u{1b}[38;5;220mvariable resolve default changed\u{1b}[0m",
+        ))
+        .stdout(predicate::str::contains(
+            "\u{1b}[38;5;245mkind:\u{1b}[0m \u{1b}[38;5;245mvariable_resolve_default_changed\u{1b}[0m",
+        ))
+        .stdout(predicate::str::contains("\u{1b}[38;5;203mbefore:\u{1b}[0m"))
+        .stdout(predicate::str::contains("\u{1b}[38;5;78mafter:\u{1b}[0m"));
 }
 
 #[test]
