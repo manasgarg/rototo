@@ -2093,21 +2093,44 @@ fn qualifier_template(id: &str) -> String {
     format!(
         r#"schema_version = 1
 
+# Explain the named runtime condition this qualifier represents.
 description = {description}
 
-when = "context.user.tier == \"premium\""
+# Required. `when` must evaluate to true or false.
+# It can read runtime context with `context.*` and compose existing qualifiers
+# with `qualifier["<qualifier-id>"]`.
+when = 'context.user.tier == "premium"'
 
-# Compose multiple conditions with boolean operators.
+# Common condition shapes:
 #
-# when = 'context.user.tier == "premium" && context.request.country in ["DE", "FR", "NL"]'
+# Equality / inequality:
+# when = 'context.user.tier == "premium"'
+# when = 'context.user.tier != "free"'
 #
-# Qualifiers can reference other qualifiers.
+# Numeric comparisons:
+# when = 'context.account.seats >= 100'
 #
+# Boolean fields:
+# when = 'context.flags.internal == true'
+#
+# Membership:
+# when = 'context.request.country in ["DE", "FR", "NL"]'
+#
+# Composition:
+# when = 'context.user.tier == "premium" && context.account.seats >= 100'
 # when = 'qualifier["beta-rollout"] && context.user.tier == "premium"'
+# when = '!(qualifier["internal-staff"])'
 #
-# bucket(...) produces stable rollout membership for a context value.
-#
+# Stable rollout buckets. Bucket ranges are start-inclusive and end-exclusive.
+# `0, 1000` is roughly 1.5% of the 0..65536 bucket space.
 # when = 'bucket(context.user.id, "{id}-rollout", 0, 1000)'
+#
+# Other supported helpers include has, prefix, suffix, contains, regex, glob,
+# semver, time_before/time_after/time_between, cidr, path, and size.
+#
+# Context paths used here should be declared in an evaluation context schema.
+# After editing conditions, run:
+# rototo init <package> --evaluation-context --update
 "#
     )
 }
@@ -2119,23 +2142,62 @@ fn variable_template(id: &str) -> String {
     format!(
         r#"schema_version = 1
 
+# Explain what runtime behavior this variable controls.
 description = {description}
+
+# Required. Supported types:
+# bool, int, number, string, list, list<string>, list<int>, list<number>,
+# list<bool>, catalog:<catalog-id>, list<catalog:<catalog-id>>
 type = "string"
 
 [resolve]
+# Required. Used when no rule matches. The value must match `type`.
 default = "control"
 
-# Rules are evaluated in order. The first matching condition selects its value.
+# Literal defaults by type:
+# default = true
+# default = 10
+# default = 0.25
+# default = "control"
+# default = ["email", "card"]
+# default = "catalog-entry-id"
+# default = ["catalog-entry-a", "catalog-entry-b"]
+
+# Rules are evaluated top to bottom. The first matching rule selects its value.
 #
 # [[resolve.rule]]
 # when = 'qualifier["premium-users"]'
 # value = "treatment"
+
+# Rule conditions can also read context directly.
 #
-# For catalog-backed values, use a catalog type:
+# [[resolve.rule]]
+# when = 'context.account.plan == "enterprise" && context.account.seats >= 100'
+# value = "enterprise"
+
+# For catalog-backed variables, set:
 #
 # type = "catalog:{id}"
 #
-# Catalog value names become the selectable values.
+# Then `default` and rule `value` select catalog entry ids:
+#
+# [resolve]
+# default = "control"
+#
+# [[resolve.rule]]
+# when = 'qualifier["premium-users"]'
+# value = "premium"
+
+# For list<catalog:...> variables, rules may select entries with `query`
+# instead of a fixed value. `entry.*` reads each catalog entry.
+#
+# type = "list<catalog:{id}>"
+#
+# [resolve]
+# default = []
+#
+# [[resolve.rule]]
+# query = 'entry.enabled == true && qualifier["premium-users"]'
 "#
     )
 }

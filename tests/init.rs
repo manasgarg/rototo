@@ -93,9 +93,11 @@ fn init_qualifier_and_context_templates() {
 
     let qualifier = fs::read_to_string(package.join("qualifiers/premium-users.toml")).unwrap();
     assert!(qualifier.contains("schema_version = 1"));
-    assert!(qualifier.contains("when = \"context.user.tier == \\\"premium\\\"\""));
+    assert!(qualifier.contains("when = 'context.user.tier == \"premium\"'"));
     assert!(qualifier.contains("context.request.country in"));
+    assert!(qualifier.contains("context.account.seats >= 100"));
     assert!(qualifier.contains("bucket(context.user.id"));
+    assert!(qualifier.contains("rototo init <package> --evaluation-context --update"));
 
     let schema = read_json(package.join("evaluation-contexts/evaluation.schema.json"));
     assert_eq!(
@@ -141,6 +143,9 @@ fn init_variable_and_catalog_templates() {
     let variable = fs::read_to_string(package.join("variables/checkout-redesign.toml")).unwrap();
     assert!(variable.contains("type = \"string\""));
     assert!(variable.contains("[resolve]"));
+    assert!(variable.contains("bool, int, number, string"));
+    assert!(variable.contains("context.account.plan == \"enterprise\""));
+    assert!(variable.contains("query = 'entry.enabled == true"));
     assert!(!variable.contains("[env."));
 
     let catalog =
