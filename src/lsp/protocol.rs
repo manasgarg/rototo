@@ -58,6 +58,17 @@ pub(super) struct LspCompletionItem {
     pub(super) detail: &'static str,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub(super) insert_text: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(super) text_edit: Option<LspTextEdit>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(super) filter_text: Option<String>,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub(super) struct LspTextEdit {
+    pub(super) range: LspRange,
+    pub(super) new_text: String,
 }
 
 #[derive(Debug, Serialize)]

@@ -6,7 +6,7 @@ use super::super::PackageLintSnapshot;
 use super::super::index::*;
 use super::common::location_contains_position;
 use super::{PackageCompletionItem, PackageCompletionItemKind};
-use crate::diagnostics::SourcePosition;
+use crate::diagnostics::{SourcePosition, SourceRange};
 use crate::expression::{Expression, ExpressionResultHint};
 use crate::model::SourceKind;
 
@@ -200,12 +200,70 @@ pub(crate) fn completion_items(
         CompletionContext::Other => false,
     };
 
+    // Outside expressions the cursor sits on a TOML key or identifier; the
+    // completion replaces that partial token (empty on a blank line, which makes
+    // it a plain insert).
+    let range = identifier_replace_range(snapshot, path, position);
+    stamp_replace_range(&mut items, range);
+
     if preserve_order {
         deduplicate_package_completion_items_preserving_order(&mut items);
     } else {
         sort_and_deduplicate_package_completion_items(&mut items);
     }
     items
+}
+
+fn stamp_replace_range(items: &mut [PackageCompletionItem], range: SourceRange) {
+    for item in items {
+        item.replace = Some(range);
+    }
+}
+
+/// A zero-or-more character range on `position`'s line ending at the cursor,
+/// covering the last `token_utf16_len` UTF-16 code units before it.
+fn single_line_replace_range(position: SourcePosition, token_utf16_len: usize) -> SourceRange {
+    SourceRange {
+        start: SourcePosition {
+            line: position.line,
+            character: position.character.saturating_sub(token_utf16_len),
+        },
+        end: position,
+    }
+}
+
+/// The replace range for a TOML key or bare identifier: the trailing run of
+/// `[A-Za-z0-9_-]` before the cursor.
+fn identifier_replace_range(
+    snapshot: &PackageLintSnapshot,
+    path: &str,
+    position: SourcePosition,
+) -> SourceRange {
+    let token = cursor_line_prefix(snapshot, path, position)
+        .map(trailing_bare_key)
+        .unwrap_or_default();
+    single_line_replace_range(position, token.encode_utf16().count())
+}
+
+fn cursor_line_prefix<'a>(
+    snapshot: &'a PackageLintSnapshot,
+    path: &str,
+    position: SourcePosition,
+) -> Option<&'a str> {
+    let text = snapshot.source_text(path)?;
+    let line = source_line(text, position.line)?;
+    let cursor = byte_index_for_utf16_column(line, position.character);
+    Some(&line[..cursor])
+}
+
+fn trailing_bare_key(prefix: &str) -> &str {
+    let start = prefix
+        .char_indices()
+        .rev()
+        .find(|(_, ch)| !(ch.is_ascii_alphanumeric() || matches!(ch, '_' | '-')))
+        .map(|(index, ch)| index + ch.len_utf8())
+        .unwrap_or(0);
+    &prefix[start..]
 }
 
 enum CompletionContext {
@@ -470,29 +528,59 @@ fn expression_completion_items(
         return None;
     }
 
+    // The path, qualifier-reference, and operand completions all replace the
+    // dotted/identifier token under the cursor; only the operator completions
+    // replace a trailing `&`/`|` instead.
+    let token_range =
+        |token: &str| single_line_replace_range(position, token.encode_utf16().count());
+
     if qualifier_reference_prefix(&cursor.prefix).is_some() {
-        return Some(qualifier_completion_items(&snapshot.index));
+        let mut items = qualifier_completion_items(&snapshot.index);
+        stamp_replace_range(&mut items, token_range(&cursor.token));
+        return Some(items);
     }
 
     if cursor.token.starts_with("context.") {
-        return Some(context_path_completion_items(snapshot, &cursor.token));
+        let mut items = context_path_completion_items(snapshot, &cursor.token);
+        stamp_replace_range(&mut items, token_range(&cursor.token));
+        return Some(items);
     }
 
     if cursor.key == ExpressionKey::Query && cursor.token.starts_with("entry.") {
-        return Some(entry_path_completion_items(snapshot, path, &cursor.token));
+        let mut items = entry_path_completion_items(snapshot, path, &cursor.token);
+        stamp_replace_range(&mut items, token_range(&cursor.token));
+        return Some(items);
     }
 
     match expression_completion_state(&cursor.prefix) {
         ExpressionCompletionState::Operand => {
             let mut items = expression_root_completion_items(cursor.key == ExpressionKey::Query);
             items.extend(expression_function_completion_items());
+            stamp_replace_range(&mut items, token_range(&cursor.token));
             Some(items)
         }
         ExpressionCompletionState::LogicalOperators(operators) => {
-            Some(expression_operator_completion_items(&operators))
+            let mut items = expression_operator_completion_items(&operators);
+            stamp_replace_range(
+                &mut items,
+                token_range(trailing_operator_token(&cursor.prefix)),
+            );
+            Some(items)
         }
         ExpressionCompletionState::None => Some(Vec::new()),
     }
+}
+
+/// The trailing run of `&`/`|` before the cursor, which an operator completion
+/// replaces (empty when the cursor follows whitespace).
+fn trailing_operator_token(prefix: &str) -> &str {
+    let start = prefix
+        .char_indices()
+        .rev()
+        .find(|(_, ch)| !matches!(ch, '&' | '|'))
+        .map(|(index, ch)| index + ch.len_utf8())
+        .unwrap_or(0);
+    &prefix[start..]
 }
 
 enum ExpressionCompletionState {
@@ -576,7 +664,7 @@ fn expression_cursor_at_position(
 ) -> Option<ExpressionCursor> {
     let text = snapshot.source_text(path)?;
     let line = source_line(text, position.line)?;
-    let cursor = byte_index_for_character(line, position.character);
+    let cursor = byte_index_for_utf16_column(line, position.character);
     let before_cursor = &line[..cursor];
     let equals = before_cursor.find('=')?;
     let key = expression_key_before_equals(&before_cursor[..equals])?;
@@ -600,11 +688,16 @@ fn source_line(text: &str, line: usize) -> Option<&str> {
         .map(|line| line.strip_suffix('\r').unwrap_or(line))
 }
 
-fn byte_index_for_character(line: &str, character: usize) -> usize {
-    line.char_indices()
-        .nth(character)
-        .map(|(index, _)| index)
-        .unwrap_or(line.len())
+/// Map an LSP character offset (UTF-16 code units) to a byte index in `line`.
+fn byte_index_for_utf16_column(line: &str, column: usize) -> usize {
+    let mut utf16 = 0;
+    for (byte, ch) in line.char_indices() {
+        if utf16 >= column {
+            return byte;
+        }
+        utf16 += ch.len_utf16();
+    }
+    line.len()
 }
 
 fn expression_key_before_equals(before_equals: &str) -> Option<ExpressionKey> {

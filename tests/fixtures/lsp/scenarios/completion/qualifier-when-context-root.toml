@@ -8,6 +8,12 @@ schema_version = 1
 when = "context.$0"
 '''
 
+[expect]
+# Selecting a path completion replaces the `context.` already typed, instead of
+# appending and producing `context.context.account`.
+selecting = "context.account"
+replaces = "context."
+
 [[expect.includes]]
 label = "context.account"
 detail = "context field"

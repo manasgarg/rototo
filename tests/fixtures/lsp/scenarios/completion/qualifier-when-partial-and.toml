@@ -9,3 +9,6 @@ when = "context.account.tier == 'premium' &$0"
 
 [expect]
 exact = ["&&"]
+# Completing the operator replaces the partial `&`, instead of appending to make `&&&`.
+selecting = "&&"
+replaces = "&"

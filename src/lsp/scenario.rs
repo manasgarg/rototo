@@ -43,6 +43,12 @@ struct Expect {
     /// When set, the returned labels must equal exactly this set (order-insensitive).
     #[serde(default)]
     exact: Option<Vec<String>>,
+    /// Label of the item whose `textEdit` range is asserted against `replaces`.
+    #[serde(default)]
+    selecting: Option<String>,
+    /// The text the selected item's `textEdit` range must cover, ending at `$0`.
+    #[serde(default)]
+    replaces: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -131,10 +137,15 @@ async fn run_completion(path: &Path, scenario: &Scenario) {
         .await
         .unwrap();
 
-    assert_expectations(&name, &scenario.expect, &completions);
+    assert_expectations(&name, &scenario.expect, position, &completions);
 }
 
-fn assert_expectations(name: &str, expect: &Expect, completions: &[LspCompletionItem]) {
+fn assert_expectations(
+    name: &str,
+    expect: &Expect,
+    position: (usize, usize),
+    completions: &[LspCompletionItem],
+) {
     for item in &expect.includes {
         let found = completions
             .iter()
@@ -175,6 +186,29 @@ fn assert_expectations(name: &str, expect: &Expect, completions: &[LspCompletion
         let mut want = exact.clone();
         want.sort();
         assert_eq!(got, want, "scenario {name}: completion label set mismatch");
+    }
+    if let Some(selecting) = &expect.selecting {
+        let item = completions
+            .iter()
+            .find(|c| &c.label == selecting)
+            .unwrap_or_else(|| panic!("scenario {name}: no completion labeled {selecting}"));
+        let edit = item
+            .text_edit
+            .as_ref()
+            .unwrap_or_else(|| panic!("scenario {name}: {selecting} has no textEdit"));
+        let (line, cursor) = position;
+        let replaces = expect.replaces.clone().unwrap_or_default();
+        let start = cursor - replaces.encode_utf16().count();
+        assert_eq!(
+            (edit.range.start.line, edit.range.start.character),
+            (line, start),
+            "scenario {name}: {selecting} textEdit start covers the wrong span"
+        );
+        assert_eq!(
+            (edit.range.end.line, edit.range.end.character),
+            (line, cursor),
+            "scenario {name}: {selecting} textEdit end is not at the cursor"
+        );
     }
 }
 

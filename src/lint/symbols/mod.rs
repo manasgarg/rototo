@@ -5,7 +5,7 @@ mod document_symbols;
 mod hover;
 mod references;
 
-use crate::diagnostics::DiagnosticLocation;
+use crate::diagnostics::{DiagnosticLocation, SourceRange};
 
 pub(super) use completion::completion_items;
 pub(super) use definition::definition;
@@ -59,6 +59,11 @@ pub(crate) struct PackageCompletionItem {
     pub(crate) kind: PackageCompletionItemKind,
     pub(crate) detail: &'static str,
     pub(crate) insert_text: Option<String>,
+    /// Source span the completion replaces (the token under the cursor). The LSP
+    /// layer turns this into an explicit `textEdit` so the editor does not guess a
+    /// word boundary, which it gets wrong for tokens containing `.`, `"`, `[`, or
+    /// `&`.
+    pub(crate) replace: Option<SourceRange>,
 }
 
 impl PackageCompletionItem {
@@ -72,6 +77,7 @@ impl PackageCompletionItem {
             kind,
             detail,
             insert_text: None,
+            replace: None,
         }
     }
 

@@ -25,6 +25,12 @@ schema_version = 1
 extends = ["../base"]
 '''
 
+[expect]
+# The cursor sits right after `qualifier["`, so the qualifier id is a pure insert
+# at the cursor (nothing to replace).
+selecting = "premium"
+replaces = ""
+
 [[expect.includes]]
 label = "premium"
 detail = "qualifier"

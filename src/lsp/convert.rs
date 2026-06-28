@@ -9,7 +9,7 @@ use crate::model::PackageLint;
 
 use super::protocol::{
     LspCompletionItem, LspDiagnostic, LspDiagnosticData, LspDiagnosticRelatedInformation,
-    LspDocumentSymbol, LspHover, LspLocation, LspMarkupContent, LspPosition, LspRange,
+    LspDocumentSymbol, LspHover, LspLocation, LspMarkupContent, LspPosition, LspRange, LspTextEdit,
     PublishDiagnosticsParams,
 };
 
@@ -76,11 +76,30 @@ pub(super) fn lsp_document_symbol(symbol: &PackageDocumentSymbol) -> LspDocument
 }
 
 pub(super) fn lsp_completion_item(item: &PackageCompletionItem) -> LspCompletionItem {
+    // An explicit textEdit makes the editor replace the exact token under the
+    // cursor instead of guessing a word boundary, and filterText lets it match
+    // what the user typed against the human-readable label.
+    let (text_edit, filter_text) = match item.replace {
+        Some(range) => {
+            let new_text = item
+                .insert_text
+                .clone()
+                .unwrap_or_else(|| item.label.clone());
+            let text_edit = LspTextEdit {
+                range: lsp_range_from_source(range),
+                new_text,
+            };
+            (Some(text_edit), Some(item.label.clone()))
+        }
+        None => (None, None),
+    };
     LspCompletionItem {
         label: item.label.clone(),
         kind: lsp_completion_item_kind(item.kind),
         detail: item.detail,
         insert_text: item.insert_text.clone(),
+        text_edit,
+        filter_text,
     }
 }
 
