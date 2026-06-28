@@ -55,7 +55,15 @@ rototo init app-config --variable checkout-redesign
 rototo init app-config --qualifier premium-users
 rototo init app-config --catalog checkout-redesign
 rototo init app-config --evaluation-context
+rototo init app-config --evaluation-context request
+rototo init app-config --evaluation-context --update
 ```
+
+Without an explicit id, `--evaluation-context` creates `evaluation-contexts/evaluation.schema.json`.
+Pass an id when the runtime contract has a better name, such as `request`.
+Use `--update` when variables and qualifiers have evolved and you want to add
+new inferred context paths without replacing the reviewed parts of the existing
+schema.
 
 After the template exists, edit the variable, qualifier, catalog, or evaluation context to match the desired runtime behavior. If you have setup the `rototo lsp` with your favorite editor, it would help you fill in the blanks into the template.
 

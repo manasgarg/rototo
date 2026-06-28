@@ -97,10 +97,7 @@ fn init_qualifier_and_context_templates() {
     assert!(qualifier.contains("context.request.country in"));
     assert!(qualifier.contains("bucket(context.user.id"));
 
-    let schema: serde_json::Value = serde_json::from_str(
-        &fs::read_to_string(package.join("evaluation-contexts/request.schema.json")).unwrap(),
-    )
-    .unwrap();
+    let schema = read_json(package.join("evaluation-contexts/evaluation.schema.json"));
     assert_eq!(
         schema["properties"]["user"]["properties"]["tier"]["type"],
         "string"
@@ -163,6 +160,196 @@ fn init_variable_and_catalog_templates() {
 }
 
 #[test]
+fn init_evaluation_context_accepts_explicit_id() {
+    let temp = tempfile::tempdir().unwrap();
+    let package = temp.path().join("config");
+    init_package(&package);
+
+    Command::cargo_bin("rototo")
+        .unwrap()
+        .args([
+            "init",
+            package.to_str().unwrap(),
+            "--evaluation-context",
+            "request",
+        ])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains(
+            "evaluation-contexts/request.schema.json",
+        ));
+
+    assert!(
+        package
+            .join("evaluation-contexts/request.schema.json")
+            .is_file()
+    );
+}
+
+#[test]
+fn init_rejects_invalid_evaluation_context_id() {
+    let temp = tempfile::tempdir().unwrap();
+    let package = temp.path().join("config");
+
+    Command::cargo_bin("rototo")
+        .unwrap()
+        .args([
+            "init",
+            package.to_str().unwrap(),
+            "--evaluation-context",
+            "../request",
+        ])
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains(
+            "evaluation context id must not start with '.'",
+        ));
+}
+
+#[test]
+fn init_context_infers_variable_and_qualifier_paths_with_types() {
+    let temp = tempfile::tempdir().unwrap();
+    let package = temp.path().join("config");
+    init_package(&package);
+
+    fs::write(
+        package.join("qualifiers/premium-users.toml"),
+        r#"schema_version = 1
+when = 'context.user.tier == "premium"'
+"#,
+    )
+    .unwrap();
+    fs::write(
+        package.join("variables/checkout-redesign.toml"),
+        r#"schema_version = 1
+type = "string"
+
+[resolve]
+default = "control"
+
+[[resolve.rule]]
+when = 'qualifier["premium-users"] && context.account.seats >= 10 && context.flags.enabled'
+value = "treatment"
+"#,
+    )
+    .unwrap();
+
+    Command::cargo_bin("rototo")
+        .unwrap()
+        .args(["init", package.to_str().unwrap(), "--evaluation-context"])
+        .assert()
+        .success();
+
+    let schema = read_json(package.join("evaluation-contexts/evaluation.schema.json"));
+    assert_eq!(
+        schema["properties"]["user"]["properties"]["tier"]["type"],
+        "string"
+    );
+    assert_eq!(
+        schema["properties"]["account"]["properties"]["seats"]["type"],
+        "number"
+    );
+    assert_eq!(
+        schema["properties"]["flags"]["properties"]["enabled"]["type"],
+        "boolean"
+    );
+}
+
+#[test]
+fn init_context_update_adds_missing_paths_and_reports_conflicts() {
+    let temp = tempfile::tempdir().unwrap();
+    let package = temp.path().join("config");
+    init_package(&package);
+
+    fs::write(
+        package.join("variables/checkout-redesign.toml"),
+        r#"schema_version = 1
+type = "string"
+
+[resolve]
+default = "control"
+
+[[resolve.rule]]
+when = 'context.account.seats >= 10 && context.flags.enabled'
+value = "treatment"
+"#,
+    )
+    .unwrap();
+    fs::write(
+        package.join("evaluation-contexts/evaluation.schema.json"),
+        r#"{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "account": {
+      "type": "object",
+      "description": "Preserved account contract",
+      "additionalProperties": false,
+      "properties": {
+        "tier": {
+          "type": "string",
+          "enum": ["standard", "premium"]
+        }
+      }
+    },
+    "flags": {
+      "type": "object",
+      "properties": {
+        "enabled": { "type": "string" }
+      }
+    }
+  }
+}
+"#,
+    )
+    .unwrap();
+
+    Command::cargo_bin("rototo")
+        .unwrap()
+        .args(["init", package.to_str().unwrap(), "--evaluation-context"])
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("file already exists"));
+
+    Command::cargo_bin("rototo")
+        .unwrap()
+        .args([
+            "init",
+            package.to_str().unwrap(),
+            "--evaluation-context",
+            "--update",
+        ])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("context.account.seats"))
+        .stdout(predicate::str::contains("context.flags.enabled"))
+        .stdout(predicate::str::contains("conflict"));
+
+    let schema = read_json(package.join("evaluation-contexts/evaluation.schema.json"));
+    assert_eq!(
+        schema["properties"]["account"]["description"],
+        "Preserved account contract"
+    );
+    assert_eq!(
+        schema["properties"]["account"]["additionalProperties"],
+        false
+    );
+    assert_eq!(
+        schema["properties"]["account"]["properties"]["tier"]["enum"][1],
+        "premium"
+    );
+    assert_eq!(
+        schema["properties"]["account"]["properties"]["seats"]["type"],
+        "number"
+    );
+    assert_eq!(
+        schema["properties"]["flags"]["properties"]["enabled"]["type"],
+        "string"
+    );
+}
+
+#[test]
 fn init_refuses_to_overwrite_without_force() {
     let temp = tempfile::tempdir().unwrap();
     let package = temp.path().join("config");
@@ -214,4 +401,8 @@ fn init_package(package: &std::path::Path) {
         .args(["init", package.to_str().unwrap()])
         .assert()
         .success();
+}
+
+fn read_json(path: impl AsRef<std::path::Path>) -> serde_json::Value {
+    serde_json::from_str(&fs::read_to_string(path).unwrap()).unwrap()
 }
