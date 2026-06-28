@@ -1,5 +1,8 @@
 use std::collections::BTreeMap;
 use std::path::PathBuf;
+use std::sync::Arc;
+use std::sync::Mutex;
+use std::sync::atomic::{AtomicUsize, Ordering};
 
 use serde_json::Value as JsonValue;
 use tokio::io::{AsyncBufRead, AsyncWrite, BufReader};
@@ -65,6 +68,15 @@ pub(super) struct LspServer {
     pub(super) package_root: Option<PathBuf>,
     overlays: BTreeMap<String, OverlayDocument>,
     shutdown_requested: bool,
+    /// Bumped on every overlay mutation so a cached snapshot built from an older
+    /// set of buffers is recognized as stale.
+    revision: u64,
+    /// Last package snapshot, reused while `revision` is unchanged. The lint
+    /// pipeline reads the whole package from disk plus overlays, so without this
+    /// every request and every keystroke would recompute the entire package.
+    snapshot_cache: Mutex<Option<(u64, Arc<PackageLintSnapshot>)>>,
+    /// Count of actual snapshot builds, used by tests to prove cache reuse.
+    build_count: AtomicUsize,
 }
 
 impl LspServer {
@@ -73,6 +85,9 @@ impl LspServer {
             package_root: None,
             overlays: BTreeMap::new(),
             shutdown_requested: false,
+            revision: 0,
+            snapshot_cache: Mutex::new(None),
+            build_count: AtomicUsize::new(0),
         }
     }
 
@@ -195,6 +210,7 @@ impl LspServer {
                 version,
             },
         );
+        self.revision += 1;
         Ok(())
     }
 
@@ -229,6 +245,7 @@ impl LspServer {
                 version,
             },
         );
+        self.revision += 1;
         Ok(())
     }
 
@@ -242,6 +259,7 @@ impl LspServer {
             .ok_or_else(|| RototoError::new("document notification missing textDocument.uri"))?;
         let path = self.package_path_for_uri(uri)?;
         self.overlays.remove(&path);
+        self.revision += 1;
         Ok(())
     }
 
@@ -386,13 +404,27 @@ impl LspServer {
             .collect())
     }
 
-    async fn package_snapshot(&self) -> Result<Option<PackageLintSnapshot>> {
+    async fn package_snapshot(&self) -> Result<Option<Arc<PackageLintSnapshot>>> {
         let Some(root) = &self.package_root else {
             return Ok(None);
         };
+        let revision = self.revision;
+        if let Some((cached_revision, snapshot)) = self.snapshot_cache.lock().unwrap().as_ref()
+            && *cached_revision == revision
+        {
+            return Ok(Some(Arc::clone(snapshot)));
+        }
         let mut input = LintInput::new(root.clone());
         input.overlays = self.overlays.clone();
-        lint_package_snapshot(input).await.map(Some)
+        self.build_count.fetch_add(1, Ordering::Relaxed);
+        let snapshot = Arc::new(lint_package_snapshot(input).await?);
+        *self.snapshot_cache.lock().unwrap() = Some((revision, Arc::clone(&snapshot)));
+        Ok(Some(snapshot))
+    }
+
+    #[cfg(test)]
+    pub(super) fn snapshot_build_count(&self) -> usize {
+        self.build_count.load(Ordering::Relaxed)
     }
 
     fn package_path_for_uri(&self, uri: &str) -> Result<String> {

@@ -116,6 +116,60 @@ default = "hello"
     }
 
     #[tokio::test]
+    async fn lsp_snapshot_cache_reuses_until_overlays_change() {
+        // The lint pipeline reads the whole package on every build, so requests
+        // that do not change any buffer must share one snapshot. Editing a buffer
+        // bumps the revision and forces exactly one rebuild on the next request.
+        let tempdir = tempfile::tempdir().unwrap();
+        let root = tempdir.path();
+        tokio::fs::create_dir_all(root.join("variables"))
+            .await
+            .unwrap();
+        tokio::fs::write(root.join("rototo-package.toml"), "schema_version = 1\n")
+            .await
+            .unwrap();
+        let variable_path = root.join("variables/message.toml");
+        let variable_text =
+            "schema_version = 1\ntype = \"string\"\n\n[resolve]\ndefault = \"hello\"\n";
+        tokio::fs::write(&variable_path, variable_text)
+            .await
+            .unwrap();
+
+        let mut server = LspServer::new();
+        server.package_root = Some(tokio::fs::canonicalize(root).await.unwrap());
+        let uri = format!("file://{}", variable_path.display());
+        server
+            .open_document(json!({
+                "textDocument": { "uri": uri, "version": 1, "text": variable_text }
+            }))
+            .unwrap();
+
+        assert_eq!(server.snapshot_build_count(), 0);
+        // Three reads with no intervening edit share a single build.
+        for _ in 0..3 {
+            server
+                .completion_items(json!({
+                    "textDocument": { "uri": format!("file://{}", variable_path.display()) },
+                    "position": { "line": 1, "character": 0 }
+                }))
+                .await
+                .unwrap();
+            server.package_diagnostics().await.unwrap();
+        }
+        assert_eq!(server.snapshot_build_count(), 1);
+
+        // A full-document change invalidates the cache; the next request rebuilds.
+        server
+            .change_document(json!({
+                "textDocument": { "uri": format!("file://{}", variable_path.display()), "version": 2 },
+                "contentChanges": [{ "text": "schema_version = 1\ntype = \"int\"\n\n[resolve]\ndefault = 1\n" }]
+            }))
+            .unwrap();
+        server.package_diagnostics().await.unwrap();
+        assert_eq!(server.snapshot_build_count(), 2);
+    }
+
+    #[tokio::test]
     async fn lsp_document_symbols_use_snapshot_index_and_unsaved_overlay() {
         // Document symbols power editor outlines. This checks that the outline
         // is built from rototo's semantic snapshot for every package file
