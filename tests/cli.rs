@@ -86,6 +86,52 @@ fn prints_zsh_completions_through_setup() {
 }
 
 #[test]
+fn setup_zsh_reports_plain_profile_instruction() {
+    let temp = tempfile::tempdir().unwrap();
+    let home = temp.path().join("home");
+    fs::create_dir_all(&home).unwrap();
+
+    Command::cargo_bin("rototo")
+        .unwrap()
+        .env("HOME", &home)
+        .env_remove("ZDOTDIR")
+        .args(["setup", "--shell", "zsh"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("zsh-profile"))
+        .stdout(predicate::str::contains(
+            "add this near the top of your zsh profile: fpath=(",
+        ))
+        .stdout(predicate::str::contains(".zfunc"))
+        .stdout(predicate::str::contains("compinit").not());
+
+    assert!(home.join(".zfunc/_rototo").exists());
+}
+
+#[test]
+fn setup_editor_help_omits_vscode_until_supported() {
+    Command::cargo_bin("rototo")
+        .unwrap()
+        .args(["setup", "--help"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains(
+            "[possible values: all, neovim, none]",
+        ))
+        .stdout(predicate::str::contains("vscode").not())
+        .stdout(predicate::str::contains("vs-code").not());
+}
+
+#[test]
+fn setup_editor_vscode_is_rejected_until_supported() {
+    Command::cargo_bin("rototo")
+        .unwrap()
+        .args(["setup", "--editor", "vscode"])
+        .assert()
+        .failure();
+}
+
+#[test]
 fn old_completions_command_is_removed() {
     Command::cargo_bin("rototo")
         .unwrap()

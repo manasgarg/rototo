@@ -28,8 +28,7 @@ rototo setup
 It would ask you the integrations that you wish to enable. It would enable the following features:
 - shell completions for the supported shell, so command names and selector flags
   are available while you type;
-- editor feedback through `rototo lsp`, with Neovim configured automatically and
-  VS Code reported as a manual LSP-client step;
+- editor feedback through `rototo lsp`, with Neovim configured automatically;
 - agent guidance in `AGENTS.md` for Codex and `CLAUDE.md` for Claude, so agents
   use package files as the control-plane boundary and run `inspect`, `resolve`,
   and `lint` before finishing.

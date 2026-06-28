@@ -515,8 +515,6 @@ impl SetupShellArg {
 enum SetupEditorArg {
     All,
     Neovim,
-    #[value(name = "vscode", alias = "vs-code")]
-    VsCode,
     None,
 }
 
@@ -776,7 +774,6 @@ async fn run() -> Result<ExitCode> {
 enum SetupTarget {
     Shell(SetupShellArg),
     Neovim,
-    VsCode,
     Claude,
     Codex,
 }
@@ -842,7 +839,6 @@ async fn run_setup(args: SetupArgs, json: bool, quiet: bool) -> Result<ExitCode>
         match target {
             SetupTarget::Shell(shell) => setup_shell(shell, &options, &mut changes).await?,
             SetupTarget::Neovim => setup_neovim(&options, &mut changes).await?,
-            SetupTarget::VsCode => setup_vscode(&mut changes),
             SetupTarget::Claude => {
                 setup_agent("CLAUDE.md", "claude-guidance", &options, &mut changes).await?
             }
@@ -880,7 +876,6 @@ fn setup_targets(args: &SetupArgs) -> Result<Vec<SetupTarget>> {
     if args.all {
         add_target(&mut targets, SetupTarget::Shell(SetupShellArg::Auto));
         add_target(&mut targets, SetupTarget::Neovim);
-        add_target(&mut targets, SetupTarget::VsCode);
         add_target(&mut targets, SetupTarget::Claude);
         add_target(&mut targets, SetupTarget::Codex);
     }
@@ -893,14 +888,12 @@ fn setup_targets(args: &SetupArgs) -> Result<Vec<SetupTarget>> {
     }
 
     if let Some(editor) = args.editor {
-        targets.retain(|target| !matches!(target, SetupTarget::Neovim | SetupTarget::VsCode));
+        targets.retain(|target| !matches!(target, SetupTarget::Neovim));
         match editor {
             SetupEditorArg::All => {
                 add_target(&mut targets, SetupTarget::Neovim);
-                add_target(&mut targets, SetupTarget::VsCode);
             }
             SetupEditorArg::Neovim => add_target(&mut targets, SetupTarget::Neovim),
-            SetupEditorArg::VsCode => add_target(&mut targets, SetupTarget::VsCode),
             SetupEditorArg::None => {}
         }
     }
@@ -934,9 +927,6 @@ fn interactive_setup_targets() -> Result<Vec<SetupTarget>> {
     }
     if prompt_setup_target("Neovim LSP", true)? {
         add_target(&mut targets, SetupTarget::Neovim);
-    }
-    if prompt_setup_target("VS Code LSP", false)? {
-        add_target(&mut targets, SetupTarget::VsCode);
     }
     if prompt_setup_target("Claude agent guidance", true)? {
         add_target(&mut targets, SetupTarget::Claude);
@@ -989,9 +979,6 @@ fn print_setup_targets(targets: &[SetupTarget]) -> Result<()> {
             print!("{}", completion_script(shell, completion_shell)?);
         }
         SetupTarget::Neovim => print!("{}", neovim_lsp_config()),
-        SetupTarget::VsCode => {
-            println!("Configure a VS Code LSP client to launch `rototo lsp`.");
-        }
         SetupTarget::Claude | SetupTarget::Codex => print!("{}", agent_guidance_block()),
     }
     Ok(())
@@ -1029,11 +1016,15 @@ async fn setup_shell(
     ));
 
     if shell == SetupShellArg::Zsh {
+        let completion_dir = path.parent().unwrap_or(&path).display();
+        let message = format!(
+            "add this near the top of your zsh profile: fpath=(\"{completion_dir}\" $fpath), then restart zsh",
+        );
         changes.push(setup_change(
             "zsh-profile",
             SetupStatus::NeedsManualStep,
             None,
-            Some("ensure `${ZDOTDIR:-$HOME}/.zfunc` is in fpath before compinit"),
+            Some(&message),
         ));
     }
     Ok(())
@@ -1177,15 +1168,6 @@ vim.api.nvim_create_autocmd("FileType", {{
 }})
 "#,
     )
-}
-
-fn setup_vscode(changes: &mut Vec<SetupChange>) {
-    changes.push(setup_change(
-        "vscode",
-        SetupStatus::NeedsManualStep,
-        None,
-        Some("install or configure a VS Code LSP client to launch `rototo lsp`"),
-    ));
 }
 
 async fn setup_agent(
