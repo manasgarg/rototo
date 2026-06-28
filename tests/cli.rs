@@ -1,4 +1,6 @@
 use std::fs;
+use std::path::Path;
+use std::process::Command as StdCommand;
 
 use assert_cmd::Command;
 use predicates::prelude::*;
@@ -27,6 +29,7 @@ fn top_level_help_is_task_oriented() {
         .stdout(predicate::str::contains("Package commands"))
         .stdout(predicate::str::contains("Utility commands"))
         .stdout(predicate::str::contains("lint"))
+        .stdout(predicate::str::contains("diff"))
         .stdout(predicate::str::contains("setup"))
         .stdout(predicate::str::contains("completions").not())
         .stdout(predicate::str::contains("rototo docs -p motivation"))
@@ -89,6 +92,64 @@ fn old_completions_command_is_removed() {
         .args(["completions", "zsh"])
         .assert()
         .failure();
+}
+
+#[test]
+fn diff_defaults_to_head_vs_worktree_for_local_package() {
+    let temp = tempfile::tempdir().unwrap();
+    let repo = temp.path().join("repo");
+    let package = repo.join("config");
+    write_basic_package(&package, 1800);
+    init_git_repo(&repo);
+
+    fs::write(
+        package.join("variables/summary-token-budget.toml"),
+        variable_toml(2400),
+    )
+    .unwrap();
+
+    Command::cargo_bin("rototo")
+        .unwrap()
+        .current_dir(&repo)
+        .args(["diff", "config", "--context", "{}"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("before: HEAD:config"))
+        .stdout(predicate::str::contains("after: worktree:config"))
+        .stdout(predicate::str::contains("variable_resolve_default_changed"))
+        .stdout(predicate::str::contains("before: 1800"))
+        .stdout(predicate::str::contains("after: 2400"))
+        .stdout(predicate::str::contains("resolution impact:"));
+}
+
+#[test]
+fn diff_compares_explicit_git_refs() {
+    let temp = tempfile::tempdir().unwrap();
+    let repo = temp.path().join("repo");
+    let package = repo.join("config");
+    write_basic_package(&package, 1800);
+    init_git_repo(&repo);
+
+    fs::write(
+        package.join("variables/summary-token-budget.toml"),
+        variable_toml(2400),
+    )
+    .unwrap();
+    git(&repo, &["add", "."]);
+    git(&repo, &["commit", "-m", "update"]);
+
+    Command::cargo_bin("rototo")
+        .unwrap()
+        .current_dir(&repo)
+        .args(["diff", "config", "--from", "HEAD~1", "--to", "HEAD"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("before: HEAD~1:config"))
+        .stdout(predicate::str::contains("after: HEAD:config"))
+        .stdout(predicate::str::contains("variable_resolve_default_changed"))
+        .stdout(predicate::str::contains("before: 1800"))
+        .stdout(predicate::str::contains("after: 2400"))
+        .stdout(predicate::str::contains("resolution impact:").not());
 }
 
 #[test]
@@ -496,4 +557,47 @@ fn docs_search_rejects_invalid_regex() {
         .stderr(predicate::str::contains(
             "invalid documentation search regex",
         ));
+}
+
+fn write_basic_package(package: &Path, default: i64) {
+    fs::create_dir_all(package.join("variables")).unwrap();
+    fs::write(package.join("rototo-package.toml"), "schema_version = 1\n").unwrap();
+    fs::write(
+        package.join("variables/summary-token-budget.toml"),
+        variable_toml(default),
+    )
+    .unwrap();
+}
+
+fn variable_toml(default: i64) -> String {
+    format!(
+        r#"schema_version = 1
+type = "int"
+
+[resolve]
+default = {default}
+"#
+    )
+}
+
+fn init_git_repo(repo: &Path) {
+    git(repo, &["init"]);
+    git(repo, &["config", "user.email", "rototo@example.com"]);
+    git(repo, &["config", "user.name", "Rototo Tests"]);
+    git(repo, &["add", "."]);
+    git(repo, &["commit", "-m", "initial"]);
+}
+
+fn git(repo: &Path, args: &[&str]) {
+    let output = StdCommand::new("git")
+        .current_dir(repo)
+        .args(args)
+        .output()
+        .unwrap_or_else(|err| panic!("failed to run git {args:?}: {err}"));
+    assert!(
+        output.status.success(),
+        "git {args:?} failed\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
 }

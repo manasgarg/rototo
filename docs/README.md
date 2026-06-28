@@ -9,6 +9,7 @@ The publishable pages live under `docs/src/`:
 docs/src/
   motivation.md
   concepts.md
+  development-workflow.md
 ```
 
 The CLI embeds the pages registered in `src/docs.rs`. When adding, moving, or

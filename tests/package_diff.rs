@@ -1,5 +1,6 @@
 use std::fs;
 use std::path::Path;
+use std::process::Command as StdCommand;
 
 use assert_cmd::Command;
 use serde_json::Value as JsonValue;
@@ -257,13 +258,32 @@ fn diff_json_reports_resolve_default_and_rule_condition_changes() {
 }
 
 fn diff_json(before: &Path, after: &Path, extra_args: &[&str]) -> JsonValue {
+    let temp = tempfile::TempDir::new().unwrap();
+    let repo = temp.path().join("repo");
+    let package = repo.join("config");
+    copy_dir(before, &package);
+    init_git_repo(&repo);
+    fs::remove_dir_all(&package).unwrap();
+    copy_dir(after, &package);
+
     let mut command = Command::cargo_bin("rototo").unwrap();
     command
+        .current_dir(&repo)
         .arg("--json")
         .arg("diff")
-        .arg(before)
-        .arg(after)
-        .args(extra_args);
+        .arg("config");
+    for arg in extra_args {
+        if let Some(path) = arg.strip_prefix('@')
+            && Path::new(path).is_relative()
+        {
+            command.arg(format!(
+                "@{}",
+                Path::new(env!("CARGO_MANIFEST_DIR")).join(path).display()
+            ));
+        } else {
+            command.arg(arg);
+        }
+    }
     let output = command.assert().success().get_output().stdout.clone();
     serde_json::from_slice(&output).unwrap()
 }
@@ -309,4 +329,26 @@ fn copy_dir(from: &Path, to: &Path) {
             fs::copy(&from_path, &to_path).unwrap();
         }
     }
+}
+
+fn init_git_repo(repo: &Path) {
+    git(repo, &["init"]);
+    git(repo, &["config", "user.email", "rototo@example.com"]);
+    git(repo, &["config", "user.name", "Rototo Tests"]);
+    git(repo, &["add", "."]);
+    git(repo, &["commit", "-m", "initial"]);
+}
+
+fn git(repo: &Path, args: &[&str]) {
+    let output = StdCommand::new("git")
+        .current_dir(repo)
+        .args(args)
+        .output()
+        .unwrap_or_else(|err| panic!("failed to run git {args:?}: {err}"));
+    assert!(
+        output.status.success(),
+        "git {args:?} failed\nstdout:\n{}\nstderr:\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
 }

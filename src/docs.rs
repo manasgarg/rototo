@@ -59,6 +59,11 @@ pub const DOCS: &[DocPage] = &[
         title: "Rototo Concepts",
         markdown: include_str!("../docs/src/concepts.md"),
     },
+    DocPage {
+        id: "development-workflow",
+        title: "Development Workflow",
+        markdown: include_str!("../docs/src/development-workflow.md"),
+    },
 ];
 
 pub const DOC_NAV_SECTIONS: &[DocNavSection] = &[
@@ -68,7 +73,7 @@ pub const DOC_NAV_SECTIONS: &[DocNavSection] = &[
     },
     DocNavSection {
         title: "Learn",
-        pages: &["concepts"],
+        pages: &["concepts", "development-workflow"],
     },
 ];
 
@@ -239,8 +244,8 @@ value = "redesign"
     );
     let resolve_snippet = render_code_block(
         "sh",
-        r#"rototo variable resolve checkout-redesign \
-  --package git+https://github.com/acme/config#main \
+        r#"rototo resolve git+https://github.com/acme/config#main \
+  --variable checkout-redesign \
   --context user.tier=premium
 "#,
     );
