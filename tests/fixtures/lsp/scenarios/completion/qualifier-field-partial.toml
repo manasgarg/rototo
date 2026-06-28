@@ -1,0 +1,14 @@
+# While the user is halfway through typing a field name, the TOML is temporarily
+# malformed. Field completion still works because it reads the source document
+# kind rather than a projected qualifier node.
+package = "basic"
+file = "qualifiers/premium.toml"
+
+overlay = '''
+schema_version = 1
+desc$0
+'''
+
+[[expect.includes]]
+label = "description"
+detail = "qualifier field"

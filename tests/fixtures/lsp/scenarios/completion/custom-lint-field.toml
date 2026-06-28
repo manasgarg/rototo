@@ -1,0 +1,25 @@
+# Custom Lua lint files get field-selector completions because their handlers
+# target rototo fields rather than qualifier predicates.
+package = "basic"
+file = "lint/fields.lua"
+
+overlay = '''
+function register(lint)
+$0
+'''
+
+[[expect.includes]]
+label = "extends"
+detail = "custom lint field selector"
+
+[[expect.includes]]
+label = "resolve"
+detail = "custom lint field selector"
+
+[[expect.includes]]
+label = "value."
+detail = "custom lint field selector"
+
+[[expect.excludes]]
+label = "bucket"
+detail = "predicate operator"

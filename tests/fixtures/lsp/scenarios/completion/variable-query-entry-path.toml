@@ -1,0 +1,24 @@
+# A `query` expression on a list<catalog:...> variable completes `entry.` paths
+# from the catalog schema of the entries being filtered.
+package = "basic"
+file = "variables/message.toml"
+
+overlay = '''
+schema_version = 1
+type = "list<catalog:message>"
+
+[resolve]
+default = ["default"]
+
+[[resolve.rule]]
+query = 'entry.$0'
+value = ["default"]
+'''
+
+[[expect.includes]]
+label = "entry.heading"
+detail = "entry field"
+
+[[expect.includes]]
+label = "entry.body"
+detail = "entry field"

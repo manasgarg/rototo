@@ -1,0 +1,18 @@
+{
+  "type": "object",
+  "properties": {
+    "account": {
+      "type": "object",
+      "properties": {
+        "tier": { "type": "string" },
+        "region": { "type": "string" }
+      }
+    },
+    "device": {
+      "type": "object",
+      "properties": {
+        "platform": { "type": "string" }
+      }
+    }
+  }
+}

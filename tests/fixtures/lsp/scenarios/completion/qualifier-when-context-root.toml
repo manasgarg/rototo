@@ -1,0 +1,17 @@
+# `context.` in a qualifier `when` expression suggests the top-level properties
+# of the package evaluation context schemas.
+package = "basic"
+file = "qualifiers/premium.toml"
+
+overlay = '''
+schema_version = 1
+when = "context.$0"
+'''
+
+[[expect.includes]]
+label = "context.account"
+detail = "context field"
+
+[[expect.includes]]
+label = "context.device"
+detail = "context field"

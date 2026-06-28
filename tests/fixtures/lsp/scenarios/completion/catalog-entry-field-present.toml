@@ -1,0 +1,17 @@
+# A catalog entry field already set in the document drops out of the suggestions.
+package = "basic"
+file = "catalogs/message-entries/default.toml"
+
+overlay = '''
+heading = "Hello"
+
+$0
+'''
+
+[[expect.includes]]
+label = "body"
+detail = "catalog entry field"
+
+[[expect.excludes]]
+label = "heading"
+detail = "catalog entry field"

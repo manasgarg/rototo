@@ -1,0 +1,11 @@
+# A single `&` after a boolean expression narrows the operator completion to `&&`.
+package = "basic"
+file = "qualifiers/premium.toml"
+
+overlay = '''
+schema_version = 1
+when = "context.account.tier == 'premium' &$0"
+'''
+
+[expect]
+exact = ["&&"]
