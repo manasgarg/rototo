@@ -1,5 +1,5 @@
 use std::cmp::Ordering;
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 use std::net::IpAddr;
 
 use glob::Pattern;
@@ -23,6 +23,39 @@ pub(crate) struct ExpressionReferences {
     pub(crate) context_paths: BTreeSet<String>,
     pub(crate) entry_paths: BTreeSet<String>,
     pub(crate) qualifiers: BTreeSet<String>,
+    /// Scalar types a context path is compared against, inferred from how the
+    /// expression uses it. A path can carry more than one expectation when it is
+    /// used in several places. Paths used in ways that do not pin a scalar type
+    /// (for example the value argument of `bucket`) do not appear here.
+    pub(crate) context_path_types: BTreeMap<String, BTreeSet<ContextScalarType>>,
+}
+
+/// The JSON Schema scalar families an expression can require of a context path.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
+pub(crate) enum ContextScalarType {
+    Bool,
+    Number,
+    String,
+}
+
+impl ContextScalarType {
+    /// Whether a JSON Schema `type` token names this scalar family. `integer`
+    /// and `number` both satisfy a `Number` expectation.
+    pub(crate) fn matches_schema_type(self, schema_type: &str) -> bool {
+        match self {
+            ContextScalarType::Bool => schema_type == "boolean",
+            ContextScalarType::Number => schema_type == "number" || schema_type == "integer",
+            ContextScalarType::String => schema_type == "string",
+        }
+    }
+
+    pub(crate) fn label(self) -> &'static str {
+        match self {
+            ContextScalarType::Bool => "boolean",
+            ContextScalarType::Number => "number",
+            ContextScalarType::String => "string",
+        }
+    }
 }
 
 #[derive(Clone, Debug)]
@@ -83,6 +116,7 @@ impl Expression {
         let ast = Parser::new(tokens).parse()?;
         let mut references = ExpressionReferences::default();
         collect_references(&ast, &mut references);
+        collect_type_constraints(&ast, &mut references.context_path_types);
         Ok(Self {
             source,
             ast,
@@ -750,6 +784,136 @@ fn collect_references(expr: &Expr, references: &mut ExpressionReferences) {
     }
 }
 
+/// Walk an expression and record, per context path, the scalar types the
+/// expression requires of it. Only uses that unambiguously pin a scalar family
+/// are recorded; ambiguous uses (such as the value argument of `bucket`) are
+/// intentionally left unconstrained so they do not produce false type gaps.
+fn collect_type_constraints(
+    expr: &Expr,
+    types: &mut BTreeMap<String, BTreeSet<ContextScalarType>>,
+) {
+    match expr {
+        Expr::Binary { op, left, right } => {
+            match op {
+                BinaryOp::Eq | BinaryOp::Neq => {
+                    constrain_against_literal(left, right, types, literal_scalar_type);
+                    constrain_against_literal(right, left, types, literal_scalar_type);
+                }
+                BinaryOp::Lt | BinaryOp::Lte | BinaryOp::Gt | BinaryOp::Gte => {
+                    constrain_against_literal(left, right, types, literal_ordering_type);
+                    constrain_against_literal(right, left, types, literal_ordering_type);
+                }
+                BinaryOp::In => {
+                    if let Some(path) = context_path(left)
+                        && let Expr::List(items) = right.as_ref()
+                    {
+                        for item in items {
+                            if let Some(scalar) = literal_scalar_type(item) {
+                                types.entry(path.clone()).or_default().insert(scalar);
+                            }
+                        }
+                    }
+                }
+                BinaryOp::And | BinaryOp::Or => {
+                    constrain_bool_operand(left, types);
+                    constrain_bool_operand(right, types);
+                }
+            }
+            collect_type_constraints(left, types);
+            collect_type_constraints(right, types);
+        }
+        Expr::Unary {
+            op: UnaryOp::Not,
+            expr,
+        } => {
+            constrain_bool_operand(expr, types);
+            collect_type_constraints(expr, types);
+        }
+        Expr::Call { name, args } => {
+            if string_arg0_function(name)
+                && let Some(path) = args.first().and_then(context_path)
+            {
+                types
+                    .entry(path)
+                    .or_default()
+                    .insert(ContextScalarType::String);
+            }
+            for arg in args {
+                collect_type_constraints(arg, types);
+            }
+        }
+        Expr::List(items) => {
+            for item in items {
+                collect_type_constraints(item, types);
+            }
+        }
+        Expr::Literal(_) | Expr::Path(_) | Expr::Qualifier(_) => {}
+    }
+}
+
+fn constrain_against_literal(
+    candidate_path: &Expr,
+    candidate_literal: &Expr,
+    types: &mut BTreeMap<String, BTreeSet<ContextScalarType>>,
+    classify: fn(&Expr) -> Option<ContextScalarType>,
+) {
+    if let Some(path) = context_path(candidate_path)
+        && let Some(scalar) = classify(candidate_literal)
+    {
+        types.entry(path).or_default().insert(scalar);
+    }
+}
+
+fn constrain_bool_operand(expr: &Expr, types: &mut BTreeMap<String, BTreeSet<ContextScalarType>>) {
+    if let Some(path) = context_path(expr) {
+        types
+            .entry(path)
+            .or_default()
+            .insert(ContextScalarType::Bool);
+    }
+}
+
+fn context_path(expr: &Expr) -> Option<String> {
+    match expr {
+        Expr::Path(path) if path.root == PathRoot::Context => Some(path.segments.join(".")),
+        _ => None,
+    }
+}
+
+fn literal_scalar_type(expr: &Expr) -> Option<ContextScalarType> {
+    match expr {
+        Expr::Literal(JsonValue::Bool(_)) => Some(ContextScalarType::Bool),
+        Expr::Literal(JsonValue::Number(_)) => Some(ContextScalarType::Number),
+        Expr::Literal(JsonValue::String(_)) => Some(ContextScalarType::String),
+        _ => None,
+    }
+}
+
+fn literal_ordering_type(expr: &Expr) -> Option<ContextScalarType> {
+    match expr {
+        Expr::Literal(JsonValue::Number(_)) => Some(ContextScalarType::Number),
+        Expr::Literal(JsonValue::String(_)) => Some(ContextScalarType::String),
+        _ => None,
+    }
+}
+
+fn string_arg0_function(name: &str) -> bool {
+    matches!(
+        name,
+        "startsWith"
+            | "starts_with"
+            | "prefix"
+            | "endsWith"
+            | "ends_with"
+            | "suffix"
+            | "matches"
+            | "regex"
+            | "glob"
+            | "semver"
+            | "cidr"
+    )
+}
+
 fn evaluate_expr(
     expr: &Expr,
     context: &JsonValue,
@@ -1209,6 +1373,57 @@ mod tests {
         }
         let mut qualifier = qualifier;
         assert!(expr.evaluate_bool(&context, None, &mut qualifier).unwrap());
+    }
+
+    fn context_types(source: &str) -> BTreeMap<String, BTreeSet<ContextScalarType>> {
+        Expression::parse(source)
+            .unwrap()
+            .references()
+            .context_path_types
+            .clone()
+    }
+
+    #[test]
+    fn infers_context_path_scalar_types_from_use() {
+        use ContextScalarType::{Bool, Number, String};
+
+        let eq = context_types(r#"context.user.tier == "premium""#);
+        assert_eq!(eq.get("user.tier"), Some(&BTreeSet::from([String])));
+
+        let ordering = context_types("context.account.seats >= 100");
+        assert_eq!(
+            ordering.get("account.seats"),
+            Some(&BTreeSet::from([Number]))
+        );
+
+        let membership = context_types(r#"context.device.platform in ["ios","android"]"#);
+        assert_eq!(
+            membership.get("device.platform"),
+            Some(&BTreeSet::from([String]))
+        );
+
+        let boolean = context_types("context.flags.enabled && context.user.tier == \"premium\"");
+        assert_eq!(boolean.get("flags.enabled"), Some(&BTreeSet::from([Bool])));
+        assert_eq!(boolean.get("user.tier"), Some(&BTreeSet::from([String])));
+
+        let function = context_types(r#"semver(context.app.version, ">=1.2.0")"#);
+        assert_eq!(function.get("app.version"), Some(&BTreeSet::from([String])));
+    }
+
+    #[test]
+    fn leaves_bucket_value_argument_unconstrained() {
+        let types = context_types(r#"bucket(context.user.id, "salt", 0, 1000)"#);
+        assert!(
+            !types.contains_key("user.id"),
+            "bucket's value argument should not pin a scalar type: {types:?}"
+        );
+    }
+
+    #[test]
+    fn records_conflicting_uses_as_multiple_expectations() {
+        use ContextScalarType::{Number, String};
+        let types = context_types(r#"context.x == "a" && context.x >= 5"#);
+        assert_eq!(types.get("x"), Some(&BTreeSet::from([String, Number])));
     }
 
     #[test]

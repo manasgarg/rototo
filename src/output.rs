@@ -191,6 +191,8 @@ pub(crate) fn print_inspect_report(report: &PackageInspectReport, json: bool) ->
                 println!("    {} {}", style::subhead("when"), style::info(when));
             }
             print_compatible_evaluation_contexts(&qualifier.evaluation_contexts, "    ");
+            print_context_attributes(&qualifier.context_attributes, "    ");
+            print_qualifier_sample_coverage(qualifier.sample_coverage.as_ref(), "    ");
             print_dependencies(&qualifier.dependencies, "    ");
             if !qualifier.consumers.is_empty() {
                 println!("    {}", style::subhead("consumed by"));
@@ -315,6 +317,8 @@ pub(crate) fn print_inspect_report(report: &PackageInspectReport, json: bool) ->
                 );
             }
             print_compatible_evaluation_contexts(&variable.evaluation_contexts, "    ");
+            print_context_attributes(&variable.context_attributes, "    ");
+            print_variable_sample_coverage(variable.sample_coverage.as_ref(), "    ");
             print_dependencies(&variable.dependencies, "    ");
             if !variable.diagnostics.is_empty() {
                 println!("    {}", style::subhead("diagnostics"));
@@ -403,6 +407,113 @@ fn print_compatible_evaluation_contexts(evaluation_contexts: &[String], indent: 
     println!("{indent}{}", style::subhead("evaluation contexts"));
     for evaluation_context in evaluation_contexts {
         println!("{indent}  {}", style::sea(evaluation_context));
+    }
+}
+
+fn print_qualifier_sample_coverage(
+    coverage: Option<&rototo::model::QualifierSampleCoverageReport>,
+    indent: &str,
+) {
+    let Some(coverage) = coverage else {
+        return;
+    };
+    let mark = |covered: bool, label: &str| {
+        if covered {
+            style::ok(label)
+        } else {
+            style::warn(&format!("{label} (no sample)"))
+        }
+    };
+    println!(
+        "{indent}{} {}  {}  {}",
+        style::subhead("sample coverage"),
+        style::dim(&format!("{} sample(s)", coverage.sample_count)),
+        mark(coverage.evaluated_true, "true"),
+        mark(coverage.evaluated_false, "false"),
+    );
+}
+
+fn print_variable_sample_coverage(
+    coverage: Option<&rototo::model::VariableSampleCoverageReport>,
+    indent: &str,
+) {
+    let Some(coverage) = coverage else {
+        return;
+    };
+    println!(
+        "{indent}{} {}",
+        style::subhead("sample coverage"),
+        style::dim(&format!("{} sample(s)", coverage.sample_count)),
+    );
+    let default_mark = if coverage.default_covered {
+        style::ok("covered")
+    } else {
+        style::warn("no sample")
+    };
+    println!("{indent}  {} {}", style::dim("default"), default_mark);
+    for rule in &coverage.rules {
+        let mark = if rule.covered {
+            style::ok("covered")
+        } else {
+            style::warn("no sample")
+        };
+        println!(
+            "{indent}  {} {}",
+            style::dim(&format!("rule {}", rule.index)),
+            mark
+        );
+    }
+}
+
+fn print_context_attributes(
+    attributes: &[rototo::model::ContextAttributeInspectReport],
+    indent: &str,
+) {
+    if attributes.is_empty() {
+        return;
+    }
+    println!("{indent}{}", style::subhead("context attributes"));
+    for attribute in attributes {
+        let expected = if attribute.expected_types.is_empty() {
+            String::new()
+        } else {
+            format!(
+                " {}",
+                style::dim(&format!(
+                    "used as {}",
+                    attribute.expected_types.join(" or ")
+                ))
+            )
+        };
+        let declared = attribute
+            .declarations
+            .iter()
+            .map(|declaration| {
+                let types = if declaration.declared_types.is_empty() {
+                    "untyped".to_owned()
+                } else {
+                    declaration.declared_types.join("|")
+                };
+                format!("{}:{}", declaration.evaluation_context, types)
+            })
+            .collect::<Vec<_>>()
+            .join(", ");
+        let suffix = match attribute.status.as_str() {
+            "undeclared" => format!("  {}", style::err("undeclared")),
+            "type_mismatch" => format!(
+                "  {} {}",
+                style::err("type mismatch"),
+                style::dim(&declared)
+            ),
+            _ => format!("  {}", style::dim(&declared)),
+        };
+        println!(
+            "{indent}  {} {}{}{}",
+            style::dim("context"),
+            style::info(&attribute.path),
+            expected,
+            suffix
+        );
     }
 }
 

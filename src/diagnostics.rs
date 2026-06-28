@@ -198,6 +198,18 @@ rototo_rules! {
         title: "Qualifier condition references an unknown qualifier",
         help: "Create the referenced qualifier or update the qualifier reference in the when expression.",
     },
+    QualifierWhenUndeclaredContextPath => {
+        id: "qualifier-when-undeclared-context-path",
+        entity: Qualifier,
+        title: "Qualifier when expression references an undeclared context path",
+        help: "Declare the attribute in an evaluation context schema under evaluation-contexts/<id>.schema.json, or fix the path in the when expression.",
+    },
+    QualifierWhenContextPathTypeMismatch => {
+        id: "qualifier-when-context-path-type-mismatch",
+        entity: Qualifier,
+        title: "Qualifier when expression uses a context path with the wrong type",
+        help: "Declare the context attribute with a type that matches how the when expression uses it, or change the comparison to match the declared type.",
+    },
     QualifierPredicateMissing => {
         id: "qualifier-predicate-missing",
         entity: Qualifier,
@@ -386,6 +398,18 @@ rototo_rules! {
         entity: Variable,
         title: "Variable rule references an unknown qualifier",
         help: "Create the referenced qualifier or update the rule.",
+    },
+    VariableRuleUndeclaredContextPath => {
+        id: "variable-rule-undeclared-context-path",
+        entity: Rule,
+        title: "Variable rule references an undeclared context path",
+        help: "Declare the attribute in an evaluation context schema under evaluation-contexts/<id>.schema.json, or fix the path in the rule when/query expression.",
+    },
+    VariableRuleContextPathTypeMismatch => {
+        id: "variable-rule-context-path-type-mismatch",
+        entity: Rule,
+        title: "Variable rule uses a context path with the wrong type",
+        help: "Declare the context attribute with a type that matches how the rule uses it, or change the comparison to match the declared type.",
     },
     VariableRuleShadowed => {
         id: "variable-rule-shadowed",

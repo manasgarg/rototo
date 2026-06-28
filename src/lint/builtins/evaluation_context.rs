@@ -4,11 +4,15 @@ use crate::diagnostics::{RototoRuleId, SemanticEntity, SemanticField, Severity};
 
 use super::super::engine::LintContext;
 use super::super::evaluation_context::{
-    compatibility_for as evaluation_context_compatibility_for, qualifier_uses_context_attribute,
+    ContextPathTypeFit, compatibility_for as evaluation_context_compatibility_for,
+    context_path_type_fit, expected_type_label, path_declared_in_any_context,
+    qualifier_uses_context_attribute, variable_resolve_rules,
     variable_rule_condition_reference_count,
 };
+use super::super::index::{ProjectField, SemanticIndex};
 use super::super::references::{ReferenceSource, ReferenceTarget};
 use super::super::stages::{push_graph_diagnostic, push_project_diagnostic, push_value_diagnostic};
+use crate::expression::ContextScalarType;
 
 pub(super) fn lint_evaluation_context_schemas(ctx: &mut LintContext) {
     let diagnostics = &mut ctx.diagnostics;
@@ -101,6 +105,158 @@ pub(super) fn lint_evaluation_context_samples(ctx: &mut LintContext) {
         }
     }
     ctx.diagnostics.extend(diagnostics);
+}
+
+pub(super) fn lint_undeclared_context_paths(ctx: &mut LintContext) {
+    let mut diagnostics = Vec::new();
+    let qualifiers_with_errors = qualifiers_with_existing_errors(ctx);
+    let variables_with_errors = variables_with_existing_errors(ctx);
+
+    for qualifier in ctx.index.qualifiers.values() {
+        if qualifiers_with_errors.contains(&qualifier.id) {
+            continue;
+        }
+        let ProjectField::Present(when) = &qualifier.when else {
+            continue;
+        };
+        for path in &when.value.references().context_paths {
+            if path.is_empty() || path_declared_in_any_context(&ctx.index, path) {
+                continue;
+            }
+            push_graph_diagnostic(
+                &mut diagnostics,
+                RototoRuleId::QualifierWhenUndeclaredContextPath,
+                qualifier.target(),
+                qualifier.location.clone(),
+                format!("when expression references undeclared context path: context.{path}"),
+            );
+        }
+    }
+
+    for (variable_id, variable) in &ctx.index.variables {
+        if variables_with_errors.contains(variable_id) {
+            continue;
+        }
+        let Some(rules) = variable_resolve_rules(variable) else {
+            continue;
+        };
+        for rule in rules {
+            for expression in [&rule.when, &rule.query].into_iter().flatten() {
+                let ProjectField::Present(expression) = expression else {
+                    continue;
+                };
+                for path in &expression.value.references().context_paths {
+                    if path.is_empty() || path_declared_in_any_context(&ctx.index, path) {
+                        continue;
+                    }
+                    push_graph_diagnostic(
+                        &mut diagnostics,
+                        RototoRuleId::VariableRuleUndeclaredContextPath,
+                        rule.target(variable_id),
+                        rule.location.clone(),
+                        format!("rule references undeclared context path: context.{path}"),
+                    );
+                }
+            }
+        }
+    }
+
+    ctx.diagnostics.extend(diagnostics);
+}
+
+pub(super) fn lint_context_path_types(ctx: &mut LintContext) {
+    let mut diagnostics = Vec::new();
+    let qualifiers_with_errors = qualifiers_with_existing_errors(ctx);
+    let variables_with_errors = variables_with_existing_errors(ctx);
+
+    for qualifier in ctx.index.qualifiers.values() {
+        if qualifiers_with_errors.contains(&qualifier.id) {
+            continue;
+        }
+        let ProjectField::Present(when) = &qualifier.when else {
+            continue;
+        };
+        for (path, constraints) in &when.value.references().context_path_types {
+            let Some(expected) = type_mismatch_label(&ctx.index, path, constraints) else {
+                continue;
+            };
+            push_graph_diagnostic(
+                &mut diagnostics,
+                RototoRuleId::QualifierWhenContextPathTypeMismatch,
+                qualifier.target(),
+                qualifier.location.clone(),
+                format!(
+                    "when expression uses context path context.{path} as {expected}, \
+                     which no evaluation context declares with a matching type"
+                ),
+            );
+        }
+    }
+
+    for (variable_id, variable) in &ctx.index.variables {
+        if variables_with_errors.contains(variable_id) {
+            continue;
+        }
+        let Some(rules) = variable_resolve_rules(variable) else {
+            continue;
+        };
+        for rule in rules {
+            for expression in [&rule.when, &rule.query].into_iter().flatten() {
+                let ProjectField::Present(expression) = expression else {
+                    continue;
+                };
+                for (path, constraints) in &expression.value.references().context_path_types {
+                    let Some(expected) = type_mismatch_label(&ctx.index, path, constraints) else {
+                        continue;
+                    };
+                    push_graph_diagnostic(
+                        &mut diagnostics,
+                        RototoRuleId::VariableRuleContextPathTypeMismatch,
+                        rule.target(variable_id),
+                        rule.location.clone(),
+                        format!(
+                            "rule uses context path context.{path} as {expected}, \
+                             which no evaluation context declares with a matching type"
+                        ),
+                    );
+                }
+            }
+        }
+    }
+
+    ctx.diagnostics.extend(diagnostics);
+}
+
+/// If a declared context path is used with scalar constraints that no
+/// evaluation context can satisfy, return the expected-type label for the
+/// diagnostic. Returns `None` when the path is undeclared (owned by the
+/// undeclared-path rule) or when at least one context declares a matching type.
+fn type_mismatch_label(
+    index: &SemanticIndex,
+    path: &str,
+    constraints: &BTreeSet<ContextScalarType>,
+) -> Option<String> {
+    if constraints.is_empty() {
+        return None;
+    }
+    let mut any_declared = false;
+    let mut any_ok = false;
+    for context in index.evaluation_contexts.values() {
+        let Some(schema) = context.json.as_ref() else {
+            continue;
+        };
+        match context_path_type_fit(schema, path, constraints) {
+            ContextPathTypeFit::Missing => {}
+            ContextPathTypeFit::Ok => {
+                any_declared = true;
+                any_ok = true;
+            }
+            ContextPathTypeFit::Untyped | ContextPathTypeFit::Mismatch => {
+                any_declared = true;
+            }
+        }
+    }
+    (any_declared && !any_ok).then(|| expected_type_label(constraints))
 }
 
 pub(super) fn lint_evaluation_context_compatibility(ctx: &mut LintContext) {

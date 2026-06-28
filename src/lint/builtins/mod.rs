@@ -35,6 +35,8 @@ pub(super) fn run_graph(ctx: &mut LintContext) {
     graph::lint_unreachable_qualifiers(ctx);
     graph::lint_shadowed_variable_rules(ctx);
     graph::lint_rules_selecting_default_value(ctx);
+    evaluation_context::lint_undeclared_context_paths(ctx);
+    evaluation_context::lint_context_path_types(ctx);
     evaluation_context::lint_evaluation_context_compatibility(ctx);
 }
 

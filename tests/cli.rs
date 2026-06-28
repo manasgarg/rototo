@@ -67,6 +67,42 @@ fn quiet_keeps_lint_diagnostics() {
 }
 
 #[test]
+fn resolve_reports_missing_context_attributes() {
+    Command::cargo_bin("rototo")
+        .unwrap()
+        .args([
+            "resolve",
+            "examples/basic",
+            "--qualifier",
+            "premium-users",
+            "--context",
+            "lane=dev",
+        ])
+        .assert()
+        .failure()
+        .stdout(predicate::str::contains("context gaps"))
+        .stdout(predicate::str::contains("missing"))
+        .stdout(predicate::str::contains("context.user.tier"));
+}
+
+#[test]
+fn resolve_succeeds_without_context_gaps() {
+    Command::cargo_bin("rototo")
+        .unwrap()
+        .args([
+            "resolve",
+            "examples/basic",
+            "--qualifier",
+            "premium-users",
+            "--context",
+            "user.tier=premium",
+        ])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("context gaps").not());
+}
+
+#[test]
 fn old_noun_commands_are_removed() {
     Command::cargo_bin("rototo")
         .unwrap()

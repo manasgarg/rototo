@@ -2,17 +2,22 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use crate::diagnostics::{DiagnosticCatalogEntry, LintDiagnostic, RototoRuleId, SemanticEntity};
 use crate::error::{Result, RototoError};
-use crate::expression::Expression;
+use crate::expression::{ContextScalarType, Expression};
 use crate::model::{
-    CatalogEntryInspectReport, CatalogInspectReport, DependencyInspectReport,
-    EvaluationContextInspectReport, EvaluationContextSampleInspectReport, InspectRuntimeStatus,
-    InspectSelection, LintAuthorityInspectReport, LintRuleInspectReport, LinterInspectReport,
+    CatalogEntryInspectReport, CatalogInspectReport, ContextAttributeDeclarationReport,
+    ContextAttributeInspectReport, DependencyInspectReport, EvaluationContextInspectReport,
+    EvaluationContextSampleInspectReport, InspectRuntimeStatus, InspectSelection,
+    LintAuthorityInspectReport, LintRuleInspectReport, LinterInspectReport,
     LinterRegistrationInspectReport, PackageInspectReport, PackageInspectRequest,
-    QualifierInspectReport, ReferenceInspectReport, ResolveInspectReport, RulePathwayInspectReport,
-    ValueInspectReport, VariableInspectReport,
+    QualifierInspectReport, QualifierSampleCoverageReport, ReferenceInspectReport,
+    ResolveInspectReport, RulePathwayInspectReport, RuleSampleCoverageReport, ValueInspectReport,
+    VariableInspectReport, VariableSampleCoverageReport,
 };
 use crate::resolve::{trace_qualifier_unchecked, trace_variable_unchecked};
 
+use super::evaluation_context::{
+    ContextPathTypeFit, context_path_declaration, context_path_type_fit, variable_resolve_rules,
+};
 use super::index::*;
 use super::references::{ReferenceSource, ReferenceTarget};
 use super::{PackageLintSnapshot, RuntimePackage};
@@ -264,13 +269,15 @@ async fn inspect_variable(
         }
         _ => None,
     };
-    let evaluation_contexts = snapshot
+    let evaluation_contexts: Vec<String> = snapshot
         .evaluation_context_compatibility()
         .variables
         .remove(id)
         .unwrap_or_default()
         .into_iter()
         .collect();
+    let sample_coverage = runtime
+        .and_then(|runtime| variable_sample_coverage(snapshot, runtime, id, &evaluation_contexts));
 
     Ok(VariableInspectReport {
         id: id.to_owned(),
@@ -278,11 +285,13 @@ async fn inspect_variable(
         path,
         description: variable.description.as_ref().and_then(present_string_value),
         evaluation_contexts,
+        context_attributes: variable_context_attributes(snapshot, variable),
         type_source: variable_type_source_label(variable),
         schema: variable_schema_dependency(snapshot, id),
         values: variable_values(variable, &snapshot.index),
         resolve: variable_resolve(variable),
         dependencies,
+        sample_coverage,
         diagnostics,
         trace,
     })
@@ -314,13 +323,15 @@ async fn inspect_qualifier(
         }
         _ => None,
     };
-    let evaluation_contexts = snapshot
+    let evaluation_contexts: Vec<String> = snapshot
         .evaluation_context_compatibility()
         .qualifiers
         .remove(id)
         .unwrap_or_default()
         .into_iter()
         .collect();
+    let sample_coverage = runtime
+        .and_then(|runtime| qualifier_sample_coverage(snapshot, runtime, id, &evaluation_contexts));
 
     Ok(QualifierInspectReport {
         id: id.to_owned(),
@@ -331,10 +342,12 @@ async fn inspect_qualifier(
             .as_ref()
             .and_then(present_string_value),
         evaluation_contexts,
+        context_attributes: qualifier_context_attributes(snapshot, qualifier),
         when: qualifier_when(qualifier),
         predicates: Vec::new(),
         dependencies: qualifier_dependencies(snapshot, id),
         consumers: qualifier_consumers(snapshot, id),
+        sample_coverage,
         diagnostics,
         trace,
     })
@@ -592,6 +605,200 @@ fn qualifier_dependencies(
         context_paths: context_paths.into_iter().collect(),
         catalogs: Vec::new(),
     }
+}
+
+/// Every sample defined under any of the variable's or qualifier's compatible
+/// evaluation contexts, as raw context values to resolve against.
+fn compatible_context_samples(
+    snapshot: &PackageLintSnapshot,
+    compatible: &[String],
+) -> Vec<serde_json::Value> {
+    let mut samples = Vec::new();
+    for context_id in compatible {
+        let Some(entries) = snapshot.index.evaluation_context_samples.get(context_id) else {
+            continue;
+        };
+        for entry in entries.values() {
+            if let Some(value) = &entry.value {
+                samples.push(value.clone());
+            }
+        }
+    }
+    samples
+}
+
+fn variable_sample_coverage(
+    snapshot: &PackageLintSnapshot,
+    runtime: &RuntimePackage,
+    id: &str,
+    compatible: &[String],
+) -> Option<VariableSampleCoverageReport> {
+    let samples = compatible_context_samples(snapshot, compatible);
+    if samples.is_empty() {
+        return None;
+    }
+    let mut selected_rules = BTreeSet::new();
+    let mut default_covered = false;
+    let mut sample_count = 0;
+    for sample in &samples {
+        let Ok(trace) = trace_variable_unchecked(runtime, id, sample) else {
+            continue;
+        };
+        sample_count += 1;
+        match trace.rules.iter().find(|rule| rule.matched) {
+            Some(rule) => {
+                selected_rules.insert(rule.index);
+            }
+            None => default_covered = true,
+        }
+    }
+    let rules = variable_resolve_rules(snapshot.index.variables.get(id)?)
+        .into_iter()
+        .flatten()
+        .map(|rule| RuleSampleCoverageReport {
+            index: rule.index,
+            covered: selected_rules.contains(&rule.index),
+        })
+        .collect();
+    Some(VariableSampleCoverageReport {
+        sample_count,
+        default_covered,
+        rules,
+    })
+}
+
+fn qualifier_sample_coverage(
+    snapshot: &PackageLintSnapshot,
+    runtime: &RuntimePackage,
+    id: &str,
+    compatible: &[String],
+) -> Option<QualifierSampleCoverageReport> {
+    let samples = compatible_context_samples(snapshot, compatible);
+    if samples.is_empty() {
+        return None;
+    }
+    let mut evaluated_true = false;
+    let mut evaluated_false = false;
+    let mut sample_count = 0;
+    for sample in &samples {
+        let Ok(trace) = trace_qualifier_unchecked(runtime, id, sample) else {
+            continue;
+        };
+        sample_count += 1;
+        if trace.value {
+            evaluated_true = true;
+        } else {
+            evaluated_false = true;
+        }
+    }
+    Some(QualifierSampleCoverageReport {
+        sample_count,
+        evaluated_true,
+        evaluated_false,
+    })
+}
+
+fn qualifier_context_attributes(
+    snapshot: &PackageLintSnapshot,
+    qualifier: &QualifierNode,
+) -> Vec<ContextAttributeInspectReport> {
+    let mut expressions = Vec::new();
+    if let ProjectField::Present(when) = &qualifier.when {
+        expressions.push(&when.value);
+    }
+    context_attributes_for_expressions(snapshot, expressions)
+}
+
+fn variable_context_attributes(
+    snapshot: &PackageLintSnapshot,
+    variable: &VariableNode,
+) -> Vec<ContextAttributeInspectReport> {
+    let mut expressions = Vec::new();
+    if let Some(rules) = variable_resolve_rules(variable) {
+        for rule in rules {
+            for field in [&rule.when, &rule.query].into_iter().flatten() {
+                if let ProjectField::Present(expression) = field {
+                    expressions.push(&expression.value);
+                }
+            }
+        }
+    }
+    context_attributes_for_expressions(snapshot, expressions)
+}
+
+/// Pair every context attribute the given expressions read with the scalar
+/// types they expect of it and how each evaluation context declares it, so
+/// inspect and show can surface both the type contract and any gap.
+fn context_attributes_for_expressions(
+    snapshot: &PackageLintSnapshot,
+    expressions: Vec<&Expression>,
+) -> Vec<ContextAttributeInspectReport> {
+    let mut constraints: BTreeMap<String, BTreeSet<ContextScalarType>> = BTreeMap::new();
+    for expression in expressions {
+        for path in &expression.references().context_paths {
+            if !path.is_empty() {
+                constraints.entry(path.clone()).or_default();
+            }
+        }
+        for (path, expected) in &expression.references().context_path_types {
+            constraints
+                .entry(path.clone())
+                .or_default()
+                .extend(expected.iter().copied());
+        }
+    }
+
+    constraints
+        .into_iter()
+        .map(|(path, expected)| {
+            let declarations = snapshot
+                .index
+                .evaluation_contexts
+                .values()
+                .filter_map(|context| {
+                    let schema = context.json.as_ref()?;
+                    let declared_types = context_path_declaration(schema, &path)?;
+                    Some(ContextAttributeDeclarationReport {
+                        evaluation_context: context.id.clone(),
+                        declared_types,
+                    })
+                })
+                .collect::<Vec<_>>();
+            let status = context_attribute_status(snapshot, &path, &expected, &declarations);
+            ContextAttributeInspectReport {
+                path,
+                expected_types: expected
+                    .iter()
+                    .map(|scalar| scalar.label().to_owned())
+                    .collect(),
+                status,
+                declarations,
+            }
+        })
+        .collect()
+}
+
+fn context_attribute_status(
+    snapshot: &PackageLintSnapshot,
+    path: &str,
+    expected: &BTreeSet<ContextScalarType>,
+    declarations: &[ContextAttributeDeclarationReport],
+) -> String {
+    if declarations.is_empty() {
+        return "undeclared".to_owned();
+    }
+    if expected.is_empty() {
+        return "ok".to_owned();
+    }
+    let satisfied = snapshot.index.evaluation_contexts.values().any(|context| {
+        context.json.as_ref().is_some_and(|schema| {
+            matches!(
+                context_path_type_fit(schema, path, expected),
+                ContextPathTypeFit::Ok
+            )
+        })
+    });
+    if satisfied { "ok" } else { "type_mismatch" }.to_owned()
 }
 
 fn collect_qualifier_dependencies(

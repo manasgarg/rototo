@@ -2683,15 +2683,35 @@ async fn run_resolve(
         let model = rototo::lint::package_semantic_model(package.path()).await?;
         let contexts =
             trace_sample_resolutions(package.path(), &inspection, &selectors, &model).await?;
-        print_resolutions(package.path(), &[], &[], &contexts, json)?;
+        print_resolutions(package.path(), &[], &[], &contexts, &[], json)?;
         return Ok(ExitCode::SUCCESS);
     }
 
     let context = parse_context(&args.context).await?;
-    let (variables, qualifiers) =
-        trace_selected_resolutions(package.path(), &inspection, &selectors, &context).await?;
-    print_resolutions(package.path(), &variables, &qualifiers, &[], json)?;
-    Ok(ExitCode::SUCCESS)
+    let context_gaps =
+        resolve_context_gaps(package.path(), &inspection, &selectors, &context).await?;
+    match trace_selected_resolutions(package.path(), &inspection, &selectors, &context).await {
+        Ok((variables, qualifiers)) => {
+            print_resolutions(
+                package.path(),
+                &variables,
+                &qualifiers,
+                &[],
+                &context_gaps,
+                json,
+            )?;
+            Ok(ExitCode::SUCCESS)
+        }
+        Err(err) => {
+            // Resolution evaluates strictly and fails on the first missing or
+            // mistyped attribute. Surface the full set of invocation gaps so the
+            // caller can fix the context in one pass rather than one path at a time.
+            if !context_gaps.is_empty() {
+                print_resolutions(package.path(), &[], &[], &[], &context_gaps, json)?;
+            }
+            Err(err)
+        }
+    }
 }
 
 async fn trace_selected_resolutions(
@@ -3821,6 +3841,27 @@ struct ResolveOutput<'a> {
     qualifiers: &'a [QualifierResolutionTrace],
     #[serde(skip_serializing_if = "is_empty_slice")]
     contexts: &'a [ContextResolveOutput],
+    #[serde(skip_serializing_if = "is_empty_slice")]
+    context_gaps: &'a [ContextResolveGap],
+}
+
+/// What a supplied `--context` is missing relative to what a resolved target's
+/// expressions actually read. This is an invocation-time observation, distinct
+/// from the package-static gaps that lint reports.
+#[derive(Debug, Serialize)]
+struct ContextResolveGap {
+    target: String,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    missing_paths: Vec<String>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    mismatched_paths: Vec<ContextResolveMismatch>,
+}
+
+#[derive(Debug, Serialize)]
+struct ContextResolveMismatch {
+    path: String,
+    expected_types: Vec<String>,
+    actual_type: String,
 }
 
 #[derive(Debug, Serialize)]
@@ -3837,11 +3878,110 @@ fn is_empty_slice<T>(value: &&[T]) -> bool {
     value.is_empty()
 }
 
+async fn resolve_context_gaps(
+    package: &Path,
+    inspection: &PackageInspection,
+    selectors: &TargetSelectors,
+    context: &JsonValue,
+) -> Result<Vec<ContextResolveGap>> {
+    let variable_ids = selected_variable_id_list(inspection, &selectors.variables);
+    let qualifier_ids = selected_qualifier_id_list(inspection, &selectors.qualifiers);
+    let report = inspect_package_report(
+        package,
+        PackageInspectRequest {
+            variables: id_selection(variable_ids),
+            qualifiers: id_selection(qualifier_ids),
+            ..PackageInspectRequest::default()
+        },
+    )
+    .await?;
+
+    let mut gaps = Vec::new();
+    for qualifier in &report.qualifiers {
+        if let Some(gap) = target_context_gap(
+            &format!("qualifier://{}", qualifier.id),
+            &qualifier.context_attributes,
+            context,
+        ) {
+            gaps.push(gap);
+        }
+    }
+    for variable in &report.variables {
+        if let Some(gap) = target_context_gap(
+            &format!("variable://{}", variable.id),
+            &variable.context_attributes,
+            context,
+        ) {
+            gaps.push(gap);
+        }
+    }
+    Ok(gaps)
+}
+
+fn id_selection(ids: Vec<String>) -> InspectSelection {
+    if ids.is_empty() {
+        InspectSelection::None
+    } else {
+        InspectSelection::Some(ids)
+    }
+}
+
+fn target_context_gap(
+    target: &str,
+    attributes: &[rototo::model::ContextAttributeInspectReport],
+    context: &JsonValue,
+) -> Option<ContextResolveGap> {
+    let mut missing_paths = Vec::new();
+    let mut mismatched_paths = Vec::new();
+    for attribute in attributes {
+        let pointer = format!("/{}", attribute.path.replace('.', "/"));
+        match context.pointer(&pointer) {
+            None => missing_paths.push(attribute.path.clone()),
+            Some(value) => {
+                let actual = json_value_type_label(value);
+                if !attribute.expected_types.is_empty()
+                    && !attribute
+                        .expected_types
+                        .iter()
+                        .any(|expected| expected == actual)
+                {
+                    mismatched_paths.push(ContextResolveMismatch {
+                        path: attribute.path.clone(),
+                        expected_types: attribute.expected_types.clone(),
+                        actual_type: actual.to_owned(),
+                    });
+                }
+            }
+        }
+    }
+    if missing_paths.is_empty() && mismatched_paths.is_empty() {
+        None
+    } else {
+        Some(ContextResolveGap {
+            target: target.to_owned(),
+            missing_paths,
+            mismatched_paths,
+        })
+    }
+}
+
+fn json_value_type_label(value: &JsonValue) -> &'static str {
+    match value {
+        JsonValue::Null => "null",
+        JsonValue::Bool(_) => "boolean",
+        JsonValue::Number(_) => "number",
+        JsonValue::String(_) => "string",
+        JsonValue::Array(_) => "array",
+        JsonValue::Object(_) => "object",
+    }
+}
+
 fn print_resolutions(
     package: &Path,
     variables: &[VariableResolutionTrace],
     qualifiers: &[QualifierResolutionTrace],
     contexts: &[ContextResolveOutput],
+    context_gaps: &[ContextResolveGap],
     json: bool,
 ) -> Result<()> {
     if json {
@@ -3852,6 +3992,7 @@ fn print_resolutions(
                 variables,
                 qualifiers,
                 contexts,
+                context_gaps,
             })
             .map_err(|err| RototoError::new(err.to_string()))?
         );
@@ -3880,6 +4021,31 @@ fn print_resolutions(
         for (index, context) in contexts.iter().enumerate() {
             print_resolve_separator(index, count);
             print_context_resolution_trace(context)?;
+        }
+    }
+    if !context_gaps.is_empty() {
+        println!("{}", style::label("context gaps"));
+        for gap in context_gaps {
+            println!("  {}", style::sea(&gap.target));
+            for path in &gap.missing_paths {
+                println!(
+                    "    {} {}",
+                    style::warn("missing"),
+                    style::info(&format!("context.{path}"))
+                );
+            }
+            for mismatch in &gap.mismatched_paths {
+                println!(
+                    "    {} {} {}",
+                    style::warn("type"),
+                    style::info(&format!("context.{}", mismatch.path)),
+                    style::dim(&format!(
+                        "expected {}, got {}",
+                        mismatch.expected_types.join(" or "),
+                        mismatch.actual_type
+                    ))
+                );
+            }
         }
     }
     Ok(())

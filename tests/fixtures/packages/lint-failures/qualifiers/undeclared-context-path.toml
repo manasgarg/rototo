@@ -1,0 +1,5 @@
+schema_version = 1
+
+description = "Qualifier whose when expression reads a context path no schema declares (typo)"
+
+when = '(context.user.teir == "premium")'

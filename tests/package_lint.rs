@@ -445,13 +445,17 @@ fn reports_package_context_schema_attribute_failures() {
 
     assert_eq!(
         diagnostic["rule"],
-        "rototo/qualifier-no-compatible-evaluation-context"
+        "rototo/qualifier-when-undeclared-context-path"
     );
     assert_eq!(diagnostic["stage"], "graph");
     assert_eq!(diagnostic["target"]["entity"]["kind"], "qualifier");
     assert_eq!(
         diagnostic["target"]["entity"]["id"],
         "missing-context-contract"
+    );
+    assert_eq!(
+        diagnostic["message"],
+        "when expression references undeclared context path: context.account.plan"
     );
     assert_eq!(
         diagnostic["location"]["path"],
@@ -2019,7 +2023,19 @@ fn pending_canonical_rule_fixtures() -> &'static [PendingCanonicalRuleFixture] {
             rule: RototoRuleId::QualifierNoCompatibleEvaluationContext,
         },
         PendingCanonicalRuleFixture {
+            rule: RototoRuleId::QualifierWhenUndeclaredContextPath,
+        },
+        PendingCanonicalRuleFixture {
+            rule: RototoRuleId::QualifierWhenContextPathTypeMismatch,
+        },
+        PendingCanonicalRuleFixture {
             rule: RototoRuleId::VariableEvaluationContextConflict,
+        },
+        PendingCanonicalRuleFixture {
+            rule: RototoRuleId::VariableRuleUndeclaredContextPath,
+        },
+        PendingCanonicalRuleFixture {
+            rule: RototoRuleId::VariableRuleContextPathTypeMismatch,
         },
         PendingCanonicalRuleFixture {
             rule: RototoRuleId::EvaluationContextParseFailed,
@@ -2268,13 +2284,17 @@ fn lint_failures_expected_rule_ids() -> &'static [&'static str] {
         "rototo/qualifier-cycle",
         "rototo/qualifier-no-compatible-evaluation-context",
         "rototo/qualifier-unreferenced",
+        "rototo/qualifier-when-context-path-type-mismatch",
+        "rototo/qualifier-when-undeclared-context-path",
         "rototo/qualifier-when-shape",
         "rototo/qualifier-when-unknown-qualifier",
         "rototo/schema-ui-unknown-widget",
         "rototo/schema-ui-widget-params",
         "rototo/schema-ui-widget-type-mismatch",
+        "rototo/variable-rule-context-path-type-mismatch",
         "rototo/variable-rule-shadowed",
         "rototo/variable-rule-shape",
+        "rototo/variable-rule-undeclared-context-path",
         "rototo/variable-rule-unknown-qualifier",
         "rototo/variable-unknown-type",
         "rototo/variable-unknown-value",

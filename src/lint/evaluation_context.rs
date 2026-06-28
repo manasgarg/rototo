@@ -1,7 +1,7 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use super::PackageLintSnapshot;
-use crate::expression::Expression;
+use crate::expression::{ContextScalarType, Expression};
 
 use super::index::{ProjectField, SemanticIndex};
 use super::references::{ReferenceIndex, ReferenceSource, ReferenceTarget};
@@ -118,15 +118,23 @@ impl<'a> CompatibilityBuilder<'a> {
             if path.is_empty() {
                 continue;
             }
+            let constraints = expression
+                .references()
+                .context_path_types
+                .get(path)
+                .cloned()
+                .unwrap_or_default();
             let path_contexts = self
                 .index
                 .evaluation_contexts
                 .values()
                 .filter(|context| {
-                    context
-                        .json
-                        .as_ref()
-                        .is_some_and(|schema| context_schema_field(schema, path).is_some())
+                    context.json.as_ref().is_some_and(|schema| {
+                        matches!(
+                            context_path_type_fit(schema, path, &constraints),
+                            ContextPathTypeFit::Ok
+                        )
+                    })
                 })
                 .map(|context| context.id.clone())
                 .collect::<BTreeSet<_>>();
@@ -182,6 +190,131 @@ pub(in crate::lint) fn variable_rule_condition_reference_count(
                 .count()
         })
         .unwrap_or_default()
+}
+
+pub(in crate::lint) fn path_declared_in_any_context(index: &SemanticIndex, path: &str) -> bool {
+    if path.is_empty() {
+        return false;
+    }
+    index.evaluation_contexts.values().any(|context| {
+        context
+            .json
+            .as_ref()
+            .is_some_and(|schema| context_schema_field(schema, path).is_some())
+    })
+}
+
+pub(in crate::lint) fn variable_resolve_rules(
+    variable: &super::index::VariableNode,
+) -> Option<&[super::index::VariableRuleNode]> {
+    variable.resolve.as_rules()
+}
+
+/// How a context schema's declaration of a path lines up with the scalar types
+/// an expression requires of that path.
+pub(in crate::lint) enum ContextPathTypeFit {
+    /// The schema does not declare the path at all.
+    Missing,
+    /// The path is declared but carries no JSON Schema `type` to check against.
+    Untyped,
+    /// The declared type cannot satisfy how the expression uses the path.
+    Mismatch,
+    /// The path is declared and its type satisfies every constraint (or the
+    /// expression imposes no scalar constraint, so existence is enough).
+    Ok,
+}
+
+pub(in crate::lint) fn context_path_type_fit(
+    schema: &serde_json::Value,
+    path: &str,
+    constraints: &BTreeSet<ContextScalarType>,
+) -> ContextPathTypeFit {
+    let Some(field) = context_schema_field(schema, path) else {
+        return ContextPathTypeFit::Missing;
+    };
+    if constraints.is_empty() {
+        return ContextPathTypeFit::Ok;
+    }
+    let Some(declared) = schema_field_type_tokens(field) else {
+        return ContextPathTypeFit::Untyped;
+    };
+    let satisfied = constraints.iter().all(|constraint| {
+        declared
+            .iter()
+            .any(|token| constraint.matches_schema_type(token))
+    });
+    if satisfied {
+        ContextPathTypeFit::Ok
+    } else {
+        ContextPathTypeFit::Mismatch
+    }
+}
+
+/// The JSON Schema scalar type tokens a field constrains its value to. A field
+/// can pin its type with `type`, but also implicitly through `const` or `enum`,
+/// so those are honored too. Returns `None` when no scalar type is declared.
+fn schema_field_type_tokens(field: &serde_json::Value) -> Option<BTreeSet<String>> {
+    if let Some(declared) = field.get("type") {
+        return match declared {
+            serde_json::Value::String(token) => Some(BTreeSet::from([token.clone()])),
+            serde_json::Value::Array(tokens) => {
+                let set = tokens
+                    .iter()
+                    .filter_map(|token| token.as_str().map(str::to_owned))
+                    .collect::<BTreeSet<_>>();
+                (!set.is_empty()).then_some(set)
+            }
+            _ => None,
+        };
+    }
+
+    if let Some(constant) = field.get("const") {
+        return json_value_type_token(constant).map(|token| BTreeSet::from([token]));
+    }
+
+    if let Some(serde_json::Value::Array(values)) = field.get("enum") {
+        let set = values
+            .iter()
+            .filter_map(json_value_type_token)
+            .collect::<BTreeSet<_>>();
+        return (!set.is_empty()).then_some(set);
+    }
+
+    None
+}
+
+/// How a single evaluation context declares a path: `None` when the schema does
+/// not declare it, `Some(types)` when it does (an empty `types` means the path
+/// is declared without a checkable scalar type).
+pub(in crate::lint) fn context_path_declaration(
+    schema: &serde_json::Value,
+    path: &str,
+) -> Option<Vec<String>> {
+    let field = context_schema_field(schema, path)?;
+    Some(
+        schema_field_type_tokens(field)
+            .map(|tokens| tokens.into_iter().collect())
+            .unwrap_or_default(),
+    )
+}
+
+fn json_value_type_token(value: &serde_json::Value) -> Option<String> {
+    match value {
+        serde_json::Value::String(_) => Some("string".to_owned()),
+        serde_json::Value::Bool(_) => Some("boolean".to_owned()),
+        serde_json::Value::Number(_) => Some("number".to_owned()),
+        _ => None,
+    }
+}
+
+/// A human-readable list of the scalar families an expression requires of a
+/// path, for diagnostics (for example `number or string`).
+pub(in crate::lint) fn expected_type_label(constraints: &BTreeSet<ContextScalarType>) -> String {
+    constraints
+        .iter()
+        .map(|constraint| constraint.label())
+        .collect::<Vec<_>>()
+        .join(" or ")
 }
 
 fn context_schema_field<'a>(
