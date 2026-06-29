@@ -48,7 +48,10 @@ console = [
 [dependencies]
 axum = { version = "0.8", optional = true }
 base64 = { version = "0.22", optional = true }
-cel = { version = "0.14.0", features = ["json"] }
+# Pinned exactly: rototo's expression language is a CEL subset evaluated by this
+# engine, so its parser/evaluator semantics are part of rototo's contract. Bump
+# deliberately and re-run the expression suite.
+cel = { version = "=0.14.0", features = ["json"] }
 clap = { version = "4", features = ["derive", "env"] }
 clap_complete = "4"
 flate2 = "1"

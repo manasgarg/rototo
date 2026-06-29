@@ -176,6 +176,29 @@ smaller named conditions, while still keeping variable rules readable. The usefu
 qualifiers describe when a configuration choice should apply, while variables describe what value
 the application receives.
 
+## The expression language
+
+The strings in `when` (and the `query` form used for catalog-backed variables) are not a bespoke
+Rototo syntax. They are a subset of [CEL](https://cel.dev), the Common Expression Language. CEL is a
+small, well-specified, side-effect-free expression language designed exactly for this job: evaluating
+a boolean (or a value) against a structured input, safely and predictably. Reusing it means the
+syntax is already documented and stable, and the evaluation has no surprises — no loops, no
+assignment, no I/O.
+
+Rototo evaluates these expressions and adds two things on top of plain CEL. First, three input
+variables are always in scope: `context` (the runtime facts the application passes in), `entry` (the
+catalog entry under consideration in a `query`), and `qualifier` (other qualifiers, read as
+`qualifier["enterprise-account"]`). Second, a set of named functions that configuration conditions
+keep needing — for example `startsWith`, `matches`, `semver`, `cidr`, `bucket`, and the
+`timeBefore`/`timeBetween` family. So a `when` expression is ordinary CEL — `==`, `&&`, `in`,
+`has()`, indexing, comparisons — against those variables, plus those functions.
+
+Rototo deliberately keeps to a subset. The schema-aware lint checks how each `context` path is used
+and confirms an evaluation context declares it with a matching type, so a condition that compares a
+string field as a number, or reads a field no context provides, is caught before release rather than
+at runtime. Paths used as an IP (`cidr`) or a timestamp (the `time*` functions) must be declared with
+the matching JSON Schema format, because Rototo asserts those formats on the values too.
+
 ## Catalog
 
 Primitive variables are enough for values like a timeout, a feature flag, or a string. But some configuration needs to be represented as a structured object. An LLM configuration, for example, is not just a model name. It may include the model, gateway, prompt, token budget, and temperature. Those fields should be reviewed together and validated together.
