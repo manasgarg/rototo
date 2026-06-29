@@ -223,28 +223,50 @@ impl LspServer {
             .and_then(JsonValue::as_str)
             .ok_or_else(|| RototoError::new("didChange missing textDocument.uri"))?;
         let version = json_i32(text_document.get("version"));
-        let change = params
+        let changes = params
             .get("contentChanges")
             .and_then(JsonValue::as_array)
-            .and_then(|changes| changes.last())
-            .ok_or_else(|| RototoError::new("didChange missing content change"))?;
-        if change.get("range").is_some() || change.get("rangeLength").is_some() {
-            return Err(RototoError::new(
-                "incremental didChange ranges are unsupported; send full document text",
-            ));
-        }
-        let text = change
-            .get("text")
-            .and_then(JsonValue::as_str)
-            .ok_or_else(|| RototoError::new("didChange missing full text content change"))?;
+            .ok_or_else(|| RototoError::new("didChange missing contentChanges"))?;
         let path = self.package_path_for_uri(uri)?;
-        self.overlays.insert(
-            path,
-            OverlayDocument {
-                text: text.to_owned(),
-                version,
-            },
-        );
+
+        // Apply each change to the running buffer in order: a change with a
+        // `range` splices that span (its positions are UTF-16, like every other
+        // LSP position), and a change without one replaces the whole document.
+        let mut text = self
+            .overlays
+            .get(&path)
+            .map(|document| document.text.clone())
+            .unwrap_or_default();
+        for change in changes {
+            let new_text = change
+                .get("text")
+                .and_then(JsonValue::as_str)
+                .ok_or_else(|| RototoError::new("didChange content change missing text"))?;
+            match change.get("range") {
+                None => text = new_text.to_owned(),
+                Some(range) => {
+                    let start = source_position_from_json(
+                        range
+                            .get("start")
+                            .ok_or_else(|| RototoError::new("didChange range missing start"))?,
+                    )?;
+                    let end = source_position_from_json(
+                        range
+                            .get("end")
+                            .ok_or_else(|| RototoError::new("didChange range missing end"))?,
+                    )?;
+                    let start_byte = byte_offset_for_position(&text, start.line, start.character);
+                    let end_byte = byte_offset_for_position(&text, end.line, end.character);
+                    if start_byte > end_byte {
+                        return Err(RototoError::new("didChange range start is after its end"));
+                    }
+                    text.replace_range(start_byte..end_byte, new_text);
+                }
+            }
+        }
+
+        self.overlays
+            .insert(path, OverlayDocument { text, version });
         self.revision += 1;
         Ok(())
     }
@@ -427,6 +449,13 @@ impl LspServer {
         self.build_count.load(Ordering::Relaxed)
     }
 
+    #[cfg(test)]
+    pub(super) fn overlay_text(&self, path: &str) -> Option<&str> {
+        self.overlays
+            .get(path)
+            .map(|document| document.text.as_str())
+    }
+
     fn package_path_for_uri(&self, uri: &str) -> Result<String> {
         let Some(root) = &self.package_root else {
             return Err(RototoError::new("LSP package root is not initialized"));
@@ -434,4 +463,37 @@ impl LspServer {
         let path = path_from_file_uri(uri)?;
         package_relative_path(root, &path)
     }
+}
+
+/// Byte offset in `text` of an LSP position. `line` counts `\n`-delimited lines
+/// and `character` counts UTF-16 code units into that line (the encoding the
+/// server advertises). A position past the end of its line clamps to the line
+/// break, and a position past the end of the text clamps to its length, so an
+/// out-of-range edit splices at the boundary rather than panicking.
+fn byte_offset_for_position(text: &str, line: usize, character: usize) -> usize {
+    let line_start = if line == 0 {
+        0
+    } else {
+        let mut seen = 0;
+        let mut start = text.len();
+        for (byte, ch) in text.char_indices() {
+            if ch == '\n' {
+                seen += 1;
+                if seen == line {
+                    start = byte + 1;
+                    break;
+                }
+            }
+        }
+        start
+    };
+
+    let mut utf16 = 0;
+    for (byte, ch) in text[line_start..].char_indices() {
+        if utf16 >= character || ch == '\n' {
+            return line_start + byte;
+        }
+        utf16 += ch.len_utf16();
+    }
+    text.len()
 }

@@ -492,41 +492,6 @@ default = "hello"
     }
 
     #[tokio::test]
-    async fn lsp_rejects_incremental_did_change_ranges() {
-        // initialize_result advertises full-document sync. If a client sends an
-        // incremental range edit anyway, fail loudly so the server never mixes
-        // partial edits into its overlay model.
-        let tempdir = tempfile::tempdir().unwrap();
-        let root = tempdir.path();
-        tokio::fs::create_dir_all(root.join("variables"))
-            .await
-            .unwrap();
-        let variable_path = root.join("variables/message.toml");
-
-        let mut server = LspServer::new();
-        server.package_root = Some(tokio::fs::canonicalize(root).await.unwrap());
-        let err = server
-            .change_document(json!({
-                "textDocument": {
-                    "uri": format!("file://{}", variable_path.display()),
-                    "version": 2
-                },
-                "contentChanges": [
-                    {
-                        "range": {
-                            "start": { "line": 0, "character": 0 },
-                            "end": { "line": 0, "character": 0 }
-                        },
-                        "text": "schema_version = 1"
-                    }
-                ]
-            }))
-            .unwrap_err();
-
-        assert!(err.to_string().contains("incremental didChange"));
-    }
-
-    #[tokio::test]
     async fn lsp_query_expressions_use_snapshot_index_and_unsaved_overlays() {
         // Query rules are CEL expressions too. Editor features should work when
         // the cursor is inside a query expression, not only inside rule `when`.
@@ -950,6 +915,15 @@ value = "welcome"
                 .and_then(JsonValue::as_str),
             Some("utf-16")
         );
+        // Incremental sync (kind 2): the server applies ranged didChange edits.
+        assert_eq!(
+            result
+                .get("capabilities")
+                .and_then(|capabilities| capabilities.get("textDocumentSync"))
+                .and_then(|sync| sync.get("change"))
+                .and_then(JsonValue::as_u64),
+            Some(2)
+        );
         assert_eq!(
             result
                 .get("capabilities")
@@ -1035,6 +1009,89 @@ value = "welcome"
         )
         .await;
         server.await.unwrap().unwrap();
+    }
+
+    #[tokio::test]
+    async fn applies_incremental_document_changes() {
+        // A ranged didChange splices the open buffer instead of resending the
+        // whole document. The package root is synthetic: the buffers never touch
+        // disk, so this isolates the edit application.
+        let mut server = LspServer::new();
+        server.package_root = Some(std::path::PathBuf::from("/pkg"));
+        server
+            .open_document(json!({
+                "textDocument": {
+                    "uri": "file:///pkg/qualifiers/q.toml",
+                    "text": "schema_version = 1\nwhen = \"a\"\n",
+                    "version": 1
+                }
+            }))
+            .unwrap();
+
+        // Replace the single character `a` on line 1 (columns 8..9) with `premium`.
+        server
+            .change_document(json!({
+                "textDocument": { "uri": "file:///pkg/qualifiers/q.toml", "version": 2 },
+                "contentChanges": [{
+                    "range": {
+                        "start": { "line": 1, "character": 8 },
+                        "end": { "line": 1, "character": 9 }
+                    },
+                    "text": "premium"
+                }]
+            }))
+            .unwrap();
+
+        assert_eq!(
+            server.overlay_text("qualifiers/q.toml"),
+            Some("schema_version = 1\nwhen = \"premium\"\n")
+        );
+
+        // A change without a range still replaces the whole document.
+        server
+            .change_document(json!({
+                "textDocument": { "uri": "file:///pkg/qualifiers/q.toml", "version": 3 },
+                "contentChanges": [{ "text": "schema_version = 1\n" }]
+            }))
+            .unwrap();
+        assert_eq!(
+            server.overlay_text("qualifiers/q.toml"),
+            Some("schema_version = 1\n")
+        );
+    }
+
+    #[tokio::test]
+    async fn incremental_change_positions_count_utf16_code_units() {
+        // The astral `😀` is one scalar but two UTF-16 code units, so the edit
+        // columns after it must account for both units, matching the encoding the
+        // server advertises.
+        let mut server = LspServer::new();
+        server.package_root = Some(std::path::PathBuf::from("/pkg"));
+        server
+            .open_document(json!({
+                "textDocument": {
+                    "uri": "file:///pkg/q.toml",
+                    "text": "x = \"😀ab\"",
+                    "version": 1
+                }
+            }))
+            .unwrap();
+
+        // Replace `ab` (columns 7..9 in UTF-16) with `Z`.
+        server
+            .change_document(json!({
+                "textDocument": { "uri": "file:///pkg/q.toml", "version": 2 },
+                "contentChanges": [{
+                    "range": {
+                        "start": { "line": 0, "character": 7 },
+                        "end": { "line": 0, "character": 9 }
+                    },
+                    "text": "Z"
+                }]
+            }))
+            .unwrap();
+
+        assert_eq!(server.overlay_text("q.toml"), Some("x = \"😀Z\""));
     }
 
     fn child_symbol<'a>(symbols: &'a [LspDocumentSymbol], name: &str) -> &'a LspDocumentSymbol {
