@@ -339,6 +339,19 @@ operate, and modify runtime configuration safely.
 
 ### Documentation Voice
 
+Above everything else, write every rototo document in plain, everyday language,
+the way one engineer would explain it to another over coffee. No jargon, no
+dense paragraphs, no spec-speak. Lead with what the reader is actually trying to
+do, use small concrete examples, and keep sentences short and human. This tone
+applies to every document: narrative pages, concept pages, and reference pages
+alike. Reference pages still have to be exact, but "exact" is not the same as
+"dry": state the precise field names, commands, and shapes, and explain them in
+the same relaxed voice. `docs/src/package-sources.md` is the reference example of
+this tone; match it.
+
+Never use em-dashes (`—`) in any document. Use a comma, a colon, parentheses, a
+spaced hyphen, or two sentences instead.
+
 Write rototo docs in the voice of a senior engineer sharing work with other
 engineers. The voice should feel practical, experienced, and warm without
 becoming casual or promotional.

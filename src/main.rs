@@ -81,6 +81,8 @@ enum Command {
     Show(PackageCommandArgs),
     /// Evaluate variables or qualifiers with runtime context.
     Resolve(ResolveArgs),
+    /// Build a deterministic, content-addressed distributable archive.
+    Package(PackageArgs),
     /// Read bundled documentation.
     Docs(DocsArgs),
     /// Configure shell, editor, and agent integrations.
@@ -308,6 +310,17 @@ struct ResolveArgs {
     /// Evaluation context: JSON object, @file, or path=value. Repeatable; later values override earlier ones. Defaults to {}.
     #[arg(long = "context", value_name = "CONTEXT")]
     context: Vec<String>,
+}
+
+#[derive(Debug, Args)]
+struct PackageArgs {
+    /// Package source. Defaults to the nearest parent with rototo-package.toml.
+    #[arg(value_name = "PACKAGE_SOURCE")]
+    package: Option<String>,
+
+    /// Directory to write the content-addressed archive into.
+    #[arg(short = 'o', long = "output", value_name = "DIR", default_value = ".")]
+    output: PathBuf,
 }
 
 #[derive(Debug, Args)]
@@ -675,6 +688,7 @@ fn top_level_help() -> String {
         "show examples/basic --variables",
         "diff examples/basic --context @examples/basic/evaluation-contexts/request-samples/premium-enterprise.json",
         "resolve examples/basic --variable checkout-redesign --context lane=prod --context user.tier=premium",
+        "package examples/basic --output dist",
         "docs -p motivation",
         "setup --shell zsh",
     ] {
@@ -721,6 +735,10 @@ fn top_level_help_template() -> String {
     out.push_str(&command(
         "resolve",
         "Evaluate variables or qualifiers with runtime context",
+    ));
+    out.push_str(&command(
+        "package",
+        "Build a deterministic, content-addressed distributable archive",
     ));
     out.push('\n');
     out.push_str(&style::bold("Utility commands:"));
@@ -776,6 +794,9 @@ async fn run() -> Result<ExitCode> {
         Command::Diff(args) => cli::diff::run_diff(args, &source_options, cli.json).await,
         Command::Show(args) => run_show(args, &source_options, cli.json).await,
         Command::Resolve(args) => cli::resolve::run_resolve(args, &source_options, cli.json).await,
+        Command::Package(args) => {
+            cli::package::run_package(args, &source_options, cli.json, cli.quiet).await
+        }
         Command::Docs(args) => cli::docs::run_docs(args, cli.json).await,
         Command::Setup(args) => cli::setup::run_setup(args, cli.json, cli.quiet).await,
         #[cfg(feature = "console")]

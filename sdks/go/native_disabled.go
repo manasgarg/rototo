@@ -28,11 +28,11 @@ func nativePackageLint(handle nativeHandle) (string, error) {
 	return "", cgoDisabled()
 }
 
-func nativePackageResolveVariable(handle nativeHandle, id, contextJSON string, validateContext bool) (string, error) {
+func nativePackageResolveVariable(handle nativeHandle, id, contextJSON string, validateContext bool, trace bool) (string, error) {
 	return "", cgoDisabled()
 }
 
-func nativePackageResolveQualifier(handle nativeHandle, id, contextJSON string, validateContext bool) (string, error) {
+func nativePackageResolveQualifier(handle nativeHandle, id, contextJSON string, validateContext bool, trace bool) (string, error) {
 	return "", cgoDisabled()
 }
 
@@ -42,11 +42,11 @@ func nativeRefreshingPackageLoad(source string, periodSeconds *float64, packageT
 	return 0, cgoDisabled()
 }
 
-func nativeRefreshingPackageResolveVariable(handle nativeHandle, id, contextJSON string, validateContext bool) (string, error) {
+func nativeRefreshingPackageResolveVariable(handle nativeHandle, id, contextJSON string, validateContext bool, trace bool) (string, error) {
 	return "", cgoDisabled()
 }
 
-func nativeRefreshingPackageResolveQualifier(handle nativeHandle, id, contextJSON string, validateContext bool) (string, error) {
+func nativeRefreshingPackageResolveQualifier(handle nativeHandle, id, contextJSON string, validateContext bool, trace bool) (string, error) {
 	return "", cgoDisabled()
 }
 

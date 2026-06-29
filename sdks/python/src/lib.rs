@@ -91,35 +91,37 @@ impl PyPackage {
         })
     }
 
-    #[pyo3(signature = (id, context, *, validate_context = true))]
+    #[pyo3(signature = (id, context, *, validate_context = true, trace = false))]
     fn resolve_variable<'py>(
         &self,
         py: Python<'py>,
         id: String,
         context: Bound<'py, PyAny>,
         validate_context: bool,
+        trace: bool,
     ) -> PyResult<Py<PyAny>> {
         let context = json_from_py(&context)?;
         let context = EvaluationContext::from_json(context).map_err(py_err)?;
         let resolution = self
             .inner
-            .resolve_variable_with_options(&id, &context, resolve_options(validate_context))
+            .resolve_variable_with_options(&id, &context, resolve_options(validate_context, trace))
             .map_err(py_err)?;
         variable_resolution_to_py(py, resolution)
     }
 
-    #[pyo3(signature = (id, context, *, validate_context = true))]
+    #[pyo3(signature = (id, context, *, validate_context = true, trace = false))]
     fn resolve_qualifier<'py>(
         &self,
         _py: Python<'py>,
         id: String,
         context: Bound<'py, PyAny>,
         validate_context: bool,
+        trace: bool,
     ) -> PyResult<bool> {
         let context = json_from_py(&context)?;
         let context = EvaluationContext::from_json(context).map_err(py_err)?;
         self.inner
-            .resolve_qualifier_with_options(&id, &context, resolve_options(validate_context))
+            .resolve_qualifier_with_options(&id, &context, resolve_options(validate_context, trace))
             .map_err(py_err)
     }
 
@@ -164,38 +166,40 @@ impl PyRefreshingPackage {
         })
     }
 
-    #[pyo3(signature = (id, context, *, validate_context = true))]
+    #[pyo3(signature = (id, context, *, validate_context = true, trace = false))]
     fn resolve_variable<'py>(
         &self,
         py: Python<'py>,
         id: String,
         context: Bound<'py, PyAny>,
         validate_context: bool,
+        trace: bool,
     ) -> PyResult<Py<PyAny>> {
         let context = json_from_py(&context)?;
         let context = EvaluationContext::from_json(context).map_err(py_err)?;
         let guard = self.inner.blocking_lock();
         let package = active_refreshing_package(&guard)?;
         let resolution = package
-            .resolve_variable_with_options(&id, &context, resolve_options(validate_context))
+            .resolve_variable_with_options(&id, &context, resolve_options(validate_context, trace))
             .map_err(py_err)?;
         variable_resolution_to_py(py, resolution)
     }
 
-    #[pyo3(signature = (id, context, *, validate_context = true))]
+    #[pyo3(signature = (id, context, *, validate_context = true, trace = false))]
     fn resolve_qualifier<'py>(
         &self,
         _py: Python<'py>,
         id: String,
         context: Bound<'py, PyAny>,
         validate_context: bool,
+        trace: bool,
     ) -> PyResult<bool> {
         let context = json_from_py(&context)?;
         let context = EvaluationContext::from_json(context).map_err(py_err)?;
         let guard = self.inner.blocking_lock();
         let package = active_refreshing_package(&guard)?;
         package
-            .resolve_qualifier_with_options(&id, &context, resolve_options(validate_context))
+            .resolve_qualifier_with_options(&id, &context, resolve_options(validate_context, trace))
             .map_err(py_err)
     }
 
@@ -374,10 +378,10 @@ fn refresh_options(period_seconds: Option<f64>) -> PyResult<RefreshOptions> {
     Ok(options)
 }
 
-fn resolve_options(validate_context: bool) -> ResolveOptions {
+fn resolve_options(validate_context: bool, trace: bool) -> ResolveOptions {
     ResolveOptions {
         validate_context,
-        ..ResolveOptions::default()
+        trace,
     }
 }
 

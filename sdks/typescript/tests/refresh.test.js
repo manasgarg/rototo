@@ -134,3 +134,41 @@ test("refreshing package streams package-driven trace events", async () => {
         rmSync(root, { recursive: true, force: true });
     }
 });
+
+test("refreshing package emits a trace for a per-call trace request", async () => {
+    const root = mkdtempSync(join(tmpdir(), "rototo-typescript-call-trace-"));
+    try {
+        // No [[trace]] policy: the trace is requested by the call itself.
+        mkdirSync(join(root, "variables"));
+        writeFileSync(
+            join(root, "rototo-package.toml"),
+            "schema_version = 1\n",
+        );
+        writeFileSync(
+            join(root, "variables", "message.toml"),
+            'schema_version = 1\ntype = "string"\n\n[resolve]\ndefault = "hello"\n',
+        );
+
+        const pkg = await RefreshingPackage.load(root);
+        const received = [];
+        const pump = (async () => {
+            for await (const item of pkg.traceEvents()) {
+                received.push(item);
+            }
+        })();
+
+        await new Promise((resolve) => setTimeout(resolve, 20));
+        pkg.resolveVariable("message", {}, { trace: true });
+
+        await new Promise((resolve) => setTimeout(resolve, 50));
+        await pkg.shutdown();
+        await pump;
+
+        const trace = received.find((item) => item.kind === "trace");
+        assert.ok(trace, "a per-call trace event was delivered");
+        assert.equal(trace.trace.targetId, "message");
+        assert.equal(trace.trace.targetKind, "variable");
+    } finally {
+        rmSync(root, { recursive: true, force: true });
+    }
+});

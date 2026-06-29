@@ -82,6 +82,7 @@ fn fixtures_command_json_output_describes_invocations() {
 fn printed_resolve_command_runs_end_to_end() {
     let output = Command::cargo_bin("rototo")
         .unwrap()
+        .env("NO_COLOR", "1")
         .args(["fixtures", "examples/basic", "--variable", "user-is-admin"])
         .output()
         .unwrap();

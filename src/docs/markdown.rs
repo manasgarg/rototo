@@ -179,6 +179,23 @@ pub(super) fn render_markdown(markdown: &str) -> String {
                     .expect("code block end event without matching start");
                 events.push(Event::Html(render_code_block(&language, &code).into()));
             }
+            Event::Start(Tag::Link {
+                link_type,
+                dest_url,
+                title,
+                id,
+            }) => {
+                let dest_url = match strip_md_link_extension(&dest_url) {
+                    Some(rewritten) => rewritten.into(),
+                    None => dest_url,
+                };
+                events.push(Event::Start(Tag::Link {
+                    link_type,
+                    dest_url,
+                    title,
+                    id,
+                }));
+            }
             other => events.push(other),
         }
     }
@@ -186,6 +203,25 @@ pub(super) fn render_markdown(markdown: &str) -> String {
     let mut body = String::new();
     html::push_html(&mut body, events.into_iter());
     body
+}
+
+/// Internal doc links are authored as `./concepts.md`, but the rendered HTML
+/// site serves pages without the `.md` source extension. Strip `.md` from
+/// relative links (keeping any `#anchor`) so cross-page links resolve. External
+/// links are left untouched.
+fn strip_md_link_extension(dest: &str) -> Option<String> {
+    if dest.starts_with("http://") || dest.starts_with("https://") || dest.starts_with("mailto:") {
+        return None;
+    }
+    let (path, anchor) = match dest.split_once('#') {
+        Some((path, anchor)) => (path, Some(anchor)),
+        None => (dest, None),
+    };
+    let stripped = path.strip_suffix(".md")?;
+    Some(match anchor {
+        Some(anchor) => format!("{stripped}#{anchor}"),
+        None => stripped.to_owned(),
+    })
 }
 
 fn code_block_language(info: &str) -> String {
@@ -260,6 +296,31 @@ fn sdk_snippet_start(line: &str) -> Option<&str> {
         .strip_prefix(":::sdk-snippet ")
         .map(str::trim)
         .filter(|id| !id.is_empty())
+}
+
+/// Pull the code block for one `language` out of the named `:::sdk-snippet`
+/// group in `markdown`. SDK package READMEs reuse these canonical per-language
+/// snippets instead of keeping their own copies. The returned code keeps its
+/// trailing newline.
+pub(super) fn sdk_snippet_code(markdown: &str, group_id: &str, language: &str) -> Option<String> {
+    let mut lines = markdown.split_inclusive('\n');
+    while let Some(line) = lines.next() {
+        if sdk_snippet_start(line) != Some(group_id) {
+            continue;
+        }
+        let mut group = String::new();
+        for group_line in lines.by_ref() {
+            if group_line.trim() == ":::" {
+                break;
+            }
+            group.push_str(group_line);
+        }
+        return parse_sdk_snippet_blocks(group_id, &group)
+            .into_iter()
+            .find(|(snippet_language, _)| snippet_language == language)
+            .map(|(_, code)| code);
+    }
+    None
 }
 
 fn render_sdk_snippet_group(id: &str, markdown: &str) -> String {

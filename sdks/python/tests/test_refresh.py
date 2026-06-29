@@ -122,6 +122,37 @@ class RefreshingPackageTest(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(traces[0]["trace"]["targetKind"], "variable")
 
 
+    async def test_per_call_trace(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            # No [[trace]] policy: the trace is requested by the call itself.
+            write_package(root, "hello")
+
+            package = await rototo.RefreshingPackage.load(str(root))
+            received: list[dict] = []
+
+            async def collect() -> None:
+                async for item in package.trace_events():
+                    received.append(item)
+
+            import asyncio
+
+            task = asyncio.create_task(collect())
+            # Let the generator subscribe before the resolve that should trace.
+            await asyncio.sleep(0.02)
+
+            package.resolve_variable("message", {}, trace=True)
+
+            await asyncio.sleep(0.05)
+            await package.shutdown()
+            await task
+
+            traces = [item for item in received if item["kind"] == "trace"]
+            self.assertTrue(traces, "expected a per-call trace event")
+            self.assertEqual(traces[0]["trace"]["targetId"], "message")
+            self.assertEqual(traces[0]["trace"]["targetKind"], "variable")
+
+
 def write_traced_package(root: Path) -> None:
     write_package(root, "hello")
     (root / "rototo-package.toml").write_text(

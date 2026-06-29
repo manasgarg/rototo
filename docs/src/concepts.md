@@ -1,36 +1,35 @@
 # Rototo Concepts
 
-The key aspect of Rototo's design is to deal with the dual nature of behavioral configuration: it should follow engineering rigor of code while expressing configuration as data.
-To bring in the engineering rigor, Rototo builds around the notion of cofiguration packages that can follow a lifecycle that's similar to code.
-The whole idea is to pull together all the assets that make up a configuration, organize them in an opionionated directory structure and release them as a unit.
-Within a package, Rototo provides core primitives that can be used for modeling and validating a large variety of configuration representations.
+Rototo is built around one tension: behavioral configuration should get the engineering rigor we give code, while still being as easy to change as data. To bring in the rigor, Rototo organizes everything into a **configuration package** that moves through a lifecycle a lot like code does. The idea is to gather all the pieces of a configuration, lay them out in an opinionated folder structure, and release them together as one unit. Inside a package, Rototo gives you a few core building blocks you can use to model and validate a wide range of configuration.
 
-Here is a one line overview of key concepts:
-- Package: the Git-versioned configuration boundary that's released as a unit.
-- Variable: the named value an application asks for. It can be regular data types (`string`, `int` etc) or a composite value from a `catalog`.
-- Rule: a conditional value selection for a variable. Each rule specifies conditions and the value that gets selected when condition is met.
-- Qualifier: a reusable named condition that can be used in multiple variables.
-- Catalog: a named set of allowed values that variables can select from. Useful to organize objects that adhere to a schema (e.g. LLM parameters).
-- Context: runtime facts supplied by the application.
-- Schema: validation for package structure, context, catalog, or selected values.
-- Lint: validation that the package is structurally and semantically releasable.
+Here's the one-line version of each concept:
+
+- **Package**: the git-versioned boundary that gets released as a unit.
+- **Variable**: the named value an application asks for. It can be a plain type (`string`, `int`, and so on) or a structured value from a `catalog`.
+- **Rule**: a conditional value for a variable. Each rule says "when this condition holds, use this value."
+- **Qualifier**: a reusable named condition you can use across many variables.
+- **Catalog**: a named set of allowed values a variable can pick from. Handy for objects that follow a schema (LLM parameters, say).
+- **Context**: the runtime facts the application hands in.
+- **Schema**: validation for package structure, context, catalog entries, or selected values.
+- **Lint**: the check that a package is structurally and semantically ready to release.
 
 
 ## Rototo Package
 
-Let's first create a Rototo package that would be used throughout this document. Begin with installing the `rototo` cli if you haven't done that yet.
+Let's build a package we'll use for the rest of this page. If you haven't installed the `rototo` CLI yet, start there:
 
 ```sh
 cargo install rototo
 ```
 
-Now, we can create a Rototo package called `app-config`. This is where we would store all the configuration needed by our application.
+Now create a package called `app-config`. This is where all the configuration your application needs will live.
 
 ```sh
 rototo init app-config
 ```
 
-This would create a dir structure that looks like the following:
+That gives you a folder that looks like this:
+
 ```sh
 $> tree app-config
 app-config
@@ -43,24 +42,21 @@ app-config
 6 directories, 1 file
 ```
 
-In this package, `evaluation-contexts`, `qualifiers`, `variables`, `catalogs` and `lint` are Rototo's primitives that we would cover later. The file `rototo-package.toml` is the package level file with the following contents:
+The `evaluation-contexts`, `qualifiers`, `variables`, `catalogs`, and `lint` folders hold Rototo's building blocks - we'll get to each one. The `rototo-package.toml` file is the package-level file, and right now it just says:
 
 ```toml
 schema_version = 1
 ```
 
-The presence of `rototo-package.toml` indicates that `app-config` is the root dir of a Rototo package. And the `schema_version = 1` indicates the current schema for this package. We don't have to worry about this file beyond the fact that it must exist as either blank or with `schema_version` key.
+That file is what marks `app-config` as the root of a Rototo package, and `schema_version = 1` tells Rototo which format it's reading. You don't have to think about this file beyond making sure it exists - either empty or with the `schema_version` key.
 
 ## Variable
 
-A variable is the named configuration value that application code resolves at runtime. The application asks for `checkout-
-timeout`, `llm-model`, or `enable-new-onboarding`, and Rototo decides which value should be returned for the current context.
+A variable is the named value your application code asks for at runtime. The app asks for `checkout-timeout`, `llm-model`, or `enable-new-onboarding`, and Rototo figures out which value to hand back for the current context.
 
-A variable can be backed by a primitive type such as `bool`, `int`, `number`, `string`, or `list`.
-It can also select a value from a catalog when the configuration is a structured object that should
-be reused and validated as a named entry.
+A variable can be backed by a plain type - `bool`, `int`, `number`, `string`, or `list`. It can also pull a value from a catalog when the configuration is a structured object you want to reuse and validate as a named entry.
 
-For example, a variable might define the timeout used by checkout:
+Here's a variable for the checkout timeout:
 
 ```toml
 schema_version = 1
@@ -70,33 +66,24 @@ type = "int"
 default = 2000
 ```
 
-At this point the variable always resolves to 2000. That is already useful: the value is named,
-typed, stored in the package, and reviewed outside the application binary.
+Right now it always resolves to 2000. That's already worth something: the value is named, typed, kept in the package, and reviewed outside the application binary.
 
-We can ensure that the variable resolves per our expectation:
+We can check that it resolves the way we expect:
 
 ```sh
 rototo resolve app-config \
   --variable checkout-timeout
 ```
 
-The next step is to make the value depend on runtime context. Variables do that through rules. Each
-rule says: when these conditions match, use this value instead of the default. Those conditions can
-be written directly, or they can refer to qualifiers when the same condition needs to be reused
-across multiple variables.
+The next step is to let the value depend on runtime context. Variables do that with rules. Each rule says: when these conditions match, use this value instead of the default. You can write those conditions inline, or point at a qualifier when the same condition needs to be reused across several variables.
 
 ## Rule
 
-A rule is how a variable chooses a value for a specific runtime situation. The variable still has
-one name and one contract from the application's point of view, but the package can say that some
-contexts should receive a different value than the default.
+A rule is how a variable picks a value for a specific situation. From the application's side, the variable still has one name and one contract - but the package can say that some contexts should get a different value than the default.
 
-Rules exist to keep conditional configuration out of application code. Instead of writing branching
-logic like “enterprise accounts get a larger limit” inside the service, the service passes account
-facts as context and asks Rototo for the variable. The package owns the condition and the selected
-value.
+Rules exist to keep conditional configuration out of your application code. Instead of writing branching logic like "enterprise accounts get a bigger limit" inside the service, the service passes the account facts as context and asks Rototo for the variable. The package owns the condition and the chosen value.
 
-A variable starts with a default value and the rules can override that default when their conditions match:
+A variable starts with a default, and rules override that default when their conditions match:
 
 ```toml
 schema_version = 1
@@ -110,8 +97,7 @@ when = 'context.account.plan == "enterprise"'
 value = 5000
 ```
 
-When the application resolves this variable, Rototo checks the rules in order. The first matching
-rule wins. If no rule matches, Rototo returns the default.
+When the application resolves this variable, Rototo checks the rules in order. The first one that matches wins. If none match, you get the default.
 
 ```sh
 rototo resolve app-config \
@@ -119,26 +105,17 @@ rototo resolve app-config \
   --context account.plan=enterprise
 ```
 
-That resolution returns `5000`. With a different context, or with no matching context, it returns
-`2000`.
+That resolves to `5000`. With a different context - or no matching context - it's back to `2000`.
 
-Rules can stay close to the variable when the condition is local to that one decision. When the same
-condition starts appearing in several variables, give it a name as a qualifier and reference that
-qualifier from the rules. That keeps the package easier to review: readers can see that several
-variables depend on the same runtime condition instead of reinterpreting the same predicate each
-time.
+Rules can sit right next to the variable when the condition is local to that one decision. But once the same condition starts showing up in several variables, give it a name as a qualifier and have the rules point at that. It keeps the package easier to review: a reader can see that several variables lean on the same runtime condition, instead of re-reading the same predicate every time.
 
 ## Qualifier
 
-A qualifier is a named runtime condition. It evaluates facts from the application context and
-returns whether that condition is true for the current resolution.
+A qualifier is a named runtime condition. It looks at facts from the application context and answers whether that condition is true for the current resolution.
 
-Qualifiers exist because configuration decisions often share the same conditions. If several
-variables need to know whether an account is on an enterprise plan, that condition should have one
-name and one definition. The package can then review and change the condition in one place instead
-of repeating the same predicate across many variable rules.
+Qualifiers exist because configuration decisions often share the same conditions. If several variables need to know whether an account is on an enterprise plan, that condition deserves one name and one definition - so the package can review and change it in one place instead of repeating the same predicate across many rules.
 
-For example, create a qualifier called `enterprise-account`:
+Here's a qualifier called `enterprise-account`:
 
 ```toml
 schema_version = 1
@@ -146,7 +123,7 @@ schema_version = 1
 when = 'context.account.plan == "enterprise"'
 ```
 
-A variable rule can then reference that qualifier:
+Now a variable rule can just point at it:
 
 ```toml
 schema_version = 1
@@ -160,8 +137,7 @@ when = 'env.qualifier["enterprise-account"]'
 value = 5000
 ```
 
-When Rototo resolves the variable, it evaluates the qualifier against the same context passed by the
-application.
+When Rototo resolves the variable, it evaluates the qualifier against the same context the application passed in.
 
 ```sh
 rototo resolve app-config \
@@ -169,52 +145,27 @@ rototo resolve app-config \
   --context account.plan=enterprise
 ```
 
-The rule matches because `enterprise-account` evaluates to `true`, so the selected value is `5000`.
+The rule matches because `enterprise-account` comes out true, so the selected value is `5000`.
 
-Qualifiers can also compose with other qualifiers. That lets the package build named conditions from
-smaller named conditions, while still keeping variable rules readable. The useful boundary is that
-qualifiers describe when a configuration choice should apply, while variables describe what value
-the application receives.
+Qualifiers can also build on other qualifiers, so the package can compose named conditions out of smaller named conditions while keeping the rules readable. The useful line to hold: qualifiers describe *when* a configuration choice applies, and variables describe *what* value the application gets.
 
 ## The expression language
 
-The strings in `when` (and the `query` form used for catalog-backed variables) are not a bespoke
-Rototo syntax. They are a subset of [CEL](https://cel.dev), the Common Expression Language. CEL is a
-small, well-specified, side-effect-free expression language designed exactly for this job: evaluating
-a boolean (or a value) against a structured input, safely and predictably. Reusing it means the
-syntax is already documented and stable, and the evaluation has no surprises — no loops, no
-assignment, no I/O.
+The strings in `when` (and the `query` form used for catalog-backed variables) aren't some bespoke Rototo syntax. They're a subset of [CEL](https://cel.dev), the Common Expression Language. CEL is a small, well-specified, side-effect-free language built for exactly this job: evaluating a boolean (or a value) against a structured input, safely and predictably. Reusing it means the syntax is already documented and stable, and the evaluation holds no surprises - no loops, no assignment, no I/O.
 
-Rototo evaluates these expressions and adds two things on top of plain CEL. First, three input
-variables are always in scope. `context` is the runtime facts the application passes in. `entry` is
-the catalog entry under consideration in a `query`. `env` is everything Rototo itself provides, so
-that what the application supplies (`context`) stays visibly separate from what the control plane
-supplies. Today `env` has two members: `env.qualifier["enterprise-account"]` reads another qualifier,
-and `env.now` is the evaluation timestamp, an RFC3339 string Rototo captures once per resolution.
-Second, a set of named functions that configuration conditions keep needing — for example
-`startsWith`, `matches`, `semver`, `cidr`, `bucket`, and the `timeBefore`/`timeBetween` family. So a
-`when` expression is ordinary CEL — `==`, `&&`, `in`, `has()`, indexing, comparisons — against those
-variables, plus those functions.
+Rototo evaluates these expressions and adds two things on top of plain CEL. First, three input variables are always in scope. `context` is the runtime facts the application passes in. `entry` is the catalog entry under consideration in a `query`. And `env` is everything Rototo itself provides - kept separate so that what the application supplies (`context`) stays visibly distinct from what the control plane supplies. Today `env` has two members: `env.qualifier["enterprise-account"]` reads another qualifier, and `env.now` is the evaluation timestamp, an RFC3339 string Rototo captures once per resolution. Second, a set of named functions that configuration conditions keep reaching for - things like `startsWith`, `matches`, `semver`, `cidr`, `bucket`, and the `timeBefore`/`timeBetween` family. So a `when` expression is ordinary CEL - `==`, `&&`, `in`, `has()`, indexing, comparisons - against those variables, plus those functions.
 
-`env.now` reads the wall clock, so a condition gated on it resolves differently as time passes. That
-is the right behavior for a launch window that should open on its own, but it means the same package
-version is no longer a pure function of the context you pass. When you need a resolution you can
-reproduce — in a test, a `diff`, or an audit — pass the evaluation time in `context` and compare
-against that path instead, so the timestamp is an input you control rather than the ambient clock.
+`env.now` reads the wall clock, so a condition that depends on it resolves differently as time passes. That's exactly right for a launch window meant to open on its own, but it does mean the same package version is no longer a pure function of the context you pass. When you need a resolution you can reproduce - in a test, a `diff`, or an audit - pass the evaluation time in `context` and compare against that path instead, so the timestamp is an input you control rather than the ambient clock.
 
-Rototo deliberately keeps to a subset. The schema-aware lint checks how each `context` path is used
-and confirms an evaluation context declares it with a matching type, so a condition that compares a
-string field as a number, or reads a field no context provides, is caught before release rather than
-at runtime. Paths used as an IP (`cidr`) or a timestamp (the `time*` functions) must be declared with
-the matching JSON Schema format, because Rototo asserts those formats on the values too.
+Rototo deliberately sticks to a subset. The schema-aware lint looks at how each `context` path is used and confirms an evaluation context declares it with a matching type - so a condition that compares a string field as a number, or reads a field no context provides, gets caught before release instead of at runtime. Paths used as an IP (`cidr`) or a timestamp (the `time*` functions) have to be declared with the matching JSON Schema format, because Rototo checks those formats on the values too.
 
 ## Catalog
 
-Primitive variables are enough for values like a timeout, a feature flag, or a string. But some configuration needs to be represented as a structured object. An LLM configuration, for example, is not just a model name. It may include the model, gateway, prompt, token budget, and temperature. Those fields should be reviewed together and validated together.
+Plain variables are plenty for a timeout, a feature flag, or a string. But some configuration needs to be a structured object. An LLM configuration, for instance, isn't just a model name - it might include the model, gateway, prompt, token budget, and temperature, and those fields should be reviewed and validated together.
 
-A catalog is a named set of allowed structured values. Each entry in the catalog has a name, and each entry must match the catalog schema. A catalog-backed variable then selects one of those entries by name.
+A catalog is a named set of allowed structured values. Each entry has a name, and each entry has to match the catalog schema. A catalog-backed variable then selects one of those entries by name.
 
-For example, define a catalog schema for LLM parameters:
+For example, here's a catalog schema for LLM parameters:
 
 ```json
 {
@@ -236,7 +187,7 @@ Save that as:
 catalogs/llm-parameters.schema.json
 ```
 
-Then add catalog entries under a matching entries directory:
+Then add catalog entries under a matching entries folder:
 
 ```sh
 catalogs/llm-parameters-entries/standard.toml
@@ -252,7 +203,7 @@ max_output_tokens = 2400
 temperature = 0.3
 ```
 
-And an `enterprise` entry might look like this:
+And an `enterprise` entry like this:
 
 ```toml
 model = "gpt-5"
@@ -261,7 +212,7 @@ max_output_tokens = 5000
 temperature = 0.2
 ```
 
-A variable can now select from that catalog:
+Now a variable can select from that catalog:
 
 ```toml
 schema_version = 1
@@ -275,22 +226,15 @@ when = 'env.qualifier["enterprise-account"]'
 value = "enterprise"
 ```
 
-The variable still behaves like any other variable from the application's point of view. The
-application asks for the named variable, passes runtime context, and receives the selected value.
-The difference is that the selected value is a validated catalog entry, not a primitive literal.
+From the application's point of view, this still behaves like any other variable. The app asks for the named variable, passes context, and gets the selected value back. The difference is that the value is a validated catalog entry, not a primitive literal.
 
-This keeps structured configuration from being scattered across multiple unrelated variables. If
-several fields must change together, a catalog gives that combination a name and lets lint catch
-missing fields, invalid field types, and references to entries that do not exist.
+This keeps structured configuration from getting scattered across a bunch of unrelated variables. When several fields have to change together, a catalog gives that combination a name and lets lint catch missing fields, wrong field types, and references to entries that don't exist.
 
 ## Catalog Query
 
-Sometimes the application does not need one catalog entry. It needs a filtered list of entries. A
-common example is a dropdown: the package may define every supported LLM parameter set, but the
-application should only show the ones that are currently enabled.
+Sometimes the application doesn't want one catalog entry - it wants a filtered list of them. A dropdown is the classic case: the package might define every supported LLM parameter set, but the app should only show the ones that are currently enabled.
 
-Catalog queries handle that case. A variable can resolve to `list<catalog:...>` and use a query to
-select matching catalog entries.
+Catalog queries handle that. A variable can resolve to `list<catalog:...>` and use a query to pick the matching entries.
 
 First, add an `enabled` field to the `llm-parameters` catalog schema:
 
@@ -310,7 +254,7 @@ First, add an `enabled` field to the `llm-parameters` catalog schema:
 }
 ```
 
-Then catalog entries can decide whether they are selectable:
+Then entries can say whether they're selectable:
 
 ```toml
 enabled = true
@@ -334,28 +278,23 @@ default = []
 query = "entry.enabled == true"
 ```
 
-When the application resolves this variable, Rototo evaluates the query against each catalog entry.
-Every matching entry is returned as part of the resolved list.
+When the application resolves this variable, Rototo runs the query against each catalog entry and returns every entry that matches as part of the list.
 
-That gives the application a reviewed, validated set of dropdown options without hardcoding the
-allowed choices in the UI. Rototo owns which entries exist and which ones are enabled; the
-application owns how to render the returned list.
+That gives the application a reviewed, validated set of dropdown options without hardcoding the choices in the UI. Rototo owns which entries exist and which are enabled; the application owns how to render the list it gets back.
 
 ## Context
 
-Context is the runtime data the application gives to Rototo when it asks for a variable. The Rototo package
-contains the configuration, but the application still knows the facts about the current request,
-user, account, device, cart, or environment. Context is how those facts are injected into resolution process.
+Context is the runtime data the application hands to Rototo when it asks for a variable. The package holds the configuration, but the application is the one that knows the facts about the current request, user, account, device, cart, or environment. Context is how those facts get into the resolution.
 
 For example, this CLI input:
 
 ```sh
-rototo variable resolve checkout-timeout \
-  --package app-config \
+rototo resolve app-config \
+  --variable checkout-timeout \
   --context account.plan=enterprise
 ```
 
-is equivalent to resolving with this JSON context:
+is the same as resolving with this JSON context:
 
 ```json
 {
@@ -371,9 +310,7 @@ Rules and qualifiers read that context through `context.<path>` expressions:
 when = 'context.account.plan == "enterprise"'
 ```
 
-Context should have a contract. Without one, package authors can accidentally write rules against
-fields the application never sends, or compare a field as a string when the application sends a
-number. Rototo handles that with evaluation context schemas.
+Context should have a contract. Without one, package authors can accidentally write rules against fields the application never sends, or compare a field as a string when the app actually sends a number. Rototo handles that with evaluation context schemas.
 
 Create a schema at:
 
@@ -381,7 +318,7 @@ Create a schema at:
 evaluation-contexts/request.schema.json
 ```
 
-For the examples above, the schema might start like this:
+For the examples above, it might start like this:
 
 ```json
 {
@@ -428,19 +365,15 @@ evaluation-contexts/request-samples/enterprise.json
 }
 ```
 
-Those samples are useful for local resolution, linting, review, and documentation. They make the
-runtime assumptions visible in the package instead of leaving them implicit in application code.
+Those samples are handy for local resolution, linting, review, and documentation. They make the runtime assumptions visible in the package instead of leaving them buried in application code.
 
-Context is not configuration. It is the input used to choose configuration. The package owns the
-rules, qualifiers, schemas, catalog entries, and variable values; the application owns the runtime
-facts it passes into resolution.
+Context isn't configuration. It's the input used to *choose* configuration. The package owns the rules, qualifiers, schemas, catalog entries, and variable values; the application owns the runtime facts it passes into resolution.
 
 ## Schema
 
-Schemas are the foundation and first line of defence in Rototo's validation strategy. A package
-can contain many files, but the important values still need contracts be it evaluation contexts or catalog entries.
+Schemas are the foundation and the first line of defense in how Rototo validates a package. A package can hold a lot of files, but the values that matter still need contracts - whether that's an evaluation context or a catalog entry.
 
-We have already used two kinds of schemas.
+We've already used two kinds of schema.
 
 The first is the evaluation context schema:
 
@@ -448,10 +381,7 @@ The first is the evaluation context schema:
 evaluation-contexts/request.schema.json
 ```
 
-This schema describes the runtime facts the application may pass into resolution. When a qualifier
-reads context.account.plan, the schema is where that path is declared and typed. That lets Rototo
-catch package mistakes before release, such as a qualifier depending on context.account.tier when
-the application only sends context.account.plan.
+This describes the runtime facts the application may pass into resolution. When a qualifier reads `context.account.plan`, the schema is where that path is declared and typed. That lets Rototo catch package mistakes before release - like a qualifier depending on `context.account.tier` when the app only ever sends `context.account.plan`.
 
 The second is the catalog schema:
 
@@ -459,9 +389,7 @@ The second is the catalog schema:
 catalogs/llm-parameters.schema.json
 ```
 
-This schema describes every entry in the llm-parameters catalog. If the schema says
-max_output_tokens must be an integer and temperature must be between 0 and 2, every catalog
-entry has to satisfy that contract.
+This describes every entry in the `llm-parameters` catalog. If the schema says `max_output_tokens` must be an integer and `temperature` must sit between 0 and 2, every entry has to satisfy that contract.
 
 For example, this entry is valid:
 
@@ -474,7 +402,7 @@ max_output_tokens = 2400
 temperature = 0.3
 ```
 
-This entry should fail validation:
+And this one should fail validation:
 
 ```toml
 enabled = true
@@ -485,36 +413,25 @@ max_output_tokens = "many"
 temperature = 9
 ```
 
-That failure matters because it happens while the package is being reviewed, not after the
-application has loaded the configuration in production.
+That failure matters because it happens while the package is being reviewed - not after the application has already loaded the configuration in production.
 
-Schemas are not the runtime API. Variables are still what applications resolve. Schemas sit behind
-variables, catalogs, and context to make sure the package is safe to release. The next step is lint:
-the package-level check that applies these contracts and reports whether the whole package is
-structurally and semantically valid.
+Schemas aren't the runtime API. Variables are still what applications resolve. Schemas sit behind variables, catalogs, and context to make sure the package is safe to release. Which brings us to lint: the package-level check that applies these contracts and tells you whether the whole package holds together.
 
 ## Lint
 
-Lint is the package release gate. It checks whether the package files are valid on their own and
-whether they make sense together as one releasable unit.
+Lint is the release gate for a package. It checks whether the files are valid on their own, and whether they make sense together as one releasable unit.
 
-Run lint before treating a package change as ready:
+Run it before you treat a package change as ready:
 
 ```sh
 rototo lint app-config
 ```
 
-Built-in lint covers the Rototo model: the package manifest, variables, rules, qualifiers, catalogs,
-catalog entries, evaluation context schemas, and the references between them. It can catch mistakes
-such as a variable selecting a catalog entry that does not exist, a rule referencing an unknown
-qualifier, a catalog entry failing its schema, or a qualifier reading a context path that is not
-declared by an evaluation context schema.
+Built-in lint covers the Rototo model: the package manifest, variables, rules, qualifiers, catalogs, catalog entries, evaluation context schemas, and the references between them. It catches things like a variable selecting a catalog entry that doesn't exist, a rule referencing an unknown qualifier, a catalog entry that fails its schema, or a qualifier reading a context path no evaluation context schema declares.
 
-Rototo also supports custom lint for policy that belongs to your package. Built-in lint can validate
-Rototo semantics, but it cannot know your operational rules. For example, a team may decide that
-enabled LLM parameter sets must use a conservative temperature.
+Rototo also supports custom lint for the policy that belongs to *your* package. Built-in lint validates Rototo semantics, but it can't know your operational rules. A team might decide, say, that enabled LLM parameter sets have to use a conservative temperature.
 
-Custom lint lives under the package's lint/ directory as Lua files:
+Custom lint lives under the package's `lint/` folder as Lua files:
 
 ```lua
 function register(lint)
@@ -541,8 +458,7 @@ function check_temperature(package, entry)
 end
 ```
 
-The custom rule id uses an authority owned by the package or team, such as `ai/....` Rototo's
-built-in diagnostics use the reserved `rototo/...` authority.
+The custom rule id uses an authority your package or team owns, like `ai/...`. Rototo's built-in diagnostics use the reserved `rototo/...` authority.
 
 For automation, lint can emit JSON:
 
@@ -550,19 +466,13 @@ For automation, lint can emit JSON:
 rototo lint app-config --json
 ```
 
-Lint is where the package model comes together. Variables define what applications ask for, rules
-and qualifiers define when values apply, catalogs define reusable structured values, context schemas
-define runtime inputs, and lint checks that those pieces form a coherent package before release.
+Lint is where the package model comes together. Variables define what applications ask for, rules and qualifiers define when values apply, catalogs hold reusable structured values, context schemas define runtime inputs, and lint checks that all of it forms a coherent package before release.
 
 ## Putting It Together
 
-A Rototo package is the unit that gets reviewed and released. Inside that package, variables define
-the values applications ask for, rules choose values for runtime situations, qualifiers give shared
-conditions a name, catalogs hold structured reusable values, context carries runtime facts from the
-application, schemas define the contracts, and lint checks that the whole package is releasable.
+A Rototo package is the unit that gets reviewed and released. Inside it, variables define the values applications ask for, rules choose values for runtime situations, qualifiers give shared conditions a name, catalogs hold structured reusable values, context carries runtime facts from the application, schemas define the contracts, and lint checks that the whole thing is releasable.
 
-At runtime, the application does not read individual TOML or JSON files. It loads a package source
-and resolves named variables with context:
+At runtime, the application doesn't read individual TOML or JSON files. It loads a package source and resolves named variables with context:
 
 ```sh
 rototo resolve app-config \
@@ -570,10 +480,6 @@ rototo resolve app-config \
   --context account.plan=enterprise
 ```
 
-The same model works when the package comes from Git instead of a local directory. The source changes,
-but the boundary stays the same: the application loads a reviewed package and asks Rototo for typed
-configuration values.
+The same model works when the package comes from git instead of a local folder. The source changes, but the boundary stays the same: the application loads a reviewed package and asks Rototo for typed configuration values.
 
-That is the core Rototo model. Configuration remains data, so it can be reviewed, validated, and
-released independently from the application binary. But it still follows engineering discipline:
-clear ownership, explicit contracts, reproducible package state, and checks before release.
+That's the core Rototo model. Configuration stays data, so it can be reviewed, validated, and released on its own schedule, apart from the application binary. But it still follows engineering discipline: clear ownership, explicit contracts, reproducible package state, and checks before release.

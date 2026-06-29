@@ -26,7 +26,7 @@ fn docs_navigation_is_grouped_and_complete() {
         .collect::<Vec<_>>();
     assert_eq!(
         titles,
-        vec!["Start", "Learn"],
+        vec!["Start", "Learn", "Reference"],
         "documentation navigation should match the active docs scaffold"
     );
 
@@ -90,8 +90,7 @@ fn bundled_docs_avoid_ambiguous_audience_terms() {
 }
 
 #[test]
-#[ignore = "temporarily disabled while the public docs source is being rewritten"]
-fn package_readmes_are_generated_from_sdk_reference_docs() {
+fn package_readmes_are_generated_from_rust_readme() {
     assert_package_readme_is_generated("python");
     assert_package_readme_is_generated("typescript");
     assert_package_readme_is_generated("java");

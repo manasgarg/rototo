@@ -8,9 +8,15 @@ The publishable pages live under `docs/src/`:
 ```text
 docs/src/
   motivation.md
+  quickstart.md
   concepts.md
-  development-workflow.md
-  production-workflow.md
+  adoption.md
+  cli.md
+  package-format.md
+  package-sources.md
+  expressions.md
+  diagnostics.md
+  sdk.md
 ```
 
 The CLI embeds the pages registered in `src/docs.rs`. When adding, moving, or
@@ -18,15 +24,22 @@ renaming a page, update that registry and `DOC_NAV_SECTIONS` in the same file.
 The consistency tests require every Markdown file under `docs/src/` to be
 registered and listed in navigation exactly once.
 
-The current source tree is intentionally small while the public docs are being
-rewritten. SDK package README generation is temporarily ignored until the new
-SDK reference source exists again.
+Each language SDK's `README.md` is generated from the root `README.md` (the Rust
+SDK's README): shared prose and the CLI walkthrough are copied verbatim, and the
+title plus the per-language runtime example are swapped in. Regenerate with
+`rototo docs --package-readme <sdk> --out sdks/<sdk>/README.md`. The
+`package_readmes_are_generated_from_rust_readme` test keeps the committed files
+in sync, so edit the root `README.md` (and the quickstart snippet it reuses),
+not the generated SDK files.
 
 ## Writing Voice
 
-Write public docs in the senior-engineer voice defined in `AGENTS.md`: practical,
-experienced, warm, and precise. The docs should feel like an engineer sharing
-the production pattern they trust, not a feature catalog.
+Write every public doc in plain, everyday language, the way one engineer would
+explain it to another over coffee. No jargon, no dense paragraphs, no spec-speak.
+This applies to reference pages too: they still have to be exact, but "exact" is
+not the same as "dry". `docs/src/package-sources.md` is the reference example of
+this tone; match it. Never use em-dashes (`—`); use a comma, colon, parentheses,
+or a spaced hyphen instead. The full guidance lives in `AGENTS.md`.
 
 Before finishing a docs change, check that the page:
 

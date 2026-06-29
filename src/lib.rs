@@ -11,6 +11,7 @@ pub mod lint;
 pub mod lsp;
 pub mod lua_lint;
 pub mod model;
+pub mod pack;
 pub mod package;
 mod predicate;
 pub mod resolve;
@@ -23,6 +24,7 @@ pub use diagnostics_catalog::{
 pub use error::{Result, RototoError};
 pub use inspect::inspect_package_report;
 pub use lint::{diff_packages, lint_catalog, lint_package, lint_qualifier, lint_variable};
+pub use pack::{PackagedArchive, pack_package};
 pub use package::{
     find_package_root, inspect_package, list_catalogs, list_qualifiers, list_variables,
     read_catalog, read_catalogs, read_qualifier, read_qualifiers, read_variable, read_variables,

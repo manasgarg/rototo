@@ -17,6 +17,7 @@ public final class JavaSdkTest {
         refresh();
         events();
         traceEvents();
+        perCallTrace();
     }
 
     private static void api() throws Exception {
@@ -228,6 +229,36 @@ public final class JavaSdkTest {
 
             if (!traced.await(5, TimeUnit.SECONDS)) {
                 throw new AssertionError("did not observe a package-driven trace event");
+            }
+            Object trace = captured.get().get("trace");
+            java.util.Map<String, Object> traceMap = Json.asObject(trace);
+            assertEquals("message", traceMap.get("targetId"), "trace targetId");
+            assertEquals("variable", traceMap.get("targetKind"), "trace targetKind");
+
+            await(pkg.shutdown());
+        } finally {
+            deleteRecursively(root);
+        }
+    }
+
+    private static void perCallTrace() throws Exception {
+        Path root = Files.createTempDirectory("rototo-java-call-trace");
+        // No [[trace]] policy: the trace is requested by the call itself.
+        writeMessagePackage(root, "hello");
+        try (RefreshingPackage pkg = await(RefreshingPackage.load(root.toString()))) {
+            CountDownLatch traced = new CountDownLatch(1);
+            AtomicReference<java.util.Map<String, Object>> captured = new AtomicReference<>();
+            pkg.addTraceListener(item -> {
+                if ("trace".equals(item.get("kind"))) {
+                    captured.set(item);
+                    traced.countDown();
+                }
+            });
+
+            pkg.resolveVariable("message", java.util.Map.of(), ResolveOptions.trace(true));
+
+            if (!traced.await(5, TimeUnit.SECONDS)) {
+                throw new AssertionError("did not observe a per-call trace event");
             }
             Object trace = captured.get().get("trace");
             java.util.Map<String, Object> traceMap = Json.asObject(trace);

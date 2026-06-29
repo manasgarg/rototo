@@ -79,77 +79,62 @@ rototo resolve app-config --variable free-shipping-threshold --context account.t
 rototo resolve app-config --variable free-shipping-threshold --context account.tier=premium
 ```
 
-### Load the configuration package and resolve free shipping threshold
+<!-- rototo:sdk-quickstart:start -->
+### Load the configuration package and resolve the threshold
 
-Install Rototo's python package:
+Now let's read that value from an application. Install the rototo Rust SDK:
+
 ```sh
-python -m pip install rototo
+cargo add rototo@0.1.0-alpha.5 serde_json
+cargo add tokio --features rt-multi-thread,macros
 ```
 
-We would use Python for our hello world. Save the following in `hello-rototo.py`:
-```python
-import asyncio
-import sys
+Save this as `src/main.rs`. It loads a *refreshing* package (one that re-reads the source in the background) and prints the free-shipping threshold for a standard and a premium account every couple of seconds:
 
-import rototo
+```rust
+use std::time::Duration;
 
-VARIABLE_ID = "free-shipping-threshold"
+use rototo::{EvaluationContext, RefreshOptions, RefreshingPackage};
+use serde_json::json;
 
-def print_threshold(app_config: rototo.RefreshingPackage, tier: str) -> None:
-    resolution = app_config.resolve_variable(
-        variable = VARIABLE_ID,
-        context = {
-            "account": {
-                "tier": tier,
-            },
-        },
+const VARIABLE_ID: &str = "free-shipping-threshold";
+
+#[tokio::main]
+async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let app_config = RefreshingPackage::load(
+        "app-config",
+        RefreshOptions::new().with_period(Duration::from_secs(1)),
     )
+    .await?;
 
-    threshold = resolution.value
-    print(f'{tier}: {threshold} USD')
-
-
-async def main() -> None:
-    config_source = sys.argv[1] if len(sys.argv) > 1 else "app-config"
-
-    app_config = await rototo.RefreshingPackage.load(
-        config_source,
-        period_seconds=1.0,
-    )
-
-    try:
-        while True:
-            print("---")
-            print_threshold(app_config, "standard")
-            print_threshold(app_config, "premium")
-            await asyncio.sleep(2.0)
-    finally:
-        await app_config.shutdown()
-
-
-if __name__ == "__main__":
-    asyncio.run(main())
-
+    loop {
+        println!("---");
+        for tier in ["standard", "premium"] {
+            let context = EvaluationContext::from_json(json!({ "account": { "tier": tier } }))?;
+            let resolution = app_config.resolve_variable(VARIABLE_ID, &context)?;
+            println!("{tier}: {} USD", resolution.value);
+        }
+        tokio::time::sleep(Duration::from_secs(2)).await;
+    }
+}
 ```
 
-Run it with:
-```sh
-python hello-rototo.py app-config/
-```
+Run it (`cargo run`) from the directory that holds `app-config`, and it prints:
 
-It would print the following:
-```
+```text
 ---
 standard: 50 USD
 premium: 25 USD
 ```
 
-Now, go ahead and edit `free-shipping-threshold.toml` and change the default value to 35. You would now see the following on console:
-```
+Now edit `free-shipping-threshold.toml`, change the default to 35, and save. Because the package refreshes every second, the next tick shows:
+
+```text
 ---
 standard: 50 USD
 premium: 35 USD
 ```
+<!-- rototo:sdk-quickstart:end -->
 
 ## Documentation
 

@@ -1,16 +1,4 @@
-<!-- Generated from README.md by `rototo docs --package-readme java --out sdks/java/README.md`. Do not edit directly. -->
-
-# rototo Java SDK
-
-Every substantial software system eventually needs a configuration subsystem. The software provides the underlying capabilities; configuration steers those capabilities to behave in a particular way.
-
-Some configuration is settings-style: things like database URLs and encryption keys, usually held in environment variables and fixed once the software is deployed. That's not the kind we're concerned with here. What interests us instead is the configuration that governs the system's runtime behavior: feature availability, model selection, tenant overrides, offers, retry policies, logging controls, rollout plans, and so on.
-
-Rototo provides a control plane for this kind of runtime configuration. It rests on a simple premise: runtime configuration should be treated like code. It should live alongside the code and follow a similar release cycle, and it should be testable and contract-enforced in the same way.
-
-To that end, Rototo models configuration as files that are versioned, reviewed, tested, and released as packages. The Rototo SDK loads these packages within the application runtime to guide the application's behavior. Configuration thus follows the same release process as code, while gaining a hot-swappable deployment mechanism.
-
-## Rototo's hello world
+# Quickstart with Rototo
 
 Let's take a simple use case: we want to vary the order amount beyond which customers get free shipping.
 Customers in `standard` tier must have at least $50 as cart total while customers in `premium` tier get free shipping after $25.
@@ -45,7 +33,7 @@ app-config
 6 directories, 2 files
 ```
 
-We explain the package model in [Rototo Concepts](https://docs.rototo.dev/concepts.html). For now, we would focus on the variable `free-shipping-threshold`. Replace the contents of `free-shipping-threshold.toml` with the following:
+We explain the package model in [Rototo Concepts](docs/src/concepts.md). For now, we would focus on the variable `free-shipping-threshold`. Replace the contents of `free-shipping-threshold.toml` with the following:
 ```toml
 schema_version = 1
 description = "$ threshold for free shipping."
@@ -83,23 +71,100 @@ rototo resolve app-config --variable free-shipping-threshold --context account.t
 
 ### Load the configuration package and resolve the threshold
 
-Now let's read that value from an application. Install the rototo Java SDK:
+Now let's read that value from an application. This is where the SDK comes in:
+your app points it at the same package source you've been using on the command
+line, and asks for the variable by name. rototo ships SDKs for Rust, Python,
+TypeScript, Go, and Java - pick yours below.
 
-```gradle
-implementation("dev.rototo:rototo:0.1.0-alpha.5")
+First install the SDK for your language - `pip install rototo` for Python,
+`npm install rototo` for Node, the `rototo` crate for Rust, and so on.
+
+Then save this little program. It loads the package, and every couple of seconds
+prints the free-shipping threshold for a standard account and a premium one.
+The interesting bit is that it loads a *refreshing* package - one that re-reads
+the source in the background - so it'll notice config changes while it's running.
+
+:::sdk-snippet quickstart-app
+```rust
+use std::time::Duration;
+
+use rototo::{EvaluationContext, RefreshOptions, RefreshingPackage};
+use serde_json::json;
+
+const VARIABLE_ID: &str = "free-shipping-threshold";
+
+#[tokio::main]
+async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let app_config = RefreshingPackage::load(
+        "app-config",
+        RefreshOptions::new().with_period(Duration::from_secs(1)),
+    )
+    .await?;
+
+    loop {
+        println!("---");
+        for tier in ["standard", "premium"] {
+            let context = EvaluationContext::from_json(json!({ "account": { "tier": tier } }))?;
+            let resolution = app_config.resolve_variable(VARIABLE_ID, &context)?;
+            println!("{tier}: {} USD", resolution.value);
+        }
+        tokio::time::sleep(Duration::from_secs(2)).await;
+    }
+}
 ```
 
-Or with Maven:
+```python
+import asyncio
 
-```xml
-<dependency>
-  <groupId>dev.rototo</groupId>
-  <artifactId>rototo</artifactId>
-  <version>0.1.0-alpha.5</version>
-</dependency>
+import rototo
+
+VARIABLE_ID = "free-shipping-threshold"
+
+
+def print_threshold(app_config, tier):
+    resolution = app_config.resolve_variable(
+        VARIABLE_ID,
+        {"account": {"tier": tier}},
+    )
+    print(f"{tier}: {resolution.value} USD")
+
+
+async def main():
+    app_config = await rototo.RefreshingPackage.load("app-config", period_seconds=1.0)
+    try:
+        while True:
+            print("---")
+            print_threshold(app_config, "standard")
+            print_threshold(app_config, "premium")
+            await asyncio.sleep(2.0)
+    finally:
+        await app_config.shutdown()
+
+
+asyncio.run(main())
 ```
 
-Save this as `HelloRototo.java`. It loads a *refreshing* package (one that re-reads the source in the background) and prints the free-shipping threshold for a standard and a premium account every couple of seconds:
+```typescript
+import { RefreshingPackage } from "rototo";
+
+const VARIABLE_ID = "free-shipping-threshold";
+const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+
+const appConfig = await RefreshingPackage.load("app-config", { periodSeconds: 1 });
+
+try {
+  while (true) {
+    console.log("---");
+    for (const tier of ["standard", "premium"]) {
+      const resolution = appConfig.resolveVariable(VARIABLE_ID, { account: { tier } });
+      console.log(`${tier}: ${resolution.value} USD`);
+    }
+    await sleep(2000);
+  }
+} finally {
+  await appConfig.shutdown();
+}
+```
 
 ```java
 import dev.rototo.RefreshingPackage;
@@ -135,21 +200,67 @@ public class HelloRototo {
 }
 ```
 
-Run it (`java HelloRototo.java`) from the directory that holds `app-config`, and it prints:
+```go
+package main
 
-```text
+import (
+    "context"
+    "fmt"
+    "time"
+
+    "github.com/manasgarg/rototo/sdks/go"
+)
+
+const variableID = "free-shipping-threshold"
+
+func main() {
+    ctx := context.Background()
+    period := 1.0
+    appConfig, err := rototo.LoadRefreshing(ctx, "app-config", &rototo.RefreshingPackageOptions{
+        PeriodSeconds: &period,
+    })
+    if err != nil {
+        panic(err)
+    }
+    defer appConfig.Shutdown(ctx)
+
+    for {
+        fmt.Println("---")
+        for _, tier := range []string{"standard", "premium"} {
+            resolution, err := appConfig.ResolveVariable(variableID, map[string]any{
+                "account": map[string]any{"tier": tier},
+            }, nil)
+            if err != nil {
+                panic(err)
+            }
+            fmt.Printf("%s: %v USD\n", tier, resolution.Value)
+        }
+        time.Sleep(2 * time.Second)
+    }
+}
+```
+:::
+
+Run it, pointing at the package you created. It prints:
+
+```
 ---
 standard: 50 USD
 premium: 25 USD
 ```
 
-Now edit `free-shipping-threshold.toml`, change the default to 35, and save. Because the package refreshes every second, the next tick shows:
+Now leave it running, open `free-shipping-threshold.toml`, change the default
+value to 35, and save. Because the program reloads the package every second, the
+next tick picks up your change on its own - no restart:
 
-```text
+```
 ---
 standard: 50 USD
 premium: 35 USD
 ```
+
+That's the whole loop: edit reviewed config in the package, and a running app
+refreshes into it.
 
 ## Documentation
 
@@ -179,12 +290,3 @@ Hence, Rototo is designed from ground up to work well both for people and agents
 - `rototo resolve` for test automation of invariants (e.g. customer X must always receive configuration Y otherwise something is wrong).
 - `rototo lsp` to provide feedback (and help) during editing.
 - `rototo console` to have the comfort of a react based UI for inspecting and editing the package.
-
-## License
-
-Licensed under either of:
-
-- Apache License, Version 2.0
-- MIT license
-
-at your option.

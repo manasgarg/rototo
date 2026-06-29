@@ -60,6 +60,7 @@ fn quiet_suppresses_successful_lint_output() {
 fn quiet_keeps_lint_diagnostics() {
     Command::cargo_bin("rototo")
         .unwrap()
+        .env("NO_COLOR", "1")
         .args(["--quiet", "lint", "tests/fixtures/packages/lint-failures"])
         .assert()
         .failure()
@@ -70,6 +71,7 @@ fn quiet_keeps_lint_diagnostics() {
 fn resolve_reports_missing_context_attributes() {
     Command::cargo_bin("rototo")
         .unwrap()
+        .env("NO_COLOR", "1")
         .args([
             "resolve",
             "examples/basic",
@@ -106,7 +108,7 @@ fn resolve_succeeds_without_context_gaps() {
 fn old_noun_commands_are_removed() {
     Command::cargo_bin("rototo")
         .unwrap()
-        .args(["package", "lint", "examples/basic"])
+        .args(["qualifier", "lint", "examples/basic"])
         .assert()
         .failure();
 }
@@ -193,6 +195,7 @@ fn diff_defaults_to_head_vs_worktree_for_local_package() {
     Command::cargo_bin("rototo")
         .unwrap()
         .current_dir(&repo)
+        .env("NO_COLOR", "1")
         .args(["diff", "config", "--context", "{}"])
         .assert()
         .success()
@@ -226,6 +229,7 @@ fn diff_compares_explicit_git_refs() {
     Command::cargo_bin("rototo")
         .unwrap()
         .current_dir(&repo)
+        .env("NO_COLOR", "1")
         .args(["diff", "config", "--from", "HEAD~1", "--to", "HEAD"])
         .assert()
         .success()
@@ -449,6 +453,7 @@ fn lists_bundled_docs() {
 fn shows_bundled_docs_by_prefix_as_markdown() {
     Command::cargo_bin("rototo")
         .unwrap()
+        .env("NO_COLOR", "1")
         .args(["docs", "-p", "motivation"])
         .assert()
         .success()
@@ -759,6 +764,63 @@ fn init_git_repo(repo: &Path) {
     git(repo, &["config", "user.name", "Rototo Tests"]);
     git(repo, &["add", "."]);
     git(repo, &["commit", "-m", "initial"]);
+}
+
+#[test]
+fn package_writes_a_deterministic_content_addressed_archive() {
+    let temp = tempfile::tempdir().unwrap();
+    let first = temp.path().join("first");
+    let second = temp.path().join("second");
+
+    Command::cargo_bin("rototo")
+        .unwrap()
+        .args(["package", "examples/basic", "--output"])
+        .arg(&first)
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("sha256:"));
+    Command::cargo_bin("rototo")
+        .unwrap()
+        .args(["package", "examples/basic", "--output"])
+        .arg(&second)
+        .assert()
+        .success();
+
+    let first_name = single_file_name(&first);
+    let second_name = single_file_name(&second);
+    // The archive name is the content address, and packaging the same tree twice
+    // produces the same digest, so the same file name.
+    assert!(first_name.starts_with("sha256:"));
+    assert!(first_name.ends_with(".tar.gz"));
+    assert_eq!(first_name, second_name);
+    // The bytes are byte-for-byte identical, not just same-named.
+    assert_eq!(
+        fs::read(first.join(&first_name)).unwrap(),
+        fs::read(second.join(&second_name)).unwrap()
+    );
+}
+
+#[test]
+fn package_help_is_listed() {
+    Command::cargo_bin("rototo")
+        .unwrap()
+        .arg("--help")
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("package"))
+        .stdout(predicate::str::contains(
+            "content-addressed distributable archive",
+        ));
+}
+
+fn single_file_name(dir: &Path) -> String {
+    let mut entries = fs::read_dir(dir).unwrap();
+    let entry = entries.next().unwrap().unwrap();
+    assert!(
+        entries.next().is_none(),
+        "expected exactly one archive file"
+    );
+    entry.file_name().to_string_lossy().into_owned()
 }
 
 fn git(repo: &Path, args: &[&str]) {

@@ -42,6 +42,9 @@ type InspectOptions struct {
 // ResolveOptions configures a single resolution call.
 type ResolveOptions struct {
 	SkipContextValidation bool
+	// Trace emits a resolution trace for this call onto the trace stream. It
+	// only produces output while something is subscribed via TraceEvents.
+	Trace bool
 }
 
 // RefreshingPackageOptions configures RefreshingPackage loading.
@@ -260,7 +263,7 @@ func (w *Package) ResolveVariable(
 		return nil, err
 	}
 	defer unlock()
-	text, err := nativePackageResolveVariable(handle, id, contextJSON, validateContext(options))
+	text, err := nativePackageResolveVariable(handle, id, contextJSON, validateContext(options), traceEnabled(options))
 	if err != nil {
 		return nil, err
 	}
@@ -286,7 +289,7 @@ func (w *Package) ResolveQualifier(
 		return false, err
 	}
 	defer unlock()
-	text, err := nativePackageResolveQualifier(handle, id, contextJSON, validateContext(options))
+	text, err := nativePackageResolveQualifier(handle, id, contextJSON, validateContext(options), traceEnabled(options))
 	if err != nil {
 		return false, err
 	}
@@ -361,6 +364,7 @@ func (w *RefreshingPackage) ResolveVariable(
 		id,
 		contextJSON,
 		validateContext(options),
+		traceEnabled(options),
 	)
 	if err != nil {
 		return nil, err
@@ -392,6 +396,7 @@ func (w *RefreshingPackage) ResolveQualifier(
 		id,
 		contextJSON,
 		validateContext(options),
+		traceEnabled(options),
 	)
 	if err != nil {
 		return false, err
@@ -655,6 +660,10 @@ func marshalContext(context map[string]any) (string, error) {
 
 func validateContext(options *ResolveOptions) bool {
 	return options == nil || !options.SkipContextValidation
+}
+
+func traceEnabled(options *ResolveOptions) bool {
+	return options != nil && options.Trace
 }
 
 func nativeError(message string) error {

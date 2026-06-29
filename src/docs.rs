@@ -57,30 +57,71 @@ pub const DOCS: &[DocPage] = &[
         markdown: include_str!("../docs/src/motivation.md"),
     },
     DocPage {
+        id: "quickstart",
+        title: "Quickstart with Rototo",
+        markdown: include_str!("../docs/src/quickstart.md"),
+    },
+    DocPage {
         id: "concepts",
         title: "Rototo Concepts",
         markdown: include_str!("../docs/src/concepts.md"),
     },
     DocPage {
-        id: "development-workflow",
-        title: "Development Workflow",
-        markdown: include_str!("../docs/src/development-workflow.md"),
+        id: "adoption",
+        title: "Using Rototo",
+        markdown: include_str!("../docs/src/adoption.md"),
     },
     DocPage {
-        id: "production-workflow",
-        title: "Production Workflow",
-        markdown: include_str!("../docs/src/production-workflow.md"),
+        id: "cli",
+        title: "The CLI",
+        markdown: include_str!("../docs/src/cli.md"),
+    },
+    DocPage {
+        id: "package-format",
+        title: "Package Format",
+        markdown: include_str!("../docs/src/package-format.md"),
+    },
+    DocPage {
+        id: "package-sources",
+        title: "Package Sources",
+        markdown: include_str!("../docs/src/package-sources.md"),
+    },
+    DocPage {
+        id: "expressions",
+        title: "The Expression Language",
+        markdown: include_str!("../docs/src/expressions.md"),
+    },
+    DocPage {
+        id: "diagnostics",
+        title: "Diagnostics",
+        markdown: include_str!("../docs/src/diagnostics.md"),
+    },
+    DocPage {
+        id: "sdk",
+        title: "The SDK",
+        markdown: include_str!("../docs/src/sdk.md"),
     },
 ];
 
 pub const DOC_NAV_SECTIONS: &[DocNavSection] = &[
     DocNavSection {
         title: "Start",
-        pages: &["motivation"],
+        pages: &["motivation", "quickstart"],
     },
     DocNavSection {
         title: "Learn",
-        pages: &["concepts", "development-workflow", "production-workflow"],
+        pages: &["concepts", "adoption"],
+    },
+    DocNavSection {
+        title: "Reference",
+        pages: &[
+            "cli",
+            "package-format",
+            "package-sources",
+            "expressions",
+            "diagnostics",
+            "sdk",
+        ],
     },
 ];
 

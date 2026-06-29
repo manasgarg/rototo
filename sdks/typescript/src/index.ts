@@ -57,6 +57,9 @@ export type InspectOptions = {
 
 export type ResolveOptions = {
     validateContext?: boolean;
+    /** Emit a resolution trace for this call onto the trace stream. Only
+     * produces output while something is subscribed via `traceEvents()`. */
+    trace?: boolean;
 };
 
 export type RefreshingPackageOptions = LoadOptions & {
@@ -284,6 +287,7 @@ export class Package {
                 id,
                 context,
                 options.validateContext ?? true,
+                options.trace ?? false,
             );
         } catch (error) {
             throw toRototoError(error);
@@ -300,6 +304,7 @@ export class Package {
                 id,
                 context,
                 options.validateContext ?? true,
+                options.trace ?? false,
             );
         } catch (error) {
             throw toRototoError(error);
@@ -359,6 +364,7 @@ export class RefreshingPackage {
                 id,
                 context,
                 options.validateContext ?? true,
+                options.trace ?? false,
             );
         } catch (error) {
             throw toRototoError(error);
@@ -375,6 +381,7 @@ export class RefreshingPackage {
                 id,
                 context,
                 options.validateContext ?? true,
+                options.trace ?? false,
             );
         } catch (error) {
             throw toRototoError(error);

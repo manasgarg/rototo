@@ -77,7 +77,8 @@ public final class Package implements AutoCloseable {
                 openHandle(),
                 id,
                 Json.stringify(context),
-                resolved.validateContext());
+                resolved.validateContext(),
+                resolved.trace());
         Map<String, Object> value = Json.asObject(Json.parse(json));
         return new VariableResolution(
                 Json.asString(value.get("id")),
@@ -102,7 +103,8 @@ public final class Package implements AutoCloseable {
                 openHandle(),
                 id,
                 Json.stringify(context),
-                resolved.validateContext());
+                resolved.validateContext(),
+                resolved.trace());
         return Json.asBoolean(Json.parse(json));
     }
 

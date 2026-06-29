@@ -222,11 +222,13 @@ class Package:
         context: JsonObject,
         *,
         validate_context: bool = True,
+        trace: bool = False,
     ) -> VariableResolution:
         result = self._inner.resolve_variable(
             id,
             context,
             validate_context=validate_context,
+            trace=trace,
         )
         return VariableResolution(
             id=result["id"],
@@ -240,11 +242,13 @@ class Package:
         context: JsonObject,
         *,
         validate_context: bool = True,
+        trace: bool = False,
     ) -> bool:
         return self._inner.resolve_qualifier(
             id,
             context,
             validate_context=validate_context,
+            trace=trace,
         )
 
     async def trace_events(self) -> AsyncIterator[dict[str, Any]]:
@@ -290,11 +294,13 @@ class RefreshingPackage:
         context: JsonObject,
         *,
         validate_context: bool = True,
+        trace: bool = False,
     ) -> VariableResolution:
         result = self._inner.resolve_variable(
             id,
             context,
             validate_context=validate_context,
+            trace=trace,
         )
         return VariableResolution(
             id=result["id"],
@@ -308,11 +314,13 @@ class RefreshingPackage:
         context: JsonObject,
         *,
         validate_context: bool = True,
+        trace: bool = False,
     ) -> bool:
         return self._inner.resolve_qualifier(
             id,
             context,
             validate_context=validate_context,
+            trace=trace,
         )
 
     async def refresh_now(self) -> str:

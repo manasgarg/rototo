@@ -1,137 +1,168 @@
-<!-- Generated from docs/src/reference-sdk-typescript.md by `rototo docs --package-readme typescript --out sdks/typescript/README.md`. Do not edit directly. -->
+<!-- Generated from README.md by `rototo docs --package-readme typescript --out sdks/typescript/README.md`. Do not edit directly. -->
 
 # rototo TypeScript SDK
 
-The TypeScript SDK is a thin N-API wrapper around the Rust SDK. TypeScript code
-gets an idiomatic async API with camelCase fields while rototo keeps package
-loading, linting, refresh, and resolution behavior in the Rust core.
+Every substantial software system eventually needs a configuration subsystem. The software provides the underlying capabilities; configuration steers those capabilities to behave in a particular way.
 
-## Install
+Some configuration is settings-style: things like database URLs and encryption keys, usually held in environment variables and fixed once the software is deployed. That's not the kind we're concerned with here. What interests us instead is the configuration that governs the system's runtime behavior: feature availability, model selection, tenant overrides, offers, retry policies, logging controls, rollout plans, and so on.
 
-rototo is currently published as an alpha package for Node.js 20 and newer:
+Rototo provides a control plane for this kind of runtime configuration. It rests on a simple premise: runtime configuration should be treated like code. It should live alongside the code and follow a similar release cycle, and it should be testable and contract-enforced in the same way.
+
+To that end, Rototo models configuration as files that are versioned, reviewed, tested, and released as packages. The Rototo SDK loads these packages within the application runtime to guide the application's behavior. Configuration thus follows the same release process as code, while gaining a hot-swappable deployment mechanism.
+
+## Rototo's hello world
+
+Let's take a simple use case: we want to vary the order amount beyond which customers get free shipping.
+Customers in `standard` tier must have at least $50 as cart total while customers in `premium` tier get free shipping after $25.
+To accomplish this, we would do two things:
+- Create a Rototo configuration package.
+- Load the configuration package and resolve free shipping threshold in our application.
+
+### Create and publish a configuration package
+
+First, install the Rototo cli from crates.io:
+```sh
+cargo install rototo --version 0.1.0-alpha.5
+```
+
+Now, create a configuration package for the application:
+```sh
+# Create app-config package with a variable named free-shipping-threshold
+rototo init app-config --variable free-shipping-threshold
+```
+
+You should see the following in `app-config/` dir:
+```sh
+$> tree app-config
+app-config
+├── rototo-package.toml
+├── evaluation-contexts
+├── qualifiers
+└── variables
+    └── free-shipping-threshold.toml
+├── catalogs
+├── lint
+6 directories, 2 files
+```
+
+We explain the package model in [Rototo Concepts](https://docs.rototo.dev/concepts.html). For now, we would focus on the variable `free-shipping-threshold`. Replace the contents of `free-shipping-threshold.toml` with the following:
+```toml
+schema_version = 1
+description = "$ threshold for free shipping."
+type = "int"
+
+[resolve]
+default = 50  # by default, free shipping beyond $50.
+
+[[resolve.rule]]
+when = '(context.account.tier == "premium")'
+value = 25    # for premium account tier, free shipping beyond $25.
+```
+
+We can now validate our configuration to ensure that we got it right:
+```sh
+rototo lint app-config
+```
+
+We can further ensure that `free-shipping-threshold` resolves as expected.
 
 ```sh
-npm install rototo@alpha
+# default value: should give 50
+rototo resolve app-config --variable free-shipping-threshold
 ```
 
-The package includes native modules for Linux, macOS, and Windows on the
-supported x64 and arm64 targets. The rototo release version stays SemVer, for
-example `0.1.0-alpha.5`.
-
-## Load A Package
-
-```typescript
-import { Package } from "rototo";
-
-const pkg = await Package.load("examples/basic");
+```sh
+# standard account tier: should give 50
+rototo resolve app-config --variable free-shipping-threshold --context account.tier=standard
 ```
 
-`Package.load` accepts the same
-[source strings](https://docs.rototo.dev/reference-package-sources.html) as the CLI. It
-[lints](https://docs.rototo.dev/reference-lint-overview.html) the package and rejects lint failures
-before returning.
-
-## Resolve A Variable
-
-```typescript
-const resolution = pkg.resolveVariable(
-  "premium-message",
-  { user: { tier: "premium" } },
-);
-
-console.log(resolution.value);
-console.log(resolution.source);
+```sh
+# premium account tier: should give 25
+rototo resolve app-config --variable free-shipping-threshold --context account.tier=premium
 ```
 
-`VariableResolution` has:
+### Load the configuration package and resolve the threshold
 
-| Field | Meaning |
-| --- | --- |
-| `id` | Variable id. |
-| `value` | Selected JSON-compatible value. |
-| `source` | Selected source. |
+Now let's read that value from an application. Install the rototo TypeScript SDK:
 
-## Resolve A Qualifier
-
-```typescript
-const matches = pkg.resolveQualifier(
-  "premium-users",
-  { user: { tier: "premium" } },
-);
-
-console.log(matches);
+```sh
+npm install rototo
 ```
 
-Qualifier resolution returns the final boolean result.
-
-## Context Validation
-
-Resolution validates [context](https://docs.rototo.dev/reference-context.html) against a compatible
-evaluation context schema by default. Skip validation for one call when a tool
-needs to evaluate partial context:
-
-```typescript
-const resolution = pkg.resolveVariable(
-  "premium-message",
-  context,
-  { validateContext: false },
-);
-```
-
-The context still must be a JSON object.
-
-## Inspect And Lint
-
-```typescript
-const pkg = await Package.inspect("examples/basic");
-const lint = await pkg.lint();
-```
-
-Inspection is for tools. A package loaded through `inspect` cannot
-[resolve variables or qualifiers](https://docs.rototo.dev/reference-sdk-resolution.html) because it
-does not compile the runtime model.
-
-## Refreshing Package
+Save this as `hello-rototo.ts`. It loads a *refreshing* package (one that re-reads the source in the background) and prints the free-shipping threshold for a standard and a premium account every couple of seconds:
 
 ```typescript
 import { RefreshingPackage } from "rototo";
 
-const pkg = await RefreshingPackage.load(source, {
-  periodSeconds: 30,
-});
+const VARIABLE_ID = "free-shipping-threshold";
+const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
-const resolution = pkg.resolveVariable("premium-message", context);
-const status = await pkg.status();
-await pkg.shutdown();
-```
-
-[`RefreshingPackage`](https://docs.rototo.dev/reference-sdk-refresh.html) keeps serving the last
-successfully loaded package when refresh fails. `status` returns a
-`RefreshStatus` object with fingerprint, success, attempt, failure, error,
-refreshing, and immutable fields.
-
-## Errors
-
-Rust `RototoError` values become `RototoError` in TypeScript:
-
-```typescript
-import { RototoError } from "rototo";
+const appConfig = await RefreshingPackage.load("app-config", { periodSeconds: 1 });
 
 try {
-  pkg.resolveVariable("missing", {});
-} catch (error) {
-  if (error instanceof RototoError) {
-    console.log(error.message);
+  while (true) {
+    console.log("---");
+    for (const tier of ["standard", "premium"]) {
+      const resolution = appConfig.resolveVariable(VARIABLE_ID, { account: { tier } });
+      console.log(`${tier}: ${resolution.value} USD`);
+    }
+    await sleep(2000);
   }
+} finally {
+  await appConfig.shutdown();
 }
 ```
 
-## Public Types
+Run it (`npx tsx hello-rototo.ts`) from the directory that holds `app-config`, and it prints:
 
-| Type | Purpose |
-| --- | --- |
-| `Package` | Loaded package handle. |
-| `RefreshingPackage` | Refreshing package handle for services. |
-| `VariableResolution` | Selected variable value. |
-| `RefreshStatus` | Refresh state snapshot. |
-| `RototoError` | Error raised for rototo failures. |
+```text
+---
+standard: 50 USD
+premium: 25 USD
+```
+
+Now edit `free-shipping-threshold.toml`, change the default to 35, and save. Because the package refreshes every second, the next tick shows:
+
+```text
+---
+standard: 50 USD
+premium: 35 USD
+```
+
+## Documentation
+
+Public docs are available on [rototo.dev](https://rototo.dev).
+The `rototo` cli also ships with the same documents in markdown.
+
+You and your agent can use the `docs` command in the cli:
+```sh
+# show available docs
+rototo docs
+
+# search for docs
+rototo docs -s <search terms>
+
+# fetch doc based on doc id prefix
+rototo docs -p concepts
+```
+
+## Rototo is designed for people and agents
+
+Agents are now among the most important users of any development tool.
+Hence, Rototo is designed from ground up to work well both for people and agents.
+- The configuration package is simply a dir tree of files that brings battle-tested ergnomics of file organization and editing.
+- `rototo docs` to discover Rototo's capabilities and the recipes to use it.
+- `rototo lint` as the backbone for configuration validation that can be run after every edit.
+- `rototo inspect` to reason about the package structure and how everything resolves at runtime.
+- `rototo resolve` for test automation of invariants (e.g. customer X must always receive configuration Y otherwise something is wrong).
+- `rototo lsp` to provide feedback (and help) during editing.
+- `rototo console` to have the comfort of a react based UI for inspecting and editing the package.
+
+## License
+
+Licensed under either of:
+
+- Apache License, Version 2.0
+- MIT license
+
+at your option.

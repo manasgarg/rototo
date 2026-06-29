@@ -124,13 +124,14 @@ pub extern "system" fn Java_dev_rototo_Native_packageResolveVariableNative(
     id: JString<'_>,
     context_json: JString<'_>,
     validate_context: jboolean,
+    trace: jboolean,
 ) -> jstring {
     jni_call_string(&mut env, |env| {
         let package = package_from_handle(handle)?;
         let id = required_string(env, id, "id")?;
         let context = evaluation_context(env, context_json)?;
         let resolution = package
-            .resolve_variable_with_options(&id, &context, resolve_options(validate_context))
+            .resolve_variable_with_options(&id, &context, resolve_options(validate_context, trace))
             .map_err(|err| err.to_string())?;
         env_json(
             env,
@@ -151,13 +152,14 @@ pub extern "system" fn Java_dev_rototo_Native_packageResolveQualifierNative(
     id: JString<'_>,
     context_json: JString<'_>,
     validate_context: jboolean,
+    trace: jboolean,
 ) -> jstring {
     jni_call_string(&mut env, |env| {
         let package = package_from_handle(handle)?;
         let id = required_string(env, id, "id")?;
         let context = evaluation_context(env, context_json)?;
         let value = package
-            .resolve_qualifier_with_options(&id, &context, resolve_options(validate_context))
+            .resolve_qualifier_with_options(&id, &context, resolve_options(validate_context, trace))
             .map_err(|err| err.to_string())?;
         env_json(env, serde_json::json!(value))
     })
@@ -213,6 +215,7 @@ pub extern "system" fn Java_dev_rototo_Native_refreshingPackageResolveVariableNa
     id: JString<'_>,
     context_json: JString<'_>,
     validate_context: jboolean,
+    trace: jboolean,
 ) -> jstring {
     jni_call_string(&mut env, |env| {
         let package = refreshing_package_from_handle(handle)?;
@@ -221,7 +224,7 @@ pub extern "system" fn Java_dev_rototo_Native_refreshingPackageResolveVariableNa
         let guard = package.inner.blocking_lock();
         let package = active_refreshing_package(&guard)?;
         let resolution = package
-            .resolve_variable_with_options(&id, &context, resolve_options(validate_context))
+            .resolve_variable_with_options(&id, &context, resolve_options(validate_context, trace))
             .map_err(|err| err.to_string())?;
         env_json(
             env,
@@ -242,6 +245,7 @@ pub extern "system" fn Java_dev_rototo_Native_refreshingPackageResolveQualifierN
     id: JString<'_>,
     context_json: JString<'_>,
     validate_context: jboolean,
+    trace: jboolean,
 ) -> jstring {
     jni_call_string(&mut env, |env| {
         let package = refreshing_package_from_handle(handle)?;
@@ -250,7 +254,7 @@ pub extern "system" fn Java_dev_rototo_Native_refreshingPackageResolveQualifierN
         let guard = package.inner.blocking_lock();
         let package = active_refreshing_package(&guard)?;
         let value = package
-            .resolve_qualifier_with_options(&id, &context, resolve_options(validate_context))
+            .resolve_qualifier_with_options(&id, &context, resolve_options(validate_context, trace))
             .map_err(|err| err.to_string())?;
         env_json(env, serde_json::json!(value))
     })
@@ -523,10 +527,10 @@ fn refresh_options(
     Ok(options)
 }
 
-fn resolve_options(validate_context: jboolean) -> ResolveOptions {
+fn resolve_options(validate_context: jboolean, trace: jboolean) -> ResolveOptions {
     ResolveOptions {
         validate_context: validate_context != 0,
-        ..ResolveOptions::default()
+        trace: trace != 0,
     }
 }
 

@@ -278,7 +278,11 @@ test: test-rust test-console test-sdk-python test-sdk-typescript test-sdk-java t
 # Run the Rust test suite.
 [group('04. test')]
 test-rust:
-    cargo test --workspace --all-targets
+    # NO_COLOR keeps human-readable CLI output deterministic in tests regardless
+    # of the developer's ambient FORCE_COLOR/terminal; tests that assert the
+    # colored design system opt back in with their own FORCE_COLOR + NO_COLOR
+    # removal.
+    NO_COLOR=1 cargo test --workspace --all-targets
 
 # Run the console typecheck and bundle build.
 [group('04. test')]
