@@ -20,7 +20,7 @@ To accomplish this, we would do two things:
 
 First, install the Rototo cli from crates.io:
 ```sh
-cargo install rototo --version 0.1.0-alpha.5
+cargo install rototo --version 0.1.0-alpha.6
 ```
 
 Now, create a configuration package for the application:
@@ -85,7 +85,7 @@ rototo resolve app-config --variable free-shipping-threshold --context account.t
 Now let's read that value from an application. Install the rototo Rust SDK:
 
 ```sh
-cargo add rototo@0.1.0-alpha.5 serde_json
+cargo add rototo@0.1.0-alpha.6 serde_json
 cargo add tokio --features rt-multi-thread,macros
 ```
 

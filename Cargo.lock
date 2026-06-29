@@ -2055,7 +2055,7 @@ dependencies = [
 
 [[package]]
 name = "rototo"
-version = "0.1.0-alpha.5"
+version = "0.1.0-alpha.6"
 dependencies = [
  "assert_cmd",
  "axum",
@@ -2090,7 +2090,7 @@ dependencies = [
 
 [[package]]
 name = "rototo-go"
-version = "0.1.0-alpha.5"
+version = "0.1.0-alpha.6"
 dependencies = [
  "rototo",
  "serde_json",
@@ -2099,7 +2099,7 @@ dependencies = [
 
 [[package]]
 name = "rototo-java"
-version = "0.1.0-alpha.5"
+version = "0.1.0-alpha.6"
 dependencies = [
  "jni",
  "rototo",
@@ -2109,7 +2109,7 @@ dependencies = [
 
 [[package]]
 name = "rototo-python"
-version = "0.1.0-alpha.5"
+version = "0.1.0-alpha.6"
 dependencies = [
  "pyo3",
  "pyo3-async-runtimes",
@@ -2131,7 +2131,7 @@ dependencies = [
 
 [[package]]
 name = "rototo-typescript"
-version = "0.1.0-alpha.5"
+version = "0.1.0-alpha.6"
 dependencies = [
  "napi",
  "napi-build",

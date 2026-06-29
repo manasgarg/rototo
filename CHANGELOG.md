@@ -2,7 +2,7 @@
 
 All notable changes to rototo are documented here.
 
-## Unreleased
+## 0.1.0-alpha.6
 
 - Added `rototo console`: the web console and its JSON API now ship inside
   the rototo binary, with local (ambient token), team (GitHub OAuth), and

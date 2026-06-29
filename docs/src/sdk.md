@@ -437,7 +437,7 @@ malformed context is caught early. You can turn that off per call if you've
 already validated upstream.
 
 **Version.** Every SDK exposes the canonical rototo version (currently
-`0.1.0-alpha.5`) - as `rototo.__version__` in Python, a `version()` call in
+`0.1.0-alpha.6`) - as `rototo.__version__` in Python, a `version()` call in
 TypeScript, Go, and Java, and the crate version in Rust. The Python wheel
 displays its ecosystem-normalized spelling (`0.1.0a5`) in package metadata, but
 the version the runtime reports is the canonical one.
