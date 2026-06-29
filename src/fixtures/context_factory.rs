@@ -1,359 +1,159 @@
 use std::collections::{BTreeMap, BTreeSet};
 
-use serde_json::{Number as JsonNumber, Value as JsonValue};
+use serde_json::Value as JsonValue;
 
-use crate::expression::simple_rule_qualifier;
-use crate::model::{
-    PackageInspectReport, PredicateInspectReport, QualifierInspectReport, RulePathwayInspectReport,
-    VariableInspectReport,
-};
-use crate::resolve::bucket_value;
+use crate::expression::{Expression, empty_context, merge_context};
+use crate::model::{PackageInspectReport, VariableInspectReport};
 
-use super::sanitize_id;
-
-const MAX_BUCKET_CANDIDATES: usize = 100_000;
-
-pub(super) struct ContextFactory<'a> {
-    qualifiers: BTreeMap<String, &'a QualifierInspectReport>,
-    samples: Vec<JsonValue>,
+/// A pool of candidate `context` objects for fixture generation.
+///
+/// Each context is either a stored evaluation-context sample or one synthesized
+/// from a qualifier or variable-rule expression to drive a specific outcome
+/// (a qualifier matching, a rule firing, the default falling through). Fixture
+/// generation traces every candidate through real resolution and keeps the
+/// first that produces the case it is after, so an imperfect synthesis is
+/// discarded rather than emitted.
+pub(super) struct ContextFactory {
+    contexts: Vec<JsonValue>,
 }
 
-impl<'a> ContextFactory<'a> {
-    pub(super) fn new(report: &'a PackageInspectReport) -> Self {
-        Self {
-            qualifiers: report
-                .qualifiers
-                .iter()
-                .map(|qualifier| (qualifier.id.clone(), qualifier))
-                .collect(),
-            samples: report
-                .evaluation_contexts
-                .iter()
-                .flat_map(|evaluation_context| evaluation_context.samples.iter())
-                .map(|sample| sample.value.clone())
-                .collect(),
-        }
-    }
-
-    pub(super) fn sample_contexts(&self) -> &[JsonValue] {
-        &self.samples
-    }
-
-    pub(super) fn variable_default_context(
-        &self,
-        variable: &VariableInspectReport,
-    ) -> Option<JsonValue> {
-        let mut context = empty_json_object();
-        for rule in &variable.resolve.rules {
-            let qualifier = simple_rule_qualifier(rule.when.as_deref()?)?;
-            merge_context(&mut context, self.qualifier_context(&qualifier, false)?)?;
-        }
-        Some(context)
-    }
-
-    pub(super) fn variable_rule_context(
-        &self,
-        variable: &VariableInspectReport,
-        rule: &RulePathwayInspectReport,
-    ) -> Option<JsonValue> {
-        let mut context = empty_json_object();
-        for earlier in variable
-            .resolve
-            .rules
+impl ContextFactory {
+    pub(super) fn new(report: &PackageInspectReport) -> Self {
+        // Parse every qualifier `when` once so synthesis can compose qualifiers
+        // referenced from other qualifiers and from variable rules.
+        let qualifiers: BTreeMap<String, Expression> = report
+            .qualifiers
             .iter()
-            .filter(|earlier| earlier.index < rule.index)
-        {
-            let qualifier = simple_rule_qualifier(earlier.when.as_deref()?)?;
-            merge_context(&mut context, self.qualifier_context(&qualifier, false)?)?;
-        }
-        let qualifier = simple_rule_qualifier(rule.when.as_deref()?)?;
-        merge_context(&mut context, self.qualifier_context(&qualifier, true)?)?;
-        Some(context)
-    }
-
-    pub(super) fn qualifier_context(&self, id: &str, desired: bool) -> Option<JsonValue> {
-        self.qualifier_context_inner(id, desired, &mut BTreeSet::new())
-    }
-
-    fn qualifier_context_inner(
-        &self,
-        id: &str,
-        desired: bool,
-        stack: &mut BTreeSet<String>,
-    ) -> Option<JsonValue> {
-        if !desired {
-            return None;
-        }
-
-        if !stack.insert(id.to_owned()) {
-            return None;
-        }
-        let qualifier = self.qualifiers.get(id)?;
-        if qualifier.predicates.is_empty() {
-            stack.remove(id);
-            return None;
-        }
-        let mut context = empty_json_object();
-        for predicate in &qualifier.predicates {
-            merge_context(
-                &mut context,
-                self.predicate_context(predicate, true, stack)?,
-            )?;
-        }
-        stack.remove(id);
-        Some(context)
-    }
-
-    fn predicate_context(
-        &self,
-        predicate: &PredicateInspectReport,
-        should_match: bool,
-        stack: &mut BTreeSet<String>,
-    ) -> Option<JsonValue> {
-        let attribute = predicate.attribute.as_deref()?;
-        if let Some(qualifier_id) = attribute.strip_prefix("qualifier.") {
-            let expected = predicate.value.as_ref()?;
-            let desired =
-                qualifier_result_for_predicate(predicate.op.as_deref()?, expected, should_match)?;
-            return self.qualifier_context_inner(qualifier_id, desired, stack);
-        }
-
-        let value = if predicate.op.as_deref() == Some("bucket") {
-            bucket_candidate(predicate, should_match)?
-        } else {
-            context_value_for_predicate(predicate, should_match)?
-        };
-        context_with_path(attribute, value)
-    }
-}
-
-fn qualifier_result_for_predicate(
-    op: &str,
-    expected: &JsonValue,
-    should_match: bool,
-) -> Option<bool> {
-    for candidate in [false, true] {
-        let actual = JsonValue::Bool(candidate);
-        if compare_predicate_values(op, &actual, expected) == should_match {
-            return Some(candidate);
-        }
-    }
-    None
-}
-
-fn context_value_for_predicate(
-    predicate: &PredicateInspectReport,
-    should_match: bool,
-) -> Option<JsonValue> {
-    let op = predicate.op.as_deref()?;
-    let expected = predicate.value.as_ref()?;
-    candidate_values(op, expected, should_match)
-        .into_iter()
-        .find(|candidate| compare_predicate_values(op, candidate, expected) == should_match)
-}
-
-fn candidate_values(op: &str, expected: &JsonValue, should_match: bool) -> Vec<JsonValue> {
-    let mut values = match op {
-        "gt" | "gte" | "lt" | "lte" => numeric_candidate_values(expected),
-        "in" | "not_in" => {
-            let mut values = Vec::new();
-            if let Some(items) = expected.as_array() {
-                values.extend(items.iter().cloned());
-                values.push(array_alternative_value(items));
-            }
-            values
-        }
-        _ => {
-            let mut values = vec![expected.clone(), alternative_value(expected)];
-            values.extend([
-                JsonValue::String("fixture-other".to_owned()),
-                JsonValue::String("prod".to_owned()),
-                JsonValue::String("standard".to_owned()),
-                JsonValue::Bool(true),
-                JsonValue::Bool(false),
-                JsonValue::Number(JsonNumber::from(0)),
-                JsonValue::Number(JsonNumber::from(1)),
-                JsonValue::Number(JsonNumber::from(100)),
-            ]);
-            values
-        }
-    };
-
-    if (!should_match && matches!(op, "eq" | "in"))
-        || (should_match && matches!(op, "neq" | "not_in"))
-    {
-        let mut preferred = vec![
-            JsonValue::String("fixture-other".to_owned()),
-            JsonValue::String("prod".to_owned()),
-            JsonValue::String("standard".to_owned()),
-            JsonValue::Number(JsonNumber::from(0)),
-            JsonValue::Bool(false),
-        ];
-        preferred.extend(values);
-        values = preferred;
-    }
-
-    values
-}
-
-fn numeric_candidate_values(expected: &JsonValue) -> Vec<JsonValue> {
-    let Some(number) = expected.as_f64() else {
-        return Vec::new();
-    };
-    if let Some(integer) = expected.as_i64() {
-        return [integer - 1, integer, integer + 1]
-            .into_iter()
-            .map(|value| JsonValue::Number(JsonNumber::from(value)))
+            .filter_map(|qualifier| {
+                let source = qualifier.when.as_deref()?;
+                let expression = Expression::parse(source).ok()?;
+                Some((qualifier.id.clone(), expression))
+            })
             .collect();
-    }
-    [number - 1.0, number, number + 1.0]
-        .into_iter()
-        .filter_map(JsonNumber::from_f64)
-        .map(JsonValue::Number)
-        .collect()
-}
 
-fn alternative_value(expected: &JsonValue) -> JsonValue {
-    match expected {
-        JsonValue::String(value) => JsonValue::String(format!("fixture-not-{value}")),
-        JsonValue::Bool(value) => JsonValue::Bool(!value),
-        JsonValue::Number(number) => {
-            if let Some(value) = number.as_i64() {
-                JsonValue::Number(JsonNumber::from(value + 1))
-            } else if let Some(value) = number.as_u64() {
-                JsonValue::Number(JsonNumber::from(value + 1))
-            } else {
-                JsonNumber::from_f64(number.as_f64().unwrap_or(0.0) + 1.0)
-                    .map(JsonValue::Number)
-                    .unwrap_or_else(|| JsonValue::String("fixture-other".to_owned()))
+        let mut contexts = Vec::new();
+
+        // Stored samples first: they are the most realistic and the printed
+        // commands read best when grounded in a real sample.
+        for evaluation_context in &report.evaluation_contexts {
+            for sample in &evaluation_context.samples {
+                contexts.push(sample.value.clone());
             }
         }
-        JsonValue::Array(_) | JsonValue::Object(_) | JsonValue::Null => {
-            JsonValue::String("fixture-other".to_owned())
+
+        // A context that drives each qualifier to each outcome.
+        for qualifier in &report.qualifiers {
+            for want in [true, false] {
+                if let Some(context) = synthesize_qualifier(&qualifiers, &qualifier.id, want) {
+                    contexts.push(context);
+                }
+            }
         }
+
+        // For each variable: a context that falls through to the default, and
+        // one that fires each rule (with earlier rules kept false so the rule
+        // under test is the one that wins).
+        for variable in &report.variables {
+            push_variable_contexts(&qualifiers, variable, &mut contexts);
+        }
+
+        Self { contexts }
+    }
+
+    /// The candidate contexts to trace, in preference order.
+    pub(super) fn candidate_contexts(&self) -> &[JsonValue] {
+        &self.contexts
     }
 }
 
-fn array_alternative_value(values: &[JsonValue]) -> JsonValue {
-    for candidate in [
-        JsonValue::String("fixture-other".to_owned()),
-        JsonValue::String("prod".to_owned()),
-        JsonValue::Bool(false),
-        JsonValue::Number(JsonNumber::from(0)),
-    ] {
-        if values
+fn push_variable_contexts(
+    qualifiers: &BTreeMap<String, Expression>,
+    variable: &VariableInspectReport,
+    out: &mut Vec<JsonValue>,
+) {
+    let rules: Vec<Option<Expression>> = variable
+        .resolve
+        .rules
+        .iter()
+        .map(|rule| {
+            rule.when
+                .as_deref()
+                .and_then(|source| Expression::parse(source).ok())
+        })
+        .collect();
+
+    // Default: every rule false at once.
+    if let Some(context) = merge_all(rules.iter().map(|rule| synth(qualifiers, rule, false))) {
+        out.push(context);
+    }
+
+    for index in 0..rules.len() {
+        // The rule's own satisfying context. Often this already falsifies the
+        // earlier rules (a different equality value misses them), in which case
+        // trace selection accepts it directly.
+        if let Some(context) = synth(qualifiers, &rules[index], true) {
+            out.push(context);
+        }
+        // A context that additionally forces every earlier rule false, for when
+        // the bare context would be shadowed by an earlier rule. A path conflict
+        // between the constraints simply drops this candidate; the bare one above
+        // and the stored samples remain.
+        let earlier = rules[..index]
             .iter()
-            .all(|value| !json_values_equal(value, &candidate))
-        {
-            return candidate;
+            .map(|rule| synth(qualifiers, rule, false));
+        let this = std::iter::once(synth(qualifiers, &rules[index], true));
+        if let Some(context) = merge_all(earlier.chain(this)) {
+            out.push(context);
         }
     }
-    JsonValue::String("fixture-other".to_owned())
 }
 
-fn compare_predicate_values(op: &str, actual: &JsonValue, expected: &JsonValue) -> bool {
-    match op {
-        "eq" => json_values_equal(actual, expected),
-        "neq" => !json_values_equal(actual, expected),
-        "in" => expected
-            .as_array()
-            .is_some_and(|values| values.iter().any(|value| json_values_equal(value, actual))),
-        "not_in" => expected
-            .as_array()
-            .is_some_and(|values| values.iter().all(|value| !json_values_equal(value, actual))),
-        "gt" => numeric_ordering(actual, expected).is_some_and(|ordering| ordering.is_gt()),
-        "gte" => numeric_ordering(actual, expected)
-            .is_some_and(|ordering| ordering.is_gt() || ordering.is_eq()),
-        "lt" => numeric_ordering(actual, expected).is_some_and(|ordering| ordering.is_lt()),
-        "lte" => numeric_ordering(actual, expected)
-            .is_some_and(|ordering| ordering.is_lt() || ordering.is_eq()),
-        _ => false,
+/// Synthesize a context for one optional rule expression. A rule without a
+/// `when` (a `query` rule, or a malformed expression) cannot be inverted and
+/// yields `None`, which fails the surrounding merge.
+fn synth(
+    qualifiers: &BTreeMap<String, Expression>,
+    rule: &Option<Expression>,
+    want: bool,
+) -> Option<JsonValue> {
+    rule.as_ref()?.synthesize_context(want, &mut |id, want| {
+        synthesize_qualifier(qualifiers, id, want)
+    })
+}
+
+/// Merge a sequence of optional contexts into one, failing if any is `None` or
+/// if two disagree on a path.
+fn merge_all(contexts: impl IntoIterator<Item = Option<JsonValue>>) -> Option<JsonValue> {
+    let mut merged = empty_context();
+    for context in contexts {
+        merge_context(&mut merged, context?)?;
     }
+    Some(merged)
 }
 
-fn json_values_equal(left: &JsonValue, right: &JsonValue) -> bool {
-    match (left.as_f64(), right.as_f64()) {
-        (Some(left), Some(right)) => left == right,
-        _ => left == right,
-    }
+fn synthesize_qualifier(
+    qualifiers: &BTreeMap<String, Expression>,
+    id: &str,
+    want: bool,
+) -> Option<JsonValue> {
+    synthesize_qualifier_inner(qualifiers, id, want, &mut BTreeSet::new())
 }
 
-fn numeric_ordering(left: &JsonValue, right: &JsonValue) -> Option<std::cmp::Ordering> {
-    left.as_f64()?.partial_cmp(&right.as_f64()?)
-}
-
-fn bucket_candidate(predicate: &PredicateInspectReport, should_match: bool) -> Option<JsonValue> {
-    let salt = predicate.salt.as_deref()?;
-    let range = predicate.range.as_ref()?;
-    let [start, end] = range.as_slice() else {
+fn synthesize_qualifier_inner(
+    qualifiers: &BTreeMap<String, Expression>,
+    id: &str,
+    want: bool,
+    stack: &mut BTreeSet<String>,
+) -> Option<JsonValue> {
+    if !stack.insert(id.to_owned()) {
+        // A qualifier cycle; resolution would reject it, so synthesis bails.
         return None;
-    };
-    for index in 0..MAX_BUCKET_CANDIDATES {
-        let candidate = JsonValue::String(format!("fixture-{}-{index:05}", sanitize_id(salt)));
-        let bucket = bucket_value(salt, &candidate);
-        let matched = i64::from(bucket) >= *start && i64::from(bucket) < *end;
-        if matched == should_match {
-            return Some(candidate);
-        }
     }
-    None
-}
-
-fn context_with_path(path: &str, value: JsonValue) -> Option<JsonValue> {
-    let mut root = serde_json::Map::new();
-    insert_context_path(&mut root, path, value)?;
-    Some(JsonValue::Object(root))
-}
-
-fn insert_context_path(
-    object: &mut serde_json::Map<String, JsonValue>,
-    path: &str,
-    value: JsonValue,
-) -> Option<()> {
-    let mut segments = path.split('.').peekable();
-    let mut current = object;
-    while let Some(segment) = segments.next() {
-        if segment.is_empty() {
-            return None;
-        }
-        if segments.peek().is_none() {
-            current.insert(segment.to_owned(), value);
-            return Some(());
-        }
-        let entry = current
-            .entry(segment.to_owned())
-            .or_insert_with(|| JsonValue::Object(serde_json::Map::new()));
-        current = entry.as_object_mut()?;
-    }
-    None
-}
-
-fn merge_context(target: &mut JsonValue, source: JsonValue) -> Option<()> {
-    let (Some(target), Some(source)) = (target.as_object_mut(), source.as_object()) else {
-        return None;
-    };
-    merge_context_objects(target, source)
-}
-
-fn merge_context_objects(
-    target: &mut serde_json::Map<String, JsonValue>,
-    source: &serde_json::Map<String, JsonValue>,
-) -> Option<()> {
-    for (key, value) in source {
-        match (target.get_mut(key), value) {
-            (Some(existing), JsonValue::Object(source_object)) if existing.is_object() => {
-                merge_context_objects(existing.as_object_mut()?, source_object)?;
-            }
-            (Some(existing), value) if existing != value => return None,
-            (Some(_), _) => {}
-            (None, value) => {
-                target.insert(key.clone(), value.clone());
-            }
-        }
-    }
-    Some(())
-}
-
-fn empty_json_object() -> JsonValue {
-    JsonValue::Object(serde_json::Map::new())
+    let result = qualifiers.get(id).and_then(|expression| {
+        expression.synthesize_context(want, &mut |nested, nested_want| {
+            synthesize_qualifier_inner(qualifiers, nested, nested_want, stack)
+        })
+    });
+    stack.remove(id);
+    result
 }

@@ -139,9 +139,10 @@ struct InitArgs {
 
 #[derive(Debug, Args)]
 struct FixturesArgs {
-    /// Package source to print resolve commands for.
+    /// Package source to print resolve commands for. Defaults to the package in
+    /// the current directory.
     #[arg(value_name = "PACKAGE_SOURCE")]
-    package: String,
+    package: Option<String>,
 
     /// Select one variable id. Repeatable.
     #[arg(long = "variable", value_name = "ID")]
@@ -806,11 +807,11 @@ async fn run_fixtures(
     quiet: bool,
 ) -> Result<ExitCode> {
     let selection = fixture_generate_selection(&args);
+    let package = package_source_string_or_current(args.package).await?;
     let invocations =
-        rototo::fixtures::generate_resolve_invocations(&args.package, source_options, selection)
-            .await?;
+        rototo::fixtures::generate_resolve_invocations(&package, source_options, selection).await?;
     print_fixture_invocations(
-        &args.package,
+        &package,
         &invocations,
         args.context_form.to_render(),
         json,
@@ -820,6 +821,19 @@ async fn run_fixtures(
 }
 
 fn fixture_generate_selection(args: &FixturesArgs) -> rototo::fixtures::FixtureGenerateSelection {
+    // With no selector flags at all, generate fixtures for the whole package, the
+    // same way `lint`, `show`, and `inspect` treat an empty selector set. Without
+    // this default, bare `rototo fixtures` would select nothing and print nothing.
+    let no_selectors = !args.all_variables
+        && args.variables.is_empty()
+        && !args.all_qualifiers
+        && args.qualifiers.is_empty();
+    if no_selectors {
+        return rototo::fixtures::FixtureGenerateSelection {
+            variables: rototo::fixtures::FixtureTargetSelection::All,
+            qualifiers: rototo::fixtures::FixtureTargetSelection::All,
+        };
+    }
     rototo::fixtures::FixtureGenerateSelection {
         variables: fixture_target_selection(args.all_variables, &args.variables),
         qualifiers: fixture_target_selection(args.all_qualifiers, &args.qualifiers),
@@ -2018,6 +2032,25 @@ async fn package_source_or_current(
                     RototoError::new(format!("failed to read current directory: {err}"))
                 })?;
             Ok(StagedPackage::local(find_package_root(&current_dir).await?))
+        }
+    }
+}
+
+/// Resolves an optional package source into a source string, falling back to
+/// the package discovered from the current directory. Used by commands that need
+/// the source as a string (to both load it and echo it back to the user) rather
+/// than a [`StagedPackage`].
+async fn package_source_string_or_current(package: Option<String>) -> Result<String> {
+    match package {
+        Some(package) => Ok(package),
+        None => {
+            let current_dir = tokio::task::spawn_blocking(std::env::current_dir)
+                .await
+                .map_err(|err| RototoError::new(format!("current directory task failed: {err}")))?
+                .map_err(|err| {
+                    RototoError::new(format!("failed to read current directory: {err}"))
+                })?;
+            Ok(find_package_root(&current_dir).await?.display().to_string())
         }
     }
 }

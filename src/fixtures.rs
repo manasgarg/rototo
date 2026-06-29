@@ -5,7 +5,6 @@ use serde::Serialize;
 use serde_json::Value as JsonValue;
 
 use crate::error::{Result, RototoError};
-use crate::expression::simple_rule_qualifier;
 use crate::model::{
     PackageInspectReport, PackageInspectRequest, QualifierInspectReport, QualifierResolutionTrace,
     RulePathwayInspectReport, VariableInspectReport, VariableResolutionTrace,
@@ -215,7 +214,7 @@ fn selected_ids<'a>(
 async fn generate_qualifier_invocations(
     package: &Path,
     qualifier: &QualifierInspectReport,
-    factory: &ContextFactory<'_>,
+    factory: &ContextFactory,
     out: &mut Vec<ResolveInvocation>,
 ) -> Result<()> {
     let target = ResolveTarget::Qualifier(qualifier.id.clone());
@@ -256,7 +255,7 @@ async fn generate_qualifier_invocations(
 async fn generate_variable_invocations(
     package: &Path,
     variable: &VariableInspectReport,
-    factory: &ContextFactory<'_>,
+    factory: &ContextFactory,
     out: &mut Vec<ResolveInvocation>,
 ) -> Result<()> {
     let target = ResolveTarget::Variable(variable.id.clone());
@@ -337,13 +336,16 @@ fn rule_condition_label(rule: &RulePathwayInspectReport) -> String {
         .to_owned()
 }
 
+/// The first candidate context that drives `rule` to win for `variable`.
+/// Selection is by real resolution, so the rule under test must be the one that
+/// actually matches (earlier rules kept false), not merely have a true `when`.
 async fn variable_rule_context(
     package: &Path,
     variable: &VariableInspectReport,
     rule: &RulePathwayInspectReport,
-    factory: &ContextFactory<'_>,
+    factory: &ContextFactory,
 ) -> Result<Option<JsonValue>> {
-    for context in factory.sample_contexts() {
+    for context in factory.candidate_contexts() {
         if let Ok(trace) = trace_variable_resolution(package, &variable.id, context).await
             && trace
                 .rules
@@ -354,26 +356,17 @@ async fn variable_rule_context(
         }
     }
 
-    if let Some(qualifier) = rule.when.as_deref().and_then(simple_rule_qualifier)
-        && let Some(context) = factory.qualifier_context(&qualifier, true)
-        && let Ok(trace) = trace_variable_resolution(package, &variable.id, &context).await
-        && trace
-            .rules
-            .iter()
-            .any(|trace_rule| trace_rule.index == rule.index && trace_rule.matched)
-    {
-        return Ok(Some(context));
-    }
-
-    Ok(factory.variable_rule_context(variable, rule))
+    Ok(None)
 }
 
+/// The first candidate context under which no rule matches, so `variable`
+/// resolves to its default.
 async fn variable_default_context(
     package: &Path,
     variable: &VariableInspectReport,
-    factory: &ContextFactory<'_>,
+    factory: &ContextFactory,
 ) -> Result<Option<JsonValue>> {
-    for context in factory.sample_contexts() {
+    for context in factory.candidate_contexts() {
         if let Ok(trace) = trace_variable_resolution(package, &variable.id, context).await
             && trace.rules.iter().all(|rule| !rule.matched)
         {
@@ -381,28 +374,22 @@ async fn variable_default_context(
         }
     }
 
-    Ok(factory.variable_default_context(variable))
+    Ok(None)
 }
 
+/// The first candidate context that drives `qualifier` to `desired`.
 async fn sampled_qualifier_context(
     package: &Path,
     qualifier: &str,
     desired: bool,
-    factory: &ContextFactory<'_>,
+    factory: &ContextFactory,
 ) -> Result<Option<(JsonValue, QualifierResolutionTrace)>> {
-    for context in factory.sample_contexts() {
+    for context in factory.candidate_contexts() {
         if let Ok(trace) = trace_qualifier_resolution(package, qualifier, context).await
             && trace.value == desired
         {
             return Ok(Some((context.clone(), trace)));
         }
-    }
-
-    if let Some(context) = factory.qualifier_context(qualifier, desired)
-        && let Ok(trace) = trace_qualifier_resolution(package, qualifier, &context).await
-        && trace.value == desired
-    {
-        return Ok(Some((context, trace)));
     }
 
     Ok(None)

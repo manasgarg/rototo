@@ -421,7 +421,6 @@ pub struct QualifierInspectReport {
     pub context_attributes: Vec<ContextAttributeInspectReport>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub when: Option<String>,
-    pub predicates: Vec<PredicateInspectReport>,
     pub dependencies: DependencyInspectReport,
     pub consumers: Vec<ReferenceInspectReport>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -450,23 +449,6 @@ pub struct EvaluationContextInspectReport {
 pub struct EvaluationContextSampleInspectReport {
     pub key: String,
     pub value: serde_json::Value,
-    #[serde(skip_serializing)]
-    pub location: DiagnosticLocation,
-}
-
-#[derive(Debug, serde::Serialize)]
-pub struct PredicateInspectReport {
-    pub index: usize,
-    pub attribute: Option<String>,
-    pub op: Option<String>,
-    #[serde(skip_serializing_if = "is_false")]
-    pub not: bool,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub value: Option<serde_json::Value>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub salt: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub range: Option<Vec<i64>>,
     #[serde(skip_serializing)]
     pub location: DiagnosticLocation,
 }

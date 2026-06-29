@@ -344,7 +344,6 @@ async fn inspect_qualifier(
         evaluation_contexts,
         context_attributes: qualifier_context_attributes(snapshot, qualifier),
         when: qualifier_when(qualifier),
-        predicates: Vec::new(),
         dependencies: qualifier_dependencies(snapshot, id),
         consumers: qualifier_consumers(snapshot, id),
         sample_coverage,
