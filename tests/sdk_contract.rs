@@ -96,6 +96,16 @@ async fn run_contract_case(case: &ContractCase) -> Result<JsonValue, String> {
                 .map_err(|err| err.to_string())?;
             serde_json::to_value(resolution).map_err(|err| err.to_string())
         }
+        "package_identity" => {
+            let package = Package::load(&case.package)
+                .await
+                .map_err(|err| err.to_string())?;
+            let identity = package.identity();
+            Ok(serde_json::json!({
+                "releaseId": identity.release_id,
+                "immutable": identity.immutable,
+            }))
+        }
         operation => Err(format!("unsupported contract operation: {operation}")),
     }
 }

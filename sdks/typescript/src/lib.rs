@@ -8,7 +8,7 @@ use rototo::{
     SourceFingerprint, SourceOptions,
 };
 use serde_json::Value as JsonValue;
-use tokio::sync::Mutex;
+use tokio::sync::{Mutex, broadcast};
 
 #[napi]
 pub fn version() -> &'static str {
@@ -51,6 +51,11 @@ impl JsPackage {
     #[napi]
     pub fn root(&self) -> String {
         self.inner.root().display().to_string()
+    }
+
+    #[napi]
+    pub fn identity(&self) -> JsonValue {
+        self.inner.identity().to_json()
     }
 
     #[napi]
@@ -194,6 +199,29 @@ impl JsRefreshingPackage {
     }
 
     #[napi]
+    pub async fn identity(&self) -> Result<JsonValue> {
+        let guard = self.inner.lock().await;
+        let package = active_refreshing_package(&guard)?;
+        Ok(package.identity().to_json())
+    }
+
+    #[napi]
+    pub async fn snapshot(&self) -> Result<JsonValue> {
+        let guard = self.inner.lock().await;
+        let package = active_refreshing_package(&guard)?;
+        Ok(package.snapshot().to_json())
+    }
+
+    #[napi(js_name = "subscribeEvents")]
+    pub fn subscribe_events(&self) -> Result<JsRefreshEvents> {
+        let guard = self.inner.blocking_lock();
+        let package = active_refreshing_package(&guard)?;
+        Ok(JsRefreshEvents {
+            rx: Arc::new(Mutex::new(package.subscribe_refresh_events())),
+        })
+    }
+
+    #[napi]
     pub async fn shutdown(&self) -> Result<()> {
         let package = {
             let mut guard = self.inner.lock().await;
@@ -203,6 +231,29 @@ impl JsRefreshingPackage {
             package.shutdown().await;
         }
         Ok(())
+    }
+}
+
+#[napi(js_name = "_RefreshEvents")]
+pub struct JsRefreshEvents {
+    rx: Arc<Mutex<broadcast::Receiver<rototo::RefreshEvent>>>,
+}
+
+#[napi]
+impl JsRefreshEvents {
+    /// Resolve to the next refresh event, or `null` when the stream has closed
+    /// (the package was shut down or dropped). A lagging subscriber skips the
+    /// gap rather than erroring; recover ground truth from `snapshot()`.
+    #[napi]
+    pub async fn recv(&self) -> Result<Option<JsonValue>> {
+        let mut rx = self.rx.lock().await;
+        loop {
+            match rx.recv().await {
+                Ok(event) => return Ok(Some(event.to_json())),
+                Err(broadcast::error::RecvError::Lagged(_)) => continue,
+                Err(broadcast::error::RecvError::Closed) => return Ok(None),
+            }
+        }
     }
 }
 

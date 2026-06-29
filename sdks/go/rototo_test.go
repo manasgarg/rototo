@@ -152,6 +152,70 @@ func TestRefreshingPackageRefreshesLocalSource(t *testing.T) {
 	}
 }
 
+func TestRefreshingPackageIdentitySnapshotAndEvents(t *testing.T) {
+	root := t.TempDir()
+	writePackage(t, root, "hello")
+
+	pkg, err := LoadRefreshing(context.Background(), root, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer closeRefreshingPackage(t, pkg)
+
+	identity, err := pkg.Identity(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	// A local directory has no fingerprint, so no derived release id.
+	if identity.ReleaseID != nil {
+		t.Fatalf("expected nil release id, got %v", *identity.ReleaseID)
+	}
+
+	snapshot, err := pkg.Snapshot(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if snapshot.LastSuccess == nil {
+		t.Fatal("snapshot last success was nil")
+	}
+	if snapshot.LastEvent == nil || snapshot.LastEvent.EventType != "loaded" {
+		t.Fatalf("expected loaded last event, got %#v", snapshot.LastEvent)
+	}
+
+	eventsCtx, cancelEvents := context.WithCancel(context.Background())
+	defer cancelEvents()
+	events, err := pkg.RefreshEvents(eventsCtx)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	writePackage(t, root, "updated")
+	if _, err := pkg.RefreshNow(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+
+	var refreshed *RefreshEvent
+	for event := range events {
+		if event.EventType == "refreshed" {
+			captured := event
+			refreshed = &captured
+			break
+		}
+	}
+	if refreshed == nil {
+		t.Fatal("did not observe a refreshed event")
+	}
+	if refreshed.SchemaVersion != 1 {
+		t.Fatalf("schema version = %d", refreshed.SchemaVersion)
+	}
+	if refreshed.Sdk.Language != "rust" {
+		t.Fatalf("sdk language = %s", refreshed.Sdk.Language)
+	}
+	if refreshed.Current == nil {
+		t.Fatal("refreshed event had no current identity")
+	}
+}
+
 func TestSharedContractCases(t *testing.T) {
 	for _, sdkCase := range contractCases(t) {
 		t.Run(sdkCase.Name, func(t *testing.T) {
@@ -252,6 +316,24 @@ func runContractCase(t *testing.T, sdkCase contractCase) (any, error) {
 			return nil, err
 		}
 		return result, nil
+	case "package_identity":
+		pkg, err := Load(context.Background(), source, nil)
+		if err != nil {
+			return nil, err
+		}
+		defer closePackage(t, pkg)
+		identity, err := pkg.Identity()
+		if err != nil {
+			return nil, err
+		}
+		var releaseID any
+		if identity.ReleaseID != nil {
+			releaseID = *identity.ReleaseID
+		}
+		return map[string]any{
+			"releaseId": releaseID,
+			"immutable": identity.Immutable,
+		}, nil
 	default:
 		t.Fatalf("unsupported contract operation: %s", sdkCase.Operation)
 		return nil, nil

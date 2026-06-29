@@ -81,6 +81,68 @@ type RefreshStatus struct {
 	Immutable           bool     `json:"immutable"`
 }
 
+// PackageLayerIdentity is the identity of one layer in a layered package.
+type PackageLayerIdentity struct {
+	Source      string  `json:"source"`
+	Fingerprint any     `json:"fingerprint"`
+	ReleaseID   *string `json:"releaseId"`
+	Immutable   bool    `json:"immutable"`
+}
+
+// PackageIdentity is the stable identity of the package active in this process.
+type PackageIdentity struct {
+	Source      string                 `json:"source"`
+	Fingerprint any                    `json:"fingerprint"`
+	ReleaseID   *string                `json:"releaseId"`
+	LoadedAt    float64                `json:"loadedAt"`
+	Immutable   bool                   `json:"immutable"`
+	Layers      []PackageLayerIdentity `json:"layers"`
+}
+
+// RefreshEventSummary is a compact record of the most recent refresh event.
+type RefreshEventSummary struct {
+	EventID     string  `json:"eventId"`
+	EventType   string  `json:"eventType"`
+	ReleaseID   *string `json:"releaseId"`
+	CompletedAt float64 `json:"completedAt"`
+}
+
+// RefreshSnapshot joins refresh state with package identity: what is true now.
+type RefreshSnapshot struct {
+	Identity            PackageIdentity      `json:"identity"`
+	LastAttempt         *float64             `json:"lastAttempt"`
+	LastSuccess         *float64             `json:"lastSuccess"`
+	LastEvent           *RefreshEventSummary `json:"lastEvent"`
+	ConsecutiveFailures uint64               `json:"consecutiveFailures"`
+	LastError           *string              `json:"lastError"`
+	Refreshing          bool                 `json:"refreshing"`
+	Immutable           bool                 `json:"immutable"`
+}
+
+// SdkIdentity identifies the SDK that emitted a refresh event.
+type SdkIdentity struct {
+	Name     string `json:"name"`
+	Version  string `json:"version"`
+	Language string `json:"language"`
+}
+
+// RefreshEvent is a refresh state-transition event.
+type RefreshEvent struct {
+	SchemaVersion       int              `json:"schemaVersion"`
+	EventID             string           `json:"eventId"`
+	EventType           string           `json:"eventType"`
+	Source              string           `json:"source"`
+	Previous            *PackageIdentity `json:"previous"`
+	Current             *PackageIdentity `json:"current"`
+	AttemptedAt         float64          `json:"attemptedAt"`
+	CompletedAt         float64          `json:"completedAt"`
+	DurationMs          uint64           `json:"durationMs"`
+	Outcome             *string          `json:"outcome"`
+	ConsecutiveFailures uint64           `json:"consecutiveFailures"`
+	Error               *string          `json:"error"`
+	Sdk                 SdkIdentity      `json:"sdk"`
+}
+
 // RefreshingPackage is a package handle with background refresh support.
 type RefreshingPackage struct {
 	mu     sync.RWMutex
@@ -142,6 +204,24 @@ func (w *Package) Root() (string, error) {
 	}
 	defer unlock()
 	return nativePackageRoot(handle)
+}
+
+// Identity returns the stable identity of the loaded package.
+func (w *Package) Identity() (*PackageIdentity, error) {
+	handle, unlock, err := w.activeHandle()
+	if err != nil {
+		return nil, err
+	}
+	defer unlock()
+	text, err := nativePackageIdentity(handle)
+	if err != nil {
+		return nil, err
+	}
+	var identity PackageIdentity
+	if err := json.Unmarshal([]byte(text), &identity); err != nil {
+		return nil, err
+	}
+	return &identity, nil
 }
 
 // Lint runs package lint for this handle.
@@ -360,6 +440,88 @@ func (w *RefreshingPackage) Status(ctx context.Context) (*RefreshStatus, error) 
 		return nil, err
 	}
 	return &status, checkContext(ctx)
+}
+
+// Identity returns the identity of the package currently active.
+func (w *RefreshingPackage) Identity(ctx context.Context) (*PackageIdentity, error) {
+	if err := checkContext(ctx); err != nil {
+		return nil, err
+	}
+	handle, unlock, err := w.activeHandle()
+	if err != nil {
+		return nil, err
+	}
+	defer unlock()
+	text, err := nativeRefreshingPackageIdentity(handle)
+	if err != nil {
+		return nil, err
+	}
+	var identity PackageIdentity
+	if err := json.Unmarshal([]byte(text), &identity); err != nil {
+		return nil, err
+	}
+	return &identity, checkContext(ctx)
+}
+
+// Snapshot returns the current refresh state joined with package identity.
+func (w *RefreshingPackage) Snapshot(ctx context.Context) (*RefreshSnapshot, error) {
+	if err := checkContext(ctx); err != nil {
+		return nil, err
+	}
+	handle, unlock, err := w.activeHandle()
+	if err != nil {
+		return nil, err
+	}
+	defer unlock()
+	text, err := nativeRefreshingPackageSnapshot(handle)
+	if err != nil {
+		return nil, err
+	}
+	var snapshot RefreshSnapshot
+	if err := json.Unmarshal([]byte(text), &snapshot); err != nil {
+		return nil, err
+	}
+	return &snapshot, checkContext(ctx)
+}
+
+// RefreshEvents returns a channel of refresh events. The channel closes when the
+// package is shut down or the context is cancelled. A lagging consumer skips
+// dropped events rather than erroring; recover ground truth from Snapshot.
+func (w *RefreshingPackage) RefreshEvents(ctx context.Context) (<-chan RefreshEvent, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	handle, unlock, err := w.activeHandle()
+	if err != nil {
+		return nil, err
+	}
+	eventsHandle, err := nativeRefreshingPackageSubscribeEvents(handle)
+	unlock()
+	if err != nil {
+		return nil, err
+	}
+
+	out := make(chan RefreshEvent)
+	go func() {
+		defer close(out)
+		defer nativeRefreshEventsFree(eventsHandle)
+		for {
+			text, ok, err := nativeRefreshEventsNext(eventsHandle)
+			if err != nil || !ok {
+				return
+			}
+			var event RefreshEvent
+			if err := json.Unmarshal([]byte(text), &event); err != nil {
+				return
+			}
+			select {
+			case out <- event:
+			case <-ctx.Done():
+				return
+			}
+		}
+	}()
+	return out, nil
 }
 
 // Shutdown stops background refresh without freeing the handle.

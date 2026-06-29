@@ -4,6 +4,7 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.atomic.AtomicLong;
+import java.util.function.Consumer;
 
 public final class RefreshingPackage implements AutoCloseable {
     private final AtomicLong handle;
@@ -98,6 +99,46 @@ public final class RefreshingPackage implements AutoCloseable {
                     Json.asBoolean(value.get("refreshing")),
                     Json.asBoolean(value.get("immutable")));
         }, Rototo.executor());
+    }
+
+    public CompletableFuture<PackageIdentity> identity() {
+        return CompletableFuture.supplyAsync(
+                () -> PackageIdentity.fromJson(Json.asObject(
+                        Json.parse(Native.refreshingPackageIdentityNative(openHandle())))),
+                Rototo.executor());
+    }
+
+    public CompletableFuture<RefreshSnapshot> snapshot() {
+        return CompletableFuture.supplyAsync(
+                () -> RefreshSnapshot.fromJson(Json.asObject(
+                        Json.parse(Native.refreshingPackageSnapshotNative(openHandle())))),
+                Rototo.executor());
+    }
+
+    /**
+     * Deliver refresh events to {@code listener} on a background daemon thread.
+     * The thread runs until the package is shut down or closed, which closes the
+     * stream. A lagging listener skips dropped events rather than failing;
+     * recover ground truth from {@link #snapshot()}.
+     */
+    public void addRefreshListener(Consumer<RefreshEvent> listener) {
+        Objects.requireNonNull(listener, "listener");
+        long eventsHandle = Native.refreshingPackageSubscribeEventsNative(openHandle());
+        Thread thread = new Thread(() -> {
+            try {
+                while (true) {
+                    String json = Native.refreshEventsNextNative(eventsHandle);
+                    if (json == null) {
+                        return;
+                    }
+                    listener.accept(RefreshEvent.fromJson(Json.asObject(Json.parse(json))));
+                }
+            } finally {
+                Native.refreshEventsFreeNative(eventsHandle);
+            }
+        }, "rototo-refresh-listener");
+        thread.setDaemon(true);
+        thread.start();
     }
 
     public CompletableFuture<Void> shutdown() {

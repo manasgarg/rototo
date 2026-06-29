@@ -4,6 +4,7 @@ const require = createRequire(import.meta.url);
 
 type NativePackage = {
     root(): string;
+    identity(): PackageIdentityJson;
     lint(): Promise<PackageLintJson>;
     semanticModel(): Promise<JsonValue>;
     resolveVariable(
@@ -40,7 +41,14 @@ type NativeRefreshingPackage = {
     ): boolean;
     refreshNow(): Promise<RefreshOutcome>;
     status(): Promise<RefreshStatusJson>;
+    identity(): Promise<PackageIdentityJson>;
+    snapshot(): Promise<RefreshSnapshotJson>;
+    subscribeEvents(): NativeRefreshEvents;
     shutdown(): Promise<void>;
+};
+
+type NativeRefreshEvents = {
+    recv(): Promise<RefreshEventJson | null>;
 };
 
 type NativeRefreshingPackageConstructor = {
@@ -85,6 +93,62 @@ export type RefreshStatusJson = {
     lastError: string | null;
     refreshing: boolean;
     immutable: boolean;
+};
+
+export type PackageLayerIdentityJson = {
+    source: string;
+    fingerprint: JsonValue | null;
+    releaseId: string | null;
+    immutable: boolean;
+};
+
+export type PackageIdentityJson = {
+    source: string;
+    fingerprint: JsonValue | null;
+    releaseId: string | null;
+    loadedAt: number;
+    immutable: boolean;
+    layers: PackageLayerIdentityJson[];
+};
+
+export type RefreshEventSummaryJson = {
+    eventId: string;
+    eventType: string;
+    releaseId: string | null;
+    completedAt: number;
+};
+
+export type RefreshSnapshotJson = {
+    identity: PackageIdentityJson;
+    lastAttempt: number | null;
+    lastSuccess: number | null;
+    lastEvent: RefreshEventSummaryJson | null;
+    consecutiveFailures: number;
+    lastError: string | null;
+    refreshing: boolean;
+    immutable: boolean;
+};
+
+export type SdkIdentityJson = {
+    name: string;
+    version: string;
+    language: string;
+};
+
+export type RefreshEventJson = {
+    schemaVersion: number;
+    eventId: string;
+    eventType: string;
+    source: string;
+    previous: PackageIdentityJson | null;
+    current: PackageIdentityJson | null;
+    attemptedAt: number;
+    completedAt: number;
+    durationMs: number;
+    outcome: RefreshOutcome | null;
+    consecutiveFailures: number;
+    error: string | null;
+    sdk: SdkIdentityJson;
 };
 
 export type PackageLintJson = {

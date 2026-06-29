@@ -53,6 +53,15 @@ async function runCase(contractCase) {
         );
     }
 
+    if (operation === "package_identity") {
+        const pkg = await Package.load(packageSource);
+        const identity = pkg.identity();
+        return {
+            releaseId: identity.releaseId,
+            immutable: identity.immutable,
+        };
+    }
+
     throw new Error(`unsupported contract operation: ${operation}`);
 }
 

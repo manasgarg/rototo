@@ -10,10 +10,14 @@ use rototo::{
 };
 use serde_json::Value as JsonValue;
 use tokio::runtime::{Builder, Runtime};
-use tokio::sync::Mutex;
+use tokio::sync::{Mutex, broadcast};
 
 struct JavaRefreshingPackage {
     inner: Mutex<Option<rototo::RefreshingPackage>>,
+}
+
+struct JavaRefreshEvents {
+    rx: Mutex<broadcast::Receiver<rototo::RefreshEvent>>,
 }
 
 static RUNTIME: OnceLock<Runtime> = OnceLock::new();
@@ -74,6 +78,18 @@ pub extern "system" fn Java_dev_rototo_Native_packageRootNative(
     jni_call_string(&mut env, |env| {
         let package = package_from_handle(handle)?;
         env_string(env, &package.root().display().to_string())
+    })
+}
+
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_dev_rototo_Native_packageIdentityNative(
+    mut env: JNIEnv<'_>,
+    _class: JClass<'_>,
+    handle: jlong,
+) -> jstring {
+    jni_call_string(&mut env, |env| {
+        let package = package_from_handle(handle)?;
+        env_json(env, package.identity().to_json())
     })
 }
 
@@ -271,6 +287,102 @@ pub extern "system" fn Java_dev_rototo_Native_refreshingPackageStatusNative(
 }
 
 #[unsafe(no_mangle)]
+pub extern "system" fn Java_dev_rototo_Native_refreshingPackageIdentityNative(
+    mut env: JNIEnv<'_>,
+    _class: JClass<'_>,
+    handle: jlong,
+) -> jstring {
+    jni_call_string(&mut env, |env| {
+        let package = refreshing_package_from_handle(handle)?;
+        let identity = runtime().block_on(async {
+            let guard = package.inner.lock().await;
+            let package = active_refreshing_package(&guard)?;
+            Ok::<_, String>(package.identity())
+        })?;
+        env_json(env, identity.to_json())
+    })
+}
+
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_dev_rototo_Native_refreshingPackageSnapshotNative(
+    mut env: JNIEnv<'_>,
+    _class: JClass<'_>,
+    handle: jlong,
+) -> jstring {
+    jni_call_string(&mut env, |env| {
+        let package = refreshing_package_from_handle(handle)?;
+        let snapshot = runtime().block_on(async {
+            let guard = package.inner.lock().await;
+            let package = active_refreshing_package(&guard)?;
+            Ok::<_, String>(package.snapshot())
+        })?;
+        env_json(env, snapshot.to_json())
+    })
+}
+
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_dev_rototo_Native_refreshingPackageSubscribeEventsNative(
+    mut env: JNIEnv<'_>,
+    _class: JClass<'_>,
+    handle: jlong,
+) -> jlong {
+    jni_call_long(&mut env, |_env| {
+        let package = refreshing_package_from_handle(handle)?;
+        let rx = runtime().block_on(async {
+            let guard = package.inner.lock().await;
+            let package = active_refreshing_package(&guard)?;
+            Ok::<_, String>(package.subscribe_refresh_events())
+        })?;
+        Ok(Box::into_raw(Box::new(JavaRefreshEvents { rx: Mutex::new(rx) })) as jlong)
+    })
+}
+
+/// Block until the next refresh event. Returns the event JSON, or a null string
+/// when the stream has closed (the package was shut down or freed). A lagging
+/// subscriber skips the gap rather than erroring.
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_dev_rototo_Native_refreshEventsNextNative(
+    mut env: JNIEnv<'_>,
+    _class: JClass<'_>,
+    handle: jlong,
+) -> jstring {
+    jni_call_string(&mut env, |env| {
+        let events = refresh_events_from_handle(handle)?;
+        let json = runtime().block_on(async {
+            let mut rx = events.rx.lock().await;
+            loop {
+                match rx.recv().await {
+                    Ok(event) => {
+                        let text = serde_json::to_string(&event.to_json())
+                            .map_err(|err| err.to_string())?;
+                        return Ok::<Option<String>, String>(Some(text));
+                    }
+                    Err(broadcast::error::RecvError::Lagged(_)) => continue,
+                    Err(broadcast::error::RecvError::Closed) => return Ok(None),
+                }
+            }
+        })?;
+        match json {
+            Some(text) => env_string(env, &text),
+            None => Ok(std::ptr::null_mut()),
+        }
+    })
+}
+
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_dev_rototo_Native_refreshEventsFreeNative(
+    _env: JNIEnv<'_>,
+    _class: JClass<'_>,
+    handle: jlong,
+) {
+    if handle != 0 {
+        unsafe {
+            drop(Box::from_raw(handle as *mut JavaRefreshEvents));
+        }
+    }
+}
+
+#[unsafe(no_mangle)]
 pub extern "system" fn Java_dev_rototo_Native_refreshingPackageShutdownNative(
     mut env: JNIEnv<'_>,
     _class: JClass<'_>,
@@ -384,6 +496,13 @@ fn active_refreshing_package(
     guard
         .as_ref()
         .ok_or_else(|| "refreshing package has been shut down".to_owned())
+}
+
+fn refresh_events_from_handle(handle: jlong) -> Result<&'static JavaRefreshEvents, String> {
+    if handle == 0 {
+        return Err("refresh event stream has been closed".to_owned());
+    }
+    Ok(unsafe { &*(handle as *const JavaRefreshEvents) })
 }
 
 fn refresh_status_to_json(status: rototo::RefreshStatus) -> JsonValue {

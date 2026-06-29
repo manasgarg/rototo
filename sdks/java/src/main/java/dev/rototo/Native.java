@@ -15,6 +15,8 @@ final class Native {
 
     static native String packageRootNative(long handle);
 
+    static native String packageIdentityNative(long handle);
+
     static native String packageLintNative(long handle);
 
     static native String packageResolveVariableNative(
@@ -53,6 +55,16 @@ final class Native {
     static native String refreshingPackageRefreshNowNative(long handle);
 
     static native String refreshingPackageStatusNative(long handle);
+
+    static native String refreshingPackageIdentityNative(long handle);
+
+    static native String refreshingPackageSnapshotNative(long handle);
+
+    static native long refreshingPackageSubscribeEventsNative(long handle);
+
+    static native String refreshEventsNextNative(long handle);
+
+    static native void refreshEventsFreeNative(long handle);
 
     static native void refreshingPackageShutdownNative(long handle);
 

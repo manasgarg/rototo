@@ -105,6 +105,10 @@ static RototoGoStringResult rototo_go_call_refreshing_package_resolve(void* fn, 
 static RototoGoVoidResult rototo_go_call_refreshing_package_void(void* fn, void* handle) {
     return ((rototo_go_refreshing_package_void_fn)fn)(handle);
 }
+typedef RototoGoHandleResult (*rototo_go_subscribe_fn)(void*);
+static RototoGoHandleResult rototo_go_call_subscribe(void* fn, void* handle) {
+    return ((rototo_go_subscribe_fn)fn)(handle);
+}
 static void rototo_go_call_string_result_free(void* fn, RototoGoStringResult* result) {
     ((rototo_go_string_result_free_fn)fn)(result);
 }
@@ -131,6 +135,7 @@ type nativeSymbols struct {
 	packageLoad                       unsafe.Pointer
 	packageInspect                    unsafe.Pointer
 	packageRoot                       unsafe.Pointer
+	packageIdentity                   unsafe.Pointer
 	packageLint                       unsafe.Pointer
 	packageResolveVariable            unsafe.Pointer
 	packageResolveQualifier           unsafe.Pointer
@@ -140,6 +145,11 @@ type nativeSymbols struct {
 	refreshingPackageResolveQualifier unsafe.Pointer
 	refreshingPackageRefreshNow       unsafe.Pointer
 	refreshingPackageStatus           unsafe.Pointer
+	refreshingPackageIdentity         unsafe.Pointer
+	refreshingPackageSnapshot         unsafe.Pointer
+	refreshingPackageSubscribeEvents  unsafe.Pointer
+	refreshEventsNext                 unsafe.Pointer
+	refreshEventsFree                 unsafe.Pointer
 	refreshingPackageShutdown         unsafe.Pointer
 	refreshingPackageFree             unsafe.Pointer
 	stringResultFree                  unsafe.Pointer
@@ -195,6 +205,7 @@ func loadNative() error {
 	native.packageLoad = symbol("rototo_go_package_load")
 	native.packageInspect = symbol("rototo_go_package_inspect")
 	native.packageRoot = symbol("rototo_go_package_root")
+	native.packageIdentity = symbol("rototo_go_package_identity")
 	native.packageLint = symbol("rototo_go_package_lint")
 	native.packageResolveVariable = symbol("rototo_go_package_resolve_variable")
 	native.packageResolveQualifier = symbol("rototo_go_package_resolve_qualifier")
@@ -204,6 +215,11 @@ func loadNative() error {
 	native.refreshingPackageResolveQualifier = symbol("rototo_go_refreshing_package_resolve_qualifier")
 	native.refreshingPackageRefreshNow = symbol("rototo_go_refreshing_package_refresh_now")
 	native.refreshingPackageStatus = symbol("rototo_go_refreshing_package_status")
+	native.refreshingPackageIdentity = symbol("rototo_go_refreshing_package_identity")
+	native.refreshingPackageSnapshot = symbol("rototo_go_refreshing_package_snapshot")
+	native.refreshingPackageSubscribeEvents = symbol("rototo_go_refreshing_package_subscribe_events")
+	native.refreshEventsNext = symbol("rototo_go_refresh_events_next")
+	native.refreshEventsFree = symbol("rototo_go_refresh_events_free")
 	native.refreshingPackageShutdown = symbol("rototo_go_refreshing_package_shutdown")
 	native.refreshingPackageFree = symbol("rototo_go_refreshing_package_free")
 	native.stringResultFree = symbol("rototo_go_string_result_free")
@@ -276,6 +292,15 @@ func nativePackageRoot(handle nativeHandle) (string, error) {
 		return "", err
 	}
 	result := C.rototo_go_call_package_string(native.packageRoot, pointer(handle))
+	defer C.rototo_go_call_string_result_free(native.stringResultFree, &result)
+	return stringResult(result)
+}
+
+func nativePackageIdentity(handle nativeHandle) (string, error) {
+	if err := ensureNative(); err != nil {
+		return "", err
+	}
+	result := C.rototo_go_call_package_string(native.packageIdentity, pointer(handle))
 	defer C.rototo_go_call_string_result_free(native.stringResultFree, &result)
 	return stringResult(result)
 }
@@ -394,6 +419,57 @@ func nativeRefreshingPackageStatus(handle nativeHandle) (string, error) {
 	result := C.rototo_go_call_refreshing_package_string(native.refreshingPackageStatus, pointer(handle))
 	defer C.rototo_go_call_string_result_free(native.stringResultFree, &result)
 	return stringResult(result)
+}
+
+func nativeRefreshingPackageIdentity(handle nativeHandle) (string, error) {
+	if err := ensureNative(); err != nil {
+		return "", err
+	}
+	result := C.rototo_go_call_refreshing_package_string(native.refreshingPackageIdentity, pointer(handle))
+	defer C.rototo_go_call_string_result_free(native.stringResultFree, &result)
+	return stringResult(result)
+}
+
+func nativeRefreshingPackageSnapshot(handle nativeHandle) (string, error) {
+	if err := ensureNative(); err != nil {
+		return "", err
+	}
+	result := C.rototo_go_call_refreshing_package_string(native.refreshingPackageSnapshot, pointer(handle))
+	defer C.rototo_go_call_string_result_free(native.stringResultFree, &result)
+	return stringResult(result)
+}
+
+func nativeRefreshingPackageSubscribeEvents(handle nativeHandle) (nativeHandle, error) {
+	if err := ensureNative(); err != nil {
+		return 0, err
+	}
+	result := C.rototo_go_call_subscribe(native.refreshingPackageSubscribeEvents, pointer(handle))
+	defer C.rototo_go_call_handle_result_free(native.handleResultFree, &result)
+	return handleResult(result)
+}
+
+// nativeRefreshEventsNext blocks until the next event. The bool is false (with a
+// nil error) when the stream has closed.
+func nativeRefreshEventsNext(handle nativeHandle) (string, bool, error) {
+	if err := ensureNative(); err != nil {
+		return "", false, err
+	}
+	result := C.rototo_go_call_refreshing_package_string(native.refreshEventsNext, pointer(handle))
+	defer C.rototo_go_call_string_result_free(native.stringResultFree, &result)
+	if result.error != nil {
+		return "", false, nativeError(C.GoString(result.error))
+	}
+	if result.value == nil {
+		return "", false, nil
+	}
+	return C.GoString(result.value), true, nil
+}
+
+func nativeRefreshEventsFree(handle nativeHandle) {
+	if handle == 0 || ensureNative() != nil {
+		return
+	}
+	C.rototo_go_call_handle_free(native.refreshEventsFree, pointer(handle))
 }
 
 func nativeRefreshingPackageShutdown(handle nativeHandle) error {

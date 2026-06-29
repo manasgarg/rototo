@@ -3,6 +3,12 @@ import {
     type JsonValue,
     type RefreshOutcome,
     type RefreshStatusJson,
+    type PackageIdentityJson,
+    type PackageLayerIdentityJson,
+    type RefreshSnapshotJson,
+    type RefreshEventJson,
+    type RefreshEventSummaryJson,
+    type SdkIdentityJson,
     type VariableResolutionJson,
     type VariableResolutionSourceJson,
     type PackageLintJson,
@@ -14,10 +20,23 @@ export type {
     JsonValue,
     RefreshOutcome,
     RefreshStatusJson,
+    PackageIdentityJson,
+    PackageLayerIdentityJson,
+    RefreshSnapshotJson,
+    RefreshEventJson,
+    RefreshEventSummaryJson,
+    SdkIdentityJson,
     VariableResolutionJson,
     VariableResolutionSourceJson,
     PackageLintJson,
 };
+
+export type PackageLayerIdentity = PackageLayerIdentityJson;
+export type PackageIdentity = PackageIdentityJson;
+export type RefreshEventSummary = RefreshEventSummaryJson;
+export type RefreshSnapshot = RefreshSnapshotJson;
+export type RefreshEvent = RefreshEventJson;
+export type SdkIdentity = SdkIdentityJson;
 
 export type LintMode = "deny" | "skip";
 
@@ -229,6 +248,10 @@ export class Package {
         return this.inner.root();
     }
 
+    identity(): PackageIdentity {
+        return this.inner.identity();
+    }
+
     async lint(): Promise<PackageLint> {
         try {
             return await this.inner.lint();
@@ -345,6 +368,41 @@ export class RefreshingPackage {
             return await this.inner.status();
         } catch (error) {
             throw toRototoError(error);
+        }
+    }
+
+    async identity(): Promise<PackageIdentity> {
+        try {
+            return await this.inner.identity();
+        } catch (error) {
+            throw toRototoError(error);
+        }
+    }
+
+    async snapshot(): Promise<RefreshSnapshot> {
+        try {
+            return await this.inner.snapshot();
+        } catch (error) {
+            throw toRototoError(error);
+        }
+    }
+
+    /* Yield refresh events as they occur. The stream ends when the package is
+       shut down. A lagging consumer skips dropped events rather than erroring;
+       recover ground truth from `snapshot()`. */
+    async *refreshEvents(): AsyncGenerator<RefreshEvent, void, void> {
+        const events = this.inner.subscribeEvents();
+        for (;;) {
+            let event: RefreshEvent | null;
+            try {
+                event = await events.recv();
+            } catch (error) {
+                throw toRototoError(error);
+            }
+            if (event === null) {
+                return;
+            }
+            yield event;
         }
     }
 

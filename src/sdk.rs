@@ -3,8 +3,9 @@ use std::sync::{Arc, RwLock};
 use std::time::{Duration, SystemTime};
 
 use serde_json::Value as JsonValue;
-use tokio::sync::{Mutex, watch};
+use tokio::sync::{Mutex, broadcast, watch};
 use tokio::task::JoinHandle;
+use uuid::Uuid;
 
 use crate::error::{Result, RototoError};
 use crate::lint::{
@@ -22,6 +23,8 @@ pub struct Package {
     staged: StagedPackage,
     inspection: PackageInspection,
     runtime: Option<RuntimePackage>,
+    source: String,
+    loaded_at: SystemTime,
     source_fingerprint: Option<SourceFingerprint>,
     immutable_source: bool,
     source_layers: Vec<SourceLayer>,
@@ -63,19 +66,24 @@ impl Package {
     }
 
     async fn stage_and_inspect(source: impl AsRef<str>, options: &SourceOptions) -> Result<Self> {
-        let loaded = load_package_source(source, options).await?;
-        Self::inspect_loaded(loaded).await
+        let source = source.as_ref().to_owned();
+        let loaded = load_package_source(&source, options).await?;
+        Self::inspect_loaded(source, loaded).await
     }
 
     async fn stage_snapshot_and_inspect(
         source: impl AsRef<str>,
         options: &SourceOptions,
     ) -> Result<Self> {
-        let loaded = load_package_source_snapshot(source, options).await?;
-        Self::inspect_loaded(loaded).await
+        let source = source.as_ref().to_owned();
+        let loaded = load_package_source_snapshot(&source, options).await?;
+        Self::inspect_loaded(source, loaded).await
     }
 
-    async fn inspect_loaded(loaded: crate::source::LoadedPackageSource) -> Result<Self> {
+    async fn inspect_loaded(
+        source: String,
+        loaded: crate::source::LoadedPackageSource,
+    ) -> Result<Self> {
         let source_fingerprint = loaded.fingerprint().cloned();
         let immutable_source = loaded.immutable();
         let source_layers = loaded.layers().to_vec();
@@ -88,6 +96,8 @@ impl Package {
             staged,
             inspection,
             runtime: None,
+            source,
+            loaded_at: SystemTime::now(),
             source_fingerprint,
             immutable_source,
             source_layers,
@@ -131,6 +141,34 @@ impl Package {
 
     pub fn source_layers(&self) -> &[SourceLayer] {
         &self.source_layers
+    }
+
+    /// Time at which this package instance was accepted by the SDK. For an
+    /// initial load it is the successful load time; a refreshed package carries
+    /// the time the new snapshot was built and became current.
+    pub fn loaded_at(&self) -> SystemTime {
+        self.loaded_at
+    }
+
+    /// Stable, serializable identity of this loaded package: redacted source,
+    /// fingerprint, derived release id, load time, immutability, and per-layer
+    /// identity for layered packages.
+    pub fn identity(&self) -> PackageIdentity {
+        PackageIdentity {
+            source: RedactedPackageSource::new(&self.source),
+            fingerprint: self.source_fingerprint.clone(),
+            release_id: self
+                .source_fingerprint
+                .as_ref()
+                .and_then(release_id_from_fingerprint),
+            loaded_at: self.loaded_at,
+            immutable: self.immutable_source,
+            layers: self
+                .source_layers
+                .iter()
+                .map(PackageLayerIdentity::from_layer)
+                .collect(),
+        }
     }
 
     pub async fn lint(&self) -> Result<PackageLint> {
@@ -213,6 +251,9 @@ struct RefreshState {
     current: Arc<RwLock<Arc<Package>>>,
     status: Arc<RwLock<RefreshStatus>>,
     refresh_lock: Arc<Mutex<()>>,
+    observer: Option<Arc<dyn RefreshObserver>>,
+    events: broadcast::Sender<RefreshEvent>,
+    last_event: Arc<RwLock<Option<RefreshEventSummary>>>,
 }
 
 impl RefreshingPackage {
@@ -226,12 +267,15 @@ impl RefreshingPackage {
         refresh_options: RefreshOptions,
     ) -> Result<Self> {
         let source = source.as_ref().to_owned();
+        let attempted_at = SystemTime::now();
         let package =
             Arc::new(Package::load_snapshot_with_options(&source, load_options.clone()).await?);
+        let loaded_at = package.loaded_at();
+        let identity = package.identity();
         let immutable = package.immutable_source();
         let status = Arc::new(RwLock::new(RefreshStatus {
             current_fingerprint: package.source_fingerprint().cloned(),
-            last_success: Some(SystemTime::now()),
+            last_success: Some(loaded_at),
             last_attempt: None,
             consecutive_failures: 0,
             last_error: None,
@@ -244,11 +288,29 @@ impl RefreshingPackage {
                 "package source is pinned to an immutable commit; periodic refresh is disabled"
             );
         }
+        let (events, _) = broadcast::channel(REFRESH_EVENT_CHANNEL_CAPACITY);
         let state = RefreshState {
             current: Arc::new(RwLock::new(package)),
             status: status.clone(),
             refresh_lock: Arc::new(Mutex::new(())),
+            observer: refresh_options.observer.clone(),
+            events,
+            last_event: Arc::new(RwLock::new(None)),
         };
+        emit_event(
+            &state,
+            RefreshEvent::new(
+                RefreshEventType::Loaded,
+                &source,
+                None,
+                Some(identity),
+                attempted_at,
+                loaded_at,
+                None,
+                0,
+                None,
+            ),
+        );
         let (shutdown, receiver) = watch::channel(false);
         let task = refresh_options.period().and_then(|period| {
             (!immutable).then(|| {
@@ -289,6 +351,42 @@ impl RefreshingPackage {
             .clone()
     }
 
+    /// Identity of the package currently active in this process.
+    pub fn identity(&self) -> PackageIdentity {
+        self.current().identity()
+    }
+
+    /// Current refresh state joined with package identity. This is the better
+    /// surface for operational export and rollout-completion checks: it answers
+    /// what is true now, where events answer what changed.
+    pub fn snapshot(&self) -> RefreshSnapshot {
+        let status = self.status();
+        let last_event = self
+            .state
+            .last_event
+            .read()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .clone();
+        RefreshSnapshot {
+            identity: self.identity(),
+            last_attempt: status.last_attempt,
+            last_success: status.last_success,
+            last_event,
+            consecutive_failures: status.consecutive_failures,
+            last_error: status.last_error,
+            refreshing: status.refreshing,
+            immutable: status.immutable,
+        }
+    }
+
+    /// Subscribe to refresh state-transition events. The returned receiver is a
+    /// bounded broadcast channel: it never blocks refresh, and a lagging
+    /// consumer drops the oldest events rather than stalling. Recover ground
+    /// truth from `snapshot()` or `identity()` after a lag.
+    pub fn subscribe_refresh_events(&self) -> broadcast::Receiver<RefreshEvent> {
+        self.state.events.subscribe()
+    }
+
     pub async fn refresh_now(&self) -> Result<RefreshOutcome> {
         refresh_once(&self.source, &self.load_options, &self.state).await
     }
@@ -298,6 +396,21 @@ impl RefreshingPackage {
         if let Some(task) = self.task.take() {
             let _ = task.await;
         }
+        let now = SystemTime::now();
+        emit_event(
+            &self.state,
+            RefreshEvent::new(
+                RefreshEventType::Shutdown,
+                &self.source,
+                None,
+                Some(self.current().identity()),
+                now,
+                now,
+                None,
+                self.status().consecutive_failures,
+                None,
+            ),
+        );
     }
 
     pub fn resolve_qualifier(
@@ -350,12 +463,25 @@ impl Drop for RefreshingPackage {
     }
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone)]
 pub struct RefreshOptions {
     period: Option<Duration>,
     max_staleness: Option<Duration>,
     min_failure_backoff: Duration,
     max_failure_backoff: Duration,
+    observer: Option<Arc<dyn RefreshObserver>>,
+}
+
+impl std::fmt::Debug for RefreshOptions {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("RefreshOptions")
+            .field("period", &self.period)
+            .field("max_staleness", &self.max_staleness)
+            .field("min_failure_backoff", &self.min_failure_backoff)
+            .field("max_failure_backoff", &self.max_failure_backoff)
+            .field("observer", &self.observer.is_some())
+            .finish()
+    }
 }
 
 impl RefreshOptions {
@@ -394,6 +520,18 @@ impl RefreshOptions {
         self.max_failure_backoff = max;
         self
     }
+
+    /// Attach a synchronous, best-effort observer for refresh events. The
+    /// observer must not block or perform I/O; bridge async work through
+    /// `RefreshingPackage::subscribe_refresh_events` instead. Observer failure
+    /// never affects refresh.
+    pub fn with_observer<O>(mut self, observer: O) -> Self
+    where
+        O: RefreshObserver,
+    {
+        self.observer = Some(Arc::new(observer));
+        self
+    }
 }
 
 impl Default for RefreshOptions {
@@ -403,6 +541,7 @@ impl Default for RefreshOptions {
             max_staleness: None,
             min_failure_backoff: Duration::from_secs(5),
             max_failure_backoff: Duration::from_secs(300),
+            observer: None,
         }
     }
 }
@@ -488,15 +627,16 @@ async fn refresh_once(
     state: &RefreshState,
 ) -> Result<RefreshOutcome> {
     let _guard = state.refresh_lock.lock().await;
+    let attempted_at = SystemTime::now();
     {
         let mut status = state
             .status
             .write()
             .unwrap_or_else(|poisoned| poisoned.into_inner());
-        status.last_attempt = Some(SystemTime::now());
+        status.last_attempt = Some(attempted_at);
         status.refreshing = true;
     }
-    let result = refresh_once_inner(source, load_options, state).await;
+    let result = refresh_once_inner(source, load_options, state, attempted_at).await;
     {
         let mut status = state
             .status
@@ -508,6 +648,34 @@ async fn refresh_once(
             status.last_error = Some(err.to_string());
         }
     }
+    if let Err(err) = &result {
+        let consecutive_failures = state
+            .status
+            .read()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .consecutive_failures;
+        // The failed package must not be reported as current: keep last-known-good
+        // as `current` and omit `previous` per the spec.
+        let current = state
+            .current
+            .read()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .identity();
+        emit_event(
+            state,
+            RefreshEvent::new(
+                RefreshEventType::Failed,
+                source,
+                None,
+                Some(current),
+                attempted_at,
+                SystemTime::now(),
+                None,
+                consecutive_failures,
+                Some(err.to_string()),
+            ),
+        );
+    }
     result
 }
 
@@ -515,22 +683,43 @@ async fn refresh_once_inner(
     source: &str,
     load_options: &LoadOptions,
     state: &RefreshState,
+    attempted_at: SystemTime,
 ) -> Result<RefreshOutcome> {
-    let (previous, layers) = {
+    let (previous_fingerprint, previous_identity, layers) = {
         let current = state
             .current
             .read()
             .unwrap_or_else(|poisoned| poisoned.into_inner());
         (
             current.source_fingerprint().cloned(),
+            current.identity(),
             current.source_layers().to_vec(),
         )
     };
-    match probe_package_source_graph(source, load_options.source(), previous.as_ref(), &layers)
-        .await?
+    match probe_package_source_graph(
+        source,
+        load_options.source(),
+        previous_fingerprint.as_ref(),
+        &layers,
+    )
+    .await?
     {
         SourceProbe::Unchanged => {
             tracing::debug!(source = %redacted_source(source), "package source is unchanged");
+            emit_event(
+                state,
+                RefreshEvent::new(
+                    RefreshEventType::Unchanged,
+                    source,
+                    None,
+                    Some(previous_identity),
+                    attempted_at,
+                    SystemTime::now(),
+                    Some(RefreshOutcome::Unchanged),
+                    0,
+                    None,
+                ),
+            );
             return Ok(RefreshOutcome::Unchanged);
         }
         SourceProbe::ImmutablePinned(fingerprint) => {
@@ -538,12 +727,28 @@ async fn refresh_once_inner(
                 source = %redacted_source(source),
                 "package source is pinned to an immutable commit; periodic refresh is disabled"
             );
-            let mut status = state
-                .status
-                .write()
-                .unwrap_or_else(|poisoned| poisoned.into_inner());
-            status.current_fingerprint = Some(fingerprint);
-            status.immutable = true;
+            {
+                let mut status = state
+                    .status
+                    .write()
+                    .unwrap_or_else(|poisoned| poisoned.into_inner());
+                status.current_fingerprint = Some(fingerprint);
+                status.immutable = true;
+            }
+            emit_event(
+                state,
+                RefreshEvent::new(
+                    RefreshEventType::Immutable,
+                    source,
+                    None,
+                    Some(state.current_identity()),
+                    attempted_at,
+                    SystemTime::now(),
+                    Some(RefreshOutcome::Immutable),
+                    0,
+                    None,
+                ),
+            );
             return Ok(RefreshOutcome::Immutable);
         }
         SourceProbe::Changed(_) => {
@@ -561,6 +766,8 @@ async fn refresh_once_inner(
         Arc::new(Package::load_snapshot_with_options(source, load_options.clone()).await?);
     let fingerprint = package.source_fingerprint().cloned();
     let immutable = package.immutable_source();
+    let loaded_at = package.loaded_at();
+    let current_identity = package.identity();
     {
         let mut current = state
             .current
@@ -574,12 +781,32 @@ async fn refresh_once_inner(
             .write()
             .unwrap_or_else(|poisoned| poisoned.into_inner());
         status.current_fingerprint = fingerprint;
-        status.last_success = Some(SystemTime::now());
+        status.last_success = Some(loaded_at);
         status.consecutive_failures = 0;
         status.last_error = None;
         status.immutable = immutable;
     }
-    tracing::info!(source = %redacted_source(source), "package refresh succeeded");
+    tracing::info!(
+        source = %redacted_source(source),
+        event_type = "refreshed",
+        release_id = current_identity.release_id.as_deref().unwrap_or(""),
+        previous_release_id = previous_identity.release_id.as_deref().unwrap_or(""),
+        "package refresh succeeded"
+    );
+    emit_event(
+        state,
+        RefreshEvent::new(
+            RefreshEventType::Refreshed,
+            source,
+            Some(previous_identity),
+            Some(current_identity),
+            attempted_at,
+            loaded_at,
+            Some(RefreshOutcome::Refreshed),
+            0,
+            None,
+        ),
+    );
     Ok(RefreshOutcome::Refreshed)
 }
 
@@ -624,6 +851,390 @@ fn redacted_source(source: &str) -> String {
             format!("{scheme}://<redacted>@{host}")
         }
         _ => source.to_owned(),
+    }
+}
+
+/// Bounded capacity for the refresh-event broadcast channel. A lagging consumer
+/// drops the oldest events rather than blocking refresh; recover from
+/// `snapshot()`/`identity()`.
+const REFRESH_EVENT_CHANNEL_CAPACITY: usize = 64;
+
+impl RefreshState {
+    fn current_identity(&self) -> PackageIdentity {
+        self.current
+            .read()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .identity()
+    }
+}
+
+fn emit_event(state: &RefreshState, event: RefreshEvent) {
+    {
+        let mut last = state
+            .last_event
+            .write()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        *last = Some(event.summary());
+    }
+    if let Some(observer) = &state.observer {
+        let observer = observer.clone();
+        let event = event.clone();
+        // Observer failure must never break refresh; a panicking observer is
+        // contained here rather than propagated into the refresh path.
+        let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(move || {
+            observer.observe(event);
+        }));
+    }
+    // No subscribers (or a full lagging channel) is not an error for refresh.
+    let _ = state.events.send(event);
+}
+
+/// Synchronous, best-effort sink for refresh events. Implementations must not
+/// block or perform I/O. Any blocking or async forwarding should go through
+/// `RefreshingPackage::subscribe_refresh_events` instead.
+pub trait RefreshObserver: Send + Sync + 'static {
+    fn observe(&self, event: RefreshEvent);
+}
+
+impl<F> RefreshObserver for F
+where
+    F: Fn(RefreshEvent) + Send + Sync + 'static,
+{
+    fn observe(&self, event: RefreshEvent) {
+        self(event)
+    }
+}
+
+/// Source string with credentials removed: userinfo stripped, never carrying a
+/// bearer token. Scheme, host, path, ref, and subdir are preserved when safe.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct RedactedPackageSource(String);
+
+impl RedactedPackageSource {
+    pub fn new(source: &str) -> Self {
+        Self(redacted_source(source))
+    }
+
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+}
+
+impl std::fmt::Display for RedactedPackageSource {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&self.0)
+    }
+}
+
+/// Stable, serializable identity of a loaded package.
+#[derive(Clone, Debug)]
+pub struct PackageIdentity {
+    pub source: RedactedPackageSource,
+    pub fingerprint: Option<SourceFingerprint>,
+    pub release_id: Option<String>,
+    pub loaded_at: SystemTime,
+    pub immutable: bool,
+    pub layers: Vec<PackageLayerIdentity>,
+}
+
+impl PackageIdentity {
+    pub fn to_json(&self) -> JsonValue {
+        serde_json::json!({
+            "source": self.source.as_str(),
+            "releaseId": self.release_id,
+            "fingerprint": self.fingerprint.as_ref().map(source_fingerprint_to_json),
+            "loadedAt": system_time_to_unix_seconds(Some(self.loaded_at)),
+            "immutable": self.immutable,
+            "layers": self.layers.iter().map(PackageLayerIdentity::to_json).collect::<Vec<_>>(),
+        })
+    }
+}
+
+/// Identity of a single layer in a layered package.
+#[derive(Clone, Debug)]
+pub struct PackageLayerIdentity {
+    pub source: RedactedPackageSource,
+    pub fingerprint: Option<SourceFingerprint>,
+    pub release_id: Option<String>,
+    pub immutable: bool,
+}
+
+impl PackageLayerIdentity {
+    fn from_layer(layer: &SourceLayer) -> Self {
+        Self {
+            source: RedactedPackageSource::new(layer.source()),
+            fingerprint: layer.fingerprint().cloned(),
+            release_id: layer.fingerprint().and_then(release_id_from_fingerprint),
+            immutable: layer.immutable(),
+        }
+    }
+
+    pub fn to_json(&self) -> JsonValue {
+        serde_json::json!({
+            "source": self.source.as_str(),
+            "releaseId": self.release_id,
+            "fingerprint": self.fingerprint.as_ref().map(source_fingerprint_to_json),
+            "immutable": self.immutable,
+        })
+    }
+}
+
+/// Best-effort stable release label derived deterministically from a
+/// fingerprint. `None` only when the source has no fingerprint (for example a
+/// local directory), so callers can distinguish "no release identity" from a
+/// derived one.
+fn release_id_from_fingerprint(fingerprint: &SourceFingerprint) -> Option<String> {
+    Some(match fingerprint {
+        SourceFingerprint::GitCommit(commit) => format!("git:{commit}"),
+        SourceFingerprint::ContentHash(hash) => hash.clone(),
+        SourceFingerprint::HttpValidator(value) => release_id_from_http_validator(value),
+        SourceFingerprint::PackageLayers(layers) => {
+            let joined = layers
+                .iter()
+                .map(|layer| {
+                    release_id_from_fingerprint(layer).unwrap_or_else(|| "none".to_owned())
+                })
+                .collect::<Vec<_>>()
+                .join("\n");
+            format!("layers:{}", stable_hash(&joined))
+        }
+    })
+}
+
+fn release_id_from_http_validator(value: &str) -> String {
+    if let Some(index) = value.find("sha256:") {
+        let digest: String = value[index..]
+            .chars()
+            .take_while(|c| c.is_ascii_alphanumeric() || *c == ':')
+            .collect();
+        if digest.len() > "sha256:".len() {
+            return digest;
+        }
+    }
+    format!("http:{}", stable_hash(value))
+}
+
+/// Deterministic, platform-stable short hash (SHA-256 truncated to 8 bytes,
+/// hex). Used for opaque HTTP validators and layered release ids.
+fn stable_hash(value: &str) -> String {
+    let digest = ring::digest::digest(&ring::digest::SHA256, value.as_bytes());
+    digest.as_ref()[..8]
+        .iter()
+        .map(|byte| format!("{byte:02x}"))
+        .collect()
+}
+
+/// Refresh state joined with package identity. Answers "what is true now".
+#[derive(Clone, Debug)]
+pub struct RefreshSnapshot {
+    pub identity: PackageIdentity,
+    pub last_attempt: Option<SystemTime>,
+    pub last_success: Option<SystemTime>,
+    pub last_event: Option<RefreshEventSummary>,
+    pub consecutive_failures: u64,
+    pub last_error: Option<String>,
+    pub refreshing: bool,
+    pub immutable: bool,
+}
+
+impl RefreshSnapshot {
+    pub fn to_json(&self) -> JsonValue {
+        serde_json::json!({
+            "identity": self.identity.to_json(),
+            "lastAttempt": system_time_to_unix_seconds(self.last_attempt),
+            "lastSuccess": system_time_to_unix_seconds(self.last_success),
+            "lastEvent": self.last_event.as_ref().map(RefreshEventSummary::to_json),
+            "consecutiveFailures": self.consecutive_failures,
+            "lastError": self.last_error,
+            "refreshing": self.refreshing,
+            "immutable": self.immutable,
+        })
+    }
+}
+
+/// Compact record of the most recent refresh event, carried on a snapshot so a
+/// late subscriber that missed the live event can still see what last happened.
+#[derive(Clone, Debug)]
+pub struct RefreshEventSummary {
+    pub event_id: Uuid,
+    pub event_type: RefreshEventType,
+    pub release_id: Option<String>,
+    pub completed_at: SystemTime,
+}
+
+impl RefreshEventSummary {
+    pub fn to_json(&self) -> JsonValue {
+        serde_json::json!({
+            "eventId": self.event_id.to_string(),
+            "eventType": self.event_type.as_str(),
+            "releaseId": self.release_id,
+            "completedAt": system_time_to_unix_seconds(Some(self.completed_at)),
+        })
+    }
+}
+
+/// A refresh state-transition event.
+#[derive(Clone, Debug)]
+pub struct RefreshEvent {
+    pub event_id: Uuid,
+    pub event_type: RefreshEventType,
+    pub source: RedactedPackageSource,
+    pub previous: Option<PackageIdentity>,
+    pub current: Option<PackageIdentity>,
+    pub attempted_at: SystemTime,
+    pub completed_at: SystemTime,
+    pub duration: Duration,
+    pub outcome: Option<RefreshOutcome>,
+    pub consecutive_failures: u64,
+    pub error: Option<String>,
+    pub sdk: SdkIdentity,
+}
+
+impl RefreshEvent {
+    #[allow(clippy::too_many_arguments)]
+    fn new(
+        event_type: RefreshEventType,
+        source: &str,
+        previous: Option<PackageIdentity>,
+        current: Option<PackageIdentity>,
+        attempted_at: SystemTime,
+        completed_at: SystemTime,
+        outcome: Option<RefreshOutcome>,
+        consecutive_failures: u64,
+        error: Option<String>,
+    ) -> Self {
+        let duration = completed_at
+            .duration_since(attempted_at)
+            .unwrap_or_default();
+        Self {
+            event_id: Uuid::new_v4(),
+            event_type,
+            source: RedactedPackageSource::new(source),
+            previous,
+            current,
+            attempted_at,
+            completed_at,
+            duration,
+            outcome,
+            consecutive_failures,
+            error,
+            sdk: SdkIdentity::rust(),
+        }
+    }
+
+    fn summary(&self) -> RefreshEventSummary {
+        RefreshEventSummary {
+            event_id: self.event_id,
+            event_type: self.event_type,
+            release_id: self
+                .current
+                .as_ref()
+                .and_then(|identity| identity.release_id.clone()),
+            completed_at: self.completed_at,
+        }
+    }
+
+    pub fn to_json(&self) -> JsonValue {
+        serde_json::json!({
+            "schemaVersion": 1,
+            "eventId": self.event_id.to_string(),
+            "eventType": self.event_type.as_str(),
+            "source": self.source.as_str(),
+            "previous": self.previous.as_ref().map(PackageIdentity::to_json),
+            "current": self.current.as_ref().map(PackageIdentity::to_json),
+            "attemptedAt": system_time_to_unix_seconds(Some(self.attempted_at)),
+            "completedAt": system_time_to_unix_seconds(Some(self.completed_at)),
+            "durationMs": self.duration.as_millis() as u64,
+            "outcome": self.outcome.map(refresh_outcome_str),
+            "consecutiveFailures": self.consecutive_failures,
+            "error": self.error,
+            "sdk": self.sdk.to_json(),
+        })
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum RefreshEventType {
+    Loaded,
+    RefreshStarted,
+    Unchanged,
+    Refreshed,
+    Failed,
+    Immutable,
+    Shutdown,
+}
+
+impl RefreshEventType {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            RefreshEventType::Loaded => "loaded",
+            RefreshEventType::RefreshStarted => "refresh_started",
+            RefreshEventType::Unchanged => "unchanged",
+            RefreshEventType::Refreshed => "refreshed",
+            RefreshEventType::Failed => "failed",
+            RefreshEventType::Immutable => "immutable",
+            RefreshEventType::Shutdown => "shutdown",
+        }
+    }
+}
+
+/// Identity of the SDK that emitted an event.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct SdkIdentity {
+    pub name: &'static str,
+    pub version: &'static str,
+    pub language: &'static str,
+}
+
+impl SdkIdentity {
+    pub const fn rust() -> Self {
+        Self {
+            name: "rototo",
+            version: env!("CARGO_PKG_VERSION"),
+            language: "rust",
+        }
+    }
+
+    pub fn to_json(&self) -> JsonValue {
+        serde_json::json!({
+            "name": self.name,
+            "version": self.version,
+            "language": self.language,
+        })
+    }
+}
+
+fn refresh_outcome_str(outcome: RefreshOutcome) -> &'static str {
+    match outcome {
+        RefreshOutcome::Unchanged => "unchanged",
+        RefreshOutcome::Refreshed => "refreshed",
+        RefreshOutcome::Immutable => "immutable",
+    }
+}
+
+/// Canonical JSON shape for a source fingerprint, shared across SDKs.
+pub fn source_fingerprint_to_json(fingerprint: &SourceFingerprint) -> JsonValue {
+    match fingerprint {
+        SourceFingerprint::GitCommit(value) => {
+            serde_json::json!({ "kind": "git_commit", "value": value })
+        }
+        SourceFingerprint::HttpValidator(value) => {
+            serde_json::json!({ "kind": "http_validator", "value": value })
+        }
+        SourceFingerprint::ContentHash(value) => {
+            serde_json::json!({ "kind": "content_hash", "value": value })
+        }
+        SourceFingerprint::PackageLayers(layers) => serde_json::json!({
+            "kind": "package_layers",
+            "layers": layers.iter().map(source_fingerprint_to_json).collect::<Vec<_>>(),
+        }),
+    }
+}
+
+fn system_time_to_unix_seconds(time: Option<SystemTime>) -> JsonValue {
+    match time.and_then(|time| time.duration_since(SystemTime::UNIX_EPOCH).ok()) {
+        Some(duration) => serde_json::json!(duration.as_secs_f64()),
+        None => JsonValue::Null,
     }
 }
 
@@ -700,5 +1311,85 @@ impl EvaluationContext {
 
     pub fn value(&self) -> &JsonValue {
         &self.value
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::source::SourceFingerprint;
+
+    #[test]
+    fn release_id_from_git_commit_is_prefixed() {
+        let id = release_id_from_fingerprint(&SourceFingerprint::GitCommit("abc123".into()));
+        assert_eq!(id.as_deref(), Some("git:abc123"));
+    }
+
+    #[test]
+    fn release_id_from_content_hash_is_the_digest() {
+        let id = release_id_from_fingerprint(&SourceFingerprint::ContentHash("sha256:4d1c".into()));
+        assert_eq!(id.as_deref(), Some("sha256:4d1c"));
+    }
+
+    #[test]
+    fn release_id_from_http_validator_extracts_digest() {
+        let id = release_id_from_fingerprint(&SourceFingerprint::HttpValidator(
+            "etag:\"sha256:2222abcd\"".into(),
+        ));
+        assert_eq!(id.as_deref(), Some("sha256:2222abcd"));
+    }
+
+    #[test]
+    fn release_id_from_opaque_http_validator_is_stable_and_prefixed() {
+        let value = SourceFingerprint::HttpValidator("W/\"opaque-etag\"".into());
+        let first = release_id_from_fingerprint(&value).unwrap();
+        let second = release_id_from_fingerprint(&value).unwrap();
+        assert_eq!(first, second);
+        assert!(first.starts_with("http:"), "got {first}");
+        assert!(!first.contains("sha256:"));
+    }
+
+    #[test]
+    fn release_id_from_layers_is_stable_hash() {
+        let layers = SourceFingerprint::PackageLayers(vec![
+            SourceFingerprint::GitCommit("aaa".into()),
+            SourceFingerprint::ContentHash("sha256:bbb".into()),
+        ]);
+        let id = release_id_from_fingerprint(&layers).unwrap();
+        assert!(id.starts_with("layers:"), "got {id}");
+        // Deterministic across calls.
+        assert_eq!(id, release_id_from_fingerprint(&layers).unwrap());
+        // Order-sensitive: a different layer order yields a different id.
+        let swapped = SourceFingerprint::PackageLayers(vec![
+            SourceFingerprint::ContentHash("sha256:bbb".into()),
+            SourceFingerprint::GitCommit("aaa".into()),
+        ]);
+        assert_ne!(id, release_id_from_fingerprint(&swapped).unwrap());
+    }
+
+    #[test]
+    fn redacted_source_strips_userinfo_and_tokens() {
+        let redacted = RedactedPackageSource::new(
+            "git+https://user:secret-token@github.com/acme/cfg.git#main:p",
+        );
+        assert!(!redacted.as_str().contains("secret-token"));
+        assert!(!redacted.as_str().contains("user"));
+        assert!(redacted.as_str().contains("github.com/acme/cfg.git#main:p"));
+    }
+
+    #[test]
+    fn redacted_source_preserves_clean_source() {
+        let source = "https://config.acme.com/rototo/checkout/prod/current.tar.gz";
+        assert_eq!(RedactedPackageSource::new(source).as_str(), source);
+    }
+
+    #[test]
+    fn event_type_names_are_snake_case() {
+        assert_eq!(RefreshEventType::Loaded.as_str(), "loaded");
+        assert_eq!(RefreshEventType::RefreshStarted.as_str(), "refresh_started");
+        assert_eq!(RefreshEventType::Refreshed.as_str(), "refreshed");
+        assert_eq!(RefreshEventType::Failed.as_str(), "failed");
+        assert_eq!(RefreshEventType::Immutable.as_str(), "immutable");
+        assert_eq!(RefreshEventType::Shutdown.as_str(), "shutdown");
     }
 }

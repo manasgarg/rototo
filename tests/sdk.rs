@@ -3,13 +3,15 @@ use predicates::prelude::*;
 use std::process::Stdio;
 use std::time::{Duration, Instant};
 
+use std::sync::{Arc, Mutex};
+
 use rototo::model::VariableResolutionSource;
 use rototo::{
-    EvaluationContext, LintMode, LoadOptions, Package, RefreshOptions, RefreshOutcome,
-    RefreshingPackage, ResolveOptions, SourceOptions, diagnostic_for_rule,
-    diagnostics_catalog_for_package, inspect_package, lint_package, lint_qualifier, list_catalogs,
-    list_variables, read_catalog, read_qualifiers, read_variable, read_variables,
-    resolve_qualifier, resolve_variable, stage_package_source,
+    EvaluationContext, LintMode, LoadOptions, Package, RefreshEvent, RefreshEventType,
+    RefreshOptions, RefreshOutcome, RefreshingPackage, ResolveOptions, SourceOptions,
+    diagnostic_for_rule, diagnostics_catalog_for_package, inspect_package, lint_package,
+    lint_qualifier, list_catalogs, list_variables, read_catalog, read_qualifiers, read_variable,
+    read_variables, resolve_qualifier, resolve_variable, stage_package_source,
 };
 
 async fn run_git(repo: &std::path::Path, args: &[&str]) {
@@ -1048,4 +1050,225 @@ async fn package_sdk_can_bypass_context_validation_explicitly() {
         .unwrap();
 
     assert!(!matches);
+}
+
+async fn git_package_repo(message: &str) -> (tempfile::TempDir, std::path::PathBuf, String) {
+    let temp = tempfile::TempDir::new().unwrap();
+    let repo = temp.path().join("repo");
+    let package_root = repo.join("rototo");
+    tokio::fs::create_dir_all(&repo).await.unwrap();
+    write_minimal_package_with_message(&package_root, message).await;
+    run_git(&repo, &["init", "--initial-branch", "main"]).await;
+    commit_all(&repo, "initial").await;
+    let source = format!("git+file://{}#main:rototo", repo.display());
+    (temp, package_root, source)
+}
+
+fn recording_observer() -> (
+    Arc<Mutex<Vec<RefreshEvent>>>,
+    impl Fn(RefreshEvent) + Send + Sync + 'static,
+) {
+    let events = Arc::new(Mutex::new(Vec::new()));
+    let sink = events.clone();
+    (events, move |event| sink.lock().unwrap().push(event))
+}
+
+#[tokio::test]
+async fn package_identity_for_local_source_has_no_release_id() {
+    let temp = tempfile::TempDir::new().unwrap();
+    let root = temp.path().join("rototo");
+    write_minimal_package(&root).await;
+
+    let package = Package::load(format!("file://{}", root.display()))
+        .await
+        .unwrap();
+    let identity = package.identity();
+
+    assert!(identity.source.as_str().starts_with("file://"));
+    // A local directory has no fingerprint, so there is no derived release id.
+    assert!(identity.release_id.is_none());
+    assert!(!identity.immutable);
+}
+
+#[tokio::test]
+async fn package_identity_for_git_source_derives_git_release_id() {
+    let (_temp, _root, source) = git_package_repo("hello").await;
+
+    let package = Package::load(source).await.unwrap();
+    let identity = package.identity();
+
+    let release = identity.release_id.expect("git source has a release id");
+    assert!(release.starts_with("git:"), "got {release}");
+    assert!(identity.source.as_str().contains("git+file://"));
+}
+
+#[tokio::test]
+async fn refreshing_package_observer_receives_loaded_then_refreshed() {
+    let (_temp, package_root, source) = git_package_repo("hello").await;
+    let repo = package_root.parent().unwrap().to_path_buf();
+    let (events, observer) = recording_observer();
+
+    let package = RefreshingPackage::load(source, RefreshOptions::new().with_observer(observer))
+        .await
+        .unwrap();
+
+    write_minimal_package_with_message(&package_root, "goodbye").await;
+    commit_all(&repo, "update").await;
+    assert_eq!(
+        package.refresh_now().await.unwrap(),
+        RefreshOutcome::Refreshed
+    );
+
+    let recorded = events.lock().unwrap();
+    assert_eq!(recorded[0].event_type, RefreshEventType::Loaded);
+    let refreshed = recorded
+        .iter()
+        .find(|event| event.event_type == RefreshEventType::Refreshed)
+        .expect("a refreshed event was emitted");
+    let previous = refreshed.previous.as_ref().expect("refreshed has previous");
+    let current = refreshed.current.as_ref().expect("refreshed has current");
+    assert_ne!(previous.release_id, current.release_id);
+    assert!(current.release_id.as_deref().unwrap().starts_with("git:"));
+    assert_eq!(refreshed.consecutive_failures, 0);
+}
+
+#[tokio::test]
+async fn refreshing_package_subscription_receives_refreshed_event() {
+    let (_temp, package_root, source) = git_package_repo("hello").await;
+    let repo = package_root.parent().unwrap().to_path_buf();
+
+    let package = RefreshingPackage::load(source, RefreshOptions::new())
+        .await
+        .unwrap();
+    // Subscribing after load: the Loaded event is already gone, so the first
+    // delivered event is the upcoming Refreshed transition.
+    let mut events = package.subscribe_refresh_events();
+
+    write_minimal_package_with_message(&package_root, "goodbye").await;
+    commit_all(&repo, "update").await;
+    package.refresh_now().await.unwrap();
+
+    let event = events.recv().await.unwrap();
+    assert_eq!(event.event_type, RefreshEventType::Refreshed);
+}
+
+#[tokio::test]
+async fn refreshing_package_failed_refresh_emits_failed_event_and_keeps_identity() {
+    let (_temp, package_root, source) = git_package_repo("hello").await;
+    let repo = package_root.parent().unwrap().to_path_buf();
+    let (events, observer) = recording_observer();
+
+    let package = RefreshingPackage::load(source, RefreshOptions::new().with_observer(observer))
+        .await
+        .unwrap();
+    let release_before = package.identity().release_id;
+
+    tokio::fs::write(package_root.join("rototo-package.toml"), "not = [valid")
+        .await
+        .unwrap();
+    commit_all(&repo, "break package").await;
+    assert!(package.refresh_now().await.is_err());
+
+    let recorded = events.lock().unwrap();
+    let failed = recorded
+        .iter()
+        .find(|event| event.event_type == RefreshEventType::Failed)
+        .expect("a failed event was emitted");
+    // The failed package must not be reported as current; previous is omitted.
+    assert!(failed.previous.is_none());
+    assert!(failed.error.is_some());
+    assert!(failed.consecutive_failures >= 1);
+    // Last-known-good identity is unchanged.
+    assert_eq!(package.identity().release_id, release_before);
+}
+
+#[tokio::test]
+async fn refreshing_package_unchanged_emits_unchanged_event() {
+    let (_temp, _root, source) = git_package_repo("hello").await;
+    let (events, observer) = recording_observer();
+
+    let package = RefreshingPackage::load(source, RefreshOptions::new().with_observer(observer))
+        .await
+        .unwrap();
+    assert_eq!(
+        package.refresh_now().await.unwrap(),
+        RefreshOutcome::Unchanged
+    );
+
+    let recorded = events.lock().unwrap();
+    assert!(
+        recorded
+            .iter()
+            .any(|event| event.event_type == RefreshEventType::Unchanged)
+    );
+}
+
+#[tokio::test]
+async fn refreshing_package_snapshot_includes_identity_and_last_event() {
+    let (_temp, _root, source) = git_package_repo("hello").await;
+
+    let package = RefreshingPackage::load(source, RefreshOptions::new())
+        .await
+        .unwrap();
+    let snapshot = package.snapshot();
+
+    assert!(snapshot.last_success.is_some());
+    assert!(
+        snapshot
+            .identity
+            .release_id
+            .as_deref()
+            .unwrap()
+            .starts_with("git:")
+    );
+    let last_event = snapshot
+        .last_event
+        .as_ref()
+        .expect("loaded event recorded on snapshot");
+    assert_eq!(last_event.event_type, RefreshEventType::Loaded);
+
+    let json = snapshot.to_json();
+    assert_eq!(json["immutable"], serde_json::json!(false));
+    assert!(
+        json["identity"]["releaseId"]
+            .as_str()
+            .unwrap()
+            .starts_with("git:")
+    );
+    assert_eq!(json["lastEvent"]["eventType"], serde_json::json!("loaded"));
+}
+
+#[tokio::test]
+async fn refresh_event_json_shape_is_stable() {
+    let (_temp, package_root, source) = git_package_repo("hello").await;
+    let repo = package_root.parent().unwrap().to_path_buf();
+    let (events, observer) = recording_observer();
+
+    let package = RefreshingPackage::load(source, RefreshOptions::new().with_observer(observer))
+        .await
+        .unwrap();
+    write_minimal_package_with_message(&package_root, "goodbye").await;
+    commit_all(&repo, "update").await;
+    package.refresh_now().await.unwrap();
+
+    let recorded = events.lock().unwrap();
+    let refreshed = recorded
+        .iter()
+        .find(|event| event.event_type == RefreshEventType::Refreshed)
+        .expect("a refreshed event was emitted");
+    let json = refreshed.to_json();
+
+    assert_eq!(json["schemaVersion"], serde_json::json!(1));
+    assert_eq!(json["eventType"], serde_json::json!("refreshed"));
+    assert_eq!(json["outcome"], serde_json::json!("refreshed"));
+    assert_eq!(json["sdk"]["language"], serde_json::json!("rust"));
+    assert_eq!(json["consecutiveFailures"], serde_json::json!(0));
+    assert!(json["eventId"].as_str().is_some());
+    assert!(json["durationMs"].is_number());
+    assert!(
+        json["current"]["releaseId"]
+            .as_str()
+            .unwrap()
+            .starts_with("git:")
+    );
 }

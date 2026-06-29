@@ -40,7 +40,6 @@ console = [
     "dep:mime_guess",
     "dep:rusqlite",
     "dep:rust-embed",
-    "dep:uuid",
     "tokio/net",
     "tokio/signal",
 ]
@@ -75,7 +74,9 @@ toml = "0.8"
 toml-span = "0.7.1"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt"] }
-uuid = { version = "1", features = ["v4"], optional = true }
+# Used by the SDK refresh-event stream for stable event ids, so it builds even
+# when the console feature is off (language SDK bindings build that way).
+uuid = { version = "1", features = ["v4"] }
 
 [dev-dependencies]
 assert_cmd = "2"

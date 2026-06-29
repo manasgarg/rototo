@@ -20,6 +20,10 @@ func nativePackageRoot(handle nativeHandle) (string, error) {
 	return "", cgoDisabled()
 }
 
+func nativePackageIdentity(handle nativeHandle) (string, error) {
+	return "", cgoDisabled()
+}
+
 func nativePackageLint(handle nativeHandle) (string, error) {
 	return "", cgoDisabled()
 }
@@ -53,6 +57,24 @@ func nativeRefreshingPackageRefreshNow(handle nativeHandle) (string, error) {
 func nativeRefreshingPackageStatus(handle nativeHandle) (string, error) {
 	return "", cgoDisabled()
 }
+
+func nativeRefreshingPackageIdentity(handle nativeHandle) (string, error) {
+	return "", cgoDisabled()
+}
+
+func nativeRefreshingPackageSnapshot(handle nativeHandle) (string, error) {
+	return "", cgoDisabled()
+}
+
+func nativeRefreshingPackageSubscribeEvents(handle nativeHandle) (nativeHandle, error) {
+	return 0, cgoDisabled()
+}
+
+func nativeRefreshEventsNext(handle nativeHandle) (string, bool, error) {
+	return "", false, cgoDisabled()
+}
+
+func nativeRefreshEventsFree(handle nativeHandle) {}
 
 func nativeRefreshingPackageShutdown(handle nativeHandle) error {
 	return cgoDisabled()

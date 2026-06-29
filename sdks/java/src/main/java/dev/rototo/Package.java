@@ -46,6 +46,11 @@ public final class Package implements AutoCloseable {
         return Native.packageRootNative(openHandle());
     }
 
+    public PackageIdentity identity() {
+        return PackageIdentity.fromJson(
+                Json.asObject(Json.parse(Native.packageIdentityNative(openHandle()))));
+    }
+
     public CompletableFuture<PackageLint> lint() {
         return CompletableFuture.supplyAsync(() -> {
             Map<String, Object> value = Json.asObject(Json.parse(Native.packageLintNative(openHandle())));

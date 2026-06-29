@@ -7,11 +7,12 @@ use pyo3::types::{PyAny, PyDict, PyModule};
 use pyo3_async_runtimes::tokio::future_into_py;
 use pythonize::{depythonize, pythonize};
 use rototo::{
-    EvaluationContext, LintMode, LoadOptions, RefreshOptions, ResolveOptions, SourceAuth,
+    EvaluationContext, LintMode, LoadOptions, PackageIdentity, PackageLayerIdentity, RefreshEvent,
+    RefreshEventSummary, RefreshOptions, RefreshSnapshot, ResolveOptions, SourceAuth,
     SourceFingerprint, SourceOptions,
 };
 use serde_json::Value as JsonValue;
-use tokio::sync::Mutex;
+use tokio::sync::{Mutex, broadcast};
 
 pyo3::create_exception!(_rototo, RototoError, pyo3::exceptions::PyException);
 
@@ -76,6 +77,10 @@ impl PyPackage {
 
     fn root(&self) -> String {
         self.inner.root().display().to_string()
+    }
+
+    fn identity(&self, py: Python<'_>) -> PyResult<Py<PyAny>> {
+        json_to_py(py, &package_identity_to_json(&self.inner.identity()))
     }
 
     fn lint<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyAny>> {
@@ -208,6 +213,34 @@ impl PyRefreshingPackage {
         })
     }
 
+    fn identity<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyAny>> {
+        let inner = Arc::clone(&self.inner);
+        future_into_py(py, async move {
+            let guard = inner.lock().await;
+            let package = active_refreshing_package(&guard)?;
+            let identity = package.identity();
+            Python::attach(|py| json_to_py(py, &package_identity_to_json(&identity)))
+        })
+    }
+
+    fn snapshot<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyAny>> {
+        let inner = Arc::clone(&self.inner);
+        future_into_py(py, async move {
+            let guard = inner.lock().await;
+            let package = active_refreshing_package(&guard)?;
+            let snapshot = package.snapshot();
+            Python::attach(|py| json_to_py(py, &refresh_snapshot_to_json(&snapshot)))
+        })
+    }
+
+    fn subscribe_events(&self) -> PyResult<PyRefreshEvents> {
+        let guard = self.inner.blocking_lock();
+        let package = active_refreshing_package(&guard)?;
+        Ok(PyRefreshEvents {
+            rx: Arc::new(Mutex::new(package.subscribe_refresh_events())),
+        })
+    }
+
     fn shutdown<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyAny>> {
         let inner = Arc::clone(&self.inner);
         future_into_py(py, async move {
@@ -219,6 +252,35 @@ impl PyRefreshingPackage {
                 package.shutdown().await;
             }
             Ok(())
+        })
+    }
+}
+
+#[pyclass(name = "_RefreshEvents")]
+struct PyRefreshEvents {
+    rx: Arc<Mutex<broadcast::Receiver<RefreshEvent>>>,
+}
+
+#[pymethods]
+impl PyRefreshEvents {
+    /// Resolve to the next refresh event, or `None` when the stream has closed
+    /// (the package was shut down or dropped). A lagging subscriber that missed
+    /// events skips the gap rather than erroring; recover ground truth from
+    /// `snapshot()`.
+    fn recv<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyAny>> {
+        let rx = Arc::clone(&self.rx);
+        future_into_py(py, async move {
+            let mut rx = rx.lock().await;
+            loop {
+                match rx.recv().await {
+                    Ok(event) => {
+                        let json = refresh_event_to_json(&event);
+                        return Python::attach(|py| json_to_py(py, &json).map(Some));
+                    }
+                    Err(broadcast::error::RecvError::Lagged(_)) => continue,
+                    Err(broadcast::error::RecvError::Closed) => return Ok(None),
+                }
+            }
         })
     }
 }
@@ -360,11 +422,80 @@ fn refresh_outcome_name(outcome: rototo::RefreshOutcome) -> &'static str {
     }
 }
 
+fn package_identity_to_json(identity: &PackageIdentity) -> JsonValue {
+    serde_json::json!({
+        "source": identity.source.as_str(),
+        "fingerprint": identity.fingerprint.as_ref().map(source_fingerprint_to_json),
+        "release_id": identity.release_id,
+        "loaded_at": system_time_to_unix_seconds(Some(identity.loaded_at)),
+        "immutable": identity.immutable,
+        "layers": identity
+            .layers
+            .iter()
+            .map(package_layer_identity_to_json)
+            .collect::<Vec<_>>(),
+    })
+}
+
+fn package_layer_identity_to_json(layer: &PackageLayerIdentity) -> JsonValue {
+    serde_json::json!({
+        "source": layer.source.as_str(),
+        "fingerprint": layer.fingerprint.as_ref().map(source_fingerprint_to_json),
+        "release_id": layer.release_id,
+        "immutable": layer.immutable,
+    })
+}
+
+fn refresh_snapshot_to_json(snapshot: &RefreshSnapshot) -> JsonValue {
+    serde_json::json!({
+        "identity": package_identity_to_json(&snapshot.identity),
+        "last_attempt": system_time_to_unix_seconds(snapshot.last_attempt),
+        "last_success": system_time_to_unix_seconds(snapshot.last_success),
+        "last_event": snapshot.last_event.as_ref().map(refresh_event_summary_to_json),
+        "consecutive_failures": snapshot.consecutive_failures,
+        "last_error": snapshot.last_error,
+        "refreshing": snapshot.refreshing,
+        "immutable": snapshot.immutable,
+    })
+}
+
+fn refresh_event_summary_to_json(summary: &RefreshEventSummary) -> JsonValue {
+    serde_json::json!({
+        "event_id": summary.event_id.to_string(),
+        "event_type": summary.event_type.as_str(),
+        "release_id": summary.release_id,
+        "completed_at": system_time_to_unix_seconds(Some(summary.completed_at)),
+    })
+}
+
+fn refresh_event_to_json(event: &RefreshEvent) -> JsonValue {
+    serde_json::json!({
+        "schema_version": 1,
+        "event_id": event.event_id.to_string(),
+        "event_type": event.event_type.as_str(),
+        "source": event.source.as_str(),
+        "previous": event.previous.as_ref().map(package_identity_to_json),
+        "current": event.current.as_ref().map(package_identity_to_json),
+        "attempted_at": system_time_to_unix_seconds(Some(event.attempted_at)),
+        "completed_at": system_time_to_unix_seconds(Some(event.completed_at)),
+        "duration_ms": event.duration.as_millis() as u64,
+        "outcome": event.outcome.map(refresh_outcome_name),
+        "consecutive_failures": event.consecutive_failures,
+        "error": event.error,
+        "sdk": {
+            "name": event.sdk.name,
+            "version": event.sdk.version,
+            "language": event.sdk.language,
+        },
+    })
+}
+
 #[pymodule]
 fn _rototo(py: Python<'_>, m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add("RototoError", py.get_type::<RototoError>())?;
     m.add_function(wrap_pyfunction!(version, m)?)?;
     m.add_class::<PyPackage>()?;
     m.add_class::<PyRefreshingPackage>()?;
+    m.add_class::<PyRefreshEvents>()?;
     Ok(())
 }
