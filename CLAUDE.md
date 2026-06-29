@@ -57,7 +57,7 @@ The CLI uses top-level workflow verbs with selector flags for rototo concepts:
 
 ```text
 rototo init <package> [--qualifier <id> | --variable <id> | --catalog <id> | --evaluation-context]
-rototo fixtures <package-source> --out <dir> [--variable <id> ... | --variables] [--qualifier <id> ... | --qualifiers]
+rototo fixtures <package-source> [--variable <id> ... | --variables] [--qualifier <id> ... | --qualifiers] [--context-form path|json]
 rototo lint [package-source] [selectors]
 rototo inspect [package-source] [selectors] [--context <context> ...]
 rototo diff <before-package-source> <after-package-source> [--context <context> ...]

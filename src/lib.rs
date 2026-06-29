@@ -16,7 +16,6 @@ mod predicate;
 pub mod resolve;
 pub mod sdk;
 pub mod source;
-pub mod testing;
 
 pub use diagnostics_catalog::{
     diagnostic_for_rule, diagnostics_catalog, diagnostics_catalog_for_package,

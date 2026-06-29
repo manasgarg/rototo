@@ -139,13 +139,9 @@ struct InitArgs {
 
 #[derive(Debug, Args)]
 struct FixturesArgs {
-    /// Package source to generate fixtures from.
+    /// Package source to print resolve commands for.
     #[arg(value_name = "PACKAGE_SOURCE")]
     package: String,
-
-    /// Directory where rototo fixture TOML files will be written.
-    #[arg(long = "out", value_name = "DIR")]
-    out: PathBuf,
 
     /// Select one variable id. Repeatable.
     #[arg(long = "variable", value_name = "ID")]
@@ -162,6 +158,28 @@ struct FixturesArgs {
     /// Select all qualifiers.
     #[arg(long = "qualifiers", action = ArgAction::SetTrue)]
     all_qualifiers: bool,
+
+    /// How to render context in printed commands.
+    #[arg(long = "context-form", value_enum, default_value_t = ContextForm::Path)]
+    context_form: ContextForm,
+}
+
+#[derive(Clone, Copy, Debug, Default, ValueEnum)]
+enum ContextForm {
+    /// Decompose context into `--context a.b=value` arguments.
+    #[default]
+    Path,
+    /// Emit a single `--context '<json>'` argument.
+    Json,
+}
+
+impl ContextForm {
+    fn to_render(self) -> rototo::fixtures::ContextForm {
+        match self {
+            Self::Path => rototo::fixtures::ContextForm::Path,
+            Self::Json => rototo::fixtures::ContextForm::Json,
+        }
+    }
 }
 
 #[derive(Debug, Args)]
@@ -651,7 +669,7 @@ fn top_level_help() -> String {
     for example in [
         "init config",
         "init config --qualifier premium-users",
-        "fixtures examples/basic --variable tenant-limits --out tests/fixtures/rototo",
+        "fixtures examples/basic --variable tenant-limits",
         "lint examples/basic",
         "show examples/basic --variables",
         "diff examples/basic --context @examples/basic/evaluation-contexts/request-samples/premium-enterprise.json",
@@ -788,10 +806,16 @@ async fn run_fixtures(
     quiet: bool,
 ) -> Result<ExitCode> {
     let selection = fixture_generate_selection(&args);
-    let suite =
-        rototo::fixtures::generate_fixture_suite(&args.package, source_options, selection).await?;
-    let report = suite.write_to(&args.out).await?;
-    print_fixtures_report(&suite.package, &report, json, quiet)?;
+    let invocations =
+        rototo::fixtures::generate_resolve_invocations(&args.package, source_options, selection)
+            .await?;
+    print_fixture_invocations(
+        &args.package,
+        &invocations,
+        args.context_form.to_render(),
+        json,
+        quiet,
+    )?;
     Ok(ExitCode::SUCCESS)
 }
 
@@ -816,40 +840,65 @@ fn fixture_target_selection(
 }
 
 #[derive(Serialize)]
-struct FixturesReport<'a> {
-    command: &'static str,
-    package: &'a str,
-    out: &'a str,
-    files: &'a [String],
+#[serde(rename_all = "camelCase")]
+struct FixtureInvocationJson<'a> {
+    target: String,
+    case_id: &'a str,
+    title: &'a str,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    because: Option<&'a str>,
+    command: String,
+    context: &'a serde_json::Value,
+    expect: &'a rototo::fixtures::ResolveExpectation,
 }
 
-fn print_fixtures_report(
+fn print_fixture_invocations(
     package: &str,
-    report: &rototo::fixtures::FixtureWriteReport,
+    invocations: &[rototo::fixtures::ResolveInvocation],
+    form: rototo::fixtures::ContextForm,
     json: bool,
     quiet: bool,
 ) -> Result<()> {
     if json {
+        let items = invocations
+            .iter()
+            .map(|invocation| FixtureInvocationJson {
+                target: invocation.target.label(),
+                case_id: &invocation.case_id,
+                title: &invocation.title,
+                because: invocation.because.as_deref(),
+                command: rototo::fixtures::render_command(package, invocation, form),
+                context: &invocation.context,
+                expect: &invocation.expect,
+            })
+            .collect::<Vec<_>>();
         println!(
             "{}",
-            serde_json::to_string_pretty(&FixturesReport {
-                command: "fixtures",
-                package,
-                out: &report.out,
-                files: &report.files,
-            })
-            .map_err(|err| RototoError::new(err.to_string()))?
+            serde_json::to_string_pretty(&items)
+                .map_err(|err| RototoError::new(err.to_string()))?
         );
         return Ok(());
     }
 
-    if quiet {
-        return Ok(());
-    }
-
-    println!("{} {}", style::label("fixtures"), style::bold(&report.out));
-    for file in &report.files {
-        println!("  {} {}", style::ok("wrote"), file);
+    let mut current_target: Option<String> = None;
+    for invocation in invocations {
+        let command = rototo::fixtures::render_command(package, invocation, form);
+        if quiet {
+            println!("{command}");
+            continue;
+        }
+        let label = invocation.target.label();
+        if current_target.as_deref() != Some(label.as_str()) {
+            if current_target.is_some() {
+                println!();
+            }
+            println!("{}", style::label(&label));
+            current_target = Some(label);
+        }
+        println!(
+            "{command}  {}",
+            style::dim(&rototo::fixtures::render_comment(invocation))
+        );
     }
     Ok(())
 }
