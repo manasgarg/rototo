@@ -465,6 +465,93 @@ event — but the decision about which catalog ids, qualifier outcomes, or
 selected values are safe to reveal is application policy, so the application
 makes it.
 
+## Trace a Single Resolution
+
+Observability tells you which version is live and whether refresh is healthy.
+The next question usually arrives as a support ticket: *this one user is seeing
+the wrong checkout variant — why?* Reproducing it locally rarely works, because
+the answer depends on that user's runtime context against the live package.
+
+Resolution tracing answers that question without a redeploy. A trace is the full
+execution record of one resolve: the rules attempted, which one matched, every
+qualifier outcome, the selected value and its source, and the request context it
+ran against. It is verbose and meant for debugging, so it is emitted
+selectively, never on every resolve.
+
+There are two ways to ask for one. An application can request a trace on a
+specific call:
+
+```rust
+use rototo::ResolveOptions;
+
+let options = ResolveOptions {
+    trace: true,
+    ..ResolveOptions::default()
+};
+let resolution = package.resolve_variable_with_options(
+    "checkout-redesign",
+    &context,
+    options,
+)?;
+```
+
+The more useful form for a production ticket lives in the package, so you can
+turn tracing on for exactly the case you are chasing through a reviewed change —
+no application deploy. Add a `[[trace]]` policy to `rototo-package.toml`:
+
+```toml
+[[trace]]
+when = 'env.resolving.variable == "checkout-redesign" && context.user.id == "tester-123"'
+```
+
+The `when` is the same expression language used everywhere else. It reads
+`context.*` and composes named conditions with `env.qualifier["<id>"]`, and
+inside a trace policy it may additionally read `env.resolving.variable` and
+`env.resolving.qualifier` — the entity currently being resolved. That binding
+exists only here; a qualifier or rule cannot read it, because a condition must
+stay a function of context, not of who is asking. When the policy matches a
+resolution, rototo emits the trace.
+
+Both forms deliver to one place: the trace stream. An application subscribes and
+forwards traces to its logs or debugger, off the resolve path:
+
+```rust
+let mut traces = package.subscribe_trace_events();
+tokio::spawn(async move {
+    while let Some(item) = traces.recv().await {
+        match item {
+            rototo::TraceStreamItem::Trace(event) => tracing::info!(
+                target_id = event.target_id(),
+                "rototo resolution trace\n{:#}",
+                event.to_json(),
+            ),
+            rototo::TraceStreamItem::Dropped { count } => {
+                tracing::warn!(count, "rototo trace events dropped")
+            }
+        }
+    }
+});
+```
+
+Two properties make this safe to leave configured. Tracing is computed only when
+something is listening: with no subscriber, a `[[trace]]` policy costs nothing,
+because rototo skips the work entirely. And the stream is bounded — a consumer
+that falls behind drops the oldest traces and receives a `Dropped { count }`
+marker rather than stalling resolution. That marker matters when you are
+debugging: silence then means *not traced*, never *traced but lost*.
+
+Buffer depth is a deployment choice, not a package one, because the package
+author cannot know a consumer's traffic or memory budget. Size it with
+`LoadOptions::with_trace_capacity` where you load the package. The `when` decides
+*which* resolutions are interesting; the buffer decides how much the consumer can
+absorb.
+
+One caution on the context. A trace carries the full request context so you can
+see exactly what the resolve saw, and that context often holds user identifiers.
+Redaction before logging is the application's responsibility, the same boundary
+as the release id: rototo gives you the facts, the application decides what is
+safe to persist.
+
 ## Roll Back by Moving the Package Source
 
 Because production consumes a package source, rollback should happen at that

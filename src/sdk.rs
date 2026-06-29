@@ -1351,17 +1351,29 @@ pub enum TraceTarget {
 }
 
 impl TraceTarget {
-    fn kind(&self) -> &'static str {
+    pub fn kind(&self) -> &'static str {
         match self {
             TraceTarget::Variable { .. } => "variable",
             TraceTarget::Qualifier { .. } => "qualifier",
         }
     }
 
-    fn id(&self) -> &str {
+    pub fn id(&self) -> &str {
         match self {
             TraceTarget::Variable { id } | TraceTarget::Qualifier { id } => id,
         }
+    }
+}
+
+impl TraceEvent {
+    /// The id of the entity this trace describes.
+    pub fn target_id(&self) -> &str {
+        self.target.id()
+    }
+
+    /// `"variable"` or `"qualifier"`.
+    pub fn target_kind(&self) -> &'static str {
+        self.target.kind()
     }
 }
 
