@@ -35,21 +35,44 @@ pub(crate) struct ExpressionReferences {
 }
 
 /// The JSON Schema scalar families an expression can require of a context path.
+///
+/// `Ip` and `Timestamp` are refined string families: the path must still be a
+/// string, but it additionally has to carry the matching JSON Schema `format`
+/// (`ipv4`/`ipv6`, `date-time`). They are inferred when a path is used as the
+/// subject of `cidr`/time functions, and — now that catalog and evaluation
+/// context validators assert formats — a declared `format` is a real value-level
+/// guarantee, so requiring it here keeps those functions sound.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub(crate) enum ContextScalarType {
     Bool,
     Number,
     String,
+    Ip,
+    Timestamp,
 }
 
 impl ContextScalarType {
     /// Whether a JSON Schema `type` token names this scalar family. `integer`
-    /// and `number` both satisfy a `Number` expectation.
+    /// and `number` both satisfy a `Number` expectation; the refined string
+    /// families are still `string` at the `type` level.
     pub(crate) fn matches_schema_type(self, schema_type: &str) -> bool {
         match self {
             ContextScalarType::Bool => schema_type == "boolean",
             ContextScalarType::Number => schema_type == "number" || schema_type == "integer",
-            ContextScalarType::String => schema_type == "string",
+            ContextScalarType::String | ContextScalarType::Ip | ContextScalarType::Timestamp => {
+                schema_type == "string"
+            }
+        }
+    }
+
+    /// The JSON Schema `format` tokens that satisfy a refined string family. Any
+    /// one of them is enough (an IP path may be declared `ipv4` or `ipv6`).
+    /// Non-refined families impose no format requirement.
+    pub(crate) fn required_formats(self) -> &'static [&'static str] {
+        match self {
+            ContextScalarType::Ip => &["ipv4", "ipv6"],
+            ContextScalarType::Timestamp => &["date-time"],
+            ContextScalarType::Bool | ContextScalarType::Number | ContextScalarType::String => &[],
         }
     }
 
@@ -58,6 +81,8 @@ impl ContextScalarType {
             ContextScalarType::Bool => "boolean",
             ContextScalarType::Number => "number",
             ContextScalarType::String => "string",
+            ContextScalarType::Ip => "an IP address",
+            ContextScalarType::Timestamp => "a timestamp",
         }
     }
 }
@@ -342,7 +367,13 @@ fn cel_constraints(expr: &IdedExpr, types: &mut BTreeMap<String, BTreeSet<Contex
                     .insert(ContextScalarType::String);
             }
         }
-        _ => {}
+        name => {
+            if let Some(refined) = refined_arg0_function(name)
+                && let Some(path) = call.args.first().and_then(cel_context_path)
+            {
+                types.entry(path).or_default().insert(refined);
+            }
+        }
     }
 }
 
@@ -431,8 +462,22 @@ fn string_arg0_function(name: &str) -> bool {
             | "regex"
             | "glob"
             | "semver"
-            | "cidr"
     )
+}
+
+/// Functions whose first argument is a refined string: a CIDR test reads an IP,
+/// the time comparisons read a timestamp. The path inherits the matching
+/// JSON Schema `format` requirement. `semver` stays a plain string in
+/// [`string_arg0_function`] because JSON Schema has no standard version format
+/// the validators can enforce on the value.
+fn refined_arg0_function(name: &str) -> Option<ContextScalarType> {
+    match name {
+        "cidr" | "inCidr" | "in_cidr" => Some(ContextScalarType::Ip),
+        "timeAfter" | "time_after" | "timeAtOrAfter" | "time_at_or_after" | "timeBefore"
+        | "time_before" | "timeAtOrBefore" | "time_at_or_before" | "timeBetween"
+        | "time_between" => Some(ContextScalarType::Timestamp),
+        _ => None,
+    }
 }
 
 // ---- Evaluation: rototo rents the `cel` engine. ----
@@ -799,6 +844,28 @@ mod tests {
 
         let function = context_types(r#"semver(context.app.version, ">=1.2.0")"#);
         assert_eq!(function.get("app.version"), Some(&BTreeSet::from([String])));
+    }
+
+    #[test]
+    fn infers_refined_string_types_from_cidr_and_time_functions() {
+        use ContextScalarType::{Ip, Timestamp};
+
+        let cidr = context_types(r#"cidr(context.user.ip, "10.0.0.0/8")"#);
+        assert_eq!(cidr.get("user.ip"), Some(&BTreeSet::from([Ip])));
+
+        let time = context_types(
+            r#"timeBefore(context.window.start, "2026-01-01T00:00:00Z")
+               && timeBetween(context.window.now, "2026-01-01T00:00:00Z", "2027-01-01T00:00:00Z")"#,
+        );
+        assert_eq!(time.get("window.start"), Some(&BTreeSet::from([Timestamp])));
+        assert_eq!(time.get("window.now"), Some(&BTreeSet::from([Timestamp])));
+
+        // semver stays a plain string: there is no enforced JSON Schema format.
+        let semver = context_types(r#"semver(context.app.version, ">=1.0.0")"#);
+        assert_eq!(
+            semver.get("app.version"),
+            Some(&BTreeSet::from([ContextScalarType::String]))
+        );
     }
 
     #[test]

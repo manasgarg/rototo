@@ -1134,6 +1134,25 @@ fn enforces_json_schema_formats_on_catalog_entries() {
     );
 }
 
+#[test]
+fn flags_cidr_use_of_a_context_path_without_an_ip_format() {
+    // cidr() reads its subject as an IP, so the context schema must declare that
+    // path with an ip format. A plain `type: string` declaration is a type match
+    // but a refined-format miss, and is reported as a context-path-type mismatch.
+    let lint = lint_json("tests/fixtures/packages/refined-context-types", false);
+    let diagnostics = lint["diagnostics"].as_array().unwrap();
+    assert!(
+        diagnostics.iter().any(|diagnostic| {
+            diagnostic["rule"].as_str() == Some("rototo/qualifier-when-context-path-type-mismatch")
+                && diagnostic["message"]
+                    .as_str()
+                    .unwrap_or_default()
+                    .contains("an IP address")
+        }),
+        "expected an IP-address refined-type mismatch\n{lint:#}"
+    );
+}
+
 fn lint_json(package: &str, success: bool) -> serde_json::Value {
     let output = Command::cargo_bin("rototo")
         .unwrap()

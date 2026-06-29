@@ -238,10 +238,16 @@ pub(in crate::lint) fn context_path_type_fit(
     let Some(declared) = schema_field_type_tokens(field) else {
         return ContextPathTypeFit::Untyped;
     };
+    let declared_format = field.get("format").and_then(serde_json::Value::as_str);
     let satisfied = constraints.iter().all(|constraint| {
-        declared
+        let type_ok = declared
             .iter()
-            .any(|token| constraint.matches_schema_type(token))
+            .any(|token| constraint.matches_schema_type(token));
+        let format_ok = match constraint.required_formats() {
+            [] => true,
+            formats => declared_format.is_some_and(|declared| formats.contains(&declared)),
+        };
+        type_ok && format_ok
     });
     if satisfied {
         ContextPathTypeFit::Ok
@@ -348,5 +354,48 @@ impl ResolveRulesExt for super::index::ResolveNode {
             return None;
         };
         Some(rules)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::expression::ContextScalarType;
+
+    fn ip_field(format: Option<&str>) -> serde_json::Value {
+        let field = match format {
+            Some(format) => serde_json::json!({ "type": "string", "format": format }),
+            None => serde_json::json!({ "type": "string" }),
+        };
+        serde_json::json!({
+            "type": "object",
+            "properties": { "net": { "type": "object", "properties": { "ip": field } } }
+        })
+    }
+
+    #[test]
+    fn refined_ip_type_requires_a_matching_format() {
+        let constraints = BTreeSet::from([ContextScalarType::Ip]);
+
+        // A plain string declaration is a type-level match but a refined-format
+        // miss, so the path does not satisfy a cidr() use.
+        assert!(matches!(
+            context_path_type_fit(&ip_field(None), "net.ip", &constraints),
+            ContextPathTypeFit::Mismatch
+        ));
+
+        // The same path declared with an ip format is sound.
+        for format in ["ipv4", "ipv6"] {
+            assert!(matches!(
+                context_path_type_fit(&ip_field(Some(format)), "net.ip", &constraints),
+                ContextPathTypeFit::Ok
+            ));
+        }
+
+        // A different format (date-time) does not satisfy an ip constraint.
+        assert!(matches!(
+            context_path_type_fit(&ip_field(Some("date-time")), "net.ip", &constraints),
+            ContextPathTypeFit::Mismatch
+        ));
     }
 }
