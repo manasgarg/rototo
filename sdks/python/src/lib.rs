@@ -9,7 +9,7 @@ use pythonize::{depythonize, pythonize};
 use rototo::{
     EvaluationContext, LintMode, LoadOptions, PackageIdentity, PackageLayerIdentity, RefreshEvent,
     RefreshEventSummary, RefreshOptions, RefreshSnapshot, ResolveOptions, SourceAuth,
-    SourceFingerprint, SourceOptions,
+    SourceFingerprint, SourceOptions, TraceStreamItem, TraceSubscription,
 };
 use serde_json::Value as JsonValue;
 use tokio::sync::{Mutex, broadcast};
@@ -121,6 +121,12 @@ impl PyPackage {
         self.inner
             .resolve_qualifier_with_options(&id, &context, resolve_options(validate_context))
             .map_err(py_err)
+    }
+
+    fn subscribe_trace_events(&self) -> PyTraceEvents {
+        PyTraceEvents {
+            subscription: Arc::new(Mutex::new(self.inner.subscribe_trace_events())),
+        }
     }
 }
 
@@ -241,6 +247,14 @@ impl PyRefreshingPackage {
         })
     }
 
+    fn subscribe_trace_events(&self) -> PyResult<PyTraceEvents> {
+        let guard = self.inner.blocking_lock();
+        let package = active_refreshing_package(&guard)?;
+        Ok(PyTraceEvents {
+            subscription: Arc::new(Mutex::new(package.subscribe_trace_events())),
+        })
+    }
+
     fn shutdown<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyAny>> {
         let inner = Arc::clone(&self.inner);
         future_into_py(py, async move {
@@ -283,6 +297,35 @@ impl PyRefreshEvents {
             }
         })
     }
+}
+
+#[pyclass(name = "_TraceEvents")]
+struct PyTraceEvents {
+    subscription: Arc<Mutex<TraceSubscription>>,
+}
+
+#[pymethods]
+impl PyTraceEvents {
+    /// Resolve to the next trace stream item as a dict, or `None` when the
+    /// stream has closed. A lagging subscriber receives a `{"kind": "dropped",
+    /// "count": n}` item rather than erroring.
+    fn recv<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyAny>> {
+        let subscription = Arc::clone(&self.subscription);
+        future_into_py(py, async move {
+            let mut subscription = subscription.lock().await;
+            match subscription.recv().await {
+                Some(item) => {
+                    let json = trace_stream_item_to_json(&item);
+                    Python::attach(|py| json_to_py(py, &json).map(Some))
+                }
+                None => Ok(None),
+            }
+        })
+    }
+}
+
+fn trace_stream_item_to_json(item: &TraceStreamItem) -> JsonValue {
+    item.to_json()
 }
 
 fn active_refreshing_package(

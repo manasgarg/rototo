@@ -141,6 +141,34 @@ public final class RefreshingPackage implements AutoCloseable {
         thread.start();
     }
 
+    /**
+     * Deliver resolution trace stream items to {@code listener} on a background
+     * daemon thread. Each item is a map: a captured trace
+     * ({@code {"kind": "trace", "trace": {...}}}) or a drop marker
+     * ({@code {"kind": "dropped", "count": n}}). Tracing is computed only while a
+     * listener is attached; with no subscriber a {@code [[trace]]} policy costs
+     * nothing.
+     */
+    public void addTraceListener(Consumer<Map<String, Object>> listener) {
+        Objects.requireNonNull(listener, "listener");
+        long eventsHandle = Native.refreshingPackageSubscribeTraceEventsNative(openHandle());
+        Thread thread = new Thread(() -> {
+            try {
+                while (true) {
+                    String json = Native.traceEventsNextNative(eventsHandle);
+                    if (json == null) {
+                        return;
+                    }
+                    listener.accept(Json.asObject(Json.parse(json)));
+                }
+            } finally {
+                Native.traceEventsFreeNative(eventsHandle);
+            }
+        }, "rototo-trace-listener");
+        thread.setDaemon(true);
+        thread.start();
+    }
+
     public CompletableFuture<Void> shutdown() {
         return CompletableFuture.runAsync(() -> {
             long current = handle.getAndSet(0);

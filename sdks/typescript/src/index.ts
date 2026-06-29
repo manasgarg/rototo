@@ -38,6 +38,12 @@ export type RefreshSnapshot = RefreshSnapshotJson;
 export type RefreshEvent = RefreshEventJson;
 export type SdkIdentity = SdkIdentityJson;
 
+/** One item from a resolution trace stream: a captured trace, or a marker that
+ * a lagging consumer dropped `count` traces. */
+export type TraceStreamItem =
+    | { kind: "trace"; trace: Record<string, unknown> }
+    | { kind: "dropped"; count: number };
+
 export type LintMode = "deny" | "skip";
 
 export type LoadOptions = {
@@ -299,6 +305,26 @@ export class Package {
             throw toRototoError(error);
         }
     }
+
+    /* Yield resolution trace stream items as they occur. Tracing is computed
+       only while this iterator is consumed; with no subscriber a `[[trace]]`
+       policy costs nothing. */
+    async *traceEvents(): AsyncGenerator<TraceStreamItem, void, void> {
+        const events = this.inner.subscribeTraceEvents();
+        for (;;) {
+            let item: TraceStreamItem | null;
+            try {
+                item =
+                    (await events.recv()) as unknown as TraceStreamItem | null;
+            } catch (error) {
+                throw toRototoError(error);
+            }
+            if (item === null) {
+                return;
+            }
+            yield item;
+        }
+    }
 }
 
 export class RefreshingPackage {
@@ -403,6 +429,24 @@ export class RefreshingPackage {
                 return;
             }
             yield event;
+        }
+    }
+
+    /* Yield resolution trace stream items as they occur. */
+    async *traceEvents(): AsyncGenerator<TraceStreamItem, void, void> {
+        const events = this.inner.subscribeTraceEvents();
+        for (;;) {
+            let item: TraceStreamItem | null;
+            try {
+                item =
+                    (await events.recv()) as unknown as TraceStreamItem | null;
+            } catch (error) {
+                throw toRototoError(error);
+            }
+            if (item === null) {
+                return;
+            }
+            yield item;
         }
     }
 

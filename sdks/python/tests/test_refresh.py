@@ -92,6 +92,43 @@ class RefreshingPackageTest(unittest.IsolatedAsyncioTestCase):
             self.assertIsNotNone(refreshed.current)
 
 
+    async def test_trace_events_stream(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            write_traced_package(root)
+
+            package = await rototo.RefreshingPackage.load(str(root))
+            received: list[dict] = []
+
+            async def collect() -> None:
+                async for item in package.trace_events():
+                    received.append(item)
+
+            import asyncio
+
+            task = asyncio.create_task(collect())
+            # Let the generator subscribe before the resolve that should trace.
+            await asyncio.sleep(0.02)
+
+            package.resolve_variable("message", {})
+
+            await asyncio.sleep(0.05)
+            await package.shutdown()
+            await task
+
+            traces = [item for item in received if item["kind"] == "trace"]
+            self.assertTrue(traces, "expected a package-driven trace event")
+            self.assertEqual(traces[0]["trace"]["targetId"], "message")
+            self.assertEqual(traces[0]["trace"]["targetKind"], "variable")
+
+
+def write_traced_package(root: Path) -> None:
+    write_package(root, "hello")
+    (root / "rototo-package.toml").write_text(
+        'schema_version = 1\n\n[[trace]]\nwhen = \'env.resolving.variable == "message"\'\n'
+    )
+
+
 def write_package(root: Path, message: str) -> None:
     (root / "variables").mkdir(exist_ok=True)
     (root / "rototo-package.toml").write_text("schema_version = 1\n")

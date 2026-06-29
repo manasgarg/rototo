@@ -17,6 +17,7 @@ type NativePackage = {
         context: JsonValue,
         validateContext?: boolean,
     ): boolean;
+    subscribeTraceEvents(): NativeTraceEvents;
 };
 
 type NativePackageConstructor = {
@@ -44,11 +45,16 @@ type NativeRefreshingPackage = {
     identity(): Promise<PackageIdentityJson>;
     snapshot(): Promise<RefreshSnapshotJson>;
     subscribeEvents(): NativeRefreshEvents;
+    subscribeTraceEvents(): NativeTraceEvents;
     shutdown(): Promise<void>;
 };
 
 type NativeRefreshEvents = {
     recv(): Promise<RefreshEventJson | null>;
+};
+
+type NativeTraceEvents = {
+    recv(): Promise<JsonValue | null>;
 };
 
 type NativeRefreshingPackageConstructor = {

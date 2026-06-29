@@ -5,7 +5,7 @@ use napi::bindgen_prelude::*;
 use napi_derive::napi;
 use rototo::{
     EvaluationContext, LintMode, LoadOptions, RefreshOptions, ResolveOptions, SourceAuth,
-    SourceFingerprint, SourceOptions,
+    SourceFingerprint, SourceOptions, TraceSubscription,
 };
 use serde_json::Value as JsonValue;
 use tokio::sync::{Mutex, broadcast};
@@ -111,6 +111,13 @@ impl JsPackage {
                 resolve_options(validate_context.unwrap_or(true)),
             )
             .map_err(js_err)
+    }
+
+    #[napi(js_name = "subscribeTraceEvents")]
+    pub fn subscribe_trace_events(&self) -> JsTraceEvents {
+        JsTraceEvents {
+            subscription: Arc::new(Mutex::new(self.inner.subscribe_trace_events())),
+        }
     }
 }
 
@@ -221,6 +228,15 @@ impl JsRefreshingPackage {
         })
     }
 
+    #[napi(js_name = "subscribeTraceEvents")]
+    pub fn subscribe_trace_events(&self) -> Result<JsTraceEvents> {
+        let guard = self.inner.blocking_lock();
+        let package = active_refreshing_package(&guard)?;
+        Ok(JsTraceEvents {
+            subscription: Arc::new(Mutex::new(package.subscribe_trace_events())),
+        })
+    }
+
     #[napi]
     pub async fn shutdown(&self) -> Result<()> {
         let package = {
@@ -254,6 +270,23 @@ impl JsRefreshEvents {
                 Err(broadcast::error::RecvError::Closed) => return Ok(None),
             }
         }
+    }
+}
+
+#[napi(js_name = "_TraceEvents")]
+pub struct JsTraceEvents {
+    subscription: Arc<Mutex<TraceSubscription>>,
+}
+
+#[napi]
+impl JsTraceEvents {
+    /// Resolve to the next trace stream item, or `null` when the stream has
+    /// closed. A lagging subscriber receives a `{ kind: "dropped", count }` item
+    /// rather than erroring.
+    #[napi]
+    pub async fn recv(&self) -> Result<Option<JsonValue>> {
+        let mut subscription = self.subscription.lock().await;
+        Ok(subscription.recv().await.map(|item| item.to_json()))
     }
 }
 

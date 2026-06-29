@@ -66,6 +66,12 @@ final class Native {
 
     static native void refreshEventsFreeNative(long handle);
 
+    static native long refreshingPackageSubscribeTraceEventsNative(long handle);
+
+    static native String traceEventsNextNative(long handle);
+
+    static native void traceEventsFreeNative(long handle);
+
     static native void refreshingPackageShutdownNative(long handle);
 
     static native void refreshingPackageFreeNative(long handle);

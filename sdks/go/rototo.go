@@ -524,6 +524,56 @@ func (w *RefreshingPackage) RefreshEvents(ctx context.Context) (<-chan RefreshEv
 	return out, nil
 }
 
+// TraceStreamItem is one item from a resolution trace stream: either a captured
+// trace (Kind == "trace", with Trace populated) or a marker that a lagging
+// consumer dropped Count traces (Kind == "dropped").
+type TraceStreamItem struct {
+	Kind  string         `json:"kind"`
+	Trace map[string]any `json:"trace,omitempty"`
+	Count uint64         `json:"count,omitempty"`
+}
+
+// TraceEvents returns a channel of resolution trace stream items. The channel
+// closes when the package is shut down or the context is cancelled. Tracing is
+// computed only while a subscriber is reading; with no subscriber a [[trace]]
+// policy costs nothing.
+func (w *RefreshingPackage) TraceEvents(ctx context.Context) (<-chan TraceStreamItem, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	handle, unlock, err := w.activeHandle()
+	if err != nil {
+		return nil, err
+	}
+	eventsHandle, err := nativeRefreshingPackageSubscribeTraceEvents(handle)
+	unlock()
+	if err != nil {
+		return nil, err
+	}
+
+	out := make(chan TraceStreamItem)
+	go func() {
+		defer close(out)
+		defer nativeTraceEventsFree(eventsHandle)
+		for {
+			text, ok, err := nativeTraceEventsNext(eventsHandle)
+			if err != nil || !ok {
+				return
+			}
+			var item TraceStreamItem
+			if err := json.Unmarshal([]byte(text), &item); err != nil {
+				return
+			}
+			select {
+			case out <- item:
+			case <-ctx.Done():
+				return
+			}
+		}
+	}()
+	return out, nil
+}
+
 // Shutdown stops background refresh without freeing the handle.
 func (w *RefreshingPackage) Shutdown(ctx context.Context) error {
 	if err := checkContext(ctx); err != nil {

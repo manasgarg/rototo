@@ -150,6 +150,9 @@ type nativeSymbols struct {
 	refreshingPackageSubscribeEvents  unsafe.Pointer
 	refreshEventsNext                 unsafe.Pointer
 	refreshEventsFree                 unsafe.Pointer
+	refreshingPackageSubscribeTrace   unsafe.Pointer
+	traceEventsNext                   unsafe.Pointer
+	traceEventsFree                   unsafe.Pointer
 	refreshingPackageShutdown         unsafe.Pointer
 	refreshingPackageFree             unsafe.Pointer
 	stringResultFree                  unsafe.Pointer
@@ -220,6 +223,9 @@ func loadNative() error {
 	native.refreshingPackageSubscribeEvents = symbol("rototo_go_refreshing_package_subscribe_events")
 	native.refreshEventsNext = symbol("rototo_go_refresh_events_next")
 	native.refreshEventsFree = symbol("rototo_go_refresh_events_free")
+	native.refreshingPackageSubscribeTrace = symbol("rototo_go_refreshing_package_subscribe_trace_events")
+	native.traceEventsNext = symbol("rototo_go_trace_events_next")
+	native.traceEventsFree = symbol("rototo_go_trace_events_free")
 	native.refreshingPackageShutdown = symbol("rototo_go_refreshing_package_shutdown")
 	native.refreshingPackageFree = symbol("rototo_go_refreshing_package_free")
 	native.stringResultFree = symbol("rototo_go_string_result_free")
@@ -470,6 +476,39 @@ func nativeRefreshEventsFree(handle nativeHandle) {
 		return
 	}
 	C.rototo_go_call_handle_free(native.refreshEventsFree, pointer(handle))
+}
+
+func nativeRefreshingPackageSubscribeTraceEvents(handle nativeHandle) (nativeHandle, error) {
+	if err := ensureNative(); err != nil {
+		return 0, err
+	}
+	result := C.rototo_go_call_subscribe(native.refreshingPackageSubscribeTrace, pointer(handle))
+	defer C.rototo_go_call_handle_result_free(native.handleResultFree, &result)
+	return handleResult(result)
+}
+
+// nativeTraceEventsNext blocks until the next trace stream item. The bool is
+// false (with a nil error) when the stream has closed.
+func nativeTraceEventsNext(handle nativeHandle) (string, bool, error) {
+	if err := ensureNative(); err != nil {
+		return "", false, err
+	}
+	result := C.rototo_go_call_refreshing_package_string(native.traceEventsNext, pointer(handle))
+	defer C.rototo_go_call_string_result_free(native.stringResultFree, &result)
+	if result.error != nil {
+		return "", false, nativeError(C.GoString(result.error))
+	}
+	if result.value == nil {
+		return "", false, nil
+	}
+	return C.GoString(result.value), true, nil
+}
+
+func nativeTraceEventsFree(handle nativeHandle) {
+	if handle == 0 || ensureNative() != nil {
+		return
+	}
+	C.rototo_go_call_handle_free(native.traceEventsFree, pointer(handle))
 }
 
 func nativeRefreshingPackageShutdown(handle nativeHandle) error {

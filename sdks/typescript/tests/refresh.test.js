@@ -97,3 +97,40 @@ test("refreshing package exposes identity, snapshot, and events", async () => {
         rmSync(root, { recursive: true, force: true });
     }
 });
+
+test("refreshing package streams package-driven trace events", async () => {
+    const root = mkdtempSync(join(tmpdir(), "rototo-typescript-trace-"));
+    try {
+        mkdirSync(join(root, "variables"));
+        writeFileSync(
+            join(root, "rototo-package.toml"),
+            "schema_version = 1\n\n[[trace]]\nwhen = 'env.resolving.variable == \"message\"'\n",
+        );
+        writeFileSync(
+            join(root, "variables", "message.toml"),
+            'schema_version = 1\ntype = "string"\n\n[resolve]\ndefault = "hello"\n',
+        );
+
+        const pkg = await RefreshingPackage.load(root);
+        const received = [];
+        const pump = (async () => {
+            for await (const item of pkg.traceEvents()) {
+                received.push(item);
+            }
+        })();
+
+        await new Promise((resolve) => setTimeout(resolve, 20));
+        pkg.resolveVariable("message", {});
+
+        await new Promise((resolve) => setTimeout(resolve, 50));
+        await pkg.shutdown();
+        await pump;
+
+        const trace = received.find((item) => item.kind === "trace");
+        assert.ok(trace, "a package-driven trace event was delivered");
+        assert.equal(trace.trace.targetId, "message");
+        assert.equal(trace.trace.targetKind, "variable");
+    } finally {
+        rmSync(root, { recursive: true, force: true });
+    }
+});

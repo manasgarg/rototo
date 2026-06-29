@@ -6,7 +6,7 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use rototo::{
     EvaluationContext, LintMode, LoadOptions, RefreshOptions, ResolveOptions, SourceAuth,
-    SourceFingerprint, SourceOptions,
+    SourceFingerprint, SourceOptions, TraceSubscription,
 };
 use tokio::runtime::{Builder, Runtime};
 use tokio::sync::{Mutex, broadcast};
@@ -34,6 +34,10 @@ struct GoRefreshingPackage {
 
 struct GoRefreshEvents {
     rx: Mutex<broadcast::Receiver<rototo::RefreshEvent>>,
+}
+
+struct GoTraceEvents {
+    subscription: Mutex<TraceSubscription>,
 }
 
 static RUNTIME: OnceLock<Runtime> = OnceLock::new();
@@ -342,6 +346,64 @@ pub extern "C" fn rototo_go_refresh_events_free(handle: *mut c_void) {
 }
 
 #[unsafe(no_mangle)]
+pub extern "C" fn rototo_go_refreshing_package_subscribe_trace_events(
+    handle: *mut c_void,
+) -> RototoGoHandleResult {
+    handle_result(|| {
+        let package = refreshing_package_from_handle(handle)?;
+        let guard = package.inner.blocking_lock();
+        let package = active_refreshing_package(&guard)?;
+        let subscription = package.subscribe_trace_events();
+        Ok(Box::into_raw(Box::new(GoTraceEvents {
+            subscription: Mutex::new(subscription),
+        })) as *mut c_void)
+    })
+}
+
+/// Block until the next trace stream item. Returns the item JSON on `value`; a
+/// closed stream returns null `value` and null `error` to signal end-of-stream.
+/// A lagging subscriber receives a `{"kind":"dropped","count":n}` item.
+#[unsafe(no_mangle)]
+pub extern "C" fn rototo_go_trace_events_next(handle: *mut c_void) -> RototoGoStringResult {
+    match catch_unwind(AssertUnwindSafe(|| {
+        let events = trace_events_from_handle(handle)?;
+        runtime().block_on(async {
+            let mut subscription = events.subscription.lock().await;
+            match subscription.recv().await {
+                Some(item) => Ok::<Option<String>, String>(Some(json_string(item.to_json())?)),
+                None => Ok(None),
+            }
+        })
+    })) {
+        Ok(Ok(Some(json))) => RototoGoStringResult {
+            value: c_string_ptr(json),
+            error: ptr::null_mut(),
+        },
+        Ok(Ok(None)) => RototoGoStringResult {
+            value: ptr::null_mut(),
+            error: ptr::null_mut(),
+        },
+        Ok(Err(error)) => RototoGoStringResult {
+            value: ptr::null_mut(),
+            error: c_string_ptr(error),
+        },
+        Err(_) => RototoGoStringResult {
+            value: ptr::null_mut(),
+            error: c_string_ptr("rototo Go native call panicked"),
+        },
+    }
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn rototo_go_trace_events_free(handle: *mut c_void) {
+    if !handle.is_null() {
+        unsafe {
+            drop(Box::from_raw(handle as *mut GoTraceEvents));
+        }
+    }
+}
+
+#[unsafe(no_mangle)]
 pub extern "C" fn rototo_go_refreshing_package_shutdown(handle: *mut c_void) -> RototoGoVoidResult {
     void_result(|| {
         let package = refreshing_package_from_handle(handle)?;
@@ -590,6 +652,13 @@ fn refresh_events_from_handle<'a>(handle: *mut c_void) -> Result<&'a GoRefreshEv
         return Err("refresh event stream has been closed".to_owned());
     }
     Ok(unsafe { &*(handle as *const GoRefreshEvents) })
+}
+
+fn trace_events_from_handle<'a>(handle: *mut c_void) -> Result<&'a GoTraceEvents, String> {
+    if handle.is_null() {
+        return Err("trace event stream has been closed".to_owned());
+    }
+    Ok(unsafe { &*(handle as *const GoTraceEvents) })
 }
 
 fn json_string(value: serde_json::Value) -> Result<String, String> {

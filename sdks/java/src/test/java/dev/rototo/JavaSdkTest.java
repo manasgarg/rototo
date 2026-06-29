@@ -16,6 +16,7 @@ public final class JavaSdkTest {
         contract();
         refresh();
         events();
+        traceEvents();
     }
 
     private static void api() throws Exception {
@@ -200,6 +201,38 @@ public final class JavaSdkTest {
             assertEquals(1L, event.schemaVersion(), "event schema version");
             assertEquals("rust", event.sdk().language(), "event sdk language");
             assertEquals(false, event.current() == null, "event has current identity");
+
+            await(pkg.shutdown());
+        } finally {
+            deleteRecursively(root);
+        }
+    }
+
+    private static void traceEvents() throws Exception {
+        Path root = Files.createTempDirectory("rototo-java-trace");
+        writeMessagePackage(root, "hello");
+        Files.writeString(
+                root.resolve("rototo-package.toml"),
+                "schema_version = 1\n\n[[trace]]\nwhen = 'env.resolving.variable == \"message\"'\n");
+        try (RefreshingPackage pkg = await(RefreshingPackage.load(root.toString()))) {
+            CountDownLatch traced = new CountDownLatch(1);
+            AtomicReference<java.util.Map<String, Object>> captured = new AtomicReference<>();
+            pkg.addTraceListener(item -> {
+                if ("trace".equals(item.get("kind"))) {
+                    captured.set(item);
+                    traced.countDown();
+                }
+            });
+
+            pkg.resolveVariable("message", java.util.Map.of());
+
+            if (!traced.await(5, TimeUnit.SECONDS)) {
+                throw new AssertionError("did not observe a package-driven trace event");
+            }
+            Object trace = captured.get().get("trace");
+            java.util.Map<String, Object> traceMap = Json.asObject(trace);
+            assertEquals("message", traceMap.get("targetId"), "trace targetId");
+            assertEquals("variable", traceMap.get("targetKind"), "trace targetKind");
 
             await(pkg.shutdown());
         } finally {

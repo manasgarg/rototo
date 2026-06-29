@@ -6,7 +6,7 @@ use jni::objects::{JClass, JString};
 use jni::sys::{jboolean, jdouble, jlong, jstring};
 use rototo::{
     EvaluationContext, LintMode, LoadOptions, RefreshOptions, ResolveOptions, SourceAuth,
-    SourceFingerprint, SourceOptions,
+    SourceFingerprint, SourceOptions, TraceSubscription,
 };
 use serde_json::Value as JsonValue;
 use tokio::runtime::{Builder, Runtime};
@@ -18,6 +18,10 @@ struct JavaRefreshingPackage {
 
 struct JavaRefreshEvents {
     rx: Mutex<broadcast::Receiver<rototo::RefreshEvent>>,
+}
+
+struct JavaTraceEvents {
+    subscription: Mutex<TraceSubscription>,
 }
 
 static RUNTIME: OnceLock<Runtime> = OnceLock::new();
@@ -383,6 +387,65 @@ pub extern "system" fn Java_dev_rototo_Native_refreshEventsFreeNative(
 }
 
 #[unsafe(no_mangle)]
+pub extern "system" fn Java_dev_rototo_Native_refreshingPackageSubscribeTraceEventsNative(
+    mut env: JNIEnv<'_>,
+    _class: JClass<'_>,
+    handle: jlong,
+) -> jlong {
+    jni_call_long(&mut env, |_env| {
+        let package = refreshing_package_from_handle(handle)?;
+        let subscription = runtime().block_on(async {
+            let guard = package.inner.lock().await;
+            let package = active_refreshing_package(&guard)?;
+            Ok::<_, String>(package.subscribe_trace_events())
+        })?;
+        Ok(Box::into_raw(Box::new(JavaTraceEvents {
+            subscription: Mutex::new(subscription),
+        })) as jlong)
+    })
+}
+
+/// Block until the next trace stream item. Returns the item JSON, or a null
+/// string when the stream has closed. A lagging subscriber receives a
+/// `{"kind":"dropped","count":n}` item.
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_dev_rototo_Native_traceEventsNextNative(
+    mut env: JNIEnv<'_>,
+    _class: JClass<'_>,
+    handle: jlong,
+) -> jstring {
+    jni_call_string(&mut env, |env| {
+        let events = trace_events_from_handle(handle)?;
+        let json = runtime().block_on(async {
+            let mut subscription = events.subscription.lock().await;
+            match subscription.recv().await {
+                Some(item) => Ok::<Option<String>, String>(Some(
+                    serde_json::to_string(&item.to_json()).map_err(|err| err.to_string())?,
+                )),
+                None => Ok(None),
+            }
+        })?;
+        match json {
+            Some(text) => env_string(env, &text),
+            None => Ok(std::ptr::null_mut()),
+        }
+    })
+}
+
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_dev_rototo_Native_traceEventsFreeNative(
+    _env: JNIEnv<'_>,
+    _class: JClass<'_>,
+    handle: jlong,
+) {
+    if handle != 0 {
+        unsafe {
+            drop(Box::from_raw(handle as *mut JavaTraceEvents));
+        }
+    }
+}
+
+#[unsafe(no_mangle)]
 pub extern "system" fn Java_dev_rototo_Native_refreshingPackageShutdownNative(
     mut env: JNIEnv<'_>,
     _class: JClass<'_>,
@@ -497,6 +560,13 @@ fn active_refreshing_package(
     guard
         .as_ref()
         .ok_or_else(|| "refreshing package has been shut down".to_owned())
+}
+
+fn trace_events_from_handle(handle: jlong) -> Result<&'static JavaTraceEvents, String> {
+    if handle == 0 {
+        return Err("trace event stream has been closed".to_owned());
+    }
+    Ok(unsafe { &*(handle as *const JavaTraceEvents) })
 }
 
 fn refresh_events_from_handle(handle: jlong) -> Result<&'static JavaRefreshEvents, String> {

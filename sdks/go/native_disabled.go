@@ -76,6 +76,16 @@ func nativeRefreshEventsNext(handle nativeHandle) (string, bool, error) {
 
 func nativeRefreshEventsFree(handle nativeHandle) {}
 
+func nativeRefreshingPackageSubscribeTraceEvents(handle nativeHandle) (nativeHandle, error) {
+	return 0, cgoDisabled()
+}
+
+func nativeTraceEventsNext(handle nativeHandle) (string, bool, error) {
+	return "", false, cgoDisabled()
+}
+
+func nativeTraceEventsFree(handle nativeHandle) {}
+
 func nativeRefreshingPackageShutdown(handle nativeHandle) error {
 	return cgoDisabled()
 }

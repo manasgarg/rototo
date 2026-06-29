@@ -445,6 +445,46 @@ func repoRootForCaller() string {
 	return filepath.Clean(filepath.Join(wd, "..", ".."))
 }
 
+func TestRefreshingPackageStreamsTraceEvents(t *testing.T) {
+	root := t.TempDir()
+	writePackage(t, root, "hello")
+	manifest := "schema_version = 1\n\n[[trace]]\nwhen = 'env.resolving.variable == \"message\"'\n"
+	if err := os.WriteFile(filepath.Join(root, "rototo-package.toml"), []byte(manifest), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	pkg, err := LoadRefreshing(context.Background(), root, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer closeRefreshingPackage(t, pkg)
+
+	traceCtx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	traces, err := pkg.TraceEvents(traceCtx)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := pkg.ResolveVariable("message", map[string]any{}, nil); err != nil {
+		t.Fatal(err)
+	}
+
+	for item := range traces {
+		if item.Kind != "trace" {
+			continue
+		}
+		if got := item.Trace["targetId"]; got != "message" {
+			t.Fatalf("trace targetId = %v", got)
+		}
+		if got := item.Trace["targetKind"]; got != "variable" {
+			t.Fatalf("trace targetKind = %v", got)
+		}
+		return
+	}
+	t.Fatal("did not observe a package-driven trace event")
+}
+
 func writePackage(t *testing.T, root string, message string) {
 	t.Helper()
 	variables := filepath.Join(root, "variables")

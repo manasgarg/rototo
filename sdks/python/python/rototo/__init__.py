@@ -247,6 +247,19 @@ class Package:
             validate_context=validate_context,
         )
 
+    async def trace_events(self) -> AsyncIterator[dict[str, Any]]:
+        """Yield resolution trace stream items as they occur. Each item is a
+        dict: a trace (``{"kind": "trace", "trace": {...}}``) or a drop marker
+        (``{"kind": "dropped", "count": n}``). Tracing is computed only while
+        this iterator is consumed; with no subscriber a ``[[trace]]`` policy
+        costs nothing."""
+        events = self._inner.subscribe_trace_events()
+        while True:
+            item = await events.recv()
+            if item is None:
+                return
+            yield item
+
 
 class RefreshingPackage:
     """Refreshing rototo package for long-running services."""
@@ -325,6 +338,17 @@ class RefreshingPackage:
             if event is None:
                 return
             yield RefreshEvent._from_dict(event)
+
+    async def trace_events(self) -> AsyncIterator[dict[str, Any]]:
+        """Yield resolution trace stream items as they occur. Each item is a
+        dict: a trace (``{"kind": "trace", "trace": {...}}``) or a drop marker
+        (``{"kind": "dropped", "count": n}``)."""
+        events = self._inner.subscribe_trace_events()
+        while True:
+            item = await events.recv()
+            if item is None:
+                return
+            yield item
 
     async def shutdown(self) -> None:
         await self._inner.shutdown()
