@@ -2,6 +2,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::net::IpAddr;
 use std::sync::Arc;
 
+use cel::common::ast::{EntryExpr, Expr, LiteralValue, operators};
 use cel::{Context as CelContext, ExecutionError, IdedExpr, Value as CelValue};
 use glob::Pattern;
 use regex::Regex;
@@ -15,10 +16,9 @@ use crate::resolve::bucket_value;
 #[derive(Clone, Debug)]
 pub(crate) struct Expression {
     source: String,
-    ast: Expr,
     references: ExpressionReferences,
-    /// The same expression compiled by the `cel` engine, which now does
-    /// evaluation. The rototo `ast`/`references` above stay for lint analysis.
+    /// The expression compiled by the `cel` engine. It drives both evaluation
+    /// and the lint analysis (references, type constraints, result hint).
     cel_ast: IdedExpr,
 }
 
@@ -116,18 +116,13 @@ impl Expression {
         source: impl Into<String>,
     ) -> std::result::Result<Self, ExpressionParseError> {
         let source = source.into();
-        let tokens = Lexer::new(&source).tokens()?;
-        let ast = Parser::new(tokens).parse()?;
-        let mut references = ExpressionReferences::default();
-        collect_references(&ast, &mut references);
-        collect_type_constraints(&ast, &mut references.context_path_types);
         let cel_ast = cel::Program::compile(&source)
             .map_err(|err| ExpressionParseError::new(err.to_string()))?
             .expression()
             .clone();
+        let references = references_from_cel(&cel_ast);
         Ok(Self {
             source,
-            ast,
             references,
             cel_ast,
         })
@@ -142,7 +137,7 @@ impl Expression {
     }
 
     pub(crate) fn result_hint(&self) -> ExpressionResultHint {
-        expression_result_hint(&self.ast)
+        result_hint_from_cel(&self.cel_ast)
     }
 
     pub(crate) fn evaluate_bool(
@@ -176,739 +171,250 @@ impl Expression {
     }
 }
 
-fn expression_result_hint(expr: &Expr) -> ExpressionResultHint {
-    match expr {
-        Expr::Literal(JsonValue::Bool(_))
-        | Expr::Qualifier(_)
-        | Expr::Unary { .. }
-        | Expr::Binary { .. } => ExpressionResultHint::Bool,
-        Expr::Call { name, .. } if matches!(name.as_str(), "path" | "size") => {
-            ExpressionResultHint::Value
+// ---- Lint analysis over the cel AST. ----
+// rototo's lint needs to know which context/entry paths and qualifiers an
+// expression references, the scalar type each context path is used as, and
+// whether the expression is boolean-typed. All of this is derived from the cel
+// `IdedExpr` the engine already parsed — there is no separate rototo parser.
+
+fn references_from_cel(expr: &IdedExpr) -> ExpressionReferences {
+    let mut references = ExpressionReferences::default();
+    collect_cel(expr, &mut references);
+    references
+}
+
+/// One pass over the cel AST: record references (context/entry paths and
+/// qualifier ids) and, per context path, the scalar family the surrounding
+/// operator or function requires of it.
+fn collect_cel(expr: &IdedExpr, references: &mut ExpressionReferences) {
+    cel_constraints(expr, &mut references.context_path_types);
+
+    match cel_reference(expr) {
+        Some(Reference::Context(path)) => {
+            references.context_paths.insert(path);
+            return;
         }
-        Expr::Call { .. } => ExpressionResultHint::Bool,
-        Expr::Literal(_) | Expr::List(_) | Expr::Path(_) => ExpressionResultHint::Value,
+        Some(Reference::Entry(path)) => {
+            references.entry_paths.insert(path);
+            return;
+        }
+        Some(Reference::Qualifier(id)) => {
+            references.qualifiers.insert(id);
+            return;
+        }
+        None => {}
+    }
+
+    for child in cel_children(expr) {
+        collect_cel(child, references);
     }
 }
 
-#[derive(Clone, Debug)]
-enum Expr {
-    Literal(JsonValue),
-    List(Vec<Expr>),
-    Path(PathExpr),
+fn cel_children(expr: &IdedExpr) -> Vec<&IdedExpr> {
+    match &expr.expr {
+        Expr::Call(call) => call
+            .target
+            .as_deref()
+            .into_iter()
+            .chain(call.args.iter())
+            .collect(),
+        Expr::Comprehension(comprehension) => vec![
+            &comprehension.iter_range,
+            &comprehension.accu_init,
+            &comprehension.loop_cond,
+            &comprehension.loop_step,
+            &comprehension.result,
+        ],
+        Expr::List(list) => list.elements.iter().collect(),
+        Expr::Map(map) => map
+            .entries
+            .iter()
+            .filter_map(|entry| match &entry.expr {
+                EntryExpr::MapEntry(entry) => Some([&entry.key, &entry.value]),
+                EntryExpr::StructField(_) => None,
+            })
+            .flatten()
+            .collect(),
+        Expr::Select(select) => vec![&select.operand],
+        Expr::Struct(structure) => structure
+            .entries
+            .iter()
+            .filter_map(|entry| match &entry.expr {
+                EntryExpr::StructField(field) => Some(&field.value),
+                EntryExpr::MapEntry(_) => None,
+            })
+            .collect(),
+        Expr::Ident(_) | Expr::Literal(_) | Expr::Unspecified => Vec::new(),
+    }
+}
+
+enum Reference {
+    Context(String),
+    Entry(String),
     Qualifier(String),
-    Unary {
-        op: UnaryOp,
-        expr: Box<Expr>,
-    },
-    Binary {
-        op: BinaryOp,
-        left: Box<Expr>,
-        right: Box<Expr>,
-    },
-    Call {
-        name: String,
-        args: Vec<Expr>,
-    },
 }
 
-#[derive(Clone, Debug)]
-struct PathExpr {
-    root: PathRoot,
-    segments: Vec<String>,
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum PathRoot {
-    Context,
-    Entry,
-}
-
-#[derive(Clone, Copy, Debug)]
-enum UnaryOp {
-    Not,
-}
-
-#[derive(Clone, Copy, Debug)]
-enum BinaryOp {
-    Or,
-    And,
-    Eq,
-    Neq,
-    Lt,
-    Lte,
-    Gt,
-    Gte,
-    In,
-}
-
-#[derive(Clone, Debug, PartialEq)]
-enum Token {
-    Ident(String),
-    String(String),
-    Number(String),
-    LParen,
-    RParen,
-    LBracket,
-    RBracket,
-    Dot,
-    Comma,
-    Bang,
-    EqEq,
-    Neq,
-    Lt,
-    Lte,
-    Gt,
-    Gte,
-    AndAnd,
-    OrOr,
-    Eof,
-}
-
-struct Lexer<'a> {
-    input: &'a str,
-    bytes: &'a [u8],
-    index: usize,
-}
-
-impl<'a> Lexer<'a> {
-    fn new(input: &'a str) -> Self {
-        Self {
-            input,
-            bytes: input.as_bytes(),
-            index: 0,
+fn cel_reference(expr: &IdedExpr) -> Option<Reference> {
+    let (root, segments) = cel_path(expr)?;
+    if segments.is_empty() {
+        return None;
+    }
+    match root.as_str() {
+        "context" => Some(Reference::Context(segments.join("."))),
+        "entry" => Some(Reference::Entry(segments.join("."))),
+        "qualifier" if segments.len() == 1 => {
+            Some(Reference::Qualifier(segments.into_iter().next().unwrap()))
         }
+        _ => None,
     }
+}
 
-    fn tokens(mut self) -> std::result::Result<Vec<Token>, ExpressionParseError> {
-        let mut tokens = Vec::new();
-        while let Some(byte) = self.peek() {
-            match byte {
-                b' ' | b'\t' | b'\n' | b'\r' => {
-                    self.index += 1;
-                }
-                b'(' => {
-                    self.index += 1;
-                    tokens.push(Token::LParen);
-                }
-                b')' => {
-                    self.index += 1;
-                    tokens.push(Token::RParen);
-                }
-                b'[' => {
-                    self.index += 1;
-                    tokens.push(Token::LBracket);
-                }
-                b']' => {
-                    self.index += 1;
-                    tokens.push(Token::RBracket);
-                }
-                b'.' => {
-                    self.index += 1;
-                    tokens.push(Token::Dot);
-                }
-                b',' => {
-                    self.index += 1;
-                    tokens.push(Token::Comma);
-                }
-                b'!' => {
-                    self.index += 1;
-                    if self.consume(b'=') {
-                        tokens.push(Token::Neq);
-                    } else {
-                        tokens.push(Token::Bang);
-                    }
-                }
-                b'=' => {
-                    self.index += 1;
-                    if self.consume(b'=') {
-                        tokens.push(Token::EqEq);
-                    } else {
-                        return Err(ExpressionParseError::new("expected ==, found ="));
-                    }
-                }
-                b'<' => {
-                    self.index += 1;
-                    if self.consume(b'=') {
-                        tokens.push(Token::Lte);
-                    } else {
-                        tokens.push(Token::Lt);
-                    }
-                }
-                b'>' => {
-                    self.index += 1;
-                    if self.consume(b'=') {
-                        tokens.push(Token::Gte);
-                    } else {
-                        tokens.push(Token::Gt);
-                    }
-                }
-                b'&' => {
-                    self.index += 1;
-                    if self.consume(b'&') {
-                        tokens.push(Token::AndAnd);
-                    } else {
-                        return Err(ExpressionParseError::new("expected &&, found &"));
-                    }
-                }
-                b'|' => {
-                    self.index += 1;
-                    if self.consume(b'|') {
-                        tokens.push(Token::OrOr);
-                    } else {
-                        return Err(ExpressionParseError::new("expected ||, found |"));
-                    }
-                }
-                b'"' | b'\'' => tokens.push(Token::String(self.string(byte)?)),
-                b'-' | b'0'..=b'9' => tokens.push(Token::Number(self.number()?)),
-                _ if is_ident_start(byte) => tokens.push(Token::Ident(self.ident())),
-                _ => {
-                    let ch = self.input[self.index..].chars().next().unwrap_or('\0');
-                    return Err(ExpressionParseError::new(format!(
-                        "unexpected character in expression: {ch}"
-                    )));
-                }
-            }
+/// Unwrap a `root.a.b` / `root["a"]["b"]` chain into its root identifier and
+/// dotted segments. Returns `None` for anything that is not such a chain.
+fn cel_path(expr: &IdedExpr) -> Option<(String, Vec<String>)> {
+    match &expr.expr {
+        Expr::Ident(name) => Some((name.clone(), Vec::new())),
+        Expr::Select(select) => {
+            let (root, mut segments) = cel_path(&select.operand)?;
+            segments.push(select.field.clone());
+            Some((root, segments))
         }
-        tokens.push(Token::Eof);
-        Ok(tokens)
-    }
-
-    fn peek(&self) -> Option<u8> {
-        self.bytes.get(self.index).copied()
-    }
-
-    fn consume(&mut self, expected: u8) -> bool {
-        if self.peek() == Some(expected) {
-            self.index += 1;
-            true
-        } else {
-            false
-        }
-    }
-
-    fn string(&mut self, quote: u8) -> std::result::Result<String, ExpressionParseError> {
-        self.index += 1;
-        let mut out = String::new();
-        while let Some(byte) = self.peek() {
-            self.index += 1;
-            if byte == quote {
-                return Ok(out);
-            }
-            if byte != b'\\' {
-                out.push(byte as char);
-                continue;
-            }
-            let Some(escaped) = self.peek() else {
-                return Err(ExpressionParseError::new("unterminated string escape"));
+        Expr::Call(call)
+            if call.func_name == operators::INDEX
+                && call.target.is_none()
+                && call.args.len() == 2 =>
+        {
+            let Expr::Literal(LiteralValue::String(key)) = &call.args[1].expr else {
+                return None;
             };
-            self.index += 1;
-            match escaped {
-                b'"' => out.push('"'),
-                b'\'' => out.push('\''),
-                b'\\' => out.push('\\'),
-                b'/' => out.push('/'),
-                b'b' => out.push('\u{0008}'),
-                b'f' => out.push('\u{000c}'),
-                b'n' => out.push('\n'),
-                b'r' => out.push('\r'),
-                b't' => out.push('\t'),
-                _ => {
-                    return Err(ExpressionParseError::new(format!(
-                        "unsupported string escape: \\{}",
-                        escaped as char
-                    )));
-                }
-            }
+            let (root, mut segments) = cel_path(&call.args[0])?;
+            segments.push(key.to_string());
+            Some((root, segments))
         }
-        Err(ExpressionParseError::new("unterminated string literal"))
-    }
-
-    fn number(&mut self) -> std::result::Result<String, ExpressionParseError> {
-        let start = self.index;
-        if self.peek() == Some(b'-') {
-            self.index += 1;
-        }
-        self.consume_digits();
-        if self.peek() == Some(b'.') {
-            self.index += 1;
-            self.consume_digits();
-        }
-        if matches!(self.peek(), Some(b'e' | b'E')) {
-            self.index += 1;
-            if matches!(self.peek(), Some(b'+' | b'-')) {
-                self.index += 1;
-            }
-            self.consume_digits();
-        }
-        Ok(self.input[start..self.index].to_owned())
-    }
-
-    fn consume_digits(&mut self) {
-        while matches!(self.peek(), Some(b'0'..=b'9')) {
-            self.index += 1;
-        }
-    }
-
-    fn ident(&mut self) -> String {
-        let start = self.index;
-        self.index += 1;
-        while self.peek().is_some_and(is_ident_continue) {
-            self.index += 1;
-        }
-        self.input[start..self.index].to_owned()
+        _ => None,
     }
 }
 
-fn is_ident_start(byte: u8) -> bool {
-    byte.is_ascii_alphabetic() || byte == b'_'
-}
-
-fn is_ident_continue(byte: u8) -> bool {
-    byte.is_ascii_alphanumeric() || byte == b'_' || byte == b'-'
-}
-
-struct Parser {
-    tokens: Vec<Token>,
-    index: usize,
-}
-
-impl Parser {
-    fn new(tokens: Vec<Token>) -> Self {
-        Self { tokens, index: 0 }
-    }
-
-    fn parse(mut self) -> std::result::Result<Expr, ExpressionParseError> {
-        let expr = self.parse_or()?;
-        self.expect_eof()?;
-        Ok(expr)
-    }
-
-    fn parse_or(&mut self) -> std::result::Result<Expr, ExpressionParseError> {
-        let mut expr = self.parse_and()?;
-        while self.matches(&Token::OrOr) {
-            let right = self.parse_and()?;
-            expr = Expr::Binary {
-                op: BinaryOp::Or,
-                left: Box::new(expr),
-                right: Box::new(right),
-            };
+/// Record the scalar family the operator or function at `expr` requires of any
+/// direct context-path operand. Ambiguous uses (such as the value argument of
+/// `bucket`) are intentionally left unconstrained.
+fn cel_constraints(expr: &IdedExpr, types: &mut BTreeMap<String, BTreeSet<ContextScalarType>>) {
+    let Expr::Call(call) = &expr.expr else {
+        return;
+    };
+    match call.func_name.as_str() {
+        operators::EQUALS | operators::NOT_EQUALS => {
+            constrain_pair(&call.args, types, cel_literal_scalar);
         }
-        Ok(expr)
-    }
-
-    fn parse_and(&mut self) -> std::result::Result<Expr, ExpressionParseError> {
-        let mut expr = self.parse_equality()?;
-        while self.matches(&Token::AndAnd) {
-            let right = self.parse_equality()?;
-            expr = Expr::Binary {
-                op: BinaryOp::And,
-                left: Box::new(expr),
-                right: Box::new(right),
-            };
+        operators::LESS
+        | operators::LESS_EQUALS
+        | operators::GREATER
+        | operators::GREATER_EQUALS => {
+            constrain_pair(&call.args, types, cel_literal_ordering);
         }
-        Ok(expr)
-    }
-
-    fn parse_equality(&mut self) -> std::result::Result<Expr, ExpressionParseError> {
-        let mut expr = self.parse_comparison()?;
-        loop {
-            let op = if self.matches(&Token::EqEq) {
-                BinaryOp::Eq
-            } else if self.matches(&Token::Neq) {
-                BinaryOp::Neq
-            } else if self.matches_ident("in") {
-                BinaryOp::In
-            } else {
-                break;
-            };
-            let right = self.parse_comparison()?;
-            expr = Expr::Binary {
-                op,
-                left: Box::new(expr),
-                right: Box::new(right),
-            };
-        }
-        Ok(expr)
-    }
-
-    fn parse_comparison(&mut self) -> std::result::Result<Expr, ExpressionParseError> {
-        let mut expr = self.parse_unary()?;
-        loop {
-            let op = if self.matches(&Token::Lt) {
-                BinaryOp::Lt
-            } else if self.matches(&Token::Lte) {
-                BinaryOp::Lte
-            } else if self.matches(&Token::Gt) {
-                BinaryOp::Gt
-            } else if self.matches(&Token::Gte) {
-                BinaryOp::Gte
-            } else {
-                break;
-            };
-            let right = self.parse_unary()?;
-            expr = Expr::Binary {
-                op,
-                left: Box::new(expr),
-                right: Box::new(right),
-            };
-        }
-        Ok(expr)
-    }
-
-    fn parse_unary(&mut self) -> std::result::Result<Expr, ExpressionParseError> {
-        if self.matches(&Token::Bang) {
-            let expr = self.parse_unary()?;
-            return Ok(Expr::Unary {
-                op: UnaryOp::Not,
-                expr: Box::new(expr),
-            });
-        }
-        self.parse_primary()
-    }
-
-    fn parse_primary(&mut self) -> std::result::Result<Expr, ExpressionParseError> {
-        match self.advance().clone() {
-            Token::Ident(value) => self.parse_ident(value),
-            Token::String(value) => Ok(Expr::Literal(JsonValue::String(value))),
-            Token::Number(value) => Ok(Expr::Literal(parse_number_literal(&value)?)),
-            Token::LParen => {
-                let expr = self.parse_or()?;
-                self.expect(Token::RParen, "expected )")?;
-                Ok(expr)
-            }
-            Token::LBracket => self.parse_list(),
-            token => Err(ExpressionParseError::new(format!(
-                "expected expression, found {token:?}"
-            ))),
-        }
-    }
-
-    fn parse_ident(&mut self, value: String) -> std::result::Result<Expr, ExpressionParseError> {
-        match value.as_str() {
-            "true" => return Ok(Expr::Literal(JsonValue::Bool(true))),
-            "false" => return Ok(Expr::Literal(JsonValue::Bool(false))),
-            "null" => return Ok(Expr::Literal(JsonValue::Null)),
-            _ => {}
-        }
-
-        if self.matches(&Token::LParen) {
-            let args = self.parse_args()?;
-            return Ok(Expr::Call { name: value, args });
-        }
-
-        if value == "qualifier" {
-            return self.parse_qualifier_reference();
-        }
-
-        if value == "context" || value == "entry" {
-            return self.parse_path(if value == "context" {
-                PathRoot::Context
-            } else {
-                PathRoot::Entry
-            });
-        }
-
-        Err(ExpressionParseError::new(format!(
-            "unknown identifier in expression: {value}"
-        )))
-    }
-
-    fn parse_args(&mut self) -> std::result::Result<Vec<Expr>, ExpressionParseError> {
-        let mut args = Vec::new();
-        if self.matches(&Token::RParen) {
-            return Ok(args);
-        }
-        loop {
-            args.push(self.parse_or()?);
-            if self.matches(&Token::RParen) {
-                break;
-            }
-            self.expect(Token::Comma, "expected , between function arguments")?;
-        }
-        Ok(args)
-    }
-
-    fn parse_list(&mut self) -> std::result::Result<Expr, ExpressionParseError> {
-        let mut values = Vec::new();
-        if self.matches(&Token::RBracket) {
-            return Ok(Expr::List(values));
-        }
-        loop {
-            values.push(self.parse_or()?);
-            if self.matches(&Token::RBracket) {
-                break;
-            }
-            self.expect(Token::Comma, "expected , between list values")?;
-        }
-        Ok(Expr::List(values))
-    }
-
-    fn parse_qualifier_reference(&mut self) -> std::result::Result<Expr, ExpressionParseError> {
-        if self.matches(&Token::LBracket) {
-            let Token::String(value) = self.advance().clone() else {
-                return Err(ExpressionParseError::new(
-                    "qualifier reference must use qualifier[\"id\"]",
-                ));
-            };
-            self.expect(Token::RBracket, "expected ] after qualifier id")?;
-            return Ok(Expr::Qualifier(value));
-        }
-
-        if self.matches(&Token::Dot) {
-            let Token::Ident(value) = self.advance().clone() else {
-                return Err(ExpressionParseError::new(
-                    "qualifier reference must name a qualifier",
-                ));
-            };
-            return Ok(Expr::Qualifier(value));
-        }
-
-        Err(ExpressionParseError::new(
-            "qualifier reference must use qualifier[\"id\"]",
-        ))
-    }
-
-    fn parse_path(&mut self, root: PathRoot) -> std::result::Result<Expr, ExpressionParseError> {
-        let mut segments = Vec::new();
-        loop {
-            if self.matches(&Token::Dot) {
-                let Token::Ident(value) = self.advance().clone() else {
-                    return Err(ExpressionParseError::new("expected path segment after ."));
-                };
-                segments.push(value);
-                continue;
-            }
-            if self.matches(&Token::LBracket) {
-                let Token::String(value) = self.advance().clone() else {
-                    return Err(ExpressionParseError::new(
-                        "path bracket lookup must use a string literal",
-                    ));
-                };
-                self.expect(Token::RBracket, "expected ] after path segment")?;
-                segments.push(value);
-                continue;
-            }
-            break;
-        }
-        Ok(Expr::Path(PathExpr { root, segments }))
-    }
-
-    fn advance(&mut self) -> &Token {
-        let index = self.index;
-        self.index += 1;
-        &self.tokens[index]
-    }
-
-    fn current(&self) -> &Token {
-        &self.tokens[self.index]
-    }
-
-    fn matches(&mut self, expected: &Token) -> bool {
-        if self.current() == expected {
-            self.index += 1;
-            true
-        } else {
-            false
-        }
-    }
-
-    fn matches_ident(&mut self, expected: &str) -> bool {
-        if matches!(self.current(), Token::Ident(value) if value == expected) {
-            self.index += 1;
-            true
-        } else {
-            false
-        }
-    }
-
-    fn expect(
-        &mut self,
-        expected: Token,
-        message: &'static str,
-    ) -> std::result::Result<(), ExpressionParseError> {
-        if self.matches(&expected) {
-            Ok(())
-        } else {
-            Err(ExpressionParseError::new(message))
-        }
-    }
-
-    fn expect_eof(&self) -> std::result::Result<(), ExpressionParseError> {
-        if matches!(self.current(), Token::Eof) {
-            Ok(())
-        } else {
-            Err(ExpressionParseError::new(format!(
-                "unexpected token after expression: {:?}",
-                self.current()
-            )))
-        }
-    }
-}
-
-fn parse_number_literal(value: &str) -> std::result::Result<JsonValue, ExpressionParseError> {
-    if value.contains('.') || value.contains('e') || value.contains('E') {
-        let number = value
-            .parse::<f64>()
-            .ok()
-            .and_then(Number::from_f64)
-            .ok_or_else(|| ExpressionParseError::new(format!("invalid number literal: {value}")))?;
-        return Ok(JsonValue::Number(number));
-    }
-
-    if let Ok(value) = value.parse::<i64>() {
-        return Ok(JsonValue::Number(Number::from(value)));
-    }
-    let value = value
-        .parse::<u64>()
-        .map_err(|_| ExpressionParseError::new(format!("invalid number literal: {value}")))?;
-    Ok(JsonValue::Number(Number::from(value)))
-}
-
-fn collect_references(expr: &Expr, references: &mut ExpressionReferences) {
-    match expr {
-        Expr::Literal(_) => {}
-        Expr::List(values) => {
-            for value in values {
-                collect_references(value, references);
-            }
-        }
-        Expr::Path(path) => {
-            let key = path.segments.join(".");
-            match path.root {
-                PathRoot::Context => {
-                    references.context_paths.insert(key);
-                }
-                PathRoot::Entry => {
-                    references.entry_paths.insert(key);
-                }
-            }
-        }
-        Expr::Qualifier(qualifier) => {
-            references.qualifiers.insert(qualifier.clone());
-        }
-        Expr::Unary { expr, .. } => collect_references(expr, references),
-        Expr::Binary { left, right, .. } => {
-            collect_references(left, references);
-            collect_references(right, references);
-        }
-        Expr::Call { args, .. } => {
-            for arg in args {
-                collect_references(arg, references);
-            }
-        }
-    }
-}
-
-/// Walk an expression and record, per context path, the scalar types the
-/// expression requires of it. Only uses that unambiguously pin a scalar family
-/// are recorded; ambiguous uses (such as the value argument of `bucket`) are
-/// intentionally left unconstrained so they do not produce false type gaps.
-fn collect_type_constraints(
-    expr: &Expr,
-    types: &mut BTreeMap<String, BTreeSet<ContextScalarType>>,
-) {
-    match expr {
-        Expr::Binary { op, left, right } => {
-            match op {
-                BinaryOp::Eq | BinaryOp::Neq => {
-                    constrain_against_literal(left, right, types, literal_scalar_type);
-                    constrain_against_literal(right, left, types, literal_scalar_type);
-                }
-                BinaryOp::Lt | BinaryOp::Lte | BinaryOp::Gt | BinaryOp::Gte => {
-                    constrain_against_literal(left, right, types, literal_ordering_type);
-                    constrain_against_literal(right, left, types, literal_ordering_type);
-                }
-                BinaryOp::In => {
-                    if let Some(path) = context_path(left)
-                        && let Expr::List(items) = right.as_ref()
-                    {
-                        for item in items {
-                            if let Some(scalar) = literal_scalar_type(item) {
-                                types.entry(path.clone()).or_default().insert(scalar);
-                            }
-                        }
-                    }
-                }
-                BinaryOp::And | BinaryOp::Or => {
-                    constrain_bool_operand(left, types);
-                    constrain_bool_operand(right, types);
-                }
-            }
-            collect_type_constraints(left, types);
-            collect_type_constraints(right, types);
-        }
-        Expr::Unary {
-            op: UnaryOp::Not,
-            expr,
-        } => {
-            constrain_bool_operand(expr, types);
-            collect_type_constraints(expr, types);
-        }
-        Expr::Call { name, args } => {
-            if string_arg0_function(name)
-                && let Some(path) = args.first().and_then(context_path)
+        operators::IN => {
+            if call.args.len() == 2
+                && let Some(path) = cel_context_path(&call.args[0])
+                && let Expr::List(list) = &call.args[1].expr
             {
+                for element in &list.elements {
+                    if let Some(scalar) = cel_literal_scalar(element) {
+                        types.entry(path.clone()).or_default().insert(scalar);
+                    }
+                }
+            }
+        }
+        operators::LOGICAL_AND | operators::LOGICAL_OR | operators::LOGICAL_NOT => {
+            for arg in &call.args {
+                if let Some(path) = cel_context_path(arg) {
+                    types
+                        .entry(path)
+                        .or_default()
+                        .insert(ContextScalarType::Bool);
+                }
+            }
+        }
+        name if string_arg0_function(name) => {
+            if let Some(path) = call.args.first().and_then(cel_context_path) {
                 types
                     .entry(path)
                     .or_default()
                     .insert(ContextScalarType::String);
             }
-            for arg in args {
-                collect_type_constraints(arg, types);
-            }
         }
-        Expr::List(items) => {
-            for item in items {
-                collect_type_constraints(item, types);
-            }
-        }
-        Expr::Literal(_) | Expr::Path(_) | Expr::Qualifier(_) => {}
+        _ => {}
     }
 }
 
-fn constrain_against_literal(
-    candidate_path: &Expr,
-    candidate_literal: &Expr,
+fn constrain_pair(
+    args: &[IdedExpr],
     types: &mut BTreeMap<String, BTreeSet<ContextScalarType>>,
-    classify: fn(&Expr) -> Option<ContextScalarType>,
+    classify: fn(&IdedExpr) -> Option<ContextScalarType>,
 ) {
-    if let Some(path) = context_path(candidate_path)
-        && let Some(scalar) = classify(candidate_literal)
-    {
-        types.entry(path).or_default().insert(scalar);
+    if args.len() != 2 {
+        return;
+    }
+    for (path_side, literal_side) in [(0, 1), (1, 0)] {
+        if let Some(path) = cel_context_path(&args[path_side])
+            && let Some(scalar) = classify(&args[literal_side])
+        {
+            types.entry(path).or_default().insert(scalar);
+        }
     }
 }
 
-fn constrain_bool_operand(expr: &Expr, types: &mut BTreeMap<String, BTreeSet<ContextScalarType>>) {
-    if let Some(path) = context_path(expr) {
-        types
-            .entry(path)
-            .or_default()
-            .insert(ContextScalarType::Bool);
-    }
-}
-
-fn context_path(expr: &Expr) -> Option<String> {
-    match expr {
-        Expr::Path(path) if path.root == PathRoot::Context => Some(path.segments.join(".")),
+fn cel_context_path(expr: &IdedExpr) -> Option<String> {
+    match cel_path(expr) {
+        Some((root, segments)) if root == "context" && !segments.is_empty() => {
+            Some(segments.join("."))
+        }
         _ => None,
     }
 }
 
-fn literal_scalar_type(expr: &Expr) -> Option<ContextScalarType> {
-    match expr {
-        Expr::Literal(JsonValue::Bool(_)) => Some(ContextScalarType::Bool),
-        Expr::Literal(JsonValue::Number(_)) => Some(ContextScalarType::Number),
-        Expr::Literal(JsonValue::String(_)) => Some(ContextScalarType::String),
+fn cel_literal_scalar(expr: &IdedExpr) -> Option<ContextScalarType> {
+    match &expr.expr {
+        Expr::Literal(LiteralValue::Boolean(_)) => Some(ContextScalarType::Bool),
+        Expr::Literal(LiteralValue::Int(_) | LiteralValue::UInt(_) | LiteralValue::Double(_)) => {
+            Some(ContextScalarType::Number)
+        }
+        Expr::Literal(LiteralValue::String(_)) => Some(ContextScalarType::String),
         _ => None,
     }
 }
 
-fn literal_ordering_type(expr: &Expr) -> Option<ContextScalarType> {
-    match expr {
-        Expr::Literal(JsonValue::Number(_)) => Some(ContextScalarType::Number),
-        Expr::Literal(JsonValue::String(_)) => Some(ContextScalarType::String),
-        _ => None,
+fn cel_literal_ordering(expr: &IdedExpr) -> Option<ContextScalarType> {
+    match cel_literal_scalar(expr) {
+        Some(ContextScalarType::Bool) => None,
+        other => other,
+    }
+}
+
+fn result_hint_from_cel(expr: &IdedExpr) -> ExpressionResultHint {
+    match &expr.expr {
+        Expr::Literal(LiteralValue::Boolean(_)) => ExpressionResultHint::Bool,
+        Expr::Call(call) => match call.func_name.as_str() {
+            operators::LOGICAL_AND
+            | operators::LOGICAL_OR
+            | operators::LOGICAL_NOT
+            | operators::EQUALS
+            | operators::NOT_EQUALS
+            | operators::LESS
+            | operators::LESS_EQUALS
+            | operators::GREATER
+            | operators::GREATER_EQUALS
+            | operators::IN => ExpressionResultHint::Bool,
+            "path" | "size" => ExpressionResultHint::Value,
+            operators::INDEX => {
+                if matches!(cel_path(expr), Some((root, _)) if root == "qualifier") {
+                    ExpressionResultHint::Bool
+                } else {
+                    ExpressionResultHint::Value
+                }
+            }
+            _ => ExpressionResultHint::Bool,
+        },
+        _ => ExpressionResultHint::Value,
     }
 }
 
@@ -1507,28 +1013,24 @@ mod tests {
     }
 
     #[test]
-    fn reports_parse_errors_with_stable_messages() {
-        let cases = [
-            (r#"context.user.tier = "premium""#, "expected ==, found ="),
-            ("account.tier", "unknown identifier in expression: account"),
-            (
-                "qualifier[context.id]",
-                r#"qualifier reference must use qualifier["id"]"#,
-            ),
-            ("context.user.", "expected path segment after ."),
-            (
-                r#"context.user.tier == "premium"#,
-                "unterminated string literal",
-            ),
-            (
-                "true false",
-                r#"unexpected token after expression: Ident("false")"#,
-            ),
+    fn rejects_malformed_expressions_at_parse() {
+        // Syntactically malformed expressions fail to compile. Exact messages
+        // come from the cel parser, so the contract is "rejected at parse".
+        // (Bare unknown identifiers like `account.tier` are valid cel and are
+        // caught later by the schema-aware reference checks, not here.)
+        let malformed = [
+            r#"context.user.tier = "premium""#, // single `=`
+            "context.user.",                    // trailing dot
+            r#"context.user.tier == "premium"#, // unterminated string
+            "true false",                       // two expressions
+            "(context.user.tier",               // unbalanced paren
         ];
 
-        for (source, expected) in cases {
-            let err = Expression::parse(source).unwrap_err();
-            assert_eq!(err.to_string(), expected, "{source}");
+        for source in malformed {
+            assert!(
+                Expression::parse(source).is_err(),
+                "{source}: expected a parse error"
+            );
         }
     }
 

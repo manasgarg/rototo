@@ -595,6 +595,14 @@ fn expression_completion_state(prefix: &str) -> ExpressionCompletionState {
         return ExpressionCompletionState::Operand;
     }
 
+    // A trailing identifier character means the user is mid-typing an operand or
+    // function name. cel parses a bare/partial identifier as a valid expression,
+    // so we can't rely on a parse error to detect this the way the old parser
+    // allowed; check the token directly instead.
+    if prefix.ends_with(|ch: char| ch.is_ascii_alphanumeric() || ch == '_') {
+        return ExpressionCompletionState::Operand;
+    }
+
     if let Some(operator) = partial_logical_operator_completion(prefix) {
         return ExpressionCompletionState::LogicalOperators(vec![operator]);
     }
