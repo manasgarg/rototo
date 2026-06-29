@@ -1,0 +1,38 @@
+# In operand position, completion offers the single canonical camelCase spelling
+# of each expression function. The evaluator still accepts snake_case and
+# shorthand aliases, but advertising every alias is noise, so they are excluded.
+package = "basic"
+file = "qualifiers/premium.toml"
+
+overlay = '''
+schema_version = 1
+when = "$0"
+'''
+
+[[expect.includes]]
+label = "startsWith("
+detail = "expression function"
+
+[[expect.includes]]
+label = "timeBefore("
+detail = "expression function"
+
+[[expect.excludes]]
+label = "starts_with("
+detail = "expression function"
+
+[[expect.excludes]]
+label = "ends_with("
+detail = "expression function"
+
+[[expect.excludes]]
+label = "time_before("
+detail = "expression function"
+
+[[expect.excludes]]
+label = "regex("
+detail = "expression function"
+
+[[expect.excludes]]
+label = "prefix("
+detail = "expression function"

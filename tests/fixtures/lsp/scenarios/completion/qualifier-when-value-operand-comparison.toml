@@ -1,0 +1,36 @@
+# After a complete *value* operand (here a context path) followed by whitespace,
+# the useful next tokens are comparisons, not more operands. The cursor is past
+# the operand, so expression roots and functions must not reappear, and the
+# logical operators (which compose booleans) do not belong yet either.
+package = "basic"
+file = "qualifiers/premium.toml"
+
+overlay = '''
+schema_version = 1
+when = "context.account.tier $0"
+'''
+
+[expect]
+exact = ["==", "!=", "<", "<=", ">", ">=", "in"]
+
+[[expect.includes]]
+label = "=="
+detail = "expression operator"
+insert_text = "== "
+
+[[expect.includes]]
+label = "in"
+detail = "expression operator"
+insert_text = "in "
+
+[[expect.excludes]]
+label = "context."
+detail = "expression root"
+
+[[expect.excludes]]
+label = "bucket("
+detail = "expression function"
+
+[[expect.excludes]]
+label = "&&"
+detail = "expression operator"

@@ -98,42 +98,61 @@ const VARIABLE_RULE_COMPLETIONS: &[TomlCompletionSpec] = &[
     },
 ];
 
+/// The functions completion advertises. These are the single canonical
+/// camelCase spellings of rototo's expression surface plus the CEL `has` macro.
+/// The evaluator also accepts snake_case and shorthand aliases
+/// (`starts_with`, `prefix`, `regex`, `time_before`, …), but suggesting every
+/// alias is the "too eager / odd suggestions" smell, so completion offers only
+/// the documented spelling.
 const EXPRESSION_FUNCTIONS: &[&str] = &[
     "bucket",
     "cidr",
     "contains",
     "endsWith",
-    "ends_with",
     "glob",
     "has",
     "matches",
     "missing",
     "path",
-    "prefix",
     "present",
-    "regex",
     "semver",
     "size",
     "startsWith",
-    "starts_with",
-    "suffix",
     "timeAfter",
     "timeAtOrAfter",
     "timeAtOrBefore",
     "timeBefore",
     "timeBetween",
-    "time_after",
-    "time_at_or_after",
-    "time_at_or_before",
-    "time_before",
-    "time_between",
 ];
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum ExpressionOperator {
     And,
     Or,
+    Equals,
+    NotEquals,
+    Less,
+    LessEquals,
+    Greater,
+    GreaterEquals,
+    In,
 }
+
+/// Operators offered after a complete boolean operand — the expression can only
+/// be continued by composing it with another boolean.
+const LOGICAL_OPERATORS: &[ExpressionOperator] = &[ExpressionOperator::And, ExpressionOperator::Or];
+
+/// Operators offered after a complete value operand (a path, literal, or
+/// value-returning function) — the natural next step is to compare it.
+const COMPARISON_OPERATORS: &[ExpressionOperator] = &[
+    ExpressionOperator::Equals,
+    ExpressionOperator::NotEquals,
+    ExpressionOperator::Less,
+    ExpressionOperator::LessEquals,
+    ExpressionOperator::Greater,
+    ExpressionOperator::GreaterEquals,
+    ExpressionOperator::In,
+];
 
 const CUSTOM_LINT_FIELD_SELECTORS: &[&str] = &[
     "description",
@@ -559,7 +578,7 @@ fn expression_completion_items(
             stamp_replace_range(&mut items, token_range(&cursor.token));
             Some(items)
         }
-        ExpressionCompletionState::LogicalOperators(operators) => {
+        ExpressionCompletionState::Operators(operators) => {
             let mut items = expression_operator_completion_items(&operators);
             stamp_replace_range(
                 &mut items,
@@ -567,7 +586,6 @@ fn expression_completion_items(
             );
             Some(items)
         }
-        ExpressionCompletionState::None => Some(Vec::new()),
     }
 }
 
@@ -585,36 +603,40 @@ fn trailing_operator_token(prefix: &str) -> &str {
 
 enum ExpressionCompletionState {
     Operand,
-    LogicalOperators(Vec<ExpressionOperator>),
-    None,
+    Operators(Vec<ExpressionOperator>),
 }
 
-fn expression_completion_state(prefix: &str) -> ExpressionCompletionState {
-    let prefix = prefix.trim_end();
+fn expression_completion_state(raw_prefix: &str) -> ExpressionCompletionState {
+    let prefix = raw_prefix.trim_end();
     if prefix.is_empty() || expression_prefix_expects_operand(prefix) {
         return ExpressionCompletionState::Operand;
     }
 
-    // A trailing identifier character means the user is mid-typing an operand or
-    // function name. cel parses a bare/partial identifier as a valid expression,
-    // so we can't rely on a parse error to detect this the way the old parser
-    // allowed; check the token directly instead.
-    if prefix.ends_with(|ch: char| ch.is_ascii_alphanumeric() || ch == '_') {
+    // The user is mid-typing an operand or function name only when the cursor
+    // sits directly after an identifier character, with no separating
+    // whitespace. cel parses a bare/partial identifier as a valid expression, so
+    // a parse error can't reveal this; the raw cursor boundary can. When there
+    // *is* trailing whitespace the operand is complete, so fall through to the
+    // operator suggestions instead of re-offering operands.
+    if raw_prefix.ends_with(|ch: char| ch.is_ascii_alphanumeric() || ch == '_') {
         return ExpressionCompletionState::Operand;
     }
 
     if let Some(operator) = partial_logical_operator_completion(prefix) {
-        return ExpressionCompletionState::LogicalOperators(vec![operator]);
+        return ExpressionCompletionState::Operators(vec![operator]);
     }
 
+    // A complete operand decides what can follow from its result type: a boolean
+    // composes with `&&`/`||`, a value invites a comparison.
     match Expression::parse(prefix) {
-        Ok(expression) if expression.result_hint() == ExpressionResultHint::Bool => {
-            ExpressionCompletionState::LogicalOperators(vec![
-                ExpressionOperator::And,
-                ExpressionOperator::Or,
-            ])
-        }
-        Ok(_) => ExpressionCompletionState::None,
+        Ok(expression) => match expression.result_hint() {
+            ExpressionResultHint::Bool => {
+                ExpressionCompletionState::Operators(LOGICAL_OPERATORS.to_vec())
+            }
+            ExpressionResultHint::Value => {
+                ExpressionCompletionState::Operators(COMPARISON_OPERATORS.to_vec())
+            }
+        },
         Err(_) => ExpressionCompletionState::Operand,
     }
 }
@@ -922,6 +944,13 @@ fn expression_operator_completion_items(
             let label = match operator {
                 ExpressionOperator::And => "&&",
                 ExpressionOperator::Or => "||",
+                ExpressionOperator::Equals => "==",
+                ExpressionOperator::NotEquals => "!=",
+                ExpressionOperator::Less => "<",
+                ExpressionOperator::LessEquals => "<=",
+                ExpressionOperator::Greater => ">",
+                ExpressionOperator::GreaterEquals => ">=",
+                ExpressionOperator::In => "in",
             };
             PackageCompletionItem::new(
                 label,
