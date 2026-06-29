@@ -18,7 +18,7 @@ import {
 } from "lucide-react";
 import { useRouter } from "@/lib/navigation";
 import type { LintDiagnostic } from "@/lib/types";
-import widgetSpec from "../../../../spec/ui-widgets.json";
+import widgetSpec from "../../../../src/lint/builtins/ui-widgets.json";
 import { shouldAutoFocus } from "./autofocus";
 import {
     CodeEditor,
@@ -27,8 +27,9 @@ import {
 } from "./code-editor";
 import { apiFetch } from "@/lib/api";
 
-/* The pre-registered widget vocabulary. spec/ui-widgets.json is the single
-   source of truth, shared with the Rust lint rules that validate hints. */
+/* The pre-registered widget vocabulary. src/lint/builtins/ui-widgets.json is
+   the single source of truth, shared with the Rust lint rules that validate
+   hints. */
 const WIDGET_SPEC = widgetSpec as {
     version: number;
     widgets: Record<

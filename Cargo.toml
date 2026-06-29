@@ -22,7 +22,6 @@ include = [
     "/apps/console/dist/**",
     "/docs/src/**",
     "/docs/theme/**",
-    "/spec/**",
     "/src/**",
 ]
 

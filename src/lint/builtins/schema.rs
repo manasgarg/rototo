@@ -80,17 +80,17 @@ fn schema_types_label(types: &BTreeSet<JsonSchemaSimpleType>) -> String {
 const UI_HINT_KEY: &str = "x-rototo-ui";
 
 /// The pre-registered widget vocabulary shared with UI clients.
-/// `spec/ui-widgets.json` is the single source of truth.
+/// `ui-widgets.json` (next to this module) is the single source of truth.
 fn ui_widget_vocabulary() -> &'static serde_json::Map<String, JsonValue> {
     static VOCABULARY: OnceLock<JsonValue> = OnceLock::new();
     VOCABULARY
         .get_or_init(|| {
-            serde_json::from_str(include_str!("../../../spec/ui-widgets.json"))
-                .expect("spec/ui-widgets.json is valid JSON")
+            serde_json::from_str(include_str!("ui-widgets.json"))
+                .expect("ui-widgets.json is valid JSON")
         })
         .get("widgets")
         .and_then(JsonValue::as_object)
-        .expect("spec/ui-widgets.json declares widgets")
+        .expect("ui-widgets.json declares widgets")
 }
 
 fn collect_ui_hints<'a>(
