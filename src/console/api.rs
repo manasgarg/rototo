@@ -6,23 +6,17 @@ use axum::Json;
 use axum::extract::{Request, State};
 use axum::http::{HeaderMap, Method, StatusCode, header};
 use axum::middleware::Next;
-use axum::response::{IntoResponse, Redirect, Response};
+use axum::response::{IntoResponse, Response};
 use axum::routing::{get, post};
-use base64::Engine;
-use base64::engine::general_purpose::URL_SAFE_NO_PAD;
-use ring::rand::{SecureRandom, SystemRandom};
 use serde_json::{Value as JsonValue, json};
 
 use crate::error::RototoError;
 
 use super::ConsoleStateMode;
-use super::auth::{
-    GITHUB_OAUTH_SCOPES, GitHubCredentialSource, HostedOAuth, LocalAuth, OAUTH_STATE_COOKIE,
-    SESSION_COOKIE, cookie_value, session_from_headers, set_cookie,
-};
+use super::auth::{HostedOAuth, LocalAuth, session_from_headers};
 use super::capabilities::{DeploymentType, WritePolicy};
 use super::github::{self, GitHubClient, GitHubError};
-use super::identity::{ActorIdentity, resolve_git_config_identity};
+use super::identity::resolve_git_config_identity;
 use super::local_git;
 use super::lsp::LspSessions;
 use super::observability::{
@@ -31,9 +25,12 @@ use super::observability::{
 use super::runtime_config::{ConsoleRuntimeConfig, RequestObservabilityContext};
 use super::stage::StageCache;
 use super::store::{
-    ActiveBranchWithPackageRecord, NewSession, PackageRecord, RequestContextNames, SessionUser,
+    ActiveBranchWithPackageRecord, PackageRecord, RequestContextNames, SessionUser,
     SourceTreeWithPackages, Store,
 };
+
+mod auth_routes;
+mod source_trees;
 
 /// Process-wide console dependencies shared by every API route.
 ///
@@ -131,24 +128,24 @@ pub type ApiResult<T> = std::result::Result<T, ApiError>;
 
 pub fn router(state: SharedState) -> axum::Router {
     let mut api = axum::Router::new()
-        .route("/me", get(me))
-        .route("/auth/logout", post(logout))
-        .route("/auth/github/start", get(oauth_start))
-        .route("/auth/github/callback", get(oauth_callback))
-        .route("/auth/device/start", post(device_start))
-        .route("/auth/device/poll", post(device_poll))
+        .route("/me", get(auth_routes::me))
+        .route("/auth/logout", post(auth_routes::logout))
+        .route("/auth/github/start", get(auth_routes::oauth_start))
+        .route("/auth/github/callback", get(auth_routes::oauth_callback))
+        .route("/auth/device/start", post(auth_routes::device_start))
+        .route("/auth/device/poll", post(auth_routes::device_poll))
         .route("/console", get(console_data))
         .route(
             "/source-trees",
-            get(source_trees_list).post(source_trees_register),
+            get(source_trees::source_trees_list).post(source_trees::source_trees_register),
         )
         .route(
             "/source-trees/{source_tree_id}",
-            axum::routing::delete(source_tree_delete),
+            axum::routing::delete(source_trees::source_tree_delete),
         )
         .route(
             "/source-trees/{source_tree_id}/refresh",
-            post(source_tree_refresh),
+            post(source_trees::source_tree_refresh),
         )
         .merge(super::api_package::routes())
         .merge(super::api_branch::routes());
@@ -567,7 +564,7 @@ fn fixed_source_branch_filter(
         .collect()
 }
 
-fn source_tree_management_allowed(state: &ConsoleState) -> ApiResult<()> {
+pub(super) fn source_tree_management_allowed(state: &ConsoleState) -> ApiResult<()> {
     if state.fixed_package_source.is_some() {
         return Err(ApiError::bad_request(
             "this console was started with a fixed package source",
@@ -595,312 +592,6 @@ async fn dev_observability_event(
         .unwrap_or_else(|| state.runtime_config.default_request_observability());
     observability.record_ui_event(event, &policy).await;
     Ok(Json(json!({ "ok": true })))
-}
-
-async fn me(State(state): State<SharedState>, headers: HeaderMap) -> Response {
-    let deployment = state.deployment.label();
-    let device_flow = state
-        .local
-        .as_ref()
-        .map(|local| local.device_flow_available())
-        .unwrap_or(false);
-    let (status, auth_error, user) = match state.deployment {
-        DeploymentType::Hosted => match session_from_headers(&state.store, &headers).await {
-            Some(user) => (StatusCode::OK, None, Some(user)),
-            None => (StatusCode::UNAUTHORIZED, None, None),
-        },
-        DeploymentType::Local => {
-            let local = state
-                .local
-                .as_ref()
-                .expect("local deployment has local auth");
-            match local.identity(&state.github).await {
-                Ok(Some(user)) => (StatusCode::OK, None, Some(user)),
-                Ok(None) => {
-                    let local_root = state
-                        .fixed_package_source
-                        .as_deref()
-                        .and_then(|source| local_git::package_root(source).ok());
-                    match resolve_git_config_identity(local_root.as_deref()).await {
-                        Ok(identity) => (
-                            StatusCode::OK,
-                            None,
-                            Some(SessionUser {
-                                session_hash: "local-git".to_owned(),
-                                principal_id: identity.principal_id(),
-                                identity,
-                                github_token: None,
-                            }),
-                        ),
-                        Err(err) => (StatusCode::OK, Some(err.to_string()), None),
-                    }
-                }
-                Err(err) => {
-                    let local_root = state
-                        .fixed_package_source
-                        .as_deref()
-                        .and_then(|source| local_git::package_root(source).ok());
-                    let user = resolve_git_config_identity(local_root.as_deref())
-                        .await
-                        .ok()
-                        .map(|identity| SessionUser {
-                            session_hash: "local-git".to_owned(),
-                            principal_id: identity.principal_id(),
-                            identity,
-                            github_token: None,
-                        });
-                    (StatusCode::OK, Some(err.to_string()), user)
-                }
-            }
-        }
-    };
-    let token_source = match state.deployment {
-        DeploymentType::Local => match state.local.as_ref() {
-            Some(local) => local.token().await.map(|ambient| ambient.source),
-            None => None,
-        },
-        DeploymentType::Hosted => user
-            .as_ref()
-            .and_then(|user| user.github_token.as_ref())
-            .map(|_| GitHubCredentialSource::OAuthSession),
-    };
-
-    let user_json = user.map(|user| {
-        let identity = user.identity.clone();
-        json!({
-            "principalId": user.principal_id,
-            "identity": identity,
-            "displayName": user.identity.display_login(),
-            "avatarUrl": user.identity.avatar_url(),
-            "hasGithubToken": user.github_token.is_some(),
-        })
-    });
-    (
-        status,
-        Json(json!({
-            "deployment": deployment,
-            "writePolicy": state.write_policy.label(),
-            "deviceFlow": device_flow,
-            "tokenSource": token_source,
-            "authError": auth_error,
-            "user": user_json,
-        })),
-    )
-        .into_response()
-}
-
-async fn logout(State(state): State<SharedState>, headers: HeaderMap) -> ApiResult<Response> {
-    if state.deployment != DeploymentType::Hosted {
-        tracing::info!(
-            operation = "console.auth.logout",
-            deployment = state.deployment.label(),
-            "console logout rejected outside hosted deployment"
-        );
-        return Err(ApiError::bad_request(
-            "logout only applies to hosted consoles",
-        ));
-    }
-    if let Some(token) = cookie_value(&headers, SESSION_COOKIE) {
-        state.store.delete_session(&token).await?;
-        tracing::info!(
-            operation = "console.auth.logout",
-            deployment = "hosted",
-            had_cookie = true,
-            "console hosted session deleted"
-        );
-    } else {
-        tracing::info!(
-            operation = "console.auth.logout",
-            deployment = "hosted",
-            had_cookie = false,
-            "console logout completed without session cookie"
-        );
-    }
-    let mut response = Json(json!({ "ok": true })).into_response();
-    response.headers_mut().insert(
-        header::SET_COOKIE,
-        set_cookie(SESSION_COOKIE, "", state.secure_cookies, Some(0))
-            .parse()
-            .expect("cookie value is valid"),
-    );
-    Ok(response)
-}
-
-async fn oauth_start(State(state): State<SharedState>) -> ApiResult<Response> {
-    let Some(oauth) = &state.oauth else {
-        return Err(ApiError::internal(
-            "GitHub OAuth client id and secret are required".to_owned(),
-        ));
-    };
-
-    let state_token = random_token(24)?;
-    state.store.create_oauth_state(&state_token).await?;
-
-    let redirect_uri = format!("{}/api/auth/github/callback", state.public_url);
-    let authorize_url = format!(
-        "https://github.com/login/oauth/authorize?client_id={}&redirect_uri={}&scope={}&state={}",
-        url_encode(&oauth.client_id),
-        url_encode(&redirect_uri),
-        url_encode(GITHUB_OAUTH_SCOPES),
-        url_encode(&state_token),
-    );
-    let mut response = Redirect::temporary(&authorize_url).into_response();
-    response.headers_mut().insert(
-        header::SET_COOKIE,
-        set_cookie(
-            OAUTH_STATE_COOKIE,
-            &state_token,
-            state.secure_cookies,
-            Some(600),
-        )
-        .parse()
-        .expect("cookie value is valid"),
-    );
-    Ok(response)
-}
-
-/// GitHub OAuth callback query parameters.
-///
-/// GitHub owns the values; the console validates them against the short-lived
-/// state cookie and stored nonce, then discards the struct after the callback
-/// creates a durable session.
-#[derive(serde::Deserialize)]
-struct OAuthCallbackQuery {
-    code: Option<String>,
-    state: Option<String>,
-}
-
-async fn oauth_callback(
-    State(state): State<SharedState>,
-    axum::extract::Query(query): axum::extract::Query<OAuthCallbackQuery>,
-    headers: HeaderMap,
-) -> ApiResult<Response> {
-    let Some(oauth) = &state.oauth else {
-        return Err(ApiError::bad_request("GitHub OAuth is not configured"));
-    };
-
-    let cookie_state = cookie_value(&headers, OAUTH_STATE_COOKIE);
-    let valid = match (&query.code, &query.state, &cookie_state) {
-        (Some(_), Some(query_state), Some(cookie_state)) if query_state == cookie_state => {
-            state.store.consume_oauth_state(query_state).await?
-        }
-        _ => false,
-    };
-    if !valid {
-        tracing::warn!(
-            operation = "console.auth.oauth_callback",
-            valid = false,
-            has_code = query.code.is_some(),
-            has_query_state = query.state.is_some(),
-            has_cookie_state = cookie_state.is_some(),
-            "console GitHub OAuth callback rejected invalid state"
-        );
-        return Err(ApiError::bad_request("invalid GitHub OAuth state"));
-    }
-
-    let code = query.code.expect("validated above");
-    let token = github::exchange_github_code(&oauth.client_id, &oauth.client_secret, &code)
-        .await
-        .map_err(|err| ApiError::bad_request(err.to_string()))?;
-    let viewer =
-        state.github.viewer(&token).await.map_err(|err| {
-            ApiError::bad_request(github::github_error_message(&err, "Signing in"))
-        })?;
-    let principal_id = format!("github:{}", viewer.id);
-    let session_token = state
-        .store
-        .create_session(NewSession {
-            identity: ActorIdentity::GitHub {
-                id: viewer.id.to_string(),
-                login: viewer.login,
-                name: viewer.name,
-                avatar_url: viewer.avatar_url,
-            },
-            github_token: token,
-        })
-        .await?;
-    tracing::info!(
-        operation = "console.auth.oauth_callback",
-        valid = true,
-        principal_id = %principal_id,
-        "console GitHub OAuth session created"
-    );
-
-    let mut response = Redirect::temporary(&format!("{}/app", state.public_url)).into_response();
-    let cookies = response.headers_mut();
-    cookies.append(
-        header::SET_COOKIE,
-        set_cookie(SESSION_COOKIE, &session_token, state.secure_cookies, None)
-            .parse()
-            .expect("cookie value is valid"),
-    );
-    cookies.append(
-        header::SET_COOKIE,
-        set_cookie(OAUTH_STATE_COOKIE, "", state.secure_cookies, Some(0))
-            .parse()
-            .expect("cookie value is valid"),
-    );
-    Ok(response)
-}
-
-async fn device_start(State(state): State<SharedState>) -> ApiResult<Json<JsonValue>> {
-    let Some(local) = state.local.as_ref() else {
-        return Err(ApiError::bad_request(
-            "device flow only applies to local-mode consoles",
-        ));
-    };
-    let Some(client_id) = local.device_client_id() else {
-        return Err(ApiError::bad_request(
-            "device flow is not configured; set ROTOTO_GITHUB_CLIENT_ID or supply a token via ROTOTO_PACKAGE_TOKEN",
-        ));
-    };
-    let device = github::start_device_flow(client_id)
-        .await
-        .map_err(|err| ApiError::bad_request(err.to_string()))?;
-    let response = json!({
-        "userCode": device.user_code,
-        "verificationUri": device.verification_uri,
-        "intervalSeconds": device.interval_seconds,
-        "expiresInSeconds": device.expires_in_seconds,
-    });
-    *local.device_flow.lock().await = Some(super::auth::DeviceFlowState {
-        device_code: device.device_code,
-    });
-    Ok(Json(response))
-}
-
-async fn device_poll(State(state): State<SharedState>) -> ApiResult<Json<JsonValue>> {
-    let Some(local) = state.local.as_ref() else {
-        return Err(ApiError::bad_request(
-            "device flow only applies to local-mode consoles",
-        ));
-    };
-    let Some(client_id) = local.device_client_id().map(str::to_owned) else {
-        return Err(ApiError::bad_request("device flow is not configured"));
-    };
-    let device_code = {
-        let device_flow = local.device_flow.lock().await;
-        let Some(device) = device_flow.as_ref() else {
-            return Err(ApiError::bad_request("no device flow in progress"));
-        };
-        device.device_code.clone()
-    };
-    match github::poll_device_flow(&client_id, &device_code)
-        .await
-        .map_err(|err| ApiError::bad_request(err.to_string()))?
-    {
-        github::DevicePoll::Pending => Ok(Json(json!({ "status": "pending" }))),
-        github::DevicePoll::SlowDown => Ok(Json(json!({ "status": "slow-down" }))),
-        github::DevicePoll::Token(token) => {
-            local.set_device_token(token).await?;
-            *local.device_flow.lock().await = None;
-            Ok(Json(json!({ "status": "authorized" })))
-        }
-        github::DevicePoll::Failed(message) => {
-            *local.device_flow.lock().await = None;
-            Err(ApiError::bad_request(message))
-        }
-    }
 }
 
 async fn console_data(
@@ -937,407 +628,15 @@ async fn console_data(
     })))
 }
 
-async fn source_trees_list(
-    State(state): State<SharedState>,
-    headers: HeaderMap,
-) -> ApiResult<Json<JsonValue>> {
-    let user = require_user(&state, &headers).await?;
-    let source_trees = match fixed_source_scope(&state, &user.principal_id).await? {
-        Some(source_tree) => vec![source_tree],
-        None => {
-            state
-                .store
-                .list_source_trees_for_user(&user.principal_id)
-                .await?
-        }
-    };
-    Ok(Json(json!({ "sourceTrees": source_trees })))
-}
-
-/// Source tree registration request body from the console form.
-///
-/// It exists to keep user input distinct from a verified GitHub repository.
-/// The route trims and validates it, discovers packages, then persists the
-/// resulting source tree/package records through `Store`.
-#[derive(serde::Deserialize)]
-struct RegisterSourceTreeBody {
-    #[serde(rename = "sourceTree")]
-    source_tree: Option<String>,
-    #[serde(rename = "ref")]
-    git_ref: Option<String>,
-}
-
-async fn source_trees_register(
-    State(state): State<SharedState>,
-    headers: HeaderMap,
-    Json(body): Json<RegisterSourceTreeBody>,
-) -> ApiResult<Json<JsonValue>> {
-    let user = require_user(&state, &headers).await?;
-    source_tree_management_allowed(&state)?;
-    let source_tree = body
-        .source_tree
-        .as_deref()
-        .map(str::trim)
-        .filter(|value| !value.is_empty())
-        .ok_or_else(|| ApiError::bad_request("configuration source is required"))?;
-    if should_register_as_github(source_tree).await {
-        tracing::info!(
-            operation = "source_tree.register",
-            principal_id = %user.principal_id,
-            backend = "github",
-            requested_ref = ?body.git_ref.as_deref(),
-            "console source tree registration selected GitHub backend"
-        );
-        return register_github_source_tree(state, user, source_tree, body.git_ref).await;
-    }
-    tracing::info!(
-        operation = "source_tree.register",
-        principal_id = %user.principal_id,
-        backend = "read_only",
-        requested_ref = ?body.git_ref.as_deref(),
-        "console source tree registration selected read-only backend"
-    );
-    register_read_only_source_tree(state, user, source_tree, body.git_ref).await
-}
-
-async fn register_github_source_tree(
-    state: SharedState,
-    user: super::store::SessionUser,
-    source_tree: &str,
-    git_ref: Option<String>,
-) -> ApiResult<Json<JsonValue>> {
-    let (stored, token) = upsert_github_source_tree(&state, &user, source_tree, git_ref).await?;
-    warm_registered_packages(
-        state.clone(),
-        user.principal_id.clone(),
-        token,
-        stored.packages.clone(),
-    );
-    Ok(Json(json!({ "sourceTree": stored })))
-}
-
-async fn upsert_github_source_tree(
-    state: &SharedState,
-    user: &super::store::SessionUser,
-    source_tree: &str,
-    git_ref: Option<String>,
-) -> ApiResult<(super::store::SourceTreeWithPackages, String)> {
-    let token = require_github_token(user, "Registering the configuration source")?;
-    let (owner, name) = github::parse_repo_spec(source_tree)
-        .map_err(|err| ApiError::bad_request(err.to_string()))?;
-    let github_repo = state
-        .github
-        .repo(token, &owner, &name)
-        .await
-        .map_err(|err| ApiError::github(&err, "Registering the configuration source"))?;
-    let requested_ref = git_ref
-        .as_deref()
-        .map(str::trim)
-        .filter(|value| !value.is_empty())
-        .map(ToOwned::to_owned)
-        .or_else(|| source_tree_ref_hint(source_tree));
-    let git_ref = requested_ref.unwrap_or_else(|| github_repo.default_branch.clone());
-    tracing::info!(
-        operation = "source_tree.upsert",
-        principal_id = %user.principal_id,
-        kind = "github",
-        repository = %format!("{}/{}", github_repo.owner.login, github_repo.name),
-        git_ref = %git_ref,
-        "console source tree package discovery starting"
-    );
-    let packages = state
-        .github
-        .discover_packages(token, &owner, &name, &git_ref)
-        .await
-        .map_err(|err| ApiError::github(&err, "Discovering packages"))?;
-    let stored = state
-        .store
-        .upsert_source_tree_with_packages(super::store::RegisterSourceTreeInput {
-            principal_id: user.principal_id.clone(),
-            kind: super::store::SourceTreeKind::GitHub,
-            source: format!(
-                "git+https://github.com/{}/{}.git#{}",
-                github_repo.owner.login, github_repo.name, git_ref
-            ),
-            display_name: format!("{}/{}", github_repo.owner.login, github_repo.name),
-            default_revision: git_ref.clone(),
-            packages: packages
-                .into_iter()
-                .map(|package| super::store::DiscoveredPackageInput {
-                    path: package.path,
-                    revision: package.git_ref,
-                    source: package.source,
-                })
-                .collect(),
-        })
-        .await?;
-    tracing::info!(
-        operation = "source_tree.upsert",
-        principal_id = %user.principal_id,
-        source_tree_id = %stored.source_tree.id,
-        kind = "github",
-        packages = stored.packages.len(),
-        "console source tree upserted"
-    );
-    Ok((stored, token.to_owned()))
-}
-
-async fn register_read_only_source_tree(
-    state: SharedState,
-    user: super::store::SessionUser,
-    source_tree: &str,
-    git_ref: Option<String>,
-) -> ApiResult<Json<JsonValue>> {
-    let (stored, token) = upsert_read_only_source_tree(&state, &user, source_tree, git_ref).await?;
-    warm_registered_packages(
-        state.clone(),
-        user.principal_id.clone(),
-        token,
-        stored.packages.clone(),
-    );
-    Ok(Json(json!({ "sourceTree": stored })))
-}
-
-async fn upsert_read_only_source_tree(
-    state: &SharedState,
-    user: &super::store::SessionUser,
-    source_tree: &str,
-    git_ref: Option<String>,
-) -> ApiResult<(super::store::SourceTreeWithPackages, String)> {
-    let source = read_only_registration_source(source_tree, git_ref.as_deref())?;
-    let registration = super::fixed_package::registration(&source)
-        .await
-        .map_err(|err| ApiError::bad_request(err.to_string()))?;
-    tracing::info!(
-        operation = "source_tree.upsert",
-        principal_id = %user.principal_id,
-        kind = ?registration.kind,
-        packages = registration.packages.len(),
-        "console read-only source tree registration resolved"
-    );
-    let stored = state
-        .store
-        .upsert_source_tree_with_packages(super::store::RegisterSourceTreeInput {
-            principal_id: user.principal_id.clone(),
-            kind: registration.kind,
-            source: registration.source,
-            display_name: registration.display_name,
-            default_revision: registration.default_revision,
-            packages: registration.packages,
-        })
-        .await?;
-    tracing::info!(
-        operation = "source_tree.upsert",
-        principal_id = %user.principal_id,
-        source_tree_id = %stored.source_tree.id,
-        kind = ?stored.source_tree.kind,
-        packages = stored.packages.len(),
-        "console source tree upserted"
-    );
-    Ok((stored, source_token(user).to_owned()))
-}
-
-async fn should_register_as_github(source_tree: &str) -> bool {
-    if source_tree.starts_with("file://")
-        || source_tree.starts_with("git+file://")
-        || source_tree.starts_with('/')
-        || source_tree.starts_with('.')
-        || source_tree.starts_with('~')
-    {
-        return false;
-    }
-    if tokio::fs::metadata(source_tree).await.is_ok() {
-        return false;
-    }
-    github::parse_repo_spec(source_tree).is_ok()
-}
-
-fn source_tree_ref_hint(source_tree: &str) -> Option<String> {
-    let git_ref = if let Some(fragment) = source_tree.split_once('#').map(|(_, fragment)| fragment)
-    {
-        fragment
-            .split_once(':')
-            .map(|(git_ref, _)| git_ref)
-            .unwrap_or(fragment)
-            .trim()
-    } else if let Some(rest) = source_tree.strip_prefix("https://api.github.com/repos/") {
-        rest.split('/').nth(3).unwrap_or("").trim()
-    } else {
-        ""
-    };
-    (!git_ref.is_empty()).then(|| git_ref.to_owned())
-}
-
-fn read_only_registration_source(source_tree: &str, git_ref: Option<&str>) -> ApiResult<String> {
-    let source = source_tree.trim();
-    let git_ref = git_ref.map(str::trim).filter(|value| !value.is_empty());
-    if let Some(git_ref) = git_ref {
-        if source.starts_with("git+") && !source.contains('#') {
-            return Ok(format!("{source}#{git_ref}"));
-        }
-        if !source.starts_with("git+") {
-            return Err(ApiError::bad_request(
-                "ref only applies to GitHub or git configuration sources",
-            ));
-        }
-    }
-    Ok(source.to_owned())
-}
-
-fn warm_registered_packages(
-    state: SharedState,
-    principal_id: String,
-    token: String,
-    packages: Vec<super::store::PackageRecord>,
-) {
-    if packages.is_empty() {
-        return;
-    }
-
-    tokio::spawn(async move {
-        for package in packages {
-            let started = Instant::now();
-            match super::package_source::semantic_package_for_base(
-                &state,
-                &principal_id,
-                &token,
-                &package,
-            )
-            .await
-            {
-                Ok(_) => {
-                    tracing::debug!(
-                        operation = "package.warm",
-                        package_id = %package.id,
-                        source = %package.source,
-                        latency_ms = started.elapsed().as_millis(),
-                        "console package warm-up completed"
-                    );
-                }
-                Err(err) => {
-                    tracing::debug!(
-                        operation = "package.warm",
-                        package_id = %package.id,
-                        source = %package.source,
-                        error = %err.message,
-                        latency_ms = started.elapsed().as_millis(),
-                        "console package warm-up failed"
-                    );
-                }
-            }
-        }
-    });
-}
-
-async fn source_tree_delete(
-    State(state): State<SharedState>,
-    headers: HeaderMap,
-    axum::extract::Path(source_tree_id): axum::extract::Path<String>,
-) -> ApiResult<Json<JsonValue>> {
-    let user = require_user(&state, &headers).await?;
-    source_tree_management_allowed(&state)?;
-    let removed = state
-        .store
-        .delete_source_tree_for_user(&source_tree_id, &user.principal_id)
-        .await?;
-    if !removed {
-        return Err(ApiError::not_found("configuration source not found"));
-    }
-    Ok(Json(json!({ "ok": true })))
-}
-
-async fn source_tree_refresh(
-    State(state): State<SharedState>,
-    headers: HeaderMap,
-    axum::extract::Path(source_tree_id): axum::extract::Path<String>,
-) -> ApiResult<Json<JsonValue>> {
-    let user = require_user(&state, &headers).await?;
-    let stored = refresh_source_tree_for_user(&state, &user, &source_tree_id).await?;
-    Ok(Json(json!({ "sourceTree": stored })))
-}
-
-async fn refresh_source_tree_for_user(
-    state: &SharedState,
-    user: &super::store::SessionUser,
-    source_tree_id: &str,
-) -> ApiResult<super::store::SourceTreeWithPackages> {
-    let fixed_source = fixed_source_scope(state, &user.principal_id).await?;
-    if let Some(source_tree) = fixed_source.as_ref()
-        && source_tree.source_tree.id != source_tree_id
-    {
-        return Err(ApiError::not_found("configuration source not found"));
-    }
-    let existing = state
-        .store
-        .get_source_tree_for_user(source_tree_id, &user.principal_id)
-        .await?
-        .ok_or_else(|| ApiError::not_found("configuration source not found"))?;
-    let source_tree = existing.source_tree;
-    tracing::info!(
-        operation = "source_tree.refresh",
-        principal_id = %user.principal_id,
-        source_tree_id,
-        kind = ?source_tree.kind,
-        "console source tree refresh selected backend"
-    );
-    let (stored, token) = match source_tree.kind {
-        super::store::SourceTreeKind::GitHub => {
-            upsert_github_source_tree(
-                state,
-                user,
-                &source_tree.source,
-                Some(source_tree.default_revision.clone()),
-            )
-            .await?
-        }
-        super::store::SourceTreeKind::GitRemote => {
-            upsert_read_only_source_tree(
-                state,
-                user,
-                &source_tree.source,
-                Some(source_tree.default_revision.clone()),
-            )
-            .await?
-        }
-        super::store::SourceTreeKind::LocalFolder | super::store::SourceTreeKind::Archive => {
-            upsert_read_only_source_tree(state, user, &source_tree.source, None).await?
-        }
-    };
-    warm_registered_packages(
-        state.clone(),
-        user.principal_id.clone(),
-        token,
-        stored.packages.clone(),
-    );
-    Ok(stored)
-}
-
-pub fn random_token(bytes: usize) -> ApiResult<String> {
-    let mut buffer = vec![0u8; bytes];
-    SystemRandom::new()
-        .fill(&mut buffer)
-        .map_err(|_| ApiError::internal("failed to generate a random token"))?;
-    Ok(URL_SAFE_NO_PAD.encode(buffer))
-}
-
-pub fn url_encode(value: &str) -> String {
-    let mut out = String::with_capacity(value.len());
-    for byte in value.bytes() {
-        match byte {
-            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'~' => {
-                out.push(byte as char)
-            }
-            other => out.push_str(&format!("%{other:02X}")),
-        }
-    }
-    out
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
     use std::sync::Arc;
 
+    use super::source_trees::{
+        refresh_source_tree_for_user, should_register_as_github, source_tree_ref_hint,
+        upsert_read_only_source_tree,
+    };
     use crate::console::identity::ActorIdentity;
     use crate::console::token_crypto::TokenCrypto;
     use tempfile::TempDir;
