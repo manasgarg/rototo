@@ -64,6 +64,11 @@ pub const DOCS: &[DocPage] = &[
         title: "Development Workflow",
         markdown: include_str!("../docs/src/development-workflow.md"),
     },
+    DocPage {
+        id: "production-workflow",
+        title: "Production Workflow",
+        markdown: include_str!("../docs/src/production-workflow.md"),
+    },
 ];
 
 pub const DOC_NAV_SECTIONS: &[DocNavSection] = &[
@@ -73,7 +78,7 @@ pub const DOC_NAV_SECTIONS: &[DocNavSection] = &[
     },
     DocNavSection {
         title: "Learn",
-        pages: &["concepts", "development-workflow"],
+        pages: &["concepts", "development-workflow", "production-workflow"],
     },
 ];
 
@@ -238,7 +243,7 @@ type = "string"
 default = "classic"
 
 [[resolve.rule]]
-when = 'qualifier["premium-users"]'
+when = 'env.qualifier["premium-users"]'
 value = "redesign"
 "#,
     );

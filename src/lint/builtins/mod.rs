@@ -14,8 +14,10 @@ pub(super) fn run_project(ctx: &mut LintContext) {
     evaluation_context::lint_evaluation_context_schemas(ctx);
     evaluation_context::lint_evaluation_context_reserved_fields(ctx);
     qualifier::lint_qualifier_shapes(ctx);
+    qualifier::lint_qualifier_expression_roots(ctx);
     catalog::lint_catalog_shapes(ctx);
     variable::lint_variable_shapes(ctx);
+    variable::lint_variable_expression_roots(ctx);
 }
 
 pub(super) fn run_reference(ctx: &mut LintContext) {

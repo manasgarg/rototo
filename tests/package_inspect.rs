@@ -103,13 +103,13 @@ fn inspect_human_variable_rules_show_when_expressions() {
         .assert()
         .success()
         .stdout(predicate::str::contains(
-            r#"rule[0] if qualifier["request-dev-console"] -> "dev-all""#,
+            r#"rule[0] if env.qualifier["request-dev-console"] -> "dev-all""#,
         ))
         .stdout(predicate::str::contains(
-            r#"rule[1] if qualifier["request-server-error"] -> "retain-errors""#,
+            r#"rule[1] if env.qualifier["request-server-error"] -> "retain-errors""#,
         ))
         .stdout(predicate::str::contains(
-            r#"rule[2] if qualifier["request-slow"] -> "retain-slow""#,
+            r#"rule[2] if env.qualifier["request-slow"] -> "retain-slow""#,
         ))
         .stdout(predicate::str::contains("if <missing>").not());
 }
@@ -153,7 +153,7 @@ fn inspect_json_variable_rules_include_when_expressions() {
         .assert()
         .success()
         .stdout(predicate::str::contains(
-            r#""when": "qualifier[\"premium-users\"]""#,
+            r#""when": "env.qualifier[\"premium-users\"]""#,
         ));
 }
 

@@ -1581,7 +1581,7 @@ function ruleExpressionSuggestions({
     return [
         ...contextAttributes.map((attribute) => `context.${attribute}`),
         ...(includeEntry ? ["entry."] : []),
-        ...qualifierIds.map((id) => `qualifier[${JSON.stringify(id)}]`),
+        ...qualifierIds.map((id) => `env.qualifier[${JSON.stringify(id)}]`),
         "has(context.)",
         'bucket(context.user.id, "salt", 0, 50)',
         'contains(context., "")',
@@ -1662,7 +1662,8 @@ function QualifierFields({
                 />
                 <FieldNotes items={whenNotes} />
                 <span className="field-hint">
-                    Expression over context and qualifier, for example{" "}
+                    Expression over context and env
+                    (env.qualifier[&quot;…&quot;], env.now), for example{" "}
                     {contextExpressions[0] ?? "context.user.tier"} == "premium"
                     .
                 </span>
@@ -2575,7 +2576,7 @@ function rewriteResolveRules(
 
 function ruleWhenExpression(rule: VariableRuleModel): string {
     return rule.conditionKind === "qualifier"
-        ? `qualifier[${JSON.stringify(rule.condition.trim())}]`
+        ? `env.qualifier[${JSON.stringify(rule.condition.trim())}]`
         : rule.condition;
 }
 
@@ -2588,7 +2589,7 @@ function qualifierConditionFromWhenExpression(expression: string): {
 
 function qualifierIdFromWhenExpression(expression: string): string | null {
     const trimmed = stripOuterParens(expression.trim());
-    const match = trimmed.match(/^qualifier\[(.+)\]$/);
+    const match = trimmed.match(/^env\.qualifier\[(.+)\]$/);
     return match ? parseTomlStringLiteral(match[1].trim()) : null;
 }
 

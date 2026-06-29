@@ -64,7 +64,7 @@ async fn semantic_model_projects_entities_references_and_ranges() {
     let rule = &resolve.rules[0];
     assert_eq!(
         rule.when.as_ref().and_then(|field| field.value.as_deref()),
-        Some("qualifier[\"mobile-users\"]")
+        Some("env.qualifier[\"mobile-users\"]")
     );
     assert!(
         rule.when
@@ -179,7 +179,7 @@ type = "list<catalog:message-template>"
 default = []
 
 [[resolve.rule]]
-query = 'entry.channel == context.channel && entry.active == true && qualifier["premium"]'
+query = 'entry.channel == context.channel && entry.active == true && env.qualifier["premium"]'
 "#,
     );
 
@@ -203,7 +203,9 @@ query = 'entry.channel == context.channel && entry.active == true && qualifier["
     let query = rule.query.as_ref().expect("query field");
     assert_eq!(
         query.value.as_deref(),
-        Some(r#"entry.channel == context.channel && entry.active == true && qualifier["premium"]"#)
+        Some(
+            r#"entry.channel == context.channel && entry.active == true && env.qualifier["premium"]"#
+        )
     );
     assert!(
         query.location.range.is_some(),

@@ -10,6 +10,7 @@ docs/src/
   motivation.md
   concepts.md
   development-workflow.md
+  production-workflow.md
 ```
 
 The CLI embeds the pages registered in `src/docs.rs`. When adding, moving, or

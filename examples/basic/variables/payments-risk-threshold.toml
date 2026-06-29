@@ -7,9 +7,9 @@ type = "number"
 default = 0.82
 
 [[resolve.rule]]
-when = 'qualifier["lane-dev"]'
+when = 'env.qualifier["lane-dev"]'
 value = 0.92
 
 [[resolve.rule]]
-when = 'qualifier["high-value-cart"]'
+when = 'env.qualifier["high-value-cart"]'
 value = 0.70

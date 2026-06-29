@@ -329,8 +329,59 @@ fn setup_agent_walks_upward_to_existing_instruction_file() {
     let instructions = fs::read_to_string(root.join("AGENTS.md")).unwrap();
     assert!(instructions.contains("# Existing instructions"));
     assert!(instructions.contains("<!-- BEGIN rototo setup -->"));
-    assert!(instructions.contains("rototo package files as the control plane"));
+    assert!(
+        instructions
+            .contains("runtime configuration that can change system behavior after deployment")
+    );
     assert!(!nested.join("AGENTS.md").exists());
+}
+
+#[test]
+fn setup_agent_all_does_not_create_claude_instructions() {
+    let temp = tempfile::tempdir().unwrap();
+    let root = temp.path().join("repo");
+    fs::create_dir_all(&root).unwrap();
+
+    Command::cargo_bin("rototo")
+        .unwrap()
+        .current_dir(&root)
+        .args(["setup", "--agent", "all"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("codex-guidance"))
+        .stdout(predicate::str::contains("claude-guidance"));
+
+    let agents = fs::read_to_string(root.join("AGENTS.md")).unwrap();
+    assert!(
+        agents.contains("runtime configuration that can change system behavior after deployment")
+    );
+    assert!(!root.join("CLAUDE.md").exists());
+}
+
+#[test]
+fn setup_agent_all_updates_existing_claude_instructions() {
+    let temp = tempfile::tempdir().unwrap();
+    let root = temp.path().join("repo");
+    let nested = root.join("packages/checkout");
+    fs::create_dir_all(&nested).unwrap();
+    fs::write(root.join("AGENTS.md"), "# Agent instructions\n").unwrap();
+    fs::write(root.join("CLAUDE.md"), "# Claude instructions\n").unwrap();
+
+    Command::cargo_bin("rototo")
+        .unwrap()
+        .current_dir(&nested)
+        .args(["setup", "--agent", "all"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("codex-guidance"))
+        .stdout(predicate::str::contains("claude-guidance"));
+
+    let agents = fs::read_to_string(root.join("AGENTS.md")).unwrap();
+    let claude = fs::read_to_string(root.join("CLAUDE.md")).unwrap();
+    assert!(agents.contains("<!-- BEGIN rototo setup -->"));
+    assert!(claude.contains("<!-- BEGIN rototo setup -->"));
+    assert!(!nested.join("AGENTS.md").exists());
+    assert!(!nested.join("CLAUDE.md").exists());
 }
 
 #[test]

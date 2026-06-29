@@ -689,7 +689,7 @@ fn canonical_reference_fixture_reports_variable_rule_unknown_qualifier() {
                     start_line: 8,
                     start_character: 7,
                     end_line: 8,
-                    end_character: 35,
+                    end_character: 39,
                 }),
             },
             related: &[],
@@ -866,7 +866,7 @@ fn self_referencing_qualifier_does_not_also_report_unreferenced() {
         root.join("qualifiers/self.toml"),
         r#"schema_version = 1
 
-when = "qualifier[\"self\"]"
+when = "env.qualifier[\"self\"]"
 "#,
     )
     .unwrap();
@@ -1619,7 +1619,7 @@ fn canonical_rule_fixtures() -> &'static [CanonicalRuleFixture] {
                         start_line: 3,
                         start_character: 7,
                         end_line: 3,
-                        end_character: 31,
+                        end_character: 35,
                     }),
                 },
                 related: &[],
@@ -1664,7 +1664,7 @@ fn canonical_rule_fixtures() -> &'static [CanonicalRuleFixture] {
                         start_line: 8,
                         start_character: 7,
                         end_line: 8,
-                        end_character: 35,
+                        end_character: 39,
                     }),
                 },
                 related: &[],
@@ -1728,7 +1728,7 @@ fn canonical_rule_fixtures() -> &'static [CanonicalRuleFixture] {
                             start_line: 3,
                             start_character: 7,
                             end_line: 3,
-                            end_character: 28,
+                            end_character: 32,
                         }),
                     },
                     related: &[ExpectedRelatedLocation {
@@ -1737,7 +1737,7 @@ fn canonical_rule_fixtures() -> &'static [CanonicalRuleFixture] {
                             start_line: 3,
                             start_character: 7,
                             end_line: 3,
-                            end_character: 29,
+                            end_character: 33,
                         }),
                         message: "cycle reference: beta -> alpha",
                     }],
@@ -1753,7 +1753,7 @@ fn canonical_rule_fixtures() -> &'static [CanonicalRuleFixture] {
                             start_line: 3,
                             start_character: 7,
                             end_line: 3,
-                            end_character: 29,
+                            end_character: 33,
                         }),
                     },
                     related: &[ExpectedRelatedLocation {
@@ -1762,7 +1762,7 @@ fn canonical_rule_fixtures() -> &'static [CanonicalRuleFixture] {
                             start_line: 3,
                             start_character: 7,
                             end_line: 3,
-                            end_character: 28,
+                            end_character: 32,
                         }),
                         message: "cycle reference: alpha -> beta",
                     }],
@@ -1778,7 +1778,7 @@ fn canonical_rule_fixtures() -> &'static [CanonicalRuleFixture] {
                             start_line: 3,
                             start_character: 7,
                             end_line: 3,
-                            end_character: 28,
+                            end_character: 32,
                         }),
                     },
                     related: &[],
@@ -1848,7 +1848,7 @@ fn canonical_rule_fixtures() -> &'static [CanonicalRuleFixture] {
                         start_line: 12,
                         start_character: 7,
                         end_line: 12,
-                        end_character: 35,
+                        end_character: 39,
                     }),
                 },
                 related: &[ExpectedRelatedLocation {
@@ -1857,9 +1857,9 @@ fn canonical_rule_fixtures() -> &'static [CanonicalRuleFixture] {
                         start_line: 8,
                         start_character: 7,
                         end_line: 8,
-                        end_character: 35,
+                        end_character: 39,
                     }),
-                    message: "first rule using condition: qualifier[\"premium-users\"]",
+                    message: "first rule using condition: env.qualifier[\"premium-users\"]",
                 }],
             }],
         },
@@ -2017,6 +2017,12 @@ fn canonical_rule_fixtures() -> &'static [CanonicalRuleFixture] {
 
 fn pending_canonical_rule_fixtures() -> &'static [PendingCanonicalRuleFixture] {
     &[
+        PendingCanonicalRuleFixture {
+            rule: RototoRuleId::QualifierWhenInvalidReference,
+        },
+        PendingCanonicalRuleFixture {
+            rule: RototoRuleId::VariableRuleInvalidReference,
+        },
         PendingCanonicalRuleFixture {
             rule: RototoRuleId::VariableTypeSource,
         },
@@ -2319,6 +2325,7 @@ fn lint_failures_expected_rule_ids() -> &'static [&'static str] {
         "rototo/qualifier-no-compatible-evaluation-context",
         "rototo/qualifier-unreferenced",
         "rototo/qualifier-when-context-path-type-mismatch",
+        "rototo/qualifier-when-invalid-reference",
         "rototo/qualifier-when-undeclared-context-path",
         "rototo/qualifier-when-shape",
         "rototo/qualifier-when-unknown-qualifier",
@@ -2326,6 +2333,7 @@ fn lint_failures_expected_rule_ids() -> &'static [&'static str] {
         "rototo/schema-ui-widget-params",
         "rototo/schema-ui-widget-type-mismatch",
         "rototo/variable-rule-context-path-type-mismatch",
+        "rototo/variable-rule-invalid-reference",
         "rototo/variable-rule-shadowed",
         "rototo/variable-rule-shape",
         "rototo/variable-rule-undeclared-context-path",

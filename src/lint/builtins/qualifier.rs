@@ -49,6 +49,28 @@ pub(super) fn lint_qualifier_shapes(ctx: &mut LintContext) {
     }
 }
 
+/// Flag root identifiers a qualifier `when` expression uses that rototo does not
+/// provide: the legacy bare `qualifier[...]` root, unknown `env` members, and
+/// any other unknown identifier. Without this the expression would fail at
+/// resolution with cel's raw "undefined variable" error.
+pub(super) fn lint_qualifier_expression_roots(ctx: &mut LintContext) {
+    let diagnostics = &mut ctx.diagnostics;
+    for qualifier in ctx.index.qualifiers.values() {
+        let ProjectField::Present(when) = &qualifier.when else {
+            continue;
+        };
+        for issue in &when.value.references().invalid_roots {
+            push_project_diagnostic(
+                diagnostics,
+                RototoRuleId::QualifierWhenInvalidReference,
+                qualifier.field_target(SemanticField::QualifierWhen),
+                when.location.clone(),
+                issue.describe(),
+            );
+        }
+    }
+}
+
 pub(super) fn lint_qualifier_references(ctx: &mut LintContext) {
     let diagnostics = &mut ctx.diagnostics;
 

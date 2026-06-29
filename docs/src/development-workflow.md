@@ -25,13 +25,15 @@ Rototo integrates with your shell, editor and agent. `rototo setup` will do this
 rototo setup
 ```
 
-It would ask you the integrations that you wish to enable. It would enable the following features:
+It asks which shell and editor integrations you want, then installs agent
+guidance. It can enable the following features:
 - shell completions for the supported shell, so command names and selector flags
   are available while you type;
 - editor feedback through `rototo lsp`, with Neovim configured automatically;
-- agent guidance in `AGENTS.md` for Codex and `CLAUDE.md` for Claude, so agents
-  use package files as the control-plane boundary and run `inspect`, `resolve`,
-  and `lint` before finishing.
+- agent guidance in `AGENTS.md`, plus `CLAUDE.md` when that file already
+  exists, so agents recognize rototo as the control plane for runtime
+  configuration that can change system behavior after deployment and know to
+  start with `rototo docs`.
 
 For non-interactive setup, you should use explicit targets:
 
@@ -39,7 +41,7 @@ For non-interactive setup, you should use explicit targets:
 rototo setup --all
 rototo setup --shell zsh
 rototo setup --editor neovim
-rototo setup --agent codex
+rototo setup --agent all
 ```
 
 `--dry-run` shows planned writes, and `--json` gives scripts a machine-readable
@@ -174,14 +176,26 @@ A useful pre-commit hook runs the cheap checks:
 rototo lint app-config
 ```
 
-A useful pre-push hook can be broader:
+If the repository contains an application or SDK integration test that loads the
+package, pre-push is a good place to run the small smoke version of that test.
+
+## Prepare for CI
+
+At minimum, CI should lint the package:
 
 ```sh
 rototo lint app-config
-rototo fixtures app-config --variables --qualifiers --out tests/fixtures/rototo
 ```
 
-If the repository contains an application or SDK integration test that loads the
-package, pre-push is a good place to run the small smoke version of that test.
-Do not make hooks the final authority. They help authors move faster, but CI is
-the release gate.
+It's a good idea to keep representative evaluation samples in the package that must resolve important variables & qualifiers to values that must not change.
+
+```sh
+rototo resolve app-config \
+  --variable checkout-redesign \
+  --context @app-config/evaluation-contexts/request-samples/premium.json
+```
+
+After that gate passes, the package is ready for the production workflow:
+release a reviewed package source, have the application load that source, and
+let long-running services refresh from it while keeping the last known good
+package active if a later refresh fails.

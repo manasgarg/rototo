@@ -6,5 +6,5 @@ type = "string"
 default = "control"
 
 [[resolve.rule]]
-when = 'qualifier["derived"]'
+when = 'env.qualifier["derived"]'
 value = "derived"

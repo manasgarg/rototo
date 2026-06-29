@@ -1,4 +1,4 @@
 schema_version = 1
 description = "Runtime condition for beta."
 
-when = '(qualifier["alpha"])'
+when = '(env.qualifier["alpha"])'

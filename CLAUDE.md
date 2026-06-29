@@ -93,9 +93,12 @@ Global flags are supported at every level:
 - `--package-token <token>`
 
 Resolution takes repeatable `--context` inputs in the CLI: raw JSON object,
-`@path/to/context.json`, or `path=value`, merged left to right. Qualifier `when`
-expressions read context paths as `context.user.tier` and other qualifiers as
-`qualifier["<id>"]`. Variables resolve by taking the first matching rule value,
+`@path/to/context.json`, or `path=value`, merged left to right. Expressions read
+exactly three roots: `context` (caller-supplied facts, e.g. `context.user.tier`),
+`entry` (the catalog entry under consideration in a `query`), and `env`
+(rototo-provided values: `env.qualifier["<id>"]` for other qualifiers and
+`env.now` for the evaluation timestamp, captured once per resolution as an
+RFC3339 string). Variables resolve by taking the first matching rule value,
 otherwise the default value.
 
 ```sh
@@ -141,7 +144,9 @@ package structure and files:
 - Package manifest exists, parses, and declares `schema_version = 1`.
 - Qualifier files parse, declare `schema_version = 1`, declare a `when`
   expression, reject legacy `[[predicate]]`, reference known qualifiers with
-  `qualifier["<id>"]`, and validate expression, bucket, and operator shapes.
+  `env.qualifier["<id>"]`, reject identifiers rototo does not provide (the legacy
+  bare `qualifier[...]` root, unknown `env` members), and validate expression,
+  bucket, and operator shapes.
 - Variable files parse, declare `schema_version = 1`, declare `type`, reject
   legacy `schema` and `[values]`, declare `[resolve]`, put literal values
   directly in resolve defaults and rules, reference known catalog values for

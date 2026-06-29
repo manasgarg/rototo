@@ -6,5 +6,5 @@ type = "string"
 default = "control"
 
 [[resolve.rule]]
-when = 'qualifier["live"]'
+when = 'env.qualifier["live"]'
 value = "live"

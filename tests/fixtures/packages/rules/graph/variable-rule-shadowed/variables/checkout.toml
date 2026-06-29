@@ -6,9 +6,9 @@ type = "string"
 default = "control"
 
 [[resolve.rule]]
-when = 'qualifier["premium-users"]'
+when = 'env.qualifier["premium-users"]'
 value = "premium"
 
 [[resolve.rule]]
-when = 'qualifier["premium-users"]'
+when = 'env.qualifier["premium-users"]'
 value = "alternate"

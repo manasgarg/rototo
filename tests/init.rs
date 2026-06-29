@@ -233,7 +233,7 @@ type = "string"
 default = "control"
 
 [[resolve.rule]]
-when = 'qualifier["premium-users"] && context.account.seats >= 10 && context.flags.enabled'
+when = 'env.qualifier["premium-users"] && context.account.seats >= 10 && context.flags.enabled'
 value = "treatment"
 "#,
     )

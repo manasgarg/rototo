@@ -6,17 +6,17 @@ type = "string"
 default = "control"
 
 [[resolve.rule]]
-when = 'qualifier["boolean-in-string"]'
+when = 'env.qualifier["boolean-in-string"]'
 value = "treatment"
 
 [[resolve.rule]]
-when = 'qualifier["integer-eq-string"]'
+when = 'env.qualifier["integer-eq-string"]'
 value = "treatment"
 
 [[resolve.rule]]
-when = 'qualifier["object-bucket"]'
+when = 'env.qualifier["object-bucket"]'
 value = "treatment"
 
 [[resolve.rule]]
-when = 'qualifier["string-gt-number"]'
+when = 'env.qualifier["string-gt-number"]'
 value = "treatment"

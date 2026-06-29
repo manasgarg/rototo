@@ -559,6 +559,12 @@ fn expression_completion_items(
         return Some(items);
     }
 
+    if cursor.token.starts_with("env.") {
+        let mut items = env_member_completion_items();
+        stamp_replace_range(&mut items, token_range(&cursor.token));
+        return Some(items);
+    }
+
     if cursor.token.starts_with("context.") {
         let mut items = context_path_completion_items(snapshot, &cursor.token);
         stamp_replace_range(&mut items, token_range(&cursor.token));
@@ -783,7 +789,7 @@ fn is_expression_token_char(ch: char) -> bool {
 }
 
 fn qualifier_reference_prefix(prefix: &str) -> Option<&str> {
-    ["qualifier[\"", "qualifier['"]
+    ["env.qualifier[\"", "env.qualifier['"]
         .into_iter()
         .filter_map(|needle| {
             prefix
@@ -905,7 +911,7 @@ fn current_variable_query_catalog_id(index: &SemanticIndex, path: &str) -> Optio
 }
 
 fn expression_root_completion_items(include_entry: bool) -> Vec<PackageCompletionItem> {
-    let mut roots = vec!["context.", "qualifier[\""];
+    let mut roots = vec!["context.", "env."];
     if include_entry {
         roots.push("entry.");
     }
@@ -916,6 +922,22 @@ fn expression_root_completion_items(include_entry: bool) -> Vec<PackageCompletio
                 root,
                 PackageCompletionItemKind::FieldSelector,
                 "expression root",
+            )
+        })
+        .collect()
+}
+
+/// Members of the `env` root: the qualifier map and the evaluation timestamp.
+/// Offered once the cursor is inside an `env.` token, before the qualifier id
+/// completion that `env.qualifier["` triggers.
+fn env_member_completion_items() -> Vec<PackageCompletionItem> {
+    ["env.qualifier[\"", "env.now"]
+        .into_iter()
+        .map(|member| {
+            PackageCompletionItem::new(
+                member,
+                PackageCompletionItemKind::FieldSelector,
+                "env member",
             )
         })
         .collect()

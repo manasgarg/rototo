@@ -277,8 +277,9 @@ fn selected_value_source(value: &RuntimeSelectedValue) -> VariableResolutionSour
 fn evaluate_rule_selector(state: &mut QualifierState<'_>, rule: &RuntimeRule) -> Result<bool> {
     if let Some(when) = &rule.when {
         let context = state.context;
+        let now = state.now.clone();
         let mut resolve_qualifier = |id: &str| state.resolve(id);
-        return when.evaluate_bool(context, None, &mut resolve_qualifier);
+        return when.evaluate_bool(context, None, &now, &mut resolve_qualifier);
     }
     Ok(matches!(rule.selection, RuntimeRuleSelection::Query(_)))
 }
@@ -312,14 +313,17 @@ fn resolve_catalog_query(
         .ok_or_else(|| RototoError::new(format!("catalog has no entries: {}", query.catalog)))?;
     let mut names = Vec::new();
     let mut values = Vec::new();
+    let now = state.now.clone();
     for (name, entry) in entries {
         let entry_view = catalog_entry_view(runtime, &query.catalog, name, entry);
         let context = state.context;
         let mut resolve_qualifier = |id: &str| state.resolve(id);
-        if query
-            .expression
-            .evaluate_bool(context, Some(&entry_view), &mut resolve_qualifier)?
-        {
+        if query.expression.evaluate_bool(
+            context,
+            Some(&entry_view),
+            &now,
+            &mut resolve_qualifier,
+        )? {
             names.push(name.clone());
             values.push(entry_view);
         }
@@ -532,6 +536,10 @@ fn resolve_schema_ref<'a>(
 struct QualifierState<'a> {
     runtime: &'a RuntimePackage,
     context: &'a JsonValue,
+    /// The evaluation timestamp exposed to expressions as `env.now`. Captured
+    /// once when the resolution starts so every `env.now` in one resolution sees
+    /// the same instant.
+    now: String,
     cache: HashMap<String, bool>,
     resolving: HashSet<String>,
     traces: HashMap<String, QualifierResolutionTrace>,
@@ -542,6 +550,7 @@ impl<'a> QualifierState<'a> {
         Self {
             runtime,
             context,
+            now: crate::predicate::now_rfc3339(),
             cache: HashMap::new(),
             resolving: HashSet::new(),
             traces: HashMap::new(),
@@ -571,10 +580,11 @@ impl<'a> QualifierState<'a> {
                 RototoError::new(format!("qualifier not found: qualifier://{id}"))
             })?;
         let context = self.context;
+        let now = self.now.clone();
         let mut resolve_qualifier = |qualifier_id: &str| self.resolve(qualifier_id);
         let value = qualifier
             .when
-            .evaluate_bool(context, None, &mut resolve_qualifier)?;
+            .evaluate_bool(context, None, &now, &mut resolve_qualifier)?;
         self.traces.insert(
             id.to_owned(),
             QualifierResolutionTrace {
@@ -958,10 +968,10 @@ when = "context.user.tier == \"premium\" && context.missing.path == \"anything\"
         let package = package_with_qualifiers(&[
             ("premium", predicate("user.tier", "eq", r#""premium""#)),
             ("free", predicate("user.tier", "eq", r#""free""#)),
-            ("premium-derived", condition(r#"qualifier["premium"]"#)),
-            ("free-derived", condition(r#"qualifier["free"]"#)),
-            ("cycle-a", condition(r#"qualifier["cycle-b"]"#)),
-            ("cycle-b", condition(r#"qualifier["cycle-a"]"#)),
+            ("premium-derived", condition(r#"env.qualifier["premium"]"#)),
+            ("free-derived", condition(r#"env.qualifier["free"]"#)),
+            ("cycle-a", condition(r#"env.qualifier["cycle-b"]"#)),
+            ("cycle-b", condition(r#"env.qualifier["cycle-a"]"#)),
         ]);
         let context = serde_json::json!({ "user": { "tier": "premium" } });
 
@@ -995,7 +1005,7 @@ type = "string"
 default = "control"
 
 [[resolve.rule]]
-when = 'qualifier["premium"]'
+when = 'env.qualifier["premium"]'
 value = "premium"
 "#,
         )
@@ -1109,7 +1119,7 @@ type = "list<catalog:message-template>"
 default = []
 
 [[resolve.rule]]
-query = "entry.channel == context.channel && entry.active == true && qualifier[\"premium\"]"
+query = "entry.channel == context.channel && entry.active == true && env.qualifier[\"premium\"]"
 "#,
         )
         .unwrap();
@@ -1337,7 +1347,7 @@ query = "entry.hero.cta == \"Buy\""
 
     fn attribute_expression(attribute: &str) -> String {
         if let Some(qualifier) = attribute.strip_prefix("qualifier.") {
-            format!("qualifier[\"{qualifier}\"]")
+            format!("env.qualifier[\"{qualifier}\"]")
         } else {
             format!("context.{attribute}")
         }

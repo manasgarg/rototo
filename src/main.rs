@@ -854,10 +854,24 @@ async fn run_setup(args: SetupArgs, json: bool, quiet: bool) -> Result<ExitCode>
             SetupTarget::Shell(shell) => setup_shell(shell, &options, &mut changes).await?,
             SetupTarget::Neovim => setup_neovim(&options, &mut changes).await?,
             SetupTarget::Claude => {
-                setup_agent("CLAUDE.md", "claude-guidance", &options, &mut changes).await?
+                setup_agent(
+                    "CLAUDE.md",
+                    "claude-guidance",
+                    AgentFilePolicy::ExistingOnly,
+                    &options,
+                    &mut changes,
+                )
+                .await?
             }
             SetupTarget::Codex => {
-                setup_agent("AGENTS.md", "codex-guidance", &options, &mut changes).await?
+                setup_agent(
+                    "AGENTS.md",
+                    "codex-guidance",
+                    AgentFilePolicy::CreateIfMissing,
+                    &options,
+                    &mut changes,
+                )
+                .await?
             }
         }
     }
@@ -890,8 +904,8 @@ fn setup_targets(args: &SetupArgs) -> Result<Vec<SetupTarget>> {
     if args.all {
         add_target(&mut targets, SetupTarget::Shell(SetupShellArg::Auto));
         add_target(&mut targets, SetupTarget::Neovim);
-        add_target(&mut targets, SetupTarget::Claude);
         add_target(&mut targets, SetupTarget::Codex);
+        add_target(&mut targets, SetupTarget::Claude);
     }
 
     if let Some(shell) = args.shell {
@@ -916,8 +930,8 @@ fn setup_targets(args: &SetupArgs) -> Result<Vec<SetupTarget>> {
         targets.retain(|target| !matches!(target, SetupTarget::Claude | SetupTarget::Codex));
         match agent {
             SetupAgentArg::All => {
-                add_target(&mut targets, SetupTarget::Claude);
                 add_target(&mut targets, SetupTarget::Codex);
+                add_target(&mut targets, SetupTarget::Claude);
             }
             SetupAgentArg::Claude => add_target(&mut targets, SetupTarget::Claude),
             SetupAgentArg::Codex => add_target(&mut targets, SetupTarget::Codex),
@@ -942,12 +956,8 @@ fn interactive_setup_targets() -> Result<Vec<SetupTarget>> {
     if prompt_setup_target("Neovim LSP", true)? {
         add_target(&mut targets, SetupTarget::Neovim);
     }
-    if prompt_setup_target("Claude agent guidance", true)? {
-        add_target(&mut targets, SetupTarget::Claude);
-    }
-    if prompt_setup_target("Codex agent guidance", true)? {
-        add_target(&mut targets, SetupTarget::Codex);
-    }
+    add_target(&mut targets, SetupTarget::Codex);
+    add_target(&mut targets, SetupTarget::Claude);
     Ok(targets)
 }
 
@@ -1187,10 +1197,26 @@ vim.api.nvim_create_autocmd("FileType", {{
 async fn setup_agent(
     file_name: &str,
     target: &'static str,
+    policy: AgentFilePolicy,
     options: &SetupRunOptions,
     changes: &mut Vec<SetupChange>,
 ) -> Result<()> {
-    let path = nearest_agent_file(file_name).await?;
+    let path = match policy {
+        AgentFilePolicy::CreateIfMissing => nearest_agent_file(file_name).await?,
+        AgentFilePolicy::ExistingOnly => {
+            if let Some(path) = nearest_existing_agent_file(file_name).await? {
+                path
+            } else {
+                changes.push(setup_change(
+                    target,
+                    SetupStatus::Unchanged,
+                    None,
+                    Some("CLAUDE.md not found; AGENTS.md is sufficient"),
+                ));
+                return Ok(());
+            }
+        }
+    };
     let status =
         upsert_managed_markdown_block(&path, &agent_guidance_block(), options.dry_run).await?;
     changes.push(setup_change(
@@ -1202,18 +1228,40 @@ async fn setup_agent(
     Ok(())
 }
 
+#[derive(Clone, Copy, Debug)]
+enum AgentFilePolicy {
+    CreateIfMissing,
+    ExistingOnly,
+}
+
 async fn nearest_agent_file(file_name: &str) -> Result<PathBuf> {
     let start = std::env::current_dir()
         .map_err(|err| RototoError::new(format!("failed to read current directory: {err}")))?;
-    let mut dir = start.as_path();
+    if let Some(path) = nearest_existing_agent_file_from(&start, file_name).await? {
+        return Ok(path);
+    }
+    Ok(start.join(file_name))
+}
+
+async fn nearest_existing_agent_file(file_name: &str) -> Result<Option<PathBuf>> {
+    let start = std::env::current_dir()
+        .map_err(|err| RototoError::new(format!("failed to read current directory: {err}")))?;
+    nearest_existing_agent_file_from(&start, file_name).await
+}
+
+async fn nearest_existing_agent_file_from(
+    start: &Path,
+    file_name: &str,
+) -> Result<Option<PathBuf>> {
+    let mut dir = start;
     loop {
         let candidate = dir.join(file_name);
         if path_exists(&candidate).await? {
-            return Ok(candidate);
+            return Ok(Some(candidate));
         }
         match dir.parent() {
             Some(parent) => dir = parent,
-            None => return Ok(start.join(file_name)),
+            None => return Ok(None),
         }
     }
 }
@@ -1223,7 +1271,7 @@ fn agent_guidance_block() -> String {
         r#"{AGENT_SETUP_BEGIN}
 ## rototo
 
-When changing runtime behavior, use rototo package files as the control plane. Use `rototo docs` for concepts, `rototo inspect` to understand package shape, `rototo resolve` with realistic context to verify behavior, and `rototo lint` before finishing. Use `rototo lsp` in editors when available.
+Use rototo for runtime configuration that can change system behavior after deployment. Treat the rototo package as the reviewed control plane, and use `rototo docs` to learn the model and commands. Before finishing package changes, run `rototo lint` and verify expected behavior with `rototo resolve` using realistic context.
 {AGENT_SETUP_END}
 "#
     )
@@ -2098,7 +2146,7 @@ description = {description}
 
 # Required. `when` must evaluate to true or false.
 # It can read runtime context with `context.*` and compose existing qualifiers
-# with `qualifier["<qualifier-id>"]`.
+# with `env.qualifier["<qualifier-id>"]`.
 when = 'context.user.tier == "premium"'
 
 # Common condition shapes:
@@ -2118,8 +2166,8 @@ when = 'context.user.tier == "premium"'
 #
 # Composition:
 # when = 'context.user.tier == "premium" && context.account.seats >= 100'
-# when = 'qualifier["beta-rollout"] && context.user.tier == "premium"'
-# when = '!(qualifier["internal-staff"])'
+# when = 'env.qualifier["beta-rollout"] && context.user.tier == "premium"'
+# when = '!(env.qualifier["internal-staff"])'
 #
 # Stable rollout buckets. Bucket ranges are start-inclusive and end-exclusive.
 # `0, 1000` is roughly 1.5% of the 0..65536 bucket space.
@@ -2127,6 +2175,11 @@ when = 'context.user.tier == "premium"'
 #
 # Other supported helpers include has, prefix, suffix, contains, regex, glob,
 # semver, time_before/time_after/time_between, cidr, path, and size.
+#
+# Time gating reads `env.now`, the evaluation timestamp rototo captures per
+# resolution. It reads the wall clock, so pass time in context when you need a
+# reproducible resolution.
+# when = 'time_at_or_after(env.now, "2026-07-01T00:00:00Z")'
 #
 # Context paths used here should be declared in an evaluation context schema.
 # After editing conditions, run:
@@ -2166,7 +2219,7 @@ default = "control"
 # Rules are evaluated top to bottom. The first matching rule selects its value.
 #
 # [[resolve.rule]]
-# when = 'qualifier["premium-users"]'
+# when = 'env.qualifier["premium-users"]'
 # value = "treatment"
 
 # Rule conditions can also read context directly.
@@ -2185,7 +2238,7 @@ default = "control"
 # default = "control"
 #
 # [[resolve.rule]]
-# when = 'qualifier["premium-users"]'
+# when = 'env.qualifier["premium-users"]'
 # value = "premium"
 
 # For list<catalog:...> variables, rules may select entries with `query`
@@ -2197,7 +2250,7 @@ default = "control"
 # default = []
 #
 # [[resolve.rule]]
-# query = 'entry.enabled == true && qualifier["premium-users"]'
+# query = 'entry.enabled == true && env.qualifier["premium-users"]'
 "#
     )
 }

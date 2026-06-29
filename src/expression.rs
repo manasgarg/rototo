@@ -32,6 +32,42 @@ pub(crate) struct ExpressionReferences {
     /// used in several places. Paths used in ways that do not pin a scalar type
     /// (for example the value argument of `bucket`) do not appear here.
     pub(crate) context_path_types: BTreeMap<String, BTreeSet<ContextScalarType>>,
+    /// Root identifiers the expression uses that rototo does not provide. Lint
+    /// turns these into diagnostics; evaluation would otherwise fail with cel's
+    /// raw "undefined variable" error.
+    pub(crate) invalid_roots: BTreeSet<ExpressionRootIssue>,
+}
+
+/// A reference to a root identifier that is not part of rototo's evaluation
+/// environment. The expression environment exposes exactly `context`, `entry`
+/// (in queries), and `env` (with members `qualifier["<id>"]` and `now`).
+#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
+pub(crate) enum ExpressionRootIssue {
+    /// The legacy bare `qualifier["<id>"]` root, before qualifiers moved under
+    /// `env`. Kept distinct so the diagnostic can point at the new spelling.
+    LegacyQualifier,
+    /// `env.<member>` where `<member>` is not a real env member.
+    UnknownEnvMember(String),
+    /// Any other unknown root identifier (e.g. a typo of `context`).
+    UnknownRoot(String),
+}
+
+impl ExpressionRootIssue {
+    pub(crate) fn describe(&self) -> String {
+        match self {
+            ExpressionRootIssue::LegacyQualifier => {
+                "expression uses the legacy qualifier[\"<id>\"] root; reference qualifiers as \
+                 env.qualifier[\"<id>\"]"
+                    .to_owned()
+            }
+            ExpressionRootIssue::UnknownEnvMember(member) => {
+                format!("expression references unknown env member: env.{member}")
+            }
+            ExpressionRootIssue::UnknownRoot(root) => {
+                format!("expression references unknown identifier: {root}")
+            }
+        }
+    }
 }
 
 /// The JSON Schema scalar families an expression can require of a context path.
@@ -101,7 +137,7 @@ pub(crate) enum ExpressionResultHint {
 pub(crate) fn simple_rule_qualifier(expression: &str) -> Option<String> {
     let expression = strip_condition_parens(expression.trim());
     let quoted = expression
-        .strip_prefix("qualifier[")?
+        .strip_prefix("env.qualifier[")?
         .strip_suffix(']')?
         .trim();
     serde_json::from_str::<String>(quoted).ok()
@@ -169,9 +205,10 @@ impl Expression {
         &self,
         context: &JsonValue,
         entry: Option<&JsonValue>,
+        now: &str,
         resolve_qualifier: &mut dyn FnMut(&str) -> Result<bool>,
     ) -> Result<bool> {
-        let value = self.evaluate_value(context, entry, resolve_qualifier)?;
+        let value = self.evaluate_value(context, entry, now, resolve_qualifier)?;
         value.as_bool().ok_or_else(|| {
             RototoError::new(format!(
                 "expression did not evaluate to bool: {}",
@@ -184,6 +221,7 @@ impl Expression {
         &self,
         context: &JsonValue,
         entry: Option<&JsonValue>,
+        now: &str,
         resolve_qualifier: &mut dyn FnMut(&str) -> Result<bool>,
     ) -> Result<JsonValue> {
         cel_evaluate(
@@ -191,6 +229,7 @@ impl Expression {
             &self.references,
             context,
             entry,
+            now,
             resolve_qualifier,
         )
     }
@@ -227,7 +266,15 @@ fn collect_cel(expr: &IdedExpr, references: &mut ExpressionReferences) {
             references.qualifiers.insert(id);
             return;
         }
-        None => {}
+        Some(Reference::EnvNow) => {
+            return;
+        }
+        None => {
+            if let Some(issue) = cel_root_issue(expr) {
+                references.invalid_roots.insert(issue);
+                return;
+            }
+        }
     }
 
     for child in cel_children(expr) {
@@ -277,6 +324,7 @@ enum Reference {
     Context(String),
     Entry(String),
     Qualifier(String),
+    EnvNow,
 }
 
 fn cel_reference(expr: &IdedExpr) -> Option<Reference> {
@@ -287,10 +335,32 @@ fn cel_reference(expr: &IdedExpr) -> Option<Reference> {
     match root.as_str() {
         "context" => Some(Reference::Context(segments.join("."))),
         "entry" => Some(Reference::Entry(segments.join("."))),
-        "qualifier" if segments.len() == 1 => {
-            Some(Reference::Qualifier(segments.into_iter().next().unwrap()))
-        }
+        "env" => match segments.as_slice() {
+            [member] if member == "now" => Some(Reference::EnvNow),
+            [first, id] if first == "qualifier" => Some(Reference::Qualifier(id.clone())),
+            _ => None,
+        },
         _ => None,
+    }
+}
+
+/// Classify a root chain that [`cel_reference`] did not recognize. Only chains
+/// with at least one segment are considered, so bare identifiers (such as
+/// comprehension variables) are never flagged.
+fn cel_root_issue(expr: &IdedExpr) -> Option<ExpressionRootIssue> {
+    let (root, segments) = cel_path(expr)?;
+    if segments.is_empty() {
+        return None;
+    }
+    match root.as_str() {
+        "context" | "entry" => None,
+        "env" => match segments.as_slice() {
+            [member] if member == "now" => None,
+            [first, _] if first == "qualifier" => None,
+            _ => Some(ExpressionRootIssue::UnknownEnvMember(segments.join("."))),
+        },
+        "qualifier" => Some(ExpressionRootIssue::LegacyQualifier),
+        other => Some(ExpressionRootIssue::UnknownRoot(other.to_owned())),
     }
 }
 
@@ -437,7 +507,10 @@ fn result_hint_from_cel(expr: &IdedExpr) -> ExpressionResultHint {
             | operators::IN => ExpressionResultHint::Bool,
             "path" | "size" => ExpressionResultHint::Value,
             operators::INDEX => {
-                if matches!(cel_path(expr), Some((root, _)) if root == "qualifier") {
+                if matches!(
+                    cel_path(expr),
+                    Some((root, segments)) if root == "env" && segments.first().map(String::as_str) == Some("qualifier")
+                ) {
                     ExpressionResultHint::Bool
                 } else {
                     ExpressionResultHint::Value
@@ -482,7 +555,7 @@ fn refined_arg0_function(name: &str) -> Option<ContextScalarType> {
 
 // ---- Evaluation: rototo rents the `cel` engine. ----
 // The hand-written tree-walking evaluator was replaced by compiling to cel and
-// resolving against a Context that supplies the `context`/`entry`/`qualifier`
+// resolving against a Context that supplies the `context`/`entry`/`env`
 // variables plus rototo's custom functions. The rototo parser/AST above is kept
 // only for lint analysis (references and type constraints).
 
@@ -493,6 +566,7 @@ fn cel_evaluate(
     references: &ExpressionReferences,
     context: &JsonValue,
     entry: Option<&JsonValue>,
+    now: &str,
     resolve_qualifier: &mut dyn FnMut(&str) -> Result<bool>,
 ) -> Result<JsonValue> {
     let mut ctx = CelContext::default();
@@ -500,14 +574,20 @@ fn cel_evaluate(
     ctx.add_variable_from_value("context", to_cel(context)?);
     ctx.add_variable_from_value("entry", to_cel(&entry.cloned().unwrap_or(JsonValue::Null))?);
 
-    // `qualifier["id"]` reads a precomputed map. Only the qualifiers the
-    // expression references are resolved (through the same callback as before,
-    // which owns cycle detection); cel then indexes that map.
+    // `env` holds the values rototo provides to every expression. `env.now` is
+    // the evaluation timestamp captured once per resolution. `env.qualifier["id"]`
+    // reads a precomputed map: only the qualifiers the expression references are
+    // resolved (through the same callback as before, which owns cycle detection);
+    // cel then indexes that map.
     let mut qualifiers = serde_json::Map::new();
     for id in &references.qualifiers {
         qualifiers.insert(id.clone(), JsonValue::Bool(resolve_qualifier(id)?));
     }
-    ctx.add_variable_from_value("qualifier", to_cel(&JsonValue::Object(qualifiers))?);
+    let env = serde_json::json!({
+        "now": now,
+        "qualifier": JsonValue::Object(qualifiers),
+    });
+    ctx.add_variable_from_value("env", to_cel(&env)?);
 
     let value = ctx
         .resolve(cel_ast)
@@ -760,6 +840,9 @@ mod tests {
 
     use super::*;
 
+    /// A fixed `env.now` so tests stay deterministic.
+    const TEST_NOW: &str = "2026-06-29T00:00:00Z";
+
     fn eval_bool(source: &str, context: &JsonValue, entry: Option<&JsonValue>) -> Result<bool> {
         eval_bool_with_qualifiers(source, context, entry, &[])
     }
@@ -778,7 +861,7 @@ mod tests {
                 .map(|(_, value)| *value)
                 .ok_or_else(|| RototoError::new(format!("unknown qualifier: {id}")))
         };
-        expr.evaluate_bool(context, entry, &mut resolve_qualifier)
+        expr.evaluate_bool(context, entry, TEST_NOW, &mut resolve_qualifier)
     }
 
     fn eval_value(
@@ -788,7 +871,7 @@ mod tests {
     ) -> Result<JsonValue> {
         let expr = Expression::parse(source).unwrap();
         let mut resolve_qualifier = |_id: &str| Ok(false);
-        expr.evaluate_value(context, entry, &mut resolve_qualifier)
+        expr.evaluate_value(context, entry, TEST_NOW, &mut resolve_qualifier)
     }
 
     fn string_set(values: &[&str]) -> BTreeSet<String> {
@@ -808,7 +891,10 @@ mod tests {
             Ok(false)
         }
         let mut qualifier = qualifier;
-        assert!(expr.evaluate_bool(&context, None, &mut qualifier).unwrap());
+        assert!(
+            expr.evaluate_bool(&context, None, TEST_NOW, &mut qualifier)
+                .unwrap()
+        );
     }
 
     fn context_types(source: &str) -> BTreeMap<String, BTreeSet<ContextScalarType>> {
@@ -887,12 +973,69 @@ mod tests {
     #[test]
     fn tracks_qualifier_and_entry_references() {
         let expr = Expression::parse(
-            r#"qualifier["enterprise-accounts"] && entry.id == "hero" && context.region == "eu""#,
+            r#"env.qualifier["enterprise-accounts"] && entry.id == "hero" && context.region == "eu""#,
         )
         .unwrap();
         assert!(expr.references().qualifiers.contains("enterprise-accounts"));
         assert!(expr.references().entry_paths.contains("id"));
         assert!(expr.references().context_paths.contains("region"));
+    }
+
+    #[test]
+    fn evaluates_env_members() {
+        let context = serde_json::json!({});
+        // env.now is the RFC3339 timestamp threaded into evaluation; it reads as
+        // a plain string and feeds the time functions.
+        assert!(eval_bool(r#"env.now == "2026-06-29T00:00:00Z""#, &context, None).unwrap());
+        assert!(
+            eval_bool(
+                r#"timeAtOrAfter(env.now, "2020-01-01T00:00:00Z")"#,
+                &context,
+                None,
+            )
+            .unwrap()
+        );
+        // env.qualifier indexes the resolved qualifier map.
+        assert!(
+            eval_bool_with_qualifiers(
+                r#"env.qualifier["beta"]"#,
+                &context,
+                None,
+                &[("beta", true)],
+            )
+            .unwrap()
+        );
+    }
+
+    #[test]
+    fn flags_invalid_expression_roots() {
+        use ExpressionRootIssue::{LegacyQualifier, UnknownEnvMember, UnknownRoot};
+
+        let legacy = Expression::parse(r#"qualifier["x"]"#).unwrap();
+        assert!(legacy.references().invalid_roots.contains(&LegacyQualifier));
+
+        let bad_env = Expression::parse("env.bogus").unwrap();
+        assert!(
+            bad_env
+                .references()
+                .invalid_roots
+                .contains(&UnknownEnvMember("bogus".to_owned()))
+        );
+
+        let unknown = Expression::parse("foo.bar").unwrap();
+        assert!(
+            unknown
+                .references()
+                .invalid_roots
+                .contains(&UnknownRoot("foo".to_owned()))
+        );
+
+        // Valid roots produce no issues.
+        let ok = Expression::parse(
+            r#"env.qualifier["x"] && env.now == "" && context.a == 1 && entry.b == 2"#,
+        )
+        .unwrap();
+        assert!(ok.references().invalid_roots.is_empty());
     }
 
     #[test]
@@ -903,7 +1046,7 @@ mod tests {
         assert!(!eval_bool("(true || false) && false", &context, None).unwrap());
         assert!(eval_bool("!false && (false || true)", &context, None).unwrap());
 
-        let expr = Expression::parse(r#"true || qualifier["must-not-run"]"#).unwrap();
+        let expr = Expression::parse(r#"true || env.qualifier["must-not-run"]"#).unwrap();
         // Qualifiers referenced by an expression are resolved eagerly (the cel
         // engine indexes a precomputed map), so the resolver runs regardless of
         // short-circuiting; it simply returns a value here.
@@ -912,11 +1055,11 @@ mod tests {
             Ok(false)
         };
         assert!(
-            expr.evaluate_bool(&context, None, &mut resolve_qualifier)
+            expr.evaluate_bool(&context, None, TEST_NOW, &mut resolve_qualifier)
                 .unwrap()
         );
 
-        let expr = Expression::parse(r#"false && qualifier["must-not-run"]"#).unwrap();
+        let expr = Expression::parse(r#"false && env.qualifier["must-not-run"]"#).unwrap();
         // Qualifiers referenced by an expression are resolved eagerly (the cel
         // engine indexes a precomputed map), so the resolver runs regardless of
         // short-circuiting; it simply returns a value here.
@@ -926,7 +1069,7 @@ mod tests {
         };
         assert!(
             !expr
-                .evaluate_bool(&context, None, &mut resolve_qualifier)
+                .evaluate_bool(&context, None, TEST_NOW, &mut resolve_qualifier)
                 .unwrap()
         );
     }
@@ -1007,7 +1150,7 @@ mod tests {
         );
         assert!(
             eval_bool_with_qualifiers(
-                r#"qualifier["enterprise-accounts"] && qualifier["mobile-users"]"#,
+                r#"env.qualifier["enterprise-accounts"] && env.qualifier["mobile-users"]"#,
                 &context,
                 None,
                 &[("enterprise-accounts", true), ("mobile-users", true)],
@@ -1141,8 +1284,8 @@ mod tests {
     fn extracts_references_from_nested_paths_functions_and_qualifiers() {
         let expr = Expression::parse(
             r#"
-            qualifier["enterprise-accounts"]
-                && qualifier["mobile-users"]
+            env.qualifier["enterprise-accounts"]
+                && env.qualifier["mobile-users"]
                 && has(context.user.tier)
                 && context.request.country in ["DE", "NL"]
                 && entry.metadata.channel == context.channel

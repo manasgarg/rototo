@@ -1,4 +1,4 @@
-# Inside a variable rule's `when` expression, after `qualifier["`, the useful
+# Inside a variable rule's `when` expression, after `env.qualifier["`, the useful
 # suggestions are qualifier ids from the package. Base package extends, variable
 # values, predicate operators, and custom-lint field names do not belong here.
 # An unsaved manifest overlay is also open to prove completion reads the same
@@ -14,7 +14,7 @@ type = "string"
 default = "hello"
 
 [[resolve.rule]]
-when = 'qualifier["$0"]'
+when = 'env.qualifier["$0"]'
 value = "welcome"
 '''
 
@@ -26,7 +26,7 @@ extends = ["../base"]
 '''
 
 [expect]
-# The cursor sits right after `qualifier["`, so the qualifier id is a pure insert
+# The cursor sits right after `env.qualifier["`, so the qualifier id is a pure insert
 # at the cursor (nothing to replace).
 selecting = "premium"
 replaces = ""

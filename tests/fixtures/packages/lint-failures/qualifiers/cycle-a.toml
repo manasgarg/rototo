@@ -2,4 +2,4 @@ schema_version = 1
 
 description = "Qualifier in a two-node cycle"
 
-when = '(qualifier["cycle-b"])'
+when = '(env.qualifier["cycle-b"])'

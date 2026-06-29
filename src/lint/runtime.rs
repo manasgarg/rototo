@@ -386,7 +386,7 @@ impl<'a> RuntimeCompiler<'a> {
 
         if rule.legacy_qualifier.is_some() {
             return Err(RototoError::new(
-                "rule qualifier is no longer supported; use when = 'qualifier[\"<id>\"]'",
+                "rule qualifier is no longer supported; use when = 'env.qualifier[\"<id>\"]'",
             ));
         }
 

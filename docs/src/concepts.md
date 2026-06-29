@@ -156,7 +156,7 @@ type = "int"
 default = 2000
 
 [[resolve.rule]]
-when = 'qualifier["enterprise-account"]'
+when = 'env.qualifier["enterprise-account"]'
 value = 5000
 ```
 
@@ -186,12 +186,21 @@ syntax is already documented and stable, and the evaluation has no surprises —
 assignment, no I/O.
 
 Rototo evaluates these expressions and adds two things on top of plain CEL. First, three input
-variables are always in scope: `context` (the runtime facts the application passes in), `entry` (the
-catalog entry under consideration in a `query`), and `qualifier` (other qualifiers, read as
-`qualifier["enterprise-account"]`). Second, a set of named functions that configuration conditions
-keep needing — for example `startsWith`, `matches`, `semver`, `cidr`, `bucket`, and the
-`timeBefore`/`timeBetween` family. So a `when` expression is ordinary CEL — `==`, `&&`, `in`,
-`has()`, indexing, comparisons — against those variables, plus those functions.
+variables are always in scope. `context` is the runtime facts the application passes in. `entry` is
+the catalog entry under consideration in a `query`. `env` is everything Rototo itself provides, so
+that what the application supplies (`context`) stays visibly separate from what the control plane
+supplies. Today `env` has two members: `env.qualifier["enterprise-account"]` reads another qualifier,
+and `env.now` is the evaluation timestamp, an RFC3339 string Rototo captures once per resolution.
+Second, a set of named functions that configuration conditions keep needing — for example
+`startsWith`, `matches`, `semver`, `cidr`, `bucket`, and the `timeBefore`/`timeBetween` family. So a
+`when` expression is ordinary CEL — `==`, `&&`, `in`, `has()`, indexing, comparisons — against those
+variables, plus those functions.
+
+`env.now` reads the wall clock, so a condition gated on it resolves differently as time passes. That
+is the right behavior for a launch window that should open on its own, but it means the same package
+version is no longer a pure function of the context you pass. When you need a resolution you can
+reproduce — in a test, a `diff`, or an audit — pass the evaluation time in `context` and compare
+against that path instead, so the timestamp is an input you control rather than the ambient clock.
 
 Rototo deliberately keeps to a subset. The schema-aware lint checks how each `context` path is used
 and confirms an evaluation context declares it with a matching type, so a condition that compares a
@@ -262,7 +271,7 @@ type = "catalog:llm-parameters"
 default = "standard"
 
 [[resolve.rule]]
-when = 'qualifier["enterprise-account"]'
+when = 'env.qualifier["enterprise-account"]'
 value = "enterprise"
 ```
 

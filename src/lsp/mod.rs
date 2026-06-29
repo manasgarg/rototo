@@ -249,7 +249,7 @@ type = "string"
 default = "hello"
 
 [[resolve.rule]]
-when = 'qualifier["premium"]'
+when = 'env.qualifier["premium"]'
 value = "welcome"
 "#,
                 }
@@ -297,7 +297,7 @@ value = "welcome"
             resolve
                 .children
                 .iter()
-                .any(|child| child.name == "rule 1: qualifier[\"premium\"] -> \"welcome\"")
+                .any(|child| child.name == "rule 1: env.qualifier[\"premium\"] -> \"welcome\"")
         );
         assert_eq!(
             tokio::fs::read_to_string(&variable_path).await.unwrap(),
@@ -430,7 +430,7 @@ type = "string"
 default = "hello"
 
 [[resolve.rule]]
-when = 'qualifier["premium"]'
+when = 'env.qualifier["premium"]'
 value = "welcome"
 "#,
                 }
@@ -553,7 +553,7 @@ type = "list<catalog:message>"
 default = []
 
 [[resolve.rule]]
-query = 'qualifier["premium"]'
+query = 'env.qualifier["premium"]'
 "#,
                 }
             }))
@@ -573,7 +573,7 @@ query = 'qualifier["premium"]'
             resolve
                 .children
                 .iter()
-                .any(|child| child.name == "rule 1: qualifier[\"premium\"]")
+                .any(|child| child.name == "rule 1: env.qualifier[\"premium\"]")
         );
 
         let completions = server
@@ -583,7 +583,7 @@ query = 'qualifier["premium"]'
                 },
                 "position": {
                     "line": 7,
-                    "character": 21
+                    "character": 25
                 }
             }))
             .await
@@ -591,14 +591,14 @@ query = 'qualifier["premium"]'
         assert_completion(&completions, "premium", "qualifier");
 
         assert_hover_contains(
-            &hover_contents(&server, &variable_path, 7, 21).await,
-            "Condition `qualifier[\"premium\"]`.",
+            &hover_contents(&server, &variable_path, 7, 25).await,
+            "Condition `env.qualifier[\"premium\"]`.",
         );
 
-        let definition = definition_location(&server, &variable_path, 7, 21).await;
+        let definition = definition_location(&server, &variable_path, 7, 25).await;
         assert!(definition.uri.ends_with("/qualifiers/premium.toml"));
 
-        let references = reference_locations(&server, &variable_path, 7, 21, true).await;
+        let references = reference_locations(&server, &variable_path, 7, 25, true).await;
         assert_eq!(references.len(), 2);
         assert!(
             references
@@ -656,7 +656,7 @@ when = "context.account.beta == true"
         tokio::fs::write(
             &premium_qualifier_path,
             r#"schema_version = 1
-when = "qualifier[\"beta\"]"
+when = "env.qualifier[\"beta\"]"
 "#,
         )
         .await
@@ -699,7 +699,7 @@ type = "catalog:message"
 default = "welcome"
 
 [[resolve.rule]]
-when = 'qualifier["premium"]'
+when = 'env.qualifier["premium"]'
 value = "welcome"
 "#,
                 }
@@ -779,7 +779,7 @@ when = "context.account.beta == true"
         tokio::fs::write(
             &premium_qualifier_path,
             r#"schema_version = 1
-when = "qualifier[\"beta\"]"
+when = "env.qualifier[\"beta\"]"
 "#,
         )
         .await
@@ -828,7 +828,7 @@ type = "catalog:message"
 default = "welcome"
 
 [[resolve.rule]]
-when = 'qualifier["premium"]'
+when = 'env.qualifier["premium"]'
 value = "welcome"
 "#,
                 }

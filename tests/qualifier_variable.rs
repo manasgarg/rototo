@@ -374,7 +374,7 @@ fn resolves_variable_with_trace_output() {
     assert!(stdout.contains("variable: checkout-redesign"));
     assert!(stdout.contains("qualifier: premium-users"));
     assert!(stdout.contains(r#"when: (context.user.tier == "premium")"#));
-    assert!(stdout.contains(r#"rule[0] if qualifier["premium-users"] ->"#));
+    assert!(stdout.contains(r#"rule[0] if env.qualifier["premium-users"] ->"#));
     assert!(stdout.contains(r#""variant":"premium""#));
     assert!(stdout.contains("default ->"));
     assert!(stdout.contains("source: checkout-redesign:premium"));

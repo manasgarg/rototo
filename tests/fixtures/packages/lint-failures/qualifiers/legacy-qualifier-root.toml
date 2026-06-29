@@ -1,0 +1,4 @@
+schema_version = 1
+# Legacy bare `qualifier[...]` root: qualifiers now live under `env`, so this is
+# an identifier rototo does not provide. Expect rototo/qualifier-when-invalid-reference.
+when = 'qualifier["enterprise"]'

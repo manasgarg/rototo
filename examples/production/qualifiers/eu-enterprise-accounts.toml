@@ -2,4 +2,4 @@ schema_version = 1
 
 description = "Enterprise accounts operating in the European region"
 
-when = '(qualifier["enterprise-accounts"]) && (context.request.region == "eu")'
+when = '(env.qualifier["enterprise-accounts"]) && (context.request.region == "eu")'

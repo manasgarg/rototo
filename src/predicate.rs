@@ -121,6 +121,57 @@ fn days_from_civil(year: i32, month: u32, day: u32) -> i64 {
     era * 146_097 + day_of_era - 719_468
 }
 
+/// Inverse of [`days_from_civil`] (Howard Hinnant's civil-from-days). Returns the
+/// proleptic Gregorian `(year, month, day)` for a count of days since
+/// 1970-01-01.
+fn civil_from_days(days: i64) -> (i32, u32, u32) {
+    let z = days + 719_468;
+    let era = if z >= 0 { z } else { z - 146_096 } / 146_097;
+    let day_of_era = z - era * 146_097;
+    let year_of_era =
+        (day_of_era - day_of_era / 1460 + day_of_era / 36524 - day_of_era / 146_096) / 365;
+    let year = year_of_era + era * 400;
+    let day_of_year = day_of_era - (365 * year_of_era + year_of_era / 4 - year_of_era / 100);
+    let month_prime = (5 * day_of_year + 2) / 153;
+    let day = (day_of_year - (153 * month_prime + 2) / 5 + 1) as u32;
+    let month = if month_prime < 10 {
+        month_prime + 3
+    } else {
+        month_prime - 9
+    } as u32;
+    let year = if month <= 2 { year + 1 } else { year };
+    (year as i32, month, day)
+}
+
+/// The current time as an RFC3339 UTC string (`...Z`), the form rototo injects as
+/// `env.now` and the time functions parse. Captured once per resolution so every
+/// `env.now` reference in one resolution sees the same instant.
+pub(crate) fn now_rfc3339() -> String {
+    let since_epoch = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default();
+    format_rfc3339_utc(since_epoch.as_secs() as i64, since_epoch.subsec_nanos())
+}
+
+/// Format `seconds` since the Unix epoch (plus `nanos`) as an RFC3339 UTC string.
+/// Fractional seconds are emitted only when non-zero, with trailing zeros trimmed.
+fn format_rfc3339_utc(seconds: i64, nanos: u32) -> String {
+    let days = seconds.div_euclid(86_400);
+    let second_of_day = seconds.rem_euclid(86_400);
+    let (year, month, day) = civil_from_days(days);
+    let hour = second_of_day / 3_600;
+    let minute = (second_of_day % 3_600) / 60;
+    let second = second_of_day % 60;
+    let mut stamp = format!("{year:04}-{month:02}-{day:02}T{hour:02}:{minute:02}:{second:02}");
+    if nanos != 0 {
+        let fraction = format!("{nanos:09}");
+        stamp.push('.');
+        stamp.push_str(fraction.trim_end_matches('0'));
+    }
+    stamp.push('Z');
+    stamp
+}
+
 #[derive(Clone, Debug)]
 pub(crate) enum CidrBlock {
     V4 { network: u32, prefix: u8 },
@@ -188,5 +239,41 @@ fn prefix_mask_v6(prefix: u8) -> u128 {
         0
     } else {
         u128::MAX << (128 - prefix)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn formats_rfc3339_utc() {
+        assert_eq!(format_rfc3339_utc(0, 0), "1970-01-01T00:00:00Z");
+        // 2026-06-29T12:34:56Z.
+        assert_eq!(format_rfc3339_utc(1_782_736_496, 0), "2026-06-29T12:34:56Z");
+        // Fractional seconds keep only the significant digits.
+        assert_eq!(
+            format_rfc3339_utc(1_782_736_496, 500_000_000),
+            "2026-06-29T12:34:56.5Z"
+        );
+    }
+
+    #[test]
+    fn format_round_trips_through_parser() {
+        for seconds in [0_i64, 1_000_000, 1_782_736_496, 4_102_444_800] {
+            let stamp = format_rfc3339_utc(seconds, 0);
+            let parsed = parse_rfc3339_timestamp(&stamp).expect("formatted stamp parses");
+            assert_eq!(parsed.seconds, i128::from(seconds), "round-trip {stamp}");
+            assert_eq!(parsed.nanos, 0);
+        }
+    }
+
+    #[test]
+    fn now_rfc3339_is_parseable() {
+        let now = now_rfc3339();
+        assert!(
+            parse_rfc3339_timestamp(&now).is_some(),
+            "now_rfc3339 produced an unparseable stamp: {now}"
+        );
     }
 }

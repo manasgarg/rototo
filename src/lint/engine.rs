@@ -209,7 +209,7 @@ type = "catalog:message"
 default = "default"
 
 [[resolve.rule]]
-when = 'qualifier["premium"]'
+when = 'env.qualifier["premium"]'
 value = "premium"
 "#,
             ),
@@ -314,7 +314,7 @@ end
         assert_eq!(reference.primary.range.unwrap().start.line, 8);
         assert_eq!(reference.primary.range.unwrap().start.character, 7);
         assert_eq!(reference.primary.range.unwrap().end.line, 8);
-        assert_eq!(reference.primary.range.unwrap().end.character, 35);
+        assert_eq!(reference.primary.range.unwrap().end.character, 39);
     }
 
     #[tokio::test]
@@ -414,7 +414,7 @@ when = "context.account.beta == true"
         tokio::fs::write(
             root.join("qualifiers/premium.toml"),
             r#"schema_version = 1
-when = "qualifier[\"beta\"] && context.account.region == \"eu\""
+when = "env.qualifier[\"beta\"] && context.account.region == \"eu\""
 "#,
         )
         .await
@@ -428,11 +428,11 @@ type = "catalog:message"
 default = "missing"
 
 [[resolve.rule]]
-when = 'qualifier["premium"]'
+when = 'env.qualifier["premium"]'
 value = "welcome"
 
 [[resolve.rule]]
-when = 'qualifier["missing"]'
+when = 'env.qualifier["missing"]'
 value = "absent"
 "#,
         )

@@ -2,4 +2,4 @@ schema_version = 1
 
 description = "Premium users in the European operating region"
 
-when = '(qualifier["premium-users"]) && (qualifier["eu-users"])'
+when = '(env.qualifier["premium-users"]) && (env.qualifier["eu-users"])'

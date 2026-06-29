@@ -217,7 +217,7 @@ type = "bool"
 default = false
 
 [[resolve.rule]]
-when = 'qualifier["premium-users"]'
+when = 'env.qualifier["premium-users"]'
 value = true
 "#;
 
@@ -231,7 +231,7 @@ value = true
         assert!(
             update
                 .text
-                .contains("when = 'qualifier[\"premium-users\"]'")
+                .contains("when = 'env.qualifier[\"premium-users\"]'")
         );
         // Only the default line changed.
         let changed: Vec<(&str, &str)> = VARIABLE

@@ -204,6 +204,12 @@ rototo_rules! {
         title: "Qualifier when expression references an undeclared context path",
         help: "Declare the attribute in an evaluation context schema under evaluation-contexts/<id>.schema.json, or fix the path in the when expression.",
     },
+    QualifierWhenInvalidReference => {
+        id: "qualifier-when-invalid-reference",
+        entity: Qualifier,
+        title: "Qualifier when expression references an identifier rototo does not provide",
+        help: "Expressions read context.<path>, env.qualifier[\"<id>\"], and env.now. Reference qualifiers as env.qualifier[\"<id>\"].",
+    },
     QualifierWhenContextPathTypeMismatch => {
         id: "qualifier-when-context-path-type-mismatch",
         entity: Qualifier,
@@ -404,6 +410,12 @@ rototo_rules! {
         entity: Rule,
         title: "Variable rule references an undeclared context path",
         help: "Declare the attribute in an evaluation context schema under evaluation-contexts/<id>.schema.json, or fix the path in the rule when/query expression.",
+    },
+    VariableRuleInvalidReference => {
+        id: "variable-rule-invalid-reference",
+        entity: Rule,
+        title: "Variable rule references an identifier rototo does not provide",
+        help: "Expressions read context.<path>, entry.<path> (in queries), env.qualifier[\"<id>\"], and env.now. Reference qualifiers as env.qualifier[\"<id>\"].",
     },
     VariableRuleContextPathTypeMismatch => {
         id: "variable-rule-context-path-type-mismatch",
