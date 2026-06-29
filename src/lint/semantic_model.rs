@@ -69,22 +69,6 @@ pub struct QualifierModel {
     pub description: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub when: Option<ModelField>,
-    pub predicates: Vec<PredicateModel>,
-}
-
-#[derive(Debug, Clone, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct PredicateModel {
-    pub index: usize,
-    pub location: ModelLocation,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub attribute: Option<ModelField>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub op: Option<ModelField>,
-    #[serde(skip_serializing_if = "is_false")]
-    pub not: bool,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub value: Option<JsonValue>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -289,7 +273,6 @@ impl PackageLintSnapshot {
                     },
                     location: model_location(&node.when.location()),
                 }),
-                predicates: Vec::new(),
             })
             .collect();
 
@@ -544,10 +527,6 @@ fn present_string(field: &Option<ProjectField<String>>) -> Option<String> {
         Some(ProjectField::Present(value)) => Some(value.value.clone()),
         _ => None,
     }
-}
-
-fn is_false(value: &bool) -> bool {
-    !*value
 }
 
 fn reference_via(source: &ReferenceSource) -> ModelReferenceVia {

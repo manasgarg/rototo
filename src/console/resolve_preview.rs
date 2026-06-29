@@ -1,5 +1,4 @@
 use std::collections::BTreeMap;
-use std::pin::Pin;
 
 use serde::Serialize;
 use serde_json::Value as JsonValue;
@@ -78,24 +77,6 @@ pub struct QualifierEvaluation {
     pub id: String,
     pub matched: Option<bool>,
     pub when: Option<String>,
-    pub predicates: Vec<PredicateEvaluation>,
-}
-
-/// Predicate-level detail for one qualifier preview.
-///
-/// The value records what the predicate declared, what context value it read,
-/// and any nested qualifier evaluation. It is reconstructed each time a preview
-/// response is built.
-#[derive(Clone, Debug, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct PredicateEvaluation {
-    pub index: usize,
-    pub attribute: Option<String>,
-    pub op: Option<String>,
-    pub not: bool,
-    pub value_literal: Option<String>,
-    pub context_value: Option<String>,
-    pub nested: Option<Box<QualifierEvaluation>>,
 }
 
 /// Compact truth table for all qualifiers against one saved context.
@@ -110,85 +91,36 @@ pub struct EditContextPreview {
     pub qualifier_truth: BTreeMap<String, bool>,
 }
 
+/// Evaluate one qualifier against a context, recording its verdict and the
+/// `when` condition that produced it. The verdict comes from the real runtime,
+/// the same evaluation path applications resolve through.
 pub async fn evaluate_qualifier_with_context(
     runtime: &Package,
     model: &PackageSemanticModel,
     qualifier_id: &str,
     context: &JsonValue,
 ) -> QualifierEvaluation {
-    let mut seen = vec![qualifier_id.to_owned()];
-    evaluate_recursive(runtime, model, qualifier_id, context, &mut seen).await
-}
-
-fn evaluate_recursive<'a>(
-    runtime: &'a Package,
-    model: &'a PackageSemanticModel,
-    qualifier_id: &'a str,
-    context: &'a JsonValue,
-    seen: &'a mut Vec<String>,
-) -> Pin<Box<dyn Future<Output = QualifierEvaluation> + Send + 'a>> {
-    Box::pin(async move {
-        let matched = match EvaluationContext::from_json(context.clone()) {
-            Ok(evaluation_context) => runtime
-                .resolve_qualifier(qualifier_id, &evaluation_context)
-                .ok(),
-            Err(_) => None,
-        };
-        let qualifier = model
-            .qualifiers
-            .iter()
-            .find(|candidate| candidate.id == qualifier_id);
-        let when = qualifier.and_then(|q| q.when.as_ref().and_then(|field| field.value.clone()));
-        let mut predicates = Vec::new();
-        for predicate in qualifier
-            .map(|q| q.predicates.as_slice())
-            .unwrap_or_default()
-        {
-            let attribute = predicate
-                .attribute
+    let matched = match EvaluationContext::from_json(context.clone()) {
+        Ok(evaluation_context) => runtime
+            .resolve_qualifier(qualifier_id, &evaluation_context)
+            .ok(),
+        Err(_) => None,
+    };
+    let when = model
+        .qualifiers
+        .iter()
+        .find(|candidate| candidate.id == qualifier_id)
+        .and_then(|qualifier| {
+            qualifier
+                .when
                 .as_ref()
-                .and_then(|field| field.value.clone());
-            let mut nested = None;
-            let mut context_value = None;
-            if let Some(attribute) = attribute.as_deref() {
-                if let Some(nested_id) = attribute.strip_prefix("qualifier.") {
-                    if !seen.iter().any(|id| id == nested_id) {
-                        seen.push(nested_id.to_owned());
-                        nested = Some(Box::new(
-                            evaluate_recursive(runtime, model, nested_id, context, seen).await,
-                        ));
-                    }
-                } else {
-                    context_value =
-                        context_path_value(context, attribute).map(|value| value.to_string());
-                }
-            }
-            predicates.push(PredicateEvaluation {
-                index: predicate.index,
-                attribute,
-                op: predicate.op.as_ref().and_then(|field| field.value.clone()),
-                not: predicate.not,
-                value_literal: predicate.value.as_ref().map(|value| value.to_string()),
-                context_value,
-                nested,
-            });
-        }
-        QualifierEvaluation {
-            id: qualifier_id.to_owned(),
-            matched,
-            when,
-            predicates,
-        }
-    })
-}
-
-/// Display-only lookup of the context value a predicate reads.
-fn context_path_value<'a>(context: &'a JsonValue, path: &str) -> Option<&'a JsonValue> {
-    let mut current = context;
-    for segment in path.split('.') {
-        current = current.as_object()?.get(segment)?;
+                .and_then(|field| field.value.clone())
+        });
+    QualifierEvaluation {
+        id: qualifier_id.to_owned(),
+        matched,
+        when,
     }
-    Some(current)
 }
 
 /// Source text for one saved evaluation context sample.

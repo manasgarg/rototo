@@ -38,7 +38,7 @@ pub(crate) use runtime::{
 pub use semantic_model::{
     CatalogEntryModel, CatalogModel, DeclarationModel, EvaluationContextModel,
     EvaluationContextSampleModel, LinterModel, LinterRuleModel, ModelEntityRef, ModelField,
-    ModelLocation, ModelReferenceVia, ModelValueField, PackageSemanticModel, PredicateModel,
+    ModelLocation, ModelReferenceVia, ModelValueField, PackageSemanticModel,
     QualifierEvaluationContextModel, QualifierModel, ReferenceModel, ResolveModel, RuleModel,
     ValueModel, VariableEvaluationContextModel, VariableModel,
 };

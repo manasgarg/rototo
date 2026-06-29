@@ -52,7 +52,7 @@ pub struct VariableInventoryItem {
 /// Qualifier row in the console inventory.
 ///
 /// It exists so screens can show named runtime conditions and their references
-/// while leaving predicate semantics to the Rust model. The item is regenerated
+/// while leaving condition semantics to the Rust model. The item is regenerated
 /// for each staged checkout.
 #[derive(Clone, Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -60,7 +60,6 @@ pub struct QualifierInventoryItem {
     pub id: String,
     pub path: String,
     pub description: Option<String>,
-    pub predicate_count: usize,
     pub qualifier_references: Vec<String>,
 }
 
@@ -257,7 +256,6 @@ fn inventory_from_model(
             id: qualifier.id.clone(),
             path: repo_path(&qualifier.location.path),
             description: qualifier.description.clone(),
-            predicate_count: qualifier.predicates.len(),
             qualifier_references: distinct_sorted(
                 qualifier_edges
                     .get(qualifier.id.as_str())

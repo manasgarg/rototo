@@ -211,23 +211,12 @@ export type ModelValueField = {
     location: ModelLocation;
 };
 
-/** Legacy qualifier predicate shape retained only for older payloads. */
-export type PredicateModel = {
-    index: number;
-    location: ModelLocation;
-    attribute?: ModelField;
-    op?: ModelField;
-    not?: boolean;
-    value?: unknown;
-};
-
 /** Qualifier declaration from the semantic model. */
 export type QualifierModel = {
     id: string;
     location: ModelLocation;
     description?: string;
     when?: ModelField;
-    predicates: PredicateModel[];
 };
 
 /** Variable declaration kind and optional referenced schema/catalog/type. */
@@ -390,7 +379,6 @@ export type QualifierInventoryItem = {
     id: string;
     path: string;
     description: string | null;
-    predicateCount: number;
     qualifierReferences: string[];
 };
 
@@ -466,15 +454,6 @@ export type QualifierEvaluation = {
     id: string;
     matched: boolean | null;
     when: string | null;
-    predicates: Array<{
-        index: number;
-        attribute: string | null;
-        op: string | null;
-        not: boolean;
-        valueLiteral: string | null;
-        contextValue: string | null;
-        nested: QualifierEvaluation | null;
-    }>;
 };
 
 /** Variable preview result for one saved evaluation context. */
