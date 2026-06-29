@@ -32,6 +32,7 @@ pub(crate) fn compile_catalog_validators(index: &mut SemanticIndex) {
         };
         let base_uri = catalog_schema_uri(&catalog.id);
         match jsonschema::options()
+            .should_validate_formats(true)
             .with_base_uri(base_uri)
             .with_resources(resources.clone().into_iter())
             .build(json)

@@ -1119,6 +1119,21 @@ fn reports_custom_warning_lint_without_failing() {
     assert!(diagnostic["location"]["range"].is_object());
 }
 
+#[test]
+fn enforces_json_schema_formats_on_catalog_entries() {
+    // A catalog entry whose date-time field holds a non-timestamp is rejected,
+    // proving JSON Schema `format` is asserted (not just annotated).
+    let lint = lint_json("tests/fixtures/packages/format-enforcement", false);
+    let diagnostics = lint["diagnostics"].as_array().unwrap();
+    assert!(
+        diagnostics.iter().any(|diagnostic| diagnostic["message"]
+            .as_str()
+            .unwrap_or_default()
+            .contains("date-time")),
+        "expected a date-time format violation\n{lint:#}"
+    );
+}
+
 fn lint_json(package: &str, success: bool) -> serde_json::Value {
     let output = Command::cargo_bin("rototo")
         .unwrap()

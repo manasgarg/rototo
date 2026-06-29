@@ -11,7 +11,10 @@ pub(crate) fn project_evaluation_context(
 ) -> EvaluationContextNode {
     let json = syntax.json.get(&document.id).cloned();
     let (validator, invalid_message) = match &json {
-        Some(json) => match jsonschema::validator_for(json) {
+        Some(json) => match jsonschema::options()
+            .should_validate_formats(true)
+            .build(json)
+        {
             Ok(validator) => (Some(Arc::new(validator)), None),
             Err(err) => (None, Some(err.to_string())),
         },
