@@ -1,1 +1,12 @@
 schema_version = 1
+
+# Trace policy with no `when` -> rototo/trace-when-missing.
+[[trace]]
+
+# Non-string `when` -> rototo/trace-when-shape.
+[[trace]]
+when = 5
+
+# `when` referencing an unknown root -> rototo/trace-when-invalid-reference.
+[[trace]]
+when = "mystery.value == 1"

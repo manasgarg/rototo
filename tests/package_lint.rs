@@ -2018,6 +2018,15 @@ fn canonical_rule_fixtures() -> &'static [CanonicalRuleFixture] {
 fn pending_canonical_rule_fixtures() -> &'static [PendingCanonicalRuleFixture] {
     &[
         PendingCanonicalRuleFixture {
+            rule: RototoRuleId::TraceWhenMissing,
+        },
+        PendingCanonicalRuleFixture {
+            rule: RototoRuleId::TraceWhenShape,
+        },
+        PendingCanonicalRuleFixture {
+            rule: RototoRuleId::TraceWhenInvalidReference,
+        },
+        PendingCanonicalRuleFixture {
             rule: RototoRuleId::QualifierWhenInvalidReference,
         },
         PendingCanonicalRuleFixture {
@@ -2332,6 +2341,9 @@ fn lint_failures_expected_rule_ids() -> &'static [&'static str] {
         "rototo/schema-ui-unknown-widget",
         "rototo/schema-ui-widget-params",
         "rototo/schema-ui-widget-type-mismatch",
+        "rototo/trace-when-invalid-reference",
+        "rototo/trace-when-missing",
+        "rototo/trace-when-shape",
         "rototo/variable-rule-context-path-type-mismatch",
         "rototo/variable-rule-invalid-reference",
         "rototo/variable-rule-shadowed",

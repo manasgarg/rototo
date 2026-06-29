@@ -4,6 +4,7 @@ use std::path::Path;
 use serde_json::Value as JsonValue;
 
 use crate::error::{Result, RototoError};
+use crate::expression::ResolvingTarget;
 use crate::lint::{
     RuntimeCatalogQuery, RuntimePackage, RuntimeRule, RuntimeRuleSelection, RuntimeSelectedValue,
     compile_runtime_package,
@@ -48,6 +49,85 @@ pub(crate) fn trace_qualifier_unchecked(
     state
         .take_qualifier_trace(id)
         .ok_or_else(|| RototoError::new(format!("qualifier trace not found: qualifier://{id}")))
+}
+
+/// A captured variable resolution trace plus the `[[trace]]` policy indices that
+/// selected it. Returned by [`resolve_variable_traced_unchecked`] for the SDK to
+/// wrap into a trace event.
+pub(crate) struct VariableTraceCapture {
+    pub(crate) trace: VariableResolutionTrace,
+    pub(crate) policies: Vec<usize>,
+}
+
+/// A captured qualifier resolution trace plus the matching `[[trace]]` policy
+/// indices.
+pub(crate) struct QualifierTraceCapture {
+    pub(crate) trace: QualifierResolutionTrace,
+    pub(crate) policies: Vec<usize>,
+}
+
+/// Resolve a variable and, if tracing is warranted, capture its full trace. The
+/// trace is computed regardless (the lean path discards it); this variant keeps
+/// it and evaluates `[[trace]]` policies against the same qualifier state.
+/// Returns `Some` capture when the app requested a trace or any policy matched.
+pub(crate) fn resolve_variable_traced_unchecked(
+    runtime: &RuntimePackage,
+    id: &str,
+    context: &JsonValue,
+    app_requested: bool,
+) -> Result<(VariableResolution, Option<VariableTraceCapture>)> {
+    let mut state = QualifierState::new(runtime, context);
+    let trace = resolve_variable_trace_with_state(runtime, &mut state, id)?;
+    let resolution = trace.resolution.clone();
+    let policies = evaluate_trace_policies(&mut state, ResolvingTarget::Variable(id))?;
+    let capture =
+        (app_requested || !policies.is_empty()).then_some(VariableTraceCapture { trace, policies });
+    Ok((resolution, capture))
+}
+
+/// Qualifier counterpart to [`resolve_variable_traced_unchecked`].
+pub(crate) fn resolve_qualifier_traced_unchecked(
+    runtime: &RuntimePackage,
+    id: &str,
+    context: &JsonValue,
+    app_requested: bool,
+) -> Result<(bool, Option<QualifierTraceCapture>)> {
+    let mut state = QualifierState::new(runtime, context);
+    let value = state.resolve(id)?;
+    let trace = state
+        .take_qualifier_trace(id)
+        .ok_or_else(|| RototoError::new(format!("qualifier trace not found: qualifier://{id}")))?;
+    let policies = evaluate_trace_policies(&mut state, ResolvingTarget::Qualifier(id))?;
+    let capture = (app_requested || !policies.is_empty())
+        .then_some(QualifierTraceCapture { trace, policies });
+    Ok((value, capture))
+}
+
+/// Evaluate every `[[trace]]` policy `when` against the in-flight resolution,
+/// binding `env.resolving` to `target`, and return the indices that matched.
+/// Reuses the resolution's `QualifierState` so `env.qualifier[...]` references
+/// hit the same cache.
+fn evaluate_trace_policies(
+    state: &mut QualifierState<'_>,
+    target: ResolvingTarget<'_>,
+) -> Result<Vec<usize>> {
+    if state.runtime.trace_policies.is_empty() {
+        return Ok(Vec::new());
+    }
+    let context = state.context;
+    let now = state.now.clone();
+    let mut matched = Vec::new();
+    for (index, policy) in state.runtime.trace_policies.iter().enumerate() {
+        // Resolve qualifier references through the shared state cache. The policy
+        // list is borrowed from `state.runtime`, which outlives `state`, so the
+        // closure can still borrow `state` mutably for qualifier resolution.
+        let when = &policy.when;
+        let mut resolve_qualifier = |id: &str| state.resolve(id);
+        if when.evaluate_bool_traced(context, &now, target, &mut resolve_qualifier)? {
+            matched.push(index);
+        }
+    }
+    Ok(matched)
 }
 
 pub async fn resolve_qualifiers(

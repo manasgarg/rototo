@@ -36,6 +36,11 @@ pub(crate) struct ExpressionReferences {
     /// turns these into diagnostics; evaluation would otherwise fail with cel's
     /// raw "undefined variable" error.
     pub(crate) invalid_roots: BTreeSet<ExpressionRootIssue>,
+    /// Whether the expression references `env.resolving.*`, the entity being
+    /// resolved. This is only available inside `[[trace]]` policies; lint rejects
+    /// it elsewhere to keep qualifier/rule/query evaluation independent of the
+    /// caller.
+    pub(crate) uses_resolving: bool,
 }
 
 /// A reference to a root identifier that is not part of rototo's evaluation
@@ -230,8 +235,56 @@ impl Expression {
             context,
             entry,
             now,
+            None,
             resolve_qualifier,
         )
+    }
+
+    /// Evaluate a `[[trace]]` policy `when` to a bool, binding the entity being
+    /// resolved as `env.resolving.*`. Only trace policies may reference
+    /// `env.resolving`; other call sites use [`Expression::evaluate_bool`].
+    pub(crate) fn evaluate_bool_traced(
+        &self,
+        context: &JsonValue,
+        now: &str,
+        resolving: ResolvingTarget<'_>,
+        resolve_qualifier: &mut dyn FnMut(&str) -> Result<bool>,
+    ) -> Result<bool> {
+        let value = cel_evaluate(
+            &self.cel_ast,
+            &self.references,
+            context,
+            None,
+            now,
+            Some(resolving),
+            resolve_qualifier,
+        )?;
+        value.as_bool().ok_or_else(|| {
+            RototoError::new(format!(
+                "trace policy did not evaluate to bool: {}",
+                self.source
+            ))
+        })
+    }
+}
+
+/// The entity being resolved, exposed to a `[[trace]]` policy `when` as
+/// `env.resolving.variable` / `env.resolving.qualifier`. Both keys are always
+/// present in the binding (null for the inapplicable kind) so a comparison
+/// against the other kind is `false` rather than a missing-key error.
+#[derive(Clone, Copy, Debug)]
+pub(crate) enum ResolvingTarget<'a> {
+    Variable(&'a str),
+    Qualifier(&'a str),
+}
+
+impl ResolvingTarget<'_> {
+    fn to_env_value(self) -> JsonValue {
+        let (variable, qualifier) = match self {
+            ResolvingTarget::Variable(id) => (JsonValue::String(id.to_owned()), JsonValue::Null),
+            ResolvingTarget::Qualifier(id) => (JsonValue::Null, JsonValue::String(id.to_owned())),
+        };
+        serde_json::json!({ "variable": variable, "qualifier": qualifier })
     }
 }
 
@@ -267,6 +320,10 @@ fn collect_cel(expr: &IdedExpr, references: &mut ExpressionReferences) {
             return;
         }
         Some(Reference::EnvNow) => {
+            return;
+        }
+        Some(Reference::ResolvingVariable | Reference::ResolvingQualifier) => {
+            references.uses_resolving = true;
             return;
         }
         None => {
@@ -325,6 +382,8 @@ enum Reference {
     Entry(String),
     Qualifier(String),
     EnvNow,
+    ResolvingVariable,
+    ResolvingQualifier,
 }
 
 fn cel_reference(expr: &IdedExpr) -> Option<Reference> {
@@ -338,6 +397,12 @@ fn cel_reference(expr: &IdedExpr) -> Option<Reference> {
         "env" => match segments.as_slice() {
             [member] if member == "now" => Some(Reference::EnvNow),
             [first, id] if first == "qualifier" => Some(Reference::Qualifier(id.clone())),
+            [first, second] if first == "resolving" && second == "variable" => {
+                Some(Reference::ResolvingVariable)
+            }
+            [first, second] if first == "resolving" && second == "qualifier" => {
+                Some(Reference::ResolvingQualifier)
+            }
             _ => None,
         },
         _ => None,
@@ -357,6 +422,11 @@ fn cel_root_issue(expr: &IdedExpr) -> Option<ExpressionRootIssue> {
         "env" => match segments.as_slice() {
             [member] if member == "now" => None,
             [first, _] if first == "qualifier" => None,
+            [first, second]
+                if first == "resolving" && (second == "variable" || second == "qualifier") =>
+            {
+                None
+            }
             _ => Some(ExpressionRootIssue::UnknownEnvMember(segments.join("."))),
         },
         "qualifier" => Some(ExpressionRootIssue::LegacyQualifier),
@@ -567,6 +637,7 @@ fn cel_evaluate(
     context: &JsonValue,
     entry: Option<&JsonValue>,
     now: &str,
+    resolving: Option<ResolvingTarget<'_>>,
     resolve_qualifier: &mut dyn FnMut(&str) -> Result<bool>,
 ) -> Result<JsonValue> {
     let mut ctx = CelContext::default();
@@ -578,15 +649,19 @@ fn cel_evaluate(
     // the evaluation timestamp captured once per resolution. `env.qualifier["id"]`
     // reads a precomputed map: only the qualifiers the expression references are
     // resolved (through the same callback as before, which owns cycle detection);
-    // cel then indexes that map.
+    // cel then indexes that map. `env.resolving` is present only for trace
+    // policies; it names the entity being resolved.
     let mut qualifiers = serde_json::Map::new();
     for id in &references.qualifiers {
         qualifiers.insert(id.clone(), JsonValue::Bool(resolve_qualifier(id)?));
     }
-    let env = serde_json::json!({
+    let mut env = serde_json::json!({
         "now": now,
         "qualifier": JsonValue::Object(qualifiers),
     });
+    if let Some(target) = resolving {
+        env["resolving"] = target.to_env_value();
+    }
     ctx.add_variable_from_value("env", to_cel(&env)?);
 
     let value = ctx

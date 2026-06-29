@@ -119,6 +119,24 @@ rototo_rules! {
         title: "Package manifest does not match schema",
         help: "Declare schema_version = 1 and optional extends in rototo-package.toml.",
     },
+    TraceWhenMissing => {
+        id: "trace-when-missing",
+        entity: Package,
+        title: "Trace policy is missing when",
+        help: "Each [[trace]] policy must declare when = \"<expression>\".",
+    },
+    TraceWhenShape => {
+        id: "trace-when-shape",
+        entity: Package,
+        title: "Trace policy when expression is invalid",
+        help: "A [[trace]] when must be a string holding a valid boolean expression.",
+    },
+    TraceWhenInvalidReference => {
+        id: "trace-when-invalid-reference",
+        entity: Package,
+        title: "Trace policy when references an unknown identifier",
+        help: "Trace when reads context.<path>, env.qualifier[\"<id>\"], env.now, and env.resolving.variable / env.resolving.qualifier.",
+    },
     PackageContextSchemaRef => {
         id: "package-context-schema-ref",
         entity: Package,

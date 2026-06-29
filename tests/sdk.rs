@@ -3,15 +3,13 @@ use predicates::prelude::*;
 use std::process::Stdio;
 use std::time::{Duration, Instant};
 
-use std::sync::{Arc, Mutex};
-
 use rototo::model::VariableResolutionSource;
 use rototo::{
     EvaluationContext, LintMode, LoadOptions, Package, RefreshEvent, RefreshEventType,
     RefreshOptions, RefreshOutcome, RefreshingPackage, ResolveOptions, SourceOptions,
-    diagnostic_for_rule, diagnostics_catalog_for_package, inspect_package, lint_package,
-    lint_qualifier, list_catalogs, list_variables, read_catalog, read_qualifiers, read_variable,
-    read_variables, resolve_qualifier, resolve_variable, stage_package_source,
+    TraceStreamItem, diagnostic_for_rule, diagnostics_catalog_for_package, inspect_package,
+    lint_package, lint_qualifier, list_catalogs, list_variables, read_catalog, read_qualifiers,
+    read_variable, read_variables, resolve_qualifier, resolve_variable, stage_package_source,
 };
 
 async fn run_git(repo: &std::path::Path, args: &[&str]) {
@@ -956,6 +954,7 @@ async fn package_sdk_resolves_from_context_only() {
             &context,
             ResolveOptions {
                 validate_context: false,
+                trace: false,
             },
         )
         .unwrap();
@@ -1045,6 +1044,7 @@ async fn package_sdk_can_bypass_context_validation_explicitly() {
             &context,
             ResolveOptions {
                 validate_context: false,
+                trace: false,
             },
         )
         .unwrap();
@@ -1064,13 +1064,18 @@ async fn git_package_repo(message: &str) -> (tempfile::TempDir, std::path::PathB
     (temp, package_root, source)
 }
 
-fn recording_observer() -> (
-    Arc<Mutex<Vec<RefreshEvent>>>,
-    impl Fn(RefreshEvent) + Send + Sync + 'static,
-) {
-    let events = Arc::new(Mutex::new(Vec::new()));
-    let sink = events.clone();
-    (events, move |event| sink.lock().unwrap().push(event))
+/// Drain the subscription until an event of `event_type` arrives, returning it.
+/// Refresh emits one event per transition, so this terminates quickly.
+async fn recv_until(
+    events: &mut tokio::sync::broadcast::Receiver<RefreshEvent>,
+    event_type: RefreshEventType,
+) -> RefreshEvent {
+    loop {
+        let event = events.recv().await.expect("refresh event stream open");
+        if event.event_type == event_type {
+            return event;
+        }
+    }
 }
 
 #[tokio::test]
@@ -1103,14 +1108,16 @@ async fn package_identity_for_git_source_derives_git_release_id() {
 }
 
 #[tokio::test]
-async fn refreshing_package_observer_receives_loaded_then_refreshed() {
+async fn refreshing_package_refresh_event_reports_previous_and_current() {
     let (_temp, package_root, source) = git_package_repo("hello").await;
     let repo = package_root.parent().unwrap().to_path_buf();
-    let (events, observer) = recording_observer();
 
-    let package = RefreshingPackage::load(source, RefreshOptions::new().with_observer(observer))
+    let package = RefreshingPackage::load(source, RefreshOptions::new())
         .await
         .unwrap();
+    // The Loaded event fired during load, before this subscription; it is
+    // recoverable via snapshot().last_event, not the live stream.
+    let mut events = package.subscribe_refresh_events();
 
     write_minimal_package_with_message(&package_root, "goodbye").await;
     commit_all(&repo, "update").await;
@@ -1119,12 +1126,7 @@ async fn refreshing_package_observer_receives_loaded_then_refreshed() {
         RefreshOutcome::Refreshed
     );
 
-    let recorded = events.lock().unwrap();
-    assert_eq!(recorded[0].event_type, RefreshEventType::Loaded);
-    let refreshed = recorded
-        .iter()
-        .find(|event| event.event_type == RefreshEventType::Refreshed)
-        .expect("a refreshed event was emitted");
+    let refreshed = recv_until(&mut events, RefreshEventType::Refreshed).await;
     let previous = refreshed.previous.as_ref().expect("refreshed has previous");
     let current = refreshed.current.as_ref().expect("refreshed has current");
     assert_ne!(previous.release_id, current.release_id);
@@ -1156,11 +1158,11 @@ async fn refreshing_package_subscription_receives_refreshed_event() {
 async fn refreshing_package_failed_refresh_emits_failed_event_and_keeps_identity() {
     let (_temp, package_root, source) = git_package_repo("hello").await;
     let repo = package_root.parent().unwrap().to_path_buf();
-    let (events, observer) = recording_observer();
 
-    let package = RefreshingPackage::load(source, RefreshOptions::new().with_observer(observer))
+    let package = RefreshingPackage::load(source, RefreshOptions::new())
         .await
         .unwrap();
+    let mut events = package.subscribe_refresh_events();
     let release_before = package.identity().release_id;
 
     tokio::fs::write(package_root.join("rototo-package.toml"), "not = [valid")
@@ -1169,11 +1171,7 @@ async fn refreshing_package_failed_refresh_emits_failed_event_and_keeps_identity
     commit_all(&repo, "break package").await;
     assert!(package.refresh_now().await.is_err());
 
-    let recorded = events.lock().unwrap();
-    let failed = recorded
-        .iter()
-        .find(|event| event.event_type == RefreshEventType::Failed)
-        .expect("a failed event was emitted");
+    let failed = recv_until(&mut events, RefreshEventType::Failed).await;
     // The failed package must not be reported as current; previous is omitted.
     assert!(failed.previous.is_none());
     assert!(failed.error.is_some());
@@ -1185,22 +1183,18 @@ async fn refreshing_package_failed_refresh_emits_failed_event_and_keeps_identity
 #[tokio::test]
 async fn refreshing_package_unchanged_emits_unchanged_event() {
     let (_temp, _root, source) = git_package_repo("hello").await;
-    let (events, observer) = recording_observer();
 
-    let package = RefreshingPackage::load(source, RefreshOptions::new().with_observer(observer))
+    let package = RefreshingPackage::load(source, RefreshOptions::new())
         .await
         .unwrap();
+    let mut events = package.subscribe_refresh_events();
     assert_eq!(
         package.refresh_now().await.unwrap(),
         RefreshOutcome::Unchanged
     );
 
-    let recorded = events.lock().unwrap();
-    assert!(
-        recorded
-            .iter()
-            .any(|event| event.event_type == RefreshEventType::Unchanged)
-    );
+    let unchanged = recv_until(&mut events, RefreshEventType::Unchanged).await;
+    assert_eq!(unchanged.event_type, RefreshEventType::Unchanged);
 }
 
 #[tokio::test]
@@ -1242,20 +1236,16 @@ async fn refreshing_package_snapshot_includes_identity_and_last_event() {
 async fn refresh_event_json_shape_is_stable() {
     let (_temp, package_root, source) = git_package_repo("hello").await;
     let repo = package_root.parent().unwrap().to_path_buf();
-    let (events, observer) = recording_observer();
 
-    let package = RefreshingPackage::load(source, RefreshOptions::new().with_observer(observer))
+    let package = RefreshingPackage::load(source, RefreshOptions::new())
         .await
         .unwrap();
+    let mut events = package.subscribe_refresh_events();
     write_minimal_package_with_message(&package_root, "goodbye").await;
     commit_all(&repo, "update").await;
     package.refresh_now().await.unwrap();
 
-    let recorded = events.lock().unwrap();
-    let refreshed = recorded
-        .iter()
-        .find(|event| event.event_type == RefreshEventType::Refreshed)
-        .expect("a refreshed event was emitted");
+    let refreshed = recv_until(&mut events, RefreshEventType::Refreshed).await;
     let json = refreshed.to_json();
 
     assert_eq!(json["schemaVersion"], serde_json::json!(1));
@@ -1270,5 +1260,170 @@ async fn refresh_event_json_shape_is_stable() {
             .as_str()
             .unwrap()
             .starts_with("git:")
+    );
+}
+
+// ---- Resolution tracing ----
+
+fn premium_user_context() -> EvaluationContext {
+    EvaluationContext::from_json(serde_json::json!({
+        "user": { "id": "user-123", "tier": "premium" }
+    }))
+    .unwrap()
+}
+
+async fn next_trace(subscription: &mut rototo::TraceSubscription) -> Option<TraceStreamItem> {
+    tokio::time::timeout(Duration::from_secs(2), subscription.recv())
+        .await
+        .expect("trace event within timeout")
+}
+
+#[tokio::test]
+async fn app_requested_trace_is_emitted_to_subscriber() {
+    let package = Package::load("examples/basic").await.unwrap();
+    let mut traces = package.subscribe_trace_events();
+    let context = premium_user_context();
+
+    // A non-matching context still traces because the app asked explicitly.
+    let nonmatching = EvaluationContext::from_json(serde_json::json!({
+        "user": { "id": "someone-else", "tier": "premium" }
+    }))
+    .unwrap();
+    package
+        .resolve_variable_with_options(
+            "checkout-redesign",
+            &nonmatching,
+            ResolveOptions {
+                validate_context: false,
+                trace: true,
+            },
+        )
+        .unwrap();
+
+    let event = match next_trace(&mut traces).await.unwrap() {
+        TraceStreamItem::Trace(event) => event,
+        other => panic!("expected a trace event, got {other:?}"),
+    };
+    assert!(event.provenance.app_requested);
+    assert!(event.provenance.policies.is_empty());
+    let json = event.to_json();
+    assert_eq!(json["targetKind"], serde_json::json!("variable"));
+    assert_eq!(json["targetId"], serde_json::json!("checkout-redesign"));
+    assert_eq!(json["provenance"]["appRequested"], serde_json::json!(true));
+    // The full execution detail and request context ride along.
+    assert!(json["detail"]["resolution"].is_object());
+    assert_eq!(
+        json["context"]["user"]["id"],
+        serde_json::json!("someone-else")
+    );
+
+    let _ = context;
+}
+
+#[tokio::test]
+async fn package_trace_policy_emits_for_matching_resolution() {
+    let package = Package::load("examples/basic").await.unwrap();
+    let mut traces = package.subscribe_trace_events();
+    let context = premium_user_context();
+
+    // No app-requested trace: the [[trace]] policy in the manifest fires because
+    // env.resolving.variable and context.user.id both match.
+    package
+        .resolve_variable_with_options(
+            "checkout-redesign",
+            &context,
+            ResolveOptions {
+                validate_context: false,
+                trace: false,
+            },
+        )
+        .unwrap();
+
+    let event = match next_trace(&mut traces).await.unwrap() {
+        TraceStreamItem::Trace(event) => event,
+        other => panic!("expected a trace event, got {other:?}"),
+    };
+    assert!(!event.provenance.app_requested);
+    assert_eq!(event.provenance.policies, vec![0]);
+}
+
+#[tokio::test]
+async fn package_trace_policy_does_not_emit_for_other_users() {
+    let package = Package::load("examples/basic").await.unwrap();
+    let mut traces = package.subscribe_trace_events();
+    let context = EvaluationContext::from_json(serde_json::json!({
+        "user": { "id": "not-the-target", "tier": "premium" }
+    }))
+    .unwrap();
+
+    package
+        .resolve_variable_with_options(
+            "checkout-redesign",
+            &context,
+            ResolveOptions {
+                validate_context: false,
+                trace: false,
+            },
+        )
+        .unwrap();
+
+    // The policy targets user-123, so nothing should arrive.
+    let outcome = tokio::time::timeout(Duration::from_millis(250), traces.recv()).await;
+    assert!(
+        outcome.is_err(),
+        "expected no trace event for a non-matching user"
+    );
+}
+
+#[tokio::test]
+async fn resolving_without_subscribers_skips_tracing() {
+    let package = Package::load("examples/basic").await.unwrap();
+    let context = premium_user_context();
+    // No subscriber: resolution still succeeds and the policy is never emitted.
+    let resolution = package
+        .resolve_variable_with_options(
+            "checkout-redesign",
+            &context,
+            ResolveOptions {
+                validate_context: false,
+                trace: true,
+            },
+        )
+        .unwrap();
+    assert_eq!(resolution.id, "checkout-redesign");
+}
+
+#[tokio::test]
+async fn env_resolving_outside_trace_policy_is_rejected() {
+    let temp = tempfile::TempDir::new().unwrap();
+    let root = temp.path().join("pkg");
+    tokio::fs::create_dir_all(root.join("qualifiers"))
+        .await
+        .unwrap();
+    tokio::fs::write(root.join("rototo-package.toml"), "schema_version = 1\n")
+        .await
+        .unwrap();
+    tokio::fs::write(
+        root.join("qualifiers/leaky.toml"),
+        "schema_version = 1\nwhen = 'env.resolving.variable == \"x\"'\n",
+    )
+    .await
+    .unwrap();
+
+    let err = Package::load(format!("file://{}", root.display()))
+        .await
+        .unwrap_err();
+    assert!(
+        err.to_string().contains("lint failed"),
+        "expected lint failure, got {err}"
+    );
+
+    let lint = lint_package(root.as_path()).await.unwrap();
+    assert!(
+        lint.diagnostics.iter().any(|diagnostic| {
+            diagnostic.rule.as_string() == "rototo/qualifier-when-invalid-reference"
+                && diagnostic.message.contains("env.resolving")
+        }),
+        "expected env.resolving rejection diagnostic"
     );
 }

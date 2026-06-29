@@ -11,7 +11,10 @@ use crate::error::{Result, RototoError};
 use crate::lint::{
     LintInput, RuntimePackage, compile_runtime_package_from_snapshot, lint_package_snapshot,
 };
-use crate::model::{PackageInspection, PackageLint, VariableResolution};
+use crate::model::{
+    PackageInspection, PackageLint, QualifierResolutionTrace, VariableResolution,
+    VariableResolutionTrace,
+};
 use crate::package::inspect_package;
 use crate::source::{
     SourceAuth, SourceFingerprint, SourceLayer, SourceOptions, SourceProbe, StagedPackage,
@@ -28,6 +31,10 @@ pub struct Package {
     source_fingerprint: Option<SourceFingerprint>,
     immutable_source: bool,
     source_layers: Vec<SourceLayer>,
+    /// Sink for resolution trace events. A standalone package owns its channel;
+    /// a `RefreshingPackage` injects one shared channel into every package it
+    /// loads so subscriptions survive refresh swaps.
+    trace: Arc<TraceChannel>,
 }
 
 impl Package {
@@ -40,6 +47,7 @@ impl Package {
         if options.lint() == LintMode::Deny {
             package.compile_runtime_after_lint().await?;
         }
+        package.trace = Arc::new(TraceChannel::new(options.trace_capacity()));
         Ok(package)
     }
 
@@ -101,7 +109,22 @@ impl Package {
             source_fingerprint,
             immutable_source,
             source_layers,
+            trace: Arc::new(TraceChannel::new(DEFAULT_TRACE_EVENT_CAPACITY)),
         })
+    }
+
+    /// Replace this package's trace channel. Used to size the channel from
+    /// `LoadOptions` on standalone load, and to share one channel across a
+    /// `RefreshingPackage`'s reloads.
+    fn with_trace_channel(mut self, trace: Arc<TraceChannel>) -> Self {
+        self.trace = trace;
+        self
+    }
+
+    /// Subscribe to resolution trace events emitted by this package. See
+    /// [`RefreshingPackage::subscribe_trace_events`] for the delivery contract.
+    pub fn subscribe_trace_events(&self) -> TraceSubscription {
+        self.trace.subscribe()
     }
 
     async fn compile_runtime_after_lint(&mut self) -> Result<()> {
@@ -200,11 +223,46 @@ impl Package {
         context: &EvaluationContext,
         options: ResolveOptions,
     ) -> Result<bool> {
+        let runtime = self.runtime()?;
         if options.validate_context {
-            self.runtime()?
-                .validate_context_for_qualifier(id.as_ref(), context.value())?;
+            runtime.validate_context_for_qualifier(id.as_ref(), context.value())?;
         }
-        crate::resolve::resolve_qualifier_unchecked(self.runtime()?, id.as_ref(), context.value())
+        if !self.tracing_active(options, runtime) {
+            return crate::resolve::resolve_qualifier_unchecked(
+                runtime,
+                id.as_ref(),
+                context.value(),
+            );
+        }
+        let (value, capture) = crate::resolve::resolve_qualifier_traced_unchecked(
+            runtime,
+            id.as_ref(),
+            context.value(),
+            options.trace,
+        )?;
+        if let Some(capture) = capture {
+            self.trace.emit(TraceEvent::new(
+                TraceTarget::Qualifier {
+                    id: id.as_ref().to_owned(),
+                },
+                context.value().clone(),
+                TraceDetail::Qualifier(capture.trace),
+                TraceProvenance {
+                    app_requested: options.trace,
+                    policies: capture.policies,
+                },
+                self.identity(),
+                SystemTime::now(),
+            ));
+        }
+        Ok(value)
+    }
+
+    /// Tracing runs only when someone is listening and there is something to
+    /// emit: an app-requested trace or at least one `[[trace]]` policy. With no
+    /// subscriber, the trace is never computed.
+    fn tracing_active(&self, options: ResolveOptions, runtime: &RuntimePackage) -> bool {
+        self.trace.has_subscribers() && (options.trace || !runtime.trace_policies.is_empty())
     }
 
     pub fn resolve_variable(
@@ -221,11 +279,39 @@ impl Package {
         context: &EvaluationContext,
         options: ResolveOptions,
     ) -> Result<VariableResolution> {
+        let runtime = self.runtime()?;
         if options.validate_context {
-            self.runtime()?
-                .validate_context_for_variable(id.as_ref(), context.value())?;
+            runtime.validate_context_for_variable(id.as_ref(), context.value())?;
         }
-        crate::resolve::resolve_variable_unchecked(self.runtime()?, id.as_ref(), context.value())
+        if !self.tracing_active(options, runtime) {
+            return crate::resolve::resolve_variable_unchecked(
+                runtime,
+                id.as_ref(),
+                context.value(),
+            );
+        }
+        let (resolution, capture) = crate::resolve::resolve_variable_traced_unchecked(
+            runtime,
+            id.as_ref(),
+            context.value(),
+            options.trace,
+        )?;
+        if let Some(capture) = capture {
+            self.trace.emit(TraceEvent::new(
+                TraceTarget::Variable {
+                    id: id.as_ref().to_owned(),
+                },
+                context.value().clone(),
+                TraceDetail::Variable(Box::new(capture.trace)),
+                TraceProvenance {
+                    app_requested: options.trace,
+                    policies: capture.policies,
+                },
+                self.identity(),
+                SystemTime::now(),
+            ));
+        }
+        Ok(resolution)
     }
 
     fn runtime(&self) -> Result<&RuntimePackage> {
@@ -251,9 +337,11 @@ struct RefreshState {
     current: Arc<RwLock<Arc<Package>>>,
     status: Arc<RwLock<RefreshStatus>>,
     refresh_lock: Arc<Mutex<()>>,
-    observer: Option<Arc<dyn RefreshObserver>>,
     events: broadcast::Sender<RefreshEvent>,
     last_event: Arc<RwLock<Option<RefreshEventSummary>>>,
+    /// Shared across every package this handle loads, so trace subscriptions
+    /// survive the `current` package being swapped on refresh.
+    trace: Arc<TraceChannel>,
 }
 
 impl RefreshingPackage {
@@ -268,8 +356,7 @@ impl RefreshingPackage {
     ) -> Result<Self> {
         let source = source.as_ref().to_owned();
         let attempted_at = SystemTime::now();
-        let package =
-            Arc::new(Package::load_snapshot_with_options(&source, load_options.clone()).await?);
+        let package = Package::load_snapshot_with_options(&source, load_options.clone()).await?;
         let loaded_at = package.loaded_at();
         let identity = package.identity();
         let immutable = package.immutable_source();
@@ -288,14 +375,16 @@ impl RefreshingPackage {
                 "package source is pinned to an immutable commit; periodic refresh is disabled"
             );
         }
-        let (events, _) = broadcast::channel(REFRESH_EVENT_CHANNEL_CAPACITY);
+        let (events, _) = broadcast::channel(load_options.refresh_capacity());
+        let trace = Arc::new(TraceChannel::new(load_options.trace_capacity()));
+        let package = Arc::new(package.with_trace_channel(trace.clone()));
         let state = RefreshState {
             current: Arc::new(RwLock::new(package)),
             status: status.clone(),
             refresh_lock: Arc::new(Mutex::new(())),
-            observer: refresh_options.observer.clone(),
             events,
             last_event: Arc::new(RwLock::new(None)),
+            trace,
         };
         emit_event(
             &state,
@@ -387,6 +476,15 @@ impl RefreshingPackage {
         self.state.events.subscribe()
     }
 
+    /// Subscribe to resolution trace events. The returned subscription is a
+    /// bounded broadcast stream shared across refreshes: it never blocks
+    /// resolution, and a lagging consumer drops the oldest events and observes a
+    /// [`TraceStreamItem::Dropped`] carrying how many were lost. Tracing only
+    /// happens while at least one subscription is live.
+    pub fn subscribe_trace_events(&self) -> TraceSubscription {
+        self.state.trace.subscribe()
+    }
+
     pub async fn refresh_now(&self) -> Result<RefreshOutcome> {
         refresh_once(&self.source, &self.load_options, &self.state).await
     }
@@ -463,25 +561,12 @@ impl Drop for RefreshingPackage {
     }
 }
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct RefreshOptions {
     period: Option<Duration>,
     max_staleness: Option<Duration>,
     min_failure_backoff: Duration,
     max_failure_backoff: Duration,
-    observer: Option<Arc<dyn RefreshObserver>>,
-}
-
-impl std::fmt::Debug for RefreshOptions {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("RefreshOptions")
-            .field("period", &self.period)
-            .field("max_staleness", &self.max_staleness)
-            .field("min_failure_backoff", &self.min_failure_backoff)
-            .field("max_failure_backoff", &self.max_failure_backoff)
-            .field("observer", &self.observer.is_some())
-            .finish()
-    }
 }
 
 impl RefreshOptions {
@@ -520,18 +605,6 @@ impl RefreshOptions {
         self.max_failure_backoff = max;
         self
     }
-
-    /// Attach a synchronous, best-effort observer for refresh events. The
-    /// observer must not block or perform I/O; bridge async work through
-    /// `RefreshingPackage::subscribe_refresh_events` instead. Observer failure
-    /// never affects refresh.
-    pub fn with_observer<O>(mut self, observer: O) -> Self
-    where
-        O: RefreshObserver,
-    {
-        self.observer = Some(Arc::new(observer));
-        self
-    }
 }
 
 impl Default for RefreshOptions {
@@ -541,7 +614,6 @@ impl Default for RefreshOptions {
             max_staleness: None,
             min_failure_backoff: Duration::from_secs(5),
             max_failure_backoff: Duration::from_secs(300),
-            observer: None,
         }
     }
 }
@@ -762,8 +834,11 @@ async fn refresh_once_inner(
         }
     }
 
-    let package =
-        Arc::new(Package::load_snapshot_with_options(source, load_options.clone()).await?);
+    let package = Arc::new(
+        Package::load_snapshot_with_options(source, load_options.clone())
+            .await?
+            .with_trace_channel(state.trace.clone()),
+    );
     let fingerprint = package.source_fingerprint().cloned();
     let immutable = package.immutable_source();
     let loaded_at = package.loaded_at();
@@ -854,10 +929,17 @@ fn redacted_source(source: &str) -> String {
     }
 }
 
-/// Bounded capacity for the refresh-event broadcast channel. A lagging consumer
-/// drops the oldest events rather than blocking refresh; recover from
-/// `snapshot()`/`identity()`.
-const REFRESH_EVENT_CHANNEL_CAPACITY: usize = 64;
+/// Default bounded capacity for the refresh-event broadcast channel. A lagging
+/// consumer drops the oldest events rather than blocking refresh; recover from
+/// `snapshot()`/`identity()`. Refresh events are timer-paced, so this stays
+/// small; override via [`LoadOptions::with_refresh_capacity`].
+const DEFAULT_REFRESH_EVENT_CAPACITY: usize = 64;
+
+/// Default bounded capacity for the trace-event broadcast channel. Trace events
+/// are traffic-paced, so this is larger than the refresh default; override via
+/// [`LoadOptions::with_trace_capacity`] to match a deployment's traffic and
+/// memory budget.
+const DEFAULT_TRACE_EVENT_CAPACITY: usize = 256;
 
 impl RefreshState {
     fn current_identity(&self) -> PackageIdentity {
@@ -876,33 +958,8 @@ fn emit_event(state: &RefreshState, event: RefreshEvent) {
             .unwrap_or_else(|poisoned| poisoned.into_inner());
         *last = Some(event.summary());
     }
-    if let Some(observer) = &state.observer {
-        let observer = observer.clone();
-        let event = event.clone();
-        // Observer failure must never break refresh; a panicking observer is
-        // contained here rather than propagated into the refresh path.
-        let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(move || {
-            observer.observe(event);
-        }));
-    }
     // No subscribers (or a full lagging channel) is not an error for refresh.
     let _ = state.events.send(event);
-}
-
-/// Synchronous, best-effort sink for refresh events. Implementations must not
-/// block or perform I/O. Any blocking or async forwarding should go through
-/// `RefreshingPackage::subscribe_refresh_events` instead.
-pub trait RefreshObserver: Send + Sync + 'static {
-    fn observe(&self, event: RefreshEvent);
-}
-
-impl<F> RefreshObserver for F
-where
-    F: Fn(RefreshEvent) + Send + Sync + 'static,
-{
-    fn observe(&self, event: RefreshEvent) {
-        self(event)
-    }
 }
 
 /// Source string with credentials removed: userinfo stripped, never carrying a
@@ -1204,6 +1261,198 @@ impl SdkIdentity {
     }
 }
 
+// ---- Resolution tracing ----
+
+/// Broadcast channel for resolution trace events. Delivery is channel-only (no
+/// synchronous observer): a consumer reads a [`TraceSubscription`] and does any
+/// I/O off the resolve path. Drop-oldest under lag bounds memory; the lost count
+/// surfaces as [`TraceStreamItem::Dropped`].
+#[derive(Debug)]
+struct TraceChannel {
+    events: broadcast::Sender<Arc<TraceEvent>>,
+}
+
+impl TraceChannel {
+    fn new(capacity: usize) -> Self {
+        let (events, _) = broadcast::channel(capacity.max(1));
+        Self { events }
+    }
+
+    fn subscribe(&self) -> TraceSubscription {
+        TraceSubscription {
+            receiver: self.events.subscribe(),
+        }
+    }
+
+    /// Whether any subscription is currently live. Resolution skips building and
+    /// emitting trace events when this is false.
+    fn has_subscribers(&self) -> bool {
+        self.events.receiver_count() > 0
+    }
+
+    fn emit(&self, event: TraceEvent) {
+        // No subscribers (or a full lagging channel) is not an error.
+        let _ = self.events.send(Arc::new(event));
+    }
+}
+
+/// A live subscription to a package's resolution trace events.
+pub struct TraceSubscription {
+    receiver: broadcast::Receiver<Arc<TraceEvent>>,
+}
+
+impl TraceSubscription {
+    /// Receive the next trace stream item. Returns `None` once the package and
+    /// all senders are gone. A lagging consumer receives
+    /// [`TraceStreamItem::Dropped`] with the number of events skipped, then
+    /// resumes from the oldest still-buffered event.
+    pub async fn recv(&mut self) -> Option<TraceStreamItem> {
+        match self.receiver.recv().await {
+            Ok(event) => Some(TraceStreamItem::Trace(event)),
+            Err(broadcast::error::RecvError::Lagged(count)) => {
+                Some(TraceStreamItem::Dropped { count })
+            }
+            Err(broadcast::error::RecvError::Closed) => None,
+        }
+    }
+}
+
+/// One item from a [`TraceSubscription`].
+#[derive(Clone, Debug)]
+pub enum TraceStreamItem {
+    /// A captured resolution trace.
+    Trace(Arc<TraceEvent>),
+    /// The consumer lagged and `count` trace events were dropped before this
+    /// point. Surfaced so silence is never ambiguous between "not traced" and
+    /// "traced but dropped".
+    Dropped { count: u64 },
+}
+
+impl TraceStreamItem {
+    pub fn to_json(&self) -> JsonValue {
+        match self {
+            TraceStreamItem::Trace(event) => serde_json::json!({
+                "kind": "trace",
+                "trace": event.to_json(),
+            }),
+            TraceStreamItem::Dropped { count } => serde_json::json!({
+                "kind": "dropped",
+                "count": count,
+            }),
+        }
+    }
+}
+
+/// The entity a trace describes.
+#[derive(Clone, Debug)]
+pub enum TraceTarget {
+    Variable { id: String },
+    Qualifier { id: String },
+}
+
+impl TraceTarget {
+    fn kind(&self) -> &'static str {
+        match self {
+            TraceTarget::Variable { .. } => "variable",
+            TraceTarget::Qualifier { .. } => "qualifier",
+        }
+    }
+
+    fn id(&self) -> &str {
+        match self {
+            TraceTarget::Variable { id } | TraceTarget::Qualifier { id } => id,
+        }
+    }
+}
+
+/// The captured execution detail of a resolution, full (no level knob).
+#[derive(Clone, Debug)]
+pub enum TraceDetail {
+    Variable(Box<VariableResolutionTrace>),
+    Qualifier(QualifierResolutionTrace),
+}
+
+impl TraceDetail {
+    fn to_json(&self) -> JsonValue {
+        match self {
+            TraceDetail::Variable(trace) => serde_json::to_value(trace).unwrap_or(JsonValue::Null),
+            TraceDetail::Qualifier(trace) => serde_json::to_value(trace).unwrap_or(JsonValue::Null),
+        }
+    }
+}
+
+/// Why a trace fired. A single resolution emits at most one event; if both the
+/// app asked and one or more `[[trace]]` policies matched, all reasons appear
+/// here, so app- and package-driven tracing never double-emit.
+#[derive(Clone, Debug)]
+pub struct TraceProvenance {
+    /// The resolve call passed `ResolveOptions { trace: true }`.
+    pub app_requested: bool,
+    /// Indices of the `[[trace]]` policies whose `when` matched.
+    pub policies: Vec<usize>,
+}
+
+impl TraceProvenance {
+    fn to_json(&self) -> JsonValue {
+        serde_json::json!({
+            "appRequested": self.app_requested,
+            "policies": self.policies,
+        })
+    }
+}
+
+/// A resolution trace event: the full execution detail plus the request context
+/// and the package version it ran against. Redaction of the context is the
+/// consumer's responsibility before logging.
+#[derive(Clone, Debug)]
+pub struct TraceEvent {
+    pub event_id: Uuid,
+    pub target: TraceTarget,
+    pub context: JsonValue,
+    pub detail: TraceDetail,
+    pub provenance: TraceProvenance,
+    pub identity: PackageIdentity,
+    pub at: SystemTime,
+    pub sdk: SdkIdentity,
+}
+
+impl TraceEvent {
+    pub(crate) fn new(
+        target: TraceTarget,
+        context: JsonValue,
+        detail: TraceDetail,
+        provenance: TraceProvenance,
+        identity: PackageIdentity,
+        at: SystemTime,
+    ) -> Self {
+        Self {
+            event_id: Uuid::new_v4(),
+            target,
+            context,
+            detail,
+            provenance,
+            identity,
+            at,
+            sdk: SdkIdentity::rust(),
+        }
+    }
+
+    pub fn to_json(&self) -> JsonValue {
+        serde_json::json!({
+            "schemaVersion": 1,
+            "eventId": self.event_id.to_string(),
+            "targetKind": self.target.kind(),
+            "targetId": self.target.id(),
+            "context": self.context,
+            "detail": self.detail.to_json(),
+            "provenance": self.provenance.to_json(),
+            "identity": self.identity.to_json(),
+            "at": system_time_to_unix_seconds(Some(self.at)),
+            "sdk": self.sdk.to_json(),
+        })
+    }
+}
+
 fn refresh_outcome_str(outcome: RefreshOutcome) -> &'static str {
     match outcome {
         RefreshOutcome::Unchanged => "unchanged",
@@ -1242,6 +1491,8 @@ fn system_time_to_unix_seconds(time: Option<SystemTime>) -> JsonValue {
 pub struct LoadOptions {
     lint: LintMode,
     source: SourceOptions,
+    trace_capacity: usize,
+    refresh_capacity: usize,
 }
 
 impl LoadOptions {
@@ -1257,6 +1508,18 @@ impl LoadOptions {
         &self.source
     }
 
+    /// Buffer depth for the trace-event channel. A lagging trace consumer drops
+    /// the oldest events past this depth and observes a
+    /// [`TraceStreamItem::Dropped`] count.
+    pub fn trace_capacity(&self) -> usize {
+        self.trace_capacity
+    }
+
+    /// Buffer depth for the refresh-event channel.
+    pub fn refresh_capacity(&self) -> usize {
+        self.refresh_capacity
+    }
+
     pub fn with_lint(mut self, lint: LintMode) -> Self {
         self.lint = lint;
         self
@@ -1266,6 +1529,16 @@ impl LoadOptions {
         self.source = self.source.with_auth(auth);
         self
     }
+
+    pub fn with_trace_capacity(mut self, capacity: usize) -> Self {
+        self.trace_capacity = capacity.max(1);
+        self
+    }
+
+    pub fn with_refresh_capacity(mut self, capacity: usize) -> Self {
+        self.refresh_capacity = capacity.max(1);
+        self
+    }
 }
 
 impl Default for LoadOptions {
@@ -1273,6 +1546,8 @@ impl Default for LoadOptions {
         Self {
             lint: LintMode::Deny,
             source: SourceOptions::default(),
+            trace_capacity: DEFAULT_TRACE_EVENT_CAPACITY,
+            refresh_capacity: DEFAULT_REFRESH_EVENT_CAPACITY,
         }
     }
 }
@@ -1286,12 +1561,17 @@ pub enum LintMode {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct ResolveOptions {
     pub validate_context: bool,
+    /// Emit a full trace of this resolution to the trace stream, regardless of
+    /// any `[[trace]]` policy. Distinct from `trace_variable_resolution`, which
+    /// returns the trace inline; this routes it to subscribers.
+    pub trace: bool,
 }
 
 impl Default for ResolveOptions {
     fn default() -> Self {
         Self {
             validate_context: true,
+            trace: false,
         }
     }
 }

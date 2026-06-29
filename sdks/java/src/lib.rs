@@ -463,6 +463,7 @@ fn refresh_options(
 fn resolve_options(validate_context: jboolean) -> ResolveOptions {
     ResolveOptions {
         validate_context: validate_context != 0,
+        ..ResolveOptions::default()
     }
 }
 

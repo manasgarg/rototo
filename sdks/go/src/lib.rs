@@ -557,6 +557,7 @@ fn evaluation_context(context_json: *const c_char) -> Result<EvaluationContext, 
 fn resolve_options(validate_context: c_int) -> ResolveOptions {
     ResolveOptions {
         validate_context: validate_context != 0,
+        ..ResolveOptions::default()
     }
 }
 

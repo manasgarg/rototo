@@ -2130,6 +2130,16 @@ fn package_manifest_template() -> String {
 # extends = ["../shared-config"]
 #
 # Custom lint handlers live in lint/*.lua and register their rule metadata there.
+
+# Optional resolution tracing. Each [[trace]] policy emits a full resolution
+# trace to the SDK trace stream whenever its `when` matches, with no app
+# redeploy. Use it to debug a specific production resolution from reviewed
+# config. `when` reads context.* and env.qualifier["<id>"] like any expression,
+# and may additionally read env.resolving.variable / env.resolving.qualifier —
+# the entity currently being resolved.
+#
+# [[trace]]
+# when = 'env.resolving.variable == "checkout-redesign" && context.user.id == "tester-123"'
 "#
     .to_owned()
 }

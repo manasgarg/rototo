@@ -1,1 +1,7 @@
 schema_version = 1
+
+# Trace the checkout-redesign resolution for one specific user, so we can debug
+# what they are served in production without redeploying the app. The trace is
+# only computed when an SDK consumer is subscribed to the trace stream.
+[[trace]]
+when = 'env.resolving.variable == "checkout-redesign" && context.user.id == "user-123"'

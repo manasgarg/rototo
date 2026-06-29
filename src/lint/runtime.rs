@@ -21,6 +21,7 @@ pub(crate) struct RuntimePackage {
     pub(crate) catalog_entries: BTreeMap<String, BTreeMap<String, JsonValue>>,
     pub(crate) qualifiers: BTreeMap<String, RuntimeQualifier>,
     pub(crate) variables: BTreeMap<String, RuntimeVariable>,
+    pub(crate) trace_policies: Vec<RuntimeTracePolicy>,
 }
 
 impl RuntimePackage {
@@ -107,6 +108,14 @@ pub(crate) struct RuntimeQualifier {
     pub(crate) when: Expression,
 }
 
+/// A compiled `[[trace]]` policy. Its `when` is evaluated against each
+/// resolution to decide whether to emit a trace event; it may read
+/// `env.resolving.*`.
+#[derive(Debug)]
+pub(crate) struct RuntimeTracePolicy {
+    pub(crate) when: Expression,
+}
+
 #[derive(Debug)]
 pub(crate) struct RuntimeVariable {
     pub(crate) default: RuntimeSelectedValue,
@@ -179,7 +188,7 @@ impl<'a> RuntimeCompiler<'a> {
 
     fn compile(&self) -> Result<RuntimePackage> {
         let index = &self.snapshot.index;
-        let _manifest = index
+        let manifest = index
             .manifest
             .as_ref()
             .ok_or_else(|| RototoError::new("package manifest is missing"))?;
@@ -189,6 +198,7 @@ impl<'a> RuntimeCompiler<'a> {
         let catalog_entries = self.compile_catalog_entries(index);
         let qualifiers = self.compile_qualifiers(index)?;
         let variables = self.compile_variables(index)?;
+        let trace_policies = Self::compile_trace_policies(manifest)?;
 
         Ok(RuntimePackage {
             evaluation_contexts,
@@ -198,7 +208,28 @@ impl<'a> RuntimeCompiler<'a> {
             catalog_entries,
             qualifiers,
             variables,
+            trace_policies,
         })
+    }
+
+    fn compile_trace_policies(manifest: &ManifestNode) -> Result<Vec<RuntimeTracePolicy>> {
+        manifest
+            .trace
+            .iter()
+            .map(|policy| match &policy.when {
+                ProjectField::Present(when) => Ok(RuntimeTracePolicy {
+                    when: when.value.clone(),
+                }),
+                ProjectField::Invalid { .. } => Err(RototoError::new(format!(
+                    "trace policy {} when expression is invalid",
+                    policy.index
+                ))),
+                ProjectField::Missing { .. } => Err(RototoError::new(format!(
+                    "trace policy {} must declare when",
+                    policy.index
+                ))),
+            })
+            .collect()
     }
 
     fn compile_catalog_schemas(&self, index: &SemanticIndex) -> BTreeMap<String, JsonValue> {

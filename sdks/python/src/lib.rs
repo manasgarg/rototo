@@ -332,7 +332,10 @@ fn refresh_options(period_seconds: Option<f64>) -> PyResult<RefreshOptions> {
 }
 
 fn resolve_options(validate_context: bool) -> ResolveOptions {
-    ResolveOptions { validate_context }
+    ResolveOptions {
+        validate_context,
+        ..ResolveOptions::default()
+    }
 }
 
 fn json_from_py(value: &Bound<'_, PyAny>) -> PyResult<JsonValue> {

@@ -35,9 +35,10 @@ pub use resolve::{
 };
 pub use sdk::{
     EvaluationContext, LintMode, LoadOptions, Package, PackageIdentity, PackageLayerIdentity,
-    RedactedPackageSource, RefreshEvent, RefreshEventSummary, RefreshEventType, RefreshObserver,
-    RefreshOptions, RefreshOutcome, RefreshSnapshot, RefreshStatus, RefreshingPackage,
-    ResolveOptions, SdkIdentity, source_fingerprint_to_json,
+    RedactedPackageSource, RefreshEvent, RefreshEventSummary, RefreshEventType, RefreshOptions,
+    RefreshOutcome, RefreshSnapshot, RefreshStatus, RefreshingPackage, ResolveOptions, SdkIdentity,
+    TraceDetail, TraceEvent, TraceProvenance, TraceStreamItem, TraceSubscription, TraceTarget,
+    source_fingerprint_to_json,
 };
 pub use source::{
     SourceAuth, SourceFingerprint, SourceLayer, SourceOptions, SourceProbe, StagedPackage,

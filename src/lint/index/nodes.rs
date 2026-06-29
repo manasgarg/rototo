@@ -19,12 +19,21 @@ pub(in crate::lint) struct ManifestNode {
     pub(in crate::lint) doc: DocId,
     pub(in crate::lint) location: DiagnosticLocation,
     pub(in crate::lint) extends: PackageExtendsCollection,
+    pub(in crate::lint) trace: Vec<TracePolicyNode>,
 }
 
 impl ManifestNode {
     pub(in crate::lint) fn target(&self) -> SemanticTarget {
         SemanticEntity::Manifest.into()
     }
+}
+
+/// One `[[trace]]` policy declared in the manifest. The `when` is a CEL boolean
+/// that may, uniquely, read `env.resolving.*` (the entity being resolved).
+pub(in crate::lint) struct TracePolicyNode {
+    /// Position in the `[[trace]]` array, used to label the policy.
+    pub(in crate::lint) index: usize,
+    pub(in crate::lint) when: ProjectField<Expression>,
 }
 
 pub(in crate::lint) struct PackageExtendNode {

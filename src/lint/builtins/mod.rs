@@ -11,6 +11,7 @@ use super::index::ProjectField;
 
 pub(super) fn run_project(ctx: &mut LintContext) {
     package::lint_manifest_shape(ctx);
+    package::lint_trace_policies(ctx);
     evaluation_context::lint_evaluation_context_schemas(ctx);
     evaluation_context::lint_evaluation_context_reserved_fields(ctx);
     qualifier::lint_qualifier_shapes(ctx);

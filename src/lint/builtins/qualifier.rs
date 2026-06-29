@@ -68,6 +68,15 @@ pub(super) fn lint_qualifier_expression_roots(ctx: &mut LintContext) {
                 issue.describe(),
             );
         }
+        if when.value.references().uses_resolving {
+            push_project_diagnostic(
+                diagnostics,
+                RototoRuleId::QualifierWhenInvalidReference,
+                qualifier.field_target(SemanticField::QualifierWhen),
+                when.location.clone(),
+                "env.resolving is only available in [[trace]] policies",
+            );
+        }
     }
 }
 
