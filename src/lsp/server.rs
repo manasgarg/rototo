@@ -1,4 +1,4 @@
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashSet, VecDeque};
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::sync::Mutex;
@@ -6,6 +6,7 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 
 use serde_json::Value as JsonValue;
 use tokio::io::{AsyncBufRead, AsyncWrite, BufReader};
+use tokio::sync::mpsc;
 
 use crate::error::{Result, RototoError};
 use crate::lint::{LintInput, OverlayDocument, PackageLintSnapshot, lint_package_snapshot};
@@ -24,25 +25,78 @@ use super::uri::{
     source_position_from_json,
 };
 
+/// JSON-RPC error code for a request the client asked to cancel (LSP
+/// `RequestCancelled`).
+const REQUEST_CANCELLED: i64 = -32800;
+
 pub async fn serve_stdio() -> Result<()> {
     let stdin = tokio::io::stdin();
     let stdout = tokio::io::stdout();
     serve(BufReader::new(stdin), stdout).await
 }
 
-pub(crate) async fn serve<R, W>(mut reader: R, mut writer: W) -> Result<()>
+pub(crate) async fn serve<R, W>(reader: R, mut writer: W) -> Result<()>
 where
-    R: AsyncBufRead + Unpin,
+    R: AsyncBufRead + Unpin + Send + 'static,
     W: AsyncWrite + Unpin,
 {
+    // A dedicated reader task pulls messages off the wire eagerly into a channel.
+    // Handling stays sequential on this task, but reading ahead lets a
+    // `$/cancelRequest` that the client sent right after a request be observed
+    // before that request is dequeued and run — which is the only way
+    // cancellation can do anything in an otherwise serial server.
+    let (sender, mut receiver) = mpsc::unbounded_channel();
+    tokio::spawn(async move {
+        let mut reader = reader;
+        while let Ok(Some(message)) = read_message(&mut reader).await {
+            if sender.send(message).is_err() {
+                break;
+            }
+        }
+    });
+
     let mut server = LspServer::new();
-    while let Some(message) = read_message(&mut reader).await? {
+    let mut queue: VecDeque<JsonValue> = VecDeque::new();
+    let mut cancellations = PendingCancellations::default();
+
+    loop {
+        if queue.is_empty() {
+            match receiver.recv().await {
+                Some(message) => intake(message, &mut queue, &mut cancellations),
+                None => break,
+            }
+        }
+        // Drain everything already buffered so a pending cancel is recorded
+        // before the request it targets reaches the front of the queue.
+        while let Ok(message) = receiver.try_recv() {
+            intake(message, &mut queue, &mut cancellations);
+        }
+        let Some(message) = queue.pop_front() else {
+            continue;
+        };
+
         let id = message.get("id").cloned();
         let method = message
             .get("method")
             .and_then(JsonValue::as_str)
             .unwrap_or_default()
             .to_owned();
+
+        // A request the client cancelled while it waited in the queue returns the
+        // standard RequestCancelled error rather than computing a result.
+        if let Some(id) = &id
+            && cancellations.take(id)
+        {
+            write_error_response(
+                &mut writer,
+                id.clone(),
+                REQUEST_CANCELLED,
+                "request cancelled",
+            )
+            .await?;
+            continue;
+        }
+
         match server.handle_message(message, &mut writer).await {
             Ok(true) => break,
             Ok(false) => {}
@@ -62,6 +116,40 @@ where
         }
     }
     Ok(())
+}
+
+/// Route an incoming message: a `$/cancelRequest` is consumed by recording the
+/// cancelled id; everything else is queued for sequential handling.
+fn intake(
+    message: JsonValue,
+    queue: &mut VecDeque<JsonValue>,
+    cancellations: &mut PendingCancellations,
+) {
+    if message.get("method").and_then(JsonValue::as_str) == Some("$/cancelRequest") {
+        if let Some(id) = message.get("params").and_then(|params| params.get("id")) {
+            cancellations.record(id);
+        }
+        return;
+    }
+    queue.push_back(message);
+}
+
+/// Request ids cancelled by the client but not yet matched to a pending request.
+/// Ids can be numbers or strings, so they are keyed by their JSON spelling.
+#[derive(Default)]
+struct PendingCancellations {
+    ids: HashSet<String>,
+}
+
+impl PendingCancellations {
+    fn record(&mut self, id: &JsonValue) {
+        self.ids.insert(id.to_string());
+    }
+
+    /// Whether `id` was cancelled, consuming the record so it matches once.
+    fn take(&mut self, id: &JsonValue) -> bool {
+        self.ids.remove(&id.to_string())
+    }
 }
 
 pub(super) struct LspServer {
@@ -496,4 +584,45 @@ fn byte_offset_for_position(text: &str, line: usize, character: usize) -> usize 
         utf16 += ch.len_utf16();
     }
     text.len()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn intake_records_cancellations_and_queues_other_messages() {
+        let mut queue = VecDeque::new();
+        let mut cancellations = PendingCancellations::default();
+
+        intake(
+            json!({"id": 1, "method": "textDocument/completion"}),
+            &mut queue,
+            &mut cancellations,
+        );
+        intake(
+            json!({"method": "$/cancelRequest", "params": {"id": 1}}),
+            &mut queue,
+            &mut cancellations,
+        );
+
+        // The cancel is consumed into the registry, not queued for handling.
+        assert_eq!(queue.len(), 1);
+        assert_eq!(queue[0]["id"], 1);
+
+        // The matching request id is cancelled exactly once.
+        assert!(cancellations.take(&json!(1)));
+        assert!(!cancellations.take(&json!(1)));
+        // An unrelated id was never cancelled.
+        assert!(!cancellations.take(&json!(2)));
+    }
+
+    #[test]
+    fn cancellations_distinguish_numeric_and_string_ids() {
+        let mut cancellations = PendingCancellations::default();
+        cancellations.record(&json!("abc"));
+        assert!(!cancellations.take(&json!(1)));
+        assert!(cancellations.take(&json!("abc")));
+    }
 }

@@ -1094,6 +1094,56 @@ value = "welcome"
         assert_eq!(server.overlay_text("q.toml"), Some("x = \"😀Z\""));
     }
 
+    #[tokio::test]
+    async fn lsp_cancelled_request_returns_request_cancelled() {
+        // A request whose cancellation the server has already seen returns the
+        // RequestCancelled error instead of a result. Sending the cancel ahead of
+        // the request makes the outcome deterministic: it exercises the same
+        // short-circuit the read-ahead loop reaches for the realistic order where
+        // the cancel arrives just after the request.
+        let (mut client, server_io) = tokio::io::duplex(8192);
+        let (server_read, server_write) = tokio::io::split(server_io);
+        let server =
+            tokio::spawn(async move { serve(BufReader::new(server_read), server_write).await });
+
+        write_lsp_message(
+            &mut client,
+            json!({
+                "jsonrpc": "2.0",
+                "method": "$/cancelRequest",
+                "params": { "id": 1 }
+            }),
+        )
+        .await;
+        write_lsp_message(
+            &mut client,
+            json!({
+                "jsonrpc": "2.0",
+                "id": 1,
+                "method": "textDocument/documentSymbol",
+                "params": { "textDocument": { "uri": "file:///tmp/outside.toml" } }
+            }),
+        )
+        .await;
+
+        let cancelled = read_lsp_message(&mut client).await;
+        assert_eq!(cancelled["id"], 1);
+        assert_eq!(cancelled["error"]["code"], -32800);
+
+        // The server is still healthy after a cancellation.
+        write_lsp_message(
+            &mut client,
+            json!({ "jsonrpc": "2.0", "id": 2, "method": "shutdown" }),
+        )
+        .await;
+        let shutdown = read_lsp_message(&mut client).await;
+        assert_eq!(shutdown["id"], 2);
+        assert!(shutdown["result"].is_null());
+
+        write_lsp_message(&mut client, json!({ "jsonrpc": "2.0", "method": "exit" })).await;
+        server.await.unwrap().unwrap();
+    }
+
     fn child_symbol<'a>(symbols: &'a [LspDocumentSymbol], name: &str) -> &'a LspDocumentSymbol {
         symbols
             .iter()
