@@ -1,0 +1,52 @@
+# Inside a variable rule's `when` expression, after `env.qualifier["`, the useful
+# suggestions are qualifier ids from the package. Base package extends, variable
+# values, predicate operators, and custom-lint field names do not belong here.
+# An unsaved manifest overlay is also open to prove completion reads the same
+# snapshot (including sibling overlays) the rest of the server uses.
+package = "basic"
+file = "variables/message.toml"
+
+overlay = '''
+schema_version = 1
+type = "string"
+
+[resolve]
+default = "hello"
+
+[[resolve.rule]]
+when = 'env.qualifier["$0"]'
+value = "welcome"
+'''
+
+[[also_open]]
+file = "rototo-package.toml"
+text = '''
+schema_version = 1
+extends = ["../base"]
+'''
+
+[expect]
+# The cursor sits right after `env.qualifier["`, so the qualifier id is a pure insert
+# at the cursor (nothing to replace).
+selecting = "premium"
+replaces = ""
+
+[[expect.includes]]
+label = "premium"
+detail = "qualifier"
+
+[[expect.excludes]]
+label = "../base"
+detail = "package extend"
+
+[[expect.excludes]]
+label = "treatment"
+detail = "variable value"
+
+[[expect.excludes]]
+label = "bucket"
+detail = "predicate operator"
+
+[[expect.excludes]]
+label = "extends"
+detail = "custom lint field selector"

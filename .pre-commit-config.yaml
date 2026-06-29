@@ -10,13 +10,11 @@ repos:
       - id: check-toml
         exclude: >-
           (?x)^(
-            tests/fixtures/packages/invalid-toml/|
-            tests/fixtures/workspaces/invalid-(workspace-toml|resource-toml)/|
-            tests/fixtures/workspaces/invalid-workspace-file-toml/(qualifiers|variables)/broken\.toml|
-            tests/fixtures/workspaces/invalid-workspace-toml/rototo-workspace\.toml|
-            tests/fixtures/workspaces/rules/parse/(qualifier-parse-failed/qualifiers|variable-parse-failed/variables)/broken\.toml|
-            tests/fixtures/workspaces/rules/parse/variable-external-value-parse-failed/variables/external-message-values/broken\.toml|
-            tests/fixtures/workspaces/rules/parse/workspace-manifest-parse-failed/rototo-workspace\.toml
+            tests/fixtures/packages/invalid-package-file-toml/(qualifiers|variables)/broken\.toml|
+            tests/fixtures/packages/invalid-package-toml/rototo-package\.toml|
+            tests/fixtures/packages/rules/parse/(qualifier-parse-failed/qualifiers|variable-parse-failed/variables)/broken\.toml|
+            tests/fixtures/packages/rules/parse/variable-external-value-parse-failed/variables/external-message-values/broken\.toml|
+            tests/fixtures/packages/rules/parse/package-manifest-parse-failed/rototo-package\.toml
           )
       - id: mixed-line-ending
         args: [--fix=lf]

@@ -1,0 +1,11 @@
+schema_version = 1
+
+description = "Variable whose rule compares a string-typed context path as if it were a number"
+type = "string"
+
+[resolve]
+default = "control"
+
+[[resolve.rule]]
+when = 'context.user.plan >= 5'
+value = "treatment"

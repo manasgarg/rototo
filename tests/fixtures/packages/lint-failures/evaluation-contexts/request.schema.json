@@ -1,0 +1,23 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "description": "Evaluation context that declares the request attributes used by fixture qualifiers.",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "user": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "tier": {
+          "type": "string"
+        },
+        "plan": {
+          "type": "string"
+        }
+      }
+    }
+  }
+}

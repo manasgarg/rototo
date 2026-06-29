@@ -1,87 +1,118 @@
-use std::fs;
-
 use assert_cmd::Command;
+use assert_cmd::cargo::cargo_bin;
 use predicates::prelude::*;
-use rototo::Workspace;
 
 #[test]
-fn fixtures_command_generates_readable_toml_suite() {
-    let temp = tempfile::tempdir().unwrap();
-    let out = temp.path().join("fixtures");
-
+fn fixtures_command_prints_resolve_commands() {
     Command::cargo_bin("rototo")
         .unwrap()
         .args([
             "fixtures",
             "examples/basic",
             "--variable",
-            "max-output-tokens",
+            "user-is-admin",
             "--qualifier",
             "premium-users",
-            "--qualifier",
-            "beta-rollout-bucket",
-            "--out",
-            out.to_str().unwrap(),
         ])
         .assert()
         .success()
-        .stdout(predicate::str::contains("rototo-fixtures.toml"))
-        .stdout(predicate::str::contains("variables/max-output-tokens.toml"))
-        .stdout(predicate::str::contains("qualifiers/premium-users.toml"));
-
-    let manifest = fs::read_to_string(out.join("rototo-fixtures.toml")).unwrap();
-    assert!(manifest.contains("target = \"variable:max-output-tokens\""));
-    assert!(manifest.contains("target = \"qualifier:premium-users\""));
-
-    let variable = fs::read_to_string(out.join("variables/max-output-tokens.toml")).unwrap();
-    assert!(variable.contains("case = []"));
-
-    let bucket = fs::read_to_string(out.join("qualifiers/beta-rollout-bucket.toml")).unwrap();
-    assert!(bucket.contains("id = \"does-not-match\""));
-    assert!(bucket.contains("value = false"));
+        .stdout(predicate::str::contains(
+            "rototo resolve examples/basic --variable user-is-admin",
+        ))
+        .stdout(predicate::str::contains(
+            "rototo resolve examples/basic --qualifier premium-users --context",
+        ))
+        .stdout(predicate::str::contains("# =>"));
 }
 
 #[test]
-fn fixtures_command_defaults_to_whole_workspace() {
-    let temp = tempfile::tempdir().unwrap();
-    let out = temp.path().join("fixtures");
-
+fn fixtures_command_defaults_to_whole_package() {
     Command::cargo_bin("rototo")
         .unwrap()
-        .args(["fixtures", "examples/basic", "--out", out.to_str().unwrap()])
+        .args(["fixtures", "examples/basic"])
         .assert()
-        .success();
-
-    let manifest = fs::read_to_string(out.join("rototo-fixtures.toml")).unwrap();
-    assert!(manifest.contains("target = \"qualifier:premium-users\""));
-    assert!(manifest.contains("target = \"variable:max-output-tokens\""));
+        .success()
+        .stdout(predicate::str::contains("--variable user-is-admin"))
+        .stdout(predicate::str::contains("--qualifier premium-users"));
 }
 
-#[tokio::test]
-async fn testing_helper_asserts_generated_fixtures() {
-    let temp = tempfile::tempdir().unwrap();
-    let out = temp.path().join("fixtures");
+#[test]
+fn fixtures_command_renders_json_context_form() {
+    Command::cargo_bin("rototo")
+        .unwrap()
+        .args([
+            "fixtures",
+            "examples/basic",
+            "--qualifier",
+            "premium-users",
+            "--context-form",
+            "json",
+        ])
+        .assert()
+        .success()
+        // A single JSON object argument, shell-quoted.
+        .stdout(predicate::str::contains("--context '{"));
+}
 
+#[test]
+fn fixtures_command_json_output_describes_invocations() {
     Command::cargo_bin("rototo")
         .unwrap()
         .args([
             "fixtures",
             "examples/basic",
             "--variable",
-            "max-output-tokens",
-            "--qualifier",
-            "premium-users",
-            "--qualifier",
-            "beta-rollout-bucket",
-            "--out",
-            out.to_str().unwrap(),
+            "user-is-admin",
+            "--json",
         ])
         .assert()
-        .success();
+        .success()
+        .stdout(predicate::str::contains(
+            "\"target\": \"variable:user-is-admin\"",
+        ))
+        .stdout(predicate::str::contains("\"command\":"))
+        .stdout(predicate::str::contains("\"expect\":"))
+        .stdout(predicate::str::contains("\"kind\":"));
+}
 
-    let workspace = Workspace::load("examples/basic").await.unwrap();
-    let report = rototo::testing::assert_fixtures(&workspace, &out)
-        .await
+/// The printed commands must be runnable: feeding one back through a real shell
+/// (which undoes the shell-quoting) and the real resolve `--context` parser must
+/// succeed, proving rendering is the inverse of parsing.
+#[test]
+fn printed_resolve_command_runs_end_to_end() {
+    let output = Command::cargo_bin("rototo")
+        .unwrap()
+        .env("NO_COLOR", "1")
+        .args(["fixtures", "examples/basic", "--variable", "user-is-admin"])
+        .output()
         .unwrap();
-    assert_eq!(report.cases, 2);
+    assert!(output.status.success());
+    let stdout = String::from_utf8(output.stdout).unwrap();
+
+    // Pick a command line that carries a context, stripping the trailing comment.
+    let line = stdout
+        .lines()
+        .filter(|line| line.trim_start().starts_with("rototo resolve"))
+        .find(|line| line.contains("--context"))
+        .expect("expected a resolve command with a context");
+    let command = line.split("  #").next().unwrap().trim();
+
+    let bin = cargo_bin("rototo");
+    let bin_dir = bin.parent().unwrap();
+    let path = format!(
+        "{}:{}",
+        bin_dir.display(),
+        std::env::var("PATH").unwrap_or_default()
+    );
+    let run = std::process::Command::new("sh")
+        .arg("-c")
+        .arg(command)
+        .env("PATH", path)
+        .output()
+        .unwrap();
+    assert!(
+        run.status.success(),
+        "command failed: {command}\nstderr: {}",
+        String::from_utf8_lossy(&run.stderr)
+    );
 }

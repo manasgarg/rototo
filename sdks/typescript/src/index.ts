@@ -3,9 +3,15 @@ import {
     type JsonValue,
     type RefreshOutcome,
     type RefreshStatusJson,
+    type PackageIdentityJson,
+    type PackageLayerIdentityJson,
+    type RefreshSnapshotJson,
+    type RefreshEventJson,
+    type RefreshEventSummaryJson,
+    type SdkIdentityJson,
     type VariableResolutionJson,
     type VariableResolutionSourceJson,
-    type WorkspaceLintJson,
+    type PackageLintJson,
     native,
 } from "./native.js";
 
@@ -14,27 +20,49 @@ export type {
     JsonValue,
     RefreshOutcome,
     RefreshStatusJson,
+    PackageIdentityJson,
+    PackageLayerIdentityJson,
+    RefreshSnapshotJson,
+    RefreshEventJson,
+    RefreshEventSummaryJson,
+    SdkIdentityJson,
     VariableResolutionJson,
     VariableResolutionSourceJson,
-    WorkspaceLintJson,
+    PackageLintJson,
 };
+
+export type PackageLayerIdentity = PackageLayerIdentityJson;
+export type PackageIdentity = PackageIdentityJson;
+export type RefreshEventSummary = RefreshEventSummaryJson;
+export type RefreshSnapshot = RefreshSnapshotJson;
+export type RefreshEvent = RefreshEventJson;
+export type SdkIdentity = SdkIdentityJson;
+
+/** One item from a resolution trace stream: a captured trace, or a marker that
+ * a lagging consumer dropped `count` traces. */
+export type TraceStreamItem =
+    | { kind: "trace"; trace: Record<string, unknown> }
+    | { kind: "dropped"; count: number };
 
 export type LintMode = "deny" | "skip";
 
 export type LoadOptions = {
-    workspaceToken?: string;
+    packageToken?: string;
     lint?: LintMode;
 };
 
 export type InspectOptions = {
-    workspaceToken?: string;
+    packageToken?: string;
 };
 
 export type ResolveOptions = {
     validateContext?: boolean;
+    /** Emit a resolution trace for this call onto the trace stream. Only
+     * produces output while something is subscribed via `traceEvents()`. */
+    trace?: boolean;
 };
 
-export type RefreshingWorkspaceOptions = LoadOptions & {
+export type RefreshingPackageOptions = LoadOptions & {
     periodSeconds?: number;
 };
 
@@ -54,7 +82,7 @@ export type RefreshStatus = {
     immutable: boolean;
 };
 
-export type WorkspaceLint = {
+export type PackageLint = {
     root: string;
     diagnostics: JsonValue[];
 };
@@ -165,8 +193,8 @@ export type ReferenceModel = {
 };
 
 /* The serializable projection of rototo's semantic and reference indexes.
-   Tools consume this instead of parsing workspace files themselves. */
-export type WorkspaceSemanticModel = {
+   Tools consume this instead of parsing package files themselves. */
+export type PackageSemanticModel = {
     version: number;
     qualifiers: QualifierModel[];
     variables: VariableModel[];
@@ -191,20 +219,20 @@ export function version(): string {
     return VERSION;
 }
 
-export class Workspace {
-    private constructor(private readonly inner: NativeWorkspaceHandle) {}
+export class Package {
+    private constructor(private readonly inner: NativePackageHandle) {}
 
     static async load(
         source: string,
         options: LoadOptions = {},
-    ): Promise<Workspace> {
+    ): Promise<Package> {
         try {
-            const inner = await native._Workspace.load(
+            const inner = await native._Package.load(
                 String(source),
-                options.workspaceToken,
+                options.packageToken,
                 options.lint ?? "deny",
             );
-            return new Workspace(inner);
+            return new Package(inner);
         } catch (error) {
             throw toRototoError(error);
         }
@@ -213,13 +241,13 @@ export class Workspace {
     static async inspect(
         source: string,
         options: InspectOptions = {},
-    ): Promise<Workspace> {
+    ): Promise<Package> {
         try {
-            const inner = await native._Workspace.inspect(
+            const inner = await native._Package.inspect(
                 String(source),
-                options.workspaceToken,
+                options.packageToken,
             );
-            return new Workspace(inner);
+            return new Package(inner);
         } catch (error) {
             throw toRototoError(error);
         }
@@ -229,7 +257,11 @@ export class Workspace {
         return this.inner.root();
     }
 
-    async lint(): Promise<WorkspaceLint> {
+    identity(): PackageIdentity {
+        return this.inner.identity();
+    }
+
+    async lint(): Promise<PackageLint> {
         try {
             return await this.inner.lint();
         } catch (error) {
@@ -237,95 +269,119 @@ export class Workspace {
         }
     }
 
-    async semanticModel(): Promise<WorkspaceSemanticModel> {
+    async semanticModel(): Promise<PackageSemanticModel> {
         try {
-            return (await this.inner.semanticModel()) as WorkspaceSemanticModel;
+            return (await this.inner.semanticModel()) as PackageSemanticModel;
         } catch (error) {
             throw toRototoError(error);
         }
     }
 
-    async resolveVariable(
+    resolveVariable(
         id: string,
         context: JsonObject,
         options: ResolveOptions = {},
-    ): Promise<VariableResolution> {
+    ): VariableResolution {
         try {
-            return await this.inner.resolveVariable(
+            return this.inner.resolveVariable(
                 id,
                 context,
                 options.validateContext ?? true,
+                options.trace ?? false,
             );
         } catch (error) {
             throw toRototoError(error);
         }
     }
 
-    async resolveQualifier(
+    resolveQualifier(
         id: string,
         context: JsonObject,
         options: ResolveOptions = {},
-    ): Promise<boolean> {
+    ): boolean {
         try {
-            return await this.inner.resolveQualifier(
+            return this.inner.resolveQualifier(
                 id,
                 context,
                 options.validateContext ?? true,
+                options.trace ?? false,
             );
         } catch (error) {
             throw toRototoError(error);
+        }
+    }
+
+    /* Yield resolution trace stream items as they occur. Tracing is computed
+       only while this iterator is consumed; with no subscriber a `[[trace]]`
+       policy costs nothing. */
+    async *traceEvents(): AsyncGenerator<TraceStreamItem, void, void> {
+        const events = this.inner.subscribeTraceEvents();
+        for (;;) {
+            let item: TraceStreamItem | null;
+            try {
+                item =
+                    (await events.recv()) as unknown as TraceStreamItem | null;
+            } catch (error) {
+                throw toRototoError(error);
+            }
+            if (item === null) {
+                return;
+            }
+            yield item;
         }
     }
 }
 
-export class RefreshingWorkspace {
+export class RefreshingPackage {
     private constructor(
-        private readonly inner: NativeRefreshingWorkspaceHandle,
+        private readonly inner: NativeRefreshingPackageHandle,
     ) {}
 
     static async load(
         source: string,
-        options: RefreshingWorkspaceOptions = {},
-    ): Promise<RefreshingWorkspace> {
+        options: RefreshingPackageOptions = {},
+    ): Promise<RefreshingPackage> {
         try {
-            const inner = await native._RefreshingWorkspace.load(
+            const inner = await native._RefreshingPackage.load(
                 String(source),
                 options.periodSeconds,
-                options.workspaceToken,
+                options.packageToken,
                 options.lint ?? "deny",
             );
-            return new RefreshingWorkspace(inner);
+            return new RefreshingPackage(inner);
         } catch (error) {
             throw toRototoError(error);
         }
     }
 
-    async resolveVariable(
+    resolveVariable(
         id: string,
         context: JsonObject,
         options: ResolveOptions = {},
-    ): Promise<VariableResolution> {
+    ): VariableResolution {
         try {
-            return await this.inner.resolveVariable(
+            return this.inner.resolveVariable(
                 id,
                 context,
                 options.validateContext ?? true,
+                options.trace ?? false,
             );
         } catch (error) {
             throw toRototoError(error);
         }
     }
 
-    async resolveQualifier(
+    resolveQualifier(
         id: string,
         context: JsonObject,
         options: ResolveOptions = {},
-    ): Promise<boolean> {
+    ): boolean {
         try {
-            return await this.inner.resolveQualifier(
+            return this.inner.resolveQualifier(
                 id,
                 context,
                 options.validateContext ?? true,
+                options.trace ?? false,
             );
         } catch (error) {
             throw toRototoError(error);
@@ -348,6 +404,59 @@ export class RefreshingWorkspace {
         }
     }
 
+    async identity(): Promise<PackageIdentity> {
+        try {
+            return await this.inner.identity();
+        } catch (error) {
+            throw toRototoError(error);
+        }
+    }
+
+    async snapshot(): Promise<RefreshSnapshot> {
+        try {
+            return await this.inner.snapshot();
+        } catch (error) {
+            throw toRototoError(error);
+        }
+    }
+
+    /* Yield refresh events as they occur. The stream ends when the package is
+       shut down. A lagging consumer skips dropped events rather than erroring;
+       recover ground truth from `snapshot()`. */
+    async *refreshEvents(): AsyncGenerator<RefreshEvent, void, void> {
+        const events = this.inner.subscribeEvents();
+        for (;;) {
+            let event: RefreshEvent | null;
+            try {
+                event = await events.recv();
+            } catch (error) {
+                throw toRototoError(error);
+            }
+            if (event === null) {
+                return;
+            }
+            yield event;
+        }
+    }
+
+    /* Yield resolution trace stream items as they occur. */
+    async *traceEvents(): AsyncGenerator<TraceStreamItem, void, void> {
+        const events = this.inner.subscribeTraceEvents();
+        for (;;) {
+            let item: TraceStreamItem | null;
+            try {
+                item =
+                    (await events.recv()) as unknown as TraceStreamItem | null;
+            } catch (error) {
+                throw toRototoError(error);
+            }
+            if (item === null) {
+                return;
+            }
+            yield item;
+        }
+    }
+
     async shutdown(): Promise<void> {
         try {
             await this.inner.shutdown();
@@ -357,9 +466,9 @@ export class RefreshingWorkspace {
     }
 }
 
-type NativeWorkspaceHandle = Awaited<ReturnType<typeof native._Workspace.load>>;
-type NativeRefreshingWorkspaceHandle = Awaited<
-    ReturnType<typeof native._RefreshingWorkspace.load>
+type NativePackageHandle = Awaited<ReturnType<typeof native._Package.load>>;
+type NativeRefreshingPackageHandle = Awaited<
+    ReturnType<typeof native._RefreshingPackage.load>
 >;
 
 function toRototoError(error: unknown): RototoError {

@@ -7,5 +7,5 @@ type = "bool"
 default = false
 
 [[resolve.rule]]
-when = 'qualifier["admin-users"]'
+when = 'env.qualifier["admin-users"]'
 value = true

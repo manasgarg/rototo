@@ -1,0 +1,29 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "description": "Evaluation context contract for request runtime inputs.",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "account": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "plan": {
+          "type": "string"
+        },
+        "seats": {
+          "type": "integer"
+        }
+      }
+    },
+    "request": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "region": {
+          "type": "string"
+        }
+      }
+    }
+  }
+}

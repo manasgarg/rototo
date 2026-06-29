@@ -5,44 +5,49 @@ import java.nio.file.Path;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicReference;
 
 public final class JavaSdkTest {
     public static void main(String[] args) throws Exception {
         api();
         contract();
         refresh();
+        events();
+        traceEvents();
+        perCallTrace();
     }
 
     private static void api() throws Exception {
         assertEquals(expectedVersion(), Rototo.version(), "version");
-        try (Workspace workspace = await(Workspace.load("examples/basic"))) {
-            VariableResolution variable = await(workspace.resolveVariable(
+        try (Package pkg = await(Package.load("examples/basic"))) {
+            VariableResolution variable = pkg.resolveVariable(
                     "premium-message",
-                    Map.of("user", Map.of("tier", "premium"))));
+                    Map.of("user", Map.of("tier", "premium")));
             assertEquals("premium-message", variable.id(), "variable id");
             assertEquals(Map.of("kind", "literal"), variable.source(), "source");
             assertEquals("Welcome back, premium member.", variable.value(), "value");
 
-            Boolean qualifier = await(workspace.resolveQualifier(
+            Boolean qualifier = pkg.resolveQualifier(
                     "premium-users",
-                    Map.of("user", Map.of("tier", "free"))));
+                    Map.of("user", Map.of("tier", "free")));
             assertEquals(false, qualifier, "qualifier value");
 
-            VariableResolution skippedValidation = await(workspace.resolveVariable(
+            VariableResolution skippedValidation = pkg.resolveVariable(
                     "premium-message",
                     Map.of("user", Map.of("tier", Map.of("bad", "shape"))),
-                    ResolveOptions.validateContext(false)));
+                    ResolveOptions.validateContext(false));
             assertEquals(Map.of("kind", "literal"), skippedValidation.source(), "validation skip fallback");
         }
 
-        try (Workspace inspected = await(Workspace.inspect("examples/basic"))) {
-            WorkspaceLint lint = await(inspected.lint());
+        try (Package inspected = await(Package.inspect("examples/basic"))) {
+            PackageLint lint = await(inspected.lint());
             assertEquals(0, lint.diagnostics().size(), "inspection lint diagnostics");
             assertRototoError(
-                    inspected.resolveVariable("premium-message", Map.of()),
-                    "workspace was loaded without a runtime model");
+                    () -> inspected.resolveVariable("premium-message", Map.of()),
+                    "package was loaded without a runtime model");
         }
     }
 
@@ -55,12 +60,12 @@ public final class JavaSdkTest {
             Map<String, Object> testCase = Json.asObject(Json.parse(line));
             String name = Json.asString(testCase.get("name"));
             String operation = Json.asString(testCase.get("operation"));
-            String workspaceSource = Json.asString(testCase.get("workspace"));
+            String packageSource = Json.asString(testCase.get("package"));
             Map<String, Object> expect = Json.asObject(testCase.get("expect"));
             boolean ok = Json.asBoolean(expect.get("ok"));
 
-            if (operation.equals("load_workspace")) {
-                CompletableFuture<Workspace> future = Workspace.load(workspaceSource);
+            if (operation.equals("load_package")) {
+                CompletableFuture<Package> future = Package.load(packageSource);
                 if (ok) {
                     await(future).close();
                 } else {
@@ -69,25 +74,36 @@ public final class JavaSdkTest {
                 continue;
             }
 
-            try (Workspace workspace = await(Workspace.load(workspaceSource))) {
+            try (Package pkg = await(Package.load(packageSource))) {
                 switch (operation) {
-                    case "lint_workspace":
+                    case "lint_package":
                         if (ok) {
-                            WorkspaceLint lint = await(workspace.lint());
+                            PackageLint lint = await(pkg.lint());
                             assertEquals(
                                     Json.asLong(expect.get("diagnostics")),
                                     (long) lint.diagnostics().size(),
                                     name + " diagnostics");
                         } else {
-                            assertRototoError(workspace.lint(), expectedError(expect));
+                            assertRototoError(pkg.lint(), expectedError(expect));
                         }
                         break;
                     case "resolve_qualifier":
-                        runQualifierCase(name, workspace, testCase, expect, ok);
+                        runQualifierCase(name, pkg, testCase, expect, ok);
                         break;
                     case "resolve_variable":
-                        runVariableCase(name, workspace, testCase, expect, ok);
+                        runVariableCase(name, pkg, testCase, expect, ok);
                         break;
+                    case "package_identity": {
+                        Map<String, Object> result = Json.asObject(expect.get("result"));
+                        PackageIdentity identity = pkg.identity();
+                        assertEquals(
+                                result.get("releaseId") == null,
+                                identity.releaseId() == null,
+                                name + " releaseId");
+                        assertEquals(
+                                result.get("immutable"), identity.immutable(), name + " immutable");
+                        break;
+                    }
                     default:
                         throw new AssertionError("unsupported contract operation: " + operation);
                 }
@@ -97,54 +113,184 @@ public final class JavaSdkTest {
 
     private static void runQualifierCase(
             String name,
-            Workspace workspace,
+            Package pkg,
             Map<String, Object> testCase,
             Map<String, Object> expect,
             boolean ok) throws Exception {
-        CompletableFuture<Boolean> future = workspace.resolveQualifier(
-                Json.asString(testCase.get("id")),
-                Json.asObject(testCase.get("context")));
         if (!ok) {
-            assertRototoError(future, expectedError(expect));
+            assertRototoError(
+                    () -> pkg.resolveQualifier(
+                            Json.asString(testCase.get("id")),
+                            Json.asObject(testCase.get("context"))),
+                    expectedError(expect));
             return;
         }
-        Boolean actual = await(future);
+        Boolean actual = pkg.resolveQualifier(
+                Json.asString(testCase.get("id")),
+                Json.asObject(testCase.get("context")));
         assertEquals(Json.asBoolean(expect.get("result")), actual, name + " value");
     }
 
     private static void runVariableCase(
             String name,
-            Workspace workspace,
+            Package pkg,
             Map<String, Object> testCase,
             Map<String, Object> expect,
             boolean ok) throws Exception {
-        CompletableFuture<VariableResolution> future = workspace.resolveVariable(
-                Json.asString(testCase.get("id")),
-                Json.asObject(testCase.get("context")));
         if (!ok) {
-            assertRototoError(future, expectedError(expect));
+            assertRototoError(
+                    () -> pkg.resolveVariable(
+                            Json.asString(testCase.get("id")),
+                            Json.asObject(testCase.get("context"))),
+                    expectedError(expect));
             return;
         }
         Map<String, Object> result = Json.asObject(expect.get("result"));
-        VariableResolution actual = await(future);
+        VariableResolution actual = pkg.resolveVariable(
+                Json.asString(testCase.get("id")),
+                Json.asObject(testCase.get("context")));
         assertEquals(Json.asString(result.get("id")), actual.id(), name + " id");
         assertEquals(result.get("value"), actual.value(), name + " value");
         assertEquals(result.get("source"), actual.source(), name + " source");
     }
 
     private static void refresh() throws Exception {
-        RefreshingWorkspaceOptions options = RefreshingWorkspaceOptions.builder()
+        RefreshingPackageOptions options = RefreshingPackageOptions.builder()
                 .periodSeconds(30.0)
                 .build();
-        try (RefreshingWorkspace workspace = await(RefreshingWorkspace.load("examples/basic", options))) {
-            VariableResolution resolution = await(workspace.resolveVariable(
+        try (RefreshingPackage pkg = await(RefreshingPackage.load("examples/basic", options))) {
+            VariableResolution resolution = pkg.resolveVariable(
                     "premium-message",
-                    Map.of("user", Map.of("tier", "premium"))));
+                    Map.of("user", Map.of("tier", "premium")));
             assertEquals(Map.of("kind", "literal"), resolution.source(), "refreshing resolution");
-            RefreshStatus status = await(workspace.status());
+            RefreshStatus status = await(pkg.status());
             assertEquals(0L, status.consecutiveFailures(), "consecutive failures");
             assertEquals(false, status.refreshing(), "refreshing flag");
-            await(workspace.shutdown());
+            await(pkg.shutdown());
+        }
+    }
+
+    private static void events() throws Exception {
+        Path root = Files.createTempDirectory("rototo-java-events");
+        writeMessagePackage(root, "hello");
+        try (RefreshingPackage pkg = await(RefreshingPackage.load(root.toString()))) {
+            PackageIdentity identity = await(pkg.identity());
+            // A local directory has no fingerprint, so no derived release id.
+            assertEquals(true, identity.releaseId() == null, "local release id");
+
+            RefreshSnapshot snapshot = await(pkg.snapshot());
+            assertEquals(false, snapshot.lastSuccess() == null, "snapshot last success present");
+            assertEquals("loaded", snapshot.lastEvent().eventType(), "snapshot last event type");
+
+            CountDownLatch refreshed = new CountDownLatch(1);
+            AtomicReference<RefreshEvent> captured = new AtomicReference<>();
+            pkg.addRefreshListener(event -> {
+                if ("refreshed".equals(event.eventType())) {
+                    captured.set(event);
+                    refreshed.countDown();
+                }
+            });
+
+            writeMessagePackage(root, "updated");
+            String outcome = await(pkg.refreshNow());
+            assertEquals("refreshed", outcome, "refresh outcome");
+
+            if (!refreshed.await(5, TimeUnit.SECONDS)) {
+                throw new AssertionError("did not observe a refreshed event");
+            }
+            RefreshEvent event = captured.get();
+            assertEquals(1L, event.schemaVersion(), "event schema version");
+            assertEquals("rust", event.sdk().language(), "event sdk language");
+            assertEquals(false, event.current() == null, "event has current identity");
+
+            await(pkg.shutdown());
+        } finally {
+            deleteRecursively(root);
+        }
+    }
+
+    private static void traceEvents() throws Exception {
+        Path root = Files.createTempDirectory("rototo-java-trace");
+        writeMessagePackage(root, "hello");
+        Files.writeString(
+                root.resolve("rototo-package.toml"),
+                "schema_version = 1\n\n[[trace]]\nwhen = 'env.resolving.variable == \"message\"'\n");
+        try (RefreshingPackage pkg = await(RefreshingPackage.load(root.toString()))) {
+            CountDownLatch traced = new CountDownLatch(1);
+            AtomicReference<java.util.Map<String, Object>> captured = new AtomicReference<>();
+            pkg.addTraceListener(item -> {
+                if ("trace".equals(item.get("kind"))) {
+                    captured.set(item);
+                    traced.countDown();
+                }
+            });
+
+            pkg.resolveVariable("message", java.util.Map.of());
+
+            if (!traced.await(5, TimeUnit.SECONDS)) {
+                throw new AssertionError("did not observe a package-driven trace event");
+            }
+            Object trace = captured.get().get("trace");
+            java.util.Map<String, Object> traceMap = Json.asObject(trace);
+            assertEquals("message", traceMap.get("targetId"), "trace targetId");
+            assertEquals("variable", traceMap.get("targetKind"), "trace targetKind");
+
+            await(pkg.shutdown());
+        } finally {
+            deleteRecursively(root);
+        }
+    }
+
+    private static void perCallTrace() throws Exception {
+        Path root = Files.createTempDirectory("rototo-java-call-trace");
+        // No [[trace]] policy: the trace is requested by the call itself.
+        writeMessagePackage(root, "hello");
+        try (RefreshingPackage pkg = await(RefreshingPackage.load(root.toString()))) {
+            CountDownLatch traced = new CountDownLatch(1);
+            AtomicReference<java.util.Map<String, Object>> captured = new AtomicReference<>();
+            pkg.addTraceListener(item -> {
+                if ("trace".equals(item.get("kind"))) {
+                    captured.set(item);
+                    traced.countDown();
+                }
+            });
+
+            pkg.resolveVariable("message", java.util.Map.of(), ResolveOptions.trace(true));
+
+            if (!traced.await(5, TimeUnit.SECONDS)) {
+                throw new AssertionError("did not observe a per-call trace event");
+            }
+            Object trace = captured.get().get("trace");
+            java.util.Map<String, Object> traceMap = Json.asObject(trace);
+            assertEquals("message", traceMap.get("targetId"), "trace targetId");
+            assertEquals("variable", traceMap.get("targetKind"), "trace targetKind");
+
+            await(pkg.shutdown());
+        } finally {
+            deleteRecursively(root);
+        }
+    }
+
+    private static void writeMessagePackage(Path root, String message) throws Exception {
+        Files.createDirectories(root.resolve("variables"));
+        Files.writeString(root.resolve("rototo-package.toml"), "schema_version = 1\n");
+        Files.writeString(
+                root.resolve("variables").resolve("message.toml"),
+                "schema_version = 1\ntype = \"string\"\n\n[resolve]\ndefault = \"" + message + "\"\n");
+    }
+
+    private static void deleteRecursively(Path root) throws Exception {
+        if (!Files.exists(root)) {
+            return;
+        }
+        try (java.util.stream.Stream<Path> walk = Files.walk(root)) {
+            walk.sorted(java.util.Comparator.reverseOrder()).forEach(path -> {
+                try {
+                    Files.deleteIfExists(path);
+                } catch (Exception ignored) {
+                    // best effort cleanup
+                }
+            });
         }
     }
 
@@ -171,6 +317,24 @@ public final class JavaSdkTest {
             return;
         }
         throw new AssertionError("expected RototoException containing " + contains);
+    }
+
+    private static void assertRototoError(ThrowingRunnable runnable, String contains) throws Exception {
+        try {
+            runnable.run();
+        } catch (RototoException error) {
+            if (!error.getMessage().contains(contains)) {
+                throw new AssertionError(
+                        "expected error containing " + contains + ", got " + error.getMessage());
+            }
+            return;
+        }
+        throw new AssertionError("expected RototoException containing " + contains);
+    }
+
+    @FunctionalInterface
+    private interface ThrowingRunnable {
+        void run() throws Exception;
     }
 
     private static void assertEquals(Object expected, Object actual, String label) {

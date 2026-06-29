@@ -6,23 +6,17 @@ use axum::Json;
 use axum::extract::{Request, State};
 use axum::http::{HeaderMap, Method, StatusCode, header};
 use axum::middleware::Next;
-use axum::response::{IntoResponse, Redirect, Response};
+use axum::response::{IntoResponse, Response};
 use axum::routing::{get, post};
-use base64::Engine;
-use base64::engine::general_purpose::URL_SAFE_NO_PAD;
-use ring::rand::{SecureRandom, SystemRandom};
 use serde_json::{Value as JsonValue, json};
 
 use crate::error::RototoError;
 
 use super::ConsoleStateMode;
-use super::auth::{
-    GITHUB_OAUTH_SCOPES, GitHubCredentialSource, HostedOAuth, LocalAuth, OAUTH_STATE_COOKIE,
-    SESSION_COOKIE, cookie_value, session_from_headers, set_cookie,
-};
+use super::auth::{HostedOAuth, LocalAuth, session_from_headers};
 use super::capabilities::{DeploymentType, WritePolicy};
 use super::github::{self, GitHubClient, GitHubError};
-use super::identity::{ActorIdentity, resolve_git_config_identity};
+use super::identity::resolve_git_config_identity;
 use super::local_git;
 use super::lsp::LspSessions;
 use super::observability::{
@@ -31,9 +25,12 @@ use super::observability::{
 use super::runtime_config::{ConsoleRuntimeConfig, RequestObservabilityContext};
 use super::stage::StageCache;
 use super::store::{
-    ActiveBranchWithWorkspaceRecord, NewSession, RequestContextNames, SessionUser,
-    SourceTreeWithWorkspaces, Store, WorkspaceRecord,
+    ActiveBranchWithPackageRecord, PackageRecord, RequestContextNames, SessionUser,
+    SourceTreeWithPackages, Store,
 };
+
+mod auth_routes;
+mod source_trees;
 
 /// Process-wide console dependencies shared by every API route.
 ///
@@ -47,7 +44,7 @@ pub struct ConsoleState {
     pub oauth: Option<HostedOAuth>,
     pub state_mode: ConsoleStateMode,
     pub write_policy: WritePolicy,
-    pub fixed_workspace_source: Option<String>,
+    pub fixed_package_source: Option<String>,
     pub store: Store,
     pub github: GitHubClient,
     pub stage: StageCache,
@@ -131,26 +128,26 @@ pub type ApiResult<T> = std::result::Result<T, ApiError>;
 
 pub fn router(state: SharedState) -> axum::Router {
     let mut api = axum::Router::new()
-        .route("/me", get(me))
-        .route("/auth/logout", post(logout))
-        .route("/auth/github/start", get(oauth_start))
-        .route("/auth/github/callback", get(oauth_callback))
-        .route("/auth/device/start", post(device_start))
-        .route("/auth/device/poll", post(device_poll))
+        .route("/me", get(auth_routes::me))
+        .route("/auth/logout", post(auth_routes::logout))
+        .route("/auth/github/start", get(auth_routes::oauth_start))
+        .route("/auth/github/callback", get(auth_routes::oauth_callback))
+        .route("/auth/device/start", post(auth_routes::device_start))
+        .route("/auth/device/poll", post(auth_routes::device_poll))
         .route("/console", get(console_data))
         .route(
             "/source-trees",
-            get(source_trees_list).post(source_trees_register),
+            get(source_trees::source_trees_list).post(source_trees::source_trees_register),
         )
         .route(
             "/source-trees/{source_tree_id}",
-            axum::routing::delete(source_tree_delete),
+            axum::routing::delete(source_trees::source_tree_delete),
         )
         .route(
             "/source-trees/{source_tree_id}/refresh",
-            post(source_tree_refresh),
+            post(source_trees::source_tree_refresh),
         )
-        .merge(super::api_workspace::routes())
+        .merge(super::api_package::routes())
         .merge(super::api_branch::routes());
     if state.observability.is_some() {
         api = api.route("/dev/observability/events", post(dev_observability_event));
@@ -249,9 +246,9 @@ async fn record_api_request(
         deployment = state.deployment.label(),
         host = observed.host.as_deref(),
         repo = observed.names.repo.as_deref(),
-        workspace = observed.names.workspace.as_deref(),
+        package = observed.names.package.as_deref(),
         branch = observed.names.branch.as_deref(),
-        workspace_id = observed.route.workspace_id.as_deref(),
+        package_id = observed.route.package_id.as_deref(),
         branch_id = observed.route.branch_id.as_deref(),
         error_class = error_class(status),
         request_tracing_filter = %policy.tracing.filter,
@@ -272,10 +269,10 @@ async fn record_api_request(
                 "deployment": state.deployment.label(),
                 "host": observed.host.as_deref(),
                 "repo": observed.names.repo.as_deref(),
-                "workspace": observed.names.workspace.as_deref(),
+                "package": observed.names.package.as_deref(),
                 "branch": observed.names.branch.as_deref(),
                 "mutating": observed.mutating,
-                "workspace_id": observed.route.workspace_id.as_deref(),
+                "package_id": observed.route.package_id.as_deref(),
                 "branch_id": observed.route.branch_id.as_deref(),
                 "error_class": error_class(status),
             }),
@@ -306,7 +303,7 @@ impl ObservedApiRequest {
             method: self.method.as_str().to_owned(),
             route: self.route.pattern.clone(),
             repo: self.names.repo.clone(),
-            workspace: self.names.workspace.clone(),
+            package: self.names.package.clone(),
             branch: self.names.branch.clone(),
             mutating: self.mutating,
             response_present,
@@ -320,11 +317,11 @@ impl ObservedApiRequest {
 /// Normalized request identity used by the development observability sink.
 ///
 /// The middleware derives this from the raw path for one request so metrics can
-/// group `/api/workspaces/<id>` style paths without storing every concrete id
+/// group `/api/packages/<id>` style paths without storing every concrete id
 /// as a separate route label.
 struct RouteObservability {
     pattern: String,
-    workspace_id: Option<String>,
+    package_id: Option<String>,
     branch_id: Option<String>,
 }
 
@@ -334,7 +331,7 @@ async fn request_context_names(
 ) -> RequestContextNames {
     match state
         .store
-        .request_context_names(route.workspace_id.as_deref(), route.branch_id.as_deref())
+        .request_context_names(route.package_id.as_deref(), route.branch_id.as_deref())
         .await
     {
         Ok(names) => names,
@@ -342,7 +339,7 @@ async fn request_context_names(
             tracing::warn!(
                 operation = "console.api.request_context",
                 error = %err,
-                workspace_id = route.workspace_id.as_deref(),
+                package_id = route.package_id.as_deref(),
                 branch_id = route.branch_id.as_deref(),
                 "console request context names could not be loaded"
             );
@@ -369,15 +366,15 @@ fn route_observability(path: &str) -> RouteObservability {
         .filter(|segment| !segment.is_empty())
         .collect::<Vec<_>>();
     let mut pattern = Vec::new();
-    let mut workspace_id = None;
+    let mut package_id = None;
     let mut branch_id = None;
     let mut index = 0;
     while index < segments.len() {
         let segment = segments[index];
         pattern.push(segment.to_owned());
-        if segment == "workspaces" && index + 1 < segments.len() {
-            workspace_id = Some(segments[index + 1].to_owned());
-            pattern.push(":workspace_id".to_owned());
+        if segment == "packages" && index + 1 < segments.len() {
+            package_id = Some(segments[index + 1].to_owned());
+            pattern.push(":package_id".to_owned());
             index += 2;
             continue;
         }
@@ -396,7 +393,7 @@ fn route_observability(path: &str) -> RouteObservability {
     }
     RouteObservability {
         pattern: format!("/{}", pattern.join("/")),
-        workspace_id,
+        package_id,
         branch_id,
     }
 }
@@ -466,9 +463,9 @@ pub async fn require_user(state: &ConsoleState, headers: &HeaderMap) -> ApiResul
                 }
                 Ok(None) => {
                     let local_root = state
-                        .fixed_workspace_source
+                        .fixed_package_source
                         .as_deref()
-                        .and_then(|source| local_git::workspace_root(source).ok());
+                        .and_then(|source| local_git::package_root(source).ok());
                     let identity = resolve_git_config_identity(local_root.as_deref())
                         .await
                         .map_err(ApiError::from)?;
@@ -490,9 +487,9 @@ pub async fn require_user(state: &ConsoleState, headers: &HeaderMap) -> ApiResul
                 }
                 Err(err) => {
                     let local_root = state
-                        .fixed_workspace_source
+                        .fixed_package_source
                         .as_deref()
-                        .and_then(|source| local_git::workspace_root(source).ok());
+                        .and_then(|source| local_git::package_root(source).ok());
                     let identity = resolve_git_config_identity(local_root.as_deref())
                         .await
                         .map_err(|_| ApiError {
@@ -534,45 +531,43 @@ pub fn source_token(user: &SessionUser) -> &str {
 pub(crate) async fn fixed_source_scope(
     state: &ConsoleState,
     principal_id: &str,
-) -> ApiResult<Option<SourceTreeWithWorkspaces>> {
-    let Some(source) = state.fixed_workspace_source.as_deref() else {
+) -> ApiResult<Option<SourceTreeWithPackages>> {
+    let Some(source) = state.fixed_package_source.as_deref() else {
         return Ok(None);
     };
-    let source_tree = super::register_fixed_workspace(state, principal_id, source).await?;
+    let source_tree = super::register_fixed_package(state, principal_id, source).await?;
     Ok(Some(source_tree))
 }
 
-pub(crate) fn fixed_source_workspace_ids(
-    fixed_source: &SourceTreeWithWorkspaces,
-) -> HashSet<String> {
+pub(crate) fn fixed_source_package_ids(fixed_source: &SourceTreeWithPackages) -> HashSet<String> {
     fixed_source
-        .workspaces
+        .packages
         .iter()
-        .map(|workspace| workspace.id.clone())
+        .map(|package| package.id.clone())
         .collect()
 }
 
-pub(crate) fn workspace_belongs_to_fixed_source(
-    workspace: &WorkspaceRecord,
-    fixed_source: &SourceTreeWithWorkspaces,
+pub(crate) fn package_belongs_to_fixed_source(
+    package: &PackageRecord,
+    fixed_source: &SourceTreeWithPackages,
 ) -> bool {
-    workspace.source_tree_id == fixed_source.source_tree.id
+    package.source_tree_id == fixed_source.source_tree.id
 }
 
 fn fixed_source_branch_filter(
-    branches: Vec<ActiveBranchWithWorkspaceRecord>,
-    fixed_source: &SourceTreeWithWorkspaces,
-) -> Vec<ActiveBranchWithWorkspaceRecord> {
+    branches: Vec<ActiveBranchWithPackageRecord>,
+    fixed_source: &SourceTreeWithPackages,
+) -> Vec<ActiveBranchWithPackageRecord> {
     branches
         .into_iter()
-        .filter(|entry| workspace_belongs_to_fixed_source(&entry.workspace, fixed_source))
+        .filter(|entry| package_belongs_to_fixed_source(&entry.package, fixed_source))
         .collect()
 }
 
-fn source_tree_management_allowed(state: &ConsoleState) -> ApiResult<()> {
-    if state.fixed_workspace_source.is_some() {
+pub(super) fn source_tree_management_allowed(state: &ConsoleState) -> ApiResult<()> {
+    if state.fixed_package_source.is_some() {
         return Err(ApiError::bad_request(
-            "this console was started with a fixed workspace source",
+            "this console was started with a fixed package source",
         ));
     }
     Ok(())
@@ -581,8 +576,8 @@ fn source_tree_management_allowed(state: &ConsoleState) -> ApiResult<()> {
 fn console_state_json(state: &ConsoleState) -> JsonValue {
     json!({
         "mode": state.state_mode.label(),
-        "fixedWorkspace": state.fixed_workspace_source.is_some(),
-        "canManageSourceTrees": state.fixed_workspace_source.is_none(),
+        "fixedPackage": state.fixed_package_source.is_some(),
+        "canManageSourceTrees": state.fixed_package_source.is_none(),
     })
 }
 
@@ -599,320 +594,14 @@ async fn dev_observability_event(
     Ok(Json(json!({ "ok": true })))
 }
 
-async fn me(State(state): State<SharedState>, headers: HeaderMap) -> Response {
-    let deployment = state.deployment.label();
-    let device_flow = state
-        .local
-        .as_ref()
-        .map(|local| local.device_flow_available())
-        .unwrap_or(false);
-    let (status, auth_error, user) = match state.deployment {
-        DeploymentType::Hosted => match session_from_headers(&state.store, &headers).await {
-            Some(user) => (StatusCode::OK, None, Some(user)),
-            None => (StatusCode::UNAUTHORIZED, None, None),
-        },
-        DeploymentType::Local => {
-            let local = state
-                .local
-                .as_ref()
-                .expect("local deployment has local auth");
-            match local.identity(&state.github).await {
-                Ok(Some(user)) => (StatusCode::OK, None, Some(user)),
-                Ok(None) => {
-                    let local_root = state
-                        .fixed_workspace_source
-                        .as_deref()
-                        .and_then(|source| local_git::workspace_root(source).ok());
-                    match resolve_git_config_identity(local_root.as_deref()).await {
-                        Ok(identity) => (
-                            StatusCode::OK,
-                            None,
-                            Some(SessionUser {
-                                session_hash: "local-git".to_owned(),
-                                principal_id: identity.principal_id(),
-                                identity,
-                                github_token: None,
-                            }),
-                        ),
-                        Err(err) => (StatusCode::OK, Some(err.to_string()), None),
-                    }
-                }
-                Err(err) => {
-                    let local_root = state
-                        .fixed_workspace_source
-                        .as_deref()
-                        .and_then(|source| local_git::workspace_root(source).ok());
-                    let user = resolve_git_config_identity(local_root.as_deref())
-                        .await
-                        .ok()
-                        .map(|identity| SessionUser {
-                            session_hash: "local-git".to_owned(),
-                            principal_id: identity.principal_id(),
-                            identity,
-                            github_token: None,
-                        });
-                    (StatusCode::OK, Some(err.to_string()), user)
-                }
-            }
-        }
-    };
-    let token_source = match state.deployment {
-        DeploymentType::Local => match state.local.as_ref() {
-            Some(local) => local.token().await.map(|ambient| ambient.source),
-            None => None,
-        },
-        DeploymentType::Hosted => user
-            .as_ref()
-            .and_then(|user| user.github_token.as_ref())
-            .map(|_| GitHubCredentialSource::OAuthSession),
-    };
-
-    let user_json = user.map(|user| {
-        let identity = user.identity.clone();
-        json!({
-            "principalId": user.principal_id,
-            "identity": identity,
-            "displayName": user.identity.display_login(),
-            "avatarUrl": user.identity.avatar_url(),
-            "hasGithubToken": user.github_token.is_some(),
-        })
-    });
-    (
-        status,
-        Json(json!({
-            "deployment": deployment,
-            "writePolicy": state.write_policy.label(),
-            "deviceFlow": device_flow,
-            "tokenSource": token_source,
-            "authError": auth_error,
-            "user": user_json,
-        })),
-    )
-        .into_response()
-}
-
-async fn logout(State(state): State<SharedState>, headers: HeaderMap) -> ApiResult<Response> {
-    if state.deployment != DeploymentType::Hosted {
-        tracing::info!(
-            operation = "console.auth.logout",
-            deployment = state.deployment.label(),
-            "console logout rejected outside hosted deployment"
-        );
-        return Err(ApiError::bad_request(
-            "logout only applies to hosted consoles",
-        ));
-    }
-    if let Some(token) = cookie_value(&headers, SESSION_COOKIE) {
-        state.store.delete_session(&token).await?;
-        tracing::info!(
-            operation = "console.auth.logout",
-            deployment = "hosted",
-            had_cookie = true,
-            "console hosted session deleted"
-        );
-    } else {
-        tracing::info!(
-            operation = "console.auth.logout",
-            deployment = "hosted",
-            had_cookie = false,
-            "console logout completed without session cookie"
-        );
-    }
-    let mut response = Json(json!({ "ok": true })).into_response();
-    response.headers_mut().insert(
-        header::SET_COOKIE,
-        set_cookie(SESSION_COOKIE, "", state.secure_cookies, Some(0))
-            .parse()
-            .expect("cookie value is valid"),
-    );
-    Ok(response)
-}
-
-async fn oauth_start(State(state): State<SharedState>) -> ApiResult<Response> {
-    let Some(oauth) = &state.oauth else {
-        return Err(ApiError::internal(
-            "GitHub OAuth client id and secret are required".to_owned(),
-        ));
-    };
-
-    let state_token = random_token(24)?;
-    state.store.create_oauth_state(&state_token).await?;
-
-    let redirect_uri = format!("{}/api/auth/github/callback", state.public_url);
-    let authorize_url = format!(
-        "https://github.com/login/oauth/authorize?client_id={}&redirect_uri={}&scope={}&state={}",
-        url_encode(&oauth.client_id),
-        url_encode(&redirect_uri),
-        url_encode(GITHUB_OAUTH_SCOPES),
-        url_encode(&state_token),
-    );
-    let mut response = Redirect::temporary(&authorize_url).into_response();
-    response.headers_mut().insert(
-        header::SET_COOKIE,
-        set_cookie(
-            OAUTH_STATE_COOKIE,
-            &state_token,
-            state.secure_cookies,
-            Some(600),
-        )
-        .parse()
-        .expect("cookie value is valid"),
-    );
-    Ok(response)
-}
-
-/// GitHub OAuth callback query parameters.
-///
-/// GitHub owns the values; the console validates them against the short-lived
-/// state cookie and stored nonce, then discards the struct after the callback
-/// creates a durable session.
-#[derive(serde::Deserialize)]
-struct OAuthCallbackQuery {
-    code: Option<String>,
-    state: Option<String>,
-}
-
-async fn oauth_callback(
-    State(state): State<SharedState>,
-    axum::extract::Query(query): axum::extract::Query<OAuthCallbackQuery>,
-    headers: HeaderMap,
-) -> ApiResult<Response> {
-    let Some(oauth) = &state.oauth else {
-        return Err(ApiError::bad_request("GitHub OAuth is not configured"));
-    };
-
-    let cookie_state = cookie_value(&headers, OAUTH_STATE_COOKIE);
-    let valid = match (&query.code, &query.state, &cookie_state) {
-        (Some(_), Some(query_state), Some(cookie_state)) if query_state == cookie_state => {
-            state.store.consume_oauth_state(query_state).await?
-        }
-        _ => false,
-    };
-    if !valid {
-        tracing::warn!(
-            operation = "console.auth.oauth_callback",
-            valid = false,
-            has_code = query.code.is_some(),
-            has_query_state = query.state.is_some(),
-            has_cookie_state = cookie_state.is_some(),
-            "console GitHub OAuth callback rejected invalid state"
-        );
-        return Err(ApiError::bad_request("invalid GitHub OAuth state"));
-    }
-
-    let code = query.code.expect("validated above");
-    let token = github::exchange_github_code(&oauth.client_id, &oauth.client_secret, &code)
-        .await
-        .map_err(|err| ApiError::bad_request(err.to_string()))?;
-    let viewer =
-        state.github.viewer(&token).await.map_err(|err| {
-            ApiError::bad_request(github::github_error_message(&err, "Signing in"))
-        })?;
-    let principal_id = format!("github:{}", viewer.id);
-    let session_token = state
-        .store
-        .create_session(NewSession {
-            identity: ActorIdentity::GitHub {
-                id: viewer.id.to_string(),
-                login: viewer.login,
-                name: viewer.name,
-                avatar_url: viewer.avatar_url,
-            },
-            github_token: token,
-        })
-        .await?;
-    tracing::info!(
-        operation = "console.auth.oauth_callback",
-        valid = true,
-        principal_id = %principal_id,
-        "console GitHub OAuth session created"
-    );
-
-    let mut response = Redirect::temporary(&format!("{}/app", state.public_url)).into_response();
-    let cookies = response.headers_mut();
-    cookies.append(
-        header::SET_COOKIE,
-        set_cookie(SESSION_COOKIE, &session_token, state.secure_cookies, None)
-            .parse()
-            .expect("cookie value is valid"),
-    );
-    cookies.append(
-        header::SET_COOKIE,
-        set_cookie(OAUTH_STATE_COOKIE, "", state.secure_cookies, Some(0))
-            .parse()
-            .expect("cookie value is valid"),
-    );
-    Ok(response)
-}
-
-async fn device_start(State(state): State<SharedState>) -> ApiResult<Json<JsonValue>> {
-    let Some(local) = state.local.as_ref() else {
-        return Err(ApiError::bad_request(
-            "device flow only applies to local-mode consoles",
-        ));
-    };
-    let Some(client_id) = local.device_client_id() else {
-        return Err(ApiError::bad_request(
-            "device flow is not configured; set ROTOTO_GITHUB_CLIENT_ID or supply a token via ROTOTO_WORKSPACE_TOKEN",
-        ));
-    };
-    let device = github::start_device_flow(client_id)
-        .await
-        .map_err(|err| ApiError::bad_request(err.to_string()))?;
-    let response = json!({
-        "userCode": device.user_code,
-        "verificationUri": device.verification_uri,
-        "intervalSeconds": device.interval_seconds,
-        "expiresInSeconds": device.expires_in_seconds,
-    });
-    *local.device_flow.lock().await = Some(super::auth::DeviceFlowState {
-        device_code: device.device_code,
-    });
-    Ok(Json(response))
-}
-
-async fn device_poll(State(state): State<SharedState>) -> ApiResult<Json<JsonValue>> {
-    let Some(local) = state.local.as_ref() else {
-        return Err(ApiError::bad_request(
-            "device flow only applies to local-mode consoles",
-        ));
-    };
-    let Some(client_id) = local.device_client_id().map(str::to_owned) else {
-        return Err(ApiError::bad_request("device flow is not configured"));
-    };
-    let device_code = {
-        let device_flow = local.device_flow.lock().await;
-        let Some(device) = device_flow.as_ref() else {
-            return Err(ApiError::bad_request("no device flow in progress"));
-        };
-        device.device_code.clone()
-    };
-    match github::poll_device_flow(&client_id, &device_code)
-        .await
-        .map_err(|err| ApiError::bad_request(err.to_string()))?
-    {
-        github::DevicePoll::Pending => Ok(Json(json!({ "status": "pending" }))),
-        github::DevicePoll::SlowDown => Ok(Json(json!({ "status": "slow-down" }))),
-        github::DevicePoll::Token(token) => {
-            local.set_device_token(token).await?;
-            *local.device_flow.lock().await = None;
-            Ok(Json(json!({ "status": "authorized" })))
-        }
-        github::DevicePoll::Failed(message) => {
-            *local.device_flow.lock().await = None;
-            Err(ApiError::bad_request(message))
-        }
-    }
-}
-
 async fn console_data(
     State(state): State<SharedState>,
     headers: HeaderMap,
 ) -> ApiResult<Json<JsonValue>> {
     let user = require_user(&state, &headers).await?;
     let fixed_source = fixed_source_scope(&state, &user.principal_id).await?;
-    let (source_trees, workspaces) = match fixed_source.as_ref() {
-        Some(source_tree) => (vec![source_tree.clone()], source_tree.workspaces.clone()),
+    let (source_trees, packages) = match fixed_source.as_ref() {
+        Some(source_tree) => (vec![source_tree.clone()], source_tree.packages.clone()),
         None => (
             state
                 .store
@@ -920,13 +609,13 @@ async fn console_data(
                 .await?,
             state
                 .store
-                .list_workspaces_for_user(&user.principal_id)
+                .list_packages_for_user(&user.principal_id)
                 .await?,
         ),
     };
     let mut branches = state
         .store
-        .list_active_branches_with_workspaces_for_user(&user.principal_id)
+        .list_active_branches_with_packages_for_user(&user.principal_id)
         .await?;
     if let Some(source_tree) = fixed_source.as_ref() {
         branches = fixed_source_branch_filter(branches, source_tree);
@@ -934,405 +623,9 @@ async fn console_data(
     Ok(Json(json!({
         "state": console_state_json(&state),
         "sourceTrees": source_trees,
-        "workspaces": workspaces,
+        "packages": packages,
         "branches": branches,
     })))
-}
-
-async fn source_trees_list(
-    State(state): State<SharedState>,
-    headers: HeaderMap,
-) -> ApiResult<Json<JsonValue>> {
-    let user = require_user(&state, &headers).await?;
-    let source_trees = match fixed_source_scope(&state, &user.principal_id).await? {
-        Some(source_tree) => vec![source_tree],
-        None => {
-            state
-                .store
-                .list_source_trees_for_user(&user.principal_id)
-                .await?
-        }
-    };
-    Ok(Json(json!({ "sourceTrees": source_trees })))
-}
-
-/// Source tree registration request body from the console form.
-///
-/// It exists to keep user input distinct from a verified GitHub repository.
-/// The route trims and validates it, discovers workspaces, then persists the
-/// resulting source tree/workspace records through `Store`.
-#[derive(serde::Deserialize)]
-struct RegisterSourceTreeBody {
-    #[serde(rename = "sourceTree")]
-    source_tree: Option<String>,
-    #[serde(rename = "ref")]
-    git_ref: Option<String>,
-}
-
-async fn source_trees_register(
-    State(state): State<SharedState>,
-    headers: HeaderMap,
-    Json(body): Json<RegisterSourceTreeBody>,
-) -> ApiResult<Json<JsonValue>> {
-    let user = require_user(&state, &headers).await?;
-    source_tree_management_allowed(&state)?;
-    let source_tree = body
-        .source_tree
-        .as_deref()
-        .map(str::trim)
-        .filter(|value| !value.is_empty())
-        .ok_or_else(|| ApiError::bad_request("configuration source is required"))?;
-    if should_register_as_github(source_tree).await {
-        tracing::info!(
-            operation = "source_tree.register",
-            principal_id = %user.principal_id,
-            backend = "github",
-            requested_ref = ?body.git_ref.as_deref(),
-            "console source tree registration selected GitHub backend"
-        );
-        return register_github_source_tree(state, user, source_tree, body.git_ref).await;
-    }
-    tracing::info!(
-        operation = "source_tree.register",
-        principal_id = %user.principal_id,
-        backend = "read_only",
-        requested_ref = ?body.git_ref.as_deref(),
-        "console source tree registration selected read-only backend"
-    );
-    register_read_only_source_tree(state, user, source_tree, body.git_ref).await
-}
-
-async fn register_github_source_tree(
-    state: SharedState,
-    user: super::store::SessionUser,
-    source_tree: &str,
-    git_ref: Option<String>,
-) -> ApiResult<Json<JsonValue>> {
-    let (stored, token) = upsert_github_source_tree(&state, &user, source_tree, git_ref).await?;
-    warm_registered_workspaces(
-        state.clone(),
-        user.principal_id.clone(),
-        token,
-        stored.workspaces.clone(),
-    );
-    Ok(Json(json!({ "sourceTree": stored })))
-}
-
-async fn upsert_github_source_tree(
-    state: &SharedState,
-    user: &super::store::SessionUser,
-    source_tree: &str,
-    git_ref: Option<String>,
-) -> ApiResult<(super::store::SourceTreeWithWorkspaces, String)> {
-    let token = require_github_token(user, "Registering the configuration source")?;
-    let (owner, name) = github::parse_repo_spec(source_tree)
-        .map_err(|err| ApiError::bad_request(err.to_string()))?;
-    let github_repo = state
-        .github
-        .repo(token, &owner, &name)
-        .await
-        .map_err(|err| ApiError::github(&err, "Registering the configuration source"))?;
-    let requested_ref = git_ref
-        .as_deref()
-        .map(str::trim)
-        .filter(|value| !value.is_empty())
-        .map(ToOwned::to_owned)
-        .or_else(|| source_tree_ref_hint(source_tree));
-    let git_ref = requested_ref.unwrap_or_else(|| github_repo.default_branch.clone());
-    tracing::info!(
-        operation = "source_tree.upsert",
-        principal_id = %user.principal_id,
-        kind = "github",
-        repository = %format!("{}/{}", github_repo.owner.login, github_repo.name),
-        git_ref = %git_ref,
-        "console source tree workspace discovery starting"
-    );
-    let workspaces = state
-        .github
-        .discover_workspaces(token, &owner, &name, &git_ref)
-        .await
-        .map_err(|err| ApiError::github(&err, "Discovering workspaces"))?;
-    let stored = state
-        .store
-        .upsert_source_tree_with_workspaces(super::store::RegisterSourceTreeInput {
-            principal_id: user.principal_id.clone(),
-            kind: super::store::SourceTreeKind::GitHub,
-            source: format!(
-                "git+https://github.com/{}/{}.git#{}",
-                github_repo.owner.login, github_repo.name, git_ref
-            ),
-            display_name: format!("{}/{}", github_repo.owner.login, github_repo.name),
-            default_revision: git_ref.clone(),
-            workspaces: workspaces
-                .into_iter()
-                .map(|workspace| super::store::DiscoveredWorkspaceInput {
-                    path: workspace.path,
-                    revision: workspace.git_ref,
-                    source: workspace.source,
-                })
-                .collect(),
-        })
-        .await?;
-    tracing::info!(
-        operation = "source_tree.upsert",
-        principal_id = %user.principal_id,
-        source_tree_id = %stored.source_tree.id,
-        kind = "github",
-        workspaces = stored.workspaces.len(),
-        "console source tree upserted"
-    );
-    Ok((stored, token.to_owned()))
-}
-
-async fn register_read_only_source_tree(
-    state: SharedState,
-    user: super::store::SessionUser,
-    source_tree: &str,
-    git_ref: Option<String>,
-) -> ApiResult<Json<JsonValue>> {
-    let (stored, token) = upsert_read_only_source_tree(&state, &user, source_tree, git_ref).await?;
-    warm_registered_workspaces(
-        state.clone(),
-        user.principal_id.clone(),
-        token,
-        stored.workspaces.clone(),
-    );
-    Ok(Json(json!({ "sourceTree": stored })))
-}
-
-async fn upsert_read_only_source_tree(
-    state: &SharedState,
-    user: &super::store::SessionUser,
-    source_tree: &str,
-    git_ref: Option<String>,
-) -> ApiResult<(super::store::SourceTreeWithWorkspaces, String)> {
-    let source = read_only_registration_source(source_tree, git_ref.as_deref())?;
-    let registration = super::fixed_workspace::registration(&source)
-        .await
-        .map_err(|err| ApiError::bad_request(err.to_string()))?;
-    tracing::info!(
-        operation = "source_tree.upsert",
-        principal_id = %user.principal_id,
-        kind = ?registration.kind,
-        workspaces = registration.workspaces.len(),
-        "console read-only source tree registration resolved"
-    );
-    let stored = state
-        .store
-        .upsert_source_tree_with_workspaces(super::store::RegisterSourceTreeInput {
-            principal_id: user.principal_id.clone(),
-            kind: registration.kind,
-            source: registration.source,
-            display_name: registration.display_name,
-            default_revision: registration.default_revision,
-            workspaces: registration.workspaces,
-        })
-        .await?;
-    tracing::info!(
-        operation = "source_tree.upsert",
-        principal_id = %user.principal_id,
-        source_tree_id = %stored.source_tree.id,
-        kind = ?stored.source_tree.kind,
-        workspaces = stored.workspaces.len(),
-        "console source tree upserted"
-    );
-    Ok((stored, source_token(user).to_owned()))
-}
-
-async fn should_register_as_github(source_tree: &str) -> bool {
-    if source_tree.starts_with("file://")
-        || source_tree.starts_with("git+file://")
-        || source_tree.starts_with('/')
-        || source_tree.starts_with('.')
-        || source_tree.starts_with('~')
-    {
-        return false;
-    }
-    if tokio::fs::metadata(source_tree).await.is_ok() {
-        return false;
-    }
-    github::parse_repo_spec(source_tree).is_ok()
-}
-
-fn source_tree_ref_hint(source_tree: &str) -> Option<String> {
-    let git_ref = if let Some(fragment) = source_tree.split_once('#').map(|(_, fragment)| fragment)
-    {
-        fragment
-            .split_once(':')
-            .map(|(git_ref, _)| git_ref)
-            .unwrap_or(fragment)
-            .trim()
-    } else if let Some(rest) = source_tree.strip_prefix("https://api.github.com/repos/") {
-        rest.split('/').nth(3).unwrap_or("").trim()
-    } else {
-        ""
-    };
-    (!git_ref.is_empty()).then(|| git_ref.to_owned())
-}
-
-fn read_only_registration_source(source_tree: &str, git_ref: Option<&str>) -> ApiResult<String> {
-    let source = source_tree.trim();
-    let git_ref = git_ref.map(str::trim).filter(|value| !value.is_empty());
-    if let Some(git_ref) = git_ref {
-        if source.starts_with("git+") && !source.contains('#') {
-            return Ok(format!("{source}#{git_ref}"));
-        }
-        if !source.starts_with("git+") {
-            return Err(ApiError::bad_request(
-                "ref only applies to GitHub or git configuration sources",
-            ));
-        }
-    }
-    Ok(source.to_owned())
-}
-
-fn warm_registered_workspaces(
-    state: SharedState,
-    principal_id: String,
-    token: String,
-    workspaces: Vec<super::store::WorkspaceRecord>,
-) {
-    if workspaces.is_empty() {
-        return;
-    }
-
-    tokio::spawn(async move {
-        for workspace in workspaces {
-            let started = Instant::now();
-            match super::workspace_source::semantic_workspace_for_base(
-                &state,
-                &principal_id,
-                &token,
-                &workspace,
-            )
-            .await
-            {
-                Ok(_) => {
-                    tracing::debug!(
-                        operation = "workspace.warm",
-                        workspace_id = %workspace.id,
-                        source = %workspace.source,
-                        latency_ms = started.elapsed().as_millis(),
-                        "console workspace warm-up completed"
-                    );
-                }
-                Err(err) => {
-                    tracing::debug!(
-                        operation = "workspace.warm",
-                        workspace_id = %workspace.id,
-                        source = %workspace.source,
-                        error = %err.message,
-                        latency_ms = started.elapsed().as_millis(),
-                        "console workspace warm-up failed"
-                    );
-                }
-            }
-        }
-    });
-}
-
-async fn source_tree_delete(
-    State(state): State<SharedState>,
-    headers: HeaderMap,
-    axum::extract::Path(source_tree_id): axum::extract::Path<String>,
-) -> ApiResult<Json<JsonValue>> {
-    let user = require_user(&state, &headers).await?;
-    source_tree_management_allowed(&state)?;
-    let removed = state
-        .store
-        .delete_source_tree_for_user(&source_tree_id, &user.principal_id)
-        .await?;
-    if !removed {
-        return Err(ApiError::not_found("configuration source not found"));
-    }
-    Ok(Json(json!({ "ok": true })))
-}
-
-async fn source_tree_refresh(
-    State(state): State<SharedState>,
-    headers: HeaderMap,
-    axum::extract::Path(source_tree_id): axum::extract::Path<String>,
-) -> ApiResult<Json<JsonValue>> {
-    let user = require_user(&state, &headers).await?;
-    let stored = refresh_source_tree_for_user(&state, &user, &source_tree_id).await?;
-    Ok(Json(json!({ "sourceTree": stored })))
-}
-
-async fn refresh_source_tree_for_user(
-    state: &SharedState,
-    user: &super::store::SessionUser,
-    source_tree_id: &str,
-) -> ApiResult<super::store::SourceTreeWithWorkspaces> {
-    let fixed_source = fixed_source_scope(state, &user.principal_id).await?;
-    if let Some(source_tree) = fixed_source.as_ref()
-        && source_tree.source_tree.id != source_tree_id
-    {
-        return Err(ApiError::not_found("configuration source not found"));
-    }
-    let existing = state
-        .store
-        .get_source_tree_for_user(source_tree_id, &user.principal_id)
-        .await?
-        .ok_or_else(|| ApiError::not_found("configuration source not found"))?;
-    let source_tree = existing.source_tree;
-    tracing::info!(
-        operation = "source_tree.refresh",
-        principal_id = %user.principal_id,
-        source_tree_id,
-        kind = ?source_tree.kind,
-        "console source tree refresh selected backend"
-    );
-    let (stored, token) = match source_tree.kind {
-        super::store::SourceTreeKind::GitHub => {
-            upsert_github_source_tree(
-                state,
-                user,
-                &source_tree.source,
-                Some(source_tree.default_revision.clone()),
-            )
-            .await?
-        }
-        super::store::SourceTreeKind::GitRemote => {
-            upsert_read_only_source_tree(
-                state,
-                user,
-                &source_tree.source,
-                Some(source_tree.default_revision.clone()),
-            )
-            .await?
-        }
-        super::store::SourceTreeKind::LocalFolder | super::store::SourceTreeKind::Archive => {
-            upsert_read_only_source_tree(state, user, &source_tree.source, None).await?
-        }
-    };
-    warm_registered_workspaces(
-        state.clone(),
-        user.principal_id.clone(),
-        token,
-        stored.workspaces.clone(),
-    );
-    Ok(stored)
-}
-
-pub fn random_token(bytes: usize) -> ApiResult<String> {
-    let mut buffer = vec![0u8; bytes];
-    SystemRandom::new()
-        .fill(&mut buffer)
-        .map_err(|_| ApiError::internal("failed to generate a random token"))?;
-    Ok(URL_SAFE_NO_PAD.encode(buffer))
-}
-
-pub fn url_encode(value: &str) -> String {
-    let mut out = String::with_capacity(value.len());
-    for byte in value.bytes() {
-        match byte {
-            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'~' => {
-                out.push(byte as char)
-            }
-            other => out.push_str(&format!("%{other:02X}")),
-        }
-    }
-    out
 }
 
 #[cfg(test)]
@@ -1340,19 +633,23 @@ mod tests {
     use super::*;
     use std::sync::Arc;
 
+    use super::source_trees::{
+        refresh_source_tree_for_user, should_register_as_github, source_tree_ref_hint,
+        upsert_read_only_source_tree,
+    };
     use crate::console::identity::ActorIdentity;
     use crate::console::token_crypto::TokenCrypto;
     use tempfile::TempDir;
 
     #[test]
-    fn observability_route_extracts_workspace_and_branch_ids() {
-        let route = route_observability("/api/workspaces/ws-1/branches/branch-2/lsp");
+    fn observability_route_extracts_package_and_branch_ids() {
+        let route = route_observability("/api/packages/ws-1/branches/branch-2/lsp");
 
         assert_eq!(
             route.pattern,
-            "/api/workspaces/:workspace_id/branches/:branch_id/lsp"
+            "/api/packages/:package_id/branches/:branch_id/lsp"
         );
-        assert_eq!(route.workspace_id.as_deref(), Some("ws-1"));
+        assert_eq!(route.package_id.as_deref(), Some("ws-1"));
         assert_eq!(route.branch_id.as_deref(), Some("branch-2"));
     }
 
@@ -1361,7 +658,7 @@ mod tests {
         let route = route_observability("/api/source-trees/tree-1");
 
         assert_eq!(route.pattern, "/api/source-trees/:source_tree_id");
-        assert_eq!(route.workspace_id, None);
+        assert_eq!(route.package_id, None);
         assert_eq!(route.branch_id, None);
     }
 
@@ -1400,34 +697,34 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn source_tree_refresh_rediscovers_local_workspace_paths() {
+    async fn source_tree_refresh_rediscovers_local_package_paths() {
         let tree = TempDir::new().expect("source tree tempdir");
-        write_workspace(tree.path()).await;
+        write_package(tree.path()).await;
         let state = test_state();
         let user = test_user();
         let source = tree.path().to_str().expect("utf8 temp path");
         let (registered, _) =
             expect_api_ok(upsert_read_only_source_tree(&state, &user, source, None).await);
-        assert_eq!(workspace_paths(&registered.workspaces), vec!["."]);
+        assert_eq!(package_paths(&registered.packages), vec!["."]);
 
-        write_workspace(&tree.path().join("workspaces/payments")).await;
+        write_package(&tree.path().join("packages/payments")).await;
         let refreshed = expect_api_ok(
             refresh_source_tree_for_user(&state, &user, &registered.source_tree.id).await,
         );
 
         assert_eq!(
-            workspace_paths(&refreshed.workspaces),
-            vec![".", "workspaces/payments"]
+            package_paths(&refreshed.packages),
+            vec![".", "packages/payments"]
         );
         assert!(refreshed.source_tree.last_discovered_at.is_some());
     }
 
     #[tokio::test]
-    async fn fixed_workspace_scope_rejects_stale_workspace_ids() {
+    async fn fixed_package_scope_rejects_stale_package_ids() {
         let fixed = TempDir::new().expect("fixed source tempdir");
-        write_workspace(fixed.path()).await;
+        write_package(fixed.path()).await;
         let stale = TempDir::new().expect("stale source tempdir");
-        write_workspace(stale.path()).await;
+        write_package(stale.path()).await;
         let fixed_source = fixed.path().to_str().expect("utf8 temp path");
         let stale_source = stale.path().to_str().expect("utf8 temp path");
         let state = test_state_with_fixed_source(fixed_source);
@@ -1435,20 +732,20 @@ mod tests {
 
         let (stale_registered, _) =
             expect_api_ok(upsert_read_only_source_tree(&state, &user, stale_source, None).await);
-        let stale_workspace = stale_registered
-            .workspaces
+        let stale_package = stale_registered
+            .packages
             .first()
-            .expect("stale workspace should be discovered");
+            .expect("stale package should be discovered");
 
-        let err = super::super::api_workspace::load_workspace(&state, &user, &stale_workspace.id)
+        let err = super::super::api_package::load_package(&state, &user, &stale_package.id)
             .await
-            .expect_err("fixed source should hide stale workspace rows");
+            .expect_err("fixed source should hide stale package rows");
 
         assert_eq!(err.status, StatusCode::NOT_FOUND);
         let fixed_registered = expect_api_ok(fixed_source_scope(&state, &user.principal_id).await)
             .expect("fixed source should register");
         assert_eq!(fixed_registered.source_tree.source, fixed_source);
-        assert_eq!(workspace_paths(&fixed_registered.workspaces), vec!["."]);
+        assert_eq!(package_paths(&fixed_registered.packages), vec!["."]);
     }
 
     fn expect_api_ok<T>(result: ApiResult<T>) -> T {
@@ -1466,14 +763,14 @@ mod tests {
         test_state_with_fixed_source_option(Some(source.to_owned()))
     }
 
-    fn test_state_with_fixed_source_option(fixed_workspace_source: Option<String>) -> SharedState {
-        let fixed_workspace = fixed_workspace_source.is_some();
+    fn test_state_with_fixed_source_option(fixed_package_source: Option<String>) -> SharedState {
+        let fixed_package = fixed_package_source.is_some();
         Arc::new(ConsoleState {
             deployment: DeploymentType::Local,
             oauth: None,
             state_mode: ConsoleStateMode::Ephemeral,
             write_policy: WritePolicy::Disabled,
-            fixed_workspace_source,
+            fixed_package_source,
             store: Store::open_in_memory(TokenCrypto::generate().unwrap()).unwrap(),
             github: GitHubClient::new(),
             stage: StageCache::new(),
@@ -1488,7 +785,7 @@ mod tests {
                     deployment: DeploymentType::Local,
                     write_policy: WritePolicy::Disabled,
                     console_host: Some("127.0.0.1".to_owned()),
-                    fixed_workspace,
+                    fixed_package,
                     secure_cookies: false,
                 },
             ),
@@ -1508,17 +805,17 @@ mod tests {
         }
     }
 
-    async fn write_workspace(path: &std::path::Path) {
+    async fn write_package(path: &std::path::Path) {
         tokio::fs::create_dir_all(path).await.unwrap();
-        tokio::fs::write(path.join("rototo-workspace.toml"), "schema_version = 1\n")
+        tokio::fs::write(path.join("rototo-package.toml"), "schema_version = 1\n")
             .await
             .unwrap();
     }
 
-    fn workspace_paths(workspaces: &[super::super::store::WorkspaceRecord]) -> Vec<&str> {
-        workspaces
+    fn package_paths(packages: &[super::super::store::PackageRecord]) -> Vec<&str> {
+        packages
             .iter()
-            .map(|workspace| workspace.path.as_str())
+            .map(|package| package.path.as_str())
             .collect()
     }
 }

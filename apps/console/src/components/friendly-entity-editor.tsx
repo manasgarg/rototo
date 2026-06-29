@@ -18,7 +18,7 @@ import {
 } from "lucide-react";
 import { useRouter } from "@/lib/navigation";
 import type { LintDiagnostic } from "@/lib/types";
-import widgetSpec from "../../../../spec/ui-widgets.json";
+import widgetSpec from "../../../../src/lint/builtins/ui-widgets.json";
 import { shouldAutoFocus } from "./autofocus";
 import {
     CodeEditor,
@@ -27,8 +27,9 @@ import {
 } from "./code-editor";
 import { apiFetch } from "@/lib/api";
 
-/* The pre-registered widget vocabulary. spec/ui-widgets.json is the single
-   source of truth, shared with the Rust lint rules that validate hints. */
+/* The pre-registered widget vocabulary. src/lint/builtins/ui-widgets.json is
+   the single source of truth, shared with the Rust lint rules that validate
+   hints. */
 const WIDGET_SPEC = widgetSpec as {
     version: number;
     widgets: Record<
@@ -42,7 +43,7 @@ const WIDGET_SPEC = widgetSpec as {
     >;
 };
 
-/** Workspace section edited by the friendly editor. */
+/** Package section edited by the friendly editor. */
 type EntitySection =
     | "variables"
     | "qualifiers"
@@ -73,7 +74,7 @@ type VariableDeclarationKind =
 /**
  * Optional context harvested from sibling entities.
  *
- * The parent screen rebuilds this from the current workspace/branch payload for
+ * The parent screen rebuilds this from the current package/branch payload for
  * each editor instance. Descriptions explain fields, examples show values
  * already in use, and preview truth tables come from the Rust runtime.
  */
@@ -88,7 +89,7 @@ export type FormGuidance = {
 };
 
 /**
- * Saved request context with each workspace qualifier already evaluated.
+ * Saved evaluation context with each package qualifier already evaluated.
  *
  * The editor walks edited rules against these runtime truths so previews update
  * live without reimplementing qualifier semantics in React.
@@ -119,7 +120,7 @@ export function FriendlyEntityEditor({
     catalogIds = [],
     catalogSchema = null,
     sourceMarks = [],
-    workspaceId,
+    packageId,
 }: {
     /* The entity's text at the branch's base ref, when known. Enables the
      changes view in both form and source modes. */
@@ -133,7 +134,7 @@ export function FriendlyEntityEditor({
     catalogIds?: string[];
     catalogSchema?: string | null;
     sourceMarks?: CodeEditorMark[];
-    workspaceId: string;
+    packageId: string;
 }) {
     const router = useRouter();
     const [content, setContent] = useState(entity.text);
@@ -170,7 +171,7 @@ export function FriendlyEntityEditor({
     const lspRequest = useCallback(
         async (body: Record<string, unknown>) => {
             const response = await apiFetch(
-                `/api/workspaces/${workspaceId}/branches/${branchId}/lsp`,
+                `/api/packages/${packageId}/branches/${branchId}/lsp`,
                 {
                     method: "POST",
                     headers: { "Content-Type": "application/json" },
@@ -185,7 +186,7 @@ export function FriendlyEntityEditor({
             }
             return payload;
         },
-        [workspaceId, branchId, entity.path],
+        [packageId, branchId, entity.path],
     );
     const lsp = useMemo<CodeEditorLsp | undefined>(
         () => (disabled ? undefined : { request: lspRequest }),
@@ -232,7 +233,7 @@ export function FriendlyEntityEditor({
         setNote(null);
         try {
             const response = await apiFetch(
-                `/api/workspaces/${workspaceId}/branches/${branchId}/files`,
+                `/api/packages/${packageId}/branches/${branchId}/files`,
                 {
                     method: "POST",
                     headers: { "Content-Type": "application/json" },
@@ -886,7 +887,7 @@ function VariableFields({
 }
 
 /* Shows how the variable as currently edited resolves against each request
-   context saved in the workspace. */
+   context saved in the package. */
 function VariableResolutionPreview({
     model,
     previews,
@@ -1581,7 +1582,7 @@ function ruleExpressionSuggestions({
     return [
         ...contextAttributes.map((attribute) => `context.${attribute}`),
         ...(includeEntry ? ["entry."] : []),
-        ...qualifierIds.map((id) => `qualifier[${JSON.stringify(id)}]`),
+        ...qualifierIds.map((id) => `env.qualifier[${JSON.stringify(id)}]`),
         "has(context.)",
         'bucket(context.user.id, "salt", 0, 50)',
         'contains(context., "")',
@@ -1662,7 +1663,8 @@ function QualifierFields({
                 />
                 <FieldNotes items={whenNotes} />
                 <span className="field-hint">
-                    Expression over context and qualifier, for example{" "}
+                    Expression over context and env
+                    (env.qualifier[&quot;…&quot;], env.now), for example{" "}
                     {contextExpressions[0] ?? "context.user.tier"} == "premium"
                     .
                 </span>
@@ -2575,7 +2577,7 @@ function rewriteResolveRules(
 
 function ruleWhenExpression(rule: VariableRuleModel): string {
     return rule.conditionKind === "qualifier"
-        ? `qualifier[${JSON.stringify(rule.condition.trim())}]`
+        ? `env.qualifier[${JSON.stringify(rule.condition.trim())}]`
         : rule.condition;
 }
 
@@ -2588,7 +2590,7 @@ function qualifierConditionFromWhenExpression(expression: string): {
 
 function qualifierIdFromWhenExpression(expression: string): string | null {
     const trimmed = stripOuterParens(expression.trim());
-    const match = trimmed.match(/^qualifier\[(.+)\]$/);
+    const match = trimmed.match(/^env\.qualifier\[(.+)\]$/);
     return match ? parseTomlStringLiteral(match[1].trim()) : null;
 }
 

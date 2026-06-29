@@ -1,0 +1,5 @@
+schema_version = 1
+
+description = "Qualifier referencing a missing qualifier"
+
+when = '(env.qualifier["missing-qualifier"])'

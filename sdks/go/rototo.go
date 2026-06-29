@@ -10,7 +10,7 @@ import (
 
 type nativeHandle uintptr
 
-// Error is returned when rototo rejects a workspace, source, context, or
+// Error is returned when rototo rejects a package, source, context, or
 // resolution request.
 type Error struct {
 	Message string
@@ -20,7 +20,7 @@ func (e *Error) Error() string {
 	return e.Message
 }
 
-// LintMode controls how workspace lint is handled during load.
+// LintMode controls how package lint is handled during load.
 type LintMode string
 
 const (
@@ -28,31 +28,34 @@ const (
 	LintSkip LintMode = "skip"
 )
 
-// LoadOptions configures Workspace loading.
+// LoadOptions configures Package loading.
 type LoadOptions struct {
-	WorkspaceToken string
-	Lint           LintMode
+	PackageToken string
+	Lint         LintMode
 }
 
-// InspectOptions configures Workspace inspection.
+// InspectOptions configures Package inspection.
 type InspectOptions struct {
-	WorkspaceToken string
+	PackageToken string
 }
 
 // ResolveOptions configures a single resolution call.
 type ResolveOptions struct {
 	SkipContextValidation bool
+	// Trace emits a resolution trace for this call onto the trace stream. It
+	// only produces output while something is subscribed via TraceEvents.
+	Trace bool
 }
 
-// RefreshingWorkspaceOptions configures RefreshingWorkspace loading.
-type RefreshingWorkspaceOptions struct {
-	PeriodSeconds  *float64
-	WorkspaceToken string
-	Lint           LintMode
+// RefreshingPackageOptions configures RefreshingPackage loading.
+type RefreshingPackageOptions struct {
+	PeriodSeconds *float64
+	PackageToken  string
+	Lint          LintMode
 }
 
-// Workspace is a loaded rototo workspace handle.
-type Workspace struct {
+// Package is a loaded rototo package handle.
+type Package struct {
 	mu     sync.RWMutex
 	handle nativeHandle
 }
@@ -64,8 +67,8 @@ type VariableResolution struct {
 	Source any    `json:"source"`
 }
 
-// WorkspaceLint is the lint result for a loaded or inspected workspace.
-type WorkspaceLint struct {
+// PackageLint is the lint result for a loaded or inspected package.
+type PackageLint struct {
 	Root        string `json:"root"`
 	Diagnostics []any  `json:"diagnostics"`
 }
@@ -81,8 +84,70 @@ type RefreshStatus struct {
 	Immutable           bool     `json:"immutable"`
 }
 
-// RefreshingWorkspace is a workspace handle with background refresh support.
-type RefreshingWorkspace struct {
+// PackageLayerIdentity is the identity of one layer in a layered package.
+type PackageLayerIdentity struct {
+	Source      string  `json:"source"`
+	Fingerprint any     `json:"fingerprint"`
+	ReleaseID   *string `json:"releaseId"`
+	Immutable   bool    `json:"immutable"`
+}
+
+// PackageIdentity is the stable identity of the package active in this process.
+type PackageIdentity struct {
+	Source      string                 `json:"source"`
+	Fingerprint any                    `json:"fingerprint"`
+	ReleaseID   *string                `json:"releaseId"`
+	LoadedAt    float64                `json:"loadedAt"`
+	Immutable   bool                   `json:"immutable"`
+	Layers      []PackageLayerIdentity `json:"layers"`
+}
+
+// RefreshEventSummary is a compact record of the most recent refresh event.
+type RefreshEventSummary struct {
+	EventID     string  `json:"eventId"`
+	EventType   string  `json:"eventType"`
+	ReleaseID   *string `json:"releaseId"`
+	CompletedAt float64 `json:"completedAt"`
+}
+
+// RefreshSnapshot joins refresh state with package identity: what is true now.
+type RefreshSnapshot struct {
+	Identity            PackageIdentity      `json:"identity"`
+	LastAttempt         *float64             `json:"lastAttempt"`
+	LastSuccess         *float64             `json:"lastSuccess"`
+	LastEvent           *RefreshEventSummary `json:"lastEvent"`
+	ConsecutiveFailures uint64               `json:"consecutiveFailures"`
+	LastError           *string              `json:"lastError"`
+	Refreshing          bool                 `json:"refreshing"`
+	Immutable           bool                 `json:"immutable"`
+}
+
+// SdkIdentity identifies the SDK that emitted a refresh event.
+type SdkIdentity struct {
+	Name     string `json:"name"`
+	Version  string `json:"version"`
+	Language string `json:"language"`
+}
+
+// RefreshEvent is a refresh state-transition event.
+type RefreshEvent struct {
+	SchemaVersion       int              `json:"schemaVersion"`
+	EventID             string           `json:"eventId"`
+	EventType           string           `json:"eventType"`
+	Source              string           `json:"source"`
+	Previous            *PackageIdentity `json:"previous"`
+	Current             *PackageIdentity `json:"current"`
+	AttemptedAt         float64          `json:"attemptedAt"`
+	CompletedAt         float64          `json:"completedAt"`
+	DurationMs          uint64           `json:"durationMs"`
+	Outcome             *string          `json:"outcome"`
+	ConsecutiveFailures uint64           `json:"consecutiveFailures"`
+	Error               *string          `json:"error"`
+	Sdk                 SdkIdentity      `json:"sdk"`
+}
+
+// RefreshingPackage is a package handle with background refresh support.
+type RefreshingPackage struct {
 	mu     sync.RWMutex
 	handle nativeHandle
 }
@@ -92,8 +157,8 @@ func Version() (string, error) {
 	return nativeVersion()
 }
 
-// Load stages, lints, and loads a runtime workspace.
-func Load(ctx context.Context, source string, options *LoadOptions) (*Workspace, error) {
+// Load stages, lints, and loads a runtime package.
+func Load(ctx context.Context, source string, options *LoadOptions) (*Package, error) {
 	if err := checkContext(ctx); err != nil {
 		return nil, err
 	}
@@ -104,48 +169,66 @@ func Load(ctx context.Context, source string, options *LoadOptions) (*Workspace,
 	if lint == "" {
 		lint = LintDeny
 	}
-	handle, err := nativeWorkspaceLoad(source, options.WorkspaceToken, string(lint))
+	handle, err := nativePackageLoad(source, options.PackageToken, string(lint))
 	if err != nil {
 		return nil, err
 	}
 	if err := checkContext(ctx); err != nil {
-		nativeWorkspaceFree(handle)
+		nativePackageFree(handle)
 		return nil, err
 	}
-	return &Workspace{handle: handle}, nil
+	return &Package{handle: handle}, nil
 }
 
-// Inspect stages and inspects a workspace without compiling the runtime model.
-func Inspect(ctx context.Context, source string, options *InspectOptions) (*Workspace, error) {
+// Inspect stages and inspects a package without compiling the runtime model.
+func Inspect(ctx context.Context, source string, options *InspectOptions) (*Package, error) {
 	if err := checkContext(ctx); err != nil {
 		return nil, err
 	}
 	if options == nil {
 		options = &InspectOptions{}
 	}
-	handle, err := nativeWorkspaceInspect(source, options.WorkspaceToken)
+	handle, err := nativePackageInspect(source, options.PackageToken)
 	if err != nil {
 		return nil, err
 	}
 	if err := checkContext(ctx); err != nil {
-		nativeWorkspaceFree(handle)
+		nativePackageFree(handle)
 		return nil, err
 	}
-	return &Workspace{handle: handle}, nil
+	return &Package{handle: handle}, nil
 }
 
-// Root returns the staged workspace root path.
-func (w *Workspace) Root() (string, error) {
+// Root returns the staged package root path.
+func (w *Package) Root() (string, error) {
 	handle, unlock, err := w.activeHandle()
 	if err != nil {
 		return "", err
 	}
 	defer unlock()
-	return nativeWorkspaceRoot(handle)
+	return nativePackageRoot(handle)
 }
 
-// Lint runs workspace lint for this handle.
-func (w *Workspace) Lint(ctx context.Context) (*WorkspaceLint, error) {
+// Identity returns the stable identity of the loaded package.
+func (w *Package) Identity() (*PackageIdentity, error) {
+	handle, unlock, err := w.activeHandle()
+	if err != nil {
+		return nil, err
+	}
+	defer unlock()
+	text, err := nativePackageIdentity(handle)
+	if err != nil {
+		return nil, err
+	}
+	var identity PackageIdentity
+	if err := json.Unmarshal([]byte(text), &identity); err != nil {
+		return nil, err
+	}
+	return &identity, nil
+}
+
+// Lint runs package lint for this handle.
+func (w *Package) Lint(ctx context.Context) (*PackageLint, error) {
 	if err := checkContext(ctx); err != nil {
 		return nil, err
 	}
@@ -154,11 +237,11 @@ func (w *Workspace) Lint(ctx context.Context) (*WorkspaceLint, error) {
 		return nil, err
 	}
 	defer unlock()
-	text, err := nativeWorkspaceLint(handle)
+	text, err := nativePackageLint(handle)
 	if err != nil {
 		return nil, err
 	}
-	var lint WorkspaceLint
+	var lint PackageLint
 	if err := json.Unmarshal([]byte(text), &lint); err != nil {
 		return nil, err
 	}
@@ -166,16 +249,12 @@ func (w *Workspace) Lint(ctx context.Context) (*WorkspaceLint, error) {
 }
 
 // ResolveVariable resolves a variable with a JSON-object context.
-func (w *Workspace) ResolveVariable(
-	ctx context.Context,
+func (w *Package) ResolveVariable(
 	id string,
-	resolveContext map[string]any,
+	evaluationContext map[string]any,
 	options *ResolveOptions,
 ) (*VariableResolution, error) {
-	if err := checkContext(ctx); err != nil {
-		return nil, err
-	}
-	contextJSON, err := marshalContext(resolveContext)
+	contextJSON, err := marshalContext(evaluationContext)
 	if err != nil {
 		return nil, err
 	}
@@ -184,7 +263,7 @@ func (w *Workspace) ResolveVariable(
 		return nil, err
 	}
 	defer unlock()
-	text, err := nativeWorkspaceResolveVariable(handle, id, contextJSON, validateContext(options))
+	text, err := nativePackageResolveVariable(handle, id, contextJSON, validateContext(options), traceEnabled(options))
 	if err != nil {
 		return nil, err
 	}
@@ -192,20 +271,16 @@ func (w *Workspace) ResolveVariable(
 	if err := json.Unmarshal([]byte(text), &resolution); err != nil {
 		return nil, err
 	}
-	return &resolution, checkContext(ctx)
+	return &resolution, nil
 }
 
 // ResolveQualifier resolves a qualifier with a JSON-object context.
-func (w *Workspace) ResolveQualifier(
-	ctx context.Context,
+func (w *Package) ResolveQualifier(
 	id string,
-	resolveContext map[string]any,
+	evaluationContext map[string]any,
 	options *ResolveOptions,
 ) (bool, error) {
-	if err := checkContext(ctx); err != nil {
-		return false, err
-	}
-	contextJSON, err := marshalContext(resolveContext)
+	contextJSON, err := marshalContext(evaluationContext)
 	if err != nil {
 		return false, err
 	}
@@ -214,7 +289,7 @@ func (w *Workspace) ResolveQualifier(
 		return false, err
 	}
 	defer unlock()
-	text, err := nativeWorkspaceResolveQualifier(handle, id, contextJSON, validateContext(options))
+	text, err := nativePackageResolveQualifier(handle, id, contextJSON, validateContext(options), traceEnabled(options))
 	if err != nil {
 		return false, err
 	}
@@ -222,64 +297,60 @@ func (w *Workspace) ResolveQualifier(
 	if err := json.Unmarshal([]byte(text), &value); err != nil {
 		return false, err
 	}
-	return value, checkContext(ctx)
+	return value, nil
 }
 
-// Close releases the native workspace handle.
-func (w *Workspace) Close() error {
+// Close releases the native package handle.
+func (w *Package) Close() error {
 	w.mu.Lock()
 	defer w.mu.Unlock()
 	if w.handle == 0 {
 		return nil
 	}
-	nativeWorkspaceFree(w.handle)
+	nativePackageFree(w.handle)
 	w.handle = 0
 	return nil
 }
 
-// LoadRefreshing stages, lints, and loads a refreshing workspace.
+// LoadRefreshing stages, lints, and loads a refreshing package.
 func LoadRefreshing(
 	ctx context.Context,
 	source string,
-	options *RefreshingWorkspaceOptions,
-) (*RefreshingWorkspace, error) {
+	options *RefreshingPackageOptions,
+) (*RefreshingPackage, error) {
 	if err := checkContext(ctx); err != nil {
 		return nil, err
 	}
 	if options == nil {
-		options = &RefreshingWorkspaceOptions{}
+		options = &RefreshingPackageOptions{}
 	}
 	lint := options.Lint
 	if lint == "" {
 		lint = LintDeny
 	}
-	handle, err := nativeRefreshingWorkspaceLoad(
+	handle, err := nativeRefreshingPackageLoad(
 		source,
 		options.PeriodSeconds,
-		options.WorkspaceToken,
+		options.PackageToken,
 		string(lint),
 	)
 	if err != nil {
 		return nil, err
 	}
 	if err := checkContext(ctx); err != nil {
-		nativeRefreshingWorkspaceFree(handle)
+		nativeRefreshingPackageFree(handle)
 		return nil, err
 	}
-	return &RefreshingWorkspace{handle: handle}, nil
+	return &RefreshingPackage{handle: handle}, nil
 }
 
-// ResolveVariable resolves a variable against the current active workspace.
-func (w *RefreshingWorkspace) ResolveVariable(
-	ctx context.Context,
+// ResolveVariable resolves a variable against the current active package.
+func (w *RefreshingPackage) ResolveVariable(
 	id string,
-	resolveContext map[string]any,
+	evaluationContext map[string]any,
 	options *ResolveOptions,
 ) (*VariableResolution, error) {
-	if err := checkContext(ctx); err != nil {
-		return nil, err
-	}
-	contextJSON, err := marshalContext(resolveContext)
+	contextJSON, err := marshalContext(evaluationContext)
 	if err != nil {
 		return nil, err
 	}
@@ -288,11 +359,12 @@ func (w *RefreshingWorkspace) ResolveVariable(
 		return nil, err
 	}
 	defer unlock()
-	text, err := nativeRefreshingWorkspaceResolveVariable(
+	text, err := nativeRefreshingPackageResolveVariable(
 		handle,
 		id,
 		contextJSON,
 		validateContext(options),
+		traceEnabled(options),
 	)
 	if err != nil {
 		return nil, err
@@ -301,20 +373,16 @@ func (w *RefreshingWorkspace) ResolveVariable(
 	if err := json.Unmarshal([]byte(text), &resolution); err != nil {
 		return nil, err
 	}
-	return &resolution, checkContext(ctx)
+	return &resolution, nil
 }
 
-// ResolveQualifier resolves a qualifier against the current active workspace.
-func (w *RefreshingWorkspace) ResolveQualifier(
-	ctx context.Context,
+// ResolveQualifier resolves a qualifier against the current active package.
+func (w *RefreshingPackage) ResolveQualifier(
 	id string,
-	resolveContext map[string]any,
+	evaluationContext map[string]any,
 	options *ResolveOptions,
 ) (bool, error) {
-	if err := checkContext(ctx); err != nil {
-		return false, err
-	}
-	contextJSON, err := marshalContext(resolveContext)
+	contextJSON, err := marshalContext(evaluationContext)
 	if err != nil {
 		return false, err
 	}
@@ -323,11 +391,12 @@ func (w *RefreshingWorkspace) ResolveQualifier(
 		return false, err
 	}
 	defer unlock()
-	text, err := nativeRefreshingWorkspaceResolveQualifier(
+	text, err := nativeRefreshingPackageResolveQualifier(
 		handle,
 		id,
 		contextJSON,
 		validateContext(options),
+		traceEnabled(options),
 	)
 	if err != nil {
 		return false, err
@@ -336,12 +405,12 @@ func (w *RefreshingWorkspace) ResolveQualifier(
 	if err := json.Unmarshal([]byte(text), &value); err != nil {
 		return false, err
 	}
-	return value, checkContext(ctx)
+	return value, nil
 }
 
-// RefreshNow refreshes the workspace immediately and returns "unchanged",
+// RefreshNow refreshes the package immediately and returns "unchanged",
 // "refreshed", or "immutable".
-func (w *RefreshingWorkspace) RefreshNow(ctx context.Context) (string, error) {
+func (w *RefreshingPackage) RefreshNow(ctx context.Context) (string, error) {
 	if err := checkContext(ctx); err != nil {
 		return "", err
 	}
@@ -350,7 +419,7 @@ func (w *RefreshingWorkspace) RefreshNow(ctx context.Context) (string, error) {
 		return "", err
 	}
 	defer unlock()
-	outcome, err := nativeRefreshingWorkspaceRefreshNow(handle)
+	outcome, err := nativeRefreshingPackageRefreshNow(handle)
 	if err != nil {
 		return "", err
 	}
@@ -358,7 +427,7 @@ func (w *RefreshingWorkspace) RefreshNow(ctx context.Context) (string, error) {
 }
 
 // Status returns the current refresh state.
-func (w *RefreshingWorkspace) Status(ctx context.Context) (*RefreshStatus, error) {
+func (w *RefreshingPackage) Status(ctx context.Context) (*RefreshStatus, error) {
 	if err := checkContext(ctx); err != nil {
 		return nil, err
 	}
@@ -367,7 +436,7 @@ func (w *RefreshingWorkspace) Status(ctx context.Context) (*RefreshStatus, error
 		return nil, err
 	}
 	defer unlock()
-	text, err := nativeRefreshingWorkspaceStatus(handle)
+	text, err := nativeRefreshingPackageStatus(handle)
 	if err != nil {
 		return nil, err
 	}
@@ -378,8 +447,140 @@ func (w *RefreshingWorkspace) Status(ctx context.Context) (*RefreshStatus, error
 	return &status, checkContext(ctx)
 }
 
+// Identity returns the identity of the package currently active.
+func (w *RefreshingPackage) Identity(ctx context.Context) (*PackageIdentity, error) {
+	if err := checkContext(ctx); err != nil {
+		return nil, err
+	}
+	handle, unlock, err := w.activeHandle()
+	if err != nil {
+		return nil, err
+	}
+	defer unlock()
+	text, err := nativeRefreshingPackageIdentity(handle)
+	if err != nil {
+		return nil, err
+	}
+	var identity PackageIdentity
+	if err := json.Unmarshal([]byte(text), &identity); err != nil {
+		return nil, err
+	}
+	return &identity, checkContext(ctx)
+}
+
+// Snapshot returns the current refresh state joined with package identity.
+func (w *RefreshingPackage) Snapshot(ctx context.Context) (*RefreshSnapshot, error) {
+	if err := checkContext(ctx); err != nil {
+		return nil, err
+	}
+	handle, unlock, err := w.activeHandle()
+	if err != nil {
+		return nil, err
+	}
+	defer unlock()
+	text, err := nativeRefreshingPackageSnapshot(handle)
+	if err != nil {
+		return nil, err
+	}
+	var snapshot RefreshSnapshot
+	if err := json.Unmarshal([]byte(text), &snapshot); err != nil {
+		return nil, err
+	}
+	return &snapshot, checkContext(ctx)
+}
+
+// RefreshEvents returns a channel of refresh events. The channel closes when the
+// package is shut down or the context is cancelled. A lagging consumer skips
+// dropped events rather than erroring; recover ground truth from Snapshot.
+func (w *RefreshingPackage) RefreshEvents(ctx context.Context) (<-chan RefreshEvent, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	handle, unlock, err := w.activeHandle()
+	if err != nil {
+		return nil, err
+	}
+	eventsHandle, err := nativeRefreshingPackageSubscribeEvents(handle)
+	unlock()
+	if err != nil {
+		return nil, err
+	}
+
+	out := make(chan RefreshEvent)
+	go func() {
+		defer close(out)
+		defer nativeRefreshEventsFree(eventsHandle)
+		for {
+			text, ok, err := nativeRefreshEventsNext(eventsHandle)
+			if err != nil || !ok {
+				return
+			}
+			var event RefreshEvent
+			if err := json.Unmarshal([]byte(text), &event); err != nil {
+				return
+			}
+			select {
+			case out <- event:
+			case <-ctx.Done():
+				return
+			}
+		}
+	}()
+	return out, nil
+}
+
+// TraceStreamItem is one item from a resolution trace stream: either a captured
+// trace (Kind == "trace", with Trace populated) or a marker that a lagging
+// consumer dropped Count traces (Kind == "dropped").
+type TraceStreamItem struct {
+	Kind  string         `json:"kind"`
+	Trace map[string]any `json:"trace,omitempty"`
+	Count uint64         `json:"count,omitempty"`
+}
+
+// TraceEvents returns a channel of resolution trace stream items. The channel
+// closes when the package is shut down or the context is cancelled. Tracing is
+// computed only while a subscriber is reading; with no subscriber a [[trace]]
+// policy costs nothing.
+func (w *RefreshingPackage) TraceEvents(ctx context.Context) (<-chan TraceStreamItem, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	handle, unlock, err := w.activeHandle()
+	if err != nil {
+		return nil, err
+	}
+	eventsHandle, err := nativeRefreshingPackageSubscribeTraceEvents(handle)
+	unlock()
+	if err != nil {
+		return nil, err
+	}
+
+	out := make(chan TraceStreamItem)
+	go func() {
+		defer close(out)
+		defer nativeTraceEventsFree(eventsHandle)
+		for {
+			text, ok, err := nativeTraceEventsNext(eventsHandle)
+			if err != nil || !ok {
+				return
+			}
+			var item TraceStreamItem
+			if err := json.Unmarshal([]byte(text), &item); err != nil {
+				return
+			}
+			select {
+			case out <- item:
+			case <-ctx.Done():
+				return
+			}
+		}
+	}()
+	return out, nil
+}
+
 // Shutdown stops background refresh without freeing the handle.
-func (w *RefreshingWorkspace) Shutdown(ctx context.Context) error {
+func (w *RefreshingPackage) Shutdown(ctx context.Context) error {
 	if err := checkContext(ctx); err != nil {
 		return err
 	}
@@ -388,14 +589,14 @@ func (w *RefreshingWorkspace) Shutdown(ctx context.Context) error {
 		return err
 	}
 	defer unlock()
-	if err := nativeRefreshingWorkspaceShutdown(handle); err != nil {
+	if err := nativeRefreshingPackageShutdown(handle); err != nil {
 		return err
 	}
 	return checkContext(ctx)
 }
 
-// Close shuts down and releases the native refreshing workspace handle.
-func (w *RefreshingWorkspace) Close(ctx context.Context) error {
+// Close shuts down and releases the native refreshing package handle.
+func (w *RefreshingPackage) Close(ctx context.Context) error {
 	w.mu.Lock()
 	defer w.mu.Unlock()
 	if w.handle == 0 {
@@ -403,35 +604,35 @@ func (w *RefreshingWorkspace) Close(ctx context.Context) error {
 	}
 	var shutdownErr error
 	if err := checkContext(ctx); err == nil {
-		shutdownErr = nativeRefreshingWorkspaceShutdown(w.handle)
+		shutdownErr = nativeRefreshingPackageShutdown(w.handle)
 	} else {
 		shutdownErr = err
 	}
-	nativeRefreshingWorkspaceFree(w.handle)
+	nativeRefreshingPackageFree(w.handle)
 	w.handle = 0
 	return shutdownErr
 }
 
-func (w *Workspace) activeHandle() (nativeHandle, func(), error) {
+func (w *Package) activeHandle() (nativeHandle, func(), error) {
 	if w == nil {
-		return 0, nil, errors.New("workspace is nil")
+		return 0, nil, errors.New("package is nil")
 	}
 	w.mu.RLock()
 	if w.handle == 0 {
 		w.mu.RUnlock()
-		return 0, nil, &Error{Message: "workspace has been closed"}
+		return 0, nil, &Error{Message: "package has been closed"}
 	}
 	return w.handle, w.mu.RUnlock, nil
 }
 
-func (w *RefreshingWorkspace) activeHandle() (nativeHandle, func(), error) {
+func (w *RefreshingPackage) activeHandle() (nativeHandle, func(), error) {
 	if w == nil {
-		return 0, nil, errors.New("refreshing workspace is nil")
+		return 0, nil, errors.New("refreshing package is nil")
 	}
 	w.mu.RLock()
 	if w.handle == 0 {
 		w.mu.RUnlock()
-		return 0, nil, &Error{Message: "refreshing workspace has been closed"}
+		return 0, nil, &Error{Message: "refreshing package has been closed"}
 	}
 	return w.handle, w.mu.RUnlock, nil
 }
@@ -452,13 +653,17 @@ func marshalContext(context map[string]any) (string, error) {
 		return "", err
 	}
 	if len(data) == 0 || data[0] != '{' {
-		return "", fmt.Errorf("resolve context must be a JSON object")
+		return "", fmt.Errorf("evaluation context must be a JSON object")
 	}
 	return string(data), nil
 }
 
 func validateContext(options *ResolveOptions) bool {
 	return options == nil || !options.SkipContextValidation
+}
+
+func traceEnabled(options *ResolveOptions) bool {
+	return options != nil && options.Trace
 }
 
 func nativeError(message string) error {

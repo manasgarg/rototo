@@ -29,6 +29,55 @@ pub(super) fn lint_variable_shapes(ctx: &mut LintContext) {
     }
 }
 
+/// Flag root identifiers a variable rule `when`/`query` expression uses that
+/// rototo does not provide: the legacy bare `qualifier[...]` root, unknown `env`
+/// members, and any other unknown identifier.
+pub(super) fn lint_variable_expression_roots(ctx: &mut LintContext) {
+    let diagnostics = &mut ctx.diagnostics;
+    for variable in ctx.index.variables.values() {
+        let ResolveNode::Resolve { rules, .. } = &variable.resolve else {
+            continue;
+        };
+        let RuleCollection::Rules(rules) = rules else {
+            continue;
+        };
+        for rule in rules {
+            if rule.invalid_shape {
+                continue;
+            }
+            for (field, expression) in [
+                (SemanticField::VariableRuleWhen, &rule.when),
+                (SemanticField::VariableRuleQuery, &rule.query),
+            ]
+            .into_iter()
+            .filter_map(|(field, expression)| expression.as_ref().map(|expr| (field, expr)))
+            {
+                let ProjectField::Present(expression) = expression else {
+                    continue;
+                };
+                for issue in &expression.value.references().invalid_roots {
+                    push_project_diagnostic(
+                        diagnostics,
+                        RototoRuleId::VariableRuleInvalidReference,
+                        rule.field_target(&variable.id, field.clone()),
+                        expression.location.clone(),
+                        issue.describe(),
+                    );
+                }
+                if expression.value.references().uses_resolving {
+                    push_project_diagnostic(
+                        diagnostics,
+                        RototoRuleId::VariableRuleInvalidReference,
+                        rule.field_target(&variable.id, field.clone()),
+                        expression.location.clone(),
+                        "env.resolving is only available in [[trace]] policies",
+                    );
+                }
+            }
+        }
+    }
+}
+
 fn lint_type_source(diagnostics: &mut Vec<LintDiagnostic>, variable: &VariableNode) {
     match &variable.type_source {
         TypeSourceNode::Primitive(_) | TypeSourceNode::Catalog(_) => {}
@@ -143,7 +192,7 @@ fn lint_variable_rule_shape(
             RototoRuleId::VariableRuleShape,
             rule.target(&variable.id),
             location.clone(),
-            "rule qualifier is no longer supported; use when = 'qualifier[\"<id>\"]'",
+            "rule qualifier is no longer supported; use when = 'env.qualifier[\"<id>\"]'",
         );
     }
 

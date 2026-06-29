@@ -49,8 +49,8 @@ export type SessionUser = {
     hasGithubToken: boolean;
 };
 
-/** Normalized workspace source class used for UI capability messaging. */
-export type WorkspaceSourceKind =
+/** Normalized package source class used for UI capability messaging. */
+export type PackageSourceKind =
     | "localPath"
     | "fileUrl"
     | "gitFile"
@@ -59,21 +59,21 @@ export type WorkspaceSourceKind =
     | "httpsArchive"
     | "genericGitRemote";
 
-/** Read capability calculated for the current user and workspace response. */
-export type WorkspaceCapability =
+/** Read capability calculated for the current user and package response. */
+export type PackageCapability =
     | { status: "allowed" }
     | { status: "missingCredential"; reason: string };
 
 /** Write capability calculated by the server from policy, source, and token. */
-export type WorkspaceWriteCapability =
+export type PackageWriteCapability =
     | { kind: "disabled"; reason: string }
     | { kind: "pullRequest"; backend: "gitHubApi" }
     | { kind: "directPush"; backend: "gitHubApi" | "localWorkingTree" };
 
-/** Combined read/write capability summary for one workspace response. */
-export type WorkspaceCapabilities = {
-    read: WorkspaceCapability;
-    write: WorkspaceWriteCapability;
+/** Combined read/write capability summary for one package response. */
+export type PackageCapabilities = {
+    read: PackageCapability;
+    write: PackageWriteCapability;
 };
 
 /** Registered source tree row persisted by the console store. */
@@ -82,8 +82,8 @@ export type SourceTreeKind = "gitHub" | "gitRemote" | "localFolder" | "archive";
 /** Capability flags calculated from the registered source tree kind. */
 export type SourceTreeCapabilities = {
     canRefresh: boolean;
-    canDiscoverWorkspaces: boolean;
-    canLoadWorkspaces: boolean;
+    canDiscoverPackages: boolean;
+    canLoadPackages: boolean;
     canBranch: boolean;
     canEdit: boolean;
     canOpenPullRequest: boolean;
@@ -102,20 +102,20 @@ export type SourceTreeRecord = {
     lastDiscoveredAt: string | null;
 };
 
-/** Source tree row plus active discovered workspaces, rebuilt for responses. */
-export type SourceTreeWithWorkspaces = SourceTreeRecord & {
-    workspaces: WorkspaceRecord[];
+/** Source tree row plus active discovered packages, rebuilt for responses. */
+export type SourceTreeWithPackages = SourceTreeRecord & {
+    packages: PackageRecord[];
 };
 
 /** Console source-management and persistence state. */
 export type ConsoleState = {
     mode: ConsoleStateMode;
-    fixedWorkspace: boolean;
+    fixedPackage: boolean;
     canManageSourceTrees: boolean;
 };
 
-/** Persisted workspace discovery row inside a registered source tree. */
-export type WorkspaceRecord = {
+/** Persisted package discovery row inside a registered source tree. */
+export type PackageRecord = {
     id: string;
     slug: string;
     sourceTreeId: string;
@@ -140,7 +140,7 @@ export type BranchRecord = {
     prState: string | null;
     prMergedAt: string | null;
     prSyncedAt: string | null;
-    lastSelectedWorkspacePath: string | null;
+    lastSelectedPackagePath: string | null;
     lastSeenCommit: string | null;
     status: "active" | "recent" | "archived";
     createdAt: string;
@@ -181,18 +181,18 @@ export type LintDiagnostic = {
     };
 };
 
-/** Successful lint payload for one staged workspace root. */
-export type WorkspaceLintView = {
+/** Successful lint payload for one staged package root. */
+export type PackageLintView = {
     root: string;
     diagnostics: LintDiagnostic[];
 };
 
 /* Lint payloads degrade to this shape when staging or lint itself failed. */
-export type WorkspaceLintLoad =
-    | WorkspaceLintView
+export type PackageLintLoad =
+    | PackageLintView
     | { root: string; diagnostics: LintDiagnostic[]; error: string };
 
-/* The semantic model: serde of rototo's WorkspaceSemanticModel. */
+/* The semantic model: serde of rototo's PackageSemanticModel. */
 /** Source location emitted by the Rust semantic model. */
 export type ModelLocation = {
     path: string;
@@ -211,23 +211,12 @@ export type ModelValueField = {
     location: ModelLocation;
 };
 
-/** Legacy qualifier predicate shape retained only for older payloads. */
-export type PredicateModel = {
-    index: number;
-    location: ModelLocation;
-    attribute?: ModelField;
-    op?: ModelField;
-    not?: boolean;
-    value?: unknown;
-};
-
 /** Qualifier declaration from the semantic model. */
 export type QualifierModel = {
     id: string;
     location: ModelLocation;
     description?: string;
     when?: ModelField;
-    predicates: PredicateModel[];
 };
 
 /** Variable declaration kind and optional referenced schema/catalog/type. */
@@ -288,8 +277,8 @@ export type CatalogEntryModel = {
     value: unknown;
 };
 
-/** Request context schema from the semantic model. */
-export type RequestContextModel = {
+/** Evaluation context schema from the semantic model. */
+export type EvaluationContextModel = {
     id: string;
     path: string;
     location: ModelLocation;
@@ -298,23 +287,23 @@ export type RequestContextModel = {
     json?: unknown;
 };
 
-/** Saved request context sample from the semantic model. */
-export type RequestContextEntryModel = {
-    requestContext: string;
+/** Saved evaluation context sample from the semantic model. */
+export type EvaluationContextSampleModel = {
+    evaluationContext: string;
     key: string;
     path: string;
     location: ModelLocation;
     value?: unknown;
 };
 
-export type QualifierRequestContextModel = {
+export type QualifierEvaluationContextModel = {
     qualifier: string;
-    requestContexts: string[];
+    evaluationContexts: string[];
 };
 
-export type VariableRequestContextModel = {
+export type VariableEvaluationContextModel = {
     variable: string;
-    requestContexts: string[];
+    evaluationContexts: string[];
 };
 
 /** Custom Lua linter file and the rules it declares. */
@@ -330,8 +319,12 @@ export type ModelEntityRef =
     | { kind: "variable"; id: string }
     | { kind: "catalog"; id: string }
     | { kind: "catalogEntry"; catalog: string; key: string }
-    | { kind: "requestContext"; id: string }
-    | { kind: "requestContextEntry"; requestContext: string; key: string }
+    | { kind: "evaluationContext"; id: string }
+    | {
+          kind: "evaluationContextSample";
+          evaluationContext: string;
+          key: string;
+      }
     | { kind: "value"; variable: string; key: string }
     | { kind: "contextAttribute"; name: string };
 
@@ -344,7 +337,7 @@ export type ModelReferenceVia =
     | { kind: "ruleCondition"; index: number }
     | { kind: "ruleValue"; index: number };
 
-/** Directed semantic reference from one workspace entity to another. */
+/** Directed semantic reference from one package entity to another. */
 export type ReferenceModel = {
     from: ModelEntityRef;
     to: ModelEntityRef;
@@ -352,22 +345,22 @@ export type ReferenceModel = {
     via: ModelReferenceVia;
 };
 
-/** Full semantic graph for a staged workspace, generated by Rust. */
-export type WorkspaceSemanticModel = {
+/** Full semantic graph for a staged package, generated by Rust. */
+export type PackageSemanticModel = {
     version: number;
     qualifiers: QualifierModel[];
     variables: VariableModel[];
     catalogs: CatalogModel[];
     catalogEntries: CatalogEntryModel[];
-    requestContexts: RequestContextModel[];
-    requestContextEntries: RequestContextEntryModel[];
+    evaluationContexts: EvaluationContextModel[];
+    evaluationContextSamples: EvaluationContextSampleModel[];
     linters: LinterModel[];
     references: ReferenceModel[];
-    qualifierRequestContexts: QualifierRequestContextModel[];
-    variableRequestContexts: VariableRequestContextModel[];
+    qualifierEvaluationContexts: QualifierEvaluationContextModel[];
+    variableEvaluationContexts: VariableEvaluationContextModel[];
 };
 
-/* Workspace inventory, computed server-side from the semantic model. */
+/* Package inventory, computed server-side from the semantic model. */
 /** Variable inventory row derived from the semantic model for navigation. */
 export type VariableInventoryItem = {
     id: string;
@@ -386,7 +379,6 @@ export type QualifierInventoryItem = {
     id: string;
     path: string;
     description: string | null;
-    predicateCount: number;
     qualifierReferences: string[];
 };
 
@@ -407,7 +399,7 @@ export type CatalogEntryInventoryItem = {
     path: string;
 };
 
-export type RequestContextInventoryItem = {
+export type EvaluationContextInventoryItem = {
     id: string;
     path: string;
     title: string | null;
@@ -415,8 +407,8 @@ export type RequestContextInventoryItem = {
     entryCount: number;
 };
 
-export type RequestContextEntryInventoryItem = {
-    requestContextId: string;
+export type EvaluationContextSampleInventoryItem = {
+    evaluationContextId: string;
     key: string;
     id: string;
     path: string;
@@ -430,16 +422,16 @@ export type LinterInventoryItem = {
     kind: "rule" | "script";
 };
 
-/** Request context schema/sample summary discovered for preview inputs. */
+/** Evaluation context schema/sample summary discovered for preview inputs. */
 export type ContextInventory = {
-    requestContexts: RequestContextInventoryItem[];
-    entries: RequestContextEntryInventoryItem[];
+    evaluationContexts: EvaluationContextInventoryItem[];
+    samples: EvaluationContextSampleInventoryItem[];
     exampleCount: number;
     examples: string[];
 };
 
-/** Server-built navigation inventory for one staged workspace. */
-export type WorkspaceInventory = {
+/** Server-built navigation inventory for one staged package. */
+export type PackageInventory = {
     variables: VariableInventoryItem[];
     qualifiers: QualifierInventoryItem[];
     catalogs: CatalogInventoryItem[];
@@ -448,35 +440,26 @@ export type WorkspaceInventory = {
     context: ContextInventory;
 };
 
-/** Source text for one workspace file opened by the console. */
-export type WorkspaceDefinition = {
+/** Source text for one package file opened by the console. */
+export type PackageDefinition = {
     path: string;
     text: string;
     language: "json" | "lua" | "toml" | "text";
 };
 
-/* Resolution previews against saved request contexts, computed server-side
+/* Resolution previews against saved evaluation contexts, computed server-side
    by the real runtime. */
 /** Runtime qualifier evaluation annotated with the condition expression. */
 export type QualifierEvaluation = {
     id: string;
     matched: boolean | null;
     when: string | null;
-    predicates: Array<{
-        index: number;
-        attribute: string | null;
-        op: string | null;
-        not: boolean;
-        valueLiteral: string | null;
-        contextValue: string | null;
-        nested: QualifierEvaluation | null;
-    }>;
 };
 
-/** Variable preview result for one saved request context. */
+/** Variable preview result for one saved evaluation context. */
 export type SavedContextResolution = {
     name: string;
-    requestContext: string;
+    evaluationContext: string;
     path: string;
     ok: boolean;
     value?: unknown;
@@ -495,19 +478,19 @@ export type VariableResolutionSource =
     | { kind: "literal" }
     | { kind: "catalog"; catalog: string; value: string };
 
-/** Qualifier preview result for one saved request context. */
+/** Qualifier preview result for one saved evaluation context. */
 export type QualifierContextEvaluation = {
     name: string;
-    requestContext: string;
+    evaluationContext: string;
     path: string;
     evaluation: QualifierEvaluation | null;
     error?: string;
 };
 
-/** Branch edit preview truth table for one saved request context. */
+/** Branch edit preview truth table for one saved evaluation context. */
 export type EditContextPreview = {
     name: string;
-    requestContext: string;
+    evaluationContext: string;
     qualifierTruth: Record<string, boolean>;
 };
 
@@ -521,55 +504,55 @@ export type EditableEntity = {
     description: string | null;
     badge: string | null;
     text: string;
-    language: WorkspaceDefinition["language"];
+    language: PackageDefinition["language"];
     catalogId?: string | null;
     entryKey?: string | null;
 };
 
 /* Screen payloads. */
-/** App shell payload: source trees, workspaces, and active branch rows. */
+/** App shell payload: source trees, packages, and active branch rows. */
 export type ConsoleData = {
     state: ConsoleState;
-    sourceTrees: SourceTreeWithWorkspaces[];
-    workspaces: WorkspaceRecord[];
-    branches: Array<{ branch: BranchRecord; workspace: WorkspaceRecord }>;
+    sourceTrees: SourceTreeWithPackages[];
+    packages: PackageRecord[];
+    branches: Array<{ branch: BranchRecord; package: PackageRecord }>;
 };
 
-/** Count/error summary for one staged workspace. */
-export type WorkspaceSummary = {
+/** Count/error summary for one staged package. */
+export type PackageSummary = {
     variables: number;
     qualifiers: number;
     catalogs: number;
     error: string | null;
 };
 
-/** Workspace summary paired with stable workspace navigation ids. */
-export type WorkspaceSummaryEntry = WorkspaceSummary & {
-    workspaceId: string;
-    workspaceSlug: string;
+/** Package summary paired with stable package navigation ids. */
+export type PackageSummaryEntry = PackageSummary & {
+    packageId: string;
+    packageSlug: string;
 };
 
-/** Workspace summary list payload, preserving server ordering. */
-export type WorkspaceSummariesData = {
-    summaries: WorkspaceSummaryEntry[];
+/** Package summary list payload, preserving server ordering. */
+export type PackageSummariesData = {
+    summaries: PackageSummaryEntry[];
 };
 
-/** Full workspace screen payload for a persisted workspace record. */
-export type WorkspaceData = {
-    workspace: WorkspaceRecord;
+/** Full package screen payload for a persisted package record. */
+export type PackageData = {
+    package: PackageRecord;
     branches: BranchRecord[];
-    inventory: WorkspaceInventory;
+    inventory: PackageInventory;
     inventoryError: string | null;
-    definitions: WorkspaceDefinition[];
-    lint: WorkspaceLintLoad;
-    model: WorkspaceSemanticModel | null;
-    sourceKind: WorkspaceSourceKind;
-    capabilities: WorkspaceCapabilities;
+    definitions: PackageDefinition[];
+    lint: PackageLintLoad;
+    model: PackageSemanticModel | null;
+    sourceKind: PackageSourceKind;
+    capabilities: PackageCapabilities;
 };
 
-/** Source text and previews for one workspace inspect entity. */
-export type WorkspaceEntityData = {
-    definition: WorkspaceDefinition | null;
+/** Source text and previews for one package inspect entity. */
+export type PackageEntityData = {
+    definition: PackageDefinition | null;
     definitionError: string | null;
     contextResolutions: SavedContextResolution[];
     qualifierEvaluations: QualifierContextEvaluation[];
@@ -577,17 +560,17 @@ export type WorkspaceEntityData = {
 
 /** Full branch screen payload, including branch state and editable entities. */
 export type BranchData = {
-    workspace: WorkspaceRecord;
+    package: PackageRecord;
     branch: BranchRecord;
     prSyncError: string | null;
     changes: BranchChangeRecord[];
-    lint: WorkspaceLintLoad;
-    model: WorkspaceSemanticModel | null;
+    lint: PackageLintLoad;
+    model: PackageSemanticModel | null;
     entities: EditableEntity[];
     editLoadError: string | null;
     editedPaths: string[];
-    sourceKind: WorkspaceSourceKind;
-    capabilities: WorkspaceCapabilities;
+    sourceKind: PackageSourceKind;
+    capabilities: PackageCapabilities;
 };
 
 /** Extra compare/preview payload for one branch entity editor. */

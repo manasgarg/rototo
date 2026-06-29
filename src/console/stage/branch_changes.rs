@@ -263,17 +263,17 @@ mod tests {
     use tempfile::TempDir;
 
     #[tokio::test]
-    async fn branch_changes_map_files_to_root_and_nested_workspaces() {
+    async fn branch_changes_map_files_to_root_and_nested_packages() {
         let repo = TempDir::new().expect("repo tempdir");
         init_repo(repo.path());
-        write_workspace(repo.path()).await;
-        write_workspace(&repo.path().join("workspaces/payments")).await;
-        write_workspace(&repo.path().join("workspaces/search")).await;
-        commit_all(repo.path(), "add workspaces");
+        write_package(repo.path()).await;
+        write_package(&repo.path().join("packages/payments")).await;
+        write_package(&repo.path().join("packages/search")).await;
+        commit_all(repo.path(), "add packages");
         run_git(repo.path(), &["checkout", "-b", "feature/payments"]);
         tokio::fs::write(
             repo.path()
-                .join("workspaces/payments/variables/checkout.toml"),
+                .join("packages/payments/variables/checkout.toml"),
             "schema_version = 1\n",
         )
         .await
@@ -301,7 +301,7 @@ mod tests {
 
         assert_eq!(
             path_strings(&changes.changed_files),
-            vec!["workspaces/payments/variables/checkout.toml"]
+            vec!["packages/payments/variables/checkout.toml"]
         );
     }
 
@@ -315,11 +315,11 @@ mod tests {
         assert!(err.to_string().contains("git branch source tree"));
     }
 
-    async fn write_workspace(path: &Path) {
+    async fn write_package(path: &Path) {
         tokio::fs::create_dir_all(path.join("variables"))
             .await
             .unwrap();
-        tokio::fs::write(path.join("rototo-workspace.toml"), "schema_version = 1\n")
+        tokio::fs::write(path.join("rototo-package.toml"), "schema_version = 1\n")
             .await
             .unwrap();
     }

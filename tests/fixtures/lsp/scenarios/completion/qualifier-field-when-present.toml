@@ -1,0 +1,21 @@
+# Fields already present in the document are removed from the suggestions. With
+# `schema_version` and `when` set, only `description` is left.
+package = "basic"
+file = "qualifiers/premium.toml"
+
+overlay = '''
+schema_version = 1
+when = "context.account.tier == 'premium'"
+$0
+'''
+
+[expect]
+exact = ["description"]
+
+[[expect.excludes]]
+label = "when"
+detail = "qualifier field"
+
+[[expect.excludes]]
+label = "premium"
+detail = "qualifier"

@@ -1,43 +1,42 @@
 mod output;
 mod style;
 
+mod cli;
+
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
-use clap::{ArgAction, Args, CommandFactory, Parser, Subcommand, ValueEnum};
-use clap_complete::{Shell, generate};
-use regex::Regex;
+use clap::{ArgAction, Args, Parser, Subcommand, ValueEnum};
+use clap_complete::Shell;
 use serde::Serialize;
-use serde_json::Value as JsonValue;
 
 use crate::output::{
     print_catalog_get, print_catalog_list, print_diagnostic_catalog_entry, print_inspect_report,
-    print_qualifier_get, print_qualifier_list, print_variable_get, print_variable_list,
-    print_workspace_diff, print_workspace_lint,
+    print_package_lint, print_qualifier_get, print_qualifier_list, print_variable_get,
+    print_variable_list,
 };
 use rototo::diagnostics::{DiagnosticCatalogEntry, LintDiagnostic, SemanticEntity, Severity};
 use rototo::model::{
-    CatalogInspection, DiagnosticCatalog, InspectSelection, LinterInspection, QualifierInspection,
-    QualifierResolutionTrace, RequestContextInspection, VariableInspection,
-    VariableResolutionTrace, WorkspaceInspectRequest, WorkspaceInspection, WorkspaceLint,
+    CatalogInspection, DiagnosticCatalog, EvaluationContextInspection, InspectSelection,
+    LinterInspection, PackageInspectRequest, PackageInspection, PackageLint, QualifierInspection,
+    VariableInspection,
 };
-use rototo::workspace::{
-    catalog_for_id, qualifier_for_id, read_catalog_json, read_toml, read_variable_toml,
-    variable_for_id, workspace_extends_sources,
+use rototo::package::{
+    catalog_for_id, package_extends_sources, qualifier_for_id, read_catalog_json, read_toml,
+    read_variable_toml, variable_for_id,
 };
 use rototo::{
-    Result, RototoError, SourceAuth, SourceOptions, StagedWorkspace, diagnostic_for_rule,
-    diagnostics_catalog, diagnostics_catalog_for_workspace, diff_workspaces, find_workspace_root,
-    inspect_workspace, inspect_workspace_report, lint_workspace, stage_workspace_source,
-    trace_qualifier_resolution, trace_variable_resolution,
+    Result, RototoError, SourceAuth, SourceOptions, StagedPackage, diagnostic_for_rule,
+    diagnostics_catalog, diagnostics_catalog_for_package, find_package_root, inspect_package,
+    inspect_package_report, lint_package, stage_package_source,
 };
 
 #[derive(Debug, Parser)]
 #[command(
     name = "rototo",
     version,
-    about = "Control Git-backed runtime configuration workspaces",
+    about = "Control Git-backed runtime configuration packages",
     after_help = top_level_help(),
     override_usage = "rototo <command> [options]",
     help_template = top_level_help_template(),
@@ -48,15 +47,15 @@ struct Cli {
     #[arg(long, global = true, action = ArgAction::SetTrue)]
     json: bool,
 
-    /// Bearer token for https:// workspace archive downloads.
+    /// Bearer token for https:// package archive downloads.
     #[arg(
         long,
         global = true,
-        env = "ROTOTO_WORKSPACE_TOKEN",
+        env = "ROTOTO_PACKAGE_TOKEN",
         hide_env_values = true,
         value_name = "TOKEN"
     )]
-    workspace_token: Option<String>,
+    package_token: Option<String>,
 
     /// Suppress success output from lint commands.
     #[arg(long, global = true, action = ArgAction::SetTrue)]
@@ -68,36 +67,38 @@ struct Cli {
 
 #[derive(Debug, Subcommand)]
 enum Command {
-    /// Create workspace and entity templates.
+    /// Create package and entity templates.
     Init(InitArgs),
     /// Generate readable runtime behavior fixtures.
     Fixtures(FixturesArgs),
-    /// Validate a workspace or selected targets.
-    Lint(WorkspaceCommandArgs),
-    /// Explain how rototo sees workspace data.
+    /// Validate a package or selected targets.
+    Lint(PackageCommandArgs),
+    /// Explain how rototo sees package data.
     Inspect(InspectArgs),
-    /// Compare two workspaces by rototo concepts.
+    /// Compare package semantics across Git refs or the worktree.
     Diff(DiffArgs),
-    /// Display workspace config, variables, qualifiers, and lint metadata.
-    Show(WorkspaceCommandArgs),
+    /// Display package config, variables, qualifiers, and lint metadata.
+    Show(PackageCommandArgs),
     /// Evaluate variables or qualifiers with runtime context.
     Resolve(ResolveArgs),
+    /// Build a deterministic, content-addressed distributable archive.
+    Package(PackageArgs),
     /// Read bundled documentation.
     Docs(DocsArgs),
-    /// Serve the rototo console: web UI plus JSON API over a workspace.
+    /// Configure shell, editor, and agent integrations.
+    Setup(SetupArgs),
+    /// Serve the rototo console: web UI plus JSON API over a package.
     #[cfg(feature = "console")]
     Console(ConsoleArgs),
     /// Run the rototo Language Server Protocol server over stdio.
     Lsp,
-    /// Generate shell completion scripts.
-    Completions { shell: CompletionShell },
 }
 
 #[derive(Debug, Args)]
 struct InitArgs {
-    /// Local workspace path to initialize or modify.
-    #[arg(value_name = "WORKSPACE")]
-    workspace: PathBuf,
+    /// Local package path to initialize or modify.
+    #[arg(value_name = "PACKAGE")]
+    package: PathBuf,
 
     /// Create a qualifier template with this id.
     #[arg(long = "qualifier", value_name = "ID")]
@@ -111,9 +112,14 @@ struct InitArgs {
     #[arg(long = "catalog", value_name = "ID")]
     catalog: Option<String>,
 
-    /// Create or infer the request context schema template.
-    #[arg(long = "context", action = ArgAction::SetTrue)]
-    context: bool,
+    /// Create or infer an evaluation context schema template.
+    #[arg(
+        long = "evaluation-context",
+        value_name = "ID",
+        num_args = 0..=1,
+        default_missing_value = "evaluation"
+    )]
+    evaluation_context: Option<String>,
 
     /// Overwrite files created by this command.
     #[arg(long = "force", action = ArgAction::SetTrue)]
@@ -122,17 +128,23 @@ struct InitArgs {
     /// Print the planned writes without changing the filesystem.
     #[arg(long = "dry-run", action = ArgAction::SetTrue)]
     dry_run: bool,
+
+    /// Add missing inferred paths to an existing evaluation context schema.
+    #[arg(
+        long = "update",
+        action = ArgAction::SetTrue,
+        requires = "evaluation_context",
+        conflicts_with = "force"
+    )]
+    update: bool,
 }
 
 #[derive(Debug, Args)]
 struct FixturesArgs {
-    /// Workspace source to generate fixtures from.
-    #[arg(value_name = "WORKSPACE_SOURCE")]
-    workspace: String,
-
-    /// Directory where rototo fixture TOML files will be written.
-    #[arg(long = "out", value_name = "DIR")]
-    out: PathBuf,
+    /// Package source to print resolve commands for. Defaults to the package in
+    /// the current directory.
+    #[arg(value_name = "PACKAGE_SOURCE")]
+    package: Option<String>,
 
     /// Select one variable id. Repeatable.
     #[arg(long = "variable", value_name = "ID")]
@@ -149,13 +161,35 @@ struct FixturesArgs {
     /// Select all qualifiers.
     #[arg(long = "qualifiers", action = ArgAction::SetTrue)]
     all_qualifiers: bool,
+
+    /// How to render context in printed commands.
+    #[arg(long = "context-form", value_enum, default_value_t = ContextForm::Path)]
+    context_form: ContextForm,
+}
+
+#[derive(Clone, Copy, Debug, Default, ValueEnum)]
+enum ContextForm {
+    /// Decompose context into `--context a.b=value` arguments.
+    #[default]
+    Path,
+    /// Emit a single `--context '<json>'` argument.
+    Json,
+}
+
+impl ContextForm {
+    fn to_render(self) -> rototo::fixtures::ContextForm {
+        match self {
+            Self::Path => rototo::fixtures::ContextForm::Path,
+            Self::Json => rototo::fixtures::ContextForm::Json,
+        }
+    }
 }
 
 #[derive(Debug, Args)]
-struct WorkspaceCommandArgs {
-    /// Workspace source. Defaults to the nearest parent with rototo-workspace.toml.
-    #[arg(value_name = "WORKSPACE_SOURCE")]
-    workspace: Option<String>,
+struct PackageCommandArgs {
+    /// Package source. Defaults to the nearest parent with rototo-package.toml.
+    #[arg(value_name = "PACKAGE_SOURCE")]
+    package: Option<String>,
 
     #[command(flatten)]
     selectors: SelectorArgs,
@@ -163,9 +197,9 @@ struct WorkspaceCommandArgs {
 
 #[derive(Debug, Args)]
 struct InspectArgs {
-    /// Workspace source. Defaults to the nearest parent with rototo-workspace.toml.
-    #[arg(value_name = "WORKSPACE_SOURCE")]
-    workspace: Option<String>,
+    /// Package source. Defaults to the nearest parent with rototo-package.toml.
+    #[arg(value_name = "PACKAGE_SOURCE")]
+    package: Option<String>,
 
     #[command(flatten)]
     selectors: SelectorArgs,
@@ -177,13 +211,17 @@ struct InspectArgs {
 
 #[derive(Debug, Args)]
 struct DiffArgs {
-    /// Workspace source used as the before side of the comparison.
-    #[arg(value_name = "BEFORE_WORKSPACE_SOURCE")]
-    before: String,
+    /// Local package path. Defaults to the nearest parent with rototo-package.toml.
+    #[arg(value_name = "PACKAGE")]
+    package: Option<String>,
 
-    /// Workspace source used as the after side of the comparison.
-    #[arg(value_name = "AFTER_WORKSPACE_SOURCE")]
-    after: String,
+    /// Git ref used as the before side of the comparison. Defaults to HEAD.
+    #[arg(long = "from", value_name = "REF")]
+    from: Option<String>,
+
+    /// Git ref used as the after side of the comparison. Defaults to the current worktree.
+    #[arg(long = "to", value_name = "REF")]
+    to: Option<String>,
 
     /// Evaluation context used to report resolution impact: JSON object, @file, or path=value.
     #[arg(long = "context", value_name = "CONTEXT")]
@@ -232,11 +270,11 @@ struct SelectorArgs {
     #[arg(long = "lint-authorities", action = ArgAction::SetTrue)]
     all_lint_authorities: bool,
 
-    /// Select one workspace Lua linter id. Repeatable.
+    /// Select one package Lua linter id. Repeatable.
     #[arg(long = "linter", value_name = "ID")]
     linters: Vec<String>,
 
-    /// Select all workspace Lua linters.
+    /// Select all package Lua linters.
     #[arg(long = "linters", action = ArgAction::SetTrue)]
     all_linters: bool,
 }
@@ -262,9 +300,9 @@ struct ResolveSelectorArgs {
 
 #[derive(Debug, Args)]
 struct ResolveArgs {
-    /// Workspace source. Defaults to the nearest parent with rototo-workspace.toml.
-    #[arg(value_name = "WORKSPACE_SOURCE")]
-    workspace: Option<String>,
+    /// Package source. Defaults to the nearest parent with rototo-package.toml.
+    #[arg(value_name = "PACKAGE_SOURCE")]
+    package: Option<String>,
 
     #[command(flatten)]
     selectors: ResolveSelectorArgs,
@@ -272,6 +310,17 @@ struct ResolveArgs {
     /// Evaluation context: JSON object, @file, or path=value. Repeatable; later values override earlier ones. Defaults to {}.
     #[arg(long = "context", value_name = "CONTEXT")]
     context: Vec<String>,
+}
+
+#[derive(Debug, Args)]
+struct PackageArgs {
+    /// Package source. Defaults to the nearest parent with rototo-package.toml.
+    #[arg(value_name = "PACKAGE_SOURCE")]
+    package: Option<String>,
+
+    /// Directory to write the content-addressed archive into.
+    #[arg(short = 'o', long = "output", value_name = "DIR", default_value = ".")]
+    output: PathBuf,
 }
 
 #[derive(Debug, Args)]
@@ -325,6 +374,37 @@ struct DocsArgs {
     docs_base_url: Option<String>,
 }
 
+#[derive(Debug, Args)]
+struct SetupArgs {
+    /// Set up every supported local integration.
+    #[arg(long = "all", action = ArgAction::SetTrue)]
+    all: bool,
+
+    /// Shell completion target.
+    #[arg(long = "shell", value_name = "SHELL", value_enum)]
+    shell: Option<SetupShellArg>,
+
+    /// Editor integration target.
+    #[arg(long = "editor", value_name = "EDITOR", value_enum)]
+    editor: Option<SetupEditorArg>,
+
+    /// Agent guidance target.
+    #[arg(long = "agent", value_name = "AGENT", value_enum)]
+    agent: Option<SetupAgentArg>,
+
+    /// Print generated setup content instead of writing files.
+    #[arg(long = "print", action = ArgAction::SetTrue)]
+    print: bool,
+
+    /// Print planned setup changes without changing the filesystem.
+    #[arg(long = "dry-run", action = ArgAction::SetTrue)]
+    dry_run: bool,
+
+    /// Overwrite rototo-owned generated setup files when they already exist.
+    #[arg(long = "force", action = ArgAction::SetTrue)]
+    force: bool,
+}
+
 #[cfg(feature = "console")]
 #[derive(Debug, Args)]
 struct ConsoleArgs {
@@ -345,21 +425,21 @@ struct ConsoleArgs {
     #[arg(long = "data-dir", value_name = "DIR", env = "ROTOTO_CONSOLE_DATA_DIR")]
     data_dir: Option<PathBuf>,
 
-    /// Workspace source to register at startup.
-    #[arg(long = "workspace", value_name = "WORKSPACE_SOURCE")]
-    workspace: Option<String>,
+    /// Package source to register at startup.
+    #[arg(long = "package", value_name = "PACKAGE_SOURCE")]
+    package: Option<String>,
 
     /// Console state persistence mode. Defaults to ephemeral for local folder
-    /// workspaces and persistent otherwise.
+    /// packages and persistent otherwise.
     #[arg(long = "state", value_enum)]
     state: Option<ConsoleStateArg>,
 
-    /// Console deployment mode. Defaults to local with --workspace, hosted otherwise.
+    /// Console deployment mode. Defaults to local with --package, hosted otherwise.
     #[arg(long = "deployment", value_enum)]
     deployment: Option<ConsoleDeploymentArg>,
 
     /// Write behavior for console branch edits. Defaults to direct-push for local
-    /// fixed workspaces and pull-request otherwise.
+    /// fixed packages and pull-request otherwise.
     #[arg(long = "write", value_enum)]
     write: Option<ConsoleWriteArg>,
 }
@@ -437,25 +517,56 @@ impl PackageReadmeTarget {
     }
 }
 
-#[derive(Clone, Copy, Debug, ValueEnum)]
-enum CompletionShell {
+#[derive(Clone, Copy, Debug, Eq, PartialEq, ValueEnum)]
+enum SetupShellArg {
+    Auto,
     Bash,
     Elvish,
     Fish,
+    #[value(name = "powershell", alias = "power-shell")]
     PowerShell,
     Zsh,
+    None,
 }
 
-impl From<CompletionShell> for Shell {
-    fn from(shell: CompletionShell) -> Self {
-        match shell {
-            CompletionShell::Bash => Shell::Bash,
-            CompletionShell::Elvish => Shell::Elvish,
-            CompletionShell::Fish => Shell::Fish,
-            CompletionShell::PowerShell => Shell::PowerShell,
-            CompletionShell::Zsh => Shell::Zsh,
+impl SetupShellArg {
+    fn completion_shell(self) -> Option<Shell> {
+        match self {
+            SetupShellArg::Auto | SetupShellArg::None => None,
+            SetupShellArg::Bash => Some(Shell::Bash),
+            SetupShellArg::Elvish => Some(Shell::Elvish),
+            SetupShellArg::Fish => Some(Shell::Fish),
+            SetupShellArg::PowerShell => Some(Shell::PowerShell),
+            SetupShellArg::Zsh => Some(Shell::Zsh),
         }
     }
+
+    fn label(self) -> &'static str {
+        match self {
+            SetupShellArg::Auto => "auto",
+            SetupShellArg::Bash => "bash",
+            SetupShellArg::Elvish => "elvish",
+            SetupShellArg::Fish => "fish",
+            SetupShellArg::PowerShell => "powershell",
+            SetupShellArg::Zsh => "zsh",
+            SetupShellArg::None => "none",
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq, ValueEnum)]
+enum SetupEditorArg {
+    All,
+    Neovim,
+    None,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq, ValueEnum)]
+enum SetupAgentArg {
+    All,
+    Claude,
+    Codex,
+    None,
 }
 
 #[derive(Clone, Debug, Default)]
@@ -572,11 +683,14 @@ fn top_level_help() -> String {
     for example in [
         "init config",
         "init config --qualifier premium-users",
-        "fixtures examples/basic --variable tenant-limits --out tests/fixtures/rototo",
+        "fixtures examples/basic --variable tenant-limits",
         "lint examples/basic",
         "show examples/basic --variables",
+        "diff examples/basic --context @examples/basic/evaluation-contexts/request-samples/premium-enterprise.json",
         "resolve examples/basic --variable checkout-redesign --context lane=prod --context user.tier=premium",
-        "docs -p index",
+        "package examples/basic --output dist",
+        "docs -p motivation",
+        "setup --shell zsh",
     ] {
         out.push_str(&format!("  {} {}\n", style::sea("rototo"), example));
     }
@@ -601,34 +715,42 @@ fn top_level_help_template() -> String {
     out.push_str("{about}\n\n");
     out.push_str(&style::bold("Usage:"));
     out.push_str("\n  {usage}\n\n");
-    out.push_str(&style::bold("Workspace commands:"));
+    out.push_str(&style::bold("Package commands:"));
     out.push('\n');
-    out.push_str(&command("init", "Create workspace and entity templates"));
+    out.push_str(&command("init", "Create package and entity templates"));
     out.push_str(&command(
         "fixtures",
         "Generate readable runtime behavior fixtures",
     ));
-    out.push_str(&command("lint", "Validate a workspace or selected targets"));
+    out.push_str(&command("lint", "Validate a package or selected targets"));
+    out.push_str(&command("inspect", "Explain how rototo sees package data"));
     out.push_str(&command(
-        "inspect",
-        "Explain how rototo sees workspace data",
+        "diff",
+        "Compare package semantics across Git refs or the worktree",
     ));
     out.push_str(&command(
         "show",
-        "Display workspace config, variables, qualifiers, and lint metadata",
+        "Display package config, variables, qualifiers, and lint metadata",
     ));
     out.push_str(&command(
         "resolve",
         "Evaluate variables or qualifiers with runtime context",
     ));
+    out.push_str(&command(
+        "package",
+        "Build a deterministic, content-addressed distributable archive",
+    ));
     out.push('\n');
     out.push_str(&style::bold("Utility commands:"));
     out.push('\n');
     out.push_str(&command("docs", "Read bundled documentation"));
+    out.push_str(&command(
+        "setup",
+        "Configure shell, editor, and agent integrations",
+    ));
     #[cfg(feature = "console")]
     out.push_str(&command("console", "Serve the web console and JSON API"));
     out.push_str(&command("lsp", "Run the language server over stdio"));
-    out.push_str(&command("completions", "Generate shell completions"));
     out.push_str(&command(
         "help",
         "Print this message or the help of the given subcommand(s)",
@@ -638,7 +760,7 @@ fn top_level_help_template() -> String {
     out.push('\n');
     out.push_str(&flag("--json"));
     out.push_str(&flag("--quiet"));
-    out.push_str(&flag("--workspace-token <token>"));
+    out.push_str(&flag("--package-token <token>"));
     out.push_str(&flag("-V, --version"));
     out.push_str(&flag("-h, --help"));
     out.push('\n');
@@ -665,25 +787,29 @@ async fn run() -> Result<ExitCode> {
     let source_options = source_options(&cli);
 
     match cli.command {
-        Command::Init(args) => run_init(args, cli.json, cli.quiet).await,
+        Command::Init(args) => cli::init::run_init(args, cli.json, cli.quiet).await,
         Command::Fixtures(args) => run_fixtures(args, &source_options, cli.json, cli.quiet).await,
         Command::Lint(args) => run_lint(args, &source_options, cli.json, cli.quiet).await,
         Command::Inspect(args) => run_inspect(args, &source_options, cli.json).await,
-        Command::Diff(args) => run_diff(args, &source_options, cli.json).await,
+        Command::Diff(args) => cli::diff::run_diff(args, &source_options, cli.json).await,
         Command::Show(args) => run_show(args, &source_options, cli.json).await,
-        Command::Resolve(args) => run_resolve(args, &source_options, cli.json).await,
-        Command::Docs(args) => run_docs(args, cli.json).await,
+        Command::Resolve(args) => cli::resolve::run_resolve(args, &source_options, cli.json).await,
+        Command::Package(args) => {
+            cli::package::run_package(args, &source_options, cli.json, cli.quiet).await
+        }
+        Command::Docs(args) => cli::docs::run_docs(args, cli.json).await,
+        Command::Setup(args) => cli::setup::run_setup(args, cli.json, cli.quiet).await,
         #[cfg(feature = "console")]
         Command::Console(args) => {
             rototo::console::run(rototo::console::ConsoleOptions {
                 bind: args.bind,
                 public_url: args.public_url,
                 data_dir: args.data_dir,
-                workspace: args.workspace,
+                package: args.package,
                 state_mode: args.state.map(Into::into),
                 deployment: args.deployment.map(Into::into),
                 write_policy: args.write.map(Into::into),
-                workspace_token: cli.workspace_token.clone(),
+                package_token: cli.package_token.clone(),
             })
             .await?;
             Ok(ExitCode::SUCCESS)
@@ -692,27 +818,7 @@ async fn run() -> Result<ExitCode> {
             rototo::lsp::serve_stdio().await?;
             Ok(ExitCode::SUCCESS)
         }
-        Command::Completions { shell } => {
-            let mut command = Cli::command();
-            let name = command.get_name().to_owned();
-            generate(
-                Shell::from(shell),
-                &mut command,
-                name,
-                &mut std::io::stdout(),
-            );
-            Ok(ExitCode::SUCCESS)
-        }
     }
-}
-
-async fn run_init(args: InitArgs, json: bool, quiet: bool) -> Result<ExitCode> {
-    let workspace = local_init_workspace_path(&args.workspace)?;
-    let target = init_target(&args)?;
-    let plan = build_init_plan(&workspace, target).await?;
-    let report = execute_init_plan(&workspace, &plan, args.force, args.dry_run).await?;
-    print_init_report(&report, json, quiet)?;
-    Ok(ExitCode::SUCCESS)
 }
 
 async fn run_fixtures(
@@ -722,15 +828,33 @@ async fn run_fixtures(
     quiet: bool,
 ) -> Result<ExitCode> {
     let selection = fixture_generate_selection(&args);
-    let suite =
-        rototo::fixtures::generate_fixture_suite(&args.workspace, source_options, selection)
-            .await?;
-    let report = suite.write_to(&args.out).await?;
-    print_fixtures_report(&suite.workspace, &report, json, quiet)?;
+    let package = package_source_string_or_current(args.package).await?;
+    let invocations =
+        rototo::fixtures::generate_resolve_invocations(&package, source_options, selection).await?;
+    print_fixture_invocations(
+        &package,
+        &invocations,
+        args.context_form.to_render(),
+        json,
+        quiet,
+    )?;
     Ok(ExitCode::SUCCESS)
 }
 
 fn fixture_generate_selection(args: &FixturesArgs) -> rototo::fixtures::FixtureGenerateSelection {
+    // With no selector flags at all, generate fixtures for the whole package, the
+    // same way `lint`, `show`, and `inspect` treat an empty selector set. Without
+    // this default, bare `rototo fixtures` would select nothing and print nothing.
+    let no_selectors = !args.all_variables
+        && args.variables.is_empty()
+        && !args.all_qualifiers
+        && args.qualifiers.is_empty();
+    if no_selectors {
+        return rototo::fixtures::FixtureGenerateSelection {
+            variables: rototo::fixtures::FixtureTargetSelection::All,
+            qualifiers: rototo::fixtures::FixtureTargetSelection::All,
+        };
+    }
     rototo::fixtures::FixtureGenerateSelection {
         variables: fixture_target_selection(args.all_variables, &args.variables),
         qualifiers: fixture_target_selection(args.all_qualifiers, &args.qualifiers),
@@ -751,216 +875,67 @@ fn fixture_target_selection(
 }
 
 #[derive(Serialize)]
-struct FixturesReport<'a> {
-    command: &'static str,
-    workspace: &'a str,
-    out: &'a str,
-    files: &'a [String],
+#[serde(rename_all = "camelCase")]
+struct FixtureInvocationJson<'a> {
+    target: String,
+    case_id: &'a str,
+    title: &'a str,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    because: Option<&'a str>,
+    command: String,
+    context: &'a serde_json::Value,
+    expect: &'a rototo::fixtures::ResolveExpectation,
 }
 
-fn print_fixtures_report(
-    workspace: &str,
-    report: &rototo::fixtures::FixtureWriteReport,
+fn print_fixture_invocations(
+    package: &str,
+    invocations: &[rototo::fixtures::ResolveInvocation],
+    form: rototo::fixtures::ContextForm,
     json: bool,
     quiet: bool,
 ) -> Result<()> {
     if json {
+        let items = invocations
+            .iter()
+            .map(|invocation| FixtureInvocationJson {
+                target: invocation.target.label(),
+                case_id: &invocation.case_id,
+                title: &invocation.title,
+                because: invocation.because.as_deref(),
+                command: rototo::fixtures::render_command(package, invocation, form),
+                context: &invocation.context,
+                expect: &invocation.expect,
+            })
+            .collect::<Vec<_>>();
         println!(
             "{}",
-            serde_json::to_string_pretty(&FixturesReport {
-                command: "fixtures",
-                workspace,
-                out: &report.out,
-                files: &report.files,
-            })
-            .map_err(|err| RototoError::new(err.to_string()))?
+            serde_json::to_string_pretty(&items)
+                .map_err(|err| RototoError::new(err.to_string()))?
         );
         return Ok(());
     }
 
-    if quiet {
-        return Ok(());
-    }
-
-    println!("{} {}", style::label("fixtures"), style::bold(&report.out));
-    for file in &report.files {
-        println!("  {} {}", style::ok("wrote"), file);
+    let mut current_target: Option<String> = None;
+    for invocation in invocations {
+        let command = rototo::fixtures::render_command(package, invocation, form);
+        if quiet {
+            println!("{command}");
+            continue;
+        }
+        let label = invocation.target.label();
+        if current_target.as_deref() != Some(label.as_str()) {
+            if current_target.is_some() {
+                println!();
+            }
+            println!("{}", style::label(&label));
+            current_target = Some(label);
+        }
+        println!(
+            "{command}  {}",
+            style::dim(&rototo::fixtures::render_comment(invocation))
+        );
     }
     Ok(())
-}
-
-enum InitTarget {
-    Workspace,
-    Qualifier(String),
-    Variable(String),
-    Catalog(String),
-    Context,
-}
-
-fn init_target(args: &InitArgs) -> Result<InitTarget> {
-    let mut count = 0;
-    let mut target = InitTarget::Workspace;
-
-    if let Some(id) = &args.qualifier {
-        count += 1;
-        validate_template_id("qualifier", id)?;
-        target = InitTarget::Qualifier(id.clone());
-    }
-    if let Some(id) = &args.variable {
-        count += 1;
-        validate_template_id("variable", id)?;
-        target = InitTarget::Variable(id.clone());
-    }
-    if let Some(id) = &args.catalog {
-        count += 1;
-        validate_template_id("catalog", id)?;
-        target = InitTarget::Catalog(id.clone());
-    }
-    if args.context {
-        count += 1;
-        target = InitTarget::Context;
-    }
-
-    if count > 1 {
-        return Err(RototoError::new(
-            "init accepts one entity flag at a time: --qualifier, --variable, --catalog, or --context",
-        ));
-    }
-
-    Ok(target)
-}
-
-fn validate_template_id(kind: &str, id: &str) -> Result<()> {
-    if id.is_empty() {
-        return Err(RototoError::new(format!("{kind} id must not be empty")));
-    }
-    if id.starts_with('.') || id.split('.').any(str::is_empty) {
-        return Err(RototoError::new(format!(
-            "{kind} id must not start with '.', end with '.', or contain empty '.' segments"
-        )));
-    }
-    if !id
-        .chars()
-        .all(|ch| ch.is_ascii_alphanumeric() || matches!(ch, '-' | '_' | '.'))
-    {
-        return Err(RototoError::new(format!(
-            "{kind} id must use only ASCII letters, digits, '.', '_', or '-'"
-        )));
-    }
-    Ok(())
-}
-
-fn local_init_workspace_path(path: &Path) -> Result<PathBuf> {
-    let source = path.to_string_lossy();
-    if source.contains("://") || source.starts_with("git+") {
-        return Err(RototoError::new(
-            "init requires a local workspace path, not a workspace source URI",
-        ));
-    }
-
-    std::path::absolute(path)
-        .map_err(|err| RototoError::new(format!("failed to resolve workspace path: {err}")))
-}
-
-async fn build_init_plan(workspace: &Path, target: InitTarget) -> Result<Vec<InitPlanEntry>> {
-    let initialized = workspace_initialized(workspace).await?;
-    match target {
-        InitTarget::Workspace => Ok(workspace_init_plan(workspace)),
-        InitTarget::Qualifier(id) => {
-            let mut plan = implicit_workspace_init_plan(workspace, initialized);
-            if initialized {
-                plan.push(InitPlanEntry::directory(workspace.join("qualifiers")));
-            }
-            plan.push(InitPlanEntry::file(
-                "qualifier",
-                workspace.join("qualifiers").join(format!("{id}.toml")),
-                qualifier_template(&id),
-            ));
-            Ok(plan)
-        }
-        InitTarget::Variable(id) => {
-            let mut plan = implicit_workspace_init_plan(workspace, initialized);
-            if initialized {
-                plan.push(InitPlanEntry::directory(workspace.join("variables")));
-            }
-            plan.push(InitPlanEntry::file(
-                "variable",
-                workspace.join("variables").join(format!("{id}.toml")),
-                variable_template(&id),
-            ));
-            Ok(plan)
-        }
-        InitTarget::Catalog(id) => {
-            let mut plan = implicit_workspace_init_plan(workspace, initialized);
-            if initialized {
-                plan.push(InitPlanEntry::directory(workspace.join("catalogs")));
-            }
-            plan.extend([
-                InitPlanEntry::directory(workspace.join("catalogs").join(format!("{id}-entries"))),
-                InitPlanEntry::file(
-                    "catalog",
-                    workspace.join("catalogs").join(format!("{id}.schema.json")),
-                    catalog_schema_template()?,
-                ),
-                InitPlanEntry::file(
-                    "catalog_entry",
-                    workspace
-                        .join("catalogs")
-                        .join(format!("{id}-entries"))
-                        .join("default.toml"),
-                    catalog_entry_template(),
-                ),
-            ]);
-            Ok(plan)
-        }
-        InitTarget::Context => {
-            let mut plan = implicit_workspace_init_plan(workspace, initialized);
-            if initialized {
-                plan.push(InitPlanEntry::directory(workspace.join("request-contexts")));
-            }
-            let content = if initialized {
-                context_schema_template(workspace).await?
-            } else {
-                starter_context_schema_template()?
-            };
-            plan.push(InitPlanEntry::file(
-                "request_context",
-                workspace
-                    .join("request-contexts")
-                    .join("request.schema.json"),
-                content,
-            ));
-            Ok(plan)
-        }
-    }
-}
-
-fn implicit_workspace_init_plan(workspace: &Path, initialized: bool) -> Vec<InitPlanEntry> {
-    if initialized {
-        Vec::new()
-    } else {
-        workspace_init_plan(workspace)
-    }
-}
-
-fn workspace_init_plan(workspace: &Path) -> Vec<InitPlanEntry> {
-    vec![
-        InitPlanEntry::directory(workspace.to_path_buf()),
-        InitPlanEntry::file(
-            "workspace_manifest",
-            workspace.join("rototo-workspace.toml"),
-            workspace_manifest_template(),
-        ),
-        InitPlanEntry::directory(workspace.join("qualifiers")),
-        InitPlanEntry::directory(workspace.join("variables")),
-        InitPlanEntry::directory(workspace.join("catalogs")),
-        InitPlanEntry::directory(workspace.join("request-contexts")),
-        InitPlanEntry::directory(workspace.join("lint")),
-    ]
-}
-
-async fn workspace_initialized(workspace: &Path) -> Result<bool> {
-    path_exists(&workspace.join("rototo-workspace.toml")).await
 }
 
 async fn path_exists(path: &Path) -> Result<bool> {
@@ -974,569 +949,19 @@ async fn path_exists(path: &Path) -> Result<bool> {
     }
 }
 
-#[derive(Debug)]
-struct InitPlanEntry {
-    kind: &'static str,
-    path: PathBuf,
-    content: Option<String>,
-}
-
-impl InitPlanEntry {
-    fn directory(path: PathBuf) -> Self {
-        Self {
-            kind: "directory",
-            path,
-            content: None,
-        }
-    }
-
-    fn file(kind: &'static str, path: PathBuf, content: String) -> Self {
-        Self {
-            kind,
-            path,
-            content: Some(content),
-        }
-    }
-
-    fn is_directory(&self) -> bool {
-        self.content.is_none()
-    }
-}
-
-#[derive(Debug, Serialize)]
-struct InitReport {
-    command: &'static str,
-    workspace: String,
-    dry_run: bool,
-    files: Vec<InitFileReport>,
-}
-
-#[derive(Debug, Serialize)]
-struct InitFileReport {
-    kind: &'static str,
-    path: String,
-    action: InitAction,
-}
-
-#[derive(Clone, Copy, Debug, Serialize)]
-#[serde(rename_all = "snake_case")]
-enum InitAction {
-    Exists,
-    Created,
-    Overwritten,
-    WouldCreate,
-    WouldOverwrite,
-}
-
-impl InitAction {
-    fn label(self) -> &'static str {
-        match self {
-            Self::Exists => "exists",
-            Self::Created => "created",
-            Self::Overwritten => "overwritten",
-            Self::WouldCreate => "would create",
-            Self::WouldOverwrite => "would overwrite",
-        }
-    }
-}
-
-async fn execute_init_plan(
-    workspace: &Path,
-    plan: &[InitPlanEntry],
-    force: bool,
-    dry_run: bool,
-) -> Result<InitReport> {
-    let mut actions = Vec::with_capacity(plan.len());
-    for entry in plan {
-        actions.push(planned_init_action(entry, force, dry_run).await?);
-    }
-
-    if !dry_run {
-        for entry in plan {
-            if entry.is_directory() {
-                tokio::fs::create_dir_all(&entry.path)
-                    .await
-                    .map_err(|err| {
-                        RototoError::new(format!(
-                            "failed to create directory {}: {err}",
-                            entry.path.display()
-                        ))
-                    })?;
-            } else if let Some(content) = &entry.content {
-                if let Some(parent) = entry.path.parent() {
-                    tokio::fs::create_dir_all(parent).await.map_err(|err| {
-                        RototoError::new(format!(
-                            "failed to create directory {}: {err}",
-                            parent.display()
-                        ))
-                    })?;
-                }
-                tokio::fs::write(&entry.path, content)
-                    .await
-                    .map_err(|err| {
-                        RototoError::new(format!("failed to write {}: {err}", entry.path.display()))
-                    })?;
-            }
-        }
-    }
-
-    Ok(InitReport {
-        command: "init",
-        workspace: workspace.display().to_string(),
-        dry_run,
-        files: plan
-            .iter()
-            .zip(actions)
-            .map(|(entry, action)| InitFileReport {
-                kind: entry.kind,
-                path: init_report_path(workspace, &entry.path),
-                action,
-            })
-            .collect(),
-    })
-}
-
-async fn planned_init_action(
-    entry: &InitPlanEntry,
-    force: bool,
-    dry_run: bool,
-) -> Result<InitAction> {
-    let metadata = match tokio::fs::metadata(&entry.path).await {
-        Ok(metadata) => Some(metadata),
-        Err(err) if err.kind() == std::io::ErrorKind::NotFound => None,
-        Err(err) => {
-            return Err(RototoError::new(format!(
-                "failed to inspect {}: {err}",
-                entry.path.display()
-            )));
-        }
-    };
-
-    if entry.is_directory() {
-        if let Some(metadata) = metadata {
-            if !metadata.is_dir() {
-                return Err(RototoError::new(format!(
-                    "path exists and is not a directory: {}",
-                    entry.path.display()
-                )));
-            }
-            return Ok(InitAction::Exists);
-        }
-        return Ok(if dry_run {
-            InitAction::WouldCreate
-        } else {
-            InitAction::Created
-        });
-    }
-
-    if let Some(metadata) = metadata {
-        if metadata.is_dir() {
-            return Err(RototoError::new(format!(
-                "path exists and is a directory: {}",
-                entry.path.display()
-            )));
-        }
-        if !force {
-            return Err(RototoError::new(format!(
-                "file already exists: {} (use --force to overwrite)",
-                entry.path.display()
-            )));
-        }
-        return Ok(if dry_run {
-            InitAction::WouldOverwrite
-        } else {
-            InitAction::Overwritten
-        });
-    }
-
-    Ok(if dry_run {
-        InitAction::WouldCreate
-    } else {
-        InitAction::Created
-    })
-}
-
-fn init_report_path(workspace: &Path, path: &Path) -> String {
-    match path.strip_prefix(workspace) {
-        Ok(relative) if relative.as_os_str().is_empty() => ".".to_owned(),
-        Ok(relative) => relative.display().to_string(),
-        Err(_) => path.display().to_string(),
-    }
-}
-
-fn print_init_report(report: &InitReport, json: bool, quiet: bool) -> Result<()> {
-    if json {
-        println!(
-            "{}",
-            serde_json::to_string_pretty(report)
-                .map_err(|err| RototoError::new(err.to_string()))?
-        );
-        return Ok(());
-    }
-
-    if quiet {
-        return Ok(());
-    }
-
-    println!("workspace: {}", report.workspace);
-    for file in &report.files {
-        println!(
-            "  {:<15} {}",
-            format!("{}:", file.action.label()),
-            file.path
-        );
-    }
-    Ok(())
-}
-
-fn workspace_manifest_template() -> String {
-    r#"schema_version = 1
-
-# Optional workspace layering:
-#
-# extends = ["../shared-config"]
-#
-# Custom lint handlers live in lint/*.lua and register their rule metadata there.
-"#
-    .to_owned()
-}
-
-fn qualifier_template(id: &str) -> String {
-    let description = toml_string(&format!(
-        "Edit this description to explain when {id} should match"
-    ));
-    format!(
-        r#"schema_version = 1
-
-description = {description}
-
-when = "context.user.tier == \"premium\""
-
-# Compose multiple conditions with boolean operators.
-#
-# when = 'context.user.tier == "premium" && context.request.country in ["DE", "FR", "NL"]'
-#
-# Qualifiers can reference other qualifiers.
-#
-# when = 'qualifier["beta-rollout"] && context.user.tier == "premium"'
-#
-# bucket(...) produces stable rollout membership for a context value.
-#
-# when = 'bucket(context.user.id, "{id}-rollout", 0, 1000)'
-"#
-    )
-}
-
-fn variable_template(id: &str) -> String {
-    let description = toml_string(&format!(
-        "Edit this description to explain what {id} controls"
-    ));
-    format!(
-        r#"schema_version = 1
-
-description = {description}
-type = "string"
-
-[resolve]
-default = "control"
-
-# Rules are evaluated in order. The first matching condition selects its value.
-#
-# [[resolve.rule]]
-# when = 'qualifier["premium-users"]'
-# value = "treatment"
-#
-# For catalog-backed values, use a catalog type:
-#
-# type = "catalog:{id}"
-#
-# Catalog value names become the selectable values.
-"#
-    )
-}
-
-fn catalog_schema_template() -> Result<String> {
-    let schema = serde_json::json!({
-        "$schema": "https://json-schema.org/draft/2020-12/schema",
-        "description": "Edit this description to explain the catalog values",
-        "type": "object",
-        "additionalProperties": false,
-        "properties": {
-            "heading": { "type": "string" },
-            "enabled": { "type": "boolean" }
-        },
-        "required": ["heading", "enabled"]
-    });
-    pretty_json(&schema)
-}
-
-fn catalog_entry_template() -> String {
-    r#"heading = "Edit this heading"
-enabled = false
-"#
-    .to_owned()
-}
-
-async fn context_schema_template(workspace: &Path) -> Result<String> {
-    let report = inspect_workspace_report(
-        workspace,
-        WorkspaceInspectRequest {
-            qualifiers: InspectSelection::All,
-            ..WorkspaceInspectRequest::default()
-        },
-    )
-    .await?;
-
-    let mut builder = ContextSchemaBuilder::default();
-    for qualifier in &report.qualifiers {
-        for path in &qualifier.dependencies.context_paths {
-            builder.add_context_path(path);
-        }
-    }
-
-    if builder.is_empty() {
-        return starter_context_schema_template();
-    }
-
-    pretty_json(&builder.into_schema())
-}
-
-fn starter_context_schema_template() -> Result<String> {
-    let schema = serde_json::json!({
-        "$schema": "https://json-schema.org/draft/2020-12/schema",
-        "type": "object",
-        "additionalProperties": true,
-        "properties": {
-            "user": {
-                "type": "object",
-                "additionalProperties": true,
-                "properties": {
-                    "tier": { "type": "string" },
-                    "id": { "type": ["string", "number"] }
-                }
-            }
-        }
-    });
-    pretty_json(&schema)
-}
-
-#[derive(Default)]
-struct ContextSchemaBuilder {
-    properties: serde_json::Map<String, serde_json::Value>,
-}
-
-impl ContextSchemaBuilder {
-    fn add_context_path(&mut self, path: &str) {
-        let segments = path.split('.').collect::<Vec<_>>();
-        if segments.is_empty() || segments.iter().any(|segment| segment.is_empty()) {
-            return;
-        }
-
-        let types = BTreeSet::from([ContextSchemaType::String]);
-        insert_context_schema_path(&mut self.properties, &segments, &types);
-    }
-
-    fn is_empty(&self) -> bool {
-        self.properties.is_empty()
-    }
-
-    fn into_schema(self) -> serde_json::Value {
-        serde_json::json!({
-            "$schema": "https://json-schema.org/draft/2020-12/schema",
-            "type": "object",
-            "additionalProperties": true,
-            "properties": self.properties
-        })
-    }
-}
-
-#[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
-enum ContextSchemaType {
-    Null,
-    Boolean,
-    Integer,
-    Number,
-    String,
-    Array,
-    Object,
-}
-
-impl ContextSchemaType {
-    fn as_str(self) -> &'static str {
-        match self {
-            Self::Null => "null",
-            Self::Boolean => "boolean",
-            Self::Integer => "integer",
-            Self::Number => "number",
-            Self::String => "string",
-            Self::Array => "array",
-            Self::Object => "object",
-        }
-    }
-}
-
-fn insert_context_schema_path(
-    properties: &mut serde_json::Map<String, serde_json::Value>,
-    segments: &[&str],
-    types: &BTreeSet<ContextSchemaType>,
-) {
-    let segment = segments[0];
-    if segments.len() == 1 {
-        merge_context_schema_leaf(properties, segment, types);
-        return;
-    }
-
-    let entry = properties
-        .entry(segment.to_owned())
-        .or_insert_with(empty_context_object_schema);
-    ensure_context_object_schema(entry);
-    let child_properties = entry
-        .as_object_mut()
-        .expect("object schema ensured above")
-        .entry("properties")
-        .or_insert_with(|| serde_json::Value::Object(serde_json::Map::new()))
-        .as_object_mut()
-        .expect("properties object inserted above");
-    insert_context_schema_path(child_properties, &segments[1..], types);
-}
-
-fn merge_context_schema_leaf(
-    properties: &mut serde_json::Map<String, serde_json::Value>,
-    segment: &str,
-    types: &BTreeSet<ContextSchemaType>,
-) {
-    let entry = properties
-        .entry(segment.to_owned())
-        .or_insert_with(|| context_schema_leaf(types));
-    if entry
-        .as_object()
-        .is_some_and(|object| object.contains_key("properties"))
-    {
-        return;
-    }
-
-    let mut merged = context_schema_types_from_schema(entry);
-    merged.extend(types.iter().copied());
-    normalize_context_schema_types(&mut merged);
-    *entry = context_schema_leaf(&merged);
-}
-
-fn empty_context_object_schema() -> serde_json::Value {
-    serde_json::json!({
-        "type": "object",
-        "additionalProperties": true,
-        "properties": {}
-    })
-}
-
-fn ensure_context_object_schema(value: &mut serde_json::Value) {
-    if !value.is_object() {
-        *value = empty_context_object_schema();
-        return;
-    }
-
-    let object = value.as_object_mut().expect("object checked above");
-    object.insert(
-        "type".to_owned(),
-        serde_json::Value::String("object".to_owned()),
-    );
-    object.insert(
-        "additionalProperties".to_owned(),
-        serde_json::Value::Bool(true),
-    );
-    let properties = object
-        .entry("properties")
-        .or_insert_with(|| serde_json::Value::Object(serde_json::Map::new()));
-    if !properties.is_object() {
-        *properties = serde_json::Value::Object(serde_json::Map::new());
-    }
-}
-
-fn context_schema_leaf(types: &BTreeSet<ContextSchemaType>) -> serde_json::Value {
-    let mut object = serde_json::Map::new();
-    object.insert("type".to_owned(), context_schema_type_value(types));
-    serde_json::Value::Object(object)
-}
-
-fn context_schema_type_value(types: &BTreeSet<ContextSchemaType>) -> serde_json::Value {
-    let mut types = types.clone();
-    normalize_context_schema_types(&mut types);
-    if types.len() == 1 {
-        return serde_json::Value::String(
-            types.iter().next().expect("one type").as_str().to_owned(),
-        );
-    }
-    serde_json::Value::Array(
-        types
-            .iter()
-            .map(|ty| serde_json::Value::String(ty.as_str().to_owned()))
-            .collect(),
-    )
-}
-
-fn context_schema_types_from_schema(schema: &serde_json::Value) -> BTreeSet<ContextSchemaType> {
-    let mut types = BTreeSet::new();
-    match schema.as_object().and_then(|object| object.get("type")) {
-        Some(serde_json::Value::String(value)) => {
-            if let Some(ty) = context_schema_type_from_str(value) {
-                types.insert(ty);
-            }
-        }
-        Some(serde_json::Value::Array(values)) => {
-            for value in values {
-                if let Some(ty) = value.as_str().and_then(context_schema_type_from_str) {
-                    types.insert(ty);
-                }
-            }
-        }
-        _ => {}
-    }
-    types
-}
-
-fn context_schema_type_from_str(value: &str) -> Option<ContextSchemaType> {
-    match value {
-        "boolean" => Some(ContextSchemaType::Boolean),
-        "integer" => Some(ContextSchemaType::Integer),
-        "number" => Some(ContextSchemaType::Number),
-        "string" => Some(ContextSchemaType::String),
-        "array" => Some(ContextSchemaType::Array),
-        "object" => Some(ContextSchemaType::Object),
-        "null" => Some(ContextSchemaType::Null),
-        _ => None,
-    }
-}
-
-fn normalize_context_schema_types(types: &mut BTreeSet<ContextSchemaType>) {
-    if types.contains(&ContextSchemaType::Number) {
-        types.remove(&ContextSchemaType::Integer);
-    }
-}
-
-fn pretty_json(value: &serde_json::Value) -> Result<String> {
-    let mut text =
-        serde_json::to_string_pretty(value).map_err(|err| RototoError::new(err.to_string()))?;
-    text.push('\n');
-    Ok(text)
-}
-
-fn toml_string(value: &str) -> String {
-    toml::Value::String(value.to_owned()).to_string()
-}
-
 async fn run_lint(
-    args: WorkspaceCommandArgs,
+    args: PackageCommandArgs,
     source_options: &SourceOptions,
     json: bool,
     quiet: bool,
 ) -> Result<ExitCode> {
-    let workspace = workspace_source_for_lint(args.workspace, source_options).await?;
+    let package = package_source_for_lint(args.package, source_options).await?;
     let selectors = TargetSelectors::from_args(&args.selectors);
 
     if selectors.is_empty() {
-        let lint = lint_workspace(workspace.path()).await?;
+        let lint = lint_package(package.path()).await?;
         let passed = !lint.has_errors();
-        print_workspace_lint(&lint, json, quiet)?;
+        print_package_lint(&lint, json, quiet)?;
         return Ok(if passed {
             ExitCode::SUCCESS
         } else {
@@ -1544,14 +969,14 @@ async fn run_lint(
         });
     }
 
-    let inspection = inspect_workspace(workspace.path()).await?;
-    let catalog = diagnostics_catalog_for_workspace(workspace.path()).await?;
-    validate_workspace_selectors(&selectors, &inspection, &catalog)?;
+    let inspection = inspect_package(package.path()).await?;
+    let catalog = diagnostics_catalog_for_package(package.path()).await?;
+    validate_package_selectors(&selectors, &inspection, &catalog)?;
 
-    let lint = lint_workspace(workspace.path()).await?;
+    let lint = lint_package(package.path()).await?;
     let lint = filter_lint(lint, &selectors);
     let passed = !lint.has_errors();
-    print_workspace_lint(&lint, json, quiet)?;
+    print_package_lint(&lint, json, quiet)?;
     Ok(if passed {
         ExitCode::SUCCESS
     } else {
@@ -1559,29 +984,29 @@ async fn run_lint(
     })
 }
 
-async fn workspace_source_for_lint(
-    workspace: Option<String>,
+async fn package_source_for_lint(
+    package: Option<String>,
     source_options: &SourceOptions,
-) -> Result<StagedWorkspace> {
-    match workspace {
-        Some(workspace) if !workspace.contains("://") => {
-            let path = PathBuf::from(&workspace);
-            if local_workspace_has_valid_extends(&path).await {
-                workspace_source_or_current(Some(workspace), source_options).await
+) -> Result<StagedPackage> {
+    match package {
+        Some(package) if !package.contains("://") => {
+            let path = PathBuf::from(&package);
+            if local_package_has_valid_extends(&path).await {
+                package_source_or_current(Some(package), source_options).await
             } else {
-                Ok(StagedWorkspace::local(path))
+                Ok(StagedPackage::local(path))
             }
         }
-        workspace => workspace_source_or_current(workspace, source_options).await,
+        package => package_source_or_current(package, source_options).await,
     }
 }
 
-async fn local_workspace_has_valid_extends(path: &Path) -> bool {
-    let manifest = match read_toml(&path.join("rototo-workspace.toml")).await {
+async fn local_package_has_valid_extends(path: &Path) -> bool {
+    let manifest = match read_toml(&path.join("rototo-package.toml")).await {
         Ok(manifest) => manifest,
         Err(_) => return false,
     };
-    workspace_extends_sources(&manifest).is_ok_and(|sources| !sources.is_empty())
+    package_extends_sources(&manifest).is_ok_and(|sources| !sources.is_empty())
 }
 
 async fn run_inspect(
@@ -1589,16 +1014,16 @@ async fn run_inspect(
     source_options: &SourceOptions,
     json: bool,
 ) -> Result<ExitCode> {
-    let workspace = workspace_source_or_current(args.workspace, source_options).await?;
+    let package = package_source_or_current(args.package, source_options).await?;
     let selectors = TargetSelectors::from_args(&args.selectors);
     let context = if args.context.is_empty() {
         None
     } else {
         Some(parse_context(&args.context).await?)
     };
-    let report = inspect_workspace_report(
-        workspace.path(),
-        WorkspaceInspectRequest {
+    let report = inspect_package_report(
+        package.path(),
+        PackageInspectRequest {
             variables: inspect_selection(&selectors.variables),
             catalogs: inspect_selection(&selectors.catalogs),
             qualifiers: inspect_selection(&selectors.qualifiers),
@@ -1613,47 +1038,34 @@ async fn run_inspect(
     Ok(ExitCode::SUCCESS)
 }
 
-async fn run_diff(args: DiffArgs, source_options: &SourceOptions, json: bool) -> Result<ExitCode> {
-    let before = workspace_source_for_lint(Some(args.before), source_options).await?;
-    let after = workspace_source_for_lint(Some(args.after), source_options).await?;
-    let context = if args.context.is_empty() {
-        None
-    } else {
-        Some(parse_context(&args.context).await?)
-    };
-    let diff = diff_workspaces(before.path(), after.path(), context.as_ref()).await?;
-    print_workspace_diff(&diff, json)?;
-    Ok(ExitCode::SUCCESS)
-}
-
 async fn run_show(
-    args: WorkspaceCommandArgs,
+    args: PackageCommandArgs,
     source_options: &SourceOptions,
     json: bool,
 ) -> Result<ExitCode> {
     let selectors = TargetSelectors::from_args(&args.selectors);
-    if args.workspace.is_none() && selectors.is_global_catalog_query() {
+    if args.package.is_none() && selectors.is_global_catalog_query() {
         let catalog = diagnostics_catalog();
         validate_global_catalog_selectors(&selectors, &catalog)?;
         print_selected_lint_rules(&catalog, &selectors, json)?;
         return Ok(ExitCode::SUCCESS);
     }
 
-    let workspace = workspace_source_or_current(args.workspace, source_options).await?;
-    let inspection = inspect_workspace(workspace.path()).await?;
-    let catalog = diagnostics_catalog_for_workspace(workspace.path()).await?;
+    let package = package_source_or_current(args.package, source_options).await?;
+    let inspection = inspect_package(package.path()).await?;
+    let catalog = diagnostics_catalog_for_package(package.path()).await?;
 
     if selectors.is_empty() {
-        let view = workspace_inventory_view(&inspection, &catalog).await?;
-        print_workspace_view("show", &view, json)?;
+        let view = package_inventory_view(&inspection, &catalog).await?;
+        print_package_view("show", &view, json)?;
         return Ok(ExitCode::SUCCESS);
     }
 
-    validate_workspace_selectors(&selectors, &inspection, &catalog)?;
+    validate_package_selectors(&selectors, &inspection, &catalog)?;
 
     if json {
-        let view = selected_workspace_view(&inspection, &selectors, &catalog).await?;
-        print_workspace_view("show", &view, true)?;
+        let view = selected_package_view(&inspection, &selectors, &catalog).await?;
+        print_package_view("show", &view, true)?;
         return Ok(ExitCode::SUCCESS);
     }
 
@@ -1679,318 +1091,6 @@ fn validate_global_catalog_selectors(
     Ok(())
 }
 
-async fn run_resolve(
-    args: ResolveArgs,
-    source_options: &SourceOptions,
-    json: bool,
-) -> Result<ExitCode> {
-    let selectors = TargetSelectors::from_resolve_args(&args.selectors);
-    if !selectors.has_resolvable_targets() {
-        return Err(RototoError::new(
-            "resolve requires at least one --variable, --variables, --qualifier, or --qualifiers selector",
-        ));
-    }
-    let workspace = workspace_source_or_current(args.workspace, source_options).await?;
-    let inspection = inspect_workspace(workspace.path()).await?;
-    let catalog = diagnostics_catalog_for_workspace(workspace.path()).await?;
-    validate_workspace_selectors(&selectors, &inspection, &catalog)?;
-
-    if args.context.is_empty() {
-        let model = rototo::lint::workspace_semantic_model(workspace.path()).await?;
-        let contexts =
-            trace_sample_resolutions(workspace.path(), &inspection, &selectors, &model).await?;
-        print_resolutions(workspace.path(), &[], &[], &contexts, json)?;
-        return Ok(ExitCode::SUCCESS);
-    }
-
-    let context = parse_context(&args.context).await?;
-    let (variables, qualifiers) =
-        trace_selected_resolutions(workspace.path(), &inspection, &selectors, &context).await?;
-    print_resolutions(workspace.path(), &variables, &qualifiers, &[], json)?;
-    Ok(ExitCode::SUCCESS)
-}
-
-async fn trace_selected_resolutions(
-    workspace: &Path,
-    inspection: &WorkspaceInspection,
-    selectors: &TargetSelectors,
-    context: &JsonValue,
-) -> Result<(Vec<VariableResolutionTrace>, Vec<QualifierResolutionTrace>)> {
-    let mut variables = Vec::new();
-    for id in selected_variable_id_list(inspection, &selectors.variables) {
-        variables.push(trace_variable_resolution(workspace, &id, context).await?);
-    }
-
-    let mut qualifiers = Vec::new();
-    for id in selected_qualifier_id_list(inspection, &selectors.qualifiers) {
-        qualifiers.push(trace_qualifier_resolution(workspace, &id, context).await?);
-    }
-
-    Ok((variables, qualifiers))
-}
-
-async fn trace_sample_resolutions(
-    workspace: &Path,
-    inspection: &WorkspaceInspection,
-    selectors: &TargetSelectors,
-    model: &rototo::lint::WorkspaceSemanticModel,
-) -> Result<Vec<ContextResolveOutput>> {
-    let variable_ids = selected_variable_id_list(inspection, &selectors.variables);
-    let qualifier_ids = selected_qualifier_id_list(inspection, &selectors.qualifiers);
-    let variable_contexts = variable_request_contexts(model);
-    let qualifier_contexts = qualifier_request_contexts(model);
-    let variable_has_rules = variable_rule_presence(model);
-    let samples = stored_request_contexts(model);
-
-    let mut requested_contexts = BTreeSet::new();
-    let mut context_independent_variables = BTreeSet::new();
-    for variable in &variable_ids {
-        let contexts = variable_contexts.get(variable).cloned().unwrap_or_default();
-        if contexts.is_empty() && !variable_has_rules.get(variable).copied().unwrap_or(false) {
-            context_independent_variables.insert(variable.clone());
-        } else {
-            requested_contexts.extend(contexts);
-        }
-    }
-    for qualifier in &qualifier_ids {
-        requested_contexts.extend(
-            qualifier_contexts
-                .get(qualifier)
-                .cloned()
-                .unwrap_or_default(),
-        );
-    }
-
-    let mut runs = Vec::new();
-    let mut resolved_variables = BTreeSet::new();
-    let mut resolved_qualifiers = BTreeSet::new();
-    for sample in samples
-        .iter()
-        .filter(|sample| requested_contexts.contains(&sample.request_context))
-    {
-        let mut variables = Vec::new();
-        for variable in &variable_ids {
-            let contexts = variable_contexts.get(variable).cloned().unwrap_or_default();
-            if contexts.contains(&sample.request_context)
-                || context_independent_variables.contains(variable)
-            {
-                variables
-                    .push(trace_variable_resolution(workspace, variable, &sample.value).await?);
-                resolved_variables.insert(variable.clone());
-            }
-        }
-
-        let mut qualifiers = Vec::new();
-        for qualifier in &qualifier_ids {
-            if qualifier_contexts
-                .get(qualifier)
-                .is_some_and(|contexts| contexts.contains(&sample.request_context))
-            {
-                qualifiers
-                    .push(trace_qualifier_resolution(workspace, qualifier, &sample.value).await?);
-                resolved_qualifiers.insert(qualifier.clone());
-            }
-        }
-
-        if !variables.is_empty() || !qualifiers.is_empty() {
-            runs.push(ContextResolveOutput {
-                request_context: Some(sample.request_context.clone()),
-                sample: Some(sample.key.clone()),
-                variables,
-                qualifiers,
-            });
-        }
-    }
-
-    let unresolved_context_independent = context_independent_variables
-        .iter()
-        .filter(|variable| !resolved_variables.contains(*variable))
-        .cloned()
-        .collect::<Vec<_>>();
-    if !unresolved_context_independent.is_empty() {
-        let empty_context = JsonValue::Object(serde_json::Map::new());
-        let mut variables = Vec::new();
-        for variable in unresolved_context_independent {
-            variables.push(trace_variable_resolution(workspace, &variable, &empty_context).await?);
-            resolved_variables.insert(variable);
-        }
-        runs.push(ContextResolveOutput {
-            request_context: None,
-            sample: None,
-            variables,
-            qualifiers: Vec::new(),
-        });
-    }
-
-    let unresolved = unresolved_resolution_targets(
-        &variable_ids,
-        &qualifier_ids,
-        &resolved_variables,
-        &resolved_qualifiers,
-    );
-    if !unresolved.is_empty() {
-        return Err(RototoError::new(format!(
-            "no stored request context sample matched selected target(s): {}",
-            unresolved.join(", ")
-        )));
-    }
-
-    Ok(runs)
-}
-
-#[derive(Debug)]
-struct StoredRequestContext {
-    request_context: String,
-    key: String,
-    value: JsonValue,
-}
-
-fn stored_request_contexts(
-    model: &rototo::lint::WorkspaceSemanticModel,
-) -> Vec<StoredRequestContext> {
-    model
-        .request_context_entries
-        .iter()
-        .filter_map(|entry| {
-            entry.value.as_ref().map(|value| StoredRequestContext {
-                request_context: entry.request_context.clone(),
-                key: entry.key.clone(),
-                value: value.clone(),
-            })
-        })
-        .collect()
-}
-
-fn variable_request_contexts(
-    model: &rototo::lint::WorkspaceSemanticModel,
-) -> BTreeMap<String, BTreeSet<String>> {
-    model
-        .variable_request_contexts
-        .iter()
-        .map(|compatibility| {
-            (
-                compatibility.variable.clone(),
-                compatibility.request_contexts.iter().cloned().collect(),
-            )
-        })
-        .collect()
-}
-
-fn qualifier_request_contexts(
-    model: &rototo::lint::WorkspaceSemanticModel,
-) -> BTreeMap<String, BTreeSet<String>> {
-    model
-        .qualifier_request_contexts
-        .iter()
-        .map(|compatibility| {
-            (
-                compatibility.qualifier.clone(),
-                compatibility.request_contexts.iter().cloned().collect(),
-            )
-        })
-        .collect()
-}
-
-fn variable_rule_presence(model: &rototo::lint::WorkspaceSemanticModel) -> BTreeMap<String, bool> {
-    model
-        .variables
-        .iter()
-        .map(|variable| {
-            (
-                variable.id.clone(),
-                variable
-                    .resolve
-                    .as_ref()
-                    .is_some_and(|resolve| !resolve.rules.is_empty()),
-            )
-        })
-        .collect()
-}
-
-fn unresolved_resolution_targets(
-    variable_ids: &[String],
-    qualifier_ids: &[String],
-    resolved_variables: &BTreeSet<String>,
-    resolved_qualifiers: &BTreeSet<String>,
-) -> Vec<String> {
-    let mut unresolved = Vec::new();
-    for variable in variable_ids {
-        if !resolved_variables.contains(variable) {
-            unresolved.push(format!("variable://{variable}"));
-        }
-    }
-    for qualifier in qualifier_ids {
-        if !resolved_qualifiers.contains(qualifier) {
-            unresolved.push(format!("qualifier://{qualifier}"));
-        }
-    }
-    unresolved
-}
-
-fn selected_variable_id_list(
-    inspection: &WorkspaceInspection,
-    selection: &Selection<String>,
-) -> Vec<String> {
-    match selected_variable_ids(inspection, selection) {
-        SelectedIds::None => Vec::new(),
-        SelectedIds::Some(ids) => ids,
-        SelectedIds::All => inspection
-            .variables
-            .iter()
-            .map(|variable| variable.id.clone())
-            .collect(),
-    }
-}
-
-fn selected_qualifier_id_list(
-    inspection: &WorkspaceInspection,
-    selection: &Selection<String>,
-) -> Vec<String> {
-    match selected_qualifier_ids(inspection, selection) {
-        SelectedIds::None => Vec::new(),
-        SelectedIds::Some(ids) => ids,
-        SelectedIds::All => inspection
-            .qualifiers
-            .iter()
-            .map(|qualifier| qualifier.id.clone())
-            .collect(),
-    }
-}
-
-async fn run_docs(args: DocsArgs, json: bool) -> Result<ExitCode> {
-    let docs_base_url = args.docs_base_url;
-    match (
-        args.export,
-        args.page,
-        args.search,
-        args.package_readme,
-        args.out,
-    ) {
-        (Some(out), None, None, None, None) => {
-            rototo::docs::export_html(&out).await?;
-            print_docs_export(&out, json)?;
-            Ok(ExitCode::SUCCESS)
-        }
-        (None, Some(page), None, None, None) => print_docs_page(&page, json),
-        (None, None, Some(search), None, None) => print_docs_search(&search, json),
-        (None, None, None, Some(target), Some(out)) => {
-            let docs_base_url = docs_base_url
-                .as_deref()
-                .unwrap_or(rototo::docs::DEFAULT_DOCS_BASE_URL);
-            write_package_readme(target, &out, docs_base_url).await?;
-            print_package_readme_export(target, &out, json)?;
-            Ok(ExitCode::SUCCESS)
-        }
-        (None, None, None, None, None) => {
-            print_docs_index(json)?;
-            Ok(ExitCode::SUCCESS)
-        }
-        _ => Err(RototoError::new(
-            "--export, --page, --search, and --package-readme cannot be used together",
-        )),
-    }
-}
-
 #[derive(Debug)]
 enum SelectedIds {
     None,
@@ -1999,7 +1099,7 @@ enum SelectedIds {
 }
 
 fn selected_variable_ids(
-    inspection: &WorkspaceInspection,
+    inspection: &PackageInspection,
     selection: &Selection<String>,
 ) -> SelectedIds {
     match selection {
@@ -2016,7 +1116,7 @@ fn selected_variable_ids(
 }
 
 fn selected_qualifier_ids(
-    inspection: &WorkspaceInspection,
+    inspection: &PackageInspection,
     selection: &Selection<String>,
 ) -> SelectedIds {
     match selection {
@@ -2034,10 +1134,10 @@ fn selected_qualifier_ids(
 
 fn ordered_selected_ids<'a>(
     ids: &BTreeSet<String>,
-    workspace_order: impl Iterator<Item = &'a str>,
+    package_order: impl Iterator<Item = &'a str>,
 ) -> Vec<String> {
     let mut ordered = Vec::new();
-    for id in workspace_order {
+    for id in package_order {
         if ids.contains(id) {
             ordered.push(id.to_owned());
         }
@@ -2050,9 +1150,9 @@ fn ordered_selected_ids<'a>(
     ordered
 }
 
-fn validate_workspace_selectors(
+fn validate_package_selectors(
     selectors: &TargetSelectors,
-    inspection: &WorkspaceInspection,
+    inspection: &PackageInspection,
     catalog: &DiagnosticCatalog,
 ) -> Result<()> {
     for id in selectors.variables.explicit_values() {
@@ -2103,8 +1203,8 @@ fn validate_workspace_selectors(
     Ok(())
 }
 
-fn filter_lint(lint: WorkspaceLint, selectors: &TargetSelectors) -> WorkspaceLint {
-    let WorkspaceLint {
+fn filter_lint(lint: PackageLint, selectors: &TargetSelectors) -> PackageLint {
+    let PackageLint {
         root,
         documents,
         diagnostics,
@@ -2113,7 +1213,7 @@ fn filter_lint(lint: WorkspaceLint, selectors: &TargetSelectors) -> WorkspaceLin
         .into_iter()
         .filter(|diagnostic| diagnostic_matches_selectors(diagnostic, selectors))
         .collect();
-    WorkspaceLint {
+    PackageLint {
         root,
         documents,
         diagnostics,
@@ -2261,12 +1361,12 @@ fn catalog_authorities(catalog: &DiagnosticCatalog) -> BTreeSet<String> {
 }
 
 async fn show_selected_targets(
-    inspection: &WorkspaceInspection,
+    inspection: &PackageInspection,
     selectors: &TargetSelectors,
     catalog: &DiagnosticCatalog,
 ) -> Result<()> {
     match &selectors.variables {
-        Selection::All => print_variable_list(inspection, false)?,
+        Selection::All => print_variable_list(inspection, false).await?,
         Selection::Some(ids) => {
             for id in ordered_selected_ids(ids, inspection.variables.iter().map(|v| v.id.as_str()))
             {
@@ -2276,7 +1376,7 @@ async fn show_selected_targets(
         Selection::None => {}
     }
     match &selectors.catalogs {
-        Selection::All => print_catalog_list(inspection, false)?,
+        Selection::All => print_catalog_list(inspection, false).await?,
         Selection::Some(ids) => {
             for id in ordered_selected_ids(ids, inspection.catalogs.iter().map(|r| r.id.as_str())) {
                 print_catalog_get(inspection, &id, false).await?;
@@ -2285,7 +1385,7 @@ async fn show_selected_targets(
         Selection::None => {}
     }
     match &selectors.qualifiers {
-        Selection::All => print_qualifier_list(inspection, false)?,
+        Selection::All => print_qualifier_list(inspection, false).await?,
         Selection::Some(ids) => {
             for id in ordered_selected_ids(ids, inspection.qualifiers.iter().map(|q| q.id.as_str()))
             {
@@ -2300,20 +1400,20 @@ async fn show_selected_targets(
 }
 
 #[derive(Debug, Serialize)]
-struct WorkspaceView {
+struct PackageView {
     command: String,
-    workspace: String,
-    request_contexts: Vec<WorkspaceFileView>,
-    catalogs: Vec<WorkspaceFileView>,
-    variables: Vec<WorkspaceFileView>,
-    qualifiers: Vec<WorkspaceFileView>,
+    package: String,
+    evaluation_contexts: Vec<PackageFileView>,
+    catalogs: Vec<PackageFileView>,
+    variables: Vec<PackageFileView>,
+    qualifiers: Vec<PackageFileView>,
     lint_rules: Vec<DiagnosticCatalogEntryView>,
     lint_authorities: Vec<LintAuthorityView>,
     linters: Vec<LinterInspection>,
 }
 
 #[derive(Debug, Serialize)]
-struct WorkspaceFileView {
+struct PackageFileView {
     id: String,
     uri: String,
     path: String,
@@ -2337,10 +1437,10 @@ struct LintAuthorityView {
     rules: Vec<DiagnosticCatalogEntryView>,
 }
 
-async fn workspace_inventory_view(
-    inspection: &WorkspaceInspection,
+async fn package_inventory_view(
+    inspection: &PackageInspection,
     catalog: &DiagnosticCatalog,
-) -> Result<WorkspaceView> {
+) -> Result<PackageView> {
     let mut variables = Vec::new();
     for variable in &inspection.variables {
         variables.push(variable_view(inspection, variable, false).await?);
@@ -2356,30 +1456,30 @@ async fn workspace_inventory_view(
         qualifiers.push(qualifier_view(inspection, qualifier, false).await?);
     }
 
-    let request_contexts = inspection
-        .request_contexts
+    let evaluation_contexts = inspection
+        .evaluation_contexts
         .iter()
-        .map(request_context_view)
+        .map(evaluation_context_view)
         .collect();
 
-    Ok(WorkspaceView {
+    Ok(PackageView {
         command: String::new(),
-        workspace: inspection.root.display().to_string(),
-        request_contexts,
+        package: inspection.root.display().to_string(),
+        evaluation_contexts,
         catalogs,
         variables,
         qualifiers,
         lint_rules: Vec::new(),
-        lint_authorities: workspace_lint_authorities(catalog),
+        lint_authorities: package_lint_authorities(catalog),
         linters: inspection.linters.clone(),
     })
 }
 
-async fn selected_workspace_view(
-    inspection: &WorkspaceInspection,
+async fn selected_package_view(
+    inspection: &PackageInspection,
     selectors: &TargetSelectors,
     catalog: &DiagnosticCatalog,
-) -> Result<WorkspaceView> {
+) -> Result<PackageView> {
     let mut variables = Vec::new();
     let mut catalogs = Vec::new();
     let mut qualifiers = Vec::new();
@@ -2441,10 +1541,10 @@ async fn selected_workspace_view(
         linters = inspection.linters.clone();
     }
 
-    Ok(WorkspaceView {
+    Ok(PackageView {
         command: String::new(),
-        workspace: inspection.root.display().to_string(),
-        request_contexts: Vec::new(),
+        package: inspection.root.display().to_string(),
+        evaluation_contexts: Vec::new(),
         catalogs,
         variables,
         qualifiers,
@@ -2455,10 +1555,10 @@ async fn selected_workspace_view(
 }
 
 async fn variable_view(
-    inspection: &WorkspaceInspection,
+    inspection: &PackageInspection,
     variable: &VariableInspection,
     include_value: bool,
-) -> Result<WorkspaceFileView> {
+) -> Result<PackageFileView> {
     let value = if include_value {
         Some(
             serde_json::to_value(read_variable_toml(&inspection.root, variable).await?)
@@ -2467,7 +1567,7 @@ async fn variable_view(
     } else {
         None
     };
-    Ok(WorkspaceFileView {
+    Ok(PackageFileView {
         id: variable.id.clone(),
         uri: variable.uri.clone(),
         path: variable.path.display().to_string(),
@@ -2476,16 +1576,16 @@ async fn variable_view(
 }
 
 async fn catalog_view(
-    inspection: &WorkspaceInspection,
+    inspection: &PackageInspection,
     catalog: &CatalogInspection,
     include_value: bool,
-) -> Result<WorkspaceFileView> {
+) -> Result<PackageFileView> {
     let value = if include_value {
         Some(read_catalog_json(&inspection.root, catalog).await?)
     } else {
         None
     };
-    Ok(WorkspaceFileView {
+    Ok(PackageFileView {
         id: catalog.id.clone(),
         uri: catalog.uri.clone(),
         path: catalog.path.display().to_string(),
@@ -2494,10 +1594,10 @@ async fn catalog_view(
 }
 
 async fn qualifier_view(
-    inspection: &WorkspaceInspection,
+    inspection: &PackageInspection,
     qualifier: &QualifierInspection,
     include_value: bool,
-) -> Result<WorkspaceFileView> {
+) -> Result<PackageFileView> {
     let value = if include_value {
         Some(
             serde_json::to_value(read_toml(&inspection.root.join(&qualifier.path)).await?)
@@ -2506,7 +1606,7 @@ async fn qualifier_view(
     } else {
         None
     };
-    Ok(WorkspaceFileView {
+    Ok(PackageFileView {
         id: qualifier.id.clone(),
         uri: qualifier.uri.clone(),
         path: qualifier.path.display().to_string(),
@@ -2514,16 +1614,16 @@ async fn qualifier_view(
     })
 }
 
-fn request_context_view(request_context: &RequestContextInspection) -> WorkspaceFileView {
-    WorkspaceFileView {
-        id: request_context.id.clone(),
-        uri: request_context.uri.clone(),
-        path: request_context.path.display().to_string(),
+fn evaluation_context_view(evaluation_context: &EvaluationContextInspection) -> PackageFileView {
+    PackageFileView {
+        id: evaluation_context.id.clone(),
+        uri: evaluation_context.uri.clone(),
+        path: evaluation_context.path.display().to_string(),
         value: None,
     }
 }
 
-fn print_workspace_view(command: &str, view: &WorkspaceView, json: bool) -> Result<()> {
+fn print_package_view(command: &str, view: &PackageView, json: bool) -> Result<()> {
     if json {
         let mut view =
             serde_json::to_value(view).map_err(|err| RototoError::new(err.to_string()))?;
@@ -2540,51 +1640,59 @@ fn print_workspace_view(command: &str, view: &WorkspaceView, json: bool) -> Resu
         return Ok(());
     }
 
-    println!(
-        "{} {}",
-        style::label("workspace"),
-        style::bold(&view.workspace)
-    );
-    if !view.request_contexts.is_empty() {
-        println!("{}", style::label("request contexts"));
-        for request_context in &view.request_contexts {
+    println!("{} {}", style::label("package"), style::bold(&view.package));
+    if !view.evaluation_contexts.is_empty() {
+        println!(
+            "{} {}",
+            style::label("evaluation contexts"),
+            style::bold(&view.evaluation_contexts.len().to_string())
+        );
+        for evaluation_context in &view.evaluation_contexts {
             println!(
-                "  {}  {}  {}",
-                style::sea(&request_context.id),
-                style::dim(&request_context.uri),
-                style::dim(&request_context.path)
+                "  {}  {}",
+                style::sea(&evaluation_context.id),
+                style::dim(&evaluation_context.path)
             );
         }
     }
     if !view.qualifiers.is_empty() {
-        println!("{}", style::label("qualifiers"));
+        println!(
+            "{} {}",
+            style::label("qualifiers"),
+            style::bold(&view.qualifiers.len().to_string())
+        );
         for qualifier in &view.qualifiers {
             println!(
-                "  {}  {}  {}",
+                "  {}  {}",
                 style::sea(&qualifier.id),
-                style::dim(&qualifier.uri),
                 style::dim(&qualifier.path)
             );
         }
     }
     if !view.catalogs.is_empty() {
-        println!("{}", style::label("catalogs"));
+        println!(
+            "{} {}",
+            style::label("catalogs"),
+            style::bold(&view.catalogs.len().to_string())
+        );
         for catalog in &view.catalogs {
             println!(
-                "  {}  {}  {}",
+                "  {}  {}",
                 style::sea(&catalog.id),
-                style::dim(&catalog.uri),
                 style::dim(&catalog.path)
             );
         }
     }
     if !view.variables.is_empty() {
-        println!("{}", style::label("variables"));
+        println!(
+            "{} {}",
+            style::label("variables"),
+            style::bold(&view.variables.len().to_string())
+        );
         for variable in &view.variables {
             println!(
-                "  {}  {}  {}",
+                "  {}  {}",
                 style::sea(&variable.id),
-                style::dim(&variable.uri),
                 style::dim(&variable.path)
             );
         }
@@ -2655,7 +1763,7 @@ fn selected_lint_authorities(
     }
 }
 
-fn workspace_lint_authorities(catalog: &DiagnosticCatalog) -> Vec<LintAuthorityView> {
+fn package_lint_authorities(catalog: &DiagnosticCatalog) -> Vec<LintAuthorityView> {
     authorities_from_catalog(catalog)
         .into_iter()
         .filter(|authority| authority.authority != "rototo")
@@ -2663,7 +1771,7 @@ fn workspace_lint_authorities(catalog: &DiagnosticCatalog) -> Vec<LintAuthorityV
 }
 
 fn selected_linters(
-    inspection: &WorkspaceInspection,
+    inspection: &PackageInspection,
     selectors: &TargetSelectors,
 ) -> Vec<LinterInspection> {
     match &selectors.linters {
@@ -2788,7 +1896,7 @@ fn print_lint_authorities(authorities: &[LintAuthorityView], json: bool) -> Resu
 }
 
 fn print_selected_linters(
-    inspection: &WorkspaceInspection,
+    inspection: &PackageInspection,
     selectors: &TargetSelectors,
     json: bool,
 ) -> Result<()> {
@@ -2821,552 +1929,6 @@ fn print_linters(linters: &[LinterInspection], json: bool) -> Result<()> {
         println!("{}  {}", linter.id, linter.path.display());
     }
     Ok(())
-}
-
-#[derive(Debug, Serialize)]
-struct ResolveOutput<'a> {
-    workspace: String,
-    variables: &'a [VariableResolutionTrace],
-    qualifiers: &'a [QualifierResolutionTrace],
-    #[serde(skip_serializing_if = "is_empty_slice")]
-    contexts: &'a [ContextResolveOutput],
-}
-
-#[derive(Debug, Serialize)]
-struct ContextResolveOutput {
-    #[serde(skip_serializing_if = "Option::is_none")]
-    request_context: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    sample: Option<String>,
-    variables: Vec<VariableResolutionTrace>,
-    qualifiers: Vec<QualifierResolutionTrace>,
-}
-
-fn is_empty_slice<T>(value: &&[T]) -> bool {
-    value.is_empty()
-}
-
-fn print_resolutions(
-    workspace: &Path,
-    variables: &[VariableResolutionTrace],
-    qualifiers: &[QualifierResolutionTrace],
-    contexts: &[ContextResolveOutput],
-    json: bool,
-) -> Result<()> {
-    if json {
-        println!(
-            "{}",
-            serde_json::to_string_pretty(&ResolveOutput {
-                workspace: workspace.display().to_string(),
-                variables,
-                qualifiers,
-                contexts,
-            })
-            .map_err(|err| RototoError::new(err.to_string()))?
-        );
-        return Ok(());
-    }
-
-    println!(
-        "{} {}",
-        style::label("workspace"),
-        style::bold(&workspace.display().to_string())
-    );
-    let count = variables.len() + qualifiers.len();
-    let mut index = 0;
-    for trace in variables {
-        print_resolve_separator(index, count);
-        index += 1;
-        print_variable_resolution_trace(trace)?;
-    }
-    for trace in qualifiers {
-        print_resolve_separator(index, count);
-        index += 1;
-        print_qualifier_resolution_trace(trace)?;
-    }
-    if !contexts.is_empty() {
-        let count = contexts.len();
-        for (index, context) in contexts.iter().enumerate() {
-            print_resolve_separator(index, count);
-            print_context_resolution_trace(context)?;
-        }
-    }
-    Ok(())
-}
-
-fn print_resolve_separator(index: usize, count: usize) {
-    if count > 1 && index > 0 {
-        println!("{}", style::hairline());
-    }
-}
-
-fn print_variable_resolution_trace(trace: &VariableResolutionTrace) -> Result<()> {
-    println!("variable: {}", style::sea(&trace.resolution.id));
-    if !trace.qualifier_traces.is_empty() {
-        println!("  {}", style::subhead("qualifiers"));
-        for qualifier in &trace.qualifier_traces {
-            print_nested_qualifier_resolution_trace(qualifier)?;
-        }
-    }
-    println!("  {}", style::subhead("pathway"));
-    for rule in &trace.rules {
-        println!(
-            "    {} if {} {} {} ({})",
-            style::dim(&format!("rule[{}]", rule.index)),
-            style::sea(&rule.condition),
-            style::arrow(),
-            compact_json(&rule.value)?,
-            if rule.matched {
-                style::ok("matched")
-            } else {
-                style::dim("skipped")
-            }
-        );
-    }
-    println!(
-        "    {} {} {}",
-        style::dim("default"),
-        style::arrow(),
-        compact_json(&trace.default_value)?
-    );
-    println!("  {}", style::subhead("result"));
-    println!(
-        "    source: {}",
-        style::sea_bold(&resolution_source_label(&trace.resolution.source))
-    );
-    println!("    value: {}", compact_json(&trace.resolution.value)?);
-    Ok(())
-}
-
-fn resolution_source_label(source: &rototo::model::VariableResolutionSource) -> String {
-    match source {
-        rototo::model::VariableResolutionSource::Literal => "literal".to_owned(),
-        rototo::model::VariableResolutionSource::Catalog { catalog, value } => {
-            format!("{catalog}:{value}")
-        }
-        rototo::model::VariableResolutionSource::CatalogList { catalog, values } => {
-            format!("{catalog}:[{}]", values.join(","))
-        }
-    }
-}
-
-fn print_qualifier_resolution_trace(trace: &QualifierResolutionTrace) -> Result<()> {
-    println!("qualifier: {}", style::sea(&trace.id));
-    println!("  {} {}", style::subhead("when"), style::info(&trace.when));
-    println!(
-        "  result: {}",
-        if trace.value {
-            style::ok("true")
-        } else {
-            style::dim("false")
-        }
-    );
-    Ok(())
-}
-
-fn print_context_resolution_trace(context: &ContextResolveOutput) -> Result<()> {
-    match (&context.request_context, &context.sample) {
-        (Some(request_context), Some(sample)) => {
-            println!("request context: {}", style::sea(request_context));
-            println!("sample: {}", style::info(sample));
-        }
-        _ => {
-            println!("request context: {}", style::dim("<none>"));
-        }
-    }
-
-    let count = context.variables.len() + context.qualifiers.len();
-    let mut index = 0;
-    for trace in &context.variables {
-        print_resolve_separator(index, count);
-        index += 1;
-        print_variable_resolution_trace(trace)?;
-    }
-    for trace in &context.qualifiers {
-        print_resolve_separator(index, count);
-        index += 1;
-        print_qualifier_resolution_trace(trace)?;
-    }
-    Ok(())
-}
-
-fn print_nested_qualifier_resolution_trace(trace: &QualifierResolutionTrace) -> Result<()> {
-    println!("    qualifier: {}", style::sea(&trace.id));
-    println!(
-        "      {} {}",
-        style::subhead("when"),
-        style::info(&trace.when)
-    );
-    println!(
-        "      result: {}",
-        if trace.value {
-            style::ok("true")
-        } else {
-            style::dim("false")
-        }
-    );
-    Ok(())
-}
-
-fn compact_json(value: &serde_json::Value) -> Result<String> {
-    serde_json::to_string(value).map_err(|err| RototoError::new(err.to_string()))
-}
-
-#[derive(Serialize)]
-struct DocsIndexJson {
-    sections: Vec<DocsSectionJson>,
-}
-
-#[derive(Serialize)]
-struct DocsSectionJson {
-    title: &'static str,
-    pages: Vec<DocsPageSummaryJson>,
-}
-
-#[derive(Serialize)]
-struct DocsPageSummaryJson {
-    id: &'static str,
-    title: &'static str,
-}
-
-#[derive(Serialize)]
-struct DocsPageJson {
-    id: &'static str,
-    title: &'static str,
-    markdown: String,
-}
-
-#[derive(Serialize)]
-struct DocsSearchJson {
-    query: String,
-    matches: Vec<DocsSearchMatch>,
-}
-
-#[derive(Serialize)]
-struct DocsExportJson {
-    out: String,
-}
-
-#[derive(Serialize)]
-struct PackageReadmeExportJson {
-    sdk: &'static str,
-    out: String,
-}
-
-#[derive(Serialize)]
-struct DocsSearchMatch {
-    page: &'static str,
-    title: &'static str,
-    line: usize,
-    text: String,
-    spans: Vec<DocsSearchSpan>,
-}
-
-#[derive(Serialize)]
-struct DocsSearchSpan {
-    start: usize,
-    end: usize,
-}
-
-enum PagePrefixMatch {
-    One(&'static rototo::docs::DocPage),
-    Ambiguous(Vec<&'static rototo::docs::DocPage>),
-    None,
-}
-
-fn print_docs_index(json: bool) -> Result<()> {
-    let sections = rototo::docs::DOC_NAV_SECTIONS
-        .iter()
-        .map(|section| DocsSectionJson {
-            title: section.title,
-            pages: section
-                .pages
-                .iter()
-                .filter_map(|id| docs_page_by_id(id))
-                .map(|page| DocsPageSummaryJson {
-                    id: page.id,
-                    title: page.title,
-                })
-                .collect(),
-        })
-        .collect::<Vec<_>>();
-
-    if json {
-        println!(
-            "{}",
-            serde_json::to_string_pretty(&DocsIndexJson { sections })
-                .map_err(|err| RototoError::new(err.to_string()))?
-        );
-        return Ok(());
-    }
-
-    for section in sections {
-        println!("{}", style::label(section.title));
-        for page in section.pages {
-            // Pad before coloring so ANSI escapes do not break alignment.
-            println!(
-                "  {} {}",
-                style::sea(&format!("{:<42}", page.id)),
-                page.title
-            );
-        }
-        println!();
-    }
-    Ok(())
-}
-
-fn print_docs_export(out: &Path, json: bool) -> Result<()> {
-    let out = out.display().to_string();
-    if json {
-        println!(
-            "{}",
-            serde_json::to_string_pretty(&DocsExportJson { out })
-                .map_err(|err| RototoError::new(err.to_string()))?
-        );
-    } else {
-        println!(
-            "{}",
-            style::ok_line(&format!("exported documentation to {out}"))
-        );
-    }
-    Ok(())
-}
-
-async fn write_package_readme(
-    target: PackageReadmeTarget,
-    out: &Path,
-    docs_base_url: &str,
-) -> Result<()> {
-    let readme = rototo::docs::render_package_readme_with_base_url(target.id(), docs_base_url)?;
-    if let Some(parent) = out.parent() {
-        tokio::fs::create_dir_all(parent).await.map_err(|err| {
-            RototoError::new(format!(
-                "failed to create package README directory {}: {err}",
-                parent.display()
-            ))
-        })?;
-    }
-    tokio::fs::write(out, readme).await.map_err(|err| {
-        RototoError::new(format!(
-            "failed to write package README {}: {err}",
-            out.display()
-        ))
-    })
-}
-
-fn print_package_readme_export(target: PackageReadmeTarget, out: &Path, json: bool) -> Result<()> {
-    let out = out.display().to_string();
-    if json {
-        println!(
-            "{}",
-            serde_json::to_string_pretty(&PackageReadmeExportJson {
-                sdk: target.id(),
-                out
-            })
-            .map_err(|err| RototoError::new(err.to_string()))?
-        );
-    } else {
-        println!("generated {} package README at {out}", target.id());
-    }
-    Ok(())
-}
-
-fn print_docs_page(prefix: &str, json: bool) -> Result<ExitCode> {
-    match docs_page_by_prefix(prefix) {
-        PagePrefixMatch::One(page) => {
-            let markdown = render_cli_markdown(page.markdown)?;
-            if json {
-                println!(
-                    "{}",
-                    serde_json::to_string_pretty(&DocsPageJson {
-                        id: page.id,
-                        title: page.title,
-                        markdown,
-                    })
-                    .map_err(|err| RototoError::new(err.to_string()))?
-                );
-            } else {
-                print!("{}", style::render_markdown(&markdown));
-            }
-            Ok(ExitCode::SUCCESS)
-        }
-        PagePrefixMatch::Ambiguous(pages) => {
-            println!("multiple documentation pages match \"{prefix}\":\n");
-            for page in &pages {
-                println!("  {:<42} {}", page.id, page.title);
-            }
-            println!("\nrun one of:");
-            for page in pages {
-                println!("  rototo docs -p {}", page.id);
-            }
-            Ok(ExitCode::FAILURE)
-        }
-        PagePrefixMatch::None => Err(RototoError::new(format!(
-            "documentation page not found for prefix: {prefix}"
-        ))),
-    }
-}
-
-fn print_docs_search(query: &str, json: bool) -> Result<ExitCode> {
-    let regex = Regex::new(query)
-        .map_err(|err| RototoError::new(format!("invalid documentation search regex: {err}")))?;
-    let matches = search_docs(query, &regex);
-
-    if json {
-        println!(
-            "{}",
-            serde_json::to_string_pretty(&DocsSearchJson {
-                query: query.to_owned(),
-                matches,
-            })
-            .map_err(|err| RototoError::new(err.to_string()))?
-        );
-        return Ok(ExitCode::SUCCESS);
-    }
-
-    let mut current_page = None;
-    for hit in &matches {
-        if current_page != Some(hit.page) {
-            if current_page.is_some() {
-                println!();
-            }
-            println!("{} - {}", hit.page, hit.title);
-            current_page = Some(hit.page);
-        }
-        println!(
-            "  {}: {}",
-            hit.line,
-            highlight_docs_search(&hit.text, &hit.spans)
-        );
-    }
-    Ok(ExitCode::SUCCESS)
-}
-
-fn highlight_docs_search(text: &str, spans: &[DocsSearchSpan]) -> String {
-    let mut highlighted = String::new();
-    let mut cursor = 0;
-    for span in spans {
-        if span.start < cursor || span.start == span.end {
-            continue;
-        }
-        highlighted.push_str(&text[cursor..span.start]);
-        highlighted.push_str("\x1b[7m");
-        highlighted.push_str(&text[span.start..span.end]);
-        highlighted.push_str("\x1b[0m");
-        cursor = span.end;
-    }
-    highlighted.push_str(&text[cursor..]);
-    highlighted
-}
-
-fn search_docs(query: &str, regex: &Regex) -> Vec<DocsSearchMatch> {
-    let mut matches = Vec::new();
-    for page in rototo::docs::DOCS {
-        push_search_match(&mut matches, page, 0, page.id, regex);
-        push_search_match(&mut matches, page, 0, page.title, regex);
-        for (index, line) in page.markdown.lines().enumerate() {
-            push_search_match(&mut matches, page, index + 1, line, regex);
-        }
-    }
-    matches.sort_by_key(|hit| (docs_nav_index(hit.page), hit.line));
-    if query.is_empty() {
-        matches.clear();
-    }
-    matches
-}
-
-fn push_search_match(
-    matches: &mut Vec<DocsSearchMatch>,
-    page: &'static rototo::docs::DocPage,
-    line: usize,
-    text: &str,
-    regex: &Regex,
-) {
-    let spans = regex
-        .find_iter(text)
-        .filter(|found| found.start() < found.end())
-        .map(|found| DocsSearchSpan {
-            start: found.start(),
-            end: found.end(),
-        })
-        .collect::<Vec<_>>();
-    if spans.is_empty() {
-        return;
-    }
-    matches.push(DocsSearchMatch {
-        page: page.id,
-        title: page.title,
-        line,
-        text: text.to_owned(),
-        spans,
-    });
-}
-
-fn docs_page_by_prefix(prefix: &str) -> PagePrefixMatch {
-    let prefix = normalize_docs_page_id(prefix);
-    if let Some(page) = docs_page_by_id(&prefix) {
-        return PagePrefixMatch::One(page);
-    }
-    let matches = rototo::docs::DOCS
-        .iter()
-        .filter(|page| page.id.starts_with(&prefix))
-        .collect::<Vec<_>>();
-    match matches.len() {
-        0 => PagePrefixMatch::None,
-        1 => PagePrefixMatch::One(matches[0]),
-        _ => PagePrefixMatch::Ambiguous(matches),
-    }
-}
-
-fn docs_page_by_id(id: &str) -> Option<&'static rototo::docs::DocPage> {
-    let id = normalize_docs_page_id(id);
-    rototo::docs::DOCS.iter().find(|page| page.id == id)
-}
-
-fn normalize_docs_page_id(id: &str) -> String {
-    match id {
-        "" | "/" | "index.html" => "index".to_owned(),
-        _ => id.strip_suffix(".html").unwrap_or(id).to_owned(),
-    }
-}
-
-fn docs_nav_index(page_id: &str) -> usize {
-    rototo::docs::DOCS
-        .iter()
-        .position(|page| page.id == page_id)
-        .unwrap_or(usize::MAX)
-}
-
-fn render_cli_markdown(markdown: &str) -> Result<String> {
-    let link = Regex::new(r"\[([^\]\n]+)\]\(([^)\s]+)\)")
-        .map_err(|err| RototoError::new(err.to_string()))?;
-    Ok(link
-        .replace_all(markdown, |captures: &regex::Captures<'_>| {
-            let text = captures.get(1).expect("capture exists").as_str();
-            let target = captures.get(2).expect("capture exists").as_str();
-            if let Some(page_id) = internal_doc_link_target(target) {
-                format!("{text} (rototo docs -p {page_id})")
-            } else {
-                captures.get(0).expect("capture exists").as_str().to_owned()
-            }
-        })
-        .into_owned())
-}
-
-fn internal_doc_link_target(target: &str) -> Option<String> {
-    if target.starts_with("http://")
-        || target.starts_with("https://")
-        || target.starts_with("mailto:")
-        || target.starts_with('#')
-    {
-        return None;
-    }
-    let target = target.split('#').next().unwrap_or(target);
-    let file_name = Path::new(target).file_name()?.to_str()?;
-    let id = file_name
-        .strip_suffix(".md")
-        .or_else(|| file_name.strip_suffix(".html"))?;
-    docs_page_by_id(id).map(|page| page.id.to_owned())
 }
 
 async fn parse_context(parts: &[String]) -> Result<serde_json::Value> {
@@ -3477,12 +2039,12 @@ fn merge_context_objects(
     }
 }
 
-async fn workspace_source_or_current(
-    workspace: Option<String>,
+async fn package_source_or_current(
+    package: Option<String>,
     source_options: &SourceOptions,
-) -> Result<StagedWorkspace> {
-    match workspace {
-        Some(workspace) => stage_workspace_source(workspace, source_options).await,
+) -> Result<StagedPackage> {
+    match package {
+        Some(package) => stage_package_source(package, source_options).await,
         None => {
             let current_dir = tokio::task::spawn_blocking(std::env::current_dir)
                 .await
@@ -3490,15 +2052,32 @@ async fn workspace_source_or_current(
                 .map_err(|err| {
                     RototoError::new(format!("failed to read current directory: {err}"))
                 })?;
-            Ok(StagedWorkspace::local(
-                find_workspace_root(&current_dir).await?,
-            ))
+            Ok(StagedPackage::local(find_package_root(&current_dir).await?))
+        }
+    }
+}
+
+/// Resolves an optional package source into a source string, falling back to
+/// the package discovered from the current directory. Used by commands that need
+/// the source as a string (to both load it and echo it back to the user) rather
+/// than a [`StagedPackage`].
+async fn package_source_string_or_current(package: Option<String>) -> Result<String> {
+    match package {
+        Some(package) => Ok(package),
+        None => {
+            let current_dir = tokio::task::spawn_blocking(std::env::current_dir)
+                .await
+                .map_err(|err| RototoError::new(format!("current directory task failed: {err}")))?
+                .map_err(|err| {
+                    RototoError::new(format!("failed to read current directory: {err}"))
+                })?;
+            Ok(find_package_root(&current_dir).await?.display().to_string())
         }
     }
 }
 
 fn source_options(cli: &Cli) -> SourceOptions {
-    match &cli.workspace_token {
+    match &cli.package_token {
         Some(token) => SourceOptions::new().with_auth(SourceAuth::Bearer(token.clone())),
         None => SourceOptions::new(),
     }

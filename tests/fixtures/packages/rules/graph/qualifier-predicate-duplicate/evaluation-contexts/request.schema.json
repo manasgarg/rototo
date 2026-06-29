@@ -1,0 +1,14 @@
+{
+  "description": "Evaluation context contract for request runtime inputs.",
+  "type": "object",
+  "properties": {
+    "user": {
+      "type": "object",
+      "properties": {
+        "tier": {
+          "type": "string"
+        }
+      }
+    }
+  }
+}

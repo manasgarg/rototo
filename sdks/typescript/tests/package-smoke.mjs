@@ -53,12 +53,12 @@ try {
     );
 
     const script = `
-    import { Workspace, __version__ } from "rototo";
+    import { Package, __version__ } from "rototo";
     if (!/^\\d+\\.\\d+\\.\\d+(-[0-9A-Za-z.-]+)?$/.test(__version__)) {
       throw new Error("unexpected version " + __version__);
     }
-    const workspace = await Workspace.load(process.env.ROTOTO_EXAMPLES_BASIC);
-    const resolution = await workspace.resolveVariable("premium-message", { user: { tier: "premium" } });
+    const pkg = await Package.load(process.env.ROTOTO_EXAMPLES_BASIC);
+    const resolution = pkg.resolveVariable("premium-message", { user: { tier: "premium" } });
     if (resolution.value !== "Welcome back, premium member." || resolution.source.kind !== "literal") {
       throw new Error("unexpected resolution " + JSON.stringify(resolution));
     }

@@ -1,12 +1,12 @@
 use std::sync::Arc;
 
-use super::{RepoRelativePath, WorkspacePath};
-use crate::lint::WorkspaceSemanticModel;
-use crate::sdk::Workspace;
+use super::{PackagePath, RepoRelativePath};
+use crate::lint::PackageSemanticModel;
+use crate::sdk::Package;
 
 #[derive(Clone, Debug)]
-pub struct DiscoveredWorkspaces {
-    pub paths: Vec<WorkspacePath>,
+pub struct DiscoveredPackages {
+    pub paths: Vec<PackagePath>,
 }
 
 #[derive(Clone, Debug)]
@@ -15,7 +15,7 @@ pub struct BranchChanges {
 }
 
 #[derive(Clone, Debug)]
-pub struct SemanticWorkspace {
-    pub workspace: Arc<Workspace>,
-    pub model: Arc<WorkspaceSemanticModel>,
+pub struct SemanticPackage {
+    pub package: Arc<Package>,
+    pub model: Arc<PackageSemanticModel>,
 }

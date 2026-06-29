@@ -1,0 +1,5 @@
+schema_version = 1
+
+description = "Qualifier that references itself"
+
+when = '(env.qualifier["self-cycle"])'

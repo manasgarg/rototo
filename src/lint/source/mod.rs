@@ -13,7 +13,7 @@ use super::input::OverlayDocument;
 use line_index::LineIndex;
 use path::{file_uri, path_containment_error};
 
-pub(super) use path::workspace_path;
+pub(super) use path::package_path;
 
 pub(super) struct SourceStore {
     pub(super) root: PathBuf,
@@ -39,7 +39,7 @@ impl SourceStore {
         relative_path: PathBuf,
         kind: DocumentKind,
     ) -> DocId {
-        let path = workspace_path(&relative_path);
+        let path = package_path(&relative_path);
         if let Some(doc) = self.by_path.get(&path).copied() {
             return doc;
         }
@@ -117,12 +117,12 @@ pub(super) enum DocumentKind {
         catalog_id: String,
         entry_id: String,
     },
-    RequestContext {
+    EvaluationContext {
         id: String,
     },
-    RequestContextEntry {
-        request_context_id: String,
-        entry_id: String,
+    EvaluationContextSample {
+        evaluation_context_id: String,
+        sample_id: String,
     },
     CustomLint,
 }
@@ -135,8 +135,8 @@ impl DocumentKind {
             Self::Variable { .. } => SourceKind::Variable,
             Self::Catalog { .. } => SourceKind::Catalog,
             Self::CatalogEntry { .. } => SourceKind::CatalogEntry,
-            Self::RequestContext { .. } => SourceKind::RequestContext,
-            Self::RequestContextEntry { .. } => SourceKind::RequestContextEntry,
+            Self::EvaluationContext { .. } => SourceKind::EvaluationContext,
+            Self::EvaluationContextSample { .. } => SourceKind::EvaluationContextSample,
             Self::CustomLint => SourceKind::CustomLint,
         }
     }

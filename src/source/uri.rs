@@ -15,7 +15,7 @@ impl SourceUri {
         };
         if scheme.is_empty() || rest.is_empty() {
             return Err(RototoError::new(format!(
-                "workspace source URI is invalid: {source}"
+                "package source URI is invalid: {source}"
             )));
         }
         let (base, fragment) = match rest.split_once('#') {
@@ -24,7 +24,7 @@ impl SourceUri {
         };
         if base.is_empty() {
             return Err(RototoError::new(format!(
-                "workspace source URI is invalid: {source}"
+                "package source URI is invalid: {source}"
             )));
         }
         let (ref_, subdir) = match fragment {
@@ -53,7 +53,7 @@ mod tests {
     #[test]
     fn source_uri_rejects_malformed_uris() {
         assert!(SourceUri::parse("examples/basic").unwrap().is_none());
-        assert!(SourceUri::parse("://example.com/workspace.tar.gz").is_err());
+        assert!(SourceUri::parse("://example.com/package.tar.gz").is_err());
         assert!(SourceUri::parse("https://").is_err());
         assert!(SourceUri::parse("https://#main").is_err());
     }
@@ -61,11 +61,11 @@ mod tests {
     #[test]
     fn source_uri_accepts_supported_source_forms() {
         for source in [
-            "file:///tmp/workspace",
-            "git+file:///tmp/workspace.git#main:rototo",
+            "file:///tmp/package",
+            "git+file:///tmp/package.git#main:rototo",
             "git+https://github.com/example/config.git#main:rototo",
             "git+ssh://git@github.com/example/config.git#main:rototo",
-            "https://example.com/workspace.tar.gz#:rototo",
+            "https://example.com/package.tar.gz#:rototo",
         ] {
             assert!(
                 SourceUri::parse(source).unwrap().is_some(),

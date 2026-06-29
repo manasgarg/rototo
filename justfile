@@ -78,15 +78,15 @@ _install-typescript-sdk-deps:
     npm --prefix sdks/typescript ci
 
 # Run the full console development stack: Rust API plus Vite UI.
-# Pass a workspace source to run local deployment against that source.
+# Pass a package source to run local deployment against that source.
 [group('08. console')]
-console-dev workspace_source="":
+console-dev package_source="":
     #!/bin/bash
     set -euo pipefail
     public_url="${ROTOTO_CONSOLE_DEV_PUBLIC_URL:-https://dev.rototo.dev}"
-    workspace_source={{ quote(workspace_source) }}
-    workspace_source="${ROTOTO_CONSOLE_DEV_WORKSPACE:-$workspace_source}"
-    workspace_source="${workspace_source#workspace_source=}"
+    package_source={{ quote(package_source) }}
+    package_source="${ROTOTO_CONSOLE_DEV_PACKAGE:-$package_source}"
+    package_source="${package_source#package_source=}"
     data_dir=".rototo/dev"
     observability_dir="$data_dir/observability"
     mkdir -p "$observability_dir"
@@ -111,14 +111,14 @@ console-dev workspace_source="":
 
     deployment="hosted"
     run_cmd="run -- console --deployment $deployment --public-url $(shell_quote "$public_url") --data-dir $(shell_quote "$data_dir")"
-    if [[ -n "$workspace_source" ]]; then
+    if [[ -n "$package_source" ]]; then
         deployment="local"
-        run_cmd="run -- console --deployment $deployment --public-url $(shell_quote "$public_url") --data-dir $(shell_quote "$data_dir") --workspace $(shell_quote "$workspace_source")"
+        run_cmd="run -- console --deployment $deployment --public-url $(shell_quote "$public_url") --data-dir $(shell_quote "$data_dir") --package $(shell_quote "$package_source")"
     fi
 
     echo "starting console API in $deployment deployment"
-    if [[ -n "$workspace_source" ]]; then
-        echo "using workspace source: $workspace_source"
+    if [[ -n "$package_source" ]]; then
+        echo "using package source: $package_source"
     fi
 
     api_pid=""
@@ -278,7 +278,11 @@ test: test-rust test-console test-sdk-python test-sdk-typescript test-sdk-java t
 # Run the Rust test suite.
 [group('04. test')]
 test-rust:
-    cargo test --workspace --all-targets
+    # NO_COLOR keeps human-readable CLI output deterministic in tests regardless
+    # of the developer's ambient FORCE_COLOR/terminal; tests that assert the
+    # colored design system opt back in with their own FORCE_COLOR + NO_COLOR
+    # removal.
+    NO_COLOR=1 cargo test --workspace --all-targets
 
 # Run the console typecheck and bundle build.
 [group('04. test')]

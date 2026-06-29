@@ -1,17 +1,17 @@
 use crate::diagnostics::{DiagnosticLocation, SourcePosition};
 
-use super::super::WorkspaceLintSnapshot;
+use super::super::PackageLintSnapshot;
 use super::super::index::*;
-use super::WorkspaceDefinition;
+use super::PackageDefinition;
 use super::common::{
     location_contains_position, source_range_size, variable_value_definition_location,
 };
 
 pub(crate) fn definition(
-    snapshot: &WorkspaceLintSnapshot,
+    snapshot: &PackageLintSnapshot,
     path: &str,
     position: SourcePosition,
-) -> Option<WorkspaceDefinition> {
+) -> Option<PackageDefinition> {
     let mut candidates = Vec::new();
     push_reference_definition_candidates(snapshot, path, position, &mut candidates);
     push_qualifier_definition_candidates(&snapshot.index, path, position, &mut candidates);
@@ -24,9 +24,9 @@ pub(crate) fn definition(
 }
 
 fn definition_for_location(
-    snapshot: &WorkspaceLintSnapshot,
+    snapshot: &PackageLintSnapshot,
     mut location: DiagnosticLocation,
-) -> Option<WorkspaceDefinition> {
+) -> Option<PackageDefinition> {
     let document = snapshot
         .lint
         .documents
@@ -34,11 +34,11 @@ fn definition_for_location(
         .find(|document| document.path == location.path)?;
     location.doc = Some(document.id);
     let uri = document.uri.clone();
-    Some(WorkspaceDefinition { uri, location })
+    Some(PackageDefinition { uri, location })
 }
 
 fn push_reference_definition_candidates(
-    snapshot: &WorkspaceLintSnapshot,
+    snapshot: &PackageLintSnapshot,
     path: &str,
     position: SourcePosition,
     candidates: &mut Vec<DefinitionCandidate>,

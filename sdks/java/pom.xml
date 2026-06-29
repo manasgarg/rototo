@@ -6,11 +6,11 @@
 
   <groupId>dev.rototo</groupId>
   <artifactId>rototo</artifactId>
-  <version>0.1.0-alpha.5</version>
+  <version>0.1.0-alpha.6</version>
   <packaging>jar</packaging>
 
   <name>rototo Java SDK</name>
-  <description>Java SDK for rototo runtime configuration workspaces.</description>
+  <description>Java SDK for rototo runtime configuration packages.</description>
   <url>https://rototo.dev</url>
 
   <licenses>

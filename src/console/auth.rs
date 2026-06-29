@@ -33,7 +33,7 @@ pub struct HostedOAuth {
 
 /// Where the current GitHub token came from.
 ///
-/// This is serialized for `/api/me` so the UI can explain why a workspace can
+/// This is serialized for `/api/me` so the UI can explain why a package can
 /// or cannot write. The source follows the token: it changes when local device
 /// flow stores a new token or hosted OAuth creates a session.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize)]
@@ -170,9 +170,9 @@ pub async fn resolve_ambient_token(
     if let Some(token) = flag_token {
         let token = token.trim();
         if !token.is_empty() {
-            // clap fills the flag from ROTOTO_WORKSPACE_TOKEN too; report the
+            // clap fills the flag from ROTOTO_PACKAGE_TOKEN too; report the
             // narrower source only when the flag came from the environment.
-            let source = if std::env::args().any(|arg| arg == "--workspace-token") {
+            let source = if std::env::args().any(|arg| arg == "--package-token") {
                 GitHubCredentialSource::Flag
             } else {
                 GitHubCredentialSource::Environment

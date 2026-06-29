@@ -4,22 +4,22 @@ use std::path::Path;
 use serde::Serialize;
 
 use crate::error::{Result, RototoError};
-use crate::lint::{ModelEntityRef, ModelReferenceVia, WorkspaceSemanticModel};
+use crate::lint::{ModelEntityRef, ModelReferenceVia, PackageSemanticModel};
 
-use super::github::workspace_repo_path;
-use super::store::WorkspaceRecord;
+use super::github::package_repo_path;
+use super::store::PackageRecord;
 
 /* The inventory derives from rototo's semantic model — the console does not
-parse workspace files itself. */
+parse package files itself. */
 
-/// Browser inventory for one staged workspace.
+/// Browser inventory for one staged package.
 ///
-/// This is rebuilt from `WorkspaceSemanticModel` plus a lightweight context
-/// directory scan whenever a workspace or branch screen loads. It is not stored;
+/// This is rebuilt from `PackageSemanticModel` plus a lightweight context
+/// directory scan whenever a package or branch screen loads. It is not stored;
 /// the source files and the staged semantic model own its lifecycle.
 #[derive(Clone, Debug, Default, Serialize)]
 #[serde(rename_all = "camelCase")]
-pub struct WorkspaceInventory {
+pub struct PackageInventory {
     pub variables: Vec<VariableInventoryItem>,
     pub qualifiers: Vec<QualifierInventoryItem>,
     pub catalogs: Vec<CatalogInventoryItem>,
@@ -52,7 +52,7 @@ pub struct VariableInventoryItem {
 /// Qualifier row in the console inventory.
 ///
 /// It exists so screens can show named runtime conditions and their references
-/// while leaving predicate semantics to the Rust model. The item is regenerated
+/// while leaving condition semantics to the Rust model. The item is regenerated
 /// for each staged checkout.
 #[derive(Clone, Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -60,7 +60,6 @@ pub struct QualifierInventoryItem {
     pub id: String,
     pub path: String,
     pub description: Option<String>,
-    pub predicate_count: usize,
     pub qualifier_references: Vec<String>,
 }
 
@@ -68,7 +67,7 @@ pub struct QualifierInventoryItem {
 ///
 /// The console uses this projection to connect catalog declarations, schema
 /// references, and entry counts. It is derived from the semantic model and
-/// never cached separately from the staged workspace view.
+/// never cached separately from the staged package view.
 #[derive(Clone, Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct CatalogInventoryItem {
@@ -106,23 +105,23 @@ pub struct LinterInventoryItem {
     pub kind: &'static str,
 }
 
-/// Request context schemas and sample entries discovered for one workspace.
+/// Evaluation context schemas and saved samples discovered for one package.
 ///
-/// The semantic model owns `request-contexts/<id>.schema.json` and
-/// `request-contexts/<id>-entries/*.json`. The projection is rebuilt with the
+/// The semantic model owns `evaluation-contexts/<id>.schema.json` and
+/// `evaluation-contexts/<id>-samples/*.json`. The projection is rebuilt with the
 /// inventory and used for preview inputs.
 #[derive(Clone, Debug, Default, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ContextInventory {
-    pub request_contexts: Vec<RequestContextInventoryItem>,
-    pub entries: Vec<RequestContextEntryInventoryItem>,
+    pub evaluation_contexts: Vec<EvaluationContextInventoryItem>,
+    pub samples: Vec<EvaluationContextSampleInventoryItem>,
     pub example_count: usize,
     pub examples: Vec<String>,
 }
 
 #[derive(Clone, Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
-pub struct RequestContextInventoryItem {
+pub struct EvaluationContextInventoryItem {
     pub id: String,
     pub path: String,
     pub title: Option<String>,
@@ -132,44 +131,44 @@ pub struct RequestContextInventoryItem {
 
 #[derive(Clone, Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
-pub struct RequestContextEntryInventoryItem {
-    pub request_context_id: String,
+pub struct EvaluationContextSampleInventoryItem {
+    pub evaluation_context_id: String,
     pub key: String,
     pub id: String,
     pub path: String,
 }
 
-/// Source text loaded for one workspace definition file.
+/// Source text loaded for one package definition file.
 ///
 /// The editor receives this per request after the route validates that the path
-/// belongs to the staged workspace. It is discarded once the response is sent.
+/// belongs to the staged package. It is discarded once the response is sent.
 #[derive(Clone, Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
-pub struct WorkspaceDefinition {
+pub struct PackageDefinition {
     pub path: String,
     pub text: String,
     pub language: &'static str,
 }
 
-pub async fn inspect_workspace_inventory(
-    workspace: &WorkspaceRecord,
-    model: &WorkspaceSemanticModel,
+pub async fn inspect_package_inventory(
+    package: &PackageRecord,
+    model: &PackageSemanticModel,
     _staged_root: &Path,
-) -> Result<WorkspaceInventory> {
-    let context = inspect_context(workspace, model);
-    Ok(inventory_from_model(workspace, model, context))
+) -> Result<PackageInventory> {
+    let context = inspect_context(package, model);
+    Ok(inventory_from_model(package, model, context))
 }
 
-pub async fn read_workspace_definition(
-    workspace: &WorkspaceRecord,
+pub async fn read_package_definition(
+    package: &PackageRecord,
     staged_root: &Path,
     path: &str,
-) -> Result<WorkspaceDefinition> {
-    let local_path = workspace_local_path(workspace, path)?;
+) -> Result<PackageDefinition> {
+    let local_path = package_local_path(package, path)?;
     let text = tokio::fs::read_to_string(staged_root.join(&local_path))
         .await
         .map_err(|err| RototoError::new(format!("failed to read {path}: {err}")))?;
-    Ok(WorkspaceDefinition {
+    Ok(PackageDefinition {
         path: path.to_owned(),
         text,
         language: language_for_path(path),
@@ -177,11 +176,11 @@ pub async fn read_workspace_definition(
 }
 
 fn inventory_from_model(
-    workspace: &WorkspaceRecord,
-    model: &WorkspaceSemanticModel,
+    package: &PackageRecord,
+    model: &PackageSemanticModel,
     context: ContextInventory,
-) -> WorkspaceInventory {
-    let repo_path = |path: &str| workspace_repo_path(&workspace.path, path);
+) -> PackageInventory {
+    let repo_path = |path: &str| package_repo_path(&package.path, path);
 
     let variables = model
         .variables
@@ -257,7 +256,6 @@ fn inventory_from_model(
             id: qualifier.id.clone(),
             path: repo_path(&qualifier.location.path),
             description: qualifier.description.clone(),
-            predicate_count: qualifier.predicates.len(),
             qualifier_references: distinct_sorted(
                 qualifier_edges
                     .get(qualifier.id.as_str())
@@ -321,7 +319,7 @@ fn inventory_from_model(
         })
         .collect();
 
-    WorkspaceInventory {
+    PackageInventory {
         variables,
         qualifiers,
         catalogs,
@@ -344,21 +342,18 @@ fn declaration_label(declaration: &crate::lint::DeclarationModel) -> String {
     }
 }
 
-fn inspect_context(
-    workspace: &WorkspaceRecord,
-    model: &WorkspaceSemanticModel,
-) -> ContextInventory {
-    let repo_path = |path: &str| workspace_repo_path(&workspace.path, path);
+fn inspect_context(package: &PackageRecord, model: &PackageSemanticModel) -> ContextInventory {
+    let repo_path = |path: &str| package_repo_path(&package.path, path);
     let mut entry_counts: BTreeMap<&str, usize> = BTreeMap::new();
-    for entry in &model.request_context_entries {
+    for entry in &model.evaluation_context_samples {
         *entry_counts
-            .entry(entry.request_context.as_str())
+            .entry(entry.evaluation_context.as_str())
             .or_default() += 1;
     }
-    let request_contexts = model
-        .request_contexts
+    let evaluation_contexts = model
+        .evaluation_contexts
         .iter()
-        .map(|context| RequestContextInventoryItem {
+        .map(|context| EvaluationContextInventoryItem {
             id: context.id.clone(),
             path: repo_path(&context.path),
             title: context.title.clone(),
@@ -369,46 +364,44 @@ fn inspect_context(
                 .unwrap_or_default(),
         })
         .collect();
-    let entries = model
-        .request_context_entries
+    let samples = model
+        .evaluation_context_samples
         .iter()
-        .map(|entry| RequestContextEntryInventoryItem {
-            request_context_id: entry.request_context.clone(),
+        .map(|entry| EvaluationContextSampleInventoryItem {
+            evaluation_context_id: entry.evaluation_context.clone(),
             key: entry.key.clone(),
-            id: format!("{}/{}", entry.request_context, entry.key),
+            id: format!("{}/{}", entry.evaluation_context, entry.key),
             path: repo_path(&entry.path),
         })
         .collect::<Vec<_>>();
-    let mut examples = entries
+    let mut examples = samples
         .iter()
         .map(|entry| entry.path.clone())
         .collect::<Vec<_>>();
     examples.sort();
     ContextInventory {
-        request_contexts,
-        example_count: entries.len(),
+        evaluation_contexts,
+        example_count: samples.len(),
         examples,
-        entries,
+        samples,
     }
 }
 
 /// Maps a repo path to a staged-checkout-relative path, rejecting anything
-/// that escapes the workspace.
-pub fn workspace_local_path(workspace: &WorkspaceRecord, path: &str) -> Result<String> {
+/// that escapes the package.
+pub fn package_local_path(package: &PackageRecord, path: &str) -> Result<String> {
     if path.starts_with('/') || path.split('/').any(|segment| segment == "..") {
         return Err(RototoError::new(
-            "workspace definition path must stay inside the workspace",
+            "package definition path must stay inside the package",
         ));
     }
-    if workspace.path == "." {
+    if package.path == "." {
         return Ok(path.to_owned());
     }
-    let prefix = format!("{}/", workspace.path);
+    let prefix = format!("{}/", package.path);
     path.strip_prefix(&prefix)
         .map(str::to_owned)
-        .ok_or_else(|| {
-            RototoError::new("workspace definition path does not belong to this workspace")
-        })
+        .ok_or_else(|| RototoError::new("package definition path does not belong to this package"))
 }
 
 pub fn language_for_path(path: &str) -> &'static str {

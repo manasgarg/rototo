@@ -1,0 +1,22 @@
+# Catalog entry files derive field-name completion from their catalog's JSON
+# Schema properties.
+package = "basic"
+file = "catalogs/message-entries/default.toml"
+
+overlay = '''
+hea$0
+'''
+
+[expect]
+# Selecting a field while `hea` is typed replaces that partial key.
+selecting = "heading"
+replaces = "hea"
+
+[[expect.includes]]
+label = "heading"
+detail = "catalog entry field"
+insert_text = "heading = "
+
+[[expect.includes]]
+label = "body"
+detail = "catalog entry field"

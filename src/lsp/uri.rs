@@ -5,33 +5,33 @@ use serde_json::Value as JsonValue;
 use crate::diagnostics::SourcePosition;
 use crate::error::{Result, RototoError};
 
-pub(super) async fn initialize_workspace_root(params: &JsonValue) -> Result<Option<PathBuf>> {
+pub(super) async fn initialize_package_root(params: &JsonValue) -> Result<Option<PathBuf>> {
     if let Some(root_uri) = params.get("rootUri").and_then(JsonValue::as_str) {
-        return canonicalize_workspace_root(path_from_file_uri(root_uri)?).await;
+        return canonicalize_package_root(path_from_file_uri(root_uri)?).await;
     }
     if let Some(root_path) = params.get("rootPath").and_then(JsonValue::as_str) {
-        return canonicalize_workspace_root(PathBuf::from(root_path)).await;
+        return canonicalize_package_root(PathBuf::from(root_path)).await;
     }
-    if let Some(workspace_folder_uri) = params
+    if let Some(package_folder_uri) = params
         .get("workspaceFolders")
         .and_then(JsonValue::as_array)
         .and_then(|folders| folders.first())
         .and_then(|folder| folder.get("uri"))
         .and_then(JsonValue::as_str)
     {
-        return canonicalize_workspace_root(path_from_file_uri(workspace_folder_uri)?).await;
+        return canonicalize_package_root(path_from_file_uri(package_folder_uri)?).await;
     }
-    canonicalize_workspace_root(
+    canonicalize_package_root(
         std::env::current_dir()
             .map_err(|err| RototoError::new(format!("failed to read current directory: {err}")))?,
     )
     .await
 }
 
-async fn canonicalize_workspace_root(path: PathBuf) -> Result<Option<PathBuf>> {
+async fn canonicalize_package_root(path: PathBuf) -> Result<Option<PathBuf>> {
     let root = tokio::fs::canonicalize(&path).await.map_err(|err| {
         RototoError::new(format!(
-            "failed to canonicalize LSP workspace root {}: {err}",
+            "failed to canonicalize LSP package root {}: {err}",
             path.display()
         ))
     })?;
@@ -102,15 +102,15 @@ fn hex_value(byte: u8) -> Option<u8> {
     }
 }
 
-pub(super) fn workspace_relative_path(root: &Path, path: &Path) -> Result<String> {
+pub(super) fn package_relative_path(root: &Path, path: &Path) -> Result<String> {
     let canonical_path = std::fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf());
     let relative = canonical_path.strip_prefix(root).map_err(|_| {
         RototoError::new(format!(
-            "LSP document is outside workspace: {}",
+            "LSP document is outside package: {}",
             path.display()
         ))
     })?;
-    let workspace_path = relative
+    let package_path = relative
         .components()
         .filter_map(|component| match component {
             Component::Normal(segment) => Some(segment.to_string_lossy().into_owned()),
@@ -118,10 +118,10 @@ pub(super) fn workspace_relative_path(root: &Path, path: &Path) -> Result<String
         })
         .collect::<Vec<_>>()
         .join("/");
-    if workspace_path.is_empty() {
-        return Err(RototoError::new("LSP document path is workspace root"));
+    if package_path.is_empty() {
+        return Err(RototoError::new("LSP document path is package root"));
     }
-    Ok(workspace_path)
+    Ok(package_path)
 }
 
 #[cfg(test)]
@@ -143,10 +143,10 @@ mod tests {
     #[test]
     fn file_uri_paths_reject_bad_percent_encoding_and_utf8() {
         // Bad URI escapes and non-file schemes should fail before the server
-        // tries to map an editor document into a workspace-relative path.
+        // tries to map an editor document into a package-relative path.
         assert!(path_from_file_uri("file:///tmp/%").is_err());
         assert!(path_from_file_uri("file:///tmp/%GG").is_err());
         assert!(path_from_file_uri("file:///tmp/%FF").is_err());
-        assert!(path_from_file_uri("https://example.test/workspace").is_err());
+        assert!(path_from_file_uri("https://example.test/package").is_err());
     }
 }

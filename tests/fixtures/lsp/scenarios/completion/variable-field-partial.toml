@@ -1,0 +1,25 @@
+# Variable files get the same field-name support, including while the buffer is
+# temporarily malformed during typing. The legacy `schema` field is never offered.
+package = "basic"
+file = "variables/message.toml"
+
+overlay = '''
+schema_version = 1
+desc$0
+'''
+
+[expect]
+exact = ["description", "type", "[resolve]", "[[resolve.rule]]"]
+
+[[expect.includes]]
+label = "description"
+detail = "variable field"
+
+[[expect.includes]]
+label = "[resolve]"
+detail = "variable block"
+insert_text = "[resolve]\ndefault = "
+
+[[expect.excludes]]
+label = "schema"
+detail = "variable field"

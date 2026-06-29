@@ -1,0 +1,4 @@
+schema_version = 1
+description = "Runtime condition for dead root."
+
+when = '(env.qualifier["dead-leaf"])'

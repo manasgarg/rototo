@@ -7,5 +7,5 @@ type = "catalog:llm-summarizer-config"
 default = "fast"
 
 [[resolve.rule]]
-when = 'qualifier["internal-staff"]'
+when = 'env.qualifier["internal-staff"]'
 value = "rich"

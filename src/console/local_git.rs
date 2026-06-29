@@ -3,20 +3,20 @@ use std::path::{Path, PathBuf};
 
 use crate::error::{Result, RototoError};
 
-pub fn workspace_root(source: &str) -> Result<PathBuf> {
+pub fn package_root(source: &str) -> Result<PathBuf> {
     if let Some(path) = source.strip_prefix("file://") {
         return Ok(PathBuf::from(path));
     }
     if source.contains("://") {
         return Err(RototoError::new(
-            "local git writes require a local path or file:// workspace source",
+            "local git writes require a local path or file:// package source",
         ));
     }
     Ok(PathBuf::from(source))
 }
 
 pub async fn current_branch(source: &str) -> Result<String> {
-    let root = workspace_root(source)?;
+    let root = package_root(source)?;
     current_branch_at(&root).await
 }
 
@@ -25,7 +25,7 @@ pub async fn current_branch_at(root: &Path) -> Result<String> {
     let branch = output.trim();
     if branch.is_empty() || branch == "HEAD" {
         return Err(RototoError::new(
-            "local workspace is not on a named git branch",
+            "local package is not on a named git branch",
         ));
     }
     Ok(branch.to_owned())
@@ -36,7 +36,7 @@ pub async fn head_commit(root: &Path) -> Result<String> {
     let commit = output.trim();
     if commit.len() != 40 || !commit.bytes().all(|byte| byte.is_ascii_hexdigit()) {
         return Err(RototoError::new(
-            "local workspace HEAD is not a full git commit",
+            "local package HEAD is not a full git commit",
         ));
     }
     Ok(commit.to_owned())
@@ -175,82 +175,80 @@ mod tests {
     use super::*;
 
     #[tokio::test]
-    async fn changed_paths_include_tracked_and_untracked_workspace_files() {
+    async fn changed_paths_include_tracked_and_untracked_package_files() {
         let repo = TempDir::new().expect("repo tempdir");
         init_repo(repo.path());
         write_file(
-            &repo
-                .path()
-                .join("workspaces/payments/rototo-workspace.toml"),
+            &repo.path().join("packages/payments/rototo-package.toml"),
             "schema_version = 1\n",
         )
         .await;
         write_file(
             &repo
                 .path()
-                .join("workspaces/payments/variables/checkout.toml"),
+                .join("packages/payments/variables/checkout.toml"),
             "schema_version = 1\n",
         )
         .await;
         write_file(
-            &repo.path().join("workspaces/search/variables/query.toml"),
+            &repo.path().join("packages/search/variables/query.toml"),
             "schema_version = 1\n",
         )
         .await;
-        commit_all(repo.path(), "add workspaces");
+        commit_all(repo.path(), "add packages");
 
         write_file(
             &repo
                 .path()
-                .join("workspaces/payments/variables/checkout.toml"),
+                .join("packages/payments/variables/checkout.toml"),
             "schema_version = 1\ntype = \"bool\"\n",
         )
         .await;
         write_file(
-            &repo.path().join("workspaces/payments/variables/new.toml"),
+            &repo.path().join("packages/payments/variables/new.toml"),
             "schema_version = 1\n",
         )
         .await;
         write_file(
-            &repo.path().join("workspaces/search/variables/query.toml"),
+            &repo.path().join("packages/search/variables/query.toml"),
             "schema_version = 1\ntype = \"string\"\n",
         )
         .await;
 
-        let paths = changed_paths(repo.path(), "workspaces/payments")
+        let paths = changed_paths(repo.path(), "packages/payments")
             .await
             .unwrap();
 
         assert_eq!(
             paths,
             vec![
-                "workspaces/payments/variables/checkout.toml".to_owned(),
-                "workspaces/payments/variables/new.toml".to_owned(),
+                "packages/payments/variables/checkout.toml".to_owned(),
+                "packages/payments/variables/new.toml".to_owned(),
             ]
         );
     }
 
     #[tokio::test]
-    async fn file_at_head_reads_from_nested_workspace_root() {
+    async fn file_at_head_reads_from_nested_package_root() {
         let repo = TempDir::new().expect("repo tempdir");
         init_repo(repo.path());
-        let workspace = repo.path().join("workspaces/payments");
+        let package = repo.path().join("packages/payments");
         write_file(
-            &workspace.join("variables/checkout.toml"),
+            &package.join("variables/checkout.toml"),
             "schema_version = 1\n",
         )
         .await;
         commit_all(repo.path(), "add checkout");
         write_file(
-            &workspace.join("variables/checkout.toml"),
+            &package.join("variables/checkout.toml"),
             "schema_version = 1\ntype = \"bool\"\n",
         )
         .await;
 
-        let contents = file_at_head(&workspace, "variables/checkout.toml")
+        let contents = file_at_head(&package, "variables/checkout.toml")
             .await
             .unwrap();
-        let missing = file_at_head(&workspace, "variables/missing.toml")
+        let missing = file_at_head(&package, "variables/missing.toml")
             .await
             .unwrap();
 

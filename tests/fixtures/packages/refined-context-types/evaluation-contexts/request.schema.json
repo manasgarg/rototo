@@ -1,0 +1,17 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "description": "Declares net.ip as a plain string with no format, so a cidr() use is unsound.",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "net": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "ip": {
+          "type": "string"
+        }
+      }
+    }
+  }
+}

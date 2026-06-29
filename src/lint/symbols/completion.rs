@@ -2,11 +2,11 @@ use std::collections::BTreeSet;
 
 use serde_json::Value as JsonValue;
 
-use super::super::WorkspaceLintSnapshot;
+use super::super::PackageLintSnapshot;
 use super::super::index::*;
 use super::common::location_contains_position;
-use super::{WorkspaceCompletionItem, WorkspaceCompletionItemKind};
-use crate::diagnostics::SourcePosition;
+use super::{PackageCompletionItem, PackageCompletionItemKind};
+use crate::diagnostics::{SourcePosition, SourceRange};
 use crate::expression::{Expression, ExpressionResultHint};
 use crate::model::SourceKind;
 
@@ -98,42 +98,61 @@ const VARIABLE_RULE_COMPLETIONS: &[TomlCompletionSpec] = &[
     },
 ];
 
+/// The functions completion advertises. These are the single canonical
+/// camelCase spellings of rototo's expression surface plus the CEL `has` macro.
+/// The evaluator also accepts snake_case and shorthand aliases
+/// (`starts_with`, `prefix`, `regex`, `time_before`, …), but suggesting every
+/// alias is the "too eager / odd suggestions" smell, so completion offers only
+/// the documented spelling.
 const EXPRESSION_FUNCTIONS: &[&str] = &[
     "bucket",
     "cidr",
     "contains",
     "endsWith",
-    "ends_with",
     "glob",
     "has",
     "matches",
     "missing",
     "path",
-    "prefix",
     "present",
-    "regex",
     "semver",
     "size",
     "startsWith",
-    "starts_with",
-    "suffix",
     "timeAfter",
     "timeAtOrAfter",
     "timeAtOrBefore",
     "timeBefore",
     "timeBetween",
-    "time_after",
-    "time_at_or_after",
-    "time_at_or_before",
-    "time_before",
-    "time_between",
 ];
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum ExpressionOperator {
     And,
     Or,
+    Equals,
+    NotEquals,
+    Less,
+    LessEquals,
+    Greater,
+    GreaterEquals,
+    In,
 }
+
+/// Operators offered after a complete boolean operand — the expression can only
+/// be continued by composing it with another boolean.
+const LOGICAL_OPERATORS: &[ExpressionOperator] = &[ExpressionOperator::And, ExpressionOperator::Or];
+
+/// Operators offered after a complete value operand (a path, literal, or
+/// value-returning function) — the natural next step is to compare it.
+const COMPARISON_OPERATORS: &[ExpressionOperator] = &[
+    ExpressionOperator::Equals,
+    ExpressionOperator::NotEquals,
+    ExpressionOperator::Less,
+    ExpressionOperator::LessEquals,
+    ExpressionOperator::Greater,
+    ExpressionOperator::GreaterEquals,
+    ExpressionOperator::In,
+];
 
 const CUSTOM_LINT_FIELD_SELECTORS: &[&str] = &[
     "description",
@@ -153,15 +172,15 @@ const CUSTOM_LINT_FIELD_SELECTORS: &[&str] = &[
 ];
 
 pub(crate) fn completion_items(
-    snapshot: &WorkspaceLintSnapshot,
+    snapshot: &PackageLintSnapshot,
     path: &str,
     position: SourcePosition,
-) -> Vec<WorkspaceCompletionItem> {
+) -> Vec<PackageCompletionItem> {
     let mut items = Vec::new();
 
     if let Some(expression_items) = expression_completion_items(snapshot, path, position) {
         items.extend(expression_items);
-        sort_and_deduplicate_workspace_completion_items(&mut items);
+        sort_and_deduplicate_package_completion_items(&mut items);
         return items;
     }
 
@@ -200,12 +219,70 @@ pub(crate) fn completion_items(
         CompletionContext::Other => false,
     };
 
+    // Outside expressions the cursor sits on a TOML key or identifier; the
+    // completion replaces that partial token (empty on a blank line, which makes
+    // it a plain insert).
+    let range = identifier_replace_range(snapshot, path, position);
+    stamp_replace_range(&mut items, range);
+
     if preserve_order {
-        deduplicate_workspace_completion_items_preserving_order(&mut items);
+        deduplicate_package_completion_items_preserving_order(&mut items);
     } else {
-        sort_and_deduplicate_workspace_completion_items(&mut items);
+        sort_and_deduplicate_package_completion_items(&mut items);
     }
     items
+}
+
+fn stamp_replace_range(items: &mut [PackageCompletionItem], range: SourceRange) {
+    for item in items {
+        item.replace = Some(range);
+    }
+}
+
+/// A zero-or-more character range on `position`'s line ending at the cursor,
+/// covering the last `token_utf16_len` UTF-16 code units before it.
+fn single_line_replace_range(position: SourcePosition, token_utf16_len: usize) -> SourceRange {
+    SourceRange {
+        start: SourcePosition {
+            line: position.line,
+            character: position.character.saturating_sub(token_utf16_len),
+        },
+        end: position,
+    }
+}
+
+/// The replace range for a TOML key or bare identifier: the trailing run of
+/// `[A-Za-z0-9_-]` before the cursor.
+fn identifier_replace_range(
+    snapshot: &PackageLintSnapshot,
+    path: &str,
+    position: SourcePosition,
+) -> SourceRange {
+    let token = cursor_line_prefix(snapshot, path, position)
+        .map(trailing_bare_key)
+        .unwrap_or_default();
+    single_line_replace_range(position, token.encode_utf16().count())
+}
+
+fn cursor_line_prefix<'a>(
+    snapshot: &'a PackageLintSnapshot,
+    path: &str,
+    position: SourcePosition,
+) -> Option<&'a str> {
+    let text = snapshot.source_text(path)?;
+    let line = source_line(text, position.line)?;
+    let cursor = byte_index_for_utf16_column(line, position.character);
+    Some(&line[..cursor])
+}
+
+fn trailing_bare_key(prefix: &str) -> &str {
+    let start = prefix
+        .char_indices()
+        .rev()
+        .find(|(_, ch)| !(ch.is_ascii_alphanumeric() || matches!(ch, '_' | '-')))
+        .map(|(index, ch)| index + ch.len_utf8())
+        .unwrap_or(0);
+    &prefix[start..]
 }
 
 enum CompletionContext {
@@ -220,11 +297,11 @@ enum CompletionContext {
 }
 
 fn completion_context(
-    snapshot: &WorkspaceLintSnapshot,
+    snapshot: &PackageLintSnapshot,
     path: &str,
     position: SourcePosition,
 ) -> CompletionContext {
-    if path == super::super::WORKSPACE_MANIFEST {
+    if path == super::super::PACKAGE_MANIFEST {
         return CompletionContext::Manifest;
     }
 
@@ -275,7 +352,7 @@ fn completion_context(
     CompletionContext::Other
 }
 
-fn document_kind(snapshot: &WorkspaceLintSnapshot, path: &str) -> Option<SourceKind> {
+fn document_kind(snapshot: &PackageLintSnapshot, path: &str) -> Option<SourceKind> {
     snapshot
         .lint
         .documents
@@ -285,10 +362,10 @@ fn document_kind(snapshot: &WorkspaceLintSnapshot, path: &str) -> Option<SourceK
 }
 
 fn qualifier_field_completion_items(
-    snapshot: &WorkspaceLintSnapshot,
+    snapshot: &PackageLintSnapshot,
     path: &str,
     position: SourcePosition,
-) -> Vec<WorkspaceCompletionItem> {
+) -> Vec<PackageCompletionItem> {
     let context = toml_completion_context(snapshot, path, position);
     if context.table.is_some() {
         return Vec::new();
@@ -297,10 +374,10 @@ fn qualifier_field_completion_items(
 }
 
 fn variable_field_completion_items(
-    snapshot: &WorkspaceLintSnapshot,
+    snapshot: &PackageLintSnapshot,
     path: &str,
     position: SourcePosition,
-) -> Vec<WorkspaceCompletionItem> {
+) -> Vec<PackageCompletionItem> {
     let context = toml_completion_context(snapshot, path, position);
     match context.table.as_deref() {
         None => toml_completion_items(VARIABLE_TOP_LEVEL_COMPLETIONS, &context),
@@ -313,14 +390,14 @@ fn variable_field_completion_items(
 fn toml_completion_items(
     specs: &[TomlCompletionSpec],
     context: &TomlCompletionContext,
-) -> Vec<WorkspaceCompletionItem> {
+) -> Vec<PackageCompletionItem> {
     specs
         .iter()
         .filter(|spec| toml_completion_spec_is_available(spec, context))
         .map(|spec| {
-            WorkspaceCompletionItem::new(
+            PackageCompletionItem::new(
                 spec.label,
-                WorkspaceCompletionItemKind::FieldSelector,
+                PackageCompletionItemKind::FieldSelector,
                 spec.detail,
             )
             .with_insert_text(spec.insert_text)
@@ -335,7 +412,7 @@ struct TomlCompletionContext {
 }
 
 fn toml_completion_context(
-    snapshot: &WorkspaceLintSnapshot,
+    snapshot: &PackageLintSnapshot,
     path: &str,
     position: SourcePosition,
 ) -> TomlCompletionContext {
@@ -456,10 +533,10 @@ struct ExpressionCursor {
 }
 
 fn expression_completion_items(
-    snapshot: &WorkspaceLintSnapshot,
+    snapshot: &PackageLintSnapshot,
     path: &str,
     position: SourcePosition,
-) -> Option<Vec<WorkspaceCompletionItem>> {
+) -> Option<Vec<PackageCompletionItem>> {
     let source_kind = document_kind(snapshot, path)?;
     if !matches!(source_kind, SourceKind::Qualifier | SourceKind::Variable) {
         return None;
@@ -470,55 +547,102 @@ fn expression_completion_items(
         return None;
     }
 
+    // The path, qualifier-reference, and operand completions all replace the
+    // dotted/identifier token under the cursor; only the operator completions
+    // replace a trailing `&`/`|` instead.
+    let token_range =
+        |token: &str| single_line_replace_range(position, token.encode_utf16().count());
+
     if qualifier_reference_prefix(&cursor.prefix).is_some() {
-        return Some(qualifier_completion_items(&snapshot.index));
+        let mut items = qualifier_completion_items(&snapshot.index);
+        stamp_replace_range(&mut items, token_range(&cursor.token));
+        return Some(items);
+    }
+
+    if cursor.token.starts_with("env.") {
+        let mut items = env_member_completion_items();
+        stamp_replace_range(&mut items, token_range(&cursor.token));
+        return Some(items);
     }
 
     if cursor.token.starts_with("context.") {
-        return Some(context_path_completion_items(snapshot, &cursor.token));
+        let mut items = context_path_completion_items(snapshot, &cursor.token);
+        stamp_replace_range(&mut items, token_range(&cursor.token));
+        return Some(items);
     }
 
     if cursor.key == ExpressionKey::Query && cursor.token.starts_with("entry.") {
-        return Some(entry_path_completion_items(snapshot, path, &cursor.token));
+        let mut items = entry_path_completion_items(snapshot, path, &cursor.token);
+        stamp_replace_range(&mut items, token_range(&cursor.token));
+        return Some(items);
     }
 
     match expression_completion_state(&cursor.prefix) {
         ExpressionCompletionState::Operand => {
             let mut items = expression_root_completion_items(cursor.key == ExpressionKey::Query);
             items.extend(expression_function_completion_items());
+            stamp_replace_range(&mut items, token_range(&cursor.token));
             Some(items)
         }
-        ExpressionCompletionState::LogicalOperators(operators) => {
-            Some(expression_operator_completion_items(&operators))
+        ExpressionCompletionState::Operators(operators) => {
+            let mut items = expression_operator_completion_items(&operators);
+            stamp_replace_range(
+                &mut items,
+                token_range(trailing_operator_token(&cursor.prefix)),
+            );
+            Some(items)
         }
-        ExpressionCompletionState::None => Some(Vec::new()),
     }
+}
+
+/// The trailing run of `&`/`|` before the cursor, which an operator completion
+/// replaces (empty when the cursor follows whitespace).
+fn trailing_operator_token(prefix: &str) -> &str {
+    let start = prefix
+        .char_indices()
+        .rev()
+        .find(|(_, ch)| !matches!(ch, '&' | '|'))
+        .map(|(index, ch)| index + ch.len_utf8())
+        .unwrap_or(0);
+    &prefix[start..]
 }
 
 enum ExpressionCompletionState {
     Operand,
-    LogicalOperators(Vec<ExpressionOperator>),
-    None,
+    Operators(Vec<ExpressionOperator>),
 }
 
-fn expression_completion_state(prefix: &str) -> ExpressionCompletionState {
-    let prefix = prefix.trim_end();
+fn expression_completion_state(raw_prefix: &str) -> ExpressionCompletionState {
+    let prefix = raw_prefix.trim_end();
     if prefix.is_empty() || expression_prefix_expects_operand(prefix) {
         return ExpressionCompletionState::Operand;
     }
 
-    if let Some(operator) = partial_logical_operator_completion(prefix) {
-        return ExpressionCompletionState::LogicalOperators(vec![operator]);
+    // The user is mid-typing an operand or function name only when the cursor
+    // sits directly after an identifier character, with no separating
+    // whitespace. cel parses a bare/partial identifier as a valid expression, so
+    // a parse error can't reveal this; the raw cursor boundary can. When there
+    // *is* trailing whitespace the operand is complete, so fall through to the
+    // operator suggestions instead of re-offering operands.
+    if raw_prefix.ends_with(|ch: char| ch.is_ascii_alphanumeric() || ch == '_') {
+        return ExpressionCompletionState::Operand;
     }
 
+    if let Some(operator) = partial_logical_operator_completion(prefix) {
+        return ExpressionCompletionState::Operators(vec![operator]);
+    }
+
+    // A complete operand decides what can follow from its result type: a boolean
+    // composes with `&&`/`||`, a value invites a comparison.
     match Expression::parse(prefix) {
-        Ok(expression) if expression.result_hint() == ExpressionResultHint::Bool => {
-            ExpressionCompletionState::LogicalOperators(vec![
-                ExpressionOperator::And,
-                ExpressionOperator::Or,
-            ])
-        }
-        Ok(_) => ExpressionCompletionState::None,
+        Ok(expression) => match expression.result_hint() {
+            ExpressionResultHint::Bool => {
+                ExpressionCompletionState::Operators(LOGICAL_OPERATORS.to_vec())
+            }
+            ExpressionResultHint::Value => {
+                ExpressionCompletionState::Operators(COMPARISON_OPERATORS.to_vec())
+            }
+        },
         Err(_) => ExpressionCompletionState::Operand,
     }
 }
@@ -570,13 +694,13 @@ fn expression_ends_with_word_operator(prefix: &str, operator: &str) -> bool {
 }
 
 fn expression_cursor_at_position(
-    snapshot: &WorkspaceLintSnapshot,
+    snapshot: &PackageLintSnapshot,
     path: &str,
     position: SourcePosition,
 ) -> Option<ExpressionCursor> {
     let text = snapshot.source_text(path)?;
     let line = source_line(text, position.line)?;
-    let cursor = byte_index_for_character(line, position.character);
+    let cursor = byte_index_for_utf16_column(line, position.character);
     let before_cursor = &line[..cursor];
     let equals = before_cursor.find('=')?;
     let key = expression_key_before_equals(&before_cursor[..equals])?;
@@ -600,11 +724,16 @@ fn source_line(text: &str, line: usize) -> Option<&str> {
         .map(|line| line.strip_suffix('\r').unwrap_or(line))
 }
 
-fn byte_index_for_character(line: &str, character: usize) -> usize {
-    line.char_indices()
-        .nth(character)
-        .map(|(index, _)| index)
-        .unwrap_or(line.len())
+/// Map an LSP character offset (UTF-16 code units) to a byte index in `line`.
+fn byte_index_for_utf16_column(line: &str, column: usize) -> usize {
+    let mut utf16 = 0;
+    for (byte, ch) in line.char_indices() {
+        if utf16 >= column {
+            return byte;
+        }
+        utf16 += ch.len_utf16();
+    }
+    line.len()
 }
 
 fn expression_key_before_equals(before_equals: &str) -> Option<ExpressionKey> {
@@ -660,7 +789,7 @@ fn is_expression_token_char(ch: char) -> bool {
 }
 
 fn qualifier_reference_prefix(prefix: &str) -> Option<&str> {
-    ["qualifier[\"", "qualifier['"]
+    ["env.qualifier[\"", "env.qualifier['"]
         .into_iter()
         .filter_map(|needle| {
             prefix
@@ -675,16 +804,16 @@ fn qualifier_reference_prefix(prefix: &str) -> Option<&str> {
 }
 
 fn context_path_completion_items(
-    snapshot: &WorkspaceLintSnapshot,
+    snapshot: &PackageLintSnapshot,
     token: &str,
-) -> Vec<WorkspaceCompletionItem> {
+) -> Vec<PackageCompletionItem> {
     let Some(path) = token.strip_prefix("context.") else {
         return Vec::new();
     };
     let parent = parent_path_segments(path);
     let mut fields = BTreeSet::new();
 
-    for context in snapshot.index.request_contexts.values() {
+    for context in snapshot.index.evaluation_contexts.values() {
         if let Some(properties) = context
             .json
             .as_ref()
@@ -698,10 +827,10 @@ fn context_path_completion_items(
 }
 
 fn entry_path_completion_items(
-    snapshot: &WorkspaceLintSnapshot,
+    snapshot: &PackageLintSnapshot,
     path: &str,
     token: &str,
-) -> Vec<WorkspaceCompletionItem> {
+) -> Vec<PackageCompletionItem> {
     let Some(path_suffix) = token.strip_prefix("entry.") else {
         return Vec::new();
     };
@@ -756,7 +885,7 @@ fn path_completion_items(
     parent: &[&str],
     fields: BTreeSet<String>,
     detail: &'static str,
-) -> Vec<WorkspaceCompletionItem> {
+) -> Vec<PackageCompletionItem> {
     let prefix = if parent.is_empty() {
         format!("{root}.")
     } else {
@@ -766,9 +895,9 @@ fn path_completion_items(
     fields
         .into_iter()
         .map(|field| {
-            WorkspaceCompletionItem::new(
+            PackageCompletionItem::new(
                 format!("{prefix}{field}"),
-                WorkspaceCompletionItemKind::FieldSelector,
+                PackageCompletionItemKind::FieldSelector,
                 detail,
             )
         })
@@ -781,31 +910,47 @@ fn current_variable_query_catalog_id(index: &SemanticIndex, path: &str) -> Optio
     type_kind.value.list_catalog().map(ToOwned::to_owned)
 }
 
-fn expression_root_completion_items(include_entry: bool) -> Vec<WorkspaceCompletionItem> {
-    let mut roots = vec!["context.", "qualifier[\""];
+fn expression_root_completion_items(include_entry: bool) -> Vec<PackageCompletionItem> {
+    let mut roots = vec!["context.", "env."];
     if include_entry {
         roots.push("entry.");
     }
     roots
         .into_iter()
         .map(|root| {
-            WorkspaceCompletionItem::new(
+            PackageCompletionItem::new(
                 root,
-                WorkspaceCompletionItemKind::FieldSelector,
+                PackageCompletionItemKind::FieldSelector,
                 "expression root",
             )
         })
         .collect()
 }
 
-fn expression_function_completion_items() -> Vec<WorkspaceCompletionItem> {
+/// Members of the `env` root: the qualifier map and the evaluation timestamp.
+/// Offered once the cursor is inside an `env.` token, before the qualifier id
+/// completion that `env.qualifier["` triggers.
+fn env_member_completion_items() -> Vec<PackageCompletionItem> {
+    ["env.qualifier[\"", "env.now"]
+        .into_iter()
+        .map(|member| {
+            PackageCompletionItem::new(
+                member,
+                PackageCompletionItemKind::FieldSelector,
+                "env member",
+            )
+        })
+        .collect()
+}
+
+fn expression_function_completion_items() -> Vec<PackageCompletionItem> {
     EXPRESSION_FUNCTIONS
         .iter()
         .copied()
         .map(|function| {
-            WorkspaceCompletionItem::new(
+            PackageCompletionItem::new(
                 format!("{function}("),
-                WorkspaceCompletionItemKind::Function,
+                PackageCompletionItemKind::Function,
                 "expression function",
             )
         })
@@ -814,17 +959,24 @@ fn expression_function_completion_items() -> Vec<WorkspaceCompletionItem> {
 
 fn expression_operator_completion_items(
     operators: &[ExpressionOperator],
-) -> Vec<WorkspaceCompletionItem> {
+) -> Vec<PackageCompletionItem> {
     operators
         .iter()
         .map(|operator| {
             let label = match operator {
                 ExpressionOperator::And => "&&",
                 ExpressionOperator::Or => "||",
+                ExpressionOperator::Equals => "==",
+                ExpressionOperator::NotEquals => "!=",
+                ExpressionOperator::Less => "<",
+                ExpressionOperator::LessEquals => "<=",
+                ExpressionOperator::Greater => ">",
+                ExpressionOperator::GreaterEquals => ">=",
+                ExpressionOperator::In => "in",
             };
-            WorkspaceCompletionItem::new(
+            PackageCompletionItem::new(
                 label,
-                WorkspaceCompletionItemKind::Operator,
+                PackageCompletionItemKind::Operator,
                 "expression operator",
             )
             .with_insert_text(format!("{label} "))
@@ -833,10 +985,10 @@ fn expression_operator_completion_items(
 }
 
 fn catalog_entry_field_completion_items(
-    snapshot: &WorkspaceLintSnapshot,
+    snapshot: &PackageLintSnapshot,
     path: &str,
     position: SourcePosition,
-) -> Vec<WorkspaceCompletionItem> {
+) -> Vec<PackageCompletionItem> {
     let Some(catalog_id) = catalog_id_for_entry_path(path) else {
         return Vec::new();
     };
@@ -859,9 +1011,9 @@ fn catalog_entry_field_completion_items(
         .keys()
         .filter(|field| !context.keys.contains(field.as_str()))
         .map(|field| {
-            WorkspaceCompletionItem::new(
+            PackageCompletionItem::new(
                 field.clone(),
-                WorkspaceCompletionItemKind::FieldSelector,
+                PackageCompletionItemKind::FieldSelector,
                 "catalog entry field",
             )
             .with_insert_text(format!("{field} = "))
@@ -903,14 +1055,14 @@ fn variable_expression_at_position(
     })
 }
 
-fn qualifier_completion_items(index: &SemanticIndex) -> Vec<WorkspaceCompletionItem> {
+fn qualifier_completion_items(index: &SemanticIndex) -> Vec<PackageCompletionItem> {
     index
         .qualifiers
         .keys()
         .map(|qualifier| {
-            WorkspaceCompletionItem::new(
+            PackageCompletionItem::new(
                 qualifier.clone(),
-                WorkspaceCompletionItemKind::Qualifier,
+                PackageCompletionItemKind::Qualifier,
                 "qualifier",
             )
         })
@@ -920,7 +1072,7 @@ fn qualifier_completion_items(index: &SemanticIndex) -> Vec<WorkspaceCompletionI
 fn current_variable_value_completion_items(
     index: &SemanticIndex,
     path: &str,
-) -> Vec<WorkspaceCompletionItem> {
+) -> Vec<PackageCompletionItem> {
     let Some(variable) = current_variable_for_path(index, path) else {
         return Vec::new();
     };
@@ -932,9 +1084,9 @@ fn current_variable_value_completion_items(
             .into_iter()
             .flat_map(|entries| entries.keys())
             .map(|value| {
-                WorkspaceCompletionItem::new(
+                PackageCompletionItem::new(
                     value.clone(),
-                    WorkspaceCompletionItemKind::Value,
+                    PackageCompletionItemKind::Value,
                     "catalog value",
                 )
             })
@@ -944,9 +1096,9 @@ fn current_variable_value_completion_items(
             .inline_values
             .keys()
             .map(|value| {
-                WorkspaceCompletionItem::new(
+                PackageCompletionItem::new(
                     value.clone(),
-                    WorkspaceCompletionItemKind::Value,
+                    PackageCompletionItemKind::Value,
                     "variable value",
                 )
             })
@@ -961,21 +1113,21 @@ fn current_variable_for_path<'a>(index: &'a SemanticIndex, path: &str) -> Option
         .find(|variable| variable.location.path == path)
 }
 
-fn custom_lint_field_selector_completion_items() -> Vec<WorkspaceCompletionItem> {
+fn custom_lint_field_selector_completion_items() -> Vec<PackageCompletionItem> {
     CUSTOM_LINT_FIELD_SELECTORS
         .iter()
         .copied()
         .map(|field| {
-            WorkspaceCompletionItem::new(
+            PackageCompletionItem::new(
                 field,
-                WorkspaceCompletionItemKind::FieldSelector,
+                PackageCompletionItemKind::FieldSelector,
                 "custom lint field selector",
             )
         })
         .collect()
 }
 
-fn sort_and_deduplicate_workspace_completion_items(items: &mut Vec<WorkspaceCompletionItem>) {
+fn sort_and_deduplicate_package_completion_items(items: &mut Vec<PackageCompletionItem>) {
     items.sort_by(|left, right| {
         left.label
             .cmp(&right.label)
@@ -989,9 +1141,7 @@ fn sort_and_deduplicate_workspace_completion_items(items: &mut Vec<WorkspaceComp
     });
 }
 
-fn deduplicate_workspace_completion_items_preserving_order(
-    items: &mut Vec<WorkspaceCompletionItem>,
-) {
+fn deduplicate_package_completion_items_preserving_order(items: &mut Vec<PackageCompletionItem>) {
     let mut seen = BTreeSet::new();
     items.retain(|item| {
         seen.insert((
@@ -1002,12 +1152,12 @@ fn deduplicate_workspace_completion_items_preserving_order(
     });
 }
 
-fn completion_item_kind_rank(kind: WorkspaceCompletionItemKind) -> u8 {
+fn completion_item_kind_rank(kind: PackageCompletionItemKind) -> u8 {
     match kind {
-        WorkspaceCompletionItemKind::Qualifier => 0,
-        WorkspaceCompletionItemKind::Value => 1,
-        WorkspaceCompletionItemKind::FieldSelector => 2,
-        WorkspaceCompletionItemKind::Function => 3,
-        WorkspaceCompletionItemKind::Operator => 4,
+        PackageCompletionItemKind::Qualifier => 0,
+        PackageCompletionItemKind::Value => 1,
+        PackageCompletionItemKind::FieldSelector => 2,
+        PackageCompletionItemKind::Function => 3,
+        PackageCompletionItemKind::Operator => 4,
     }
 }

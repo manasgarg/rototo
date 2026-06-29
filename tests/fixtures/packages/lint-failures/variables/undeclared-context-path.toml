@@ -1,0 +1,11 @@
+schema_version = 1
+
+description = "Variable whose rule reads a context path no schema declares (typo)"
+type = "string"
+
+[resolve]
+default = "control"
+
+[[resolve.rule]]
+when = 'context.account.clas == "enterprise"'
+value = "enterprise"

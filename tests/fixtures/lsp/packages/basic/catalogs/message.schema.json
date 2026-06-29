@@ -1,0 +1,9 @@
+{
+  "type": "object",
+  "required": ["heading", "body"],
+  "properties": {
+    "heading": { "type": "string" },
+    "body": { "type": "string" }
+  },
+  "additionalProperties": false
+}

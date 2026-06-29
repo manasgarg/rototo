@@ -4,53 +4,58 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use napi::bindgen_prelude::*;
 use napi_derive::napi;
 use rototo::{
-    LintMode, LoadOptions, RefreshOptions, ResolveContext, ResolveOptions, SourceAuth,
-    SourceFingerprint, SourceOptions,
+    EvaluationContext, LintMode, LoadOptions, RefreshOptions, ResolveOptions, SourceAuth,
+    SourceFingerprint, SourceOptions, TraceSubscription,
 };
 use serde_json::Value as JsonValue;
-use tokio::sync::Mutex;
+use tokio::sync::{Mutex, broadcast};
 
 #[napi]
 pub fn version() -> &'static str {
     env!("CARGO_PKG_VERSION")
 }
 
-#[napi(js_name = "_Workspace")]
-pub struct JsWorkspace {
-    inner: Arc<rototo::Workspace>,
+#[napi(js_name = "_Package")]
+pub struct JsPackage {
+    inner: Arc<rototo::Package>,
 }
 
 #[napi]
-impl JsWorkspace {
+impl JsPackage {
     #[napi(factory)]
     pub async fn load(
         source: String,
-        workspace_token: Option<String>,
+        package_token: Option<String>,
         lint: Option<String>,
     ) -> Result<Self> {
-        let options = load_options(workspace_token, lint.as_deref())?;
-        let workspace = rototo::Workspace::load_with_options(source, options)
+        let options = load_options(package_token, lint.as_deref())?;
+        let package = rototo::Package::load_with_options(source, options)
             .await
             .map_err(js_err)?;
         Ok(Self {
-            inner: Arc::new(workspace),
+            inner: Arc::new(package),
         })
     }
 
     #[napi(factory)]
-    pub async fn inspect(source: String, workspace_token: Option<String>) -> Result<Self> {
-        let options = source_options(workspace_token);
-        let workspace = rototo::Workspace::inspect_with_source_options(source, &options)
+    pub async fn inspect(source: String, package_token: Option<String>) -> Result<Self> {
+        let options = source_options(package_token);
+        let package = rototo::Package::inspect_with_source_options(source, &options)
             .await
             .map_err(js_err)?;
         Ok(Self {
-            inner: Arc::new(workspace),
+            inner: Arc::new(package),
         })
     }
 
     #[napi]
     pub fn root(&self) -> String {
         self.inner.root().display().to_string()
+    }
+
+    #[napi]
+    pub fn identity(&self) -> JsonValue {
+        self.inner.identity().to_json()
     }
 
     #[napi]
@@ -69,21 +74,21 @@ impl JsWorkspace {
     }
 
     #[napi(js_name = "resolveVariable")]
-    pub async fn resolve_variable(
+    pub fn resolve_variable(
         &self,
         id: String,
         context: JsonValue,
         validate_context: Option<bool>,
+        trace: Option<bool>,
     ) -> Result<JsonValue> {
-        let context = ResolveContext::from_json(context).map_err(js_err)?;
+        let context = EvaluationContext::from_json(context).map_err(js_err)?;
         let resolution = self
             .inner
             .resolve_variable_with_options(
                 &id,
                 &context,
-                resolve_options(validate_context.unwrap_or(true)),
+                resolve_options(validate_context.unwrap_or(true), trace.unwrap_or(false)),
             )
-            .await
             .map_err(js_err)?;
         Ok(serde_json::json!({
             "id": resolution.id,
@@ -93,66 +98,73 @@ impl JsWorkspace {
     }
 
     #[napi(js_name = "resolveQualifier")]
-    pub async fn resolve_qualifier(
+    pub fn resolve_qualifier(
         &self,
         id: String,
         context: JsonValue,
         validate_context: Option<bool>,
+        trace: Option<bool>,
     ) -> Result<bool> {
-        let context = ResolveContext::from_json(context).map_err(js_err)?;
+        let context = EvaluationContext::from_json(context).map_err(js_err)?;
         self.inner
             .resolve_qualifier_with_options(
                 &id,
                 &context,
-                resolve_options(validate_context.unwrap_or(true)),
+                resolve_options(validate_context.unwrap_or(true), trace.unwrap_or(false)),
             )
-            .await
             .map_err(js_err)
+    }
+
+    #[napi(js_name = "subscribeTraceEvents")]
+    pub fn subscribe_trace_events(&self) -> JsTraceEvents {
+        JsTraceEvents {
+            subscription: Arc::new(Mutex::new(self.inner.subscribe_trace_events())),
+        }
     }
 }
 
-#[napi(js_name = "_RefreshingWorkspace")]
-pub struct JsRefreshingWorkspace {
-    inner: Arc<Mutex<Option<rototo::RefreshingWorkspace>>>,
+#[napi(js_name = "_RefreshingPackage")]
+pub struct JsRefreshingPackage {
+    inner: Arc<Mutex<Option<rototo::RefreshingPackage>>>,
 }
 
 #[napi]
-impl JsRefreshingWorkspace {
+impl JsRefreshingPackage {
     #[napi(factory)]
     pub async fn load(
         source: String,
         period_seconds: Option<f64>,
-        workspace_token: Option<String>,
+        package_token: Option<String>,
         lint: Option<String>,
     ) -> Result<Self> {
-        let load_options = load_options(workspace_token, lint.as_deref())?;
+        let load_options = load_options(package_token, lint.as_deref())?;
         let refresh_options = refresh_options(period_seconds)?;
-        let workspace =
-            rototo::RefreshingWorkspace::load_with_options(source, load_options, refresh_options)
+        let package =
+            rototo::RefreshingPackage::load_with_options(source, load_options, refresh_options)
                 .await
                 .map_err(js_err)?;
         Ok(Self {
-            inner: Arc::new(Mutex::new(Some(workspace))),
+            inner: Arc::new(Mutex::new(Some(package))),
         })
     }
 
     #[napi(js_name = "resolveVariable")]
-    pub async fn resolve_variable(
+    pub fn resolve_variable(
         &self,
         id: String,
         context: JsonValue,
         validate_context: Option<bool>,
+        trace: Option<bool>,
     ) -> Result<JsonValue> {
-        let context = ResolveContext::from_json(context).map_err(js_err)?;
-        let guard = self.inner.lock().await;
-        let workspace = active_refreshing_workspace(&guard)?;
-        let resolution = workspace
+        let context = EvaluationContext::from_json(context).map_err(js_err)?;
+        let guard = self.inner.blocking_lock();
+        let package = active_refreshing_package(&guard)?;
+        let resolution = package
             .resolve_variable_with_options(
                 &id,
                 &context,
-                resolve_options(validate_context.unwrap_or(true)),
+                resolve_options(validate_context.unwrap_or(true), trace.unwrap_or(false)),
             )
-            .await
             .map_err(js_err)?;
         Ok(serde_json::json!({
             "id": resolution.id,
@@ -162,70 +174,142 @@ impl JsRefreshingWorkspace {
     }
 
     #[napi(js_name = "resolveQualifier")]
-    pub async fn resolve_qualifier(
+    pub fn resolve_qualifier(
         &self,
         id: String,
         context: JsonValue,
         validate_context: Option<bool>,
+        trace: Option<bool>,
     ) -> Result<bool> {
-        let context = ResolveContext::from_json(context).map_err(js_err)?;
-        let guard = self.inner.lock().await;
-        let workspace = active_refreshing_workspace(&guard)?;
-        workspace
+        let context = EvaluationContext::from_json(context).map_err(js_err)?;
+        let guard = self.inner.blocking_lock();
+        let package = active_refreshing_package(&guard)?;
+        package
             .resolve_qualifier_with_options(
                 &id,
                 &context,
-                resolve_options(validate_context.unwrap_or(true)),
+                resolve_options(validate_context.unwrap_or(true), trace.unwrap_or(false)),
             )
-            .await
             .map_err(js_err)
     }
 
     #[napi(js_name = "refreshNow")]
     pub async fn refresh_now(&self) -> Result<String> {
         let guard = self.inner.lock().await;
-        let workspace = active_refreshing_workspace(&guard)?;
-        let outcome = workspace.refresh_now().await.map_err(js_err)?;
+        let package = active_refreshing_package(&guard)?;
+        let outcome = package.refresh_now().await.map_err(js_err)?;
         Ok(refresh_outcome_name(outcome).to_owned())
     }
 
     #[napi]
     pub async fn status(&self) -> Result<JsonValue> {
         let guard = self.inner.lock().await;
-        let workspace = active_refreshing_workspace(&guard)?;
-        let status = workspace.status().await;
+        let package = active_refreshing_package(&guard)?;
+        let status = package.status();
         Ok(refresh_status_to_json(status))
     }
 
     #[napi]
+    pub async fn identity(&self) -> Result<JsonValue> {
+        let guard = self.inner.lock().await;
+        let package = active_refreshing_package(&guard)?;
+        Ok(package.identity().to_json())
+    }
+
+    #[napi]
+    pub async fn snapshot(&self) -> Result<JsonValue> {
+        let guard = self.inner.lock().await;
+        let package = active_refreshing_package(&guard)?;
+        Ok(package.snapshot().to_json())
+    }
+
+    #[napi(js_name = "subscribeEvents")]
+    pub fn subscribe_events(&self) -> Result<JsRefreshEvents> {
+        let guard = self.inner.blocking_lock();
+        let package = active_refreshing_package(&guard)?;
+        Ok(JsRefreshEvents {
+            rx: Arc::new(Mutex::new(package.subscribe_refresh_events())),
+        })
+    }
+
+    #[napi(js_name = "subscribeTraceEvents")]
+    pub fn subscribe_trace_events(&self) -> Result<JsTraceEvents> {
+        let guard = self.inner.blocking_lock();
+        let package = active_refreshing_package(&guard)?;
+        Ok(JsTraceEvents {
+            subscription: Arc::new(Mutex::new(package.subscribe_trace_events())),
+        })
+    }
+
+    #[napi]
     pub async fn shutdown(&self) -> Result<()> {
-        let workspace = {
+        let package = {
             let mut guard = self.inner.lock().await;
             guard.take()
         };
-        if let Some(workspace) = workspace {
-            workspace.shutdown().await;
+        if let Some(package) = package {
+            package.shutdown().await;
         }
         Ok(())
     }
 }
 
-fn active_refreshing_workspace(
-    guard: &Option<rototo::RefreshingWorkspace>,
-) -> Result<&rototo::RefreshingWorkspace> {
-    guard
-        .as_ref()
-        .ok_or_else(|| Error::from_reason("refreshing workspace has been shut down"))
+#[napi(js_name = "_RefreshEvents")]
+pub struct JsRefreshEvents {
+    rx: Arc<Mutex<broadcast::Receiver<rototo::RefreshEvent>>>,
 }
 
-fn source_options(workspace_token: Option<String>) -> SourceOptions {
-    match workspace_token {
+#[napi]
+impl JsRefreshEvents {
+    /// Resolve to the next refresh event, or `null` when the stream has closed
+    /// (the package was shut down or dropped). A lagging subscriber skips the
+    /// gap rather than erroring; recover ground truth from `snapshot()`.
+    #[napi]
+    pub async fn recv(&self) -> Result<Option<JsonValue>> {
+        let mut rx = self.rx.lock().await;
+        loop {
+            match rx.recv().await {
+                Ok(event) => return Ok(Some(event.to_json())),
+                Err(broadcast::error::RecvError::Lagged(_)) => continue,
+                Err(broadcast::error::RecvError::Closed) => return Ok(None),
+            }
+        }
+    }
+}
+
+#[napi(js_name = "_TraceEvents")]
+pub struct JsTraceEvents {
+    subscription: Arc<Mutex<TraceSubscription>>,
+}
+
+#[napi]
+impl JsTraceEvents {
+    /// Resolve to the next trace stream item, or `null` when the stream has
+    /// closed. A lagging subscriber receives a `{ kind: "dropped", count }` item
+    /// rather than erroring.
+    #[napi]
+    pub async fn recv(&self) -> Result<Option<JsonValue>> {
+        let mut subscription = self.subscription.lock().await;
+        Ok(subscription.recv().await.map(|item| item.to_json()))
+    }
+}
+
+fn active_refreshing_package(
+    guard: &Option<rototo::RefreshingPackage>,
+) -> Result<&rototo::RefreshingPackage> {
+    guard
+        .as_ref()
+        .ok_or_else(|| Error::from_reason("refreshing package has been shut down"))
+}
+
+fn source_options(package_token: Option<String>) -> SourceOptions {
+    match package_token {
         Some(token) => SourceOptions::new().with_auth(SourceAuth::Bearer(token)),
         None => SourceOptions::new(),
     }
 }
 
-fn load_options(workspace_token: Option<String>, lint: Option<&str>) -> Result<LoadOptions> {
+fn load_options(package_token: Option<String>, lint: Option<&str>) -> Result<LoadOptions> {
     let lint = match lint.unwrap_or("deny") {
         "deny" => LintMode::Deny,
         "skip" => LintMode::Skip,
@@ -237,7 +321,7 @@ fn load_options(workspace_token: Option<String>, lint: Option<&str>) -> Result<L
     };
     Ok(LoadOptions::new()
         .with_lint(lint)
-        .with_source_auth(match workspace_token {
+        .with_source_auth(match package_token {
             Some(token) => SourceAuth::Bearer(token),
             None => SourceAuth::None,
         }))
@@ -256,8 +340,11 @@ fn refresh_options(period_seconds: Option<f64>) -> Result<RefreshOptions> {
     Ok(options)
 }
 
-fn resolve_options(validate_context: bool) -> ResolveOptions {
-    ResolveOptions { validate_context }
+fn resolve_options(validate_context: bool, trace: bool) -> ResolveOptions {
+    ResolveOptions {
+        validate_context,
+        trace,
+    }
 }
 
 fn js_err(err: rototo::RototoError) -> Error {
@@ -287,8 +374,8 @@ fn source_fingerprint_to_json(fingerprint: &SourceFingerprint) -> JsonValue {
         SourceFingerprint::ContentHash(value) => {
             serde_json::json!({ "kind": "content_hash", "value": value })
         }
-        SourceFingerprint::WorkspaceLayers(layers) => serde_json::json!({
-            "kind": "workspace_layers",
+        SourceFingerprint::PackageLayers(layers) => serde_json::json!({
+            "kind": "package_layers",
             "layers": layers.iter().map(source_fingerprint_to_json).collect::<Vec<_>>(),
         }),
     }

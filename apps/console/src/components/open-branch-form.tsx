@@ -3,7 +3,7 @@ import { FormEvent, useState } from "react";
 import { GitBranch } from "lucide-react";
 import { apiFetch } from "@/lib/api";
 
-export function OpenBranchForm({ workspaceId }: { workspaceId: string }) {
+export function OpenBranchForm({ packageId }: { packageId: string }) {
     const router = useRouter();
     const [branch, setBranch] = useState("");
     const [pending, setPending] = useState(false);
@@ -15,7 +15,7 @@ export function OpenBranchForm({ workspaceId }: { workspaceId: string }) {
         setMessage(null);
         try {
             const response = await apiFetch(
-                `/api/workspaces/${workspaceId}/branches`,
+                `/api/packages/${packageId}/branches`,
                 {
                     method: "POST",
                     headers: { "Content-Type": "application/json" },
@@ -32,7 +32,7 @@ export function OpenBranchForm({ workspaceId }: { workspaceId: string }) {
                 );
             }
             router.push(
-                `/app/workspaces/${workspaceId}/branches/${body.branch.id}`,
+                `/app/packages/${packageId}/branches/${body.branch.id}`,
             );
         } catch (error) {
             setMessage(error instanceof Error ? error.message : String(error));

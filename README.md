@@ -1,257 +1,169 @@
-# rototo
+# So, what is Rototo?
 
-rototo is a control plane for runtime configuration.
+Every substantial software system eventually needs a configuration subsystem. The software provides the underlying capabilities; configuration steers those capabilities to behave in a particular way.
 
-It is built around a small premise: configuration that changes production
-behavior should move through the same discipline as code, even when the
-application does not need to be redeployed.
+Some configuration is settings-style: things like database URLs and encryption keys, usually held in environment variables and fixed once the software is deployed. That's not the kind we're concerned with here. What interests us instead is the configuration that governs the system's runtime behavior: feature availability, model selection, tenant overrides, offers, retry policies, logging controls, rollout plans, and so on.
 
-rototo gives teams two things:
+Rototo provides a control plane for this kind of runtime configuration. It rests on a simple premise: runtime configuration should be treated like code. It should live alongside the code and follow a similar release cycle, and it should be testable and contract-enforced in the same way.
 
-- Runtime configuration that stays inside the software lifecycle: review,
-  tests, CI, observability, and rollback.
-- Long-running applications that can refresh reviewed configuration without
-  restarting or redeploying the application binary.
+To that end, Rototo models configuration as files that are versioned, reviewed, tested, and released as packages. The Rototo SDK loads these packages within the application runtime to guide the application's behavior. Configuration thus follows the same release process as code, while gaining a hot-swappable deployment mechanism.
 
-## Why rototo exists
+## Rototo's hello world
 
-Most production systems eventually need behavior to vary by environment,
-account, request context, rollout state, or operational condition.
+Let's take a simple use case: we want to vary the order amount beyond which customers get free shipping.
+Customers in `standard` tier must have at least $50 as cart total while customers in `premium` tier get free shipping after $25.
+To accomplish this, we would do two things:
+- Create a Rototo configuration package.
+- Load the configuration package and resolve free shipping threshold in our application.
 
-At first, the values look harmless: a limit, a switch, a model name, a prompt,
-a rollout bucket, an exception for one customer. Then one of those values
-starts controlling real production behavior, and the place where it lives
-begins to matter.
+### Create and publish a configuration package
 
-Environment variables are familiar, but they often couple configuration changes
-to deploys or restarts. Feature flag systems solve part of the runtime problem,
-but they can create a release path that drifts away from the code, tests, and
-review process that depend on them. Bespoke admin systems are even more
-expensive: authentication, authorization, audit logs, validation, approvals,
-APIs, migrations, rollback, and the operating habits around all of it.
-
-rototo keeps runtime policy in git-backed workspace files. Applications load a
-workspace source, provide runtime context, and resolve named variables through
-the SDK. Long-running services can refresh the same source and keep serving the
-last successfully loaded workspace if a later refresh fails.
-
-## The model
-
-A rototo workspace is a directory tree rooted at `rototo-workspace.toml`:
-
-```text
-account-config/
-  rototo-workspace.toml
-  qualifiers/
-  catalogs/
-  schemas/
-  variables/
-```
-
-The main concepts are deliberately small:
-
-- Workspaces are the git-versioned control-plane boundary.
-- Context is the runtime facts supplied by the application.
-- Qualifiers turn those facts into named reusable conditions.
-- Variables select typed values using defaults and qualifier rules.
-- Catalogs hold structured policy values validated by JSON Schema.
-- Lint and tests make workspace changes releasable.
-
-The core loop is:
-
-1. Edit workspace files.
-2. Review the diff.
-3. Run lint and tests.
-4. Merge the change.
-5. Let applications refresh the workspace source and use the new values.
-
-The configuration moves independently from the application binary, but it does
-not move outside the engineering process.
-
-## Install
-
-Install the CLI from crates.io:
-
+First, install the Rototo cli from crates.io:
 ```sh
-cargo install rototo --version 0.1.0-alpha.5
+cargo install rototo --version 0.1.0-alpha.6
 ```
 
-Use the SDK from an application:
-
-```toml
-[dependencies]
-rototo = "0.1.0-alpha.5"
-serde_json = "1"
-tokio = { version = "1", features = ["macros", "rt-multi-thread", "time"] }
-```
-
-## First loop
-
-Start with one value. Create a workspace with one variable:
-
+Now, create a configuration package for the application:
 ```sh
-rototo init account-config --variable max-active-projects
+# Create app-config package with a variable named free-shipping-threshold
+rototo init app-config --variable free-shipping-threshold
 ```
 
-Define the variable:
+You should see the following in `app-config/` dir:
+```sh
+$> tree app-config
+app-config
+├── rototo-package.toml
+├── evaluation-contexts
+├── qualifiers
+└── variables
+    └── free-shipping-threshold.toml
+├── catalogs
+├── lint
+6 directories, 2 files
+```
 
+We explain the package model in [Rototo Concepts](docs/src/concepts.md). For now, we would focus on the variable `free-shipping-threshold`. Replace the contents of `free-shipping-threshold.toml` with the following:
 ```toml
 schema_version = 1
-
-description = "Maximum active projects for an account"
+description = "$ threshold for free shipping."
 type = "int"
 
 [resolve]
-default = 3
+default = 50  # by default, free shipping beyond $50.
+
+[[resolve.rule]]
+when = '(context.account.tier == "premium")'
+value = 25    # for premium account tier, free shipping beyond $25.
 ```
 
-Then prove the workspace can stand on its own:
+We can now validate our configuration to ensure that we got it right:
+```sh
+rototo lint app-config
+```
+
+We can further ensure that `free-shipping-threshold` resolves as expected.
 
 ```sh
-rototo lint account-config
-rototo resolve account-config --variable max-active-projects
+# default value: should give 50
+rototo resolve app-config --variable free-shipping-threshold
 ```
 
-With no `--context`, rototo resolves with `{}` context and selects the default
-value.
+```sh
+# standard account tier: should give 50
+rototo resolve app-config --variable free-shipping-threshold --context account.tier=standard
+```
 
-## SDK sketch
+```sh
+# premium account tier: should give 25
+rototo resolve app-config --variable free-shipping-threshold --context account.tier=premium
+```
 
-Applications should load a workspace source and ask for named variables. They
-should not parse workspace files or duplicate qualifier logic.
+<!-- rototo:sdk-quickstart:start -->
+### Load the configuration package and resolve the threshold
+
+Now let's read that value from an application. Install the rototo Rust SDK:
+
+```sh
+cargo add rototo@0.1.0-alpha.6 serde_json
+cargo add tokio --features rt-multi-thread,macros
+```
+
+Save this as `src/main.rs`. It loads a *refreshing* package (one that re-reads the source in the background) and prints the free-shipping threshold for a standard and a premium account every couple of seconds:
 
 ```rust
-use std::{error::Error, time::Duration};
+use std::time::Duration;
 
-use rototo::{RefreshOptions, RefreshingWorkspace, ResolveContext};
+use rototo::{EvaluationContext, RefreshOptions, RefreshingPackage};
+use serde_json::json;
+
+const VARIABLE_ID: &str = "free-shipping-threshold";
 
 #[tokio::main]
-async fn main() -> Result<(), Box<dyn Error>> {
-    let source = "git+https://github.com/acme/runtime-config.git#main:prod";
-    let refresh = RefreshOptions::new().with_period(Duration::from_secs(30));
-    let workspace = RefreshingWorkspace::load(source, refresh).await?;
+async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let app_config = RefreshingPackage::load(
+        "app-config",
+        RefreshOptions::new().with_period(Duration::from_secs(1)),
+    )
+    .await?;
 
-    let context = ResolveContext::from_json(serde_json::json!({
-        "account": {
-            "plan": "enterprise"
+    loop {
+        println!("---");
+        for tier in ["standard", "premium"] {
+            let context = EvaluationContext::from_json(json!({ "account": { "tier": tier } }))?;
+            let resolution = app_config.resolve_variable(VARIABLE_ID, &context)?;
+            println!("{tier}: {} USD", resolution.value);
         }
-    }))?;
-
-    let resolution = workspace
-        .resolve_variable("max-active-projects", &context)
-        .await?;
-
-    println!(
-        "selected {} from {:?}",
-        resolution.source,
-        workspace.source_fingerprint()
-    );
-
-    Ok(())
+        tokio::time::sleep(Duration::from_secs(2)).await;
+    }
 }
 ```
 
-## Where rototo fits
+Run it (`cargo run`) from the directory that holds `app-config`, and it prints:
 
-rototo fits when a configuration value changes application behavior and
-deserves release discipline:
-
-- account and environment-specific limits;
-- operational switches;
-- account-specific exceptions;
-- bucketed rollouts;
-- incident banners;
-- model, prompt, and provider settings;
-- runtime policy for another system.
-
-rototo is not ordinary application storage. User records, transactions,
-analytics events, and high-volume mutable data should stay in the systems that
-already own them.
-
-## Console
-
-The same binary serves a web console for browsing workspaces, tracing how
-variables resolve against saved contexts, editing drafts on real branches,
-and publishing pull requests:
-
-```sh
-rototo console
+```text
+---
+standard: 50 USD
+premium: 25 USD
 ```
 
-It starts on `http://127.0.0.1:7686` with no sign-in. Local workspaces can be
-read from disk and edited in the local working tree when writes are enabled.
-GitHub workspaces use your ambient GitHub token
-(`ROTOTO_WORKSPACE_TOKEN` or `gh auth token`) when a credential is needed.
-Hosted deployments configure GitHub OAuth. Fixed-source deployments use
-`--workspace <source>` and choose writes with
-`--write disabled|pull-request|direct-push`. See the self-hosting guide for
-the deployment and write-policy shapes.
+Now edit `free-shipping-threshold.toml`, change the default to 35, and save. Because the package refreshes every second, the next tick shows:
+
+```text
+---
+standard: 50 USD
+premium: 35 USD
+```
+<!-- rototo:sdk-quickstart:end -->
 
 ## Documentation
 
-Read the public docs at <https://docs.rototo.dev>.
+Public docs are available on [rototo.dev](https://rototo.dev).
+The `rototo` cli also ships with the same documents in markdown.
 
-The CLI also ships the same documentation:
-
+You and your agent can use the `docs` command in the cli:
 ```sh
+# show available docs
 rototo docs
-rototo docs -p getting-started
-rototo docs --export site
+
+# search for docs
+rototo docs -s <search terms>
+
+# fetch doc based on doc id prefix
+rototo docs -p concepts
 ```
 
-## Development
+## Rototo is designed for people and agents
 
-Install `mise` and `just`, then run:
-
-```sh
-mise trust
-just setup
-```
-
-Rust is pinned in `rust-toolchain.toml`. Non-Rust local development tools,
-including Python, Node, and Wrangler, are pinned in `.tool-versions`.
-
-Run the local check gate before pushing:
-
-```sh
-just check
-```
-
-`just check` is also what CI runs.
-
-For console work, `just setup` installs the frontend dependencies too. Run the
-full local stack with:
-
-```sh
-just console-dev
-```
-
-With the local Caddy setup, `https://dev.rototo.dev` points at that dev stack.
-Use `just console-demo` when you want `https://demo.rototo.dev` to point at the
-embedded frontend served from the Rust binary.
-
-Logging uses `tracing` and reads `RUST_LOG`:
-
-```sh
-cargo run
-RUST_LOG=debug cargo run
-RUST_LOG=rototo=trace cargo run
-```
-
-To check the rendered docs site remotely before a production deploy, publish a
-Cloudflare Pages preview:
-
-```sh
-export CLOUDFLARE_ACCOUNT_ID=...
-export CLOUDFLARE_API_TOKEN=...
-just docs-preview
-```
-
-The preview deploys to the `docs-dev` branch of the `rototo-docs` Pages project
-by default. Use `CLOUDFLARE_PAGES_PROJECT` to target another project, or pass a
-different preview branch with `just docs-preview branch=my-docs-branch`.
-`docs-preview` refuses `branch=main`; production docs are published by the
-GitHub workflow after `main` updates.
+Agents are now among the most important users of any development tool.
+Hence, Rototo is designed from ground up to work well both for people and agents.
+- The configuration package is simply a dir tree of files that brings battle-tested ergnomics of file organization and editing.
+- `rototo docs` to discover Rototo's capabilities and the recipes to use it.
+- `rototo lint` as the backbone for configuration validation that can be run after every edit.
+- `rototo inspect` to reason about the package structure and how everything resolves at runtime.
+- `rototo resolve` for test automation of invariants (e.g. customer X must always receive configuration Y otherwise something is wrong).
+- `rototo lsp` to provide feedback (and help) during editing.
+- `rototo console` to have the comfort of a react based UI for inspecting and editing the package.
 
 ## License
 

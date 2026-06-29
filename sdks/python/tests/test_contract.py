@@ -30,20 +30,20 @@ class ContractTest(unittest.IsolatedAsyncioTestCase):
 
 async def run_case(case: dict[str, Any]) -> dict[str, Any]:
     operation = case["operation"]
-    workspace_source = str(ROOT / case["workspace"])
+    package_source = str(ROOT / case["package"])
 
-    if operation == "load_workspace":
-        await rototo.Workspace.load(workspace_source)
+    if operation == "load_package":
+        await rototo.Package.load(package_source)
         return {"ok": True}
 
-    if operation == "lint_workspace":
-        workspace = await rototo.Workspace.inspect(workspace_source)
-        lint = await workspace.lint()
+    if operation == "lint_package":
+        package = await rototo.Package.inspect(package_source)
+        lint = await package.lint()
         return {"diagnostics": len(lint["diagnostics"])}
 
     if operation == "resolve_variable":
-        workspace = await rototo.Workspace.load(workspace_source)
-        result = await workspace.resolve_variable(case["id"], case.get("context", {}))
+        package = await rototo.Package.load(package_source)
+        result = package.resolve_variable(case["id"], case.get("context", {}))
         return {
             "id": result.id,
             "value": result.value,
@@ -51,8 +51,16 @@ async def run_case(case: dict[str, Any]) -> dict[str, Any]:
         }
 
     if operation == "resolve_qualifier":
-        workspace = await rototo.Workspace.load(workspace_source)
-        return await workspace.resolve_qualifier(case["id"], case.get("context", {}))
+        package = await rototo.Package.load(package_source)
+        return package.resolve_qualifier(case["id"], case.get("context", {}))
+
+    if operation == "package_identity":
+        package = await rototo.Package.load(package_source)
+        identity = package.identity()
+        return {
+            "releaseId": identity.release_id,
+            "immutable": identity.immutable,
+        }
 
     raise AssertionError(f"unsupported contract operation: {operation}")
 

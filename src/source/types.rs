@@ -101,7 +101,7 @@ pub enum SourceFingerprint {
     GitCommit(String),
     HttpValidator(String),
     ContentHash(String),
-    WorkspaceLayers(Vec<SourceFingerprint>),
+    PackageLayers(Vec<SourceFingerprint>),
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -113,19 +113,19 @@ pub enum SourceProbe {
 }
 
 #[derive(Debug)]
-pub struct LoadedWorkspaceSource {
-    pub(super) staged: StagedWorkspace,
+pub struct LoadedPackageSource {
+    pub(super) staged: StagedPackage,
     pub(super) fingerprint: Option<SourceFingerprint>,
     pub(super) immutable: bool,
     pub(super) layers: Vec<SourceLayer>,
 }
 
-impl LoadedWorkspaceSource {
-    pub fn staged(&self) -> &StagedWorkspace {
+impl LoadedPackageSource {
+    pub fn staged(&self) -> &StagedPackage {
         &self.staged
     }
 
-    pub fn into_staged(self) -> StagedWorkspace {
+    pub fn into_staged(self) -> StagedPackage {
         self.staged
     }
 
@@ -182,12 +182,12 @@ pub(super) struct ResolvedExtendSource {
 }
 
 #[derive(Debug)]
-pub struct StagedWorkspace {
+pub struct StagedPackage {
     path: PathBuf,
     _tempdir: Option<TempDir>,
 }
 
-impl StagedWorkspace {
+impl StagedPackage {
     pub fn local(path: PathBuf) -> Self {
         Self {
             path,
@@ -257,8 +257,8 @@ impl StagedSourceTree {
         self.immutable
     }
 
-    pub(super) fn into_staged_workspace(self) -> StagedWorkspace {
-        StagedWorkspace {
+    pub(super) fn into_staged_package(self) -> StagedPackage {
+        StagedPackage {
             path: self.root,
             _tempdir: self._tempdir,
         }

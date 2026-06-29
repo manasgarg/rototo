@@ -387,7 +387,7 @@ h3 {
     min-width: 0;
 }
 
-/* the current workspace/branch is orientation-critical: wrap, never truncate */
+/* the current package/branch is orientation-critical: wrap, never truncate */
 .nav-context .mono {
     font-size: 12px;
     line-height: 1.45;
@@ -943,7 +943,7 @@ a.pill-sea:hover {
     gap: 14px;
 }
 
-.workspace-overview > :not(.graph-card) {
+.package-overview > :not(.graph-card) {
     max-width: 1060px;
 }
 
@@ -1110,12 +1110,12 @@ a.row:hover {
     white-space: nowrap;
 }
 
-.workspace-summary-line {
+.package-summary-line {
     min-height: 20px;
     align-items: center;
 }
 
-.workspace-summary-chip {
+.package-summary-chip {
     display: inline-block;
     width: 74px;
     height: 12px;
@@ -1618,7 +1618,7 @@ select.input {
     margin-bottom: 14px;
 }
 
-/* Workspace entity graph */
+/* Package entity graph */
 .graph-card {
     overflow: hidden;
 }

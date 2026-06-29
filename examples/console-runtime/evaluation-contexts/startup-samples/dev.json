@@ -1,0 +1,26 @@
+{
+  "phase": "startup",
+  "deployment": "local",
+  "write_policy": "pull-request",
+  "console": {
+    "host": "dev.rototo.dev",
+    "fixed_package": false,
+    "secure_cookies": false
+  },
+  "request": {
+    "present": false,
+    "host": null,
+    "method": "none",
+    "route": "none",
+    "repo": null,
+    "package": null,
+    "branch": null,
+    "mutating": false
+  },
+  "response": {
+    "present": false,
+    "status": 0,
+    "status_class": "none",
+    "latency_ms": 0
+  }
+}

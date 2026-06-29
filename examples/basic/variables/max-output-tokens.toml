@@ -7,13 +7,13 @@ type = "int"
 default = 2400
 
 [[resolve.rule]]
-when = 'qualifier["lane-stage"]'
+when = 'env.qualifier["lane-stage"]'
 value = 1200
 
 [[resolve.rule]]
-when = 'qualifier["lane-dev"]'
+when = 'env.qualifier["lane-dev"]'
 value = 5000
 
 [[resolve.rule]]
-when = 'qualifier["enterprise-accounts"]'
+when = 'env.qualifier["enterprise-accounts"]'
 value = 5000

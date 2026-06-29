@@ -4,13 +4,13 @@ import { ExternalLink, GitPullRequest } from "lucide-react";
 import { apiFetch } from "@/lib/api";
 
 export function PublishBranchButton({
-    workspaceId,
+    packageId,
     branchId,
     disabled,
     writeKind = "pullRequest",
     writeBackend = "gitHubApi",
 }: {
-    workspaceId: string;
+    packageId: string;
     branchId: string;
     disabled?: boolean;
     writeKind?: "disabled" | "pullRequest" | "directPush";
@@ -66,7 +66,7 @@ export function PublishBranchButton({
         setMessage(null);
         try {
             const response = await apiFetch(
-                `/api/workspaces/${workspaceId}/branches/${branchId}/publish`,
+                `/api/packages/${packageId}/branches/${branchId}/publish`,
                 {
                     method: "POST",
                 },

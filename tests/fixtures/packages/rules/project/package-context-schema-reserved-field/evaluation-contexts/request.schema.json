@@ -1,0 +1,10 @@
+{
+  "description": "Evaluation context contract for request runtime inputs.",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "qualifier": {
+      "type": "object"
+    }
+  }
+}

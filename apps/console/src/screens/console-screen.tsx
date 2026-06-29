@@ -25,25 +25,25 @@ import type {
     ConsoleData,
     BranchRecord,
     ConsoleState,
-    SourceTreeWithWorkspaces,
-    WorkspaceRecord,
-    WorkspaceSummary,
-    WorkspaceSummariesData,
+    SourceTreeWithPackages,
+    PackageRecord,
+    PackageSummary,
+    PackageSummariesData,
 } from "@/lib/types";
 
 /** App shell tab id accepted from route state. */
 export type AppScreen =
     | "configuration-sources"
-    | "workspaces"
+    | "packages"
     | "branches"
     | "activity";
 
-/** Active branch row paired with workspace metadata for dashboard lists. */
-type BranchEntry = { branch: BranchRecord; workspace: WorkspaceRecord };
+/** Active branch row paired with package metadata for dashboard lists. */
+type BranchEntry = { branch: BranchRecord; package: PackageRecord };
 
 const SCREEN_TITLES: Record<AppScreen, string> = {
     "configuration-sources": "Configuration Sources",
-    workspaces: "Workspaces",
+    packages: "Packages",
     branches: "Branches",
     activity: "Activity",
 };
@@ -54,17 +54,17 @@ export function ConsoleScreen({ screen }: { screen: AppScreen }) {
     const user = useShellUser();
     const { data, error, loading, reload } =
         useApi<ConsoleData>("/api/console");
-    const [workspaceSummaries, setWorkspaceSummaries] = useState<
-        Map<string, WorkspaceSummary>
+    const [packageSummaries, setPackageSummaries] = useState<
+        Map<string, PackageSummary>
     >(new Map());
 
     const selectedScreen = screen;
 
-    // The workspaces screen decorates each row with inventory counts; those
+    // The packages screen decorates each row with inventory counts; those
     // stage remote sources, so one batched API request keeps browser fan-out
     // and layout shifts under control.
     useEffect(() => {
-        if (selectedScreen !== "workspaces" || !data) {
+        if (selectedScreen !== "packages" || !data) {
             return;
         }
         let cancelled = false;
@@ -75,22 +75,22 @@ export function ConsoleScreen({ screen }: { screen: AppScreen }) {
             )
                 ? sourceTreeFilterId
                 : null;
-        const visibleWorkspaces = activeSourceTreeId
-            ? data.workspaces.filter(
-                  (workspace) => workspace.sourceTreeId === activeSourceTreeId,
+        const visiblePackages = activeSourceTreeId
+            ? data.packages.filter(
+                  (pkg) => pkg.sourceTreeId === activeSourceTreeId,
               )
-            : data.workspaces;
+            : data.packages;
         const path = activeSourceTreeId
-            ? `/api/workspaces/summaries?sourceTreeId=${encodeURIComponent(activeSourceTreeId)}`
-            : "/api/workspaces/summaries";
-        setWorkspaceSummaries(new Map());
-        void api<WorkspaceSummariesData>(path).then(
+            ? `/api/packages/summaries?sourceTreeId=${encodeURIComponent(activeSourceTreeId)}`
+            : "/api/packages/summaries";
+        setPackageSummaries(new Map());
+        void api<PackageSummariesData>(path).then(
             ({ summaries }) => {
                 if (!cancelled) {
-                    setWorkspaceSummaries(
+                    setPackageSummaries(
                         new Map(
                             summaries.map((summary) => [
-                                summary.workspaceId,
+                                summary.packageId,
                                 summary,
                             ]),
                         ),
@@ -103,10 +103,10 @@ export function ConsoleScreen({ screen }: { screen: AppScreen }) {
                         failure instanceof Error
                             ? failure.message
                             : String(failure);
-                    setWorkspaceSummaries(
+                    setPackageSummaries(
                         new Map(
-                            visibleWorkspaces.map((workspace) => [
-                                workspace.id,
+                            visiblePackages.map((pkg) => [
+                                pkg.id,
                                 {
                                     variables: 0,
                                     qualifiers: 0,
@@ -143,17 +143,15 @@ export function ConsoleScreen({ screen }: { screen: AppScreen }) {
     }
 
     const sourceTrees = data.sourceTrees;
-    const workspaces = data.workspaces;
+    const packages = data.packages;
     const filterSourceTree = sourceTreeFilterId
         ? (sourceTrees.find(
               (sourceTree) => sourceTree.id === sourceTreeFilterId,
           ) ?? null)
         : null;
-    const visibleWorkspaces = filterSourceTree
-        ? workspaces.filter(
-              (workspace) => workspace.sourceTreeId === filterSourceTree.id,
-          )
-        : workspaces;
+    const visiblePackages = filterSourceTree
+        ? packages.filter((pkg) => pkg.sourceTreeId === filterSourceTree.id)
+        : packages;
     const branches = data.branches;
     const activeBranches = branches.filter(
         ({ branch }) => branch.status === "active",
@@ -174,7 +172,7 @@ export function ConsoleScreen({ screen }: { screen: AppScreen }) {
                                 : "/app",
                     },
                     ...(filterSourceTree
-                        ? [{ label: "workspaces", href: "/app/workspaces" }]
+                        ? [{ label: "packages", href: "/app/packages" }]
                         : []),
                 ]}
                 nav={
@@ -188,11 +186,11 @@ export function ConsoleScreen({ screen }: { screen: AppScreen }) {
                             label="Configuration Sources"
                         />
                         <NavLink
-                            active={selectedScreen === "workspaces"}
-                            count={workspaces.length}
-                            href={appScreenHref("workspaces")}
+                            active={selectedScreen === "packages"}
+                            count={packages.length}
+                            href={appScreenHref("packages")}
                             icon={<Layers aria-hidden size={16} />}
-                            label="Workspaces"
+                            label="Packages"
                         />
                         <NavLink
                             active={selectedScreen === "branches"}
@@ -218,12 +216,12 @@ export function ConsoleScreen({ screen }: { screen: AppScreen }) {
                         sourceTrees={sourceTrees}
                     />
                 ) : null}
-                {selectedScreen === "workspaces" ? (
-                    <WorkspacesScreen
+                {selectedScreen === "packages" ? (
+                    <PackagesScreen
                         branches={branches}
                         filterSourceTree={filterSourceTree}
-                        workspaceSummaries={workspaceSummaries}
-                        workspaces={visibleWorkspaces}
+                        packageSummaries={packageSummaries}
+                        packages={visiblePackages}
                     />
                 ) : null}
                 {selectedScreen === "branches" ? (
@@ -249,19 +247,19 @@ function SourceTreesScreen({
     sourceTrees,
 }: {
     consoleState: ConsoleState;
-    sourceTrees: SourceTreeWithWorkspaces[];
+    sourceTrees: SourceTreeWithPackages[];
 }) {
     return (
         <section className="section">
             <div className="section-header-text">
                 <h1>Configuration Sources</h1>
                 <p className="hint">
-                    {consoleState.fixedWorkspace
-                        ? "This console is scoped to the workspace source it was started with."
-                        : "rototo discovers workspaces by scanning a configuration source for "}
-                    {!consoleState.fixedWorkspace ? (
+                    {consoleState.fixedPackage
+                        ? "This console is scoped to the package source it was started with."
+                        : "rototo discovers packages by scanning a configuration source for "}
+                    {!consoleState.fixedPackage ? (
                         <>
-                            <span className="mono">rototo-workspace.toml</span>{" "}
+                            <span className="mono">rototo-package.toml</span>{" "}
                             files. Register a GitHub repo, local folder, git
                             remote, or archive this console can read.
                         </>
@@ -277,9 +275,9 @@ function SourceTreesScreen({
                         <FolderGit2 aria-hidden size={18} />
                     </span>
                     <p>
-                        {consoleState.fixedWorkspace
-                            ? "No workspaces were discovered in the startup configuration source."
-                            : "No configuration sources yet. Add one above to discover workspaces."}
+                        {consoleState.fixedPackage
+                            ? "No packages were discovered in the startup configuration source."
+                            : "No configuration sources yet. Add one above to discover packages."}
                     </p>
                 </div>
             ) : (
@@ -300,8 +298,8 @@ function SourceTreesScreen({
                                     <h3>
                                         <Link
                                             className="card-stretch"
-                                            href={`/app/workspaces?sourceTree=${sourceTree.id}`}
-                                            title={`Workspaces in ${sourceTree.displayName}`}
+                                            href={`/app/packages?sourceTree=${sourceTree.id}`}
+                                            title={`Packages in ${sourceTree.displayName}`}
                                         >
                                             {sourceTree.displayName}
                                         </Link>
@@ -328,10 +326,10 @@ function SourceTreesScreen({
                                     ) : null}
                                     <span className="pill pill-sea">
                                         <span className="d" />
-                                        {sourceTree.workspaces.length}{" "}
-                                        {sourceTree.workspaces.length === 1
-                                            ? "workspace"
-                                            : "workspaces"}
+                                        {sourceTree.packages.length}{" "}
+                                        {sourceTree.packages.length === 1
+                                            ? "package"
+                                            : "packages"}
                                     </span>
                                     <RefreshSourceTreeButton
                                         sourceTreeId={sourceTree.id}
@@ -368,24 +366,24 @@ function SourceTreesScreen({
     );
 }
 
-function WorkspacesScreen({
+function PackagesScreen({
     branches,
     filterSourceTree,
-    workspaceSummaries,
-    workspaces,
+    packageSummaries,
+    packages,
 }: {
     branches: BranchEntry[];
-    filterSourceTree: SourceTreeWithWorkspaces | null;
-    workspaceSummaries: Map<string, WorkspaceSummary>;
-    workspaces: WorkspaceRecord[];
+    filterSourceTree: SourceTreeWithPackages | null;
+    packageSummaries: Map<string, PackageSummary>;
+    packages: PackageRecord[];
 }) {
     return (
         <section className="section">
             <div className="section-header-text">
-                <h1>Workspaces</h1>
+                <h1>Packages</h1>
                 <p className="hint">
-                    Each workspace is a{" "}
-                    <span className="mono">rototo-workspace.toml</span> root
+                    Each package is a{" "}
+                    <span className="mono">rototo-package.toml</span> root
                     discovered in a registered configuration source. Open one to
                     inspect and edit it.
                 </p>
@@ -396,44 +394,40 @@ function WorkspacesScreen({
                         <span className="d" />
                         configuration source: {filterSourceTree.displayName}
                     </span>
-                    <Link
-                        className="btn btn-ghost btn-sm"
-                        href="/app/workspaces"
-                    >
+                    <Link className="btn btn-ghost btn-sm" href="/app/packages">
                         Clear filter
                     </Link>
                 </div>
             ) : null}
-            {workspaces.length === 0 ? (
+            {packages.length === 0 ? (
                 <div className="empty-state">
                     <span className="empty-puck">
                         <Layers aria-hidden size={18} />
                     </span>
                     <p>
                         {filterSourceTree
-                            ? `No workspaces discovered in ${filterSourceTree.displayName}. Re-scan it from the configuration sources screen after adding rototo-workspace.toml.`
-                            : "Nothing to configure… yet. Register a configuration source to discover workspaces."}
+                            ? `No packages discovered in ${filterSourceTree.displayName}. Re-scan it from the configuration sources screen after adding rototo-package.toml.`
+                            : "Nothing to configure… yet. Register a configuration source to discover packages."}
                     </p>
                 </div>
             ) : (
                 <SearchableList
                     className="row-list"
-                    emptyLabel="No workspaces match that search."
-                    label="Search workspaces"
-                    placeholder="Search workspaces"
+                    emptyLabel="No packages match that search."
+                    label="Search packages"
+                    placeholder="Search packages"
                 >
-                    {workspaces.map((workspace) => (
-                        <WorkspaceRow
-                            data-search={`${workspace.sourceTreeLabel} ${workspace.displayPath} ${workspace.path} ${workspace.revision}`}
+                    {packages.map((pkg) => (
+                        <PackageRow
+                            data-search={`${pkg.sourceTreeLabel} ${pkg.displayPath} ${pkg.path} ${pkg.revision}`}
                             branchesCount={
                                 branches.filter(
-                                    (entry) =>
-                                        entry.workspace.id === workspace.id,
+                                    (entry) => entry.package.id === pkg.id,
                                 ).length
                             }
-                            key={workspace.id}
-                            summary={workspaceSummaries.get(workspace.id)}
-                            workspace={workspace}
+                            key={pkg.id}
+                            summary={packageSummaries.get(pkg.id)}
+                            pkg={pkg}
                         />
                     ))}
                 </SearchableList>
@@ -442,22 +436,22 @@ function WorkspacesScreen({
     );
 }
 
-function WorkspaceRow({
+function PackageRow({
     branchesCount,
     summary,
-    workspace,
+    pkg,
     "data-search": dataSearch,
 }: {
     branchesCount: number;
-    summary: WorkspaceSummary | undefined;
-    workspace: WorkspaceRecord;
+    summary: PackageSummary | undefined;
+    pkg: PackageRecord;
     "data-search": string;
 }) {
     const navigate = useNavigate();
     const [opening, setOpening] = useState(false);
-    const href = `/app/workspaces/${workspace.slug}`;
+    const href = `/app/packages/${pkg.slug}`;
 
-    function openWorkspace(event: MouseEvent<HTMLAnchorElement>) {
+    function openPackage(event: MouseEvent<HTMLAnchorElement>) {
         if (!shouldHandleClientNavigation(event)) {
             return;
         }
@@ -473,17 +467,17 @@ function WorkspaceRow({
             data-loading={opening ? "true" : undefined}
             data-search={dataSearch}
             href={href}
-            onClick={openWorkspace}
+            onClick={openPackage}
         >
             <span className="row-icon">
                 <Boxes aria-hidden size={16} />
             </span>
             <span className="row-text">
-                <span className="row-title mono">{workspace.displayPath}</span>
-                <span className="row-sub">{workspace.sourceTreeLabel}</span>
+                <span className="row-title mono">{pkg.displayPath}</span>
+                <span className="row-sub">{pkg.sourceTreeLabel}</span>
                 <span
                     aria-busy={summary ? undefined : true}
-                    className="kv workspace-summary-line"
+                    className="kv package-summary-line"
                 >
                     {summary ? (
                         summary.error ? (
@@ -508,19 +502,19 @@ function WorkspaceRow({
                         <>
                             <span
                                 aria-hidden="true"
-                                className="skeleton workspace-summary-chip"
+                                className="skeleton package-summary-chip"
                             />
                             <span
                                 aria-hidden="true"
-                                className="skeleton workspace-summary-chip"
+                                className="skeleton package-summary-chip"
                             />
                             <span
                                 aria-hidden="true"
-                                className="skeleton workspace-summary-chip"
+                                className="skeleton package-summary-chip"
                             />
                             <span
                                 aria-hidden="true"
-                                className="skeleton workspace-summary-chip"
+                                className="skeleton package-summary-chip"
                             />
                         </>
                     )}
@@ -567,7 +561,7 @@ function BranchesScreen({ branches }: { branches: BranchEntry[] }) {
             <div className="section-header-text">
                 <h1>Branches</h1>
                 <p className="hint">
-                    Every branch is a real branch in the workspace configuration
+                    Every branch is a real branch in the package configuration
                     source. Edits commit to the branch; publishing opens a pull
                     request.
                 </p>
@@ -578,7 +572,7 @@ function BranchesScreen({ branches }: { branches: BranchEntry[] }) {
                         <GitBranch aria-hidden size={18} />
                     </span>
                     <p>
-                        No branches yet. Open a workspace and start editing to
+                        No branches yet. Open a package and start editing to
                         create one.
                     </p>
                 </div>
@@ -589,10 +583,10 @@ function BranchesScreen({ branches }: { branches: BranchEntry[] }) {
                     label="Search branches"
                     placeholder="Search branches"
                 >
-                    {branches.map(({ branch, workspace }) => (
+                    {branches.map(({ branch, package: pkg }) => (
                         <div
                             className="row"
-                            data-search={`${workspace.sourceTreeLabel} ${workspace.displayPath} ${workspace.path} ${branch.branch} ${branch.status} ${branch.prState ?? ""}`}
+                            data-search={`${pkg.sourceTreeLabel} ${pkg.displayPath} ${pkg.path} ${branch.branch} ${branch.status} ${branch.prState ?? ""}`}
                             key={branch.id}
                         >
                             <span className="row-icon">
@@ -601,16 +595,14 @@ function BranchesScreen({ branches }: { branches: BranchEntry[] }) {
                             <span className="row-text">
                                 <Link
                                     className="row-title mono row-link"
-                                    href={`/app/workspaces/${workspace.slug}/branches/${branch.id}`}
+                                    href={`/app/packages/${pkg.slug}/branches/${branch.id}`}
                                 >
                                     {branch.branch}
                                 </Link>
                                 <span className="row-sub">
-                                    <Link
-                                        href={`/app/workspaces/${workspace.slug}`}
-                                    >
-                                        {workspace.sourceTreeLabel} ·{" "}
-                                        {workspace.displayPath}
+                                    <Link href={`/app/packages/${pkg.slug}`}>
+                                        {pkg.sourceTreeLabel} ·{" "}
+                                        {pkg.displayPath}
                                     </Link>
                                 </span>
                             </span>
@@ -619,7 +611,7 @@ function BranchesScreen({ branches }: { branches: BranchEntry[] }) {
                                 <Link
                                     aria-label={`Open branch ${branch.branch}`}
                                     className="muted"
-                                    href={`/app/workspaces/${workspace.slug}/branches/${branch.id}`}
+                                    href={`/app/packages/${pkg.slug}/branches/${branch.id}`}
                                 >
                                     <ChevronRight aria-hidden size={15} />
                                 </Link>
@@ -653,7 +645,7 @@ function ActivityScreen({
             <div className="section-header-text">
                 <h1>Activity</h1>
                 <p className="hint">
-                    Every branch across your workspaces, most recently updated
+                    Every branch across your packages, most recently updated
                     first.
                 </p>
             </div>
@@ -679,7 +671,7 @@ function ActivityScreen({
                         <History aria-hidden size={18} />
                     </span>
                     <p>
-                        No branches yet. Open a workspace and start editing to
+                        No branches yet. Open a package and start editing to
                         create one.
                     </p>
                 </div>
@@ -690,10 +682,10 @@ function ActivityScreen({
                     label="Search activity"
                     placeholder="Search activity"
                 >
-                    {recentFirst.map(({ branch, workspace }) => (
+                    {recentFirst.map(({ branch, package: pkg }) => (
                         <div
                             className="row"
-                            data-search={`${workspace.sourceTreeLabel} ${workspace.displayPath} ${workspace.path} ${branch.branch} ${branch.status} ${branch.prUrl ?? ""} ${branch.prState ?? ""}`}
+                            data-search={`${pkg.sourceTreeLabel} ${pkg.displayPath} ${pkg.path} ${branch.branch} ${branch.status} ${branch.prUrl ?? ""} ${branch.prState ?? ""}`}
                             key={branch.id}
                         >
                             <span className="row-icon">
@@ -702,15 +694,13 @@ function ActivityScreen({
                             <span className="row-text">
                                 <Link
                                     className="row-title mono row-link"
-                                    href={`/app/workspaces/${workspace.slug}/branches/${branch.id}`}
+                                    href={`/app/packages/${pkg.slug}/branches/${branch.id}`}
                                 >
                                     {branch.branch}
                                 </Link>
                                 <span className="row-sub">
-                                    <Link
-                                        href={`/app/workspaces/${workspace.slug}`}
-                                    >
-                                        {workspace.displayPath}
+                                    <Link href={`/app/packages/${pkg.slug}`}>
+                                        {pkg.displayPath}
                                     </Link>{" "}
                                     · updated{" "}
                                     {formatDate(branchUpdatedAt(branch))}
@@ -736,7 +726,7 @@ function ActivityScreen({
                                 <Link
                                     aria-label={`Open branch ${branch.branch}`}
                                     className="muted"
-                                    href={`/app/workspaces/${workspace.slug}/branches/${branch.id}`}
+                                    href={`/app/packages/${pkg.slug}/branches/${branch.id}`}
                                 >
                                     <ChevronRight aria-hidden size={15} />
                                 </Link>
@@ -757,7 +747,7 @@ function appScreenHref(screen: AppScreen): string {
     return `/app/${screen}`;
 }
 
-function sourceTreeKindLabel(kind: SourceTreeWithWorkspaces["kind"]): string {
+function sourceTreeKindLabel(kind: SourceTreeWithPackages["kind"]): string {
     switch (kind) {
         case "gitHub":
             return "GitHub";

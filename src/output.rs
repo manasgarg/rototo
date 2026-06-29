@@ -1,6 +1,7 @@
 use std::path::Path;
 
 use serde::Serialize;
+use toml::Value as TomlValue;
 
 use crate::style;
 
@@ -9,48 +10,48 @@ use rototo::diagnostics::{
     SemanticField, SemanticTarget, Severity,
 };
 use rototo::error::{Result, RototoError};
-use rototo::model::{InspectRuntimeStatus, WorkspaceDiff, WorkspaceInspectReport};
-use rototo::model::{WorkspaceInspection, WorkspaceLint};
-use rototo::workspace::{
+use rototo::model::{InspectRuntimeStatus, PackageDiff, PackageInspectReport};
+use rototo::model::{PackageInspection, PackageLint};
+use rototo::package::{
     catalog_for_id, qualifier_for_id, read_catalog_json, read_toml, read_variable_toml,
     variable_for_id,
 };
 
 #[derive(Debug, Serialize)]
-struct WorkspaceFileJson<'a> {
+struct PackageFileJson<'a> {
     id: &'a str,
     uri: &'a str,
     path: String,
 }
 
 #[derive(Debug, Serialize)]
-struct WorkspaceLintJson<'a> {
-    workspace: String,
+struct PackageLintJson<'a> {
+    package: String,
     documents: &'a [rototo::model::SourceDocumentSummary],
     diagnostics: &'a [LintDiagnostic],
 }
 
 #[derive(Debug, Serialize)]
 struct QualifierListJson<'a> {
-    workspace: String,
-    qualifiers: Vec<WorkspaceFileJson<'a>>,
+    package: String,
+    qualifiers: Vec<PackageFileJson<'a>>,
 }
 
 #[derive(Debug, Serialize)]
 struct VariableListJson<'a> {
-    workspace: String,
-    variables: Vec<WorkspaceFileJson<'a>>,
+    package: String,
+    variables: Vec<PackageFileJson<'a>>,
 }
 
 #[derive(Debug, Serialize)]
 struct CatalogListJson<'a> {
-    workspace: String,
-    catalogs: Vec<WorkspaceFileJson<'a>>,
+    package: String,
+    catalogs: Vec<PackageFileJson<'a>>,
 }
 
 #[derive(Debug, Serialize)]
 struct QualifierGetJson {
-    workspace: String,
+    package: String,
     id: String,
     uri: String,
     path: String,
@@ -59,7 +60,7 @@ struct QualifierGetJson {
 
 #[derive(Debug, Serialize)]
 struct VariableGetJson {
-    workspace: String,
+    package: String,
     id: String,
     uri: String,
     path: String,
@@ -68,19 +69,19 @@ struct VariableGetJson {
 
 #[derive(Debug, Serialize)]
 struct CatalogGetJson {
-    workspace: String,
+    package: String,
     id: String,
     uri: String,
     path: String,
     value: serde_json::Value,
 }
 
-pub(crate) fn print_workspace_lint(lint: &WorkspaceLint, json: bool, quiet: bool) -> Result<()> {
+pub(crate) fn print_package_lint(lint: &PackageLint, json: bool, quiet: bool) -> Result<()> {
     if json {
         println!(
             "{}",
-            serde_json::to_string_pretty(&WorkspaceLintJson {
-                workspace: lint.root.display().to_string(),
+            serde_json::to_string_pretty(&PackageLintJson {
+                package: lint.root.display().to_string(),
                 documents: &lint.documents,
                 diagnostics: &lint.diagnostics,
             })
@@ -101,7 +102,7 @@ pub(crate) fn print_workspace_lint(lint: &WorkspaceLint, json: bool, quiet: bool
     Ok(())
 }
 
-pub(crate) fn print_inspect_report(report: &WorkspaceInspectReport, json: bool) -> Result<()> {
+pub(crate) fn print_inspect_report(report: &PackageInspectReport, json: bool) -> Result<()> {
     if json {
         println!(
             "{}",
@@ -113,8 +114,8 @@ pub(crate) fn print_inspect_report(report: &WorkspaceInspectReport, json: bool) 
 
     println!(
         "{} {}",
-        style::label("workspace"),
-        style::bold(&report.workspace)
+        style::label("package"),
+        style::bold(&report.package)
     );
     match &report.runtime {
         InspectRuntimeStatus::Available => {
@@ -131,45 +132,48 @@ pub(crate) fn print_inspect_report(report: &WorkspaceInspectReport, json: bool) 
         print_diagnostics(&report.diagnostics);
     }
 
-    if !report.request_contexts.is_empty() {
-        println!("{}", style::label("request contexts"));
-        let count = report.request_contexts.len();
-        for (index, request_context) in report.request_contexts.iter().enumerate() {
+    if !report.evaluation_contexts.is_empty() {
+        println!("{}", style::label("evaluation contexts"));
+        let count = report.evaluation_contexts.len();
+        for (index, evaluation_context) in report.evaluation_contexts.iter().enumerate() {
             print_entity_separator(index, count);
-            println!("  request context: {}", style::sea(&request_context.id));
+            println!(
+                "  evaluation context: {}",
+                style::sea(&evaluation_context.id)
+            );
             println!(
                 "    {} {}",
                 style::dim("path:"),
-                style::dim(&request_context.path)
+                style::dim(&evaluation_context.path)
             );
             println!(
                 "    {} {}",
                 style::dim("status:"),
-                if request_context.status == "valid" {
-                    style::ok(&request_context.status)
+                if evaluation_context.status == "valid" {
+                    style::ok(&evaluation_context.status)
                 } else {
-                    style::err(&request_context.status)
+                    style::err(&evaluation_context.status)
                 }
             );
-            if let Some(title) = &request_context.title {
+            if let Some(title) = &evaluation_context.title {
                 println!("    title: {title}");
             }
-            if let Some(description) = &request_context.description {
+            if let Some(description) = &evaluation_context.description {
                 println!("    description: {description}");
             }
-            if !request_context.entries.is_empty() {
+            if !evaluation_context.samples.is_empty() {
                 println!("    {}", style::subhead("samples"));
-                for entry in &request_context.entries {
+                for sample in &evaluation_context.samples {
                     println!(
                         "      {} = {}",
-                        style::sea(&entry.key),
-                        compact_json(&entry.value)?
+                        style::sea(&sample.key),
+                        compact_json(&sample.value)?
                     );
                 }
             }
-            if !request_context.diagnostics.is_empty() {
+            if !evaluation_context.diagnostics.is_empty() {
                 println!("    {}", style::subhead("diagnostics"));
-                print_diagnostics(&request_context.diagnostics);
+                print_diagnostics(&evaluation_context.diagnostics);
             }
         }
     }
@@ -186,7 +190,9 @@ pub(crate) fn print_inspect_report(report: &WorkspaceInspectReport, json: bool) 
             if let Some(when) = &qualifier.when {
                 println!("    {} {}", style::subhead("when"), style::info(when));
             }
-            print_compatible_request_contexts(&qualifier.request_contexts, "    ");
+            print_compatible_evaluation_contexts(&qualifier.evaluation_contexts, "    ");
+            print_context_attributes(&qualifier.context_attributes, "    ");
+            print_qualifier_sample_coverage(qualifier.sample_coverage.as_ref(), "    ");
             print_dependencies(&qualifier.dependencies, "    ");
             if !qualifier.consumers.is_empty() {
                 println!("    {}", style::subhead("consumed by"));
@@ -310,7 +316,9 @@ pub(crate) fn print_inspect_report(report: &WorkspaceInspectReport, json: bool) 
                     style::arrow()
                 );
             }
-            print_compatible_request_contexts(&variable.request_contexts, "    ");
+            print_compatible_evaluation_contexts(&variable.evaluation_contexts, "    ");
+            print_context_attributes(&variable.context_attributes, "    ");
+            print_variable_sample_coverage(variable.sample_coverage.as_ref(), "    ");
             print_dependencies(&variable.dependencies, "    ");
             if !variable.diagnostics.is_empty() {
                 println!("    {}", style::subhead("diagnostics"));
@@ -392,17 +400,124 @@ pub(crate) fn print_inspect_report(report: &WorkspaceInspectReport, json: bool) 
     Ok(())
 }
 
-fn print_compatible_request_contexts(request_contexts: &[String], indent: &str) {
-    if request_contexts.is_empty() {
+fn print_compatible_evaluation_contexts(evaluation_contexts: &[String], indent: &str) {
+    if evaluation_contexts.is_empty() {
         return;
     }
-    println!("{indent}{}", style::subhead("request contexts"));
-    for request_context in request_contexts {
-        println!("{indent}  {}", style::sea(request_context));
+    println!("{indent}{}", style::subhead("evaluation contexts"));
+    for evaluation_context in evaluation_contexts {
+        println!("{indent}  {}", style::sea(evaluation_context));
     }
 }
 
-pub(crate) fn print_workspace_diff(diff: &WorkspaceDiff, json: bool) -> Result<()> {
+fn print_qualifier_sample_coverage(
+    coverage: Option<&rototo::model::QualifierSampleCoverageReport>,
+    indent: &str,
+) {
+    let Some(coverage) = coverage else {
+        return;
+    };
+    let mark = |covered: bool, label: &str| {
+        if covered {
+            style::ok(label)
+        } else {
+            style::warn(&format!("{label} (no sample)"))
+        }
+    };
+    println!(
+        "{indent}{} {}  {}  {}",
+        style::subhead("sample coverage"),
+        style::dim(&format!("{} sample(s)", coverage.sample_count)),
+        mark(coverage.evaluated_true, "true"),
+        mark(coverage.evaluated_false, "false"),
+    );
+}
+
+fn print_variable_sample_coverage(
+    coverage: Option<&rototo::model::VariableSampleCoverageReport>,
+    indent: &str,
+) {
+    let Some(coverage) = coverage else {
+        return;
+    };
+    println!(
+        "{indent}{} {}",
+        style::subhead("sample coverage"),
+        style::dim(&format!("{} sample(s)", coverage.sample_count)),
+    );
+    let default_mark = if coverage.default_covered {
+        style::ok("covered")
+    } else {
+        style::warn("no sample")
+    };
+    println!("{indent}  {} {}", style::dim("default"), default_mark);
+    for rule in &coverage.rules {
+        let mark = if rule.covered {
+            style::ok("covered")
+        } else {
+            style::warn("no sample")
+        };
+        println!(
+            "{indent}  {} {}",
+            style::dim(&format!("rule {}", rule.index)),
+            mark
+        );
+    }
+}
+
+fn print_context_attributes(
+    attributes: &[rototo::model::ContextAttributeInspectReport],
+    indent: &str,
+) {
+    if attributes.is_empty() {
+        return;
+    }
+    println!("{indent}{}", style::subhead("context attributes"));
+    for attribute in attributes {
+        let expected = if attribute.expected_types.is_empty() {
+            String::new()
+        } else {
+            format!(
+                " {}",
+                style::dim(&format!(
+                    "used as {}",
+                    attribute.expected_types.join(" or ")
+                ))
+            )
+        };
+        let declared = attribute
+            .declarations
+            .iter()
+            .map(|declaration| {
+                let types = if declaration.declared_types.is_empty() {
+                    "untyped".to_owned()
+                } else {
+                    declaration.declared_types.join("|")
+                };
+                format!("{}:{}", declaration.evaluation_context, types)
+            })
+            .collect::<Vec<_>>()
+            .join(", ");
+        let suffix = match attribute.status.as_str() {
+            "undeclared" => format!("  {}", style::err("undeclared")),
+            "type_mismatch" => format!(
+                "  {} {}",
+                style::err("type mismatch"),
+                style::dim(&declared)
+            ),
+            _ => format!("  {}", style::dim(&declared)),
+        };
+        println!(
+            "{indent}  {} {}{}{}",
+            style::dim("context"),
+            style::info(&attribute.path),
+            expected,
+            suffix
+        );
+    }
+}
+
+pub(crate) fn print_package_diff(diff: &PackageDiff, json: bool) -> Result<()> {
     if json {
         println!(
             "{}",
@@ -411,53 +526,196 @@ pub(crate) fn print_workspace_diff(diff: &WorkspaceDiff, json: bool) -> Result<(
         return Ok(());
     }
 
-    println!("before: {}", diff.before);
-    println!("after: {}", diff.after);
+    println!("{} {}", style::label("before"), style::bold(&diff.before));
+    println!("{} {}", style::label("after"), style::bold(&diff.after));
     if diff.changes.is_empty() {
-        println!("semantic changes: none");
+        println!(
+            "{} {}",
+            style::label("semantic changes"),
+            style::dim("none")
+        );
     } else {
-        println!("semantic changes:");
+        println!("{}", style::label("semantic changes"));
         for change in &diff.changes {
-            println!(
-                "  {}  {}",
-                change.kind,
-                semantic_target_label(&change.target)
-            );
+            print_semantic_change_header(change);
             if let Some(location) = &change.before_location {
                 println!(
-                    "    before location: {}",
-                    diagnostic_location_label_for_location(location)
+                    "    {} {}",
+                    style::dim("before location:"),
+                    style::info(&diagnostic_location_label_for_location(location))
                 );
             }
             if let Some(location) = &change.after_location {
                 println!(
-                    "    after location: {}",
-                    diagnostic_location_label_for_location(location)
+                    "    {} {}",
+                    style::dim("after location:"),
+                    style::info(&diagnostic_location_label_for_location(location))
                 );
             }
             if change.before.is_some() || change.after.is_some() {
-                println!("    before: {}", compact_json_option(&change.before)?);
-                println!("    after: {}", compact_json_option(&change.after)?);
+                print_diff_value_line("before", &change.before, DiffSide::Before)?;
+                print_diff_value_line("after", &change.after, DiffSide::After)?;
             }
         }
     }
     if !diff.resolution_impacts.is_empty() {
-        println!("resolution impact:");
+        println!("{}", style::label("resolution impact"));
         for impact in &diff.resolution_impacts {
-            println!("  variable: {}", impact.variable);
             println!(
-                "    before: {} {}",
-                resolution_source_label(&impact.before.source),
-                compact_json(&impact.before.value)?
+                "  {} {}",
+                style::dim("variable:"),
+                style::sea(&impact.variable)
             );
-            println!(
-                "    after: {} {}",
-                resolution_source_label(&impact.after.source),
-                compact_json(&impact.after.value)?
-            );
+            print_resolution_impact_line("before", &impact.before, DiffSide::Before)?;
+            print_resolution_impact_line("after", &impact.after, DiffSide::After)?;
         }
     }
     Ok(())
+}
+
+#[derive(Clone, Copy)]
+enum DiffSide {
+    Before,
+    After,
+}
+
+fn print_semantic_change_header(change: &rototo::model::SemanticChange) {
+    let target = semantic_target_label(&change.target);
+    let description = semantic_change_description(&change.kind);
+    if !style::enabled() {
+        println!("  {}  {}", change.kind, target);
+        println!("    change: {description}");
+        return;
+    }
+
+    let marker = semantic_change_marker(change);
+    println!(
+        "  {} {}  {}",
+        style_diff_marker(marker),
+        style_diff_kind(description, marker),
+        style::sea(&target)
+    );
+    println!("    {} {}", style::dim("kind:"), style::dim(&change.kind));
+}
+
+fn semantic_change_marker(change: &rototo::model::SemanticChange) -> DiffChangeMarker {
+    if change.kind.ends_with("_added") || (change.before.is_none() && change.after.is_some()) {
+        DiffChangeMarker::Added
+    } else if change.kind.ends_with("_removed")
+        || (change.before.is_some() && change.after.is_none())
+    {
+        DiffChangeMarker::Removed
+    } else {
+        DiffChangeMarker::Changed
+    }
+}
+
+#[derive(Clone, Copy)]
+enum DiffChangeMarker {
+    Added,
+    Removed,
+    Changed,
+}
+
+fn style_diff_marker(marker: DiffChangeMarker) -> String {
+    match marker {
+        DiffChangeMarker::Added => style::ok("+"),
+        DiffChangeMarker::Removed => style::err("−"),
+        DiffChangeMarker::Changed => style::warn("~"),
+    }
+}
+
+fn style_diff_kind(kind: &str, marker: DiffChangeMarker) -> String {
+    match marker {
+        DiffChangeMarker::Added => style::ok(kind),
+        DiffChangeMarker::Removed => style::err(kind),
+        DiffChangeMarker::Changed => style::warn(kind),
+    }
+}
+
+fn semantic_change_description(kind: &str) -> &'static str {
+    match kind {
+        "variable_added" => "variable added",
+        "variable_removed" => "variable removed",
+        "variable_type_changed" => "variable type changed",
+        "variable_value_added" => "variable value added",
+        "variable_value_removed" => "variable value removed",
+        "variable_value_changed" => "variable value changed",
+        "variable_resolve_default_changed" => "variable resolve default changed",
+        "variable_rule_added" => "variable resolve rule added",
+        "variable_rule_removed" => "variable resolve rule removed",
+        "variable_rule_when_changed" => "variable rule condition changed",
+        "variable_rule_query_changed" => "variable rule catalog query changed",
+        "variable_rule_value_changed" => "variable rule value changed",
+        "qualifier_added" => "qualifier added",
+        "qualifier_removed" => "qualifier removed",
+        "qualifier_when_changed" => "qualifier condition changed",
+        "catalog_added" => "catalog added",
+        "catalog_removed" => "catalog removed",
+        "catalog_schema_changed" => "catalog schema changed",
+        "catalog_entry_added" => "catalog value added",
+        "catalog_entry_removed" => "catalog value removed",
+        "catalog_entry_changed" => "catalog value changed",
+        _ => "semantic change",
+    }
+}
+
+fn print_diff_value_line(
+    label: &str,
+    value: &Option<serde_json::Value>,
+    side: DiffSide,
+) -> Result<()> {
+    let value = compact_json_option(value)?;
+    if !style::enabled() {
+        println!("    {label}: {value}");
+        return Ok(());
+    }
+
+    println!(
+        "    {} {}",
+        style_diff_side_label(label, side),
+        style_diff_side_value(&value, side)
+    );
+    Ok(())
+}
+
+fn print_resolution_impact_line(
+    label: &str,
+    resolution: &rototo::model::VariableResolution,
+    side: DiffSide,
+) -> Result<()> {
+    let source = resolution_source_label(&resolution.source);
+    let value = compact_json(&resolution.value)?;
+    if !style::enabled() {
+        println!("    {label}: {source} {value}");
+        return Ok(());
+    }
+
+    println!(
+        "    {} {} {}",
+        style_diff_side_label(label, side),
+        style::dim(&source),
+        style_diff_side_value(&value, side)
+    );
+    Ok(())
+}
+
+fn style_diff_side_label(label: &str, side: DiffSide) -> String {
+    let label = format!("{label}:");
+    match side {
+        DiffSide::Before => style::err(&label),
+        DiffSide::After => style::ok(&label),
+    }
+}
+
+fn style_diff_side_value(value: &str, side: DiffSide) -> String {
+    if value == "<none>" {
+        return style::dim(value);
+    }
+    match side {
+        DiffSide::Before => style::err(value),
+        DiffSide::After => style::ok(value),
+    }
 }
 
 fn resolution_source_label(source: &rototo::model::VariableResolutionSource) -> String {
@@ -519,17 +777,17 @@ fn print_dependencies(dependencies: &rototo::model::DependencyInspectReport, ind
     }
 }
 
-pub(crate) fn print_qualifier_list(inspection: &WorkspaceInspection, json: bool) -> Result<()> {
+pub(crate) async fn print_qualifier_list(inspection: &PackageInspection, json: bool) -> Result<()> {
     if json {
         println!(
             "{}",
             serde_json::to_string_pretty(&QualifierListJson {
-                workspace: inspection.root.display().to_string(),
+                package: inspection.root.display().to_string(),
                 qualifiers: inspection
                     .qualifiers
                     .iter()
                     .map(|qualifier| {
-                        workspace_file_json(&qualifier.id, &qualifier.uri, &qualifier.path)
+                        package_file_json(&qualifier.id, &qualifier.uri, &qualifier.path)
                     })
                     .collect(),
             })
@@ -538,26 +796,35 @@ pub(crate) fn print_qualifier_list(inspection: &WorkspaceInspection, json: bool)
         return Ok(());
     }
 
+    println!(
+        "{} {}",
+        style::label("qualifiers"),
+        style::bold(&inspection.qualifiers.len().to_string())
+    );
     for qualifier in &inspection.qualifiers {
-        println!("{}", qualifier.id);
+        match read_toml(&inspection.root.join(&qualifier.path)).await {
+            Ok(value) => print_qualifier_summary(qualifier.id.as_str(), &qualifier.path, &value),
+            Err(err) => print_unavailable_summary(
+                qualifier.id.as_str(),
+                "path",
+                &qualifier.path,
+                &err.to_string(),
+            ),
+        }
     }
     Ok(())
 }
 
-pub(crate) fn print_variable_list(inspection: &WorkspaceInspection, json: bool) -> Result<()> {
+pub(crate) async fn print_variable_list(inspection: &PackageInspection, json: bool) -> Result<()> {
     if json {
         println!(
             "{}",
             serde_json::to_string_pretty(&VariableListJson {
-                workspace: inspection.root.display().to_string(),
+                package: inspection.root.display().to_string(),
                 variables: inspection
                     .variables
                     .iter()
-                    .map(|variable| workspace_file_json(
-                        &variable.id,
-                        &variable.uri,
-                        &variable.path
-                    ))
+                    .map(|variable| package_file_json(&variable.id, &variable.uri, &variable.path))
                     .collect(),
             })
             .map_err(|err| RototoError::new(err.to_string()))?
@@ -565,22 +832,35 @@ pub(crate) fn print_variable_list(inspection: &WorkspaceInspection, json: bool) 
         return Ok(());
     }
 
+    println!(
+        "{} {}",
+        style::label("variables"),
+        style::bold(&inspection.variables.len().to_string())
+    );
     for variable in &inspection.variables {
-        println!("{}", variable.id);
+        match read_variable_toml(&inspection.root, variable).await {
+            Ok(value) => print_variable_summary(variable.id.as_str(), &variable.path, &value)?,
+            Err(err) => print_unavailable_summary(
+                variable.id.as_str(),
+                "path",
+                &variable.path,
+                &err.to_string(),
+            ),
+        }
     }
     Ok(())
 }
 
-pub(crate) fn print_catalog_list(inspection: &WorkspaceInspection, json: bool) -> Result<()> {
+pub(crate) async fn print_catalog_list(inspection: &PackageInspection, json: bool) -> Result<()> {
     if json {
         println!(
             "{}",
             serde_json::to_string_pretty(&CatalogListJson {
-                workspace: inspection.root.display().to_string(),
+                package: inspection.root.display().to_string(),
                 catalogs: inspection
                     .catalogs
                     .iter()
-                    .map(|catalog| workspace_file_json(&catalog.id, &catalog.uri, &catalog.path))
+                    .map(|catalog| package_file_json(&catalog.id, &catalog.uri, &catalog.path))
                     .collect(),
             })
             .map_err(|err| RototoError::new(err.to_string()))?
@@ -588,14 +868,27 @@ pub(crate) fn print_catalog_list(inspection: &WorkspaceInspection, json: bool) -
         return Ok(());
     }
 
+    println!(
+        "{} {}",
+        style::label("catalogs"),
+        style::bold(&inspection.catalogs.len().to_string())
+    );
     for catalog in &inspection.catalogs {
-        println!("{}", catalog.id);
+        match read_catalog_json(&inspection.root, catalog).await {
+            Ok(value) => print_catalog_summary(catalog.id.as_str(), &catalog.path, &value),
+            Err(err) => print_unavailable_summary(
+                catalog.id.as_str(),
+                "schema",
+                &catalog.path,
+                &err.to_string(),
+            ),
+        }
     }
     Ok(())
 }
 
 pub(crate) async fn print_qualifier_get(
-    inspection: &WorkspaceInspection,
+    inspection: &PackageInspection,
     id: &str,
     json: bool,
 ) -> Result<()> {
@@ -608,7 +901,7 @@ pub(crate) async fn print_qualifier_get(
         println!(
             "{}",
             serde_json::to_string_pretty(&QualifierGetJson {
-                workspace: inspection.root.display().to_string(),
+                package: inspection.root.display().to_string(),
                 id: qualifier.id.clone(),
                 uri: qualifier.uri.clone(),
                 path: qualifier.path.display().to_string(),
@@ -619,11 +912,14 @@ pub(crate) async fn print_qualifier_get(
         return Ok(());
     }
 
-    print_workspace_file(&path).await
+    let value = read_toml(&path).await?;
+    print_qualifier_detail(qualifier.id.as_str(), &qualifier.path, &value);
+    print_source_header();
+    print_package_file(&path).await
 }
 
 pub(crate) async fn print_variable_get(
-    inspection: &WorkspaceInspection,
+    inspection: &PackageInspection,
     id: &str,
     json: bool,
 ) -> Result<()> {
@@ -635,7 +931,7 @@ pub(crate) async fn print_variable_get(
         println!(
             "{}",
             serde_json::to_string_pretty(&VariableGetJson {
-                workspace: inspection.root.display().to_string(),
+                package: inspection.root.display().to_string(),
                 id: variable.id.clone(),
                 uri: variable.uri.clone(),
                 path: variable.path.display().to_string(),
@@ -647,6 +943,8 @@ pub(crate) async fn print_variable_get(
     }
 
     let value = read_variable_toml(&inspection.root, variable).await?;
+    print_variable_detail(variable.id.as_str(), &variable.path, &value)?;
+    print_source_header();
     print!(
         "{}",
         toml::to_string_pretty(&value).map_err(|err| RototoError::new(err.to_string()))?
@@ -655,7 +953,7 @@ pub(crate) async fn print_variable_get(
 }
 
 pub(crate) async fn print_catalog_get(
-    inspection: &WorkspaceInspection,
+    inspection: &PackageInspection,
     id: &str,
     json: bool,
 ) -> Result<()> {
@@ -666,7 +964,7 @@ pub(crate) async fn print_catalog_get(
         println!(
             "{}",
             serde_json::to_string_pretty(&CatalogGetJson {
-                workspace: inspection.root.display().to_string(),
+                package: inspection.root.display().to_string(),
                 id: catalog.id.clone(),
                 uri: catalog.uri.clone(),
                 path: catalog.path.display().to_string(),
@@ -678,11 +976,210 @@ pub(crate) async fn print_catalog_get(
     }
 
     let value = read_catalog_json(&inspection.root, catalog).await?;
+    print_catalog_detail(catalog.id.as_str(), &catalog.path, &value);
+    print_source_header();
     print!(
         "{}",
         serde_json::to_string_pretty(&value).map_err(|err| RototoError::new(err.to_string()))?
     );
     Ok(())
+}
+
+fn print_qualifier_summary(id: &str, path: &Path, value: &TomlValue) {
+    println!("  {}", style::sea(id));
+    println!(
+        "    {} {}",
+        style::dim("path:"),
+        style::dim(&path.display().to_string())
+    );
+    if let Some(description) = toml_string(value, "description") {
+        println!("    description: {description}");
+    }
+    if let Some(when) = toml_string(value, "when") {
+        println!("    {} {}", style::subhead("when"), style::info(when));
+    }
+}
+
+fn print_variable_summary(id: &str, path: &Path, value: &TomlValue) -> Result<()> {
+    let type_label = toml_string(value, "type").unwrap_or("<missing>");
+    println!("  {}", style::sea(id));
+    println!("    {} {}", style::dim("type:"), style::info(type_label));
+    if let Some(description) = toml_string(value, "description") {
+        println!("    description: {description}");
+    }
+    println!(
+        "    {} {}",
+        style::dim("path:"),
+        style::dim(&path.display().to_string())
+    );
+    print_variable_resolve_summary(value, "    ")?;
+    Ok(())
+}
+
+fn print_catalog_summary(id: &str, path: &Path, value: &serde_json::Value) {
+    println!("  {}", style::sea(id));
+    println!(
+        "    {} {}",
+        style::dim("schema:"),
+        style::dim(&path.display().to_string())
+    );
+    if let Some(description) = value.get("description").and_then(serde_json::Value::as_str) {
+        println!("    description: {description}");
+    }
+    if let Some(schema_type) = value.get("type").and_then(serde_json::Value::as_str) {
+        println!("    {} {}", style::dim("type:"), style::info(schema_type));
+    }
+    if let Some(entries) = value.get("entries").and_then(serde_json::Value::as_object) {
+        println!(
+            "    {} {}",
+            style::dim("values:"),
+            plural_count(entries.len(), "entry", "entries")
+        );
+    }
+}
+
+fn print_unavailable_summary(id: &str, path_label: &str, path: &Path, reason: &str) {
+    println!("  {}", style::sea(id));
+    println!(
+        "    {} {}",
+        style::dim(&format!("{path_label}:")),
+        style::dim(&path.display().to_string())
+    );
+    println!("    status: {}", style::warn("unavailable"));
+    println!("    reason: {reason}");
+}
+
+fn print_qualifier_detail(id: &str, path: &Path, value: &TomlValue) {
+    println!("qualifier: {}", style::sea(id));
+    println!(
+        "  {} {}",
+        style::dim("path:"),
+        style::dim(&path.display().to_string())
+    );
+    if let Some(description) = toml_string(value, "description") {
+        println!("  description: {description}");
+    }
+    if let Some(when) = toml_string(value, "when") {
+        println!("  {} {}", style::subhead("when"), style::info(when));
+    }
+}
+
+fn print_variable_detail(id: &str, path: &Path, value: &TomlValue) -> Result<()> {
+    println!("variable: {}", style::sea(id));
+    println!(
+        "  {} {}",
+        style::dim("path:"),
+        style::dim(&path.display().to_string())
+    );
+    if let Some(description) = toml_string(value, "description") {
+        println!("  description: {description}");
+    }
+    let type_label = toml_string(value, "type").unwrap_or("<missing>");
+    println!("  {} {}", style::dim("type:"), style::info(type_label));
+    print_variable_resolve_detail(value)?;
+    Ok(())
+}
+
+fn print_catalog_detail(id: &str, path: &Path, value: &serde_json::Value) {
+    println!("catalog: {}", style::sea(id));
+    println!(
+        "  {} {}",
+        style::dim("schema:"),
+        style::dim(&path.display().to_string())
+    );
+    if let Some(description) = value.get("description").and_then(serde_json::Value::as_str) {
+        println!("  description: {description}");
+    }
+    if let Some(schema_type) = value.get("type").and_then(serde_json::Value::as_str) {
+        println!("  {} {}", style::dim("type:"), style::info(schema_type));
+    }
+    if let Some(entries) = value.get("entries").and_then(serde_json::Value::as_object) {
+        println!(
+            "  {} {}",
+            style::dim("values:"),
+            plural_count(entries.len(), "entry", "entries")
+        );
+    }
+}
+
+fn print_variable_resolve_summary(value: &TomlValue, indent: &str) -> Result<()> {
+    let Some(resolve) = value.get("resolve").and_then(TomlValue::as_table) else {
+        return Ok(());
+    };
+    let default = resolve
+        .get("default")
+        .map(compact_toml_value)
+        .transpose()?
+        .unwrap_or_else(|| "<none>".to_owned());
+    let rules = resolve
+        .get("rule")
+        .and_then(TomlValue::as_array)
+        .map(Vec::len)
+        .unwrap_or(0);
+    println!(
+        "{indent}{} default {} / {}",
+        style::dim("resolve:"),
+        default,
+        plural_count(rules, "rule", "rules")
+    );
+    Ok(())
+}
+
+fn print_variable_resolve_detail(value: &TomlValue) -> Result<()> {
+    let Some(resolve) = value.get("resolve").and_then(TomlValue::as_table) else {
+        return Ok(());
+    };
+    println!("  {}", style::subhead("resolve"));
+    if let Some(rules) = resolve.get("rule").and_then(TomlValue::as_array) {
+        for (index, rule) in rules.iter().enumerate() {
+            let condition = rule
+                .get("when")
+                .and_then(TomlValue::as_str)
+                .or_else(|| rule.get("query").and_then(TomlValue::as_str))
+                .unwrap_or("<missing>");
+            let rule_value = rule
+                .get("value")
+                .map(compact_toml_value)
+                .transpose()?
+                .unwrap_or_else(|| "<none>".to_owned());
+            println!(
+                "    {} if {} {} {}",
+                style::dim(&format!("rule[{index}]")),
+                style::sea(condition),
+                style::arrow(),
+                rule_value
+            );
+        }
+    }
+    let default = resolve
+        .get("default")
+        .map(compact_toml_value)
+        .transpose()?
+        .unwrap_or_else(|| "<none>".to_owned());
+    println!("    {} {} {default}", style::dim("default"), style::arrow());
+    Ok(())
+}
+
+fn print_source_header() {
+    println!();
+    println!("{}", style::subhead("source"));
+}
+
+fn toml_string<'a>(value: &'a TomlValue, key: &str) -> Option<&'a str> {
+    value.get(key).and_then(TomlValue::as_str)
+}
+
+fn compact_toml_value(value: &TomlValue) -> Result<String> {
+    let value = serde_json::to_value(value).map_err(|err| RototoError::new(err.to_string()))?;
+    compact_json(&value)
+}
+
+fn plural_count(count: usize, singular: &str, plural: &str) -> String {
+    if count == 1 {
+        format!("{count} {singular}")
+    } else {
+        format!("{count} {plural}")
+    }
 }
 
 pub(crate) fn print_diagnostic_catalog_entry(
@@ -708,15 +1205,15 @@ pub(crate) fn print_diagnostic_catalog_entry(
     Ok(())
 }
 
-fn workspace_file_json<'a>(id: &'a str, uri: &'a str, path: &Path) -> WorkspaceFileJson<'a> {
-    WorkspaceFileJson {
+fn package_file_json<'a>(id: &'a str, uri: &'a str, path: &Path) -> PackageFileJson<'a> {
+    PackageFileJson {
         id,
         uri,
         path: path.display().to_string(),
     }
 }
 
-async fn print_workspace_file(path: &Path) -> Result<()> {
+async fn print_package_file(path: &Path) -> Result<()> {
     print!(
         "{}",
         tokio::fs::read_to_string(path)
@@ -775,19 +1272,19 @@ fn semantic_target_label(target: &SemanticTarget) -> String {
 
 fn semantic_entity_label(entity: &SemanticEntity) -> String {
     match entity {
-        SemanticEntity::Workspace => "workspace".to_owned(),
+        SemanticEntity::Package => "package".to_owned(),
         SemanticEntity::Manifest => "manifest".to_owned(),
         SemanticEntity::Qualifier { id } => format!("qualifier:{id}"),
         SemanticEntity::Predicate { qualifier, index } => {
             format!("qualifier:{qualifier}.predicate[{index}]")
         }
         SemanticEntity::Variable { id } => format!("variable:{id}"),
-        SemanticEntity::RequestContext { id } => format!("request-context:{id}"),
-        SemanticEntity::RequestContextEntry {
-            request_context,
+        SemanticEntity::EvaluationContext { id } => format!("evaluation-context:{id}"),
+        SemanticEntity::EvaluationContextSample {
+            evaluation_context,
             key,
         } => {
-            format!("request-context:{request_context}.entry:{key}")
+            format!("evaluation-context:{evaluation_context}.entry:{key}")
         }
         SemanticEntity::Catalog { id } => format!("catalog:{id}"),
         SemanticEntity::CatalogEntry { catalog, key } => format!("catalog:{catalog}.value:{key}"),
@@ -801,7 +1298,7 @@ fn semantic_entity_label(entity: &SemanticEntity) -> String {
 
 fn semantic_field_label(field: &SemanticField) -> String {
     match field {
-        SemanticField::WorkspaceExtends => "extends".to_owned(),
+        SemanticField::PackageExtends => "extends".to_owned(),
         SemanticField::SchemaVersion => "schema_version".to_owned(),
         SemanticField::Description => "description".to_owned(),
         SemanticField::QualifierWhen => "when".to_owned(),
@@ -824,7 +1321,7 @@ fn semantic_field_label(field: &SemanticField) -> String {
         SemanticField::ValueJsonPath { path } => format!("value.{}", path.join(".")),
         SemanticField::SchemaJson => "json".to_owned(),
         SemanticField::SchemaJsonPath { path } => format!("json.{}", path.join(".")),
-        SemanticField::RequestContextEntry => "entry".to_owned(),
+        SemanticField::EvaluationContextSample => "entry".to_owned(),
         SemanticField::CatalogEntry => "value".to_owned(),
     }
 }
@@ -852,11 +1349,11 @@ fn severity_label(severity: &Severity) -> &'static str {
 
 fn diagnostic_entity_label(entity: &DiagnosticEntity) -> &'static str {
     match entity {
-        DiagnosticEntity::Workspace => "workspace",
+        DiagnosticEntity::Package => "package",
         DiagnosticEntity::Qualifier => "qualifier",
         DiagnosticEntity::Variable => "variable",
-        DiagnosticEntity::RequestContext => "request_context",
-        DiagnosticEntity::RequestContextEntry => "request_context_entry",
+        DiagnosticEntity::EvaluationContext => "evaluation_context",
+        DiagnosticEntity::EvaluationContextSample => "evaluation_context_sample",
         DiagnosticEntity::Catalog => "catalog",
         DiagnosticEntity::CatalogEntry => "catalog_entry",
         DiagnosticEntity::Value => "value",

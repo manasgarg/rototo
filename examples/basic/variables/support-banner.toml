@@ -7,9 +7,9 @@ type = "catalog:support-banner"
 default = "hidden"
 
 [[resolve.rule]]
-when = 'qualifier["mobile-users"]'
+when = 'env.qualifier["mobile-users"]'
 value = "mobile_help"
 
 [[resolve.rule]]
-when = 'qualifier["german-speakers"]'
+when = 'env.qualifier["german-speakers"]'
 value = "german_hours"

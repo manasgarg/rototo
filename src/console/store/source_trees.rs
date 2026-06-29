@@ -6,64 +6,64 @@ use crate::console::time::now_iso;
 use crate::error::{Result, RototoError};
 
 use super::Store;
-use super::rows::{source_tree_from_row, workspace_from_row};
+use super::rows::{package_from_row, source_tree_from_row};
 use super::types::{
-    DiscoveredWorkspaceInput, RegisterSourceTreeInput, RequestContextNames,
-    SourceTreeWithWorkspaces, WorkspaceRecord,
+    DiscoveredPackageInput, PackageRecord, RegisterSourceTreeInput, RequestContextNames,
+    SourceTreeWithPackages,
 };
 use super::util::{db_err, new_id};
 
-/// Stable identity for a discovered workspace within one source tree.
+/// Stable identity for a discovered package within one source tree.
 ///
-/// Discovery can produce rows in any order, so cleanup compares by workspace
+/// Discovery can produce rows in any order, so cleanup compares by package
 /// path and git ref instead of row id. The key lives only during one discovery
 /// transaction.
 #[derive(Hash, PartialEq, Eq)]
-struct WorkspaceKey {
+struct PackageKey {
     path: String,
     revision: String,
 }
 
-/// Existing workspace row paired with its discovery identity.
+/// Existing package row paired with its discovery identity.
 ///
 /// The cleanup step uses the row id for updates/deletes and the key for set
-/// membership against the newly discovered workspaces.
-struct WorkspaceRowKey {
+/// membership against the newly discovered packages.
+struct PackageRowKey {
     id: String,
-    key: WorkspaceKey,
+    key: PackageKey,
 }
 
-impl WorkspaceKey {
-    fn from_discovered(workspace: &DiscoveredWorkspaceInput) -> Self {
+impl PackageKey {
+    fn from_discovered(package: &DiscoveredPackageInput) -> Self {
         Self {
-            path: workspace.path.clone(),
-            revision: workspace.revision.clone(),
+            path: package.path.clone(),
+            revision: package.revision.clone(),
         }
     }
 }
 
 impl Store {
-    pub async fn upsert_source_tree_with_workspaces(
+    pub async fn upsert_source_tree_with_packages(
         &self,
         input: RegisterSourceTreeInput,
-    ) -> Result<SourceTreeWithWorkspaces> {
+    ) -> Result<SourceTreeWithPackages> {
         self.with_conn(move |conn, _| {
             let now = now_iso();
             let tx = conn.unchecked_transaction().map_err(db_err)?;
 
             let source_tree_id = upsert_source_tree_row(&tx, &input, &now)?;
-            let discovered_keys = upsert_discovered_workspaces(
+            let discovered_keys = upsert_discovered_packages(
                 &tx,
                 &source_tree_id,
                 &input.display_name,
-                &input.workspaces,
+                &input.packages,
                 &now,
             )?;
-            cleanup_missing_workspaces(&tx, &source_tree_id, &discovered_keys)?;
+            cleanup_missing_packages(&tx, &source_tree_id, &discovered_keys)?;
 
             tx.commit().map_err(db_err)?;
 
-            source_tree_with_workspaces_by_id(conn, &source_tree_id, &input.principal_id)?
+            source_tree_with_packages_by_id(conn, &source_tree_id, &input.principal_id)?
                 .ok_or_else(|| RototoError::new("source tree registration failed"))
         })
         .await
@@ -72,7 +72,7 @@ impl Store {
     pub async fn list_source_trees_for_user(
         &self,
         principal_id: &str,
-    ) -> Result<Vec<SourceTreeWithWorkspaces>> {
+    ) -> Result<Vec<SourceTreeWithPackages>> {
         let principal_id = principal_id.to_owned();
         self.with_conn(move |conn, _| list_source_trees_for_user_sync(conn, &principal_id))
             .await
@@ -82,11 +82,11 @@ impl Store {
         &self,
         source_tree_id: &str,
         principal_id: &str,
-    ) -> Result<Option<SourceTreeWithWorkspaces>> {
+    ) -> Result<Option<SourceTreeWithPackages>> {
         let source_tree_id = source_tree_id.to_owned();
         let principal_id = principal_id.to_owned();
         self.with_conn(move |conn, _| {
-            source_tree_with_workspaces_by_id(conn, &source_tree_id, &principal_id)
+            source_tree_with_packages_by_id(conn, &source_tree_id, &principal_id)
         })
         .await
     }
@@ -99,10 +99,10 @@ impl Store {
         let source_tree_id = source_tree_id.to_owned();
         let principal_id = principal_id.to_owned();
         self.with_conn(move |conn, _| {
-            if source_tree_with_workspaces_by_id(conn, &source_tree_id, &principal_id)?.is_none() {
+            if source_tree_with_packages_by_id(conn, &source_tree_id, &principal_id)?.is_none() {
                 return Ok(false);
             }
-            // ON DELETE CASCADE clears workspaces and active branch
+            // ON DELETE CASCADE clears packages and active branch
             // selections transitively.
             conn.execute(
                 "DELETE FROM source_trees WHERE id = ?1",
@@ -114,55 +114,52 @@ impl Store {
         .await
     }
 
-    pub async fn list_workspaces_for_user(
-        &self,
-        principal_id: &str,
-    ) -> Result<Vec<WorkspaceRecord>> {
+    pub async fn list_packages_for_user(&self, principal_id: &str) -> Result<Vec<PackageRecord>> {
         let principal_id = principal_id.to_owned();
-        self.with_conn(move |conn, _| list_workspaces_for_user_sync(conn, &principal_id))
+        self.with_conn(move |conn, _| list_packages_for_user_sync(conn, &principal_id))
             .await
     }
 
     /// Accepts the row id or the derived slug, so friendly URLs and older id
     /// URLs both resolve.
-    pub async fn get_workspace_for_user(
+    pub async fn get_package_for_user(
         &self,
-        workspace_handle: &str,
+        package_handle: &str,
         principal_id: &str,
-    ) -> Result<Option<WorkspaceRecord>> {
-        let workspace_handle = workspace_handle.to_owned();
+    ) -> Result<Option<PackageRecord>> {
+        let package_handle = package_handle.to_owned();
         let principal_id = principal_id.to_owned();
         self.with_conn(move |conn, _| {
-            let by_id = workspace_by_id_for_user(conn, &workspace_handle, &principal_id)?;
+            let by_id = package_by_id_for_user(conn, &package_handle, &principal_id)?;
             if by_id.is_some() {
                 return Ok(by_id);
             }
-            workspace_by_slug_for_user(conn, &workspace_handle, &principal_id)
+            package_by_slug_for_user(conn, &package_handle, &principal_id)
         })
         .await
     }
 
     pub async fn request_context_names(
         &self,
-        workspace_id: Option<&str>,
+        package_id: Option<&str>,
         branch_id: Option<&str>,
     ) -> Result<RequestContextNames> {
-        let workspace_id = workspace_id.map(str::to_owned);
+        let package_id = package_id.map(str::to_owned);
         let branch_id = branch_id.map(str::to_owned);
         self.with_conn(move |conn, _| {
             let mut names = RequestContextNames::default();
-            if let Some(workspace_id) = workspace_id.as_deref()
-                && let Some((repo, workspace)) = workspace_context_names(conn, workspace_id)?
+            if let Some(package_id) = package_id.as_deref()
+                && let Some((repo, package)) = package_context_names(conn, package_id)?
             {
                 names.repo = Some(repo);
-                names.workspace = Some(workspace);
+                names.package = Some(package);
             }
             if let Some(branch_id) = branch_id.as_deref()
-                && let Some((repo, workspace, branch)) = branch_context_names(conn, branch_id)?
+                && let Some((repo, package, branch)) = branch_context_names(conn, branch_id)?
             {
                 names.repo.get_or_insert(repo);
-                if names.workspace.is_none() {
-                    names.workspace = workspace;
+                if names.package.is_none() {
+                    names.package = package;
                 }
                 names.branch = Some(branch);
             }
@@ -230,42 +227,42 @@ fn upsert_source_tree_row(
     Ok(source_tree_id)
 }
 
-fn upsert_discovered_workspaces(
+fn upsert_discovered_packages(
     tx: &Transaction<'_>,
     source_tree_id: &str,
     source_tree_label: &str,
-    workspaces: &[DiscoveredWorkspaceInput],
+    packages: &[DiscoveredPackageInput],
     now: &str,
-) -> Result<HashSet<WorkspaceKey>> {
-    let mut discovered_keys = HashSet::with_capacity(workspaces.len());
+) -> Result<HashSet<PackageKey>> {
+    let mut discovered_keys = HashSet::with_capacity(packages.len());
 
-    for workspace in workspaces {
-        discovered_keys.insert(WorkspaceKey::from_discovered(workspace));
-        upsert_workspace_row(tx, source_tree_id, source_tree_label, workspace, now)?;
+    for package in packages {
+        discovered_keys.insert(PackageKey::from_discovered(package));
+        upsert_package_row(tx, source_tree_id, source_tree_label, package, now)?;
     }
 
     Ok(discovered_keys)
 }
 
-fn upsert_workspace_row(
+fn upsert_package_row(
     tx: &Transaction<'_>,
     source_tree_id: &str,
     source_tree_label: &str,
-    workspace: &DiscoveredWorkspaceInput,
+    package: &DiscoveredPackageInput,
     now: &str,
 ) -> Result<()> {
     let updated = tx
         .execute(
-            "UPDATE source_tree_workspaces
+            "UPDATE source_tree_packages
              SET source_tree_label = ?1, source = ?2, discovered_at = ?3, active = 1
              WHERE source_tree_id = ?4 AND path = ?5 AND revision = ?6",
             params![
                 source_tree_label,
-                workspace.source.as_str(),
+                package.source.as_str(),
                 now,
                 source_tree_id,
-                workspace.path.as_str(),
-                workspace.revision.as_str(),
+                package.path.as_str(),
+                package.revision.as_str(),
             ],
         )
         .map_err(db_err)?;
@@ -274,18 +271,18 @@ fn upsert_workspace_row(
         return Ok(());
     }
 
-    let workspace_id = new_id();
+    let package_id = new_id();
     tx.execute(
-        "INSERT INTO source_tree_workspaces (
+        "INSERT INTO source_tree_packages (
            id, source_tree_id, path, revision, source_tree_label, source, discovered_at
          ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
         params![
-            workspace_id,
+            package_id,
             source_tree_id,
-            workspace.path.as_str(),
-            workspace.revision.as_str(),
+            package.path.as_str(),
+            package.revision.as_str(),
             source_tree_label,
-            workspace.source.as_str(),
+            package.source.as_str(),
             now,
         ],
     )
@@ -293,32 +290,32 @@ fn upsert_workspace_row(
     Ok(())
 }
 
-fn cleanup_missing_workspaces(
+fn cleanup_missing_packages(
     tx: &Transaction<'_>,
     source_tree_id: &str,
-    discovered_keys: &HashSet<WorkspaceKey>,
+    discovered_keys: &HashSet<PackageKey>,
 ) -> Result<()> {
-    for workspace in workspace_keys_for_source_tree(tx, source_tree_id)? {
-        if discovered_keys.contains(&workspace.key) {
+    for package in package_keys_for_source_tree(tx, source_tree_id)? {
+        if discovered_keys.contains(&package.key) {
             continue;
         }
-        delete_or_deactivate_workspace(tx, &workspace.id)?;
+        delete_or_deactivate_package(tx, &package.id)?;
     }
     Ok(())
 }
 
-fn workspace_keys_for_source_tree(
+fn package_keys_for_source_tree(
     tx: &Transaction<'_>,
     source_tree_id: &str,
-) -> Result<Vec<WorkspaceRowKey>> {
+) -> Result<Vec<PackageRowKey>> {
     let mut statement = tx
-        .prepare("SELECT id, path, revision FROM source_tree_workspaces WHERE source_tree_id = ?1")
+        .prepare("SELECT id, path, revision FROM source_tree_packages WHERE source_tree_id = ?1")
         .map_err(db_err)?;
     statement
         .query_map(params![source_tree_id], |row| {
-            Ok(WorkspaceRowKey {
+            Ok(PackageRowKey {
                 id: row.get(0)?,
-                key: WorkspaceKey {
+                key: PackageKey {
                     path: row.get(1)?,
                     revision: row.get(2)?,
                 },
@@ -329,23 +326,23 @@ fn workspace_keys_for_source_tree(
         .map_err(db_err)
 }
 
-fn delete_or_deactivate_workspace(tx: &Transaction<'_>, workspace_id: &str) -> Result<()> {
+fn delete_or_deactivate_package(tx: &Transaction<'_>, package_id: &str) -> Result<()> {
     tx.execute(
-        "DELETE FROM source_tree_workspaces
+        "DELETE FROM source_tree_packages
          WHERE id = ?1
            AND NOT EXISTS (
              SELECT 1
-             FROM active_branch_workspaces abw
+             FROM active_branch_packages abw
              INNER JOIN active_branches b ON b.id = abw.branch_id
-             WHERE b.source_tree_id = source_tree_workspaces.source_tree_id
-               AND abw.workspace_path = source_tree_workspaces.path
+             WHERE b.source_tree_id = source_tree_packages.source_tree_id
+               AND abw.package_path = source_tree_packages.path
            )",
-        params![workspace_id],
+        params![package_id],
     )
     .map_err(db_err)?;
     tx.execute(
-        "UPDATE source_tree_workspaces SET active = 0 WHERE id = ?1",
-        params![workspace_id],
+        "UPDATE source_tree_packages SET active = 0 WHERE id = ?1",
+        params![package_id],
     )
     .map_err(db_err)?;
     Ok(())
@@ -354,11 +351,11 @@ fn delete_or_deactivate_workspace(tx: &Transaction<'_>, workspace_id: &str) -> R
 fn list_source_trees_for_user_sync(
     conn: &Connection,
     principal_id: &str,
-) -> Result<Vec<SourceTreeWithWorkspaces>> {
+) -> Result<Vec<SourceTreeWithPackages>> {
     list_source_tree_ids_for_user(conn, principal_id)?
         .into_iter()
         .map(|id| {
-            source_tree_with_workspaces_by_id(conn, &id, principal_id)?
+            source_tree_with_packages_by_id(conn, &id, principal_id)?
                 .ok_or_else(|| RototoError::new("source tree listing failed"))
         })
         .collect()
@@ -378,47 +375,44 @@ fn list_source_tree_ids_for_user(conn: &Connection, principal_id: &str) -> Resul
         .map_err(db_err)
 }
 
-fn workspace_by_id_for_user(
+fn package_by_id_for_user(
     conn: &Connection,
-    workspace_id: &str,
+    package_id: &str,
     principal_id: &str,
-) -> Result<Option<WorkspaceRecord>> {
+) -> Result<Option<PackageRecord>> {
     conn.query_row(
         "SELECT w.id, w.source_tree_id, w.path, w.revision, w.source_tree_label, w.source, w.discovered_at
-         FROM source_tree_workspaces w
+         FROM source_tree_packages w
          INNER JOIN source_trees r ON r.id = w.source_tree_id
          WHERE w.id = ?1 AND r.principal_id = ?2",
-        params![workspace_id, principal_id],
-        workspace_from_row,
+        params![package_id, principal_id],
+        package_from_row,
     )
     .optional()
     .map_err(db_err)
 }
 
-fn workspace_by_slug_for_user(
+fn package_by_slug_for_user(
     conn: &Connection,
     slug: &str,
     principal_id: &str,
-) -> Result<Option<WorkspaceRecord>> {
-    let active_match =
-        find_workspace_by_slug(list_workspaces_for_user_sync(conn, principal_id)?, slug);
+) -> Result<Option<PackageRecord>> {
+    let active_match = find_package_by_slug(list_packages_for_user_sync(conn, principal_id)?, slug);
     if active_match.is_some() {
         return Ok(active_match);
     }
 
-    Ok(find_workspace_by_slug(
-        list_all_workspaces_for_user_sync(conn, principal_id)?,
+    Ok(find_package_by_slug(
+        list_all_packages_for_user_sync(conn, principal_id)?,
         slug,
     ))
 }
 
-fn find_workspace_by_slug(workspaces: Vec<WorkspaceRecord>, slug: &str) -> Option<WorkspaceRecord> {
-    workspaces
-        .into_iter()
-        .find(|workspace| workspace.slug == slug)
+fn find_package_by_slug(packages: Vec<PackageRecord>, slug: &str) -> Option<PackageRecord> {
+    packages.into_iter().find(|package| package.slug == slug)
 }
 
-pub(super) fn workspace_slug(name: &str, path: &str) -> String {
+pub(super) fn package_slug(name: &str, path: &str) -> String {
     let base = if path == "." {
         name.to_owned()
     } else {
@@ -440,54 +434,54 @@ pub(super) fn workspace_slug(name: &str, path: &str) -> String {
     slug
 }
 
-pub(super) fn list_workspaces_for_user_sync(
+pub(super) fn list_packages_for_user_sync(
     conn: &Connection,
     principal_id: &str,
-) -> Result<Vec<WorkspaceRecord>> {
+) -> Result<Vec<PackageRecord>> {
     let mut statement = conn
         .prepare(
             "SELECT w.id, w.source_tree_id, w.path, w.revision, w.source_tree_label, w.source, w.discovered_at
-             FROM source_tree_workspaces w
+             FROM source_tree_packages w
              INNER JOIN source_trees r ON r.id = w.source_tree_id
              WHERE r.principal_id = ?1
                AND w.active = 1
              ORDER BY w.source_tree_label ASC, w.path ASC",
         )
         .map_err(db_err)?;
-    let workspaces = statement
-        .query_map(params![principal_id], workspace_from_row)
+    let packages = statement
+        .query_map(params![principal_id], package_from_row)
         .map_err(db_err)?
         .collect::<rusqlite::Result<_>>()
         .map_err(db_err)?;
-    Ok(workspaces)
+    Ok(packages)
 }
 
-fn list_all_workspaces_for_user_sync(
+fn list_all_packages_for_user_sync(
     conn: &Connection,
     principal_id: &str,
-) -> Result<Vec<WorkspaceRecord>> {
+) -> Result<Vec<PackageRecord>> {
     let mut statement = conn
         .prepare(
             "SELECT w.id, w.source_tree_id, w.path, w.revision, w.source_tree_label, w.source, w.discovered_at
-             FROM source_tree_workspaces w
+             FROM source_tree_packages w
              INNER JOIN source_trees r ON r.id = w.source_tree_id
              WHERE r.principal_id = ?1
              ORDER BY w.source_tree_label ASC, w.path ASC",
         )
         .map_err(db_err)?;
-    let workspaces = statement
-        .query_map(params![principal_id], workspace_from_row)
+    let packages = statement
+        .query_map(params![principal_id], package_from_row)
         .map_err(db_err)?
         .collect::<rusqlite::Result<_>>()
         .map_err(db_err)?;
-    Ok(workspaces)
+    Ok(packages)
 }
 
-fn source_tree_with_workspaces_by_id(
+fn source_tree_with_packages_by_id(
     conn: &Connection,
     source_tree_id: &str,
     principal_id: &str,
-) -> Result<Option<SourceTreeWithWorkspaces>> {
+) -> Result<Option<SourceTreeWithPackages>> {
     let source_tree = conn
         .query_row(
             "SELECT id, principal_id, kind, source, display_name, default_revision,
@@ -501,23 +495,20 @@ fn source_tree_with_workspaces_by_id(
     let Some(source_tree) = source_tree else {
         return Ok(None);
     };
-    let workspaces = active_workspaces_for_source_tree(conn, &source_tree.id)?;
-    Ok(Some(SourceTreeWithWorkspaces {
+    let packages = active_packages_for_source_tree(conn, &source_tree.id)?;
+    Ok(Some(SourceTreeWithPackages {
         source_tree,
-        workspaces,
+        packages,
     }))
 }
 
-fn workspace_context_names(
-    conn: &Connection,
-    workspace_id: &str,
-) -> Result<Option<(String, String)>> {
+fn package_context_names(conn: &Connection, package_id: &str) -> Result<Option<(String, String)>> {
     conn.query_row(
         "SELECT r.display_name, w.path
-         FROM source_tree_workspaces w
+         FROM source_tree_packages w
          INNER JOIN source_trees r ON r.id = w.source_tree_id
          WHERE w.id = ?1",
-        params![workspace_id],
+        params![package_id],
         |row| Ok((row.get(0)?, row.get(1)?)),
     )
     .optional()
@@ -529,7 +520,7 @@ fn branch_context_names(
     branch_id: &str,
 ) -> Result<Option<(String, Option<String>, String)>> {
     conn.query_row(
-        "SELECT r.display_name, b.last_selected_workspace_path, b.branch
+        "SELECT r.display_name, b.last_selected_package_path, b.branch
          FROM active_branches b
          INNER JOIN source_trees r ON r.id = b.source_tree_id
          WHERE b.id = ?1",
@@ -540,20 +531,20 @@ fn branch_context_names(
     .map_err(db_err)
 }
 
-fn active_workspaces_for_source_tree(
+fn active_packages_for_source_tree(
     conn: &Connection,
     source_tree_id: &str,
-) -> Result<Vec<WorkspaceRecord>> {
+) -> Result<Vec<PackageRecord>> {
     let mut statement = conn
         .prepare(
             "SELECT id, source_tree_id, path, revision, source_tree_label, source, discovered_at
-             FROM source_tree_workspaces
+             FROM source_tree_packages
              WHERE source_tree_id = ?1 AND active = 1
              ORDER BY path ASC",
         )
         .map_err(db_err)?;
     statement
-        .query_map(params![source_tree_id], workspace_from_row)
+        .query_map(params![source_tree_id], package_from_row)
         .map_err(db_err)?
         .collect::<rusqlite::Result<_>>()
         .map_err(db_err)

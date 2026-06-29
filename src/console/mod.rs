@@ -1,20 +1,22 @@
 //! The rototo console: an HTTP server that serves the embedded console UI and
-//! a JSON API over the same workspace, lint, and resolution machinery the CLI
+//! a JSON API over the same package, lint, and resolution machinery the CLI
 //! and SDK use. Git stays the source of truth: the console writes through the
-//! configured GitHub API or local-git policy for the workspace source.
+//! configured GitHub API or local-git policy for the package source.
 
 mod api;
 mod api_branch;
-mod api_workspace;
+mod api_package;
 mod auth;
 mod capabilities;
-mod fixed_workspace;
+mod fixed_package;
 mod github;
 mod identity;
 mod inventory;
 mod local_git;
 mod lsp;
 mod observability;
+mod package_edit;
+mod package_source;
 mod resolve_preview;
 mod runtime_config;
 mod stage;
@@ -23,8 +25,6 @@ mod store;
 mod time;
 mod token_crypto;
 mod variable_toml;
-mod workspace_edit;
-mod workspace_source;
 
 use std::collections::HashMap;
 use std::path::PathBuf;
@@ -38,9 +38,7 @@ use self::auth::{
     GITHUB_CLIENT_ID_ENV, GITHUB_CLIENT_SECRET_ENV, HostedOAuth, LocalAuth, baked_device_client_id,
     resolve_ambient_token,
 };
-use self::capabilities::{
-    DeploymentType, WorkspaceSourceKind, WritePolicy, classify_workspace_source,
-};
+use self::capabilities::{DeploymentType, PackageSourceKind, WritePolicy, classify_package_source};
 use self::github::GitHubClient;
 use self::lsp::LspSessions;
 use self::observability::DevObservability;
@@ -59,7 +57,7 @@ pub use self::capabilities::{
 
 const CONSOLE_PUBLIC_URL_ENV: &str = "ROTOTO_CONSOLE_PUBLIC_URL";
 const CONSOLE_DATA_DIR_ENV: &str = "ROTOTO_CONSOLE_DATA_DIR";
-const WORKSPACE_TOKEN_ENV: &str = "ROTOTO_WORKSPACE_TOKEN";
+const PACKAGE_TOKEN_ENV: &str = "ROTOTO_PACKAGE_TOKEN";
 
 static TRACING_FILTER_RELOAD: OnceLock<TracingReloadHandle<EnvFilter, Registry>> = OnceLock::new();
 
@@ -70,18 +68,18 @@ pub fn set_tracing_filter_reload_handle(handle: TracingReloadHandle<EnvFilter, R
 /// Console startup options resolved by the CLI layer.
 ///
 /// These values configure one server process: bind address, public origin,
-/// data directory, optional fixed workspace, write policy, and startup token.
-/// They are consumed by `run` to build `ConsoleState`; runtime source tree, workspace,
+/// data directory, optional fixed package, write policy, and startup token.
+/// They are consumed by `run` to build `ConsoleState`; runtime source tree, package,
 /// branch, and session lifecycles are then managed by the store and route code.
 pub struct ConsoleOptions {
     pub bind: String,
     pub public_url: Option<String>,
     pub data_dir: Option<PathBuf>,
-    pub workspace: Option<String>,
+    pub package: Option<String>,
     pub state_mode: Option<ConsoleStateMode>,
     pub deployment: Option<ConsoleDeployment>,
     pub write_policy: Option<WritePolicy>,
-    pub workspace_token: Option<String>,
+    pub package_token: Option<String>,
 }
 
 /// Whether console state is scoped to this process or persisted in the data dir.
@@ -184,17 +182,14 @@ pub async fn run(options: ConsoleOptions) -> Result<()> {
 
     let deployment_selection = resolve_deployment(
         options.deployment.clone(),
-        options.workspace.is_some(),
+        options.package.is_some(),
         &admin_env,
     )?;
     let deployment = deployment_selection.deployment;
     let oauth = deployment_selection.oauth;
-    let state_mode = resolve_state_mode(
-        options.state_mode,
-        &deployment,
-        options.workspace.as_deref(),
-    );
-    let write_policy = resolve_write_policy(options.write_policy, options.workspace.as_deref());
+    let state_mode =
+        resolve_state_mode(options.state_mode, &deployment, options.package.as_deref());
+    let write_policy = resolve_write_policy(options.write_policy, options.package.as_deref());
     if matches!(state_mode, ConsoleStateMode::Persistent) {
         tokio::fs::create_dir_all(&data_dir).await.map_err(|err| {
             RototoError::new(format!(
@@ -210,7 +205,7 @@ pub async fn run(options: ConsoleOptions) -> Result<()> {
         state_mode = state_mode.label(),
         write_policy = write_policy.label(),
         data_dir = %data_dir.display(),
-        fixed_workspace = options.workspace.is_some(),
+        fixed_package = options.package.is_some(),
         "console startup configuration resolved"
     );
 
@@ -234,7 +229,7 @@ pub async fn run(options: ConsoleOptions) -> Result<()> {
         deployment: deployment.clone(),
         write_policy,
         console_host: console_host.clone(),
-        fixed_workspace: options.workspace.is_some(),
+        fixed_package: options.package.is_some(),
         secure_cookies,
     })
     .await?;
@@ -262,13 +257,13 @@ pub async fn run(options: ConsoleOptions) -> Result<()> {
 
     let local = match deployment {
         DeploymentType::Local => {
-            let workspace_token = options
-                .workspace_token
+            let package_token = options
+                .package_token
                 .clone()
-                .or_else(|| admin_env.get(WORKSPACE_TOKEN_ENV));
+                .or_else(|| admin_env.get(PACKAGE_TOKEN_ENV));
             let credential_dir =
                 matches!(state_mode, ConsoleStateMode::Persistent).then_some(data_dir.as_path());
-            let ambient = resolve_ambient_token(workspace_token.as_deref(), credential_dir).await;
+            let ambient = resolve_ambient_token(package_token.as_deref(), credential_dir).await;
             let device_client_id = admin_env
                 .get(GITHUB_CLIENT_ID_ENV)
                 .or_else(baked_device_client_id);
@@ -282,7 +277,7 @@ pub async fn run(options: ConsoleOptions) -> Result<()> {
         oauth,
         state_mode,
         write_policy,
-        fixed_workspace_source: options.workspace.clone(),
+        fixed_package_source: options.package.clone(),
         store,
         github: GitHubClient::new(),
         stage: StageCache::new(),
@@ -296,10 +291,10 @@ pub async fn run(options: ConsoleOptions) -> Result<()> {
     });
 
     if deployment == DeploymentType::Local
-        && let Some(source) = options.workspace.as_deref()
+        && let Some(source) = options.package.as_deref()
     {
         let actor = local_actor(&state, source).await?;
-        register_fixed_workspace(&state, &actor.principal_id, source).await?;
+        register_fixed_package(&state, &actor.principal_id, source).await?;
     }
 
     println!(
@@ -319,7 +314,7 @@ pub async fn run(options: ConsoleOptions) -> Result<()> {
                 .is_some();
             if !has_token {
                 println!(
-                    "no GitHub token found; set ROTOTO_WORKSPACE_TOKEN, sign in with `gh auth login`, or use the device-flow sign-in in the UI"
+                    "no GitHub token found; set ROTOTO_PACKAGE_TOKEN, sign in with `gh auth login`, or use the device-flow sign-in in the UI"
                 );
             }
         }
@@ -381,35 +376,32 @@ struct DeploymentSelection {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum DeploymentSelectionReason {
     ExplicitFlag,
-    WorkspacePresent,
-    NoWorkspace,
+    PackagePresent,
+    NoPackage,
 }
 
 impl DeploymentSelectionReason {
     fn label(self) -> &'static str {
         match self {
             Self::ExplicitFlag => "explicit-flag",
-            Self::WorkspacePresent => "workspace-present",
-            Self::NoWorkspace => "no-workspace",
+            Self::PackagePresent => "package-present",
+            Self::NoPackage => "no-package",
         }
     }
 }
 
 fn resolve_deployment(
     explicit: Option<DeploymentType>,
-    has_workspace: bool,
+    has_package: bool,
     admin_env: &ConsoleAdminEnv,
 ) -> Result<DeploymentSelection> {
     let (deployment, reason) = match explicit {
         Some(deployment) => (deployment, DeploymentSelectionReason::ExplicitFlag),
-        None if has_workspace => (
+        None if has_package => (
             DeploymentType::Local,
-            DeploymentSelectionReason::WorkspacePresent,
+            DeploymentSelectionReason::PackagePresent,
         ),
-        None => (
-            DeploymentType::Hosted,
-            DeploymentSelectionReason::NoWorkspace,
-        ),
+        None => (DeploymentType::Hosted, DeploymentSelectionReason::NoPackage),
     };
     let oauth = match deployment {
         DeploymentType::Local => None,
@@ -425,37 +417,33 @@ fn resolve_deployment(
 fn resolve_state_mode(
     explicit: Option<ConsoleStateMode>,
     deployment: &DeploymentType,
-    workspace: Option<&str>,
+    package: Option<&str>,
 ) -> ConsoleStateMode {
     if let Some(mode) = explicit {
         return mode;
     }
-    let Some(workspace) = workspace else {
+    let Some(package) = package else {
         return ConsoleStateMode::Persistent;
     };
     if !matches!(deployment, DeploymentType::Local) {
         return ConsoleStateMode::Persistent;
     }
-    match classify_workspace_source(workspace) {
-        WorkspaceSourceKind::LocalPath | WorkspaceSourceKind::FileUrl => {
-            ConsoleStateMode::Ephemeral
-        }
-        WorkspaceSourceKind::GitFile
-        | WorkspaceSourceKind::GitHubArchive
-        | WorkspaceSourceKind::GitHubGit
-        | WorkspaceSourceKind::HttpsArchive
-        | WorkspaceSourceKind::GenericGitRemote => ConsoleStateMode::Persistent,
+    match classify_package_source(package) {
+        PackageSourceKind::LocalPath | PackageSourceKind::FileUrl => ConsoleStateMode::Ephemeral,
+        PackageSourceKind::GitFile
+        | PackageSourceKind::GitHubArchive
+        | PackageSourceKind::GitHubGit
+        | PackageSourceKind::HttpsArchive
+        | PackageSourceKind::GenericGitRemote => ConsoleStateMode::Persistent,
     }
 }
 
-fn resolve_write_policy(explicit: Option<WritePolicy>, workspace: Option<&str>) -> WritePolicy {
+fn resolve_write_policy(explicit: Option<WritePolicy>, package: Option<&str>) -> WritePolicy {
     if let Some(policy) = explicit {
         return policy;
     }
-    match workspace.map(classify_workspace_source) {
-        Some(WorkspaceSourceKind::LocalPath | WorkspaceSourceKind::FileUrl) => {
-            WritePolicy::DirectPush
-        }
+    match package.map(classify_package_source) {
+        Some(PackageSourceKind::LocalPath | PackageSourceKind::FileUrl) => WritePolicy::DirectPush,
         _ => WritePolicy::PullRequest,
     }
 }
@@ -469,7 +457,7 @@ fn resolve_hosted_oauth(admin_env: &ConsoleAdminEnv) -> Result<HostedOAuth> {
 fn resolve_hosted_oauth_from_env(client_id: &str, client_secret: &str) -> Result<HostedOAuth> {
     match (client_id.trim(), client_secret.trim()) {
         ("", "") | (_, "") | ("", _) => Err(RototoError::new(format!(
-            "hosted deployment requires both {GITHUB_CLIENT_ID_ENV} and {GITHUB_CLIENT_SECRET_ENV}; pass --deployment local or --workspace <source> for local deployment"
+            "hosted deployment requires both {GITHUB_CLIENT_ID_ENV} and {GITHUB_CLIENT_SECRET_ENV}; pass --deployment local or --package <source> for local deployment"
         ))),
         (client_id, client_secret) => Ok(HostedOAuth {
             client_id: client_id.to_owned(),
@@ -725,7 +713,7 @@ async fn local_actor(state: &ConsoleState, source: &str) -> Result<store::Sessio
     {
         return Ok(user);
     }
-    let local_root = local_git::workspace_root(source).ok();
+    let local_root = local_git::package_root(source).ok();
     let identity = identity::resolve_git_config_identity(local_root.as_deref()).await?;
     Ok(store::SessionUser {
         session_hash: "local-git".to_owned(),
@@ -735,23 +723,23 @@ async fn local_actor(state: &ConsoleState, source: &str) -> Result<store::Sessio
     })
 }
 
-/// Fixed workspace deployments register the configured source tree under the
-/// request actor so the existing store-scoped workspace queries still work.
-pub(crate) async fn register_fixed_workspace(
+/// Fixed package deployments register the configured source tree under the
+/// request actor so the existing store-scoped package queries still work.
+pub(crate) async fn register_fixed_package(
     state: &ConsoleState,
     principal_id: &str,
     source: &str,
-) -> Result<store::SourceTreeWithWorkspaces> {
-    let registration = fixed_workspace::registration(source).await?;
+) -> Result<store::SourceTreeWithPackages> {
+    let registration = fixed_package::registration(source).await?;
     let stored = state
         .store
-        .upsert_source_tree_with_workspaces(store::RegisterSourceTreeInput {
+        .upsert_source_tree_with_packages(store::RegisterSourceTreeInput {
             principal_id: principal_id.to_owned(),
             kind: registration.kind,
             source: registration.source,
             display_name: registration.display_name,
             default_revision: registration.default_revision,
-            workspaces: registration.workspaces,
+            packages: registration.packages,
         })
         .await?;
     Ok(stored)
@@ -762,20 +750,17 @@ mod tests {
     use super::*;
 
     #[test]
-    fn resolve_deployment_defaults_local_when_workspace_is_present() {
+    fn resolve_deployment_defaults_local_when_package_is_present() {
         let selection =
             resolve_deployment(None, true, &admin_env(&[])).expect("deployment should resolve");
 
         assert_eq!(selection.deployment, DeploymentType::Local);
-        assert_eq!(
-            selection.reason,
-            DeploymentSelectionReason::WorkspacePresent
-        );
+        assert_eq!(selection.reason, DeploymentSelectionReason::PackagePresent);
         assert!(selection.oauth.is_none());
     }
 
     #[test]
-    fn resolve_deployment_defaults_hosted_without_workspace() {
+    fn resolve_deployment_defaults_hosted_without_package() {
         let selection = resolve_deployment(
             None,
             false,
@@ -787,7 +772,7 @@ mod tests {
         .expect("deployment should resolve");
 
         assert_eq!(selection.deployment, DeploymentType::Hosted);
-        assert_eq!(selection.reason, DeploymentSelectionReason::NoWorkspace);
+        assert_eq!(selection.reason, DeploymentSelectionReason::NoPackage);
         assert_eq!(
             selection.oauth,
             Some(HostedOAuth {
@@ -824,7 +809,7 @@ mod tests {
     }
 
     #[test]
-    fn resolve_deployment_explicit_hosted_requires_oauth_config_even_with_workspace() {
+    fn resolve_deployment_explicit_hosted_requires_oauth_config_even_with_package() {
         let err = resolve_deployment(Some(DeploymentType::Hosted), true, &admin_env(&[]))
             .expect_err("explicit hosted deployment should require OAuth config");
 
@@ -833,7 +818,7 @@ mod tests {
     }
 
     #[test]
-    fn resolve_deployment_explicit_hosted_allows_fixed_workspace() {
+    fn resolve_deployment_explicit_hosted_allows_fixed_package() {
         let selection = resolve_deployment(
             Some(DeploymentType::Hosted),
             true,
@@ -850,7 +835,7 @@ mod tests {
     }
 
     #[test]
-    fn resolve_state_mode_defaults_ephemeral_for_local_folder_workspace() {
+    fn resolve_state_mode_defaults_ephemeral_for_local_folder_package() {
         assert_eq!(
             resolve_state_mode(
                 Some(ConsoleStateMode::Persistent),
@@ -890,7 +875,7 @@ mod tests {
     }
 
     #[test]
-    fn resolve_write_policy_defaults_direct_push_for_local_fixed_workspaces() {
+    fn resolve_write_policy_defaults_direct_push_for_local_fixed_packages() {
         assert_eq!(
             resolve_write_policy(None, Some("examples/basic")),
             WritePolicy::DirectPush
@@ -952,7 +937,7 @@ mod tests {
                 ROTOTO_GITHUB_CLIENT_ID=client-id
                 export ROTOTO_GITHUB_CLIENT_SECRET='client secret'
                 ROTOTO_CONSOLE_PUBLIC_URL="https://dev.rototo.dev"
-                ROTOTO_WORKSPACE_TOKEN=ghp_hash#kept
+                ROTOTO_PACKAGE_TOKEN=ghp_hash#kept
                 ROTOTO_CONSOLE_DATA_DIR=/tmp/rototo # trailing comment
             "#,
         )
@@ -973,7 +958,7 @@ mod tests {
             Some("https://dev.rototo.dev")
         );
         assert_eq!(
-            values.get("ROTOTO_WORKSPACE_TOKEN").map(String::as_str),
+            values.get("ROTOTO_PACKAGE_TOKEN").map(String::as_str),
             Some("ghp_hash#kept")
         );
         assert_eq!(

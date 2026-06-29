@@ -1,0 +1,18 @@
+# On an empty top-level line in a qualifier file, completion offers the qualifier
+# fields that are not already present. `schema_version` is already set, so only
+# `description` and `when` remain.
+package = "basic"
+file = "qualifiers/premium.toml"
+
+overlay = '''
+schema_version = 1
+$0
+'''
+
+[expect]
+exact = ["description", "when"]
+
+[[expect.includes]]
+label = "description"
+detail = "qualifier field"
+insert_text = 'description = ""'

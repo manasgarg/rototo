@@ -20,7 +20,7 @@ function is_checkout_value(value)
   return type(value) == "table" and value.variant ~= nil and value.image_url ~= nil
 end
 
-function check_heading(workspace, entry)
+function check_heading(package, entry)
   if is_checkout_value(entry.value) and entry.value.heading == "" then
     return {
       {
@@ -32,7 +32,7 @@ function check_heading(workspace, entry)
   return {}
 end
 
-function check_image_path(workspace, entry)
+function check_image_path(package, entry)
   if is_checkout_value(entry.value)
       and not string.match(entry.value.image_url, "^/images/checkout/") then
     return {

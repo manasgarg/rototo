@@ -1,10 +1,12 @@
-use std::collections::BTreeMap;
 use std::path::Path;
 
-use pulldown_cmark::{CodeBlockKind, Event, Options, Parser, Tag, TagEnd, html};
-use regex::Regex;
-
 use crate::error::{Result, RototoError};
+
+mod markdown;
+mod readme;
+
+use markdown::{prepare_markdown_for_html, render_code_block, render_markdown, render_toc};
+pub use readme::{render_package_readme, render_package_readme_with_base_url};
 
 #[derive(Clone, Copy, Debug, serde::Serialize)]
 pub struct DocPage {
@@ -50,282 +52,75 @@ pub const SDK_LANGUAGES: &[SdkLanguage] = &[
 
 pub const DOCS: &[DocPage] = &[
     DocPage {
-        id: "index",
-        title: "rototo",
-        markdown: include_str!("../docs/src/index.md"),
+        id: "motivation",
+        title: "Introducing Rototo",
+        markdown: include_str!("../docs/src/motivation.md"),
     },
     DocPage {
-        id: "getting-started",
-        title: "Getting Started",
-        markdown: include_str!("../docs/src/getting-started.md"),
+        id: "quickstart",
+        title: "Quickstart with Rototo",
+        markdown: include_str!("../docs/src/quickstart.md"),
     },
     DocPage {
-        id: "configuration-primitives",
-        title: "Configuration Primitives",
-        markdown: include_str!("../docs/src/configuration-primitives.md"),
+        id: "concepts",
+        title: "Rototo Concepts",
+        markdown: include_str!("../docs/src/concepts.md"),
     },
     DocPage {
-        id: "operational-switches",
-        title: "Operational Switches",
-        markdown: include_str!("../docs/src/operational-switches.md"),
+        id: "adoption",
+        title: "Using Rototo",
+        markdown: include_str!("../docs/src/adoption.md"),
     },
     DocPage {
-        id: "incident-banner",
-        title: "Incident Banner",
-        markdown: include_str!("../docs/src/incident-banner.md"),
+        id: "cli",
+        title: "The CLI",
+        markdown: include_str!("../docs/src/cli.md"),
     },
     DocPage {
-        id: "onboarding-checklist",
-        title: "Onboarding Checklist",
-        markdown: include_str!("../docs/src/onboarding-checklist.md"),
+        id: "package-format",
+        title: "Package Format",
+        markdown: include_str!("../docs/src/package-format.md"),
     },
     DocPage {
-        id: "bucketed-rollout",
-        title: "Bucketed Rollout",
-        markdown: include_str!("../docs/src/bucketed-rollout.md"),
+        id: "package-sources",
+        title: "Package Sources",
+        markdown: include_str!("../docs/src/package-sources.md"),
     },
     DocPage {
-        id: "notification-delivery-policy",
-        title: "Notification Delivery Policy",
-        markdown: include_str!("../docs/src/notification-delivery-policy.md"),
+        id: "expressions",
+        title: "The Expression Language",
+        markdown: include_str!("../docs/src/expressions.md"),
     },
     DocPage {
-        id: "service-degradation-policy",
-        title: "Service Degradation Policy",
-        markdown: include_str!("../docs/src/service-degradation-policy.md"),
-    },
-    DocPage {
-        id: "workspace-layering",
-        title: "Workspace Layering",
-        markdown: include_str!("../docs/src/workspace-layering.md"),
-    },
-    DocPage {
-        id: "modeling-runtime-configuration",
-        title: "Modeling Runtime Configuration",
-        markdown: include_str!("../docs/src/modeling-runtime-configuration.md"),
-    },
-    DocPage {
-        id: "application-integration",
-        title: "Application Integration",
-        markdown: include_str!("../docs/src/application-integration.md"),
-    },
-    DocPage {
-        id: "testing-runtime-configuration",
-        title: "Testing Runtime Configuration",
-        markdown: include_str!("../docs/src/testing-runtime-configuration.md"),
-    },
-    DocPage {
-        id: "operating-runtime-configuration",
-        title: "Operating Runtime Configuration",
-        markdown: include_str!("../docs/src/operating-runtime-configuration.md"),
-    },
-    DocPage {
-        id: "production-workflow",
-        title: "Production Workflow",
-        markdown: include_str!("../docs/src/production-workflow.md"),
-    },
-    DocPage {
-        id: "self-hosting-console",
-        title: "Self-Hosting the Console",
-        markdown: include_str!("../docs/src/self-hosting-console.md"),
-    },
-    DocPage {
-        id: "reference-workspace-manifest",
-        title: "Workspace Manifest",
-        markdown: include_str!("../docs/src/reference-workspace-manifest.md"),
-    },
-    DocPage {
-        id: "reference-workspace-layout",
-        title: "Workspace Layout",
-        markdown: include_str!("../docs/src/reference-workspace-layout.md"),
-    },
-    DocPage {
-        id: "reference-workspace-sources",
-        title: "Workspace Sources",
-        markdown: include_str!("../docs/src/reference-workspace-sources.md"),
-    },
-    DocPage {
-        id: "reference-workspace-layering",
-        title: "Workspace Layering",
-        markdown: include_str!("../docs/src/reference-workspace-layering.md"),
-    },
-    DocPage {
-        id: "reference-context",
-        title: "Resolve Context",
-        markdown: include_str!("../docs/src/reference-context.md"),
-    },
-    DocPage {
-        id: "reference-qualifiers",
-        title: "Qualifiers",
-        markdown: include_str!("../docs/src/reference-qualifiers.md"),
-    },
-    DocPage {
-        id: "reference-predicate-operators",
-        title: "Expressions",
-        markdown: include_str!("../docs/src/reference-predicate-operators.md"),
-    },
-    DocPage {
-        id: "reference-variables",
-        title: "Variables",
-        markdown: include_str!("../docs/src/reference-variables.md"),
-    },
-    DocPage {
-        id: "reference-variable-values",
-        title: "Variable Values",
-        markdown: include_str!("../docs/src/reference-variable-values.md"),
-    },
-    DocPage {
-        id: "reference-catalogs",
-        title: "Catalogs",
-        markdown: include_str!("../docs/src/reference-catalogs.md"),
-    },
-    DocPage {
-        id: "reference-qualifier-resolution",
-        title: "Qualifier Resolution",
-        markdown: include_str!("../docs/src/reference-qualifier-resolution.md"),
-    },
-    DocPage {
-        id: "reference-variable-resolution",
-        title: "Variable Resolution",
-        markdown: include_str!("../docs/src/reference-variable-resolution.md"),
-    },
-    DocPage {
-        id: "reference-resolution-output",
-        title: "Resolution Output",
-        markdown: include_str!("../docs/src/reference-resolution-output.md"),
-    },
-    DocPage {
-        id: "reference-cli-overview",
-        title: "CLI Overview",
-        markdown: include_str!("../docs/src/reference-cli-overview.md"),
-    },
-    DocPage {
-        id: "reference-cli-commands",
-        title: "CLI Commands",
-        markdown: include_str!("../docs/src/reference-cli-commands.md"),
-    },
-    DocPage {
-        id: "reference-sdk-loading",
-        title: "SDK Loading",
-        markdown: include_str!("../docs/src/reference-sdk-loading.md"),
-    },
-    DocPage {
-        id: "reference-sdk-resolution",
-        title: "SDK Resolution",
-        markdown: include_str!("../docs/src/reference-sdk-resolution.md"),
-    },
-    DocPage {
-        id: "reference-sdk-refresh",
-        title: "SDK Refresh",
-        markdown: include_str!("../docs/src/reference-sdk-refresh.md"),
-    },
-    DocPage {
-        id: "reference-sdk-rust",
-        title: "Rust SDK",
-        markdown: include_str!("../docs/src/reference-sdk-rust.md"),
-    },
-    DocPage {
-        id: "reference-sdk-python",
-        title: "Python SDK",
-        markdown: include_str!("../docs/src/reference-sdk-python.md"),
-    },
-    DocPage {
-        id: "reference-sdk-typescript",
-        title: "TypeScript SDK",
-        markdown: include_str!("../docs/src/reference-sdk-typescript.md"),
-    },
-    DocPage {
-        id: "reference-sdk-java",
-        title: "Java SDK",
-        markdown: include_str!("../docs/src/reference-sdk-java.md"),
-    },
-    DocPage {
-        id: "reference-sdk-go",
-        title: "Go SDK",
-        markdown: include_str!("../docs/src/reference-sdk-go.md"),
-    },
-    DocPage {
-        id: "reference-lint-overview",
-        title: "Lint",
-        markdown: include_str!("../docs/src/reference-lint-overview.md"),
-    },
-    DocPage {
-        id: "reference-diagnostics",
+        id: "diagnostics",
         title: "Diagnostics",
-        markdown: include_str!("../docs/src/reference-diagnostics.md"),
+        markdown: include_str!("../docs/src/diagnostics.md"),
     },
     DocPage {
-        id: "reference-custom-lua-lint",
-        title: "Custom Lua Lint",
-        markdown: include_str!("../docs/src/reference-custom-lua-lint.md"),
-    },
-    DocPage {
-        id: "reference-json-output",
-        title: "JSON Output",
-        markdown: include_str!("../docs/src/reference-json-output.md"),
+        id: "sdk",
+        title: "The SDK",
+        markdown: include_str!("../docs/src/sdk.md"),
     },
 ];
 
 pub const DOC_NAV_SECTIONS: &[DocNavSection] = &[
     DocNavSection {
         title: "Start",
-        pages: &["index"],
+        pages: &["motivation", "quickstart"],
     },
     DocNavSection {
         title: "Learn",
-        pages: &[
-            "getting-started",
-            "configuration-primitives",
-            "operational-switches",
-            "incident-banner",
-            "onboarding-checklist",
-            "bucketed-rollout",
-            "notification-delivery-policy",
-            "service-degradation-policy",
-            "workspace-layering",
-        ],
-    },
-    DocNavSection {
-        title: "Adopt",
-        pages: &[
-            "modeling-runtime-configuration",
-            "application-integration",
-            "testing-runtime-configuration",
-            "operating-runtime-configuration",
-            "production-workflow",
-            "self-hosting-console",
-        ],
+        pages: &["concepts", "adoption"],
     },
     DocNavSection {
         title: "Reference",
         pages: &[
-            "reference-workspace-manifest",
-            "reference-workspace-layout",
-            "reference-workspace-sources",
-            "reference-workspace-layering",
-            "reference-context",
-            "reference-qualifiers",
-            "reference-predicate-operators",
-            "reference-variables",
-            "reference-variable-values",
-            "reference-catalogs",
-            "reference-qualifier-resolution",
-            "reference-variable-resolution",
-            "reference-resolution-output",
-            "reference-cli-overview",
-            "reference-cli-commands",
-            "reference-sdk-loading",
-            "reference-sdk-resolution",
-            "reference-sdk-refresh",
-            "reference-sdk-rust",
-            "reference-sdk-python",
-            "reference-sdk-typescript",
-            "reference-sdk-java",
-            "reference-sdk-go",
-            "reference-lint-overview",
-            "reference-diagnostics",
-            "reference-custom-lua-lint",
-            "reference-json-output",
+            "cli",
+            "package-format",
+            "package-sources",
+            "expressions",
+            "diagnostics",
+            "sdk",
         ],
     },
 ];
@@ -337,6 +132,7 @@ const MARK_SVG: &str = include_str!("../docs/theme/rototo-mark.svg");
 const WORDMARK_SVG: &str = include_str!("../docs/theme/rototo-wordmark.svg");
 pub const DEFAULT_DOCS_BASE_URL: &str = "https://docs.rototo.dev";
 const HIGHLIGHT_JS_VERSION: &str = "11.9.0";
+const DOCS_ENTRY_PAGE: &str = "motivation";
 
 /// Brand fonts referenced by the stylesheet: Manrope for display headings,
 /// Hanken Grotesk for body text, and JetBrains Mono for code and labels.
@@ -344,7 +140,7 @@ const GOOGLE_FONTS_HREF: &str = "https://fonts.googleapis.com/css2?family=Hanken
 
 /// Top navigation bar entries as (label, href relative to the docs pages).
 /// The homepage lives one level above the docs directory.
-const TOPNAV_LINKS: &[(&str, &str)] = &[("Home", "../index.html"), ("Docs", "index.html")];
+const TOPNAV_LINKS: &[(&str, &str)] = &[("Home", "../index.html"), ("Docs", "motivation.html")];
 
 /// The rototo GitHub repository, linked from the public site.
 const GITHUB_URL: &str = "https://github.com/manasgarg/rototo";
@@ -378,7 +174,7 @@ pub fn render_page_html(page: &DocPage) -> String {
 </head>
 <body>
 <header class="topbar">
-  <a class="brand" href="index.html"><img class="brand-wordmark" src="assets/rototo-wordmark.svg" alt="rototo"></a>
+  <a class="brand" href="../index.html"><img class="brand-wordmark" src="assets/rototo-wordmark.svg" alt="rototo"></a>
   <nav class="topnav" aria-label="Primary">
 {topnav}  </nav>
 </header>
@@ -490,14 +286,14 @@ type = "string"
 default = "classic"
 
 [[resolve.rule]]
-when = 'qualifier["premium-users"]'
+when = 'env.qualifier["premium-users"]'
 value = "redesign"
 "#,
     );
     let resolve_snippet = render_code_block(
         "sh",
-        r#"rototo variable resolve checkout-redesign \
-  --workspace git+https://github.com/acme/config#main \
+        r#"rototo resolve git+https://github.com/acme/config#main \
+  --variable checkout-redesign \
   --context user.tier=premium
 "#,
     );
@@ -509,7 +305,7 @@ value = "redesign"
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>rototo — Git-backed runtime configuration</title>
-<meta name="description" content="rototo keeps runtime configuration in a Git workspace: linted, reviewed in pull requests, and resolved at runtime with typed values.">
+<meta name="description" content="rototo keeps runtime configuration in a Git package: linted, reviewed in pull requests, and resolved at runtime with typed values.">
 <link rel="icon" href="assets/favicon.svg" type="image/svg+xml">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -530,7 +326,7 @@ value = "redesign"
 .home-split {{ display: grid; grid-template-columns: repeat(auto-fit, minmax(20rem, 1fr)); gap: 1.25rem; align-items: start; }}
 .home h2 {{ margin-top: 3rem; }}
 .home-sdks {{ display: flex; gap: 0.6rem; flex-wrap: wrap; margin-top: 1rem; }}
-.home-sdks a {{ border: 1px solid rgba(22, 36, 44, 0.2); border-radius: 999px; padding: 0.35rem 0.9rem; text-decoration: none; font-weight: 600; }}
+.home-sdks span {{ border: 1px solid rgba(22, 36, 44, 0.2); border-radius: 999px; padding: 0.35rem 0.9rem; font-weight: 600; }}
 .home-footer {{ margin-top: 4rem; padding-top: 1.5rem; border-top: 1px solid rgba(22, 36, 44, 0.14); display: flex; gap: 1.25rem; flex-wrap: wrap; }}
 </style>
 </head>
@@ -538,7 +334,7 @@ value = "redesign"
 <header class="topbar">
   <a class="brand" href="index.html"><img class="brand-wordmark" src="assets/rototo-wordmark.svg" alt="rototo"></a>
   <nav class="topnav" aria-label="Primary">
-    <a href="docs/index.html">Docs</a>
+    <a href="docs/motivation.html">Docs</a>
     <a href="{github}">GitHub</a>
   </nav>
 </header>
@@ -546,32 +342,32 @@ value = "redesign"
   <section class="home-hero">
     <h1>Runtime configuration, reviewed like code.</h1>
     <p>
-      rototo keeps your application's runtime configuration in a Git workspace:
+      rototo keeps your application's runtime configuration in a Git package:
       validated by lint, changed through pull requests, and resolved at runtime
       into typed values your services can trust. No config database, no side
       channel around review — the repository is the control plane.
     </p>
     <div class="home-cta">
-      <a class="primary" href="docs/getting-started.html">Get started</a>
-      <a class="secondary" href="docs/index.html">Read the docs</a>
+      <a class="primary" href="docs/motivation.html">Read the docs</a>
+      <a class="secondary" href="docs/concepts.html">Concepts</a>
     </div>
   </section>
 
   <section>
-    <h2>One workspace, three guarantees</h2>
+    <h2>One package, three guarantees</h2>
     <div class="home-grid">
       <div class="home-card">
         <h3>Declared</h3>
         <p>
           Variables, qualifiers, and JSON Schemas live as files under
-          <code>rototo-workspace.toml</code>. Every change has an author, a
+          <code>rototo-package.toml</code>. Every change has an author, a
           diff, and a history.
         </p>
       </div>
       <div class="home-card">
         <h3>Validated</h3>
         <p>
-          Lint understands the workspace semantically: unknown qualifiers,
+          Lint understands the package semantically: unknown qualifiers,
           values that break their schema, and rules that can never match are
           caught before merge, not in production.
         </p>
@@ -579,7 +375,7 @@ value = "redesign"
       <div class="home-card">
         <h3>Resolved</h3>
         <p>
-          Applications load the workspace by source URI and resolve named
+          Applications load the package by source URI and resolve named
           variables with runtime context. Long-running services refresh from
           the same source and keep last-known-good state when a fetch fails.
         </p>
@@ -603,11 +399,11 @@ value = "redesign"
       language.
     </p>
     <div class="home-sdks">
-      <a href="docs/reference-sdk-rust.html">Rust</a>
-      <a href="docs/reference-sdk-python.html">Python</a>
-      <a href="docs/reference-sdk-typescript.html">TypeScript</a>
-      <a href="docs/reference-sdk-java.html">Java</a>
-      <a href="docs/reference-sdk-go.html">Go</a>
+      <span>Rust</span>
+      <span>Python</span>
+      <span>TypeScript</span>
+      <span>Java</span>
+      <span>Go</span>
     </div>
   </section>
 
@@ -615,16 +411,16 @@ value = "redesign"
     <h2>Operate it from the console</h2>
     <p>
       <code>rototo console</code> serves a web console from the same binary as
-      the CLI: browse workspaces, trace how a variable resolves against saved
+      the CLI: browse packages, trace how a variable resolves against saved
       contexts, edit review branches, and publish pull requests. Run it
       on your laptop with your own GitHub token, or behind your proxy with
       GitHub OAuth for the whole team.
     </p>
-    <p><a href="docs/self-hosting-console.html">Self-hosting the console →</a></p>
+    <p><a href="docs/concepts.html">Read the concepts →</a></p>
   </section>
 
   <footer class="home-footer">
-    <a href="docs/index.html">Documentation</a>
+    <a href="docs/motivation.html">Documentation</a>
     <a href="{github}">GitHub</a>
     <span>MIT or Apache-2.0</span>
   </footer>
@@ -635,235 +431,6 @@ value = "redesign"
         fonts = GOOGLE_FONTS_HREF,
         github = GITHUB_URL,
     )
-}
-
-pub fn render_package_readme(sdk: &str) -> Result<String> {
-    render_package_readme_with_base_url(sdk, DEFAULT_DOCS_BASE_URL)
-}
-
-pub fn render_package_readme_with_base_url(sdk: &str, docs_base_url: &str) -> Result<String> {
-    let docs_base_url = normalize_docs_base_url(docs_base_url)?;
-    let page = match sdk {
-        "python" => get_page("reference-sdk-python")?,
-        "typescript" => get_page("reference-sdk-typescript")?,
-        "java" => get_page("reference-sdk-java")?,
-        "go" => get_page("reference-sdk-go")?,
-        other => {
-            return Err(RototoError::new(format!(
-                "unsupported package README SDK: {other}"
-            )));
-        }
-    };
-    let mut markdown = page.markdown.to_owned();
-    let readme_title = match sdk {
-        "python" => "rototo Python SDK",
-        "typescript" => "rototo TypeScript SDK",
-        "java" => "rototo Java SDK",
-        "go" => "rototo Go SDK",
-        _ => unreachable!("unsupported SDK was rejected above"),
-    };
-    if let Some(rest) = markdown.strip_prefix(&format!("# {} Reference\n", page.title)) {
-        markdown = format!("# {readme_title}\n{rest}");
-    } else if let Some(rest) = markdown.strip_prefix(&format!("# {}\n", page.title)) {
-        markdown = format!("# {readme_title}\n{rest}");
-    }
-    markdown = rewrite_package_readme_doc_links(&markdown, docs_base_url);
-    Ok(format!(
-        "<!-- Generated from docs/src/{page_id}.md by `rototo docs --package-readme {sdk} --out sdks/{sdk}/README.md`. Do not edit directly. -->\n\n{markdown}",
-        page_id = page.id,
-    ))
-}
-
-fn normalize_docs_base_url(docs_base_url: &str) -> Result<&str> {
-    let docs_base_url = docs_base_url.trim().trim_end_matches('/');
-    if docs_base_url.is_empty() {
-        return Err(RototoError::new("docs base URL must not be blank"));
-    }
-    Ok(docs_base_url)
-}
-
-fn rewrite_package_readme_doc_links(markdown: &str, docs_base_url: &str) -> String {
-    let link =
-        Regex::new(r"\[([^\]\n]+)\]\(([^)\s]+)\)").expect("documentation link regex is valid");
-    link.replace_all(markdown, |captures: &regex::Captures<'_>| {
-        let text = captures.get(1).expect("capture exists").as_str();
-        let target = captures.get(2).expect("capture exists").as_str();
-        if let Some((page_id, anchor)) = internal_doc_link_target(target) {
-            format!(
-                "[{text}]({docs_base_url}/{}{})",
-                page_href(page_id),
-                anchor.unwrap_or("")
-            )
-        } else {
-            captures.get(0).expect("capture exists").as_str().to_owned()
-        }
-    })
-    .into_owned()
-}
-
-fn internal_doc_link_target(target: &str) -> Option<(&'static str, Option<&str>)> {
-    if target.starts_with("http://")
-        || target.starts_with("https://")
-        || target.starts_with("mailto:")
-        || target.starts_with('#')
-    {
-        return None;
-    }
-    let (target, anchor) = match target.find('#') {
-        Some(index) => (&target[..index], Some(&target[index..])),
-        None => (target, None),
-    };
-    let file_name = Path::new(target).file_name()?.to_str()?;
-    let id = file_name
-        .strip_suffix(".md")
-        .or_else(|| file_name.strip_suffix(".html"))?;
-    DOCS.iter()
-        .find(|page| page.id == id)
-        .map(|page| (page.id, anchor))
-}
-
-#[derive(Debug)]
-struct TocItem {
-    level: u8,
-    id: String,
-    title: String,
-}
-
-fn prepare_markdown_for_html(markdown: &str) -> (String, Vec<TocItem>) {
-    let mut out = String::new();
-    let mut toc = Vec::new();
-    let mut slugs = BTreeMap::new();
-    let mut in_fenced_code = false;
-
-    for line in markdown.split_inclusive('\n') {
-        if line.trim_start().starts_with("```") {
-            in_fenced_code = !in_fenced_code;
-            out.push_str(line);
-            continue;
-        }
-        if in_fenced_code {
-            out.push_str(line);
-            continue;
-        }
-
-        let Some(heading) = parse_markdown_heading(line) else {
-            out.push_str(line);
-            continue;
-        };
-        let base_slug = slugify_heading(&heading.title);
-        let count = slugs.entry(base_slug.clone()).or_insert(0usize);
-        *count += 1;
-        let id = if *count == 1 {
-            base_slug
-        } else {
-            format!("{base_slug}-{count}")
-        };
-
-        if heading.level == 2 || heading.level == 3 {
-            toc.push(TocItem {
-                level: heading.level,
-                id: id.clone(),
-                title: heading.title.clone(),
-            });
-        }
-        out.push_str(&format!(
-            "{prefix}{markers} {title} {{#{id}}}{newline}",
-            prefix = heading.prefix,
-            markers = "#".repeat(heading.level as usize),
-            title = heading.title,
-            newline = heading.newline,
-        ));
-    }
-
-    (out, toc)
-}
-
-#[derive(Debug)]
-struct MarkdownHeading {
-    level: u8,
-    prefix: String,
-    title: String,
-    newline: String,
-}
-
-fn parse_markdown_heading(line: &str) -> Option<MarkdownHeading> {
-    let content = line.trim_end_matches(['\r', '\n']);
-    let newline = &line[content.len()..];
-    let prefix_len = content.len() - content.trim_start_matches(' ').len();
-    if prefix_len > 3 {
-        return None;
-    }
-    let prefix = &content[..prefix_len];
-    let trimmed = &content[prefix_len..];
-    let level = trimmed.chars().take_while(|char| *char == '#').count();
-    if level == 0 || level > 6 {
-        return None;
-    }
-    let rest = &trimmed[level..];
-    if !rest.starts_with(' ') && !rest.starts_with('\t') {
-        return None;
-    }
-    let title = rest.trim().trim_end_matches('#').trim_end().trim();
-    if title.is_empty() || title.contains("{#") {
-        return None;
-    }
-    Some(MarkdownHeading {
-        level: level as u8,
-        prefix: prefix.to_owned(),
-        title: title.to_owned(),
-        newline: newline.to_owned(),
-    })
-}
-
-fn slugify_heading(title: &str) -> String {
-    let mut slug = String::new();
-    let mut pending_dash = false;
-    for char in title.chars() {
-        if char.is_ascii_alphanumeric() {
-            if pending_dash && !slug.is_empty() {
-                slug.push('-');
-            }
-            slug.push(char.to_ascii_lowercase());
-            pending_dash = false;
-        } else if char.is_whitespace() || matches!(char, '-' | '_' | '/' | ':' | '.') {
-            pending_dash = true;
-        }
-    }
-    if slug.is_empty() {
-        "section".to_owned()
-    } else {
-        slug
-    }
-}
-
-fn render_toc(items: &[TocItem]) -> String {
-    if items.is_empty() {
-        return String::new();
-    }
-    let mut toc = String::from(
-        "  <aside class=\"toc\" aria-label=\"On this page\">\n    <div class=\"toc-title\">On this page</div>\n",
-    );
-    for item in items {
-        let class = if item.level == 3 {
-            r#" class="sub""#
-        } else {
-            ""
-        };
-        toc.push_str(&format!(
-            "    <a href=\"#{id}\"{class}>{title}</a>\n",
-            id = escape_html(&item.id),
-            title = escape_html(&plain_heading_title(&item.title)),
-        ));
-    }
-    toc.push_str("  </aside>\n");
-    toc
-}
-
-fn plain_heading_title(title: &str) -> String {
-    title
-        .chars()
-        .filter(|char| !matches!(char, '`' | '*' | '[' | ']' | '(' | ')' | '<' | '>'))
-        .collect()
 }
 
 fn render_nav(current: &str) -> String {
@@ -894,7 +461,7 @@ fn render_nav(current: &str) -> String {
 fn render_topnav(current: &str) -> String {
     let mut nav = String::new();
     for (label, href) in TOPNAV_LINKS {
-        let current_attr = if *label == "Docs" && current == "index" {
+        let current_attr = if *label == "Docs" && current == DOCS_ENTRY_PAGE {
             r#" aria-current="page""#
         } else {
             ""
@@ -1054,7 +621,7 @@ fn page_href(id: &str) -> String {
 
 fn normalize_page_id(id: &str) -> &str {
     match id {
-        "" | "/" | "index.html" => "index",
+        "" | "/" | "index" | "index.html" => DOCS_ENTRY_PAGE,
         _ => id.strip_suffix(".html").unwrap_or(id),
     }
 }
@@ -1064,202 +631,4 @@ fn escape_html(text: &str) -> String {
         .replace('<', "&lt;")
         .replace('>', "&gt;")
         .replace('"', "&quot;")
-}
-
-/// Render page markdown to HTML, replacing fenced code blocks with
-/// syntax-highlighted `<pre class="code-block language-*">` blocks.
-fn render_markdown(markdown: &str) -> String {
-    let markdown = expand_sdk_snippet_groups(markdown);
-    let mut options = Options::empty();
-    options.insert(Options::ENABLE_TABLES);
-    options.insert(Options::ENABLE_FOOTNOTES);
-    options.insert(Options::ENABLE_STRIKETHROUGH);
-    options.insert(Options::ENABLE_HEADING_ATTRIBUTES);
-
-    let mut events = Vec::new();
-    let mut code_block: Option<(String, String)> = None;
-    for event in Parser::new_ext(&markdown, options) {
-        match event {
-            Event::Start(Tag::CodeBlock(kind)) => {
-                let language = match &kind {
-                    CodeBlockKind::Fenced(info) => code_block_language(info),
-                    CodeBlockKind::Indented => "text".to_owned(),
-                };
-                code_block = Some((language, String::new()));
-            }
-            Event::Text(text) => match code_block.as_mut() {
-                Some((_, code)) => code.push_str(&text),
-                None => events.push(Event::Text(text)),
-            },
-            Event::End(TagEnd::CodeBlock) => {
-                let (language, code) = code_block
-                    .take()
-                    .expect("code block end event without matching start");
-                events.push(Event::Html(render_code_block(&language, &code).into()));
-            }
-            other => events.push(other),
-        }
-    }
-
-    let mut body = String::new();
-    html::push_html(&mut body, events.into_iter());
-    body
-}
-
-fn code_block_language(info: &str) -> String {
-    let language: String = info
-        .chars()
-        .take_while(|c| c.is_ascii_alphanumeric() || matches!(c, '-' | '_'))
-        .collect();
-    if language.is_empty() {
-        "text".to_owned()
-    } else {
-        language
-    }
-}
-
-fn render_code_block(language: &str, code: &str) -> String {
-    render_code_block_with_attrs(language, code, "", "")
-}
-
-fn render_code_block_with_attrs(
-    language: &str,
-    code: &str,
-    extra_class: &str,
-    extra_attrs: &str,
-) -> String {
-    let code_language = highlight_js_language(language);
-    let code = escape_html(code);
-    let class_suffix = if extra_class.is_empty() {
-        String::new()
-    } else {
-        format!(" {extra_class}")
-    };
-    format!(
-        "<pre class=\"code-block language-{language}{class_suffix}\"{extra_attrs}><code class=\"language-{code_language}\">{code}</code></pre>\n"
-    )
-}
-
-fn highlight_js_language(language: &str) -> &str {
-    match language {
-        "sh" => "bash",
-        "text" => "plaintext",
-        "toml" => "ini",
-        other => other,
-    }
-}
-
-fn expand_sdk_snippet_groups(markdown: &str) -> String {
-    let mut out = String::new();
-    let mut lines = markdown.split_inclusive('\n').peekable();
-    while let Some(line) = lines.next() {
-        let Some(id) = sdk_snippet_start(line) else {
-            out.push_str(line);
-            continue;
-        };
-
-        let mut group = String::new();
-        let mut closed = false;
-        for group_line in lines.by_ref() {
-            if group_line.trim() == ":::" {
-                closed = true;
-                break;
-            }
-            group.push_str(group_line);
-        }
-        assert!(closed, "sdk-snippet group `{id}` is missing closing :::");
-        out.push_str(&render_sdk_snippet_group(id, &group));
-    }
-    out
-}
-
-fn sdk_snippet_start(line: &str) -> Option<&str> {
-    line.trim()
-        .strip_prefix(":::sdk-snippet ")
-        .map(str::trim)
-        .filter(|id| !id.is_empty())
-}
-
-fn render_sdk_snippet_group(id: &str, markdown: &str) -> String {
-    let snippets = parse_sdk_snippet_blocks(id, markdown);
-    let mut out = format!(
-        "<div class=\"sdk-snippet-group\" data-snippet-id=\"{}\">\n",
-        escape_html(id)
-    );
-    out.push_str("  <div class=\"sdk-snippet-toolbar\">");
-    out.push_str(&render_sdk_language_picker());
-    out.push_str("</div>\n");
-    for language in SDK_LANGUAGES {
-        let code = snippets
-            .iter()
-            .find(|(snippet_language, _)| snippet_language == language.id)
-            .map(|(_, code)| code.as_str())
-            .unwrap_or_else(|| panic!("sdk-snippet group `{id}` is missing `{}`", language.id));
-        out.push_str(&render_code_block_with_attrs(
-            language.id,
-            code,
-            "sdk-snippet",
-            &format!(
-                r#" data-sdk-lang="{}" aria-label="{} SDK snippet""#,
-                escape_html(language.id),
-                escape_html(language.label),
-            ),
-        ));
-    }
-    out.push_str("</div>\n");
-    out
-}
-
-fn parse_sdk_snippet_blocks(id: &str, markdown: &str) -> Vec<(String, String)> {
-    let mut snippets = Vec::new();
-    let mut lines = markdown.split_inclusive('\n').peekable();
-    while let Some(line) = lines.next() {
-        if line.trim().is_empty() {
-            continue;
-        }
-        let Some(language) = fenced_code_language(line) else {
-            panic!("sdk-snippet group `{id}` contains non-code content: {line}");
-        };
-        assert!(
-            SDK_LANGUAGES
-                .iter()
-                .any(|sdk_language| sdk_language.id == language),
-            "sdk-snippet group `{id}` uses unsupported language `{language}`"
-        );
-        assert!(
-            !snippets
-                .iter()
-                .any(|(existing_language, _)| existing_language == &language),
-            "sdk-snippet group `{id}` repeats language `{language}`"
-        );
-
-        let mut code = String::new();
-        let mut closed = false;
-        for code_line in lines.by_ref() {
-            if code_line.trim() == "```" {
-                closed = true;
-                break;
-            }
-            code.push_str(code_line);
-        }
-        assert!(
-            closed,
-            "sdk-snippet group `{id}` language `{language}` is missing closing fence"
-        );
-        snippets.push((language, code));
-    }
-    assert_eq!(
-        snippets.len(),
-        SDK_LANGUAGES.len(),
-        "sdk-snippet group `{id}` should include every supported SDK language"
-    );
-    snippets
-}
-
-fn fenced_code_language(line: &str) -> Option<String> {
-    let trimmed = line.trim();
-    trimmed
-        .strip_prefix("```")
-        .map(code_block_language)
-        .filter(|language| language != "text")
 }

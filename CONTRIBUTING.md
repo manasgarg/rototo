@@ -27,8 +27,8 @@ the console dependencies. Optional tools such as `gh`, Go, Java, Maven, and
 
 Useful environment variables:
 
-- `ROTOTO_WORKSPACE_TOKEN` or `--workspace-token`: GitHub/API token for
-  workspace source loading and local console auth.
+- `ROTOTO_PACKAGE_TOKEN` or `--package-token`: GitHub/API token for
+  package source loading and local console auth.
 - `ROTOTO_CONSOLE_DEV_PUBLIC_URL`: public URL used by `just console-dev`;
   defaults to `https://dev.rototo.dev`.
 - `ROTOTO_CONSOLE_DEV_OBSERVABILITY`: local directory for console dev telemetry;
@@ -121,7 +121,7 @@ Common console failures:
   for Rust compile errors or port conflicts on `127.0.0.1:7686`.
 - UI cannot reach the API: confirm `just console-dev` is still running and that
   the browser is using the same origin expected by `ROTOTO_CONSOLE_DEV_PUBLIC_URL`.
-- GitHub operations fail: verify `ROTOTO_WORKSPACE_TOKEN`, the stored
+- GitHub operations fail: verify `ROTOTO_PACKAGE_TOKEN`, the stored
   device-flow sign-in, or `gh auth token`.
 - OAuth/team mode fails: verify `ROTOTO_GITHUB_CLIENT_ID`,
   `ROTOTO_GITHUB_CLIENT_SECRET`, and `ROTOTO_CONSOLE_TOKEN_ENCRYPTION_KEY`.

@@ -1,0 +1,5 @@
+schema_version = 1
+
+description = "Qualifier reading declared paths from two disjoint contexts, so none can satisfy both"
+
+when = '(context.user.tier == "premium" && context.device.os == "ios")'

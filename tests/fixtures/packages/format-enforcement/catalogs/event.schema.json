@@ -1,0 +1,11 @@
+{
+  "type": "object",
+  "required": ["at"],
+  "properties": {
+    "at": {
+      "type": "string",
+      "format": "date-time"
+    }
+  },
+  "additionalProperties": false
+}

@@ -10,20 +10,21 @@ use crate::expression::Expression;
 
 use super::index::*;
 use super::input::LintInput;
-use super::{WorkspaceLintSnapshot, lint_workspace_snapshot};
+use super::{PackageLintSnapshot, lint_package_snapshot};
 
 #[derive(Debug)]
-pub(crate) struct RuntimeWorkspace {
-    pub(crate) request_contexts: BTreeMap<String, RuntimeRequestContext>,
-    pub(crate) qualifier_request_contexts: BTreeMap<String, BTreeSet<String>>,
-    pub(crate) variable_request_contexts: BTreeMap<String, BTreeSet<String>>,
+pub(crate) struct RuntimePackage {
+    pub(crate) evaluation_contexts: BTreeMap<String, RuntimeEvaluationContext>,
+    pub(crate) qualifier_evaluation_contexts: BTreeMap<String, BTreeSet<String>>,
+    pub(crate) variable_evaluation_contexts: BTreeMap<String, BTreeSet<String>>,
     pub(crate) catalog_schemas: BTreeMap<String, JsonValue>,
     pub(crate) catalog_entries: BTreeMap<String, BTreeMap<String, JsonValue>>,
     pub(crate) qualifiers: BTreeMap<String, RuntimeQualifier>,
     pub(crate) variables: BTreeMap<String, RuntimeVariable>,
+    pub(crate) trace_policies: Vec<RuntimeTracePolicy>,
 }
 
-impl RuntimeWorkspace {
+impl RuntimePackage {
     pub(crate) fn validate_context(&self, context: &JsonValue) -> Result<()> {
         self.validate_context_against(context, None)
     }
@@ -34,7 +35,7 @@ impl RuntimeWorkspace {
         context: &JsonValue,
     ) -> Result<()> {
         let allowed = self
-            .qualifier_request_contexts
+            .qualifier_evaluation_contexts
             .get(qualifier)
             .ok_or_else(|| {
                 RototoError::new(format!("qualifier not found: qualifier://{qualifier}"))
@@ -48,7 +49,7 @@ impl RuntimeWorkspace {
         context: &JsonValue,
     ) -> Result<()> {
         let allowed = self
-            .variable_request_contexts
+            .variable_evaluation_contexts
             .get(variable)
             .ok_or_else(|| {
                 RototoError::new(format!("variable not found: variable://{variable}"))
@@ -69,41 +70,49 @@ impl RuntimeWorkspace {
         context: &JsonValue,
         allowed: Option<&BTreeSet<String>>,
     ) -> Result<()> {
-        if self.request_contexts.is_empty() {
+        if self.evaluation_contexts.is_empty() {
             return Ok(());
         }
         let mut saw_candidate = false;
         let mut errors = Vec::new();
-        for (id, request_context) in &self.request_contexts {
+        for (id, evaluation_context) in &self.evaluation_contexts {
             if allowed.is_some_and(|allowed| !allowed.contains(id)) {
                 continue;
             }
             saw_candidate = true;
-            match request_context.validator.validate(context) {
+            match evaluation_context.validator.validate(context) {
                 Ok(()) => return Ok(()),
                 Err(err) => errors.push(format!("{id}: {err}")),
             }
         }
         if !saw_candidate {
             return Err(RototoError::new(
-                "resolve context does not match any compatible request context",
+                "evaluation context does not match any compatible evaluation context",
             ));
         }
         Err(RototoError::new(format!(
-            "resolve context does not match any compatible request context: {}",
+            "evaluation context does not match any compatible evaluation context: {}",
             errors.join("; ")
         )))
     }
 }
 
 #[derive(Debug)]
-pub(crate) struct RuntimeRequestContext {
+pub(crate) struct RuntimeEvaluationContext {
     pub(crate) schema: JsonValue,
     pub(crate) validator: Arc<Validator>,
 }
 
 #[derive(Debug)]
 pub(crate) struct RuntimeQualifier {
+    pub(crate) when: Expression,
+}
+
+/// A compiled `[[trace]]` policy. Its `when` is evaluated against each
+/// resolution to decide whether to emit a trace event; it may read
+/// `env.resolving.*`.
+#[derive(Debug)]
+pub(crate) struct RuntimeTracePolicy {
     pub(crate) when: Expression,
 }
 
@@ -157,48 +166,70 @@ impl RuntimeSelectedValue {
     }
 }
 
-pub(crate) async fn compile_runtime_workspace(root: &Path) -> Result<RuntimeWorkspace> {
-    let snapshot = lint_workspace_snapshot(LintInput::new(root.to_path_buf())).await?;
-    compile_runtime_workspace_from_snapshot(&snapshot)
+pub(crate) async fn compile_runtime_package(root: &Path) -> Result<RuntimePackage> {
+    let snapshot = lint_package_snapshot(LintInput::new(root.to_path_buf())).await?;
+    compile_runtime_package_from_snapshot(&snapshot)
 }
 
-pub(crate) fn compile_runtime_workspace_from_snapshot(
-    snapshot: &WorkspaceLintSnapshot,
-) -> Result<RuntimeWorkspace> {
+pub(crate) fn compile_runtime_package_from_snapshot(
+    snapshot: &PackageLintSnapshot,
+) -> Result<RuntimePackage> {
     RuntimeCompiler::new(snapshot).compile()
 }
 
 struct RuntimeCompiler<'a> {
-    snapshot: &'a WorkspaceLintSnapshot,
+    snapshot: &'a PackageLintSnapshot,
 }
 
 impl<'a> RuntimeCompiler<'a> {
-    fn new(snapshot: &'a WorkspaceLintSnapshot) -> Self {
+    fn new(snapshot: &'a PackageLintSnapshot) -> Self {
         Self { snapshot }
     }
 
-    fn compile(&self) -> Result<RuntimeWorkspace> {
+    fn compile(&self) -> Result<RuntimePackage> {
         let index = &self.snapshot.index;
-        let _manifest = index
+        let manifest = index
             .manifest
             .as_ref()
-            .ok_or_else(|| RototoError::new("workspace manifest is missing"))?;
-        let request_contexts = self.compile_request_contexts(index)?;
-        let compatibility = self.snapshot.request_context_compatibility();
+            .ok_or_else(|| RototoError::new("package manifest is missing"))?;
+        let evaluation_contexts = self.compile_evaluation_contexts(index)?;
+        let compatibility = self.snapshot.evaluation_context_compatibility();
         let catalog_schemas = self.compile_catalog_schemas(index);
         let catalog_entries = self.compile_catalog_entries(index);
         let qualifiers = self.compile_qualifiers(index)?;
         let variables = self.compile_variables(index)?;
+        let trace_policies = Self::compile_trace_policies(manifest)?;
 
-        Ok(RuntimeWorkspace {
-            request_contexts,
-            qualifier_request_contexts: compatibility.qualifiers,
-            variable_request_contexts: compatibility.variables,
+        Ok(RuntimePackage {
+            evaluation_contexts,
+            qualifier_evaluation_contexts: compatibility.qualifiers,
+            variable_evaluation_contexts: compatibility.variables,
             catalog_schemas,
             catalog_entries,
             qualifiers,
             variables,
+            trace_policies,
         })
+    }
+
+    fn compile_trace_policies(manifest: &ManifestNode) -> Result<Vec<RuntimeTracePolicy>> {
+        manifest
+            .trace
+            .iter()
+            .map(|policy| match &policy.when {
+                ProjectField::Present(when) => Ok(RuntimeTracePolicy {
+                    when: when.value.clone(),
+                }),
+                ProjectField::Invalid { .. } => Err(RototoError::new(format!(
+                    "trace policy {} when expression is invalid",
+                    policy.index
+                ))),
+                ProjectField::Missing { .. } => Err(RototoError::new(format!(
+                    "trace policy {} must declare when",
+                    policy.index
+                ))),
+            })
+            .collect()
     }
 
     fn compile_catalog_schemas(&self, index: &SemanticIndex) -> BTreeMap<String, JsonValue> {
@@ -228,36 +259,36 @@ impl<'a> RuntimeCompiler<'a> {
             .collect()
     }
 
-    fn compile_request_contexts(
+    fn compile_evaluation_contexts(
         &self,
         index: &SemanticIndex,
-    ) -> Result<BTreeMap<String, RuntimeRequestContext>> {
-        let mut request_contexts = BTreeMap::new();
-        for context in index.request_contexts.values() {
+    ) -> Result<BTreeMap<String, RuntimeEvaluationContext>> {
+        let mut evaluation_contexts = BTreeMap::new();
+        for context in index.evaluation_contexts.values() {
             let json = context.json.clone().ok_or_else(|| {
                 RototoError::new(format!(
-                    "request context schema file could not be parsed: {}",
+                    "evaluation context schema file could not be parsed: {}",
                     context.path
                 ))
             })?;
             let validator = context.validator.clone().ok_or_else(|| {
                 RototoError::new(format!(
-                    "request context schema is invalid: {}",
+                    "evaluation context schema is invalid: {}",
                     context
                         .invalid_message
                         .as_deref()
                         .unwrap_or("schema did not compile")
                 ))
             })?;
-            request_contexts.insert(
+            evaluation_contexts.insert(
                 context.id.clone(),
-                RuntimeRequestContext {
+                RuntimeEvaluationContext {
                     schema: json,
                     validator,
                 },
             );
         }
-        Ok(request_contexts)
+        Ok(evaluation_contexts)
     }
 
     fn compile_qualifiers(
@@ -386,7 +417,7 @@ impl<'a> RuntimeCompiler<'a> {
 
         if rule.legacy_qualifier.is_some() {
             return Err(RototoError::new(
-                "rule qualifier is no longer supported; use when = 'qualifier[\"<id>\"]'",
+                "rule qualifier is no longer supported; use when = 'env.qualifier[\"<id>\"]'",
             ));
         }
 

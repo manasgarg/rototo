@@ -1,0 +1,24 @@
+# Inside a `[resolve]` table, completion offers the resolve fields, not top-level
+# variable fields like `type`.
+package = "basic"
+file = "variables/message.toml"
+
+overlay = '''
+schema_version = 1
+type = "string"
+
+[resolve]
+$0
+'''
+
+[expect]
+exact = ["default", "[[resolve.rule]]"]
+
+[[expect.includes]]
+label = "default"
+detail = "variable field"
+insert_text = "default = "
+
+[[expect.excludes]]
+label = "type"
+detail = "variable field"

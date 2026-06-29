@@ -1,0 +1,18 @@
+# With `type` already declared, the remaining top-level variable suggestions are
+# `description` and the resolve blocks.
+package = "basic"
+file = "variables/message.toml"
+
+overlay = '''
+schema_version = 1
+type = "string"
+$0
+'''
+
+[expect]
+exact = ["description", "[resolve]", "[[resolve.rule]]"]
+
+[[expect.includes]]
+label = "[[resolve.rule]]"
+detail = "variable block"
+insert_text = "[[resolve.rule]]\nwhen = \"\"\nvalue = "

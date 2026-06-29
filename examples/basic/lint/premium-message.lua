@@ -8,7 +8,7 @@ function register(lint)
   })
 end
 
-function check_message(workspace, variable)
+function check_message(package, variable)
   if variable.resolve.default == "" then
     return {
       {

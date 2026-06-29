@@ -4,7 +4,7 @@ import { dirname, resolve } from "node:path";
 import { test } from "node:test";
 import { fileURLToPath } from "node:url";
 
-import { RototoError, Workspace } from "../dist/index.js";
+import { RototoError, Package } from "../dist/index.js";
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "../../..");
 const CASES = resolve(ROOT, "tests/sdk-contract/cases.jsonl");
@@ -27,33 +27,39 @@ for (const contractCase of contractCases()) {
 
 async function runCase(contractCase) {
     const operation = contractCase.operation;
-    const workspaceSource = resolve(ROOT, contractCase.workspace);
+    const packageSource = resolve(ROOT, contractCase.package);
 
-    if (operation === "load_workspace") {
-        await Workspace.load(workspaceSource);
+    if (operation === "load_package") {
+        await Package.load(packageSource);
         return { ok: true };
     }
 
-    if (operation === "lint_workspace") {
-        const workspace = await Workspace.inspect(workspaceSource);
-        const lint = await workspace.lint();
+    if (operation === "lint_package") {
+        const pkg = await Package.inspect(packageSource);
+        const lint = await pkg.lint();
         return { diagnostics: lint.diagnostics.length };
     }
 
     if (operation === "resolve_variable") {
-        const workspace = await Workspace.load(workspaceSource);
-        return await workspace.resolveVariable(
+        const pkg = await Package.load(packageSource);
+        return pkg.resolveVariable(contractCase.id, contractCase.context ?? {});
+    }
+
+    if (operation === "resolve_qualifier") {
+        const pkg = await Package.load(packageSource);
+        return pkg.resolveQualifier(
             contractCase.id,
             contractCase.context ?? {},
         );
     }
 
-    if (operation === "resolve_qualifier") {
-        const workspace = await Workspace.load(workspaceSource);
-        return await workspace.resolveQualifier(
-            contractCase.id,
-            contractCase.context ?? {},
-        );
+    if (operation === "package_identity") {
+        const pkg = await Package.load(packageSource);
+        const identity = pkg.identity();
+        return {
+            releaseId: identity.releaseId,
+            immutable: identity.immutable,
+        };
     }
 
     throw new Error(`unsupported contract operation: ${operation}`);

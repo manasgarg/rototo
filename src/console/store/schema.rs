@@ -73,7 +73,7 @@ fn create_schema_v8(conn: &Connection) -> Result<()> {
           UNIQUE(principal_id, source)
         );
 
-        CREATE TABLE IF NOT EXISTS source_tree_workspaces (
+        CREATE TABLE IF NOT EXISTS source_tree_packages (
           id TEXT PRIMARY KEY,
           source_tree_id TEXT NOT NULL,
           path TEXT NOT NULL,
@@ -98,7 +98,7 @@ fn create_schema_v8(conn: &Connection) -> Result<()> {
           pr_state TEXT,
           pr_merged_at TEXT,
           pr_synced_at TEXT,
-          last_selected_workspace_path TEXT,
+          last_selected_package_path TEXT,
           last_seen_commit TEXT,
           status TEXT NOT NULL,
           created_at TEXT NOT NULL,
@@ -109,11 +109,11 @@ fn create_schema_v8(conn: &Connection) -> Result<()> {
           FOREIGN KEY(source_tree_id) REFERENCES source_trees(id) ON DELETE CASCADE
         );
 
-        CREATE TABLE IF NOT EXISTS active_branch_workspaces (
+        CREATE TABLE IF NOT EXISTS active_branch_packages (
           branch_id TEXT NOT NULL,
-          workspace_path TEXT NOT NULL,
+          package_path TEXT NOT NULL,
           added_at TEXT NOT NULL,
-          PRIMARY KEY(branch_id, workspace_path),
+          PRIMARY KEY(branch_id, package_path),
           FOREIGN KEY(branch_id) REFERENCES active_branches(id) ON DELETE CASCADE
         );
         "#,

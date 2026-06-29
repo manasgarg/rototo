@@ -8,11 +8,11 @@ use super::load;
 use super::runtime;
 use super::source_tree;
 use super::{
-    BranchChanges, BranchName, CachedSourceTreeOrigin, CachedWorkspaceLocator, GitRefName,
-    SemanticWorkspace, SourceTreeRevision, WorkspaceLocator, WorkspacePath,
+    BranchChanges, BranchName, CachedPackageLocator, CachedSourceTreeOrigin, GitRefName,
+    PackageLocator, PackagePath, SemanticPackage, SourceTreeRevision,
 };
 use crate::error::Result;
-use crate::sdk::Workspace;
+use crate::sdk::Package;
 use crate::source::StagedSourceTree;
 
 #[derive(Clone, Default)]
@@ -28,7 +28,7 @@ struct StageCacheInner {
 #[derive(Default)]
 struct SourceTreeOriginSlot {
     source_trees: Mutex<HashMap<SourceTreeRevision, Arc<SourceTreeSlot>>>,
-    workspace_views: Mutex<HashMap<WorkspaceViewKey, Arc<WorkspaceSlot>>>,
+    package_views: Mutex<HashMap<PackageViewKey, Arc<PackageSlot>>>,
     branch_changes: Mutex<HashMap<BranchChangesKey, Arc<BranchChangesSlot>>>,
 }
 
@@ -38,13 +38,13 @@ struct SourceTreeSlot {
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Hash)]
-struct WorkspaceViewKey {
+struct PackageViewKey {
     revision: SourceTreeRevision,
-    path: WorkspacePath,
+    path: PackagePath,
 }
 
-impl WorkspaceViewKey {
-    fn new(source: &WorkspaceLocator) -> Self {
+impl PackageViewKey {
+    fn new(source: &PackageLocator) -> Self {
         Self {
             revision: source.source_tree.revision.clone(),
             path: source.path.clone(),
@@ -57,10 +57,10 @@ impl WorkspaceViewKey {
 }
 
 #[derive(Default)]
-struct WorkspaceSlot {
-    inspected: OnceCell<Arc<Workspace>>,
-    semantic: OnceCell<SemanticWorkspace>,
-    runtime: OnceCell<Arc<Workspace>>,
+struct PackageSlot {
+    inspected: OnceCell<Arc<Package>>,
+    semantic: OnceCell<SemanticPackage>,
+    runtime: OnceCell<Arc<Package>>,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Hash)]
@@ -137,29 +137,29 @@ impl StageCache {
         Ok(changes.clone())
     }
 
-    pub async fn get_inspected_workspace(
+    pub async fn get_inspected_package(
         &self,
-        selector: CachedWorkspaceLocator,
+        selector: CachedPackageLocator,
         source_token: &str,
-    ) -> Result<Arc<Workspace>> {
-        let slot = self.workspace_slot(&selector).await?;
-        let workspace = slot
+    ) -> Result<Arc<Package>> {
+        let slot = self.package_slot(&selector).await?;
+        let package = slot
             .inspected
             .get_or_try_init(|| {
                 let selector = selector.clone();
                 let source_token = source_token.to_owned();
-                async move { load::get_inspected_workspace(selector, &source_token).await }
+                async move { load::get_inspected_package(selector, &source_token).await }
             })
             .await?;
-        Ok(Arc::clone(workspace))
+        Ok(Arc::clone(package))
     }
 
-    pub async fn get_semantic_workspace(
+    pub async fn get_semantic_package(
         &self,
-        selector: CachedWorkspaceLocator,
+        selector: CachedPackageLocator,
         source_token: &str,
-    ) -> Result<SemanticWorkspace> {
-        let slot = self.workspace_slot(&selector).await?;
+    ) -> Result<SemanticPackage> {
+        let slot = self.package_slot(&selector).await?;
         let semantic = slot
             .semantic
             .get_or_try_init(|| {
@@ -167,12 +167,10 @@ impl StageCache {
                 let selector = selector.clone();
                 let source_token = source_token.to_owned();
                 async move {
-                    let workspace = cache
-                        .get_inspected_workspace(selector, &source_token)
-                        .await?;
-                    let model = workspace.semantic_model().await?;
-                    Ok(SemanticWorkspace {
-                        workspace,
+                    let package = cache.get_inspected_package(selector, &source_token).await?;
+                    let model = package.semantic_model().await?;
+                    Ok(SemanticPackage {
+                        package,
                         model: Arc::new(model),
                     })
                 }
@@ -181,12 +179,12 @@ impl StageCache {
         Ok(semantic.clone())
     }
 
-    pub async fn get_runtime_workspace(
+    pub async fn get_runtime_package(
         &self,
-        selector: CachedWorkspaceLocator,
+        selector: CachedPackageLocator,
         source_token: &str,
-    ) -> Result<Arc<Workspace>> {
-        let slot = self.workspace_slot(&selector).await?;
+    ) -> Result<Arc<Package>> {
+        let slot = self.package_slot(&selector).await?;
         let runtime = slot
             .runtime
             .get_or_try_init(|| {
@@ -194,26 +192,24 @@ impl StageCache {
                 let selector = selector.clone();
                 let source_token = source_token.to_owned();
                 async move {
-                    let inspected = cache
-                        .get_inspected_workspace(selector, &source_token)
-                        .await?;
-                    runtime::get_runtime_workspace_from_inspected(inspected, &source_token).await
+                    let inspected = cache.get_inspected_package(selector, &source_token).await?;
+                    runtime::get_runtime_package_from_inspected(inspected, &source_token).await
                 }
             })
             .await?;
         Ok(Arc::clone(runtime))
     }
 
-    pub async fn invalidate_workspace(&self, selector: &CachedWorkspaceLocator) {
+    pub async fn invalidate_package(&self, selector: &CachedPackageLocator) {
         let Ok(cached_tree) = selector.cached_source_tree_origin() else {
             return;
         };
         let Some(tree_slot) = self.tree_slot_if_present(&cached_tree).await else {
             return;
         };
-        let key = WorkspaceViewKey::new(&selector.workspace);
-        tree_slot.workspace_views.lock().await.remove(&key);
-        if selector.workspace.source_tree.revision == SourceTreeRevision::LocalWorkingTree {
+        let key = PackageViewKey::new(&selector.package);
+        tree_slot.package_views.lock().await.remove(&key);
+        if selector.package.source_tree.revision == SourceTreeRevision::LocalWorkingTree {
             tree_slot
                 .source_trees
                 .lock()
@@ -232,7 +228,7 @@ impl StageCache {
             .await
             .retain(|revision, _| !source_tree_revision_is_branch(revision, branch));
         tree_slot
-            .workspace_views
+            .package_views
             .lock()
             .await
             .retain(|key, _| !key.is_branch(branch));
@@ -243,15 +239,12 @@ impl StageCache {
             .retain(|key, _| !key.is_branch(branch));
     }
 
-    async fn workspace_slot(
-        &self,
-        selector: &CachedWorkspaceLocator,
-    ) -> Result<Arc<WorkspaceSlot>> {
+    async fn package_slot(&self, selector: &CachedPackageLocator) -> Result<Arc<PackageSlot>> {
         let cached_tree = selector.cached_source_tree_origin()?;
         let tree_slot = self.tree_slot(cached_tree).await;
-        let view_key = WorkspaceViewKey::new(&selector.workspace);
-        let mut workspace_views = tree_slot.workspace_views.lock().await;
-        Ok(workspace_views.entry(view_key).or_default().clone())
+        let view_key = PackageViewKey::new(&selector.package);
+        let mut package_views = tree_slot.package_views.lock().await;
+        Ok(package_views.entry(view_key).or_default().clone())
     }
 
     async fn tree_slot(&self, cached_tree: CachedSourceTreeOrigin) -> Arc<SourceTreeOriginSlot> {
@@ -286,79 +279,79 @@ mod tests {
 
     use super::*;
     use crate::console::stage::{
-        RepoRelativePath, SourceTreeOrigin, TokenIdentity, WorkspaceLocator, WorkspacePath,
+        PackageLocator, PackagePath, RepoRelativePath, SourceTreeOrigin, TokenIdentity,
     };
 
     #[tokio::test]
-    async fn workspace_views_cache_inspected_semantic_and_runtime_handles() {
+    async fn package_views_cache_inspected_semantic_and_runtime_handles() {
         let tree = TempDir::new().expect("tree tempdir");
-        write_workspace(&tree.path().join("workspaces/payments")).await;
+        write_package(&tree.path().join("packages/payments")).await;
         let cache = StageCache::new();
-        let selector = cached_workspace_source(
+        let selector = cached_package_source(
             SourceTreeOrigin::local_folder(tree.path()).await.unwrap(),
             SourceTreeRevision::LocalWorkingTree,
-            "workspaces/payments",
+            "packages/payments",
         );
 
         let inspected = cache
-            .get_inspected_workspace(selector.clone(), "")
+            .get_inspected_package(selector.clone(), "")
             .await
             .unwrap();
         let inspected_again = cache
-            .get_inspected_workspace(selector.clone(), "")
+            .get_inspected_package(selector.clone(), "")
             .await
             .unwrap();
         let semantic = cache
-            .get_semantic_workspace(selector.clone(), "")
+            .get_semantic_package(selector.clone(), "")
             .await
             .unwrap();
         let semantic_again = cache
-            .get_semantic_workspace(selector.clone(), "")
+            .get_semantic_package(selector.clone(), "")
             .await
             .unwrap();
         let runtime = cache
-            .get_runtime_workspace(selector.clone(), "")
+            .get_runtime_package(selector.clone(), "")
             .await
             .unwrap();
-        let runtime_again = cache.get_runtime_workspace(selector, "").await.unwrap();
+        let runtime_again = cache.get_runtime_package(selector, "").await.unwrap();
 
         assert!(Arc::ptr_eq(&inspected, &inspected_again));
-        assert!(Arc::ptr_eq(&inspected, &semantic.workspace));
+        assert!(Arc::ptr_eq(&inspected, &semantic.package));
         assert!(Arc::ptr_eq(&semantic.model, &semantic_again.model));
         assert!(Arc::ptr_eq(&runtime, &runtime_again));
     }
 
     #[tokio::test]
-    async fn workspace_invalidation_drops_only_the_selected_view() {
+    async fn package_invalidation_drops_only_the_selected_view() {
         let tree = TempDir::new().expect("tree tempdir");
-        write_workspace(&tree.path().join("workspaces/payments")).await;
-        write_workspace(&tree.path().join("workspaces/search")).await;
+        write_package(&tree.path().join("packages/payments")).await;
+        write_package(&tree.path().join("packages/search")).await;
         let cache = StageCache::new();
         let source_tree = SourceTreeOrigin::local_folder(tree.path()).await.unwrap();
-        let payments = cached_workspace_source(
+        let payments = cached_package_source(
             source_tree.clone(),
             SourceTreeRevision::LocalWorkingTree,
-            "workspaces/payments",
+            "packages/payments",
         );
-        let search = cached_workspace_source(
+        let search = cached_package_source(
             source_tree,
             SourceTreeRevision::LocalWorkingTree,
-            "workspaces/search",
+            "packages/search",
         );
 
         let payments_before = cache
-            .get_inspected_workspace(payments.clone(), "")
+            .get_inspected_package(payments.clone(), "")
             .await
             .unwrap();
         let search_before = cache
-            .get_inspected_workspace(search.clone(), "")
+            .get_inspected_package(search.clone(), "")
             .await
             .unwrap();
 
-        cache.invalidate_workspace(&payments).await;
+        cache.invalidate_package(&payments).await;
 
-        let payments_after = cache.get_inspected_workspace(payments, "").await.unwrap();
-        let search_after = cache.get_inspected_workspace(search, "").await.unwrap();
+        let payments_after = cache.get_inspected_package(payments, "").await.unwrap();
+        let search_after = cache.get_inspected_package(search, "").await.unwrap();
         assert!(!Arc::ptr_eq(&payments_before, &payments_after));
         assert!(Arc::ptr_eq(&search_before, &search_after));
     }
@@ -367,8 +360,8 @@ mod tests {
     async fn staged_source_trees_are_cached_by_revision() {
         let repo = TempDir::new().expect("repo tempdir");
         init_repo(repo.path());
-        write_workspace(repo.path()).await;
-        commit_all(repo.path(), "add root workspace");
+        write_package(repo.path()).await;
+        commit_all(repo.path(), "add root package");
 
         let cache = StageCache::new();
         let cached_tree = CachedSourceTreeOrigin::new(
@@ -391,18 +384,18 @@ mod tests {
             .unwrap();
 
         assert!(Arc::ptr_eq(&first, &second));
-        assert!(first.root().join("rototo-workspace.toml").is_file());
+        assert!(first.root().join("rototo-package.toml").is_file());
     }
 
     #[tokio::test]
     async fn branch_invalidation_drops_branch_views_but_keeps_base_views() {
         let repo = TempDir::new().expect("repo tempdir");
         init_repo(repo.path());
-        write_workspace(repo.path()).await;
-        commit_all(repo.path(), "add root workspace");
+        write_package(repo.path()).await;
+        commit_all(repo.path(), "add root package");
         run_git(repo.path(), &["checkout", "-b", "feature/payments"]);
-        write_workspace(&repo.path().join("workspaces/payments")).await;
-        commit_all(repo.path(), "add payments workspace");
+        write_package(&repo.path().join("packages/payments")).await;
+        commit_all(repo.path(), "add payments package");
         run_git(repo.path(), &["checkout", "main"]);
 
         let cache = StageCache::new();
@@ -411,23 +404,20 @@ mod tests {
         };
         let cached_tree =
             CachedSourceTreeOrigin::new("user_123", tree.clone(), TokenIdentity::None).unwrap();
-        let base = cached_workspace_source(
+        let base = cached_package_source(
             tree.clone(),
             SourceTreeRevision::GitRef(GitRefName::new("main").unwrap()),
             ".",
         );
-        let branch = cached_workspace_source(
+        let branch = cached_package_source(
             tree,
             SourceTreeRevision::git_branch("feature/payments").unwrap(),
             ".",
         );
 
-        let base_before = cache
-            .get_inspected_workspace(base.clone(), "")
-            .await
-            .unwrap();
+        let base_before = cache.get_inspected_package(base.clone(), "").await.unwrap();
         let branch_before = cache
-            .get_inspected_workspace(branch.clone(), "")
+            .get_inspected_package(branch.clone(), "")
             .await
             .unwrap();
         let base_tree_before = cache
@@ -449,8 +439,8 @@ mod tests {
             .invalidate_branch(&cached_tree, "feature/payments")
             .await;
 
-        let base_after = cache.get_inspected_workspace(base, "").await.unwrap();
-        let branch_after = cache.get_inspected_workspace(branch, "").await.unwrap();
+        let base_after = cache.get_inspected_package(base, "").await.unwrap();
+        let branch_after = cache.get_inspected_package(branch, "").await.unwrap();
         let base_tree_after = cache
             .get_staged_source_tree(
                 cached_tree.clone(),
@@ -475,8 +465,8 @@ mod tests {
     async fn branch_invalidation_drops_cached_branch_changes() {
         let repo = TempDir::new().expect("repo tempdir");
         init_repo(repo.path());
-        write_workspace(repo.path()).await;
-        commit_all(repo.path(), "add root workspace");
+        write_package(repo.path()).await;
+        commit_all(repo.path(), "add root package");
         run_git(repo.path(), &["checkout", "-b", "feature/payments"]);
         tokio::fs::write(
             repo.path().join("variables/checkout.toml"),
@@ -533,11 +523,11 @@ mod tests {
         );
     }
 
-    async fn write_workspace(path: &Path) {
+    async fn write_package(path: &Path) {
         tokio::fs::create_dir_all(path.join("variables"))
             .await
             .unwrap();
-        tokio::fs::write(path.join("rototo-workspace.toml"), "schema_version = 1\n")
+        tokio::fs::write(path.join("rototo-package.toml"), "schema_version = 1\n")
             .await
             .unwrap();
         tokio::fs::write(
@@ -555,14 +545,14 @@ default = true
         .unwrap();
     }
 
-    fn cached_workspace_source(
+    fn cached_package_source(
         tree: SourceTreeOrigin,
         revision: SourceTreeRevision,
         path: &str,
-    ) -> CachedWorkspaceLocator {
-        CachedWorkspaceLocator::new(
+    ) -> CachedPackageLocator {
+        CachedPackageLocator::new(
             "user_123",
-            WorkspaceLocator::new(tree, revision, WorkspacePath::new(path).unwrap()),
+            PackageLocator::new(tree, revision, PackagePath::new(path).unwrap()),
             TokenIdentity::None,
         )
         .unwrap()

@@ -1,0 +1,5 @@
+schema_version = 1
+
+description = "Qualifier in a two-node cycle"
+
+when = '(env.qualifier["cycle-b"])'

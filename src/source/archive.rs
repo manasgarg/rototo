@@ -5,13 +5,13 @@ use tokio::io::AsyncWriteExt;
 
 use crate::error::{Result, RototoError};
 
-use super::WORKSPACE_MANIFEST;
+use super::PACKAGE_MANIFEST;
 use super::path::{async_is_file, relative_path_is_safe, select_subdir};
 #[cfg(feature = "console")]
 use super::types::StagedSourceTree;
 use super::types::{
-    LoadedWorkspaceSource, SourceAuth, SourceFingerprint, SourceLayer, SourceOptions, SourceProbe,
-    StagedWorkspace,
+    LoadedPackageSource, SourceAuth, SourceFingerprint, SourceLayer, SourceOptions, SourceProbe,
+    StagedPackage,
 };
 use super::uri::SourceUri;
 
@@ -22,10 +22,10 @@ pub(super) async fn stage_https_archive(
     uri: &SourceUri,
     original: &str,
     options: &SourceOptions,
-) -> Result<LoadedWorkspaceSource> {
+) -> Result<LoadedPackageSource> {
     if uri.ref_.is_some() {
         return Err(RototoError::new(
-            "https workspace sources only support #:subdir fragments",
+            "https package sources only support #:subdir fragments",
         ));
     }
 
@@ -36,10 +36,10 @@ pub(super) async fn stage_https_archive(
     } = extract_https_archive(uri, original, options).await?;
     let root = match uri.subdir.as_deref() {
         Some(subdir) => select_archive_subdir(&extract_dir, subdir, original).await?,
-        None => infer_archive_workspace_root(&extract_dir, original).await?,
+        None => infer_archive_package_root(&extract_dir, original).await?,
     };
-    Ok(LoadedWorkspaceSource {
-        staged: StagedWorkspace::temporary(root, tempdir),
+    Ok(LoadedPackageSource {
+        staged: StagedPackage::temporary(root, tempdir),
         fingerprint: fingerprint.clone(),
         immutable: false,
         layers: vec![SourceLayer {
@@ -99,7 +99,7 @@ async fn extract_https_archive(
     let response = request
         .send()
         .await
-        .map_err(|err| RototoError::new(format!("failed to fetch workspace archive: {err}")))?;
+        .map_err(|err| RototoError::new(format!("failed to fetch package archive: {err}")))?;
     let status = response.status();
     if !status.is_success() {
         let preview = response_preview(response, ERROR_BODY_PREVIEW_BYTES).await?;
@@ -109,7 +109,7 @@ async fn extract_https_archive(
             format!(": {preview}")
         };
         return Err(RototoError::new(format!(
-            "failed to fetch workspace archive: HTTP {status}{detail}"
+            "failed to fetch package archive: HTTP {status}{detail}"
         )));
     }
     let fingerprint = response_fingerprint(&response);
@@ -117,14 +117,14 @@ async fn extract_https_archive(
         && length > options.max_archive_bytes()
     {
         return Err(RototoError::new(format!(
-            "workspace archive is too large: {length} bytes exceeds limit of {} bytes",
+            "package archive is too large: {length} bytes exceeds limit of {} bytes",
             options.max_archive_bytes()
         )));
     }
 
     let tempdir = TempDir::new()
         .map_err(|err| RototoError::new(format!("failed to create tempdir: {err}")))?;
-    let archive_path = tempdir.path().join("workspace.tar.gz");
+    let archive_path = tempdir.path().join("package.tar.gz");
     write_response_to_file(response, &archive_path, options.max_archive_bytes()).await?;
     let fingerprint = match fingerprint {
         Some(fingerprint) => Some(fingerprint),
@@ -163,7 +163,7 @@ pub(super) async fn probe_https_archive(
 ) -> Result<SourceProbe> {
     if uri.ref_.is_some() {
         return Err(RototoError::new(
-            "https workspace sources only support #:subdir fragments",
+            "https package sources only support #:subdir fragments",
         ));
     }
     let url = format!("{}://{}", uri.scheme, uri.base);
@@ -175,11 +175,11 @@ pub(super) async fn probe_https_archive(
     let response = request
         .send()
         .await
-        .map_err(|err| RototoError::new(format!("failed to check workspace archive: {err}")))?;
+        .map_err(|err| RototoError::new(format!("failed to check package archive: {err}")))?;
     let status = response.status();
     if !status.is_success() {
         return Err(RototoError::new(format!(
-            "failed to check workspace archive: HTTP {status}"
+            "failed to check package archive: HTTP {status}"
         )));
     }
     let Some(fingerprint) = response_fingerprint(&response) else {
@@ -207,7 +207,7 @@ fn https_only_redirect_policy() -> reqwest::redirect::Policy {
             return attempt.error("too many redirects");
         }
         if attempt.url().scheme() != "https" {
-            return attempt.error("workspace archive redirects must stay on https");
+            return attempt.error("package archive redirects must stay on https");
         }
         attempt.follow()
     })
@@ -235,7 +235,7 @@ fn http_validator_fingerprint(headers: &reqwest::header::HeaderMap) -> Option<So
 async fn content_hash_fingerprint(path: &Path) -> Result<SourceFingerprint> {
     let bytes = tokio::fs::read(path).await.map_err(|err| {
         RototoError::new(format!(
-            "failed to read workspace archive {}: {err}",
+            "failed to read package archive {}: {err}",
             path.display()
         ))
     })?;
@@ -262,7 +262,7 @@ async fn write_response_to_file(
 ) -> Result<()> {
     let mut file = tokio::fs::File::create(path).await.map_err(|err| {
         RototoError::new(format!(
-            "failed to create workspace archive {}: {err}",
+            "failed to create package archive {}: {err}",
             path.display()
         ))
     })?;
@@ -270,23 +270,23 @@ async fn write_response_to_file(
     while let Some(chunk) = response
         .chunk()
         .await
-        .map_err(|err| RototoError::new(format!("failed to read workspace archive: {err}")))?
+        .map_err(|err| RototoError::new(format!("failed to read package archive: {err}")))?
     {
         total = total
             .checked_add(chunk.len() as u64)
-            .ok_or_else(|| RototoError::new("workspace archive is too large"))?;
+            .ok_or_else(|| RototoError::new("package archive is too large"))?;
         if total > max_bytes {
             return Err(RototoError::new(format!(
-                "workspace archive is too large: exceeded limit of {max_bytes} bytes"
+                "package archive is too large: exceeded limit of {max_bytes} bytes"
             )));
         }
         file.write_all(&chunk)
             .await
-            .map_err(|err| RototoError::new(format!("failed to write workspace archive: {err}")))?;
+            .map_err(|err| RototoError::new(format!("failed to write package archive: {err}")))?;
     }
     file.flush()
         .await
-        .map_err(|err| RototoError::new(format!("failed to write workspace archive: {err}")))?;
+        .map_err(|err| RototoError::new(format!("failed to write package archive: {err}")))?;
     Ok(())
 }
 
@@ -314,7 +314,7 @@ fn extract_archive(
 ) -> Result<()> {
     let file = std::fs::File::open(archive_path).map_err(|err| {
         RototoError::new(format!(
-            "failed to open workspace archive {}: {err}",
+            "failed to open package archive {}: {err}",
             archive_path.display()
         ))
     })?;
@@ -324,17 +324,17 @@ fn extract_archive(
     let mut decompressed_bytes = 0_u64;
     for entry in archive
         .entries()
-        .map_err(|err| RototoError::new(format!("failed to read workspace archive: {err}")))?
+        .map_err(|err| RototoError::new(format!("failed to read package archive: {err}")))?
     {
         let mut entry = entry
             .map_err(|err| RototoError::new(format!("failed to read archive entry: {err}")))?;
         let entry_type = entry.header().entry_type();
         entry_count = entry_count
             .checked_add(1)
-            .ok_or_else(|| RototoError::new("workspace archive contains too many entries"))?;
+            .ok_or_else(|| RototoError::new("package archive contains too many entries"))?;
         if entry_count > max_entries {
             return Err(RototoError::new(format!(
-                "workspace archive contains too many entries: exceeded limit of {max_entries}"
+                "package archive contains too many entries: exceeded limit of {max_entries}"
             )));
         }
         if archive_skipped_entry(entry_type) {
@@ -345,13 +345,13 @@ fn extract_archive(
             .map_err(|err| RototoError::new(format!("archive entry path is invalid: {err}")))?;
         if !archive_path_is_safe(&path) {
             return Err(RototoError::new(format!(
-                "workspace archive contains unsafe path: {}",
+                "package archive contains unsafe path: {}",
                 path.display()
             )));
         }
         if !(entry_type.is_file() || entry_type.is_dir()) {
             return Err(RototoError::new(format!(
-                "workspace archive contains unsupported entry type at: {}",
+                "package archive contains unsupported entry type at: {}",
                 path.display()
             )));
         }
@@ -360,16 +360,16 @@ fn extract_archive(
                 .checked_add(entry.header().size().map_err(|err| {
                     RototoError::new(format!("archive entry size is invalid: {err}"))
                 })?)
-                .ok_or_else(|| RototoError::new("workspace archive is too large"))?;
+                .ok_or_else(|| RototoError::new("package archive is too large"))?;
             if decompressed_bytes > max_decompressed_bytes {
                 return Err(RototoError::new(format!(
-                    "workspace archive decompressed content is too large: exceeded limit of {max_decompressed_bytes} bytes"
+                    "package archive decompressed content is too large: exceeded limit of {max_decompressed_bytes} bytes"
                 )));
             }
         }
-        entry.unpack_in(extract_dir).map_err(|err| {
-            RototoError::new(format!("failed to extract workspace archive: {err}"))
-        })?;
+        entry
+            .unpack_in(extract_dir)
+            .map_err(|err| RototoError::new(format!("failed to extract package archive: {err}")))?;
     }
     Ok(())
 }
@@ -383,35 +383,35 @@ fn archive_skipped_entry(entry_type: tar::EntryType) -> bool {
         || entry_type.is_hard_link()
 }
 
-async fn infer_archive_workspace_root(extract_dir: &Path, original: &str) -> Result<PathBuf> {
-    if async_is_file(&extract_dir.join(WORKSPACE_MANIFEST)).await {
+async fn infer_archive_package_root(extract_dir: &Path, original: &str) -> Result<PathBuf> {
+    if async_is_file(&extract_dir.join(PACKAGE_MANIFEST)).await {
         return Ok(extract_dir.to_path_buf());
     }
 
     let mut dirs = Vec::new();
     let mut entries = tokio::fs::read_dir(extract_dir)
         .await
-        .map_err(|err| RototoError::new(format!("failed to inspect workspace archive: {err}")))?;
+        .map_err(|err| RototoError::new(format!("failed to inspect package archive: {err}")))?;
     while let Some(entry) = entries
         .next_entry()
         .await
-        .map_err(|err| RototoError::new(format!("failed to inspect workspace archive: {err}")))?
+        .map_err(|err| RototoError::new(format!("failed to inspect package archive: {err}")))?
     {
         let path = entry.path();
         if entry
             .metadata()
             .await
-            .map_err(|err| RototoError::new(format!("failed to inspect workspace archive: {err}")))?
+            .map_err(|err| RototoError::new(format!("failed to inspect package archive: {err}")))?
             .is_dir()
         {
             dirs.push(path);
         }
     }
-    if dirs.len() == 1 && async_is_file(&dirs[0].join(WORKSPACE_MANIFEST)).await {
+    if dirs.len() == 1 && async_is_file(&dirs[0].join(PACKAGE_MANIFEST)).await {
         return Ok(dirs.remove(0));
     }
     Err(RototoError::new(format!(
-        "workspace archive from `{original}` does not contain a clear workspace root; use #:subdir"
+        "package archive from `{original}` does not contain a clear package root; use #:subdir"
     )))
 }
 
@@ -422,7 +422,7 @@ async fn select_archive_subdir(
 ) -> Result<PathBuf> {
     if !relative_path_is_safe(Path::new(subdir)) {
         return Err(RototoError::new(format!(
-            "workspace source subdir is unsafe: {subdir}"
+            "package source subdir is unsafe: {subdir}"
         )));
     }
 
@@ -444,17 +444,17 @@ async fn single_archive_directory(extract_dir: &Path) -> Result<Option<PathBuf>>
     let mut dirs = Vec::new();
     let mut entries = tokio::fs::read_dir(extract_dir)
         .await
-        .map_err(|err| RototoError::new(format!("failed to inspect workspace archive: {err}")))?;
+        .map_err(|err| RototoError::new(format!("failed to inspect package archive: {err}")))?;
     while let Some(entry) = entries
         .next_entry()
         .await
-        .map_err(|err| RototoError::new(format!("failed to inspect workspace archive: {err}")))?
+        .map_err(|err| RototoError::new(format!("failed to inspect package archive: {err}")))?
     {
         let path = entry.path();
         if entry
             .metadata()
             .await
-            .map_err(|err| RototoError::new(format!("failed to inspect workspace archive: {err}")))?
+            .map_err(|err| RototoError::new(format!("failed to inspect package archive: {err}")))?
             .is_dir()
         {
             dirs.push(path);
@@ -521,9 +521,9 @@ mod tests {
     #[tokio::test]
     async fn select_archive_subdir_falls_back_to_single_wrapper_directory() {
         let temp = tempfile::TempDir::new().unwrap();
-        let workspace = temp.path().join("repo-root").join("examples/basic");
-        tokio::fs::create_dir_all(&workspace).await.unwrap();
-        tokio::fs::write(workspace.join(WORKSPACE_MANIFEST), "schema_version = 1\n")
+        let package = temp.path().join("repo-root").join("examples/basic");
+        tokio::fs::create_dir_all(&package).await.unwrap();
+        tokio::fs::write(package.join(PACKAGE_MANIFEST), "schema_version = 1\n")
             .await
             .unwrap();
 
@@ -531,21 +531,21 @@ mod tests {
             .await
             .unwrap();
 
-        assert_eq!(root, tokio::fs::canonicalize(workspace).await.unwrap());
+        assert_eq!(root, tokio::fs::canonicalize(package).await.unwrap());
     }
 
     #[test]
     fn extract_archive_rejects_unsafe_paths() {
         assert!(!archive_path_is_safe(Path::new("../evil")));
         assert!(!archive_path_is_safe(Path::new("/tmp/evil")));
-        assert!(!archive_path_is_safe(Path::new("workspace/../evil")));
+        assert!(!archive_path_is_safe(Path::new("package/../evil")));
     }
 
     #[test]
     fn extract_archive_rejects_special_entries() {
         let temp = tempfile::TempDir::new().unwrap();
-        let archive_path = temp.path().join("workspace.tar.gz");
-        write_archive_with_entry(&archive_path, "workspace/fifo", tar::EntryType::Fifo).unwrap();
+        let archive_path = temp.path().join("package.tar.gz");
+        write_archive_with_entry(&archive_path, "package/fifo", tar::EntryType::Fifo).unwrap();
 
         let err = extract_archive(
             &archive_path,
@@ -561,7 +561,7 @@ mod tests {
     #[test]
     fn extract_archive_skips_metadata_entries() {
         let temp = tempfile::TempDir::new().unwrap();
-        let archive_path = temp.path().join("workspace.tar.gz");
+        let archive_path = temp.path().join("package.tar.gz");
         {
             let file = std::fs::File::create(&archive_path).unwrap();
             let encoder = flate2::write::GzEncoder::new(file, flate2::Compression::default());
@@ -589,7 +589,7 @@ mod tests {
             archive
                 .append_data(
                     &mut file_header,
-                    "workspace/rototo-workspace.toml",
+                    "package/rototo-package.toml",
                     Cursor::new(contents),
                 )
                 .unwrap();
@@ -607,17 +607,13 @@ mod tests {
         )
         .unwrap();
 
-        assert!(
-            extract_dir
-                .join("workspace/rototo-workspace.toml")
-                .is_file()
-        );
+        assert!(extract_dir.join("package/rototo-package.toml").is_file());
     }
 
     #[test]
     fn extract_archive_skips_link_entries() {
         let temp = tempfile::TempDir::new().unwrap();
-        let archive_path = temp.path().join("workspace.tar.gz");
+        let archive_path = temp.path().join("package.tar.gz");
         {
             let file = std::fs::File::create(&archive_path).unwrap();
             let encoder = flate2::write::GzEncoder::new(file, flate2::Compression::default());
@@ -632,7 +628,7 @@ mod tests {
             archive
                 .append_data(
                     &mut link_header,
-                    "workspace/ignored-link",
+                    "package/ignored-link",
                     Cursor::new(Vec::<u8>::new()),
                 )
                 .unwrap();
@@ -646,7 +642,7 @@ mod tests {
             archive
                 .append_data(
                     &mut file_header,
-                    "workspace/rototo-workspace.toml",
+                    "package/rototo-package.toml",
                     Cursor::new(contents),
                 )
                 .unwrap();
@@ -664,20 +660,15 @@ mod tests {
         )
         .unwrap();
 
-        assert!(!extract_dir.join("workspace/ignored-link").exists());
-        assert!(
-            extract_dir
-                .join("workspace/rototo-workspace.toml")
-                .is_file()
-        );
+        assert!(!extract_dir.join("package/ignored-link").exists());
+        assert!(extract_dir.join("package/rototo-package.toml").is_file());
     }
 
     #[test]
     fn extract_archive_rejects_decompressed_size_over_limit() {
         let temp = tempfile::TempDir::new().unwrap();
-        let archive_path = temp.path().join("workspace.tar.gz");
-        write_archive_with_file(&archive_path, "workspace/rototo-workspace.toml", b"12345")
-            .unwrap();
+        let archive_path = temp.path().join("package.tar.gz");
+        write_archive_with_file(&archive_path, "package/rototo-package.toml", b"12345").unwrap();
 
         let err = extract_archive(&archive_path, &temp.path().join("extract"), 4, 10).unwrap_err();
 
@@ -690,12 +681,12 @@ mod tests {
     #[test]
     fn extract_archive_rejects_entry_count_over_limit() {
         let temp = tempfile::TempDir::new().unwrap();
-        let archive_path = temp.path().join("workspace.tar.gz");
+        let archive_path = temp.path().join("package.tar.gz");
         {
             let file = std::fs::File::create(&archive_path).unwrap();
             let encoder = flate2::write::GzEncoder::new(file, flate2::Compression::default());
             let mut archive = tar::Builder::new(encoder);
-            for entry_path in ["workspace/a.toml", "workspace/b.toml"] {
+            for entry_path in ["package/a.toml", "package/b.toml"] {
                 let mut header = tar::Header::new_gnu();
                 header.set_entry_type(tar::EntryType::Regular);
                 header.set_size(0);
@@ -718,7 +709,7 @@ mod tests {
     #[tokio::test]
     async fn content_hash_fingerprint_uses_stable_sha256_digest() {
         let temp = tempfile::TempDir::new().unwrap();
-        let archive_path = temp.path().join("workspace.tar.gz");
+        let archive_path = temp.path().join("package.tar.gz");
         tokio::fs::write(&archive_path, b"abc").await.unwrap();
 
         assert_eq!(

@@ -14,7 +14,7 @@ fn lists_qualifiers() {
 }
 
 #[test]
-fn lists_variables_from_discovered_workspace() {
+fn lists_variables_from_discovered_package() {
     Command::cargo_bin("rototo")
         .unwrap()
         .current_dir("examples/basic")
@@ -24,11 +24,16 @@ fn lists_variables_from_discovered_workspace() {
         .stdout(predicate::str::contains("checkout-redesign"))
         .stdout(predicate::str::contains("llm-agent-config"))
         .stdout(predicate::str::contains("tenant-limits"))
-        .stdout(predicate::str::contains("user-is-admin"));
+        .stdout(predicate::str::contains("user-is-admin"))
+        .stdout(predicate::str::contains("type: catalog:checkout-redesign"))
+        .stdout(predicate::str::contains(
+            "resolve: default \"control\" / 1 rule",
+        ))
+        .stdout(predicate::str::contains("variable://checkout-redesign").not());
 }
 
 #[test]
-fn shows_workspace_inventory_including_linters() {
+fn shows_package_inventory_including_linters() {
     Command::cargo_bin("rototo")
         .unwrap()
         .args(["show", "examples/basic"])
@@ -38,8 +43,9 @@ fn shows_workspace_inventory_including_linters() {
         .stdout(predicate::str::contains("catalogs:"))
         .stdout(predicate::str::contains("variables:"))
         .stdout(predicate::str::contains(
-            "llm-agent-config  catalog://llm-agent-config  catalogs/llm-agent-config.schema.json",
+            "llm-agent-config  catalogs/llm-agent-config.schema.json",
         ))
+        .stdout(predicate::str::contains("catalog://llm-agent-config").not())
         .stdout(predicate::str::contains("lint authorities:"))
         .stdout(predicate::str::contains(
             "consumer-experience/checkout-heading-required",
@@ -54,14 +60,14 @@ fn shows_workspace_inventory_including_linters() {
 }
 
 #[test]
-fn shows_workspace_inventory_as_json_including_top_level_entries() {
+fn shows_package_inventory_as_json_including_top_level_entries() {
     Command::cargo_bin("rototo")
         .unwrap()
         .args(["show", "examples/basic", "--json"])
         .assert()
         .success()
         .stdout(predicate::str::contains(
-            r#""path": "request-contexts/request.schema.json""#,
+            r#""path": "evaluation-contexts/request.schema.json""#,
         ))
         .stdout(predicate::str::contains(r#""catalogs": ["#))
         .stdout(predicate::str::contains(r#""qualifiers": ["#))
@@ -93,6 +99,11 @@ fn gets_qualifier_by_id() {
         .args(["show", "examples/basic", "--qualifier", "premium-users"])
         .assert()
         .success()
+        .stdout(predicate::str::contains("qualifier: premium-users"))
+        .stdout(predicate::str::contains(
+            "path: qualifiers/premium-users.toml",
+        ))
+        .stdout(predicate::str::contains("source:"))
         .stdout(predicate::str::contains(
             "description = \"Users on the premium plan\"",
         ))
@@ -102,7 +113,7 @@ fn gets_qualifier_by_id() {
 }
 
 #[test]
-fn gets_variable_from_discovered_workspace() {
+fn gets_variable_from_discovered_package() {
     Command::cargo_bin("rototo")
         .unwrap()
         .current_dir("examples/basic")
@@ -119,6 +130,9 @@ fn gets_catalog_with_entries() {
         .args(["show", "examples/basic", "--catalog", "llm-agent-config"])
         .assert()
         .success()
+        .stdout(predicate::str::contains("catalog: llm-agent-config"))
+        .stdout(predicate::str::contains("values: 3 entries"))
+        .stdout(predicate::str::contains("source:"))
         .stdout(predicate::str::contains(r#""entries": {"#))
         .stdout(predicate::str::contains(r#""local": {"#))
         .stdout(predicate::str::contains(r#""model": "local-small""#))
@@ -149,8 +163,8 @@ fn gets_qualifier_by_id_as_json() {
 
 #[test]
 fn lints_qualifier_by_id() {
-    let workspace = std::path::absolute("examples/basic").unwrap();
-    let expected = format!("ok: {}\n", workspace.display());
+    let package = std::path::absolute("examples/basic").unwrap();
+    let expected = format!("ok: {}\n", package.display());
 
     Command::cargo_bin("rototo")
         .unwrap()
@@ -222,9 +236,9 @@ fn resolves_qualifier_with_trace_output() {
 }
 
 #[test]
-fn lints_variable_from_discovered_workspace() {
-    let workspace = std::path::absolute("examples/basic").unwrap();
-    let expected = format!("ok: {}\n", workspace.display());
+fn lints_variable_from_discovered_package() {
+    let package = std::path::absolute("examples/basic").unwrap();
+    let expected = format!("ok: {}\n", package.display());
 
     Command::cargo_bin("rototo")
         .unwrap()
@@ -286,7 +300,7 @@ fn resolves_production_example_enterprise_profile() {
             "--variable",
             "agent-config",
             "--context",
-            "@examples/production/request-contexts/request-entries/eu-enterprise.json",
+            "@examples/production/evaluation-contexts/request-samples/eu-enterprise.json",
             "--json",
         ])
         .assert()
@@ -306,7 +320,7 @@ fn resolves_all_variables() {
             "examples/basic",
             "--variables",
             "--context",
-            "@examples/basic/request-contexts/request-entries/premium-enterprise.json",
+            "@examples/basic/evaluation-contexts/request-samples/premium-enterprise.json",
             "--context",
             "lane=prod",
             "--json",
@@ -360,7 +374,7 @@ fn resolves_variable_with_trace_output() {
     assert!(stdout.contains("variable: checkout-redesign"));
     assert!(stdout.contains("qualifier: premium-users"));
     assert!(stdout.contains(r#"when: (context.user.tier == "premium")"#));
-    assert!(stdout.contains(r#"rule[0] if qualifier["premium-users"] ->"#));
+    assert!(stdout.contains(r#"rule[0] if env.qualifier["premium-users"] ->"#));
     assert!(stdout.contains(r#""variant":"premium""#));
     assert!(stdout.contains("default ->"));
     assert!(stdout.contains("source: checkout-redesign:premium"));
@@ -371,7 +385,7 @@ fn resolves_variable_with_trace_output() {
 }
 
 #[test]
-fn resolve_rejects_context_that_does_not_match_workspace_schema() {
+fn resolve_rejects_context_that_does_not_match_package_schema() {
     Command::cargo_bin("rototo")
         .unwrap()
         .args([
@@ -385,7 +399,7 @@ fn resolve_rejects_context_that_does_not_match_workspace_schema() {
         .assert()
         .failure()
         .stderr(predicate::str::contains(
-            "resolve context does not match any compatible request context",
+            "evaluation context does not match any compatible evaluation context",
         ));
 }
 
@@ -403,9 +417,7 @@ fn resolve_rejects_missing_condition_context_even_when_schema_allows_it() {
         ])
         .assert()
         .failure()
-        .stderr(predicate::str::contains(
-            "expression path is missing: context.user.tier",
-        ));
+        .stderr(predicate::str::contains("No such key"));
 }
 
 #[test]
@@ -445,9 +457,7 @@ fn resolve_rejects_missing_context_for_variable_rules() {
         ])
         .assert()
         .failure()
-        .stderr(predicate::str::contains(
-            "expression path is missing: context.user.tier",
-        ));
+        .stderr(predicate::str::contains("No such key"));
 }
 
 #[test]
@@ -473,13 +483,13 @@ fn missing_qualifier_id_fails() {
 }
 
 #[test]
-fn missing_workspace_context_fails() {
+fn missing_package_context_fails() {
     Command::cargo_bin("rototo")
         .unwrap()
         .args(["show", "--qualifiers"])
         .assert()
         .failure()
         .stderr(predicate::str::contains(
-            "workspace not found: pass a workspace source or run inside a rototo workspace",
+            "package not found: pass a package source or run inside a rototo package",
         ));
 }

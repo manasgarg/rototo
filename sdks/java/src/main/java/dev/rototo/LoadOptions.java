@@ -3,11 +3,11 @@ package dev.rototo;
 public final class LoadOptions {
     private static final LoadOptions DEFAULT = new LoadOptions(null, LintMode.DENY);
 
-    private final String workspaceToken;
+    private final String packageToken;
     private final LintMode lint;
 
-    private LoadOptions(String workspaceToken, LintMode lint) {
-        this.workspaceToken = workspaceToken;
+    private LoadOptions(String packageToken, LintMode lint) {
+        this.packageToken = packageToken;
         this.lint = lint == null ? LintMode.DENY : lint;
     }
 
@@ -19,8 +19,8 @@ public final class LoadOptions {
         return new Builder();
     }
 
-    public String workspaceToken() {
-        return workspaceToken;
+    public String packageToken() {
+        return packageToken;
     }
 
     public LintMode lint() {
@@ -28,13 +28,13 @@ public final class LoadOptions {
     }
 
     public static final class Builder {
-        private String workspaceToken;
+        private String packageToken;
         private LintMode lint = LintMode.DENY;
 
         private Builder() {}
 
-        public Builder workspaceToken(String workspaceToken) {
-            this.workspaceToken = workspaceToken;
+        public Builder packageToken(String packageToken) {
+            this.packageToken = packageToken;
             return this;
         }
 
@@ -44,7 +44,7 @@ public final class LoadOptions {
         }
 
         public LoadOptions build() {
-            return new LoadOptions(workspaceToken, lint);
+            return new LoadOptions(packageToken, lint);
         }
     }
 }

@@ -1,0 +1,5 @@
+schema_version = 1
+
+description = "References a context path not declared in the package context schema"
+
+when = '(context.account.plan == "enterprise")'

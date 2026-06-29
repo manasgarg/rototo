@@ -1,14 +1,14 @@
 use crate::diagnostics::{DiagnosticLocation, SourcePosition};
 
-use super::super::WorkspaceLintSnapshot;
-use super::WorkspaceReference;
+use super::super::PackageLintSnapshot;
+use super::PackageReference;
 
 pub(crate) fn references(
-    snapshot: &WorkspaceLintSnapshot,
+    snapshot: &PackageLintSnapshot,
     path: &str,
     position: SourcePosition,
     include_declaration: bool,
-) -> Vec<WorkspaceReference> {
+) -> Vec<PackageReference> {
     let Some(target) = snapshot.references.target_at_position(path, position) else {
         return Vec::new();
     };
@@ -22,9 +22,9 @@ pub(crate) fn references(
 }
 
 fn references_from_locations(
-    snapshot: &WorkspaceLintSnapshot,
+    snapshot: &PackageLintSnapshot,
     locations: Vec<DiagnosticLocation>,
-) -> Vec<WorkspaceReference> {
+) -> Vec<PackageReference> {
     let mut references = locations
         .into_iter()
         .filter_map(|mut location| {
@@ -34,17 +34,17 @@ fn references_from_locations(
                 .iter()
                 .find(|document| document.path == location.path)?;
             location.doc = Some(document.id);
-            Some(WorkspaceReference {
+            Some(PackageReference {
                 uri: document.uri.clone(),
                 location,
             })
         })
         .collect::<Vec<_>>();
-    sort_and_deduplicate_workspace_references(&mut references);
+    sort_and_deduplicate_package_references(&mut references);
     references
 }
 
-fn sort_and_deduplicate_workspace_references(references: &mut Vec<WorkspaceReference>) {
+fn sort_and_deduplicate_package_references(references: &mut Vec<PackageReference>) {
     references.sort_by(|left, right| {
         left.uri.cmp(&right.uri).then_with(|| {
             source_location_sort_key(&left.location).cmp(&source_location_sort_key(&right.location))

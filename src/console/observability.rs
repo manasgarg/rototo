@@ -15,7 +15,7 @@ use super::runtime_config::{
 
 /// Development-only NDJSON event sink for console API and UI activity.
 ///
-/// The sink is enabled by the console runtime workspace, lives in `ConsoleState`,
+/// The sink is enabled by the console runtime package, lives in `ConsoleState`,
 /// and serializes append writes through one lock so concurrent requests do not
 /// interleave JSON lines. Dropping it closes no external service; the files
 /// remain in the configured directory.
@@ -250,7 +250,7 @@ fn sensitive_key(key: &str) -> bool {
         || key.contains("token")
         || key.contains("device_code")
         || key.contains("devicecode")
-        || key.contains("workspace_token")
+        || key.contains("package_token")
 }
 
 fn sensitive_string(value: &str) -> bool {
@@ -260,7 +260,7 @@ fn sensitive_string(value: &str) -> bool {
         || value.contains("rototo_console_session=")
         || value.contains("ghp_")
         || value.contains("github_pat_")
-        || value.contains("rototo_workspace_token")
+        || value.contains("rototo_package_token")
 }
 
 #[cfg(test)]
@@ -275,7 +275,7 @@ mod tests {
                 "authorization": "Bearer secret",
                 "cookie": "rototo_console_session=secret"
             },
-            "nested": [{ "workspaceToken": "secret" }],
+            "nested": [{ "packageToken": "secret" }],
             "status": 200
         });
 
@@ -284,7 +284,7 @@ mod tests {
         assert_eq!(value["token"], "[REDACTED]");
         assert_eq!(value["headers"]["authorization"], "[REDACTED]");
         assert_eq!(value["headers"]["cookie"], "[REDACTED]");
-        assert_eq!(value["nested"][0]["workspaceToken"], "[REDACTED]");
+        assert_eq!(value["nested"][0]["packageToken"], "[REDACTED]");
         assert_eq!(value["status"], 200);
     }
 
@@ -292,12 +292,12 @@ mod tests {
     fn redacts_sensitive_strings_even_when_key_is_safe() {
         let mut value = json!({
             "message": "request failed with Authorization: Bearer secret",
-            "safe": "workspace loaded"
+            "safe": "package loaded"
         });
 
         redact_value(&mut value);
 
         assert_eq!(value["message"], "[REDACTED]");
-        assert_eq!(value["safe"], "workspace loaded");
+        assert_eq!(value["safe"], "package loaded");
     }
 }

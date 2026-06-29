@@ -11,14 +11,14 @@ EXAMPLES_BASIC = str(ROOT / "examples" / "basic")
 
 
 class ApiTest(unittest.IsolatedAsyncioTestCase):
-    async def test_workspace_exposes_python_runtime_resolution_api(self) -> None:
-        workspace = await rototo.Workspace.load(EXAMPLES_BASIC)
+    async def test_package_exposes_python_runtime_resolution_api(self) -> None:
+        package = await rototo.Package.load(EXAMPLES_BASIC)
 
-        variable = await workspace.resolve_variable(
+        variable = package.resolve_variable(
             "premium-message",
             {"user": {"tier": "premium"}},
         )
-        qualifier = await workspace.resolve_qualifier(
+        qualifier = package.resolve_qualifier(
             "premium-users",
             {"user": {"tier": "premium"}},
         )
@@ -28,28 +28,28 @@ class ApiTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(variable.value, "Welcome back, premium member.")
         self.assertTrue(qualifier)
 
-    async def test_inspected_workspace_can_lint_but_not_resolve(self) -> None:
-        workspace = await rototo.Workspace.inspect(EXAMPLES_BASIC)
-        lint = await workspace.lint()
+    async def test_inspected_package_can_lint_but_not_resolve(self) -> None:
+        package = await rototo.Package.inspect(EXAMPLES_BASIC)
+        lint = await package.lint()
 
         self.assertEqual(lint["diagnostics"], [])
         with self.assertRaises(rototo.RototoError) as raised:
-            await workspace.resolve_variable("premium-message", {})
+            package.resolve_variable("premium-message", {})
 
-        self.assertIn("workspace was loaded without a runtime model", str(raised.exception))
+        self.assertIn("package was loaded without a runtime model", str(raised.exception))
 
     async def test_context_must_be_json_object(self) -> None:
-        workspace = await rototo.Workspace.load(EXAMPLES_BASIC)
+        package = await rototo.Package.load(EXAMPLES_BASIC)
 
         with self.assertRaises(rototo.RototoError) as raised:
-            await workspace.resolve_variable("premium-message", ["not", "an", "object"])
+            package.resolve_variable("premium-message", ["not", "an", "object"])
 
-        self.assertIn("resolve context must be a JSON object", str(raised.exception))
+        self.assertIn("evaluation context must be a JSON object", str(raised.exception))
 
     async def test_context_validation_can_be_skipped(self) -> None:
-        workspace = await rototo.Workspace.load(EXAMPLES_BASIC)
+        package = await rototo.Package.load(EXAMPLES_BASIC)
 
-        result = await workspace.resolve_variable(
+        result = package.resolve_variable(
             "premium-message",
             {"user": {"tier": {"bad": "shape"}}},
             validate_context=False,
@@ -59,6 +59,6 @@ class ApiTest(unittest.IsolatedAsyncioTestCase):
 
     async def test_load_rejects_invalid_lint_mode(self) -> None:
         with self.assertRaises(ValueError) as raised:
-            await rototo.Workspace.load(EXAMPLES_BASIC, lint="warn")
+            await rototo.Package.load(EXAMPLES_BASIC, lint="warn")
 
         self.assertIn("lint must be 'deny' or 'skip'", str(raised.exception))

@@ -1,0 +1,15 @@
+# Once `default` is set in the resolve block, only another rule block remains.
+package = "basic"
+file = "variables/message.toml"
+
+overlay = '''
+schema_version = 1
+type = "string"
+
+[resolve]
+default = "hello"
+$0
+'''
+
+[expect]
+exact = ["[[resolve.rule]]"]

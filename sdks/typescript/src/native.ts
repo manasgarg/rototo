@@ -2,60 +2,78 @@ import { createRequire } from "node:module";
 
 const require = createRequire(import.meta.url);
 
-type NativeWorkspace = {
+type NativePackage = {
     root(): string;
-    lint(): Promise<WorkspaceLintJson>;
+    identity(): PackageIdentityJson;
+    lint(): Promise<PackageLintJson>;
     semanticModel(): Promise<JsonValue>;
     resolveVariable(
         id: string,
         context: JsonValue,
         validateContext?: boolean,
-    ): Promise<VariableResolutionJson>;
+        trace?: boolean,
+    ): VariableResolutionJson;
     resolveQualifier(
         id: string,
         context: JsonValue,
         validateContext?: boolean,
-    ): Promise<boolean>;
+        trace?: boolean,
+    ): boolean;
+    subscribeTraceEvents(): NativeTraceEvents;
 };
 
-type NativeWorkspaceConstructor = {
+type NativePackageConstructor = {
     load(
         source: string,
-        workspaceToken?: string,
+        packageToken?: string,
         lint?: "deny" | "skip",
-    ): Promise<NativeWorkspace>;
-    inspect(source: string, workspaceToken?: string): Promise<NativeWorkspace>;
+    ): Promise<NativePackage>;
+    inspect(source: string, packageToken?: string): Promise<NativePackage>;
 };
 
-type NativeRefreshingWorkspace = {
+type NativeRefreshingPackage = {
     resolveVariable(
         id: string,
         context: JsonValue,
         validateContext?: boolean,
-    ): Promise<VariableResolutionJson>;
+        trace?: boolean,
+    ): VariableResolutionJson;
     resolveQualifier(
         id: string,
         context: JsonValue,
         validateContext?: boolean,
-    ): Promise<boolean>;
+        trace?: boolean,
+    ): boolean;
     refreshNow(): Promise<RefreshOutcome>;
     status(): Promise<RefreshStatusJson>;
+    identity(): Promise<PackageIdentityJson>;
+    snapshot(): Promise<RefreshSnapshotJson>;
+    subscribeEvents(): NativeRefreshEvents;
+    subscribeTraceEvents(): NativeTraceEvents;
     shutdown(): Promise<void>;
 };
 
-type NativeRefreshingWorkspaceConstructor = {
+type NativeRefreshEvents = {
+    recv(): Promise<RefreshEventJson | null>;
+};
+
+type NativeTraceEvents = {
+    recv(): Promise<JsonValue | null>;
+};
+
+type NativeRefreshingPackageConstructor = {
     load(
         source: string,
         periodSeconds?: number,
-        workspaceToken?: string,
+        packageToken?: string,
         lint?: "deny" | "skip",
-    ): Promise<NativeRefreshingWorkspace>;
+    ): Promise<NativeRefreshingPackage>;
 };
 
 export type NativeModule = {
     version(): string;
-    _Workspace: NativeWorkspaceConstructor;
-    _RefreshingWorkspace: NativeRefreshingWorkspaceConstructor;
+    _Package: NativePackageConstructor;
+    _RefreshingPackage: NativeRefreshingPackageConstructor;
 };
 
 export type JsonPrimitive = string | number | boolean | null;
@@ -87,7 +105,63 @@ export type RefreshStatusJson = {
     immutable: boolean;
 };
 
-export type WorkspaceLintJson = {
+export type PackageLayerIdentityJson = {
+    source: string;
+    fingerprint: JsonValue | null;
+    releaseId: string | null;
+    immutable: boolean;
+};
+
+export type PackageIdentityJson = {
+    source: string;
+    fingerprint: JsonValue | null;
+    releaseId: string | null;
+    loadedAt: number;
+    immutable: boolean;
+    layers: PackageLayerIdentityJson[];
+};
+
+export type RefreshEventSummaryJson = {
+    eventId: string;
+    eventType: string;
+    releaseId: string | null;
+    completedAt: number;
+};
+
+export type RefreshSnapshotJson = {
+    identity: PackageIdentityJson;
+    lastAttempt: number | null;
+    lastSuccess: number | null;
+    lastEvent: RefreshEventSummaryJson | null;
+    consecutiveFailures: number;
+    lastError: string | null;
+    refreshing: boolean;
+    immutable: boolean;
+};
+
+export type SdkIdentityJson = {
+    name: string;
+    version: string;
+    language: string;
+};
+
+export type RefreshEventJson = {
+    schemaVersion: number;
+    eventId: string;
+    eventType: string;
+    source: string;
+    previous: PackageIdentityJson | null;
+    current: PackageIdentityJson | null;
+    attemptedAt: number;
+    completedAt: number;
+    durationMs: number;
+    outcome: RefreshOutcome | null;
+    consecutiveFailures: number;
+    error: string | null;
+    sdk: SdkIdentityJson;
+};
+
+export type PackageLintJson = {
     root: string;
     diagnostics: JsonValue[];
 };

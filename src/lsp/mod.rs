@@ -1,5 +1,7 @@
 mod convert;
 mod protocol;
+#[cfg(test)]
+mod scenario;
 mod server;
 mod transport;
 mod uri;
@@ -30,7 +32,7 @@ mod tests {
             .await
             .unwrap();
         tokio::fs::write(
-            root.join("rototo-workspace.toml"),
+            root.join("rototo-package.toml"),
             r#"schema_version = 1
 "#,
         )
@@ -48,7 +50,7 @@ default = "hello"
             .unwrap();
 
         let mut server = LspServer::new();
-        server.workspace_root = Some(tokio::fs::canonicalize(root).await.unwrap());
+        server.package_root = Some(tokio::fs::canonicalize(root).await.unwrap());
         let uri = format!("file://{}", variable_path.display());
         // The disk file is valid, but the open editor buffer changes the type
         // to an unknown value. The LSP overlay should win over the file system.
@@ -67,7 +69,7 @@ default = "hello"
             }))
             .unwrap();
 
-        let publications = server.workspace_diagnostics().await.unwrap();
+        let publications = server.package_diagnostics().await.unwrap();
         let variable_publication = publications
             .iter()
             .find(|publication| publication.uri.ends_with("/variables/message.toml"))
@@ -82,8 +84,7 @@ default = "hello"
             "rototo/variable-unknown-type"
         );
         assert!(publications.iter().any(|publication| {
-            publication.uri.ends_with("/rototo-workspace.toml")
-                && publication.diagnostics.is_empty()
+            publication.uri.ends_with("/rototo-package.toml") && publication.diagnostics.is_empty()
         }));
         assert_eq!(
             tokio::fs::read_to_string(&variable_path).await.unwrap(),
@@ -105,7 +106,7 @@ default = "hello"
                 ]
             }))
             .unwrap();
-        let cleared = server.workspace_diagnostics().await.unwrap();
+        let cleared = server.package_diagnostics().await.unwrap();
         let variable_publication = cleared
             .iter()
             .find(|publication| publication.uri.ends_with("/variables/message.toml"))
@@ -115,9 +116,63 @@ default = "hello"
     }
 
     #[tokio::test]
+    async fn lsp_snapshot_cache_reuses_until_overlays_change() {
+        // The lint pipeline reads the whole package on every build, so requests
+        // that do not change any buffer must share one snapshot. Editing a buffer
+        // bumps the revision and forces exactly one rebuild on the next request.
+        let tempdir = tempfile::tempdir().unwrap();
+        let root = tempdir.path();
+        tokio::fs::create_dir_all(root.join("variables"))
+            .await
+            .unwrap();
+        tokio::fs::write(root.join("rototo-package.toml"), "schema_version = 1\n")
+            .await
+            .unwrap();
+        let variable_path = root.join("variables/message.toml");
+        let variable_text =
+            "schema_version = 1\ntype = \"string\"\n\n[resolve]\ndefault = \"hello\"\n";
+        tokio::fs::write(&variable_path, variable_text)
+            .await
+            .unwrap();
+
+        let mut server = LspServer::new();
+        server.package_root = Some(tokio::fs::canonicalize(root).await.unwrap());
+        let uri = format!("file://{}", variable_path.display());
+        server
+            .open_document(json!({
+                "textDocument": { "uri": uri, "version": 1, "text": variable_text }
+            }))
+            .unwrap();
+
+        assert_eq!(server.snapshot_build_count(), 0);
+        // Three reads with no intervening edit share a single build.
+        for _ in 0..3 {
+            server
+                .completion_items(json!({
+                    "textDocument": { "uri": format!("file://{}", variable_path.display()) },
+                    "position": { "line": 1, "character": 0 }
+                }))
+                .await
+                .unwrap();
+            server.package_diagnostics().await.unwrap();
+        }
+        assert_eq!(server.snapshot_build_count(), 1);
+
+        // A full-document change invalidates the cache; the next request rebuilds.
+        server
+            .change_document(json!({
+                "textDocument": { "uri": format!("file://{}", variable_path.display()), "version": 2 },
+                "contentChanges": [{ "text": "schema_version = 1\ntype = \"int\"\n\n[resolve]\ndefault = 1\n" }]
+            }))
+            .unwrap();
+        server.package_diagnostics().await.unwrap();
+        assert_eq!(server.snapshot_build_count(), 2);
+    }
+
+    #[tokio::test]
     async fn lsp_document_symbols_use_snapshot_index_and_unsaved_overlay() {
         // Document symbols power editor outlines. This checks that the outline
-        // is built from rototo's semantic snapshot for every workspace file
+        // is built from rototo's semantic snapshot for every package file
         // kind, not from a shallow TOML/JSON parse of the current document.
         let tempdir = tempfile::tempdir().unwrap();
         let root = tempdir.path();
@@ -131,7 +186,7 @@ default = "hello"
             .await
             .unwrap();
         tokio::fs::create_dir_all(root.join("lint")).await.unwrap();
-        let manifest_path = root.join("rototo-workspace.toml");
+        let manifest_path = root.join("rototo-package.toml");
         tokio::fs::write(
             &manifest_path,
             r#"schema_version = 1
@@ -178,7 +233,7 @@ default = "hello"
             .unwrap();
 
         let mut server = LspServer::new();
-        server.workspace_root = Some(tokio::fs::canonicalize(root).await.unwrap());
+        server.package_root = Some(tokio::fs::canonicalize(root).await.unwrap());
         let variable_uri = format!("file://{}", variable_path.display());
         // The resolve rule exists only in the unsaved overlay. If it appears in
         // the symbols below, the server is indexing editor state correctly.
@@ -194,7 +249,7 @@ type = "string"
 default = "hello"
 
 [[resolve.rule]]
-when = 'qualifier["premium"]'
+when = 'env.qualifier["premium"]'
 value = "welcome"
 "#,
                 }
@@ -242,7 +297,7 @@ value = "welcome"
             resolve
                 .children
                 .iter()
-                .any(|child| child.name == "rule 1: qualifier[\"premium\"] -> \"welcome\"")
+                .any(|child| child.name == "rule 1: env.qualifier[\"premium\"] -> \"welcome\"")
         );
         assert_eq!(
             tokio::fs::read_to_string(&variable_path).await.unwrap(),
@@ -263,822 +318,13 @@ value = "welcome"
     }
 
     #[tokio::test]
-    async fn lsp_completion_items_use_snapshot_index_and_unsaved_overlays() {
-        // Completion is context-sensitive. The server should suggest rototo
-        // concepts that make sense at the cursor, and it should include facts
-        // from unsaved editor overlays while excluding unrelated suggestion
-        // categories.
-        let tempdir = tempfile::tempdir().unwrap();
-        let root = tempdir.path();
-        tokio::fs::create_dir_all(root.join("qualifiers"))
-            .await
-            .unwrap();
-        tokio::fs::create_dir_all(root.join("variables"))
-            .await
-            .unwrap();
-        tokio::fs::create_dir_all(root.join("catalogs/message-entries"))
-            .await
-            .unwrap();
-        tokio::fs::create_dir_all(root.join("request-contexts"))
-            .await
-            .unwrap();
-        tokio::fs::create_dir_all(root.join("lint")).await.unwrap();
-        let manifest_path = root.join("rototo-workspace.toml");
-        let disk_manifest = r#"schema_version = 1
-"#;
-        tokio::fs::write(&manifest_path, disk_manifest)
-            .await
-            .unwrap();
-        let qualifier_path = root.join("qualifiers/premium.toml");
-        let disk_qualifier = r#"schema_version = 1
-when = "context.account.tier == \"premium\""
-"#;
-        tokio::fs::write(&qualifier_path, disk_qualifier)
-            .await
-            .unwrap();
-        let disk_variable = r#"schema_version = 1
-type = "string"
-
-[resolve]
-default = "hello"
-"#;
-        let variable_path = root.join("variables/message.toml");
-        tokio::fs::write(&variable_path, disk_variable)
-            .await
-            .unwrap();
-        let catalog_path = root.join("catalogs/message.schema.json");
-        let disk_catalog = r#"{
-  "type": "object",
-  "required": ["heading", "body"],
-  "properties": {
-    "heading": { "type": "string" },
-    "body": { "type": "string" }
-  },
-  "additionalProperties": false
-}
-"#;
-        tokio::fs::write(&catalog_path, disk_catalog).await.unwrap();
-        let catalog_entry_path = root.join("catalogs/message-entries/default.toml");
-        let disk_catalog_entry = r#"heading = "Hello"
-body = "World"
-"#;
-        tokio::fs::write(&catalog_entry_path, disk_catalog_entry)
-            .await
-            .unwrap();
-        let request_context_path = root.join("request-contexts/request.schema.json");
-        let disk_request_context = r#"{
-  "type": "object",
-  "properties": {
-    "account": {
-      "type": "object",
-      "properties": {
-        "tier": { "type": "string" },
-        "region": { "type": "string" }
-      }
-    },
-    "device": {
-      "type": "object",
-      "properties": {
-        "platform": { "type": "string" }
-      }
-    }
-  }
-}
-"#;
-        tokio::fs::write(&request_context_path, disk_request_context)
-            .await
-            .unwrap();
-        let lint_path = root.join("lint/fields.lua");
-        tokio::fs::write(
-            &lint_path,
-            r#"function register(lint)
-end
-"#,
-        )
-        .await
-        .unwrap();
-
-        let mut server = LspServer::new();
-        server.workspace_root = Some(tokio::fs::canonicalize(root).await.unwrap());
-        // These overlays add an unsaved workspace extend and an unsaved
-        // variable rule. The assertions below verify that completion reads the
-        // same snapshot the rest of the language server uses.
-        server
-            .open_document(json!({
-                "textDocument": {
-                    "uri": format!("file://{}", manifest_path.display()),
-                    "version": 2,
-                    "text": r#"schema_version = 1
-extends = ["../base"]
-"#,
-                }
-            }))
-            .unwrap();
-        server
-            .open_document(json!({
-                "textDocument": {
-                    "uri": format!("file://{}", variable_path.display()),
-                    "version": 3,
-                    "text": r#"schema_version = 1
-type = "string"
-
-[resolve]
-default = "hello"
-
-[[resolve.rule]]
-when = 'qualifier["premium"]'
-value = "welcome"
-"#,
-                }
-            }))
-            .unwrap();
-
-        let completions = server
-            .completion_items(json!({
-                "textDocument": {
-                    "uri": format!("file://{}", variable_path.display())
-                },
-                "position": {
-                    "line": 7,
-                    "character": 22
-                }
-            }))
-            .await
-            .unwrap();
-
-        // In a variable rule's condition expression, qualifier ids are useful; base
-        // workspace paths, variable values, predicate operators, and custom
-        // lint field names are not.
-        assert_no_completion(&completions, "../base", "workspace extend");
-        assert_completion(&completions, "premium", "qualifier");
-        assert_no_completion(&completions, "treatment", "variable value");
-        assert_no_completion(&completions, "bucket", "predicate operator");
-        assert_no_completion(&completions, "extends", "custom lint field selector");
-
-        // CEL completions use workspace schemas. `context.` suggests top-level
-        // request context properties, and nested context paths continue through
-        // the same JSON Schema.
-        server
-            .change_document(json!({
-                "textDocument": {
-                    "uri": format!("file://{}", qualifier_path.display()),
-                    "version": 4
-                },
-                "contentChanges": [
-                    {
-                        "text": "schema_version = 1\nwhen = \"context.\""
-                    }
-                ]
-            }))
-            .unwrap();
-        let context_completions = server
-            .completion_items(json!({
-                "textDocument": {
-                    "uri": format!("file://{}", qualifier_path.display())
-                },
-                "position": {
-                    "line": 1,
-                    "character": 16
-                }
-            }))
-            .await
-            .unwrap();
-        assert_completion(&context_completions, "context.account", "context field");
-        assert_completion(&context_completions, "context.device", "context field");
-
-        server
-            .change_document(json!({
-                "textDocument": {
-                    "uri": format!("file://{}", qualifier_path.display()),
-                    "version": 5
-                },
-                "contentChanges": [
-                    {
-                        "text": "schema_version = 1\nwhen = \"context.account.\""
-                    }
-                ]
-            }))
-            .unwrap();
-        let nested_context_completions = server
-            .completion_items(json!({
-                "textDocument": {
-                    "uri": format!("file://{}", qualifier_path.display())
-                },
-                "position": {
-                    "line": 1,
-                    "character": 24
-                }
-            }))
-            .await
-            .unwrap();
-        assert_completion(
-            &nested_context_completions,
-            "context.account.region",
-            "context field",
-        );
-        assert_completion(
-            &nested_context_completions,
-            "context.account.tier",
-            "context field",
-        );
-
-        // Other CEL expression positions expose expression roots and supported
-        // function names.
-        server
-            .change_document(json!({
-                "textDocument": {
-                    "uri": format!("file://{}", qualifier_path.display()),
-                    "version": 6
-                },
-                "contentChanges": [
-                    {
-                        "text": "schema_version = 1\nwhen = \"buck\""
-                    }
-                ]
-            }))
-            .unwrap();
-        let expression_completions = server
-            .completion_items(json!({
-                "textDocument": {
-                    "uri": format!("file://{}", qualifier_path.display())
-                },
-                "position": {
-                    "line": 1,
-                    "character": 12
-                }
-            }))
-            .await
-            .unwrap();
-        assert_completion(&expression_completions, "bucket(", "expression function");
-        assert_completion(&expression_completions, "context.", "expression root");
-
-        // Once the cursor follows a complete boolean expression, composition
-        // operators are the useful next tokens. Expression roots and functions
-        // only come back after the operator starts the next operand.
-        let boolean_expression_text =
-            "schema_version = 1\nwhen = \"context.account.tier == 'premium' \"";
-        let boolean_expression_character = boolean_expression_text
-            .lines()
-            .nth(1)
-            .unwrap()
-            .chars()
-            .count()
-            - 1;
-        server
-            .change_document(json!({
-                "textDocument": {
-                    "uri": format!("file://{}", qualifier_path.display()),
-                    "version": 16
-                },
-                "contentChanges": [
-                    {
-                        "text": boolean_expression_text
-                    }
-                ]
-            }))
-            .unwrap();
-        let operator_completions = server
-            .completion_items(json!({
-                "textDocument": {
-                    "uri": format!("file://{}", qualifier_path.display())
-                },
-                "position": {
-                    "line": 1,
-                    "character": boolean_expression_character
-                }
-            }))
-            .await
-            .unwrap();
-        assert_completion_insert_text(&operator_completions, "&&", "expression operator", "&& ");
-        assert_completion_insert_text(&operator_completions, "||", "expression operator", "|| ");
-        assert_completion_labels(&operator_completions, &["&&", "||"]);
-        assert_no_completion(&operator_completions, "context.", "expression root");
-        assert_no_completion(&operator_completions, "bucket(", "expression function");
-
-        let next_operand_text =
-            "schema_version = 1\nwhen = \"context.account.tier == 'premium' && \"";
-        let next_operand_character = next_operand_text.lines().nth(1).unwrap().chars().count() - 1;
-        server
-            .change_document(json!({
-                "textDocument": {
-                    "uri": format!("file://{}", qualifier_path.display()),
-                    "version": 17
-                },
-                "contentChanges": [
-                    {
-                        "text": next_operand_text
-                    }
-                ]
-            }))
-            .unwrap();
-        let next_operand_completions = server
-            .completion_items(json!({
-                "textDocument": {
-                    "uri": format!("file://{}", qualifier_path.display())
-                },
-                "position": {
-                    "line": 1,
-                    "character": next_operand_character
-                }
-            }))
-            .await
-            .unwrap();
-        assert_completion(&next_operand_completions, "context.", "expression root");
-        assert_completion(&next_operand_completions, "bucket(", "expression function");
-        assert_no_completion(&next_operand_completions, "&&", "expression operator");
-
-        let partial_and_text = "schema_version = 1\nwhen = \"context.account.tier == 'premium' &\"";
-        let partial_and_character = partial_and_text.lines().nth(1).unwrap().chars().count() - 1;
-        server
-            .change_document(json!({
-                "textDocument": {
-                    "uri": format!("file://{}", qualifier_path.display()),
-                    "version": 18
-                },
-                "contentChanges": [
-                    {
-                        "text": partial_and_text
-                    }
-                ]
-            }))
-            .unwrap();
-        let partial_and_completions = server
-            .completion_items(json!({
-                "textDocument": {
-                    "uri": format!("file://{}", qualifier_path.display())
-                },
-                "position": {
-                    "line": 1,
-                    "character": partial_and_character
-                }
-            }))
-            .await
-            .unwrap();
-        assert_completion_labels(&partial_and_completions, &["&&"]);
-
-        let partial_or_text = "schema_version = 1\nwhen = \"context.account.tier == 'premium' |\"";
-        let partial_or_character = partial_or_text.lines().nth(1).unwrap().chars().count() - 1;
-        server
-            .change_document(json!({
-                "textDocument": {
-                    "uri": format!("file://{}", qualifier_path.display()),
-                    "version": 19
-                },
-                "contentChanges": [
-                    {
-                        "text": partial_or_text
-                    }
-                ]
-            }))
-            .unwrap();
-        let partial_or_completions = server
-            .completion_items(json!({
-                "textDocument": {
-                    "uri": format!("file://{}", qualifier_path.display())
-                },
-                "position": {
-                    "line": 1,
-                    "character": partial_or_character
-                }
-            }))
-            .await
-            .unwrap();
-        assert_completion_labels(&partial_or_completions, &["||"]);
-
-        // Qualifier TOML positions get field completion, but not CEL concepts or
-        // variable-value suggestions at this cursor position.
-        let qualifier_completions = server
-            .completion_items(json!({
-                "textDocument": {
-                    "uri": format!("file://{}", qualifier_path.display())
-                },
-                "position": {
-                    "line": 4,
-                    "character": 6
-                }
-            }))
-            .await
-            .unwrap();
-        assert_no_completion(&qualifier_completions, "bucket", "predicate operator");
-        assert_completion(&qualifier_completions, "description", "qualifier field");
-        assert_no_completion(&qualifier_completions, "when", "qualifier field");
-        assert_no_completion(&qualifier_completions, "premium", "qualifier");
-        assert_no_completion(&qualifier_completions, "treatment", "variable value");
-        assert_completion_labels(&qualifier_completions, &["description"]);
-
-        server
-            .change_document(json!({
-                "textDocument": {
-                    "uri": format!("file://{}", qualifier_path.display()),
-                    "version": 7
-                },
-                "contentChanges": [
-                    {
-                        "text": "schema_version = 1\n\n"
-                    }
-                ]
-            }))
-            .unwrap();
-        let empty_qualifier_completions = server
-            .completion_items(json!({
-                "textDocument": {
-                    "uri": format!("file://{}", qualifier_path.display())
-                },
-                "position": {
-                    "line": 2,
-                    "character": 0
-                }
-            }))
-            .await
-            .unwrap();
-        assert_completion_insert_text(
-            &empty_qualifier_completions,
-            "description",
-            "qualifier field",
-            "description = \"\"",
-        );
-        assert_completion_labels(&empty_qualifier_completions, &["description", "when"]);
-
-        // While the user is halfway through typing a field name, the TOML can
-        // be temporarily malformed. Field completion should still use the source
-        // document kind instead of depending on a projected qualifier node.
-        server
-            .change_document(json!({
-                "textDocument": {
-                    "uri": format!("file://{}", qualifier_path.display()),
-                    "version": 8
-                },
-                "contentChanges": [
-                    {
-                        "text": "schema_version = 1\ndesc"
-                    }
-                ]
-            }))
-            .unwrap();
-        let partial_qualifier_completions = server
-            .completion_items(json!({
-                "textDocument": {
-                    "uri": format!("file://{}", qualifier_path.display())
-                },
-                "position": {
-                    "line": 1,
-                    "character": 4
-                }
-            }))
-            .await
-            .unwrap();
-        assert_completion(
-            &partial_qualifier_completions,
-            "description",
-            "qualifier field",
-        );
-
-        // Variable files get the same field-name support, including while the
-        // current buffer is temporarily malformed during typing.
-        server
-            .change_document(json!({
-                "textDocument": {
-                    "uri": format!("file://{}", variable_path.display()),
-                    "version": 4
-                },
-                "contentChanges": [
-                    {
-                        "text": "schema_version = 1\ndesc"
-                    }
-                ]
-            }))
-            .unwrap();
-        let partial_variable_completions = server
-            .completion_items(json!({
-                "textDocument": {
-                    "uri": format!("file://{}", variable_path.display())
-                },
-                "position": {
-                    "line": 1,
-                    "character": 4
-                }
-            }))
-            .await
-            .unwrap();
-        assert_completion(
-            &partial_variable_completions,
-            "description",
-            "variable field",
-        );
-        assert_no_completion(&partial_variable_completions, "schema", "variable field");
-        assert_completion_insert_text(
-            &partial_variable_completions,
-            "[resolve]",
-            "variable block",
-            "[resolve]\ndefault = ",
-        );
-        assert_completion_labels(
-            &partial_variable_completions,
-            &["description", "type", "[resolve]", "[[resolve.rule]]"],
-        );
-
-        server
-            .change_document(json!({
-                "textDocument": {
-                    "uri": format!("file://{}", variable_path.display()),
-                    "version": 5
-                },
-                "contentChanges": [
-                    {
-                        "text": "schema_version = 1\ntype = \"string\"\n\n"
-                    }
-                ]
-            }))
-            .unwrap();
-        let empty_variable_completions = server
-            .completion_items(json!({
-                "textDocument": {
-                    "uri": format!("file://{}", variable_path.display())
-                },
-                "position": {
-                    "line": 2,
-                    "character": 0
-                }
-            }))
-            .await
-            .unwrap();
-        assert_completion_insert_text(
-            &empty_variable_completions,
-            "[[resolve.rule]]",
-            "variable block",
-            "[[resolve.rule]]\nwhen = \"\"\nvalue = ",
-        );
-        assert_completion_labels(
-            &empty_variable_completions,
-            &["description", "[resolve]", "[[resolve.rule]]"],
-        );
-
-        server
-            .change_document(json!({
-                "textDocument": {
-                    "uri": format!("file://{}", variable_path.display()),
-                    "version": 6
-                },
-                "contentChanges": [
-                    {
-                        "text": "schema_version = 1\ntype = \"string\"\n\n[resolve]\n"
-                    }
-                ]
-            }))
-            .unwrap();
-        let resolve_block_completions = server
-            .completion_items(json!({
-                "textDocument": {
-                    "uri": format!("file://{}", variable_path.display())
-                },
-                "position": {
-                    "line": 4,
-                    "character": 0
-                }
-            }))
-            .await
-            .unwrap();
-        assert_completion_insert_text(
-            &resolve_block_completions,
-            "default",
-            "variable field",
-            "default = ",
-        );
-        assert_completion_labels(&resolve_block_completions, &["default", "[[resolve.rule]]"]);
-        assert_no_completion(&resolve_block_completions, "type", "variable field");
-
-        server
-            .change_document(json!({
-                "textDocument": {
-                    "uri": format!("file://{}", variable_path.display()),
-                    "version": 7
-                },
-                "contentChanges": [
-                    {
-                        "text": "schema_version = 1\ntype = \"string\"\n\n[resolve]\ndefault = \"hello\"\n"
-                    }
-                ]
-            }))
-            .unwrap();
-        let complete_resolve_block_completions = server
-            .completion_items(json!({
-                "textDocument": {
-                    "uri": format!("file://{}", variable_path.display())
-                },
-                "position": {
-                    "line": 5,
-                    "character": 0
-                }
-            }))
-            .await
-            .unwrap();
-        assert_completion_labels(&complete_resolve_block_completions, &["[[resolve.rule]]"]);
-
-        server
-            .change_document(json!({
-                "textDocument": {
-                    "uri": format!("file://{}", variable_path.display()),
-                    "version": 8
-                },
-                "contentChanges": [
-                    {
-                        "text": "schema_version = 1\ntype = \"string\"\n\n[resolve]\ndefault = \"hello\"\n\n[[resolve.rule]]\nwhen = \"context.user.tier == 'premium'\"\n"
-                    }
-                ]
-            }))
-            .unwrap();
-        let rule_block_completions = server
-            .completion_items(json!({
-                "textDocument": {
-                    "uri": format!("file://{}", variable_path.display())
-                },
-                "position": {
-                    "line": 8,
-                    "character": 0
-                }
-            }))
-            .await
-            .unwrap();
-        assert_completion_insert_text(
-            &rule_block_completions,
-            "value",
-            "variable field",
-            "value = ",
-        );
-        assert_completion_labels(
-            &rule_block_completions,
-            &["query", "value", "[[resolve.rule]]"],
-        );
-        assert_no_completion(&rule_block_completions, "when", "variable field");
-        assert_no_completion(&rule_block_completions, "default", "variable field");
-
-        // Query expressions on list<catalog:...> variables complete `entry.`
-        // paths from the catalog schema for the entries being filtered.
-        server
-            .change_document(json!({
-                "textDocument": {
-                    "uri": format!("file://{}", variable_path.display()),
-                    "version": 10
-                },
-                "contentChanges": [
-                    {
-                        "text": r#"schema_version = 1
-type = "list<catalog:message>"
-
-[resolve]
-default = ["default"]
-
-[[resolve.rule]]
-query = 'entry.'
-value = ["default"]
-"#
-                    }
-                ]
-            }))
-            .unwrap();
-        let entry_completions = server
-            .completion_items(json!({
-                "textDocument": {
-                    "uri": format!("file://{}", variable_path.display())
-                },
-                "position": {
-                    "line": 7,
-                    "character": 15
-                }
-            }))
-            .await
-            .unwrap();
-        assert_completion(&entry_completions, "entry.heading", "entry field");
-        assert_completion(&entry_completions, "entry.body", "entry field");
-
-        // Catalog entry files derive field-name completion from their catalog's
-        // JSON Schema properties.
-        server
-            .open_document(json!({
-                "textDocument": {
-                    "uri": format!("file://{}", catalog_entry_path.display()),
-                    "version": 2,
-                    "text": "hea"
-                }
-            }))
-            .unwrap();
-        let catalog_entry_completions = server
-            .completion_items(json!({
-                "textDocument": {
-                    "uri": format!("file://{}", catalog_entry_path.display())
-                },
-                "position": {
-                    "line": 0,
-                    "character": 3
-                }
-            }))
-            .await
-            .unwrap();
-        assert_completion(&catalog_entry_completions, "heading", "catalog entry field");
-        assert_completion(&catalog_entry_completions, "body", "catalog entry field");
-        assert_completion_insert_text(
-            &catalog_entry_completions,
-            "heading",
-            "catalog entry field",
-            "heading = ",
-        );
-
-        server
-            .change_document(json!({
-                "textDocument": {
-                    "uri": format!("file://{}", catalog_entry_path.display()),
-                    "version": 3
-                },
-                "contentChanges": [
-                    {
-                        "text": "heading = \"Hello\"\n\n"
-                    }
-                ]
-            }))
-            .unwrap();
-        let partial_catalog_entry_completions = server
-            .completion_items(json!({
-                "textDocument": {
-                    "uri": format!("file://{}", catalog_entry_path.display())
-                },
-                "position": {
-                    "line": 1,
-                    "character": 0
-                }
-            }))
-            .await
-            .unwrap();
-        assert_no_completion(
-            &partial_catalog_entry_completions,
-            "heading",
-            "catalog entry field",
-        );
-        assert_completion(
-            &partial_catalog_entry_completions,
-            "body",
-            "catalog entry field",
-        );
-
-        // Custom Lua lint files get field selector completions because those
-        // handlers target rototo fields rather than qualifier predicates.
-        let custom_lint_completions = server
-            .completion_items(json!({
-                "textDocument": {
-                    "uri": format!("file://{}", lint_path.display())
-                },
-                "position": {
-                    "line": 1,
-                    "character": 0
-                }
-            }))
-            .await
-            .unwrap();
-        assert_completion(
-            &custom_lint_completions,
-            "extends",
-            "custom lint field selector",
-        );
-        assert_completion(
-            &custom_lint_completions,
-            "resolve",
-            "custom lint field selector",
-        );
-        assert_completion(
-            &custom_lint_completions,
-            "value.",
-            "custom lint field selector",
-        );
-        assert_no_completion(&custom_lint_completions, "bucket", "predicate operator");
-        // Opening and changing documents through LSP must not persist overlays
-        // to disk.
-        assert_eq!(
-            tokio::fs::read_to_string(&manifest_path).await.unwrap(),
-            disk_manifest
-        );
-        assert_eq!(
-            tokio::fs::read_to_string(&qualifier_path).await.unwrap(),
-            disk_qualifier
-        );
-        assert_eq!(
-            tokio::fs::read_to_string(&variable_path).await.unwrap(),
-            disk_variable
-        );
-        assert_eq!(
-            tokio::fs::read_to_string(&catalog_path).await.unwrap(),
-            disk_catalog
-        );
-        assert_eq!(
-            tokio::fs::read_to_string(&catalog_entry_path)
-                .await
-                .unwrap(),
-            disk_catalog_entry
-        );
-        assert_eq!(
-            tokio::fs::read_to_string(&request_context_path)
-                .await
-                .unwrap(),
-            disk_request_context
-        );
+    async fn completion_scenarios() {
+        // Completion behavior is specified by data-driven scenarios under
+        // tests/fixtures/lsp/scenarios/completion. Each scenario is a single
+        // editor buffer with a `$0` cursor marker and a declarative expectation,
+        // so the question under test is legible without reconstructing a buffer
+        // from line/character numbers.
+        super::scenario::run_completion_scenarios("completion").await;
     }
 
     #[tokio::test]
@@ -1097,11 +343,11 @@ value = ["default"]
         tokio::fs::create_dir_all(root.join("catalogs/message-entries"))
             .await
             .unwrap();
-        tokio::fs::create_dir_all(root.join("request-contexts"))
+        tokio::fs::create_dir_all(root.join("evaluation-contexts"))
             .await
             .unwrap();
         tokio::fs::create_dir_all(root.join("lint")).await.unwrap();
-        let manifest_path = root.join("rototo-workspace.toml");
+        let manifest_path = root.join("rototo-package.toml");
         tokio::fs::write(
             &manifest_path,
             r#"schema_version = 1
@@ -1131,7 +377,7 @@ default = "hello"
             .await
             .unwrap();
         tokio::fs::write(
-            root.join("request-contexts/request.schema.json"),
+            root.join("evaluation-contexts/request.schema.json"),
             r#"{
   "type": "object",
   "properties": {
@@ -1152,13 +398,13 @@ default = "hello"
   lint:rule({
     id = "operations/message-not-empty",
     title = "Operational message is empty",
-    help = "Set a non-empty message before releasing the workspace.",
+    help = "Set a non-empty message before releasing the package.",
     target = "/variables/message",
     handler = "check_variable",
   })
 end
 
-function check_variable(workspace, variable)
+function check_variable(package, variable)
   return {}
 end
 "#,
@@ -1167,7 +413,7 @@ end
         .unwrap();
 
         let mut server = LspServer::new();
-        server.workspace_root = Some(tokio::fs::canonicalize(root).await.unwrap());
+        server.package_root = Some(tokio::fs::canonicalize(root).await.unwrap());
         let variable_uri = format!("file://{}", variable_path.display());
         // The variable description and resolve rule are unsaved. Hover should
         // still show them, which is what an editor user expects while typing.
@@ -1184,7 +430,7 @@ type = "string"
 default = "hello"
 
 [[resolve.rule]]
-when = 'qualifier["premium"]'
+when = 'env.qualifier["premium"]'
 value = "welcome"
 "#,
                 }
@@ -1237,47 +483,12 @@ default = "hello"
             &hover_contents(&server, &variable_path, 2, 8).await,
             "Variable type is unknown",
         );
-        // The invalid overlay is editor state only; the saved workspace file
+        // The invalid overlay is editor state only; the saved package file
         // remains unchanged.
         assert_eq!(
             tokio::fs::read_to_string(&variable_path).await.unwrap(),
             disk_variable
         );
-    }
-
-    #[tokio::test]
-    async fn lsp_rejects_incremental_did_change_ranges() {
-        // initialize_result advertises full-document sync. If a client sends an
-        // incremental range edit anyway, fail loudly so the server never mixes
-        // partial edits into its overlay model.
-        let tempdir = tempfile::tempdir().unwrap();
-        let root = tempdir.path();
-        tokio::fs::create_dir_all(root.join("variables"))
-            .await
-            .unwrap();
-        let variable_path = root.join("variables/message.toml");
-
-        let mut server = LspServer::new();
-        server.workspace_root = Some(tokio::fs::canonicalize(root).await.unwrap());
-        let err = server
-            .change_document(json!({
-                "textDocument": {
-                    "uri": format!("file://{}", variable_path.display()),
-                    "version": 2
-                },
-                "contentChanges": [
-                    {
-                        "range": {
-                            "start": { "line": 0, "character": 0 },
-                            "end": { "line": 0, "character": 0 }
-                        },
-                        "text": "schema_version = 1"
-                    }
-                ]
-            }))
-            .unwrap_err();
-
-        assert!(err.to_string().contains("incremental didChange"));
     }
 
     #[tokio::test]
@@ -1296,7 +507,7 @@ default = "hello"
             .await
             .unwrap();
         tokio::fs::write(
-            root.join("rototo-workspace.toml"),
+            root.join("rototo-package.toml"),
             r#"schema_version = 1
 "#,
         )
@@ -1329,7 +540,7 @@ default = []
             .unwrap();
 
         let mut server = LspServer::new();
-        server.workspace_root = Some(tokio::fs::canonicalize(root).await.unwrap());
+        server.package_root = Some(tokio::fs::canonicalize(root).await.unwrap());
         server
             .open_document(json!({
                 "textDocument": {
@@ -1342,7 +553,7 @@ type = "list<catalog:message>"
 default = []
 
 [[resolve.rule]]
-query = 'qualifier["premium"]'
+query = 'env.qualifier["premium"]'
 "#,
                 }
             }))
@@ -1362,7 +573,7 @@ query = 'qualifier["premium"]'
             resolve
                 .children
                 .iter()
-                .any(|child| child.name == "rule 1: qualifier[\"premium\"]")
+                .any(|child| child.name == "rule 1: env.qualifier[\"premium\"]")
         );
 
         let completions = server
@@ -1372,7 +583,7 @@ query = 'qualifier["premium"]'
                 },
                 "position": {
                     "line": 7,
-                    "character": 21
+                    "character": 25
                 }
             }))
             .await
@@ -1380,14 +591,14 @@ query = 'qualifier["premium"]'
         assert_completion(&completions, "premium", "qualifier");
 
         assert_hover_contains(
-            &hover_contents(&server, &variable_path, 7, 21).await,
-            "Condition `qualifier[\"premium\"]`.",
+            &hover_contents(&server, &variable_path, 7, 25).await,
+            "Condition `env.qualifier[\"premium\"]`.",
         );
 
-        let definition = definition_location(&server, &variable_path, 7, 21).await;
+        let definition = definition_location(&server, &variable_path, 7, 25).await;
         assert!(definition.uri.ends_with("/qualifiers/premium.toml"));
 
-        let references = reference_locations(&server, &variable_path, 7, 21, true).await;
+        let references = reference_locations(&server, &variable_path, 7, 25, true).await;
         assert_eq!(references.len(), 2);
         assert!(
             references
@@ -1408,7 +619,7 @@ query = 'qualifier["premium"]'
 
     #[tokio::test]
     async fn lsp_definition_uses_snapshot_index_and_unsaved_overlays() {
-        // Go-to-definition should follow rototo references across workspace
+        // Go-to-definition should follow rototo references across package
         // concepts: catalog-backed variable types, qualifier rules, and
         // qualifier composition.
         let tempdir = tempfile::tempdir().unwrap();
@@ -1422,11 +633,11 @@ query = 'qualifier["premium"]'
         tokio::fs::create_dir_all(root.join("catalogs/message-entries"))
             .await
             .unwrap();
-        tokio::fs::create_dir_all(root.join("request-contexts"))
+        tokio::fs::create_dir_all(root.join("evaluation-contexts"))
             .await
             .unwrap();
         tokio::fs::write(
-            root.join("rototo-workspace.toml"),
+            root.join("rototo-package.toml"),
             r#"schema_version = 1
 "#,
         )
@@ -1445,7 +656,7 @@ when = "context.account.beta == true"
         tokio::fs::write(
             &premium_qualifier_path,
             r#"schema_version = 1
-when = "qualifier[\"beta\"]"
+when = "env.qualifier[\"beta\"]"
 "#,
         )
         .await
@@ -1472,7 +683,7 @@ default = "hello"
             .unwrap();
 
         let mut server = LspServer::new();
-        server.workspace_root = Some(tokio::fs::canonicalize(root).await.unwrap());
+        server.package_root = Some(tokio::fs::canonicalize(root).await.unwrap());
         // The variable only becomes catalog-backed and qualifier-referencing in
         // the unsaved editor buffer, so every definition below also checks that
         // go-to-definition is overlay-aware.
@@ -1488,7 +699,7 @@ type = "catalog:message"
 default = "welcome"
 
 [[resolve.rule]]
-when = 'qualifier["premium"]'
+when = 'env.qualifier["premium"]'
 value = "welcome"
 "#,
                 }
@@ -1536,11 +747,11 @@ value = "welcome"
         tokio::fs::create_dir_all(root.join("catalogs/message-entries"))
             .await
             .unwrap();
-        tokio::fs::create_dir_all(root.join("request-contexts"))
+        tokio::fs::create_dir_all(root.join("evaluation-contexts"))
             .await
             .unwrap();
         tokio::fs::write(
-            root.join("rototo-workspace.toml"),
+            root.join("rototo-package.toml"),
             r#"schema_version = 1
 "#,
         )
@@ -1568,13 +779,13 @@ when = "context.account.beta == true"
         tokio::fs::write(
             &premium_qualifier_path,
             r#"schema_version = 1
-when = "qualifier[\"beta\"]"
+when = "env.qualifier[\"beta\"]"
 "#,
         )
         .await
         .unwrap();
         tokio::fs::write(
-            root.join("request-contexts/request.schema.json"),
+            root.join("evaluation-contexts/request.schema.json"),
             r#"{"type":"object","properties":{"account":{"type":"object","properties":{"beta":{"type":"boolean"}}}}}"#,
         )
         .await
@@ -1601,7 +812,7 @@ default = "hello"
             .unwrap();
 
         let mut server = LspServer::new();
-        server.workspace_root = Some(tokio::fs::canonicalize(root).await.unwrap());
+        server.package_root = Some(tokio::fs::canonicalize(root).await.unwrap());
         // The variable's catalog type, default value, rule condition, and rule
         // value all live in the overlay. Reference search must include those
         // unsaved use sites.
@@ -1617,7 +828,7 @@ type = "catalog:message"
 default = "welcome"
 
 [[resolve.rule]]
-when = 'qualifier["premium"]'
+when = 'env.qualifier["premium"]'
 value = "welcome"
 "#,
                 }
@@ -1704,6 +915,15 @@ value = "welcome"
                 .and_then(JsonValue::as_str),
             Some("utf-16")
         );
+        // Incremental sync (kind 2): the server applies ranged didChange edits.
+        assert_eq!(
+            result
+                .get("capabilities")
+                .and_then(|capabilities| capabilities.get("textDocumentSync"))
+                .and_then(|sync| sync.get("change"))
+                .and_then(JsonValue::as_u64),
+            Some(2)
+        );
         assert_eq!(
             result
                 .get("capabilities")
@@ -1745,7 +965,7 @@ value = "welcome"
         let server =
             tokio::spawn(async move { serve(BufReader::new(server_read), server_write).await });
 
-        // No workspace has been initialized, so a document request fails.
+        // No package has been initialized, so a document request fails.
         write_lsp_message(
             &mut client,
             json!({
@@ -1791,6 +1011,139 @@ value = "welcome"
         server.await.unwrap().unwrap();
     }
 
+    #[tokio::test]
+    async fn applies_incremental_document_changes() {
+        // A ranged didChange splices the open buffer instead of resending the
+        // whole document. The package root is synthetic: the buffers never touch
+        // disk, so this isolates the edit application.
+        let mut server = LspServer::new();
+        server.package_root = Some(std::path::PathBuf::from("/pkg"));
+        server
+            .open_document(json!({
+                "textDocument": {
+                    "uri": "file:///pkg/qualifiers/q.toml",
+                    "text": "schema_version = 1\nwhen = \"a\"\n",
+                    "version": 1
+                }
+            }))
+            .unwrap();
+
+        // Replace the single character `a` on line 1 (columns 8..9) with `premium`.
+        server
+            .change_document(json!({
+                "textDocument": { "uri": "file:///pkg/qualifiers/q.toml", "version": 2 },
+                "contentChanges": [{
+                    "range": {
+                        "start": { "line": 1, "character": 8 },
+                        "end": { "line": 1, "character": 9 }
+                    },
+                    "text": "premium"
+                }]
+            }))
+            .unwrap();
+
+        assert_eq!(
+            server.overlay_text("qualifiers/q.toml"),
+            Some("schema_version = 1\nwhen = \"premium\"\n")
+        );
+
+        // A change without a range still replaces the whole document.
+        server
+            .change_document(json!({
+                "textDocument": { "uri": "file:///pkg/qualifiers/q.toml", "version": 3 },
+                "contentChanges": [{ "text": "schema_version = 1\n" }]
+            }))
+            .unwrap();
+        assert_eq!(
+            server.overlay_text("qualifiers/q.toml"),
+            Some("schema_version = 1\n")
+        );
+    }
+
+    #[tokio::test]
+    async fn incremental_change_positions_count_utf16_code_units() {
+        // The astral `😀` is one scalar but two UTF-16 code units, so the edit
+        // columns after it must account for both units, matching the encoding the
+        // server advertises.
+        let mut server = LspServer::new();
+        server.package_root = Some(std::path::PathBuf::from("/pkg"));
+        server
+            .open_document(json!({
+                "textDocument": {
+                    "uri": "file:///pkg/q.toml",
+                    "text": "x = \"😀ab\"",
+                    "version": 1
+                }
+            }))
+            .unwrap();
+
+        // Replace `ab` (columns 7..9 in UTF-16) with `Z`.
+        server
+            .change_document(json!({
+                "textDocument": { "uri": "file:///pkg/q.toml", "version": 2 },
+                "contentChanges": [{
+                    "range": {
+                        "start": { "line": 0, "character": 7 },
+                        "end": { "line": 0, "character": 9 }
+                    },
+                    "text": "Z"
+                }]
+            }))
+            .unwrap();
+
+        assert_eq!(server.overlay_text("q.toml"), Some("x = \"😀Z\""));
+    }
+
+    #[tokio::test]
+    async fn lsp_cancelled_request_returns_request_cancelled() {
+        // A request whose cancellation the server has already seen returns the
+        // RequestCancelled error instead of a result. Sending the cancel ahead of
+        // the request makes the outcome deterministic: it exercises the same
+        // short-circuit the read-ahead loop reaches for the realistic order where
+        // the cancel arrives just after the request.
+        let (mut client, server_io) = tokio::io::duplex(8192);
+        let (server_read, server_write) = tokio::io::split(server_io);
+        let server =
+            tokio::spawn(async move { serve(BufReader::new(server_read), server_write).await });
+
+        write_lsp_message(
+            &mut client,
+            json!({
+                "jsonrpc": "2.0",
+                "method": "$/cancelRequest",
+                "params": { "id": 1 }
+            }),
+        )
+        .await;
+        write_lsp_message(
+            &mut client,
+            json!({
+                "jsonrpc": "2.0",
+                "id": 1,
+                "method": "textDocument/documentSymbol",
+                "params": { "textDocument": { "uri": "file:///tmp/outside.toml" } }
+            }),
+        )
+        .await;
+
+        let cancelled = read_lsp_message(&mut client).await;
+        assert_eq!(cancelled["id"], 1);
+        assert_eq!(cancelled["error"]["code"], -32800);
+
+        // The server is still healthy after a cancellation.
+        write_lsp_message(
+            &mut client,
+            json!({ "jsonrpc": "2.0", "id": 2, "method": "shutdown" }),
+        )
+        .await;
+        let shutdown = read_lsp_message(&mut client).await;
+        assert_eq!(shutdown["id"], 2);
+        assert!(shutdown["result"].is_null());
+
+        write_lsp_message(&mut client, json!({ "jsonrpc": "2.0", "method": "exit" })).await;
+        server.await.unwrap().unwrap();
+    }
+
     fn child_symbol<'a>(symbols: &'a [LspDocumentSymbol], name: &str) -> &'a LspDocumentSymbol {
         symbols
             .iter()
@@ -1804,39 +1157,6 @@ value = "welcome"
                 .iter()
                 .any(|completion| completion.label == label && completion.detail == detail),
             "missing completion {label} ({detail})"
-        );
-    }
-
-    fn assert_completion_insert_text(
-        completions: &[LspCompletionItem],
-        label: &str,
-        detail: &str,
-        insert_text: &str,
-    ) {
-        assert!(
-            completions.iter().any(|completion| {
-                completion.label == label
-                    && completion.detail == detail
-                    && completion.insert_text.as_deref() == Some(insert_text)
-            }),
-            "missing completion {label} ({detail}) with insert text {insert_text:?}"
-        );
-    }
-
-    fn assert_completion_labels(completions: &[LspCompletionItem], expected: &[&str]) {
-        let labels = completions
-            .iter()
-            .map(|completion| completion.label.as_str())
-            .collect::<Vec<_>>();
-        assert_eq!(labels, expected);
-    }
-
-    fn assert_no_completion(completions: &[LspCompletionItem], label: &str, detail: &str) {
-        assert!(
-            !completions
-                .iter()
-                .any(|completion| completion.label == label && completion.detail == detail),
-            "unexpected completion {label} ({detail})"
         );
     }
 

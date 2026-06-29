@@ -1,13 +1,13 @@
 use super::super::index::*;
 use super::common::{expression_project_field_label, json_project_field_label};
-use super::{WorkspaceDocumentSymbol, WorkspaceDocumentSymbolKind};
+use super::{PackageDocumentSymbol, PackageDocumentSymbolKind};
 
-pub(crate) fn document_symbols(index: &SemanticIndex, path: &str) -> Vec<WorkspaceDocumentSymbol> {
+pub(crate) fn document_symbols(index: &SemanticIndex, path: &str) -> Vec<PackageDocumentSymbol> {
     let mut symbols = Vec::new();
 
     if let Some(manifest) = &index.manifest
         && manifest.location.path == path
-        && let Some(symbol) = workspace_extends_symbol(&manifest.extends)
+        && let Some(symbol) = package_extends_symbol(&manifest.extends)
     {
         symbols.push(symbol);
     }
@@ -38,52 +38,48 @@ pub(crate) fn document_symbols(index: &SemanticIndex, path: &str) -> Vec<Workspa
         }
     }
 
-    sort_workspace_document_symbols(&mut symbols);
+    sort_package_document_symbols(&mut symbols);
     symbols
 }
 
-fn workspace_extends_symbol(
-    extends: &WorkspaceExtendsCollection,
-) -> Option<WorkspaceDocumentSymbol> {
+fn package_extends_symbol(extends: &PackageExtendsCollection) -> Option<PackageDocumentSymbol> {
     match extends {
-        WorkspaceExtendsCollection::Missing => None,
-        WorkspaceExtendsCollection::Invalid { location } => Some(WorkspaceDocumentSymbol::new(
+        PackageExtendsCollection::Missing => None,
+        PackageExtendsCollection::Invalid { location } => Some(PackageDocumentSymbol::new(
             "extends",
-            WorkspaceDocumentSymbolKind::WorkspaceExtends,
+            PackageDocumentSymbolKind::PackageExtends,
             location.clone(),
             Vec::new(),
         )),
-        WorkspaceExtendsCollection::Sources { location, values } => {
-            Some(WorkspaceDocumentSymbol::new(
-                "extends",
-                WorkspaceDocumentSymbolKind::WorkspaceExtends,
-                location.clone(),
-                values
-                    .iter()
-                    .map(|source| {
-                        WorkspaceDocumentSymbol::new(
-                            source.source.clone(),
-                            WorkspaceDocumentSymbolKind::WorkspaceExtendSource,
-                            source.location.clone(),
-                            Vec::new(),
-                        )
-                    })
-                    .collect(),
-            ))
-        }
+        PackageExtendsCollection::Sources { location, values } => Some(PackageDocumentSymbol::new(
+            "extends",
+            PackageDocumentSymbolKind::PackageExtends,
+            location.clone(),
+            values
+                .iter()
+                .map(|source| {
+                    PackageDocumentSymbol::new(
+                        source.source.clone(),
+                        PackageDocumentSymbolKind::PackageExtendSource,
+                        source.location.clone(),
+                        Vec::new(),
+                    )
+                })
+                .collect(),
+        )),
     }
 }
 
-fn qualifier_document_symbol(qualifier: &QualifierNode) -> WorkspaceDocumentSymbol {
-    WorkspaceDocumentSymbol::new(
+fn qualifier_document_symbol(qualifier: &QualifierNode) -> PackageDocumentSymbol {
+    PackageDocumentSymbol::new(
         qualifier.id.clone(),
-        WorkspaceDocumentSymbolKind::Qualifier,
+        PackageDocumentSymbolKind::Qualifier,
         qualifier.location.clone(),
         Vec::new(),
     )
 }
 
-fn variable_document_symbol(variable: &VariableNode) -> WorkspaceDocumentSymbol {
+fn variable_document_symbol(variable: &VariableNode) -> PackageDocumentSymbol {
     let mut children = Vec::new();
     if let Some(values) = variable_values_document_symbol(variable) {
         children.push(values);
@@ -92,22 +88,22 @@ fn variable_document_symbol(variable: &VariableNode) -> WorkspaceDocumentSymbol 
         children.push(resolve);
     }
 
-    WorkspaceDocumentSymbol::new(
+    PackageDocumentSymbol::new(
         variable.id.clone(),
-        WorkspaceDocumentSymbolKind::Variable,
+        PackageDocumentSymbolKind::Variable,
         variable.location.clone(),
         children,
     )
 }
 
-fn variable_values_document_symbol(variable: &VariableNode) -> Option<WorkspaceDocumentSymbol> {
+fn variable_values_document_symbol(variable: &VariableNode) -> Option<PackageDocumentSymbol> {
     if variable.values.inline_values.is_empty() && !variable.values.invalid_shape {
         return None;
     }
 
-    Some(WorkspaceDocumentSymbol::new(
+    Some(PackageDocumentSymbol::new(
         "values",
-        WorkspaceDocumentSymbolKind::Values,
+        PackageDocumentSymbolKind::Values,
         variable.values.location.clone(),
         variable
             .values
@@ -118,7 +114,7 @@ fn variable_values_document_symbol(variable: &VariableNode) -> Option<WorkspaceD
     ))
 }
 
-fn variable_resolve_document_symbol(variable: &VariableNode) -> Option<WorkspaceDocumentSymbol> {
+fn variable_resolve_document_symbol(variable: &VariableNode) -> Option<PackageDocumentSymbol> {
     let ResolveNode::Resolve {
         location, rules, ..
     } = &variable.resolve
@@ -132,45 +128,45 @@ fn variable_resolve_document_symbol(variable: &VariableNode) -> Option<Workspace
             .collect::<Vec<_>>(),
         RuleCollection::Invalid { .. } => Vec::new(),
     };
-    Some(WorkspaceDocumentSymbol::new(
+    Some(PackageDocumentSymbol::new(
         "resolve",
-        WorkspaceDocumentSymbolKind::Resolve,
+        PackageDocumentSymbolKind::Resolve,
         location.clone(),
         children,
     ))
 }
 
-fn variable_rule_document_symbol(rule: &VariableRuleNode) -> WorkspaceDocumentSymbol {
-    WorkspaceDocumentSymbol::new(
+fn variable_rule_document_symbol(rule: &VariableRuleNode) -> PackageDocumentSymbol {
+    PackageDocumentSymbol::new(
         variable_rule_symbol_name(rule),
-        WorkspaceDocumentSymbolKind::Rule,
+        PackageDocumentSymbolKind::Rule,
         rule.location.clone(),
         Vec::new(),
     )
 }
 
-fn catalog_document_symbol(catalog: &CatalogNode) -> WorkspaceDocumentSymbol {
-    WorkspaceDocumentSymbol::new(
+fn catalog_document_symbol(catalog: &CatalogNode) -> PackageDocumentSymbol {
+    PackageDocumentSymbol::new(
         catalog.id.clone(),
-        WorkspaceDocumentSymbolKind::Catalog,
+        PackageDocumentSymbolKind::Catalog,
         catalog.location.clone(),
         Vec::new(),
     )
 }
 
-fn catalog_entry_document_symbol(entry: &CatalogEntryNode) -> WorkspaceDocumentSymbol {
-    WorkspaceDocumentSymbol::new(
+fn catalog_entry_document_symbol(entry: &CatalogEntryNode) -> PackageDocumentSymbol {
+    PackageDocumentSymbol::new(
         format!("{}.{}", entry.catalog_id, entry.key),
-        WorkspaceDocumentSymbolKind::CatalogEntry,
+        PackageDocumentSymbolKind::CatalogEntry,
         entry.location.clone(),
         Vec::new(),
     )
 }
 
-fn value_document_symbol(value: &ValueNode) -> WorkspaceDocumentSymbol {
-    WorkspaceDocumentSymbol::new(
+fn value_document_symbol(value: &ValueNode) -> PackageDocumentSymbol {
+    PackageDocumentSymbol::new(
         value.key.clone(),
-        WorkspaceDocumentSymbolKind::Value,
+        PackageDocumentSymbolKind::Value,
         value.location.clone(),
         Vec::new(),
     )
@@ -188,9 +184,9 @@ fn variable_rule_symbol_name(rule: &VariableRuleNode) -> String {
     }
 }
 
-fn sort_workspace_document_symbols(symbols: &mut [WorkspaceDocumentSymbol]) {
+fn sort_package_document_symbols(symbols: &mut [PackageDocumentSymbol]) {
     for symbol in symbols.iter_mut() {
-        sort_workspace_document_symbols(&mut symbol.children);
+        sort_package_document_symbols(&mut symbol.children);
     }
     symbols.sort_by(|left, right| {
         symbol_position(left)
@@ -199,7 +195,7 @@ fn sort_workspace_document_symbols(symbols: &mut [WorkspaceDocumentSymbol]) {
     });
 }
 
-fn symbol_position(symbol: &WorkspaceDocumentSymbol) -> (usize, usize) {
+fn symbol_position(symbol: &PackageDocumentSymbol) -> (usize, usize) {
     symbol
         .location
         .range

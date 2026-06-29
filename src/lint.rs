@@ -5,20 +5,20 @@ use crate::diagnostics::{
     DiagnosticCatalogEntry, LintDiagnostic, RototoRuleId, SemanticEntity, SourcePosition,
 };
 use crate::error::{Result, RototoError};
-use crate::model::{CatalogLint, QualifierLint, VariableLint, WorkspaceDiff, WorkspaceLint};
+use crate::model::{CatalogLint, PackageDiff, PackageLint, QualifierLint, VariableLint};
 
 mod builtins;
 mod catalog_schema;
 mod custom;
 mod diff;
 mod engine;
+mod evaluation_context;
 mod index;
 pub(crate) mod input;
 mod inspect;
 mod output;
 mod project;
 mod references;
-mod request_context;
 mod runtime;
 mod semantic_model;
 mod source;
@@ -26,49 +26,49 @@ mod stages;
 mod symbols;
 mod syntax;
 
+pub(crate) use evaluation_context::EvaluationContextCompatibility;
 use index::*;
 pub(crate) use input::{LintInput, OverlayDocument};
 pub(crate) use inspect::inspect_snapshot;
 use references::ReferenceIndex;
-pub(crate) use request_context::RequestContextCompatibility;
 pub(crate) use runtime::{
-    RuntimeCatalogQuery, RuntimeRule, RuntimeRuleSelection, RuntimeSelectedValue, RuntimeWorkspace,
-    compile_runtime_workspace, compile_runtime_workspace_from_snapshot,
+    RuntimeCatalogQuery, RuntimePackage, RuntimeRule, RuntimeRuleSelection, RuntimeSelectedValue,
+    compile_runtime_package, compile_runtime_package_from_snapshot,
 };
 pub use semantic_model::{
-    CatalogEntryModel, CatalogModel, DeclarationModel, LinterModel, LinterRuleModel,
-    ModelEntityRef, ModelField, ModelLocation, ModelReferenceVia, ModelValueField, PredicateModel,
-    QualifierModel, QualifierRequestContextModel, ReferenceModel, RequestContextEntryModel,
-    RequestContextModel, ResolveModel, RuleModel, ValueModel, VariableModel,
-    VariableRequestContextModel, WorkspaceSemanticModel,
+    CatalogEntryModel, CatalogModel, DeclarationModel, EvaluationContextModel,
+    EvaluationContextSampleModel, LinterModel, LinterRuleModel, ModelEntityRef, ModelField,
+    ModelLocation, ModelReferenceVia, ModelValueField, PackageSemanticModel,
+    QualifierEvaluationContextModel, QualifierModel, ReferenceModel, ResolveModel, RuleModel,
+    ValueModel, VariableEvaluationContextModel, VariableModel,
 };
 pub(crate) use symbols::{
-    WorkspaceCompletionItem, WorkspaceCompletionItemKind, WorkspaceDefinition,
-    WorkspaceDocumentSymbol, WorkspaceDocumentSymbolKind, WorkspaceHover, WorkspaceReference,
+    PackageCompletionItem, PackageCompletionItemKind, PackageDefinition, PackageDocumentSymbol,
+    PackageDocumentSymbolKind, PackageHover, PackageReference,
 };
 
-const WORKSPACE_MANIFEST: &str = "rototo-workspace.toml";
-/// Lints the workspace and projects its semantic and reference indexes into
+const PACKAGE_MANIFEST: &str = "rototo-package.toml";
+/// Lints the package and projects its semantic and reference indexes into
 /// the serializable model that tools consume instead of parsing files.
-pub async fn workspace_semantic_model(workspace_root: &Path) -> Result<WorkspaceSemanticModel> {
-    let snapshot = lint_workspace_snapshot(LintInput::new(workspace_root.to_path_buf())).await?;
+pub async fn package_semantic_model(package_root: &Path) -> Result<PackageSemanticModel> {
+    let snapshot = lint_package_snapshot(LintInput::new(package_root.to_path_buf())).await?;
     Ok(snapshot.semantic_model())
 }
 
-pub async fn lint_workspace(workspace_root: &Path) -> Result<WorkspaceLint> {
-    lint_workspace_with_input(LintInput::new(workspace_root.to_path_buf())).await
+pub async fn lint_package(package_root: &Path) -> Result<PackageLint> {
+    lint_package_with_input(LintInput::new(package_root.to_path_buf())).await
 }
 
-pub async fn diff_workspaces(
+pub async fn diff_packages(
     before_root: &Path,
     after_root: &Path,
     context: Option<&serde_json::Value>,
-) -> Result<WorkspaceDiff> {
-    diff::diff_workspaces(before_root, after_root, context).await
+) -> Result<PackageDiff> {
+    diff::diff_packages(before_root, after_root, context).await
 }
 
-pub async fn lint_qualifier(workspace_root: &Path, id: &str) -> Result<QualifierLint> {
-    let lint = lint_workspace(workspace_root).await?;
+pub async fn lint_qualifier(package_root: &Path, id: &str) -> Result<QualifierLint> {
+    let lint = lint_package(package_root).await?;
     let path = format!("qualifiers/{id}.toml");
     if !lint.documents.iter().any(|document| document.path == path) {
         return Err(RototoError::new(format!(
@@ -87,8 +87,8 @@ pub async fn lint_qualifier(workspace_root: &Path, id: &str) -> Result<Qualifier
     })
 }
 
-pub async fn lint_variable(workspace_root: &Path, id: &str) -> Result<VariableLint> {
-    let lint = lint_workspace(workspace_root).await?;
+pub async fn lint_variable(package_root: &Path, id: &str) -> Result<VariableLint> {
+    let lint = lint_package(package_root).await?;
     let path = format!("variables/{id}.toml");
     if !lint.documents.iter().any(|document| document.path == path) {
         return Err(RototoError::new(format!(
@@ -107,8 +107,8 @@ pub async fn lint_variable(workspace_root: &Path, id: &str) -> Result<VariableLi
     })
 }
 
-pub async fn lint_catalog(workspace_root: &Path, id: &str) -> Result<CatalogLint> {
-    let lint = lint_workspace(workspace_root).await?;
+pub async fn lint_catalog(package_root: &Path, id: &str) -> Result<CatalogLint> {
+    let lint = lint_package(package_root).await?;
     let path = format!("catalogs/{id}.schema.json");
     if !lint.documents.iter().any(|document| document.path == path) {
         return Err(RototoError::new(format!(
@@ -148,22 +148,22 @@ fn diagnostic_belongs_to_catalog(diagnostic: &LintDiagnostic, id: &str, path: &s
         || diagnostic.primary.path.starts_with(&entries_prefix)
 }
 
-pub(crate) async fn lint_workspace_with_input(input: LintInput) -> Result<WorkspaceLint> {
-    Ok(lint_workspace_snapshot(input).await?.lint)
+pub(crate) async fn lint_package_with_input(input: LintInput) -> Result<PackageLint> {
+    Ok(lint_package_snapshot(input).await?.lint)
 }
 
-pub(crate) async fn lint_workspace_snapshot(input: LintInput) -> Result<WorkspaceLintSnapshot> {
-    engine::lint_workspace_snapshot(input).await
+pub(crate) async fn lint_package_snapshot(input: LintInput) -> Result<PackageLintSnapshot> {
+    engine::lint_package_snapshot(input).await
 }
 
-pub(crate) struct WorkspaceLintSnapshot {
-    pub(crate) lint: WorkspaceLint,
+pub(crate) struct PackageLintSnapshot {
+    pub(crate) lint: PackageLint,
     index: SemanticIndex,
     references: ReferenceIndex,
     source_texts: BTreeMap<String, String>,
 }
 
-impl WorkspaceLintSnapshot {
+impl PackageLintSnapshot {
     pub(crate) fn diagnostic_catalog_entries(&self) -> Vec<DiagnosticCatalogEntry> {
         let mut entries = RototoRuleId::iter()
             .map(DiagnosticCatalogEntry::from_rototo)
@@ -179,7 +179,7 @@ impl WorkspaceLintSnapshot {
         entries
     }
 
-    pub(crate) fn document_symbols(&self, path: &str) -> Vec<WorkspaceDocumentSymbol> {
+    pub(crate) fn document_symbols(&self, path: &str) -> Vec<PackageDocumentSymbol> {
         symbols::document_symbols(&self.index, path)
     }
 
@@ -187,11 +187,11 @@ impl WorkspaceLintSnapshot {
         &self,
         path: &str,
         position: SourcePosition,
-    ) -> Vec<WorkspaceCompletionItem> {
+    ) -> Vec<PackageCompletionItem> {
         symbols::completion_items(self, path, position)
     }
 
-    pub(crate) fn hover(&self, path: &str, position: SourcePosition) -> Option<WorkspaceHover> {
+    pub(crate) fn hover(&self, path: &str, position: SourcePosition) -> Option<PackageHover> {
         symbols::hover(self, path, position)
     }
 
@@ -199,7 +199,7 @@ impl WorkspaceLintSnapshot {
         &self,
         path: &str,
         position: SourcePosition,
-    ) -> Option<WorkspaceDefinition> {
+    ) -> Option<PackageDefinition> {
         symbols::definition(self, path, position)
     }
 
@@ -208,12 +208,12 @@ impl WorkspaceLintSnapshot {
         path: &str,
         position: SourcePosition,
         include_declaration: bool,
-    ) -> Vec<WorkspaceReference> {
+    ) -> Vec<PackageReference> {
         symbols::references(self, path, position, include_declaration)
     }
 
-    pub(crate) fn request_context_compatibility(&self) -> RequestContextCompatibility {
-        request_context::compatibility(self)
+    pub(crate) fn evaluation_context_compatibility(&self) -> EvaluationContextCompatibility {
+        evaluation_context::compatibility(self)
     }
 
     pub(crate) fn source_text(&self, path: &str) -> Option<&str> {

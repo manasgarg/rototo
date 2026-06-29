@@ -10,14 +10,13 @@ mod uri;
 #[cfg(feature = "console")]
 pub(crate) use self::load::stage_source_tree;
 pub use self::load::{
-    load_workspace_source, load_workspace_source_snapshot, probe_workspace_source,
-    stage_workspace_source,
+    load_package_source, load_package_source_snapshot, probe_package_source, stage_package_source,
 };
 #[cfg(feature = "console")]
 pub(crate) use self::types::StagedSourceTree;
 pub use self::types::{
-    LoadedWorkspaceSource, SourceAuth, SourceFingerprint, SourceLayer, SourceOptions, SourceProbe,
-    StagedWorkspace,
+    LoadedPackageSource, SourceAuth, SourceFingerprint, SourceLayer, SourceOptions, SourceProbe,
+    StagedPackage,
 };
 
-const WORKSPACE_MANIFEST: &str = "rototo-workspace.toml";
+const PACKAGE_MANIFEST: &str = "rototo-package.toml";

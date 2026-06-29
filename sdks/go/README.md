@@ -1,200 +1,186 @@
-<!-- Generated from docs/src/reference-sdk-go.md by `rototo docs --package-readme go --out sdks/go/README.md`. Do not edit directly. -->
+<!-- Generated from README.md by `rototo docs --package-readme go --out sdks/go/README.md`. Do not edit directly. -->
 
 # rototo Go SDK
 
-The Go SDK is a thin cgo wrapper around the Rust SDK. Go code gets a small
-context-aware API while rototo keeps workspace loading, linting, refresh, and
-resolution behavior in the Rust core.
+Every substantial software system eventually needs a configuration subsystem. The software provides the underlying capabilities; configuration steers those capabilities to behave in a particular way.
 
-## Install
+Some configuration is settings-style: things like database URLs and encryption keys, usually held in environment variables and fixed once the software is deployed. That's not the kind we're concerned with here. What interests us instead is the configuration that governs the system's runtime behavior: feature availability, model selection, tenant overrides, offers, retry policies, logging controls, rollout plans, and so on.
 
-rototo is currently versioned as an alpha Go package:
+Rototo provides a control plane for this kind of runtime configuration. It rests on a simple premise: runtime configuration should be treated like code. It should live alongside the code and follow a similar release cycle, and it should be testable and contract-enforced in the same way.
+
+To that end, Rototo models configuration as files that are versioned, reviewed, tested, and released as packages. The Rototo SDK loads these packages within the application runtime to guide the application's behavior. Configuration thus follows the same release process as code, while gaining a hot-swappable deployment mechanism.
+
+## Rototo's hello world
+
+Let's take a simple use case: we want to vary the order amount beyond which customers get free shipping.
+Customers in `standard` tier must have at least $50 as cart total while customers in `premium` tier get free shipping after $25.
+To accomplish this, we would do two things:
+- Create a Rototo configuration package.
+- Load the configuration package and resolve free shipping threshold in our application.
+
+### Create and publish a configuration package
+
+First, install the Rototo cli from crates.io:
+```sh
+cargo install rototo --version 0.1.0-alpha.6
+```
+
+Now, create a configuration package for the application:
+```sh
+# Create app-config package with a variable named free-shipping-threshold
+rototo init app-config --variable free-shipping-threshold
+```
+
+You should see the following in `app-config/` dir:
+```sh
+$> tree app-config
+app-config
+├── rototo-package.toml
+├── evaluation-contexts
+├── qualifiers
+└── variables
+    └── free-shipping-threshold.toml
+├── catalogs
+├── lint
+6 directories, 2 files
+```
+
+We explain the package model in [Rototo Concepts](https://docs.rototo.dev/concepts.html). For now, we would focus on the variable `free-shipping-threshold`. Replace the contents of `free-shipping-threshold.toml` with the following:
+```toml
+schema_version = 1
+description = "$ threshold for free shipping."
+type = "int"
+
+[resolve]
+default = 50  # by default, free shipping beyond $50.
+
+[[resolve.rule]]
+when = '(context.account.tier == "premium")'
+value = 25    # for premium account tier, free shipping beyond $25.
+```
+
+We can now validate our configuration to ensure that we got it right:
+```sh
+rototo lint app-config
+```
+
+We can further ensure that `free-shipping-threshold` resolves as expected.
 
 ```sh
-go get github.com/manasgarg/rototo/sdks/go@v0.1.0-alpha.5
+# default value: should give 50
+rototo resolve app-config --variable free-shipping-threshold
 ```
-
-Import the package with an explicit local name:
-
-```go
-import rototo "github.com/manasgarg/rototo/sdks/go"
-```
-
-The first Go SDK release loads the Rust native library through cgo. When
-running from source, build the library and point the SDK at it:
 
 ```sh
-cargo build --locked --package rototo-go
-export ROTOTO_GO_NATIVE_PATH="$PWD/target/debug/librototo_go.so"
+# standard account tier: should give 50
+rototo resolve app-config --variable free-shipping-threshold --context account.tier=standard
 ```
 
-Use `librototo_go.dylib` on macOS and `rototo_go.dll` on Windows. The rototo
-release version stays SemVer, for example `0.1.0-alpha.5`.
+```sh
+# premium account tier: should give 25
+rototo resolve app-config --variable free-shipping-threshold --context account.tier=premium
+```
 
-## Load A Workspace
+### Load the configuration package and resolve the threshold
+
+Now let's read that value from an application. Install the rototo Go SDK:
+
+```sh
+go get github.com/manasgarg/rototo/sdks/go@v0.1.0-alpha.6
+```
+
+Save this as `main.go`. It loads a *refreshing* package (one that re-reads the source in the background) and prints the free-shipping threshold for a standard and a premium account every couple of seconds:
 
 ```go
 package main
 
 import (
     "context"
+    "fmt"
+    "time"
 
-    rototo "github.com/manasgarg/rototo/sdks/go"
+    "github.com/manasgarg/rototo/sdks/go"
 )
 
-func main() error {
-    workspace, err := rototo.Load(context.Background(), "examples/basic", nil)
+const variableID = "free-shipping-threshold"
+
+func main() {
+    ctx := context.Background()
+    period := 1.0
+    appConfig, err := rototo.LoadRefreshing(ctx, "app-config", &rototo.RefreshingPackageOptions{
+        PeriodSeconds: &period,
+    })
     if err != nil {
-        return err
+        panic(err)
     }
-    defer workspace.Close()
+    defer appConfig.Shutdown(ctx)
 
-    return nil
-}
-```
-
-`Load` accepts the same source strings as the CLI. It lints the workspace and
-rejects lint failures before returning.
-
-## Resolve A Variable
-
-```go
-resolveContext := map[string]any{
-    "user": map[string]any{
-        "tier": "premium",
-    },
-}
-
-resolution, err := workspace.ResolveVariable(
-    context.Background(),
-    "premium-message",
-    resolveContext,
-    nil,
-)
-if err != nil {
-    return err
-}
-
-fmt.Println(resolution.Value)
-fmt.Println(resolution.Source)
-```
-
-`VariableResolution` has:
-
-| Field | Meaning |
-| --- | --- |
-| `ID` | Variable id. |
-| `Value` | Selected JSON-compatible value. |
-| `Source` | Selected source. |
-
-## Resolve A Qualifier
-
-```go
-matches, err := workspace.ResolveQualifier(
-    context.Background(),
-    "premium-users",
-    resolveContext,
-    nil,
-)
-if err != nil {
-    return err
-}
-
-fmt.Println(matches)
-```
-
-Qualifier resolution returns the final boolean result.
-
-## Context Validation
-
-Resolution validates context against a compatible request context schema by
-default. Skip validation for one call when a tool needs to evaluate partial
-context:
-
-```go
-resolution, err := workspace.ResolveVariable(
-    context.Background(),
-    "premium-message",
-    resolveContext,
-    &rototo.ResolveOptions{SkipContextValidation: true},
-)
-```
-
-The context still must be a JSON object represented as `map[string]any`.
-
-## Inspect And Lint
-
-```go
-workspace, err := rototo.Inspect(context.Background(), "examples/basic", nil)
-if err != nil {
-    return err
-}
-defer workspace.Close()
-
-lint, err := workspace.Lint(context.Background())
-```
-
-Inspection is for tools. A workspace loaded through `Inspect` cannot resolve
-variables or qualifiers because it does not compile the runtime model.
-
-## Refreshing Workspace
-
-```go
-periodSeconds := 30.0
-
-workspace, err := rototo.LoadRefreshing(
-    context.Background(),
-    source,
-    &rototo.RefreshingWorkspaceOptions{
-        PeriodSeconds: &periodSeconds,
-    },
-)
-if err != nil {
-    return err
-}
-defer workspace.Close(context.Background())
-
-resolution, err := workspace.ResolveVariable(
-    context.Background(),
-    "premium-message",
-    resolveContext,
-    nil,
-)
-status, err := workspace.Status(context.Background())
-err = workspace.Shutdown(context.Background())
-```
-
-`RefreshingWorkspace` keeps serving the last successfully loaded workspace when
-refresh fails. `Status` returns a `RefreshStatus` struct with fingerprint,
-success, attempt, failure, error, refreshing, and immutable fields.
-
-## Errors
-
-Rust `RototoError` values become `*rototo.Error` in Go:
-
-```go
-_, err := workspace.ResolveVariable(context.Background(), "missing", nil, nil)
-if err != nil {
-    var rototoError *rototo.Error
-    if errors.As(err, &rototoError) {
-        fmt.Println(rototoError.Message)
+    for {
+        fmt.Println("---")
+        for _, tier := range []string{"standard", "premium"} {
+            resolution, err := appConfig.ResolveVariable(variableID, map[string]any{
+                "account": map[string]any{"tier": tier},
+            }, nil)
+            if err != nil {
+                panic(err)
+            }
+            fmt.Printf("%s: %v USD\n", tier, resolution.Value)
+        }
+        time.Sleep(2 * time.Second)
     }
 }
 ```
 
-Invalid Go-side inputs, such as a context that cannot marshal as JSON, return
-standard Go errors.
+Run it (`go run main.go`) from the directory that holds `app-config`, and it prints:
 
-## Public Types
+```text
+---
+standard: 50 USD
+premium: 25 USD
+```
 
-| Type | Purpose |
-| --- | --- |
-| `Workspace` | Loaded workspace handle. |
-| `RefreshingWorkspace` | Refreshing workspace handle for services. |
-| `LoadOptions` | Workspace load options. |
-| `RefreshingWorkspaceOptions` | Refreshing workspace load options. |
-| `ResolveOptions` | Per-call resolution options. |
-| `VariableResolution` | Selected variable value. |
-| `RefreshStatus` | Refresh state snapshot. |
-| `WorkspaceLint` | Lint result for a loaded or inspected workspace. |
-| `Error` | Error raised for rototo failures. |
+Now edit `free-shipping-threshold.toml`, change the default to 35, and save. Because the package refreshes every second, the next tick shows:
+
+```text
+---
+standard: 50 USD
+premium: 35 USD
+```
+
+## Documentation
+
+Public docs are available on [rototo.dev](https://rototo.dev).
+The `rototo` cli also ships with the same documents in markdown.
+
+You and your agent can use the `docs` command in the cli:
+```sh
+# show available docs
+rototo docs
+
+# search for docs
+rototo docs -s <search terms>
+
+# fetch doc based on doc id prefix
+rototo docs -p concepts
+```
+
+## Rototo is designed for people and agents
+
+Agents are now among the most important users of any development tool.
+Hence, Rototo is designed from ground up to work well both for people and agents.
+- The configuration package is simply a dir tree of files that brings battle-tested ergnomics of file organization and editing.
+- `rototo docs` to discover Rototo's capabilities and the recipes to use it.
+- `rototo lint` as the backbone for configuration validation that can be run after every edit.
+- `rototo inspect` to reason about the package structure and how everything resolves at runtime.
+- `rototo resolve` for test automation of invariants (e.g. customer X must always receive configuration Y otherwise something is wrong).
+- `rototo lsp` to provide feedback (and help) during editing.
+- `rototo console` to have the comfort of a react based UI for inspecting and editing the package.
+
+## License
+
+Licensed under either of:
+
+- Apache License, Version 2.0
+- MIT license
+
+at your option.

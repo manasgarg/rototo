@@ -10,7 +10,7 @@ fn lists_global_diagnostics() {
         .success()
         .stdout(predicate::str::contains("rule"))
         .stdout(predicate::str::contains("entity"))
-        .stdout(predicate::str::contains("rototo/workspace-not-found"))
+        .stdout(predicate::str::contains("rototo/package-not-found"))
         .stdout(predicate::str::contains("rototo/qualifier-parse-failed"))
         .stdout(predicate::str::contains(
             "Qualifier TOML file could not be parsed",
@@ -19,7 +19,7 @@ fn lists_global_diagnostics() {
 }
 
 #[test]
-fn lists_workspace_scoped_diagnostics_when_requested() {
+fn lists_package_scoped_diagnostics_when_requested() {
     Command::cargo_bin("rototo")
         .unwrap()
         .args(["show", "examples/basic", "--lint-rules"])
@@ -42,7 +42,7 @@ fn lists_global_diagnostics_as_json() {
         .stdout(predicate::str::contains(r#""scope": "global""#))
         .stdout(predicate::str::contains(r#""subject": "global""#))
         .stdout(predicate::str::contains(
-            r#""rule": "rototo/workspace-not-found""#,
+            r#""rule": "rototo/package-not-found""#,
         ))
         .stdout(predicate::str::contains(
             r#""rule": "rototo/qualifier-unreferenced""#,
@@ -78,10 +78,10 @@ fn retired_rototo_rules_are_not_listed() {
         "rototo/variable-missing-table",
         "rototo/variable-values-missing",
         "rototo/variable-value-unused",
-        "rototo/workspace-context-schema-ref",
-        "rototo/workspace-context-schema-attribute",
-        "rototo/workspace-context-schema-reserved-field",
-        "rototo/workspace-context-schema-missing",
+        "rototo/package-context-schema-ref",
+        "rototo/package-context-schema-attribute",
+        "rototo/package-context-schema-reserved-field",
+        "rototo/package-context-schema-missing",
         "rototo/qualifier-predicate-context-type-mismatch",
         "rototo/catalog-schema-version",
         "rototo/catalog-schema-ref",
@@ -94,7 +94,7 @@ fn retired_rototo_rules_are_not_listed() {
 }
 
 #[test]
-fn gets_workspace_diagnostic() {
+fn gets_package_diagnostic() {
     Command::cargo_bin("rototo")
         .unwrap()
         .args(["show", "--lint-rule", "rototo/qualifier-parse-failed"])
@@ -105,7 +105,7 @@ fn gets_workspace_diagnostic() {
 }
 
 #[test]
-fn gets_workspace_custom_diagnostic() {
+fn gets_package_custom_diagnostic() {
     Command::cargo_bin("rototo")
         .unwrap()
         .args([
@@ -123,27 +123,27 @@ fn gets_workspace_custom_diagnostic() {
 }
 
 #[test]
-fn lists_workspace_level_custom_diagnostics() {
+fn lists_package_level_custom_diagnostics() {
     Command::cargo_bin("rototo")
         .unwrap()
         .args([
             "show",
-            "tests/fixtures/workspaces/custom-targets",
+            "tests/fixtures/packages/custom-targets",
             "--lint-rules",
         ])
         .assert()
         .success()
         .stdout(predicate::str::contains("targets/variable-type"))
-        .stdout(predicate::str::contains("targets/workspace-extends"));
+        .stdout(predicate::str::contains("targets/package-extends"));
 }
 
 #[test]
-fn lists_workspace_custom_warning_severity() {
+fn lists_package_custom_warning_severity() {
     Command::cargo_bin("rototo")
         .unwrap()
         .args([
             "show",
-            "tests/fixtures/workspaces/custom-warning",
+            "tests/fixtures/packages/custom-warning",
             "--lint-rules",
             "--json",
         ])
@@ -159,7 +159,7 @@ fn custom_diagnostic_catalog_entries_do_not_claim_variable_entity() {
         .unwrap()
         .args([
             "show",
-            "tests/fixtures/workspaces/custom-targets",
+            "tests/fixtures/packages/custom-targets",
             "--lint-rules",
             "--json",
         ])

@@ -1,6 +1,6 @@
 [package]
 name = "rototo"
-version = "0.1.0-alpha.5"
+version = "0.1.0-alpha.6"
 edition = "2024"
 description = "Control plane for runtime configuration of your application."
 license = "MIT OR Apache-2.0"
@@ -22,7 +22,6 @@ include = [
     "/apps/console/dist/**",
     "/docs/src/**",
     "/docs/theme/**",
-    "/spec/**",
     "/src/**",
 ]
 
@@ -40,7 +39,6 @@ console = [
     "dep:mime_guess",
     "dep:rusqlite",
     "dep:rust-embed",
-    "dep:uuid",
     "tokio/net",
     "tokio/signal",
 ]
@@ -48,6 +46,10 @@ console = [
 [dependencies]
 axum = { version = "0.8", optional = true }
 base64 = { version = "0.22", optional = true }
+# Pinned exactly: rototo's expression language is a CEL subset evaluated by this
+# engine, so its parser/evaluator semantics are part of rototo's contract. Bump
+# deliberately and re-run the expression suite.
+cel = { version = "=0.14.0", features = ["json"] }
 clap = { version = "4", features = ["derive", "env"] }
 clap_complete = "4"
 flate2 = "1"
@@ -71,7 +73,9 @@ toml = "0.8"
 toml-span = "0.7.1"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt"] }
-uuid = { version = "1", features = ["v4"], optional = true }
+# Used by the SDK refresh-event stream for stable event ids, so it builds even
+# when the console feature is off (language SDK bindings build that way).
+uuid = { version = "1", features = ["v4"] }
 
 [dev-dependencies]
 assert_cmd = "2"

@@ -1,0 +1,33 @@
+# Inside a `[[resolve.rule]]` table whose `when` is already set, the remaining
+# fields are `query`, `value`, and another rule block. Top-level resolve fields
+# like `default` do not belong here.
+package = "basic"
+file = "variables/message.toml"
+
+overlay = '''
+schema_version = 1
+type = "string"
+
+[resolve]
+default = "hello"
+
+[[resolve.rule]]
+when = "context.user.tier == 'premium'"
+$0
+'''
+
+[expect]
+exact = ["query", "value", "[[resolve.rule]]"]
+
+[[expect.includes]]
+label = "value"
+detail = "variable field"
+insert_text = "value = "
+
+[[expect.excludes]]
+label = "when"
+detail = "variable field"
+
+[[expect.excludes]]
+label = "default"
+detail = "variable field"

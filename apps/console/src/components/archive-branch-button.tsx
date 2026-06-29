@@ -8,12 +8,12 @@ export function ArchiveBranchButton({
     branch,
     disabled,
     branchId,
-    workspaceId,
+    packageId,
 }: {
     branch: string;
     disabled?: boolean;
     branchId: string;
-    workspaceId: string;
+    packageId: string;
 }) {
     const router = useRouter();
     const [pending, setPending] = useState(false);
@@ -31,14 +31,14 @@ export function ArchiveBranchButton({
         setMessage(null);
         try {
             const response = await apiFetch(
-                `/api/workspaces/${workspaceId}/branches/${branchId}/archive`,
+                `/api/packages/${packageId}/branches/${branchId}/archive`,
                 { method: "POST" },
             );
             const body = (await response.json()) as { error?: string };
             if (!response.ok) {
                 throw new Error(body.error ?? "failed to archive branch");
             }
-            router.push(`/app/workspaces/${workspaceId}/branches`);
+            router.push(`/app/packages/${packageId}/branches`);
             router.refresh();
         } catch (error) {
             setMessage(error instanceof Error ? error.message : String(error));

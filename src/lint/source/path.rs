@@ -4,7 +4,7 @@ pub(super) async fn path_containment_error(root: &Path, path: &Path) -> Option<S
     let root = match tokio::fs::canonicalize(root).await {
         Ok(root) => root,
         Err(err) if err.kind() == std::io::ErrorKind::NotFound => return None,
-        Err(err) => return Some(format!("failed to canonicalize workspace root: {err}")),
+        Err(err) => return Some(format!("failed to canonicalize package root: {err}")),
     };
     let path = match tokio::fs::canonicalize(path).await {
         Ok(path) => path,
@@ -14,11 +14,11 @@ pub(super) async fn path_containment_error(root: &Path, path: &Path) -> Option<S
     if path.starts_with(&root) {
         None
     } else {
-        Some("path escapes workspace".to_owned())
+        Some("path escapes package".to_owned())
     }
 }
 
-pub(crate) fn workspace_path(path: &Path) -> String {
+pub(crate) fn package_path(path: &Path) -> String {
     path.components()
         .filter_map(|component| match component {
             Component::Normal(segment) => Some(segment.to_string_lossy().into_owned()),
@@ -64,7 +64,7 @@ mod tests {
     #[tokio::test]
     async fn path_containment_reports_symlink_escape() {
         let tempdir = tempfile::tempdir().unwrap();
-        let root = tempdir.path().join("workspace");
+        let root = tempdir.path().join("package");
         let outside = tempdir.path().join("outside.toml");
         tokio::fs::create_dir(&root).await.unwrap();
         tokio::fs::write(&outside, "schema_version = 1")
@@ -75,7 +75,7 @@ mod tests {
         std::os::unix::fs::symlink(&outside, &link).unwrap();
         assert_eq!(
             path_containment_error(&root, &link).await,
-            Some("path escapes workspace".to_owned())
+            Some("path escapes package".to_owned())
         );
     }
 }

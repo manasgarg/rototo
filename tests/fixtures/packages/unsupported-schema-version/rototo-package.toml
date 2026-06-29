@@ -1,0 +1,4 @@
+schema_version = 2
+
+[package]
+description = "Invalid because schema_version is unsupported"

@@ -1,0 +1,17 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "description": "A second evaluation context, disjoint from request, to exercise cross-context conflicts.",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "device": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "os": {
+          "type": "string"
+        }
+      }
+    }
+  }
+}

@@ -5,7 +5,7 @@ mod document_symbols;
 mod hover;
 mod references;
 
-use crate::diagnostics::DiagnosticLocation;
+use crate::diagnostics::{DiagnosticLocation, SourceRange};
 
 pub(super) use completion::completion_items;
 pub(super) use definition::definition;
@@ -14,18 +14,18 @@ pub(super) use hover::hover;
 pub(super) use references::references;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub(crate) struct WorkspaceDocumentSymbol {
+pub(crate) struct PackageDocumentSymbol {
     pub(crate) name: String,
-    pub(crate) kind: WorkspaceDocumentSymbolKind,
+    pub(crate) kind: PackageDocumentSymbolKind,
     pub(crate) location: DiagnosticLocation,
     pub(crate) selection_location: DiagnosticLocation,
-    pub(crate) children: Vec<WorkspaceDocumentSymbol>,
+    pub(crate) children: Vec<PackageDocumentSymbol>,
 }
 
-impl WorkspaceDocumentSymbol {
+impl PackageDocumentSymbol {
     fn new(
         name: impl Into<String>,
-        kind: WorkspaceDocumentSymbolKind,
+        kind: PackageDocumentSymbolKind,
         location: DiagnosticLocation,
         children: Vec<Self>,
     ) -> Self {
@@ -40,9 +40,9 @@ impl WorkspaceDocumentSymbol {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) enum WorkspaceDocumentSymbolKind {
-    WorkspaceExtends,
-    WorkspaceExtendSource,
+pub(crate) enum PackageDocumentSymbolKind {
+    PackageExtends,
+    PackageExtendSource,
     Qualifier,
     Variable,
     Catalog,
@@ -54,17 +54,22 @@ pub(crate) enum WorkspaceDocumentSymbolKind {
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub(crate) struct WorkspaceCompletionItem {
+pub(crate) struct PackageCompletionItem {
     pub(crate) label: String,
-    pub(crate) kind: WorkspaceCompletionItemKind,
+    pub(crate) kind: PackageCompletionItemKind,
     pub(crate) detail: &'static str,
     pub(crate) insert_text: Option<String>,
+    /// Source span the completion replaces (the token under the cursor). The LSP
+    /// layer turns this into an explicit `textEdit` so the editor does not guess a
+    /// word boundary, which it gets wrong for tokens containing `.`, `"`, `[`, or
+    /// `&`.
+    pub(crate) replace: Option<SourceRange>,
 }
 
-impl WorkspaceCompletionItem {
+impl PackageCompletionItem {
     fn new(
         label: impl Into<String>,
-        kind: WorkspaceCompletionItemKind,
+        kind: PackageCompletionItemKind,
         detail: &'static str,
     ) -> Self {
         Self {
@@ -72,6 +77,7 @@ impl WorkspaceCompletionItem {
             kind,
             detail,
             insert_text: None,
+            replace: None,
         }
     }
 
@@ -82,7 +88,7 @@ impl WorkspaceCompletionItem {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) enum WorkspaceCompletionItemKind {
+pub(crate) enum PackageCompletionItemKind {
     Qualifier,
     Value,
     FieldSelector,
@@ -91,19 +97,19 @@ pub(crate) enum WorkspaceCompletionItemKind {
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub(crate) struct WorkspaceHover {
+pub(crate) struct PackageHover {
     pub(crate) contents: String,
     pub(crate) location: DiagnosticLocation,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub(crate) struct WorkspaceDefinition {
+pub(crate) struct PackageDefinition {
     pub(crate) uri: String,
     pub(crate) location: DiagnosticLocation,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub(crate) struct WorkspaceReference {
+pub(crate) struct PackageReference {
     pub(crate) uri: String,
     pub(crate) location: DiagnosticLocation,
 }

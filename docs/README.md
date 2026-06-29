@@ -7,64 +7,39 @@ The publishable pages live under `docs/src/`:
 
 ```text
 docs/src/
-  index.md
-  getting-started.md
-  configuration-primitives.md
-  operational-switches.md
-  incident-banner.md
-  onboarding-checklist.md
-  bucketed-rollout.md
-  notification-delivery-policy.md
-  service-degradation-policy.md
-  workspace-layering.md
-  modeling-runtime-configuration.md
-  application-integration.md
-  testing-runtime-configuration.md
-  operating-runtime-configuration.md
-  production-workflow.md
-  reference-workspace-manifest.md
-  reference-workspace-layout.md
-  reference-workspace-sources.md
-  reference-workspace-layering.md
-  reference-context.md
-  reference-qualifiers.md
-  reference-predicate-operators.md
-  reference-variables.md
-  reference-variable-values.md
-  reference-catalogs.md
-  reference-qualifier-resolution.md
-  reference-variable-resolution.md
-  reference-resolution-output.md
-  reference-cli-overview.md
-  reference-cli-commands.md
-  reference-sdk-loading.md
-  reference-sdk-resolution.md
-  reference-sdk-refresh.md
-  reference-sdk-rust.md
-  reference-sdk-python.md
-  reference-sdk-typescript.md
-  reference-sdk-java.md
-  reference-sdk-go.md
-  reference-lint-overview.md
-  reference-diagnostics.md
-  reference-custom-lua-lint.md
-  reference-json-output.md
+  motivation.md
+  quickstart.md
+  concepts.md
+  adoption.md
+  cli.md
+  package-format.md
+  package-sources.md
+  expressions.md
+  diagnostics.md
+  sdk.md
 ```
 
 The CLI embeds the pages registered in `src/docs.rs`. When adding, moving, or
-renaming a page, update that registry and the bundled documentation list in
-`docs/src/index.md`.
+renaming a page, update that registry and `DOC_NAV_SECTIONS` in the same file.
+The consistency tests require every Markdown file under `docs/src/` to be
+registered and listed in navigation exactly once.
 
-Learning pages explain rototo through representative operational examples.
-Adoption pages turn those examples into production habits and workflow.
-Reference pages specify exact file formats, commands, SDK APIs, and output
-contracts.
+Each language SDK's `README.md` is generated from the root `README.md` (the Rust
+SDK's README): shared prose and the CLI walkthrough are copied verbatim, and the
+title plus the per-language runtime example are swapped in. Regenerate with
+`rototo docs --package-readme <sdk> --out sdks/<sdk>/README.md`. The
+`package_readmes_are_generated_from_rust_readme` test keeps the committed files
+in sync, so edit the root `README.md` (and the quickstart snippet it reuses),
+not the generated SDK files.
 
 ## Writing Voice
 
-Write public docs in the senior-engineer voice defined in `AGENTS.md`: practical,
-experienced, warm, and precise. The docs should feel like an engineer sharing
-the production pattern they trust, not a feature catalog.
+Write every public doc in plain, everyday language, the way one engineer would
+explain it to another over coffee. No jargon, no dense paragraphs, no spec-speak.
+This applies to reference pages too: they still have to be exact, but "exact" is
+not the same as "dry". `docs/src/package-sources.md` is the reference example of
+this tone; match it. Never use em-dashes (`—`); use a comma, colon, parentheses,
+or a spaced hyphen instead. The full guidance lives in `AGENTS.md`.
 
 Before finishing a docs change, check that the page:
 
@@ -97,13 +72,13 @@ Use the CLI to inspect the bundled docs:
 
 ```sh
 rototo docs
-rototo docs -p index
-rototo docs -s "workspace source"
+rototo docs -p motivation
+rototo docs -s "configuration"
 rototo docs --export site
 ```
 
 Use `just docs-preview` when you need to review the rendered site over HTTPS
-before merging. The recipe exports the current workspace, deploys it to a
+before merging. The recipe exports the current package, deploys it to a
 Cloudflare Pages preview branch, and leaves the production `main` deployment to
 the GitHub workflow. It requires `CLOUDFLARE_ACCOUNT_ID` and
 `CLOUDFLARE_API_TOKEN`; `CLOUDFLARE_PAGES_PROJECT` defaults to `rototo-docs`.

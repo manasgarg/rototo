@@ -16,7 +16,7 @@ type ScanState =
     | { kind: "error"; message: string }
     | { kind: "done"; candidates: Candidate[]; skipped: number };
 
-export function BranchCandidates({ workspaceId }: { workspaceId: string }) {
+export function BranchCandidates({ packageId }: { packageId: string }) {
     const router = useRouter();
     const [scan, setScan] = useState<ScanState>({ kind: "loading" });
     const [openingBranch, setOpeningBranch] = useState<string | null>(null);
@@ -27,7 +27,7 @@ export function BranchCandidates({ workspaceId }: { workspaceId: string }) {
         (async () => {
             try {
                 const response = await apiFetch(
-                    `/api/workspaces/${workspaceId}/branch-candidates`,
+                    `/api/packages/${packageId}/branch-candidates`,
                 );
                 const body = (await response.json()) as {
                     candidates?: Candidate[];
@@ -60,14 +60,14 @@ export function BranchCandidates({ workspaceId }: { workspaceId: string }) {
         return () => {
             cancelled = true;
         };
-    }, [workspaceId]);
+    }, [packageId]);
 
     async function activeBranch(branch: string) {
         setOpeningBranch(branch);
         setOpenError(null);
         try {
             const response = await apiFetch(
-                `/api/workspaces/${workspaceId}/branches`,
+                `/api/packages/${packageId}/branches`,
                 {
                     method: "POST",
                     headers: { "Content-Type": "application/json" },
@@ -84,7 +84,7 @@ export function BranchCandidates({ workspaceId }: { workspaceId: string }) {
                 );
             }
             router.push(
-                `/app/workspaces/${workspaceId}/branches/${body.branch.id}`,
+                `/app/packages/${packageId}/branches/${body.branch.id}`,
             );
         } catch (error) {
             setOpenError(
@@ -101,10 +101,10 @@ export function BranchCandidates({ workspaceId }: { workspaceId: string }) {
     return (
         <div className="card">
             <div className="card-head-text">
-                <h3>Branches with workspace changes</h3>
+                <h3>Branches with package changes</h3>
                 <p className="hint">
                     Discovered from GitHub: branches whose changes touch only
-                    this workspace. Open one to review and publish it from here.
+                    this package. Open one to review and publish it from here.
                 </p>
             </div>
             {scan.kind === "loading" ? (

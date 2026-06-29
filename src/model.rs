@@ -5,9 +5,9 @@ use crate::diagnostics::{
 };
 
 #[derive(Debug)]
-pub struct WorkspaceInspection {
+pub struct PackageInspection {
     pub root: PathBuf,
-    pub request_contexts: Vec<RequestContextInspection>,
+    pub evaluation_contexts: Vec<EvaluationContextInspection>,
     pub catalogs: Vec<CatalogInspection>,
     pub qualifiers: Vec<QualifierInspection>,
     pub variables: Vec<VariableInspection>,
@@ -36,7 +36,7 @@ pub struct CatalogInspection {
 }
 
 #[derive(Clone, Debug)]
-pub struct RequestContextInspection {
+pub struct EvaluationContextInspection {
     pub id: String,
     pub uri: String,
     pub path: PathBuf,
@@ -73,13 +73,13 @@ pub struct CatalogConfig {
 }
 
 #[derive(Debug)]
-pub struct WorkspaceLint {
+pub struct PackageLint {
     pub root: PathBuf,
     pub documents: Vec<SourceDocumentSummary>,
     pub diagnostics: Vec<LintDiagnostic>,
 }
 
-impl WorkspaceLint {
+impl PackageLint {
     pub fn has_errors(&self) -> bool {
         self.diagnostics
             .iter()
@@ -126,8 +126,8 @@ pub enum SourceKind {
     Variable,
     Catalog,
     CatalogEntry,
-    RequestContext,
-    RequestContextEntry,
+    EvaluationContext,
+    EvaluationContextSample,
     CustomLint,
 }
 
@@ -180,7 +180,7 @@ pub enum VariableResolutionSource {
 }
 
 #[derive(Debug, serde::Serialize)]
-pub struct WorkspaceDiff {
+pub struct PackageDiff {
     pub before: String,
     pub after: String,
     pub changes: Vec<SemanticChange>,
@@ -220,11 +220,11 @@ pub struct DiagnosticCatalog {
 #[serde(rename_all = "lowercase")]
 pub enum DiagnosticCatalogScope {
     Global,
-    Workspace,
+    Package,
 }
 
 #[derive(Clone, Debug, Default)]
-pub struct WorkspaceInspectRequest {
+pub struct PackageInspectRequest {
     pub variables: InspectSelection,
     pub catalogs: InspectSelection,
     pub qualifiers: InspectSelection,
@@ -260,12 +260,12 @@ impl InspectSelection {
 }
 
 #[derive(Debug, serde::Serialize)]
-pub struct WorkspaceInspectReport {
-    pub workspace: String,
+pub struct PackageInspectReport {
+    pub package: String,
     pub documents: Vec<SourceDocumentSummary>,
     pub runtime: InspectRuntimeStatus,
     pub diagnostics: Vec<LintDiagnostic>,
-    pub request_contexts: Vec<RequestContextInspectReport>,
+    pub evaluation_contexts: Vec<EvaluationContextInspectReport>,
     pub catalogs: Vec<CatalogInspectReport>,
     pub variables: Vec<VariableInspectReport>,
     pub qualifiers: Vec<QualifierInspectReport>,
@@ -310,13 +310,16 @@ pub struct VariableInspectReport {
     pub path: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub description: Option<String>,
-    pub request_contexts: Vec<String>,
+    pub evaluation_contexts: Vec<String>,
+    pub context_attributes: Vec<ContextAttributeInspectReport>,
     pub type_source: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub schema: Option<String>,
     pub values: Vec<ValueInspectReport>,
     pub resolve: ResolveInspectReport,
     pub dependencies: DependencyInspectReport,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub sample_coverage: Option<VariableSampleCoverageReport>,
     pub diagnostics: Vec<LintDiagnostic>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub trace: Option<VariableResolutionTrace>,
@@ -358,6 +361,55 @@ pub struct DependencyInspectReport {
     pub catalogs: Vec<String>,
 }
 
+/// How a single context attribute used by a qualifier or variable lines up with
+/// the evaluation context schemas: the scalar types the expression expects of
+/// it, where it is declared and with what type, and whether that agrees.
+#[derive(Debug, serde::Serialize)]
+pub struct ContextAttributeInspectReport {
+    pub path: String,
+    /// Scalar types the expression requires, inferred from how the path is used.
+    /// Empty when the use does not pin a scalar type (for example a `bucket`
+    /// value argument).
+    pub expected_types: Vec<String>,
+    /// One of `ok`, `undeclared`, or `type_mismatch`.
+    pub status: String,
+    pub declarations: Vec<ContextAttributeDeclarationReport>,
+}
+
+#[derive(Debug, serde::Serialize)]
+pub struct ContextAttributeDeclarationReport {
+    pub evaluation_context: String,
+    /// The JSON Schema type tokens the context declares for this path. Empty
+    /// when the path is declared without a checkable type.
+    pub declared_types: Vec<String>,
+}
+
+/// Which resolution branches of a variable the available evaluation context
+/// samples actually exercise. A rule (or the default) with `covered = false` is
+/// an opportunity: add a sample that selects it.
+#[derive(Debug, serde::Serialize)]
+pub struct VariableSampleCoverageReport {
+    pub sample_count: usize,
+    pub default_covered: bool,
+    pub rules: Vec<RuleSampleCoverageReport>,
+}
+
+#[derive(Debug, serde::Serialize)]
+pub struct RuleSampleCoverageReport {
+    pub index: usize,
+    pub covered: bool,
+}
+
+/// Whether the available evaluation context samples drive a qualifier to both
+/// outcomes. A qualifier never seen `true` or never seen `false` is an
+/// opportunity to add a sample for the missing case.
+#[derive(Debug, serde::Serialize)]
+pub struct QualifierSampleCoverageReport {
+    pub sample_count: usize,
+    pub evaluated_true: bool,
+    pub evaluated_false: bool,
+}
+
 #[derive(Debug, serde::Serialize)]
 pub struct QualifierInspectReport {
     pub id: String,
@@ -365,19 +417,21 @@ pub struct QualifierInspectReport {
     pub path: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub description: Option<String>,
-    pub request_contexts: Vec<String>,
+    pub evaluation_contexts: Vec<String>,
+    pub context_attributes: Vec<ContextAttributeInspectReport>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub when: Option<String>,
-    pub predicates: Vec<PredicateInspectReport>,
     pub dependencies: DependencyInspectReport,
     pub consumers: Vec<ReferenceInspectReport>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub sample_coverage: Option<QualifierSampleCoverageReport>,
     pub diagnostics: Vec<LintDiagnostic>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub trace: Option<QualifierResolutionTrace>,
 }
 
 #[derive(Debug, serde::Serialize)]
-pub struct RequestContextInspectReport {
+pub struct EvaluationContextInspectReport {
     pub id: String,
     pub path: String,
     pub status: String,
@@ -387,31 +441,14 @@ pub struct RequestContextInspectReport {
     pub title: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub description: Option<String>,
-    pub entries: Vec<RequestContextEntryInspectReport>,
+    pub samples: Vec<EvaluationContextSampleInspectReport>,
     pub diagnostics: Vec<LintDiagnostic>,
 }
 
 #[derive(Debug, serde::Serialize)]
-pub struct RequestContextEntryInspectReport {
+pub struct EvaluationContextSampleInspectReport {
     pub key: String,
     pub value: serde_json::Value,
-    #[serde(skip_serializing)]
-    pub location: DiagnosticLocation,
-}
-
-#[derive(Debug, serde::Serialize)]
-pub struct PredicateInspectReport {
-    pub index: usize,
-    pub attribute: Option<String>,
-    pub op: Option<String>,
-    #[serde(skip_serializing_if = "is_false")]
-    pub not: bool,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub value: Option<serde_json::Value>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub salt: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub range: Option<Vec<i64>>,
     #[serde(skip_serializing)]
     pub location: DiagnosticLocation,
 }

@@ -4,11 +4,11 @@ import { GitBranchPlus } from "lucide-react";
 import { apiFetch } from "@/lib/api";
 
 export function StartBranchButton({
-    workspaceId,
+    packageId,
     disabled,
     disabledReason,
 }: {
-    workspaceId: string;
+    packageId: string;
     disabled?: boolean;
     disabledReason?: string;
 }) {
@@ -21,7 +21,7 @@ export function StartBranchButton({
         setMessage(null);
         try {
             const response = await apiFetch(
-                `/api/workspaces/${workspaceId}/branches`,
+                `/api/packages/${packageId}/branches`,
                 {
                     method: "POST",
                     body: "{}",
@@ -35,7 +35,7 @@ export function StartBranchButton({
                 throw new Error(body.error ?? "failed to start branch");
             }
             router.push(
-                `/app/workspaces/${workspaceId}/branches/${body.branch.id}`,
+                `/app/packages/${packageId}/branches/${body.branch.id}`,
             );
         } catch (error) {
             setMessage(error instanceof Error ? error.message : String(error));
@@ -61,7 +61,7 @@ export function StartBranchButton({
                 ) : (
                     <GitBranchPlus aria-hidden size={15} />
                 )}
-                {pending ? "Starting branch" : "Edit workspace"}
+                {pending ? "Starting branch" : "Edit package"}
             </button>
             {disabled && disabledReason ? (
                 <p className="form-note">{disabledReason}</p>

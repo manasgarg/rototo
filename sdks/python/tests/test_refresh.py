@@ -8,37 +8,161 @@ from pathlib import Path
 import rototo
 
 
-class RefreshingWorkspaceTest(unittest.IsolatedAsyncioTestCase):
-    async def test_refreshing_workspace_refreshes_local_source(self) -> None:
+class RefreshingPackageTest(unittest.IsolatedAsyncioTestCase):
+    async def test_refreshing_package_refreshes_local_source(self) -> None:
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
-            write_workspace(root, "hello")
+            write_package(root, "hello")
 
-            workspace = await rototo.RefreshingWorkspace.load(str(root))
+            package = await rototo.RefreshingPackage.load(str(root))
             try:
-                initial = await workspace.resolve_variable("message", {})
+                initial = package.resolve_variable("message", {})
                 self.assertEqual(initial.value, "hello")
 
-                write_workspace(root, "updated")
-                outcome = await workspace.refresh_now()
+                write_package(root, "updated")
+                outcome = await package.refresh_now()
                 self.assertIn(outcome, {"refreshed", "unchanged"})
 
-                refreshed = await workspace.resolve_variable("message", {})
+                refreshed = package.resolve_variable("message", {})
                 self.assertEqual(refreshed.value, "updated")
 
-                status = await workspace.status()
+                status = await package.status()
                 self.assertIsNotNone(status.last_success)
                 self.assertEqual(status.consecutive_failures, 0)
             finally:
-                await workspace.shutdown()
+                await package.shutdown()
 
             with self.assertRaises(rototo.RototoError):
-                await workspace.resolve_variable("message", {})
+                package.resolve_variable("message", {})
+
+    async def test_identity_and_snapshot(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            write_package(root, "hello")
+
+            package = await rototo.RefreshingPackage.load(str(root))
+            try:
+                identity = await package.identity()
+                self.assertTrue(identity.source.startswith(str(root)))
+                # A local directory has no fingerprint, so no derived release id.
+                self.assertIsNone(identity.release_id)
+
+                snapshot = await package.snapshot()
+                self.assertIsNotNone(snapshot.last_success)
+                self.assertIsNotNone(snapshot.last_event)
+                self.assertEqual(snapshot.last_event.event_type, "loaded")
+                self.assertEqual(snapshot.identity.source, identity.source)
+            finally:
+                await package.shutdown()
+
+    async def test_refresh_events_stream(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            write_package(root, "hello")
+
+            package = await rototo.RefreshingPackage.load(str(root))
+            received: list[rototo.RefreshEvent] = []
+
+            async def collect() -> None:
+                async for event in package.refresh_events():
+                    received.append(event)
+
+            import asyncio
+
+            task = asyncio.create_task(collect())
+            # Let the generator run until it has subscribed and is awaiting the
+            # first event before we mutate the source.
+            await asyncio.sleep(0.02)
+
+            write_package(root, "updated")
+            outcome = await package.refresh_now()
+            self.assertEqual(outcome, "refreshed")
+
+            # Give the stream a moment, then shut down to close it.
+            await asyncio.sleep(0.05)
+            await package.shutdown()
+            await task
+
+            event_types = [event.event_type for event in received]
+            self.assertIn("refreshed", event_types)
+            refreshed = next(e for e in received if e.event_type == "refreshed")
+            self.assertEqual(refreshed.schema_version, 1)
+            self.assertEqual(refreshed.outcome, "refreshed")
+            self.assertEqual(refreshed.sdk.language, "rust")
+            self.assertIsNotNone(refreshed.current)
 
 
-def write_workspace(root: Path, message: str) -> None:
+    async def test_trace_events_stream(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            write_traced_package(root)
+
+            package = await rototo.RefreshingPackage.load(str(root))
+            received: list[dict] = []
+
+            async def collect() -> None:
+                async for item in package.trace_events():
+                    received.append(item)
+
+            import asyncio
+
+            task = asyncio.create_task(collect())
+            # Let the generator subscribe before the resolve that should trace.
+            await asyncio.sleep(0.02)
+
+            package.resolve_variable("message", {})
+
+            await asyncio.sleep(0.05)
+            await package.shutdown()
+            await task
+
+            traces = [item for item in received if item["kind"] == "trace"]
+            self.assertTrue(traces, "expected a package-driven trace event")
+            self.assertEqual(traces[0]["trace"]["targetId"], "message")
+            self.assertEqual(traces[0]["trace"]["targetKind"], "variable")
+
+
+    async def test_per_call_trace(self) -> None:
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            # No [[trace]] policy: the trace is requested by the call itself.
+            write_package(root, "hello")
+
+            package = await rototo.RefreshingPackage.load(str(root))
+            received: list[dict] = []
+
+            async def collect() -> None:
+                async for item in package.trace_events():
+                    received.append(item)
+
+            import asyncio
+
+            task = asyncio.create_task(collect())
+            # Let the generator subscribe before the resolve that should trace.
+            await asyncio.sleep(0.02)
+
+            package.resolve_variable("message", {}, trace=True)
+
+            await asyncio.sleep(0.05)
+            await package.shutdown()
+            await task
+
+            traces = [item for item in received if item["kind"] == "trace"]
+            self.assertTrue(traces, "expected a per-call trace event")
+            self.assertEqual(traces[0]["trace"]["targetId"], "message")
+            self.assertEqual(traces[0]["trace"]["targetKind"], "variable")
+
+
+def write_traced_package(root: Path) -> None:
+    write_package(root, "hello")
+    (root / "rototo-package.toml").write_text(
+        'schema_version = 1\n\n[[trace]]\nwhen = \'env.resolving.variable == "message"\'\n'
+    )
+
+
+def write_package(root: Path, message: str) -> None:
     (root / "variables").mkdir(exist_ok=True)
-    (root / "rototo-workspace.toml").write_text("schema_version = 1\n")
+    (root / "rototo-package.toml").write_text("schema_version = 1\n")
     (root / "variables" / "message.toml").write_text(
         textwrap.dedent(
             f"""

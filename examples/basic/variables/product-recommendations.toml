@@ -7,13 +7,13 @@ type = "catalog:product-recommendations"
 default = "baseline"
 
 [[resolve.rule]]
-when = 'qualifier["eu-premium-users"]'
+when = 'env.qualifier["eu-premium-users"]'
 value = "personalized"
 
 [[resolve.rule]]
-when = 'qualifier["returning-users"]'
+when = 'env.qualifier["returning-users"]'
 value = "personalized"
 
 [[resolve.rule]]
-when = 'qualifier["enterprise-accounts"]'
+when = 'env.qualifier["enterprise-accounts"]'
 value = "enterprise"

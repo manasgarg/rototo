@@ -5,13 +5,13 @@ use serde::{Serialize, Serializer};
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize)]
 #[serde(rename_all = "lowercase")]
 pub enum DiagnosticEntity {
-    Workspace,
+    Package,
     Qualifier,
     Variable,
     Catalog,
     CatalogEntry,
-    RequestContext,
-    RequestContextEntry,
+    EvaluationContext,
+    EvaluationContextSample,
     Value,
     Rule,
 }
@@ -62,10 +62,10 @@ macro_rules! rototo_rules {
             pub fn is_retired(self) -> bool {
                 matches!(
                     self,
-                    Self::WorkspaceContextSchemaRef
-                        | Self::WorkspaceContextSchemaAttribute
-                        | Self::WorkspaceContextSchemaReservedField
-                        | Self::WorkspaceContextSchemaMissing
+                    Self::PackageContextSchemaRef
+                        | Self::PackageContextSchemaAttribute
+                        | Self::PackageContextSchemaReservedField
+                        | Self::PackageContextSchemaMissing
                         | Self::QualifierPredicateMissing
                         | Self::QualifierPredicateShape
                         | Self::QualifierPredicateUnknownOp
@@ -95,78 +95,96 @@ macro_rules! rototo_rules {
 }
 
 rototo_rules! {
-    WorkspaceNotFound => {
-        id: "workspace-not-found",
-        entity: Workspace,
-        title: "Workspace was not found",
-        help: "Pass a path to an existing rototo workspace directory.",
+    PackageNotFound => {
+        id: "package-not-found",
+        entity: Package,
+        title: "Package was not found",
+        help: "Pass a path to an existing rototo package directory.",
     },
-    WorkspaceManifestMissing => {
-        id: "workspace-manifest-missing",
-        entity: Workspace,
-        title: "Workspace manifest is missing",
-        help: "Create rototo-workspace.toml at the workspace root.",
+    PackageManifestMissing => {
+        id: "package-manifest-missing",
+        entity: Package,
+        title: "Package manifest is missing",
+        help: "Create rototo-package.toml at the package root.",
     },
-    WorkspaceManifestParseFailed => {
-        id: "workspace-manifest-parse-failed",
-        entity: Workspace,
-        title: "Workspace manifest could not be parsed",
-        help: "Fix the TOML syntax in rototo-workspace.toml.",
+    PackageManifestParseFailed => {
+        id: "package-manifest-parse-failed",
+        entity: Package,
+        title: "Package manifest could not be parsed",
+        help: "Fix the TOML syntax in rototo-package.toml.",
     },
-    WorkspaceManifestSchemaFailed => {
-        id: "workspace-manifest-schema-failed",
-        entity: Workspace,
-        title: "Workspace manifest does not match schema",
-        help: "Declare schema_version = 1 and optional extends in rototo-workspace.toml.",
+    PackageManifestSchemaFailed => {
+        id: "package-manifest-schema-failed",
+        entity: Package,
+        title: "Package manifest does not match schema",
+        help: "Declare schema_version = 1 and optional extends in rototo-package.toml.",
     },
-    WorkspaceContextSchemaRef => {
-        id: "workspace-context-schema-ref",
-        entity: Workspace,
-        title: "Resolve context schema is invalid",
-        help: "Retired. Use request-contexts/<id>.schema.json for request context validation.",
+    TraceWhenMissing => {
+        id: "trace-when-missing",
+        entity: Package,
+        title: "Trace policy is missing when",
+        help: "Each [[trace]] policy must declare when = \"<expression>\".",
     },
-    WorkspaceContextSchemaAttribute => {
-        id: "workspace-context-schema-attribute",
-        entity: Workspace,
-        title: "Qualifier context attribute is not declared by the resolve context schema",
-        help: "Declare the context path in the workspace context schema or update the qualifier.",
+    TraceWhenShape => {
+        id: "trace-when-shape",
+        entity: Package,
+        title: "Trace policy when expression is invalid",
+        help: "A [[trace]] when must be a string holding a valid boolean expression.",
     },
-    WorkspaceContextSchemaReservedField => {
-        id: "workspace-context-schema-reserved-field",
-        entity: Workspace,
-        title: "Resolve context schema declares a reserved field",
-        help: "Rename the request context field; qualifier is reserved for qualifier.<id> predicate references.",
+    TraceWhenInvalidReference => {
+        id: "trace-when-invalid-reference",
+        entity: Package,
+        title: "Trace policy when references an unknown identifier",
+        help: "Trace when reads context.<path>, env.qualifier[\"<id>\"], env.now, and env.resolving.variable / env.resolving.qualifier.",
     },
-    WorkspaceContextSchemaMissing => {
-        id: "workspace-context-schema-missing",
-        entity: Workspace,
-        title: "Resolve context schema is missing",
-        help: "Retired. Add request-contexts/<id>.schema.json for request context validation.",
+    PackageContextSchemaRef => {
+        id: "package-context-schema-ref",
+        entity: Package,
+        title: "Evaluation context schema is invalid",
+        help: "Retired. Use evaluation-contexts/<id>.schema.json for evaluation context validation.",
+    },
+    PackageContextSchemaAttribute => {
+        id: "package-context-schema-attribute",
+        entity: Package,
+        title: "Qualifier context attribute is not declared by the evaluation context schema",
+        help: "Declare the context path in the package context schema or update the qualifier.",
+    },
+    PackageContextSchemaReservedField => {
+        id: "package-context-schema-reserved-field",
+        entity: Package,
+        title: "Evaluation context schema declares a reserved field",
+        help: "Rename the evaluation context field; qualifier is reserved for qualifier.<id> predicate references.",
+    },
+    PackageContextSchemaMissing => {
+        id: "package-context-schema-missing",
+        entity: Package,
+        title: "Evaluation context schema is missing",
+        help: "Retired. Add evaluation-contexts/<id>.schema.json for evaluation context validation.",
         severity: Warning,
     },
-    RequestContextSchemaInvalid => {
-        id: "request-context-schema-invalid",
-        entity: RequestContext,
-        title: "Request context schema is invalid",
-        help: "Fix the request-contexts/<id>.schema.json file so it parses and compiles as JSON Schema.",
+    EvaluationContextSchemaInvalid => {
+        id: "evaluation-context-schema-invalid",
+        entity: EvaluationContext,
+        title: "Evaluation context schema is invalid",
+        help: "Fix the evaluation-contexts/<id>.schema.json file so it parses and compiles as JSON Schema.",
     },
-    RequestContextReservedField => {
-        id: "request-context-reserved-field",
-        entity: RequestContext,
-        title: "Request context schema declares a reserved field",
-        help: "Rename the request context field; qualifier is reserved for qualifier.<id> predicate references.",
+    EvaluationContextReservedField => {
+        id: "evaluation-context-reserved-field",
+        entity: EvaluationContext,
+        title: "Evaluation context schema declares a reserved field",
+        help: "Rename the evaluation context field; qualifier is reserved for qualifier.<id> predicate references.",
     },
-    RequestContextEntrySchemaMismatch => {
-        id: "request-context-entry-schema-mismatch",
-        entity: RequestContextEntry,
-        title: "Request context sample does not match its schema",
-        help: "Update the request context sample so it validates against the owning request context schema.",
+    EvaluationContextSampleSchemaMismatch => {
+        id: "evaluation-context-sample-schema-mismatch",
+        entity: EvaluationContextSample,
+        title: "Evaluation context sample does not match its schema",
+        help: "Update the evaluation context sample so it validates against the owning evaluation context schema.",
     },
-    RequestContextEntryShape => {
-        id: "request-context-entry-shape",
-        entity: RequestContextEntry,
-        title: "Request context sample is invalid",
-        help: "Request context samples must parse as JSON objects.",
+    EvaluationContextSampleShape => {
+        id: "evaluation-context-sample-shape",
+        entity: EvaluationContextSample,
+        title: "Evaluation context sample is invalid",
+        help: "Evaluation context samples must parse as JSON objects.",
     },
     QualifierParseFailed => {
         id: "qualifier-parse-failed",
@@ -197,6 +215,24 @@ rototo_rules! {
         entity: Qualifier,
         title: "Qualifier condition references an unknown qualifier",
         help: "Create the referenced qualifier or update the qualifier reference in the when expression.",
+    },
+    QualifierWhenUndeclaredContextPath => {
+        id: "qualifier-when-undeclared-context-path",
+        entity: Qualifier,
+        title: "Qualifier when expression references an undeclared context path",
+        help: "Declare the attribute in an evaluation context schema under evaluation-contexts/<id>.schema.json, or fix the path in the when expression.",
+    },
+    QualifierWhenInvalidReference => {
+        id: "qualifier-when-invalid-reference",
+        entity: Qualifier,
+        title: "Qualifier when expression references an identifier rototo does not provide",
+        help: "Expressions read context.<path>, env.qualifier[\"<id>\"], and env.now. Reference qualifiers as env.qualifier[\"<id>\"].",
+    },
+    QualifierWhenContextPathTypeMismatch => {
+        id: "qualifier-when-context-path-type-mismatch",
+        entity: Qualifier,
+        title: "Qualifier when expression uses a context path with the wrong type",
+        help: "Declare the context attribute with a type that matches how the when expression uses it, or change the comparison to match the declared type.",
     },
     QualifierPredicateMissing => {
         id: "qualifier-predicate-missing",
@@ -237,14 +273,14 @@ rototo_rules! {
     QualifierPredicateContextTypeMismatch => {
         id: "qualifier-predicate-context-type-mismatch",
         entity: Qualifier,
-        title: "Qualifier predicate does not match the resolve context schema type",
+        title: "Qualifier predicate does not match the evaluation context schema type",
         help: "Update the predicate operator or value so it matches the context schema field type.",
     },
-    QualifierNoCompatibleRequestContext => {
-        id: "qualifier-no-compatible-request-context",
+    QualifierNoCompatibleEvaluationContext => {
+        id: "qualifier-no-compatible-evaluation-context",
         entity: Qualifier,
-        title: "Qualifier has no compatible request context",
-        help: "Add a request-contexts/<id>.schema.json schema that declares the qualifier's context attributes, or update the qualifier predicates.",
+        title: "Qualifier has no compatible evaluation context",
+        help: "Add an evaluation context schema under evaluation-contexts/<id>.schema.json that declares the qualifier's context attributes, or update the qualifier predicates.",
     },
     QualifierPredicateDuplicate => {
         id: "qualifier-predicate-duplicate",
@@ -387,6 +423,24 @@ rototo_rules! {
         title: "Variable rule references an unknown qualifier",
         help: "Create the referenced qualifier or update the rule.",
     },
+    VariableRuleUndeclaredContextPath => {
+        id: "variable-rule-undeclared-context-path",
+        entity: Rule,
+        title: "Variable rule references an undeclared context path",
+        help: "Declare the attribute in an evaluation context schema under evaluation-contexts/<id>.schema.json, or fix the path in the rule when/query expression.",
+    },
+    VariableRuleInvalidReference => {
+        id: "variable-rule-invalid-reference",
+        entity: Rule,
+        title: "Variable rule references an identifier rototo does not provide",
+        help: "Expressions read context.<path>, entry.<path> (in queries), env.qualifier[\"<id>\"], and env.now. Reference qualifiers as env.qualifier[\"<id>\"].",
+    },
+    VariableRuleContextPathTypeMismatch => {
+        id: "variable-rule-context-path-type-mismatch",
+        entity: Rule,
+        title: "Variable rule uses a context path with the wrong type",
+        help: "Declare the context attribute with a type that matches how the rule uses it, or change the comparison to match the declared type.",
+    },
     VariableRuleShadowed => {
         id: "variable-rule-shadowed",
         entity: Rule,
@@ -401,52 +455,52 @@ rototo_rules! {
         help: "Remove the rule or update it to select a value that differs from the resolve default.",
         severity: Warning,
     },
-    VariableRequestContextConflict => {
-        id: "variable-request-context-conflict",
+    VariableEvaluationContextConflict => {
+        id: "variable-evaluation-context-conflict",
         entity: Variable,
-        title: "Variable rules require incompatible request contexts",
-        help: "Use rule conditions that share at least one compatible request context, or split the behavior into separate variables.",
+        title: "Variable rules require incompatible evaluation contexts",
+        help: "Use rule conditions that share at least one compatible evaluation context, or split the behavior into separate variables.",
     },
-    RequestContextParseFailed => {
-        id: "request-context-parse-failed",
-        entity: RequestContext,
-        title: "Request context schema JSON file could not be parsed",
-        help: "Fix the JSON syntax so rototo can parse the request context schema file.",
+    EvaluationContextParseFailed => {
+        id: "evaluation-context-parse-failed",
+        entity: EvaluationContext,
+        title: "Evaluation context schema JSON file could not be parsed",
+        help: "Fix the JSON syntax so rototo can parse the evaluation context schema file.",
     },
-    RequestContextEntryParseFailed => {
-        id: "request-context-entry-parse-failed",
-        entity: RequestContextEntry,
-        title: "Request context sample JSON file could not be parsed",
-        help: "Fix the JSON syntax so rototo can parse the request context sample file.",
+    EvaluationContextSampleParseFailed => {
+        id: "evaluation-context-sample-parse-failed",
+        entity: EvaluationContextSample,
+        title: "Evaluation context sample JSON file could not be parsed",
+        help: "Fix the JSON syntax so rototo can parse the evaluation context sample file.",
     },
     CustomLintFailed => {
         id: "custom-lint-failed",
-        entity: Workspace,
+        entity: Package,
         title: "Custom lint execution failed",
         help: "Update the Lua lint file or target data so custom lint can run.",
     },
     CustomLintRegistrationInvalid => {
         id: "custom-lint-registration-invalid",
-        entity: Workspace,
+        entity: Package,
         title: "Custom lint registration is invalid",
         help: "Register custom lint with an allowed stage, entity, field, rule metadata, and handler.",
     },
     CustomLintRuleConflict => {
         id: "custom-lint-rule-conflict",
-        entity: Workspace,
+        entity: Package,
         title: "Custom lint rule metadata conflicts",
         help: "Use identical title and help text for repeated custom rule declarations.",
     },
     CustomLintFileUnregistered => {
         id: "custom-lint-file-unregistered",
-        entity: Workspace,
+        entity: Package,
         title: "Custom lint file registers no handlers",
         help: "Register at least one handler from the Lua file or remove the file.",
         severity: Warning,
     },
     CustomLintRegistrationDuplicate => {
         id: "custom-lint-registration-duplicate",
-        entity: Workspace,
+        entity: Package,
         title: "Custom lint registration is duplicated",
         help: "Remove duplicate custom lint registrations so handlers run once per target.",
         severity: Warning,
@@ -672,7 +726,7 @@ pub enum LintStage {
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Serialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum SemanticEntity {
-    Workspace,
+    Package,
     Manifest,
     Qualifier {
         id: String,
@@ -691,11 +745,11 @@ pub enum SemanticEntity {
         catalog: String,
         key: String,
     },
-    RequestContext {
+    EvaluationContext {
         id: String,
     },
-    RequestContextEntry {
-        request_context: String,
+    EvaluationContextSample {
+        evaluation_context: String,
         key: String,
     },
     Value {
@@ -714,7 +768,7 @@ pub enum SemanticEntity {
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Serialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum SemanticField {
-    WorkspaceExtends,
+    PackageExtends,
     SchemaVersion,
     Description,
     QualifierWhen,
@@ -737,7 +791,7 @@ pub enum SemanticField {
     ValueJsonPath { path: Vec<String> },
     SchemaJson,
     SchemaJsonPath { path: Vec<String> },
-    RequestContextEntry,
+    EvaluationContextSample,
     CatalogEntry,
 }
 
@@ -804,7 +858,7 @@ pub(crate) struct SourceSpan {
 pub enum DiagnosticLocationKind {
     Span,
     Document,
-    WorkspaceRoot,
+    PackageRoot,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -859,9 +913,9 @@ impl DiagnosticLocation {
         }
     }
 
-    pub fn workspace_root(path: impl Into<String>) -> Self {
+    pub fn package_root(path: impl Into<String>) -> Self {
         Self {
-            kind: DiagnosticLocationKind::WorkspaceRoot,
+            kind: DiagnosticLocationKind::PackageRoot,
             doc: None,
             span: None,
             path: path.into(),

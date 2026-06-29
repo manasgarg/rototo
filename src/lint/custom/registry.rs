@@ -185,7 +185,7 @@ fn selector_key(selector: &RegisteredLintSelector) -> String {
 
 fn address_key(address: &RegisteredLintAddress) -> String {
     match address {
-        RegisteredLintAddress::Workspace => "/".to_owned(),
+        RegisteredLintAddress::Package => "/".to_owned(),
         RegisteredLintAddress::Qualifiers => "/qualifiers".to_owned(),
         RegisteredLintAddress::Qualifier { id } => format!("/qualifiers/{id}"),
         RegisteredLintAddress::Variables => "/variables".to_owned(),
@@ -208,15 +208,15 @@ fn address_key(address: &RegisteredLintAddress) -> String {
         RegisteredLintAddress::CatalogEntry { catalog, key } => {
             format!("/catalogs/{catalog}/entries/{key}")
         }
-        RegisteredLintAddress::RequestContexts => "/request-contexts".to_owned(),
-        RegisteredLintAddress::RequestContext { id } => format!("/request-contexts/{id}"),
-        RegisteredLintAddress::RequestContextEntries { request_context } => {
-            format!("/request-contexts/{request_context}/entries")
+        RegisteredLintAddress::EvaluationContexts => "/evaluation-contexts".to_owned(),
+        RegisteredLintAddress::EvaluationContext { id } => format!("/evaluation-contexts/{id}"),
+        RegisteredLintAddress::EvaluationContextSamples { evaluation_context } => {
+            format!("/evaluation-contexts/{evaluation_context}/samples")
         }
-        RegisteredLintAddress::RequestContextEntry {
-            request_context,
+        RegisteredLintAddress::EvaluationContextSample {
+            evaluation_context,
             key,
-        } => format!("/request-contexts/{request_context}/entries/{key}"),
+        } => format!("/evaluation-contexts/{evaluation_context}/samples/{key}"),
     }
 }
 
@@ -291,7 +291,7 @@ fn parse_registered_lint_address(
         .filter(|segment| !segment.is_empty())
         .collect::<Vec<_>>();
     let address = match segments.as_slice() {
-        [] => RegisteredLintAddress::Workspace,
+        [] => RegisteredLintAddress::Package,
         ["qualifiers"] => RegisteredLintAddress::Qualifiers,
         ["qualifiers", id] => RegisteredLintAddress::Qualifier {
             id: parse_address_id(target, id)?,
@@ -325,18 +325,18 @@ fn parse_registered_lint_address(
             catalog: parse_address_id(target, catalog)?,
             key: parse_address_id(target, key)?,
         },
-        ["request-contexts"] => RegisteredLintAddress::RequestContexts,
-        ["request-contexts", id] => RegisteredLintAddress::RequestContext {
+        ["evaluation-contexts"] => RegisteredLintAddress::EvaluationContexts,
+        ["evaluation-contexts", id] => RegisteredLintAddress::EvaluationContext {
             id: parse_address_id(target, id)?,
         },
-        ["request-contexts", request_context, "entries"] => {
-            RegisteredLintAddress::RequestContextEntries {
-                request_context: parse_address_id(target, request_context)?,
+        ["evaluation-contexts", evaluation_context, "samples"] => {
+            RegisteredLintAddress::EvaluationContextSamples {
+                evaluation_context: parse_address_id(target, evaluation_context)?,
             }
         }
-        ["request-contexts", request_context, "entries", key] => {
-            RegisteredLintAddress::RequestContextEntry {
-                request_context: parse_address_id(target, request_context)?,
+        ["evaluation-contexts", evaluation_context, "samples", key] => {
+            RegisteredLintAddress::EvaluationContextSample {
+                evaluation_context: parse_address_id(target, evaluation_context)?,
                 key: parse_address_id(target, key)?,
             }
         }

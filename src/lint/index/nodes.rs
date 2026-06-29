@@ -10,15 +10,16 @@ use crate::diagnostics::{
 use crate::expression::Expression;
 
 use super::ids::{
-    CatalogId, QualifierId, RequestContextEntryId, RequestContextId, ValueKey, VariableId,
-    WorkspacePath,
+    CatalogId, EvaluationContextId, EvaluationContextSampleId, PackagePath, QualifierId, ValueKey,
+    VariableId,
 };
 use super::targets::RegisteredLintSelector;
 
 pub(in crate::lint) struct ManifestNode {
     pub(in crate::lint) doc: DocId,
     pub(in crate::lint) location: DiagnosticLocation,
-    pub(in crate::lint) extends: WorkspaceExtendsCollection,
+    pub(in crate::lint) extends: PackageExtendsCollection,
+    pub(in crate::lint) trace: Vec<TracePolicyNode>,
 }
 
 impl ManifestNode {
@@ -27,19 +28,27 @@ impl ManifestNode {
     }
 }
 
-pub(in crate::lint) struct WorkspaceExtendNode {
+/// One `[[trace]]` policy declared in the manifest. The `when` is a CEL boolean
+/// that may, uniquely, read `env.resolving.*` (the entity being resolved).
+pub(in crate::lint) struct TracePolicyNode {
+    /// Position in the `[[trace]]` array, used to label the policy.
+    pub(in crate::lint) index: usize,
+    pub(in crate::lint) when: ProjectField<Expression>,
+}
+
+pub(in crate::lint) struct PackageExtendNode {
     pub(in crate::lint) source: String,
     pub(in crate::lint) location: DiagnosticLocation,
 }
 
-pub(in crate::lint) enum WorkspaceExtendsCollection {
+pub(in crate::lint) enum PackageExtendsCollection {
     Missing,
     Invalid {
         location: DiagnosticLocation,
     },
     Sources {
         location: DiagnosticLocation,
-        values: Vec<WorkspaceExtendNode>,
+        values: Vec<PackageExtendNode>,
     },
 }
 
@@ -195,7 +204,7 @@ fn parse_variable_type(value: &str) -> Option<VariableTypeKind> {
 pub(in crate::lint) struct CatalogNode {
     pub(in crate::lint) doc: DocId,
     pub(in crate::lint) id: CatalogId,
-    pub(in crate::lint) path: WorkspacePath,
+    pub(in crate::lint) path: PackagePath,
     pub(in crate::lint) location: DiagnosticLocation,
     pub(in crate::lint) json: Option<JsonValue>,
     pub(in crate::lint) validator: Option<Arc<jsonschema::Validator>>,
@@ -247,18 +256,18 @@ impl CatalogEntryNode {
     }
 }
 
-pub(in crate::lint) struct RequestContextNode {
-    pub(in crate::lint) id: RequestContextId,
-    pub(in crate::lint) path: WorkspacePath,
+pub(in crate::lint) struct EvaluationContextNode {
+    pub(in crate::lint) id: EvaluationContextId,
+    pub(in crate::lint) path: PackagePath,
     pub(in crate::lint) location: DiagnosticLocation,
     pub(in crate::lint) json: Option<JsonValue>,
     pub(in crate::lint) validator: Option<Arc<jsonschema::Validator>>,
     pub(in crate::lint) invalid_message: Option<String>,
 }
 
-impl RequestContextNode {
+impl EvaluationContextNode {
     pub(in crate::lint) fn target(&self) -> SemanticTarget {
-        SemanticEntity::RequestContext {
+        SemanticEntity::EvaluationContext {
             id: self.id.clone(),
         }
         .into()
@@ -266,7 +275,7 @@ impl RequestContextNode {
 
     pub(in crate::lint) fn field_target(&self, field: SemanticField) -> SemanticTarget {
         SemanticTarget::field(
-            SemanticEntity::RequestContext {
+            SemanticEntity::EvaluationContext {
                 id: self.id.clone(),
             },
             field,
@@ -274,18 +283,18 @@ impl RequestContextNode {
     }
 }
 
-pub(in crate::lint) struct RequestContextEntryNode {
-    pub(in crate::lint) request_context_id: RequestContextId,
-    pub(in crate::lint) key: RequestContextEntryId,
-    pub(in crate::lint) path: WorkspacePath,
+pub(in crate::lint) struct EvaluationContextSampleNode {
+    pub(in crate::lint) evaluation_context_id: EvaluationContextId,
+    pub(in crate::lint) key: EvaluationContextSampleId,
+    pub(in crate::lint) path: PackagePath,
     pub(in crate::lint) location: DiagnosticLocation,
     pub(in crate::lint) value: Option<JsonValue>,
 }
 
-impl RequestContextEntryNode {
+impl EvaluationContextSampleNode {
     pub(in crate::lint) fn target(&self) -> SemanticTarget {
-        SemanticEntity::RequestContextEntry {
-            request_context: self.request_context_id.clone(),
+        SemanticEntity::EvaluationContextSample {
+            evaluation_context: self.evaluation_context_id.clone(),
             key: self.key.clone(),
         }
         .into()
@@ -293,8 +302,8 @@ impl RequestContextEntryNode {
 
     pub(in crate::lint) fn field_target(&self, field: SemanticField) -> SemanticTarget {
         SemanticTarget::field(
-            SemanticEntity::RequestContextEntry {
-                request_context: self.request_context_id.clone(),
+            SemanticEntity::EvaluationContextSample {
+                evaluation_context: self.evaluation_context_id.clone(),
                 key: self.key.clone(),
             },
             field,
@@ -333,7 +342,7 @@ pub(in crate::lint) enum ValueOrigin {
 #[derive(Default)]
 pub(in crate::lint) struct CustomLintRegistry {
     pub(in crate::lint) rules: BTreeMap<CustomRuleId, CustomRuleDefinitionNode>,
-    pub(in crate::lint) files: BTreeMap<WorkspacePath, CustomLintFileNode>,
+    pub(in crate::lint) files: BTreeMap<PackagePath, CustomLintFileNode>,
     pub(in crate::lint) registrations: Vec<CustomLintRegistration>,
 }
 
@@ -344,14 +353,14 @@ pub(in crate::lint) struct CustomRuleDefinitionNode {
 
 #[derive(Clone)]
 pub(in crate::lint) struct CustomLintFileNode {
-    pub(in crate::lint) path: WorkspacePath,
+    pub(in crate::lint) path: PackagePath,
     pub(in crate::lint) doc: DocId,
     pub(in crate::lint) location: DiagnosticLocation,
 }
 
 #[derive(Clone)]
 pub(in crate::lint) struct CustomLintRegistration {
-    pub(in crate::lint) file_path: WorkspacePath,
+    pub(in crate::lint) file_path: PackagePath,
     pub(in crate::lint) rule: CustomRuleId,
     pub(in crate::lint) stage: LintStage,
     pub(in crate::lint) selector: RegisteredLintSelector,
