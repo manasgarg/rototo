@@ -1,0 +1,16 @@
+schema_version = 1
+description = "The price in force for this account's tier and currency"
+type = "catalog:prices"
+
+# Keyed selection plus effective-dating in one query: (tier, currency) is the
+# key, and among the entries for that key, the one with the latest past
+# effective_from wins. The single type (catalog:prices, not list<...>) makes this
+# a top-entry query. A price change is a new entry authored ahead of its date
+# (see team_usd_2026_10); nothing is edited, and the flip needs no human present.
+# No default: an account whose (tier, currency) has no price is a hard error.
+[resolve]
+method = "query"
+from = "prices"
+filter = 'entry.plan_tier == context.account.plan_tier && entry.currency == context.account.currency && entry.effective_from <= env.now'
+sort = 'entry.effective_from'
+order = "desc"

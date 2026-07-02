@@ -1,0 +1,3 @@
+schema_version = 1
+description = "Editor toolbar arrangements"
+type = "string"

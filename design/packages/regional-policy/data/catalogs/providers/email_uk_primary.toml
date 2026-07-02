@@ -1,0 +1,5 @@
+name = "Mailrelay UK"
+channel = "email"
+jurisdiction = "uk"
+priority = 100
+status = "active"

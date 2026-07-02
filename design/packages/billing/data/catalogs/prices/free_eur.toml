@@ -1,0 +1,4 @@
+plan_tier = "free"
+currency = "eur"
+monthly_amount = 0
+effective_from = "2025-01-01T00:00:00Z"

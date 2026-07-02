@@ -1,0 +1,4 @@
+schema_version = 1
+name = "acme-tenant"
+description = "Acme's overlay on the site-platform base: their campaigns, their audiences, their banner decision"
+extends = ["../base"]

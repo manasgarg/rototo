@@ -1,0 +1,17 @@
+schema_version = 1
+description = "Jurisdiction gate: whether marketing SMS may be sent at all"
+type = "bool"
+
+# Consent rules make unsolicited marketing SMS illegal in some jurisdictions, so
+# those rules force false and the default is the permissive case. The hard part
+# this file cannot express: nothing prevents a lower layer with an override
+# grant, or a future experiment, from re-enabling this. A compliance gate needs
+# to DOMINATE, and today's governance only narrows edit rights; it cannot pin an
+# outcome. Roadmap item 7.
+[resolve]
+method = "rules"
+default = true
+
+[[resolve.rule]]
+when = 'context.account.jurisdiction in ["eu", "uk"]'
+value = false

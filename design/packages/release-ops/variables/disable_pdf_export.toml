@@ -1,0 +1,12 @@
+schema_version = 1
+description = "Kill switch: turn off PDF export when the rendering service is unhealthy"
+type = "bool"
+
+# The simplest possible variable, deliberately. A kill switch has no rules and no
+# cleverness: a safe default, flipped to true by a one-line commit during an
+# incident and flipped back after. The app must treat true as "hide the button
+# and degrade politely". The hard part (review latency vs incident speed) is a
+# break-glass design question, not something this file can solve.
+[resolve]
+method = "rules"
+default = false

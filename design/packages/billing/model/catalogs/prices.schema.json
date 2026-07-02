@@ -1,0 +1,12 @@
+{
+  "$comment": "One price point for a (tier, currency) pair, effective from a date. Price changes are new entries with later effective_from values, never edits to old entries: history stays reviewable and old entries stay referenceable.",
+  "type": "object",
+  "title": "Price",
+  "properties": {
+    "plan_tier": { "type": "string", "x-rototo-ref": "enum:plan_tiers" },
+    "currency": { "type": "string", "x-rototo-ref": "enum:currencies" },
+    "monthly_amount": { "type": "number", "minimum": 0 },
+    "effective_from": { "type": "string", "format": "date-time" }
+  },
+  "required": ["plan_tier", "currency", "monthly_amount", "effective_from"]
+}

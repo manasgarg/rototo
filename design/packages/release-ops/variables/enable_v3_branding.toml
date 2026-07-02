@@ -1,0 +1,15 @@
+schema_version = 1
+description = "Scheduled activation: the v3 rebrand, embargoed until announcement time"
+type = "bool"
+
+# The flip happens with no human present: env.now is captured once per resolution
+# as an RFC3339 UTC string, and lexicographic comparison is correct for UTC
+# timestamps of equal precision. The hard part is downstream: any resolver that
+# caches results must know this variable changes at the boundary instant.
+[resolve]
+method = "rules"
+default = false
+
+[[resolve.rule]]
+when = 'env.now >= "2026-09-15T14:00:00Z"'
+value = true

@@ -1,0 +1,5 @@
+# Governance for release-ops.
+#
+# This package is owned by one team and has no overlays, so nothing is granted:
+# default-closed means an empty governance file locks everything. The file exists
+# to make that explicit rather than accidental.

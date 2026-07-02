@@ -1,0 +1,3 @@
+schema_version = 1
+name = "billing"
+description = "Plans, entitlements, and pricing for an API platform selling tiered subscriptions"

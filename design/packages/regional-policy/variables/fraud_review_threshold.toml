@@ -1,0 +1,14 @@
+schema_version = 1
+description = "Risk score above which an outbound send is held for review"
+type = "number"
+visibility = "internal"
+
+# A safety threshold tuned per jurisdiction faster than any deploy cycle. A
+# threshold change wants canarying as much as any knob does (roadmap item 1).
+[resolve]
+method = "rules"
+default = 0.9
+
+[[resolve.rule]]
+when = 'context.account.jurisdiction == "in"'
+value = 0.7

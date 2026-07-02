@@ -1,0 +1,4 @@
+name = "Team"
+tier = "team"
+features = ["api_access", "audit_log"]
+seat_limit = 25

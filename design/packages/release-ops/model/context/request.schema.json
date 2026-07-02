@@ -1,0 +1,18 @@
+{
+  "$comment": "The facts the editor's backend supplies per request. user.id is the stable unit layers hash, so it is required.",
+  "type": "object",
+  "title": "Editor request context",
+  "properties": {
+    "user": {
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "minLength": 1 },
+        "is_employee": { "type": "boolean" },
+        "beta_opt_in": { "type": "boolean" }
+      },
+      "required": ["id"]
+    },
+    "region": { "type": "string", "x-rototo-ref": "enum:regions" }
+  },
+  "required": ["user", "region"]
+}

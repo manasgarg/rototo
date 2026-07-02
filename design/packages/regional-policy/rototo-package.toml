@@ -1,0 +1,3 @@
+schema_version = 1
+name = "regional-policy"
+description = "Jurisdiction policy and provider routing for a customer-messaging SaaS"

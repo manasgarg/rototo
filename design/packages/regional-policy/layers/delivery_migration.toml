@@ -1,0 +1,12 @@
+schema_version = 1
+description = "Migration to the rewritten delivery pipeline, ramped by account. The unit is the ACCOUNT, not the user: a migration must move a whole account at once. See the README for the skew this creates."
+unit = 'context.account.id'
+buckets = 100
+
+[[allocation]]
+id = "new_pipeline"
+status = "running"
+
+[[allocation.arm]]
+name = "on"
+buckets = "0-9"

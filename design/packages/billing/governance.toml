@@ -1,0 +1,11 @@
+# Governance for billing.
+#
+# Default-closed. Pricing and plans are locked to overlays entirely: no grants on
+# the prices, plans, or features catalogs, so no contract layer can mint or edit
+# a price. The one grant is resolution override on the rate limit, which is how
+# a negotiated enterprise contract gets a custom limit without touching the
+# public quota ladder.
+
+[variable.api_rate_limit_per_min]
+allowed_operations = ["override"]
+denied_operations = []

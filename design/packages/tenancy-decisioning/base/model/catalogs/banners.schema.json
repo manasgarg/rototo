@@ -1,0 +1,18 @@
+{
+  "$comment": "A homepage banner candidate. audiences references the audiences catalog (data referencing data, one hop); starts/ends bound a campaign window and are optional.",
+  "type": "object",
+  "title": "Banner",
+  "properties": {
+    "name": { "type": "string" },
+    "headline": { "type": "string" },
+    "cta_url": { "type": "string" },
+    "priority": { "type": "integer", "minimum": 0 },
+    "audiences": {
+      "type": "array",
+      "items": { "type": "string", "x-rototo-ref": "catalog:audiences" }
+    },
+    "starts": { "type": "string", "format": "date-time" },
+    "ends": { "type": "string", "format": "date-time" }
+  },
+  "required": ["name", "headline", "cta_url", "priority", "audiences"]
+}

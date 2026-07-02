@@ -1,0 +1,13 @@
+schema_version = 1
+description = "Traffic migration: whether this account's sends go through the rewritten pipeline"
+type = "bool"
+visibility = "internal"
+
+[resolve]
+method = "allocation"
+allocation = "new_pipeline"
+default = false
+
+[[resolve.assign]]
+arm = "on"
+value = true

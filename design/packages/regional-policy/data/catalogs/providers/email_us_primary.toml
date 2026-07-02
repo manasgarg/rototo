@@ -1,0 +1,5 @@
+name = "Mailrelay US"
+channel = "email"
+jurisdiction = "us"
+priority = 100
+status = "active"

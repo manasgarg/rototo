@@ -1,0 +1,4 @@
+schema_version = 1
+name = "thumbnail-service-staging"
+description = "Staging environment values for the thumbnail service"
+extends = ["../base"]

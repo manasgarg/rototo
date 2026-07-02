@@ -1,0 +1,9 @@
+schema_version = 1
+description = "Object storage bucket rendered thumbnails are written to"
+type = "string"
+
+# The base carries PRODUCTION values: prod is the environment that must never be
+# wrong by omission, so it is the layer with no overlay to forget.
+[resolve]
+method = "rules"
+default = "thumbs-prod"

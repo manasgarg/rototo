@@ -1,0 +1,13 @@
+{
+  "$comment": "A delivery vendor for one (channel, jurisdiction). Config names the provider; the application holds the credential (secrets never live here). Failover is a reviewed edit to status or priority.",
+  "type": "object",
+  "title": "Delivery provider",
+  "properties": {
+    "name": { "type": "string" },
+    "channel": { "type": "string", "x-rototo-ref": "enum:channels" },
+    "jurisdiction": { "type": "string", "x-rototo-ref": "enum:jurisdictions" },
+    "priority": { "type": "integer", "minimum": 0 },
+    "status": { "type": "string", "enum": ["active", "disabled"] }
+  },
+  "required": ["name", "channel", "jurisdiction", "priority", "status"]
+}

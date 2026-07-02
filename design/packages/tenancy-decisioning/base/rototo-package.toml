@@ -1,0 +1,3 @@
+schema_version = 1
+name = "site-platform-base"
+description = "The platform team's base package for a hosted site builder: banner decisioning every tenant starts from"

@@ -1,0 +1,5 @@
+# PATCH: re-word the base welcome banner. Only headline and cta_url pass the
+# base's update_policy; patching priority or audiences would be rejected at
+# compose time.
+headline = "Welcome to Acme. See what our customers build."
+cta_url = "/acme/showcase"

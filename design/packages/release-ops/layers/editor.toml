@@ -1,0 +1,31 @@
+schema_version = 1
+description = "Everything that changes the editing surface. One layer because a user must see ONE coherent editor: the new-editor rollout and the toolbar experiment would contaminate each other's measurement if the same user could be in both."
+unit = 'context.user.id'
+buckets = 100
+
+# A gradual rollout and an experiment are the same primitive. The rollout has one
+# arm at 20%; growing it is a reviewed one-line bucket-range edit. Growing an arm
+# keeps existing users stable; shrinking or moving a range reshuffles them (see
+# the hard-parts section of the README).
+[[allocation]]
+id = "new_editor_rollout"
+status = "running"
+
+[[allocation.arm]]
+name = "on"
+buckets = "0-19"
+
+# The experiment claims disjoint buckets, so it is mutually exclusive with the
+# rollout by construction. Buckets 90-99 are claimed by nothing: a holdback that
+# sees pure baseline behavior.
+[[allocation]]
+id = "toolbar_layout"
+status = "running"
+
+[[allocation.arm]]
+name = "control"
+buckets = "20-54"
+
+[[allocation.arm]]
+name = "compact"
+buckets = "55-89"

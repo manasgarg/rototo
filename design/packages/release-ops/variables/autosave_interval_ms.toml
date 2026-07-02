@@ -1,0 +1,16 @@
+schema_version = 1
+description = "Operational knob: how often the editor autosaves"
+type = "int"
+visibility = "internal"
+
+# Plain operational tuning, changed by reviewed commit rather than redeploy.
+# Storage is US-hosted, so far regions save less often. Note the hard part this
+# file cannot express: a changed value hits 100% of matching traffic the moment
+# the commit lands. Canarying a value change is an open roadmap item.
+[resolve]
+method = "rules"
+default = 2000
+
+[[resolve.rule]]
+when = 'context.region == "apac"'
+value = 5000

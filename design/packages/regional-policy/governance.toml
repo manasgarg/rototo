@@ -1,0 +1,7 @@
+# Governance for regional-policy.
+#
+# Default-closed and deliberately grantless: compliance values, provider routing,
+# and safety thresholds are owned by one team, and no overlay may touch any of
+# it. Note what this CANNOT yet express: "sms_marketing_enabled must be false in
+# the EU no matter what any layer does." Governance controls who may edit; it
+# cannot pin an outcome. That dominance gap is roadmap item 7.

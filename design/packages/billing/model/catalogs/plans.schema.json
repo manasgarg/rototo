@@ -1,0 +1,15 @@
+{
+  "$comment": "A plan bundles features and limits per tier. features is a cross-catalog reference list; the many-to-many join is denormalized onto the plan, the idiomatic rototo shape.",
+  "type": "object",
+  "title": "Plan",
+  "properties": {
+    "name": { "type": "string" },
+    "tier": { "type": "string", "x-rototo-ref": "enum:plan_tiers" },
+    "features": {
+      "type": "array",
+      "items": { "type": "string", "x-rototo-ref": "catalog:features" }
+    },
+    "seat_limit": { "type": "integer", "minimum": 1 }
+  },
+  "required": ["name", "tier", "features", "seat_limit"]
+}

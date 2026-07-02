@@ -1,0 +1,5 @@
+name = "Sendfast IN"
+channel = "email"
+jurisdiction = "in"
+priority = 100
+status = "active"

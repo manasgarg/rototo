@@ -1,0 +1,16 @@
+schema_version = 1
+description = "Which delivery vendor carries this message"
+type = "catalog:providers"
+
+# Provider selection: the active provider for this (channel, jurisdiction) with
+# the highest priority. Failover during an incident is a two-line commit (mark
+# the primary disabled, or out-rank it with the backup), which is exactly the
+# break-glass latency problem: see the README. No default: a (channel,
+# jurisdiction) cell with no active provider is a hard error, and the totality
+# of that cross-product is the same completeness lint pricing needs.
+[resolve]
+method = "query"
+from = "providers"
+filter = 'entry.channel == context.message.channel && entry.jurisdiction == context.account.jurisdiction && entry.status == "active"'
+sort = 'entry.priority'
+order = "desc"

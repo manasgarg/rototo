@@ -1,0 +1,24 @@
+{
+  "$comment": "The facts supplied when sending a message on behalf of a customer account. account.id is the unit the migration layer hashes.",
+  "type": "object",
+  "title": "Message send context",
+  "properties": {
+    "account": {
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "minLength": 1 },
+        "jurisdiction": { "type": "string", "x-rototo-ref": "enum:jurisdictions" },
+        "plan_tier": { "type": "string", "x-rototo-ref": "enum:plan_tiers" }
+      },
+      "required": ["id", "jurisdiction", "plan_tier"]
+    },
+    "message": {
+      "type": "object",
+      "properties": {
+        "channel": { "type": "string", "x-rototo-ref": "enum:channels" }
+      },
+      "required": ["channel"]
+    }
+  },
+  "required": ["account", "message"]
+}

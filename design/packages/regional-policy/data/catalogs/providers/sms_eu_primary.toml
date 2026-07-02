@@ -1,0 +1,5 @@
+name = "Textline EU"
+channel = "sms"
+jurisdiction = "eu"
+priority = 100
+status = "active"

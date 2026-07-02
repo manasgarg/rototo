@@ -1,0 +1,5 @@
+name = "Localtext IN"
+channel = "sms"
+jurisdiction = "in"
+priority = 100
+status = "active"

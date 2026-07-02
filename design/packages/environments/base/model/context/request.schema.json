@@ -1,0 +1,13 @@
+{
+  "$comment": "Deliberately tiny: environment configuration is mostly static per environment, so most variables here resolve with no context at all. Which environment applies is a deployment-time choice (each deployment points at its environment's package source), not a context fact.",
+  "type": "object",
+  "title": "Thumbnail request context",
+  "properties": {
+    "request": {
+      "type": "object",
+      "properties": {
+        "content_type": { "type": "string" }
+      }
+    }
+  }
+}

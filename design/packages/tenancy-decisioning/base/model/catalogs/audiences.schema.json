@@ -1,0 +1,11 @@
+{
+  "$comment": "A named, reusable condition over visitor facts. condition is expression-typed data (a CEL bool the engine evaluates), which is how data may carry logic without referencing variables. Audiences are conditions, never enumerated visitor-id lists.",
+  "type": "object",
+  "title": "Audience",
+  "properties": {
+    "name": { "type": "string" },
+    "description": { "type": "string" },
+    "condition": { "type": "string", "x-rototo-expr": "bool" }
+  },
+  "required": ["name", "condition"]
+}

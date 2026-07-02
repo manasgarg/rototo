@@ -1,0 +1,4 @@
+schema_version = 1
+name = "thumbnail-service-dev"
+description = "Dev environment values for the thumbnail service"
+extends = ["../base"]

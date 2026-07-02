@@ -1,0 +1,5 @@
+name = "Welcome"
+headline = "Welcome! Take the two-minute tour."
+cta_url = "/tour"
+priority = 60
+audiences = ["new_visitors"]

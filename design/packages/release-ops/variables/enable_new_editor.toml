@@ -1,0 +1,15 @@
+schema_version = 1
+description = "Feature flag: the rewritten editor, mid-rollout at 20%"
+type = "bool"
+
+# A gradual rollout: true for users the layer put in the `on` arm, false for
+# everyone else including the holdback. Ramping edits the arm's bucket range in
+# layers/editor.toml; this file does not change until the flag is retired.
+[resolve]
+method = "allocation"
+allocation = "new_editor_rollout"
+default = false
+
+[[resolve.assign]]
+arm = "on"
+value = true

@@ -1,0 +1,14 @@
+schema_version = 1
+description = "Which AI model configuration the support assistant uses for this account"
+type = "catalog:models"
+
+# Model, prompt version, and parameters change weekly; the application code that
+# calls the model does not. Cost policy is expressed as tiering (free accounts
+# get the small model); enforcing a spend budget is the application's job.
+[resolve]
+method = "rules"
+default = "standard"
+
+[[resolve.rule]]
+when = 'context.account.plan_tier == "paid"'
+value = "premium"

@@ -1,0 +1,27 @@
+# Governance for the platform base. Default-closed: anything not granted here is
+# denied to tenant overlays.
+
+# Tenants run their own campaigns: add banners, re-word creative on existing
+# ones, and drop banners that do not fit their site. The default banner is the
+# floor every site keeps.
+[catalog.banners]
+allowed_operations = ["add", "update", "delete"]
+denied_operations = []
+
+[catalog.banners.update_policy]
+allowed_fields = ["headline", "cta_url"]
+denied_entries = ["default_banner"]
+
+[catalog.banners.delete_policy]
+allowed_entries = ["*"]
+denied_entries = ["default_banner"]
+
+# Tenants may define their own audiences; the platform's are read-only.
+[catalog.audiences]
+allowed_operations = ["add"]
+denied_operations = []
+
+# Tenants may replace the banner decision wholesale (a complete [resolve] block).
+[variable.homepage_banner]
+allowed_operations = ["override"]
+denied_operations = []

@@ -1,0 +1,13 @@
+schema_version = 1
+description = "How long message content is retained, per jurisdiction"
+type = "int"
+
+# A regional policy value. Proving to an auditor what this was on a given date is
+# a git question: the package history is the audit log.
+[resolve]
+method = "rules"
+default = 90
+
+[[resolve.rule]]
+when = 'context.account.jurisdiction in ["eu", "uk"]'
+value = 30

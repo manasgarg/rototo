@@ -1,0 +1,7 @@
+schema_version = 1
+description = "How long to wait on the origin image fetch"
+type = "int"
+
+[resolve]
+method = "rules"
+default = 1500

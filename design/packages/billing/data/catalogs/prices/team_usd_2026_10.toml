@@ -1,0 +1,4 @@
+plan_tier = "team"
+currency = "usd"
+monthly_amount = 35
+effective_from = "2026-10-01T00:00:00Z"
