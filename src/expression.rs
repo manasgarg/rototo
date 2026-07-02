@@ -139,6 +139,7 @@ pub(crate) enum ExpressionResultHint {
     Value,
 }
 
+#[cfg(feature = "console")]
 pub(crate) fn simple_rule_qualifier(expression: &str) -> Option<String> {
     let expression = strip_condition_parens(expression.trim());
     let quoted = expression
@@ -148,6 +149,7 @@ pub(crate) fn simple_rule_qualifier(expression: &str) -> Option<String> {
     serde_json::from_str::<String>(quoted).ok()
 }
 
+#[cfg(feature = "console")]
 fn strip_condition_parens(mut expression: &str) -> &str {
     loop {
         let trimmed = expression.trim();

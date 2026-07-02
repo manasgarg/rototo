@@ -443,6 +443,20 @@ test-sdk-java-package:
 [group('04. test')]
 java-sdk-package-check: test-sdk-java-package
 
+# Kernel-only gate for the tenant-configuration transition (see design/).
+# Covers the Rust core, CLI, and fixtures without the parked surfaces: the
+# console (feature off), the console UI, and the language SDK crates and npm
+# packages. Parked surfaces are allowed to break during the transition and are
+# re-attached in the final tranches; `just check` remains the full gate for
+# everything else.
+[group('05. check')]
+check-core:
+    #!/bin/bash
+    set -euo pipefail
+    cargo fmt --all -- --check
+    cargo clippy --package rototo --no-default-features --all-targets -- -D warnings
+    NO_COLOR=1 cargo test --package rototo --no-default-features --all-targets
+
 # Run the local pre-push gate.
 [group('05. check')]
 check:
