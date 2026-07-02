@@ -165,6 +165,44 @@ Hence, Rototo is designed from ground up to work well both for people and agents
 - `rototo lsp` to provide feedback (and help) during editing.
 - `rototo console` to have the comfort of a react based UI for inspecting and editing the package.
 
+## Roadmap: hard things rototo does not do yet
+
+Runtime configuration earns trust in the ugly parts, not the feature tour, so
+we keep this list in the open. Each item is a real production complication we
+have looked at and not solved yet. (Some other hard things are deliberate
+non-goals rather than roadmap items: exposure logging and experiment stats,
+metric-driven auto-rollback, enumerated ID lists as targeting, secrets, and
+identity resolution all belong to the application or its other tools.)
+
+1. **Canarying a value change.** Staged rollout for a change to an existing
+   variable's value, not just for new features. Config changes cause outages at
+   the same rate as code changes.
+2. **A break-glass path.** Kill switches need seconds; git review takes minutes
+   to hours. An emergency change mechanism with mandatory post-hoc review.
+3. **Assignment-stability lint.** Classify experiment bucket-range edits between
+   two package versions as safe (growing an arm) or reshuffling (everything else).
+4. **Flag lifecycle.** Owner and expiry metadata on variables, staleness
+   warnings, and a worked "concluding an experiment" example.
+5. **Grandfathering.** Cohort-pinned pricing: frozen old cohorts beside evolving
+   new ones.
+6. **Totality lint.** "Exactly one entry for every cell of plan x market":
+   completeness over enum cross-products, not just uniqueness.
+7. **Jurisdiction dominance.** A deny that no lower layer, experiment, or tenant
+   override can re-enable. Governance narrows grants; it cannot yet pin an
+   outcome.
+8. **Environment separation.** Dev/staging/prod as vertical layers over one
+   contract.
+9. **Time-boundary awareness.** Timezone semantics for effective dates, and
+   cache invalidation when a rule is known to flip at a time.
+10. **Version-skew honesty.** Consumers refresh independently; multi-variable
+    changes are not atomic in effect.
+11. **Weighted rollout units.** Tenant-unit migrations where one tenant is a
+    third of the load.
+12. **The one-hop dereference built-in.** Following a catalog reference to an
+    expression-typed field during a query.
+13. **Compatibility gate.** Check base-package evolution against existing tenant
+    overlays before release.
+
 ## License
 
 Licensed under either of:
