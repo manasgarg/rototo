@@ -8,7 +8,7 @@ mod hydrate;
 use hydrate::catalog_entry_view;
 
 use crate::error::{Result, RototoError};
-use crate::expression::ResolvingTarget;
+use crate::expression::{RefResolver, ResolvingTarget};
 use crate::lint::{
     RuntimeCatalogQuery, RuntimePackage, RuntimeRule, RuntimeRuleSelection, RuntimeSelectedValue,
     compile_runtime_package,
@@ -126,8 +126,7 @@ fn evaluate_trace_policies(
         // list is borrowed from `state.runtime`, which outlives `state`, so the
         // closure can still borrow `state` mutably for qualifier resolution.
         let when = &policy.when;
-        let mut resolve_qualifier = |id: &str| state.resolve(id);
-        if when.evaluate_bool_traced(context, &now, target, &mut resolve_qualifier)? {
+        if when.evaluate_bool_traced(context, &now, target, state)? {
             matched.push(index);
         }
     }
@@ -362,8 +361,7 @@ fn evaluate_rule_selector(state: &mut QualifierState<'_>, rule: &RuntimeRule) ->
     if let Some(when) = &rule.when {
         let context = state.context;
         let now = state.now.clone();
-        let mut resolve_qualifier = |id: &str| state.resolve(id);
-        return when.evaluate_bool(context, None, &now, &mut resolve_qualifier);
+        return when.evaluate_bool(context, None, &now, state);
     }
     Ok(matches!(rule.selection, RuntimeRuleSelection::Query(_)))
 }
@@ -401,13 +399,10 @@ fn resolve_catalog_query(
     for (name, entry) in entries {
         let entry_view = catalog_entry_view(runtime, &query.catalog, name, entry);
         let context = state.context;
-        let mut resolve_qualifier = |id: &str| state.resolve(id);
-        if query.expression.evaluate_bool(
-            context,
-            Some(&entry_view),
-            &now,
-            &mut resolve_qualifier,
-        )? {
+        if query
+            .expression
+            .evaluate_bool(context, Some(&entry_view), &now, state)?
+        {
             names.push(name.clone());
             values.push(entry_view);
         }
@@ -427,8 +422,24 @@ struct QualifierState<'a> {
     /// the same instant.
     now: String,
     cache: HashMap<String, bool>,
+    /// Resolved values of variables referenced through the `variables` root,
+    /// memoized for the resolution the way qualifier values are.
+    variable_cache: HashMap<String, JsonValue>,
+    /// Ids currently being resolved, for cycle detection. Qualifier ids are
+    /// stored bare; variable ids are stored as `variable://<id>` so the two
+    /// namespaces cannot collide.
     resolving: HashSet<String>,
     traces: HashMap<String, QualifierResolutionTrace>,
+}
+
+impl RefResolver for QualifierState<'_> {
+    fn qualifier_value(&mut self, id: &str) -> Result<bool> {
+        self.resolve(id)
+    }
+
+    fn variable_value(&mut self, id: &str) -> Result<JsonValue> {
+        self.resolve_variable_value(id)
+    }
 }
 
 impl<'a> QualifierState<'a> {
@@ -438,6 +449,7 @@ impl<'a> QualifierState<'a> {
             context,
             now: crate::predicate::now_rfc3339(),
             cache: HashMap::new(),
+            variable_cache: HashMap::new(),
             resolving: HashSet::new(),
             traces: HashMap::new(),
         }
@@ -460,6 +472,27 @@ impl<'a> QualifierState<'a> {
         Ok(value)
     }
 
+    /// Resolve a variable referenced through the `variables` root to its value,
+    /// memoized per resolution, with cycle detection across the reference chain.
+    fn resolve_variable_value(&mut self, id: &str) -> Result<JsonValue> {
+        if let Some(value) = self.variable_cache.get(id) {
+            return Ok(value.clone());
+        }
+        let key = format!("variable://{id}");
+        if !self.resolving.insert(key.clone()) {
+            return Err(RototoError::new(format!(
+                "variable reference cycle detected at variable://{id}"
+            )));
+        }
+
+        let runtime = self.runtime;
+        let result = resolve_variable_with_state(runtime, self, id);
+        self.resolving.remove(&key);
+        let value = result?.value;
+        self.variable_cache.insert(id.to_owned(), value.clone());
+        Ok(value)
+    }
+
     fn resolve_uncached(&mut self, id: &str) -> Result<bool> {
         let qualifier =
             self.runtime.qualifiers.get(id).ok_or_else(|| {
@@ -467,10 +500,7 @@ impl<'a> QualifierState<'a> {
             })?;
         let context = self.context;
         let now = self.now.clone();
-        let mut resolve_qualifier = |qualifier_id: &str| self.resolve(qualifier_id);
-        let value = qualifier
-            .when
-            .evaluate_bool(context, None, &now, &mut resolve_qualifier)?;
+        let value = qualifier.when.evaluate_bool(context, None, &now, self)?;
         self.traces.insert(
             id.to_owned(),
             QualifierResolutionTrace {
@@ -918,6 +948,110 @@ rule = ["not-a-table"]
             .await
             .unwrap_err();
         assert!(err.to_string().contains("rule must be a table"));
+    }
+
+    #[tokio::test]
+    async fn resolves_cross_variable_references_and_cycles() {
+        let package = package_with_qualifiers(&[]);
+        std::fs::create_dir_all(package.path().join("variables")).unwrap();
+        std::fs::write(
+            package.path().join("variables/premium-user.toml"),
+            r#"schema_version = 1
+type = "bool"
+
+[resolve]
+default = false
+
+[[resolve.rule]]
+when = 'context.user.tier == "premium"'
+value = true
+"#,
+        )
+        .unwrap();
+        std::fs::write(
+            package.path().join("variables/message.toml"),
+            r#"schema_version = 1
+type = "string"
+
+[resolve]
+default = "control"
+
+[[resolve.rule]]
+when = 'variables["premium-user"]'
+value = "premium"
+"#,
+        )
+        .unwrap();
+        std::fs::write(
+            package.path().join("variables/greeting.toml"),
+            r#"schema_version = 1
+type = "string"
+
+[resolve]
+default = "hello"
+
+[[resolve.rule]]
+when = 'variables.message == "premium"'
+value = "welcome back"
+"#,
+        )
+        .unwrap();
+        std::fs::write(
+            package.path().join("variables/loop-a.toml"),
+            r#"schema_version = 1
+type = "bool"
+
+[resolve]
+default = false
+
+[[resolve.rule]]
+when = 'variables["loop-b"]'
+value = true
+"#,
+        )
+        .unwrap();
+        std::fs::write(
+            package.path().join("variables/loop-b.toml"),
+            r#"schema_version = 1
+type = "bool"
+
+[resolve]
+default = false
+
+[[resolve.rule]]
+when = 'variables["loop-a"]'
+value = true
+"#,
+        )
+        .unwrap();
+
+        let premium = serde_json::json!({ "user": { "tier": "premium" } });
+        let free = serde_json::json!({ "user": { "tier": "free" } });
+
+        // A bool condition variable referenced with the bracket form.
+        let message = resolve_variable(package.path(), "message", &premium)
+            .await
+            .unwrap();
+        assert_eq!(message.value, serde_json::json!("premium"));
+        let message = resolve_variable(package.path(), "message", &free)
+            .await
+            .unwrap();
+        assert_eq!(message.value, serde_json::json!("control"));
+
+        // A non-bool variable value referenced with the dot form, two hops deep
+        // (greeting -> message -> premium-user).
+        let greeting = resolve_variable(package.path(), "greeting", &premium)
+            .await
+            .unwrap();
+        assert_eq!(greeting.value, serde_json::json!("welcome back"));
+
+        let err = resolve_variable(package.path(), "loop-a", &premium)
+            .await
+            .unwrap_err();
+        assert!(
+            err.to_string()
+                .contains("variable reference cycle detected")
+        );
     }
 
     #[tokio::test]

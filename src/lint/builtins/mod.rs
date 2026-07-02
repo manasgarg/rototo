@@ -34,6 +34,7 @@ pub(super) fn run_value(ctx: &mut LintContext) {
 
 pub(super) fn run_graph(ctx: &mut LintContext) {
     graph::lint_qualifier_cycles(ctx);
+    graph::lint_variable_cycles(ctx);
     graph::lint_unreferenced_qualifiers(ctx);
     graph::lint_unreachable_qualifiers(ctx);
     graph::lint_shadowed_variable_rules(ctx);

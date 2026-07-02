@@ -423,6 +423,18 @@ rototo_rules! {
         title: "Variable rule references an unknown qualifier",
         help: "Create the referenced qualifier or update the rule.",
     },
+    VariableRuleUnknownVariable => {
+        id: "variable-rule-unknown-variable",
+        entity: Variable,
+        title: "Variable rule references an unknown variable",
+        help: "Create the referenced variable or fix the variables[\"<id>\"] reference.",
+    },
+    VariableReferenceCycle => {
+        id: "variable-reference-cycle",
+        entity: Variable,
+        title: "Variable participates in a reference cycle",
+        help: "Break the cycle: a variable's expressions cannot depend on the variable itself, directly or through other variables.",
+    },
     VariableRuleUndeclaredContextPath => {
         id: "variable-rule-undeclared-context-path",
         entity: Rule,

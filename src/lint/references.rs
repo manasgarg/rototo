@@ -29,6 +29,7 @@ pub(super) enum ReferenceSource {
     VariableCatalog { variable: String },
     VariableResolveDefault { variable: String },
     VariableRuleConditionQualifier { variable: String, rule: usize },
+    VariableRuleConditionVariable { variable: String, rule: usize },
     VariableRuleValue { variable: String, rule: usize },
 }
 
@@ -36,6 +37,7 @@ pub(super) enum ReferenceSource {
 pub(super) enum ReferenceTarget {
     ContextAttribute(String),
     Qualifier(String),
+    Variable(String),
     Catalog(String),
     CatalogEntry { catalog: String, value: String },
     VariableValue { variable: String, value: String },
@@ -100,7 +102,9 @@ impl ReferenceIndex {
 
         for (target, location) in &self.declarations {
             match target {
-                ReferenceTarget::Qualifier(_) if location.path == path => {
+                ReferenceTarget::Qualifier(_) | ReferenceTarget::Variable(_)
+                    if location.path == path =>
+                {
                     candidates.push(ReferenceTargetCandidate {
                         priority: 5,
                         span_size: usize::MAX,
@@ -127,6 +131,7 @@ impl ReferenceIndex {
                 }
                 ReferenceTarget::ContextAttribute(_) => {}
                 ReferenceTarget::Qualifier(_)
+                | ReferenceTarget::Variable(_)
                 | ReferenceTarget::Catalog(_)
                 | ReferenceTarget::CatalogEntry { .. }
                 | ReferenceTarget::VariableValue { .. } => {}
@@ -171,6 +176,43 @@ impl ReferenceIndex {
                 .or_default()
                 .push(QualifierReferenceEdge {
                     from: qualifier.clone(),
+                    to: target.clone(),
+                    location: edge.location.clone(),
+                });
+        }
+
+        graph
+    }
+
+    /// The variable-to-variable reference graph: an edge for every resolved
+    /// `variables["<id>"]` reference in a variable's rule expressions, keyed by
+    /// the referencing variable. Every declared variable is a node.
+    pub(super) fn variable_reference_graph(&self) -> BTreeMap<String, Vec<QualifierReferenceEdge>> {
+        let mut graph = self
+            .declarations
+            .keys()
+            .filter_map(|target| match target {
+                ReferenceTarget::Variable(variable) => Some((variable.clone(), Vec::new())),
+                _ => None,
+            })
+            .collect::<BTreeMap<_, _>>();
+
+        for edge in &self.edges {
+            let ReferenceSource::VariableRuleConditionVariable { variable, .. } = &edge.source
+            else {
+                continue;
+            };
+            let ReferenceTarget::Variable(target) = &edge.target else {
+                continue;
+            };
+            if !edge.is_resolved() {
+                continue;
+            }
+            graph
+                .entry(variable.clone())
+                .or_default()
+                .push(QualifierReferenceEdge {
+                    from: variable.clone(),
                     to: target.clone(),
                     location: edge.location.clone(),
                 });
@@ -248,6 +290,10 @@ impl ReferenceIndex {
         }
 
         for variable in index.variables.values() {
+            self.declarations.insert(
+                ReferenceTarget::Variable(variable.id.clone()),
+                variable.location.clone(),
+            );
             for value in variable.values.inline_values.values() {
                 self.declarations.insert(
                     ReferenceTarget::VariableValue {
@@ -393,6 +439,17 @@ impl ReferenceIndex {
                                 SemanticTarget::field(entity.clone(), field.clone()),
                                 expression.location.clone(),
                                 ReferenceTarget::Qualifier(qualifier.clone()),
+                            );
+                        }
+                        for referenced in &expression.value.references().variables {
+                            self.push_edge(
+                                ReferenceSource::VariableRuleConditionVariable {
+                                    variable: variable.id.clone(),
+                                    rule: rule.index,
+                                },
+                                SemanticTarget::field(entity.clone(), field.clone()),
+                                expression.location.clone(),
+                                ReferenceTarget::Variable(referenced.clone()),
                             );
                         }
                     }

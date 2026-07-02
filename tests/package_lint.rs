@@ -1671,6 +1671,87 @@ fn canonical_rule_fixtures() -> &'static [CanonicalRuleFixture] {
             }],
         },
         CanonicalRuleFixture {
+            rule: RototoRuleId::VariableRuleUnknownVariable,
+            package: "tests/fixtures/packages/rules/reference/variable-rule-unknown-variable",
+            success: false,
+            expected: &[ExpectedDiagnostic {
+                rule: "rototo/variable-rule-unknown-variable",
+                severity: "error",
+                stage: LintStage::Reference,
+                entity: ExpectedEntity::Rule {
+                    variable: "checkout-redesign",
+                    index: 0,
+                },
+                primary: ExpectedPrimaryLocation::Document {
+                    path: "variables/checkout-redesign.toml",
+                    range: Some(ExpectedRange {
+                        start_line: 8,
+                        start_character: 7,
+                        end_line: 8,
+                        end_character: 34,
+                    }),
+                },
+                related: &[],
+            }],
+        },
+        CanonicalRuleFixture {
+            rule: RototoRuleId::VariableReferenceCycle,
+            package: "tests/fixtures/packages/rules/graph/variable-reference-cycle",
+            success: false,
+            expected: &[
+                ExpectedDiagnostic {
+                    rule: "rototo/variable-reference-cycle",
+                    severity: "error",
+                    stage: LintStage::Graph,
+                    entity: ExpectedEntity::Variable("loop-a"),
+                    primary: ExpectedPrimaryLocation::Document {
+                        path: "variables/loop-a.toml",
+                        range: Some(ExpectedRange {
+                            start_line: 7,
+                            start_character: 7,
+                            end_line: 7,
+                            end_character: 28,
+                        }),
+                    },
+                    related: &[ExpectedRelatedLocation {
+                        path: "variables/loop-b.toml",
+                        range: Some(ExpectedRange {
+                            start_line: 7,
+                            start_character: 7,
+                            end_line: 7,
+                            end_character: 28,
+                        }),
+                        message: "cycle reference: loop-b -> loop-a",
+                    }],
+                },
+                ExpectedDiagnostic {
+                    rule: "rototo/variable-reference-cycle",
+                    severity: "error",
+                    stage: LintStage::Graph,
+                    entity: ExpectedEntity::Variable("loop-b"),
+                    primary: ExpectedPrimaryLocation::Document {
+                        path: "variables/loop-b.toml",
+                        range: Some(ExpectedRange {
+                            start_line: 7,
+                            start_character: 7,
+                            end_line: 7,
+                            end_character: 28,
+                        }),
+                    },
+                    related: &[ExpectedRelatedLocation {
+                        path: "variables/loop-a.toml",
+                        range: Some(ExpectedRange {
+                            start_line: 7,
+                            start_character: 7,
+                            end_line: 7,
+                            end_character: 28,
+                        }),
+                        message: "cycle reference: loop-a -> loop-b",
+                    }],
+                },
+            ],
+        },
+        CanonicalRuleFixture {
             rule: RototoRuleId::VariableUnknownType,
             package: "tests/fixtures/packages/rules/value/variable-unknown-type",
             success: false,

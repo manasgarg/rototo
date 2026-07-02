@@ -891,6 +891,7 @@ fn reference_source_kind(source: &ReferenceSource) -> &'static str {
         ReferenceSource::QualifierWhenQualifier { .. }
         | ReferenceSource::QualifierWhenContextAttribute { .. } => "qualifier",
         ReferenceSource::VariableRuleConditionQualifier { .. }
+        | ReferenceSource::VariableRuleConditionVariable { .. }
         | ReferenceSource::VariableRuleValue { .. }
         | ReferenceSource::VariableResolveDefault { .. }
         | ReferenceSource::VariableCatalog { .. } => "variable",
@@ -904,6 +905,7 @@ fn reference_source_label(source: &ReferenceSource) -> String {
             format!("qualifier {qualifier} when")
         }
         ReferenceSource::VariableRuleConditionQualifier { variable, rule }
+        | ReferenceSource::VariableRuleConditionVariable { variable, rule }
         | ReferenceSource::VariableRuleValue { variable, rule } => {
             format!("variable {variable} resolve.rule[{rule}]")
         }

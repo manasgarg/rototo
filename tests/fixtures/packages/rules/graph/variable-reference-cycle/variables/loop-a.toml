@@ -1,0 +1,9 @@
+schema_version = 1
+type = "bool"
+
+[resolve]
+default = false
+
+[[resolve.rule]]
+when = 'variables["loop-b"]'
+value = true

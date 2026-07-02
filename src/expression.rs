@@ -27,6 +27,11 @@ pub(crate) struct ExpressionReferences {
     pub(crate) context_paths: BTreeSet<String>,
     pub(crate) entry_paths: BTreeSet<String>,
     pub(crate) qualifiers: BTreeSet<String>,
+    /// Variable ids referenced through the `variables` root
+    /// (`variables.some_id` / `variables["some-id"]`). The referenced variable's
+    /// resolved value is bound in place, so expressions compose over other
+    /// variables the way they compose over qualifiers.
+    pub(crate) variables: BTreeSet<String>,
     /// Scalar types a context path is compared against, inferred from how the
     /// expression uses it. A path can carry more than one expectation when it is
     /// used in several places. Paths used in ways that do not pin a scalar type
@@ -213,9 +218,9 @@ impl Expression {
         context: &JsonValue,
         entry: Option<&JsonValue>,
         now: &str,
-        resolve_qualifier: &mut dyn FnMut(&str) -> Result<bool>,
+        refs: &mut dyn RefResolver,
     ) -> Result<bool> {
-        let value = self.evaluate_value(context, entry, now, resolve_qualifier)?;
+        let value = self.evaluate_value(context, entry, now, refs)?;
         value.as_bool().ok_or_else(|| {
             RototoError::new(format!(
                 "expression did not evaluate to bool: {}",
@@ -229,7 +234,7 @@ impl Expression {
         context: &JsonValue,
         entry: Option<&JsonValue>,
         now: &str,
-        resolve_qualifier: &mut dyn FnMut(&str) -> Result<bool>,
+        refs: &mut dyn RefResolver,
     ) -> Result<JsonValue> {
         cel_evaluate(
             &self.cel_ast,
@@ -238,7 +243,7 @@ impl Expression {
             entry,
             now,
             None,
-            resolve_qualifier,
+            refs,
         )
     }
 
@@ -250,7 +255,7 @@ impl Expression {
         context: &JsonValue,
         now: &str,
         resolving: ResolvingTarget<'_>,
-        resolve_qualifier: &mut dyn FnMut(&str) -> Result<bool>,
+        refs: &mut dyn RefResolver,
     ) -> Result<bool> {
         let value = cel_evaluate(
             &self.cel_ast,
@@ -259,7 +264,7 @@ impl Expression {
             None,
             now,
             Some(resolving),
-            resolve_qualifier,
+            refs,
         )?;
         value.as_bool().ok_or_else(|| {
             RototoError::new(format!(
@@ -268,6 +273,15 @@ impl Expression {
             ))
         })
     }
+}
+
+/// Resolves the ids an expression references to their values: qualifiers to
+/// their boolean, variables to their resolved value. Implemented by the
+/// resolution state (memoized, cycle-checked) and by small adapters at call
+/// sites that cannot or must not resolve references.
+pub(crate) trait RefResolver {
+    fn qualifier_value(&mut self, id: &str) -> Result<bool>;
+    fn variable_value(&mut self, id: &str) -> Result<JsonValue>;
 }
 
 /// The entity being resolved, exposed to a `[[trace]]` policy `when` as
@@ -319,6 +333,10 @@ fn collect_cel(expr: &IdedExpr, references: &mut ExpressionReferences) {
         }
         Some(Reference::Qualifier(id)) => {
             references.qualifiers.insert(id);
+            return;
+        }
+        Some(Reference::Variable(id)) => {
+            references.variables.insert(id);
             return;
         }
         Some(Reference::EnvNow) => {
@@ -383,6 +401,9 @@ enum Reference {
     Context(String),
     Entry(String),
     Qualifier(String),
+    /// `variables.<id>` / `variables["<id>"]`; extra trailing segments select
+    /// into the referenced variable's resolved value.
+    Variable(String),
     EnvNow,
     ResolvingVariable,
     ResolvingQualifier,
@@ -396,6 +417,7 @@ fn cel_reference(expr: &IdedExpr) -> Option<Reference> {
     match root.as_str() {
         "context" => Some(Reference::Context(segments.join("."))),
         "entry" => Some(Reference::Entry(segments.join("."))),
+        "variables" => Some(Reference::Variable(segments[0].clone())),
         "env" => match segments.as_slice() {
             [member] if member == "now" => Some(Reference::EnvNow),
             [first, id] if first == "qualifier" => Some(Reference::Qualifier(id.clone())),
@@ -420,7 +442,7 @@ fn cel_root_issue(expr: &IdedExpr) -> Option<ExpressionRootIssue> {
         return None;
     }
     match root.as_str() {
-        "context" | "entry" => None,
+        "context" | "entry" | "variables" => None,
         "env" => match segments.as_slice() {
             [member] if member == "now" => None,
             [first, _] if first == "qualifier" => None,
@@ -639,28 +661,38 @@ fn refined_arg0_function(name: &str) -> Option<ContextScalarType> {
 /// predicate before giving up on hitting (or avoiding) its range.
 const MAX_BUCKET_CANDIDATES: usize = 100_000;
 
+/// A reference synthesis must invert: drive this qualifier or bool variable to
+/// the requested outcome by synthesizing a context for its own condition.
+#[derive(Clone, Copy, Debug)]
+pub(crate) enum SynthRef<'a> {
+    Qualifier(&'a str),
+    Variable(&'a str),
+}
+
 impl Expression {
     /// Build a `context` object that drives this expression to `want`.
     ///
-    /// `qualifier` resolves a referenced qualifier id to a context that makes
-    /// that qualifier evaluate to the requested boolean; the caller owns cycle
+    /// `refs` resolves a referenced qualifier or bool variable to a context
+    /// that makes it evaluate to the requested boolean; the caller owns cycle
     /// detection. Returns `None` for expression shapes synthesis cannot invert.
     pub(crate) fn synthesize_context(
         &self,
         want: bool,
-        qualifier: &mut dyn FnMut(&str, bool) -> Option<JsonValue>,
+        refs: &mut dyn FnMut(SynthRef<'_>, bool) -> Option<JsonValue>,
     ) -> Option<JsonValue> {
-        synthesize_bool(&self.cel_ast, want, qualifier)
+        synthesize_bool(&self.cel_ast, want, refs)
     }
 }
 
 fn synthesize_bool(
     expr: &IdedExpr,
     want: bool,
-    qualifier: &mut dyn FnMut(&str, bool) -> Option<JsonValue>,
+    refs: &mut dyn FnMut(SynthRef<'_>, bool) -> Option<JsonValue>,
 ) -> Option<JsonValue> {
-    if let Some(Reference::Qualifier(id)) = cel_reference(expr) {
-        return qualifier(&id, want);
+    match cel_reference(expr) {
+        Some(Reference::Qualifier(id)) => return refs(SynthRef::Qualifier(&id), want),
+        Some(Reference::Variable(id)) => return refs(SynthRef::Variable(&id), want),
+        _ => {}
     }
     if let Some(path) = cel_context_path(expr) {
         // A bare boolean context path, e.g. `context.flags.enabled`.
@@ -668,7 +700,7 @@ fn synthesize_bool(
     }
     match &expr.expr {
         Expr::Literal(LiteralValue::Boolean(value)) => (**value == want).then(empty_context),
-        Expr::Call(call) => synthesize_call(call, want, qualifier),
+        Expr::Call(call) => synthesize_call(call, want, refs),
         _ => None,
     }
 }
@@ -676,12 +708,12 @@ fn synthesize_bool(
 fn synthesize_call(
     call: &cel::common::ast::CallExpr,
     want: bool,
-    qualifier: &mut dyn FnMut(&str, bool) -> Option<JsonValue>,
+    refs: &mut dyn FnMut(SynthRef<'_>, bool) -> Option<JsonValue>,
 ) -> Option<JsonValue> {
     match call.func_name.as_str() {
-        operators::LOGICAL_NOT => synthesize_bool(call.args.first()?, !want, qualifier),
-        operators::LOGICAL_AND => synthesize_junction(&call.args, want, true, qualifier),
-        operators::LOGICAL_OR => synthesize_junction(&call.args, want, false, qualifier),
+        operators::LOGICAL_NOT => synthesize_bool(call.args.first()?, !want, refs),
+        operators::LOGICAL_AND => synthesize_junction(&call.args, want, true, refs),
+        operators::LOGICAL_OR => synthesize_junction(&call.args, want, false, refs),
         operators::EQUALS => synthesize_equality(&call.args, want, true),
         operators::NOT_EQUALS => synthesize_equality(&call.args, want, false),
         operators::LESS => synthesize_ordering(&call.args, false, false, want),
@@ -702,17 +734,16 @@ fn synthesize_junction(
     args: &[IdedExpr],
     want: bool,
     is_and: bool,
-    qualifier: &mut dyn FnMut(&str, bool) -> Option<JsonValue>,
+    refs: &mut dyn FnMut(SynthRef<'_>, bool) -> Option<JsonValue>,
 ) -> Option<JsonValue> {
     if want == is_and {
         let mut context = empty_context();
         for arg in args {
-            merge_context(&mut context, synthesize_bool(arg, want, qualifier)?)?;
+            merge_context(&mut context, synthesize_bool(arg, want, refs)?)?;
         }
         Some(context)
     } else {
-        args.iter()
-            .find_map(|arg| synthesize_bool(arg, want, qualifier))
+        args.iter().find_map(|arg| synthesize_bool(arg, want, refs))
     }
 }
 
@@ -1008,7 +1039,7 @@ fn cel_evaluate(
     entry: Option<&JsonValue>,
     now: &str,
     resolving: Option<ResolvingTarget<'_>>,
-    resolve_qualifier: &mut dyn FnMut(&str) -> Result<bool>,
+    refs: &mut dyn RefResolver,
 ) -> Result<JsonValue> {
     let mut ctx = CelContext::default();
     register_functions(&mut ctx);
@@ -1018,12 +1049,12 @@ fn cel_evaluate(
     // `env` holds the values rototo provides to every expression. `env.now` is
     // the evaluation timestamp captured once per resolution. `env.qualifier["id"]`
     // reads a precomputed map: only the qualifiers the expression references are
-    // resolved (through the same callback as before, which owns cycle detection);
-    // cel then indexes that map. `env.resolving` is present only for trace
-    // policies; it names the entity being resolved.
+    // resolved (through the resolver, which owns memoization and cycle
+    // detection); cel then indexes that map. `env.resolving` is present only for
+    // trace policies; it names the entity being resolved.
     let mut qualifiers = serde_json::Map::new();
     for id in &references.qualifiers {
-        qualifiers.insert(id.clone(), JsonValue::Bool(resolve_qualifier(id)?));
+        qualifiers.insert(id.clone(), JsonValue::Bool(refs.qualifier_value(id)?));
     }
     let mut env = serde_json::json!({
         "now": now,
@@ -1033,6 +1064,15 @@ fn cel_evaluate(
         env["resolving"] = target.to_env_value();
     }
     ctx.add_variable_from_value("env", to_cel(&env)?);
+
+    // `variables` binds the resolved value of every variable the expression
+    // references, so expressions compose over other variables. Only referenced
+    // ids are resolved; the resolver owns memoization and cycle detection.
+    let mut variables = serde_json::Map::new();
+    for id in &references.variables {
+        variables.insert(id.clone(), refs.variable_value(id)?);
+    }
+    ctx.add_variable_from_value("variables", to_cel(&JsonValue::Object(variables))?);
 
     let value = ctx
         .resolve(cel_ast)
@@ -1288,6 +1328,30 @@ mod tests {
     /// A fixed `env.now` so tests stay deterministic.
     const TEST_NOW: &str = "2026-06-29T00:00:00Z";
 
+    /// A [`RefResolver`] over fixed test tables.
+    struct TestRefs<'a> {
+        qualifiers: &'a [(&'a str, bool)],
+        variables: &'a [(&'a str, JsonValue)],
+    }
+
+    impl RefResolver for TestRefs<'_> {
+        fn qualifier_value(&mut self, id: &str) -> Result<bool> {
+            self.qualifiers
+                .iter()
+                .find(|(qualifier, _)| *qualifier == id)
+                .map(|(_, value)| *value)
+                .ok_or_else(|| RototoError::new(format!("unknown qualifier: {id}")))
+        }
+
+        fn variable_value(&mut self, id: &str) -> Result<JsonValue> {
+            self.variables
+                .iter()
+                .find(|(variable, _)| *variable == id)
+                .map(|(_, value)| value.clone())
+                .ok_or_else(|| RototoError::new(format!("unknown variable: {id}")))
+        }
+    }
+
     fn eval_bool(source: &str, context: &JsonValue, entry: Option<&JsonValue>) -> Result<bool> {
         eval_bool_with_qualifiers(source, context, entry, &[])
     }
@@ -1299,14 +1363,11 @@ mod tests {
         qualifiers: &[(&str, bool)],
     ) -> Result<bool> {
         let expr = Expression::parse(source).unwrap();
-        let mut resolve_qualifier = |id: &str| {
-            qualifiers
-                .iter()
-                .find(|(qualifier, _)| *qualifier == id)
-                .map(|(_, value)| *value)
-                .ok_or_else(|| RototoError::new(format!("unknown qualifier: {id}")))
+        let mut refs = TestRefs {
+            qualifiers,
+            variables: &[],
         };
-        expr.evaluate_bool(context, entry, TEST_NOW, &mut resolve_qualifier)
+        expr.evaluate_bool(context, entry, TEST_NOW, &mut refs)
     }
 
     fn eval_value(
@@ -1315,8 +1376,11 @@ mod tests {
         entry: Option<&JsonValue>,
     ) -> Result<JsonValue> {
         let expr = Expression::parse(source).unwrap();
-        let mut resolve_qualifier = |_id: &str| Ok(false);
-        expr.evaluate_value(context, entry, TEST_NOW, &mut resolve_qualifier)
+        let mut refs = TestRefs {
+            qualifiers: &[],
+            variables: &[],
+        };
+        expr.evaluate_value(context, entry, TEST_NOW, &mut refs)
     }
 
     fn string_set(values: &[&str]) -> BTreeSet<String> {
@@ -1332,12 +1396,12 @@ mod tests {
             "user": { "tier": "premium" },
             "account": { "seats": 12 }
         });
-        fn qualifier(_: &str) -> Result<bool> {
-            Ok(false)
-        }
-        let mut qualifier = qualifier;
+        let mut refs = TestRefs {
+            qualifiers: &[],
+            variables: &[],
+        };
         assert!(
-            expr.evaluate_bool(&context, None, TEST_NOW, &mut qualifier)
+            expr.evaluate_bool(&context, None, TEST_NOW, &mut refs)
                 .unwrap()
         );
     }
@@ -1427,6 +1491,83 @@ mod tests {
     }
 
     #[test]
+    fn tracks_variable_references_in_both_spellings() {
+        let expr = Expression::parse(
+            r#"variables.premium_user && variables["beta-cohort"] && "sso" in variables.plan_features"#,
+        )
+        .unwrap();
+        assert_eq!(
+            expr.references().variables,
+            string_set(&["premium_user", "beta-cohort", "plan_features"])
+        );
+        // The variables root is provided by rototo, never an unknown root, and
+        // extra trailing segments select into the referenced variable's value.
+        let nested = Expression::parse(r#"variables.limits.max_seats >= 5"#).unwrap();
+        assert!(nested.references().invalid_roots.is_empty());
+        assert_eq!(nested.references().variables, string_set(&["limits"]));
+    }
+
+    #[test]
+    fn evaluates_variable_references() {
+        let context = serde_json::json!({});
+        let expr =
+            Expression::parse(r#"variables["premium-user"] && variables.message == "on""#).unwrap();
+        let mut refs = TestRefs {
+            qualifiers: &[],
+            variables: &[
+                ("premium-user", JsonValue::Bool(true)),
+                ("message", serde_json::json!("on")),
+            ],
+        };
+        assert!(
+            expr.evaluate_bool(&context, None, TEST_NOW, &mut refs)
+                .unwrap()
+        );
+
+        // Selecting into a referenced variable's structured value.
+        let expr = Expression::parse(r#"variables.limits.max_seats >= 5"#).unwrap();
+        let mut refs = TestRefs {
+            qualifiers: &[],
+            variables: &[("limits", serde_json::json!({ "max_seats": 12 }))],
+        };
+        assert!(
+            expr.evaluate_bool(&context, None, TEST_NOW, &mut refs)
+                .unwrap()
+        );
+
+        // An unknown variable surfaces the resolver's error.
+        let expr = Expression::parse(r#"variables.missing"#).unwrap();
+        let mut refs = TestRefs {
+            qualifiers: &[],
+            variables: &[],
+        };
+        let err = expr
+            .evaluate_bool(&context, None, TEST_NOW, &mut refs)
+            .unwrap_err();
+        assert!(err.to_string().contains("unknown variable: missing"));
+    }
+
+    #[test]
+    fn synthesizes_contexts_through_variable_references() {
+        let premium = Expression::parse(r#"context.user.tier == "premium""#).unwrap();
+        let expr = Expression::parse(r#"variables["premium-user"] && context.account.seats >= 50"#)
+            .unwrap();
+        let context = expr
+            .synthesize_context(true, &mut |reference, want| {
+                assert!(matches!(reference, SynthRef::Variable("premium-user")));
+                premium.synthesize_context(want, &mut |_, _| None)
+            })
+            .expect("expected composed synthesis");
+        assert_eq!(
+            context,
+            serde_json::json!({
+                "user": { "tier": "premium" },
+                "account": { "seats": 50 }
+            })
+        );
+    }
+
+    #[test]
     fn evaluates_env_members() {
         let context = serde_json::json!({});
         // env.now is the RFC3339 timestamp threaded into evaluation; it reads as
@@ -1491,31 +1632,26 @@ mod tests {
         assert!(!eval_bool("(true || false) && false", &context, None).unwrap());
         assert!(eval_bool("!false && (false || true)", &context, None).unwrap());
 
-        let expr = Expression::parse(r#"true || env.qualifier["must-not-run"]"#).unwrap();
         // Qualifiers referenced by an expression are resolved eagerly (the cel
         // engine indexes a precomputed map), so the resolver runs regardless of
         // short-circuiting; it simply returns a value here.
-        let mut resolve_qualifier = |id: &str| {
-            let _ = id;
-            Ok(false)
-        };
         assert!(
-            expr.evaluate_bool(&context, None, TEST_NOW, &mut resolve_qualifier)
-                .unwrap()
+            eval_bool_with_qualifiers(
+                r#"true || env.qualifier["must-not-run"]"#,
+                &context,
+                None,
+                &[("must-not-run", false)],
+            )
+            .unwrap()
         );
-
-        let expr = Expression::parse(r#"false && env.qualifier["must-not-run"]"#).unwrap();
-        // Qualifiers referenced by an expression are resolved eagerly (the cel
-        // engine indexes a precomputed map), so the resolver runs regardless of
-        // short-circuiting; it simply returns a value here.
-        let mut resolve_qualifier = |id: &str| {
-            let _ = id;
-            Ok(false)
-        };
         assert!(
-            !expr
-                .evaluate_bool(&context, None, TEST_NOW, &mut resolve_qualifier)
-                .unwrap()
+            !eval_bool_with_qualifiers(
+                r#"false && env.qualifier["must-not-run"]"#,
+                &context,
+                None,
+                &[("must-not-run", false)],
+            )
+            .unwrap()
         );
     }
 
@@ -1817,18 +1953,21 @@ mod tests {
         let source = r#"env.qualifier["premium"] && context.account.seats >= 50"#;
         let expr = Expression::parse(source).unwrap();
         let context = expr
-            .synthesize_context(true, &mut |id, want| {
-                assert_eq!(id, "premium");
+            .synthesize_context(true, &mut |reference, want| {
+                assert!(matches!(reference, SynthRef::Qualifier("premium")));
                 premium.synthesize_context(want, &mut |_, _| None)
             })
             .expect("expected composed synthesis");
 
-        let mut resolve_qualifier = |id: &str| match id {
-            "premium" => premium.evaluate_bool(&context, None, TEST_NOW, &mut |_| Ok(false)),
-            other => Err(RototoError::new(format!("unexpected qualifier: {other}"))),
+        let mut refs = TestRefs {
+            qualifiers: &[],
+            variables: &[],
         };
+        let premium_value = premium
+            .evaluate_bool(&context, None, TEST_NOW, &mut refs)
+            .unwrap();
         assert!(
-            expr.evaluate_bool(&context, None, TEST_NOW, &mut resolve_qualifier)
+            eval_bool_with_qualifiers(source, &context, None, &[("premium", premium_value)])
                 .unwrap()
         );
     }

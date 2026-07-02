@@ -537,7 +537,8 @@ fn reference_via(source: &ReferenceSource) -> ModelReferenceVia {
         }
         ReferenceSource::VariableCatalog { .. } => ModelReferenceVia::VariableCatalog,
         ReferenceSource::VariableResolveDefault { .. } => ModelReferenceVia::ResolveDefault,
-        ReferenceSource::VariableRuleConditionQualifier { rule, .. } => {
+        ReferenceSource::VariableRuleConditionQualifier { rule, .. }
+        | ReferenceSource::VariableRuleConditionVariable { rule, .. } => {
             ModelReferenceVia::RuleCondition { index: *rule }
         }
         ReferenceSource::VariableRuleValue { rule, .. } => {
@@ -557,6 +558,7 @@ fn reference_source_ref(source: &ReferenceSource) -> ModelEntityRef {
         ReferenceSource::VariableCatalog { variable }
         | ReferenceSource::VariableResolveDefault { variable }
         | ReferenceSource::VariableRuleConditionQualifier { variable, .. }
+        | ReferenceSource::VariableRuleConditionVariable { variable, .. }
         | ReferenceSource::VariableRuleValue { variable, .. } => ModelEntityRef::Variable {
             id: variable.clone(),
         },
@@ -569,6 +571,7 @@ fn reference_target_ref(target: &ReferenceTarget) -> ModelEntityRef {
             ModelEntityRef::ContextAttribute { name: name.clone() }
         }
         ReferenceTarget::Qualifier(id) => ModelEntityRef::Qualifier { id: id.clone() },
+        ReferenceTarget::Variable(id) => ModelEntityRef::Variable { id: id.clone() },
         ReferenceTarget::Catalog(id) => ModelEntityRef::Catalog { id: id.clone() },
         ReferenceTarget::CatalogEntry { catalog, value } => ModelEntityRef::CatalogEntry {
             catalog: catalog.clone(),

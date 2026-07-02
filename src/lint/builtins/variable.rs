@@ -320,6 +320,19 @@ pub(super) fn lint_variable_references(ctx: &mut LintContext) {
                 format!("rule references unknown qualifier: {qualifier}"),
             ),
             (
+                ReferenceSource::VariableRuleConditionVariable {
+                    variable: _,
+                    rule: _,
+                },
+                ReferenceTarget::Variable(referenced),
+            ) => push_reference_diagnostic(
+                &mut diagnostics,
+                RototoRuleId::VariableRuleUnknownVariable,
+                edge.semantic_target.clone(),
+                edge.location.clone(),
+                format!("rule references unknown variable: {referenced}"),
+            ),
+            (
                 ReferenceSource::VariableRuleValue {
                     variable: _,
                     rule: _,

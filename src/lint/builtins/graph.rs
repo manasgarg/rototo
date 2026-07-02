@@ -61,6 +61,68 @@ pub(super) fn lint_qualifier_cycles(ctx: &mut LintContext) {
     ctx.diagnostics.extend(diagnostics);
 }
 
+pub(super) fn lint_variable_cycles(ctx: &mut LintContext) {
+    let graph = ctx.references.variable_reference_graph();
+    let components = strongly_connected_qualifiers(&graph);
+    let mut diagnostics = Vec::new();
+
+    for component in components {
+        let component_set: BTreeSet<_> = component.iter().cloned().collect();
+        let cycle_edges = component
+            .iter()
+            .flat_map(|variable_id| graph.get(variable_id).into_iter().flatten())
+            .filter(|edge| component_set.contains(&edge.to))
+            .cloned()
+            .collect::<Vec<_>>();
+        let is_cycle = component.len() > 1
+            || cycle_edges
+                .iter()
+                .any(|edge| edge.from == edge.to && component_set.contains(&edge.from));
+        if !is_cycle {
+            continue;
+        }
+
+        for variable_id in &component {
+            let Some(variable) = ctx.index.variables.get(variable_id) else {
+                continue;
+            };
+            let primary_edge = cycle_edges.iter().find(|edge| edge.from == *variable_id);
+            let primary = primary_edge
+                .map(|edge| edge.location.clone())
+                .unwrap_or_else(|| variable.location.clone());
+            let mut diagnostic = LintDiagnostic::rototo(
+                RototoRuleId::VariableReferenceCycle,
+                LintStage::Graph,
+                variable.target(),
+                primary.clone(),
+                variable_cycle_message(variable_id, &component),
+            );
+            diagnostic.related = cycle_edges
+                .iter()
+                .filter(|edge| edge.from != *variable_id || edge.location != primary)
+                .map(|edge| RelatedLocation {
+                    location: edge.location.clone(),
+                    message: format!("cycle reference: {} -> {}", edge.from, edge.to),
+                })
+                .collect();
+            diagnostics.push(diagnostic);
+        }
+    }
+
+    ctx.diagnostics.extend(diagnostics);
+}
+
+fn variable_cycle_message(variable_id: &str, component: &[String]) -> String {
+    if component.len() == 1 {
+        format!("variable references itself: {variable_id}")
+    } else {
+        format!(
+            "variable participates in a reference cycle with: {}",
+            component.join(", ")
+        )
+    }
+}
+
 fn qualifier_cycle_message(qualifier_id: &str, component: &[String]) -> String {
     if component.len() == 1 {
         format!("qualifier references itself: {qualifier_id}")
