@@ -96,7 +96,7 @@ fn diff_json_reports_layer_allocation_and_resolution_changes() {
         .filter_map(|change| change["kind"].as_str())
         .collect();
     assert!(kinds.contains(&"allocation_status_changed"), "{kinds:?}");
-    assert!(kinds.contains(&"allocation_arms_changed"), "{kinds:?}");
+    assert!(kinds.contains(&"allocation_arms_reassigned"), "{kinds:?}");
     assert!(kinds.contains(&"variable_resolution_changed"), "{kinds:?}");
 
     let status = changes
@@ -105,6 +105,46 @@ fn diff_json_reports_layer_allocation_and_resolution_changes() {
         .unwrap();
     assert_eq!(status["before"], "running");
     assert_eq!(status["after"], "concluded");
+
+    // Shrinking "500-999" to "500-899" releases 100 claimed buckets back to
+    // the default: enrolled units change value, so the change is flagged as
+    // a reassignment with the blast radius in the detail.
+    let arms = changes
+        .iter()
+        .find(|change| change["kind"] == "allocation_arms_reassigned")
+        .unwrap();
+    assert_eq!(arms["detail"]["released_buckets"], 100);
+    assert_eq!(arms["detail"]["reassigned_buckets"], 0);
+    assert_eq!(arms["detail"]["claimed_buckets"], 0);
+}
+
+#[test]
+fn diff_json_classifies_arm_expansion_as_safe() {
+    let temp = tempfile::TempDir::new().unwrap();
+    let before = temp.path().join("before");
+    let after = temp.path().join("after");
+    copy_dir(Path::new("examples/basic"), &before);
+    copy_dir(Path::new("examples/basic"), &after);
+
+    // The before side leaves buckets 900-999 unclaimed; the after side grows
+    // the arm into them. No claimed bucket changes hands.
+    let layer_path = before.join("layers/checkout.toml");
+    let layer = fs::read_to_string(&layer_path).unwrap();
+    fs::write(
+        &layer_path,
+        layer.replace(r#"buckets = "500-999""#, r#"buckets = "500-899""#),
+    )
+    .unwrap();
+
+    let diff = diff_json(&before, &after, &[]);
+    let changes = diff["changes"].as_array().unwrap();
+    let arms = changes
+        .iter()
+        .find(|change| change["kind"] == "allocation_arms_expanded")
+        .unwrap();
+    assert_eq!(arms["detail"]["claimed_buckets"], 100);
+    assert_eq!(arms["detail"]["released_buckets"], 0);
+    assert_eq!(arms["detail"]["reassigned_buckets"], 0);
 }
 
 #[test]

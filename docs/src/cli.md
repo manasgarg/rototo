@@ -254,6 +254,20 @@ rototo diff app-config --from origin/main
 - **`--context`** - the facts to report impact against. Use the same samples you
   resolve with, so the diff stays grounded in a real case.
 
+One family of changes gets extra attention: editing an allocation's arm
+claims. Not every claim edit carries the same risk, so `diff` classifies the
+blast radius instead of just saying "arms changed". Growing an arm into
+buckets nothing claimed before only enrolls new units - already-enrolled
+units keep the value they had. That reports as `allocation_arms_expanded`.
+But moving a claimed bucket to a different arm, or releasing it back to the
+default, changes what already-enrolled units receive - that reports as
+`allocation_arms_reassigned`, and it's the one a reviewer should stop on.
+Both kinds carry the counts in an `impact` line (a `detail` object in
+`--json`): `claimed_buckets`, `released_buckets`, and `reassigned_buckets`.
+Changing a layer's `unit` or bucket count reports as
+`layer_diversion_changed`, which reshuffles every unit's position and is the
+biggest hammer of all.
+
 ## fixtures - print ready-to-run resolve commands
 
 `fixtures` generates readable examples of how your package resolves - as actual

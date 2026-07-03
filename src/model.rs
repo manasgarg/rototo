@@ -174,6 +174,10 @@ pub struct SemanticChange {
     pub before_location: Option<DiagnosticLocation>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub after_location: Option<DiagnosticLocation>,
+    /// Change-kind-specific classification, e.g. the bucket blast radius of
+    /// an allocation arms change.
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub detail: Option<serde_json::Value>,
 }
 
 #[derive(Debug, serde::Serialize)]

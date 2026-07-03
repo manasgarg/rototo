@@ -466,6 +466,13 @@ pub(crate) fn print_package_diff(diff: &PackageDiff, json: bool) -> Result<()> {
                 print_diff_value_line("before", &change.before, DiffSide::Before)?;
                 print_diff_value_line("after", &change.after, DiffSide::After)?;
             }
+            if let Some(detail) = &change.detail {
+                println!(
+                    "    {} {}",
+                    style::dim("impact:"),
+                    style::info(&compact_json(detail)?)
+                );
+            }
         }
     }
     if !diff.resolution_impacts.is_empty() {
@@ -567,7 +574,8 @@ fn semantic_change_description(kind: &str) -> &'static str {
         "allocation_removed" => "allocation removed",
         "allocation_status_changed" => "allocation status changed",
         "allocation_eligibility_changed" => "allocation eligibility changed",
-        "allocation_arms_changed" => "allocation arms changed",
+        "allocation_arms_expanded" => "allocation arms expanded into unclaimed buckets",
+        "allocation_arms_reassigned" => "allocation arms reassigned claimed buckets",
         "catalog_entry_added" => "catalog value added",
         "catalog_entry_removed" => "catalog value removed",
         "catalog_entry_changed" => "catalog value changed",

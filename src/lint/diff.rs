@@ -536,7 +536,6 @@ fn diff_layers(
                         &before.eligibility,
                         &after.eligibility,
                     ),
-                    ("allocation_arms_changed", &before.arms, &after.arms),
                 ] {
                     if before_value != after_value {
                         push_json_change(
@@ -549,10 +548,86 @@ fn diff_layers(
                         );
                     }
                 }
+                if before.arms != after.arms {
+                    push_arms_change(changes, before, after);
+                }
             }
             (None, None) => {}
         }
     }
+}
+
+/// Classify an arms edit by its bucket blast radius before pushing it.
+/// Claims into previously unclaimed buckets only enroll new units; touching
+/// a claimed bucket - moving it to another arm or releasing it back to the
+/// default - changes what already-enrolled units receive.
+fn push_arms_change(
+    changes: &mut Vec<SemanticChange>,
+    before: &AllocationSemantic,
+    after: &AllocationSemantic,
+) {
+    let before_claims = bucket_claims(&before.arms);
+    let after_claims = bucket_claims(&after.arms);
+    let mut claimed: u64 = 0;
+    let mut released: u64 = 0;
+    let mut reassigned: u64 = 0;
+    for bucket in sorted_keys(before_claims.keys(), after_claims.keys()) {
+        match (before_claims.get(&bucket), after_claims.get(&bucket)) {
+            (None, Some(_)) => claimed += 1,
+            (Some(_), None) => released += 1,
+            (Some(before_arm), Some(after_arm)) if before_arm != after_arm => reassigned += 1,
+            _ => {}
+        }
+    }
+    let kind = if released > 0 || reassigned > 0 {
+        "allocation_arms_reassigned"
+    } else {
+        "allocation_arms_expanded"
+    };
+    changes.push(SemanticChange {
+        kind: kind.to_owned(),
+        target: after.target.clone(),
+        before: Some(before.arms.clone()),
+        after: Some(after.arms.clone()),
+        before_location: None,
+        after_location: Some(after.location.clone()),
+        detail: Some(serde_json::json!({
+            "claimed_buckets": claimed,
+            "released_buckets": released,
+            "reassigned_buckets": reassigned,
+        })),
+    });
+}
+
+/// The bucket -> arm mapping an arms object claims. Claims are inclusive
+/// "N-M" ranges or single "N" buckets; anything unparseable is lint's
+/// problem and is skipped here.
+fn bucket_claims(arms: &JsonValue) -> BTreeMap<u64, &str> {
+    let mut claims = BTreeMap::new();
+    let Some(arms) = arms.as_object() else {
+        return claims;
+    };
+    for (arm, ranges) in arms {
+        let ranges: Vec<&str> = match ranges {
+            JsonValue::String(range) => vec![range.as_str()],
+            JsonValue::Array(ranges) => ranges.iter().filter_map(|range| range.as_str()).collect(),
+            _ => continue,
+        };
+        for range in ranges {
+            let (low, high) = match range.split_once('-') {
+                Some((low, high)) => (low.trim().parse::<u64>(), high.trim().parse::<u64>()),
+                None => (range.trim().parse::<u64>(), range.trim().parse::<u64>()),
+            };
+            if let (Ok(low), Ok(high)) = (low, high)
+                && low <= high
+            {
+                for bucket in low..=high {
+                    claims.insert(bucket, arm.as_str());
+                }
+            }
+        }
+    }
+    claims
 }
 
 fn diff_catalogs(
@@ -658,6 +733,7 @@ fn diff_optional_field<T: serde::Serialize + PartialEq>(
                 after: Some(json(&after.value)),
                 before_location: Some(before.location.clone()),
                 after_location: Some(after.location.clone()),
+                detail: None,
             });
         }
         (Some(_), Some(_)) | (None, None) => {}
@@ -768,6 +844,7 @@ fn push_json_path_change(
         after: change.after,
         before_location: change.before_location.cloned(),
         after_location: change.after_location.cloned(),
+        detail: None,
     });
 }
 
@@ -913,6 +990,7 @@ fn push_json_change(
         after: Some(after.clone()),
         before_location: None,
         after_location: Some(location.clone()),
+        detail: None,
     });
 }
 
@@ -929,6 +1007,7 @@ fn push_added(
         after: None,
         before_location: None,
         after_location: Some(location.clone()),
+        detail: None,
     });
 }
 
@@ -945,6 +1024,7 @@ fn push_removed(
         after: None,
         before_location: Some(location.clone()),
         after_location: None,
+        detail: None,
     });
 }
 
@@ -982,6 +1062,7 @@ fn push_added_json(
         after: Some(value),
         before_location: None,
         after_location: Some(location.clone()),
+        detail: None,
     });
 }
 
@@ -999,6 +1080,7 @@ fn push_removed_json(
         after: None,
         before_location: Some(location.clone()),
         after_location: None,
+        detail: None,
     });
 }
 
