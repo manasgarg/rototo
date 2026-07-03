@@ -178,7 +178,7 @@ be a local folder, a git repo with `#ref:subdir`, or an HTTPS archive.
 
 Relative paths in that list are resolved against the package doing the
 extending, so a package and the parents it leans on can travel together. The
-mechanics of how the layers combine live in the [package format
+mechanics of how packages combine live in the [package format
 reference](./package-format.md); the only thing to remember here is that there's
 nothing new to learn about the sources themselves.
 

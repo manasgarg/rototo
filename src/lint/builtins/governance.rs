@@ -4,7 +4,7 @@ use super::super::engine::LintContext;
 use super::super::index::*;
 use super::super::stages::push_project_diagnostic;
 
-/// The five governed operations; only update and delete carry a scope,
+/// The four governed operations; only update and delete carry a scope,
 /// expressed through the update_policy and delete_policy tables.
 const OPERATIONS: &[&str] = &["add", "update", "delete", "override"];
 
@@ -172,7 +172,7 @@ fn lint_policy(
                 }
                 // Field names are a fixed set: a field glob matching nothing
                 // in the catalog schema is an error. Entry lists may name
-                // entries a layer below adds later, so they are not checked.
+                // entries an overlay adds later, so they are not checked.
                 if key.ends_with("_fields") && block.kind == "catalog" {
                     for item in &items.value {
                         if !field_pattern_matches_schema(ctx, &block.id, &item.value) {

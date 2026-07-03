@@ -149,14 +149,14 @@ fn enforce_layer_governance_sync(layer: &Path, target: &Path) -> Result<()> {
             Ok(entries) => entries,
             Err(err) => {
                 return Err(RototoError::new(format!(
-                    "failed to read package layer {}: {err}",
+                    "failed to read package source {}: {err}",
                     directory.display()
                 )));
             }
         };
         for entry in entries {
             let entry = entry.map_err(|err| {
-                RototoError::new(format!("failed to read package layer entry: {err}"))
+                RototoError::new(format!("failed to read package source entry: {err}"))
             })?;
             let path = entry.path();
             if path.is_dir() {
@@ -198,12 +198,14 @@ fn check_governed_file(
         ["governance.toml"] => {
             let text = std::fs::read_to_string(source_path).map_err(|err| {
                 RototoError::new(format!(
-                    "failed to read package layer file {}: {err}",
+                    "failed to read package source file {}: {err}",
                     source_path.display()
                 ))
             })?;
             let value = text.parse::<toml::Value>().map_err(|err| {
-                RototoError::new(format!("failed to parse layer governance.toml: {err}"))
+                RototoError::new(format!(
+                    "failed to parse the overlay governance.toml: {err}"
+                ))
             })?;
             contract.check_ceiling(&super::governance::parse_contract_value(&value))
         }
@@ -288,7 +290,7 @@ fn check_governed_file(
             _ => Ok(()),
         },
         ["lint", file] if exists(relative) => Err(RototoError::new(format!(
-            "governance does not model replacing a lint file the layer below owns: lint/{file}"
+            "governance does not model replacing a lint file the base owns: lint/{file}"
         ))),
         _ => Ok(()),
     }
@@ -370,7 +372,7 @@ async fn copy_package_layer(
         Ok(())
     })
     .await
-    .map_err(|err| RototoError::new(format!("package layer copy task failed: {err}")))?
+    .map_err(|err| RototoError::new(format!("package source copy task failed: {err}")))?
 }
 
 struct LayerProvenance<'a> {
@@ -524,13 +526,13 @@ fn copy_package_layer_recursive(
 ) -> Result<()> {
     let metadata = std::fs::metadata(source).map_err(|err| {
         RototoError::new(format!(
-            "failed to inspect package layer {}: {err}",
+            "failed to inspect package source {}: {err}",
             source.display()
         ))
     })?;
     if !metadata.is_dir() {
         return Err(RototoError::new(format!(
-            "package layer source is not a directory: {}",
+            "package source is not a directory: {}",
             source.display()
         )));
     }
@@ -544,12 +546,12 @@ fn copy_package_layer_recursive(
     let mut entries = std::fs::read_dir(source)
         .map_err(|err| {
             RototoError::new(format!(
-                "failed to read package layer {}: {err}",
+                "failed to read package source {}: {err}",
                 source.display()
             ))
         })?
         .collect::<std::io::Result<Vec<_>>>()
-        .map_err(|err| RototoError::new(format!("failed to read package layer entry: {err}")))?;
+        .map_err(|err| RototoError::new(format!("failed to read package source entry: {err}")))?;
     entries.sort_by_key(|entry| entry.file_name());
     for entry in entries {
         let file_name = entry.file_name();
@@ -567,7 +569,7 @@ fn copy_package_layer_recursive(
         let relative_path = relative.join(&file_name);
         let metadata = entry.metadata().map_err(|err| {
             RototoError::new(format!(
-                "failed to inspect package layer entry {}: {err}",
+                "failed to inspect package source entry {}: {err}",
                 source_path.display()
             ))
         })?;
@@ -619,7 +621,7 @@ fn copy_package_layer_recursive(
             )?;
         } else {
             return Err(RototoError::new(format!(
-                "package layer contains unsupported entry type: {}",
+                "package source contains unsupported entry type: {}",
                 source_path.display()
             )));
         }
@@ -697,7 +699,7 @@ fn compose_package_layer_file(
         LayerFileComposition::Replace => {
             std::fs::copy(source_path, &target_path).map_err(|err| {
                 RototoError::new(format!(
-                    "failed to copy package layer entry {}: {err}",
+                    "failed to copy package source entry {}: {err}",
                     source_path.display()
                 ))
             })?;
@@ -711,7 +713,7 @@ fn compose_package_layer_file(
             let entry_path = target_dir.join(format!("{entry}.toml"));
             if !entry_path.is_file() {
                 return Err(RototoError::new(format!(
-                    "deleted marker has no catalog entry to remove in the layers below: {}",
+                    "deleted marker has no catalog entry to remove in the base packages: {}",
                     relative.display()
                 )));
             }
@@ -728,7 +730,7 @@ fn compose_package_layer_file(
             let entry_path = target_dir.join(format!("{entry}.toml"));
             if !entry_path.is_file() {
                 return Err(RototoError::new(format!(
-                    "patch has no catalog entry to override in the layers below: {}",
+                    "patch has no catalog entry to override in the base packages: {}",
                     relative.display()
                 )));
             }
@@ -758,13 +760,13 @@ fn compose_package_layer_file(
                     .is_some_and(|table| table.contains_key("deleted"))
                 {
                     return Err(RototoError::new(format!(
-                        "deleted enum members have no member set to remove in the layers below: {}",
+                        "deleted enum members have no member set to remove in the base packages: {}",
                         relative.display()
                     )));
                 }
                 std::fs::copy(source_path, &target_path).map_err(|err| {
                     RototoError::new(format!(
-                        "failed to copy package layer entry {}: {err}",
+                        "failed to copy package source entry {}: {err}",
                         source_path.display()
                     ))
                 })?;
@@ -786,7 +788,7 @@ fn reject_same_layer_entry(source_path: &Path, entry: &str, operation: &str) -> 
         .filter(|sibling| sibling.is_file());
     if sibling.is_some() {
         return Err(RototoError::new(format!(
-            "layer both provides catalog entry {entry} and declares a {operation} for it"
+            "package both provides catalog entry {entry} and declares a {operation} for it"
         )));
     }
     Ok(())
@@ -795,13 +797,13 @@ fn reject_same_layer_entry(source_path: &Path, entry: &str, operation: &str) -> 
 fn read_layer_toml(path: &Path) -> Result<toml::Value> {
     let text = std::fs::read_to_string(path).map_err(|err| {
         RototoError::new(format!(
-            "failed to read package layer file {}: {err}",
+            "failed to read package source file {}: {err}",
             path.display()
         ))
     })?;
     text.parse::<toml::Value>().map_err(|err| {
         RototoError::new(format!(
-            "failed to parse package layer file {}: {err}",
+            "failed to parse package source file {}: {err}",
             path.display()
         ))
     })
@@ -866,7 +868,7 @@ fn compose_enum_members(
     let Some(toml::Value::Array(base_members)) = base_table.get_mut("members") else {
         if deleted.is_some() {
             return Err(RototoError::new(format!(
-                "deleted enum members have no member set to remove in the layers below: {}",
+                "deleted enum members have no member set to remove in the base packages: {}",
                 relative.display()
             )));
         }
@@ -886,13 +888,13 @@ fn compose_enum_members(
         for value in deleted {
             if overlay_members.is_some_and(|members| members.contains(value)) {
                 return Err(RototoError::new(format!(
-                    "layer both adds enum member {value} and deletes it: {}",
+                    "package both adds enum member {value} and deletes it: {}",
                     relative.display()
                 )));
             }
             let Some(position) = base_members.iter().position(|member| member == value) else {
                 return Err(RototoError::new(format!(
-                    "deleted enum member is not in the layers below: {value} ({})",
+                    "deleted enum member is not in the base packages: {value} ({})",
                     relative.display()
                 )));
             };

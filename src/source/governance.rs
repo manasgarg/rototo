@@ -156,8 +156,7 @@ impl GovernanceContract {
     ) -> Result<()> {
         if !self.operation_allowed(kind, id, operation) {
             return Err(RototoError::new(format!(
-                "governance denies {} on {kind}.{id}: the layer below grants no such \
-                 operation",
+                "governance denies {} on {kind}.{id}: the base grants no such operation",
                 operation.name()
             )));
         }
@@ -202,7 +201,7 @@ impl GovernanceContract {
                 if !self.operation_allowed(kind, id, *operation) {
                     return Err(RototoError::new(format!(
                         "governance grant exceeds the inherited ceiling: {kind}.{id} allows \
-                         {} but the layer above does not grant it",
+                         {} but the base does not grant it",
                         operation.name()
                     )));
                 }
@@ -242,8 +241,8 @@ impl GovernanceContract {
                         if !pattern_within(pattern, allowed, denied) {
                             return Err(RototoError::new(format!(
                                 "governance grant exceeds the inherited ceiling: {kind}.{id} \
-                                 {} {label} allowlist includes {pattern}, which the layer \
-                                 above does not grant",
+                                 {} {label} allowlist includes {pattern}, which the base \
+                                 does not grant",
                                 operation.name()
                             )));
                         }

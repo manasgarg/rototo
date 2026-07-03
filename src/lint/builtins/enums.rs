@@ -67,7 +67,7 @@ pub(super) fn lint_enum_shapes(ctx: &mut LintContext) {
                 RototoRuleId::EnumMembersShape,
                 members.target(),
                 location.clone(),
-                "deleted enum members apply to a layer below through extends; \
+                "deleted enum members apply to a base package through extends; \
                  this package has no base member set for them to remove from",
             );
         }

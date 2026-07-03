@@ -716,7 +716,7 @@ fn enum_member_deletes_need_a_layer_below() {
     assert!(
         messages
             .iter()
-            .any(|message| message.contains("deleted enum members apply to a layer below")),
+            .any(|message| message.contains("deleted enum members apply to a base package")),
         "{lint:#}"
     );
 }

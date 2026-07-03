@@ -751,7 +751,7 @@ async fn orphan_enum_member_deletes_fail_loudly() {
         "schema_version = 1\nextends = [\"../base\"]\n",
     )
     .await;
-    // Deleting a member no layer below provides means the author is confused
+    // Deleting a member no base package provides means the author is confused
     // about the base; fail the load instead of ignoring it.
     write(
         &overlay,
@@ -762,11 +762,11 @@ async fn orphan_enum_member_deletes_fail_loudly() {
     let err = Package::load(overlay.to_string_lossy()).await.unwrap_err();
     assert!(
         err.to_string()
-            .contains("deleted enum member is not in the layers below"),
+            .contains("deleted enum member is not in the base packages"),
         "unexpected error: {err}"
     );
 
-    // A delete pointed at an enum data file no layer below has at all fails
+    // A delete pointed at an enum data file no base package has at all fails
     // the same way.
     tokio::fs::remove_file(overlay.join("data/enums/regions.toml"))
         .await
@@ -806,7 +806,7 @@ async fn same_layer_enum_member_add_and_delete_conflict() {
     let err = Package::load(overlay.to_string_lossy()).await.unwrap_err();
     assert!(
         err.to_string()
-            .contains("layer both adds enum member \"apac\" and deletes it"),
+            .contains("package both adds enum member \"apac\" and deletes it"),
         "unexpected error: {err}"
     );
 }

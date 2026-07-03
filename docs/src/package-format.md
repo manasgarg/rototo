@@ -101,7 +101,7 @@ can travel together. (When you build a distributable archive with `rototo
 package`, the `extends` list gets flattened in and stripped out - the archive is
 already self-contained, so there's nothing left to point at.) How the layers
 actually combine - which files replace and which compose - gets its own
-section, [Extending: how the layers combine](#extending-how-the-layers-combine),
+section, [Extending: how packages combine](#extending-how-packages-combine),
 right after this one.
 
 The second is `[[trace]]`, which turns on resolution tracing for specific cases
@@ -116,12 +116,12 @@ The `when` is an [expression](./expressions.md) - same language as everywhere
 else. We cover what tracing is for in [Using Rototo](./adoption.md); here, just
 know it's a manifest thing.
 
-## Extending: how the layers combine
+## Extending: how packages combine
 
 When a package extends others, rototo flattens them into one file tree before
 anything else happens - lint, resolution, `rototo package`, all of it sees the
 flattened result. Parents flatten in `extends` order, the child comes last.
-Flattening is deterministic: the layers are processed in a sorted, fixed order,
+Flattening is deterministic: the packages are processed in a sorted, fixed order,
 so the same inputs always produce the same flattened package.
 
 The composition rules below describe the child landing on its bases - the
@@ -144,22 +144,22 @@ stays fine everywhere: two bases extending a common ancestor both carry its
 files, and byte-identical restatements of the same file never conflict.
 
 Governance stays per-base: each base's `governance.toml` governs its own
-entities against the layers that land after it, so the extending package
+entities against the overlays that land after it, so the extending package
 needs each base's grants for what it changes in that base, and a base with no
 `governance.toml` stays ungoverned as usual.
 
 The default rule is the simple one: **a file replaces the file at the same path
-in the layers below, whole.** That's still what happens for `model/` schemas
+in the base packages, whole.** That's still what happens for `model/` schemas
 (catalog, enum, and context), `layers/`, and `lint/` files. But
 four file shapes compose structurally instead, because whole-file replacement
 can't say the things an overlay needs to say: it can't disable one base catalog
 entry, can't change one field of an entry, can't add one enum member, and it
 forces you to copy an entire variable file just to change its resolution.
 
-One bookkeeping note: while flattening, rototo records which layer owns each
+One bookkeeping note: while flattening, rototo records which package owns each
 variable's `[resolve]` block in a small provenance sidecar, and resolution
 traces read it back as the trace's `provenance` field. You never edit that
-file; it's how `rototo resolve` can print `resolve from <layer>` for a
+file; it's how `rototo resolve` can print `resolve from <source>` for a
 composed package.
 
 ### Variable files merge by top-level key
@@ -171,7 +171,7 @@ key whole, and every key it leaves out is inherited. So an overlay file
 containing nothing but a `[resolve]` block swaps the variable's resolution
 atomically - default, rules, everything - while `type`, `description`, and
 `schema_version` stay with the base. There is no key-level merge *inside*
-`[resolve]`: the topmost layer's resolve block wins whole.
+`[resolve]`: the topmost package's resolve block wins whole.
 
 One guardrail: an overlay may not change a variable's `type`. Restating the
 same type is fine; declaring a different one fails the load with "overlay
@@ -185,13 +185,13 @@ variable `acme/in_trial`, referenced as `variables["acme/in_trial"]`.
 ### Catalog entries: union, deletes, and patches
 
 Catalog entries compose as a set. The active entries of a catalog are the
-entries the layers below provide, plus the entries this layer provides, minus
-the entries this layer deletes, with field patches applied. Two file shapes
+entries the base packages provide, plus the entries this package provides, minus
+the entries this package deletes, with field patches applied. Two file shapes
 drive the minus and the patch, both keyed by path next to the entries they act
 on:
 
-- `data/catalogs/<catalog>/<entry>.deleted.toml` removes the entry a layer
-  below provided from this layer's view. The base file is untouched; the
+- `data/catalogs/<catalog>/<entry>.deleted.toml` removes the entry a base
+  package provided from this package's view. The base file is untouched; the
   marker file itself never appears in the flattened package. By convention it
   contains `deleted = true` and an optional `reason = "..."`.
 - `data/catalogs/<catalog>/<entry>.patch.toml` overrides fields of the entry
@@ -199,9 +199,9 @@ on:
   the patch doesn't mention is inherited.
 
 Both shapes have to point at something real. A deleted marker with no entry in
-the layers below fails the load ("deleted marker has no catalog entry to
-remove in the layers below"), and an orphaned patch fails the same way. A
-single layer that both provides `<entry>.toml` and deletes or patches that
+the base packages fails the load ("deleted marker has no catalog entry to
+remove in the base packages"), and an orphaned patch fails the same way. A
+single package that both provides `<entry>.toml` and deletes or patches that
 same entry also fails the load - it's contradicting itself.
 
 Deleting an entry someone depends on is deliberately loud. If a base variable
@@ -213,7 +213,7 @@ exactly the drift this is designed to surface.
 ### Enum members: union and delete
 
 An overlay's `data/enums/<id>.toml` doesn't replace the base's member file - the
-member sets compose. `members` declares what the layer adds, and `deleted`
+member sets compose. `members` declares what the package adds, and `deleted`
 names the base members it removes:
 
 ```toml
@@ -227,8 +227,8 @@ The composed enum has the base's members plus `acme_enterprise`, minus
 appears in the flattened package.
 
 Deletes follow the same rules as catalog entry deletes. Every deleted value
-has to name a member some layer below actually provides ("deleted enum member
-is not in the layers below" fails the load), a single layer may not both add
+has to name a member some base package actually provides ("deleted enum member
+is not in the base packages" fails the load), a single package may not both add
 and delete the same value, and deleting every member fails the load - an
 empty enum is not a thing. In a package with no `extends`, a `deleted` key has
 nothing to remove from and lint flags it (`rototo/enum-members-shape`).
@@ -244,7 +244,7 @@ the overlay has to override that usage too.
 package across files, that's the point. For a tenant overlay, it's exactly
 wrong: the app ships a contract, and a tenant should only move *within* it.
 Governance is the file that makes layering safe - a dial on every capability
-that each layer down can only turn further down.
+that each successive overlay can only turn further down.
 
 The file is a single `governance.toml` at the package root. It holds one block
 per governed entity, keyed `[<kind>.<id>]`, where `kind` is one of `catalog`,
@@ -266,7 +266,7 @@ denied_entries = ["free"]
 allowed_operations = ["override"]
 ```
 
-Read that as a contract: the next layer up may add plan entries, may update
+Read that as a contract: the overlay may add plan entries, may update
 `monthly_price` and `limits` on any plan except `free`, may delete any plan
 except `free`, and may override `active_plan`'s resolution. Everything else it
 might try on a base-declared entity is denied.
@@ -275,7 +275,7 @@ might try on a base-declared entity is denied.
 
 A projection with no `governance.toml` is ungoverned: plain `extends` splitting
 composes freely, exactly as the previous section describes. The moment the
-layers below carry one, the next layer up is **default-closed** over
+base carries one, the overlay is **default-closed** over
 base-declared entities. Any operation the contract doesn't grant fails the
 load with `governance denies <op> on <kind>.<id>`.
 
@@ -286,11 +286,11 @@ own layers. Whether those minted ids are *well named* is a lint concern
 
 ### The four operations
 
-Each operation names one on-disk shape the layer above can produce:
+Each operation names one on-disk shape the overlay can produce:
 
-| Operation | What the layer above does on disk |
+| Operation | What the overlay does on disk |
 | --- | --- |
-| `add` | a new `<entry>.toml` in a governed catalog, or a member file under `data/enums/` for a declared enum that had none below |
+| `add` | a new `<entry>.toml` in a governed catalog, or a member file under `data/enums/` for a declared enum that had none in the base |
 | `update` | an `<entry>.patch.toml` over a base catalog entry, or a `data/enums/<id>.toml` that unions members into the base's set |
 | `delete` | an `<entry>.deleted.toml` disabling a base catalog entry |
 | `override` | replacing a base variable's `[resolve]` block, or a base layer file under `layers/` |
@@ -303,7 +303,7 @@ Some shapes are deliberately *not* operations. Replacing a whole base catalog
 entry file is rejected toward the structural shapes: "governance does not
 model replacing catalog entry `<entry>` wholesale; use `<entry>.patch.toml` to
 update fields or `<entry>.deleted.toml` to disable it". Replacing a lint file
-the layer below owns is rejected outright.
+the base owns is rejected outright.
 
 Base schema files are in that group too, and it's worth saying why. Under a
 governed base, an overlay can never change what the base declared under
@@ -339,19 +339,19 @@ everything else is literal - `acme_*`, `*_hero`). The resolution rules:
 
 Field names are a fixed set, so a field pattern that matches nothing the
 catalog schema declares is a lint error. Entry lists are not checked that way,
-because they may name entries a layer below adds later.
+because they may name entries an overlay adds later.
 
 ### The ceiling: grants only narrow
 
-Governance stacks. A layer's own `governance.toml` is its grant to the layers
-*below* it, and it must fit inside the ceiling it inherited: every operation
-it allows, and every policy pattern it lists, has to be something the layer
-above granted it. A wider grant is rejected at compose time, not silently
+Governance stacks. An overlay's own `governance.toml` is its grant to *its*
+overlays, and it must fit inside the ceiling it inherited: every operation
+it allows, and every policy pattern it lists, has to be something its base
+granted it. A wider grant is rejected at compose time, not silently
 clamped - `governance grant exceeds the inherited ceiling: ...` - so the
-author sees it and either drops the rule or asks the layer above to widen.
+author sees it and either drops the rule or asks the base to widen.
 
-That's the dial model made concrete: each layer down can keep the dial where
-it is or turn it further down, never back up.
+That's the dial model made concrete: each successive overlay can keep the
+dial where it is or turn it further down, never back up.
 
 ### Lint on the file itself
 
@@ -359,14 +359,14 @@ Four rules cover the contract file:
 
 - `rototo/governance-parse-failed` - the TOML doesn't parse.
 - `rototo/governance-shape` - structural problems: an unknown kind or key, an
-  operation name outside the five, a dead `update_policy`/`delete_policy` for
+  operation name outside the four, a dead `update_policy`/`delete_policy` for
   an operation the block doesn't allow, an empty allowlist, field scopes on
   `delete_policy`, or a field name the catalog schema doesn't declare.
 - `rototo/governance-unknown-target` - a `[<kind>.<id>]` block names an entity
   the package doesn't declare.
 - `rototo/governance-unscoped-update` - a warning: an `update` grant without
   `allowed_fields` silently includes every field someone adds to the schema
-  later. List the fields the layer below may change.
+  later. List the fields the overlay may change.
 
 ## Variables: the values your app actually reads
 

@@ -196,8 +196,8 @@ anything), plus `--context`.
 
 The human output walks the resolution pathway: each rule prints as
 `rule[N] if <condition> -> <value> (matched|skipped)`, then the default, then
-the result with its source. For a package composed from layers, the pathway
-starts with a `resolve from <layer>` line naming the layer whose `[resolve]`
+the result with its source. For a package composed through `extends`, the pathway
+starts with a `resolve from <source>` line naming the package whose `[resolve]`
 block is being evaluated - the same provenance the trace carries. A condition
 variable reads the same way - its value
 just happens to be `true` or `false`. An allocation-backed variable prints its
