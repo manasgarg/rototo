@@ -324,7 +324,22 @@ pub struct AllocationInspectReport {
     pub allocation: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub layer: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub unit: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub buckets: Option<i64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub eligibility: Option<String>,
+    pub arms: Vec<AllocationArmInspectReport>,
     pub assigns: Vec<AssignInspectReport>,
+}
+
+#[derive(Debug, serde::Serialize)]
+pub struct AllocationArmInspectReport {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub name: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub buckets: Option<String>,
 }
 
 #[derive(Debug, serde::Serialize)]

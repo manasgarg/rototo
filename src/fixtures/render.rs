@@ -49,6 +49,9 @@ pub fn render_comment(invocation: &ResolveInvocation) -> String {
                 MatchedBy::Rule { index, condition } => {
                     format!("# => {value} (rule {index}: {condition})")
                 }
+                MatchedBy::Arm { allocation, arm } => {
+                    format!("# => {value} (allocation {allocation}, arm {arm})")
+                }
             }
         }
     }

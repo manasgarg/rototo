@@ -8,6 +8,7 @@ pub(super) use ids::{
     CatalogId, EnumId, EvaluationContextId, EvaluationContextSampleId, LayerId, ValueKey,
     VariableId,
 };
+pub(crate) use nodes::parse_arm_buckets;
 pub(super) use nodes::*;
 pub(super) use targets::{RegisteredLintAddress, RegisteredLintSelector};
 

@@ -5,11 +5,12 @@ use serde::Serialize;
 use serde_json::Value as JsonValue;
 
 use crate::error::{Result, RototoError};
+use crate::lint::parse_arm_buckets;
 use crate::model::{
-    PackageInspectReport, PackageInspectRequest, RulePathwayInspectReport, VariableInspectReport,
-    VariableResolutionTrace,
+    AllocationInspectReport, PackageInspectReport, PackageInspectRequest, RulePathwayInspectReport,
+    VariableInspectReport, VariableResolutionTrace,
 };
-use crate::resolve::trace_variable_resolution;
+use crate::resolve::{allocation_bucket, trace_variable_resolution};
 use crate::source::{SourceOptions, stage_package_source};
 
 mod context_factory;
@@ -114,6 +115,7 @@ pub enum ResolveExpectation {
 pub enum MatchedBy {
     Default,
     Rule { index: usize, condition: String },
+    Arm { allocation: String, arm: String },
 }
 
 pub async fn generate_resolve_invocations(
@@ -186,6 +188,13 @@ async fn generate_variable_invocations(
 ) -> Result<()> {
     let target = ResolveTarget::Variable(variable.id.clone());
 
+    if variable.resolve.method == "allocation" {
+        if let Some(allocation) = &variable.resolve.allocation {
+            generate_allocation_invocations(package, variable, allocation, factory, out).await?;
+        }
+        return Ok(());
+    }
+
     if let Some(context) = variable_default_context(package, variable, factory).await? {
         let trace = trace_variable_resolution(package, &variable.id, &context).await?;
         if trace.rules.iter().any(|rule| rule.matched) {
@@ -240,7 +249,162 @@ async fn generate_variable_invocations(
     Ok(())
 }
 
+/// How many candidate unit ids to hash while hunting for one that lands in an
+/// arm's bucket range. Arms claiming at least ~1/1000 of the line are found
+/// comfortably; narrower arms are skipped rather than searched forever.
+const MAX_UNIT_CANDIDATES: u32 = 8192;
+
+/// Fixture cases for a `method = "allocation"` variable: one unit id per arm
+/// (found by hashing candidates against the layer's diversion, exactly the way
+/// resolution will) plus a no-arm case that lands on the default.
+async fn generate_allocation_invocations(
+    package: &Path,
+    variable: &VariableInspectReport,
+    allocation: &AllocationInspectReport,
+    factory: &ContextFactory,
+    out: &mut Vec<ResolveInvocation>,
+) -> Result<()> {
+    let target = ResolveTarget::Variable(variable.id.clone());
+
+    // The no-arm case: the unit is not enrolled or lands in unclaimed buckets.
+    for context in factory.candidate_contexts() {
+        if let Ok(trace) = trace_variable_resolution(package, &variable.id, context).await
+            && trace
+                .allocation
+                .as_ref()
+                .is_none_or(|allocation| allocation.arm.is_none())
+        {
+            out.push(ResolveInvocation {
+                target: target.clone(),
+                case_id: "default".to_owned(),
+                title: "Uses the default value when the unit is in no arm".to_owned(),
+                because: Some("The unit is not enrolled or lands in unclaimed buckets.".to_owned()),
+                context: context.clone(),
+                expect: variable_expectation(&trace),
+            });
+            break;
+        }
+    }
+
+    let (Some(layer), Some(unit), Some(buckets)) =
+        (&allocation.layer, &allocation.unit, allocation.buckets)
+    else {
+        return Ok(());
+    };
+    if buckets < 1 {
+        return Ok(());
+    }
+    let buckets = buckets as u32;
+    // Synthesis places the unit value at the diversion's context path, so it
+    // only works when `unit` is a plain path like `context.user.id`.
+    let Some(unit_path) = plain_context_path(unit) else {
+        return Ok(());
+    };
+
+    for arm in &allocation.arms {
+        let (Some(name), Some(range)) = (&arm.name, &arm.buckets) else {
+            continue;
+        };
+        let Some((start, end)) = parse_arm_buckets(range) else {
+            continue;
+        };
+        let Some(unit_value) = (0..MAX_UNIT_CANDIDATES).find_map(|index| {
+            let candidate = format!("{name}-unit-{index:04}");
+            let bucket = allocation_bucket(layer, &JsonValue::String(candidate.clone()), buckets);
+            (bucket >= start && bucket <= end).then_some(candidate)
+        }) else {
+            continue;
+        };
+
+        // Verify by real resolution against each candidate base context; the
+        // first base that enrolls the unit (eligibility can depend on other
+        // context facts) wins.
+        for base in factory.candidate_contexts() {
+            let mut context = base.clone();
+            set_context_path(
+                &mut context,
+                &unit_path,
+                JsonValue::String(unit_value.clone()),
+            );
+            let Ok(trace) = trace_variable_resolution(package, &variable.id, &context).await else {
+                continue;
+            };
+            let assigned = trace
+                .allocation
+                .as_ref()
+                .and_then(|allocation| allocation.arm.as_deref());
+            if assigned != Some(name.as_str()) {
+                continue;
+            }
+            let value = trace.resolution.value.clone();
+            out.push(ResolveInvocation {
+                target: target.clone(),
+                case_id: format!("arm-{}", sanitize_id(name)),
+                title: format!("Arm {name} assigns {value} when the unit lands in its buckets"),
+                because: Some(format!(
+                    "The unit id hashes into buckets {range} of layer {layer}."
+                )),
+                context,
+                expect: variable_expectation(&trace),
+            });
+            break;
+        }
+    }
+
+    Ok(())
+}
+
+/// `context.a.b` as its path segments, or `None` when the expression is not a
+/// plain dotted context path.
+fn plain_context_path(source: &str) -> Option<Vec<String>> {
+    let path = source.trim().strip_prefix("context.")?;
+    let segments: Vec<String> = path.split('.').map(str::to_owned).collect();
+    segments
+        .iter()
+        .all(|segment| {
+            !segment.is_empty()
+                && segment
+                    .chars()
+                    .all(|ch| ch.is_ascii_alphanumeric() || ch == '_')
+        })
+        .then_some(segments)
+}
+
+/// Force-set a dotted path in a context object, replacing whatever value the
+/// base context carried there.
+fn set_context_path(context: &mut JsonValue, path: &[String], value: JsonValue) {
+    if !context.is_object() {
+        *context = JsonValue::Object(serde_json::Map::new());
+    }
+    let mut current = context;
+    for segment in &path[..path.len() - 1] {
+        let object = current.as_object_mut().expect("object ensured above");
+        let entry = object
+            .entry(segment.clone())
+            .or_insert_with(|| JsonValue::Object(serde_json::Map::new()));
+        if !entry.is_object() {
+            *entry = JsonValue::Object(serde_json::Map::new());
+        }
+        current = entry;
+    }
+    current
+        .as_object_mut()
+        .expect("object ensured above")
+        .insert(path[path.len() - 1].clone(), value);
+}
+
 fn variable_expectation(trace: &VariableResolutionTrace) -> ResolveExpectation {
+    if let Some(allocation) = &trace.allocation
+        && let Some(arm) = &allocation.arm
+    {
+        return ResolveExpectation::Variable {
+            value: trace.resolution.value.clone(),
+            matched: MatchedBy::Arm {
+                allocation: allocation.allocation.clone(),
+                arm: arm.clone(),
+            },
+        };
+    }
     let matched = trace.rules.iter().find(|rule| rule.matched);
     ResolveExpectation::Variable {
         value: trace.resolution.value.clone(),

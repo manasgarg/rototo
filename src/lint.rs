@@ -27,6 +27,7 @@ mod symbols;
 mod syntax;
 
 pub(crate) use evaluation_context::EvaluationContextCompatibility;
+pub(crate) use index::parse_arm_buckets;
 use index::*;
 pub(crate) use input::{LintInput, OverlayDocument};
 pub(crate) use inspect::inspect_snapshot;

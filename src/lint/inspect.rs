@@ -4,10 +4,11 @@ use crate::diagnostics::{DiagnosticCatalogEntry, LintDiagnostic, RototoRuleId, S
 use crate::error::{Result, RototoError};
 use crate::expression::{ContextScalarType, Expression};
 use crate::model::{
-    AllocationInspectReport, AssignInspectReport, CatalogEntryInspectReport, CatalogInspectReport,
-    ContextAttributeDeclarationReport, ContextAttributeInspectReport, DependencyInspectReport,
-    EvaluationContextInspectReport, EvaluationContextSampleInspectReport, InspectRuntimeStatus,
-    InspectSelection, LintAuthorityInspectReport, LintRuleInspectReport, LinterInspectReport,
+    AllocationArmInspectReport, AllocationInspectReport, AssignInspectReport,
+    CatalogEntryInspectReport, CatalogInspectReport, ContextAttributeDeclarationReport,
+    ContextAttributeInspectReport, DependencyInspectReport, EvaluationContextInspectReport,
+    EvaluationContextSampleInspectReport, InspectRuntimeStatus, InspectSelection,
+    LintAuthorityInspectReport, LintRuleInspectReport, LinterInspectReport,
     LinterRegistrationInspectReport, PackageInspectReport, PackageInspectRequest,
     QueryInspectReport, ReferenceInspectReport, ResolveInspectReport, RulePathwayInspectReport,
     RuleSampleCoverageReport, ValueInspectReport, VariableInspectReport,
@@ -449,27 +450,57 @@ fn variable_resolve(index: &SemanticIndex, variable: &VariableNode) -> ResolveIn
             _ => None,
         }),
     });
-    let allocation = assignments.as_ref().map(|assignments| AllocationInspectReport {
-        allocation: present_string_value(&assignments.allocation),
-        layer: present_string_value(&assignments.allocation).and_then(|allocation_id| {
+    let allocation = assignments.as_ref().map(|assignments| {
+        let allocation_id = present_string_value(&assignments.allocation);
+        let declared = allocation_id.as_ref().and_then(|allocation_id| {
             index.layers.values().find_map(|layer| {
                 layer
                     .allocations
                     .iter()
-                    .any(|candidate| {
-                        matches!(&candidate.id, ProjectField::Present(id) if id.value == allocation_id)
+                    .find(|candidate| {
+                        matches!(&candidate.id, ProjectField::Present(id) if &id.value == allocation_id)
                     })
-                    .then(|| layer.id.clone())
+                    .map(|allocation| (layer, allocation))
             })
-        }),
-        assigns: assignments
-            .assigns
-            .iter()
-            .map(|assign| AssignInspectReport {
-                arm: present_string_value(&assign.arm),
-                value: present_json_value(&assign.value),
-            })
-            .collect(),
+        });
+        AllocationInspectReport {
+            allocation: allocation_id,
+            layer: declared.map(|(layer, _)| layer.id.clone()),
+            unit: declared.and_then(|(layer, _)| match &layer.unit {
+                ProjectField::Present(unit) => Some(unit.value.source().to_owned()),
+                _ => None,
+            }),
+            buckets: declared.and_then(|(layer, _)| match &layer.buckets {
+                ProjectField::Present(buckets) => Some(buckets.value),
+                _ => None,
+            }),
+            eligibility: declared.and_then(|(_, allocation)| match &allocation.eligibility {
+                Some(ProjectField::Present(eligibility)) => {
+                    Some(eligibility.value.source().to_owned())
+                }
+                _ => None,
+            }),
+            arms: declared
+                .map(|(_, allocation)| {
+                    allocation
+                        .arms
+                        .iter()
+                        .map(|arm| AllocationArmInspectReport {
+                            name: present_string_value(&arm.name),
+                            buckets: present_string_value(&arm.buckets),
+                        })
+                        .collect()
+                })
+                .unwrap_or_default(),
+            assigns: assignments
+                .assigns
+                .iter()
+                .map(|assign| AssignInspectReport {
+                    arm: present_string_value(&assign.arm),
+                    value: present_json_value(&assign.value),
+                })
+                .collect(),
+        }
     });
     ResolveInspectReport {
         method: method

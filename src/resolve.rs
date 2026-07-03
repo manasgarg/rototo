@@ -244,7 +244,7 @@ fn evaluate_allocation_eligibility(
 /// The deterministic bucket for a unit on a layer's line: the same FNV-1a
 /// hash as `bucket()` expressions, salted with the layer id so different
 /// layers divide traffic independently.
-fn allocation_bucket(layer: &str, unit: &JsonValue, buckets: u32) -> u32 {
+pub(crate) fn allocation_bucket(layer: &str, unit: &JsonValue, buckets: u32) -> u32 {
     (stable_unit_hash(layer, unit) % u64::from(buckets)) as u32
 }
 

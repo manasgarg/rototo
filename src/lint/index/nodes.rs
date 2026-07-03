@@ -306,7 +306,7 @@ pub(in crate::lint) struct AssignNode {
 
 /// Parse an arm's `buckets` range: `"7"` (one bucket) or `"0-49"` (inclusive).
 /// Returns `(start, end)` with `start <= end`, or `None` for anything else.
-pub(in crate::lint) fn parse_arm_buckets(value: &str) -> Option<(u32, u32)> {
+pub(crate) fn parse_arm_buckets(value: &str) -> Option<(u32, u32)> {
     let value = value.trim();
     match value.split_once('-') {
         Some((start, end)) => {

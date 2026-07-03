@@ -75,6 +75,34 @@ fn fixtures_command_json_output_describes_invocations() {
         .stdout(predicate::str::contains("\"kind\":"));
 }
 
+#[test]
+fn fixtures_command_synthesizes_a_unit_id_per_arm() {
+    Command::cargo_bin("rototo")
+        .unwrap()
+        .env("NO_COLOR", "1")
+        .args([
+            "fixtures",
+            "examples/basic",
+            "--variable",
+            "checkout_cta_copy",
+        ])
+        .assert()
+        .success()
+        // One case per arm, each with a synthesized unit id that hashes into
+        // that arm's buckets, plus the no-arm default case.
+        .stdout(predicate::str::contains(
+            "(allocation cta_copy_test, arm control)",
+        ))
+        .stdout(predicate::str::contains(
+            "(allocation cta_copy_test, arm benefit_led)",
+        ))
+        .stdout(predicate::str::contains("(default)"))
+        .stdout(predicate::str::contains("--context user.id=control-unit-"))
+        .stdout(predicate::str::contains(
+            "--context user.id=benefit_led-unit-",
+        ));
+}
+
 /// The printed commands must be runnable: feeding one back through a real shell
 /// (which undoes the shell-quoting) and the real resolve `--context` parser must
 /// succeed, proving rendering is the inverse of parsing.
