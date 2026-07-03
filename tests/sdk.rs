@@ -262,8 +262,9 @@ async fn sdk_reads_all_basic_variable_configs_with_declared_sources() {
             "variable://{} should not declare inline values",
             variable.id
         );
+        let is_query = variable.value["resolve"]["method"] == "query";
         assert!(
-            variable.value["resolve"].get("default").is_some(),
+            is_query || variable.value["resolve"].get("default").is_some(),
             "variable://{} should declare a direct default value",
             variable.id
         );

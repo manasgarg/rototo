@@ -44,9 +44,7 @@ impl RuntimePackage {
                 .get(variable)
                 .is_some_and(|variable| match &variable.resolution {
                     RuntimeResolution::Rules { rules, .. } => rules.is_empty(),
-                    RuntimeResolution::Query(query) => {
-                        query.filter.is_none() && query.sort.is_none()
-                    }
+                    RuntimeResolution::Query(query) => !query.uses_context,
                 })
         {
             return Ok(());
@@ -133,6 +131,9 @@ pub(crate) struct RuntimeQuery {
     pub(crate) descending: bool,
     pub(crate) limit: Option<usize>,
     pub(crate) default: Option<RuntimeSelectedValue>,
+    /// Whether filter/sort read `context` or other variables, i.e. whether
+    /// resolution needs a validated evaluation context at all.
+    pub(crate) uses_context: bool,
 }
 
 #[derive(Clone, Debug)]
@@ -474,6 +475,11 @@ impl<'a> RuntimeCompiler<'a> {
             }
             ProjectField::Missing { .. } => None,
         };
+        let uses_context = [&filter, &sort].into_iter().flatten().any(|expression| {
+            let references = expression.references();
+            !references.variables.is_empty()
+                || references.context_paths.iter().any(|path| !path.is_empty())
+        });
         Ok(RuntimeResolution::Query(Box::new(RuntimeQuery {
             catalog: catalog.to_owned(),
             single,
@@ -482,6 +488,7 @@ impl<'a> RuntimeCompiler<'a> {
             descending,
             limit,
             default,
+            uses_context,
         })))
     }
 

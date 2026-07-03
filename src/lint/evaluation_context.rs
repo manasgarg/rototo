@@ -89,6 +89,15 @@ impl<'a> CompatibilityBuilder<'a> {
             });
         }
         for expression in variable_query_expressions(variable) {
+            // Query expressions that only read `entry` (or `env`) impose no
+            // context requirement; only context paths and variable references
+            // narrow the compatible set.
+            let references = expression.value.references();
+            if references.variables.is_empty()
+                && references.context_paths.iter().all(|path| path.is_empty())
+            {
+                continue;
+            }
             let expression_contexts = self.expression_contexts(&expression.value);
             contexts = Some(match contexts {
                 Some(current) => current
