@@ -2,6 +2,7 @@ mod catalog;
 mod enums;
 mod evaluation_context;
 mod fields;
+mod layers;
 mod manifest;
 mod variable;
 
@@ -46,6 +47,14 @@ pub(super) fn build_semantic_index(source: &SourceStore, syntax: &SyntaxIndex) -
                 index
                     .enum_members
                     .insert(id.clone(), enums::project_enum_members(document, toml, id));
+            }
+            DocumentKind::Layer { id } => {
+                let Some(toml) = syntax.toml.get(&document.id) else {
+                    continue;
+                };
+                index
+                    .layers
+                    .insert(id.clone(), layers::project_layer(document, toml, id));
             }
             DocumentKind::Catalog { id } => {
                 index

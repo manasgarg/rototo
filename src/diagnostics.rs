@@ -8,6 +8,7 @@ pub enum DiagnosticEntity {
     Package,
     Qualifier,
     Enum,
+    Layer,
     Variable,
     Catalog,
     CatalogEntry,
@@ -480,6 +481,30 @@ rototo_rules! {
         title: "Variable resolve block is invalid",
         help: "Resolve blocks must be tables with default and optional rule references.",
     },
+    LayerParseFailed => {
+        id: "layer-parse-failed",
+        entity: Layer,
+        title: "Layer TOML file could not be parsed",
+        help: "Fix the TOML syntax error in the layer file.",
+    },
+    LayerSchemaVersion => {
+        id: "layer-schema-version",
+        entity: Layer,
+        title: "Layer schema version is not supported",
+        help: "Declare schema_version = 1 in the layer file.",
+    },
+    LayerShape => {
+        id: "layer-shape",
+        entity: Layer,
+        title: "Layer is invalid",
+        help: "A layer declares unit (a CEL expression over context), buckets (a positive integer), and [[allocation]] tables with an id, an optional status (draft, running, or concluded), an optional eligibility expression, and [[allocation.arm]] tables with a name and a \"<start>-<end>\" bucket range.",
+    },
+    LayerBucketOverlap => {
+        id: "layer-bucket-overlap",
+        entity: Layer,
+        title: "Layer arms claim overlapping buckets",
+        help: "Arms across all allocations in a layer must claim disjoint buckets so a unit lands in at most one allocation.",
+    },
     VariableQueryShape => {
         id: "variable-query-shape",
         entity: Variable,
@@ -819,6 +844,9 @@ pub enum SemanticEntity {
         id: String,
     },
     Enum {
+        id: String,
+    },
+    Layer {
         id: String,
     },
     Catalog {

@@ -1,6 +1,7 @@
 use crate::diagnostics::{RototoRuleId, SemanticTarget};
 
 use super::super::engine::LintContext;
+use super::super::index::ProjectField;
 use super::super::stages::push_project_diagnostic;
 
 /// rototo-recognized ids appear in TOML table headers and CEL expressions
@@ -48,6 +49,19 @@ pub(super) fn lint_id_naming(ctx: &mut LintContext) {
                 members.location.clone(),
                 "enum",
             );
+        }
+    }
+    for layer in ctx.index.layers.values() {
+        check(&layer.id, layer.target(), layer.location.clone(), "layer");
+        for allocation in &layer.allocations {
+            if let ProjectField::Present(id) = &allocation.id {
+                check(&id.value, layer.target(), id.location.clone(), "allocation");
+            }
+            for arm in &allocation.arms {
+                if let ProjectField::Present(name) = &arm.name {
+                    check(&name.value, layer.target(), name.location.clone(), "arm");
+                }
+            }
         }
     }
     for catalog in ctx.index.catalogs.values() {

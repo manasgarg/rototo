@@ -109,6 +109,7 @@ pub enum SourceKind {
     Variable,
     Enum,
     EnumMembers,
+    Layer,
     Catalog,
     CatalogEntry,
     EvaluationContext,

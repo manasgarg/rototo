@@ -10,8 +10,8 @@ use crate::diagnostics::{
 use crate::expression::Expression;
 
 use super::ids::{
-    CatalogId, EnumId, EvaluationContextId, EvaluationContextSampleId, PackagePath, ValueKey,
-    VariableId,
+    CatalogId, EnumId, EvaluationContextId, EvaluationContextSampleId, LayerId, PackagePath,
+    ValueKey, VariableId,
 };
 use super::targets::RegisteredLintSelector;
 
@@ -232,6 +232,72 @@ impl EnumMembersNode {
             id: self.id.clone(),
         }
         .into()
+    }
+}
+
+/// A layer under `layers/<id>.toml`: a diversion (`unit`, `buckets`) plus the
+/// allocations that claim slices of it. The file stem is the layer id.
+pub(in crate::lint) struct LayerNode {
+    #[allow(dead_code)]
+    pub(in crate::lint) doc: DocId,
+    pub(in crate::lint) id: LayerId,
+    pub(in crate::lint) location: DiagnosticLocation,
+    pub(in crate::lint) schema_version: ProjectField<i64>,
+    #[allow(dead_code)]
+    pub(in crate::lint) description: Option<ProjectField<String>>,
+    pub(in crate::lint) unit: ProjectField<Expression>,
+    pub(in crate::lint) buckets: ProjectField<i64>,
+    pub(in crate::lint) allocations: Vec<AllocationNode>,
+    /// True when `allocation` exists but is not an array of tables.
+    pub(in crate::lint) allocations_invalid: bool,
+}
+
+impl LayerNode {
+    pub(in crate::lint) fn target(&self) -> SemanticTarget {
+        SemanticEntity::Layer {
+            id: self.id.clone(),
+        }
+        .into()
+    }
+}
+
+/// One `[[allocation]]` table inside a layer: a named claim on buckets,
+/// divided into arms.
+pub(in crate::lint) struct AllocationNode {
+    pub(in crate::lint) index: usize,
+    pub(in crate::lint) location: DiagnosticLocation,
+    pub(in crate::lint) id: ProjectField<String>,
+    pub(in crate::lint) status: Option<ProjectField<String>>,
+    pub(in crate::lint) eligibility: Option<ProjectField<Expression>>,
+    pub(in crate::lint) arms: Vec<ArmNode>,
+    /// True when `arm` exists but is not an array of tables.
+    pub(in crate::lint) arms_invalid: bool,
+    pub(in crate::lint) invalid_shape: bool,
+}
+
+/// One `[[allocation.arm]]` table: a named slice of the allocation's buckets.
+pub(in crate::lint) struct ArmNode {
+    pub(in crate::lint) index: usize,
+    pub(in crate::lint) location: DiagnosticLocation,
+    pub(in crate::lint) name: ProjectField<String>,
+    pub(in crate::lint) buckets: ProjectField<String>,
+    pub(in crate::lint) invalid_shape: bool,
+}
+
+/// Parse an arm's `buckets` range: `"7"` (one bucket) or `"0-49"` (inclusive).
+/// Returns `(start, end)` with `start <= end`, or `None` for anything else.
+pub(in crate::lint) fn parse_arm_buckets(value: &str) -> Option<(u32, u32)> {
+    let value = value.trim();
+    match value.split_once('-') {
+        Some((start, end)) => {
+            let start = start.trim().parse().ok()?;
+            let end = end.trim().parse().ok()?;
+            (start <= end).then_some((start, end))
+        }
+        None => {
+            let bucket = value.parse().ok()?;
+            Some((bucket, bucket))
+        }
     }
 }
 

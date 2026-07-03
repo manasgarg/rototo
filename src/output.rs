@@ -1071,6 +1071,7 @@ fn semantic_entity_label(entity: &SemanticEntity) -> String {
         SemanticEntity::Package => "package".to_owned(),
         SemanticEntity::Manifest => "manifest".to_owned(),
         SemanticEntity::Enum { id } => format!("enum:{id}"),
+        SemanticEntity::Layer { id } => format!("layer:{id}"),
         SemanticEntity::Variable { id } => format!("variable:{id}"),
         SemanticEntity::EvaluationContext { id } => format!("evaluation-context:{id}"),
         SemanticEntity::EvaluationContextSample {
@@ -1135,6 +1136,7 @@ fn diagnostic_entity_label(entity: &DiagnosticEntity) -> &'static str {
         DiagnosticEntity::Package => "package",
         DiagnosticEntity::Qualifier => "qualifier",
         DiagnosticEntity::Enum => "enum",
+        DiagnosticEntity::Layer => "layer",
         DiagnosticEntity::Variable => "variable",
         DiagnosticEntity::EvaluationContext => "evaluation_context",
         DiagnosticEntity::EvaluationContextSample => "evaluation_context_sample",

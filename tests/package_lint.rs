@@ -1362,6 +1362,7 @@ enum ExpectedEntity {
         index: usize,
     },
     Catalog(&'static str),
+    Layer(&'static str),
     CustomLintFile(&'static str),
     CustomRule(&'static str),
 }
@@ -1538,6 +1539,80 @@ fn canonical_rule_fixtures() -> &'static [CanonicalRuleFixture] {
                         end_line: 7,
                         end_character: 21,
                     }),
+                },
+                related: &[],
+            }],
+        },
+        CanonicalRuleFixture {
+            rule: RototoRuleId::LayerParseFailed,
+            package: "tests/fixtures/packages/rules/parse/layer-parse-failed",
+            success: false,
+            expected: &[ExpectedDiagnostic {
+                rule: "rototo/layer-parse-failed",
+                severity: "error",
+                stage: LintStage::Parse,
+                entity: ExpectedEntity::Layer("broken"),
+                primary: ExpectedPrimaryLocation::Document {
+                    path: "layers/broken.toml",
+                    range: Some(ExpectedRange {
+                        start_line: 1,
+                        start_character: 23,
+                        end_line: 2,
+                        end_character: 0,
+                    }),
+                },
+                related: &[],
+            }],
+        },
+        CanonicalRuleFixture {
+            rule: RototoRuleId::LayerSchemaVersion,
+            package: "tests/fixtures/packages/rules/project/layer-schema-version",
+            success: false,
+            expected: &[ExpectedDiagnostic {
+                rule: "rototo/layer-schema-version",
+                severity: "error",
+                stage: LintStage::Project,
+                entity: ExpectedEntity::Layer("checkout"),
+                primary: ExpectedPrimaryLocation::Document {
+                    path: "layers/checkout.toml",
+                    range: Some(ExpectedRange {
+                        start_line: 0,
+                        start_character: 17,
+                        end_line: 0,
+                        end_character: 18,
+                    }),
+                },
+                related: &[],
+            }],
+        },
+        CanonicalRuleFixture {
+            rule: RototoRuleId::LayerShape,
+            package: "tests/fixtures/packages/rules/project/layer-shape",
+            success: false,
+            expected: &[ExpectedDiagnostic {
+                rule: "rototo/layer-shape",
+                severity: "error",
+                stage: LintStage::Project,
+                entity: ExpectedEntity::Layer("checkout"),
+                primary: ExpectedPrimaryLocation::Document {
+                    path: "layers/checkout.toml",
+                    range: None,
+                },
+                related: &[],
+            }],
+        },
+        CanonicalRuleFixture {
+            rule: RototoRuleId::LayerBucketOverlap,
+            package: "tests/fixtures/packages/rules/project/layer-bucket-overlap",
+            success: false,
+            expected: &[ExpectedDiagnostic {
+                rule: "rototo/layer-bucket-overlap",
+                severity: "error",
+                stage: LintStage::Project,
+                entity: ExpectedEntity::Layer("checkout"),
+                primary: ExpectedPrimaryLocation::Document {
+                    path: "layers/checkout.toml",
+                    range: None,
                 },
                 related: &[],
             }],
@@ -2211,6 +2286,9 @@ fn expected_entity_value(entity: ExpectedEntity) -> serde_json::Value {
         ExpectedEntity::Catalog(id) => {
             serde_json::json!({ "kind": "catalog", "id": id })
         }
+        ExpectedEntity::Layer(id) => {
+            serde_json::json!({ "kind": "layer", "id": id })
+        }
         ExpectedEntity::CustomLintFile(path) => {
             serde_json::json!({ "kind": "custom_lint", "path": path })
         }
@@ -2248,6 +2326,8 @@ fn lint_failures_expected_rule_ids() -> &'static [&'static str] {
         "fixture/custom-variable-rejected",
         "rototo/catalog-entry-schema-mismatch",
         "rototo/catalog-schema-invalid",
+        "rototo/layer-bucket-overlap",
+        "rototo/layer-shape",
         "rototo/schema-ui-unknown-widget",
         "rototo/schema-ui-widget-params",
         "rototo/schema-ui-widget-type-mismatch",
@@ -2275,6 +2355,7 @@ fn intentionally_malformed_fixture_files() -> &'static [&'static str] {
         "invalid-package-file-toml/variables/broken.toml",
         "invalid-package-toml/rototo-package.toml",
         "rules/parse/variable-external-value-parse-failed/variables/external_message-values/broken.toml",
+        "rules/parse/layer-parse-failed/layers/broken.toml",
         "rules/parse/variable-parse-failed/variables/broken.toml",
         "rules/parse/package-manifest-parse-failed/rototo-package.toml",
         "schema-contract-parse-failed/model/catalogs/message.schema.json",

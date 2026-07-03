@@ -113,6 +113,9 @@ pub(super) enum DocumentKind {
     EnumMembers {
         id: String,
     },
+    Layer {
+        id: String,
+    },
     Catalog {
         id: String,
     },
@@ -137,6 +140,7 @@ impl DocumentKind {
             Self::Variable { .. } => SourceKind::Variable,
             Self::EnumDeclaration { .. } => SourceKind::Enum,
             Self::EnumMembers { .. } => SourceKind::EnumMembers,
+            Self::Layer { .. } => SourceKind::Layer,
             Self::Catalog { .. } => SourceKind::Catalog,
             Self::CatalogEntry { .. } => SourceKind::CatalogEntry,
             Self::EvaluationContext { .. } => SourceKind::EvaluationContext,

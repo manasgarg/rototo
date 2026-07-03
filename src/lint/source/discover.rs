@@ -79,6 +79,38 @@ impl SourceStore {
         Ok(())
     }
 
+    pub(crate) async fn add_layer_documents(&mut self) -> Result<()> {
+        let directory_path = self.root.join("layers");
+        let entries = match sorted_directory_entries(&directory_path).await {
+            Ok(entries) => entries,
+            Err(err) if err.kind() == std::io::ErrorKind::NotFound => return Ok(()),
+            Err(err) => {
+                return Err(RototoError::new(format!(
+                    "failed to read {}: {err}",
+                    directory_path.display()
+                )));
+            }
+        };
+        for path in entries {
+            if path.extension().and_then(|extension| extension.to_str()) != Some("toml") {
+                continue;
+            }
+            let Some(stem) = path.file_stem().and_then(|stem| stem.to_str()) else {
+                continue;
+            };
+            let relative_path =
+                PathBuf::from("layers").join(path.file_name().expect("entry has filename"));
+            self.add_disk_document(
+                relative_path,
+                DocumentKind::Layer {
+                    id: stem.to_owned(),
+                },
+            )
+            .await;
+        }
+        Ok(())
+    }
+
     pub(crate) async fn add_catalog_documents(&mut self) -> Result<()> {
         let directory = self.root.join("model/catalogs");
         let entries = match sorted_directory_entries(&directory).await {
