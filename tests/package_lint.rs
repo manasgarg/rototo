@@ -621,6 +621,64 @@ default = "anything"
 }
 
 #[test]
+fn catalog_schemas_support_union_and_nullable_scalars() {
+    // Money-shaped catalogs need union and sentinel types: a tier bound that is
+    // an integer or the literal "inf", and an amount that may be null. Plain
+    // JSON Schema expresses both (type arrays and oneOf), and entry validation
+    // enforces them. TOML cannot write null, so a nullable field is expressed
+    // by omitting it (leave it out of required).
+    let temp = tempfile::TempDir::new().unwrap();
+    let root = temp.path();
+    std::fs::create_dir_all(root.join("model/catalogs")).unwrap();
+    std::fs::create_dir_all(root.join("data/catalogs/prices")).unwrap();
+    std::fs::write(root.join("rototo-package.toml"), "schema_version = 1\n").unwrap();
+    std::fs::write(
+        root.join("model/catalogs/prices.schema.json"),
+        r#"{
+  "type": "object",
+  "required": ["up_to"],
+  "properties": {
+    "amount": { "type": ["number", "null"] },
+    "up_to": { "oneOf": [{ "type": "integer" }, { "const": "inf" }] }
+  }
+}"#,
+    )
+    .unwrap();
+    std::fs::write(
+        root.join("data/catalogs/prices/tier_one.toml"),
+        "amount = 10.5\nup_to = 100\n",
+    )
+    .unwrap();
+    std::fs::write(
+        root.join("data/catalogs/prices/tier_top.toml"),
+        "up_to = \"inf\"\n",
+    )
+    .unwrap();
+
+    let lint = lint_json(root.to_str().unwrap(), true);
+    assert!(
+        lint["diagnostics"].as_array().unwrap().is_empty(),
+        "{lint:#}"
+    );
+
+    std::fs::write(
+        root.join("data/catalogs/prices/bad.toml"),
+        "amount = \"oops\"\nup_to = 2.5\n",
+    )
+    .unwrap();
+    let lint = lint_json(root.to_str().unwrap(), false);
+    let diagnostic = only_diagnostic(&lint);
+    assert_eq!(diagnostic["rule"], "rototo/catalog-entry-schema-mismatch");
+    assert!(
+        diagnostic["message"]
+            .as_str()
+            .unwrap()
+            .contains("is not of types"),
+        "{lint:#}"
+    );
+}
+
+#[test]
 fn reports_variable_rule_without_selector() {
     let lint = lint_json("tests/fixtures/packages/lint-failures", false);
 
