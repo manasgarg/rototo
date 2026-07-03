@@ -113,7 +113,7 @@ async fn copy_package_layer(source: &Path, target: &Path, include_manifest: bool
     let source = source.to_path_buf();
     let target = target.to_path_buf();
     tokio::task::spawn_blocking(move || {
-        copy_package_layer_recursive(&source, &target, include_manifest, true)
+        copy_package_layer_recursive(&source, &target, include_manifest, Path::new(""))
     })
     .await
     .map_err(|err| RototoError::new(format!("package layer copy task failed: {err}")))?
@@ -123,7 +123,7 @@ fn copy_package_layer_recursive(
     source: &Path,
     target: &Path,
     include_manifest: bool,
-    root: bool,
+    relative: &Path,
 ) -> Result<()> {
     let metadata = std::fs::metadata(source).map_err(|err| {
         RototoError::new(format!(
@@ -143,21 +143,25 @@ fn copy_package_layer_recursive(
             target.display()
         ))
     })?;
-    for entry in std::fs::read_dir(source).map_err(|err| {
-        RototoError::new(format!(
-            "failed to read package layer {}: {err}",
-            source.display()
-        ))
-    })? {
-        let entry = entry.map_err(|err| {
-            RototoError::new(format!("failed to read package layer entry: {err}"))
-        })?;
+    let root = relative.as_os_str().is_empty();
+    let mut entries = std::fs::read_dir(source)
+        .map_err(|err| {
+            RototoError::new(format!(
+                "failed to read package layer {}: {err}",
+                source.display()
+            ))
+        })?
+        .collect::<std::io::Result<Vec<_>>>()
+        .map_err(|err| RototoError::new(format!("failed to read package layer entry: {err}")))?;
+    entries.sort_by_key(|entry| entry.file_name());
+    for entry in entries {
         let file_name = entry.file_name();
         if root && !include_manifest && file_name == PACKAGE_MANIFEST {
             continue;
         }
         let source_path = entry.path();
         let target_path = target.join(&file_name);
+        let relative_path = relative.join(&file_name);
         let metadata = entry.metadata().map_err(|err| {
             RototoError::new(format!(
                 "failed to inspect package layer entry {}: {err}",
@@ -173,7 +177,12 @@ fn copy_package_layer_recursive(
                     ))
                 })?;
             }
-            copy_package_layer_recursive(&source_path, &target_path, include_manifest, false)?;
+            copy_package_layer_recursive(
+                &source_path,
+                &target_path,
+                include_manifest,
+                &relative_path,
+            )?;
         } else if metadata.is_file() {
             if target_path.is_dir() {
                 std::fs::remove_dir_all(&target_path).map_err(|err| {
@@ -191,12 +200,7 @@ fn copy_package_layer_recursive(
                     ))
                 })?;
             }
-            std::fs::copy(&source_path, &target_path).map_err(|err| {
-                RototoError::new(format!(
-                    "failed to copy package layer entry {}: {err}",
-                    source_path.display()
-                ))
-            })?;
+            compose_package_layer_file(&source_path, target, &file_name, &relative_path)?;
         } else {
             return Err(RototoError::new(format!(
                 "package layer contains unsupported entry type: {}",
@@ -205,6 +209,184 @@ fn copy_package_layer_recursive(
         }
     }
     Ok(())
+}
+
+/// How one layer file lands on the projection built from the layers below it.
+enum LayerFileComposition {
+    /// Plain copy; a same-path file below is replaced whole.
+    Replace,
+    /// `data/catalogs/<id>/<entry>.tombstone.toml`: disable the entry a layer
+    /// below provided. The tombstone itself never lands in the projection.
+    CatalogEntryTombstone { entry: String },
+    /// `data/catalogs/<id>/<entry>.patch.toml`: field-level override of the
+    /// entry a layer below provided; unpatched fields are inherited.
+    CatalogEntryPatch { entry: String },
+    /// `variables/**.toml` over an existing file: top-level keys replace the
+    /// base's (so an overlay `[resolve]` block replaces the whole resolution),
+    /// keys the overlay does not declare are inherited.
+    VariableMerge,
+}
+
+/// Classify a layer file by its package-relative path. Composition is
+/// path-shaped: only catalog entries and variables compose structurally;
+/// everything else replaces whole.
+fn classify_layer_file(
+    relative: &Path,
+    file_name: &str,
+    target_exists: bool,
+) -> LayerFileComposition {
+    let components: Vec<&str> = relative
+        .iter()
+        .filter_map(|component| component.to_str())
+        .collect();
+    match components.as_slice() {
+        ["data", "catalogs", _, _] => {
+            if let Some(entry) = file_name.strip_suffix(".tombstone.toml") {
+                return LayerFileComposition::CatalogEntryTombstone {
+                    entry: entry.to_owned(),
+                };
+            }
+            if let Some(entry) = file_name.strip_suffix(".patch.toml") {
+                return LayerFileComposition::CatalogEntryPatch {
+                    entry: entry.to_owned(),
+                };
+            }
+            LayerFileComposition::Replace
+        }
+        ["variables", .., _] if target_exists && file_name.ends_with(".toml") => {
+            LayerFileComposition::VariableMerge
+        }
+        _ => LayerFileComposition::Replace,
+    }
+}
+
+fn compose_package_layer_file(
+    source_path: &Path,
+    target_dir: &Path,
+    file_name: &std::ffi::OsStr,
+    relative: &Path,
+) -> Result<()> {
+    let target_path = target_dir.join(file_name);
+    let file_name = file_name.to_string_lossy();
+    match classify_layer_file(relative, &file_name, target_path.is_file()) {
+        LayerFileComposition::Replace => {
+            std::fs::copy(source_path, &target_path).map_err(|err| {
+                RototoError::new(format!(
+                    "failed to copy package layer entry {}: {err}",
+                    source_path.display()
+                ))
+            })?;
+            Ok(())
+        }
+        LayerFileComposition::CatalogEntryTombstone { entry } => {
+            reject_same_layer_entry(source_path, &entry, "tombstone")?;
+            let entry_path = target_dir.join(format!("{entry}.toml"));
+            if !entry_path.is_file() {
+                return Err(RototoError::new(format!(
+                    "tombstone has no catalog entry to disable in the layers below: {}",
+                    relative.display()
+                )));
+            }
+            std::fs::remove_file(&entry_path).map_err(|err| {
+                RototoError::new(format!(
+                    "failed to remove tombstoned catalog entry {}: {err}",
+                    entry_path.display()
+                ))
+            })?;
+            Ok(())
+        }
+        LayerFileComposition::CatalogEntryPatch { entry } => {
+            reject_same_layer_entry(source_path, &entry, "patch")?;
+            let entry_path = target_dir.join(format!("{entry}.toml"));
+            if !entry_path.is_file() {
+                return Err(RototoError::new(format!(
+                    "patch has no catalog entry to override in the layers below: {}",
+                    relative.display()
+                )));
+            }
+            let mut base = read_layer_toml(&entry_path)?;
+            let patch = read_layer_toml(source_path)?;
+            deep_merge_toml(&mut base, patch);
+            write_layer_toml(&entry_path, &base)
+        }
+        LayerFileComposition::VariableMerge => {
+            let mut base = read_layer_toml(&target_path)?;
+            let overlay = read_layer_toml(source_path)?;
+            merge_variable_toml(&mut base, overlay);
+            write_layer_toml(&target_path, &base)
+        }
+    }
+}
+
+/// A layer that both provides `<entry>.toml` and tombstones or patches the
+/// same entry is contradicting itself; composition targets the layers below.
+fn reject_same_layer_entry(source_path: &Path, entry: &str, operation: &str) -> Result<()> {
+    let sibling = source_path
+        .parent()
+        .map(|parent| parent.join(format!("{entry}.toml")))
+        .filter(|sibling| sibling.is_file());
+    if sibling.is_some() {
+        return Err(RototoError::new(format!(
+            "layer both provides catalog entry {entry} and declares a {operation} for it"
+        )));
+    }
+    Ok(())
+}
+
+fn read_layer_toml(path: &Path) -> Result<toml::Value> {
+    let text = std::fs::read_to_string(path).map_err(|err| {
+        RototoError::new(format!(
+            "failed to read package layer file {}: {err}",
+            path.display()
+        ))
+    })?;
+    text.parse::<toml::Value>().map_err(|err| {
+        RototoError::new(format!(
+            "failed to parse package layer file {}: {err}",
+            path.display()
+        ))
+    })
+}
+
+fn write_layer_toml(path: &Path, value: &toml::Value) -> Result<()> {
+    let text = toml::to_string_pretty(value)
+        .map_err(|err| RototoError::new(format!("failed to serialize composed file: {err}")))?;
+    std::fs::write(path, text).map_err(|err| {
+        RototoError::new(format!(
+            "failed to write composed package file {}: {err}",
+            path.display()
+        ))
+    })
+}
+
+/// Deep merge for catalog entry patches: tables merge recursively, everything
+/// else (scalars, arrays) replaces, and unpatched fields are inherited.
+fn deep_merge_toml(base: &mut toml::Value, patch: toml::Value) {
+    match (base, patch) {
+        (toml::Value::Table(base), toml::Value::Table(patch)) => {
+            for (key, value) in patch {
+                match base.get_mut(&key) {
+                    Some(existing) => deep_merge_toml(existing, value),
+                    None => {
+                        base.insert(key, value);
+                    }
+                }
+            }
+        }
+        (base, patch) => *base = patch,
+    }
+}
+
+/// Merge an overlay variable file over the base's: every top-level key the
+/// overlay declares replaces the base's key whole, so `[resolve]` swaps
+/// atomically and the type (and anything else left out) stays with the base.
+fn merge_variable_toml(base: &mut toml::Value, overlay: toml::Value) {
+    let (toml::Value::Table(base), toml::Value::Table(overlay)) = (base, overlay) else {
+        return;
+    };
+    for (key, value) in overlay {
+        base.insert(key, value);
+    }
 }
 
 async fn read_package_extends(root: &Path) -> Result<Vec<String>> {

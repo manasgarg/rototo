@@ -11,7 +11,7 @@ impl SourceStore {
         collection: DocumentCollection,
     ) -> Result<()> {
         let directory_path = self.root.join(directory);
-        let entries = match sorted_directory_entries(&directory_path).await {
+        let entries = match sorted_directory_entries_recursive(&directory_path).await {
             Ok(entries) => entries,
             Err(err) if err.kind() == std::io::ErrorKind::NotFound => return Ok(()),
             Err(err) => {
@@ -26,15 +26,21 @@ impl SourceStore {
             if path.extension().and_then(|extension| extension.to_str()) != Some("toml") {
                 continue;
             }
-            let Some(stem) = path.file_stem().and_then(|stem| stem.to_str()) else {
+            // Namespaced ids are directories: variables/acme/in_trial.toml is
+            // the variable acme/in_trial.
+            let Ok(relative) = path.strip_prefix(&directory_path) else {
                 continue;
             };
-            let relative_path =
-                PathBuf::from(directory).join(path.file_name().expect("entry has filename"));
+            let Some(id) = relative
+                .with_extension("")
+                .to_str()
+                .map(|id| id.replace(std::path::MAIN_SEPARATOR, "/"))
+            else {
+                continue;
+            };
+            let relative_path = PathBuf::from(directory).join(relative);
             let kind = match collection {
-                DocumentCollection::Variables => DocumentKind::Variable {
-                    id: stem.to_owned(),
-                },
+                DocumentCollection::Variables => DocumentKind::Variable { id },
             };
             self.add_disk_document(relative_path, kind).await;
         }
@@ -424,6 +430,33 @@ async fn sorted_directory_entries(path: &Path) -> std::io::Result<Vec<PathBuf>> 
                     .unwrap_or(true))
         {
             entries.push(entry.path());
+        }
+    }
+    entries.sort();
+    Ok(entries)
+}
+
+/// Like [`sorted_directory_entries`], but walking subdirectories too (for
+/// collections whose ids namespace with `/`). Symlinked directories are not
+/// followed.
+async fn sorted_directory_entries_recursive(path: &Path) -> std::io::Result<Vec<PathBuf>> {
+    let mut entries = Vec::new();
+    let mut pending = vec![path.to_path_buf()];
+    while let Some(directory) = pending.pop() {
+        let mut read_dir = tokio::fs::read_dir(&directory).await?;
+        while let Some(entry) = read_dir.next_entry().await? {
+            let file_type = entry.file_type().await?;
+            if file_type.is_dir() {
+                pending.push(entry.path());
+            } else if file_type.is_file()
+                || (file_type.is_symlink()
+                    && tokio::fs::metadata(entry.path())
+                        .await
+                        .map(|metadata| metadata.is_file())
+                        .unwrap_or(true))
+            {
+                entries.push(entry.path());
+            }
         }
     }
     entries.sort();
