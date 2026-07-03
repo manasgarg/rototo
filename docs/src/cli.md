@@ -194,9 +194,24 @@ rototo resolve app-config --variable premium_users --context user.tier=premium
 It only takes the variable selectors (resolving a catalog or rule doesn't mean
 anything), plus `--context`.
 
+There's one more scope flag, `--tenant <id>`. It binds `env.tenant` for the
+whole resolution - captured once, like `env.now` - so rules keyed on tenant id
+can fire:
+
+```sh
+rototo resolve app-config --variable support_tier --context '{}' --tenant acme
+```
+
+Without `--tenant`, a rule that reads `env.tenant` fails loudly ("resolution is
+not tenant-scoped") rather than quietly never matching. The
+[expressions reference](./expressions.md) covers the semantics.
+
 The human output walks the resolution pathway: each rule prints as
 `rule[N] if <condition> -> <value> (matched|skipped)`, then the default, then
-the result with its source. A condition variable reads the same way - its value
+the result with its source. For a package composed from layers, the pathway
+starts with a `resolve from <layer>` line naming the layer whose `[resolve]`
+block is being evaluated - the same provenance the trace carries. A condition
+variable reads the same way - its value
 just happens to be `true` or `false`. An allocation-backed variable prints its
 assignment instead of rules, e.g.
 `allocation checkout/cta_copy_test -> bucket 967 -> arm benefit_led`.

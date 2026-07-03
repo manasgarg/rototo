@@ -97,6 +97,14 @@ roughly where a finding is coming from.
   `[[trace]]` policies have a valid `when`, and every rototo-recognized id is
   snake_case. (e.g. `rototo/package-manifest-missing`,
   `rototo/trace-when-invalid-reference`, `rototo/id-not-snake-case`)
+- **Governance** - `governance.toml` parses, its blocks are keyed
+  `[<kind>.<id>]` with known kinds, operations, and policy keys, allowlists
+  aren't empty, delete policies carry no field scope, field names exist in the
+  catalog schema, every block names an entity the package declares, and update
+  grants scope their fields (a warning when they don't - an unscoped grant
+  silently includes fields added later). (e.g.
+  `rototo/governance-parse-failed`, `rototo/governance-shape`,
+  `rototo/governance-unknown-target`, `rototo/governance-unscoped-update`)
 - **Evaluation contexts** - context schemas are valid JSON Schema, don't use
   reserved fields, only use enum targets in `x-rototo-ref`, and every sample
   matches its schema, including any enum member pins. (e.g.

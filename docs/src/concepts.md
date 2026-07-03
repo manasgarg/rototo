@@ -588,7 +588,7 @@ Rototo flattens the layers into one package - parents in `extends` order, the ch
 
 - **The contract narrows only.** An overlay may not change a variable's `type`; restating the same type is fine, declaring a different one fails the load. Applications were written against that type, and an overlay doesn't get to rewrite it quietly.
 - **Values override atomically.** An overlay variable file merges by top-level key, so a file holding only a `[resolve]` block replaces the base's resolution whole - default, rules, everything - while the type and description stay with the base. There is no merging of individual rules, because half of one layer's rule list plus half of another's is a resolution nobody wrote or reviewed.
-- **Membership is union minus tombstones.** A catalog's active entries are the base's entries plus the overlay's, minus the ones the overlay explicitly disables, with field-level patches applied.
+- **Membership is union minus tombstones.** A catalog's active entries are the base's entries plus the overlay's, minus the ones the overlay explicitly disables, with field-level patches applied. Enum members compose additively the same way: an overlay's `data/enums/<id>.toml` unions its members into the base's set, so a layer declares only what it adds.
 
 The `examples/acme-overlay` package in the repository shows all three on top of `examples/basic`, in five files. A new entry is just an entry: `data/catalogs/support_banner/acme_hours.toml` adds a banner only this tenant has. Removing one is a **tombstone**:
 
@@ -628,6 +628,64 @@ The composed membership then flows everywhere on its own. The base has a query v
 Two changes stay deliberately loud. Tombstoning an entry a base variable still references fails lint (`rototo/variable-unknown-value`): you disabled data someone depends on, so you must also override that variable's resolution, which is exactly what the example does. And changing a variable's type fails the load outright. Both are the failure modes that make hand-maintained copies dangerous, surfaced at review time instead of at runtime.
 
 There is a reviewer-facing property here too. An overlay that touches only `data/` and `variables/` visibly changed data and resolution, not the contract - the diff says so by its paths alone. The exact file shapes and merge rules live in the [package format](./package-format.md) reference.
+
+Composition also keeps its own receipts. When the layers flatten, rototo records which layer's `[resolve]` block won for each variable, and every resolution trace from a composed package carries that as `provenance`. `rototo resolve` prints it at the top of the pathway as `resolve from <layer>`, so "which layer decided this value" is an answer you read off the trace, not something you reconstruct from the diff.
+
+## Governance
+
+Composition as described so far has a gap. Everything an overlay *can* say, it *may* say: it can tombstone any entry, patch any field, swap any resolution. For one team splitting a package across files, that's fine - they review each other's changes. For a tenant it's exactly wrong. The app ships a contract, and a tenant overlay should only move within it. Nobody wants Acme's overlay to be able to delete the `free` plan.
+
+Governance closes that gap. It's a dial on every capability that each layer down can only turn further down - never back up. The base package writes a `governance.toml` at its root, and from then on the next layer up is **default-closed** over base-declared entities: any operation the contract doesn't grant fails the load with `governance denies <op> on <kind>.<id>`. A package with no `governance.toml` stays ungoverned, so plain `extends` splitting keeps working unchanged.
+
+Here's the contract for the plans example:
+
+```toml
+[catalog.plans]
+allowed_operations = ["add", "update", "delete"]
+
+[catalog.plans.update_policy]
+allowed_fields = ["monthly_price", "limits"]
+denied_entries = ["free"]
+
+[catalog.plans.delete_policy]
+allowed_entries = ["*"]
+denied_entries = ["free"]
+
+[variable.active_plan]
+allowed_operations = ["override"]
+```
+
+A tenant may add plan entries, update `monthly_price` and `limits` on any plan except `free`, delete any plan except `free`, and override how `active_plan` resolves. That's the whole grant. Patching a plan's `name`, tombstoning `free`, or touching the plans schema all fail the load, by name.
+
+Authoring a contract is two moves:
+
+- **Open what you introduce.** New ids mint freely - a tenant's own namespaced variables, its own catalogs, its own layers are its own to fill. The contract only governs what the base declared, so you grant operations on your entities where tenants legitimately need room.
+- **Revoke from what you inherited.** A middle layer can pass a narrower grant down, never a wider one. Its own `governance.toml` must fit inside the ceiling it inherited; a grant wider than what the layer above allowed is rejected at compose time, not silently clamped.
+
+And governance keeps the same failures loud that composition already did. Denials are load failures with the operation and target in the message. Replacing a whole base entry file isn't a governed operation at all - it's rejected toward a patch or a tombstone, the shapes a reviewer can actually read. The [package format](./package-format.md) reference has every key, operation, and lint rule.
+
+## Tenants
+
+Put the two halves together and you have rototo's tenant model. A tenant is:
+
+- **an authored overlay** - a package that `extends` the base and moves only within its governance contract; and
+- **a context dimension** - a resolution scoped to a tenant id.
+
+The second half matters because not every tenant difference deserves an overlay. Sometimes the *base* package wants one rule that keys on who's asking. A tenant-scoped resolution binds `env.tenant`, captured once per resolution just like `env.now`, so a base variable can say:
+
+```toml
+[[resolve.rule]]
+when = 'env.tenant == "acme"'
+value = "priority"
+```
+
+And the caller names the tenant at resolve time:
+
+```sh
+rototo resolve app-config --variable support_tier --context '{}' --tenant acme
+```
+
+The SDKs take the same scope through `resolve_variable_for_tenant` or a `tenant` resolve option. Reading `env.tenant` in a resolution that isn't tenant-scoped fails loudly ("resolution is not tenant-scoped") instead of quietly comparing against null - a rule that thinks it's tenant-aware but never gets a tenant is a bug you want to hear about.
 
 ## Putting It Together
 

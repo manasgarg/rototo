@@ -159,6 +159,55 @@ isPremium := resolution.Value == true
 ```
 :::
 
+## Resolving for a tenant
+
+A multi-tenant service usually knows which tenant a request belongs to before
+it resolves anything. Passing that id along scopes the resolution to the
+tenant: rototo binds `env.tenant` to it, captured once per resolution like
+`env.now`, so package rules keyed on tenant id (`when = 'env.tenant ==
+"acme"'`) can fire. The [expressions reference](./expressions.md) covers the
+expression side; here's the call.
+
+In Rust it's a dedicated method, `resolve_variable_for_tenant`, or the
+`tenant` field on `ResolveOptions` when you're already passing options. The
+other SDKs take it as a resolve option:
+
+:::sdk-snippet resolve-for-tenant
+```rust
+let resolution = package.resolve_variable_for_tenant("support_tier", &context, "acme")?;
+
+// or, combined with other options:
+use rototo::ResolveOptions;
+let options = ResolveOptions { tenant: Some("acme".into()), ..ResolveOptions::default() };
+let resolution = package.resolve_variable_with_options("support_tier", &context, options)?;
+```
+
+```python
+resolution = package.resolve_variable("support_tier", {}, tenant="acme")
+```
+
+```typescript
+const resolution = pkg.resolveVariable("support_tier", {}, { tenant: "acme" });
+```
+
+```java
+VariableResolution resolution = pkg.resolveVariable(
+    "support_tier", Map.of(), ResolveOptions.tenant("acme"));
+```
+
+```go
+resolution, err := pkg.ResolveVariable("support_tier", map[string]any{},
+    &rototo.ResolveOptions{Tenant: "acme"})
+```
+:::
+
+The scope is per call, not per package handle - one loaded package serves
+every tenant. And the failure mode is deliberate: a rule that reads
+`env.tenant` in a resolution you didn't scope to a tenant errors out
+("resolution is not tenant-scoped") instead of comparing against null, so a
+missing tenant id surfaces as a bug rather than a rule that silently never
+matches.
+
 ## Keeping a long-running service fresh
 
 `Package.load` gives you a snapshot: it loads once and never changes. That's
@@ -317,7 +366,9 @@ Refresh events tell you which package is live. The other question that shows up
 - usually as a support ticket - is "why did *this one user* get *this* value?"
 That's what a **trace** answers: the full record of one resolve, the rules it
 tried, which one matched, the other variables it consulted along the way, and
-the context it ran against.
+the context it ran against. For a package composed from layers, the trace also
+carries `provenance`: the layer whose `[resolve]` block produced the value, so
+"which layer decided this" is right there in the record.
 
 Traces are verbose and meant for debugging, so they're emitted selectively, and
 there are two ways to decide which resolutions to trace.
