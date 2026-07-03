@@ -19,7 +19,7 @@ fn lints_basic_package() {
 
 #[test]
 fn lints_acme_overlay_package() {
-    // The tenant overlay composes over examples/basic (union, tombstone,
+    // The tenant overlay composes over examples/basic (union, deleted marker,
     // patch, resolve override, namespaced addition) and must stay lint-clean.
     Command::cargo_bin("rototo")
         .unwrap()

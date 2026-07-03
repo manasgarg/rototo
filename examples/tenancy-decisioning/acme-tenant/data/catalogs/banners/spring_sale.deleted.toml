@@ -1,5 +1,5 @@
-# TOMBSTONE: Acme runs its own promotions and opts out of the platform-wide
+# DELETED: Acme runs its own promotions and opts out of the platform-wide
 # spring sale. Permitted by the base's delete grant (default_banner is the one
 # entry it protects).
-tombstone = true
+deleted = true
 reason = "Acme runs its own promotion calendar"

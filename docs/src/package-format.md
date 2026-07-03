@@ -159,32 +159,32 @@ An overlay can also add variables of its own, and subdirectories keep them out
 of the base's way: `variables/acme/in_trial.toml` defines the namespaced
 variable `acme/in_trial`, referenced as `variables["acme/in_trial"]`.
 
-### Catalog entries: union, tombstones, and patches
+### Catalog entries: union, deletes, and patches
 
 Catalog entries compose as a set. The active entries of a catalog are the
 entries the layers below provide, plus the entries this layer provides, minus
-the entries this layer tombstones, with field patches applied. Two file shapes
+the entries this layer deletes, with field patches applied. Two file shapes
 drive the minus and the patch, both keyed by path next to the entries they act
 on:
 
-- `data/catalogs/<catalog>/<entry>.tombstone.toml` disables the entry a layer
-  below provided. The tombstone file itself never appears in the flattened
-  package. By convention it contains `tombstone = true` and an optional
-  `reason = "..."`.
+- `data/catalogs/<catalog>/<entry>.deleted.toml` removes the entry a layer
+  below provided from this layer's view. The base file is untouched; the
+  marker file itself never appears in the flattened package. By convention it
+  contains `deleted = true` and an optional `reason = "..."`.
 - `data/catalogs/<catalog>/<entry>.patch.toml` overrides fields of the entry
   below: tables merge recursively, scalars and arrays replace, and any field
   the patch doesn't mention is inherited.
 
-Both shapes have to point at something real. A tombstone with no entry in the
-layers below fails the load ("tombstone has no catalog entry to disable in the
-layers below"), and an orphaned patch fails the same way. A single layer that
-both provides `<entry>.toml` and tombstones or patches that same entry also
-fails the load - it's contradicting itself.
+Both shapes have to point at something real. A deleted marker with no entry in
+the layers below fails the load ("deleted marker has no catalog entry to
+remove in the layers below"), and an orphaned patch fails the same way. A
+single layer that both provides `<entry>.toml` and deletes or patches that
+same entry also fails the load - it's contradicting itself.
 
-Tombstoning an entry someone depends on is deliberately loud. If a base
-variable still names the tombstoned entry, lint catches it as
+Deleting an entry someone depends on is deliberately loud. If a base variable
+still names the deleted entry, lint catches it as
 `rototo/variable-unknown-value`, and the overlay has to override that
-variable's resolution too. Disabling data quietly out from under a variable is
+variable's resolution too. Removing data quietly out from under a variable is
 exactly the drift this is designed to surface.
 
 ### Enum members union
@@ -255,7 +255,7 @@ Each operation names one on-disk shape the layer above can produce:
 | --- | --- |
 | `add` | a new `<entry>.toml` in a governed catalog, or a member file under `data/enums/` for a declared enum that had none below |
 | `update` | an `<entry>.patch.toml` over a base catalog entry, or a `data/enums/<id>.toml` that unions members into the base's set |
-| `delete` | an `<entry>.tombstone.toml` disabling a base catalog entry |
+| `delete` | an `<entry>.deleted.toml` disabling a base catalog entry |
 | `constrain` | touching a base schema under `model/` - a catalog schema, an enum declaration, or an evaluation-context schema and its samples |
 | `override` | replacing a base variable's `[resolve]` block, or a base layer file under `layers/` |
 
@@ -266,7 +266,7 @@ default-closed part.
 Two shapes are deliberately *not* operations. Replacing a whole base catalog
 entry file is rejected toward the structural shapes: "governance does not
 model replacing catalog entry `<entry>` wholesale; use `<entry>.patch.toml` to
-update fields or `<entry>.tombstone.toml` to disable it". And replacing a lint
+update fields or `<entry>.deleted.toml` to disable it". And replacing a lint
 file the layer below owns is rejected outright.
 
 One honest boundary on `constrain`: granting it means the overlay may modify

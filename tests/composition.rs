@@ -1,5 +1,5 @@
 //! Structured composition through `extends`: an overlay package unions,
-//! tombstones, and patches catalog entries, replaces a variable's `[resolve]`
+//! deletes, and patches catalog entries, replaces a variable's `[resolve]`
 //! block while inheriting its type, and adds namespaced variables of its own.
 
 use std::path::Path;
@@ -113,11 +113,11 @@ async fn write_overlay(root: &Path) {
         "name = \"Acme Enterprise\"\nmonthly_price = 500\n",
     )
     .await;
-    // TOMBSTONE: the tenant does not offer the base free plan.
+    // DELETED: the tenant does not offer the base free plan.
     write(
         root,
-        "data/catalogs/plans/free.tombstone.toml",
-        "tombstone = true\nreason = \"Acme does not offer a free plan\"\n",
+        "data/catalogs/plans/free.deleted.toml",
+        "deleted = true\nreason = \"Acme does not offer a free plan\"\n",
     )
     .await;
     // PATCH: negotiated price; other fields (name, limits) inherited.
@@ -191,7 +191,7 @@ async fn overlay_composes_membership_values_and_additions() {
 }
 
 #[tokio::test]
-async fn overlay_tombstone_disables_the_base_entry() {
+async fn overlay_deleted_marker_removes_the_base_entry() {
     let temp = tempfile::TempDir::new().unwrap();
     let base = temp.path().join("base");
     let overlay = temp.path().join("overlay");
@@ -199,7 +199,7 @@ async fn overlay_tombstone_disables_the_base_entry() {
     write_overlay(&overlay).await;
 
     // The base default was "free"; the overlay replaced the resolve block, so
-    // referencing the tombstoned entry from the overlay is a lint failure.
+    // referencing the deleted entry from the overlay is a lint failure.
     write(
         &overlay,
         "variables/wants_free.toml",
@@ -243,7 +243,7 @@ default = "free"
 }
 
 #[tokio::test]
-async fn orphan_tombstones_and_patches_fail_loudly() {
+async fn orphan_deleted_markers_and_patches_fail_loudly() {
     let temp = tempfile::TempDir::new().unwrap();
     let base = temp.path().join("base");
     let overlay = temp.path().join("overlay");
@@ -256,19 +256,19 @@ async fn orphan_tombstones_and_patches_fail_loudly() {
     .await;
     write(
         &overlay,
-        "data/catalogs/plans/nonexistent.tombstone.toml",
-        "tombstone = true\n",
+        "data/catalogs/plans/nonexistent.deleted.toml",
+        "deleted = true\n",
     )
     .await;
 
     let err = Package::load(overlay.to_string_lossy()).await.unwrap_err();
     assert!(
         err.to_string()
-            .contains("tombstone has no catalog entry to disable"),
+            .contains("deleted marker has no catalog entry to remove"),
         "{err}"
     );
 
-    tokio::fs::remove_file(overlay.join("data/catalogs/plans/nonexistent.tombstone.toml"))
+    tokio::fs::remove_file(overlay.join("data/catalogs/plans/nonexistent.deleted.toml"))
         .await
         .unwrap();
     write(
@@ -286,7 +286,7 @@ async fn orphan_tombstones_and_patches_fail_loudly() {
 }
 
 #[tokio::test]
-async fn same_layer_entry_and_tombstone_conflict() {
+async fn same_layer_entry_and_deleted_marker_conflict() {
     let temp = tempfile::TempDir::new().unwrap();
     let base = temp.path().join("base");
     let overlay = temp.path().join("overlay");
@@ -305,15 +305,15 @@ async fn same_layer_entry_and_tombstone_conflict() {
     .await;
     write(
         &overlay,
-        "data/catalogs/plans/growth.tombstone.toml",
-        "tombstone = true\n",
+        "data/catalogs/plans/growth.deleted.toml",
+        "deleted = true\n",
     )
     .await;
 
     let err = Package::load(overlay.to_string_lossy()).await.unwrap_err();
     assert!(
         err.to_string()
-            .contains("both provides catalog entry growth and declares a tombstone"),
+            .contains("both provides catalog entry growth and declares a deleted marker"),
         "{err}"
     );
 }
@@ -387,9 +387,9 @@ async fn governed_base_admits_the_granted_overlay() {
     write_base(&base).await;
     write(&base, "governance.toml", PLANS_GOVERNANCE).await;
     write_overlay(&overlay).await;
-    // The stock overlay tombstones free, which the contract denies; point the
-    // tombstone at growth instead and drop the growth patch.
-    tokio::fs::remove_file(overlay.join("data/catalogs/plans/free.tombstone.toml"))
+    // The stock overlay deletes free, which the contract denies; point the
+    // deleted marker at growth instead and drop the growth patch.
+    tokio::fs::remove_file(overlay.join("data/catalogs/plans/free.deleted.toml"))
         .await
         .unwrap();
     tokio::fs::remove_file(overlay.join("data/catalogs/plans/growth.patch.toml"))
@@ -428,8 +428,8 @@ async fn governed_base_denies_ungranted_operations() {
     .await;
     write(
         &overlay,
-        "data/catalogs/plans/free.tombstone.toml",
-        "tombstone = true\n",
+        "data/catalogs/plans/free.deleted.toml",
+        "deleted = true\n",
     )
     .await;
     let err = Package::load(overlay.to_string_lossy()).await.unwrap_err();

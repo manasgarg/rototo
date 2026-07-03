@@ -19,7 +19,7 @@ Use cases demonstrated (numbers are the use-case groups on the `use-cases` docs 
 | Use case | Where |
 | --- | --- |
 | 5 Per-tenant overrides | `acme-tenant/` end to end |
-| 5 White-label composition: add, patch, tombstone | `acme-tenant/data/catalogs/banners/` |
+| 5 White-label composition: add, patch, delete | `acme-tenant/data/catalogs/banners/` |
 | 5 Delegated administration | `acme-tenant/governance.toml` narrowing for Acme's own teams |
 | 6 Ranked selection | `base/variables/homepage_banner.toml` |
 | 6 Audience-conditioned content | `base/data/catalogs/audiences/` |
@@ -30,11 +30,11 @@ Use cases demonstrated (numbers are the use-case groups on the `use-cases` docs 
 - **Add**: `acme_flash_sale.toml` unions a new banner in.
 - **Patch**: `welcome.patch.toml` re-words creative; only the fields the base's
   `update_policy` allows.
-- **Tombstone**: `spring_sale.tombstone.toml` removes a base banner for this
+- **Delete**: `spring_sale.deleted.toml` removes a base banner for this
   tenant.
 - **Override**: `acme-tenant/variables/homepage_banner.toml` replaces the
   `[resolve]` block atomically. It runs over the composed catalog, so Acme's add
-  is a candidate and Acme's tombstone is not.
+  is a candidate and Acme's deleted banner is not.
 - **Narrowing**: Acme's `governance.toml` revokes delete and restricts update to
   Acme's own banner entries for the layers below it, strictly inside the base's
   grant.
@@ -60,7 +60,7 @@ Covered by `tests/examples.rs` and `tests/package_lint.rs`:
   visitor matching no audience falls back to `default_banner`.
 - Governance rejections at compose time: a patch touching `priority` fails with
   "governance denies update of field priority on catalog.banners", and a
-  tombstone for `default_banner` fails with "governance denies delete of entry
+  deleted marker for `default_banner` fails with "governance denies delete of entry
   default_banner on catalog.banners".
 
 ## Hard parts

@@ -178,7 +178,7 @@ belong to the application or its other tools.)
 
 For orientation, the things that used to be on this list and are now shipped
 and demonstrated under `examples/`: structured composition (entry add, patch,
-and tombstone; atomic `[resolve]` override; namespaced variables; enum member
+and delete; atomic `[resolve]` override; namespaced variables; enum member
 union), the `governance.toml` layering contract enforced at compose time,
 layers and allocations for rollouts and experiments, catalog queries with
 filter/sort/limit and effective dating on `env.now`, the `env.tenant`
@@ -218,14 +218,14 @@ remains:
 13. **Compatibility gate.** Check base-package evolution against existing
     overlays before release: which renames and retirements break which tenant,
     found before the release instead of after. This is also what tells a
-    harmless tombstone of a deleted entry apart from an overlay rule referencing
+    harmless removal of a dead entry apart from an overlay rule referencing
     one.
 14. **Schema narrowing verification.** A `constrain` grant is trust-based
     today: composition checks that the grant exists, not that the overlay's
     schema actually narrows the base's. Verifying it needs a CUE-style meet
     over schemas.
 15. **Enum member removal across layers.** Member sets union across layers and
-    there is no member tombstone, so an overlay can extend an enum but never
+    there is no member delete, so an overlay can extend an enum but never
     shrink one.
 16. **Correlated assignment across layers.** Two layers cannot share a
     diversion, so there is no way to deliberately correlate arm assignment

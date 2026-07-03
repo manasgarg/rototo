@@ -241,7 +241,7 @@ fn check_governed_file(
                 // A catalog this layer introduces is its own to fill.
                 return Ok(());
             }
-            if let Some(entry) = stem(file, ".tombstone.toml") {
+            if let Some(entry) = stem(file, ".deleted.toml") {
                 return contract.check("catalog", catalog, Operation::Delete, Some(&entry), &[]);
             }
             if let Some(entry) = stem(file, ".patch.toml") {
@@ -256,7 +256,7 @@ fn check_governed_file(
             }
             match stem(file, ".toml") {
                 Some(entry) if exists(relative) => Err(RototoError::new(format!(
-                    "governance does not model replacing catalog entry {entry} wholesale;                      use {entry}.patch.toml to update fields or {entry}.tombstone.toml to                      disable it"
+                    "governance does not model replacing catalog entry {entry} wholesale;                      use {entry}.patch.toml to update fields or {entry}.deleted.toml to                      remove it"
                 ))),
                 Some(_) => contract.check("catalog", catalog, Operation::Add, None, &[]),
                 None => Ok(()),
@@ -517,9 +517,10 @@ fn copy_package_layer_recursive(
 enum LayerFileComposition {
     /// Plain copy; a same-path file below is replaced whole.
     Replace,
-    /// `data/catalogs/<id>/<entry>.tombstone.toml`: disable the entry a layer
-    /// below provided. The tombstone itself never lands in the projection.
-    CatalogEntryTombstone { entry: String },
+    /// `data/catalogs/<id>/<entry>.deleted.toml`: remove the entry a layer
+    /// below provided. The deleted marker itself never lands in the
+    /// projection.
+    CatalogEntryDeleted { entry: String },
     /// `data/catalogs/<id>/<entry>.patch.toml`: field-level override of the
     /// entry a layer below provided; unpatched fields are inherited.
     CatalogEntryPatch { entry: String },
@@ -546,8 +547,8 @@ fn classify_layer_file(
         .collect();
     match components.as_slice() {
         ["data", "catalogs", _, _] => {
-            if let Some(entry) = file_name.strip_suffix(".tombstone.toml") {
-                return LayerFileComposition::CatalogEntryTombstone {
+            if let Some(entry) = file_name.strip_suffix(".deleted.toml") {
+                return LayerFileComposition::CatalogEntryDeleted {
                     entry: entry.to_owned(),
                 };
             }
@@ -590,18 +591,18 @@ fn compose_package_layer_file(
             }
             Ok(())
         }
-        LayerFileComposition::CatalogEntryTombstone { entry } => {
-            reject_same_layer_entry(source_path, &entry, "tombstone")?;
+        LayerFileComposition::CatalogEntryDeleted { entry } => {
+            reject_same_layer_entry(source_path, &entry, "deleted marker")?;
             let entry_path = target_dir.join(format!("{entry}.toml"));
             if !entry_path.is_file() {
                 return Err(RototoError::new(format!(
-                    "tombstone has no catalog entry to disable in the layers below: {}",
+                    "deleted marker has no catalog entry to remove in the layers below: {}",
                     relative.display()
                 )));
             }
             std::fs::remove_file(&entry_path).map_err(|err| {
                 RototoError::new(format!(
-                    "failed to remove tombstoned catalog entry {}: {err}",
+                    "failed to remove deleted catalog entry {}: {err}",
                     entry_path.display()
                 ))
             })?;
@@ -643,7 +644,7 @@ fn compose_package_layer_file(
     }
 }
 
-/// A layer that both provides `<entry>.toml` and tombstones or patches the
+/// A layer that both provides `<entry>.toml` and deletes or patches the
 /// same entry is contradicting itself; composition targets the layers below.
 fn reject_same_layer_entry(source_path: &Path, entry: &str, operation: &str) -> Result<()> {
     let sibling = source_path

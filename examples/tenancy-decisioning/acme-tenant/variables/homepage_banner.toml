@@ -2,7 +2,7 @@
 # override grant. It replaces the base's block atomically; there is no merge and
 # no fallback into the base resolution. The base keeps the variable's identity
 # and type. This query runs over the COMPOSED catalog: acme_flash_sale (Acme's
-# add) is a candidate, spring_sale (Acme's tombstone) is not. Acme restates the
+# add) is a candidate, spring_sale (deleted by Acme) is not. Acme restates the
 # base pipeline and changes only the default.
 [resolve]
 method = "query"

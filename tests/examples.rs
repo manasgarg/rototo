@@ -255,7 +255,7 @@ async fn tenancy_base_ranks_banners_by_audience_and_priority() {
 }
 
 #[tokio::test]
-async fn tenancy_overlay_composes_add_patch_and_tombstone() {
+async fn tenancy_overlay_composes_add_patch_and_delete() {
     let package = load("examples/tenancy-decisioning/acme-tenant").await;
 
     // Acme's added banner wins for its returning-visitor audience.
@@ -302,12 +302,12 @@ async fn tenancy_base_governance_scopes_updates_and_protects_the_floor() {
         "unexpected error: {err}"
     );
 
-    // The default banner is the floor every site keeps: no tombstone.
+    // The default banner is the floor every site keeps: no deleted marker.
     let overlay = overlay_extending("examples/tenancy-decisioning/base").await;
     write(
         overlay.path(),
-        "data/catalogs/banners/default_banner.tombstone.toml",
-        "tombstone = true\n",
+        "data/catalogs/banners/default_banner.deleted.toml",
+        "deleted = true\n",
     )
     .await;
     let err = Package::load(overlay.path().to_string_lossy())

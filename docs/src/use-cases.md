@@ -133,7 +133,7 @@ customer until nobody can review it.
 
 Rototo's answer is [composition with governance](./concepts.md). The vendor
 ships a base package; each tenant is a thin overlay that `extends` it. The
-overlay can add a catalog entry, patch fields of one, tombstone one away, or
+overlay can add a catalog entry, patch fields of one, delete one, or
 replace a variable's `[resolve]` block wholesale - but only where the base's
 `governance.toml` grants it, and grants are enforced at compose time as load
 failures, not review conventions. The base's schemas and types stay the

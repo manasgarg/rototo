@@ -588,13 +588,13 @@ Rototo flattens the layers into one package - parents in `extends` order, the ch
 
 - **The contract narrows only.** An overlay may not change a variable's `type`; restating the same type is fine, declaring a different one fails the load. Applications were written against that type, and an overlay doesn't get to rewrite it quietly.
 - **Values override atomically.** An overlay variable file merges by top-level key, so a file holding only a `[resolve]` block replaces the base's resolution whole - default, rules, everything - while the type and description stay with the base. There is no merging of individual rules, because half of one layer's rule list plus half of another's is a resolution nobody wrote or reviewed.
-- **Membership is union minus tombstones.** A catalog's active entries are the base's entries plus the overlay's, minus the ones the overlay explicitly disables, with field-level patches applied. Enum members compose additively the same way: an overlay's `data/enums/<id>.toml` unions its members into the base's set, so a layer declares only what it adds.
+- **Membership is union minus deletes.** A catalog's active entries are the base's entries plus the overlay's, minus the ones the overlay explicitly deletes, with field-level patches applied. Enum members compose additively the same way: an overlay's `data/enums/<id>.toml` unions its members into the base's set, so a layer declares only what it adds.
 
-The `examples/acme-overlay` package in the repository shows all three on top of `examples/basic`, in five files. A new entry is just an entry: `data/catalogs/support_banner/acme_hours.toml` adds a banner only this tenant has. Removing one is a **tombstone**:
+The `examples/acme-overlay` package in the repository shows all three on top of `examples/basic`, in five files. A new entry is just an entry: `data/catalogs/support_banner/acme_hours.toml` adds a banner only this tenant has. Removing one is a **deleted marker**:
 
 ```toml
-# data/catalogs/support_banner/german_hours.tombstone.toml
-tombstone = true
+# data/catalogs/support_banner/german_hours.deleted.toml
+deleted = true
 reason = "Acme routes German-language support through its account team"
 ```
 
@@ -633,7 +633,7 @@ Composition also keeps its own receipts. When the layers flatten, rototo records
 
 ## Governance
 
-Composition as described so far has a gap. Everything an overlay *can* say, it *may* say: it can tombstone any entry, patch any field, swap any resolution. For one team splitting a package across files, that's fine - they review each other's changes. For a tenant it's exactly wrong. The app ships a contract, and a tenant overlay should only move within it. Nobody wants Acme's overlay to be able to delete the `free` plan.
+Composition as described so far has a gap. Everything an overlay *can* say, it *may* say: it can delete any entry, patch any field, swap any resolution. For one team splitting a package across files, that's fine - they review each other's changes. For a tenant it's exactly wrong. The app ships a contract, and a tenant overlay should only move within it. Nobody wants Acme's overlay to be able to delete the `free` plan.
 
 Governance closes that gap. It's a dial on every capability that each layer down can only turn further down - never back up. The base package writes a `governance.toml` at its root, and from then on the next layer up is **default-closed** over base-declared entities: any operation the contract doesn't grant fails the load with `governance denies <op> on <kind>.<id>`. A package with no `governance.toml` stays ungoverned, so plain `extends` splitting keeps working unchanged.
 
@@ -662,7 +662,7 @@ Authoring a contract is two moves:
 - **Open what you introduce.** New ids mint freely - a tenant's own namespaced variables, its own catalogs, its own layers are its own to fill. The contract only governs what the base declared, so you grant operations on your entities where tenants legitimately need room.
 - **Revoke from what you inherited.** A middle layer can pass a narrower grant down, never a wider one. Its own `governance.toml` must fit inside the ceiling it inherited; a grant wider than what the layer above allowed is rejected at compose time, not silently clamped.
 
-And governance keeps the same failures loud that composition already did. Denials are load failures with the operation and target in the message. Replacing a whole base entry file isn't a governed operation at all - it's rejected toward a patch or a tombstone, the shapes a reviewer can actually read. The [package format](./package-format.md) reference has every key, operation, and lint rule.
+And governance keeps the same failures loud that composition already did. Denials are load failures with the operation and target in the message. Replacing a whole base entry file isn't a governed operation at all - it's rejected toward a patch or a deleted marker, the shapes a reviewer can actually read. The [package format](./package-format.md) reference has every key, operation, and lint rule.
 
 ## Tenants
 
