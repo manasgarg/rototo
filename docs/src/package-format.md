@@ -139,7 +139,13 @@ The fields:
 - `schema_version` - always `1`.
 - `description` - optional, recommended.
 - `type` - required. What kind of value this is (next section).
-- `[resolve]` - required. Holds the `default` (required) and the rules.
+- `[resolve]` - required. Holds an optional `method`, the `default`, and the
+  rules.
+- `method` - optional, `"rules"` or `"query"`. Absent means `"rules"`: the
+  first matching rule's value wins, else the default. `"query"` swaps the
+  rules for a catalog query; the fields for that live in
+  [Catalog queries](#catalog-queries-picking-entries-from-data) below.
+- `default` - required under the rules method.
 - `[[resolve.rule]]` - zero or more. Each has a `when` condition and a `value`.
 
 Both the default and every rule value have to match the declared `type` - rototo
@@ -300,10 +306,56 @@ value = "premium"
 The variable resolves to an entry id like `"control"`, and rototo hands your app
 the full structured entry behind it.
 
-There's one more trick worth a mention: a `list<catalog:...>` variable can pick
-its entries with a `query` instead of a hardcoded list - a small expression that
-runs over each catalog entry and keeps the ones that match. That's an
-[expressions](./expressions.md) topic, so we'll cover the syntax there.
+## Catalog queries: picking entries from data
+
+Sometimes which entry applies is a data question, not a rule question. "Every
+enabled payment method." "The pricing plan whose tier matches the account."
+Writing one `when`/`value` rule per entry just duplicates what the entries
+already say, and it goes stale the moment someone adds an entry. Setting
+`method = "query"` turns the resolve block into a small pipeline over one
+catalog's entries instead:
+
+```toml
+schema_version = 1
+type = "list<catalog:llm_parameters>"
+
+[resolve]
+method = "query"
+from = "llm_parameters"
+filter = "entry.enabled == true"
+```
+
+The query keys sit flat on `[resolve]`:
+
+- `from` - required, a string. The id of the catalog to read entries from. It
+  must be the same catalog named in the variable's `type`, and it must exist
+  (`rototo/variable-unknown-catalog` if it doesn't).
+- `filter` - optional, a boolean [expression](./expressions.md) run once per
+  entry. `entry` is the entry under consideration, and `context`,
+  `variables[...]`, and `env.now` are available exactly as in a rule's `when`.
+  Entries where it comes out true stay; with no `filter`, every entry stays.
+- `sort` - optional, an expression evaluated once per entry that produces that
+  entry's sort key. The keys have to be mutually comparable - all numbers or
+  all strings. Mixed kinds are a resolution error.
+- `order` - optional, `"asc"` (the default) or `"desc"`. Requires `sort`.
+- `limit` - optional, a positive integer. After sorting, keeps at most that
+  many entries.
+- `default` - optional. The usual resolve default, used when the query matches
+  nothing.
+
+What the query produces depends on the variable's type:
+
+- `type = "list<catalog:<id>>"` - the value is every matching entry, after
+  `sort` and `limit`. No matches means the `default` if you declared one,
+  otherwise an empty list.
+- `type = "catalog:<id>"` - the value is one entry. With a `sort`, the top
+  entry wins. Without one, the `filter` has to match exactly one entry;
+  matching several is a resolution error (add a `sort` or narrow the filter).
+  No matches means the `default` if you declared one, otherwise an error.
+
+The two methods don't mix. `method = "query"` must not declare
+`[[resolve.rule]]` tables, and the query keys are rejected under the rules
+method. Lint enforces all of this shape as `rototo/variable-query-shape`.
 
 ## Enums: closed sets of scalar values
 

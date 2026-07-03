@@ -165,9 +165,9 @@ Condition variables can also build on other condition variables, so the package 
 
 ## The expression language
 
-The strings in `when` (and the `query` form used for catalog-backed variables) aren't some bespoke Rototo syntax. They're a subset of [CEL](https://cel.dev), the Common Expression Language. CEL is a small, well-specified, side-effect-free language built for exactly this job: evaluating a boolean (or a value) against a structured input, safely and predictably. Reusing it means the syntax is already documented and stable, and the evaluation holds no surprises - no loops, no assignment, no I/O.
+The strings in `when` (and a catalog query's `filter` and `sort`) aren't some bespoke Rototo syntax. They're a subset of [CEL](https://cel.dev), the Common Expression Language. CEL is a small, well-specified, side-effect-free language built for exactly this job: evaluating a boolean (or a value) against a structured input, safely and predictably. Reusing it means the syntax is already documented and stable, and the evaluation holds no surprises - no loops, no assignment, no I/O.
 
-Rototo evaluates these expressions and adds two things on top of plain CEL. First, four input roots are always in scope. `context` is the runtime facts the application passes in. `entry` is the catalog entry under consideration in a `query`. `variables` reads another variable's resolved value - `variables["enterprise_account"]` is how a rule leans on a condition variable; the referenced variable resolves lazily and is memoized for the rest of that resolution. And `env` is everything Rototo itself provides - kept separate so that what the application supplies (`context`) stays visibly distinct from what the control plane supplies. Today `env` has one member you can use in rules: `env.now`, the evaluation timestamp, an RFC3339 string Rototo captures once per resolution. Second, a set of named functions that configuration conditions keep reaching for - things like `startsWith`, `matches`, `semver`, `cidr`, `bucket`, and the `timeBefore`/`timeBetween` family. So a `when` expression is ordinary CEL - `==`, `&&`, `in`, `has()`, indexing, comparisons - against those roots, plus those functions.
+Rototo evaluates these expressions and adds two things on top of plain CEL. First, four input roots are always in scope. `context` is the runtime facts the application passes in. `entry` is the catalog entry under consideration in a query `filter` or `sort`. `variables` reads another variable's resolved value - `variables["enterprise_account"]` is how a rule leans on a condition variable; the referenced variable resolves lazily and is memoized for the rest of that resolution. And `env` is everything Rototo itself provides - kept separate so that what the application supplies (`context`) stays visibly distinct from what the control plane supplies. Today `env` has one member you can use in rules: `env.now`, the evaluation timestamp, an RFC3339 string Rototo captures once per resolution. Second, a set of named functions that configuration conditions keep reaching for - things like `startsWith`, `matches`, `semver`, `cidr`, `bucket`, and the `timeBefore`/`timeBetween` family. So a `when` expression is ordinary CEL - `==`, `&&`, `in`, `has()`, indexing, comparisons - against those roots, plus those functions.
 
 `env.now` reads the wall clock, so a condition that depends on it resolves differently as time passes. That's exactly right for a launch window meant to open on its own, but it does mean the same package version is no longer a pure function of the context you pass. When you need a resolution you can reproduce - in a test, a `diff`, or an audit - pass the evaluation time in `context` and compare against that path instead, so the timestamp is an input you control rather than the ambient clock.
 
@@ -248,7 +248,7 @@ This keeps structured configuration from getting scattered across a bunch of unr
 
 Sometimes the application doesn't want one catalog entry - it wants a filtered list of them. A dropdown is the classic case: the package might define every supported LLM parameter set, but the app should only show the ones that are currently enabled.
 
-Catalog queries handle that. A variable can resolve to `list<catalog:...>` and use a query to pick the matching entries.
+Catalog queries handle that. A variable can resolve to `list<catalog:...>` and declare `method = "query"` in its resolve block to pick the matching entries from the catalog's own data.
 
 First, add an `enabled` field to the `llm_parameters` catalog schema:
 
@@ -286,15 +286,16 @@ schema_version = 1
 type = "list<catalog:llm_parameters>"
 
 [resolve]
-default = []
-
-[[resolve.rule]]
-query = "entry.enabled == true"
+method = "query"
+from = "llm_parameters"
+filter = "entry.enabled == true"
 ```
 
-When the application resolves this variable, Rototo runs the query against each catalog entry and returns every entry that matches as part of the list.
+When the application resolves this variable, Rototo runs the `filter` against each entry of the `from` catalog and returns every entry that matches as the list. A query can also `sort` the matches, flip the `order`, and cap them with a `limit`; the [package format](./package-format.md) page specifies each field.
 
 That gives the application a reviewed, validated set of dropdown options without hardcoding the choices in the UI. Rototo owns which entries exist and which are enabled; the application owns how to render the list it gets back.
+
+The same shape works when the application wants exactly one entry, because "which entry applies" is often a data question rather than a rule-list question: pick the pricing plan whose tier matches `context.account.tier`, or the highest-priority enabled banner. Give the variable `type = "catalog:<id>"` instead of the list type and add a `sort`, and the top entry wins - "the best match" expressed once, instead of one rule per entry. Without a `sort`, the filter has to match exactly one entry, or resolution errors rather than guessing.
 
 ## Enum
 

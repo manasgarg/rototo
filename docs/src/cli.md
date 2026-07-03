@@ -224,7 +224,7 @@ debugging - the default and every rule that was considered:
 ```
 
 The `source.kind` is `literal` for a plain value, `catalog` for a single catalog
-entry, or `catalog_list` for a `list<catalog:...>` query result.
+entry, or `catalog_list` for a `list<catalog:...>` value.
 
 ## diff - what changed, behaviorally
 

@@ -1,8 +1,8 @@
 # The Expression Language
 
 Two places in a package ask a question about the runtime: a variable rule's
-`when` ("does this rule apply?") and a rule's `query` ("which catalog entries
-belong in this list?"). Both are written in the same little expression
+`when` ("does this rule apply?") and a catalog query's `filter` ("does this
+entry belong in the result?"). Both are written in the same little expression
 language, and this page is the whole language in one sitting.
 
 If you've ever written a CEL expression, this will feel familiar - it *is* a
@@ -41,12 +41,12 @@ here doesn't quietly become "always false" in production.
 
 ### `entry` - the catalog entry in front of you
 
-`entry` only shows up inside a `query` (more on those below). When you're
-filtering a catalog, `entry` is the one entry currently being looked at, and you
-read its fields the same dotted way:
+`entry` only shows up inside a catalog query's `filter` or `sort` (more on
+those below). When you're filtering a catalog, `entry` is the one entry
+currently being looked at, and you read its fields the same dotted way:
 
 ```toml
-query = "entry.enabled == true"
+filter = "entry.enabled == true"
 ```
 
 Outside of a query, `entry` doesn't exist - there's no entry to talk about.
@@ -181,28 +181,36 @@ hit the exact same users.
 
 ## Queries: picking catalog entries with an expression
 
-The last place expressions show up is a `query`, and it's only for variables
-typed `list<catalog:...>` - a variable whose value is a *list* of catalog
-entries. Instead of hardcoding which entries go in the list, a query describes
-them, and rototo keeps every entry the query says yes to.
+The last place expressions show up is a catalog query - a variable whose
+`[resolve]` block declares `method = "query"` and reads its value straight out
+of a catalog's entries. Which entries match is often a fact the entries
+already carry, so instead of hardcoding the answer in the variable, the query's
+`filter` describes it:
 
 ```toml
-[[resolve.rule]]
-query = 'entry.channel == context.channel && entry.active == true && variables["premium_users"]'
+[resolve]
+method = "query"
+from = "notifications"
+filter = 'entry.channel == context.channel && entry.active == true && variables["premium_users"]'
 ```
 
-rototo runs that expression once per catalog entry. For each entry, `entry` is
-that entry, `context`, `variables`, and `env` are the same as everywhere else,
-and if the whole thing comes out true, the entry makes the list. The result is
-every matching entry, in order.
+rototo runs the `filter` once per entry in the `from` catalog. For each entry,
+`entry` is that entry, and `context`, `variables`, and `env` are the same as
+everywhere else. If the whole thing comes out true, the entry stays.
 
 A simpler one:
 
 ```toml
-query = "entry.enabled == true"
+filter = "entry.enabled == true"
 ```
 
-That's "give me every enabled entry." Queries read the same roots as a `when`
+That's "keep every enabled entry." A query can also order the survivors with a
+`sort` expression - evaluated once per entry, it produces the sort key rather
+than a true/false answer - and trim the result with `order` and `limit`. The
+exact field list, and the single-entry form where the top sorted entry wins,
+live in the [package format](./package-format.md) reference. From the
+expression language's side there are just two slots: `filter` asks a question
+like a `when` does, `sort` produces a value. Both read the same roots
 (`context`, `entry`, `variables[...]`, `env.now`) and use all the same
 operators and functions - the only new thing is that `entry` is now in play.
 
