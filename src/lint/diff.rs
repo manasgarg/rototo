@@ -5,6 +5,7 @@ use serde_json::Value as JsonValue;
 
 use crate::diagnostics::{DiagnosticLocation, SemanticEntity, SemanticField, SemanticTarget};
 use crate::error::Result;
+use crate::expression::Expression;
 use crate::model::{PackageDiff, ResolutionImpact, SemanticChange, VariableResolution};
 
 use super::index::*;
@@ -23,6 +24,7 @@ pub(crate) async fn diff_packages(
     let mut changes = Vec::new();
     diff_variables(&before_model, &after_model, &mut changes);
     diff_catalogs(&before_model, &after_model, &mut changes);
+    diff_layers(&before_model, &after_model, &mut changes);
 
     let resolution_impacts = match context {
         Some(context) => resolution_impacts(&before, &after, context).await?,
@@ -42,6 +44,8 @@ struct PackageSemanticModel {
     variables: BTreeMap<String, VariableSemantic>,
     catalogs: BTreeMap<String, CatalogSemantic>,
     catalog_entries: BTreeMap<(String, String), CatalogEntrySemantic>,
+    layers: BTreeMap<String, LayerSemantic>,
+    allocations: BTreeMap<(String, String), AllocationSemantic>,
 }
 
 impl PackageSemanticModel {
@@ -71,7 +75,99 @@ impl PackageSemanticModel {
                     )
                 })
                 .collect(),
+            layers: snapshot
+                .index
+                .layers
+                .values()
+                .map(|layer| (layer.id.clone(), LayerSemantic::from_node(layer)))
+                .collect(),
+            allocations: snapshot
+                .index
+                .layers
+                .values()
+                .flat_map(|layer| {
+                    layer.allocations.iter().filter_map(|allocation| {
+                        let ProjectField::Present(id) = &allocation.id else {
+                            return None;
+                        };
+                        Some((
+                            (layer.id.clone(), id.value.clone()),
+                            AllocationSemantic::from_node(layer, allocation),
+                        ))
+                    })
+                })
+                .collect(),
         }
+    }
+}
+
+struct LayerSemantic {
+    target: SemanticTarget,
+    location: DiagnosticLocation,
+    /// The diversion as one comparable value: the unit expression and the
+    /// bucket count. Changing either moves every unit's position.
+    diversion: JsonValue,
+}
+
+impl LayerSemantic {
+    fn from_node(layer: &LayerNode) -> Self {
+        Self {
+            target: layer.target(),
+            location: layer.location.clone(),
+            diversion: serde_json::json!({
+                "unit": present_expression_source_field(&layer.unit),
+                "buckets": match &layer.buckets {
+                    ProjectField::Present(buckets) => JsonValue::from(buckets.value),
+                    _ => JsonValue::Null,
+                },
+            }),
+        }
+    }
+}
+
+struct AllocationSemantic {
+    target: SemanticTarget,
+    location: DiagnosticLocation,
+    status: JsonValue,
+    eligibility: JsonValue,
+    /// Arms as name -> bucket claim, the shape whose change moves traffic.
+    arms: JsonValue,
+}
+
+impl AllocationSemantic {
+    fn from_node(layer: &LayerNode, allocation: &AllocationNode) -> Self {
+        let arms: serde_json::Map<String, JsonValue> = allocation
+            .arms
+            .iter()
+            .filter_map(|arm| match (&arm.name, &arm.buckets) {
+                (ProjectField::Present(name), ProjectField::Present(buckets)) => {
+                    Some((name.value.clone(), JsonValue::from(buckets.value.clone())))
+                }
+                _ => None,
+            })
+            .collect();
+        Self {
+            target: layer.target(),
+            location: allocation.location.clone(),
+            status: match &allocation.status {
+                Some(ProjectField::Present(status)) => JsonValue::from(status.value.clone()),
+                _ => JsonValue::from("running"),
+            },
+            eligibility: match &allocation.eligibility {
+                Some(ProjectField::Present(eligibility)) => {
+                    JsonValue::from(eligibility.value.source().to_owned())
+                }
+                _ => JsonValue::Null,
+            },
+            arms: JsonValue::Object(arms),
+        }
+    }
+}
+
+fn present_expression_source_field(field: &ProjectField<Expression>) -> JsonValue {
+    match field {
+        ProjectField::Present(expression) => JsonValue::from(expression.value.source().to_owned()),
+        _ => JsonValue::Null,
     }
 }
 
@@ -82,6 +178,9 @@ struct VariableSemantic {
     values: BTreeMap<String, ValueSemantic>,
     resolve_default: Option<FieldSemantic<JsonValue>>,
     rules: Vec<RuleSemantic>,
+    /// The resolution method plus its query or allocation parameters as one
+    /// comparable value; rules diff separately with per-rule kinds.
+    resolve_shape: Option<FieldSemantic<JsonValue>>,
 }
 
 impl VariableSemantic {
@@ -117,6 +216,59 @@ impl VariableSemantic {
             | ResolveNode::Invalid { .. } => Vec::new(),
         };
 
+        let resolve_shape = match &variable.resolve {
+            ResolveNode::Resolve {
+                location,
+                method,
+                query,
+                assignments,
+                ..
+            } => Some(FieldSemantic {
+                target: variable.field_target(SemanticField::VariableResolve),
+                location: location.clone(),
+                value: serde_json::json!({
+                    "method": method
+                        .as_ref()
+                        .map(|method| method.value.clone())
+                        .unwrap_or_else(|| "rules".to_owned()),
+                    "query": query.as_ref().map(|query| serde_json::json!({
+                        "from": present_string_project_field(&query.from),
+                        "filter": query
+                            .filter
+                            .as_ref()
+                            .map(present_expression_source_field),
+                        "sort": query.sort.as_ref().map(present_expression_source_field),
+                        "order": query
+                            .order
+                            .as_ref()
+                            .and_then(|order| match order {
+                                ProjectField::Present(order) => Some(order.value.clone()),
+                                _ => None,
+                            }),
+                        "limit": query.limit.as_ref().and_then(|limit| match limit {
+                            ProjectField::Present(limit) => Some(limit.value),
+                            _ => None,
+                        }),
+                    })),
+                    "allocation": assignments.as_ref().map(|assignments| serde_json::json!({
+                        "allocation": present_string_project_field(&assignments.allocation),
+                        "assigns": assignments
+                            .assigns
+                            .iter()
+                            .filter_map(|assign| match (&assign.arm, &assign.value) {
+                                (
+                                    ProjectField::Present(arm),
+                                    ProjectField::Present(value),
+                                ) => Some((arm.value.clone(), value.value.clone())),
+                                _ => None,
+                            })
+                            .collect::<serde_json::Map<String, JsonValue>>(),
+                    })),
+                }),
+            }),
+            ResolveNode::Missing { .. } | ResolveNode::Invalid { .. } => None,
+        };
+
         Self {
             target: variable.target(),
             location: variable.location.clone(),
@@ -133,6 +285,7 @@ impl VariableSemantic {
                 .collect(),
             resolve_default,
             rules,
+            resolve_shape,
         }
     }
 }
@@ -248,6 +401,12 @@ fn diff_variables(
                     &after.resolve_default,
                 );
                 diff_rules(&before.rules, &after.rules, changes);
+                diff_optional_field(
+                    changes,
+                    "variable_resolution_changed",
+                    &before.resolve_shape,
+                    &after.resolve_shape,
+                );
             }
             (None, None) => {}
         }
@@ -324,6 +483,72 @@ fn diff_rules(before: &[RuleSemantic], after: &[RuleSemantic], changes: &mut Vec
                     &before.value,
                     &after.value,
                 );
+            }
+            (None, None) => {}
+        }
+    }
+}
+
+fn diff_layers(
+    before: &PackageSemanticModel,
+    after: &PackageSemanticModel,
+    changes: &mut Vec<SemanticChange>,
+) {
+    for id in sorted_keys(before.layers.keys(), after.layers.keys()) {
+        match (before.layers.get(&id), after.layers.get(&id)) {
+            (None, Some(after)) => {
+                push_added(changes, "layer_added", &after.target, &after.location)
+            }
+            (Some(before), None) => {
+                push_removed(changes, "layer_removed", &before.target, &before.location)
+            }
+            (Some(before), Some(after)) => {
+                if before.diversion != after.diversion {
+                    push_json_change(
+                        changes,
+                        "layer_diversion_changed",
+                        &after.target,
+                        &after.location,
+                        &before.diversion,
+                        &after.diversion,
+                    );
+                }
+            }
+            (None, None) => {}
+        }
+    }
+    for key in sorted_keys(before.allocations.keys(), after.allocations.keys()) {
+        match (before.allocations.get(&key), after.allocations.get(&key)) {
+            (None, Some(after)) => {
+                push_added(changes, "allocation_added", &after.target, &after.location)
+            }
+            (Some(before), None) => push_removed(
+                changes,
+                "allocation_removed",
+                &before.target,
+                &before.location,
+            ),
+            (Some(before), Some(after)) => {
+                for (kind, before_value, after_value) in [
+                    ("allocation_status_changed", &before.status, &after.status),
+                    (
+                        "allocation_eligibility_changed",
+                        &before.eligibility,
+                        &after.eligibility,
+                    ),
+                    ("allocation_arms_changed", &before.arms, &after.arms),
+                ] {
+                    if before_value != after_value {
+                        push_json_change(
+                            changes,
+                            kind,
+                            &after.target,
+                            &after.location,
+                            before_value,
+                            after_value,
+                        );
+                    }
+                }
             }
             (None, None) => {}
         }
@@ -664,6 +889,31 @@ fn present_json_field(
         }),
         ProjectField::Invalid { .. } | ProjectField::Missing { .. } => None,
     }
+}
+
+fn present_string_project_field(field: &ProjectField<String>) -> JsonValue {
+    match field {
+        ProjectField::Present(value) => JsonValue::from(value.value.clone()),
+        _ => JsonValue::Null,
+    }
+}
+
+fn push_json_change(
+    changes: &mut Vec<SemanticChange>,
+    kind: &'static str,
+    target: &SemanticTarget,
+    location: &DiagnosticLocation,
+    before: &JsonValue,
+    after: &JsonValue,
+) {
+    changes.push(SemanticChange {
+        kind: kind.to_owned(),
+        target: target.clone(),
+        before: Some(before.clone()),
+        after: Some(after.clone()),
+        before_location: None,
+        after_location: Some(location.clone()),
+    });
 }
 
 fn push_added(

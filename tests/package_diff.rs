@@ -66,6 +66,48 @@ fn diff_json_reports_semantic_value_change_and_resolution_impact() {
 }
 
 #[test]
+fn diff_json_reports_layer_allocation_and_resolution_changes() {
+    let temp = tempfile::TempDir::new().unwrap();
+    let before = temp.path().join("before");
+    let after = temp.path().join("after");
+    copy_dir(Path::new("examples/basic"), &before);
+    copy_dir(Path::new("examples/basic"), &after);
+
+    // Conclude the experiment and shrink an arm's claim.
+    let layer_path = after.join("layers/checkout.toml");
+    let layer = fs::read_to_string(&layer_path).unwrap();
+    fs::write(
+        &layer_path,
+        layer
+            .replace(r#"status = "running""#, r#"status = "concluded""#)
+            .replace(r#"buckets = "500-999""#, r#"buckets = "500-899""#),
+    )
+    .unwrap();
+
+    // Move a query variable's limit: a resolution-shape change, not a rule.
+    let variable_path = after.join("variables/active_support_banners.toml");
+    let variable = fs::read_to_string(&variable_path).unwrap();
+    fs::write(&variable_path, format!("{variable}limit = 1\n")).unwrap();
+
+    let diff = diff_json(&before, &after, &[]);
+    let changes = diff["changes"].as_array().unwrap();
+    let kinds: Vec<&str> = changes
+        .iter()
+        .filter_map(|change| change["kind"].as_str())
+        .collect();
+    assert!(kinds.contains(&"allocation_status_changed"), "{kinds:?}");
+    assert!(kinds.contains(&"allocation_arms_changed"), "{kinds:?}");
+    assert!(kinds.contains(&"variable_resolution_changed"), "{kinds:?}");
+
+    let status = changes
+        .iter()
+        .find(|change| change["kind"] == "allocation_status_changed")
+        .unwrap();
+    assert_eq!(status["before"], "running");
+    assert_eq!(status["after"], "concluded");
+}
+
+#[test]
 fn diff_json_reports_empty_changes_for_identical_packages() {
     let temp = tempfile::TempDir::new().unwrap();
     let before = temp.path().join("before");
