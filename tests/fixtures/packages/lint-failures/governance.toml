@@ -1,0 +1,6 @@
+[catalog.does_not_exist]
+allowed_operations = ["add"]
+
+[variable.premium]
+allowed_operations = ["override"]
+denied_operations = ["explode"]

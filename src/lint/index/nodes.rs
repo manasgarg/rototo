@@ -235,6 +235,39 @@ impl EnumMembersNode {
     }
 }
 
+/// The layering contract at `governance.toml`: one block per governed
+/// entity, each a gate over operations plus scoped policies.
+pub(in crate::lint) struct GovernanceNode {
+    #[allow(dead_code)]
+    pub(in crate::lint) doc: DocId,
+    pub(in crate::lint) location: DiagnosticLocation,
+    pub(in crate::lint) blocks: Vec<GovernanceBlockNode>,
+    /// Top-level keys that are not one of the governed kinds.
+    pub(in crate::lint) unknown_kinds: Vec<Spanned<String>>,
+}
+
+/// One `[<kind>.<id>]` block: which operations a layer below may perform on
+/// this entity, and (for update/delete) where.
+pub(in crate::lint) struct GovernanceBlockNode {
+    pub(in crate::lint) location: DiagnosticLocation,
+    pub(in crate::lint) kind: String,
+    pub(in crate::lint) id: String,
+    pub(in crate::lint) allowed_operations: Option<ProjectField<Vec<Spanned<String>>>>,
+    pub(in crate::lint) denied_operations: Option<ProjectField<Vec<Spanned<String>>>>,
+    pub(in crate::lint) update_policy: Option<GovernancePolicyNode>,
+    pub(in crate::lint) delete_policy: Option<GovernancePolicyNode>,
+    /// Keys under the block rototo does not recognize.
+    pub(in crate::lint) unknown_keys: Vec<Spanned<String>>,
+}
+
+pub(in crate::lint) struct GovernancePolicyNode {
+    pub(in crate::lint) location: DiagnosticLocation,
+    pub(in crate::lint) allowed_entries: Option<ProjectField<Vec<Spanned<String>>>>,
+    pub(in crate::lint) denied_entries: Option<ProjectField<Vec<Spanned<String>>>>,
+    pub(in crate::lint) allowed_fields: Option<ProjectField<Vec<Spanned<String>>>>,
+    pub(in crate::lint) denied_fields: Option<ProjectField<Vec<Spanned<String>>>>,
+}
+
 /// A layer under `layers/<id>.toml`: a diversion (`unit`, `buckets`) plus the
 /// allocations that claim slices of it. The file stem is the layer id.
 pub(in crate::lint) struct LayerNode {

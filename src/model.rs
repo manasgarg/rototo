@@ -110,6 +110,7 @@ pub enum SourceKind {
     Enum,
     EnumMembers,
     Layer,
+    Governance,
     Catalog,
     CatalogEntry,
     EvaluationContext,

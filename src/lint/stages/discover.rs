@@ -70,6 +70,17 @@ pub(super) async fn run(ctx: &mut LintContext) -> Result<()> {
         return Ok(());
     }
 
+    let governance_path = PathBuf::from("governance.toml");
+    if tokio::fs::metadata(ctx.source.root.join(&governance_path))
+        .await
+        .is_ok_and(|metadata| metadata.is_file())
+        || ctx.input.overlays.contains_key("governance.toml")
+    {
+        ctx.source
+            .add_disk_document(governance_path, DocumentKind::Governance)
+            .await;
+    }
+
     ctx.source
         .add_named_toml_documents("variables", DocumentCollection::Variables)
         .await?;

@@ -1374,6 +1374,7 @@ enum ExpectedEntity {
     },
     Catalog(&'static str),
     Layer(&'static str),
+    Governance,
     CustomLintFile(&'static str),
     CustomRule(&'static str),
 }
@@ -1549,6 +1550,90 @@ fn canonical_rule_fixtures() -> &'static [CanonicalRuleFixture] {
                         start_character: 8,
                         end_line: 7,
                         end_character: 21,
+                    }),
+                },
+                related: &[],
+            }],
+        },
+        CanonicalRuleFixture {
+            rule: RototoRuleId::GovernanceParseFailed,
+            package: "tests/fixtures/packages/rules/parse/governance-parse-failed",
+            success: false,
+            expected: &[ExpectedDiagnostic {
+                rule: "rototo/governance-parse-failed",
+                severity: "error",
+                stage: LintStage::Parse,
+                entity: ExpectedEntity::Governance,
+                primary: ExpectedPrimaryLocation::Document {
+                    path: "governance.toml",
+                    range: Some(ExpectedRange {
+                        start_line: 0,
+                        start_character: 14,
+                        end_line: 1,
+                        end_character: 0,
+                    }),
+                },
+                related: &[],
+            }],
+        },
+        CanonicalRuleFixture {
+            rule: RototoRuleId::GovernanceShape,
+            package: "tests/fixtures/packages/rules/project/governance-shape",
+            success: false,
+            expected: &[ExpectedDiagnostic {
+                rule: "rototo/governance-shape",
+                severity: "error",
+                stage: LintStage::Project,
+                entity: ExpectedEntity::Governance,
+                primary: ExpectedPrimaryLocation::Document {
+                    path: "governance.toml",
+                    range: Some(ExpectedRange {
+                        start_line: 1,
+                        start_character: 22,
+                        end_line: 1,
+                        end_character: 31,
+                    }),
+                },
+                related: &[],
+            }],
+        },
+        CanonicalRuleFixture {
+            rule: RototoRuleId::GovernanceUnknownTarget,
+            package: "tests/fixtures/packages/rules/project/governance-unknown-target",
+            success: false,
+            expected: &[ExpectedDiagnostic {
+                rule: "rototo/governance-unknown-target",
+                severity: "error",
+                stage: LintStage::Project,
+                entity: ExpectedEntity::Governance,
+                primary: ExpectedPrimaryLocation::Document {
+                    path: "governance.toml",
+                    range: Some(ExpectedRange {
+                        start_line: 0,
+                        start_character: 0,
+                        end_line: 1,
+                        end_character: 28,
+                    }),
+                },
+                related: &[],
+            }],
+        },
+        CanonicalRuleFixture {
+            rule: RototoRuleId::GovernanceUnscopedUpdate,
+            package: "tests/fixtures/packages/rules/project/governance-unscoped-update",
+            success: true,
+            expected: &[ExpectedDiagnostic {
+                rule: "rototo/governance-unscoped-update",
+                severity: "warning",
+                stage: LintStage::Project,
+                entity: ExpectedEntity::Governance,
+                primary: ExpectedPrimaryLocation::Document {
+                    path: "governance.toml",
+                    range: Some(ExpectedRange {
+                        start_line: 0,
+                        start_character: 0,
+                        end_line: 1,
+                        end_character: 31,
                     }),
                 },
                 related: &[],
@@ -2342,6 +2427,7 @@ fn expected_entity_value(entity: ExpectedEntity) -> serde_json::Value {
         ExpectedEntity::Layer(id) => {
             serde_json::json!({ "kind": "layer", "id": id })
         }
+        ExpectedEntity::Governance => serde_json::json!({ "kind": "governance" }),
         ExpectedEntity::CustomLintFile(path) => {
             serde_json::json!({ "kind": "custom_lint", "path": path })
         }
@@ -2379,6 +2465,8 @@ fn lint_failures_expected_rule_ids() -> &'static [&'static str] {
         "fixture/custom-variable-rejected",
         "rototo/catalog-entry-schema-mismatch",
         "rototo/catalog-schema-invalid",
+        "rototo/governance-shape",
+        "rototo/governance-unknown-target",
         "rototo/layer-bucket-overlap",
         "rototo/layer-shape",
         "rototo/schema-ui-unknown-widget",
@@ -2410,6 +2498,7 @@ fn intentionally_malformed_fixture_files() -> &'static [&'static str] {
         "invalid-package-file-toml/variables/broken.toml",
         "invalid-package-toml/rototo-package.toml",
         "rules/parse/variable-external-value-parse-failed/variables/external_message-values/broken.toml",
+        "rules/parse/governance-parse-failed/governance.toml",
         "rules/parse/layer-parse-failed/layers/broken.toml",
         "rules/parse/variable-parse-failed/variables/broken.toml",
         "rules/parse/package-manifest-parse-failed/rototo-package.toml",

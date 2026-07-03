@@ -83,6 +83,7 @@ fn parse_failed_rule(kind: &DocumentKind) -> RototoRuleId {
         DocumentKind::EnumDeclaration { .. } => RototoRuleId::EnumParseFailed,
         DocumentKind::EnumMembers { .. } => RototoRuleId::EnumMembersParseFailed,
         DocumentKind::Layer { .. } => RototoRuleId::LayerParseFailed,
+        DocumentKind::Governance => RototoRuleId::GovernanceParseFailed,
         DocumentKind::Catalog { .. } => RototoRuleId::CatalogParseFailed,
         DocumentKind::CatalogEntry { .. } => RototoRuleId::CatalogEntryParseFailed,
         DocumentKind::EvaluationContext { .. } => RototoRuleId::EvaluationContextParseFailed,
@@ -101,6 +102,7 @@ fn entity_for_document(document: &SourceDocument) -> SemanticEntity {
             SemanticEntity::Enum { id: id.clone() }
         }
         DocumentKind::Layer { id } => SemanticEntity::Layer { id: id.clone() },
+        DocumentKind::Governance => SemanticEntity::Governance,
         DocumentKind::Catalog { id } => SemanticEntity::Catalog { id: id.clone() },
         DocumentKind::CatalogEntry {
             catalog_id,

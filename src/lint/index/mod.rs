@@ -18,6 +18,7 @@ pub(super) struct SemanticIndex {
     pub(super) enums: BTreeMap<EnumId, EnumNode>,
     pub(super) enum_members: BTreeMap<EnumId, EnumMembersNode>,
     pub(super) layers: BTreeMap<LayerId, LayerNode>,
+    pub(super) governance: Option<GovernanceNode>,
     pub(super) variables: BTreeMap<VariableId, VariableNode>,
     pub(super) catalogs: BTreeMap<CatalogId, CatalogNode>,
     pub(super) catalog_entries: BTreeMap<CatalogId, BTreeMap<ValueKey, CatalogEntryNode>>,

@@ -9,6 +9,7 @@ pub enum DiagnosticEntity {
     Qualifier,
     Enum,
     Layer,
+    Governance,
     Variable,
     Catalog,
     CatalogEntry,
@@ -481,6 +482,31 @@ rototo_rules! {
         title: "Variable resolve block is invalid",
         help: "Resolve blocks must be tables with default and optional rule references.",
     },
+    GovernanceParseFailed => {
+        id: "governance-parse-failed",
+        entity: Governance,
+        title: "governance.toml could not be parsed",
+        help: "Fix the TOML syntax error in governance.toml.",
+    },
+    GovernanceShape => {
+        id: "governance-shape",
+        entity: Governance,
+        title: "Governance contract is invalid",
+        help: "governance.toml declares [<kind>.<id>] blocks (catalog, enum, variable, evaluation_context, or layer) with allowed_operations/denied_operations drawn from add, update, delete, constrain, and override, plus update_policy/delete_policy tables whose allowed_*/denied_* lists name entries and fields. Policies exist only for update and delete; an allowlist must not be empty.",
+    },
+    GovernanceUnknownTarget => {
+        id: "governance-unknown-target",
+        entity: Governance,
+        title: "Governance block names an unknown target",
+        help: "Point the [<kind>.<id>] block at an entity the package declares, or remove it.",
+    },
+    GovernanceUnscopedUpdate => {
+        id: "governance-unscoped-update",
+        entity: Governance,
+        title: "Governance update grant has no field allowlist",
+        help: "An update grant without allowed_fields silently includes fields added to the schema later; list the fields the layer below may change.",
+        severity: Warning,
+    },
     LayerParseFailed => {
         id: "layer-parse-failed",
         entity: Layer,
@@ -861,6 +887,7 @@ pub enum SemanticEntity {
     Layer {
         id: String,
     },
+    Governance,
     Catalog {
         id: String,
     },
