@@ -130,14 +130,18 @@ bases in the same `extends` list are a different relationship: siblings.
 Neither was authored as an overlay of the other, so nothing about them may
 silently merge. Each base is flattened on its own first, then the results
 union: the composed package has every variable, catalog, enum, evaluation
-context, and layer from every base, and the bases have to be disjoint at the
-entity level. Two bases touching the same entity - the same variable id, the
-same catalog (schema, entries, or markers), the same enum, context, or layer -
-fails the load ("package extends bases conflict on ..."). If two bases
-genuinely share configuration, make one extend the other or move the shared
-piece into one package. The one exception is diamond ancestry: two bases
-extending a common ancestor both carry its files, and byte-identical
-restatements of the same file are fine.
+context, and layer from every base, and the bases have to be disjoint. Two
+bases touching the same entity - the same variable id, the same enum, context,
+or layer - fails the load ("package extends bases conflict on ..."). Catalogs
+are the one place siblings may share: two bases can each add their own entries
+to a catalog they both inherit from a common ancestor, because entry files
+compose additively. The disjointness line just moves down a level - two bases
+providing the same entry, one base patching or deleting an entry another base
+provides, or two bases carrying different versions of the catalog schema, all
+still fail the load. If two bases genuinely share more than that, make one
+extend the other or move the shared piece into one package. Diamond ancestry
+stays fine everywhere: two bases extending a common ancestor both carry its
+files, and byte-identical restatements of the same file never conflict.
 
 Governance stays per-base: each base's `governance.toml` governs its own
 entities against the layers that land after it, so the extending package

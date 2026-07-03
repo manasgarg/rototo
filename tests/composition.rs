@@ -980,6 +980,97 @@ async fn diamond_ancestry_composes_the_shared_base_once() {
 }
 
 #[tokio::test]
+async fn sibling_bases_add_disjoint_entries_to_a_shared_catalog() {
+    let temp = tempfile::TempDir::new().unwrap();
+    let core = temp.path().join("core");
+    let left = temp.path().join("left");
+    let right = temp.path().join("right");
+    let app = temp.path().join("app");
+    write_base(&core).await;
+    // Two siblings each extend the shared ancestor and add their own plan
+    // entry. The catalog is shared additively: distinct entries compose,
+    // and the schema rides through both branches unchanged.
+    write(
+        &left,
+        "rototo-package.toml",
+        "schema_version = 1\nextends = [\"../core\"]\n",
+    )
+    .await;
+    write(
+        &left,
+        "data/catalogs/plans/team.toml",
+        "name = \"Team\"\nmonthly_price = 99\n",
+    )
+    .await;
+    write(
+        &right,
+        "rototo-package.toml",
+        "schema_version = 1\nextends = [\"../core\"]\n",
+    )
+    .await;
+    write(
+        &right,
+        "data/catalogs/plans/scale.toml",
+        "name = \"Scale\"\nmonthly_price = 299\n",
+    )
+    .await;
+    write(
+        &app,
+        "rototo-package.toml",
+        "schema_version = 1\nextends = [\"../left\", \"../right\"]\n",
+    )
+    .await;
+
+    let package = Package::load(app.to_string_lossy()).await.unwrap();
+    for entry in ["free", "growth", "team", "scale"] {
+        assert!(
+            package
+                .root()
+                .join(format!("data/catalogs/plans/{entry}.toml"))
+                .is_file(),
+            "{entry}"
+        );
+    }
+}
+
+#[tokio::test]
+async fn sibling_bases_conflict_on_the_same_catalog_entry() {
+    let temp = tempfile::TempDir::new().unwrap();
+    let core = temp.path().join("core");
+    let left = temp.path().join("left");
+    let right = temp.path().join("right");
+    let app = temp.path().join("app");
+    write_base(&core).await;
+    for (root, price) in [(&left, "99"), (&right, "89")] {
+        write(
+            root,
+            "rototo-package.toml",
+            "schema_version = 1\nextends = [\"../core\"]\n",
+        )
+        .await;
+        write(
+            root,
+            "data/catalogs/plans/team.toml",
+            &format!("name = \"Team\"\nmonthly_price = {price}\n"),
+        )
+        .await;
+    }
+    write(
+        &app,
+        "rototo-package.toml",
+        "schema_version = 1\nextends = [\"../left\", \"../right\"]\n",
+    )
+    .await;
+
+    let err = Package::load(app.to_string_lossy()).await.unwrap_err();
+    assert!(
+        err.to_string()
+            .contains("extends bases conflict on catalog plans entry team"),
+        "unexpected error: {err}"
+    );
+}
+
+#[tokio::test]
 async fn sibling_base_may_not_touch_another_siblings_catalog() {
     let temp = tempfile::TempDir::new().unwrap();
     let base = temp.path().join("base");
@@ -987,7 +1078,8 @@ async fn sibling_base_may_not_touch_another_siblings_catalog() {
     let app = temp.path().join("app");
     write_base(&base).await;
     // A package with no extends of its own carrying a raw deleted marker: as
-    // a sibling base it would reach across and remove another base's entry.
+    // a sibling base it would reach across and remove another base's entry,
+    // so it conflicts on that entry even though catalogs share additively.
     write(&rogue, "rototo-package.toml", "schema_version = 1\n").await;
     write(
         &rogue,
@@ -1005,7 +1097,7 @@ async fn sibling_base_may_not_touch_another_siblings_catalog() {
     let err = Package::load(app.to_string_lossy()).await.unwrap_err();
     assert!(
         err.to_string()
-            .contains("extends bases conflict on catalog plans"),
+            .contains("extends bases conflict on catalog plans entry free"),
         "unexpected error: {err}"
     );
 }

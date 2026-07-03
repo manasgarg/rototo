@@ -430,10 +430,13 @@ impl SiblingBases<'_> {
 }
 
 /// The entity one projected file belongs to, for sibling-base conflict
-/// detection: every file of a catalog (schema, entries, markers), enum
-/// (declaration, members), evaluation context (schema, samples), variable, or
-/// layer maps to that entity's key. Files outside the entity model conflict
-/// per path.
+/// detection: every file of an enum (declaration, members), evaluation
+/// context (schema, samples), variable, or layer maps to that entity's key.
+/// Catalogs are finer-grained so siblings can share one additively: the
+/// schema is one key, and each entry (with its markers) is its own key, so
+/// two bases adding distinct entries to a shared ancestor's catalog compose,
+/// while touching the same entry or the schema still conflicts. Files outside
+/// the entity model conflict per path.
 fn sibling_entity_key(relative: &Path) -> String {
     let components: Vec<&str> = relative
         .iter()
@@ -441,8 +444,13 @@ fn sibling_entity_key(relative: &Path) -> String {
         .collect();
     let stem = |file: &str, suffix: &str| file.strip_suffix(suffix).map(str::to_owned);
     match components.as_slice() {
-        ["model", "catalogs", file] => stem(file, ".schema.json").map(|id| format!("catalog {id}")),
-        ["data", "catalogs", catalog, _] => Some(format!("catalog {catalog}")),
+        ["model", "catalogs", file] => {
+            stem(file, ".schema.json").map(|id| format!("catalog {id} schema"))
+        }
+        ["data", "catalogs", catalog, file] => stem(file, ".deleted.toml")
+            .or_else(|| stem(file, ".patch.toml"))
+            .or_else(|| stem(file, ".toml"))
+            .map(|entry| format!("catalog {catalog} entry {entry}")),
         ["model", "enums", file] | ["data", "enums", file] => {
             stem(file, ".toml").map(|id| format!("enum {id}"))
         }
