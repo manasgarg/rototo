@@ -1,12 +1,12 @@
-use std::collections::{BTreeMap, HashSet, VecDeque};
-use std::path::PathBuf;
+use std::collections::{BTreeMap, HashMap, HashSet, VecDeque};
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
-use std::sync::Mutex;
-use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
+use std::time::Duration;
 
 use serde_json::Value as JsonValue;
 use tokio::io::{AsyncBufRead, AsyncWrite, BufReader};
-use tokio::sync::mpsc;
+use tokio::sync::{mpsc, oneshot};
 
 use crate::error::{Result, RototoError};
 use crate::lint::{LintInput, OverlayDocument, PackageLintSnapshot, lint_package_snapshot};
@@ -16,10 +16,11 @@ use super::convert::{
     publish_diagnostics_params,
 };
 use super::protocol::{
-    LspCompletionItem, LspDocumentSymbol, LspHover, LspLocation, PublishDiagnosticsParams,
-    initialize_result,
+    LspCompletionItem, LspDocumentSymbol, LspHover, LspLocation, initialize_result,
 };
-use super::transport::{read_message, write_error_response, write_notification, write_response};
+use super::transport::{
+    error_response_message, notification_message, read_message, response_message, write_message,
+};
 use super::uri::{
     initialize_package_root, json_i32, package_relative_path, path_from_file_uri,
     source_position_from_json,
@@ -29,27 +30,40 @@ use super::uri::{
 /// `RequestCancelled`).
 const REQUEST_CANCELLED: i64 = -32800;
 
+/// How long a burst of edits settles before diagnostics recompute. Long
+/// enough to fold a typing burst into one lint run, short enough that
+/// feedback still feels immediate.
+const DIAGNOSTICS_DEBOUNCE: Duration = Duration::from_millis(75);
+
 pub async fn serve_stdio() -> Result<()> {
     let stdin = tokio::io::stdin();
     let stdout = tokio::io::stdout();
     serve(BufReader::new(stdin), stdout).await
 }
 
-pub(crate) async fn serve<R, W>(reader: R, mut writer: W) -> Result<()>
+pub(crate) async fn serve<R, W>(reader: R, writer: W) -> Result<()>
 where
     R: AsyncBufRead + Unpin + Send + 'static,
-    W: AsyncWrite + Unpin,
+    W: AsyncWrite + Unpin + Send + 'static,
 {
-    // A dedicated reader task pulls messages off the wire eagerly into a channel.
-    // Handling stays sequential on this task, but reading ahead lets a
-    // `$/cancelRequest` that the client sent right after a request be observed
-    // before that request is dequeued and run — which is the only way
-    // cancellation can do anything in an otherwise serial server.
-    let (sender, mut receiver) = mpsc::unbounded_channel();
+    // A dedicated reader task pulls messages off the wire eagerly into a channel
+    // so a `$/cancelRequest` sent right after a request is observed before that
+    // request is dequeued, and a dedicated writer task serializes responses that
+    // now come from concurrently running request tasks.
+    let (inbound_sender, mut inbound) = mpsc::unbounded_channel();
     tokio::spawn(async move {
         let mut reader = reader;
         while let Ok(Some(message)) = read_message(&mut reader).await {
-            if sender.send(message).is_err() {
+            if inbound_sender.send(message).is_err() {
+                break;
+            }
+        }
+    });
+    let (outbound, mut outbound_receiver) = mpsc::unbounded_channel::<JsonValue>();
+    let writer_task = tokio::spawn(async move {
+        let mut writer = writer;
+        while let Some(message) = outbound_receiver.recv().await {
+            if write_message(&mut writer, message).await.is_err() {
                 break;
             }
         }
@@ -58,18 +72,22 @@ where
     let mut server = LspServer::new();
     let mut queue: VecDeque<JsonValue> = VecDeque::new();
     let mut cancellations = PendingCancellations::default();
+    // Cancellation senders for requests currently running on spawned tasks.
+    let inflight: Arc<std::sync::Mutex<HashMap<String, oneshot::Sender<()>>>> =
+        Arc::new(std::sync::Mutex::new(HashMap::new()));
+    let diagnostics = DiagnosticsScheduler::default();
 
-    loop {
+    let exit = loop {
         if queue.is_empty() {
-            match receiver.recv().await {
-                Some(message) => intake(message, &mut queue, &mut cancellations),
-                None => break,
+            match inbound.recv().await {
+                Some(message) => intake(message, &mut queue, &mut cancellations, &inflight),
+                None => break Ok(()),
             }
         }
         // Drain everything already buffered so a pending cancel is recorded
         // before the request it targets reaches the front of the queue.
-        while let Ok(message) = receiver.try_recv() {
-            intake(message, &mut queue, &mut cancellations);
+        while let Ok(message) = inbound.try_recv() {
+            intake(message, &mut queue, &mut cancellations, &inflight);
         }
         let Some(message) = queue.pop_front() else {
             continue;
@@ -81,53 +99,396 @@ where
             .and_then(JsonValue::as_str)
             .unwrap_or_default()
             .to_owned();
+        let params = message.get("params").cloned().unwrap_or(JsonValue::Null);
 
         // A request the client cancelled while it waited in the queue returns the
         // standard RequestCancelled error rather than computing a result.
         if let Some(id) = &id
             && cancellations.take(id)
         {
-            write_error_response(
-                &mut writer,
+            let _ = outbound.send(error_response_message(
                 id.clone(),
                 REQUEST_CANCELLED,
                 "request cancelled",
-            )
-            .await?;
+            ));
             continue;
         }
 
-        match server.handle_message(message, &mut writer).await {
-            Ok(true) => break,
-            Ok(false) => {}
-            Err(err) if id.is_some() => {
-                write_error_response(
-                    &mut writer,
-                    id.unwrap(),
-                    -32603,
-                    &format!("rototo LSP request failed: {err}"),
-                )
-                .await?;
+        match (id, method.as_str()) {
+            (Some(id), "initialize") => {
+                let result = async {
+                    server.package_root = initialize_package_root(&params).await?;
+                    Ok::<_, RototoError>(initialize_result())
+                }
+                .await;
+                send_outcome(&outbound, id, result);
             }
-            Err(err) if method == "exit" => return Err(err),
-            Err(err) => {
-                tracing::warn!(method = %method, error = %err, "rototo LSP notification failed");
+            (Some(id), "shutdown") => {
+                server.shutdown_requested = true;
+                let _ = outbound.send(response_message(id, JsonValue::Null));
             }
+            (
+                Some(id),
+                "textDocument/documentSymbol"
+                | "textDocument/completion"
+                | "textDocument/hover"
+                | "textDocument/definition"
+                | "textDocument/references",
+            ) => {
+                // Reads run concurrently on a spawned task against an immutable
+                // view of the session; mutations stay ordered on this loop, so a
+                // read spawned after a didChange always sees the newer buffers.
+                let context = server.read_context();
+                let outbound = outbound.clone();
+                let inflight_map = Arc::clone(&inflight);
+                let (cancel_sender, mut cancelled) = oneshot::channel();
+                let id_key = id.to_string();
+                inflight_map
+                    .lock()
+                    .unwrap()
+                    .insert(id_key.clone(), cancel_sender);
+                tokio::spawn(async move {
+                    let work = handle_read_request(context, &method, params);
+                    tokio::pin!(work);
+                    let message = tokio::select! {
+                        biased;
+                        _ = &mut cancelled => {
+                            error_response_message(id, REQUEST_CANCELLED, "request cancelled")
+                        }
+                        result = &mut work => match result {
+                            Ok(result) => response_message(id, result),
+                            Err(err) => error_response_message(
+                                id,
+                                -32603,
+                                &format!("rototo LSP request failed: {err}"),
+                            ),
+                        },
+                    };
+                    inflight_map.lock().unwrap().remove(&id_key);
+                    let _ = outbound.send(message);
+                });
+            }
+            (Some(id), _) => {
+                let _ = outbound.send(error_response_message(id, -32601, "method not found"));
+            }
+            (None, "initialized") => {
+                diagnostics.schedule(server.read_context(), outbound.clone());
+            }
+            (None, "textDocument/didOpen") => {
+                if let Err(err) = server.open_document(params) {
+                    tracing::warn!(error = %err, "rototo LSP didOpen failed");
+                }
+                diagnostics.schedule(server.read_context(), outbound.clone());
+            }
+            (None, "textDocument/didChange") => {
+                if let Err(err) = server.change_document(params) {
+                    tracing::warn!(error = %err, "rototo LSP didChange failed");
+                }
+                diagnostics.schedule(server.read_context(), outbound.clone());
+            }
+            (None, "textDocument/didSave") | (None, "textDocument/didClose") => {
+                if let Err(err) = server.remove_document_overlay(params) {
+                    tracing::warn!(error = %err, "rototo LSP document close failed");
+                }
+                diagnostics.schedule(server.read_context(), outbound.clone());
+            }
+            (None, "exit") => {
+                if server.shutdown_requested {
+                    break Ok(());
+                }
+                break Err(RototoError::new("LSP exit received before shutdown"));
+            }
+            (None, _) => {}
         }
-    }
-    Ok(())
+    };
+
+    // Closing the outbound channel lets the writer drain what request tasks
+    // already produced, then stop.
+    drop(outbound);
+    let _ = writer_task.await;
+    exit
 }
 
-/// Route an incoming message: a `$/cancelRequest` is consumed by recording the
-/// cancelled id; everything else is queued for sequential handling.
+fn send_outcome(
+    outbound: &mpsc::UnboundedSender<JsonValue>,
+    id: JsonValue,
+    result: Result<JsonValue>,
+) {
+    let message = match result {
+        Ok(result) => response_message(id, result),
+        Err(err) => {
+            error_response_message(id, -32603, &format!("rototo LSP request failed: {err}"))
+        }
+    };
+    let _ = outbound.send(message);
+}
+
+/// Diagnostics recompute on a background task after edits settle. Every
+/// mutation bumps the generation; a scheduled run that discovers a newer
+/// generation (before or after its lint build) simply drops out, so only the
+/// latest buffers are ever published, and publish order is guarded so a slow
+/// stale build cannot overwrite a newer publication.
+#[derive(Default)]
+struct DiagnosticsScheduler {
+    generation: Arc<AtomicU64>,
+    published: Arc<AtomicU64>,
+}
+
+impl DiagnosticsScheduler {
+    fn schedule(&self, context: ReadContext, outbound: mpsc::UnboundedSender<JsonValue>) {
+        let generation = self.generation.fetch_add(1, Ordering::SeqCst) + 1;
+        let current = Arc::clone(&self.generation);
+        let published = Arc::clone(&self.published);
+        tokio::spawn(async move {
+            tokio::time::sleep(DIAGNOSTICS_DEBOUNCE).await;
+            if current.load(Ordering::SeqCst) != generation {
+                return;
+            }
+            let snapshot = match context.snapshot().await {
+                Ok(Some(snapshot)) => snapshot,
+                Ok(None) => return,
+                Err(err) => {
+                    tracing::warn!(error = %err, "rototo LSP diagnostics failed");
+                    return;
+                }
+            };
+            if current.load(Ordering::SeqCst) != generation {
+                return;
+            }
+            // fetch_max returns the previous published generation; a newer one
+            // already out means this build is stale.
+            if published.fetch_max(generation, Ordering::SeqCst) > generation {
+                return;
+            }
+            for publication in publish_diagnostics_params(&snapshot.lint) {
+                let Ok(params) = serde_json::to_value(publication) else {
+                    continue;
+                };
+                let _ = outbound.send(notification_message(
+                    "textDocument/publishDiagnostics",
+                    params,
+                ));
+            }
+        });
+    }
+}
+
+/// Everything a read request needs, captured at spawn time so concurrent
+/// requests run against a consistent view while the session keeps mutating.
+#[derive(Clone)]
+pub(super) struct ReadContext {
+    root: Option<PathBuf>,
+    revision: u64,
+    overlays: BTreeMap<String, OverlayDocument>,
+    cache: Arc<SnapshotCache>,
+}
+
+impl ReadContext {
+    async fn snapshot(&self) -> Result<Option<Arc<PackageLintSnapshot>>> {
+        let Some(root) = &self.root else {
+            return Ok(None);
+        };
+        self.cache
+            .snapshot(root, self.revision, &self.overlays)
+            .await
+            .map(Some)
+    }
+
+    fn package_path_for_uri(&self, uri: &str) -> Result<String> {
+        let Some(root) = &self.root else {
+            return Err(RototoError::new("LSP package root is not initialized"));
+        };
+        let path = path_from_file_uri(uri)?;
+        package_relative_path(root, &path)
+    }
+}
+
+/// The revision-keyed snapshot store shared by every read. The async lock is
+/// deliberate: concurrent requests against the same revision coalesce onto one
+/// lint build instead of racing.
+#[derive(Default)]
+struct SnapshotCache {
+    cache: tokio::sync::Mutex<Option<(u64, Arc<PackageLintSnapshot>)>>,
+    build_count: AtomicUsize,
+}
+
+impl SnapshotCache {
+    async fn snapshot(
+        &self,
+        root: &Path,
+        revision: u64,
+        overlays: &BTreeMap<String, OverlayDocument>,
+    ) -> Result<Arc<PackageLintSnapshot>> {
+        let mut cache = self.cache.lock().await;
+        if let Some((cached_revision, snapshot)) = cache.as_ref()
+            && *cached_revision == revision
+        {
+            return Ok(Arc::clone(snapshot));
+        }
+        let mut input = LintInput::new(root.to_path_buf());
+        input.overlays = overlays.clone();
+        self.build_count.fetch_add(1, Ordering::Relaxed);
+        let snapshot = Arc::new(lint_package_snapshot(input).await?);
+        // A read spawned before a newer mutation may finish after it; never
+        // let its older snapshot displace a newer cached one.
+        if cache
+            .as_ref()
+            .is_none_or(|(cached_revision, _)| *cached_revision < revision)
+        {
+            *cache = Some((revision, Arc::clone(&snapshot)));
+        }
+        Ok(snapshot)
+    }
+}
+
+/// Dispatch one concurrent read request against a fixed session view.
+async fn handle_read_request(
+    context: ReadContext,
+    method: &str,
+    params: JsonValue,
+) -> Result<JsonValue> {
+    let into_json = |value: serde_json::Result<JsonValue>| {
+        value.map_err(|err| RototoError::new(err.to_string()))
+    };
+    match method {
+        "textDocument/documentSymbol" => into_json(serde_json::to_value(
+            read_document_symbols(context, params).await?,
+        )),
+        "textDocument/completion" => into_json(serde_json::to_value(
+            read_completion_items(context, params).await?,
+        )),
+        "textDocument/hover" => Ok(read_hover(context, params)
+            .await?
+            .map(serde_json::to_value)
+            .transpose()
+            .map_err(|err| RototoError::new(err.to_string()))?
+            .unwrap_or(JsonValue::Null)),
+        "textDocument/definition" => Ok(read_definition(context, params)
+            .await?
+            .map(serde_json::to_value)
+            .transpose()
+            .map_err(|err| RototoError::new(err.to_string()))?
+            .unwrap_or(JsonValue::Null)),
+        "textDocument/references" => into_json(serde_json::to_value(
+            read_references(context, params).await?,
+        )),
+        _ => Err(RototoError::new("method not found")),
+    }
+}
+
+async fn read_document_symbols(
+    context: ReadContext,
+    params: JsonValue,
+) -> Result<Vec<LspDocumentSymbol>> {
+    let uri = text_document_uri(&params, "documentSymbol")?;
+    let path = context.package_path_for_uri(&uri)?;
+    let Some(snapshot) = context.snapshot().await? else {
+        return Ok(Vec::new());
+    };
+    Ok(snapshot
+        .document_symbols(&path)
+        .iter()
+        .map(lsp_document_symbol)
+        .collect())
+}
+
+async fn read_completion_items(
+    context: ReadContext,
+    params: JsonValue,
+) -> Result<Vec<LspCompletionItem>> {
+    let uri = text_document_uri(&params, "completion")?;
+    let position = source_position_from_json(
+        params
+            .get("position")
+            .ok_or_else(|| RototoError::new("completion missing position"))?,
+    )?;
+    let path = context.package_path_for_uri(&uri)?;
+    let Some(snapshot) = context.snapshot().await? else {
+        return Ok(Vec::new());
+    };
+    Ok(snapshot
+        .completion_items(&path, position)
+        .iter()
+        .map(lsp_completion_item)
+        .collect())
+}
+
+async fn read_hover(context: ReadContext, params: JsonValue) -> Result<Option<LspHover>> {
+    let uri = text_document_uri(&params, "hover")?;
+    let position = source_position_from_json(
+        params
+            .get("position")
+            .ok_or_else(|| RototoError::new("hover missing position"))?,
+    )?;
+    let path = context.package_path_for_uri(&uri)?;
+    let Some(snapshot) = context.snapshot().await? else {
+        return Ok(None);
+    };
+    Ok(snapshot.hover(&path, position).map(lsp_hover))
+}
+
+async fn read_definition(context: ReadContext, params: JsonValue) -> Result<Option<LspLocation>> {
+    let uri = text_document_uri(&params, "definition")?;
+    let position = source_position_from_json(
+        params
+            .get("position")
+            .ok_or_else(|| RototoError::new("definition missing position"))?,
+    )?;
+    let path = context.package_path_for_uri(&uri)?;
+    let Some(snapshot) = context.snapshot().await? else {
+        return Ok(None);
+    };
+    Ok(snapshot.definition(&path, position).map(lsp_location))
+}
+
+async fn read_references(context: ReadContext, params: JsonValue) -> Result<Vec<LspLocation>> {
+    let uri = text_document_uri(&params, "references")?;
+    let position = source_position_from_json(
+        params
+            .get("position")
+            .ok_or_else(|| RototoError::new("references missing position"))?,
+    )?;
+    let include_declaration = params
+        .get("context")
+        .and_then(|context| context.get("includeDeclaration"))
+        .and_then(JsonValue::as_bool)
+        .unwrap_or(false);
+    let path = context.package_path_for_uri(&uri)?;
+    let Some(snapshot) = context.snapshot().await? else {
+        return Ok(Vec::new());
+    };
+    Ok(snapshot
+        .references(&path, position, include_declaration)
+        .iter()
+        .map(lsp_reference)
+        .collect())
+}
+
+fn text_document_uri(params: &JsonValue, method: &str) -> Result<String> {
+    params
+        .get("textDocument")
+        .and_then(|text_document| text_document.get("uri"))
+        .and_then(JsonValue::as_str)
+        .map(str::to_owned)
+        .ok_or_else(|| RototoError::new(format!("{method} missing textDocument.uri")))
+}
+
+/// Route an incoming message: a `$/cancelRequest` cancels an in-flight request
+/// task if one is running, otherwise records the id for the queued case;
+/// everything else is queued.
 fn intake(
     message: JsonValue,
     queue: &mut VecDeque<JsonValue>,
     cancellations: &mut PendingCancellations,
+    inflight: &Arc<std::sync::Mutex<HashMap<String, oneshot::Sender<()>>>>,
 ) {
     if message.get("method").and_then(JsonValue::as_str) == Some("$/cancelRequest") {
         if let Some(id) = message.get("params").and_then(|params| params.get("id")) {
-            cancellations.record(id);
+            if let Some(sender) = inflight.lock().unwrap().remove(&id.to_string()) {
+                let _ = sender.send(());
+            } else {
+                cancellations.record(id);
+            }
         }
         return;
     }
@@ -159,12 +520,11 @@ pub(super) struct LspServer {
     /// Bumped on every overlay mutation so a cached snapshot built from an older
     /// set of buffers is recognized as stale.
     revision: u64,
-    /// Last package snapshot, reused while `revision` is unchanged. The lint
-    /// pipeline reads the whole package from disk plus overlays, so without this
-    /// every request and every keystroke would recompute the entire package.
-    snapshot_cache: Mutex<Option<(u64, Arc<PackageLintSnapshot>)>>,
-    /// Count of actual snapshot builds, used by tests to prove cache reuse.
-    build_count: AtomicUsize,
+    /// Last package snapshot, reused while `revision` is unchanged and shared
+    /// with every concurrently running read. The lint pipeline reads the whole
+    /// package from disk plus overlays, so without this every request and
+    /// every keystroke would recompute the entire package.
+    cache: Arc<SnapshotCache>,
 }
 
 impl LspServer {
@@ -174,107 +534,19 @@ impl LspServer {
             overlays: BTreeMap::new(),
             shutdown_requested: false,
             revision: 0,
-            snapshot_cache: Mutex::new(None),
-            build_count: AtomicUsize::new(0),
+            cache: Arc::new(SnapshotCache::default()),
         }
     }
 
-    async fn handle_message<W>(&mut self, message: JsonValue, writer: &mut W) -> Result<bool>
-    where
-        W: AsyncWrite + Unpin,
-    {
-        let method = message
-            .get("method")
-            .and_then(JsonValue::as_str)
-            .unwrap_or_default();
-        let id = message.get("id").cloned();
-        let params = message.get("params").cloned().unwrap_or(JsonValue::Null);
-
-        match (id, method) {
-            (Some(id), "initialize") => {
-                self.package_root = initialize_package_root(&params).await?;
-                write_response(writer, id, initialize_result()).await?;
-            }
-            (Some(id), "shutdown") => {
-                self.shutdown_requested = true;
-                write_response(writer, id, JsonValue::Null).await?;
-            }
-            (Some(id), "textDocument/documentSymbol") => {
-                let symbols = self.document_symbols(params).await?;
-                write_response(
-                    writer,
-                    id,
-                    serde_json::to_value(symbols)
-                        .map_err(|err| RototoError::new(err.to_string()))?,
-                )
-                .await?;
-            }
-            (Some(id), "textDocument/completion") => {
-                let completions = self.completion_items(params).await?;
-                write_response(
-                    writer,
-                    id,
-                    serde_json::to_value(completions)
-                        .map_err(|err| RototoError::new(err.to_string()))?,
-                )
-                .await?;
-            }
-            (Some(id), "textDocument/hover") => {
-                let hover = self.hover(params).await?;
-                let result = hover
-                    .map(serde_json::to_value)
-                    .transpose()
-                    .map_err(|err| RototoError::new(err.to_string()))?
-                    .unwrap_or(JsonValue::Null);
-                write_response(writer, id, result).await?;
-            }
-            (Some(id), "textDocument/definition") => {
-                let definition = self.definition(params).await?;
-                let result = definition
-                    .map(serde_json::to_value)
-                    .transpose()
-                    .map_err(|err| RototoError::new(err.to_string()))?
-                    .unwrap_or(JsonValue::Null);
-                write_response(writer, id, result).await?;
-            }
-            (Some(id), "textDocument/references") => {
-                let references = self.references(params).await?;
-                write_response(
-                    writer,
-                    id,
-                    serde_json::to_value(references)
-                        .map_err(|err| RototoError::new(err.to_string()))?,
-                )
-                .await?;
-            }
-            (Some(id), _) => {
-                write_error_response(writer, id, -32601, "method not found").await?;
-            }
-            (None, "initialized") => {
-                self.publish_package_diagnostics(writer).await?;
-            }
-            (None, "textDocument/didOpen") => {
-                self.open_document(params)?;
-                self.publish_package_diagnostics(writer).await?;
-            }
-            (None, "textDocument/didChange") => {
-                self.change_document(params)?;
-                self.publish_package_diagnostics(writer).await?;
-            }
-            (None, "textDocument/didSave") | (None, "textDocument/didClose") => {
-                self.remove_document_overlay(params)?;
-                self.publish_package_diagnostics(writer).await?;
-            }
-            (None, "exit") => {
-                if self.shutdown_requested {
-                    return Ok(true);
-                }
-                return Err(RototoError::new("LSP exit received before shutdown"));
-            }
-            (None, _) => {}
+    /// An immutable view of the session for one read: buffers as they are at
+    /// spawn time plus the shared snapshot cache.
+    pub(super) fn read_context(&self) -> ReadContext {
+        ReadContext {
+            root: self.package_root.clone(),
+            revision: self.revision,
+            overlays: self.overlays.clone(),
+            cache: Arc::clone(&self.cache),
         }
-
-        Ok(false)
     }
 
     pub(super) fn open_document(&mut self, params: JsonValue) -> Result<()> {
@@ -373,175 +645,50 @@ impl LspServer {
         Ok(())
     }
 
-    async fn publish_package_diagnostics<W>(&self, writer: &mut W) -> Result<()>
-    where
-        W: AsyncWrite + Unpin,
-    {
-        for publication in self.package_diagnostics().await? {
-            write_notification(
-                writer,
-                "textDocument/publishDiagnostics",
-                serde_json::to_value(publication)
-                    .map_err(|err| RototoError::new(err.to_string()))?,
-            )
-            .await?;
-        }
-        Ok(())
-    }
-
-    pub(super) async fn package_diagnostics(&self) -> Result<Vec<PublishDiagnosticsParams>> {
-        let Some(snapshot) = self.package_snapshot().await? else {
+    #[cfg(test)]
+    pub(super) async fn package_diagnostics(
+        &self,
+    ) -> Result<Vec<super::protocol::PublishDiagnosticsParams>> {
+        let Some(snapshot) = self.read_context().snapshot().await? else {
             return Ok(Vec::new());
         };
         Ok(publish_diagnostics_params(&snapshot.lint))
     }
 
+    #[cfg(test)]
     pub(super) async fn document_symbols(
         &self,
         params: JsonValue,
     ) -> Result<Vec<LspDocumentSymbol>> {
-        let text_document = params
-            .get("textDocument")
-            .ok_or_else(|| RototoError::new("documentSymbol missing textDocument"))?;
-        let uri = text_document
-            .get("uri")
-            .and_then(JsonValue::as_str)
-            .ok_or_else(|| RototoError::new("documentSymbol missing textDocument.uri"))?;
-        let path = self.package_path_for_uri(uri)?;
-        let Some(snapshot) = self.package_snapshot().await? else {
-            return Ok(Vec::new());
-        };
-        Ok(snapshot
-            .document_symbols(&path)
-            .iter()
-            .map(lsp_document_symbol)
-            .collect())
+        read_document_symbols(self.read_context(), params).await
     }
 
+    #[cfg(test)]
     pub(super) async fn completion_items(
         &self,
         params: JsonValue,
     ) -> Result<Vec<LspCompletionItem>> {
-        let text_document = params
-            .get("textDocument")
-            .ok_or_else(|| RototoError::new("completion missing textDocument"))?;
-        let uri = text_document
-            .get("uri")
-            .and_then(JsonValue::as_str)
-            .ok_or_else(|| RototoError::new("completion missing textDocument.uri"))?;
-        let position = source_position_from_json(
-            params
-                .get("position")
-                .ok_or_else(|| RototoError::new("completion missing position"))?,
-        )?;
-        let path = self.package_path_for_uri(uri)?;
-        let Some(snapshot) = self.package_snapshot().await? else {
-            return Ok(Vec::new());
-        };
-        Ok(snapshot
-            .completion_items(&path, position)
-            .iter()
-            .map(lsp_completion_item)
-            .collect())
+        read_completion_items(self.read_context(), params).await
     }
 
+    #[cfg(test)]
     pub(super) async fn hover(&self, params: JsonValue) -> Result<Option<LspHover>> {
-        let text_document = params
-            .get("textDocument")
-            .ok_or_else(|| RototoError::new("hover missing textDocument"))?;
-        let uri = text_document
-            .get("uri")
-            .and_then(JsonValue::as_str)
-            .ok_or_else(|| RototoError::new("hover missing textDocument.uri"))?;
-        let position = source_position_from_json(
-            params
-                .get("position")
-                .ok_or_else(|| RototoError::new("hover missing position"))?,
-        )?;
-        let path = self.package_path_for_uri(uri)?;
-        let Some(snapshot) = self.package_snapshot().await? else {
-            return Ok(None);
-        };
-        Ok(snapshot.hover(&path, position).map(lsp_hover))
+        read_hover(self.read_context(), params).await
     }
 
+    #[cfg(test)]
     pub(super) async fn definition(&self, params: JsonValue) -> Result<Option<LspLocation>> {
-        let text_document = params
-            .get("textDocument")
-            .ok_or_else(|| RototoError::new("definition missing textDocument"))?;
-        let uri = text_document
-            .get("uri")
-            .and_then(JsonValue::as_str)
-            .ok_or_else(|| RototoError::new("definition missing textDocument.uri"))?;
-        let position = source_position_from_json(
-            params
-                .get("position")
-                .ok_or_else(|| RototoError::new("definition missing position"))?,
-        )?;
-        let path = self.package_path_for_uri(uri)?;
-        let Some(snapshot) = self.package_snapshot().await? else {
-            return Ok(None);
-        };
-        Ok(snapshot.definition(&path, position).map(lsp_location))
+        read_definition(self.read_context(), params).await
     }
 
+    #[cfg(test)]
     pub(super) async fn references(&self, params: JsonValue) -> Result<Vec<LspLocation>> {
-        let text_document = params
-            .get("textDocument")
-            .ok_or_else(|| RototoError::new("references missing textDocument"))?;
-        let uri = text_document
-            .get("uri")
-            .and_then(JsonValue::as_str)
-            .ok_or_else(|| RototoError::new("references missing textDocument.uri"))?;
-        let position = source_position_from_json(
-            params
-                .get("position")
-                .ok_or_else(|| RototoError::new("references missing position"))?,
-        )?;
-        let include_declaration = params
-            .get("context")
-            .and_then(|context| context.get("includeDeclaration"))
-            .and_then(JsonValue::as_bool)
-            .unwrap_or(false);
-        let path = self.package_path_for_uri(uri)?;
-        let Some(snapshot) = self.package_snapshot().await? else {
-            return Ok(Vec::new());
-        };
-        Ok(snapshot
-            .references(&path, position, include_declaration)
-            .iter()
-            .map(lsp_reference)
-            .collect())
-    }
-
-    async fn package_snapshot(&self) -> Result<Option<Arc<PackageLintSnapshot>>> {
-        let Some(root) = &self.package_root else {
-            return Ok(None);
-        };
-        let revision = self.revision;
-        if let Some((cached_revision, snapshot)) = self.snapshot_cache.lock().unwrap().as_ref()
-            && *cached_revision == revision
-        {
-            return Ok(Some(Arc::clone(snapshot)));
-        }
-        let mut input = LintInput::new(root.clone());
-        input.overlays = self.overlays.clone();
-        self.build_count.fetch_add(1, Ordering::Relaxed);
-        let snapshot = Arc::new(lint_package_snapshot(input).await?);
-        *self.snapshot_cache.lock().unwrap() = Some((revision, Arc::clone(&snapshot)));
-        Ok(Some(snapshot))
+        read_references(self.read_context(), params).await
     }
 
     #[cfg(test)]
     pub(super) fn snapshot_build_count(&self) -> usize {
-        self.build_count.load(Ordering::Relaxed)
-    }
-
-    #[cfg(test)]
-    pub(super) fn overlay_text(&self, path: &str) -> Option<&str> {
-        self.overlays
-            .get(path)
-            .map(|document| document.text.as_str())
+        self.cache.build_count.load(Ordering::Relaxed)
     }
 
     fn package_path_for_uri(&self, uri: &str) -> Result<String> {
@@ -550,6 +697,13 @@ impl LspServer {
         };
         let path = path_from_file_uri(uri)?;
         package_relative_path(root, &path)
+    }
+
+    #[cfg(test)]
+    pub(super) fn overlay_text(&self, path: &str) -> Option<&str> {
+        self.overlays
+            .get(path)
+            .map(|document| document.text.as_str())
     }
 }
 
@@ -596,15 +750,18 @@ mod tests {
         let mut queue = VecDeque::new();
         let mut cancellations = PendingCancellations::default();
 
+        let inflight = Arc::new(std::sync::Mutex::new(HashMap::new()));
         intake(
             json!({"id": 1, "method": "textDocument/completion"}),
             &mut queue,
             &mut cancellations,
+            &inflight,
         );
         intake(
             json!({"method": "$/cancelRequest", "params": {"id": 1}}),
             &mut queue,
             &mut cancellations,
+            &inflight,
         );
 
         // The cancel is consumed into the registry, not queued for handling.

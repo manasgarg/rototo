@@ -1,0 +1,39 @@
+# In a query filter, comparing an entry field pinned to another catalog via
+# x-rototo-ref offers that catalog's entry ids as quoted literals.
+package = "basic"
+file = "variables/message.toml"
+
+overlay = '''
+schema_version = 1
+type = "list<catalog:message>"
+
+[resolve]
+method = "query"
+from = "message"
+filter = 'entry.template == $0'
+'''
+
+[[also_open]]
+file = "model/catalogs/message.schema.json"
+text = '''
+{
+  "type": "object",
+  "required": ["heading", "body"],
+  "properties": {
+    "heading": { "type": "string" },
+    "body": { "type": "string" },
+    "template": {
+      "type": "string",
+      "x-rototo-ref": "catalog:message"
+    }
+  }
+}
+'''
+
+[[expect.includes]]
+label = '"default"'
+detail = "catalog entry id"
+
+[[expect.includes]]
+label = "entry."
+detail = "expression root"

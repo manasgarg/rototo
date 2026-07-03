@@ -10,6 +10,7 @@ mod uri;
 pub(crate) use server::serve;
 pub use server::serve_stdio;
 #[cfg(feature = "console")]
+#[cfg(feature = "console")]
 pub(crate) use transport::{read_message, write_notification, write_request};
 
 #[cfg(test)]
@@ -17,7 +18,7 @@ mod tests {
     use std::path::Path;
 
     use serde_json::{Value as JsonValue, json};
-    use tokio::io::{AsyncBufReadExt, AsyncRead, AsyncWrite, AsyncWriteExt, BufReader};
+    use tokio::io::{AsyncBufRead, AsyncBufReadExt, AsyncWrite, AsyncWriteExt, BufReader};
 
     use super::protocol::{LspCompletionItem, LspDocumentSymbol, LspLocation, initialize_result};
     use super::server::{LspServer, serve};
@@ -1008,14 +1009,16 @@ value = "welcome"
         // This uses the real JSON-RPC transport loop instead of calling
         // LspServer methods directly. A bad request should return an error
         // response, but the session must stay alive for shutdown.
-        let (mut client, server_io) = tokio::io::duplex(8192);
+        let (client_io, server_io) = tokio::io::duplex(8192);
+        let (client_read, mut client_write) = tokio::io::split(client_io);
+        let mut client_read = BufReader::new(client_read);
         let (server_read, server_write) = tokio::io::split(server_io);
         let server =
             tokio::spawn(async move { serve(BufReader::new(server_read), server_write).await });
 
         // No package has been initialized, so a document request fails.
         write_lsp_message(
-            &mut client,
+            &mut client_write,
             json!({
                 "jsonrpc": "2.0",
                 "id": 1,
@@ -1028,13 +1031,13 @@ value = "welcome"
             }),
         )
         .await;
-        let failed = read_lsp_message(&mut client).await;
+        let failed = read_lsp_message(&mut client_read).await;
         assert_eq!(failed["id"], 1);
         assert_eq!(failed["error"]["code"], -32603);
 
         // The server should still accept later requests after the failed one.
         write_lsp_message(
-            &mut client,
+            &mut client_write,
             json!({
                 "jsonrpc": "2.0",
                 "id": 2,
@@ -1042,14 +1045,14 @@ value = "welcome"
             }),
         )
         .await;
-        let shutdown = read_lsp_message(&mut client).await;
+        let shutdown = read_lsp_message(&mut client_read).await;
         assert_eq!(shutdown["id"], 2);
         assert!(shutdown["result"].is_null());
 
         // LSP exits only after shutdown; reaching this await proves the server
         // loop terminated cleanly.
         write_lsp_message(
-            &mut client,
+            &mut client_write,
             json!({
                 "jsonrpc": "2.0",
                 "method": "exit"
@@ -1143,19 +1146,230 @@ value = "welcome"
     }
 
     #[tokio::test]
+    async fn lsp_publishes_diagnostics_asynchronously_and_supersedes_stale_edits() {
+        // didChange returns immediately; diagnostics arrive later from a
+        // debounced background build, and a quick follow-up edit supersedes
+        // the previous one so only the final buffers are published.
+        let tempdir = tempfile::tempdir().unwrap();
+        let root = tempdir.path();
+        tokio::fs::create_dir_all(root.join("variables"))
+            .await
+            .unwrap();
+        tokio::fs::write(root.join("rototo-package.toml"), "schema_version = 1\n")
+            .await
+            .unwrap();
+        let variable_path = root.join("variables/flag.toml");
+        let clean = "schema_version = 1\ntype = \"bool\"\n\n[resolve]\ndefault = false\n";
+        tokio::fs::write(&variable_path, clean).await.unwrap();
+
+        let (client_io, server_io) = tokio::io::duplex(65536);
+        let (client_read, mut client_write) = tokio::io::split(client_io);
+        let mut client_read = BufReader::new(client_read);
+        let (server_read, server_write) = tokio::io::split(server_io);
+        let server =
+            tokio::spawn(async move { serve(BufReader::new(server_read), server_write).await });
+
+        write_lsp_message(
+            &mut client_write,
+            json!({
+                "jsonrpc": "2.0",
+                "id": 1,
+                "method": "initialize",
+                "params": { "rootUri": format!("file://{}", root.display()) }
+            }),
+        )
+        .await;
+        let initialized = read_lsp_message(&mut client_read).await;
+        assert_eq!(initialized["id"], 1);
+
+        let uri = format!("file://{}", variable_path.display());
+        // Open with a broken buffer, then immediately fix it: the broken
+        // generation is superseded, so the published diagnostics are clean.
+        write_lsp_message(
+            &mut client_write,
+            json!({
+                "jsonrpc": "2.0",
+                "method": "textDocument/didOpen",
+                "params": {
+                    "textDocument": {
+                        "uri": uri,
+                        "version": 1,
+                        "text": "schema_version = 1\ntype = \"bool\"\n"
+                    }
+                }
+            }),
+        )
+        .await;
+        write_lsp_message(
+            &mut client_write,
+            json!({
+                "jsonrpc": "2.0",
+                "method": "textDocument/didChange",
+                "params": {
+                    "textDocument": { "uri": uri, "version": 2 },
+                    "contentChanges": [{ "text": clean }]
+                }
+            }),
+        )
+        .await;
+
+        // A concurrent read answered while diagnostics are still pending.
+        write_lsp_message(
+            &mut client_write,
+            json!({
+                "jsonrpc": "2.0",
+                "id": 2,
+                "method": "textDocument/documentSymbol",
+                "params": { "textDocument": { "uri": uri } }
+            }),
+        )
+        .await;
+
+        let mut symbol_response = None;
+        let mut flag_diagnostics = None;
+        while symbol_response.is_none() || flag_diagnostics.is_none() {
+            let message = read_lsp_message(&mut client_read).await;
+            if message["id"] == 2 {
+                symbol_response = Some(message);
+            } else if message["method"] == "textDocument/publishDiagnostics"
+                && message["params"]["uri"]
+                    .as_str()
+                    .is_some_and(|published| published.ends_with("variables/flag.toml"))
+            {
+                flag_diagnostics = Some(message);
+            }
+        }
+        let symbols = symbol_response.unwrap();
+        assert!(symbols["result"].is_array());
+        // The superseding edit fixed the file, so the eventual publication for
+        // it carries no diagnostics.
+        let diagnostics = flag_diagnostics.unwrap();
+        assert_eq!(
+            diagnostics["params"]["diagnostics"]
+                .as_array()
+                .unwrap()
+                .len(),
+            0,
+            "{diagnostics:#}"
+        );
+
+        write_lsp_message(
+            &mut client_write,
+            json!({ "jsonrpc": "2.0", "id": 9, "method": "shutdown" }),
+        )
+        .await;
+        loop {
+            let message = read_lsp_message(&mut client_read).await;
+            if message["id"] == 9 {
+                break;
+            }
+        }
+        write_lsp_message(
+            &mut client_write,
+            json!({ "jsonrpc": "2.0", "method": "exit" }),
+        )
+        .await;
+        server.await.unwrap().unwrap();
+    }
+
+    #[tokio::test]
+    async fn lsp_answers_concurrent_reads_in_any_order() {
+        // Two reads sent back to back both get responses; the server no longer
+        // requires the first to finish before the second starts.
+        let tempdir = tempfile::tempdir().unwrap();
+        let root = tempdir.path();
+        tokio::fs::create_dir_all(root.join("variables"))
+            .await
+            .unwrap();
+        tokio::fs::write(root.join("rototo-package.toml"), "schema_version = 1\n")
+            .await
+            .unwrap();
+        let variable_path = root.join("variables/flag.toml");
+        tokio::fs::write(
+            &variable_path,
+            "schema_version = 1\ntype = \"bool\"\n\n[resolve]\ndefault = false\n",
+        )
+        .await
+        .unwrap();
+
+        let (client_io, server_io) = tokio::io::duplex(65536);
+        let (client_read, mut client_write) = tokio::io::split(client_io);
+        let mut client_read = BufReader::new(client_read);
+        let (server_read, server_write) = tokio::io::split(server_io);
+        let server =
+            tokio::spawn(async move { serve(BufReader::new(server_read), server_write).await });
+
+        write_lsp_message(
+            &mut client_write,
+            json!({
+                "jsonrpc": "2.0",
+                "id": 1,
+                "method": "initialize",
+                "params": { "rootUri": format!("file://{}", root.display()) }
+            }),
+        )
+        .await;
+        read_lsp_message(&mut client_read).await;
+
+        let uri = format!("file://{}", variable_path.display());
+        for id in [2, 3] {
+            write_lsp_message(
+                &mut client_write,
+                json!({
+                    "jsonrpc": "2.0",
+                    "id": id,
+                    "method": "textDocument/documentSymbol",
+                    "params": { "textDocument": { "uri": uri } }
+                }),
+            )
+            .await;
+        }
+
+        let mut seen = std::collections::BTreeSet::new();
+        while seen.len() < 2 {
+            let message = read_lsp_message(&mut client_read).await;
+            if let Some(id) = message["id"].as_i64() {
+                assert!(message["result"].is_array(), "{message:#}");
+                seen.insert(id);
+            }
+        }
+        assert_eq!(seen, [2, 3].into_iter().collect());
+
+        write_lsp_message(
+            &mut client_write,
+            json!({ "jsonrpc": "2.0", "id": 9, "method": "shutdown" }),
+        )
+        .await;
+        loop {
+            let message = read_lsp_message(&mut client_read).await;
+            if message["id"] == 9 {
+                break;
+            }
+        }
+        write_lsp_message(
+            &mut client_write,
+            json!({ "jsonrpc": "2.0", "method": "exit" }),
+        )
+        .await;
+        server.await.unwrap().unwrap();
+    }
+
+    #[tokio::test]
     async fn lsp_cancelled_request_returns_request_cancelled() {
         // A request whose cancellation the server has already seen returns the
         // RequestCancelled error instead of a result. Sending the cancel ahead of
         // the request makes the outcome deterministic: it exercises the same
         // short-circuit the read-ahead loop reaches for the realistic order where
         // the cancel arrives just after the request.
-        let (mut client, server_io) = tokio::io::duplex(8192);
+        let (client_io, server_io) = tokio::io::duplex(8192);
+        let (client_read, mut client_write) = tokio::io::split(client_io);
+        let mut client_read = BufReader::new(client_read);
         let (server_read, server_write) = tokio::io::split(server_io);
         let server =
             tokio::spawn(async move { serve(BufReader::new(server_read), server_write).await });
 
         write_lsp_message(
-            &mut client,
+            &mut client_write,
             json!({
                 "jsonrpc": "2.0",
                 "method": "$/cancelRequest",
@@ -1164,7 +1378,7 @@ value = "welcome"
         )
         .await;
         write_lsp_message(
-            &mut client,
+            &mut client_write,
             json!({
                 "jsonrpc": "2.0",
                 "id": 1,
@@ -1174,21 +1388,25 @@ value = "welcome"
         )
         .await;
 
-        let cancelled = read_lsp_message(&mut client).await;
+        let cancelled = read_lsp_message(&mut client_read).await;
         assert_eq!(cancelled["id"], 1);
         assert_eq!(cancelled["error"]["code"], -32800);
 
         // The server is still healthy after a cancellation.
         write_lsp_message(
-            &mut client,
+            &mut client_write,
             json!({ "jsonrpc": "2.0", "id": 2, "method": "shutdown" }),
         )
         .await;
-        let shutdown = read_lsp_message(&mut client).await;
+        let shutdown = read_lsp_message(&mut client_read).await;
         assert_eq!(shutdown["id"], 2);
         assert!(shutdown["result"].is_null());
 
-        write_lsp_message(&mut client, json!({ "jsonrpc": "2.0", "method": "exit" })).await;
+        write_lsp_message(
+            &mut client_write,
+            json!({ "jsonrpc": "2.0", "method": "exit" }),
+        )
+        .await;
         server.await.unwrap().unwrap();
     }
 
@@ -1296,11 +1514,13 @@ value = "welcome"
         writer.flush().await.unwrap();
     }
 
+    /// Read one framed message from a persistent buffered reader. The reader
+    /// must live across calls: with the concurrent server, frames arrive back
+    /// to back, and a per-call BufReader would drop what it read ahead.
     async fn read_lsp_message<R>(reader: &mut R) -> JsonValue
     where
-        R: AsyncRead + Unpin,
+        R: AsyncBufRead + Unpin,
     {
-        let mut reader = BufReader::new(reader);
         let mut content_length = None;
         loop {
             let mut line = String::new();
@@ -1314,7 +1534,7 @@ value = "welcome"
             }
         }
         let mut body = vec![0; content_length.unwrap()];
-        tokio::io::AsyncReadExt::read_exact(&mut reader, &mut body)
+        tokio::io::AsyncReadExt::read_exact(reader, &mut body)
             .await
             .unwrap();
         serde_json::from_slice(&body).unwrap()
