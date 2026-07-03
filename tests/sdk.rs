@@ -163,11 +163,9 @@ async fn sdk_inspects_package() {
             .any(|variable| variable.uri == "variable://checkout-redesign")
     );
     assert!(
-        inspection
-            .evaluation_contexts
-            .iter()
-            .any(|context| context.path
-                == std::path::Path::new("evaluation-contexts/request.schema.json"))
+        inspection.evaluation_contexts.iter().any(
+            |context| context.path == std::path::Path::new("model/context/request.schema.json")
+        )
     );
     assert!(
         inspection
@@ -274,16 +272,11 @@ async fn sdk_reads_all_basic_variable_configs_with_declared_sources() {
 
 #[tokio::test]
 async fn catalog_entry_files_are_whole_toml_objects() {
-    let catalogs_dir = std::path::Path::new("examples/basic/catalogs");
+    let catalogs_dir = std::path::Path::new("examples/basic/data/catalogs");
     for entry in std::fs::read_dir(catalogs_dir).unwrap() {
         let entry = entry.unwrap();
         let path = entry.path();
-        if !path.is_dir()
-            || !path
-                .file_name()
-                .and_then(|name| name.to_str())
-                .is_some_and(|name| name.ends_with("-entries"))
-        {
+        if !path.is_dir() {
             continue;
         }
 
@@ -981,7 +974,7 @@ async fn package_sdk_loads_malformed_context_config_when_lint_is_skipped_for_ins
 async fn package_sdk_rejects_context_schema_symlink_escape() {
     let temp = tempfile::TempDir::new().unwrap();
     let root = temp.path().join("package");
-    tokio::fs::create_dir_all(root.join("evaluation-contexts"))
+    tokio::fs::create_dir_all(root.join("model/context"))
         .await
         .unwrap();
     tokio::fs::write(
@@ -999,7 +992,7 @@ async fn package_sdk_rejects_context_schema_symlink_escape() {
     .unwrap();
     std::os::unix::fs::symlink(
         temp.path().join("outside.schema.json"),
-        root.join("evaluation-contexts/request.schema.json"),
+        root.join("model/context/request.schema.json"),
     )
     .unwrap();
 

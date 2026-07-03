@@ -179,7 +179,10 @@ default = "hello"
         tokio::fs::create_dir_all(root.join("variables"))
             .await
             .unwrap();
-        tokio::fs::create_dir_all(root.join("catalogs/message-entries"))
+        tokio::fs::create_dir_all(root.join("model/catalogs"))
+            .await
+            .unwrap();
+        tokio::fs::create_dir_all(root.join("data/catalogs/message"))
             .await
             .unwrap();
         tokio::fs::create_dir_all(root.join("lint")).await.unwrap();
@@ -218,7 +221,7 @@ default = "hello"
         tokio::fs::write(&variable_path, disk_variable)
             .await
             .unwrap();
-        let catalog_path = root.join("catalogs/message.schema.json");
+        let catalog_path = root.join("model/catalogs/message.schema.json");
         tokio::fs::write(
             &catalog_path,
             r#"{
@@ -231,7 +234,7 @@ default = "hello"
         )
         .await
         .unwrap();
-        let catalog_entry_path = root.join("catalogs/message-entries/external.toml");
+        let catalog_entry_path = root.join("data/catalogs/message/external.toml");
         tokio::fs::write(&catalog_entry_path, r#"value = "external""#)
             .await
             .unwrap();
@@ -341,10 +344,13 @@ value = "welcome"
         tokio::fs::create_dir_all(root.join("variables"))
             .await
             .unwrap();
-        tokio::fs::create_dir_all(root.join("catalogs/message-entries"))
+        tokio::fs::create_dir_all(root.join("model/catalogs"))
             .await
             .unwrap();
-        tokio::fs::create_dir_all(root.join("evaluation-contexts"))
+        tokio::fs::create_dir_all(root.join("data/catalogs/message"))
+            .await
+            .unwrap();
+        tokio::fs::create_dir_all(root.join("model/context"))
             .await
             .unwrap();
         tokio::fs::create_dir_all(root.join("lint")).await.unwrap();
@@ -385,7 +391,7 @@ default = "hello"
             .await
             .unwrap();
         tokio::fs::write(
-            root.join("evaluation-contexts/request.schema.json"),
+            root.join("model/context/request.schema.json"),
             r#"{
   "type": "object",
   "properties": {
@@ -504,7 +510,7 @@ default = "hello"
         tokio::fs::create_dir_all(root.join("variables"))
             .await
             .unwrap();
-        tokio::fs::create_dir_all(root.join("catalogs"))
+        tokio::fs::create_dir_all(root.join("model/catalogs"))
             .await
             .unwrap();
         tokio::fs::write(
@@ -531,7 +537,7 @@ value = true
         .await
         .unwrap();
         tokio::fs::write(
-            root.join("catalogs/message.schema.json"),
+            root.join("model/catalogs/message.schema.json"),
             r#"{"type":"string"}"#,
         )
         .await
@@ -635,10 +641,13 @@ query = 'variables["premium"]'
         tokio::fs::create_dir_all(root.join("variables"))
             .await
             .unwrap();
-        tokio::fs::create_dir_all(root.join("catalogs/message-entries"))
+        tokio::fs::create_dir_all(root.join("model/catalogs"))
             .await
             .unwrap();
-        tokio::fs::create_dir_all(root.join("evaluation-contexts"))
+        tokio::fs::create_dir_all(root.join("data/catalogs/message"))
+            .await
+            .unwrap();
+        tokio::fs::create_dir_all(root.join("model/context"))
             .await
             .unwrap();
         tokio::fs::write(
@@ -680,12 +689,12 @@ value = true
         )
         .await
         .unwrap();
-        let schema_path = root.join("catalogs/message.schema.json");
+        let schema_path = root.join("model/catalogs/message.schema.json");
         tokio::fs::write(&schema_path, r#"{"type":"string"}"#)
             .await
             .unwrap();
         tokio::fs::write(
-            root.join("catalogs/message-entries/welcome.toml"),
+            root.join("data/catalogs/message/welcome.toml"),
             r#"value = "welcome""#,
         )
         .await
@@ -760,10 +769,13 @@ value = "welcome"
         tokio::fs::create_dir_all(root.join("variables"))
             .await
             .unwrap();
-        tokio::fs::create_dir_all(root.join("catalogs/message-entries"))
+        tokio::fs::create_dir_all(root.join("model/catalogs"))
             .await
             .unwrap();
-        tokio::fs::create_dir_all(root.join("evaluation-contexts"))
+        tokio::fs::create_dir_all(root.join("data/catalogs/message"))
+            .await
+            .unwrap();
+        tokio::fs::create_dir_all(root.join("model/context"))
             .await
             .unwrap();
         tokio::fs::write(
@@ -822,17 +834,17 @@ value = true
         .await
         .unwrap();
         tokio::fs::write(
-            root.join("evaluation-contexts/request.schema.json"),
+            root.join("model/context/request.schema.json"),
             r#"{"type":"object","properties":{"account":{"type":"object","properties":{"beta":{"type":"boolean"}}}}}"#,
         )
         .await
         .unwrap();
-        let message_schema_path = root.join("catalogs/message.schema.json");
+        let message_schema_path = root.join("model/catalogs/message.schema.json");
         tokio::fs::write(&message_schema_path, r#"{"type":"string"}"#)
             .await
             .unwrap();
         tokio::fs::write(
-            root.join("catalogs/message-entries/welcome.toml"),
+            root.join("data/catalogs/message/welcome.toml"),
             r#"value = "welcome""#,
         )
         .await
@@ -914,7 +926,7 @@ value = "welcome"
         assert!(catalog_value_references.iter().any(|location| {
             location
                 .uri
-                .ends_with("/catalogs/message-entries/welcome.toml")
+                .ends_with("/data/catalogs/message/welcome.toml")
         }));
 
         // Context attributes are also indexed. Both condition variables read

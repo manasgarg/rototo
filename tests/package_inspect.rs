@@ -12,7 +12,7 @@ fn inspects_basic_package() {
         .stdout(predicate::str::contains("catalogs:"))
         .stdout(predicate::str::contains("catalog: checkout-redesign"))
         .stdout(predicate::str::contains(
-            "schema: catalogs/checkout-redesign.schema.json",
+            "schema: model/catalogs/checkout-redesign.schema.json",
         ))
         .stdout(predicate::str::contains("variable: premium-users"))
         .stdout(predicate::str::contains("variable: premium-beta-users"))
@@ -122,7 +122,7 @@ fn inspects_basic_package_as_json() {
         .success()
         .stdout(predicate::str::contains(r#""catalogs": ["#))
         .stdout(predicate::str::contains(
-            r#""path": "catalogs/checkout-redesign.schema.json""#,
+            r#""path": "model/catalogs/checkout-redesign.schema.json""#,
         ))
         .stdout(predicate::str::contains(r#""variables": ["#))
         .stdout(predicate::str::contains(r#""lint_authorities": ["#))

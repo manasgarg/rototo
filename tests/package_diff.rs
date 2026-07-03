@@ -29,7 +29,7 @@ fn diff_json_reports_semantic_value_change_and_resolution_impact() {
         &after,
         &[
             "--context",
-            "@examples/basic/evaluation-contexts/request-samples/premium-enterprise.json",
+            "@examples/basic/model/context/request-samples/premium-enterprise.json",
             "--context",
             "lane=stage",
         ],
@@ -114,7 +114,7 @@ default = "new"
     );
 
     write_file(
-        &before.join("catalogs/retired.schema.json"),
+        &before.join("model/catalogs/retired.schema.json"),
         r#"{
   "type": "object",
   "additionalProperties": true
@@ -122,7 +122,7 @@ default = "new"
 "#,
     );
     write_file(
-        &after.join("catalogs/new.schema.json"),
+        &after.join("model/catalogs/new.schema.json"),
         r#"{
   "type": "object",
   "additionalProperties": true
@@ -131,7 +131,7 @@ default = "new"
     );
 
     write_file(
-        &before.join("catalogs/support-banner-entries/retired.toml"),
+        &before.join("data/catalogs/support-banner/retired.toml"),
         r#"enabled = false
 tone = "quiet"
 heading = "Retired"
@@ -140,7 +140,7 @@ cta = "Dismiss"
 "#,
     );
     write_file(
-        &after.join("catalogs/support-banner-entries/new.toml"),
+        &after.join("data/catalogs/support-banner/new.toml"),
         r#"enabled = true
 tone = "help"
 heading = "New"

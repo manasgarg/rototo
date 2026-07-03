@@ -109,21 +109,20 @@ async fn build_init_plan(package: &Path, target: InitTarget) -> Result<InitPlan>
         InitTarget::Catalog(id) => {
             let mut plan = implicit_package_init_plan(package, initialized);
             if initialized {
-                plan.push(InitPlanEntry::directory(package.join("catalogs")));
+                plan.push(InitPlanEntry::directory(package.join("model/catalogs")));
             }
             plan.extend([
-                InitPlanEntry::directory(package.join("catalogs").join(format!("{id}-entries"))),
+                InitPlanEntry::directory(package.join("data/catalogs").join(&id)),
                 InitPlanEntry::file(
                     "catalog",
-                    package.join("catalogs").join(format!("{id}.schema.json")),
+                    package
+                        .join("model/catalogs")
+                        .join(format!("{id}.schema.json")),
                     catalog_schema_template()?,
                 ),
                 InitPlanEntry::file(
                     "catalog_entry",
-                    package
-                        .join("catalogs")
-                        .join(format!("{id}-entries"))
-                        .join("default.toml"),
+                    package.join("data/catalogs").join(&id).join("default.toml"),
                     catalog_entry_template(),
                 ),
             ]);
@@ -132,12 +131,10 @@ async fn build_init_plan(package: &Path, target: InitTarget) -> Result<InitPlan>
         InitTarget::Context { id, update } => {
             let mut plan = implicit_package_init_plan(package, initialized);
             if initialized {
-                plan.push(InitPlanEntry::directory(
-                    package.join("evaluation-contexts"),
-                ));
+                plan.push(InitPlanEntry::directory(package.join("model/context")));
             }
             let context_path = package
-                .join("evaluation-contexts")
+                .join("model/context")
                 .join(format!("{id}.schema.json"));
             let (content, schema_update) =
                 context_schema_template(package, &context_path, &id, initialized, update).await?;
@@ -173,8 +170,9 @@ fn package_init_plan(package: &Path) -> Vec<InitPlanEntry> {
             package_manifest_template(),
         ),
         InitPlanEntry::directory(package.join("variables")),
-        InitPlanEntry::directory(package.join("catalogs")),
-        InitPlanEntry::directory(package.join("evaluation-contexts")),
+        InitPlanEntry::directory(package.join("model/catalogs")),
+        InitPlanEntry::directory(package.join("data/catalogs")),
+        InitPlanEntry::directory(package.join("model/context")),
         InitPlanEntry::directory(package.join("lint")),
     ]
 }

@@ -22,7 +22,7 @@ async fn semantic_model_projects_entities_references_and_ranges() {
     assert!(
         catalog
             .path
-            .ends_with("catalogs/support-banner.schema.json")
+            .ends_with("model/catalogs/support-banner.schema.json")
     );
     assert_eq!(
         catalog
@@ -112,7 +112,7 @@ async fn semantic_model_projects_query_rules_and_evaluation_context_compatibilit
     write_file(root, "rototo-package.toml", "schema_version = 1\n");
     write_file(
         root,
-        "evaluation-contexts/request.schema.json",
+        "model/context/request.schema.json",
         r#"{
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "type": "object",
@@ -130,7 +130,7 @@ async fn semantic_model_projects_query_rules_and_evaluation_context_compatibilit
     );
     write_file(
         root,
-        "evaluation-contexts/request-samples/premium-email.json",
+        "model/context/request-samples/premium-email.json",
         r#"{
   "channel": "email",
   "user": { "tier": "premium" }
@@ -155,7 +155,7 @@ value = true
     );
     write_file(
         root,
-        "catalogs/message-template.schema.json",
+        "model/catalogs/message-template.schema.json",
         r#"{
   "type": "object",
   "required": ["channel", "active", "body"],
@@ -169,7 +169,7 @@ value = true
     );
     write_file(
         root,
-        "catalogs/message-template-entries/email.toml",
+        "data/catalogs/message-template/email.toml",
         r#"channel = "email"
 active = true
 body = "Email body"

@@ -222,9 +222,7 @@ async fn read_catalog_entries_toml(
     package_root: &Path,
     catalog: &CatalogInspection,
 ) -> Result<serde_json::Map<String, JsonValue>> {
-    let entries_dir = package_root
-        .join("catalogs")
-        .join(format!("{}-entries", catalog.id));
+    let entries_dir = package_root.join("data/catalogs").join(&catalog.id);
     let mut catalog_entries = serde_json::Map::new();
     let Ok(mut entries) = tokio::fs::read_dir(&entries_dir).await else {
         return Ok(catalog_entries);
@@ -267,7 +265,7 @@ async fn discover_variables(package_root: &Path) -> Result<Vec<VariableInspectio
 
 async fn discover_catalogs(package_root: &Path) -> Result<Vec<CatalogInspection>> {
     let mut catalogs = Vec::new();
-    for path in discover_named_files(package_root, "catalogs", "json").await? {
+    for path in discover_named_files(package_root, "model/catalogs", "json").await? {
         let Some(id) = catalog_id_from_path(&path) else {
             continue;
         };
@@ -286,7 +284,7 @@ async fn discover_evaluation_contexts(
     package_root: &Path,
 ) -> Result<Vec<EvaluationContextInspection>> {
     let mut evaluation_contexts = Vec::new();
-    for path in discover_named_files(package_root, "evaluation-contexts", "json").await? {
+    for path in discover_named_files(package_root, "model/context", "json").await? {
         let Some(id) = evaluation_context_id_from_path(&path) else {
             continue;
         };

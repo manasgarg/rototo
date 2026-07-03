@@ -917,12 +917,15 @@ value = true
     async fn resolves_when_conditions_and_catalog_query_variables() {
         let package =
             package_with_conditions(&[("premium", condition(r#"context.user.tier == "premium""#))]);
-        std::fs::create_dir_all(package.path().join("catalogs/message-template-entries")).unwrap();
-        std::fs::create_dir_all(package.path().join("catalogs/hero-banner-entries")).unwrap();
-        std::fs::create_dir_all(package.path().join("catalogs/page-entries")).unwrap();
+        std::fs::create_dir_all(package.path().join("model/catalogs")).unwrap();
+        std::fs::create_dir_all(package.path().join("data/catalogs/message-template")).unwrap();
+        std::fs::create_dir_all(package.path().join("data/catalogs/hero-banner")).unwrap();
+        std::fs::create_dir_all(package.path().join("data/catalogs/page")).unwrap();
         std::fs::create_dir_all(package.path().join("variables")).unwrap();
         std::fs::write(
-            package.path().join("catalogs/message-template.schema.json"),
+            package
+                .path()
+                .join("model/catalogs/message-template.schema.json"),
             r#"{
   "type": "object",
   "required": ["channel", "active", "body"],
@@ -938,7 +941,7 @@ value = true
         std::fs::write(
             package
                 .path()
-                .join("catalogs/message-template-entries/email.toml"),
+                .join("data/catalogs/message-template/email.toml"),
             r#"channel = "email"
 active = true
 body = "Email body"
@@ -948,7 +951,7 @@ body = "Email body"
         std::fs::write(
             package
                 .path()
-                .join("catalogs/message-template-entries/sms.toml"),
+                .join("data/catalogs/message-template/sms.toml"),
             r#"channel = "sms"
 active = false
 body = "SMS body"
@@ -969,7 +972,9 @@ query = "entry.channel == context.channel && entry.active == true && variables[\
         )
         .unwrap();
         std::fs::write(
-            package.path().join("catalogs/hero-banner.schema.json"),
+            package
+                .path()
+                .join("model/catalogs/hero-banner.schema.json"),
             r#"{
   "type": "object",
   "required": ["cta"],
@@ -981,15 +986,13 @@ query = "entry.channel == context.channel && entry.active == true && variables[\
         )
         .unwrap();
         std::fs::write(
-            package
-                .path()
-                .join("catalogs/hero-banner-entries/home.toml"),
+            package.path().join("data/catalogs/hero-banner/home.toml"),
             r#"cta = "Buy"
 "#,
         )
         .unwrap();
         std::fs::write(
-            package.path().join("catalogs/page.schema.json"),
+            package.path().join("model/catalogs/page.schema.json"),
             r#"{
   "type": "object",
   "required": ["hero", "title"],
@@ -1005,7 +1008,7 @@ query = "entry.channel == context.channel && entry.active == true && variables[\
         )
         .unwrap();
         std::fs::write(
-            package.path().join("catalogs/page-entries/home.toml"),
+            package.path().join("data/catalogs/page/home.toml"),
             r#"hero = "home"
 title = "Home"
 "#,

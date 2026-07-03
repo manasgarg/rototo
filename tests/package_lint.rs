@@ -25,11 +25,13 @@ fn lints_basic_package_as_json_with_documents() {
     assert!(document_paths(&lint).contains(&"rototo-package.toml".to_owned()));
     assert!(document_paths(&lint).contains(&"variables/premium-users.toml".to_owned()));
     assert!(document_paths(&lint).contains(&"variables/checkout-redesign.toml".to_owned()));
-    assert!(document_paths(&lint).contains(&"catalogs/llm-agent-config.schema.json".to_owned()));
     assert!(
-        document_paths(&lint).contains(&"catalogs/llm-agent-config-entries/local.toml".to_owned())
+        document_paths(&lint).contains(&"model/catalogs/llm-agent-config.schema.json".to_owned())
     );
-    assert!(document_paths(&lint).contains(&"evaluation-contexts/request.schema.json".to_owned()));
+    assert!(
+        document_paths(&lint).contains(&"data/catalogs/llm-agent-config/local.toml".to_owned())
+    );
+    assert!(document_paths(&lint).contains(&"model/context/request.schema.json".to_owned()));
 }
 
 #[test]
@@ -353,14 +355,14 @@ fn parse_diagnostics_handle_multibyte_text_near_syntax_errors() {
     );
 
     let json_root = temp.path().join("json");
-    std::fs::create_dir_all(json_root.join("catalogs")).unwrap();
+    std::fs::create_dir_all(json_root.join("model/catalogs")).unwrap();
     std::fs::write(
         json_root.join("rototo-package.toml"),
         "schema_version = 1\n",
     )
     .unwrap();
     std::fs::write(
-        json_root.join("catalogs/broken.schema.json"),
+        json_root.join("model/catalogs/broken.schema.json"),
         "{\"title\":\"café\",\"type\":}",
     )
     .unwrap();
@@ -381,7 +383,7 @@ fn reports_package_context_schema_ref_failures() {
     );
     assert_eq!(
         parse_diagnostic["location"]["path"],
-        "evaluation-contexts/request.schema.json"
+        "model/context/request.schema.json"
     );
 
     let schema_lint = lint_json(
@@ -391,7 +393,7 @@ fn reports_package_context_schema_ref_failures() {
     assert_project_rule(
         &schema_lint,
         "rototo/evaluation-context-schema-invalid",
-        "evaluation-contexts/request.schema.json",
+        "model/context/request.schema.json",
     );
 }
 
@@ -401,10 +403,10 @@ fn accepts_path_safety_normalized_refs() {
 
     assert!(lint["diagnostics"].as_array().unwrap().is_empty());
     assert!(document_paths(&lint).contains(&"rototo-package.toml".to_owned()));
-    assert!(document_paths(&lint).contains(&"evaluation-contexts/request.schema.json".to_owned()));
+    assert!(document_paths(&lint).contains(&"model/context/request.schema.json".to_owned()));
     assert!(document_paths(&lint).contains(&"variables/message.toml".to_owned()));
-    assert!(document_paths(&lint).contains(&"catalogs/message.schema.json".to_owned()));
-    assert!(document_paths(&lint).contains(&"catalogs/message-entries/default.toml".to_owned()));
+    assert!(document_paths(&lint).contains(&"model/catalogs/message.schema.json".to_owned()));
+    assert!(document_paths(&lint).contains(&"data/catalogs/message/default.toml".to_owned()));
     assert!(document_paths(&lint).contains(&"lint/ok.lua".to_owned()));
 }
 
@@ -506,7 +508,8 @@ fn catalog_value_file_can_represent_object_with_value_field() {
     let temp = tempfile::TempDir::new().unwrap();
     let root = temp.path();
     std::fs::create_dir_all(root.join("variables")).unwrap();
-    std::fs::create_dir_all(root.join("catalogs/message-entries")).unwrap();
+    std::fs::create_dir_all(root.join("data/catalogs/message")).unwrap();
+    std::fs::create_dir_all(root.join("model/catalogs")).unwrap();
     std::fs::write(
         root.join("rototo-package.toml"),
         r#"schema_version = 1
@@ -514,7 +517,7 @@ fn catalog_value_file_can_represent_object_with_value_field() {
     )
     .unwrap();
     std::fs::write(
-        root.join("catalogs/message.schema.json"),
+        root.join("model/catalogs/message.schema.json"),
         r#"{
   "type": "object",
   "properties": { "value": { "type": "string" } },
@@ -534,7 +537,7 @@ default = "default"
     )
     .unwrap();
     std::fs::write(
-        root.join("catalogs/message-entries/default.toml"),
+        root.join("data/catalogs/message/default.toml"),
         r#"value = "literal object field""#,
     )
     .unwrap();
@@ -551,7 +554,8 @@ fn catalog_backed_variable_values_are_rejected_before_value_validation() {
     let temp = tempfile::TempDir::new().unwrap();
     let root = temp.path();
     std::fs::create_dir_all(root.join("variables")).unwrap();
-    std::fs::create_dir_all(root.join("catalogs/message-entries")).unwrap();
+    std::fs::create_dir_all(root.join("data/catalogs/message")).unwrap();
+    std::fs::create_dir_all(root.join("model/catalogs")).unwrap();
     std::fs::write(
         root.join("rototo-package.toml"),
         r#"schema_version = 1
@@ -559,7 +563,7 @@ fn catalog_backed_variable_values_are_rejected_before_value_validation() {
     )
     .unwrap();
     std::fs::write(
-        root.join("catalogs/message.schema.json"),
+        root.join("model/catalogs/message.schema.json"),
         r#"{
   "type": "object",
   "properties": { "value": { "type": "string" } },
@@ -569,7 +573,7 @@ fn catalog_backed_variable_values_are_rejected_before_value_validation() {
     )
     .unwrap();
     std::fs::write(
-        root.join("catalogs/message-entries/default.toml"),
+        root.join("data/catalogs/message/default.toml"),
         r#"value = "catalog value""#,
     )
     .unwrap();
@@ -637,7 +641,7 @@ fn reports_value_stage_failures() {
     assert_value_rule(
         &lint,
         "rototo/catalog-entry-schema-mismatch",
-        "catalogs/bad-schema-value-entries/broken.toml",
+        "data/catalogs/bad-schema-value/broken.toml",
     );
     assert_value_rule(
         &lint,
@@ -678,7 +682,7 @@ fn schema_contract_discovers_direct_catalog_schema_documents() {
     let lint = lint_json("tests/fixtures/packages/schema-contract-normalized", true);
     let catalog_schema_documents = document_paths(&lint)
         .into_iter()
-        .filter(|path| path.starts_with("catalogs/") && path.ends_with(".schema.json"))
+        .filter(|path| path.starts_with("model/catalogs/") && path.ends_with(".schema.json"))
         .count();
 
     assert!(lint["diagnostics"].as_array().unwrap().is_empty());
@@ -697,7 +701,7 @@ fn schema_contract_skips_value_validation_when_schema_cannot_compile() {
     assert_eq!(diagnostic["target"]["entity"]["id"], "message");
     assert_eq!(
         diagnostic["location"]["path"],
-        "catalogs/message.schema.json"
+        "model/catalogs/message.schema.json"
     );
 }
 
@@ -715,7 +719,7 @@ fn schema_contract_skips_value_validation_when_schema_cannot_parse() {
     assert_eq!(diagnostic["target"]["entity"]["id"], "message");
     assert_eq!(
         diagnostic["location"]["path"],
-        "catalogs/message.schema.json"
+        "model/catalogs/message.schema.json"
     );
 }
 
@@ -890,7 +894,7 @@ fn reports_registered_custom_lint_targets() {
     assert_policy_rule(
         &lint,
         "targets/catalog-entry-json-pointer",
-        "catalogs/agent-config-entries/standard.toml",
+        "data/catalogs/agent-config/standard.toml",
     );
     let package = diagnostic_for_rule(&lint, "targets/package-extends");
     assert_eq!(package["target"]["entity"]["kind"], "package");
@@ -1652,7 +1656,7 @@ fn canonical_rule_fixtures() -> &'static [CanonicalRuleFixture] {
                 stage: LintStage::Project,
                 entity: ExpectedEntity::Catalog("panel"),
                 primary: ExpectedPrimaryLocation::Document {
-                    path: "catalogs/panel.schema.json",
+                    path: "model/catalogs/panel.schema.json",
                     range: None,
                 },
                 related: &[],
@@ -1668,7 +1672,7 @@ fn canonical_rule_fixtures() -> &'static [CanonicalRuleFixture] {
                 stage: LintStage::Project,
                 entity: ExpectedEntity::Catalog("panel"),
                 primary: ExpectedPrimaryLocation::Document {
-                    path: "catalogs/panel.schema.json",
+                    path: "model/catalogs/panel.schema.json",
                     range: None,
                 },
                 related: &[],
@@ -1684,7 +1688,7 @@ fn canonical_rule_fixtures() -> &'static [CanonicalRuleFixture] {
                 stage: LintStage::Project,
                 entity: ExpectedEntity::Catalog("panel"),
                 primary: ExpectedPrimaryLocation::Document {
-                    path: "catalogs/panel.schema.json",
+                    path: "model/catalogs/panel.schema.json",
                     range: None,
                 },
                 related: &[],
@@ -2015,13 +2019,13 @@ fn lint_failures_expected_rule_ids() -> &'static [&'static str] {
 
 fn intentionally_malformed_fixture_files() -> &'static [&'static str] {
     &[
-        "context-schema-invalid-json/evaluation-contexts/request.schema.json",
+        "context-schema-invalid-json/model/context/request.schema.json",
         "invalid-package-file-toml/variables/broken.toml",
         "invalid-package-toml/rototo-package.toml",
         "rules/parse/variable-external-value-parse-failed/variables/external-message-values/broken.toml",
         "rules/parse/variable-parse-failed/variables/broken.toml",
         "rules/parse/package-manifest-parse-failed/rototo-package.toml",
-        "schema-contract-parse-failed/catalogs/message.schema.json",
+        "schema-contract-parse-failed/model/catalogs/message.schema.json",
     ]
 }
 

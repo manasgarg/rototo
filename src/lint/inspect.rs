@@ -840,12 +840,13 @@ fn diagnostic_is_catalog_related(diagnostic: &LintDiagnostic) -> bool {
     matches!(
         diagnostic.target.entity,
         SemanticEntity::Catalog { .. } | SemanticEntity::CatalogEntry { .. }
-    ) || diagnostic.primary.path.starts_with("catalogs/")
+    ) || diagnostic.primary.path.starts_with("model/catalogs/")
+        || diagnostic.primary.path.starts_with("data/catalogs/")
 }
 
 fn diagnostic_belongs_to_catalog(diagnostic: &LintDiagnostic, id: &str) -> bool {
-    let catalog_path = format!("catalogs/{id}.schema.json");
-    let catalog_entries_prefix = format!("catalogs/{id}-entries/");
+    let catalog_path = format!("model/catalogs/{id}.schema.json");
+    let catalog_entries_prefix = format!("data/catalogs/{id}/");
     matches!(&diagnostic.target.entity, SemanticEntity::Catalog { id: diagnostic_id } if diagnostic_id == id)
         || matches!(&diagnostic.target.entity, SemanticEntity::CatalogEntry { catalog, .. } if catalog == id)
         || diagnostic.primary.path == catalog_path
@@ -865,8 +866,8 @@ fn diagnostic_belongs_to_linter(diagnostic: &LintDiagnostic, id: &str) -> bool {
 }
 
 fn diagnostic_belongs_to_evaluation_context(diagnostic: &LintDiagnostic, id: &str) -> bool {
-    let schema_path = format!("evaluation-contexts/{id}.schema.json");
-    let samples_prefix = format!("evaluation-contexts/{id}-samples/");
+    let schema_path = format!("model/context/{id}.schema.json");
+    let samples_prefix = format!("model/context/{id}-samples/");
     matches!(&diagnostic.target.entity, SemanticEntity::EvaluationContext { id: diagnostic_id } if diagnostic_id == id)
         || matches!(&diagnostic.target.entity, SemanticEntity::EvaluationContextSample { evaluation_context, .. } if evaluation_context == id)
         || diagnostic.primary.path == schema_path

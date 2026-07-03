@@ -155,7 +155,7 @@ rototo_rules! {
         id: "package-context-schema-ref",
         entity: Package,
         title: "Evaluation context schema is invalid",
-        help: "Retired. Use evaluation-contexts/<id>.schema.json for evaluation context validation.",
+        help: "Retired. Use model/context/<id>.schema.json for evaluation context validation.",
     },
     PackageContextSchemaAttribute => {
         id: "package-context-schema-attribute",
@@ -173,14 +173,14 @@ rototo_rules! {
         id: "package-context-schema-missing",
         entity: Package,
         title: "Evaluation context schema is missing",
-        help: "Retired. Add evaluation-contexts/<id>.schema.json for evaluation context validation.",
+        help: "Retired. Add model/context/<id>.schema.json for evaluation context validation.",
         severity: Warning,
     },
     EvaluationContextSchemaInvalid => {
         id: "evaluation-context-schema-invalid",
         entity: EvaluationContext,
         title: "Evaluation context schema is invalid",
-        help: "Fix the evaluation-contexts/<id>.schema.json file so it parses and compiles as JSON Schema.",
+        help: "Fix the model/context/<id>.schema.json file so it parses and compiles as JSON Schema.",
     },
     EvaluationContextReservedField => {
         id: "evaluation-context-reserved-field",
@@ -234,7 +234,7 @@ rototo_rules! {
         id: "qualifier-when-undeclared-context-path",
         entity: Qualifier,
         title: "Qualifier when expression references an undeclared context path",
-        help: "Declare the attribute in an evaluation context schema under evaluation-contexts/<id>.schema.json, or fix the path in the when expression.",
+        help: "Declare the attribute in an evaluation context schema under model/context/<id>.schema.json, or fix the path in the when expression.",
     },
     QualifierWhenInvalidReference => {
         id: "qualifier-when-invalid-reference",
@@ -294,7 +294,7 @@ rototo_rules! {
         id: "qualifier-no-compatible-evaluation-context",
         entity: Qualifier,
         title: "Qualifier has no compatible evaluation context",
-        help: "Add an evaluation context schema under evaluation-contexts/<id>.schema.json that declares the qualifier's context attributes, or update the qualifier predicates.",
+        help: "Add an evaluation context schema under model/context/<id>.schema.json that declares the qualifier's context attributes, or update the qualifier predicates.",
     },
     QualifierPredicateDuplicate => {
         id: "qualifier-predicate-duplicate",
@@ -453,7 +453,7 @@ rototo_rules! {
         id: "variable-rule-undeclared-context-path",
         entity: Rule,
         title: "Variable rule references an undeclared context path",
-        help: "Declare the attribute in an evaluation context schema under evaluation-contexts/<id>.schema.json, or fix the path in the rule when/query expression.",
+        help: "Declare the attribute in an evaluation context schema under model/context/<id>.schema.json, or fix the path in the rule when/query expression.",
     },
     VariableRuleInvalidReference => {
         id: "variable-rule-invalid-reference",

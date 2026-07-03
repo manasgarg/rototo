@@ -221,7 +221,7 @@ value = "premium"
 "#,
             ),
             (
-                "catalogs/message.schema.json",
+                "model/catalogs/message.schema.json",
                 r#"{
   "type": "object",
   "properties": { "message": { "type": "string" } },
@@ -229,16 +229,13 @@ value = "premium"
   "additionalProperties": false
 }"#,
             ),
+            ("data/catalogs/message/default.toml", r#"message = "hello""#),
             (
-                "catalogs/message-entries/default.toml",
-                r#"message = "hello""#,
-            ),
-            (
-                "catalogs/message-entries/premium.toml",
+                "data/catalogs/message/premium.toml",
                 r#"message = "premium""#,
             ),
             (
-                "evaluation-contexts/request.schema.json",
+                "model/context/request.schema.json",
                 r#"{
   "type": "object",
   "properties": {
@@ -290,10 +287,10 @@ end
             PACKAGE_MANIFEST,
             "variables/premium.toml",
             "variables/message.toml",
-            "catalogs/message.schema.json",
-            "catalogs/message-entries/default.toml",
-            "catalogs/message-entries/premium.toml",
-            "evaluation-contexts/request.schema.json",
+            "model/catalogs/message.schema.json",
+            "data/catalogs/message/default.toml",
+            "data/catalogs/message/premium.toml",
+            "model/context/request.schema.json",
             "lint/noop.lua",
         ] {
             assert!(
@@ -394,10 +391,13 @@ end
         tokio::fs::create_dir_all(root.join("variables"))
             .await
             .unwrap();
-        tokio::fs::create_dir_all(root.join("catalogs/message-entries"))
+        tokio::fs::create_dir_all(root.join("model/catalogs"))
             .await
             .unwrap();
-        tokio::fs::create_dir_all(root.join("evaluation-contexts"))
+        tokio::fs::create_dir_all(root.join("data/catalogs/message"))
+            .await
+            .unwrap();
+        tokio::fs::create_dir_all(root.join("model/context"))
             .await
             .unwrap();
         tokio::fs::write(
@@ -457,7 +457,7 @@ value = "absent"
         .await
         .unwrap();
         tokio::fs::write(
-            root.join("catalogs/message.schema.json"),
+            root.join("model/catalogs/message.schema.json"),
             r#"{
   "type": "object",
   "properties": { "text": { "type": "string" } },
@@ -469,14 +469,14 @@ value = "absent"
         .await
         .unwrap();
         tokio::fs::write(
-            root.join("catalogs/message-entries/welcome.toml"),
+            root.join("data/catalogs/message/welcome.toml"),
             r#"text = "welcome"
 "#,
         )
         .await
         .unwrap();
         tokio::fs::write(
-            root.join("evaluation-contexts/request.schema.json"),
+            root.join("model/context/request.schema.json"),
             r#"{"type":"object"}"#,
         )
         .await
@@ -548,10 +548,7 @@ value = "absent"
             .evaluation_contexts
             .get("request")
             .expect("context schema node");
-        assert_eq!(
-            context_schema.path,
-            "evaluation-contexts/request.schema.json"
-        );
+        assert_eq!(context_schema.path, "model/context/request.schema.json");
         assert!(context_schema.json.is_some());
         assert!(context_schema.validator.is_some());
         assert!(context_schema.invalid_message.is_none());

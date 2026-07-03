@@ -960,14 +960,12 @@ fn catalog_entry_field_completion_items(
 }
 
 fn catalog_id_for_entry_path(path: &str) -> Option<&str> {
-    let path = path.strip_prefix("catalogs/")?;
+    let path = path.strip_prefix("data/catalogs/")?;
     let (directory, entry) = path.split_once('/')?;
     if entry.is_empty() || !entry.ends_with(".toml") {
         return None;
     }
-    directory
-        .strip_suffix("-entries")
-        .filter(|id| !id.is_empty())
+    (!directory.is_empty()).then_some(directory)
 }
 
 fn variable_expression_at_position(

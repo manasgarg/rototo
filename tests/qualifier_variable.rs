@@ -42,7 +42,7 @@ fn shows_package_inventory_including_linters() {
         .stdout(predicate::str::contains("catalogs:"))
         .stdout(predicate::str::contains("variables:"))
         .stdout(predicate::str::contains(
-            "llm-agent-config  catalogs/llm-agent-config.schema.json",
+            "llm-agent-config  model/catalogs/llm-agent-config.schema.json",
         ))
         .stdout(predicate::str::contains("catalog://llm-agent-config").not())
         .stdout(predicate::str::contains("lint authorities:"))
@@ -66,7 +66,7 @@ fn shows_package_inventory_as_json_including_top_level_entries() {
         .assert()
         .success()
         .stdout(predicate::str::contains(
-            r#""path": "evaluation-contexts/request.schema.json""#,
+            r#""path": "model/context/request.schema.json""#,
         ))
         .stdout(predicate::str::contains(r#""catalogs": ["#))
         .stdout(predicate::str::contains(r#""variables": ["#))
@@ -297,7 +297,7 @@ fn resolves_production_example_enterprise_profile() {
             "--variable",
             "agent-config",
             "--context",
-            "@examples/production/evaluation-contexts/request-samples/eu-enterprise.json",
+            "@examples/production/model/context/request-samples/eu-enterprise.json",
             "--json",
         ])
         .assert()
@@ -317,7 +317,7 @@ fn resolves_all_variables() {
             "examples/basic",
             "--variables",
             "--context",
-            "@examples/basic/evaluation-contexts/request-samples/premium-enterprise.json",
+            "@examples/basic/model/context/request-samples/premium-enterprise.json",
             "--context",
             "lane=prod",
             "--json",

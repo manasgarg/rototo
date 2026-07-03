@@ -651,7 +651,7 @@ fn top_level_help() -> String {
         "fixtures examples/basic --variable tenant-limits",
         "lint examples/basic",
         "show examples/basic --variables",
-        "diff examples/basic --context @examples/basic/evaluation-contexts/request-samples/premium-enterprise.json",
+        "diff examples/basic --context @examples/basic/model/context/request-samples/premium-enterprise.json",
         "resolve examples/basic --variable checkout-redesign --context lane=prod --context user.tier=premium",
         "package examples/basic --output dist",
         "docs -p motivation",
@@ -1230,12 +1230,13 @@ fn diagnostic_is_catalog_related(diagnostic: &LintDiagnostic) -> bool {
     matches!(
         diagnostic.target.entity,
         SemanticEntity::Catalog { .. } | SemanticEntity::CatalogEntry { .. }
-    ) || diagnostic.primary.path.starts_with("catalogs/")
+    ) || diagnostic.primary.path.starts_with("model/catalogs/")
+        || diagnostic.primary.path.starts_with("data/catalogs/")
 }
 
 fn diagnostic_belongs_to_catalog(diagnostic: &LintDiagnostic, id: &str) -> bool {
-    let catalog_path = format!("catalogs/{id}.schema.json");
-    let catalog_entries_prefix = format!("catalogs/{id}-entries/");
+    let catalog_path = format!("model/catalogs/{id}.schema.json");
+    let catalog_entries_prefix = format!("data/catalogs/{id}/");
     matches!(&diagnostic.target.entity, SemanticEntity::Catalog { id: diagnostic_id } if diagnostic_id == id)
         || matches!(&diagnostic.target.entity, SemanticEntity::CatalogEntry { catalog, .. } if catalog == id)
         || diagnostic.primary.path == catalog_path

@@ -88,7 +88,7 @@ pub async fn lint_variable(package_root: &Path, id: &str) -> Result<VariableLint
 
 pub async fn lint_catalog(package_root: &Path, id: &str) -> Result<CatalogLint> {
     let lint = lint_package(package_root).await?;
-    let path = format!("catalogs/{id}.schema.json");
+    let path = format!("model/catalogs/{id}.schema.json");
     if !lint.documents.iter().any(|document| document.path == path) {
         return Err(RototoError::new(format!(
             "catalog not found: catalog://{id}"
@@ -114,7 +114,7 @@ fn diagnostic_belongs_to_variable(diagnostic: &LintDiagnostic, id: &str, path: &
 }
 
 fn diagnostic_belongs_to_catalog(diagnostic: &LintDiagnostic, id: &str, path: &str) -> bool {
-    let entries_prefix = format!("catalogs/{id}-entries/");
+    let entries_prefix = format!("data/catalogs/{id}/");
     matches!(&diagnostic.target.entity, SemanticEntity::Catalog { id: diagnostic_id } if diagnostic_id == id)
         || matches!(&diagnostic.target.entity, SemanticEntity::CatalogEntry { catalog, .. } if catalog == id)
         || diagnostic.primary.path == path

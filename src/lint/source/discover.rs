@@ -43,7 +43,7 @@ impl SourceStore {
     }
 
     pub(crate) async fn add_catalog_documents(&mut self) -> Result<()> {
-        let directory = self.root.join("catalogs");
+        let directory = self.root.join("model/catalogs");
         let entries = match sorted_directory_entries(&directory).await {
             Ok(entries) => entries,
             Err(err) if err.kind() == std::io::ErrorKind::NotFound => return Ok(()),
@@ -65,7 +65,7 @@ impl SourceStore {
             if id.is_empty() {
                 continue;
             }
-            let relative_path = PathBuf::from("catalogs").join(file_name);
+            let relative_path = PathBuf::from("model/catalogs").join(file_name);
             self.add_disk_document(relative_path, DocumentKind::Catalog { id: id.to_owned() })
                 .await;
             self.add_catalog_entry_documents(id).await?;
@@ -75,10 +75,7 @@ impl SourceStore {
     }
 
     pub(crate) async fn add_catalog_entry_documents(&mut self, catalog_id: &str) -> Result<()> {
-        let entries_dir = self
-            .root
-            .join("catalogs")
-            .join(format!("{catalog_id}-entries"));
+        let entries_dir = self.root.join("data/catalogs").join(catalog_id);
         let entries = match sorted_directory_entries(&entries_dir).await {
             Ok(entries) => entries,
             Err(err) if err.kind() == std::io::ErrorKind::NotFound => return Ok(()),
@@ -97,8 +94,8 @@ impl SourceStore {
             let Some(entry_id) = path.file_stem().and_then(|stem| stem.to_str()) else {
                 continue;
             };
-            let relative_path = PathBuf::from("catalogs")
-                .join(format!("{catalog_id}-entries"))
+            let relative_path = PathBuf::from("data/catalogs")
+                .join(catalog_id)
                 .join(path.file_name().expect("entry has filename"));
             self.add_disk_document(
                 relative_path,
@@ -110,7 +107,7 @@ impl SourceStore {
             .await;
         }
 
-        let overlay_prefix = format!("catalogs/{catalog_id}-entries/");
+        let overlay_prefix = format!("data/catalogs/{catalog_id}/");
         let overlay_paths = self
             .overlays
             .keys()
@@ -135,7 +132,7 @@ impl SourceStore {
     }
 
     pub(crate) async fn add_evaluation_context_documents(&mut self) -> Result<()> {
-        let directory = self.root.join("evaluation-contexts");
+        let directory = self.root.join("model/context");
         let entries = match sorted_directory_entries(&directory).await {
             Ok(entries) => entries,
             Err(err) if err.kind() == std::io::ErrorKind::NotFound => return Ok(()),
@@ -157,7 +154,7 @@ impl SourceStore {
             if id.is_empty() {
                 continue;
             }
-            let relative_path = PathBuf::from("evaluation-contexts").join(file_name);
+            let relative_path = PathBuf::from("model/context").join(file_name);
             self.add_disk_document(
                 relative_path,
                 DocumentKind::EvaluationContext { id: id.to_owned() },
@@ -175,7 +172,7 @@ impl SourceStore {
     ) -> Result<()> {
         let samples_dir = self
             .root
-            .join("evaluation-contexts")
+            .join("model/context")
             .join(format!("{evaluation_context_id}-samples"));
         let samples = match sorted_directory_entries(&samples_dir).await {
             Ok(samples) => samples,
@@ -195,7 +192,7 @@ impl SourceStore {
             let Some(sample_id) = path.file_stem().and_then(|stem| stem.to_str()) else {
                 continue;
             };
-            let relative_path = PathBuf::from("evaluation-contexts")
+            let relative_path = PathBuf::from("model/context")
                 .join(format!("{evaluation_context_id}-samples"))
                 .join(path.file_name().expect("entry has filename"));
             self.add_disk_document(
@@ -208,7 +205,7 @@ impl SourceStore {
             .await;
         }
 
-        let overlay_prefix = format!("evaluation-contexts/{evaluation_context_id}-samples/");
+        let overlay_prefix = format!("model/context/{evaluation_context_id}-samples/");
         let overlay_paths = self
             .overlays
             .keys()
@@ -298,25 +295,22 @@ fn overlay_document_kind(path: &str) -> Option<DocumentKind> {
             let id = file.strip_suffix(".toml")?;
             (!id.is_empty()).then(|| DocumentKind::Variable { id: id.to_owned() })
         }
-        ["catalogs", file] if file.ends_with(".schema.json") => {
+        ["model", "catalogs", file] if file.ends_with(".schema.json") => {
             let id = file.strip_suffix(".schema.json")?;
             (!id.is_empty()).then(|| DocumentKind::Catalog { id: id.to_owned() })
         }
-        ["catalogs", dir, file] if dir.ends_with("-entries") && file.ends_with(".toml") => {
-            let catalog_id = dir.strip_suffix("-entries")?;
+        ["data", "catalogs", catalog_id, file] if file.ends_with(".toml") => {
             let entry_id = file.strip_suffix(".toml")?;
             (!catalog_id.is_empty() && !entry_id.is_empty()).then(|| DocumentKind::CatalogEntry {
-                catalog_id: catalog_id.to_owned(),
+                catalog_id: (*catalog_id).to_owned(),
                 entry_id: entry_id.to_owned(),
             })
         }
-        ["evaluation-contexts", file] if file.ends_with(".schema.json") => {
+        ["model", "context", file] if file.ends_with(".schema.json") => {
             let id = file.strip_suffix(".schema.json")?;
             (!id.is_empty()).then(|| DocumentKind::EvaluationContext { id: id.to_owned() })
         }
-        ["evaluation-contexts", dir, file]
-            if dir.ends_with("-samples") && file.ends_with(".json") =>
-        {
+        ["model", "context", dir, file] if dir.ends_with("-samples") && file.ends_with(".json") => {
             let evaluation_context_id = dir.strip_suffix("-samples")?;
             let sample_id = file.strip_suffix(".json")?;
             (!evaluation_context_id.is_empty() && !sample_id.is_empty()).then(|| {

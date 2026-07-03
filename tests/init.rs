@@ -16,14 +16,16 @@ fn init_creates_package_skeleton() {
         .stdout(predicate::str::contains("package:"))
         .stdout(predicate::str::contains("rototo-package.toml"))
         .stdout(predicate::str::contains("variables"))
-        .stdout(predicate::str::contains("catalogs"))
-        .stdout(predicate::str::contains("evaluation-contexts"))
+        .stdout(predicate::str::contains("model/catalogs"))
+        .stdout(predicate::str::contains("data/catalogs"))
+        .stdout(predicate::str::contains("model/context"))
         .stdout(predicate::str::contains("lint"));
 
     assert!(package.join("rototo-package.toml").is_file());
     assert!(package.join("variables").is_dir());
-    assert!(package.join("catalogs").is_dir());
-    assert!(package.join("evaluation-contexts").is_dir());
+    assert!(package.join("model/catalogs").is_dir());
+    assert!(package.join("data/catalogs").is_dir());
+    assert!(package.join("model/context").is_dir());
     assert!(package.join("lint").is_dir());
 
     Command::cargo_bin("rototo")
@@ -53,8 +55,9 @@ fn init_entity_implicitly_creates_package_skeleton() {
 
     assert!(package.join("rototo-package.toml").is_file());
     assert!(package.join("variables").is_dir());
-    assert!(package.join("catalogs").is_dir());
-    assert!(package.join("evaluation-contexts").is_dir());
+    assert!(package.join("model/catalogs").is_dir());
+    assert!(package.join("data/catalogs").is_dir());
+    assert!(package.join("model/context").is_dir());
     assert!(package.join("lint").is_dir());
     assert!(package.join("variables/max-output-tokens.toml").is_file());
 
@@ -103,7 +106,7 @@ value = true
         .assert()
         .success();
 
-    let schema = read_json(package.join("evaluation-contexts/evaluation.schema.json"));
+    let schema = read_json(package.join("model/context/evaluation.schema.json"));
     assert_eq!(
         schema["properties"]["user"]["properties"]["tier"]["type"],
         "string"
@@ -153,11 +156,11 @@ fn init_variable_and_catalog_templates() {
     assert!(!variable.contains("[env."));
 
     let catalog =
-        fs::read_to_string(package.join("catalogs/checkout-redesign.schema.json")).unwrap();
+        fs::read_to_string(package.join("model/catalogs/checkout-redesign.schema.json")).unwrap();
     assert!(catalog.contains("\"$schema\""));
     assert!(
         package
-            .join("catalogs/checkout-redesign-entries/default.toml")
+            .join("data/catalogs/checkout-redesign/default.toml")
             .is_file()
     );
 
@@ -185,14 +188,10 @@ fn init_evaluation_context_accepts_explicit_id() {
         .assert()
         .success()
         .stdout(predicate::str::contains(
-            "evaluation-contexts/request.schema.json",
+            "model/context/request.schema.json",
         ));
 
-    assert!(
-        package
-            .join("evaluation-contexts/request.schema.json")
-            .is_file()
-    );
+    assert!(package.join("model/context/request.schema.json").is_file());
 }
 
 #[test]
@@ -256,7 +255,7 @@ value = "treatment"
         .assert()
         .success();
 
-    let schema = read_json(package.join("evaluation-contexts/evaluation.schema.json"));
+    let schema = read_json(package.join("model/context/evaluation.schema.json"));
     assert_eq!(
         schema["properties"]["user"]["properties"]["tier"]["type"],
         "string"
@@ -292,7 +291,7 @@ value = "treatment"
     )
     .unwrap();
     fs::write(
-        package.join("evaluation-contexts/evaluation.schema.json"),
+        package.join("model/context/evaluation.schema.json"),
         r#"{
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "type": "object",
@@ -342,7 +341,7 @@ value = "treatment"
         .stdout(predicate::str::contains("context.flags.enabled"))
         .stdout(predicate::str::contains("conflict"));
 
-    let schema = read_json(package.join("evaluation-contexts/evaluation.schema.json"));
+    let schema = read_json(package.join("model/context/evaluation.schema.json"));
     assert_eq!(
         schema["properties"]["account"]["description"],
         "Preserved account contract"
