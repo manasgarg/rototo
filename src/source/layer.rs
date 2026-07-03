@@ -8,6 +8,7 @@ use crate::error::{Result, RototoError};
 use crate::package::package_extends_sources;
 
 use super::PACKAGE_MANIFEST;
+use super::governance::{Operation, read_governance_contract};
 use super::load::{load_single_package_source, load_single_package_source_snapshot};
 use super::path::relative_path_is_safe;
 use super::types::{
@@ -92,11 +93,13 @@ async fn project_package_source_graph(
         let parent =
             load_package_source_graph(parent_source, options, local_mode, Some(base), stack)
                 .await?;
+        enforce_layer_governance(parent.staged().path(), &target).await?;
         copy_package_layer(parent.staged().path(), &target, false).await?;
         immutable &= parent.immutable();
         layers.extend(parent.layers().iter().cloned());
     }
 
+    enforce_layer_governance(loaded.staged().path(), &target).await?;
     copy_package_layer(loaded.staged().path(), &target, true).await?;
     immutable &= loaded.immutable();
     layers.extend(loaded.layers().iter().cloned());
@@ -107,6 +110,178 @@ async fn project_package_source_graph(
         immutable,
         layers,
     })
+}
+
+/// Enforce the layering contract carried by the projection built so far on
+/// the layer about to land on it. A projection with no governance.toml is
+/// ungoverned; with one, the incoming layer is default-closed over the
+/// entities the projection declares.
+async fn enforce_layer_governance(layer: &Path, target: &Path) -> Result<()> {
+    let layer = layer.to_path_buf();
+    let target = target.to_path_buf();
+    tokio::task::spawn_blocking(move || enforce_layer_governance_sync(&layer, &target))
+        .await
+        .map_err(|err| RototoError::new(format!("governance enforcement task failed: {err}")))?
+}
+
+fn enforce_layer_governance_sync(layer: &Path, target: &Path) -> Result<()> {
+    let Some(contract) = read_governance_contract(target) else {
+        return Ok(());
+    };
+
+    let mut pending = vec![layer.to_path_buf()];
+    while let Some(directory) = pending.pop() {
+        let entries = match std::fs::read_dir(&directory) {
+            Ok(entries) => entries,
+            Err(err) => {
+                return Err(RototoError::new(format!(
+                    "failed to read package layer {}: {err}",
+                    directory.display()
+                )));
+            }
+        };
+        for entry in entries {
+            let entry = entry.map_err(|err| {
+                RototoError::new(format!("failed to read package layer entry: {err}"))
+            })?;
+            let path = entry.path();
+            if path.is_dir() {
+                pending.push(path);
+                continue;
+            }
+            let Ok(relative) = path.strip_prefix(layer) else {
+                continue;
+            };
+            check_governed_file(&contract, &path, relative, target)?;
+        }
+    }
+    Ok(())
+}
+
+fn check_governed_file(
+    contract: &super::governance::GovernanceContract,
+    source_path: &Path,
+    relative: &Path,
+    target: &Path,
+) -> Result<()> {
+    let components: Vec<&str> = relative
+        .iter()
+        .filter_map(|component| component.to_str())
+        .collect();
+    let exists = |candidate: &Path| target.join(candidate).is_file();
+    let stem = |file: &str, suffix: &str| file.strip_suffix(suffix).map(str::to_owned);
+
+    match components.as_slice() {
+        // The manifest is the layer's own identity, and the governance file
+        // itself is checked as a ceiling, not as an operation.
+        [file] if *file == PACKAGE_MANIFEST => Ok(()),
+        ["governance.toml"] => {
+            let text = std::fs::read_to_string(source_path).map_err(|err| {
+                RototoError::new(format!(
+                    "failed to read package layer file {}: {err}",
+                    source_path.display()
+                ))
+            })?;
+            let value = text.parse::<toml::Value>().map_err(|err| {
+                RototoError::new(format!("failed to parse layer governance.toml: {err}"))
+            })?;
+            contract.check_ceiling(&super::governance::parse_contract_value(&value))
+        }
+        ["model", "catalogs", file] => match stem(file, ".schema.json") {
+            Some(id) if exists(relative) => {
+                contract.check("catalog", &id, Operation::Constrain, None, &[])
+            }
+            _ => Ok(()),
+        },
+        ["model", "enums", file] => match stem(file, ".toml") {
+            Some(id) if exists(relative) => {
+                contract.check("enum", &id, Operation::Constrain, None, &[])
+            }
+            _ => Ok(()),
+        },
+        ["model", "context", file] => match stem(file, ".schema.json") {
+            Some(id) if exists(relative) => {
+                contract.check("evaluation_context", &id, Operation::Constrain, None, &[])
+            }
+            _ => Ok(()),
+        },
+        ["model", "context", samples, _] => match samples.strip_suffix("-samples") {
+            Some(id)
+                if exists(Path::new(&format!("model/context/{id}.schema.json")))
+                    && exists(relative) =>
+            {
+                contract.check("evaluation_context", id, Operation::Constrain, None, &[])
+            }
+            _ => Ok(()),
+        },
+        ["data", "enums", file] => match stem(file, ".toml") {
+            Some(id) if exists(relative) => {
+                contract.check("enum", &id, Operation::Update, None, &[])
+            }
+            Some(id) if exists(Path::new(&format!("model/enums/{id}.toml"))) => {
+                contract.check("enum", &id, Operation::Add, None, &[])
+            }
+            _ => Ok(()),
+        },
+        ["data", "catalogs", catalog, file] => {
+            let declared = exists(Path::new(&format!("model/catalogs/{catalog}.schema.json")));
+            if !declared {
+                // A catalog this layer introduces is its own to fill.
+                return Ok(());
+            }
+            if let Some(entry) = stem(file, ".tombstone.toml") {
+                return contract.check("catalog", catalog, Operation::Delete, Some(&entry), &[]);
+            }
+            if let Some(entry) = stem(file, ".patch.toml") {
+                let fields = toml_top_level_keys(source_path)?;
+                return contract.check(
+                    "catalog",
+                    catalog,
+                    Operation::Update,
+                    Some(&entry),
+                    &fields,
+                );
+            }
+            match stem(file, ".toml") {
+                Some(entry) if exists(relative) => Err(RototoError::new(format!(
+                    "governance does not model replacing catalog entry {entry} wholesale;                      use {entry}.patch.toml to update fields or {entry}.tombstone.toml to                      disable it"
+                ))),
+                Some(_) => contract.check("catalog", catalog, Operation::Add, None, &[]),
+                None => Ok(()),
+            }
+        }
+        ["variables", .., file] => match stem(file, ".toml") {
+            Some(_) if exists(relative) => {
+                let id = relative
+                    .strip_prefix("variables")
+                    .ok()
+                    .and_then(|path| path.with_extension("").to_str().map(str::to_owned))
+                    .map(|id| id.replace(std::path::MAIN_SEPARATOR, "/"))
+                    .unwrap_or_default();
+                contract.check("variable", &id, Operation::Override, None, &[])
+            }
+            _ => Ok(()),
+        },
+        ["layers", file] => match stem(file, ".toml") {
+            Some(id) if exists(relative) => {
+                contract.check("layer", &id, Operation::Override, None, &[])
+            }
+            _ => Ok(()),
+        },
+        ["lint", file] if exists(relative) => Err(RototoError::new(format!(
+            "governance does not model replacing a lint file the layer below owns: lint/{file}"
+        ))),
+        _ => Ok(()),
+    }
+}
+
+/// The top-level keys of a patch file, which are the fields it updates.
+fn toml_top_level_keys(path: &Path) -> Result<Vec<String>> {
+    let value = read_layer_toml(path)?;
+    Ok(value
+        .as_table()
+        .map(|table| table.keys().cloned().collect())
+        .unwrap_or_default())
 }
 
 async fn copy_package_layer(source: &Path, target: &Path, include_manifest: bool) -> Result<()> {

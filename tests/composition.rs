@@ -360,3 +360,211 @@ async fn overlay_cannot_change_a_variable_type() {
     let resolution = package.resolve_variable("active_plan", &context).unwrap();
     assert_eq!(resolution.value["name"], "Growth");
 }
+
+/// The base's layering contract for the governed tests: entries may be
+/// added, prices patched (never on free), any plan but free disabled, and
+/// active_plan's resolution overridden.
+const PLANS_GOVERNANCE: &str = r#"[catalog.plans]
+allowed_operations = ["add", "update", "delete"]
+
+[catalog.plans.update_policy]
+allowed_fields = ["monthly_price", "limits"]
+denied_entries = ["free"]
+
+[catalog.plans.delete_policy]
+allowed_entries = ["*"]
+denied_entries = ["free"]
+
+[variable.active_plan]
+allowed_operations = ["override"]
+"#;
+
+#[tokio::test]
+async fn governed_base_admits_the_granted_overlay() {
+    let temp = tempfile::TempDir::new().unwrap();
+    let base = temp.path().join("base");
+    let overlay = temp.path().join("overlay");
+    write_base(&base).await;
+    write(&base, "governance.toml", PLANS_GOVERNANCE).await;
+    write_overlay(&overlay).await;
+    // The stock overlay tombstones free, which the contract denies; point the
+    // tombstone at growth instead and drop the growth patch.
+    tokio::fs::remove_file(overlay.join("data/catalogs/plans/free.tombstone.toml"))
+        .await
+        .unwrap();
+    tokio::fs::remove_file(overlay.join("data/catalogs/plans/growth.patch.toml"))
+        .await
+        .unwrap();
+    write(
+        &overlay,
+        "variables/active_plan.toml",
+        "[resolve]\ndefault = \"acme_enterprise\"\n",
+    )
+    .await;
+    tokio::fs::remove_file(overlay.join("variables/acme/in_trial.toml"))
+        .await
+        .unwrap();
+
+    let package = Package::load(overlay.to_string_lossy()).await.unwrap();
+    let context = EvaluationContext::from_json(serde_json::json!({})).unwrap();
+    let resolution = package.resolve_variable("active_plan", &context).unwrap();
+    assert_eq!(resolution.value["name"], "Acme Enterprise");
+}
+
+#[tokio::test]
+async fn governed_base_denies_ungranted_operations() {
+    let temp = tempfile::TempDir::new().unwrap();
+    let base = temp.path().join("base");
+    write_base(&base).await;
+    write(&base, "governance.toml", PLANS_GOVERNANCE).await;
+
+    // Tombstoning the protected entry.
+    let overlay = temp.path().join("overlay-delete");
+    write(
+        &overlay,
+        "rototo-package.toml",
+        "schema_version = 1\nextends = [\"../base\"]\n",
+    )
+    .await;
+    write(
+        &overlay,
+        "data/catalogs/plans/free.tombstone.toml",
+        "tombstone = true\n",
+    )
+    .await;
+    let err = Package::load(overlay.to_string_lossy()).await.unwrap_err();
+    assert!(
+        err.to_string()
+            .contains("governance denies delete of entry free on catalog.plans"),
+        "{err}"
+    );
+
+    // Patching a field outside the allowlist.
+    let overlay = temp.path().join("overlay-field");
+    write(
+        &overlay,
+        "rototo-package.toml",
+        "schema_version = 1\nextends = [\"../base\"]\n",
+    )
+    .await;
+    write(
+        &overlay,
+        "data/catalogs/plans/growth.patch.toml",
+        "name = \"Renamed\"\n",
+    )
+    .await;
+    let err = Package::load(overlay.to_string_lossy()).await.unwrap_err();
+    assert!(
+        err.to_string()
+            .contains("governance denies update of field name on catalog.plans"),
+        "{err}"
+    );
+
+    // Replacing a whole entry file is not a governed operation.
+    let overlay = temp.path().join("overlay-replace");
+    write(
+        &overlay,
+        "rototo-package.toml",
+        "schema_version = 1\nextends = [\"../base\"]\n",
+    )
+    .await;
+    write(
+        &overlay,
+        "data/catalogs/plans/growth.toml",
+        "name = \"Growth\"\nmonthly_price = 1\n",
+    )
+    .await;
+    let err = Package::load(overlay.to_string_lossy()).await.unwrap_err();
+    assert!(err.to_string().contains("use growth.patch.toml"), "{err}");
+
+    // Touching the schema needs constrain, which the contract does not grant.
+    let overlay = temp.path().join("overlay-schema");
+    write(
+        &overlay,
+        "rototo-package.toml",
+        "schema_version = 1\nextends = [\"../base\"]\n",
+    )
+    .await;
+    write(&overlay, "model/catalogs/plans.schema.json", "{}\n").await;
+    let err = Package::load(overlay.to_string_lossy()).await.unwrap_err();
+    assert!(
+        err.to_string()
+            .contains("governance denies constrain on catalog.plans"),
+        "{err}"
+    );
+
+    // Overriding a variable the contract never opened.
+    let overlay = temp.path().join("overlay-variable");
+    write(
+        &overlay,
+        "rototo-package.toml",
+        "schema_version = 1\nextends = [\"../base\"]\n",
+    )
+    .await;
+    write(
+        &overlay,
+        "variables/wants_free.toml",
+        "schema_version = 1\ntype = \"bool\"\n\n[resolve]\ndefault = false\n",
+    )
+    .await;
+    // Adding a brand-new variable mints an id and is fine...
+    Package::load(overlay.to_string_lossy()).await.unwrap();
+    // ...but replacing a base variable's resolution needs the override grant.
+    write(
+        &overlay,
+        "variables/is_enterprise.toml",
+        "[resolve]\ndefault = true\n",
+    )
+    .await;
+    write(
+        &base,
+        "variables/is_enterprise.toml",
+        "schema_version = 1\ntype = \"bool\"\n\n[resolve]\ndefault = false\n",
+    )
+    .await;
+    let err = Package::load(overlay.to_string_lossy()).await.unwrap_err();
+    assert!(
+        err.to_string()
+            .contains("governance denies override on variable.is_enterprise"),
+        "{err}"
+    );
+}
+
+#[tokio::test]
+async fn governance_grants_cannot_exceed_the_inherited_ceiling() {
+    let temp = tempfile::TempDir::new().unwrap();
+    let base = temp.path().join("base");
+    let overlay = temp.path().join("overlay");
+    write_base(&base).await;
+    write(&base, "governance.toml", PLANS_GOVERNANCE).await;
+    write(
+        &overlay,
+        "rototo-package.toml",
+        "schema_version = 1\nextends = [\"../base\"]\n",
+    )
+    .await;
+    // The overlay tries to hand its own sub-layers constrain, which the base
+    // never granted the overlay itself.
+    write(
+        &overlay,
+        "governance.toml",
+        "[catalog.plans]\nallowed_operations = [\"constrain\"]\n",
+    )
+    .await;
+
+    let err = Package::load(overlay.to_string_lossy()).await.unwrap_err();
+    assert!(
+        err.to_string()
+            .contains("governance grant exceeds the inherited ceiling"),
+        "{err}"
+    );
+
+    // Narrowing is legal: re-granting a subset with more denies.
+    write(
+        &overlay,
+        "governance.toml",
+        "[catalog.plans]\nallowed_operations = [\"add\"]\n",
+    )
+    .await;
+    Package::load(overlay.to_string_lossy()).await.unwrap();
+}

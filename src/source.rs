@@ -1,5 +1,6 @@
 mod archive;
 mod git;
+mod governance;
 mod layer;
 mod load;
 mod local;
