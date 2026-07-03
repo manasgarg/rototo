@@ -312,7 +312,7 @@ fn compose_package_layer_file(
         LayerFileComposition::VariableMerge => {
             let mut base = read_layer_toml(&target_path)?;
             let overlay = read_layer_toml(source_path)?;
-            merge_variable_toml(&mut base, overlay);
+            merge_variable_toml(&mut base, overlay, relative)?;
             write_layer_toml(&target_path, &base)
         }
     }
@@ -380,13 +380,33 @@ fn deep_merge_toml(base: &mut toml::Value, patch: toml::Value) {
 /// Merge an overlay variable file over the base's: every top-level key the
 /// overlay declares replaces the base's key whole, so `[resolve]` swaps
 /// atomically and the type (and anything else left out) stays with the base.
-fn merge_variable_toml(base: &mut toml::Value, overlay: toml::Value) {
+///
+/// The type is the one key that may not change: shape composes by narrowing
+/// only, and for a variable's type the only narrowing is restating it. An
+/// overlay that declares a different type is contradicting the contract, not
+/// overriding a value.
+fn merge_variable_toml(
+    base: &mut toml::Value,
+    overlay: toml::Value,
+    relative: &Path,
+) -> Result<()> {
     let (toml::Value::Table(base), toml::Value::Table(overlay)) = (base, overlay) else {
-        return;
+        return Ok(());
     };
+    if let (Some(toml::Value::String(below)), Some(toml::Value::String(above))) =
+        (base.get("type"), overlay.get("type"))
+        && below != above
+    {
+        return Err(RototoError::new(format!(
+            "overlay changes the variable's type from {below} to {above}: {}; \
+             the type stays with the layer that declared it",
+            relative.display()
+        )));
+    }
     for (key, value) in overlay {
         base.insert(key, value);
     }
+    Ok(())
 }
 
 async fn read_package_extends(root: &Path) -> Result<Vec<String>> {

@@ -317,3 +317,46 @@ async fn same_layer_entry_and_tombstone_conflict() {
         "{err}"
     );
 }
+
+#[tokio::test]
+async fn overlay_cannot_change_a_variable_type() {
+    let temp = tempfile::TempDir::new().unwrap();
+    let base = temp.path().join("base");
+    let overlay = temp.path().join("overlay");
+    write_base(&base).await;
+    write(
+        &overlay,
+        "rototo-package.toml",
+        "schema_version = 1\nextends = [\"../base\"]\n",
+    )
+    .await;
+    write(
+        &overlay,
+        "variables/active_plan.toml",
+        "type = \"string\"\n\n[resolve]\ndefault = \"growth\"\n",
+    )
+    .await;
+
+    let err = Package::load(overlay.to_string_lossy()).await.unwrap_err();
+    assert!(
+        err.to_string()
+            .contains("overlay changes the variable's type from catalog:plans to string"),
+        "{err}"
+    );
+
+    // Restating the same type is allowed; narrowing a type means agreeing
+    // with it.
+    write(
+        &overlay,
+        "variables/active_plan.toml",
+        "type = \"catalog:plans\"\n\n[resolve]\ndefault = \"growth\"\n",
+    )
+    .await;
+    let package = Package::load(overlay.to_string_lossy()).await.unwrap();
+    let context = EvaluationContext::from_json(serde_json::json!({
+        "account": { "paid": false }
+    }))
+    .unwrap();
+    let resolution = package.resolve_variable("active_plan", &context).unwrap();
+    assert_eq!(resolution.value["name"], "Growth");
+}
