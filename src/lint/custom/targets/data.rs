@@ -334,7 +334,6 @@ fn rule_data(variable_id: &str, rule: &VariableRuleNode) -> JsonValue {
     "variable": variable_id,
     "index": rule.index,
         "when": optional_project_expression(&rule.when),
-        "query": optional_project_expression(&rule.query),
     "value": project_json(&rule.value),
     })
 }

@@ -11,11 +11,11 @@ use super::super::stages::{
 use super::{field_is_integer, field_is_not_present};
 
 pub(super) fn lint_variable_shapes(ctx: &mut LintContext) {
-    let diagnostics = &mut ctx.diagnostics;
+    let mut diagnostics = Vec::new();
     for variable in ctx.index.variables.values() {
         if !field_is_integer(&variable.schema_version, 1) {
             push_project_diagnostic(
-                diagnostics,
+                &mut diagnostics,
                 RototoRuleId::VariableSchemaVersion,
                 variable.field_target(SemanticField::SchemaVersion),
                 variable.schema_version.location(),
@@ -23,10 +23,11 @@ pub(super) fn lint_variable_shapes(ctx: &mut LintContext) {
             );
         }
 
-        lint_type_source(diagnostics, variable);
-        lint_values_shape(diagnostics, variable);
-        lint_resolve_shape(diagnostics, variable);
+        lint_type_source(&mut diagnostics, variable);
+        lint_values_shape(&mut diagnostics, variable);
+        lint_resolve_shape(&mut diagnostics, &ctx.index, variable);
     }
+    ctx.diagnostics.extend(diagnostics);
 }
 
 /// Flag root identifiers a variable rule `when`/`query` expression uses that
@@ -35,19 +36,46 @@ pub(super) fn lint_variable_shapes(ctx: &mut LintContext) {
 pub(super) fn lint_variable_expression_roots(ctx: &mut LintContext) {
     let diagnostics = &mut ctx.diagnostics;
     for variable in ctx.index.variables.values() {
-        let ResolveNode::Resolve { rules, .. } = &variable.resolve else {
+        let ResolveNode::Resolve { rules, query, .. } = &variable.resolve else {
             continue;
         };
-        let RuleCollection::Rules(rules) = rules else {
-            continue;
-        };
-        for rule in rules {
-            if rule.invalid_shape {
-                continue;
+        if let RuleCollection::Rules(rules) = rules {
+            for rule in rules {
+                if rule.invalid_shape {
+                    continue;
+                }
+                for (field, expression) in [(SemanticField::VariableRuleWhen, &rule.when)]
+                    .into_iter()
+                    .filter_map(|(field, expression)| expression.as_ref().map(|expr| (field, expr)))
+                {
+                    let ProjectField::Present(expression) = expression else {
+                        continue;
+                    };
+                    for issue in &expression.value.references().invalid_roots {
+                        push_project_diagnostic(
+                            diagnostics,
+                            RototoRuleId::VariableRuleInvalidReference,
+                            rule.field_target(&variable.id, field.clone()),
+                            expression.location.clone(),
+                            issue.describe(),
+                        );
+                    }
+                    if expression.value.references().uses_resolving {
+                        push_project_diagnostic(
+                            diagnostics,
+                            RototoRuleId::VariableRuleInvalidReference,
+                            rule.field_target(&variable.id, field.clone()),
+                            expression.location.clone(),
+                            "env.resolving is only available in [[trace]] policies",
+                        );
+                    }
+                }
             }
+        }
+        if let Some(query) = query {
             for (field, expression) in [
-                (SemanticField::VariableRuleWhen, &rule.when),
-                (SemanticField::VariableRuleQuery, &rule.query),
+                (SemanticField::VariableQueryFilter, &query.filter),
+                (SemanticField::VariableQuerySort, &query.sort),
             ]
             .into_iter()
             .filter_map(|(field, expression)| expression.as_ref().map(|expr| (field, expr)))
@@ -59,7 +87,7 @@ pub(super) fn lint_variable_expression_roots(ctx: &mut LintContext) {
                     push_project_diagnostic(
                         diagnostics,
                         RototoRuleId::VariableRuleInvalidReference,
-                        rule.field_target(&variable.id, field.clone()),
+                        variable.field_target(field.clone()),
                         expression.location.clone(),
                         issue.describe(),
                     );
@@ -68,7 +96,7 @@ pub(super) fn lint_variable_expression_roots(ctx: &mut LintContext) {
                     push_project_diagnostic(
                         diagnostics,
                         RototoRuleId::VariableRuleInvalidReference,
-                        rule.field_target(&variable.id, field.clone()),
+                        variable.field_target(field.clone()),
                         expression.location.clone(),
                         "env.resolving is only available in [[trace]] policies",
                     );
@@ -119,8 +147,12 @@ fn lint_values_shape(diagnostics: &mut Vec<LintDiagnostic>, variable: &VariableN
     }
 }
 
-fn lint_resolve_shape(diagnostics: &mut Vec<LintDiagnostic>, variable: &VariableNode) {
-    let (default, rules) = match &variable.resolve {
+fn lint_resolve_shape(
+    diagnostics: &mut Vec<LintDiagnostic>,
+    index: &SemanticIndex,
+    variable: &VariableNode,
+) {
+    let (method, default, rules, query) = match &variable.resolve {
         ResolveNode::Missing { location } => {
             push_project_diagnostic(
                 diagnostics,
@@ -141,8 +173,45 @@ fn lint_resolve_shape(diagnostics: &mut Vec<LintDiagnostic>, variable: &Variable
             );
             return;
         }
-        ResolveNode::Resolve { default, rules, .. } => (default, rules),
+        ResolveNode::Resolve {
+            method,
+            default,
+            rules,
+            query,
+            ..
+        } => (method, default, rules, query),
     };
+
+    let method_name = match method {
+        None => "rules",
+        Some(method) if matches!(method.value.as_str(), "rules" | "query") => method.value.as_str(),
+        Some(method) => {
+            push_project_diagnostic(
+                diagnostics,
+                RototoRuleId::VariableResolveShape,
+                variable.field_target(SemanticField::VariableResolve),
+                method.location.clone(),
+                "resolve method must be \"rules\" or \"query\"",
+            );
+            return;
+        }
+    };
+
+    if method_name == "query" {
+        lint_query_shape(diagnostics, index, variable, rules, query);
+        return;
+    }
+
+    if let Some(query) = query {
+        push_project_diagnostic(
+            diagnostics,
+            RototoRuleId::VariableQueryShape,
+            variable.field_target(SemanticField::VariableResolve),
+            query.location.clone(),
+            "query parameters (from, filter, sort, order, limit) are only valid with \
+             method = \"query\"",
+        );
+    }
 
     if field_is_not_present(default) {
         push_project_diagnostic(
@@ -167,6 +236,161 @@ fn lint_resolve_shape(diagnostics: &mut Vec<LintDiagnostic>, variable: &Variable
                 lint_variable_rule_shape(diagnostics, variable, rule);
             }
         }
+    }
+}
+
+/// Coherence checks for `method = "query"`: the pipeline reads one catalog's
+/// entries, so the type must be catalog-backed, `from` must name that catalog,
+/// and rule tables have no meaning.
+fn lint_query_shape(
+    diagnostics: &mut Vec<LintDiagnostic>,
+    index: &SemanticIndex,
+    variable: &VariableNode,
+    rules: &RuleCollection,
+    query: &Option<Box<QueryNode>>,
+) {
+    match rules {
+        RuleCollection::Rules(rules) if rules.is_empty() => {}
+        RuleCollection::Rules(rules) => push_project_diagnostic(
+            diagnostics,
+            RototoRuleId::VariableQueryShape,
+            variable.field_target(SemanticField::VariableResolve),
+            rules[0].location.clone(),
+            "method = \"query\" must not declare [[resolve.rule]] tables",
+        ),
+        RuleCollection::Invalid { location } => push_project_diagnostic(
+            diagnostics,
+            RototoRuleId::VariableQueryShape,
+            variable.field_target(SemanticField::VariableResolve),
+            location.clone(),
+            "method = \"query\" must not declare [[resolve.rule]] tables",
+        ),
+    }
+
+    let catalog_type =
+        variable_type_kind(&variable.type_source).and_then(|kind| match &kind.value {
+            VariableTypeKind::Catalog(catalog) => Some(catalog.clone()),
+            VariableTypeKind::List(item) => match item.as_ref() {
+                VariableTypeKind::Catalog(catalog) => Some(catalog.clone()),
+                _ => None,
+            },
+            _ => None,
+        });
+    if catalog_type.is_none() {
+        push_project_diagnostic(
+            diagnostics,
+            RototoRuleId::VariableQueryShape,
+            variable.field_target(SemanticField::VariableType),
+            variable.type_source.location(),
+            "method = \"query\" requires a catalog:<id> or list<catalog:<id>> type",
+        );
+    }
+
+    let Some(query) = query else {
+        push_project_diagnostic(
+            diagnostics,
+            RototoRuleId::VariableQueryShape,
+            variable.field_target(SemanticField::VariableResolve),
+            variable.resolve.location(),
+            "method = \"query\" must declare from = \"<catalog-id>\"",
+        );
+        return;
+    };
+
+    match &query.from {
+        ProjectField::Present(from) => {
+            if !index.catalogs.contains_key(&from.value) {
+                push_project_diagnostic(
+                    diagnostics,
+                    RototoRuleId::VariableUnknownCatalog,
+                    variable.field_target(SemanticField::VariableResolve),
+                    from.location.clone(),
+                    format!("query from references unknown catalog: {}", from.value),
+                );
+            } else if let Some(catalog) = &catalog_type
+                && from.value != *catalog
+            {
+                push_project_diagnostic(
+                    diagnostics,
+                    RototoRuleId::VariableQueryShape,
+                    variable.field_target(SemanticField::VariableResolve),
+                    from.location.clone(),
+                    format!(
+                        "query from ({}) must match the variable's catalog type ({catalog})",
+                        from.value
+                    ),
+                );
+            }
+        }
+        ProjectField::Invalid { location } | ProjectField::Missing { location } => {
+            push_project_diagnostic(
+                diagnostics,
+                RototoRuleId::VariableQueryShape,
+                variable.field_target(SemanticField::VariableResolve),
+                location.clone(),
+                "method = \"query\" must declare from = \"<catalog-id>\"",
+            );
+        }
+    }
+
+    for (label, field, expression) in [
+        ("filter", SemanticField::VariableQueryFilter, &query.filter),
+        ("sort", SemanticField::VariableQuerySort, &query.sort),
+    ] {
+        if let Some(ProjectField::Invalid { location } | ProjectField::Missing { location }) =
+            expression
+        {
+            push_project_diagnostic(
+                diagnostics,
+                RototoRuleId::VariableQueryShape,
+                variable.field_target(field),
+                location.clone(),
+                format!("query {label} must be a CEL expression string"),
+            );
+        }
+    }
+
+    match &query.order {
+        None => {}
+        Some(ProjectField::Present(order)) if matches!(order.value.as_str(), "asc" | "desc") => {
+            if !matches!(query.sort, Some(ProjectField::Present(_))) {
+                push_project_diagnostic(
+                    diagnostics,
+                    RototoRuleId::VariableQueryShape,
+                    variable.field_target(SemanticField::VariableResolve),
+                    order.location.clone(),
+                    "query order requires a sort expression",
+                );
+            }
+        }
+        Some(ProjectField::Present(order)) => push_project_diagnostic(
+            diagnostics,
+            RototoRuleId::VariableQueryShape,
+            variable.field_target(SemanticField::VariableResolve),
+            order.location.clone(),
+            format!("query order must be asc or desc, not {}", order.value),
+        ),
+        Some(ProjectField::Invalid { location } | ProjectField::Missing { location }) => {
+            push_project_diagnostic(
+                diagnostics,
+                RototoRuleId::VariableQueryShape,
+                variable.field_target(SemanticField::VariableResolve),
+                location.clone(),
+                "query order must be asc or desc",
+            );
+        }
+    }
+
+    match &query.limit {
+        None => {}
+        Some(ProjectField::Present(limit)) if limit.value >= 1 => {}
+        Some(field) => push_project_diagnostic(
+            diagnostics,
+            RototoRuleId::VariableQueryShape,
+            variable.field_target(SemanticField::VariableResolve),
+            field.location(),
+            "query limit must be a positive integer",
+        ),
     }
 }
 
@@ -197,47 +421,16 @@ fn lint_variable_rule_shape(
             "rule when expression is invalid",
         );
     }
-    if let Some(ProjectField::Invalid { location } | ProjectField::Missing { location }) =
-        &rule.query
-    {
-        push_project_diagnostic(
-            diagnostics,
-            RototoRuleId::VariableRuleShape,
-            rule.field_target(&variable.id, SemanticField::VariableRuleQuery),
-            location.clone(),
-            "rule query expression is invalid",
-        );
-    }
-    if matches!(rule.query, Some(ProjectField::Present(_)))
-        && variable_type_kind(&variable.type_source)
-            .is_none_or(|type_kind| type_kind.value.list_catalog().is_none())
-    {
-        let location = rule
-            .query
-            .as_ref()
-            .map(ProjectField::location)
-            .unwrap_or_else(|| rule.location.clone());
-        push_project_diagnostic(
-            diagnostics,
-            RototoRuleId::VariableRuleShape,
-            rule.field_target(&variable.id, SemanticField::VariableRuleQuery),
-            location,
-            "rule query is only valid for list<catalog:...> variables",
-        );
-    }
-
-    let has_selector = matches!(rule.when, Some(ProjectField::Present(_)))
-        || matches!(rule.query, Some(ProjectField::Present(_)));
-    if !has_selector {
+    if !matches!(rule.when, Some(ProjectField::Present(_))) {
         push_project_diagnostic(
             diagnostics,
             RototoRuleId::VariableRuleShape,
             rule.field_target(&variable.id, SemanticField::VariableRuleWhen),
             rule.location.clone(),
-            "rule must declare when or query",
+            "rule must declare when",
         );
     }
-    if rule.query.is_none() && field_is_not_present(&rule.value) {
+    if field_is_not_present(&rule.value) {
         push_project_diagnostic(
             diagnostics,
             RototoRuleId::VariableRuleShape,
@@ -307,6 +500,16 @@ pub(super) fn lint_variable_references(ctx: &mut LintContext) {
                 edge.semantic_target.clone(),
                 edge.location.clone(),
                 format!("rule references unknown variable: {referenced}"),
+            ),
+            (
+                ReferenceSource::VariableQueryVariable { variable: _ },
+                ReferenceTarget::Variable(referenced),
+            ) => push_reference_diagnostic(
+                &mut diagnostics,
+                RototoRuleId::VariableRuleUnknownVariable,
+                edge.semantic_target.clone(),
+                edge.location.clone(),
+                format!("query references unknown variable: {referenced}"),
             ),
             (
                 ReferenceSource::VariableRuleValue {
@@ -552,7 +755,7 @@ fn for_each_resolve_value(
         return;
     };
     for rule in rules {
-        if rule.invalid_shape || rule.query.is_some() {
+        if rule.invalid_shape {
             continue;
         }
         if let ProjectField::Present(value) = &rule.value {
@@ -626,7 +829,7 @@ fn lint_primitive_list_resolve_values(
         return;
     };
     for rule in rules {
-        if rule.invalid_shape || rule.query.is_some() {
+        if rule.invalid_shape {
             continue;
         }
         if let ProjectField::Present(value) = &rule.value {
@@ -752,7 +955,7 @@ fn lint_catalog_list_resolve_values(
         return;
     };
     for rule in rules {
-        if rule.invalid_shape || rule.query.is_some() {
+        if rule.invalid_shape {
             continue;
         }
         if let ProjectField::Present(value) = &rule.value {

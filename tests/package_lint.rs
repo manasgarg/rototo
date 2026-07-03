@@ -1543,6 +1543,27 @@ fn canonical_rule_fixtures() -> &'static [CanonicalRuleFixture] {
             }],
         },
         CanonicalRuleFixture {
+            rule: RototoRuleId::VariableQueryShape,
+            package: "tests/fixtures/packages/rules/project/variable-query-shape",
+            success: false,
+            expected: &[ExpectedDiagnostic {
+                rule: "rototo/variable-query-shape",
+                severity: "error",
+                stage: LintStage::Project,
+                entity: ExpectedEntity::Variable("message"),
+                primary: ExpectedPrimaryLocation::Document {
+                    path: "variables/message.toml",
+                    range: Some(ExpectedRange {
+                        start_line: 7,
+                        start_character: 8,
+                        end_line: 7,
+                        end_character: 14,
+                    }),
+                },
+                related: &[],
+            }],
+        },
+        CanonicalRuleFixture {
             rule: RototoRuleId::CustomLintRuleConflict,
             package: "tests/fixtures/packages/rules/project/custom-lint-rule-conflict",
             success: false,
@@ -2234,6 +2255,7 @@ fn lint_failures_expected_rule_ids() -> &'static [&'static str] {
         "rototo/trace-when-missing",
         "rototo/trace-when-shape",
         "rototo/variable-evaluation-context-conflict",
+        "rototo/variable-query-shape",
         "rototo/variable-reference-cycle",
         "rototo/variable-rule-context-path-type-mismatch",
         "rototo/variable-rule-invalid-reference",

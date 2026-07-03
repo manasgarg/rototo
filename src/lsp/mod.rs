@@ -564,10 +564,9 @@ default = []
 type = "list<catalog:message>"
 
 [resolve]
-default = []
-
-[[resolve.rule]]
-query = 'variables["premium"]'
+method = "query"
+from = "message"
+filter = 'variables["premium"]'
 "#,
                 }
             }))
@@ -587,7 +586,7 @@ query = 'variables["premium"]'
             resolve
                 .children
                 .iter()
-                .any(|child| child.name == "rule 1: variables[\"premium\"]")
+                .any(|child| child.name == "query: message")
         );
 
         let completions = server
@@ -596,8 +595,8 @@ query = 'variables["premium"]'
                     "uri": format!("file://{}", variable_path.display())
                 },
                 "position": {
-                    "line": 7,
-                    "character": 20
+                    "line": 6,
+                    "character": 21
                 }
             }))
             .await
@@ -605,14 +604,14 @@ query = 'variables["premium"]'
         assert_completion(&completions, "premium", "variable");
 
         assert_hover_contains(
-            &hover_contents(&server, &variable_path, 7, 20).await,
-            "Condition `variables[\"premium\"]`.",
+            &hover_contents(&server, &variable_path, 6, 21).await,
+            "Selects entries from catalog `message` where `variables[\"premium\"]`.",
         );
 
-        let definition = definition_location(&server, &variable_path, 7, 20).await;
+        let definition = definition_location(&server, &variable_path, 6, 21).await;
         assert!(definition.uri.ends_with("/variables/premium.toml"));
 
-        let references = reference_locations(&server, &variable_path, 7, 20, true).await;
+        let references = reference_locations(&server, &variable_path, 6, 21, true).await;
         assert_eq!(references.len(), 2);
         assert!(
             references

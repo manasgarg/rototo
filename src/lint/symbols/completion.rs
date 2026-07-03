@@ -46,9 +46,39 @@ const VARIABLE_TOP_LEVEL_COMPLETIONS: &[TomlCompletionSpec] = &[
 
 const VARIABLE_RESOLVE_COMPLETIONS: &[TomlCompletionSpec] = &[
     TomlCompletionSpec {
+        label: "method",
+        detail: "variable field",
+        insert_text: "method = \"rules\"",
+    },
+    TomlCompletionSpec {
         label: "default",
         detail: "variable field",
         insert_text: "default = ",
+    },
+    TomlCompletionSpec {
+        label: "from",
+        detail: "variable field",
+        insert_text: "from = \"\"",
+    },
+    TomlCompletionSpec {
+        label: "filter",
+        detail: "variable field",
+        insert_text: "filter = \"\"",
+    },
+    TomlCompletionSpec {
+        label: "sort",
+        detail: "variable field",
+        insert_text: "sort = \"\"",
+    },
+    TomlCompletionSpec {
+        label: "order",
+        detail: "variable field",
+        insert_text: "order = \"asc\"",
+    },
+    TomlCompletionSpec {
+        label: "limit",
+        detail: "variable field",
+        insert_text: "limit = ",
     },
     TomlCompletionSpec {
         label: "[[resolve.rule]]",
@@ -62,11 +92,6 @@ const VARIABLE_RULE_COMPLETIONS: &[TomlCompletionSpec] = &[
         label: "when",
         detail: "variable field",
         insert_text: "when = \"\"",
-    },
-    TomlCompletionSpec {
-        label: "query",
-        detail: "variable field",
-        insert_text: "query = \"\"",
     },
     TomlCompletionSpec {
         label: "value",
@@ -683,7 +708,7 @@ fn expression_key_before_equals(before_equals: &str) -> Option<ExpressionKey> {
         .next()?;
     match key {
         "when" => Some(ExpressionKey::When),
-        "query" => Some(ExpressionKey::Query),
+        "filter" | "sort" => Some(ExpressionKey::Query),
         _ => None,
     }
 }
@@ -847,7 +872,10 @@ fn path_completion_items(
 fn current_variable_query_catalog_id(index: &SemanticIndex, path: &str) -> Option<String> {
     let variable = current_variable_for_path(index, path)?;
     let type_kind = variable_type_kind(&variable.type_source)?;
-    type_kind.value.list_catalog().map(ToOwned::to_owned)
+    match &type_kind.value {
+        VariableTypeKind::Catalog(catalog) => Some(catalog.clone()),
+        kind => kind.list_catalog().map(ToOwned::to_owned),
+    }
 }
 
 fn expression_root_completion_items(include_entry: bool) -> Vec<PackageCompletionItem> {
@@ -976,18 +1004,27 @@ fn variable_expression_at_position(
     let Some(variable) = current_variable_for_path(index, path) else {
         return false;
     };
-    let ResolveNode::Resolve { rules, .. } = &variable.resolve else {
+    let ResolveNode::Resolve { rules, query, .. } = &variable.resolve else {
         return false;
     };
+
+    if let Some(query) = query
+        && [&query.filter, &query.sort]
+            .into_iter()
+            .flatten()
+            .any(|field| location_contains_position(&field.location(), path, position))
+    {
+        return true;
+    }
+
     let RuleCollection::Rules(rules) = rules else {
         return false;
     };
 
     rules.iter().any(|rule| {
-        [rule.when.as_ref(), rule.query.as_ref()]
-            .into_iter()
-            .flatten()
-            .any(|field| location_contains_position(&field.location(), path, position))
+        rule.when
+            .as_ref()
+            .is_some_and(|field| location_contains_position(&field.location(), path, position))
     })
 }
 

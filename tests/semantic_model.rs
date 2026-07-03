@@ -183,10 +183,9 @@ body = "Email body"
 type = "list<catalog:message_template>"
 
 [resolve]
-default = []
-
-[[resolve.rule]]
-query = 'entry.channel == context.channel && entry.active == true && variables["premium"]'
+method = "query"
+from = "message_template"
+filter = 'entry.channel == context.channel && entry.active == true && variables["premium"]'
 "#,
     );
 
@@ -204,16 +203,27 @@ query = 'entry.channel == context.channel && entry.active == true && variables["
         variable.declaration.value.as_deref(),
         Some("list<catalog:message_template>")
     );
-    let rule = &variable.resolve.as_ref().expect("resolve section").rules[0];
-    assert_eq!(rule.index, 0);
-    assert!(rule.when.is_none());
-    let query = rule.query.as_ref().expect("query field");
+    let resolve = variable.resolve.as_ref().expect("resolve section");
+    assert!(resolve.rules.is_empty());
     assert_eq!(
-        query.value.as_deref(),
+        resolve
+            .method
+            .as_ref()
+            .and_then(|method| method.value.as_deref()),
+        Some("query")
+    );
+    let query = resolve.query.as_ref().expect("query section");
+    assert_eq!(
+        query.from.as_ref().and_then(|from| from.value.as_deref()),
+        Some("message_template")
+    );
+    let filter = query.filter.as_ref().expect("filter field");
+    assert_eq!(
+        filter.value.as_deref(),
         Some(r#"entry.channel == context.channel && entry.active == true && variables["premium"]"#)
     );
     assert!(
-        query.location.range.is_some(),
+        filter.location.range.is_some(),
         "query fields carry source ranges for editor edits"
     );
 
@@ -238,12 +248,12 @@ query = 'entry.channel == context.channel && entry.active == true && variables["
         .expect("templates evaluation-context compatibility");
     assert_eq!(variable_contexts.evaluation_contexts, vec!["request"]);
 
-    let query_condition_edge = model.references.iter().any(|reference| {
+    let query_reference_edge = model.references.iter().any(|reference| {
         matches!(&reference.from, ModelEntityRef::Variable { id } if id == "templates")
             && matches!(&reference.to, ModelEntityRef::Variable { id } if id == "premium")
-            && matches!(&reference.via, ModelReferenceVia::RuleCondition { index } if *index == 0)
+            && matches!(&reference.via, ModelReferenceVia::Query)
     });
-    assert!(query_condition_edge, "query condition reference edge");
+    assert!(query_reference_edge, "query filter reference edge");
 }
 
 fn write_file(root: &Path, path: &str, contents: &str) {

@@ -255,11 +255,7 @@ fn variable_expectation(trace: &VariableResolutionTrace) -> ResolveExpectation {
 }
 
 fn rule_condition_label(rule: &RulePathwayInspectReport) -> String {
-    rule.when
-        .as_deref()
-        .or(rule.query.as_deref())
-        .unwrap_or("<missing>")
-        .to_owned()
+    rule.when.as_deref().unwrap_or("<missing>").to_owned()
 }
 
 /// The first candidate context that drives `rule` to win for `variable`.

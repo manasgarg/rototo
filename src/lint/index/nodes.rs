@@ -411,12 +411,33 @@ pub(in crate::lint) enum ResolveNode {
     },
     Resolve {
         location: DiagnosticLocation,
+        /// The resolution method: `rules` (the default when absent) or `query`.
+        method: Option<Box<Spanned<String>>>,
         default: Box<ProjectField<JsonValue>>,
         rules: RuleCollection,
+        query: Option<Box<QueryNode>>,
     },
 }
 
+/// The `method = "query"` parameters, flat on `[resolve]`: a CEL pipeline over
+/// one catalog's entries.
+pub(in crate::lint) struct QueryNode {
+    pub(in crate::lint) location: DiagnosticLocation,
+    pub(in crate::lint) from: ProjectField<String>,
+    pub(in crate::lint) filter: Option<ProjectField<Expression>>,
+    pub(in crate::lint) sort: Option<ProjectField<Expression>>,
+    pub(in crate::lint) order: Option<ProjectField<String>>,
+    pub(in crate::lint) limit: Option<ProjectField<i64>>,
+}
+
 impl ResolveNode {
+    pub(in crate::lint) fn as_query(&self) -> Option<&QueryNode> {
+        match self {
+            Self::Resolve { query, .. } => query.as_deref(),
+            _ => None,
+        }
+    }
+
     pub(in crate::lint) fn location(&self) -> DiagnosticLocation {
         match self {
             Self::Missing { location }
@@ -435,7 +456,6 @@ pub(in crate::lint) struct VariableRuleNode {
     pub(in crate::lint) index: usize,
     pub(in crate::lint) location: DiagnosticLocation,
     pub(in crate::lint) when: Option<ProjectField<Expression>>,
-    pub(in crate::lint) query: Option<ProjectField<Expression>>,
     pub(in crate::lint) value: ProjectField<JsonValue>,
     pub(in crate::lint) invalid_shape: bool,
 }

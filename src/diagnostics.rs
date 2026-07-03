@@ -480,6 +480,12 @@ rototo_rules! {
         title: "Variable resolve block is invalid",
         help: "Resolve blocks must be tables with default and optional rule references.",
     },
+    VariableQueryShape => {
+        id: "variable-query-shape",
+        entity: Variable,
+        title: "Variable query resolution is invalid",
+        help: "method = \"query\" declares from = \"<catalog-id>\" plus optional filter, sort, order (asc or desc), limit (a positive integer), and default; it requires a catalog:<id> or list<catalog:<id>> type and no [[resolve.rule]] tables.",
+    },
     VariableRuleShape => {
         id: "variable-rule-shape",
         entity: Variable,
@@ -854,8 +860,9 @@ pub enum SemanticField {
     VariableResolve,
     VariableResolveDefault,
     VariableRuleWhen,
-    VariableRuleQuery,
     VariableRuleValue,
+    VariableQueryFilter,
+    VariableQuerySort,
     Value,
     ValueJsonPath { path: Vec<String> },
     SchemaJson,

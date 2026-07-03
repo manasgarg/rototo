@@ -10,7 +10,7 @@ use hydrate::catalog_entry_view;
 use crate::error::{Result, RototoError};
 use crate::expression::{RefResolver, ResolvingTarget};
 use crate::lint::{
-    RuntimeCatalogQuery, RuntimePackage, RuntimeRule, RuntimeRuleSelection, RuntimeSelectedValue,
+    RuntimePackage, RuntimeQuery, RuntimeResolution, RuntimeRule, RuntimeSelectedValue,
     compile_runtime_package,
 };
 use crate::model::{VariableResolution, VariableResolutionSource};
@@ -171,45 +171,38 @@ fn resolve_variable_trace_with_state(
         .get(id)
         .ok_or_else(|| RototoError::new(format!("variable not found: variable://{id}")))?;
 
+    match &variable.resolution {
+        RuntimeResolution::Rules { default, rules } => {
+            resolve_rules_trace(state, id, default, rules)
+        }
+        RuntimeResolution::Query(query) => resolve_query_trace(runtime, state, id, query),
+    }
+}
+
+fn resolve_rules_trace(
+    state: &mut ResolutionState<'_>,
+    id: &str,
+    default: &RuntimeSelectedValue,
+    rules: &[RuntimeRule],
+) -> Result<VariableResolutionTrace> {
     let mut selected = None;
-    let mut rules = Vec::new();
-    for rule in &variable.rules {
-        let matched = evaluate_rule_selector(state, rule)?;
-        let rule_value = if matched {
-            Some(resolve_rule_selection(runtime, state, &rule.selection)?)
-        } else {
-            None
-        };
-        let trace_value = rule_value
-            .as_ref()
-            .map(|value| value.value().clone())
-            .or_else(|| {
-                static_rule_selection_value(&rule.selection).map(|value| value.value().clone())
-            })
-            .unwrap_or(JsonValue::Null);
-        let trace_source = rule_value
-            .as_ref()
-            .map(selected_value_source)
-            .or_else(|| static_rule_selection_value(&rule.selection).map(selected_value_source))
-            .unwrap_or(VariableResolutionSource::Literal);
-        rules.push(VariableRuleResolutionTrace {
+    let mut rule_traces = Vec::new();
+    for rule in rules {
+        let matched = evaluate_rule_condition(state, rule)?;
+        rule_traces.push(VariableRuleResolutionTrace {
             index: rule.index,
-            condition: rule
-                .when
-                .as_ref()
-                .map(|when| when.source().to_owned())
-                .unwrap_or_else(|| "<query>".to_owned()),
-            value: trace_value,
-            source: trace_source,
+            condition: rule.when.source().to_owned(),
+            value: rule.value.value().clone(),
+            source: selected_value_source(&rule.value),
             matched,
         });
         if matched {
-            selected = rule_value;
+            selected = Some(rule.value.clone());
             break;
         }
     }
 
-    let selected = selected.unwrap_or_else(|| variable.default.clone());
+    let selected = selected.unwrap_or_else(|| default.clone());
 
     let resolution = VariableResolution {
         id: id.to_owned(),
@@ -219,9 +212,36 @@ fn resolve_variable_trace_with_state(
 
     Ok(VariableResolutionTrace {
         resolution,
-        default_value: variable.default.value().clone(),
-        default_source: selected_value_source(&variable.default),
-        rules,
+        default_value: default.value().clone(),
+        default_source: selected_value_source(default),
+        rules: rule_traces,
+    })
+}
+
+fn resolve_query_trace(
+    runtime: &RuntimePackage,
+    state: &mut ResolutionState<'_>,
+    id: &str,
+    query: &RuntimeQuery,
+) -> Result<VariableResolutionTrace> {
+    let selected = resolve_catalog_query(runtime, state, id, query)?;
+
+    let resolution = VariableResolution {
+        id: id.to_owned(),
+        value: selected.value().clone(),
+        source: selected_value_source(&selected),
+    };
+
+    let (default_value, default_source) = match &query.default {
+        Some(default) => (default.value().clone(), selected_value_source(default)),
+        None => (JsonValue::Null, VariableResolutionSource::Literal),
+    };
+
+    Ok(VariableResolutionTrace {
+        resolution,
+        default_value,
+        default_source,
+        rules: Vec::new(),
     })
 }
 
@@ -241,61 +261,120 @@ fn selected_value_source(value: &RuntimeSelectedValue) -> VariableResolutionSour
     }
 }
 
-fn evaluate_rule_selector(state: &mut ResolutionState<'_>, rule: &RuntimeRule) -> Result<bool> {
-    if let Some(when) = &rule.when {
-        let context = state.context;
-        let now = state.now.clone();
-        return when.evaluate_bool(context, None, &now, state);
-    }
-    Ok(matches!(rule.selection, RuntimeRuleSelection::Query(_)))
-}
-
-fn static_rule_selection_value(selection: &RuntimeRuleSelection) -> Option<&RuntimeSelectedValue> {
-    match selection {
-        RuntimeRuleSelection::Value(value) => Some(value),
-        RuntimeRuleSelection::Query(_) => None,
-    }
-}
-
-fn resolve_rule_selection(
-    runtime: &RuntimePackage,
-    state: &mut ResolutionState<'_>,
-    selection: &RuntimeRuleSelection,
-) -> Result<RuntimeSelectedValue> {
-    match selection {
-        RuntimeRuleSelection::Value(value) => Ok(value.clone()),
-        RuntimeRuleSelection::Query(query) => resolve_catalog_query(runtime, state, query),
-    }
+fn evaluate_rule_condition(state: &mut ResolutionState<'_>, rule: &RuntimeRule) -> Result<bool> {
+    let context = state.context;
+    let now = state.now.clone();
+    rule.when.evaluate_bool(context, None, &now, state)
 }
 
 fn resolve_catalog_query(
     runtime: &RuntimePackage,
     state: &mut ResolutionState<'_>,
-    query: &RuntimeCatalogQuery,
+    variable_id: &str,
+    query: &RuntimeQuery,
 ) -> Result<RuntimeSelectedValue> {
     let entries = runtime
         .catalog_entries
         .get(&query.catalog)
         .ok_or_else(|| RototoError::new(format!("catalog has no entries: {}", query.catalog)))?;
-    let mut names = Vec::new();
-    let mut values = Vec::new();
     let now = state.now.clone();
+
+    let mut matches: Vec<(String, JsonValue)> = Vec::new();
     for (name, entry) in entries {
         let entry_view = catalog_entry_view(runtime, &query.catalog, name, entry);
         let context = state.context;
-        if query
-            .expression
-            .evaluate_bool(context, Some(&entry_view), &now, state)?
-        {
-            names.push(name.clone());
-            values.push(entry_view);
+        let keep = match &query.filter {
+            Some(filter) => filter.evaluate_bool(context, Some(&entry_view), &now, state)?,
+            None => true,
+        };
+        if keep {
+            matches.push((name.clone(), entry_view));
         }
     }
+
+    if let Some(sort) = &query.sort {
+        let mut keyed = Vec::with_capacity(matches.len());
+        for (name, entry_view) in matches {
+            let context = state.context;
+            let key = sort.evaluate_value(context, Some(&entry_view), &now, state)?;
+            keyed.push((key, name, entry_view));
+        }
+        for pair in keyed.windows(2) {
+            if !query_sort_keys_comparable(&pair[0].0, &pair[1].0) {
+                return Err(RototoError::new(format!(
+                    "query sort keys are not comparable for variable {variable_id}: {} and {}",
+                    pair[0].0, pair[1].0
+                )));
+            }
+        }
+        keyed.sort_by(|a, b| compare_query_sort_keys(&a.0, &b.0));
+        if query.descending {
+            keyed.reverse();
+        }
+        matches = keyed
+            .into_iter()
+            .map(|(_, name, view)| (name, view))
+            .collect();
+    }
+
+    if let Some(limit) = query.limit {
+        matches.truncate(limit);
+    }
+
+    if query.single {
+        if matches.is_empty() {
+            return query.default.clone().ok_or_else(|| {
+                RototoError::new(format!(
+                    "query matched no entries for variable {variable_id} and no default is declared"
+                ))
+            });
+        }
+        if matches.len() > 1 && query.sort.is_none() {
+            return Err(RototoError::new(format!(
+                "query matched {} entries for variable {variable_id}; add sort or narrow the filter",
+                matches.len()
+            )));
+        }
+        let (name, value) = matches.into_iter().next().expect("non-empty matches");
+        return Ok(RuntimeSelectedValue::Catalog {
+            catalog: query.catalog.clone(),
+            name,
+            value,
+        });
+    }
+
+    if matches.is_empty()
+        && let Some(default) = &query.default
+    {
+        return Ok(default.clone());
+    }
+
+    let (names, values): (Vec<String>, Vec<JsonValue>) = matches.into_iter().unzip();
     Ok(RuntimeSelectedValue::CatalogList {
         catalog: query.catalog.clone(),
         names,
         value: JsonValue::Array(values),
     })
+}
+
+fn query_sort_keys_comparable(left: &JsonValue, right: &JsonValue) -> bool {
+    matches!(
+        (left, right),
+        (JsonValue::Number(_), JsonValue::Number(_)) | (JsonValue::String(_), JsonValue::String(_))
+    )
+}
+
+fn compare_query_sort_keys(left: &JsonValue, right: &JsonValue) -> std::cmp::Ordering {
+    match (left, right) {
+        (JsonValue::Number(left), JsonValue::Number(right)) => {
+            let left = left.as_f64().unwrap_or(f64::NAN);
+            let right = right.as_f64().unwrap_or(f64::NAN);
+            left.partial_cmp(&right)
+                .unwrap_or(std::cmp::Ordering::Equal)
+        }
+        (JsonValue::String(left), JsonValue::String(right)) => left.cmp(right),
+        _ => std::cmp::Ordering::Equal,
+    }
 }
 
 /// Per-resolution state: the evaluation instant, plus memoized values of
@@ -964,10 +1043,9 @@ body = "SMS body"
 type = "list<catalog:message_template>"
 
 [resolve]
-default = []
-
-[[resolve.rule]]
-query = "entry.channel == context.channel && entry.active == true && variables[\"premium\"]"
+method = "query"
+from = "message_template"
+filter = "entry.channel == context.channel && entry.active == true && variables[\"premium\"]"
 "#,
         )
         .unwrap();
@@ -1020,10 +1098,9 @@ title = "Home"
 type = "list<catalog:page>"
 
 [resolve]
-default = []
-
-[[resolve.rule]]
-query = "entry.hero.cta == \"Buy\""
+method = "query"
+from = "page"
+filter = "entry.hero.cta == \"Buy\""
 "#,
         )
         .unwrap();
@@ -1069,6 +1146,183 @@ query = "entry.hero.cta == \"Buy\""
                 }
             ])
         );
+    }
+
+    /// A package with one `plan` catalog (three priced entries) and one
+    /// variable file, for exercising the query pipeline end to end.
+    fn package_with_query_variable(variable: &str) -> tempfile::TempDir {
+        let package = package_with_conditions(&[]);
+        std::fs::create_dir_all(package.path().join("model/catalogs")).unwrap();
+        std::fs::create_dir_all(package.path().join("data/catalogs/plan")).unwrap();
+        std::fs::write(
+            package.path().join("model/catalogs/plan.schema.json"),
+            r#"{
+  "type": "object",
+  "required": ["tier", "price"],
+  "properties": {
+    "tier": { "type": "string" },
+    "price": { "type": "number" }
+  }
+}
+"#,
+        )
+        .unwrap();
+        for (name, tier, price) in [
+            ("free", "free", 0),
+            ("pro", "pro", 20),
+            ("enterprise", "enterprise", 100),
+        ] {
+            std::fs::write(
+                package
+                    .path()
+                    .join(format!("data/catalogs/plan/{name}.toml")),
+                format!("tier = \"{tier}\"\nprice = {price}\n"),
+            )
+            .unwrap();
+        }
+        std::fs::write(package.path().join("variables/plan.toml"), variable).unwrap();
+        package
+    }
+
+    #[tokio::test]
+    async fn query_single_selects_the_top_entry_after_sort() {
+        let package = package_with_query_variable(
+            r#"schema_version = 1
+type = "catalog:plan"
+
+[resolve]
+method = "query"
+from = "plan"
+filter = "entry.price > 0"
+sort = "entry.price"
+order = "desc"
+"#,
+        );
+        let resolution = resolve_variable(package.path(), "plan", &serde_json::json!({}))
+            .await
+            .unwrap();
+        assert_eq!(resolution.value["tier"], "enterprise");
+        assert!(matches!(
+            resolution.source,
+            VariableResolutionSource::Catalog { ref catalog, ref value }
+                if catalog == "plan" && value == "enterprise"
+        ));
+    }
+
+    #[tokio::test]
+    async fn query_single_without_sort_requires_exactly_one_match() {
+        let package = package_with_query_variable(
+            r#"schema_version = 1
+type = "catalog:plan"
+
+[resolve]
+method = "query"
+from = "plan"
+filter = "entry.price > 0"
+"#,
+        );
+        let err = resolve_variable(package.path(), "plan", &serde_json::json!({}))
+            .await
+            .unwrap_err();
+        assert!(err.to_string().contains("matched 2 entries"));
+        assert!(err.to_string().contains("add sort or narrow the filter"));
+    }
+
+    #[tokio::test]
+    async fn query_single_with_no_match_uses_default_or_errors() {
+        let package = package_with_query_variable(
+            r#"schema_version = 1
+type = "catalog:plan"
+
+[resolve]
+method = "query"
+from = "plan"
+filter = "entry.price > 1000"
+default = "free"
+"#,
+        );
+        let resolution = resolve_variable(package.path(), "plan", &serde_json::json!({}))
+            .await
+            .unwrap();
+        assert_eq!(resolution.value["tier"], "free");
+
+        let package = package_with_query_variable(
+            r#"schema_version = 1
+type = "catalog:plan"
+
+[resolve]
+method = "query"
+from = "plan"
+filter = "entry.price > 1000"
+"#,
+        );
+        let err = resolve_variable(package.path(), "plan", &serde_json::json!({}))
+            .await
+            .unwrap_err();
+        assert!(err.to_string().contains("matched no entries"));
+    }
+
+    #[tokio::test]
+    async fn query_list_sorts_and_limits_matches() {
+        let package = package_with_query_variable(
+            r#"schema_version = 1
+type = "list<catalog:plan>"
+
+[resolve]
+method = "query"
+from = "plan"
+sort = "entry.price"
+order = "desc"
+limit = 2
+"#,
+        );
+        let resolution = resolve_variable(package.path(), "plan", &serde_json::json!({}))
+            .await
+            .unwrap();
+        let tiers: Vec<&str> = resolution
+            .value
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|entry| entry["tier"].as_str().unwrap())
+            .collect();
+        assert_eq!(tiers, vec!["enterprise", "pro"]);
+    }
+
+    #[tokio::test]
+    async fn query_list_with_no_match_is_empty_without_default() {
+        let package = package_with_query_variable(
+            r#"schema_version = 1
+type = "list<catalog:plan>"
+
+[resolve]
+method = "query"
+from = "plan"
+filter = "entry.price > 1000"
+"#,
+        );
+        let resolution = resolve_variable(package.path(), "plan", &serde_json::json!({}))
+            .await
+            .unwrap();
+        assert_eq!(resolution.value, serde_json::json!([]));
+    }
+
+    #[tokio::test]
+    async fn query_sort_keys_must_be_comparable() {
+        let package = package_with_query_variable(
+            r#"schema_version = 1
+type = "list<catalog:plan>"
+
+[resolve]
+method = "query"
+from = "plan"
+sort = "entry.price > 0 ? entry.tier : entry.price"
+"#,
+        );
+        let err = resolve_variable(package.path(), "plan", &serde_json::json!({}))
+            .await
+            .unwrap_err();
+        assert!(err.to_string().contains("sort keys are not comparable"));
     }
 
     #[tokio::test]

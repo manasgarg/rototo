@@ -398,15 +398,6 @@ fn rule_pointer(
                 .map(ProjectField::location)
                 .unwrap_or_else(|| rule.location.clone()),
         )),
-        Some("query") => Some(field_anchor(
-            ctx,
-            entity,
-            SemanticField::VariableRuleQuery,
-            rule.query
-                .as_ref()
-                .map(ProjectField::location)
-                .unwrap_or_else(|| rule.location.clone()),
-        )),
         Some("value") => Some(field_anchor(
             ctx,
             entity,
@@ -610,11 +601,6 @@ fn registered_rule_location(
     match field {
         Some(SemanticField::VariableRuleWhen) => rule
             .when
-            .as_ref()
-            .map(ProjectField::location)
-            .unwrap_or_else(|| rule.location.clone()),
-        Some(SemanticField::VariableRuleQuery) => rule
-            .query
             .as_ref()
             .map(ProjectField::location)
             .unwrap_or_else(|| rule.location.clone()),

@@ -6,7 +6,7 @@ use super::super::engine::LintContext;
 use super::super::evaluation_context::{
     ContextPathTypeFit, compatibility_for as evaluation_context_compatibility_for,
     context_path_type_fit, expected_type_label, path_declared_in_any_context,
-    variable_resolve_rules, variable_rule_condition_reference_count,
+    variable_query_expressions, variable_resolve_rules, variable_rule_condition_reference_count,
 };
 use serde_json::Value as JsonValue;
 
@@ -286,26 +286,39 @@ pub(super) fn lint_undeclared_context_paths(ctx: &mut LintContext) {
         if variables_with_errors.contains(variable_id) {
             continue;
         }
-        let Some(rules) = variable_resolve_rules(variable) else {
-            continue;
-        };
-        for rule in rules {
-            for expression in [&rule.when, &rule.query].into_iter().flatten() {
-                let ProjectField::Present(expression) = expression else {
-                    continue;
-                };
-                for path in &expression.value.references().context_paths {
-                    if path.is_empty() || path_declared_in_any_context(&ctx.index, path) {
+        if let Some(rules) = variable_resolve_rules(variable) {
+            for rule in rules {
+                for expression in [&rule.when].into_iter().flatten() {
+                    let ProjectField::Present(expression) = expression else {
                         continue;
+                    };
+                    for path in &expression.value.references().context_paths {
+                        if path.is_empty() || path_declared_in_any_context(&ctx.index, path) {
+                            continue;
+                        }
+                        push_graph_diagnostic(
+                            &mut diagnostics,
+                            RototoRuleId::VariableRuleUndeclaredContextPath,
+                            rule.target(variable_id),
+                            rule.location.clone(),
+                            format!("rule references undeclared context path: context.{path}"),
+                        );
                     }
-                    push_graph_diagnostic(
-                        &mut diagnostics,
-                        RototoRuleId::VariableRuleUndeclaredContextPath,
-                        rule.target(variable_id),
-                        rule.location.clone(),
-                        format!("rule references undeclared context path: context.{path}"),
-                    );
                 }
+            }
+        }
+        for expression in variable_query_expressions(variable) {
+            for path in &expression.value.references().context_paths {
+                if path.is_empty() || path_declared_in_any_context(&ctx.index, path) {
+                    continue;
+                }
+                push_graph_diagnostic(
+                    &mut diagnostics,
+                    RototoRuleId::VariableRuleUndeclaredContextPath,
+                    variable.target(),
+                    expression.location.clone(),
+                    format!("query references undeclared context path: context.{path}"),
+                );
             }
         }
     }
@@ -321,29 +334,46 @@ pub(super) fn lint_context_path_types(ctx: &mut LintContext) {
         if variables_with_errors.contains(variable_id) {
             continue;
         }
-        let Some(rules) = variable_resolve_rules(variable) else {
-            continue;
-        };
-        for rule in rules {
-            for expression in [&rule.when, &rule.query].into_iter().flatten() {
-                let ProjectField::Present(expression) = expression else {
-                    continue;
-                };
-                for (path, constraints) in &expression.value.references().context_path_types {
-                    let Some(expected) = type_mismatch_label(&ctx.index, path, constraints) else {
+        if let Some(rules) = variable_resolve_rules(variable) {
+            for rule in rules {
+                for expression in [&rule.when].into_iter().flatten() {
+                    let ProjectField::Present(expression) = expression else {
                         continue;
                     };
-                    push_graph_diagnostic(
-                        &mut diagnostics,
-                        RototoRuleId::VariableRuleContextPathTypeMismatch,
-                        rule.target(variable_id),
-                        rule.location.clone(),
-                        format!(
-                            "rule uses context path context.{path} as {expected}, \
-                             which no evaluation context declares with a matching type"
-                        ),
-                    );
+                    for (path, constraints) in &expression.value.references().context_path_types {
+                        let Some(expected) = type_mismatch_label(&ctx.index, path, constraints)
+                        else {
+                            continue;
+                        };
+                        push_graph_diagnostic(
+                            &mut diagnostics,
+                            RototoRuleId::VariableRuleContextPathTypeMismatch,
+                            rule.target(variable_id),
+                            rule.location.clone(),
+                            format!(
+                                "rule uses context path context.{path} as {expected}, \
+                                 which no evaluation context declares with a matching type"
+                            ),
+                        );
+                    }
                 }
+            }
+        }
+        for expression in variable_query_expressions(variable) {
+            for (path, constraints) in &expression.value.references().context_path_types {
+                let Some(expected) = type_mismatch_label(&ctx.index, path, constraints) else {
+                    continue;
+                };
+                push_graph_diagnostic(
+                    &mut diagnostics,
+                    RototoRuleId::VariableRuleContextPathTypeMismatch,
+                    variable.target(),
+                    expression.location.clone(),
+                    format!(
+                        "query uses context path context.{path} as {expected}, \
+                         which no evaluation context declares with a matching type"
+                    ),
+                );
             }
         }
     }

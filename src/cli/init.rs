@@ -614,16 +614,15 @@ default = "control"
 # when = 'variables["premium_users"]'
 # value = "premium"
 
-# For list<catalog:...> variables, rules may select entries with `query`
-# instead of a fixed value. `entry.*` reads each catalog entry.
+# For catalog-backed variables, `method = "query"` selects entries from the
+# catalog instead of matching rules. `entry.*` reads each catalog entry.
 #
 # type = "list<catalog:{id}>"
 #
 # [resolve]
-# default = []
-#
-# [[resolve.rule]]
-# query = 'entry.enabled == true && variables["premium_users"]'
+# method = "query"
+# from = "{id}"
+# filter = 'entry.enabled == true && variables["premium_users"]'
 "#
     )
 }

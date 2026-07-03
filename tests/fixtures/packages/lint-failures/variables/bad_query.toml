@@ -1,0 +1,8 @@
+schema_version = 1
+
+description = "Variable that declares query keys without method = \"query\""
+type = "string"
+
+[resolve]
+default = "control"
+from = "messages"

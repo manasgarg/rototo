@@ -33,6 +33,8 @@ pub(super) enum ReferenceSource {
     VariableRuleConditionVariable { variable: String, rule: usize },
     VariableRuleContextAttribute { variable: String, rule: usize },
     VariableRuleValue { variable: String, rule: usize },
+    VariableQueryVariable { variable: String },
+    VariableQueryContextAttribute { variable: String },
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
@@ -160,7 +162,8 @@ impl ReferenceIndex {
             .collect::<BTreeMap<_, _>>();
 
         for edge in &self.edges {
-            let ReferenceSource::VariableRuleConditionVariable { variable, .. } = &edge.source
+            let (ReferenceSource::VariableRuleConditionVariable { variable, .. }
+            | ReferenceSource::VariableQueryVariable { variable }) = &edge.source
             else {
                 continue;
             };
@@ -254,9 +257,62 @@ impl ReferenceIndex {
                 );
             }
 
-            let ResolveNode::Resolve { default, rules, .. } = &variable.resolve else {
+            let ResolveNode::Resolve {
+                default,
+                rules,
+                query,
+                ..
+            } = &variable.resolve
+            else {
                 continue;
             };
+
+            if let Some(query) = query {
+                for (field, expression) in [
+                    (SemanticField::VariableQueryFilter, &query.filter),
+                    (SemanticField::VariableQuerySort, &query.sort),
+                ]
+                .into_iter()
+                .filter_map(|(field, expression)| expression.as_ref().map(|expr| (field, expr)))
+                {
+                    let ProjectField::Present(expression) = expression else {
+                        continue;
+                    };
+                    for referenced in &expression.value.references().variables {
+                        self.push_edge(
+                            ReferenceSource::VariableQueryVariable {
+                                variable: variable.id.clone(),
+                            },
+                            SemanticTarget::field(
+                                SemanticEntity::Variable {
+                                    id: variable.id.clone(),
+                                },
+                                field.clone(),
+                            ),
+                            expression.location.clone(),
+                            ReferenceTarget::Variable(referenced.clone()),
+                        );
+                    }
+                    for path in &expression.value.references().context_paths {
+                        if path.is_empty() {
+                            continue;
+                        }
+                        self.push_edge(
+                            ReferenceSource::VariableQueryContextAttribute {
+                                variable: variable.id.clone(),
+                            },
+                            SemanticTarget::field(
+                                SemanticEntity::Variable {
+                                    id: variable.id.clone(),
+                                },
+                                field.clone(),
+                            ),
+                            expression.location.clone(),
+                            ReferenceTarget::ContextAttribute(path.clone()),
+                        );
+                    }
+                }
+            }
 
             if let ProjectField::Present(value) = default.as_ref()
                 && let Some(target) = variable_value_target(variable, &value.value)
@@ -287,12 +343,9 @@ impl ReferenceIndex {
                     variable: variable.id.clone(),
                     index: rule.index,
                 };
-                for (field, expression) in [
-                    (SemanticField::VariableRuleWhen, &rule.when),
-                    (SemanticField::VariableRuleQuery, &rule.query),
-                ]
-                .into_iter()
-                .filter_map(|(field, expression)| expression.as_ref().map(|expr| (field, expr)))
+                for (field, expression) in [(SemanticField::VariableRuleWhen, &rule.when)]
+                    .into_iter()
+                    .filter_map(|(field, expression)| expression.as_ref().map(|expr| (field, expr)))
                 {
                     if let ProjectField::Present(expression) = expression {
                         for referenced in &expression.value.references().variables {

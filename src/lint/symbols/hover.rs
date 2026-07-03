@@ -112,8 +112,22 @@ fn push_variable_hover_candidates(
             location,
             default,
             rules,
+            query,
+            ..
         } = &variable.resolve
         {
+            if let Some(query) = query {
+                for expression in [&query.filter, &query.sort].into_iter().flatten() {
+                    push_hover_candidate(
+                        candidates,
+                        path,
+                        position,
+                        &expression.location(),
+                        2,
+                        variable_query_hover_contents(variable, query),
+                    );
+                }
+            }
             push_hover_candidate(
                 candidates,
                 path,
@@ -142,7 +156,6 @@ fn push_variable_hover_candidates(
                     );
                     for location in [
                         rule.when.as_ref().map(ProjectField::location),
-                        rule.query.as_ref().map(ProjectField::location),
                         Some(rule.value.location()),
                     ]
                     .into_iter()
@@ -371,6 +384,31 @@ fn variable_resolve_hover_contents(
     }
 }
 
+fn variable_query_hover_contents(variable: &VariableNode, query: &QueryNode) -> String {
+    let from = string_project_field_label(&query.from).unwrap_or_else(|| "<missing>".to_owned());
+    let mut summary = format!("Selects entries from catalog `{from}`");
+    if let Some(filter) = expression_project_field_label(&query.filter) {
+        summary.push_str(&format!(" where `{filter}`"));
+    }
+    if let Some(sort) = expression_project_field_label(&query.sort) {
+        summary.push_str(&format!(", sorted by `{sort}`"));
+    }
+    summary.push('.');
+    format!(
+        "### Query for `{}`
+
+{summary}",
+        variable.id
+    )
+}
+
+fn string_project_field_label(field: &ProjectField<String>) -> Option<String> {
+    match field {
+        ProjectField::Present(value) => Some(value.value.clone()),
+        ProjectField::Invalid { .. } | ProjectField::Missing { .. } => None,
+    }
+}
+
 fn variable_rule_hover_contents(variable: &VariableNode, rule: &VariableRuleNode) -> String {
     format!(
         "### Rule {} for `{}`\n\n{}",
@@ -381,8 +419,7 @@ fn variable_rule_hover_contents(variable: &VariableNode, rule: &VariableRuleNode
 }
 
 fn variable_rule_summary(rule: &VariableRuleNode) -> String {
-    let selector = expression_project_field_label(&rule.when)
-        .or_else(|| expression_project_field_label(&rule.query));
+    let selector = expression_project_field_label(&rule.when);
     match (selector, json_project_field_label(&rule.value)) {
         (Some(condition), Some(value)) => {
             format!("Condition `{condition}` selects value `{value}`.")

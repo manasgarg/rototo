@@ -165,10 +165,79 @@ fn project_resolve(
         return ResolveNode::Invalid { location };
     };
 
+    let method = table.get("method").map(|item| {
+        Box::new(match item.as_str() {
+            Some(value) => Spanned {
+                value: value.to_owned(),
+                location: item_location(document, item),
+            },
+            None => Spanned {
+                value: String::new(),
+                location: item_location(document, item),
+            },
+        })
+    });
+
+    let query = project_query(document, table, &location).map(Box::new);
+
     ResolveNode::Resolve {
         location: location.clone(),
+        method,
         default: Box::new(json_field(document, table, "default", location.clone())),
         rules: project_rules(document, variable_id, table),
+        query,
+    }
+}
+
+/// Project the query pipeline keys when any of them is present. The node
+/// exists whenever query keys appear, so lint can flag them under the wrong
+/// method instead of silently ignoring them.
+fn project_query(
+    document: &SourceDocument,
+    table: &Table<'_>,
+    location: &DiagnosticLocation,
+) -> Option<QueryNode> {
+    let keys = ["from", "filter", "sort", "order", "limit"];
+    if !keys.iter().any(|key| table.get(*key).is_some()) {
+        return None;
+    }
+    Some(QueryNode {
+        location: location.clone(),
+        from: string_query_field(document, table, "from", location.clone()),
+        filter: optional_expression_field(document, table, "filter"),
+        sort: optional_expression_field(document, table, "sort"),
+        order: optional_string_field(document, table, "order"),
+        limit: table.get("limit").map(|item| match item.as_integer() {
+            Some(value) => ProjectField::Present(Spanned {
+                value,
+                location: item_location(document, item),
+            }),
+            None => ProjectField::Invalid {
+                location: item_location(document, item),
+            },
+        }),
+    })
+}
+
+fn string_query_field(
+    document: &SourceDocument,
+    table: &Table<'_>,
+    key: &str,
+    missing_location: DiagnosticLocation,
+) -> ProjectField<String> {
+    match table.get(key) {
+        Some(item) => match item.as_str() {
+            Some(value) => ProjectField::Present(Spanned {
+                value: value.to_owned(),
+                location: item_location(document, item),
+            }),
+            None => ProjectField::Invalid {
+                location: item_location(document, item),
+            },
+        },
+        None => ProjectField::Missing {
+            location: missing_location,
+        },
     }
 }
 
@@ -208,7 +277,6 @@ fn project_rule_from_value(
             index,
             location: location.clone(),
             when: None,
-            query: None,
             value: ProjectField::Invalid { location },
             invalid_shape: true,
         };
@@ -228,7 +296,6 @@ fn project_rule_from_table_like(
         index,
         location: location.clone(),
         when: optional_expression_field(document, table, "when"),
-        query: optional_expression_field(document, table, "query"),
         value: json_field(document, table, "value", location.clone()),
         invalid_shape,
     }

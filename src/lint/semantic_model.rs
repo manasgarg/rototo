@@ -96,8 +96,28 @@ pub struct ValueModel {
 pub struct ResolveModel {
     pub location: ModelLocation,
     #[serde(skip_serializing_if = "Option::is_none")]
+    pub method: Option<ModelField>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub default: Option<ModelValueField>,
     pub rules: Vec<RuleModel>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub query: Option<QueryModel>,
+}
+
+/// The `method = "query"` parameters on `[resolve]`.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct QueryModel {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub from: Option<ModelField>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub filter: Option<ModelField>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub sort: Option<ModelField>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub order: Option<ModelField>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub limit: Option<ModelField>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -107,8 +127,6 @@ pub struct RuleModel {
     pub location: ModelLocation,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub when: Option<ModelField>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub query: Option<ModelField>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub value: Option<ModelValueField>,
 }
@@ -200,6 +218,7 @@ pub enum ModelReferenceVia {
     ResolveDefault,
     RuleCondition { index: usize },
     RuleValue { index: usize },
+    Query,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -273,11 +292,30 @@ impl PackageLintSnapshot {
                 let resolve = match &node.resolve {
                     ResolveNode::Resolve {
                         location,
+                        method,
                         default,
                         rules,
+                        query,
                     } => Some(ResolveModel {
                         location: model_location(location),
+                        method: method.as_ref().map(|method| ModelField {
+                            value: Some(method.value.clone()),
+                            location: model_location(&method.location),
+                        }),
                         default: Some(model_value_field(default)),
+                        query: query.as_ref().map(|query| QueryModel {
+                            from: Some(model_string_field(&query.from)),
+                            filter: query.filter.as_ref().map(model_expression_field),
+                            sort: query.sort.as_ref().map(model_expression_field),
+                            order: query.order.as_ref().map(model_string_field),
+                            limit: query.limit.as_ref().map(|limit| ModelField {
+                                value: match limit {
+                                    ProjectField::Present(value) => Some(value.value.to_string()),
+                                    _ => None,
+                                },
+                                location: model_location(&limit.location()),
+                            }),
+                        }),
                         rules: match rules {
                             RuleCollection::Rules(rules) => rules
                                 .iter()
@@ -285,7 +323,6 @@ impl PackageLintSnapshot {
                                     index: rule.index,
                                     location: model_location(&rule.location),
                                     when: rule.when.as_ref().map(model_expression_field),
-                                    query: rule.query.as_ref().map(model_expression_field),
                                     value: Some(model_value_field(&rule.value)),
                                 })
                                 .collect(),
@@ -460,6 +497,16 @@ fn model_expression_field(field: &ProjectField<Expression>) -> ModelField {
     }
 }
 
+fn model_string_field(field: &ProjectField<String>) -> ModelField {
+    ModelField {
+        value: match field {
+            ProjectField::Present(value) => Some(value.value.clone()),
+            ProjectField::Invalid { .. } | ProjectField::Missing { .. } => None,
+        },
+        location: model_location(&field.location()),
+    }
+}
+
 fn model_value_field(field: &ProjectField<JsonValue>) -> ModelValueField {
     ModelValueField {
         value: match field {
@@ -488,6 +535,8 @@ fn reference_via(source: &ReferenceSource) -> ModelReferenceVia {
         ReferenceSource::VariableRuleValue { rule, .. } => {
             ModelReferenceVia::RuleValue { index: *rule }
         }
+        ReferenceSource::VariableQueryVariable { .. }
+        | ReferenceSource::VariableQueryContextAttribute { .. } => ModelReferenceVia::Query,
     }
 }
 
@@ -497,7 +546,9 @@ fn reference_source_ref(source: &ReferenceSource) -> ModelEntityRef {
         | ReferenceSource::VariableResolveDefault { variable }
         | ReferenceSource::VariableRuleConditionVariable { variable, .. }
         | ReferenceSource::VariableRuleContextAttribute { variable, .. }
-        | ReferenceSource::VariableRuleValue { variable, .. } => ModelEntityRef::Variable {
+        | ReferenceSource::VariableRuleValue { variable, .. }
+        | ReferenceSource::VariableQueryVariable { variable }
+        | ReferenceSource::VariableQueryContextAttribute { variable } => ModelEntityRef::Variable {
             id: variable.clone(),
         },
     }

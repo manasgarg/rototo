@@ -64,11 +64,10 @@ impl<'a> CompatibilityBuilder<'a> {
 
     fn variable_contexts_uncached(&mut self, variable_id: &str) -> Option<BTreeSet<String>> {
         let variable = self.index.variables.get(variable_id)?;
-        let resolve = variable.resolve.as_rules()?;
         let mut contexts: Option<BTreeSet<String>> = None;
-        for rule in resolve {
+        for rule in variable.resolve.as_rules().unwrap_or_default() {
             let mut rule_contexts: Option<BTreeSet<String>> = None;
-            for expression in [&rule.when, &rule.query].into_iter().flatten() {
+            for expression in [&rule.when].into_iter().flatten() {
                 let ProjectField::Present(expression) = expression else {
                     continue;
                 };
@@ -87,6 +86,16 @@ impl<'a> CompatibilityBuilder<'a> {
             contexts = Some(match contexts {
                 Some(current) => current.intersection(&rule_contexts).cloned().collect(),
                 None => rule_contexts,
+            });
+        }
+        for expression in variable_query_expressions(variable) {
+            let expression_contexts = self.expression_contexts(&expression.value);
+            contexts = Some(match contexts {
+                Some(current) => current
+                    .intersection(&expression_contexts)
+                    .cloned()
+                    .collect(),
+                None => expression_contexts,
             });
         }
         contexts
@@ -153,16 +162,13 @@ pub(in crate::lint) fn variable_rule_condition_reference_count(
             rules
                 .iter()
                 .filter(|rule| {
-                    [&rule.when, &rule.query]
-                        .into_iter()
-                        .flatten()
-                        .any(|expression| {
-                            let ProjectField::Present(expression) = expression else {
-                                return false;
-                            };
-                            let references = expression.value.references();
-                            !references.variables.is_empty() || !references.context_paths.is_empty()
-                        })
+                    [&rule.when].into_iter().flatten().any(|expression| {
+                        let ProjectField::Present(expression) = expression else {
+                            return false;
+                        };
+                        let references = expression.value.references();
+                        !references.variables.is_empty() || !references.context_paths.is_empty()
+                    })
                 })
                 .count()
         })
@@ -185,6 +191,23 @@ pub(in crate::lint) fn variable_resolve_rules(
     variable: &super::index::VariableNode,
 ) -> Option<&[super::index::VariableRuleNode]> {
     variable.resolve.as_rules()
+}
+
+/// The present `filter`/`sort` expressions of a variable's `method = "query"`
+/// pipeline, if any.
+pub(in crate::lint) fn variable_query_expressions(
+    variable: &super::index::VariableNode,
+) -> Vec<&super::index::Spanned<crate::expression::Expression>> {
+    let Some(query) = variable.resolve.as_query() else {
+        return Vec::new();
+    };
+    [&query.filter, &query.sort]
+        .iter()
+        .filter_map(|field| match field {
+            Some(super::index::ProjectField::Present(expression)) => Some(expression),
+            _ => None,
+        })
+        .collect()
 }
 
 /// How a context schema's declaration of a path lines up with the scalar types

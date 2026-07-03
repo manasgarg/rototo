@@ -152,7 +152,7 @@ fn init_variable_and_catalog_templates() {
     assert!(variable.contains("[resolve]"));
     assert!(variable.contains("bool, int, number, string"));
     assert!(variable.contains("context.account.plan == \"enterprise\""));
-    assert!(variable.contains("query = 'entry.enabled == true"));
+    assert!(variable.contains("filter = 'entry.enabled == true"));
     assert!(!variable.contains("[env."));
 
     let catalog =

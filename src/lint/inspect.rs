@@ -9,7 +9,7 @@ use crate::model::{
     EvaluationContextSampleInspectReport, InspectRuntimeStatus, InspectSelection,
     LintAuthorityInspectReport, LintRuleInspectReport, LinterInspectReport,
     LinterRegistrationInspectReport, PackageInspectReport, PackageInspectRequest,
-    ReferenceInspectReport, ResolveInspectReport, RulePathwayInspectReport,
+    QueryInspectReport, ReferenceInspectReport, ResolveInspectReport, RulePathwayInspectReport,
     RuleSampleCoverageReport, ValueInspectReport, VariableInspectReport,
     VariableSampleCoverageReport,
 };
@@ -405,13 +405,17 @@ fn value_report(value: &ValueNode) -> ValueInspectReport {
 fn variable_resolve(variable: &VariableNode) -> ResolveInspectReport {
     let ResolveNode::Resolve {
         location,
+        method,
         default,
         rules,
+        query,
     } = &variable.resolve
     else {
         return ResolveInspectReport {
+            method: "rules".to_owned(),
             default_value: None,
             rules: Vec::new(),
+            query: None,
             location: variable.resolve.location(),
         };
     };
@@ -421,16 +425,36 @@ fn variable_resolve(variable: &VariableNode) -> ResolveInspectReport {
             .map(|rule| RulePathwayInspectReport {
                 index: rule.index,
                 when: present_expression_source(&rule.when),
-                query: present_expression_source(&rule.query),
                 value: present_json_value(&rule.value),
                 location: rule.location.clone(),
             })
             .collect(),
         RuleCollection::Invalid { .. } => Vec::new(),
     };
+    let query = query.as_ref().map(|query| QueryInspectReport {
+        from: match &query.from {
+            ProjectField::Present(from) => Some(from.value.clone()),
+            _ => None,
+        },
+        filter: present_expression_source(&query.filter),
+        sort: present_expression_source(&query.sort),
+        order: query.order.as_ref().and_then(|order| match order {
+            ProjectField::Present(order) => Some(order.value.clone()),
+            _ => None,
+        }),
+        limit: query.limit.as_ref().and_then(|limit| match limit {
+            ProjectField::Present(limit) => Some(limit.value),
+            _ => None,
+        }),
+    });
     ResolveInspectReport {
+        method: method
+            .as_ref()
+            .map(|method| method.value.clone())
+            .unwrap_or_else(|| "rules".to_owned()),
         default_value: present_json_value(default),
         rules,
+        query,
         location: location.clone(),
     }
 }
@@ -572,12 +596,13 @@ fn variable_context_attributes(
     let mut expressions = Vec::new();
     if let Some(rules) = variable_resolve_rules(variable) {
         for rule in rules {
-            for field in [&rule.when, &rule.query].into_iter().flatten() {
-                if let ProjectField::Present(expression) = field {
-                    expressions.push(&expression.value);
-                }
+            if let Some(ProjectField::Present(expression)) = &rule.when {
+                expressions.push(&expression.value);
             }
         }
+    }
+    for expression in resolve_query_expressions(variable) {
+        expressions.push(expression);
     }
     context_attributes_for_expressions(snapshot, expressions)
 }
@@ -674,26 +699,47 @@ fn collect_variable_dependencies(
     let Some(node) = snapshot.index.variables.get(variable) else {
         return;
     };
-    let Some(rules) = variable_resolve_rules(node) else {
-        return;
-    };
-    for rule in rules {
-        for expression in [&rule.when, &rule.query].into_iter().flatten() {
-            let ProjectField::Present(expression) = expression else {
-                continue;
-            };
-            for path in &expression.value.references().context_paths {
-                if !path.is_empty() {
-                    context_paths.insert(path.clone());
-                }
-            }
-            for nested in &expression.value.references().variables {
-                if snapshot.index.variables.contains_key(nested) {
-                    collect_variable_dependencies(snapshot, nested, variables, context_paths, seen);
-                }
+    let mut expressions = Vec::new();
+    if let Some(rules) = variable_resolve_rules(node) {
+        for rule in rules {
+            if let Some(ProjectField::Present(expression)) = &rule.when {
+                expressions.push(&expression.value);
             }
         }
     }
+    for expression in resolve_query_expressions(node) {
+        expressions.push(expression);
+    }
+    for expression in expressions {
+        for path in &expression.references().context_paths {
+            if !path.is_empty() {
+                context_paths.insert(path.clone());
+            }
+        }
+        for nested in &expression.references().variables {
+            if snapshot.index.variables.contains_key(nested) {
+                collect_variable_dependencies(snapshot, nested, variables, context_paths, seen);
+            }
+        }
+    }
+}
+
+/// The `[resolve]` query expressions (filter and sort), when the variable uses
+/// the query method.
+fn resolve_query_expressions(variable: &VariableNode) -> Vec<&crate::expression::Expression> {
+    let ResolveNode::Resolve {
+        query: Some(query), ..
+    } = &variable.resolve
+    else {
+        return Vec::new();
+    };
+    let mut expressions = Vec::new();
+    for field in [&query.filter, &query.sort].into_iter().flatten() {
+        if let ProjectField::Present(expression) = field {
+            expressions.push(&expression.value);
+        }
+    }
+    expressions
 }
 
 fn catalog_consumers(snapshot: &PackageLintSnapshot, catalog: &str) -> Vec<ReferenceInspectReport> {
@@ -723,7 +769,9 @@ fn reference_source_kind(source: &ReferenceSource) -> &'static str {
         | ReferenceSource::VariableRuleContextAttribute { .. }
         | ReferenceSource::VariableRuleValue { .. }
         | ReferenceSource::VariableResolveDefault { .. }
-        | ReferenceSource::VariableCatalog { .. } => "variable",
+        | ReferenceSource::VariableCatalog { .. }
+        | ReferenceSource::VariableQueryVariable { .. }
+        | ReferenceSource::VariableQueryContextAttribute { .. } => "variable",
     }
 }
 
@@ -738,6 +786,10 @@ fn reference_source_label(source: &ReferenceSource) -> String {
             format!("variable {variable} resolve.default")
         }
         ReferenceSource::VariableCatalog { variable } => format!("variable {variable}"),
+        ReferenceSource::VariableQueryVariable { variable }
+        | ReferenceSource::VariableQueryContextAttribute { variable } => {
+            format!("variable {variable} resolve query")
+        }
     }
 }
 

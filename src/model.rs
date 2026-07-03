@@ -306,10 +306,27 @@ pub struct ValueInspectReport {
 
 #[derive(Debug, serde::Serialize)]
 pub struct ResolveInspectReport {
+    pub method: String,
     pub default_value: Option<serde_json::Value>,
     pub rules: Vec<RulePathwayInspectReport>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub query: Option<QueryInspectReport>,
     #[serde(skip_serializing)]
     pub location: DiagnosticLocation,
+}
+
+#[derive(Debug, serde::Serialize)]
+pub struct QueryInspectReport {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub from: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub filter: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub sort: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub order: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub limit: Option<i64>,
 }
 
 #[derive(Debug, serde::Serialize)]
@@ -317,8 +334,6 @@ pub struct RulePathwayInspectReport {
     pub index: usize,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub when: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub query: Option<String>,
     pub value: Option<serde_json::Value>,
     #[serde(skip_serializing)]
     pub location: DiagnosticLocation,

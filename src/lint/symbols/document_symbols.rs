@@ -101,24 +101,50 @@ fn variable_values_document_symbol(variable: &VariableNode) -> Option<PackageDoc
 
 fn variable_resolve_document_symbol(variable: &VariableNode) -> Option<PackageDocumentSymbol> {
     let ResolveNode::Resolve {
-        location, rules, ..
+        location,
+        rules,
+        query,
+        ..
     } = &variable.resolve
     else {
         return None;
     };
-    let children = match rules {
+    let mut children = match rules {
         RuleCollection::Rules(rules) => rules
             .iter()
             .map(variable_rule_document_symbol)
             .collect::<Vec<_>>(),
         RuleCollection::Invalid { .. } => Vec::new(),
     };
+    if let Some(query) = query {
+        children.push(variable_query_document_symbol(query));
+    }
     Some(PackageDocumentSymbol::new(
         "resolve",
         PackageDocumentSymbolKind::Resolve,
         location.clone(),
         children,
     ))
+}
+
+fn variable_query_document_symbol(query: &QueryNode) -> PackageDocumentSymbol {
+    let name = match string_project_field_label(&query.from) {
+        Some(from) => format!("query: {from}"),
+        None => "query".to_owned(),
+    };
+    PackageDocumentSymbol::new(
+        name,
+        PackageDocumentSymbolKind::Rule,
+        query.location.clone(),
+        Vec::new(),
+    )
+}
+
+fn string_project_field_label(field: &ProjectField<String>) -> Option<String> {
+    match field {
+        ProjectField::Present(value) => Some(value.value.clone()),
+        ProjectField::Invalid { .. } | ProjectField::Missing { .. } => None,
+    }
 }
 
 fn variable_rule_document_symbol(rule: &VariableRuleNode) -> PackageDocumentSymbol {
@@ -159,8 +185,7 @@ fn value_document_symbol(value: &ValueNode) -> PackageDocumentSymbol {
 
 fn variable_rule_symbol_name(rule: &VariableRuleNode) -> String {
     let index = rule.index + 1;
-    let selector = expression_project_field_label(&rule.when)
-        .or_else(|| expression_project_field_label(&rule.query));
+    let selector = expression_project_field_label(&rule.when);
     match (selector, json_project_field_label(&rule.value)) {
         (Some(condition), Some(value)) => format!("rule {index}: {condition} -> {value}"),
         (Some(condition), None) => format!("rule {index}: {condition}"),

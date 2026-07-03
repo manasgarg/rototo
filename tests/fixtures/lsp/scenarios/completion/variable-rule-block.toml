@@ -1,6 +1,6 @@
 # Inside a `[[resolve.rule]]` table whose `when` is already set, the remaining
-# fields are `query`, `value`, and another rule block. Top-level resolve fields
-# like `default` do not belong here.
+# fields are `value` and another rule block. Top-level resolve fields like
+# `default` do not belong here.
 package = "basic"
 file = "variables/message.toml"
 
@@ -17,7 +17,7 @@ $0
 '''
 
 [expect]
-exact = ["query", "value", "[[resolve.rule]]"]
+exact = ["value", "[[resolve.rule]]"]
 
 [[expect.includes]]
 label = "value"

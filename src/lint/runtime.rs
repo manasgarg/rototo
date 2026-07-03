@@ -42,7 +42,12 @@ impl RuntimePackage {
             && self
                 .variables
                 .get(variable)
-                .is_some_and(|variable| variable.rules.is_empty())
+                .is_some_and(|variable| match &variable.resolution {
+                    RuntimeResolution::Rules { rules, .. } => rules.is_empty(),
+                    RuntimeResolution::Query(query) => {
+                        query.filter.is_none() && query.sort.is_none()
+                    }
+                })
         {
             return Ok(());
         }
@@ -97,27 +102,37 @@ pub(crate) struct RuntimeTracePolicy {
 
 #[derive(Debug)]
 pub(crate) struct RuntimeVariable {
-    pub(crate) default: RuntimeSelectedValue,
-    pub(crate) rules: Vec<RuntimeRule>,
+    pub(crate) resolution: RuntimeResolution,
+}
+
+#[derive(Debug)]
+pub(crate) enum RuntimeResolution {
+    Rules {
+        default: RuntimeSelectedValue,
+        rules: Vec<RuntimeRule>,
+    },
+    Query(Box<RuntimeQuery>),
 }
 
 #[derive(Debug)]
 pub(crate) struct RuntimeRule {
     pub(crate) index: usize,
-    pub(crate) when: Option<Expression>,
-    pub(crate) selection: RuntimeRuleSelection,
+    pub(crate) when: Expression,
+    pub(crate) value: RuntimeSelectedValue,
 }
 
-#[derive(Clone, Debug)]
-pub(crate) enum RuntimeRuleSelection {
-    Value(RuntimeSelectedValue),
-    Query(RuntimeCatalogQuery),
-}
-
-#[derive(Clone, Debug)]
-pub(crate) struct RuntimeCatalogQuery {
+/// A compiled `method = "query"` pipeline over one catalog's entries.
+#[derive(Debug)]
+pub(crate) struct RuntimeQuery {
     pub(crate) catalog: String,
-    pub(crate) expression: Expression,
+    /// Whether the variable's type is `catalog:<id>` (the top entry wins)
+    /// rather than `list<catalog:<id>>` (every match is the value).
+    pub(crate) single: bool,
+    pub(crate) filter: Option<Expression>,
+    pub(crate) sort: Option<Expression>,
+    pub(crate) descending: bool,
+    pub(crate) limit: Option<usize>,
+    pub(crate) default: Option<RuntimeSelectedValue>,
 }
 
 #[derive(Clone, Debug)]
@@ -280,9 +295,9 @@ impl<'a> RuntimeCompiler<'a> {
                 )));
             }
             let type_kind = self.validate_variable_type_source(index, variable)?;
-            let (default, rules) = self.compile_variable_resolve(index, variable, &type_kind)?;
+            let resolution = self.compile_variable_resolve(index, variable, &type_kind)?;
 
-            variables.insert(variable.id.clone(), RuntimeVariable { default, rules });
+            variables.insert(variable.id.clone(), RuntimeVariable { resolution });
         }
         Ok(variables)
     }
@@ -324,23 +339,150 @@ impl<'a> RuntimeCompiler<'a> {
         index: &SemanticIndex,
         variable: &VariableNode,
         type_kind: &VariableTypeKind,
-    ) -> Result<(RuntimeSelectedValue, Vec<RuntimeRule>)> {
-        let ResolveNode::Resolve { default, rules, .. } = &variable.resolve else {
+    ) -> Result<RuntimeResolution> {
+        let ResolveNode::Resolve {
+            method,
+            default,
+            rules,
+            query,
+            ..
+        } = &variable.resolve
+        else {
             return Err(RototoError::new(format!(
                 "variable must contain [resolve]: {}",
                 variable.id
             )));
         };
-        let default = present_json(default, "resolve must declare a default value")?;
-        let default = self.compile_variable_value(index, variable, type_kind, &default.value)?;
-        let RuleCollection::Rules(rules) = rules else {
-            return Err(RototoError::new("rule must use [[resolve.rule]] tables"));
+
+        let method_name = method
+            .as_ref()
+            .map(|method| method.value.as_str())
+            .unwrap_or("rules");
+        match method_name {
+            "rules" => {
+                if query.is_some() {
+                    return Err(RototoError::new(
+                        "query parameters (from, filter, sort, order, limit) are only valid with method = \"query\"",
+                    ));
+                }
+                let default = present_json(default, "resolve must declare a default value")?;
+                let default =
+                    self.compile_variable_value(index, variable, type_kind, &default.value)?;
+                let RuleCollection::Rules(rules) = rules else {
+                    return Err(RototoError::new("rule must use [[resolve.rule]] tables"));
+                };
+                let rules = rules
+                    .iter()
+                    .map(|rule| self.compile_variable_rule(index, variable, type_kind, rule))
+                    .collect::<Result<Vec<_>>>()?;
+                Ok(RuntimeResolution::Rules { default, rules })
+            }
+            "query" => {
+                self.compile_variable_query(index, variable, type_kind, default, rules, query)
+            }
+            other => Err(RototoError::new(format!(
+                "unknown resolution method: {other}; supported methods are rules and query"
+            ))),
+        }
+    }
+
+    fn compile_variable_query(
+        &self,
+        index: &SemanticIndex,
+        variable: &VariableNode,
+        type_kind: &VariableTypeKind,
+        default: &ProjectField<JsonValue>,
+        rules: &RuleCollection,
+        query: &Option<Box<QueryNode>>,
+    ) -> Result<RuntimeResolution> {
+        if !matches!(rules, RuleCollection::Rules(rules) if rules.is_empty()) {
+            return Err(RototoError::new(
+                "method = \"query\" must not declare [[resolve.rule]] tables",
+            ));
+        }
+        let (catalog, single) = match type_kind {
+            VariableTypeKind::Catalog(catalog) => (catalog.as_str(), true),
+            VariableTypeKind::List(item) => match item.as_ref() {
+                VariableTypeKind::Catalog(catalog) => (catalog.as_str(), false),
+                _ => {
+                    return Err(RototoError::new(
+                        "method = \"query\" requires a catalog:<id> or list<catalog:<id>> type",
+                    ));
+                }
+            },
+            _ => {
+                return Err(RototoError::new(
+                    "method = \"query\" requires a catalog:<id> or list<catalog:<id>> type",
+                ));
+            }
         };
-        let rules = rules
-            .iter()
-            .map(|rule| self.compile_variable_rule(index, variable, type_kind, rule))
-            .collect::<Result<Vec<_>>>()?;
-        Ok((default, rules))
+        let Some(query) = query else {
+            return Err(RototoError::new(
+                "method = \"query\" must declare from = \"<catalog-id>\"",
+            ));
+        };
+        let from = match &query.from {
+            ProjectField::Present(from) => from.value.as_str(),
+            _ => {
+                return Err(RototoError::new(
+                    "method = \"query\" must declare from = \"<catalog-id>\"",
+                ));
+            }
+        };
+        if from != catalog {
+            return Err(RototoError::new(format!(
+                "query from ({from}) must match the variable's catalog type ({catalog})"
+            )));
+        }
+        let filter = match &query.filter {
+            Some(ProjectField::Present(filter)) => Some(filter.value.clone()),
+            Some(_) => return Err(RototoError::new("query filter expression is invalid")),
+            None => None,
+        };
+        let sort = match &query.sort {
+            Some(ProjectField::Present(sort)) => Some(sort.value.clone()),
+            Some(_) => return Err(RototoError::new("query sort expression is invalid")),
+            None => None,
+        };
+        let descending = match &query.order {
+            Some(ProjectField::Present(order)) => match order.value.as_str() {
+                "asc" => false,
+                "desc" => true,
+                other => {
+                    return Err(RototoError::new(format!(
+                        "query order must be asc or desc, not {other}"
+                    )));
+                }
+            },
+            Some(_) => return Err(RototoError::new("query order must be a string")),
+            None => false,
+        };
+        if descending && sort.is_none() {
+            return Err(RototoError::new("query order requires a sort expression"));
+        }
+        let limit = match &query.limit {
+            Some(ProjectField::Present(limit)) if limit.value >= 1 => Some(limit.value as usize),
+            Some(_) => return Err(RototoError::new("query limit must be a positive integer")),
+            None => None,
+        };
+        let default = match default {
+            ProjectField::Present(default) => {
+                Some(self.compile_variable_value(index, variable, type_kind, &default.value)?)
+            }
+            ProjectField::Invalid { .. } => {
+                return Err(RototoError::new("resolve default is invalid"));
+            }
+            ProjectField::Missing { .. } => None,
+        };
+        Ok(RuntimeResolution::Query(Box::new(RuntimeQuery {
+            catalog: catalog.to_owned(),
+            single,
+            filter,
+            sort,
+            descending,
+            limit,
+            default,
+        })))
     }
 
     fn compile_variable_rule(
@@ -355,45 +497,20 @@ impl<'a> RuntimeCompiler<'a> {
         }
 
         let when = match &rule.when {
-            Some(ProjectField::Present(when)) => Some(when.value.clone()),
+            Some(ProjectField::Present(when)) => when.value.clone(),
             Some(ProjectField::Invalid { .. } | ProjectField::Missing { .. }) => {
                 return Err(RototoError::new("rule when expression is invalid"));
             }
-            None => None,
+            None => return Err(RototoError::new("rule must declare when")),
         };
 
-        let selection = match &rule.query {
-            Some(ProjectField::Present(query)) => {
-                let catalog = type_kind.list_catalog().ok_or_else(|| {
-                    RototoError::new("rule query is only valid for list<catalog:...> variables")
-                })?;
-                RuntimeRuleSelection::Query(RuntimeCatalogQuery {
-                    catalog: catalog.to_owned(),
-                    expression: query.value.clone(),
-                })
-            }
-            Some(ProjectField::Invalid { .. } | ProjectField::Missing { .. }) => {
-                return Err(RototoError::new("rule query expression is invalid"));
-            }
-            None => {
-                let value = present_json(&rule.value, "rule must declare a value")?;
-                RuntimeRuleSelection::Value(self.compile_variable_value(
-                    index,
-                    variable,
-                    type_kind,
-                    &value.value,
-                )?)
-            }
-        };
-
-        if when.is_none() && !matches!(selection, RuntimeRuleSelection::Query(_)) {
-            return Err(RototoError::new("rule must declare when or query"));
-        }
+        let value = present_json(&rule.value, "rule must declare a value")?;
+        let value = self.compile_variable_value(index, variable, type_kind, &value.value)?;
 
         Ok(RuntimeRule {
             index: rule.index,
             when,
-            selection,
+            value,
         })
     }
 

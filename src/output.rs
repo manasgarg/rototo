@@ -555,7 +555,6 @@ fn semantic_change_description(kind: &str) -> &'static str {
         "variable_rule_added" => "variable resolve rule added",
         "variable_rule_removed" => "variable resolve rule removed",
         "variable_rule_when_changed" => "variable rule condition changed",
-        "variable_rule_query_changed" => "variable rule catalog query changed",
         "variable_rule_value_changed" => "variable rule value changed",
         "catalog_added" => "catalog added",
         "catalog_removed" => "catalog removed",
@@ -943,7 +942,6 @@ fn print_variable_resolve_detail(value: &TomlValue) -> Result<()> {
             let condition = rule
                 .get("when")
                 .and_then(TomlValue::as_str)
-                .or_else(|| rule.get("query").and_then(TomlValue::as_str))
                 .unwrap_or("<missing>");
             let rule_value = rule
                 .get("value")
@@ -1102,8 +1100,9 @@ fn semantic_field_label(field: &SemanticField) -> String {
         SemanticField::VariableResolve => "resolve".to_owned(),
         SemanticField::VariableResolveDefault => "resolve.default".to_owned(),
         SemanticField::VariableRuleWhen => "when".to_owned(),
-        SemanticField::VariableRuleQuery => "query".to_owned(),
         SemanticField::VariableRuleValue => "value".to_owned(),
+        SemanticField::VariableQueryFilter => "filter".to_owned(),
+        SemanticField::VariableQuerySort => "sort".to_owned(),
         SemanticField::Value => "value".to_owned(),
         SemanticField::ValueJsonPath { path } => format!("value.{}", path.join(".")),
         SemanticField::SchemaJson => "json".to_owned(),
@@ -1121,10 +1120,7 @@ fn compact_json_option(value: &Option<serde_json::Value>) -> Result<String> {
 }
 
 fn variable_rule_condition(rule: &rototo::model::RulePathwayInspectReport) -> &str {
-    rule.when
-        .as_deref()
-        .or(rule.query.as_deref())
-        .unwrap_or("<missing>")
+    rule.when.as_deref().unwrap_or("<missing>")
 }
 
 fn severity_label(severity: &Severity) -> &'static str {

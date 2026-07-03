@@ -189,7 +189,6 @@ struct RuleSemantic {
     target: SemanticTarget,
     location: DiagnosticLocation,
     when: Option<FieldSemantic<String>>,
-    query: Option<FieldSemantic<String>>,
     value: Option<FieldSemantic<JsonValue>>,
 }
 
@@ -202,12 +201,6 @@ impl RuleSemantic {
                 present_expression_field(
                     field,
                     rule.field_target(variable_id, SemanticField::VariableRuleWhen),
-                )
-            }),
-            query: rule.query.as_ref().and_then(|field| {
-                present_expression_field(
-                    field,
-                    rule.field_target(variable_id, SemanticField::VariableRuleQuery),
                 )
             }),
             value: present_json_field(
@@ -324,12 +317,6 @@ fn diff_rules(before: &[RuleSemantic], after: &[RuleSemantic], changes: &mut Vec
                     "variable_rule_when_changed",
                     &before.when,
                     &after.when,
-                );
-                diff_optional_field(
-                    changes,
-                    "variable_rule_query_changed",
-                    &before.query,
-                    &after.query,
                 );
                 diff_optional_field(
                     changes,
