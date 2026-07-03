@@ -7,13 +7,13 @@ type = "catalog:console-request-observability"
 default = "standard"
 
 [[resolve.rule]]
-when = 'env.qualifier["request-dev-console"]'
+when = 'variables["request-dev-console"]'
 value = "dev-all"
 
 [[resolve.rule]]
-when = 'env.qualifier["request-server-error"]'
+when = 'variables["request-server-error"]'
 value = "retain-errors"
 
 [[resolve.rule]]
-when = 'env.qualifier["request-slow"]'
+when = 'variables["request-slow"]'
 value = "retain-slow"

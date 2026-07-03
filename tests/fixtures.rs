@@ -11,7 +11,7 @@ fn fixtures_command_prints_resolve_commands() {
             "examples/basic",
             "--variable",
             "user-is-admin",
-            "--qualifier",
+            "--variable",
             "premium-users",
         ])
         .assert()
@@ -20,7 +20,7 @@ fn fixtures_command_prints_resolve_commands() {
             "rototo resolve examples/basic --variable user-is-admin",
         ))
         .stdout(predicate::str::contains(
-            "rototo resolve examples/basic --qualifier premium-users --context",
+            "rototo resolve examples/basic --variable premium-users --context",
         ))
         .stdout(predicate::str::contains("# =>"));
 }
@@ -33,7 +33,7 @@ fn fixtures_command_defaults_to_whole_package() {
         .assert()
         .success()
         .stdout(predicate::str::contains("--variable user-is-admin"))
-        .stdout(predicate::str::contains("--qualifier premium-users"));
+        .stdout(predicate::str::contains("--variable premium-users"));
 }
 
 #[test]
@@ -43,7 +43,7 @@ fn fixtures_command_renders_json_context_form() {
         .args([
             "fixtures",
             "examples/basic",
-            "--qualifier",
+            "--variable",
             "premium-users",
             "--context-form",
             "json",

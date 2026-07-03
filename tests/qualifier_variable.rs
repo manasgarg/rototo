@@ -2,10 +2,10 @@ use assert_cmd::Command;
 use predicates::prelude::*;
 
 #[test]
-fn lists_qualifiers() {
+fn lists_condition_variables() {
     Command::cargo_bin("rototo")
         .unwrap()
-        .args(["show", "examples/basic", "--qualifiers"])
+        .args(["show", "examples/basic", "--variables"])
         .assert()
         .success()
         .stdout(predicate::str::contains("admin-users"))
@@ -39,7 +39,6 @@ fn shows_package_inventory_including_linters() {
         .args(["show", "examples/basic"])
         .assert()
         .success()
-        .stdout(predicate::str::contains("qualifiers:"))
         .stdout(predicate::str::contains("catalogs:"))
         .stdout(predicate::str::contains("variables:"))
         .stdout(predicate::str::contains(
@@ -80,28 +79,28 @@ fn shows_package_inventory_as_json_including_top_level_entries() {
 }
 
 #[test]
-fn lists_qualifiers_as_json() {
+fn lists_condition_variables_as_json() {
     Command::cargo_bin("rototo")
         .unwrap()
-        .args(["show", "examples/basic", "--qualifiers", "--json"])
+        .args(["show", "examples/basic", "--variables", "--json"])
         .assert()
         .success()
-        .stdout(predicate::str::contains(r#""qualifiers": ["#))
+        .stdout(predicate::str::contains(r#""variables": ["#))
         .stdout(predicate::str::contains(
-            r#""uri": "qualifier://premium-users""#,
+            r#""uri": "variable://premium-users""#,
         ));
 }
 
 #[test]
-fn gets_qualifier_by_id() {
+fn gets_condition_variable_by_id() {
     Command::cargo_bin("rototo")
         .unwrap()
-        .args(["show", "examples/basic", "--qualifier", "premium-users"])
+        .args(["show", "examples/basic", "--variable", "premium-users"])
         .assert()
         .success()
-        .stdout(predicate::str::contains("qualifier: premium-users"))
+        .stdout(predicate::str::contains("variable: premium-users"))
         .stdout(predicate::str::contains(
-            "path: qualifiers/premium-users.toml",
+            "path: variables/premium-users.toml",
         ))
         .stdout(predicate::str::contains("source:"))
         .stdout(predicate::str::contains(
@@ -140,21 +139,21 @@ fn gets_catalog_with_entries() {
 }
 
 #[test]
-fn gets_qualifier_by_id_as_json() {
+fn gets_condition_variable_by_id_as_json() {
     Command::cargo_bin("rototo")
         .unwrap()
         .args([
             "--json",
             "show",
             "examples/basic",
-            "--qualifier",
+            "--variable",
             "premium-users",
         ])
         .assert()
         .success()
         .stdout(predicate::str::contains(r#""id": "premium-users""#))
         .stdout(predicate::str::contains(
-            r#""uri": "qualifier://premium-users""#,
+            r#""uri": "variable://premium-users""#,
         ))
         .stdout(predicate::str::contains(
             r#""when": "(context.user.tier == \"premium\")""#,
@@ -162,26 +161,26 @@ fn gets_qualifier_by_id_as_json() {
 }
 
 #[test]
-fn lints_qualifier_by_id() {
+fn lints_condition_variable_by_id() {
     let package = std::path::absolute("examples/basic").unwrap();
     let expected = format!("ok: {}\n", package.display());
 
     Command::cargo_bin("rototo")
         .unwrap()
-        .args(["lint", "examples/basic", "--qualifier", "premium-users"])
+        .args(["lint", "examples/basic", "--variable", "premium-users"])
         .assert()
         .success()
         .stdout(predicate::eq(expected));
 }
 
 #[test]
-fn resolves_qualifier_by_id() {
+fn resolves_condition_variable_by_id() {
     Command::cargo_bin("rototo")
         .unwrap()
         .args([
             "resolve",
             "examples/basic",
-            "--qualifier",
+            "--variable",
             "premium-users",
             "--context",
             r#"{"user":{"tier":"premium","id":"a=b"}}"#,
@@ -194,13 +193,13 @@ fn resolves_qualifier_by_id() {
 }
 
 #[test]
-fn resolves_all_qualifiers() {
+fn resolves_all_variables_including_conditions() {
     Command::cargo_bin("rototo")
         .unwrap()
         .args([
             "resolve",
             "examples/basic",
-            "--qualifiers",
+            "--variables",
             "--context",
             r#"{"lane":"prod","user":{"tier":"premium","id":"user-123","role":"admin","email_domain":"example.com","language":"en","session_count":1},"account":{"plan":"enterprise","seats":250},"cart":{"total_usd":300},"device":{"platform":"web"},"request":{"country":"DE"}}"#,
             "--json",
@@ -213,13 +212,13 @@ fn resolves_all_qualifiers() {
 }
 
 #[test]
-fn resolves_qualifier_with_trace_output() {
+fn resolves_condition_variable_with_trace_output() {
     let assert = Command::cargo_bin("rototo")
         .unwrap()
         .args([
             "resolve",
             "examples/basic",
-            "--qualifier",
+            "--variable",
             "premium-users",
             "--context",
             "user.tier=premium",
@@ -228,11 +227,10 @@ fn resolves_qualifier_with_trace_output() {
         .success();
     let stdout = String::from_utf8(assert.get_output().stdout.clone()).unwrap();
 
-    assert!(stdout.contains("qualifier: premium-users"));
-    assert!(stdout.contains(r#"when: (context.user.tier == "premium")"#));
-    assert!(stdout.contains("result: true"));
-    assert!(!stdout.contains("premium-users=true"));
-    assert!(stdout.find("when:").unwrap() < stdout.find("result: true").unwrap());
+    assert!(stdout.contains("variable: premium-users"));
+    assert!(stdout.contains(r#"rule[0] if (context.user.tier == "premium") -> true (matched)"#));
+    assert!(stdout.contains("value: true"));
+    assert!(stdout.find("rule[0]").unwrap() < stdout.find("value: true").unwrap());
 }
 
 #[test]
@@ -372,16 +370,10 @@ fn resolves_variable_with_trace_output() {
     let stdout = String::from_utf8(assert.get_output().stdout.clone()).unwrap();
 
     assert!(stdout.contains("variable: checkout-redesign"));
-    assert!(stdout.contains("qualifier: premium-users"));
-    assert!(stdout.contains(r#"when: (context.user.tier == "premium")"#));
-    assert!(stdout.contains(r#"rule[0] if env.qualifier["premium-users"] ->"#));
+    assert!(stdout.contains(r#"rule[0] if variables["premium-users"] ->"#));
     assert!(stdout.contains(r#""variant":"premium""#));
     assert!(stdout.contains("default ->"));
     assert!(stdout.contains("source: checkout-redesign:premium"));
-    assert!(
-        stdout.find("qualifiers:").unwrap() < stdout.find("  result:").unwrap(),
-        "qualifier conditions should be printed before the final variable result"
-    );
 }
 
 #[test]
@@ -391,7 +383,7 @@ fn resolve_rejects_context_that_does_not_match_package_schema() {
         .args([
             "resolve",
             "examples/basic",
-            "--qualifier",
+            "--variable",
             "premium-users",
             "--context",
             r#"{"unknown":true}"#,
@@ -410,7 +402,7 @@ fn resolve_rejects_missing_condition_context_even_when_schema_allows_it() {
         .args([
             "resolve",
             "examples/basic",
-            "--qualifier",
+            "--variable",
             "premium-users",
             "--context",
             r#"{"user":{"id":"user-123"}}"#,

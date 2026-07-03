@@ -1,5 +1,0 @@
-schema_version = 1
-
-description = "Enterprise accounts operating in the European region"
-
-when = '(env.qualifier["enterprise-accounts"]) && (context.request.region == "eu")'

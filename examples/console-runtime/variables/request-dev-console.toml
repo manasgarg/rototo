@@ -1,5 +1,10 @@
 schema_version = 1
-
 description = "Request handled by a console instance using the dev host"
+type = "bool"
 
+[resolve]
+default = false
+
+[[resolve.rule]]
 when = '(context.phase == "request") && (context.console.host == "dev.rototo.dev")'
+value = true

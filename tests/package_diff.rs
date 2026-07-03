@@ -227,8 +227,8 @@ fn diff_json_reports_resolve_default_and_rule_condition_changes() {
         variable
             .replace(r#"default = "hidden""#, r#"default = "mobile_help""#)
             .replace(
-                r#"when = 'env.qualifier["mobile-users"]'"#,
-                r#"when = 'env.qualifier["enterprise-accounts"]'"#,
+                r#"when = 'variables["mobile-users"]'"#,
+                r#"when = 'variables["enterprise-accounts"]'"#,
             ),
     )
     .unwrap();
@@ -253,11 +253,8 @@ fn diff_json_reports_resolve_default_and_rule_condition_changes() {
                 && change["target"]["entity"]["index"] == 0
         })
         .expect("support-banner rule when change");
-    assert_eq!(when_change["before"], r#"env.qualifier["mobile-users"]"#);
-    assert_eq!(
-        when_change["after"],
-        r#"env.qualifier["enterprise-accounts"]"#
-    );
+    assert_eq!(when_change["before"], r#"variables["mobile-users"]"#);
+    assert_eq!(when_change["after"], r#"variables["enterprise-accounts"]"#);
 }
 
 fn diff_json(before: &Path, after: &Path, extra_args: &[&str]) -> JsonValue {

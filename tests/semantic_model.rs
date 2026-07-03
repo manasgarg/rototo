@@ -10,7 +10,7 @@ async fn semantic_model_projects_entities_references_and_ranges() {
         .expect("examples/basic should produce a semantic model");
 
     assert_eq!(model.version, 3);
-    assert!(!model.qualifiers.is_empty());
+    assert!(!model.variables.is_empty());
     assert!(!model.catalogs.is_empty());
     assert!(!model.linters.is_empty());
 
@@ -64,7 +64,7 @@ async fn semantic_model_projects_entities_references_and_ranges() {
     let rule = &resolve.rules[0];
     assert_eq!(
         rule.when.as_ref().and_then(|field| field.value.as_deref()),
-        Some("env.qualifier[\"mobile-users\"]")
+        Some("variables[\"mobile-users\"]")
     );
     assert!(
         rule.when
@@ -83,11 +83,11 @@ async fn semantic_model_projects_entities_references_and_ranges() {
     // The reference graph covers rule conditions and selected catalog values.
     let rule_condition_edge = model.references.iter().any(|reference| {
         matches!(&reference.from, ModelEntityRef::Variable { id } if id == "support-banner")
-            && matches!(&reference.to, ModelEntityRef::Qualifier { id } if id == "mobile-users")
+            && matches!(&reference.to, ModelEntityRef::Variable { id } if id == "mobile-users")
     });
     assert!(
         rule_condition_edge,
-        "variable rule condition -> qualifier edge"
+        "variable rule condition -> condition variable edge"
     );
     let object_edge = model.references.iter().any(|reference| {
         matches!(&reference.from, ModelEntityRef::Variable { id } if id == "support-banner")
@@ -102,7 +102,7 @@ async fn semantic_model_projects_entities_references_and_ranges() {
     // The model serializes with camelCase keys and tagged entity refs.
     let json = serde_json::to_value(&model).expect("model serializes");
     assert!(json["catalogEntries"].is_array());
-    assert_eq!(json["references"][0]["from"]["kind"], "qualifier");
+    assert_eq!(json["references"][0]["from"]["kind"], "variable");
 }
 
 #[tokio::test]

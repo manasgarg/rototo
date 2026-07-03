@@ -75,7 +75,7 @@ fn resolve_reports_missing_context_attributes() {
         .args([
             "resolve",
             "examples/basic",
-            "--qualifier",
+            "--variable",
             "premium-users",
             "--context",
             "lane=dev",
@@ -94,7 +94,7 @@ fn resolve_succeeds_without_context_gaps() {
         .args([
             "resolve",
             "examples/basic",
-            "--qualifier",
+            "--variable",
             "premium-users",
             "--context",
             "user.tier=premium",

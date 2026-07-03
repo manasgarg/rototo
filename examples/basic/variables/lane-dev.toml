@@ -1,5 +1,10 @@
 schema_version = 1
-
 description = "Requests resolving against the dev lane"
+type = "bool"
 
+[resolve]
+default = false
+
+[[resolve.rule]]
 when = '(context.lane == "dev")'
+value = true

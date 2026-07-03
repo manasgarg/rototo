@@ -7,5 +7,5 @@ type = "catalog:checkout-redesign"
 default = "control"
 
 [[resolve.rule]]
-when = 'env.qualifier["premium-users"]'
+when = 'variables["premium-users"]'
 value = "premium"

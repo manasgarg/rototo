@@ -14,9 +14,8 @@ fn inspects_basic_package() {
         .stdout(predicate::str::contains(
             "schema: catalogs/checkout-redesign.schema.json",
         ))
-        .stdout(predicate::str::contains("qualifiers:"))
-        .stdout(predicate::str::contains("qualifier: premium-users"))
-        .stdout(predicate::str::contains("qualifier: premium-beta-users"))
+        .stdout(predicate::str::contains("variable: premium-users"))
+        .stdout(predicate::str::contains("variable: premium-beta-users"))
         .stdout(predicate::str::contains(
             "----------------------------------------",
         ))
@@ -44,18 +43,18 @@ fn inspects_discovered_package() {
         .assert()
         .success()
         .stdout(predicate::str::contains("package: "))
-        .stdout(predicate::str::contains("qualifier: premium-users"));
+        .stdout(predicate::str::contains("variable: premium-users"));
 }
 
 #[test]
 fn inspect_human_conditions_show_values() {
     Command::cargo_bin("rototo")
         .unwrap()
-        .args(["inspect", "examples/basic", "--qualifier", "premium-users"])
+        .args(["inspect", "examples/basic", "--variable", "premium-users"])
         .assert()
         .success()
         .stdout(predicate::str::contains(
-            r#"when: (context.user.tier == "premium")"#,
+            r#"if (context.user.tier == "premium") -> true"#,
         ));
 
     Command::cargo_bin("rototo")
@@ -63,13 +62,13 @@ fn inspect_human_conditions_show_values() {
         .args([
             "inspect",
             "examples/basic",
-            "--qualifier",
+            "--variable",
             "beta-rollout-bucket",
         ])
         .assert()
         .success()
         .stdout(predicate::str::contains(
-            r#"when: (bucket(context.user.id, "checkout-redesign-2026-05", 0, 1000))"#,
+            r#"if (bucket(context.user.id, "checkout-redesign-2026-05", 0, 1000)) -> true"#,
         ));
 }
 
@@ -103,13 +102,13 @@ fn inspect_human_variable_rules_show_when_expressions() {
         .assert()
         .success()
         .stdout(predicate::str::contains(
-            r#"rule[0] if env.qualifier["request-dev-console"] -> "dev-all""#,
+            r#"rule[0] if variables["request-dev-console"] -> "dev-all""#,
         ))
         .stdout(predicate::str::contains(
-            r#"rule[1] if env.qualifier["request-server-error"] -> "retain-errors""#,
+            r#"rule[1] if variables["request-server-error"] -> "retain-errors""#,
         ))
         .stdout(predicate::str::contains(
-            r#"rule[2] if env.qualifier["request-slow"] -> "retain-slow""#,
+            r#"rule[2] if variables["request-slow"] -> "retain-slow""#,
         ))
         .stdout(predicate::str::contains("if <missing>").not());
 }
@@ -125,14 +124,13 @@ fn inspects_basic_package_as_json() {
         .stdout(predicate::str::contains(
             r#""path": "catalogs/checkout-redesign.schema.json""#,
         ))
-        .stdout(predicate::str::contains(r#""qualifiers": ["#))
         .stdout(predicate::str::contains(r#""variables": ["#))
         .stdout(predicate::str::contains(r#""lint_authorities": ["#))
         .stdout(predicate::str::contains(
             r#""authority": "consumer-experience""#,
         ))
         .stdout(predicate::str::contains(
-            r#""uri": "qualifier://premium-users""#,
+            r#""uri": "variable://premium-users""#,
         ))
         .stdout(predicate::str::contains(
             r#""uri": "variable://checkout-redesign""#,
@@ -153,7 +151,7 @@ fn inspect_json_variable_rules_include_when_expressions() {
         .assert()
         .success()
         .stdout(predicate::str::contains(
-            r#""when": "env.qualifier[\"premium-users\"]""#,
+            r#""when": "variables[\"premium-users\"]""#,
         ));
 }
 
@@ -165,7 +163,7 @@ fn inspect_json_hides_structural_text_spans() {
             "--json",
             "inspect",
             "examples/basic",
-            "--qualifier",
+            "--variable",
             "returning-users",
         ])
         .assert()
@@ -186,7 +184,7 @@ fn json_is_a_trailing_global_arg() {
         .assert()
         .success()
         .stdout(predicate::str::contains(
-            r#""uri": "qualifier://premium-users""#,
+            r#""uri": "variable://premium-users""#,
         ));
 }
 
@@ -211,9 +209,8 @@ fn inspects_variable_resolution_trace_as_json() {
         ))
         .stdout(predicate::str::contains(r#""value": "premium""#))
         .stdout(predicate::str::contains(r#""matched": true"#))
-        .stdout(predicate::str::contains(r#""qualifier_traces": ["#))
         .stdout(predicate::str::contains(
-            r#""when": "(context.user.tier == \"premium\")""#,
+            r#""condition": "variables[\"premium-users\"]""#,
         ));
 }
 

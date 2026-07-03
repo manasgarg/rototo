@@ -23,7 +23,7 @@ fn lints_basic_package_as_json_with_documents() {
 
     assert!(lint["diagnostics"].as_array().unwrap().is_empty());
     assert!(document_paths(&lint).contains(&"rototo-package.toml".to_owned()));
-    assert!(document_paths(&lint).contains(&"qualifiers/premium-users.toml".to_owned()));
+    assert!(document_paths(&lint).contains(&"variables/premium-users.toml".to_owned()));
     assert!(document_paths(&lint).contains(&"variables/checkout-redesign.toml".to_owned()));
     assert!(document_paths(&lint).contains(&"catalogs/llm-agent-config.schema.json".to_owned()));
     assert!(

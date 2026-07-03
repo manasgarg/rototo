@@ -8,8 +8,8 @@ use rototo::{
     EvaluationContext, LintMode, LoadOptions, Package, RefreshEvent, RefreshEventType,
     RefreshOptions, RefreshOutcome, RefreshingPackage, ResolveOptions, SourceOptions,
     TraceStreamItem, diagnostic_for_rule, diagnostics_catalog_for_package, inspect_package,
-    lint_package, lint_qualifier, list_catalogs, list_variables, read_catalog, read_qualifiers,
-    read_variable, read_variables, resolve_qualifier, resolve_variable, stage_package_source,
+    lint_package, lint_variable, list_catalogs, list_variables, read_catalog, read_variable,
+    read_variables, resolve_variable, stage_package_source,
 };
 
 async fn run_git(repo: &std::path::Path, args: &[&str]) {
@@ -152,9 +152,9 @@ async fn sdk_inspects_package() {
 
     assert!(
         inspection
-            .qualifiers
+            .variables
             .iter()
-            .any(|qualifier| qualifier.uri == "qualifier://premium-users")
+            .any(|variable| variable.uri == "variable://premium-users")
     );
     assert!(
         inspection
@@ -185,8 +185,8 @@ async fn sdk_lints_package() {
 }
 
 #[tokio::test]
-async fn sdk_lints_qualifier() {
-    let lint = lint_qualifier("examples/basic".as_ref(), "premium-users")
+async fn sdk_lints_condition_variable() {
+    let lint = lint_variable("examples/basic".as_ref(), "premium-users")
         .await
         .unwrap();
 
@@ -338,14 +338,14 @@ async fn sdk_sample_app_runs() {
 }
 
 #[tokio::test]
-async fn sdk_reads_all_qualifier_configs() {
-    let qualifiers = read_qualifiers("examples/basic".as_ref()).await.unwrap();
+async fn sdk_reads_condition_variable_configs() {
+    let variables = read_variables("examples/basic".as_ref()).await.unwrap();
 
-    assert!(qualifiers.len() > 1);
+    assert!(variables.len() > 1);
     assert!(
-        qualifiers
+        variables
             .iter()
-            .any(|qualifier| qualifier.uri == "qualifier://premium-users")
+            .any(|variable| variable.uri == "variable://premium-users")
     );
 }
 
@@ -738,18 +738,18 @@ async fn package_source_rejects_http_archive_source() {
 }
 
 #[tokio::test]
-async fn sdk_resolves_qualifier() {
+async fn sdk_resolves_condition_variable() {
     let context = serde_json::json!({
         "user": {
             "tier": "premium"
         }
     });
 
-    let matches = resolve_qualifier("examples/basic".as_ref(), "premium-users", &context)
+    let resolution = resolve_variable("examples/basic".as_ref(), "premium-users", &context)
         .await
         .unwrap();
 
-    assert!(matches);
+    assert_eq!(resolution.value, serde_json::json!(true));
 }
 
 #[tokio::test]
@@ -911,7 +911,7 @@ async fn package_sdk_validates_evaluation_context_against_schema() {
     .unwrap();
 
     let err = package
-        .resolve_qualifier("premium-users", &context)
+        .resolve_variable("premium-users", &context)
         .unwrap_err();
 
     assert!(
@@ -931,7 +931,7 @@ async fn package_sdk_rejects_missing_condition_context_even_when_schema_allows_i
     .unwrap();
 
     let err = package
-        .resolve_qualifier("premium-users", &context)
+        .resolve_variable("premium-users", &context)
         .unwrap_err();
 
     assert!(err.to_string().contains("No such key"));
@@ -972,7 +972,7 @@ async fn package_sdk_loads_malformed_context_config_when_lint_is_skipped_for_ins
     .unwrap();
 
     let context = EvaluationContext::from_json(serde_json::json!({})).unwrap();
-    let err = package.resolve_qualifier("anything", &context).unwrap_err();
+    let err = package.resolve_variable("anything", &context).unwrap_err();
     assert!(err.to_string().contains("loaded without a runtime model"));
 }
 
@@ -1038,8 +1038,8 @@ async fn package_sdk_can_bypass_context_validation_explicitly() {
     }))
     .unwrap();
 
-    let matches = package
-        .resolve_qualifier_with_options(
+    let resolution = package
+        .resolve_variable_with_options(
             "premium-users",
             &context,
             ResolveOptions {
@@ -1049,7 +1049,7 @@ async fn package_sdk_can_bypass_context_validation_explicitly() {
         )
         .unwrap();
 
-    assert!(!matches);
+    assert_eq!(resolution.value, serde_json::json!(false));
 }
 
 async fn git_package_repo(message: &str) -> (tempfile::TempDir, std::path::PathBuf, String) {

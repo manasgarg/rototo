@@ -1,5 +1,10 @@
 schema_version = 1
-
 description = "Large enterprise accounts that can use the advanced agent profile"
+type = "bool"
 
+[resolve]
+default = false
+
+[[resolve.rule]]
 when = '(context.account.plan == "enterprise") && (context.account.seats >= 100)'
+value = true

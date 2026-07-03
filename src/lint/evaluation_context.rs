@@ -23,6 +23,7 @@ pub(in crate::lint) fn compatibility_for(
     let mut builder = CompatibilityBuilder {
         index,
         qualifier_cache: BTreeMap::new(),
+        variable_cache: BTreeMap::new(),
         visiting: BTreeSet::new(),
     };
 
@@ -33,36 +34,9 @@ pub(in crate::lint) fn compatibility_for(
     }
 
     let mut variables = BTreeMap::new();
-    for (variable_id, variable) in &index.variables {
-        let mut contexts: Option<BTreeSet<String>> = None;
-        let Some(resolve) = variable.resolve.as_rules() else {
-            variables.insert(variable_id.clone(), BTreeSet::new());
-            continue;
-        };
-        for rule in resolve {
-            let mut rule_contexts: Option<BTreeSet<String>> = None;
-            for expression in [&rule.when, &rule.query].into_iter().flatten() {
-                let ProjectField::Present(expression) = expression else {
-                    continue;
-                };
-                let expression_contexts = builder.expression_contexts(&expression.value);
-                rule_contexts = Some(match rule_contexts {
-                    Some(current) => current
-                        .intersection(&expression_contexts)
-                        .cloned()
-                        .collect(),
-                    None => expression_contexts,
-                });
-            }
-            let Some(rule_contexts) = rule_contexts else {
-                continue;
-            };
-            contexts = Some(match contexts {
-                Some(current) => current.intersection(&rule_contexts).cloned().collect(),
-                None => rule_contexts,
-            });
-        }
-        variables.insert(variable_id.clone(), contexts.unwrap_or_default());
+    for variable_id in index.variables.keys() {
+        let contexts = builder.variable_contexts(variable_id).unwrap_or_default();
+        variables.insert(variable_id.clone(), contexts);
     }
 
     EvaluationContextCompatibility {
@@ -74,6 +48,7 @@ pub(in crate::lint) fn compatibility_for(
 struct CompatibilityBuilder<'a> {
     index: &'a SemanticIndex,
     qualifier_cache: BTreeMap<String, BTreeSet<String>>,
+    variable_cache: BTreeMap<String, Option<BTreeSet<String>>>,
     visiting: BTreeSet<String>,
 }
 
@@ -103,11 +78,72 @@ impl<'a> CompatibilityBuilder<'a> {
         self.expression_contexts(&when.value)
     }
 
+    /// The evaluation contexts compatible with a variable's rule expressions,
+    /// following `variables["<id>"]` references transitively. `None` means the
+    /// variable imposes no context requirement (no rules, or no rule carries a
+    /// context-constraining expression).
+    fn variable_contexts(&mut self, variable_id: &str) -> Option<BTreeSet<String>> {
+        if let Some(contexts) = self.variable_cache.get(variable_id) {
+            return contexts.clone();
+        }
+        let key = format!("variable://{variable_id}");
+        if !self.visiting.insert(key.clone()) {
+            // A reference cycle; the graph lint owns reporting it.
+            return Some(BTreeSet::new());
+        }
+
+        let contexts = self.variable_contexts_uncached(variable_id);
+        self.visiting.remove(&key);
+        self.variable_cache
+            .insert(variable_id.to_owned(), contexts.clone());
+        contexts
+    }
+
+    fn variable_contexts_uncached(&mut self, variable_id: &str) -> Option<BTreeSet<String>> {
+        let variable = self.index.variables.get(variable_id)?;
+        let resolve = variable.resolve.as_rules()?;
+        let mut contexts: Option<BTreeSet<String>> = None;
+        for rule in resolve {
+            let mut rule_contexts: Option<BTreeSet<String>> = None;
+            for expression in [&rule.when, &rule.query].into_iter().flatten() {
+                let ProjectField::Present(expression) = expression else {
+                    continue;
+                };
+                let expression_contexts = self.expression_contexts(&expression.value);
+                rule_contexts = Some(match rule_contexts {
+                    Some(current) => current
+                        .intersection(&expression_contexts)
+                        .cloned()
+                        .collect(),
+                    None => expression_contexts,
+                });
+            }
+            let Some(rule_contexts) = rule_contexts else {
+                continue;
+            };
+            contexts = Some(match contexts {
+                Some(current) => current.intersection(&rule_contexts).cloned().collect(),
+                None => rule_contexts,
+            });
+        }
+        contexts
+    }
+
     fn expression_contexts(&mut self, expression: &Expression) -> BTreeSet<String> {
         let mut contexts: Option<BTreeSet<String>> = None;
 
         for qualifier in &expression.references().qualifiers {
             let nested_contexts = self.qualifier_contexts(qualifier);
+            contexts = Some(match contexts {
+                Some(current) => current.intersection(&nested_contexts).cloned().collect(),
+                None => nested_contexts,
+            });
+        }
+
+        for variable in &expression.references().variables {
+            let Some(nested_contexts) = self.variable_contexts(variable) else {
+                continue;
+            };
             contexts = Some(match contexts {
                 Some(current) => current.intersection(&nested_contexts).cloned().collect(),
                 None => nested_contexts,

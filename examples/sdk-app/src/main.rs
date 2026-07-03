@@ -45,8 +45,10 @@ async fn main() -> Result<(), Box<dyn Error>> {
         }
     }))?;
 
-    let premium_users = package.resolve_qualifier("premium-users", &context)?;
-    let enterprise_accounts = package.resolve_qualifier("enterprise-accounts", &context)?;
+    let premium_users = package.resolve_variable("premium-users", &context)?;
+    let premium_users: bool = serde_json::from_value(premium_users.value)?;
+    let enterprise_accounts = package.resolve_variable("enterprise-accounts", &context)?;
+    let enterprise_accounts: bool = serde_json::from_value(enterprise_accounts.value)?;
 
     let checkout = package.resolve_variable("checkout-redesign", &context)?;
     let checkout: CheckoutPage = serde_json::from_value(checkout.value)?;

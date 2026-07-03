@@ -7,5 +7,5 @@ type = "catalog:console-observability"
 default = "standard"
 
 [[resolve.rule]]
-when = 'env.qualifier["startup-dev-console"]'
+when = 'variables["startup-dev-console"]'
 value = "dev"

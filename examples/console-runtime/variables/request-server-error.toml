@@ -1,5 +1,10 @@
 schema_version = 1
-
 description = "Request completed with a server error"
+type = "bool"
 
+[resolve]
+default = false
+
+[[resolve.rule]]
 when = '(context.phase == "request") && (context.response.status_class == "server_error")'
+value = true
