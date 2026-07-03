@@ -280,10 +280,6 @@ struct ResolveArgs {
     /// Evaluation context: JSON object, @file, or path=value. Repeatable; later values override earlier ones. Defaults to {}.
     #[arg(long = "context", value_name = "CONTEXT")]
     context: Vec<String>,
-
-    /// Scope the resolution to one tenant; expressions read the id as env.tenant.
-    #[arg(long = "tenant", value_name = "TENANT")]
-    tenant: Option<String>,
 }
 
 #[derive(Debug, Args)]

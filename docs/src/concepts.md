@@ -669,23 +669,17 @@ And governance keeps the same failures loud that composition already did. Denial
 Put the two halves together and you have rototo's tenant model. A tenant is:
 
 - **an authored overlay** - a package that `extends` the base and moves only within its governance contract; and
-- **a context dimension** - a resolution scoped to a tenant id.
+- **a context fact** - the tenant id the application already knows, passed like any other runtime fact.
 
-The second half matters because not every tenant difference deserves an overlay. Sometimes the *base* package wants one rule that keys on who's asking. A tenant-scoped resolution binds `env.tenant`, captured once per resolution just like `env.now`, so a base variable can say:
+The second half matters because not every tenant difference deserves an overlay. Sometimes the *base* package wants one rule that keys on who's asking. The application puts the tenant id in the context, the evaluation context schema declares it (and can pin it to an enum if the tenant set is closed), and a base variable says:
 
 ```toml
 [[resolve.rule]]
-when = 'env.tenant == "acme"'
+when = 'context.tenant == "acme"'
 value = "priority"
 ```
 
-And the caller names the tenant at resolve time:
-
-```sh
-rototo resolve app-config --variable support_tier --context '{}' --tenant acme
-```
-
-The SDKs take the same scope through `resolve_variable_for_tenant` or a `tenant` resolve option. Reading `env.tenant` in a resolution that isn't tenant-scoped fails loudly ("resolution is not tenant-scoped") instead of quietly comparing against null - a rule that thinks it's tenant-aware but never gets a tenant is a bug you want to hear about.
+There is no separate tenant channel at resolve time, and that's deliberate: the tenant id is a runtime fact like any other, so it gets the same schema validation, the same lint coverage, and the same trace visibility as everything else the application supplies. If a variable must never resolve without a tenant, mark `tenant` required in the context schema and validation fails loudly when it's missing.
 
 ## Putting It Together
 

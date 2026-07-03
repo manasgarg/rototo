@@ -227,24 +227,6 @@ impl Package {
         self.resolve_variable_with_options(id, context, ResolveOptions::default())
     }
 
-    /// Resolve a variable for one tenant: the same resolution with
-    /// `env.tenant` bound to the tenant id.
-    pub fn resolve_variable_for_tenant(
-        &self,
-        id: impl AsRef<str>,
-        context: &EvaluationContext,
-        tenant: impl Into<String>,
-    ) -> Result<VariableResolution> {
-        self.resolve_variable_with_options(
-            id,
-            context,
-            ResolveOptions {
-                tenant: Some(tenant.into()),
-                ..ResolveOptions::default()
-            },
-        )
-    }
-
     pub fn resolve_variable_with_options(
         &self,
         id: impl AsRef<str>,
@@ -260,14 +242,12 @@ impl Package {
                 runtime,
                 id.as_ref(),
                 context.value(),
-                options.tenant.as_deref(),
             );
         }
         let (resolution, capture) = crate::resolve::resolve_variable_traced_unchecked(
             runtime,
             id.as_ref(),
             context.value(),
-            options.tenant.as_deref(),
             options.trace,
         )?;
         if let Some(capture) = capture {
@@ -772,9 +752,6 @@ pub struct ResolveOptions {
     /// any `[[trace]]` policy. Distinct from `trace_variable_resolution`, which
     /// returns the trace inline; this routes it to subscribers.
     pub trace: bool,
-    /// Scope the resolution to one tenant: expressions read the id as
-    /// `env.tenant`, captured once per resolution like `env.now`.
-    pub tenant: Option<String>,
 }
 
 impl Default for ResolveOptions {
@@ -782,7 +759,6 @@ impl Default for ResolveOptions {
         Self {
             validate_context: true,
             trace: false,
-            tenant: None,
         }
     }
 }

@@ -194,18 +194,6 @@ rototo resolve app-config --variable premium_users --context user.tier=premium
 It only takes the variable selectors (resolving a catalog or rule doesn't mean
 anything), plus `--context`.
 
-There's one more scope flag, `--tenant <id>`. It binds `env.tenant` for the
-whole resolution - captured once, like `env.now` - so rules keyed on tenant id
-can fire:
-
-```sh
-rototo resolve app-config --variable support_tier --context '{}' --tenant acme
-```
-
-Without `--tenant`, a rule that reads `env.tenant` fails loudly ("resolution is
-not tenant-scoped") rather than quietly never matching. The
-[expressions reference](./expressions.md) covers the semantics.
-
 The human output walks the resolution pathway: each rule prints as
 `rule[N] if <condition> -> <value> (matched|skipped)`, then the default, then
 the result with its source. For a package composed from layers, the pathway

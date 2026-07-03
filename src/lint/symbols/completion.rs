@@ -1060,7 +1060,7 @@ fn expression_root_completion_items(include_entry: bool) -> Vec<PackageCompletio
 
 /// Members of the `env` root: the evaluation timestamp.
 fn env_member_completion_items() -> Vec<PackageCompletionItem> {
-    ["env.now", "env.tenant"]
+    ["env.now"]
         .into_iter()
         .map(|member| {
             PackageCompletionItem::new(

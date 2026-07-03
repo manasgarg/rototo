@@ -85,24 +85,6 @@ resolution refuses them too.
   resolution sees the exact same instant. No risk of two checks disagreeing
   because a millisecond ticked over.
 
-- **`env.tenant`** - the tenant id of a tenant-scoped resolution, as a string.
-  Like `env.now`, it's captured once at the start of the resolution and stays
-  fixed throughout it. It's bound only when the caller scopes the resolve to a
-  tenant - `--tenant acme` on the CLI, `resolve_variable_for_tenant` or the
-  `tenant` resolve option in the SDKs. This is what lets a base package write
-  cross-tenant rules keyed on tenant id:
-
-  ```toml
-  [[resolve.rule]]
-  when = 'env.tenant == "acme"'
-  value = "priority"
-  ```
-
-  Reading `env.tenant` outside a tenant-scoped resolution is a loud error -
-  "expression reads env.tenant but the resolution is not tenant-scoped" - not a
-  comparison against null. A rule that expects a tenant and never gets one
-  should fail, not silently never match.
-
 - **`env.resolving.variable`** - the id of the variable being resolved right
   now. This one is special: it *only* works inside a `[[trace]]` policy in the
   manifest. A rule can't read it, and that's deliberate - a condition has to be

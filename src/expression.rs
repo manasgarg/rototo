@@ -44,9 +44,6 @@ pub(crate) struct ExpressionReferences {
     /// resolved. This is only available inside `[[trace]]` policies; lint rejects
     /// it elsewhere to keep rule and query evaluation independent of the caller.
     pub(crate) uses_resolving: bool,
-    /// Whether the expression reads `env.tenant`, the tenant a tenant-scoped
-    /// resolution runs for.
-    pub(crate) uses_tenant: bool,
 }
 
 /// A reference to a root identifier that is not part of rototo's evaluation
@@ -258,13 +255,6 @@ impl Expression {
 /// adapters at call sites that cannot or must not resolve references.
 pub(crate) trait RefResolver {
     fn variable_value(&mut self, id: &str) -> Result<JsonValue>;
-
-    /// The tenant a tenant-scoped resolution runs for, exposed to
-    /// expressions as `env.tenant`. `None` outside tenant-scoped calls;
-    /// reading `env.tenant` then fails loudly instead of comparing null.
-    fn tenant(&self) -> Option<&str> {
-        None
-    }
 }
 
 /// The entity being resolved, exposed to a `[[trace]]` policy `when` as
@@ -321,10 +311,6 @@ fn collect_cel(expr: &IdedExpr, references: &mut ExpressionReferences, bound: &m
             return;
         }
         Some(Reference::EnvNow) => {
-            return;
-        }
-        Some(Reference::EnvTenant) => {
-            references.uses_tenant = true;
             return;
         }
         Some(Reference::ResolvingVariable) => {
@@ -403,7 +389,6 @@ enum Reference {
     /// into the referenced variable's resolved value.
     Variable(String),
     EnvNow,
-    EnvTenant,
     ResolvingVariable,
 }
 
@@ -418,7 +403,6 @@ fn cel_reference(expr: &IdedExpr) -> Option<Reference> {
         "variables" => Some(Reference::Variable(segments[0].clone())),
         "env" => match segments.as_slice() {
             [member] if member == "now" => Some(Reference::EnvNow),
-            [member] if member == "tenant" => Some(Reference::EnvTenant),
             [first, second] if first == "resolving" && second == "variable" => {
                 Some(Reference::ResolvingVariable)
             }
@@ -439,7 +423,7 @@ fn cel_root_issue(expr: &IdedExpr) -> Option<ExpressionRootIssue> {
     match root.as_str() {
         "context" | "entry" | "variables" => None,
         "env" => match segments.as_slice() {
-            [member] if member == "now" || member == "tenant" => None,
+            [member] if member == "now" => None,
             [first, _] if first == "qualifier" => Some(ExpressionRootIssue::LegacyQualifier),
             [first, second] if first == "resolving" && second == "variable" => None,
             _ => Some(ExpressionRootIssue::UnknownEnvMember(segments.join("."))),
@@ -1020,22 +1004,11 @@ fn cel_evaluate(
     ctx.add_variable_from_value("entry", to_cel(&entry.cloned().unwrap_or(JsonValue::Null))?);
 
     // `env` holds the values rototo provides to every expression. `env.now` is
-    // the evaluation timestamp captured once per resolution; `env.tenant` is
-    // the tenant of a tenant-scoped resolution. `env.resolving` is present
-    // only for trace policies; it names the entity being resolved.
+    // the evaluation timestamp captured once per resolution. `env.resolving`
+    // is present only for trace policies; it names the entity being resolved.
     let mut env = serde_json::json!({
         "now": now,
     });
-    match refs.tenant() {
-        Some(tenant) => env["tenant"] = JsonValue::String(tenant.to_owned()),
-        None if references.uses_tenant => {
-            return Err(RototoError::new(
-                "expression reads env.tenant but the resolution is not tenant-scoped; \
-                 resolve with a tenant to bind it",
-            ));
-        }
-        None => {}
-    }
     if let Some(target) = resolving {
         env["resolving"] = target.to_env_value();
     }

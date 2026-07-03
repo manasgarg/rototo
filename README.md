@@ -188,8 +188,8 @@ and demonstrated under `examples/`: structured composition (entry add, patch,
 and delete; atomic `[resolve]` override; namespaced variables; enum member
 union and delete), the `governance.toml` layering contract enforced at compose time,
 layers and allocations for rollouts and experiments, catalog queries with
-filter/sort/limit and effective dating on `env.now`, the `env.tenant`
-dimension, and dev/staging/prod as vertical layers over one contract. What
+filter/sort/limit and effective dating on `env.now`, and dev/staging/prod as
+vertical layers over one contract. What
 remains:
 
 1. **Canarying a value change.** Staged rollout for a change to an existing
