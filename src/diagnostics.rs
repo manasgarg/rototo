@@ -454,7 +454,7 @@ rototo_rules! {
         id: "catalog-schema-invalid",
         entity: Catalog,
         title: "Catalog schema is invalid",
-        help: "Update catalogs/<id>.schema.json so it is a valid JSON Schema.",
+        help: "Update model/catalogs/<id>.schema.json so it is a valid JSON Schema.",
     },
     CatalogEntrySchemaMismatch => {
         id: "catalog-entry-schema-mismatch",

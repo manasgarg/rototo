@@ -24,12 +24,16 @@ You should see the following in `app-config/` dir:
 $> tree app-config
 app-config
 ├── rototo-package.toml
-├── evaluation-contexts
-└── variables
-    └── free_shipping_threshold.toml
-├── catalogs
-├── lint
-5 directories, 2 files
+├── variables
+│   └── free_shipping_threshold.toml
+├── model
+│   ├── catalogs
+│   └── context
+├── data
+│   └── catalogs
+└── lint
+
+7 directories, 2 files
 ```
 
 We explain the package model in [Rototo Concepts](docs/src/concepts.md). For now, we would focus on the variable `free_shipping_threshold`. Replace the contents of `free_shipping_threshold.toml` with the following:

@@ -20,23 +20,51 @@ my-package/
 ├── variables/                       # the values your app reads
 │   ├── premium_users.toml
 │   └── checkout_redesign.toml
-├── catalogs/                        # structured value sets + their schemas
-│   ├── checkout_redesign.schema.json
-│   └── checkout-redesign-entries/
-│       └── control.toml
-├── evaluation-contexts/             # the shape of the facts your app passes in
-│   ├── request.schema.json
-│   └── request-samples/
-│       └── premium_enterprise.json
+├── model/                           # contracts: what values must look like
+│   ├── catalogs/
+│   │   └── checkout_redesign.schema.json
+│   ├── enums/
+│   │   └── plan_tiers.toml
+│   └── context/                     # the shape of the facts your app passes in
+│       ├── request.schema.json
+│       └── request-samples/
+│           └── premium_enterprise.json
+├── data/                            # values that satisfy those contracts
+│   ├── catalogs/
+│   │   └── checkout_redesign/
+│   │       └── control.toml
+│   └── enums/
+│       └── plan_tiers.toml
 └── lint/                            # your own custom checks, in Lua
     └── checkout_redesign.lua
 ```
 
-The one rule that ties it together: **the file name is the id**. A file at
-`variables/checkout_redesign.toml` defines a variable whose id is
-`checkout_redesign`. A catalog schema at `catalogs/checkout_redesign.schema.json`
-defines a catalog whose id is `checkout_redesign`. You never write the id
-*inside* the file - the filename already said it.
+Notice the split between `model/` and `data/`. `model/` holds contracts: catalog
+schemas, enum declarations, evaluation-context schemas. `data/` holds the values
+that have to satisfy those contracts: catalog entries and enum members. That
+separation matters in review: a change under `model/` changes what's *allowed*,
+a change under `data/` changes what's *there*. Variables and lint sit at the top
+level because each is its own thing - a variable is both contract and value in
+one file, and lint is code.
+
+Two rules tie the folder together.
+
+First, **the file name is the id**. A file at `variables/checkout_redesign.toml`
+defines a variable whose id is `checkout_redesign`. A catalog schema at
+`model/catalogs/checkout_redesign.schema.json` defines a catalog whose id is
+`checkout_redesign`. You never write the id *inside* the file - the filename
+already said it.
+
+Second, **ids are snake_case**. Every id rototo recognizes - variables, enums,
+catalogs, catalog entries, evaluation contexts, samples - is lowercase letters,
+digits, and underscores, with `/` allowed for namespacing (like
+`payments/retry_limit`). The reason is that ids show up in TOML table headers
+and in [expressions](./expressions.md), where a hyphen is the minus operator:
+`variables.premium-users` would parse as a subtraction. Snake_case keeps
+`variables.premium_users` working everywhere. Lint enforces this as an error,
+`rototo/id-not-snake-case`. (Diagnostic rule names like
+`rototo/id-not-snake-case` itself are a separate namespace and stay
+hyphenated.)
 
 ## The manifest: `rototo-package.toml`
 
@@ -186,12 +214,14 @@ The `type` field decides what shape a value can take. The built-in types are:
 | `string` | text |
 | `list` | a plain list of values |
 | `catalog:<id>` | one entry from a catalog (see below) |
+| `enum:<id>` | one member of a named enum (see below) |
 | `list<...>` | a list of a specific item type |
 
 The `list<...>` form lets you say what's *in* the list. The item can be a
-primitive or a catalog reference - `list<string>`, `list<int>`,
-`list<catalog:payment_methods>`. What you can't do is nest lists inside lists:
-`list<list<string>>` is rejected. One level deep is the limit.
+primitive, a catalog reference, or an enum - `list<string>`, `list<int>`,
+`list<catalog:payment_methods>`, `list<enum:plan_tiers>`. What you can't do is
+nest lists inside lists: `list<list<string>>` is rejected. One level deep is
+the limit.
 
 Here's a plain list variable, `payment_methods.toml`:
 
@@ -216,9 +246,10 @@ layout, say: each variant has a heading, a subheading, an image, some body copy.
 That's what a **catalog** is for. It's a set of named entries, all sharing one
 schema.
 
-A catalog comes in two parts. First, the schema, at
-`catalogs/<id>.schema.json` - an ordinary JSON Schema describing what every
-entry must look like. Here's `checkout_redesign.schema.json`:
+A catalog comes in two parts, and they live on the two sides of the
+model/data split. First, the schema, at `model/catalogs/<id>.schema.json` - an
+ordinary JSON Schema describing what every entry must look like. Here's
+`checkout_redesign.schema.json`:
 
 ```json
 {
@@ -236,8 +267,8 @@ entry must look like. Here's `checkout_redesign.schema.json`:
 }
 ```
 
-Second, the entries, each a TOML file under `catalogs/<id>-entries/`. The
-filename is the entry's id. Here's `control.toml`:
+Second, the entries, each a TOML file under `data/catalogs/<id>/`. The
+filename is the entry's id. Here's `data/catalogs/checkout_redesign/control.toml`:
 
 ```toml
 variant = "control"
@@ -274,6 +305,135 @@ its entries with a `query` instead of a hardcoded list - a small expression that
 runs over each catalog entry and keeps the ones that match. That's an
 [expressions](./expressions.md) topic, so we'll cover the syntax there.
 
+## Enums: closed sets of scalar values
+
+A lot of configuration values aren't free-form. A plan tier is one of `free`,
+`team`, or `business` - never anything else. If someone types `"buisness"` in a
+rule value, you want that package to be unreleasable, not quietly shipping a
+tier no code path handles.
+
+You could declare the field as a plain `string` and hope review catches the
+typo. Or you could build a catalog - but a catalog is for structured objects
+with several fields, and it's heavy machinery for "one of these five strings."
+An **enum** is the lightweight middle: it names a closed set of scalar values,
+and lint checks every use against that set.
+
+Like a catalog, an enum has a contract half and a values half. The declaration
+lives at `model/enums/<id>.toml` and says what kind of scalar the members are:
+
+```toml
+schema_version = 1
+description = "Account plan tiers"
+type = "string"
+```
+
+The `type` is one of `string`, `int`, `number`, or `bool`. The members live at
+`data/enums/<id>.toml`, under the same id:
+
+```toml
+members = ["free", "team", "business"]
+```
+
+The list has to be non-empty, free of duplicates, and every member has to match
+the declared type. Both halves have to exist - a declaration with no members and
+members with no declaration are each lint errors.
+
+To use an enum, give a variable the type `enum:<id>`:
+
+```toml
+schema_version = 1
+description = "The plan tier this account resolves to"
+type = "enum:plan_tiers"
+
+[resolve]
+default = "free"
+
+[[resolve.rule]]
+when = 'context.account.paid == true'
+value = "team"
+```
+
+Now every default and every rule value is checked against the member set. A
+typo'd `"buisness"` fails lint, and so does an `enum:<id>` type that names an
+enum the package doesn't declare. Enums also work inside schemas, through
+`x-rototo-ref` - that's next.
+
+## Schema references: `x-rototo-ref`
+
+Catalog entries and context facts sometimes need to point at things the package
+already defines. A page entry names its hero banner; a notification policy
+names its email template. If that's just a plain string field, a renamed or
+deleted target breaks silently. The `x-rototo-ref` annotation makes the link
+explicit, so lint can verify it and resolution can follow it.
+
+You put it on a field inside a JSON Schema, with a kind-prefixed target. The
+target says what the field's values must be.
+
+**`"x-rototo-ref": "catalog:<id>"`** pins a string field to the entry ids of
+another catalog:
+
+```json
+{
+  "type": "object",
+  "required": ["hero", "title"],
+  "properties": {
+    "hero": { "type": "string", "x-rototo-ref": "catalog:hero_banner" },
+    "title": { "type": "string" }
+  }
+}
+```
+
+An entry that sets `hero = "home"` now has to point at a real entry in the
+`hero_banner` catalog, and lint fails if it doesn't
+(`rototo/catalog-entry-unknown-reference`). At resolve time the reference is
+**hydrated**: your app gets the full `hero_banner` entry in place of the id, not
+the string. A value can also reach inside the target with
+`"<entry>#<json-pointer>"`, like `"home#/cta"`, to pull one field out.
+
+The target can be an array, `["catalog:email_template", "catalog:sms_template"]`,
+when a field may point into any of several catalogs. Lint then checks the value
+against all of them and flags an entry id that exists in more than one - an
+ambiguous reference is an error, not a guess.
+
+**`"x-rototo-ref": true`** is the object form, for when the *value* names the
+catalog. The field is an object with `catalog` and `entry` keys, plus an
+optional `pointer`:
+
+```json
+{
+  "type": "object",
+  "required": ["catalog", "entry"],
+  "properties": {
+    "catalog": { "type": "string" },
+    "entry": { "type": "string" },
+    "pointer": { "type": "string", "format": "json-pointer" }
+  },
+  "x-rototo-ref": true
+}
+```
+
+**`"x-rototo-ref": "enum:<id>"`** pins a field to an enum's member set:
+
+```json
+{
+  "type": "object",
+  "required": ["tier"],
+  "properties": {
+    "tier": { "type": "string", "x-rototo-ref": "enum:plan_tiers" }
+  }
+}
+```
+
+Enum targets don't hydrate - the member already *is* the value - but they do
+get checked: catalog entry values and evaluation-context sample values both
+have to be members of the enum.
+
+Where each target is allowed: catalog schemas can use catalog targets, enum
+targets, and the object form. Evaluation-context schemas accept only enum
+targets - context facts are caller data, so pointing them at catalog entries
+doesn't mean anything, but pinning a fact like `account.tier` to a closed set
+does.
+
 ## Evaluation contexts: the facts your app passes in
 
 When your app asks rototo to resolve a variable, it passes in a bundle of facts
@@ -282,8 +442,9 @@ their cart. That bundle is the **evaluation context**, and an evaluation-context
 schema pins down its shape so the package and the app can't quietly disagree
 about it.
 
-The schema lives at `evaluation-contexts/<id>.schema.json` - again, plain JSON
-Schema. Here's a trimmed `request.schema.json`:
+The schema lives at `model/context/<id>.schema.json` - again, plain JSON
+Schema. (The concept keeps its full name, evaluation context; only the path is
+short.) Here's a trimmed `request.schema.json`:
 
 ```json
 {
@@ -313,8 +474,9 @@ your schema never mentions it, that's a problem you want to hear about before a
 release, not during one.
 
 Alongside the schema you can keep sample contexts, in
-`evaluation-contexts/<id>-samples/`. Each is a JSON file - the filename is the
-sample's id - that has to validate against the schema. Here's
+`model/context/<id>-samples/`. Each is a JSON file - the filename is the
+sample's id - that has to validate against the schema, including any
+`x-rototo-ref` enum pins the schema declares. Here's
 `premium_enterprise.json`:
 
 ```json

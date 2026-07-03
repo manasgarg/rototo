@@ -83,7 +83,7 @@ right, with later values winning:
 --context '{"user": {"tier": "premium"}}'
 
 # a file of JSON, with a leading @
---context @app-config/evaluation-contexts/request-samples/premium.json
+--context @app-config/model/context/request-samples/premium.json
 ```
 
 Mixing them is fine: `--context @base.json --context user.tier=premium` loads a
@@ -98,7 +98,7 @@ argument is a local path (not a source).
 
 ```sh
 rototo init app-config                              # a fresh, empty package
-rototo init app-config --variable free-shipping     # + a variable template
+rototo init app-config --variable free_shipping     # + a variable template
 rototo init app-config --catalog checkout_redesign  # + a catalog template
 rototo init app-config --evaluation-context         # + an evaluation context
 rototo init app-config --evaluation-context request # named "request"
@@ -106,7 +106,7 @@ rototo init app-config --evaluation-context request # named "request"
 
 Each `--variable`, `--catalog`, and `--evaluation-context` takes the id to
 create. `--evaluation-context` is special: give it a name, or leave the
-name off and it creates `evaluation-contexts/evaluation.schema.json`.
+name off and it creates `model/context/evaluation.schema.json`.
 
 Useful extras:
 
@@ -185,7 +185,7 @@ the cases that must never drift.
 ```sh
 # a variable, against a sample context
 rototo resolve app-config --variable checkout_redesign \
-  --context @app-config/evaluation-contexts/request-samples/premium.json
+  --context @app-config/model/context/request-samples/premium.json
 
 # a condition variable, against an inline fact
 rototo resolve app-config --variable premium_users --context user.tier=premium
@@ -235,7 +235,7 @@ git refs of that checkout.
 
 ```sh
 # working tree vs HEAD (the default)
-rototo diff app-config --context @app-config/evaluation-contexts/request-samples/premium.json
+rototo diff app-config --context @app-config/model/context/request-samples/premium.json
 
 # compare two committed states
 rototo diff app-config --from origin/main --to HEAD --context @.../premium.json

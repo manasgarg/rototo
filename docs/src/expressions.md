@@ -54,8 +54,10 @@ Outside of a query, `entry` doesn't exist - there's no entry to talk about.
 ### `variables` - other variables' resolved values
 
 `variables` reads the resolved value of *another* variable, by its id. Write it
-with a dot (`variables.premium`) or with brackets when the id has hyphens
-(`variables["premium_users"]`).
+with a dot (`variables.premium_users`) or with brackets
+(`variables["premium_users"]`). Ids are snake_case, so the dot form always
+works for a plain id; brackets are what you need for a namespaced id like
+`variables["payments/retry_limit"]`, since `/` can't appear in a dot path.
 
 This is how a named condition gets reused. Define the condition once as a bool
 variable (a "condition variable": `type = "bool"`, default `false`, a rule that

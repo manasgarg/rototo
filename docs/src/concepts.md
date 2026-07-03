@@ -9,6 +9,7 @@ Here's the one-line version of each concept:
 - **Rule**: a conditional value for a variable. Each rule says "when this condition holds, use this value."
 - **Condition variable**: a bool variable that gives a runtime condition a name, so many other variables can reuse it.
 - **Catalog**: a named set of allowed values a variable can pick from. Handy for objects that follow a schema (LLM parameters, say).
+- **Enum**: a named closed set of scalar values. It answers "is this value one of the allowed ones?" when a full catalog would be too heavy.
 - **Context**: the runtime facts the application hands in.
 - **Schema**: validation for package structure, context, catalog entries, or selected values.
 - **Lint**: the check that a package is structurally and semantically ready to release.
@@ -34,14 +35,18 @@ That gives you a folder that looks like this:
 $> tree app-config
 app-config
 ├── rototo-package.toml
-├── evaluation-contexts
 ├── variables
-├── catalogs
-├── lint
-5 directories, 1 file
+├── model
+│   ├── catalogs
+│   └── context
+├── data
+│   └── catalogs
+└── lint
+
+7 directories, 1 file
 ```
 
-The `evaluation-contexts`, `variables`, `catalogs`, and `lint` folders hold Rototo's building blocks - we'll get to each one. The `rototo-package.toml` file is the package-level file, and right now it just says:
+Those folders hold Rototo's building blocks - we'll get to each one. The split between `model` and `data` is the split between contracts and values: `model` holds the schemas and declarations that say what values must look like, and `data` holds the values themselves. The `variables` folder holds the values your application asks for, and `lint` holds your own custom checks. The `rototo-package.toml` file is the package-level file, and right now it just says:
 
 ```toml
 schema_version = 1
@@ -51,7 +56,9 @@ That file is what marks `app-config` as the root of a Rototo package, and `schem
 
 ## Variable
 
-A variable is the named value your application code asks for at runtime. The app asks for `checkout-timeout`, `llm-model`, or `enable-new-onboarding`, and Rototo figures out which value to hand back for the current context.
+A variable is the named value your application code asks for at runtime. The app asks for `checkout_timeout`, `llm_model`, or `enable_new_onboarding`, and Rototo figures out which value to hand back for the current context.
+
+A quick word on the names themselves: every id Rototo recognizes (variables, enums, catalogs, catalog entries, evaluation contexts, samples) is lowercase snake_case, with `/` allowed for namespacing. That's not just taste. Ids appear in expressions, where a hyphen is the minus operator, so `checkout-timeout` would parse as a subtraction while `variables.checkout_timeout` just works. Lint enforces the convention as an error (`rototo/id-not-snake-case`).
 
 A variable can be backed by a plain type - `bool`, `int`, `number`, `string`, or `list`. It can also pull a value from a catalog when the configuration is a structured object you want to reuse and validate as a named entry.
 
@@ -71,7 +78,7 @@ We can check that it resolves the way we expect:
 
 ```sh
 rototo resolve app-config \
-  --variable checkout-timeout
+  --variable checkout_timeout
 ```
 
 The next step is to let the value depend on runtime context. Variables do that with rules. Each rule says: when these conditions match, use this value instead of the default. You can write those conditions inline, or point at a condition variable when the same condition needs to be reused across several variables.
@@ -100,7 +107,7 @@ When the application resolves this variable, Rototo checks the rules in order. T
 
 ```sh
 rototo resolve app-config \
-  --variable checkout-timeout \
+  --variable checkout_timeout \
   --context account.plan=enterprise
 ```
 
@@ -146,7 +153,7 @@ When Rototo resolves the variable, it resolves `enterprise_account` against the 
 
 ```sh
 rototo resolve app-config \
-  --variable checkout-timeout \
+  --variable checkout_timeout \
   --context account.plan=enterprise
 ```
 
@@ -191,14 +198,14 @@ For example, here's a catalog schema for LLM parameters:
 Save that as:
 
 ```sh
-catalogs/llm_parameters.schema.json
+model/catalogs/llm_parameters.schema.json
 ```
 
-Then add catalog entries under a matching entries folder:
+The schema is a contract, so it lives under `model`. The entries are values, so they live under `data`, in a folder named after the catalog:
 
 ```sh
-catalogs/llm-parameters-entries/standard.toml
-catalogs/llm-parameters-entries/enterprise.toml
+data/catalogs/llm_parameters/standard.toml
+data/catalogs/llm_parameters/enterprise.toml
 ```
 
 A `standard` entry might look like this:
@@ -289,6 +296,27 @@ When the application resolves this variable, Rototo runs the query against each 
 
 That gives the application a reviewed, validated set of dropdown options without hardcoding the choices in the UI. Rototo owns which entries exist and which are enabled; the application owns how to render the list it gets back.
 
+## Enum
+
+Catalogs handle structured objects. But plenty of values are just one scalar from a short, closed list: a plan tier is `free`, `team`, or `business`, and nothing else. Declaring that as a plain `string` leaves the door open for a typo like `"buisness"` to ship. Building a catalog for it is overkill: there's no object, just a name.
+
+An enum answers the question "is this value one of the allowed ones?" It follows the same contract/values split as a catalog. The declaration under `model/enums/plan_tiers.toml` says what kind of scalar the members are:
+
+```toml
+schema_version = 1
+type = "string"
+```
+
+And the members under `data/enums/plan_tiers.toml` say which values exist:
+
+```toml
+members = ["free", "team", "business"]
+```
+
+A variable uses it with `type = "enum:plan_tiers"` (or `list<enum:plan_tiers>` for a list). From then on, every default and rule value in that variable has to be a member, and lint fails the package on anything else. A misspelled member is unreleasable, which is exactly what you want.
+
+Enums also show up inside schemas. A catalog schema or an evaluation context schema can pin a field to an enum with `"x-rototo-ref": "enum:plan_tiers"`, so catalog entries and sample contexts get the same member check. The [package format](./package-format.md) page covers that annotation in full.
+
 ## Context
 
 Context is the runtime data the application hands to Rototo when it asks for a variable. The package holds the configuration, but the application is the one that knows the facts about the current request, user, account, device, cart, or environment. Context is how those facts get into the resolution.
@@ -297,7 +325,7 @@ For example, this CLI input:
 
 ```sh
 rototo resolve app-config \
-  --variable checkout-timeout \
+  --variable checkout_timeout \
   --context account.plan=enterprise
 ```
 
@@ -322,7 +350,7 @@ Context should have a contract. Without one, package authors can accidentally wr
 Create a schema at:
 
 ```
-evaluation-contexts/request.schema.json
+model/context/request.schema.json
 ```
 
 For the examples above, it might start like this:
@@ -356,7 +384,7 @@ For the examples above, it might start like this:
 You can also keep sample contexts beside the schema:
 
 ```
-evaluation-contexts/request-samples/enterprise.json
+model/context/request-samples/enterprise.json
 ```
 
 ```json
@@ -385,7 +413,7 @@ We've already used two kinds of schema.
 The first is the evaluation context schema:
 
 ```text
-evaluation-contexts/request.schema.json
+model/context/request.schema.json
 ```
 
 This describes the runtime facts the application may pass into resolution. When a rule reads `context.account.plan`, the schema is where that path is declared and typed. That lets Rototo catch package mistakes before release - like a rule depending on `context.account.tier` when the app only ever sends `context.account.plan`.
@@ -393,7 +421,7 @@ This describes the runtime facts the application may pass into resolution. When 
 The second is the catalog schema:
 
 ```
-catalogs/llm_parameters.schema.json
+model/catalogs/llm_parameters.schema.json
 ```
 
 This describes every entry in the `llm_parameters` catalog. If the schema says `max_output_tokens` must be an integer and `temperature` must sit between 0 and 2, every entry has to satisfy that contract.
@@ -483,7 +511,7 @@ At runtime, the application doesn't read individual TOML or JSON files. It loads
 
 ```sh
 rototo resolve app-config \
-  --variable checkout-timeout \
+  --variable checkout_timeout \
   --context account.plan=enterprise
 ```
 

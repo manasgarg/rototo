@@ -36,15 +36,47 @@ The package format is rooted at `rototo-package.toml`:
   id. A named runtime condition is a bool variable by convention (a "condition
   variable"): `type = "bool"`, `[resolve]` `default = false`, and rules with
   `value = true`. Other variables reference it as `variables["<id>"]`.
-- `catalogs/*.schema.json`: JSON Schemas for catalog-backed values. The catalog
-  id is the file name before `.schema.json`.
-- `catalogs/<catalog-id>-entries/*.toml`: catalog value definitions. The file
+- `model/catalogs/*.schema.json`: JSON Schemas for catalog-backed values. The
+  catalog id is the file name before `.schema.json`.
+- `data/catalogs/<catalog-id>/*.toml`: catalog value definitions. The file
   stem is the catalog value id.
-- `evaluation-contexts/*.schema.json`: JSON Schemas for runtime context
-  objects. The evaluation context id is the file name before `.schema.json`.
-- `evaluation-contexts/<context-id>-samples/*.json`: optional sample contexts
-  used for fixtures, lint coverage, and docs examples.
+- `model/enums/<enum-id>.toml`: named enum declarations: `schema_version = 1`,
+  optional `description`, and `type` (one of `string`, `int`, `number`,
+  `bool`).
+- `data/enums/<enum-id>.toml`: enum member sets, `members = [...]`.
+- `model/context/*.schema.json`: JSON Schemas for runtime context objects (the
+  concept is still called an evaluation context). The evaluation context id is
+  the file name before `.schema.json`.
+- `model/context/<context-id>-samples/*.json`: optional sample contexts used
+  for fixtures, lint coverage, and docs examples.
 - `lint/*.lua`: package-local custom lint rules.
+
+`model/` holds contracts, `data/` holds values. Custom-lint target addresses
+are logical names and did not change with the layout: still
+`/evaluation-contexts/<id>`, `/catalogs/<id>/entries/...`, and so on.
+
+rototo-recognized ids (variables, enums, catalogs, catalog entries, evaluation
+contexts, samples) must be lowercase snake_case, with `/` allowed for
+namespacing; enforced by `rototo/id-not-snake-case` (error). Ids appear in TOML
+table headers and CEL expressions, where a hyphen is the minus operator, and
+snake_case enables `variables.premium_users` dot access. Diagnostic rule ids
+(`rototo/<rule-id>`, `<authority>/<rule-id>`) are a separate namespace and stay
+kebab-case.
+
+Schema fields can pin their values with the `x-rototo-ref` annotation, using a
+kind-prefixed target:
+
+- `"x-rototo-ref": "catalog:<id>"` (or an array of `catalog:<id>` strings) pins
+  a string field to entry ids of another catalog; `<entry>#<json-pointer>`
+  values, ambiguity checks, and hydration at resolve time apply.
+- `"x-rototo-ref": true` marks an object field whose `{catalog, entry,
+  pointer}` value names the target dynamically.
+- `"x-rototo-ref": "enum:<id>"` pins a field to an enum's member set; catalog
+  entry values and evaluation-context sample values are checked against the
+  members.
+
+Catalog schemas accept catalog and enum targets; evaluation context schemas
+accept only enum targets.
 
 The example package at `examples/basic` is intentionally broad and should stay
 lint-clean. It covers primitive variables, catalog-backed nested values, default
@@ -96,7 +128,7 @@ Resolution takes repeatable `--context` inputs in the CLI: raw JSON object,
 exactly four roots: `context` (caller-supplied facts, e.g. `context.user.tier`),
 `entry` (the catalog entry under consideration in a `query`), `variables`
 (other variables' resolved values, as `variables.<id>` or `variables["<id>"]`
-for hyphenated ids, resolved lazily with per-resolution memoization), and
+for namespaced ids, resolved lazily with per-resolution memoization), and
 `env.now` (the evaluation timestamp, captured once per resolution as an RFC3339
 string). `env.resolving.variable` is available only inside `[[trace]]`
 policies. Variables resolve by taking the first matching rule value, otherwise
@@ -107,7 +139,7 @@ rototo resolve examples/basic --variable premium_users \
   --context user.tier=premium
 
 rototo resolve examples/basic --variable checkout_redesign \
-  --context @examples/basic/evaluation-contexts/request-samples/premium_enterprise.json
+  --context @examples/basic/model/context/request-samples/premium_enterprise.json
 ```
 
 ## Console
@@ -156,15 +188,29 @@ package structure and files:
   points at `variables["<id>"]`. Expression, bucket, and operator shapes are
   validated.
 - Variable types support `bool`, `int`, `number`, `string`, `list`,
-  `catalog:<id>`, and `list<...>` where the list item is a primitive or catalog
-  type. Resolve defaults and rule values must match the declared type.
-- Catalog schemas under `catalogs/*.schema.json` parse and compile as JSON
-  Schema. Catalog entries under `catalogs/<id>-entries/*.toml` validate against
-  their catalog schema.
-- Evaluation context schemas under `evaluation-contexts/*.schema.json` parse
-  and compile as JSON Schema. Samples under
-  `evaluation-contexts/<id>-samples/*.json` validate against their evaluation
-  context schema.
+  `catalog:<id>`, `enum:<id>`, and `list<...>` where the list item is a
+  primitive, catalog, or enum type. Resolve defaults and rule values must match
+  the declared type; for enum-typed variables every default and rule value must
+  be a member of the enum (`rototo/variable-unknown-enum` for an unknown enum
+  id).
+- rototo-recognized ids are lowercase snake_case with optional `/` namespacing
+  (`rototo/id-not-snake-case`, error).
+- Enum declarations under `model/enums/*.toml` parse, declare
+  `schema_version = 1`, and declare `type` as one of `string`, `int`, `number`,
+  or `bool`. Member sets under `data/enums/*.toml` declare `members` as a
+  non-empty array of distinct values matching the declared type, and both
+  halves must exist (`rototo/enum-parse-failed`, `rototo/enum-schema-version`,
+  `rototo/enum-shape`, `rototo/enum-members-parse-failed`,
+  `rototo/enum-members-shape`, `rototo/enum-members-missing`,
+  `rototo/enum-members-undeclared`).
+- Catalog schemas under `model/catalogs/*.schema.json` parse and compile as
+  JSON Schema. Catalog entries under `data/catalogs/<id>/*.toml` validate
+  against their catalog schema, and `x-rototo-ref` targets resolve: catalog
+  targets to real entries, enum targets to declared members.
+- Evaluation context schemas under `model/context/*.schema.json` parse and
+  compile as JSON Schema and use only `enum:<id>` targets in `x-rototo-ref`.
+  Samples under `model/context/<id>-samples/*.json` validate against their
+  evaluation context schema, including enum member checks.
 - Lua files under `lint/*.lua` define `register(lint)` and register rules with
   `lint:rule({ id, title, help, target, handler })`. Handlers return diagnostics
   with `message`; the registration owns the rule id. `rototo` is reserved for

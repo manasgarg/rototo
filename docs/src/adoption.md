@@ -26,7 +26,7 @@ Once you've picked the repo, it's worth running `rototo setup`. It wires up:
 A little effort here pays off enormously in misconfigurations you never ship. Concretely:
 
 - Add `rototo lint` to both a pre-commit hook and your CI pipeline, so a broken package can't get committed or merged.
-- Write a JSON schema for your evaluation context (in `<package-dir>/evaluation-contexts/evaluation.schema.json`). It should describe exactly the context your app passes to the Rototo SDK at runtime. `rototo lint` leans on this to catch drift between what your app sends and what the variables and their rules expect.
+- Write a JSON schema for your evaluation context (in `<package-dir>/model/context/evaluation.schema.json`). It should describe exactly the context your app passes to the Rototo SDK at runtime. `rototo lint` leans on this to catch drift between what your app sends and what the variables and their rules expect.
 - Write custom lint rules (in `<package-dir>/lint`) as extra guards Rototo can't infer on its own - say, "users on the `standard` tier must never get more than 5 projects."
 - Write an integration test that runs your app through resolution of every variable, so you're testing the real loading path, not just the package model.
 

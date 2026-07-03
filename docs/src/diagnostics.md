@@ -57,6 +57,12 @@ Both the authority and the rule name have to be lowercase letters, digits, and
 hyphens. That keeps every diagnostic in the system addressable the same way, no
 matter who wrote the rule.
 
+One distinction worth being explicit about: rule names are hyphenated, but the
+ids *inside* your package (variables, enums, catalogs, entries, evaluation
+contexts, samples) are snake_case. Those are two separate namespaces. Package
+ids appear in expressions, where a hyphen is the minus operator; rule names
+never do, so they keep the kebab convention.
+
 ## Seeing the whole catalog
 
 You don't have to memorize the rules - you can ask for the list:
@@ -87,25 +93,38 @@ There are a few dozen built-in rules, and they line up with the parts of a
 package. You don't need them all in your head; this is the map so you know
 roughly where a finding is coming from.
 
-- **Package** - the manifest exists, parses, declares `schema_version = 1`, and
-  any `[[trace]]` policies have a valid `when`. (e.g.
-  `rototo/package-manifest-missing`, `rototo/trace-when-invalid-reference`)
+- **Package** - the manifest exists, parses, declares `schema_version = 1`, any
+  `[[trace]]` policies have a valid `when`, and every rototo-recognized id is
+  snake_case. (e.g. `rototo/package-manifest-missing`,
+  `rototo/trace-when-invalid-reference`, `rototo/id-not-snake-case`)
 - **Evaluation contexts** - context schemas are valid JSON Schema, don't use
-  reserved fields, and every sample matches its schema. (e.g.
+  reserved fields, only use enum targets in `x-rototo-ref`, and every sample
+  matches its schema, including any enum member pins. (e.g.
   `rototo/evaluation-context-sample-schema-mismatch`)
 - **Variables** - they parse, declare a `type` and a `[resolve]` default, their
   values match the declared type, catalog-backed variables point at real catalog
-  entries, and rule `when` expressions reference real variables and declared
+  entries, enum-backed variables use declared enums and stay inside the member
+  set, and rule `when` expressions reference real variables and declared
   context paths with the right types. This group also flags variables whose
   references form a cycle. (e.g. `rototo/variable-value-type-mismatch`,
-  `rototo/variable-rule-unknown-variable`, `rototo/variable-reference-cycle`)
+  `rototo/variable-rule-unknown-variable`, `rototo/variable-unknown-enum`,
+  `rototo/variable-reference-cycle`)
 - **Variable rules** - warnings about rules that can never fire because an
   earlier rule shadows them, or rules that just re-select the default anyway.
   (e.g. `rototo/variable-rule-shadowed`)
 - **Catalogs** - schemas are valid JSON Schema, and any UI widget hints make
   sense for the property they're on. (e.g. `rototo/catalog-schema-invalid`)
-- **Catalog entries** - each entry parses and validates against its catalog's
-  schema. (e.g. `rototo/catalog-entry-schema-mismatch`)
+- **Catalog entries** - each entry parses, validates against its catalog's
+  schema, and any `x-rototo-ref` values point at real catalog entries or enum
+  members. (e.g. `rototo/catalog-entry-schema-mismatch`,
+  `rototo/catalog-entry-unknown-reference`)
+- **Enums** - the declaration under `model/enums/` parses, declares
+  `schema_version = 1` and a scalar `type`; the members under `data/enums/`
+  parse, are non-empty, distinct, and match the declared type; and the two
+  halves both exist. (e.g. `rototo/enum-parse-failed`,
+  `rototo/enum-schema-version`, `rototo/enum-shape`,
+  `rototo/enum-members-parse-failed`, `rototo/enum-members-shape`,
+  `rototo/enum-members-missing`, `rototo/enum-members-undeclared`)
 - **Custom lint** - your Lua files register cleanly, without conflicting or
   duplicate rule metadata. (e.g. `rototo/custom-lint-registration-invalid`)
 
