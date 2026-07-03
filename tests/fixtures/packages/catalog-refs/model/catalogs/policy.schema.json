@@ -13,13 +13,13 @@
   "properties": {
     "email_subject": {
       "type": "string",
-      "x-rototo-catalog-ref": "email-template"
+      "x-rototo-ref": "catalog:email-template"
     },
     "message_template": {
       "type": "string",
-      "x-rototo-catalog-ref": [
-        "email-template",
-        "sms-template"
+      "x-rototo-ref": [
+        "catalog:email-template",
+        "catalog:sms-template"
       ]
     },
     "object_template": {
@@ -44,7 +44,7 @@
         }
       },
       "additionalProperties": false,
-      "x-rototo-catalog-ref": true
+      "x-rototo-ref": true
     },
     "external_ref_template": {
       "$ref": "email-template.schema.json#/$defs/email_template_ref"
@@ -57,7 +57,7 @@
   "$defs": {
     "email_template_ref": {
       "type": "string",
-      "x-rototo-catalog-ref": "email-template"
+      "x-rototo-ref": "catalog:email-template"
     }
   }
 }

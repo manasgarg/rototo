@@ -527,11 +527,45 @@ value = "team"
     )
     .unwrap();
 
+    // Schema-level enum references: a catalog entry field and a context field
+    // both pin their values to the enum with x-rototo-ref.
+    std::fs::create_dir_all(root.join("model/catalogs")).unwrap();
+    std::fs::create_dir_all(root.join("data/catalogs/plans")).unwrap();
+    std::fs::create_dir_all(root.join("model/context/request-samples")).unwrap();
+    std::fs::write(
+        root.join("model/catalogs/plans.schema.json"),
+        r#"{"type":"object","required":["tier"],"properties":{"tier":{"type":"string","x-rototo-ref":"enum:plan-tiers"}}}"#,
+    )
+    .unwrap();
+    std::fs::write(
+        root.join("data/catalogs/plans/starter.toml"),
+        "tier = \"free\"\n",
+    )
+    .unwrap();
+    std::fs::write(
+        root.join("model/context/request-samples/paid.json"),
+        r#"{"account":{"paid":true}}"#,
+    )
+    .unwrap();
+
     let lint = lint_json(root.to_str().unwrap(), true);
     assert!(
         lint["diagnostics"].as_array().unwrap().is_empty(),
         "{lint:#}"
     );
+
+    // An entry value outside the member set fails the reference lint.
+    std::fs::write(
+        root.join("data/catalogs/plans/bogus.toml"),
+        "tier = \"platinum\"\n",
+    )
+    .unwrap();
+    let lint = lint_json(root.to_str().unwrap(), false);
+    assert!(
+        diagnostic_rules(&lint).contains(&"rototo/catalog-entry-unknown-reference".to_owned()),
+        "{lint:#}"
+    );
+    std::fs::remove_file(root.join("data/catalogs/plans/bogus.toml")).unwrap();
 
     // A value outside the member set is rejected, an unknown enum is rejected,
     // and both halves of the enum must exist.

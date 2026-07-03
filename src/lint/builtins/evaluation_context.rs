@@ -1,6 +1,6 @@
 use std::collections::BTreeSet;
 
-use crate::diagnostics::{RototoRuleId, SemanticEntity, SemanticField, Severity};
+use crate::diagnostics::{LintDiagnostic, RototoRuleId, SemanticEntity, SemanticField, Severity};
 
 use super::super::engine::LintContext;
 use super::super::evaluation_context::{
@@ -8,24 +8,120 @@ use super::super::evaluation_context::{
     context_path_type_fit, expected_type_label, path_declared_in_any_context,
     variable_resolve_rules, variable_rule_condition_reference_count,
 };
-use super::super::index::{ProjectField, SemanticIndex};
+use serde_json::Value as JsonValue;
+
+use super::super::index::{
+    EvaluationContextNode, EvaluationContextSampleNode, ProjectField, SemanticIndex,
+};
 use super::super::references::{ReferenceSource, ReferenceTarget};
 use super::super::stages::{push_graph_diagnostic, push_project_diagnostic, push_value_diagnostic};
 use crate::expression::ContextScalarType;
 
 pub(super) fn lint_evaluation_context_schemas(ctx: &mut LintContext) {
-    let diagnostics = &mut ctx.diagnostics;
+    let mut diagnostics = Vec::new();
     for evaluation_context in ctx.index.evaluation_contexts.values() {
         if let Some(message) = &evaluation_context.invalid_message {
             push_project_diagnostic(
-                diagnostics,
+                &mut diagnostics,
                 RototoRuleId::EvaluationContextSchemaInvalid,
                 evaluation_context.field_target(SemanticField::SchemaJson),
                 evaluation_context.location.clone(),
                 format!("evaluation context schema is invalid: {message}"),
             );
         }
+        if let Some(schema) = evaluation_context.json.as_ref() {
+            lint_context_enum_ref_shapes(&mut diagnostics, ctx, evaluation_context, schema, "$");
+        }
     }
+    ctx.diagnostics.extend(diagnostics);
+}
+
+/// Context schema fields may pin their values to an enum with
+/// `x-rototo-ref: "enum:<id>"`. Context facts are caller data, so catalog
+/// targets are rejected here; enums are the only referenceable set.
+fn lint_context_enum_ref_shapes(
+    diagnostics: &mut Vec<LintDiagnostic>,
+    ctx: &LintContext,
+    evaluation_context: &EvaluationContextNode,
+    schema: &JsonValue,
+    pointer: &str,
+) {
+    if let Some(target) = schema.get("x-rototo-ref") {
+        match target.as_str().map(context_enum_ref_target) {
+            Some(Ok(id)) if ctx.index.enums.contains_key(&id) => {}
+            Some(Ok(id)) => push_project_diagnostic(
+                diagnostics,
+                RototoRuleId::EvaluationContextSchemaInvalid,
+                evaluation_context.field_target(SemanticField::SchemaJson),
+                evaluation_context.location.clone(),
+                format!("x-rototo-ref references unknown enum {id} at {pointer}"),
+            ),
+            Some(Err(message)) => push_project_diagnostic(
+                diagnostics,
+                RototoRuleId::EvaluationContextSchemaInvalid,
+                evaluation_context.field_target(SemanticField::SchemaJson),
+                evaluation_context.location.clone(),
+                format!("{message} at {pointer}"),
+            ),
+            None => push_project_diagnostic(
+                diagnostics,
+                RototoRuleId::EvaluationContextSchemaInvalid,
+                evaluation_context.field_target(SemanticField::SchemaJson),
+                evaluation_context.location.clone(),
+                format!(
+                    "x-rototo-ref in evaluation context schemas must target enum:<id> at {pointer}"
+                ),
+            ),
+        }
+    }
+
+    for keyword in ["properties", "$defs", "definitions"] {
+        let Some(children) = schema.get(keyword).and_then(JsonValue::as_object) else {
+            continue;
+        };
+        for (key, child) in children {
+            lint_context_enum_ref_shapes(
+                diagnostics,
+                ctx,
+                evaluation_context,
+                child,
+                &format!("{pointer}/{keyword}/{key}"),
+            );
+        }
+    }
+    if let Some(items) = schema.get("items") {
+        lint_context_enum_ref_shapes(
+            diagnostics,
+            ctx,
+            evaluation_context,
+            items,
+            &format!("{pointer}/items"),
+        );
+    }
+    for keyword in ["allOf", "anyOf", "oneOf"] {
+        let Some(children) = schema.get(keyword).and_then(JsonValue::as_array) else {
+            continue;
+        };
+        for (index, child) in children.iter().enumerate() {
+            lint_context_enum_ref_shapes(
+                diagnostics,
+                ctx,
+                evaluation_context,
+                child,
+                &format!("{pointer}/{keyword}/{index}"),
+            );
+        }
+    }
+}
+
+fn context_enum_ref_target(target: &str) -> Result<String, String> {
+    if let Some(id) = target.strip_prefix("enum:") {
+        if id.is_empty() {
+            return Err("x-rototo-ref enum id must not be empty".to_owned());
+        }
+        return Ok(id.to_owned());
+    }
+    Err("x-rototo-ref in evaluation context schemas must target enum:<id>".to_owned())
 }
 
 pub(super) fn lint_evaluation_context_samples(ctx: &mut LintContext) {
@@ -78,9 +174,108 @@ pub(super) fn lint_evaluation_context_samples(ctx: &mut LintContext) {
                     ),
                 );
             }
+            if let Some(schema) = context.json.as_ref() {
+                lint_sample_enum_refs(&mut diagnostics, ctx, entry, schema, schema, value, "$");
+            }
         }
     }
     ctx.diagnostics.extend(diagnostics);
+}
+
+/// Walk the context schema and the sample together, checking every field that
+/// pins its values with `x-rototo-ref: "enum:<id>"` against the enum's member
+/// set. Local `#/...` `$ref`s resolve against the schema root; anything else is
+/// out of scope for context schemas.
+#[allow(clippy::too_many_arguments)]
+fn lint_sample_enum_refs(
+    diagnostics: &mut Vec<LintDiagnostic>,
+    ctx: &LintContext,
+    entry: &EvaluationContextSampleNode,
+    root: &JsonValue,
+    schema: &JsonValue,
+    value: &JsonValue,
+    path: &str,
+) {
+    if let Some(reference) = schema.get("$ref").and_then(JsonValue::as_str)
+        && let Some(pointer) = reference.strip_prefix("#")
+        && let Some(resolved) = root.pointer(pointer)
+    {
+        lint_sample_enum_refs(diagnostics, ctx, entry, root, resolved, value, path);
+    }
+
+    if let Some(id) = schema
+        .get("x-rototo-ref")
+        .and_then(JsonValue::as_str)
+        .and_then(|target| target.strip_prefix("enum:"))
+        && let Some(members) = sample_enum_member_values(ctx, id)
+        && !value.is_object()
+        && !value.is_array()
+        && !members.contains(&value)
+    {
+        push_value_diagnostic(
+            diagnostics,
+            RototoRuleId::EvaluationContextSampleSchemaMismatch,
+            entry.field_target(SemanticField::EvaluationContextSample),
+            entry.location.clone(),
+            format!(
+                "evaluation context sample {} field {path} is not a member of enum {id}: {}",
+                entry.key,
+                serde_json::to_string(value).unwrap_or_default()
+            ),
+        );
+    }
+
+    if let (Some(properties), Some(object)) = (
+        schema.get("properties").and_then(JsonValue::as_object),
+        value.as_object(),
+    ) {
+        for (key, subschema) in properties {
+            let Some(child) = object.get(key) else {
+                continue;
+            };
+            lint_sample_enum_refs(
+                diagnostics,
+                ctx,
+                entry,
+                root,
+                subschema,
+                child,
+                &format!("{path}.{key}"),
+            );
+        }
+    }
+    if let (Some(items), Some(array)) = (schema.get("items"), value.as_array()) {
+        for (index, child) in array.iter().enumerate() {
+            lint_sample_enum_refs(
+                diagnostics,
+                ctx,
+                entry,
+                root,
+                items,
+                child,
+                &format!("{path}[{index}]"),
+            );
+        }
+    }
+    for keyword in ["allOf", "anyOf", "oneOf"] {
+        let Some(subschemas) = schema.get(keyword).and_then(JsonValue::as_array) else {
+            continue;
+        };
+        for subschema in subschemas {
+            lint_sample_enum_refs(diagnostics, ctx, entry, root, subschema, value, path);
+        }
+    }
+}
+
+fn sample_enum_member_values<'a>(ctx: &'a LintContext, id: &str) -> Option<Vec<&'a JsonValue>> {
+    if !ctx.index.enums.contains_key(id) {
+        return None;
+    }
+    let members = ctx.index.enum_members.get(id)?;
+    let ProjectField::Present(members) = &members.members else {
+        return None;
+    };
+    Some(members.value.iter().map(|member| &member.value).collect())
 }
 
 pub(super) fn lint_undeclared_context_paths(ctx: &mut LintContext) {

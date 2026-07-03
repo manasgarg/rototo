@@ -13,25 +13,25 @@
   "properties": {
     "unknown_catalog": {
       "type": "string",
-      "x-rototo-catalog-ref": "missing-template"
+      "x-rototo-ref": "catalog:missing-template"
     },
     "unknown_entry": {
       "type": "string",
-      "x-rototo-catalog-ref": "email-template"
+      "x-rototo-ref": "catalog:email-template"
     },
     "invalid_pointer": {
       "type": "string",
-      "x-rototo-catalog-ref": "email-template"
+      "x-rototo-ref": "catalog:email-template"
     },
     "missing_pointer": {
       "type": "string",
-      "x-rototo-catalog-ref": "email-template"
+      "x-rototo-ref": "catalog:email-template"
     },
     "ambiguous_template": {
       "type": "string",
-      "x-rototo-catalog-ref": [
-        "email-template",
-        "sms-template"
+      "x-rototo-ref": [
+        "catalog:email-template",
+        "catalog:sms-template"
       ]
     }
   },

@@ -10,7 +10,7 @@ use super::super::index::*;
 use super::super::stages::{push_project_diagnostic, push_value_diagnostic};
 use super::schema::lint_schema_ui_hints_for_target;
 
-const CATALOG_REF_KEY: &str = "x-rototo-catalog-ref";
+const CATALOG_REF_KEY: &str = "x-rototo-ref";
 
 pub(super) fn lint_catalog_shapes(ctx: &mut LintContext) {
     let mut diagnostics = Vec::new();
@@ -118,6 +118,17 @@ fn lint_catalog_ref_schema_node(
                     }
                 }
             }
+            Ok(CatalogRefSpec::Enum(id)) => {
+                if !ctx.index.enums.contains_key(&id) {
+                    push_project_diagnostic(
+                        diagnostics,
+                        RototoRuleId::CatalogSchemaInvalid,
+                        catalog.field_target(SemanticField::SchemaJson),
+                        catalog.location.clone(),
+                        format!("{CATALOG_REF_KEY} references unknown enum {id} at {pointer}"),
+                    );
+                }
+            }
             Ok(CatalogRefSpec::Object) => {}
             Err(message) => {
                 push_project_diagnostic(
@@ -214,6 +225,20 @@ impl CatalogReferenceLint<'_> {
                         );
                     }
                 }
+                CatalogRefSpec::Enum(id) => {
+                    if let Some(members) = enum_member_values(self.ctx, &id)
+                        && !members.contains(&value)
+                    {
+                        push_catalog_reference_diagnostic(
+                            self.diagnostics,
+                            self.entry,
+                            format!(
+                                "{path} is not a member of enum {id}: {}",
+                                serde_json::to_string(value).unwrap_or_default()
+                            ),
+                        );
+                    }
+                }
                 CatalogRefSpec::Object => {
                     lint_object_catalog_ref(self.diagnostics, self.ctx, self.entry, value, path);
                 }
@@ -267,7 +292,27 @@ impl CatalogReferenceLint<'_> {
 #[derive(Debug)]
 enum CatalogRefSpec {
     Compact(Vec<String>),
+    Enum(String),
     Object,
+}
+
+/// Parse one reference target: `catalog:<id>` or `enum:<id>`.
+fn parse_ref_target(value: &str) -> Result<(&'static str, String), String> {
+    if let Some(id) = value.strip_prefix("catalog:") {
+        if id.is_empty() {
+            return Err(format!("{CATALOG_REF_KEY} catalog id must not be empty"));
+        }
+        return Ok(("catalog", id.to_owned()));
+    }
+    if let Some(id) = value.strip_prefix("enum:") {
+        if id.is_empty() {
+            return Err(format!("{CATALOG_REF_KEY} enum id must not be empty"));
+        }
+        return Ok(("enum", id.to_owned()));
+    }
+    Err(format!(
+        "{CATALOG_REF_KEY} must name its target kind: catalog:<id> or enum:<id>"
+    ))
 }
 
 fn catalog_ref_spec(value: &JsonValue) -> Result<CatalogRefSpec, String> {
@@ -275,35 +320,51 @@ fn catalog_ref_spec(value: &JsonValue) -> Result<CatalogRefSpec, String> {
         return Ok(CatalogRefSpec::Object);
     }
 
-    if let Some(catalog) = value.as_str() {
-        if catalog.is_empty() {
-            return Err(format!("{CATALOG_REF_KEY} catalog id must not be empty"));
-        }
-        return Ok(CatalogRefSpec::Compact(vec![catalog.to_owned()]));
+    if let Some(target) = value.as_str() {
+        return match parse_ref_target(target)? {
+            ("catalog", id) => Ok(CatalogRefSpec::Compact(vec![id])),
+            (_, id) => Ok(CatalogRefSpec::Enum(id)),
+        };
     }
 
-    if let Some(catalogs) = value.as_array() {
-        if catalogs.is_empty() {
-            return Err(format!("{CATALOG_REF_KEY} catalog array must not be empty"));
+    if let Some(targets) = value.as_array() {
+        if targets.is_empty() {
+            return Err(format!("{CATALOG_REF_KEY} target array must not be empty"));
         }
-        let mut parsed = Vec::with_capacity(catalogs.len());
-        for catalog in catalogs {
-            let Some(catalog) = catalog.as_str() else {
+        let mut parsed = Vec::with_capacity(targets.len());
+        for target in targets {
+            let Some(target) = target.as_str() else {
                 return Err(format!(
-                    "{CATALOG_REF_KEY} catalog array must contain only strings"
+                    "{CATALOG_REF_KEY} target array must contain only strings"
                 ));
             };
-            if catalog.is_empty() {
-                return Err(format!("{CATALOG_REF_KEY} catalog id must not be empty"));
+            match parse_ref_target(target)? {
+                ("catalog", id) => parsed.push(id),
+                _ => {
+                    return Err(format!(
+                        "{CATALOG_REF_KEY} target array must contain only catalog:<id> targets"
+                    ));
+                }
             }
-            parsed.push(catalog.to_owned());
         }
         return Ok(CatalogRefSpec::Compact(parsed));
     }
 
     Err(format!(
-        "{CATALOG_REF_KEY} must be a catalog id string, catalog id array, or true"
+        "{CATALOG_REF_KEY} must be a catalog:<id> or enum:<id> string, a catalog:<id> array, or true"
     ))
+}
+
+/// The declared members of an enum, when both halves are present and valid.
+fn enum_member_values<'a>(ctx: &'a LintContext, id: &str) -> Option<Vec<&'a JsonValue>> {
+    if !ctx.index.enums.contains_key(id) {
+        return None;
+    }
+    let members = ctx.index.enum_members.get(id)?;
+    let ProjectField::Present(members) = &members.members else {
+        return None;
+    };
+    Some(members.value.iter().map(|member| &member.value).collect())
 }
 
 fn lint_compact_catalog_ref(

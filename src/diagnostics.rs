@@ -460,7 +460,7 @@ rototo_rules! {
         id: "catalog-entry-unknown-reference",
         entity: CatalogEntry,
         title: "Catalog value references an invalid catalog entry",
-        help: "Create the referenced catalog entry, fix the pointer, or update the x-rototo-catalog-ref field.",
+        help: "Create the referenced catalog entry, fix the pointer, or update the x-rototo-ref target.",
     },
     VariableResolveMissingDefault => {
         id: "variable-resolve-missing-default",

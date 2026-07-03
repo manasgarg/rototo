@@ -999,7 +999,7 @@ query = "entry.channel == context.channel && entry.active == true && variables[\
   "properties": {
     "hero": {
       "type": "string",
-      "x-rototo-catalog-ref": "hero-banner"
+      "x-rototo-ref": "catalog:hero-banner"
     },
     "title": { "type": "string" }
   }
