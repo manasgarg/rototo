@@ -45,14 +45,6 @@ async function runCase(contractCase) {
         return pkg.resolveVariable(contractCase.id, contractCase.context ?? {});
     }
 
-    if (operation === "resolve_qualifier") {
-        const pkg = await Package.load(packageSource);
-        return pkg.resolveQualifier(
-            contractCase.id,
-            contractCase.context ?? {},
-        );
-    }
-
     if (operation === "package_identity") {
         const pkg = await Package.load(packageSource);
         const identity = pkg.identity();

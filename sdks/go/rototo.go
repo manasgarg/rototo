@@ -45,6 +45,9 @@ type ResolveOptions struct {
 	// Trace emits a resolution trace for this call onto the trace stream. It
 	// only produces output while something is subscribed via TraceEvents.
 	Trace bool
+	// Tenant scopes the resolution to one tenant: expressions read the id as
+	// env.tenant. Empty means the resolution is not tenant-scoped.
+	Tenant string
 }
 
 // RefreshingPackageOptions configures RefreshingPackage loading.
@@ -263,7 +266,7 @@ func (w *Package) ResolveVariable(
 		return nil, err
 	}
 	defer unlock()
-	text, err := nativePackageResolveVariable(handle, id, contextJSON, validateContext(options), traceEnabled(options))
+	text, err := nativePackageResolveVariable(handle, id, contextJSON, validateContext(options), traceEnabled(options), tenant(options))
 	if err != nil {
 		return nil, err
 	}
@@ -272,32 +275,6 @@ func (w *Package) ResolveVariable(
 		return nil, err
 	}
 	return &resolution, nil
-}
-
-// ResolveQualifier resolves a qualifier with a JSON-object context.
-func (w *Package) ResolveQualifier(
-	id string,
-	evaluationContext map[string]any,
-	options *ResolveOptions,
-) (bool, error) {
-	contextJSON, err := marshalContext(evaluationContext)
-	if err != nil {
-		return false, err
-	}
-	handle, unlock, err := w.activeHandle()
-	if err != nil {
-		return false, err
-	}
-	defer unlock()
-	text, err := nativePackageResolveQualifier(handle, id, contextJSON, validateContext(options), traceEnabled(options))
-	if err != nil {
-		return false, err
-	}
-	var value bool
-	if err := json.Unmarshal([]byte(text), &value); err != nil {
-		return false, err
-	}
-	return value, nil
 }
 
 // Close releases the native package handle.
@@ -365,6 +342,7 @@ func (w *RefreshingPackage) ResolveVariable(
 		contextJSON,
 		validateContext(options),
 		traceEnabled(options),
+		tenant(options),
 	)
 	if err != nil {
 		return nil, err
@@ -374,38 +352,6 @@ func (w *RefreshingPackage) ResolveVariable(
 		return nil, err
 	}
 	return &resolution, nil
-}
-
-// ResolveQualifier resolves a qualifier against the current active package.
-func (w *RefreshingPackage) ResolveQualifier(
-	id string,
-	evaluationContext map[string]any,
-	options *ResolveOptions,
-) (bool, error) {
-	contextJSON, err := marshalContext(evaluationContext)
-	if err != nil {
-		return false, err
-	}
-	handle, unlock, err := w.activeHandle()
-	if err != nil {
-		return false, err
-	}
-	defer unlock()
-	text, err := nativeRefreshingPackageResolveQualifier(
-		handle,
-		id,
-		contextJSON,
-		validateContext(options),
-		traceEnabled(options),
-	)
-	if err != nil {
-		return false, err
-	}
-	var value bool
-	if err := json.Unmarshal([]byte(text), &value); err != nil {
-		return false, err
-	}
-	return value, nil
 }
 
 // RefreshNow refreshes the package immediately and returns "unchanged",
@@ -664,6 +610,13 @@ func validateContext(options *ResolveOptions) bool {
 
 func traceEnabled(options *ResolveOptions) bool {
 	return options != nil && options.Trace
+}
+
+func tenant(options *ResolveOptions) string {
+	if options == nil {
+		return ""
+	}
+	return options.Tenant
 }
 
 func nativeError(message string) error {

@@ -16,15 +16,15 @@ func TestPackageExposesGoRuntimeResolutionAPI(t *testing.T) {
 	defer closePackage(t, pkg)
 
 	variable, err := pkg.ResolveVariable(
-		"premium-message",
+		"premium_message",
 		map[string]any{"user": map[string]any{"tier": "premium"}},
 		nil,
 	)
 	if err != nil {
 		t.Fatal(err)
 	}
-	qualifier, err := pkg.ResolveQualifier(
-		"premium-users",
+	condition, err := pkg.ResolveVariable(
+		"premium_users",
 		map[string]any{"user": map[string]any{"tier": "premium"}},
 		nil,
 	)
@@ -32,7 +32,7 @@ func TestPackageExposesGoRuntimeResolutionAPI(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if variable.ID != "premium-message" {
+	if variable.ID != "premium_message" {
 		t.Fatalf("variable id = %q", variable.ID)
 	}
 	if !reflect.DeepEqual(variable.Source, map[string]any{"kind": "literal"}) {
@@ -41,8 +41,8 @@ func TestPackageExposesGoRuntimeResolutionAPI(t *testing.T) {
 	if variable.Value != "Welcome back, premium member." {
 		t.Fatalf("value = %#v", variable.Value)
 	}
-	if !qualifier {
-		t.Fatalf("qualifier value = false")
+	if condition.Value != true {
+		t.Fatalf("condition value = %#v", condition.Value)
 	}
 }
 
@@ -61,7 +61,7 @@ func TestInspectedPackageCanLintButNotResolve(t *testing.T) {
 		t.Fatalf("diagnostics = %#v", lint.Diagnostics)
 	}
 
-	_, err = pkg.ResolveVariable("premium-message", map[string]any{}, nil)
+	_, err = pkg.ResolveVariable("premium_message", map[string]any{}, nil)
 	if err == nil {
 		t.Fatal("expected inspected package resolution to fail")
 	}
@@ -75,7 +75,7 @@ func TestContextValidationCanBeSkipped(t *testing.T) {
 	defer closePackage(t, pkg)
 
 	result, err := pkg.ResolveVariable(
-		"premium-message",
+		"premium_message",
 		map[string]any{"user": map[string]any{"tier": map[string]any{"bad": "shape"}}},
 		&ResolveOptions{SkipContextValidation: true},
 	)
@@ -305,17 +305,6 @@ func runContractCase(t *testing.T, sdkCase contractCase) (any, error) {
 			"value":  result.Value,
 			"source": result.Source,
 		}, nil
-	case "resolve_qualifier":
-		pkg, err := Load(context.Background(), source, nil)
-		if err != nil {
-			return nil, err
-		}
-		defer closePackage(t, pkg)
-		result, err := pkg.ResolveQualifier(sdkCase.ID, sdkCase.Context, nil)
-		if err != nil {
-			return nil, err
-		}
-		return result, nil
 	case "package_identity":
 		pkg, err := Load(context.Background(), source, nil)
 		if err != nil {
@@ -517,6 +506,75 @@ func TestRefreshingPackageEmitsPerCallTrace(t *testing.T) {
 		return
 	}
 	t.Fatal("did not observe a per-call trace event")
+}
+
+func TestResolveOptionsTenantScopesResolution(t *testing.T) {
+	root := t.TempDir()
+	writeTenantPackage(t, root)
+
+	pkg, err := Load(context.Background(), root, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer closePackage(t, pkg)
+
+	scoped, err := pkg.ResolveVariable(
+		"greeting",
+		map[string]any{},
+		&ResolveOptions{Tenant: "acme"},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if scoped.Value != "Hello, acme." {
+		t.Fatalf("tenant-scoped value = %#v", scoped.Value)
+	}
+
+	other, err := pkg.ResolveVariable(
+		"greeting",
+		map[string]any{},
+		&ResolveOptions{Tenant: "globex"},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if other.Value != "Hello." {
+		t.Fatalf("other-tenant value = %#v", other.Value)
+	}
+
+	_, err = pkg.ResolveVariable("greeting", map[string]any{}, nil)
+	if err == nil {
+		t.Fatal("expected tenant-less resolution of an env.tenant rule to fail")
+	}
+	if !strings.Contains(err.Error(), "resolution is not tenant-scoped") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func writeTenantPackage(t *testing.T, root string) {
+	t.Helper()
+	variables := filepath.Join(root, "variables")
+	if err := os.MkdirAll(variables, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "rototo-package.toml"), []byte("schema_version = 1\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	contents := `schema_version = 1
+
+description = "Greeting"
+type = "string"
+
+[resolve]
+default = "Hello."
+
+[[resolve.rule]]
+when = 'env.tenant == "acme"'
+value = "Hello, acme."
+`
+	if err := os.WriteFile(filepath.Join(variables, "greeting.toml"), []byte(contents), 0o644); err != nil {
+		t.Fatal(err)
+	}
 }
 
 func writePackage(t *testing.T, root string, message string) {

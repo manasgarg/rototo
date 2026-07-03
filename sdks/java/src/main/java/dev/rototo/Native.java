@@ -24,14 +24,8 @@ final class Native {
             String id,
             String contextJson,
             boolean validateContext,
-            boolean trace);
-
-    static native String packageResolveQualifierNative(
-            long handle,
-            String id,
-            String contextJson,
-            boolean validateContext,
-            boolean trace);
+            boolean trace,
+            String tenant);
 
     static native void packageFreeNative(long handle);
 
@@ -47,14 +41,8 @@ final class Native {
             String id,
             String contextJson,
             boolean validateContext,
-            boolean trace);
-
-    static native String refreshingPackageResolveQualifierNative(
-            long handle,
-            String id,
-            String contextJson,
-            boolean validateContext,
-            boolean trace);
+            boolean trace,
+            String tenant);
 
     static native String refreshingPackageRefreshNowNative(long handle);
 

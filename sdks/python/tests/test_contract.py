@@ -50,10 +50,6 @@ async def run_case(case: dict[str, Any]) -> dict[str, Any]:
             "source": result.source,
         }
 
-    if operation == "resolve_qualifier":
-        package = await rototo.Package.load(package_source)
-        return package.resolve_qualifier(case["id"], case.get("context", {}))
-
     if operation == "package_identity":
         package = await rototo.Package.load(package_source)
         identity = package.identity()

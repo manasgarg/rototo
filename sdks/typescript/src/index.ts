@@ -60,6 +60,9 @@ export type ResolveOptions = {
     /** Emit a resolution trace for this call onto the trace stream. Only
      * produces output while something is subscribed via `traceEvents()`. */
     trace?: boolean;
+    /** Scope the resolution to one tenant, whose id expressions read as
+     * `env.tenant`. */
+    tenant?: string;
 };
 
 export type RefreshingPackageOptions = LoadOptions & {
@@ -98,19 +101,6 @@ export type ModelLocation = { path: string; range?: ModelRange };
 export type ModelField = { value?: string; location: ModelLocation };
 export type ModelValueField = { value?: JsonValue; location: ModelLocation };
 
-export type QualifierModel = {
-    id: string;
-    location: ModelLocation;
-    description?: string;
-    predicates: Array<{
-        index: number;
-        location: ModelLocation;
-        attribute?: ModelField;
-        op?: ModelField;
-        value?: JsonValue;
-    }>;
-};
-
 export type VariableModel = {
     id: string;
     location: ModelLocation;
@@ -130,14 +120,50 @@ export type VariableModel = {
     valuesSection?: ModelLocation;
     resolve?: {
         location: ModelLocation;
+        method?: ModelField;
         default?: ModelValueField;
         rules: Array<{
             index: number;
             location: ModelLocation;
-            qualifier?: ModelField;
+            when?: ModelField;
             value?: ModelValueField;
         }>;
+        query?: QueryModel;
+        allocation?: ModelField;
+        assigns: Array<{
+            location: ModelLocation;
+            arm?: string;
+            value?: JsonValue;
+        }>;
     };
+};
+
+/* The `method = "query"` parameters on `[resolve]`. */
+export type QueryModel = {
+    from?: ModelField;
+    filter?: ModelField;
+    sort?: ModelField;
+    order?: ModelField;
+    limit?: ModelField;
+};
+
+export type LayerModel = {
+    id: string;
+    location: ModelLocation;
+    description?: string;
+    unit?: ModelField;
+    buckets?: number;
+    allocations: Array<{
+        location: ModelLocation;
+        id?: string;
+        status?: string;
+        eligibility?: ModelField;
+        arms: Array<{
+            location: ModelLocation;
+            name?: string;
+            buckets?: string;
+        }>;
+    }>;
 };
 
 export type CatalogModel = {
@@ -155,10 +181,26 @@ export type CatalogEntryModel = {
     value: JsonValue;
 };
 
-export type SchemaModel = {
+export type EvaluationContextModel = {
+    id: string;
     path: string;
     location: ModelLocation;
+    title?: string;
+    description?: string;
     json?: JsonValue;
+};
+
+export type EvaluationContextSampleModel = {
+    evaluationContext: string;
+    key: string;
+    path: string;
+    location: ModelLocation;
+    value?: JsonValue;
+};
+
+export type VariableEvaluationContextModel = {
+    variable: string;
+    evaluationContexts: string[];
 };
 
 export type LinterModel = {
@@ -168,21 +210,26 @@ export type LinterModel = {
 };
 
 export type ModelEntityRef =
-    | { kind: "qualifier"; id: string }
     | { kind: "variable"; id: string }
+    | { kind: "allocation"; id: string }
     | { kind: "catalog"; id: string }
     | { kind: "catalogEntry"; catalog: string; key: string }
-    | { kind: "schema"; path: string }
+    | { kind: "evaluationContext"; id: string }
+    | {
+          kind: "evaluationContextSample";
+          evaluationContext: string;
+          key: string;
+      }
     | { kind: "value"; variable: string; key: string }
     | { kind: "contextAttribute"; name: string };
 
 export type ModelReferenceVia =
-    | { kind: "predicateQualifier"; index: number }
-    | { kind: "predicateContextAttribute"; index: number }
     | { kind: "variableCatalog" }
     | { kind: "resolveDefault" }
-    | { kind: "ruleQualifier"; index: number }
-    | { kind: "ruleValue"; index: number };
+    | { kind: "ruleCondition"; index: number }
+    | { kind: "ruleValue"; index: number }
+    | { kind: "query" }
+    | { kind: "allocation" };
 
 export type ReferenceModel = {
     from: ModelEntityRef;
@@ -196,13 +243,15 @@ export type ReferenceModel = {
    Tools consume this instead of parsing package files themselves. */
 export type PackageSemanticModel = {
     version: number;
-    qualifiers: QualifierModel[];
     variables: VariableModel[];
+    layers: LayerModel[];
     catalogs: CatalogModel[];
     catalogEntries: CatalogEntryModel[];
-    schemas: SchemaModel[];
+    evaluationContexts: EvaluationContextModel[];
+    evaluationContextSamples: EvaluationContextSampleModel[];
     linters: LinterModel[];
     references: ReferenceModel[];
+    variableEvaluationContexts: VariableEvaluationContextModel[];
 };
 
 export class RototoError extends Error {
@@ -288,23 +337,7 @@ export class Package {
                 context,
                 options.validateContext ?? true,
                 options.trace ?? false,
-            );
-        } catch (error) {
-            throw toRototoError(error);
-        }
-    }
-
-    resolveQualifier(
-        id: string,
-        context: JsonObject,
-        options: ResolveOptions = {},
-    ): boolean {
-        try {
-            return this.inner.resolveQualifier(
-                id,
-                context,
-                options.validateContext ?? true,
-                options.trace ?? false,
+                options.tenant,
             );
         } catch (error) {
             throw toRototoError(error);
@@ -365,23 +398,7 @@ export class RefreshingPackage {
                 context,
                 options.validateContext ?? true,
                 options.trace ?? false,
-            );
-        } catch (error) {
-            throw toRototoError(error);
-        }
-    }
-
-    resolveQualifier(
-        id: string,
-        context: JsonObject,
-        options: ResolveOptions = {},
-    ): boolean {
-        try {
-            return this.inner.resolveQualifier(
-                id,
-                context,
-                options.validateContext ?? true,
-                options.trace ?? false,
+                options.tenant,
             );
         } catch (error) {
             throw toRototoError(error);

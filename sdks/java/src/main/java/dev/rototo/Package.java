@@ -78,34 +78,13 @@ public final class Package implements AutoCloseable {
                 id,
                 Json.stringify(context),
                 resolved.validateContext(),
-                resolved.trace());
+                resolved.trace(),
+                resolved.tenant());
         Map<String, Object> value = Json.asObject(Json.parse(json));
         return new VariableResolution(
                 Json.asString(value.get("id")),
                 value.get("value"),
                 value.get("source"));
-    }
-
-    public Boolean resolveQualifier(
-            String id,
-            Map<String, ?> context) {
-        return resolveQualifier(id, context, ResolveOptions.defaults());
-    }
-
-    public Boolean resolveQualifier(
-            String id,
-            Map<String, ?> context,
-            ResolveOptions options) {
-        Objects.requireNonNull(id, "id");
-        Objects.requireNonNull(context, "context");
-        ResolveOptions resolved = options == null ? ResolveOptions.defaults() : options;
-        String json = Native.packageResolveQualifierNative(
-                openHandle(),
-                id,
-                Json.stringify(context),
-                resolved.validateContext(),
-                resolved.trace());
-        return Json.asBoolean(Json.parse(json));
     }
 
     @Override

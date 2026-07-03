@@ -223,32 +223,21 @@ class Package:
         *,
         validate_context: bool = True,
         trace: bool = False,
+        tenant: str | None = None,
     ) -> VariableResolution:
+        """Resolve a variable. ``tenant`` scopes the resolution to one tenant,
+        whose id expressions read as ``env.tenant``."""
         result = self._inner.resolve_variable(
             id,
             context,
             validate_context=validate_context,
             trace=trace,
+            tenant=tenant,
         )
         return VariableResolution(
             id=result["id"],
             value=result["value"],
             source=result["source"],
-        )
-
-    def resolve_qualifier(
-        self,
-        id: str,
-        context: JsonObject,
-        *,
-        validate_context: bool = True,
-        trace: bool = False,
-    ) -> bool:
-        return self._inner.resolve_qualifier(
-            id,
-            context,
-            validate_context=validate_context,
-            trace=trace,
         )
 
     async def trace_events(self) -> AsyncIterator[dict[str, Any]]:
@@ -295,32 +284,21 @@ class RefreshingPackage:
         *,
         validate_context: bool = True,
         trace: bool = False,
+        tenant: str | None = None,
     ) -> VariableResolution:
+        """Resolve a variable. ``tenant`` scopes the resolution to one tenant,
+        whose id expressions read as ``env.tenant``."""
         result = self._inner.resolve_variable(
             id,
             context,
             validate_context=validate_context,
             trace=trace,
+            tenant=tenant,
         )
         return VariableResolution(
             id=result["id"],
             value=result["value"],
             source=result["source"],
-        )
-
-    def resolve_qualifier(
-        self,
-        id: str,
-        context: JsonObject,
-        *,
-        validate_context: bool = True,
-        trace: bool = False,
-    ) -> bool:
-        return self._inner.resolve_qualifier(
-            id,
-            context,
-            validate_context=validate_context,
-            trace=trace,
         )
 
     async def refresh_now(self) -> str:

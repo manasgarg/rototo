@@ -125,13 +125,15 @@ pub extern "system" fn Java_dev_rototo_Native_packageResolveVariableNative(
     context_json: JString<'_>,
     validate_context: jboolean,
     trace: jboolean,
+    tenant: JString<'_>,
 ) -> jstring {
     jni_call_string(&mut env, |env| {
         let package = package_from_handle(handle)?;
         let id = required_string(env, id, "id")?;
         let context = evaluation_context(env, context_json)?;
+        let options = resolve_options(validate_context, trace, optional_string(env, tenant)?);
         let resolution = package
-            .resolve_variable_with_options(&id, &context, resolve_options(validate_context, trace))
+            .resolve_variable_with_options(&id, &context, options)
             .map_err(|err| err.to_string())?;
         env_json(
             env,
@@ -141,27 +143,6 @@ pub extern "system" fn Java_dev_rototo_Native_packageResolveVariableNative(
                 "source": resolution.source,
             }),
         )
-    })
-}
-
-#[unsafe(no_mangle)]
-pub extern "system" fn Java_dev_rototo_Native_packageResolveQualifierNative(
-    mut env: JNIEnv<'_>,
-    _class: JClass<'_>,
-    handle: jlong,
-    id: JString<'_>,
-    context_json: JString<'_>,
-    validate_context: jboolean,
-    trace: jboolean,
-) -> jstring {
-    jni_call_string(&mut env, |env| {
-        let package = package_from_handle(handle)?;
-        let id = required_string(env, id, "id")?;
-        let context = evaluation_context(env, context_json)?;
-        let value = package
-            .resolve_qualifier_with_options(&id, &context, resolve_options(validate_context, trace))
-            .map_err(|err| err.to_string())?;
-        env_json(env, serde_json::json!(value))
     })
 }
 
@@ -216,15 +197,17 @@ pub extern "system" fn Java_dev_rototo_Native_refreshingPackageResolveVariableNa
     context_json: JString<'_>,
     validate_context: jboolean,
     trace: jboolean,
+    tenant: JString<'_>,
 ) -> jstring {
     jni_call_string(&mut env, |env| {
         let package = refreshing_package_from_handle(handle)?;
         let id = required_string(env, id, "id")?;
         let context = evaluation_context(env, context_json)?;
+        let options = resolve_options(validate_context, trace, optional_string(env, tenant)?);
         let guard = package.inner.blocking_lock();
         let package = active_refreshing_package(&guard)?;
         let resolution = package
-            .resolve_variable_with_options(&id, &context, resolve_options(validate_context, trace))
+            .resolve_variable_with_options(&id, &context, options)
             .map_err(|err| err.to_string())?;
         env_json(
             env,
@@ -234,29 +217,6 @@ pub extern "system" fn Java_dev_rototo_Native_refreshingPackageResolveVariableNa
                 "source": resolution.source,
             }),
         )
-    })
-}
-
-#[unsafe(no_mangle)]
-pub extern "system" fn Java_dev_rototo_Native_refreshingPackageResolveQualifierNative(
-    mut env: JNIEnv<'_>,
-    _class: JClass<'_>,
-    handle: jlong,
-    id: JString<'_>,
-    context_json: JString<'_>,
-    validate_context: jboolean,
-    trace: jboolean,
-) -> jstring {
-    jni_call_string(&mut env, |env| {
-        let package = refreshing_package_from_handle(handle)?;
-        let id = required_string(env, id, "id")?;
-        let context = evaluation_context(env, context_json)?;
-        let guard = package.inner.blocking_lock();
-        let package = active_refreshing_package(&guard)?;
-        let value = package
-            .resolve_qualifier_with_options(&id, &context, resolve_options(validate_context, trace))
-            .map_err(|err| err.to_string())?;
-        env_json(env, serde_json::json!(value))
     })
 }
 
@@ -527,10 +487,15 @@ fn refresh_options(
     Ok(options)
 }
 
-fn resolve_options(validate_context: jboolean, trace: jboolean) -> ResolveOptions {
+fn resolve_options(
+    validate_context: jboolean,
+    trace: jboolean,
+    tenant: Option<String>,
+) -> ResolveOptions {
     ResolveOptions {
         validate_context: validate_context != 0,
         trace: trace != 0,
+        tenant,
     }
 }
 

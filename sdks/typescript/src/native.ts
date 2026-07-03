@@ -12,13 +12,8 @@ type NativePackage = {
         context: JsonValue,
         validateContext?: boolean,
         trace?: boolean,
+        tenant?: string,
     ): VariableResolutionJson;
-    resolveQualifier(
-        id: string,
-        context: JsonValue,
-        validateContext?: boolean,
-        trace?: boolean,
-    ): boolean;
     subscribeTraceEvents(): NativeTraceEvents;
 };
 
@@ -37,13 +32,8 @@ type NativeRefreshingPackage = {
         context: JsonValue,
         validateContext?: boolean,
         trace?: boolean,
+        tenant?: string,
     ): VariableResolutionJson;
-    resolveQualifier(
-        id: string,
-        context: JsonValue,
-        validateContext?: boolean,
-        trace?: boolean,
-    ): boolean;
     refreshNow(): Promise<RefreshOutcome>;
     status(): Promise<RefreshStatusJson>;
     identity(): Promise<PackageIdentityJson>;

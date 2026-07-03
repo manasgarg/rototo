@@ -119,38 +119,21 @@ pub extern "C" fn rototo_go_package_resolve_variable(
     context_json: *const c_char,
     validate_context: c_int,
     trace: c_int,
+    tenant: *const c_char,
 ) -> RototoGoStringResult {
     string_result(|| {
         let package = package_from_handle(handle)?;
         let id = required_string(id, "id")?;
         let context = evaluation_context(context_json)?;
+        let options = resolve_options(validate_context, trace, optional_string(tenant)?);
         let resolution = package
-            .resolve_variable_with_options(&id, &context, resolve_options(validate_context, trace))
+            .resolve_variable_with_options(&id, &context, options)
             .map_err(|err| err.to_string())?;
         json_string(serde_json::json!({
             "id": resolution.id,
             "value": resolution.value,
             "source": resolution.source,
         }))
-    })
-}
-
-#[unsafe(no_mangle)]
-pub extern "C" fn rototo_go_package_resolve_qualifier(
-    handle: *mut c_void,
-    id: *const c_char,
-    context_json: *const c_char,
-    validate_context: c_int,
-    trace: c_int,
-) -> RototoGoStringResult {
-    string_result(|| {
-        let package = package_from_handle(handle)?;
-        let id = required_string(id, "id")?;
-        let context = evaluation_context(context_json)?;
-        let value = package
-            .resolve_qualifier_with_options(&id, &context, resolve_options(validate_context, trace))
-            .map_err(|err| err.to_string())?;
-        json_string(serde_json::json!(value))
     })
 }
 
@@ -197,42 +180,23 @@ pub extern "C" fn rototo_go_refreshing_package_resolve_variable(
     context_json: *const c_char,
     validate_context: c_int,
     trace: c_int,
+    tenant: *const c_char,
 ) -> RototoGoStringResult {
     string_result(|| {
         let package = refreshing_package_from_handle(handle)?;
         let id = required_string(id, "id")?;
         let context = evaluation_context(context_json)?;
+        let options = resolve_options(validate_context, trace, optional_string(tenant)?);
         let guard = package.inner.blocking_lock();
         let package = active_refreshing_package(&guard)?;
         let resolution = package
-            .resolve_variable_with_options(&id, &context, resolve_options(validate_context, trace))
+            .resolve_variable_with_options(&id, &context, options)
             .map_err(|err| err.to_string())?;
         json_string(serde_json::json!({
             "id": resolution.id,
             "value": resolution.value,
             "source": resolution.source,
         }))
-    })
-}
-
-#[unsafe(no_mangle)]
-pub extern "C" fn rototo_go_refreshing_package_resolve_qualifier(
-    handle: *mut c_void,
-    id: *const c_char,
-    context_json: *const c_char,
-    validate_context: c_int,
-    trace: c_int,
-) -> RototoGoStringResult {
-    string_result(|| {
-        let package = refreshing_package_from_handle(handle)?;
-        let id = required_string(id, "id")?;
-        let context = evaluation_context(context_json)?;
-        let guard = package.inner.blocking_lock();
-        let package = active_refreshing_package(&guard)?;
-        let value = package
-            .resolve_qualifier_with_options(&id, &context, resolve_options(validate_context, trace))
-            .map_err(|err| err.to_string())?;
-        json_string(serde_json::json!(value))
     })
 }
 
@@ -620,10 +584,15 @@ fn evaluation_context(context_json: *const c_char) -> Result<EvaluationContext, 
     EvaluationContext::from_json(context).map_err(|err| err.to_string())
 }
 
-fn resolve_options(validate_context: c_int, trace: c_int) -> ResolveOptions {
+fn resolve_options(
+    validate_context: c_int,
+    trace: c_int,
+    tenant: Option<String>,
+) -> ResolveOptions {
     ResolveOptions {
         validate_context: validate_context != 0,
         trace: trace != 0,
+        tenant,
     }
 }
 

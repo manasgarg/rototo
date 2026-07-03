@@ -14,6 +14,7 @@ public final class JavaSdkTest {
     public static void main(String[] args) throws Exception {
         api();
         contract();
+        tenant();
         refresh();
         events();
         traceEvents();
@@ -24,19 +25,19 @@ public final class JavaSdkTest {
         assertEquals(expectedVersion(), Rototo.version(), "version");
         try (Package pkg = await(Package.load("examples/basic"))) {
             VariableResolution variable = pkg.resolveVariable(
-                    "premium-message",
+                    "premium_message",
                     Map.of("user", Map.of("tier", "premium")));
-            assertEquals("premium-message", variable.id(), "variable id");
+            assertEquals("premium_message", variable.id(), "variable id");
             assertEquals(Map.of("kind", "literal"), variable.source(), "source");
             assertEquals("Welcome back, premium member.", variable.value(), "value");
 
-            Boolean qualifier = pkg.resolveQualifier(
-                    "premium-users",
+            VariableResolution condition = pkg.resolveVariable(
+                    "premium_users",
                     Map.of("user", Map.of("tier", "free")));
-            assertEquals(false, qualifier, "qualifier value");
+            assertEquals(false, condition.value(), "condition variable value");
 
             VariableResolution skippedValidation = pkg.resolveVariable(
-                    "premium-message",
+                    "premium_message",
                     Map.of("user", Map.of("tier", Map.of("bad", "shape"))),
                     ResolveOptions.validateContext(false));
             assertEquals(Map.of("kind", "literal"), skippedValidation.source(), "validation skip fallback");
@@ -46,7 +47,7 @@ public final class JavaSdkTest {
             PackageLint lint = await(inspected.lint());
             assertEquals(0, lint.diagnostics().size(), "inspection lint diagnostics");
             assertRototoError(
-                    () -> inspected.resolveVariable("premium-message", Map.of()),
+                    () -> inspected.resolveVariable("premium_message", Map.of()),
                     "package was loaded without a runtime model");
         }
     }
@@ -87,9 +88,6 @@ public final class JavaSdkTest {
                             assertRototoError(pkg.lint(), expectedError(expect));
                         }
                         break;
-                    case "resolve_qualifier":
-                        runQualifierCase(name, pkg, testCase, expect, ok);
-                        break;
                     case "resolve_variable":
                         runVariableCase(name, pkg, testCase, expect, ok);
                         break;
@@ -109,26 +107,6 @@ public final class JavaSdkTest {
                 }
             }
         }
-    }
-
-    private static void runQualifierCase(
-            String name,
-            Package pkg,
-            Map<String, Object> testCase,
-            Map<String, Object> expect,
-            boolean ok) throws Exception {
-        if (!ok) {
-            assertRototoError(
-                    () -> pkg.resolveQualifier(
-                            Json.asString(testCase.get("id")),
-                            Json.asObject(testCase.get("context"))),
-                    expectedError(expect));
-            return;
-        }
-        Boolean actual = pkg.resolveQualifier(
-                Json.asString(testCase.get("id")),
-                Json.asObject(testCase.get("context")));
-        assertEquals(Json.asBoolean(expect.get("result")), actual, name + " value");
     }
 
     private static void runVariableCase(
@@ -154,13 +132,51 @@ public final class JavaSdkTest {
         assertEquals(result.get("source"), actual.source(), name + " source");
     }
 
+    private static void tenant() throws Exception {
+        Path root = Files.createTempDirectory("rototo-java-tenant");
+        writeTenantPackage(root);
+        try (Package pkg = await(Package.load(root.toString()))) {
+            VariableResolution scoped = pkg.resolveVariable(
+                    "greeting",
+                    Map.of(),
+                    ResolveOptions.tenant("acme"));
+            assertEquals("Hello, acme.", scoped.value(), "tenant-scoped value");
+
+            VariableResolution other = pkg.resolveVariable(
+                    "greeting",
+                    Map.of(),
+                    ResolveOptions.defaults().withTenant("globex"));
+            assertEquals("Hello.", other.value(), "other-tenant value");
+
+            assertRototoError(
+                    () -> pkg.resolveVariable("greeting", Map.of()),
+                    "resolution is not tenant-scoped");
+        } finally {
+            deleteRecursively(root);
+        }
+    }
+
+    private static void writeTenantPackage(Path root) throws Exception {
+        Files.createDirectories(root.resolve("variables"));
+        Files.writeString(root.resolve("rototo-package.toml"), "schema_version = 1\n");
+        Files.writeString(
+                root.resolve("variables").resolve("greeting.toml"),
+                "schema_version = 1\n"
+                        + "type = \"string\"\n\n"
+                        + "[resolve]\n"
+                        + "default = \"Hello.\"\n\n"
+                        + "[[resolve.rule]]\n"
+                        + "when = 'env.tenant == \"acme\"'\n"
+                        + "value = \"Hello, acme.\"\n");
+    }
+
     private static void refresh() throws Exception {
         RefreshingPackageOptions options = RefreshingPackageOptions.builder()
                 .periodSeconds(30.0)
                 .build();
         try (RefreshingPackage pkg = await(RefreshingPackage.load("examples/basic", options))) {
             VariableResolution resolution = pkg.resolveVariable(
-                    "premium-message",
+                    "premium_message",
                     Map.of("user", Map.of("tier", "premium")));
             assertEquals(Map.of("kind", "literal"), resolution.source(), "refreshing resolution");
             RefreshStatus status = await(pkg.status());
