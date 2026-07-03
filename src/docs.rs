@@ -67,6 +67,11 @@ pub const DOCS: &[DocPage] = &[
         markdown: include_str!("../docs/src/concepts.md"),
     },
     DocPage {
+        id: "use-cases",
+        title: "Rototo Use Cases",
+        markdown: include_str!("../docs/src/use-cases.md"),
+    },
+    DocPage {
         id: "adoption",
         title: "Using Rototo",
         markdown: include_str!("../docs/src/adoption.md"),
@@ -110,7 +115,7 @@ pub const DOC_NAV_SECTIONS: &[DocNavSection] = &[
     },
     DocNavSection {
         title: "Learn",
-        pages: &["concepts", "adoption"],
+        pages: &["concepts", "use-cases", "adoption"],
     },
     DocNavSection {
         title: "Reference",

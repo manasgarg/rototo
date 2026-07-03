@@ -5,7 +5,7 @@ production. This package exists to stress the layering model VERTICALLY: the
 same composition machinery built for tenancy, used for environment separation
 instead. It is deliberately tiny so the layering is the whole story.
 
-Use cases demonstrated (numbers refer to `../../design/use-cases.md`):
+Use cases demonstrated (numbers are the use-case groups on the `use-cases` docs page):
 
 | Use case | Where |
 | --- | --- |

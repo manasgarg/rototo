@@ -36,13 +36,16 @@ You should see the following in `app-config/` dir:
 $> tree app-config
 app-config
 ├── rototo-package.toml
-├── evaluation-contexts
-├── qualifiers
-└── variables
-    └── free_shipping_threshold.toml
-├── catalogs
-├── lint
-6 directories, 2 files
+├── variables
+│   └── free_shipping_threshold.toml
+├── model
+│   ├── catalogs
+│   └── context
+├── data
+│   └── catalogs
+└── lint
+
+7 directories, 2 files
 ```
 
 We explain the package model in [Rototo Concepts](https://docs.rototo.dev/concepts.html). For now, we would focus on the variable `free_shipping_threshold`. Replace the contents of `free_shipping_threshold.toml` with the following:
@@ -155,11 +158,16 @@ rototo docs -s <search terms>
 rototo docs -p concepts
 ```
 
+The `use-cases` page (`rototo docs -p use-cases`) tours what teams put in a
+package - release control, experiments, pricing, tenant overlays, regional
+policy, environment separation - and each job points at a worked example
+package under `examples/` in this repository.
+
 ## Rototo is designed for people and agents
 
 Agents are now among the most important users of any development tool.
 Hence, Rototo is designed from ground up to work well both for people and agents.
-- The configuration package is simply a dir tree of files that brings battle-tested ergnomics of file organization and editing.
+- The configuration package is simply a dir tree of files that brings battle-tested ergonomics of file organization and editing.
 - `rototo docs` to discover Rototo's capabilities and the recipes to use it.
 - `rototo lint` as the backbone for configuration validation that can be run after every edit.
 - `rototo inspect` to reason about the package structure and how everything resolves at runtime.
@@ -173,8 +181,18 @@ Runtime configuration earns trust in the ugly parts, not the feature tour, so
 we keep this list in the open. Each item is a real production complication we
 have looked at and not solved yet. (Some other hard things are deliberate
 non-goals rather than roadmap items: exposure logging and experiment stats,
-metric-driven auto-rollback, enumerated ID lists as targeting, secrets, and
-identity resolution all belong to the application or its other tools.)
+metric-driven auto-rollback, enumerated ID lists as targeting, secrets,
+identity resolution, and Terraform-style enforcement of resolved state all
+belong to the application or its other tools.)
+
+For orientation, the things that used to be on this list and are now shipped
+and demonstrated under `examples/`: structured composition (entry add, patch,
+and tombstone; atomic `[resolve]` override; namespaced variables; enum member
+union), the `governance.toml` layering contract enforced at compose time,
+layers and allocations for rollouts and experiments, catalog queries with
+filter/sort/limit and effective dating on `env.now`, the `env.tenant`
+dimension, and dev/staging/prod as vertical layers over one contract. What
+remains:
 
 1. **Canarying a value change.** Staged rollout for a change to an existing
    variable's value, not just for new features. Config changes cause outages at
@@ -182,28 +200,62 @@ identity resolution all belong to the application or its other tools.)
 2. **A break-glass path.** Kill switches need seconds; git review takes minutes
    to hours. An emergency change mechanism with mandatory post-hoc review.
 3. **Assignment-stability lint.** Classify experiment bucket-range edits between
-   two package versions as safe (growing an arm) or reshuffling (everything else).
+   two package versions as safe (growing an arm) or reshuffling (everything
+   else), via `rototo diff`.
 4. **Flag lifecycle.** Owner and expiry metadata on variables, staleness
-   warnings, and a worked "concluding an experiment" example.
-5. **Grandfathering.** Cohort-pinned pricing: frozen old cohorts beside evolving
-   new ones.
+   warnings, and a worked "concluding an experiment" example: winner folded into
+   the default, allocation removed.
+5. **Grandfathering.** Pinning accounts to the plans and prices as of when they
+   signed up: frozen old account classes beside evolving new ones.
 6. **Totality lint.** "Exactly one entry for every cell of plan x market":
    completeness over enum cross-products, not just uniqueness.
 7. **Jurisdiction dominance.** A deny that no lower layer, experiment, or tenant
    override can re-enable. Governance narrows grants; it cannot yet pin an
    outcome.
-8. **Environment separation.** Dev/staging/prod as vertical layers over one
-   contract.
-9. **Time-boundary awareness.** Timezone semantics for effective dates, and
+8. **Time-boundary awareness.** Timezone semantics for effective dates, and
    cache invalidation when a rule is known to flip at a time.
-10. **Version-skew honesty.** Consumers refresh independently; multi-variable
-    changes are not atomic in effect.
-11. **Weighted rollout units.** Tenant-unit migrations where one tenant is a
+9. **Version-skew honesty.** Consumers refresh independently; multi-variable
+   changes are not atomic in effect.
+10. **Weighted rollout units.** Tenant-unit migrations where one tenant is a
     third of the load.
+11. **Query projection.** A query can filter, sort, and limit, but not project:
+    a variable takes whole entries, so "just the feature list of the selected
+    plan" means resolving the whole plan and reading the field in code.
 12. **The one-hop dereference built-in.** Following a catalog reference to an
-    expression-typed field during a query.
-13. **Compatibility gate.** Check base-package evolution against existing tenant
-    overlays before release.
+    expression-typed field during a query, so audiences can carry authored
+    conditions instead of fixed data bounds.
+13. **Compatibility gate.** Check base-package evolution against existing
+    overlays before release: which renames and retirements break which tenant,
+    found before the release instead of after. This is also what tells a
+    harmless tombstone of a deleted entry apart from an overlay rule referencing
+    one.
+14. **Schema narrowing verification.** A `constrain` grant is trust-based
+    today: composition checks that the grant exists, not that the overlay's
+    schema actually narrows the base's. Verifying it needs a CUE-style meet
+    over schemas.
+15. **Enum member removal across layers.** Member sets union across layers and
+    there is no member tombstone, so an overlay can extend an enum but never
+    shrink one.
+16. **Correlated assignment across layers.** Two layers cannot share a
+    diversion, so there is no way to deliberately correlate arm assignment
+    between them.
+17. **Contract lockdown for vertical layers.** Environment layering wants a
+    package-level governance default (a wildcard grant), and an overlay can
+    still introduce a brand-new variable without any grant. "Environments
+    differ in values, never in contract" is convention plus review, not yet a
+    hard guarantee.
+18. **The custom-lint execution boundary.** Loading a package runs its Lua lint
+    today, including for remote sources you do not control. The invariant to
+    establish: loading or resolving a package never executes package-supplied
+    code; only author-time gates (pre-push, CI) do.
+19. **Nested trace provenance.** A resolution trace says which rule matched,
+    but not why a referenced condition variable was true; the trace should
+    follow the reference chain. Related: variables have no visibility marker
+    yet (app-facing versus internal helper), so the cross-variable dependency
+    graph is disciplined only by convention.
+20. **The web console, re-attached.** The console predates the current package
+    layout, composition, and resolution methods; it is parked outside the core
+    gate until it is brought back up against today's engine.
 
 ## License
 

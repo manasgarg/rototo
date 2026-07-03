@@ -5,7 +5,7 @@ commercial source of truth: what each plan includes, what it costs, and what
 each account may do. Money config is where mistakes are revenue incidents, so
 this package is as much about the invariants as the values.
 
-Use cases demonstrated (numbers refer to `../../design/use-cases.md`):
+Use cases demonstrated (numbers are the use-case groups on the `use-cases` docs page):
 
 | Use case | Where |
 | --- | --- |
@@ -74,7 +74,7 @@ Open design questions this package is waiting on:
   get partway there (old prices remain), but selecting by account cohort rather
   than by `env.now`, and freezing old cohorts while new ones evolve, is
   undesigned. This is the hardest business-model problem in the catalog.
-- **Timezone semantics** (roadmap item 9). `effective_from` values here are
+- **Timezone semantics** (roadmap item 8). `effective_from` values here are
   explicit UTC instants. "Effective March 1" in a billing sense usually means a
   local-time boundary; whose midnight is a design question this package dodges
   by being explicit.

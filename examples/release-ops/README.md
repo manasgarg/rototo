@@ -4,7 +4,7 @@ A team ships a collaborative document editor and wants to stop tying behavior
 changes to deploys. This package is their control plane: what is released to
 whom, what is being tested, and the knobs operations turns during incidents.
 
-Use cases demonstrated (numbers refer to `../../design/use-cases.md`):
+Use cases demonstrated (numbers are the use-case groups on the `use-cases` docs page):
 
 | Use case | Where |
 | --- | --- |
@@ -52,7 +52,7 @@ Demonstrated here:
   the same value, and that equality is lintable.
 
 Open design questions this package is waiting on (tracked in the roadmap
-section of `../../design/use-cases.md`):
+section of the repository README):
 
 - **Flag lifecycle.** Nothing here says who owns `enable_new_editor` or when it
   should die. Owner and expiry metadata plus staleness lint are roadmap item 4.

@@ -702,3 +702,5 @@ rototo resolve app-config \
 The same model works when the package comes from git instead of a local folder. The source changes, but the boundary stays the same: the application loads a reviewed package and asks Rototo for typed configuration values.
 
 That's the core Rototo model. Configuration stays data, so it can be reviewed, validated, and released on its own schedule, apart from the application binary. But it still follows engineering discipline: clear ownership, explicit contracts, reproducible package state, and checks before release.
+
+To see these pieces doing real jobs - release control, pricing, tenant overlays, regional policy, environment separation - the [use cases](./use-cases.md) page walks ten of them, each backed by a worked example package in the repository.

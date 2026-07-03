@@ -14,7 +14,7 @@ rototo resolve examples/tenancy-decisioning/acme-tenant \
   --context '{"visitor": {"id": "v3", "visits": 5, "lifetime_spend": 0}}'
 ```
 
-Use cases demonstrated (numbers refer to `../../design/use-cases.md`):
+Use cases demonstrated (numbers are the use-case groups on the `use-cases` docs page):
 
 | Use case | Where |
 | --- | --- |

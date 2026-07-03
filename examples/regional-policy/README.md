@@ -5,7 +5,7 @@ four jurisdictions. What is legal, how long data is kept, which vendor carries
 each message, and which AI model answers support tickets all vary by region and
 change faster than deploys. This package is that policy, reviewable.
 
-Use cases demonstrated (numbers refer to `../../design/use-cases.md`):
+Use cases demonstrated (numbers are the use-case groups on the `use-cases` docs page):
 
 | Use case | Where |
 | --- | --- |
@@ -50,7 +50,7 @@ Open design questions this package is waiting on:
   This package is the reason that item exists.
 - **Break-glass** (roadmap item 2). Provider failover competes with review
   latency exactly as kill switches do.
-- **Big-tenant skew** (roadmap item 11). The migration hashes `account.id`, so
+- **Big-tenant skew** (roadmap item 10). The migration hashes `account.id`, so
   10% of accounts is not 10% of traffic when one account sends a third of all
   messages. Weighted units, or documented honesty that ramps are account-counted.
 - **Totality** (roadmap item 6). Every (channel, jurisdiction) cell needs an

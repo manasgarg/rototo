@@ -265,6 +265,11 @@ premium: 35 USD
 That's the whole loop: edit reviewed config in the package, and a running app
 refreshes into it.
 
+One variable is the smallest possible package, but the same loop carries
+feature rollouts, pricing tables, tenant overlays, and provider failover. The
+[use cases](./use-cases.md) page tours those jobs, each with a worked example
+package in the repository.
+
 ## Documentation
 
 Public docs are available on [rototo.dev](https://rototo.dev).
@@ -286,7 +291,7 @@ rototo docs -p concepts
 
 Agents are now among the most important users of any development tool.
 Hence, Rototo is designed from ground up to work well both for people and agents.
-- The configuration package is simply a dir tree of files that brings battle-tested ergnomics of file organization and editing.
+- The configuration package is simply a dir tree of files that brings battle-tested ergonomics of file organization and editing.
 - `rototo docs` to discover Rototo's capabilities and the recipes to use it.
 - `rototo lint` as the backbone for configuration validation that can be run after every edit.
 - `rototo inspect` to reason about the package structure and how everything resolves at runtime.
