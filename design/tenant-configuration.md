@@ -1411,6 +1411,11 @@ are not bound by this rule.
   `semantic_model.rs` projection as a public contract, and pick the precise name
   for the Tier 2 author-time check concept. The load-time execution invariant is
   a separate, nearer-term fix.
+- **Nested trace provenance.** Qualifier dissolution (landed) removed the
+  per-qualifier traces a variable's resolution trace used to carry; a trace no
+  longer explains why a referenced condition variable was true, only that the
+  rule matched. T6 (trace provenance) should add referenced-variable traces so
+  a resolution stays debuggable through the whole reference chain.
 - **Variable visibility marker.** With qualifiers dissolved into variables and
   `variables[...]` exposing every variable to expressions, decide the intent or
   visibility attribute (app-facing versus internal, or a `condition` role) and
