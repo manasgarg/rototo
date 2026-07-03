@@ -431,6 +431,13 @@ fn print_resolve_separator(index: usize, count: usize) {
 fn print_variable_resolution_trace(trace: &VariableResolutionTrace) -> Result<()> {
     println!("variable: {}", style::sea(&trace.resolution.id));
     println!("  {}", style::subhead("pathway"));
+    if let Some(provenance) = &trace.provenance {
+        println!(
+            "    {} {}",
+            style::dim("resolve from"),
+            style::info(provenance)
+        );
+    }
     for rule in &trace.rules {
         println!(
             "    {} if {} {} {} ({})",

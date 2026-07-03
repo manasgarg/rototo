@@ -491,6 +491,10 @@ pub struct VariableResolutionTrace {
     pub default_value: serde_json::Value,
     pub default_source: VariableResolutionSource,
     pub rules: Vec<VariableRuleResolutionTrace>,
+    /// The layer whose `[resolve]` block produced this resolution, when the
+    /// package was composed from layers. One field, not a rule-stack walk.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub provenance: Option<String>,
     /// The arm assignment behind a `method = "allocation"` resolution: which
     /// layer and allocation were consulted, whether the unit was enrolled, and
     /// which bucket and arm it landed in.

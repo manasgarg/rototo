@@ -20,6 +20,9 @@ pub(crate) struct RuntimePackage {
     pub(crate) catalog_entries: BTreeMap<String, BTreeMap<String, JsonValue>>,
     pub(crate) variables: BTreeMap<String, RuntimeVariable>,
     pub(crate) trace_policies: Vec<RuntimeTracePolicy>,
+    /// Which layer's `[resolve]` block each variable carries, read from the
+    /// flatten's provenance sidecar. Empty for packages that never composed.
+    pub(crate) resolve_provenance: BTreeMap<String, String>,
 }
 
 impl RuntimePackage {
@@ -192,7 +195,9 @@ impl RuntimeSelectedValue {
 
 pub(crate) async fn compile_runtime_package(root: &Path) -> Result<RuntimePackage> {
     let snapshot = lint_package_snapshot(LintInput::new(root.to_path_buf())).await?;
-    compile_runtime_package_from_snapshot(&snapshot)
+    let mut runtime = compile_runtime_package_from_snapshot(&snapshot)?;
+    runtime.resolve_provenance = crate::source::read_resolve_provenance(root).await;
+    Ok(runtime)
 }
 
 pub(crate) fn compile_runtime_package_from_snapshot(
@@ -230,6 +235,7 @@ impl<'a> RuntimeCompiler<'a> {
             catalog_entries,
             variables,
             trace_policies,
+            resolve_provenance: BTreeMap::new(),
         })
     }
 

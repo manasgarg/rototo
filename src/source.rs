@@ -8,6 +8,7 @@ mod path;
 mod types;
 mod uri;
 
+pub(crate) use self::layer::read_resolve_provenance;
 #[cfg(feature = "console")]
 pub(crate) use self::load::stage_source_tree;
 pub use self::load::{

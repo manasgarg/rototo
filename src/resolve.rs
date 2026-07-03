@@ -172,7 +172,7 @@ fn resolve_variable_trace_with_state(
         .get(id)
         .ok_or_else(|| RototoError::new(format!("variable not found: variable://{id}")))?;
 
-    match &variable.resolution {
+    let mut trace = match &variable.resolution {
         RuntimeResolution::Rules { default, rules } => {
             resolve_rules_trace(state, id, default, rules)
         }
@@ -180,7 +180,9 @@ fn resolve_variable_trace_with_state(
         RuntimeResolution::Allocation(allocation) => {
             resolve_allocation_trace(state, id, allocation)
         }
-    }
+    }?;
+    trace.provenance = runtime.resolve_provenance.get(id).cloned();
+    Ok(trace)
 }
 
 fn resolve_allocation_trace(
@@ -225,6 +227,7 @@ fn resolve_allocation_trace(
         default_value: allocation.default.value().clone(),
         default_source: selected_value_source(&allocation.default),
         rules: Vec::new(),
+        provenance: None,
         allocation: Some(trace),
     })
 }
@@ -284,6 +287,7 @@ fn resolve_rules_trace(
         default_value: default.value().clone(),
         default_source: selected_value_source(default),
         rules: rule_traces,
+        provenance: None,
         allocation: None,
     })
 }
@@ -312,6 +316,7 @@ fn resolve_query_trace(
         default_value,
         default_source,
         rules: Vec::new(),
+        provenance: None,
         allocation: None,
     })
 }

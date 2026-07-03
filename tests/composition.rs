@@ -568,3 +568,30 @@ async fn governance_grants_cannot_exceed_the_inherited_ceiling() {
     .await;
     Package::load(overlay.to_string_lossy()).await.unwrap();
 }
+
+#[tokio::test]
+async fn trace_provenance_names_the_layer_that_owns_the_resolution() {
+    let temp = tempfile::TempDir::new().unwrap();
+    let base = temp.path().join("base");
+    let overlay = temp.path().join("overlay");
+    write_base(&base).await;
+    write_overlay(&overlay).await;
+
+    // Load once through the SDK to prove the composed package lints clean.
+    Package::load(overlay.to_string_lossy()).await.unwrap();
+
+    let staged = Package::inspect(overlay.to_string_lossy()).await.unwrap();
+    let context = serde_json::json!({ "account": { "trial": false } });
+
+    // The overlay replaced active_plan's resolve block; the trace says so.
+    let trace = rototo::trace_variable_resolution(staged.root(), "active_plan", &context)
+        .await
+        .unwrap();
+    assert_eq!(trace.provenance.as_deref(), Some(overlay.to_str().unwrap()));
+
+    // acme/in_trial is the overlay's own variable.
+    let trace = rototo::trace_variable_resolution(staged.root(), "acme/in_trial", &context)
+        .await
+        .unwrap();
+    assert_eq!(trace.provenance.as_deref(), Some(overlay.to_str().unwrap()));
+}

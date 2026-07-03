@@ -1,3 +1,4 @@
+use std::collections::BTreeMap;
 use std::future::Future;
 use std::path::{Path, PathBuf};
 use std::pin::Pin;
@@ -94,13 +95,24 @@ async fn project_package_source_graph(
             load_package_source_graph(parent_source, options, local_mode, Some(base), stack)
                 .await?;
         enforce_layer_governance(parent.staged().path(), &target).await?;
-        copy_package_layer(parent.staged().path(), &target, false).await?;
+        copy_package_layer(
+            parent.staged().path(),
+            &target,
+            false,
+            layer_label(&parent, parent_source),
+        )
+        .await?;
         immutable &= parent.immutable();
         layers.extend(parent.layers().iter().cloned());
     }
 
     enforce_layer_governance(loaded.staged().path(), &target).await?;
-    copy_package_layer(loaded.staged().path(), &target, true).await?;
+    let child_label = loaded
+        .layers()
+        .last()
+        .map(|layer| layer.source().to_owned())
+        .unwrap_or_else(|| "package".to_owned());
+    copy_package_layer(loaded.staged().path(), &target, true, child_label).await?;
     immutable &= loaded.immutable();
     layers.extend(loaded.layers().iter().cloned());
     let fingerprint = combined_layer_fingerprint(&layers);
@@ -284,14 +296,115 @@ fn toml_top_level_keys(path: &Path) -> Result<Vec<String>> {
         .unwrap_or_default())
 }
 
-async fn copy_package_layer(source: &Path, target: &Path, include_manifest: bool) -> Result<()> {
+/// The label a layer's resolve contributions are recorded under: the source
+/// string the author wrote in `extends`, or the layer's own identity.
+fn layer_label(loaded: &LoadedPackageSource, written_source: &str) -> String {
+    if !written_source.trim().is_empty() {
+        return written_source.to_owned();
+    }
+    loaded
+        .layers()
+        .last()
+        .map(|layer| layer.source().to_owned())
+        .unwrap_or_else(|| "package".to_owned())
+}
+
+/// The sidecar the flatten leaves in the projection: which layer's
+/// `[resolve]` block each variable ended up carrying. The resolution trace
+/// reads it back as provenance.
+pub(crate) const RESOLVE_PROVENANCE_FILE: &str = ".rototo-provenance.json";
+
+async fn copy_package_layer(
+    source: &Path,
+    target: &Path,
+    include_manifest: bool,
+    label: String,
+) -> Result<()> {
     let source = source.to_path_buf();
     let target = target.to_path_buf();
     tokio::task::spawn_blocking(move || {
-        copy_package_layer_recursive(&source, &target, include_manifest, Path::new(""))
+        // A layer that is itself a flattened projection carries its own
+        // sidecar naming which of its sub-layers produced each block; those
+        // finer labels win over the layer's single label.
+        let nested = read_provenance(&source);
+        let mut provenance = BTreeMap::new();
+        copy_package_layer_recursive(
+            &source,
+            &target,
+            include_manifest,
+            Path::new(""),
+            &LayerProvenance {
+                label: &label,
+                nested: &nested,
+                recorded: std::cell::RefCell::new(&mut provenance),
+            },
+        )?;
+        if !provenance.is_empty() {
+            let mut merged = read_provenance(&target);
+            merged.extend(provenance);
+            write_provenance(&target, &merged)?;
+        }
+        Ok(())
     })
     .await
     .map_err(|err| RototoError::new(format!("package layer copy task failed: {err}")))?
+}
+
+struct LayerProvenance<'a> {
+    label: &'a str,
+    nested: &'a BTreeMap<String, String>,
+    recorded: std::cell::RefCell<&'a mut BTreeMap<String, String>>,
+}
+
+impl LayerProvenance<'_> {
+    fn record(&self, variable_id: &str) {
+        let label = self
+            .nested
+            .get(variable_id)
+            .cloned()
+            .unwrap_or_else(|| self.label.to_owned());
+        self.recorded
+            .borrow_mut()
+            .insert(variable_id.to_owned(), label);
+    }
+}
+
+/// Read the provenance sidecar for the runtime; a package that never
+/// composed has none.
+pub(crate) async fn read_resolve_provenance(root: &Path) -> BTreeMap<String, String> {
+    let root = root.to_path_buf();
+    tokio::task::spawn_blocking(move || read_provenance(&root))
+        .await
+        .unwrap_or_default()
+}
+
+fn read_provenance(root: &Path) -> BTreeMap<String, String> {
+    std::fs::read_to_string(root.join(RESOLVE_PROVENANCE_FILE))
+        .ok()
+        .and_then(|text| serde_json::from_str(&text).ok())
+        .unwrap_or_default()
+}
+
+fn write_provenance(root: &Path, provenance: &BTreeMap<String, String>) -> Result<()> {
+    let text = serde_json::to_string_pretty(provenance)
+        .map_err(|err| RototoError::new(format!("failed to serialize provenance: {err}")))?;
+    std::fs::write(root.join(RESOLVE_PROVENANCE_FILE), text).map_err(|err| {
+        RototoError::new(format!(
+            "failed to write provenance sidecar in {}: {err}",
+            root.display()
+        ))
+    })
+}
+
+/// The variable id a `variables/**.toml` path names, if it is one.
+fn variable_id_for_relative(relative: &Path) -> Option<String> {
+    let path = relative.strip_prefix("variables").ok()?;
+    if path.extension().and_then(|extension| extension.to_str()) != Some("toml") {
+        return None;
+    }
+    path.with_extension("")
+        .to_str()
+        .map(|id| id.replace(std::path::MAIN_SEPARATOR, "/"))
 }
 
 fn copy_package_layer_recursive(
@@ -299,6 +412,7 @@ fn copy_package_layer_recursive(
     target: &Path,
     include_manifest: bool,
     relative: &Path,
+    provenance: &LayerProvenance<'_>,
 ) -> Result<()> {
     let metadata = std::fs::metadata(source).map_err(|err| {
         RototoError::new(format!(
@@ -334,6 +448,12 @@ fn copy_package_layer_recursive(
         if root && !include_manifest && file_name == PACKAGE_MANIFEST {
             continue;
         }
+        if root && file_name == RESOLVE_PROVENANCE_FILE {
+            // The sidecar is folded via the nested map and written once at
+            // the end of the layer copy; copying it raw would clobber the
+            // entries earlier layers contributed.
+            continue;
+        }
         let source_path = entry.path();
         let target_path = target.join(&file_name);
         let relative_path = relative.join(&file_name);
@@ -357,6 +477,7 @@ fn copy_package_layer_recursive(
                 &target_path,
                 include_manifest,
                 &relative_path,
+                provenance,
             )?;
         } else if metadata.is_file() {
             if target_path.is_dir() {
@@ -375,7 +496,13 @@ fn copy_package_layer_recursive(
                     ))
                 })?;
             }
-            compose_package_layer_file(&source_path, target, &file_name, &relative_path)?;
+            compose_package_layer_file(
+                &source_path,
+                target,
+                &file_name,
+                &relative_path,
+                provenance,
+            )?;
         } else {
             return Err(RototoError::new(format!(
                 "package layer contains unsupported entry type: {}",
@@ -440,6 +567,7 @@ fn compose_package_layer_file(
     target_dir: &Path,
     file_name: &std::ffi::OsStr,
     relative: &Path,
+    provenance: &LayerProvenance<'_>,
 ) -> Result<()> {
     let target_path = target_dir.join(file_name);
     let file_name = file_name.to_string_lossy();
@@ -451,6 +579,9 @@ fn compose_package_layer_file(
                     source_path.display()
                 ))
             })?;
+            if let Some(id) = variable_id_for_relative(relative) {
+                provenance.record(&id);
+            }
             Ok(())
         }
         LayerFileComposition::CatalogEntryTombstone { entry } => {
@@ -487,8 +618,15 @@ fn compose_package_layer_file(
         LayerFileComposition::VariableMerge => {
             let mut base = read_layer_toml(&target_path)?;
             let overlay = read_layer_toml(source_path)?;
+            let replaces_resolve = overlay
+                .as_table()
+                .is_some_and(|table| table.contains_key("resolve"));
             merge_variable_toml(&mut base, overlay, relative)?;
-            write_layer_toml(&target_path, &base)
+            write_layer_toml(&target_path, &base)?;
+            if replaces_resolve && let Some(id) = variable_id_for_relative(relative) {
+                provenance.record(&id);
+            }
+            Ok(())
         }
     }
 }
@@ -759,7 +897,9 @@ extends = ["../base", "  "]
         .await
         .unwrap();
 
-        copy_package_layer(&source, &target, false).await.unwrap();
+        copy_package_layer(&source, &target, false, "test-layer".to_owned())
+            .await
+            .unwrap();
 
         assert!(!target.join(PACKAGE_MANIFEST).exists());
         assert!(
