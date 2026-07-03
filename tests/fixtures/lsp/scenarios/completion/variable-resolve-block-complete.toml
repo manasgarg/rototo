@@ -13,4 +13,4 @@ $0
 '''
 
 [expect]
-exact = ["[[resolve.rule]]", "filter", "from", "limit", "method", "order", "sort"]
+exact = ["[[resolve.assign]]", "[[resolve.rule]]", "allocation", "filter", "from", "limit", "method", "order", "sort"]

@@ -138,6 +138,9 @@ fn lsp_symbol_kind(kind: PackageDocumentSymbolKind) -> u8 {
         PackageDocumentSymbolKind::Value => 14,
         PackageDocumentSymbolKind::Resolve => 3,
         PackageDocumentSymbolKind::Rule => 8,
+        PackageDocumentSymbolKind::Layer => 13,
+        PackageDocumentSymbolKind::Allocation => 5,
+        PackageDocumentSymbolKind::Arm => 14,
     }
 }
 

@@ -50,6 +50,9 @@ pub(crate) enum PackageDocumentSymbolKind {
     Value,
     Resolve,
     Rule,
+    Layer,
+    Allocation,
+    Arm,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]

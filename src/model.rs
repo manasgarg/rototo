@@ -312,8 +312,27 @@ pub struct ResolveInspectReport {
     pub rules: Vec<RulePathwayInspectReport>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub query: Option<QueryInspectReport>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub allocation: Option<AllocationInspectReport>,
     #[serde(skip_serializing)]
     pub location: DiagnosticLocation,
+}
+
+#[derive(Debug, serde::Serialize)]
+pub struct AllocationInspectReport {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub allocation: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub layer: Option<String>,
+    pub assigns: Vec<AssignInspectReport>,
+}
+
+#[derive(Debug, serde::Serialize)]
+pub struct AssignInspectReport {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub arm: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub value: Option<serde_json::Value>,
 }
 
 #[derive(Debug, serde::Serialize)]

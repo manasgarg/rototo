@@ -22,6 +22,7 @@ pub const SEMANTIC_MODEL_VERSION: u32 = 3;
 pub struct PackageSemanticModel {
     pub version: u32,
     pub variables: Vec<VariableModel>,
+    pub layers: Vec<LayerModel>,
     pub catalogs: Vec<CatalogModel>,
     pub catalog_entries: Vec<CatalogEntryModel>,
     pub evaluation_contexts: Vec<EvaluationContextModel>,
@@ -102,6 +103,56 @@ pub struct ResolveModel {
     pub rules: Vec<RuleModel>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub query: Option<QueryModel>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub allocation: Option<ModelField>,
+    pub assigns: Vec<AssignModel>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AssignModel {
+    pub location: ModelLocation,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub arm: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub value: Option<JsonValue>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LayerModel {
+    pub id: String,
+    pub location: ModelLocation,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub description: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub unit: Option<ModelField>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub buckets: Option<i64>,
+    pub allocations: Vec<AllocationModel>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AllocationModel {
+    pub location: ModelLocation,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub status: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub eligibility: Option<ModelField>,
+    pub arms: Vec<ArmModel>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ArmModel {
+    pub location: ModelLocation,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub name: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub buckets: Option<String>,
 }
 
 /// The `method = "query"` parameters on `[resolve]`.
@@ -219,12 +270,16 @@ pub enum ModelReferenceVia {
     RuleCondition { index: usize },
     RuleValue { index: usize },
     Query,
+    Allocation,
 }
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase", tag = "kind")]
 pub enum ModelEntityRef {
     Variable {
+        id: String,
+    },
+    Allocation {
         id: String,
     },
     Catalog {
@@ -296,9 +351,34 @@ impl PackageLintSnapshot {
                         default,
                         rules,
                         query,
-                        ..
+                        assignments,
                     } => Some(ResolveModel {
                         location: model_location(location),
+                        allocation: assignments
+                            .as_ref()
+                            .map(|assignments| model_string_field(&assignments.allocation)),
+                        assigns: assignments
+                            .as_ref()
+                            .map(|assignments| {
+                                assignments
+                                    .assigns
+                                    .iter()
+                                    .map(|assign| AssignModel {
+                                        location: model_location(&assign.location),
+                                        arm: match &assign.arm {
+                                            ProjectField::Present(arm) => Some(arm.value.clone()),
+                                            _ => None,
+                                        },
+                                        value: match &assign.value {
+                                            ProjectField::Present(value) => {
+                                                Some(value.value.clone())
+                                            }
+                                            _ => None,
+                                        },
+                                    })
+                                    .collect()
+                            })
+                            .unwrap_or_default(),
                         method: method.as_ref().map(|method| ModelField {
                             value: Some(method.value.clone()),
                             location: model_location(&method.location),
@@ -467,9 +547,68 @@ impl PackageLintSnapshot {
             })
             .collect();
 
+        let layers = index
+            .layers
+            .values()
+            .map(|layer| LayerModel {
+                id: layer.id.clone(),
+                location: model_location(&layer.location),
+                description: present_string(&layer.description),
+                unit: match &layer.unit {
+                    ProjectField::Present(unit) => Some(ModelField {
+                        value: Some(unit.value.source().to_owned()),
+                        location: model_location(&unit.location),
+                    }),
+                    _ => None,
+                },
+                buckets: match &layer.buckets {
+                    ProjectField::Present(buckets) => Some(buckets.value),
+                    _ => None,
+                },
+                allocations: layer
+                    .allocations
+                    .iter()
+                    .map(|allocation| AllocationModel {
+                        location: model_location(&allocation.location),
+                        id: match &allocation.id {
+                            ProjectField::Present(id) => Some(id.value.clone()),
+                            _ => None,
+                        },
+                        status: match &allocation.status {
+                            Some(ProjectField::Present(status)) => Some(status.value.clone()),
+                            _ => None,
+                        },
+                        eligibility: match &allocation.eligibility {
+                            Some(ProjectField::Present(eligibility)) => Some(ModelField {
+                                value: Some(eligibility.value.source().to_owned()),
+                                location: model_location(&eligibility.location),
+                            }),
+                            _ => None,
+                        },
+                        arms: allocation
+                            .arms
+                            .iter()
+                            .map(|arm| ArmModel {
+                                location: model_location(&arm.location),
+                                name: match &arm.name {
+                                    ProjectField::Present(name) => Some(name.value.clone()),
+                                    _ => None,
+                                },
+                                buckets: match &arm.buckets {
+                                    ProjectField::Present(buckets) => Some(buckets.value.clone()),
+                                    _ => None,
+                                },
+                            })
+                            .collect(),
+                    })
+                    .collect(),
+            })
+            .collect();
+
         PackageSemanticModel {
             version: SEMANTIC_MODEL_VERSION,
             variables,
+            layers,
             catalogs,
             catalog_entries,
             evaluation_contexts,
@@ -538,6 +677,7 @@ fn reference_via(source: &ReferenceSource) -> ModelReferenceVia {
         }
         ReferenceSource::VariableQueryVariable { .. }
         | ReferenceSource::VariableQueryContextAttribute { .. } => ModelReferenceVia::Query,
+        ReferenceSource::VariableAllocation { .. } => ModelReferenceVia::Allocation,
     }
 }
 
@@ -549,7 +689,8 @@ fn reference_source_ref(source: &ReferenceSource) -> ModelEntityRef {
         | ReferenceSource::VariableRuleContextAttribute { variable, .. }
         | ReferenceSource::VariableRuleValue { variable, .. }
         | ReferenceSource::VariableQueryVariable { variable }
-        | ReferenceSource::VariableQueryContextAttribute { variable } => ModelEntityRef::Variable {
+        | ReferenceSource::VariableQueryContextAttribute { variable }
+        | ReferenceSource::VariableAllocation { variable } => ModelEntityRef::Variable {
             id: variable.clone(),
         },
     }
@@ -570,5 +711,6 @@ fn reference_target_ref(target: &ReferenceTarget) -> ModelEntityRef {
             variable: variable.clone(),
             key: value.clone(),
         },
+        ReferenceTarget::Allocation(id) => ModelEntityRef::Allocation { id: id.clone() },
     }
 }

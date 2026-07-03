@@ -35,6 +35,7 @@ pub(super) enum ReferenceSource {
     VariableRuleValue { variable: String, rule: usize },
     VariableQueryVariable { variable: String },
     VariableQueryContextAttribute { variable: String },
+    VariableAllocation { variable: String },
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
@@ -43,6 +44,7 @@ pub(super) enum ReferenceTarget {
     Variable(String),
     Catalog(String),
     CatalogEntry { catalog: String, value: String },
+    Allocation(String),
     VariableValue { variable: String, value: String },
 }
 
@@ -129,11 +131,21 @@ impl ReferenceIndex {
                         target: target.clone(),
                     });
                 }
+                ReferenceTarget::Allocation(_)
+                    if location_contains_position(location, path, position) =>
+                {
+                    candidates.push(ReferenceTargetCandidate {
+                        priority: 1,
+                        span_size: location.range.map(source_range_size).unwrap_or(usize::MAX),
+                        target: target.clone(),
+                    });
+                }
                 ReferenceTarget::ContextAttribute(_) => {}
                 ReferenceTarget::Variable(_)
                 | ReferenceTarget::Catalog(_)
                 | ReferenceTarget::CatalogEntry { .. }
-                | ReferenceTarget::VariableValue { .. } => {}
+                | ReferenceTarget::VariableValue { .. }
+                | ReferenceTarget::Allocation(_) => {}
             }
         }
 
@@ -208,6 +220,17 @@ impl ReferenceIndex {
                 ReferenceTarget::Catalog(catalog.id.clone()),
                 catalog.location.clone(),
             );
+        }
+
+        for layer in index.layers.values() {
+            for allocation in &layer.allocations {
+                if let ProjectField::Present(id) = &allocation.id {
+                    self.declarations.insert(
+                        ReferenceTarget::Allocation(id.value.clone()),
+                        allocation.location.clone(),
+                    );
+                }
+            }
         }
 
         for (catalog_id, entries) in &index.catalog_entries {
@@ -312,6 +335,24 @@ impl ReferenceIndex {
                         );
                     }
                 }
+            }
+
+            if let Some(assignments) = &variable.resolve.as_assignments()
+                && let ProjectField::Present(allocation) = &assignments.allocation
+            {
+                self.push_edge(
+                    ReferenceSource::VariableAllocation {
+                        variable: variable.id.clone(),
+                    },
+                    SemanticTarget::field(
+                        SemanticEntity::Variable {
+                            id: variable.id.clone(),
+                        },
+                        SemanticField::VariableAllocation,
+                    ),
+                    allocation.location.clone(),
+                    ReferenceTarget::Allocation(allocation.value.clone()),
+                );
             }
 
             if let ProjectField::Present(value) = default.as_ref()

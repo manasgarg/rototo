@@ -81,9 +81,37 @@ const VARIABLE_RESOLVE_COMPLETIONS: &[TomlCompletionSpec] = &[
         insert_text: "limit = ",
     },
     TomlCompletionSpec {
+        label: "allocation",
+        detail: "variable field",
+        insert_text: "allocation = \"\"",
+    },
+    TomlCompletionSpec {
         label: "[[resolve.rule]]",
         detail: "variable block",
         insert_text: "[[resolve.rule]]\nwhen = \"\"\nvalue = ",
+    },
+    TomlCompletionSpec {
+        label: "[[resolve.assign]]",
+        detail: "variable block",
+        insert_text: "[[resolve.assign]]\narm = \"\"\nvalue = ",
+    },
+];
+
+const VARIABLE_ASSIGN_COMPLETIONS: &[TomlCompletionSpec] = &[
+    TomlCompletionSpec {
+        label: "arm",
+        detail: "variable field",
+        insert_text: "arm = \"\"",
+    },
+    TomlCompletionSpec {
+        label: "value",
+        detail: "variable field",
+        insert_text: "value = ",
+    },
+    TomlCompletionSpec {
+        label: "[[resolve.assign]]",
+        detail: "variable block",
+        insert_text: "[[resolve.assign]]\narm = \"\"\nvalue = ",
     },
 ];
 
@@ -351,6 +379,7 @@ fn variable_field_completion_items(
         None => toml_completion_items(VARIABLE_TOP_LEVEL_COMPLETIONS, &context),
         Some("resolve") => toml_completion_items(VARIABLE_RESOLVE_COMPLETIONS, &context),
         Some("resolve.rule") => toml_completion_items(VARIABLE_RULE_COMPLETIONS, &context),
+        Some("resolve.assign") => toml_completion_items(VARIABLE_ASSIGN_COMPLETIONS, &context),
         Some(_) => Vec::new(),
     }
 }

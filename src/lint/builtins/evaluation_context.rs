@@ -6,7 +6,8 @@ use super::super::engine::LintContext;
 use super::super::evaluation_context::{
     ContextPathTypeFit, compatibility_for as evaluation_context_compatibility_for,
     context_path_type_fit, expected_type_label, path_declared_in_any_context,
-    variable_query_expressions, variable_resolve_rules, variable_rule_condition_reference_count,
+    variable_allocation_expressions, variable_query_expressions, variable_resolve_rules,
+    variable_rule_condition_reference_count,
 };
 use serde_json::Value as JsonValue;
 
@@ -321,6 +322,20 @@ pub(super) fn lint_undeclared_context_paths(ctx: &mut LintContext) {
                 );
             }
         }
+        for expression in variable_allocation_expressions(&ctx.index, variable) {
+            for path in &expression.references().context_paths {
+                if path.is_empty() || path_declared_in_any_context(&ctx.index, path) {
+                    continue;
+                }
+                push_graph_diagnostic(
+                    &mut diagnostics,
+                    RototoRuleId::VariableRuleUndeclaredContextPath,
+                    variable.target(),
+                    variable.resolve.location(),
+                    format!("allocation references undeclared context path: context.{path}"),
+                );
+            }
+        }
     }
 
     ctx.diagnostics.extend(diagnostics);
@@ -371,6 +386,23 @@ pub(super) fn lint_context_path_types(ctx: &mut LintContext) {
                     expression.location.clone(),
                     format!(
                         "query uses context path context.{path} as {expected}, \
+                         which no evaluation context declares with a matching type"
+                    ),
+                );
+            }
+        }
+        for expression in variable_allocation_expressions(&ctx.index, variable) {
+            for (path, constraints) in &expression.references().context_path_types {
+                let Some(expected) = type_mismatch_label(&ctx.index, path, constraints) else {
+                    continue;
+                };
+                push_graph_diagnostic(
+                    &mut diagnostics,
+                    RototoRuleId::VariableRuleContextPathTypeMismatch,
+                    variable.target(),
+                    variable.resolve.location(),
+                    format!(
+                        "allocation uses context path context.{path} as {expected}, \
                          which no evaluation context declares with a matching type"
                     ),
                 );

@@ -24,6 +24,12 @@ pub(crate) fn document_symbols(index: &SemanticIndex, path: &str) -> Vec<Package
         }
     }
 
+    for layer in index.layers.values() {
+        if layer.location.path == path {
+            symbols.push(layer_document_symbol(layer));
+        }
+    }
+
     for entries in index.catalog_entries.values() {
         for entry in entries.values() {
             if entry.location.path == path {
@@ -153,6 +159,50 @@ fn variable_rule_document_symbol(rule: &VariableRuleNode) -> PackageDocumentSymb
         PackageDocumentSymbolKind::Rule,
         rule.location.clone(),
         Vec::new(),
+    )
+}
+
+fn layer_document_symbol(layer: &LayerNode) -> PackageDocumentSymbol {
+    let allocations = layer
+        .allocations
+        .iter()
+        .map(|allocation| {
+            let name = match &allocation.id {
+                ProjectField::Present(id) => id.value.clone(),
+                _ => format!("allocation[{}]", allocation.index),
+            };
+            let arms = allocation
+                .arms
+                .iter()
+                .map(|arm| {
+                    let name = match (&arm.name, &arm.buckets) {
+                        (ProjectField::Present(name), ProjectField::Present(buckets)) => {
+                            format!("{}: {}", name.value, buckets.value)
+                        }
+                        (ProjectField::Present(name), _) => name.value.clone(),
+                        _ => format!("arm[{}]", arm.index),
+                    };
+                    PackageDocumentSymbol::new(
+                        name,
+                        PackageDocumentSymbolKind::Arm,
+                        arm.location.clone(),
+                        Vec::new(),
+                    )
+                })
+                .collect();
+            PackageDocumentSymbol::new(
+                name,
+                PackageDocumentSymbolKind::Allocation,
+                allocation.location.clone(),
+                arms,
+            )
+        })
+        .collect();
+    PackageDocumentSymbol::new(
+        layer.id.clone(),
+        PackageDocumentSymbolKind::Layer,
+        layer.location.clone(),
+        allocations,
     )
 }
 

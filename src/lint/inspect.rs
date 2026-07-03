@@ -4,10 +4,10 @@ use crate::diagnostics::{DiagnosticCatalogEntry, LintDiagnostic, RototoRuleId, S
 use crate::error::{Result, RototoError};
 use crate::expression::{ContextScalarType, Expression};
 use crate::model::{
-    CatalogEntryInspectReport, CatalogInspectReport, ContextAttributeDeclarationReport,
-    ContextAttributeInspectReport, DependencyInspectReport, EvaluationContextInspectReport,
-    EvaluationContextSampleInspectReport, InspectRuntimeStatus, InspectSelection,
-    LintAuthorityInspectReport, LintRuleInspectReport, LinterInspectReport,
+    AllocationInspectReport, AssignInspectReport, CatalogEntryInspectReport, CatalogInspectReport,
+    ContextAttributeDeclarationReport, ContextAttributeInspectReport, DependencyInspectReport,
+    EvaluationContextInspectReport, EvaluationContextSampleInspectReport, InspectRuntimeStatus,
+    InspectSelection, LintAuthorityInspectReport, LintRuleInspectReport, LinterInspectReport,
     LinterRegistrationInspectReport, PackageInspectReport, PackageInspectRequest,
     QueryInspectReport, ReferenceInspectReport, ResolveInspectReport, RulePathwayInspectReport,
     RuleSampleCoverageReport, ValueInspectReport, VariableInspectReport,
@@ -270,7 +270,7 @@ async fn inspect_variable(
         type_source: variable_type_source_label(variable),
         schema: variable_schema_dependency(snapshot, id),
         values: variable_values(variable, &snapshot.index),
-        resolve: variable_resolve(variable),
+        resolve: variable_resolve(&snapshot.index, variable),
         dependencies,
         sample_coverage,
         diagnostics,
@@ -402,14 +402,14 @@ fn value_report(value: &ValueNode) -> ValueInspectReport {
     }
 }
 
-fn variable_resolve(variable: &VariableNode) -> ResolveInspectReport {
+fn variable_resolve(index: &SemanticIndex, variable: &VariableNode) -> ResolveInspectReport {
     let ResolveNode::Resolve {
         location,
         method,
         default,
         rules,
         query,
-        ..
+        assignments,
     } = &variable.resolve
     else {
         return ResolveInspectReport {
@@ -417,6 +417,7 @@ fn variable_resolve(variable: &VariableNode) -> ResolveInspectReport {
             default_value: None,
             rules: Vec::new(),
             query: None,
+            allocation: None,
             location: variable.resolve.location(),
         };
     };
@@ -448,6 +449,28 @@ fn variable_resolve(variable: &VariableNode) -> ResolveInspectReport {
             _ => None,
         }),
     });
+    let allocation = assignments.as_ref().map(|assignments| AllocationInspectReport {
+        allocation: present_string_value(&assignments.allocation),
+        layer: present_string_value(&assignments.allocation).and_then(|allocation_id| {
+            index.layers.values().find_map(|layer| {
+                layer
+                    .allocations
+                    .iter()
+                    .any(|candidate| {
+                        matches!(&candidate.id, ProjectField::Present(id) if id.value == allocation_id)
+                    })
+                    .then(|| layer.id.clone())
+            })
+        }),
+        assigns: assignments
+            .assigns
+            .iter()
+            .map(|assign| AssignInspectReport {
+                arm: present_string_value(&assign.arm),
+                value: present_json_value(&assign.value),
+            })
+            .collect(),
+    });
     ResolveInspectReport {
         method: method
             .as_ref()
@@ -456,6 +479,7 @@ fn variable_resolve(variable: &VariableNode) -> ResolveInspectReport {
         default_value: present_json_value(default),
         rules,
         query,
+        allocation,
         location: location.clone(),
     }
 }
@@ -772,7 +796,8 @@ fn reference_source_kind(source: &ReferenceSource) -> &'static str {
         | ReferenceSource::VariableResolveDefault { .. }
         | ReferenceSource::VariableCatalog { .. }
         | ReferenceSource::VariableQueryVariable { .. }
-        | ReferenceSource::VariableQueryContextAttribute { .. } => "variable",
+        | ReferenceSource::VariableQueryContextAttribute { .. }
+        | ReferenceSource::VariableAllocation { .. } => "variable",
     }
 }
 
@@ -790,6 +815,9 @@ fn reference_source_label(source: &ReferenceSource) -> String {
         ReferenceSource::VariableQueryVariable { variable }
         | ReferenceSource::VariableQueryContextAttribute { variable } => {
             format!("variable {variable} resolve query")
+        }
+        ReferenceSource::VariableAllocation { variable } => {
+            format!("variable {variable} resolve allocation")
         }
     }
 }
