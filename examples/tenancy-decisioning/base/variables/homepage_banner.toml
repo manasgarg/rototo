@@ -1,0 +1,16 @@
+schema_version = 1
+description = "Which banner the homepage shows this visitor"
+type = "catalog:banners"
+
+# Ranked selection: keep banners inside their campaign window (if any) whose
+# audiences (if any) match, order by priority, top entry wins. entry.audiences
+# is hydrated before the filter runs, so each element is the referenced
+# audience entry and the exists() comprehension checks its bounds against the
+# visitor. An audience bound that is absent does not constrain.
+[resolve]
+method = "query"
+from = "banners"
+filter = '(!has(entry.starts) || (env.now >= entry.starts && env.now < entry.ends)) && (entry.audiences == [] || entry.audiences.exists(a, (!has(a.min_visits) || context.visitor.visits >= a.min_visits) && (!has(a.max_visits) || context.visitor.visits <= a.max_visits) && (!has(a.min_lifetime_spend) || context.visitor.lifetime_spend >= a.min_lifetime_spend)))'
+sort = 'entry.priority'
+order = "desc"
+default = "default_banner"

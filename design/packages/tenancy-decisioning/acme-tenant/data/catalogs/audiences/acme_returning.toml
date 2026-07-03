@@ -1,3 +1,0 @@
-name = "Returning Acme visitors"
-description = "Third visit or later"
-condition = 'context.visitor.visits >= 3'

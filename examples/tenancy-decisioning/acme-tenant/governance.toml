@@ -1,0 +1,19 @@
+# Acme's own governance, for the layers below it (Acme's country site teams).
+# It can only NARROW what the base granted to Acme (allow <= inherited ceiling):
+# the base allowed delete on nearly all banners; Acme revokes delete entirely for
+# its teams, and restricts update to Acme's own banners.
+
+[catalog.banners]
+allowed_operations = ["add", "update"]
+denied_operations = ["delete"]
+
+[catalog.banners.update_policy]
+allowed_fields = ["headline", "cta_url"]
+# Literal entry ids, not a glob. The ceiling check is conservative: a glob in a
+# lower layer's allowlist must be granted verbatim by the layer above, and the
+# base scopes updates with a denylist, so Acme names its banners one by one.
+allowed_entries = ["acme_flash_sale", "welcome"]
+
+[catalog.audiences]
+allowed_operations = ["add"]
+denied_operations = []

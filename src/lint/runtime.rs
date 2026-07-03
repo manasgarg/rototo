@@ -46,7 +46,13 @@ impl RuntimePackage {
                 .variables
                 .get(variable)
                 .is_some_and(|variable| match &variable.resolution {
-                    RuntimeResolution::Rules { rules, .. } => rules.is_empty(),
+                    // Rules that only read `env` (a pure time gate) impose no
+                    // context requirement, matching the compatibility lint.
+                    RuntimeResolution::Rules { rules, .. } => rules.iter().all(|rule| {
+                        let references = rule.when.references();
+                        references.variables.is_empty()
+                            && references.context_paths.iter().all(|path| path.is_empty())
+                    }),
                     RuntimeResolution::Query(query) => !query.uses_context,
                     RuntimeResolution::Allocation(allocation) => !allocation.uses_context,
                 })

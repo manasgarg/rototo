@@ -29,6 +29,66 @@ fn lints_acme_overlay_package() {
 }
 
 #[test]
+fn lints_release_ops_package() {
+    Command::cargo_bin("rototo")
+        .unwrap()
+        .args(["lint", "examples/release-ops"])
+        .assert()
+        .success();
+}
+
+#[test]
+fn lints_billing_package() {
+    Command::cargo_bin("rototo")
+        .unwrap()
+        .args(["lint", "examples/billing"])
+        .assert()
+        .success();
+}
+
+#[test]
+fn lints_regional_policy_package() {
+    Command::cargo_bin("rototo")
+        .unwrap()
+        .args(["lint", "examples/regional-policy"])
+        .assert()
+        .success();
+}
+
+#[test]
+fn lints_tenancy_decisioning_packages() {
+    // The platform base and the tenant overlay each lint on their own; the
+    // overlay stages its composition over the base first.
+    for package in [
+        "examples/tenancy-decisioning/base",
+        "examples/tenancy-decisioning/acme-tenant",
+    ] {
+        Command::cargo_bin("rototo")
+            .unwrap()
+            .args(["lint", package])
+            .assert()
+            .success();
+    }
+}
+
+#[test]
+fn lints_environments_packages() {
+    // Vertical layering: the base carries production values, dev and staging
+    // override values only.
+    for package in [
+        "examples/environments/base",
+        "examples/environments/dev",
+        "examples/environments/staging",
+    ] {
+        Command::cargo_bin("rototo")
+            .unwrap()
+            .args(["lint", package])
+            .assert()
+            .success();
+    }
+}
+
+#[test]
 fn lints_basic_package_as_json_with_documents() {
     let lint = lint_json("examples/basic", true);
 

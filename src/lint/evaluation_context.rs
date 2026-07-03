@@ -71,6 +71,15 @@ impl<'a> CompatibilityBuilder<'a> {
                 let ProjectField::Present(expression) = expression else {
                     continue;
                 };
+                // Expressions that only read `env` (a pure time gate such as
+                // `env.now >= "..."`) impose no context requirement; only
+                // context paths and variable references narrow the set.
+                let references = expression.value.references();
+                if references.variables.is_empty()
+                    && references.context_paths.iter().all(|path| path.is_empty())
+                {
+                    continue;
+                }
                 let expression_contexts = self.expression_contexts(&expression.value);
                 rule_contexts = Some(match rule_contexts {
                     Some(current) => current

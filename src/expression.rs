@@ -289,15 +289,23 @@ impl ResolvingTarget<'_> {
 
 fn references_from_cel(expr: &IdedExpr) -> ExpressionReferences {
     let mut references = ExpressionReferences::default();
-    collect_cel(expr, &mut references);
+    collect_cel(expr, &mut references, &mut Vec::new());
     references
 }
 
 /// One pass over the cel AST: record references (context/entry paths and
 /// variable ids) and, per context path, the scalar family the surrounding
-/// operator or function requires of it.
-fn collect_cel(expr: &IdedExpr, references: &mut ExpressionReferences) {
+/// operator or function requires of it. `bound` carries the identifiers a
+/// surrounding comprehension binds (macros such as `exists(a, ...)` expand to
+/// comprehensions), so chains rooted at them are not misread as unknown roots.
+fn collect_cel(expr: &IdedExpr, references: &mut ExpressionReferences, bound: &mut Vec<String>) {
     cel_constraints(expr, &mut references.context_path_types);
+
+    if let Some((root, _)) = cel_path(expr)
+        && bound.contains(&root)
+    {
+        return;
+    }
 
     match cel_reference(expr) {
         Some(Reference::Context(path)) => {
@@ -331,8 +339,22 @@ fn collect_cel(expr: &IdedExpr, references: &mut ExpressionReferences) {
         }
     }
 
+    if let Expr::Comprehension(comprehension) = &expr.expr {
+        collect_cel(&comprehension.iter_range, references, bound);
+        collect_cel(&comprehension.accu_init, references, bound);
+        let outer = bound.len();
+        bound.push(comprehension.iter_var.clone());
+        bound.extend(comprehension.iter_var2.clone());
+        bound.push(comprehension.accu_var.clone());
+        collect_cel(&comprehension.loop_cond, references, bound);
+        collect_cel(&comprehension.loop_step, references, bound);
+        collect_cel(&comprehension.result, references, bound);
+        bound.truncate(outer);
+        return;
+    }
+
     for child in cel_children(expr) {
-        collect_cel(child, references);
+        collect_cel(child, references, bound);
     }
 }
 
@@ -1562,6 +1584,29 @@ mod tests {
         )
         .unwrap();
         assert!(ok.references().invalid_roots.is_empty());
+    }
+
+    #[test]
+    fn comprehension_bound_identifiers_are_not_unknown_roots() {
+        // Macros such as exists() expand to comprehensions whose iteration
+        // variable is a bare identifier; chains rooted at it are bindings,
+        // not references.
+        let expression =
+            Expression::parse("entry.audiences.exists(a, a.min_visits <= context.visits)").unwrap();
+        let references = expression.references();
+        assert!(references.invalid_roots.is_empty());
+        assert!(references.entry_paths.contains("audiences"));
+        assert!(references.context_paths.contains("visits"));
+
+        // The binding does not leak: the same identifier outside the
+        // comprehension is still an unknown root.
+        let outside = Expression::parse("entry.list.exists(a, a.x) && a.y").unwrap();
+        assert!(
+            outside
+                .references()
+                .invalid_roots
+                .contains(&ExpressionRootIssue::UnknownRoot("a".to_owned()))
+        );
     }
 
     #[test]

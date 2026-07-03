@@ -1,0 +1,3 @@
+name = "New visitors"
+description = "First or second visit to the site"
+max_visits = 2

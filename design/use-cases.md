@@ -123,11 +123,11 @@ the package's README, not in its name.
 
 | Package | Scenario | Primary use cases | State |
 | --- | --- | --- | --- |
-| release-ops | a product team shipping a web app: flags, rollouts, experiments, kill switches, knobs | 1, 2, 3, 9 (scheduled activation, maintenance mode) | drafted in `packages/` |
-| billing | a SaaS selling tiered plans: entitlements, pricing, quotas, grandfathering | 4 | drafted in `packages/` |
-| tenancy-decisioning | a multi-tenant platform whose tenants customize content and decisions within governed limits | 5, 6, 9 (campaign windows) | drafted in `packages/` |
-| regional-policy | a regulated SaaS choosing providers and policies per region | 7, 8 | drafted in `packages/` |
-| environments | one small service across dev/staging/prod | 10, plus 3 (knobs per environment) | drafted in `packages/` |
+| release-ops | a product team shipping a web app: flags, rollouts, experiments, kill switches, knobs | 1, 2, 3, 9 (scheduled activation, maintenance mode) | graduated to `../examples/` |
+| billing | a SaaS selling tiered plans: entitlements, pricing, quotas, grandfathering | 4 | graduated to `../examples/` |
+| tenancy-decisioning | a multi-tenant platform whose tenants customize content and decisions within governed limits | 5, 6, 9 (campaign windows) | graduated to `../examples/` |
+| regional-policy | a regulated SaaS choosing providers and policies per region | 7, 8 | graduated to `../examples/` |
+| environments | one small service across dev/staging/prod | 10, plus 3 (knobs per environment) | graduated to `../examples/` |
 
 Each package must confront its share of the roadmap's hard parts, not just its
 happy paths: release-ops owns flag lifecycle, ramp stability, break-glass, and
