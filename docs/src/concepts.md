@@ -588,7 +588,7 @@ Rototo flattens the layers into one package - parents in `extends` order, the ch
 
 - **The contract narrows only.** An overlay may not change a variable's `type`; restating the same type is fine, declaring a different one fails the load. Applications were written against that type, and an overlay doesn't get to rewrite it quietly.
 - **Values override atomically.** An overlay variable file merges by top-level key, so a file holding only a `[resolve]` block replaces the base's resolution whole - default, rules, everything - while the type and description stay with the base. There is no merging of individual rules, because half of one layer's rule list plus half of another's is a resolution nobody wrote or reviewed.
-- **Membership is union minus deletes.** A catalog's active entries are the base's entries plus the overlay's, minus the ones the overlay explicitly deletes, with field-level patches applied. Enum members compose additively the same way: an overlay's `data/enums/<id>.toml` unions its members into the base's set, so a layer declares only what it adds.
+- **Membership is union minus deletes.** A catalog's active entries are the base's entries plus the overlay's, minus the ones the overlay explicitly deletes, with field-level patches applied. Enum members compose the same way: an overlay's `data/enums/<id>.toml` unions its `members` into the base's set and removes the values it names in `deleted`, so a layer declares only its own adds and removals.
 
 The `examples/acme-overlay` package in the repository shows all three on top of `examples/basic`, in five files. A new entry is just an entry: `data/catalogs/support_banner/acme_hours.toml` adds a banner only this tenant has. Removing one is a **deleted marker**:
 

@@ -692,6 +692,36 @@ default = "anything"
 }
 
 #[test]
+fn enum_member_deletes_need_a_layer_below() {
+    // `deleted` composes against a base through extends and is consumed when
+    // layers flatten; in a package with no base it has nothing to remove from.
+    let temp = tempfile::TempDir::new().unwrap();
+    let root = temp.path();
+    std::fs::create_dir_all(root.join("model/enums")).unwrap();
+    std::fs::create_dir_all(root.join("data/enums")).unwrap();
+    std::fs::write(root.join("rototo-package.toml"), "schema_version = 1\n").unwrap();
+    std::fs::write(
+        root.join("model/enums/plan_tiers.toml"),
+        "schema_version = 1\ntype = \"string\"\n",
+    )
+    .unwrap();
+    std::fs::write(
+        root.join("data/enums/plan_tiers.toml"),
+        "members = [\"basic\", \"pro\"]\ndeleted = [\"basic\"]\n",
+    )
+    .unwrap();
+
+    let lint = lint_json(root.to_str().unwrap(), false);
+    let messages = diagnostic_messages_for_rule(&lint, "rototo/enum-members-shape");
+    assert!(
+        messages
+            .iter()
+            .any(|message| message.contains("deleted enum members apply to a layer below")),
+        "{lint:#}"
+    );
+}
+
+#[test]
 fn catalog_schemas_support_union_and_nullable_scalars() {
     // Money-shaped catalogs need union and sentinel types: a tier bound that is
     // an integer or the literal "inf", and an amount that may be null. Plain

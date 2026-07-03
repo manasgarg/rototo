@@ -224,6 +224,10 @@ pub(in crate::lint) struct EnumMembersNode {
     pub(in crate::lint) id: EnumId,
     pub(in crate::lint) location: DiagnosticLocation,
     pub(in crate::lint) members: ProjectField<Vec<Spanned<JsonValue>>>,
+    /// Location of a `deleted` key. Deletes only mean something for an
+    /// overlay composing through extends and are consumed when layers
+    /// flatten, so one surviving into lint has no layer below.
+    pub(in crate::lint) deleted: Option<DiagnosticLocation>,
 }
 
 impl EnumMembersNode {

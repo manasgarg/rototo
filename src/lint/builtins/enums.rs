@@ -61,6 +61,16 @@ pub(super) fn lint_enum_shapes(ctx: &mut LintContext) {
     }
 
     for members in ctx.index.enum_members.values() {
+        if let Some(location) = &members.deleted {
+            push_project_diagnostic(
+                &mut diagnostics,
+                RototoRuleId::EnumMembersShape,
+                members.target(),
+                location.clone(),
+                "deleted enum members apply to a layer below through extends; \
+                 this package has no base member set for them to remove from",
+            );
+        }
         let declaration = ctx.index.enums.get(&members.id);
         if declaration.is_none() {
             push_project_diagnostic(

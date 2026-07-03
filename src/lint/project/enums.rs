@@ -63,11 +63,16 @@ pub(crate) fn project_enum_members(
         },
     };
 
+    let deleted = root
+        .and_then(|root| root.get("deleted"))
+        .map(|item| item_location(document, item));
+
     EnumMembersNode {
         doc: document.id,
         id: id.to_owned(),
         location,
         members,
+        deleted,
     }
 }
 

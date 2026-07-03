@@ -652,3 +652,186 @@ value = "us"
     let resolution = package.resolve_variable("home_region", &context).unwrap();
     assert_eq!(resolution.value, "us");
 }
+
+/// A base with an enum both halves declared, ready for an overlay to compose
+/// member deletes against.
+async fn write_enum_base(root: &Path) {
+    write_base(root).await;
+    write(
+        root,
+        "model/enums/regions.toml",
+        "schema_version = 1\ntype = \"string\"\n",
+    )
+    .await;
+    write(
+        root,
+        "data/enums/regions.toml",
+        "members = [\"us\", \"eu\", \"legacy\"]\n",
+    )
+    .await;
+}
+
+#[tokio::test]
+async fn overlay_deletes_enum_members_from_the_base() {
+    let temp = tempfile::TempDir::new().unwrap();
+    let base = temp.path().join("base");
+    let overlay = temp.path().join("overlay");
+    write_enum_base(&base).await;
+    write(
+        &overlay,
+        "rototo-package.toml",
+        "schema_version = 1\nextends = [\"../base\"]\n",
+    )
+    .await;
+    // The overlay adds a member of its own and deletes a base member in the
+    // same file; the two keys compose independently.
+    write(
+        &overlay,
+        "data/enums/regions.toml",
+        "members = [\"apac\"]\ndeleted = [\"legacy\"]\n",
+    )
+    .await;
+    write(
+        &overlay,
+        "variables/home_region.toml",
+        r#"schema_version = 1
+type = "enum:regions"
+
+[resolve]
+default = "apac"
+"#,
+    )
+    .await;
+
+    Package::load(overlay.to_string_lossy()).await.unwrap();
+
+    // The deleted member is really gone: a variable naming it fails lint on
+    // the flattened package, the same failure a never-declared member gets.
+    write(
+        &overlay,
+        "variables/home_region.toml",
+        r#"schema_version = 1
+type = "enum:regions"
+
+[resolve]
+default = "legacy"
+"#,
+    )
+    .await;
+    let err = Package::load(overlay.to_string_lossy()).await.unwrap_err();
+    assert!(
+        err.to_string().contains("lint failed"),
+        "loading should fail lint because the legacy member is deleted: {err}"
+    );
+
+    // Inspecting without the lint gate shows the member really left the set.
+    let staged = Package::inspect(overlay.to_string_lossy()).await.unwrap();
+    let flattened = tokio::fs::read_to_string(staged.root().join("data/enums/regions.toml"))
+        .await
+        .unwrap();
+    assert!(
+        !flattened.contains("legacy") && flattened.contains("apac"),
+        "unexpected flattened member file: {flattened}"
+    );
+    assert!(
+        !flattened.contains("deleted"),
+        "the deleted key must not land in the flattened package: {flattened}"
+    );
+}
+
+#[tokio::test]
+async fn orphan_enum_member_deletes_fail_loudly() {
+    let temp = tempfile::TempDir::new().unwrap();
+    let base = temp.path().join("base");
+    let overlay = temp.path().join("overlay");
+    write_enum_base(&base).await;
+    write(
+        &overlay,
+        "rototo-package.toml",
+        "schema_version = 1\nextends = [\"../base\"]\n",
+    )
+    .await;
+    // Deleting a member no layer below provides means the author is confused
+    // about the base; fail the load instead of ignoring it.
+    write(
+        &overlay,
+        "data/enums/regions.toml",
+        "deleted = [\"atlantis\"]\n",
+    )
+    .await;
+    let err = Package::load(overlay.to_string_lossy()).await.unwrap_err();
+    assert!(
+        err.to_string()
+            .contains("deleted enum member is not in the layers below"),
+        "unexpected error: {err}"
+    );
+
+    // A delete pointed at an enum data file no layer below has at all fails
+    // the same way.
+    tokio::fs::remove_file(overlay.join("data/enums/regions.toml"))
+        .await
+        .unwrap();
+    write(
+        &overlay,
+        "data/enums/channels.toml",
+        "deleted = [\"email\"]\n",
+    )
+    .await;
+    let err = Package::load(overlay.to_string_lossy()).await.unwrap_err();
+    assert!(
+        err.to_string()
+            .contains("deleted enum members have no member set to remove"),
+        "unexpected error: {err}"
+    );
+}
+
+#[tokio::test]
+async fn same_layer_enum_member_add_and_delete_conflict() {
+    let temp = tempfile::TempDir::new().unwrap();
+    let base = temp.path().join("base");
+    let overlay = temp.path().join("overlay");
+    write_enum_base(&base).await;
+    write(
+        &overlay,
+        "rototo-package.toml",
+        "schema_version = 1\nextends = [\"../base\"]\n",
+    )
+    .await;
+    write(
+        &overlay,
+        "data/enums/regions.toml",
+        "members = [\"apac\"]\ndeleted = [\"apac\"]\n",
+    )
+    .await;
+    let err = Package::load(overlay.to_string_lossy()).await.unwrap_err();
+    assert!(
+        err.to_string()
+            .contains("layer both adds enum member \"apac\" and deletes it"),
+        "unexpected error: {err}"
+    );
+}
+
+#[tokio::test]
+async fn deleting_every_enum_member_fails_the_load() {
+    let temp = tempfile::TempDir::new().unwrap();
+    let base = temp.path().join("base");
+    let overlay = temp.path().join("overlay");
+    write_enum_base(&base).await;
+    write(
+        &overlay,
+        "rototo-package.toml",
+        "schema_version = 1\nextends = [\"../base\"]\n",
+    )
+    .await;
+    write(
+        &overlay,
+        "data/enums/regions.toml",
+        "deleted = [\"us\", \"eu\", \"legacy\"]\n",
+    )
+    .await;
+    let err = Package::load(overlay.to_string_lossy()).await.unwrap_err();
+    assert!(
+        err.to_string().contains("leaves the enum with no members"),
+        "unexpected error: {err}"
+    );
+}

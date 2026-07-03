@@ -187,19 +187,33 @@ still names the deleted entry, lint catches it as
 variable's resolution too. Removing data quietly out from under a variable is
 exactly the drift this is designed to surface.
 
-### Enum members union
+### Enum members: union and delete
 
 An overlay's `data/enums/<id>.toml` doesn't replace the base's member file - the
-member sets union. A layer declares only what it adds:
+member sets compose. `members` declares what the layer adds, and `deleted`
+names the base members it removes:
 
 ```toml
 # overlay's data/enums/plan_tiers.toml
 members = ["acme_enterprise"]
+deleted = ["legacy_bronze"]
 ```
 
-The composed enum has the base's members plus `acme_enterprise`. There is no
-subtraction shape for enum members; narrowing a member set is a `model/` change,
-not a data overlay.
+The composed enum has the base's members plus `acme_enterprise`, minus
+`legacy_bronze`. The `deleted` key is consumed during flattening and never
+appears in the flattened package.
+
+Deletes follow the same rules as catalog entry deletes. Every deleted value
+has to name a member some layer below actually provides ("deleted enum member
+is not in the layers below" fails the load), a single layer may not both add
+and delete the same value, and deleting every member fails the load - an
+empty enum is not a thing. In a package with no `extends`, a `deleted` key has
+nothing to remove from and lint flags it (`rototo/enum-members-shape`).
+
+Deleting a member someone depends on is loud in the same way entry deletes
+are: if a base variable default, rule value, catalog entry, or context sample
+still uses the deleted member, lint on the flattened package catches it, and
+the overlay has to override that usage too.
 
 ## Governance: `governance.toml`
 

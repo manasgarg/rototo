@@ -179,7 +179,7 @@ belong to the application or its other tools.)
 For orientation, the things that used to be on this list and are now shipped
 and demonstrated under `examples/`: structured composition (entry add, patch,
 and delete; atomic `[resolve]` override; namespaced variables; enum member
-union), the `governance.toml` layering contract enforced at compose time,
+union and delete), the `governance.toml` layering contract enforced at compose time,
 layers and allocations for rollouts and experiments, catalog queries with
 filter/sort/limit and effective dating on `env.now`, the `env.tenant`
 dimension, and dev/staging/prod as vertical layers over one contract. What
@@ -224,27 +224,24 @@ remains:
     today: composition checks that the grant exists, not that the overlay's
     schema actually narrows the base's. Verifying it needs a CUE-style meet
     over schemas.
-15. **Enum member removal across layers.** Member sets union across layers and
-    there is no member delete, so an overlay can extend an enum but never
-    shrink one.
-16. **Correlated assignment across layers.** Two layers cannot share a
+15. **Correlated assignment across layers.** Two layers cannot share a
     diversion, so there is no way to deliberately correlate arm assignment
     between them.
-17. **Contract lockdown for vertical layers.** Environment layering wants a
+16. **Contract lockdown for vertical layers.** Environment layering wants a
     package-level governance default (a wildcard grant), and an overlay can
     still introduce a brand-new variable without any grant. "Environments
     differ in values, never in contract" is convention plus review, not yet a
     hard guarantee.
-18. **The custom-lint execution boundary.** Loading a package runs its Lua lint
+17. **The custom-lint execution boundary.** Loading a package runs its Lua lint
     today, including for remote sources you do not control. The invariant to
     establish: loading or resolving a package never executes package-supplied
     code; only author-time gates (pre-push, CI) do.
-19. **Nested trace provenance.** A resolution trace says which rule matched,
+18. **Nested trace provenance.** A resolution trace says which rule matched,
     but not why a referenced condition variable was true; the trace should
     follow the reference chain. Related: variables have no visibility marker
     yet (app-facing versus internal helper), so the cross-variable dependency
     graph is disciplined only by convention.
-20. **The web console, re-attached.** The console predates the current package
+19. **The web console, re-attached.** The console predates the current package
     layout, composition, and resolution methods; it is parked outside the core
     gate until it is brought back up against today's engine.
 

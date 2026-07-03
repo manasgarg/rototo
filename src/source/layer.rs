@@ -528,9 +528,10 @@ enum LayerFileComposition {
     /// base's (so an overlay `[resolve]` block replaces the whole resolution),
     /// keys the overlay does not declare are inherited.
     VariableMerge,
-    /// `data/enums/<id>.toml` over an existing file: the member sets union,
-    /// keeping enum members tenant-extensible data.
-    EnumMembersUnion,
+    /// `data/enums/<id>.toml`: the member sets compose - the overlay's
+    /// `members` union into the base's and its `deleted` values are removed
+    /// from the result, keeping enum members tenant-adjustable data.
+    EnumMembersCompose,
 }
 
 /// Classify a layer file by its package-relative path. Composition is
@@ -562,8 +563,8 @@ fn classify_layer_file(
         ["variables", .., _] if target_exists && file_name.ends_with(".toml") => {
             LayerFileComposition::VariableMerge
         }
-        ["data", "enums", _] if target_exists && file_name.ends_with(".toml") => {
-            LayerFileComposition::EnumMembersUnion
+        ["data", "enums", _] if file_name.ends_with(".toml") => {
+            LayerFileComposition::EnumMembersCompose
         }
         _ => LayerFileComposition::Replace,
     }
@@ -635,10 +636,28 @@ fn compose_package_layer_file(
             }
             Ok(())
         }
-        LayerFileComposition::EnumMembersUnion => {
-            let mut base = read_layer_toml(&target_path)?;
+        LayerFileComposition::EnumMembersCompose => {
             let overlay = read_layer_toml(source_path)?;
-            union_enum_members(&mut base, overlay);
+            if !target_path.is_file() {
+                if overlay
+                    .as_table()
+                    .is_some_and(|table| table.contains_key("deleted"))
+                {
+                    return Err(RototoError::new(format!(
+                        "deleted enum members have no member set to remove in the layers below: {}",
+                        relative.display()
+                    )));
+                }
+                std::fs::copy(source_path, &target_path).map_err(|err| {
+                    RototoError::new(format!(
+                        "failed to copy package layer entry {}: {err}",
+                        source_path.display()
+                    ))
+                })?;
+                return Ok(());
+            }
+            let mut base = read_layer_toml(&target_path)?;
+            compose_enum_members(&mut base, overlay, relative)?;
             write_layer_toml(&target_path, &base)
         }
     }
@@ -703,26 +722,76 @@ fn deep_merge_toml(base: &mut toml::Value, patch: toml::Value) {
     }
 }
 
-/// Union an overlay's enum members into the base's: members are a set, so a
-/// layer extends it by declaring the members it adds; the base's members are
-/// kept, duplicates collapse, and order is base first.
-fn union_enum_members(base: &mut toml::Value, overlay: toml::Value) {
+/// Compose an overlay's enum member file into the base's. Members are a set:
+/// the overlay's `members` union in (base first, duplicates collapse) and its
+/// `deleted` values are removed from the result. Every deleted value has to
+/// name a member a layer below actually provides, a layer may not both add
+/// and delete the same value, and the composed set may not end up empty. The
+/// `deleted` key itself never lands in the flattened file.
+fn compose_enum_members(
+    base: &mut toml::Value,
+    overlay: toml::Value,
+    relative: &Path,
+) -> Result<()> {
     let (Some(base_table), Some(overlay_table)) = (base.as_table_mut(), overlay.as_table()) else {
-        return;
+        return Ok(());
+    };
+    let overlay_members = overlay_table
+        .get("members")
+        .and_then(|item| item.as_array());
+    let deleted = match overlay_table.get("deleted") {
+        None => None,
+        Some(toml::Value::Array(values)) => Some(values),
+        Some(_) => {
+            return Err(RototoError::new(format!(
+                "deleted enum members must be an array: {}",
+                relative.display()
+            )));
+        }
     };
     let Some(toml::Value::Array(base_members)) = base_table.get_mut("members") else {
+        if deleted.is_some() {
+            return Err(RototoError::new(format!(
+                "deleted enum members have no member set to remove in the layers below: {}",
+                relative.display()
+            )));
+        }
         if let Some(members) = overlay_table.get("members") {
             base_table.insert("members".to_owned(), members.clone());
         }
-        return;
+        return Ok(());
     };
-    if let Some(toml::Value::Array(overlay_members)) = overlay_table.get("members") {
+    if let Some(overlay_members) = overlay_members {
         for member in overlay_members {
             if !base_members.contains(member) {
                 base_members.push(member.clone());
             }
         }
     }
+    if let Some(deleted) = deleted {
+        for value in deleted {
+            if overlay_members.is_some_and(|members| members.contains(value)) {
+                return Err(RototoError::new(format!(
+                    "layer both adds enum member {value} and deletes it: {}",
+                    relative.display()
+                )));
+            }
+            let Some(position) = base_members.iter().position(|member| member == value) else {
+                return Err(RototoError::new(format!(
+                    "deleted enum member is not in the layers below: {value} ({})",
+                    relative.display()
+                )));
+            };
+            base_members.remove(position);
+        }
+        if base_members.is_empty() {
+            return Err(RototoError::new(format!(
+                "deleting these members leaves the enum with no members: {}",
+                relative.display()
+            )));
+        }
+    }
+    Ok(())
 }
 
 /// Merge an overlay variable file over the base's: every top-level key the
