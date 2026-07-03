@@ -15,12 +15,24 @@ pub(super) fn lint_id_naming(ctx: &mut LintContext) {
                      location: crate::diagnostics::DiagnosticLocation,
                      kind: &str| {
         if !id_is_snake_case(id) {
+            // Tombstones and patches compose through extends and are consumed
+            // when layers flatten; one surviving into lint has no layer below.
+            let message = if kind == "catalog entry"
+                && (id.ends_with(".tombstone") || id.ends_with(".patch"))
+            {
+                format!(
+                    "{kind} tombstones and patches apply to a layer below through extends; \
+                     this package has no base entry for them to compose with: {id}"
+                )
+            } else {
+                format!("{kind} id must be snake_case: {id}")
+            };
             push_project_diagnostic(
                 &mut diagnostics,
                 RototoRuleId::IdNotSnakeCase,
                 target,
                 location,
-                format!("{kind} id must be snake_case: {id}"),
+                message,
             );
         }
     };

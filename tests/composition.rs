@@ -595,3 +595,60 @@ async fn trace_provenance_names_the_layer_that_owns_the_resolution() {
         .unwrap();
     assert_eq!(trace.provenance.as_deref(), Some(overlay.to_str().unwrap()));
 }
+
+#[tokio::test]
+async fn overlay_enum_members_union_with_the_base() {
+    let temp = tempfile::TempDir::new().unwrap();
+    let base = temp.path().join("base");
+    let overlay = temp.path().join("overlay");
+    write_base(&base).await;
+    write(
+        &base,
+        "model/enums/regions.toml",
+        "schema_version = 1\ntype = \"string\"\n",
+    )
+    .await;
+    write(
+        &base,
+        "data/enums/regions.toml",
+        "members = [\"us\", \"eu\"]\n",
+    )
+    .await;
+    write(
+        &overlay,
+        "rototo-package.toml",
+        "schema_version = 1\nextends = [\"../base\"]\n",
+    )
+    .await;
+    // The overlay declares only what it adds; the base's members stay.
+    write(
+        &overlay,
+        "data/enums/regions.toml",
+        "members = [\"apac\", \"eu\"]\n",
+    )
+    .await;
+    write(
+        &overlay,
+        "variables/home_region.toml",
+        r#"schema_version = 1
+type = "enum:regions"
+
+[resolve]
+default = "apac"
+
+[[resolve.rule]]
+when = 'context.account.paid == true'
+value = "us"
+"#,
+    )
+    .await;
+
+    let package = Package::load(overlay.to_string_lossy()).await.unwrap();
+    let context = EvaluationContext::from_json(serde_json::json!({
+        "account": { "paid": true }
+    }))
+    .unwrap();
+    // "us" is a base member the overlay never restated; the union kept it.
+    let resolution = package.resolve_variable("home_region", &context).unwrap();
+    assert_eq!(resolution.value, "us");
+}

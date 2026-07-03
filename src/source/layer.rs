@@ -527,6 +527,9 @@ enum LayerFileComposition {
     /// base's (so an overlay `[resolve]` block replaces the whole resolution),
     /// keys the overlay does not declare are inherited.
     VariableMerge,
+    /// `data/enums/<id>.toml` over an existing file: the member sets union,
+    /// keeping enum members tenant-extensible data.
+    EnumMembersUnion,
 }
 
 /// Classify a layer file by its package-relative path. Composition is
@@ -557,6 +560,9 @@ fn classify_layer_file(
         }
         ["variables", .., _] if target_exists && file_name.ends_with(".toml") => {
             LayerFileComposition::VariableMerge
+        }
+        ["data", "enums", _] if target_exists && file_name.ends_with(".toml") => {
+            LayerFileComposition::EnumMembersUnion
         }
         _ => LayerFileComposition::Replace,
     }
@@ -628,6 +634,12 @@ fn compose_package_layer_file(
             }
             Ok(())
         }
+        LayerFileComposition::EnumMembersUnion => {
+            let mut base = read_layer_toml(&target_path)?;
+            let overlay = read_layer_toml(source_path)?;
+            union_enum_members(&mut base, overlay);
+            write_layer_toml(&target_path, &base)
+        }
     }
 }
 
@@ -687,6 +699,28 @@ fn deep_merge_toml(base: &mut toml::Value, patch: toml::Value) {
             }
         }
         (base, patch) => *base = patch,
+    }
+}
+
+/// Union an overlay's enum members into the base's: members are a set, so a
+/// layer extends it by declaring the members it adds; the base's members are
+/// kept, duplicates collapse, and order is base first.
+fn union_enum_members(base: &mut toml::Value, overlay: toml::Value) {
+    let (Some(base_table), Some(overlay_table)) = (base.as_table_mut(), overlay.as_table()) else {
+        return;
+    };
+    let Some(toml::Value::Array(base_members)) = base_table.get_mut("members") else {
+        if let Some(members) = overlay_table.get("members") {
+            base_table.insert("members".to_owned(), members.clone());
+        }
+        return;
+    };
+    if let Some(toml::Value::Array(overlay_members)) = overlay_table.get("members") {
+        for member in overlay_members {
+            if !base_members.contains(member) {
+                base_members.push(member.clone());
+            }
+        }
     }
 }
 
