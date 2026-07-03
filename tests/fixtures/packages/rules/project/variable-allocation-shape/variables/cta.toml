@@ -1,0 +1,11 @@
+schema_version = 1
+type = "string"
+
+[resolve]
+method = "allocation"
+allocation = "cta_copy"
+default = "click here"
+
+[[resolve.assign]]
+arm = "control"
+value = "click here"

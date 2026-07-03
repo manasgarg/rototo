@@ -1104,6 +1104,8 @@ fn semantic_field_label(field: &SemanticField) -> String {
         SemanticField::VariableRuleValue => "value".to_owned(),
         SemanticField::VariableQueryFilter => "filter".to_owned(),
         SemanticField::VariableQuerySort => "sort".to_owned(),
+        SemanticField::VariableAllocation => "allocation".to_owned(),
+        SemanticField::VariableAssignValue => "assign.value".to_owned(),
         SemanticField::Value => "value".to_owned(),
         SemanticField::ValueJsonPath { path } => format!("value.{}", path.join(".")),
         SemanticField::SchemaJson => "json".to_owned(),

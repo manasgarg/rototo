@@ -107,6 +107,22 @@ impl<'a> CompatibilityBuilder<'a> {
                 None => expression_contexts,
             });
         }
+        for expression in variable_allocation_expressions(self.index, variable) {
+            let references = expression.references();
+            if references.variables.is_empty()
+                && references.context_paths.iter().all(|path| path.is_empty())
+            {
+                continue;
+            }
+            let expression_contexts = self.expression_contexts(expression);
+            contexts = Some(match contexts {
+                Some(current) => current
+                    .intersection(&expression_contexts)
+                    .cloned()
+                    .collect(),
+                None => expression_contexts,
+            });
+        }
         contexts
     }
 
@@ -200,6 +216,39 @@ pub(in crate::lint) fn variable_resolve_rules(
     variable: &super::index::VariableNode,
 ) -> Option<&[super::index::VariableRuleNode]> {
     variable.resolve.as_rules()
+}
+
+/// The layer expressions behind a `method = "allocation"` variable: the
+/// diversion's `unit` and the allocation's `eligibility`, when present.
+pub(in crate::lint) fn variable_allocation_expressions<'a>(
+    index: &'a super::index::SemanticIndex,
+    variable: &super::index::VariableNode,
+) -> Vec<&'a crate::expression::Expression> {
+    let Some(assignments) = variable.resolve.as_assignments() else {
+        return Vec::new();
+    };
+    let super::index::ProjectField::Present(allocation_id) = &assignments.allocation else {
+        return Vec::new();
+    };
+    let Some((layer, allocation)) = index.layers.values().find_map(|layer| {
+        layer
+            .allocations
+            .iter()
+            .find(|candidate| {
+                matches!(&candidate.id, super::index::ProjectField::Present(id) if id.value == allocation_id.value)
+            })
+            .map(|allocation| (layer, allocation))
+    }) else {
+        return Vec::new();
+    };
+    let mut expressions = Vec::new();
+    if let super::index::ProjectField::Present(unit) = &layer.unit {
+        expressions.push(&unit.value);
+    }
+    if let Some(super::index::ProjectField::Present(eligibility)) = &allocation.eligibility {
+        expressions.push(&eligibility.value);
+    }
+    expressions
 }
 
 /// The present `filter`/`sort` expressions of a variable's `method = "query"`

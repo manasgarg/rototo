@@ -1,0 +1,17 @@
+schema_version = 1
+
+description = "Allocation variable naming an unknown allocation with a stray assign"
+type = "string"
+
+[resolve]
+method = "allocation"
+allocation = "not_a_real_allocation"
+default = "control"
+
+[[resolve.assign]]
+arm = "control"
+value = "control"
+
+[[resolve.assign]]
+arm = "control"
+value = "duplicate"

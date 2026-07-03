@@ -284,6 +284,26 @@ pub(in crate::lint) struct ArmNode {
     pub(in crate::lint) invalid_shape: bool,
 }
 
+/// The `method = "allocation"` parameters on `[resolve]`: the allocation the
+/// variable consumes and the per-arm value assignments.
+pub(in crate::lint) struct AssignmentsNode {
+    pub(in crate::lint) location: DiagnosticLocation,
+    pub(in crate::lint) allocation: ProjectField<String>,
+    pub(in crate::lint) assigns: Vec<AssignNode>,
+    /// True when `assign` exists but is not an array of tables.
+    pub(in crate::lint) assigns_invalid: bool,
+}
+
+/// One `[[resolve.assign]]` table: the value one arm assigns to the variable.
+pub(in crate::lint) struct AssignNode {
+    #[allow(dead_code)]
+    pub(in crate::lint) index: usize,
+    pub(in crate::lint) location: DiagnosticLocation,
+    pub(in crate::lint) arm: ProjectField<String>,
+    pub(in crate::lint) value: ProjectField<JsonValue>,
+    pub(in crate::lint) invalid_shape: bool,
+}
+
 /// Parse an arm's `buckets` range: `"7"` (one bucket) or `"0-49"` (inclusive).
 /// Returns `(start, end)` with `start <= end`, or `None` for anything else.
 pub(in crate::lint) fn parse_arm_buckets(value: &str) -> Option<(u32, u32)> {
@@ -477,11 +497,15 @@ pub(in crate::lint) enum ResolveNode {
     },
     Resolve {
         location: DiagnosticLocation,
-        /// The resolution method: `rules` (the default when absent) or `query`.
+        /// The resolution method: `rules` (the default when absent), `query`,
+        /// or `allocation`.
         method: Option<Box<Spanned<String>>>,
         default: Box<ProjectField<JsonValue>>,
         rules: RuleCollection,
         query: Option<Box<QueryNode>>,
+        /// The `method = "allocation"` parameters, present when the
+        /// `allocation` key or any `[[resolve.assign]]` appears.
+        assignments: Option<Box<AssignmentsNode>>,
     },
 }
 
@@ -500,6 +524,13 @@ impl ResolveNode {
     pub(in crate::lint) fn as_query(&self) -> Option<&QueryNode> {
         match self {
             Self::Resolve { query, .. } => query.as_deref(),
+            _ => None,
+        }
+    }
+
+    pub(in crate::lint) fn as_assignments(&self) -> Option<&AssignmentsNode> {
+        match self {
+            Self::Resolve { assignments, .. } => assignments.as_deref(),
             _ => None,
         }
     }

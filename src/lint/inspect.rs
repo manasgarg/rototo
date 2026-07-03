@@ -409,6 +409,7 @@ fn variable_resolve(variable: &VariableNode) -> ResolveInspectReport {
         default,
         rules,
         query,
+        ..
     } = &variable.resolve
     else {
         return ResolveInspectReport {

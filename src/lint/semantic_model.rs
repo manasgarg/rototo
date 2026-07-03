@@ -296,6 +296,7 @@ impl PackageLintSnapshot {
                         default,
                         rules,
                         query,
+                        ..
                     } => Some(ResolveModel {
                         location: model_location(location),
                         method: method.as_ref().map(|method| ModelField {

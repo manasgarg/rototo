@@ -511,6 +511,18 @@ rototo_rules! {
         title: "Variable query resolution is invalid",
         help: "method = \"query\" declares from = \"<catalog-id>\" plus optional filter, sort, order (asc or desc), limit (a positive integer), and default; it requires a catalog:<id> or list<catalog:<id>> type and no [[resolve.rule]] tables.",
     },
+    VariableAllocationShape => {
+        id: "variable-allocation-shape",
+        entity: Variable,
+        title: "Variable allocation resolution is invalid",
+        help: "method = \"allocation\" declares allocation = \"<allocation-id>\", a default, and one [[resolve.assign]] with an arm and a value for every arm of that allocation; rules and query keys do not apply.",
+    },
+    VariableUnknownAllocation => {
+        id: "variable-unknown-allocation",
+        entity: Variable,
+        title: "Variable references an unknown allocation",
+        help: "Declare the allocation in a layer under layers/<id>.toml or fix the allocation id.",
+    },
     VariableRuleShape => {
         id: "variable-rule-shape",
         entity: Variable,
@@ -891,6 +903,8 @@ pub enum SemanticField {
     VariableRuleValue,
     VariableQueryFilter,
     VariableQuerySort,
+    VariableAllocation,
+    VariableAssignValue,
     Value,
     ValueJsonPath { path: Vec<String> },
     SchemaJson,

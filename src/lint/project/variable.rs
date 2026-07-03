@@ -179,6 +179,7 @@ fn project_resolve(
     });
 
     let query = project_query(document, table, &location).map(Box::new);
+    let assignments = project_assignments(document, table, &location).map(Box::new);
 
     ResolveNode::Resolve {
         location: location.clone(),
@@ -186,6 +187,68 @@ fn project_resolve(
         default: Box::new(json_field(document, table, "default", location.clone())),
         rules: project_rules(document, variable_id, table),
         query,
+        assignments,
+    }
+}
+
+/// Project the allocation keys when any of them is present. The node exists
+/// whenever `allocation` or `assign` appears, so lint can flag them under the
+/// wrong method.
+fn project_assignments(
+    document: &SourceDocument,
+    table: &Table<'_>,
+    location: &DiagnosticLocation,
+) -> Option<AssignmentsNode> {
+    if table.get("allocation").is_none() && table.get("assign").is_none() {
+        return None;
+    }
+
+    let allocation = string_query_field(document, table, "allocation", location.clone());
+
+    let mut assigns = Vec::new();
+    let mut assigns_invalid = false;
+    match table.get("assign") {
+        None => {}
+        Some(item) => match item.as_array() {
+            Some(values) => {
+                assigns = values
+                    .iter()
+                    .enumerate()
+                    .map(|(index, value)| project_assign(document, index, value))
+                    .collect();
+            }
+            None => assigns_invalid = true,
+        },
+    }
+
+    Some(AssignmentsNode {
+        location: location.clone(),
+        allocation,
+        assigns,
+        assigns_invalid,
+    })
+}
+
+fn project_assign(document: &SourceDocument, index: usize, value: &TomlValue<'_>) -> AssignNode {
+    let location = value_location(document, value);
+    let Some(table) = value.as_table() else {
+        return AssignNode {
+            index,
+            location: location.clone(),
+            arm: ProjectField::Invalid {
+                location: location.clone(),
+            },
+            value: ProjectField::Invalid { location },
+            invalid_shape: true,
+        };
+    };
+
+    AssignNode {
+        index,
+        location: location.clone(),
+        arm: string_query_field(document, table, "arm", location.clone()),
+        value: json_field(document, table, "value", location),
+        invalid_shape: false,
     }
 }
 

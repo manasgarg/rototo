@@ -32,8 +32,8 @@ pub(crate) use input::{LintInput, OverlayDocument};
 pub(crate) use inspect::inspect_snapshot;
 use references::ReferenceIndex;
 pub(crate) use runtime::{
-    RuntimePackage, RuntimeQuery, RuntimeResolution, RuntimeRule, RuntimeSelectedValue,
-    compile_runtime_package, compile_runtime_package_from_snapshot,
+    RuntimeAllocation, RuntimePackage, RuntimeQuery, RuntimeResolution, RuntimeRule,
+    RuntimeSelectedValue, compile_runtime_package, compile_runtime_package_from_snapshot,
 };
 pub use semantic_model::{
     CatalogEntryModel, CatalogModel, DeclarationModel, EvaluationContextModel,

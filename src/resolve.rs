@@ -10,9 +10,10 @@ use hydrate::catalog_entry_view;
 use crate::error::{Result, RototoError};
 use crate::expression::{RefResolver, ResolvingTarget};
 use crate::lint::{
-    RuntimePackage, RuntimeQuery, RuntimeResolution, RuntimeRule, RuntimeSelectedValue,
-    compile_runtime_package,
+    RuntimeAllocation, RuntimePackage, RuntimeQuery, RuntimeResolution, RuntimeRule,
+    RuntimeSelectedValue, compile_runtime_package,
 };
+use crate::model::VariableAllocationTrace;
 use crate::model::{VariableResolution, VariableResolutionSource};
 use crate::model::{VariableResolutionTrace, VariableRuleResolutionTrace};
 
@@ -176,7 +177,75 @@ fn resolve_variable_trace_with_state(
             resolve_rules_trace(state, id, default, rules)
         }
         RuntimeResolution::Query(query) => resolve_query_trace(runtime, state, id, query),
+        RuntimeResolution::Allocation(allocation) => {
+            resolve_allocation_trace(state, id, allocation)
+        }
     }
+}
+
+fn resolve_allocation_trace(
+    state: &mut ResolutionState<'_>,
+    id: &str,
+    allocation: &RuntimeAllocation,
+) -> Result<VariableResolutionTrace> {
+    let mut trace = VariableAllocationTrace {
+        layer: allocation.layer.clone(),
+        allocation: allocation.allocation.clone(),
+        enrolled: false,
+        bucket: None,
+        arm: None,
+    };
+
+    let mut selected: Option<&RuntimeSelectedValue> = None;
+    if allocation.running && evaluate_allocation_eligibility(state, allocation)? {
+        trace.enrolled = true;
+        let context = state.context;
+        let now = state.now.clone();
+        let unit = allocation.unit.evaluate_value(context, None, &now, state)?;
+        let bucket = allocation_bucket(&allocation.layer, &unit, allocation.buckets);
+        trace.bucket = Some(bucket);
+        for arm in &allocation.arms {
+            if bucket >= arm.start && bucket <= arm.end {
+                trace.arm = Some(arm.name.clone());
+                selected = Some(&arm.value);
+                break;
+            }
+        }
+    }
+
+    let selected = selected.unwrap_or(&allocation.default);
+    let resolution = VariableResolution {
+        id: id.to_owned(),
+        value: selected.value().clone(),
+        source: selected_value_source(selected),
+    };
+
+    Ok(VariableResolutionTrace {
+        resolution,
+        default_value: allocation.default.value().clone(),
+        default_source: selected_value_source(&allocation.default),
+        rules: Vec::new(),
+        allocation: Some(trace),
+    })
+}
+
+fn evaluate_allocation_eligibility(
+    state: &mut ResolutionState<'_>,
+    allocation: &RuntimeAllocation,
+) -> Result<bool> {
+    let Some(eligibility) = &allocation.eligibility else {
+        return Ok(true);
+    };
+    let context = state.context;
+    let now = state.now.clone();
+    eligibility.evaluate_bool(context, None, &now, state)
+}
+
+/// The deterministic bucket for a unit on a layer's line: the same FNV-1a
+/// hash as `bucket()` expressions, salted with the layer id so different
+/// layers divide traffic independently.
+fn allocation_bucket(layer: &str, unit: &JsonValue, buckets: u32) -> u32 {
+    (stable_unit_hash(layer, unit) % u64::from(buckets)) as u32
 }
 
 fn resolve_rules_trace(
@@ -215,6 +284,7 @@ fn resolve_rules_trace(
         default_value: default.value().clone(),
         default_source: selected_value_source(default),
         rules: rule_traces,
+        allocation: None,
     })
 }
 
@@ -242,6 +312,7 @@ fn resolve_query_trace(
         default_value,
         default_source,
         rules: Vec::new(),
+        allocation: None,
     })
 }
 
@@ -431,6 +502,13 @@ impl<'a> ResolutionState<'a> {
 }
 
 pub(crate) fn bucket_value(salt: &str, value: &JsonValue) -> u16 {
+    (stable_unit_hash(salt, value) % 10_000) as u16
+}
+
+/// FNV-1a over `salt:value`, shared by `bucket()` expressions and layer
+/// diversions. The hash is part of rototo's contract: a unit's position must
+/// never move between releases.
+fn stable_unit_hash(salt: &str, value: &JsonValue) -> u64 {
     let mut hash = 14_695_981_039_346_656_037_u64;
     for byte in salt
         .bytes()
@@ -440,7 +518,7 @@ pub(crate) fn bucket_value(salt: &str, value: &JsonValue) -> u16 {
         hash ^= u64::from(byte);
         hash = hash.wrapping_mul(1_099_511_628_211);
     }
-    (hash % 10_000) as u16
+    hash
 }
 
 fn canonical_context_value(value: &JsonValue) -> String {
@@ -1323,6 +1401,174 @@ sort = "entry.price > 0 ? entry.tier : entry.price"
             .await
             .unwrap_err();
         assert!(err.to_string().contains("sort keys are not comparable"));
+    }
+
+    /// A package with one two-arm layer allocation and one allocation-driven
+    /// string variable, for exercising arm assignment end to end.
+    fn package_with_allocation_variable(layer: &str, variable: &str) -> tempfile::TempDir {
+        let package = package_with_conditions(&[]);
+        std::fs::create_dir_all(package.path().join("layers")).unwrap();
+        std::fs::write(package.path().join("layers/checkout.toml"), layer).unwrap();
+        std::fs::write(package.path().join("variables/cta.toml"), variable).unwrap();
+        package
+    }
+
+    const CTA_LAYER: &str = r#"schema_version = 1
+unit = "context.user.id"
+buckets = 100
+
+[[allocation]]
+id = "cta_copy"
+status = "running"
+eligibility = 'context.account.plan != "enterprise"'
+
+[[allocation.arm]]
+name = "control"
+buckets = "0-49"
+
+[[allocation.arm]]
+name = "benefit_led"
+buckets = "50-99"
+"#;
+
+    const CTA_VARIABLE: &str = r#"schema_version = 1
+type = "string"
+
+[resolve]
+method = "allocation"
+allocation = "cta_copy"
+default = "click here"
+
+[[resolve.assign]]
+arm = "control"
+value = "click here"
+
+[[resolve.assign]]
+arm = "benefit_led"
+value = "save time"
+"#;
+
+    #[tokio::test]
+    async fn allocation_assigns_arms_deterministically() {
+        let package = package_with_allocation_variable(CTA_LAYER, CTA_VARIABLE);
+        let context =
+            |id: &str| serde_json::json!({ "user": { "id": id }, "account": { "plan": "pro" } });
+
+        // The hash is part of the contract: these units land in these arms,
+        // and rerunning the resolution never moves them.
+        let first = resolve_variable(package.path(), "cta", &context("user-1"))
+            .await
+            .unwrap();
+        let again = resolve_variable(package.path(), "cta", &context("user-1"))
+            .await
+            .unwrap();
+        assert_eq!(first.value, again.value);
+
+        let mut arms = std::collections::BTreeSet::new();
+        for index in 0..20 {
+            let resolution =
+                resolve_variable(package.path(), "cta", &context(&format!("user-{index}")))
+                    .await
+                    .unwrap();
+            arms.insert(resolution.value.as_str().unwrap().to_owned());
+        }
+        assert_eq!(
+            arms.into_iter().collect::<Vec<_>>(),
+            vec!["click here".to_owned(), "save time".to_owned()],
+            "20 units should spread across both arms"
+        );
+    }
+
+    #[tokio::test]
+    async fn allocation_trace_records_the_assignment() {
+        let package = package_with_allocation_variable(CTA_LAYER, CTA_VARIABLE);
+        let context = serde_json::json!({
+            "user": { "id": "user-1" },
+            "account": { "plan": "pro" }
+        });
+        let traces = trace_variable_resolutions(package.path(), &context)
+            .await
+            .unwrap();
+        let trace = traces
+            .iter()
+            .find(|trace| trace.resolution.id == "cta")
+            .unwrap();
+        let allocation = trace.allocation.as_ref().expect("allocation trace");
+        assert_eq!(allocation.layer, "checkout");
+        assert_eq!(allocation.allocation, "cta_copy");
+        assert!(allocation.enrolled);
+        assert!(allocation.bucket.is_some());
+        assert!(allocation.arm.is_some());
+    }
+
+    #[tokio::test]
+    async fn allocation_ineligible_units_resolve_to_the_default() {
+        let package = package_with_allocation_variable(CTA_LAYER, CTA_VARIABLE);
+        let context = serde_json::json!({
+            "user": { "id": "user-1" },
+            "account": { "plan": "enterprise" }
+        });
+        let traces = trace_variable_resolutions(package.path(), &context)
+            .await
+            .unwrap();
+        let trace = traces
+            .iter()
+            .find(|trace| trace.resolution.id == "cta")
+            .unwrap();
+        assert_eq!(trace.resolution.value, "click here");
+        let allocation = trace.allocation.as_ref().expect("allocation trace");
+        assert!(!allocation.enrolled);
+        assert!(allocation.arm.is_none());
+    }
+
+    #[tokio::test]
+    async fn allocation_only_assigns_while_running() {
+        for status in ["draft", "concluded"] {
+            let layer =
+                CTA_LAYER.replace("status = \"running\"", &format!("status = \"{status}\""));
+            let package = package_with_allocation_variable(&layer, CTA_VARIABLE);
+            let context = serde_json::json!({
+                "user": { "id": "user-1" },
+                "account": { "plan": "pro" }
+            });
+            let resolution = resolve_variable(package.path(), "cta", &context)
+                .await
+                .unwrap();
+            assert_eq!(resolution.value, "click here", "status {status}");
+        }
+    }
+
+    #[tokio::test]
+    async fn allocation_unclaimed_buckets_resolve_to_the_default() {
+        // Shrink both arms so most of the line is unclaimed.
+        let layer = CTA_LAYER
+            .replace("buckets = \"0-49\"", "buckets = \"0\"")
+            .replace("buckets = \"50-99\"", "buckets = \"1\"");
+        let package = package_with_allocation_variable(&layer, CTA_VARIABLE);
+        let mut unclaimed = 0;
+        for index in 0..10 {
+            let context = serde_json::json!({
+                "user": { "id": format!("user-{index}") },
+                "account": { "plan": "pro" }
+            });
+            let traces = trace_variable_resolutions(package.path(), &context)
+                .await
+                .unwrap();
+            let trace = traces
+                .iter()
+                .find(|trace| trace.resolution.id == "cta")
+                .unwrap();
+            let allocation = trace.allocation.as_ref().unwrap();
+            if allocation.arm.is_none() {
+                assert!(allocation.enrolled);
+                assert_eq!(trace.resolution.value, "click here");
+                unclaimed += 1;
+            }
+        }
+        assert!(
+            unclaimed > 0,
+            "some of 10 units should fall outside 2 of 100 buckets"
+        );
     }
 
     #[tokio::test]

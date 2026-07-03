@@ -1,0 +1,7 @@
+schema_version = 1
+type = "string"
+
+[resolve]
+method = "allocation"
+allocation = "missing"
+default = "click here"

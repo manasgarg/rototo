@@ -45,6 +45,7 @@ impl RuntimePackage {
                 .is_some_and(|variable| match &variable.resolution {
                     RuntimeResolution::Rules { rules, .. } => rules.is_empty(),
                     RuntimeResolution::Query(query) => !query.uses_context,
+                    RuntimeResolution::Allocation(allocation) => !allocation.uses_context,
                 })
         {
             return Ok(());
@@ -110,12 +111,40 @@ pub(crate) enum RuntimeResolution {
         rules: Vec<RuntimeRule>,
     },
     Query(Box<RuntimeQuery>),
+    Allocation(Box<RuntimeAllocation>),
 }
 
 #[derive(Debug)]
 pub(crate) struct RuntimeRule {
     pub(crate) index: usize,
     pub(crate) when: Expression,
+    pub(crate) value: RuntimeSelectedValue,
+}
+
+/// A compiled `method = "allocation"` resolution: the layer diversion, the
+/// allocation's gate and arms, and the value each arm assigns.
+#[derive(Debug)]
+pub(crate) struct RuntimeAllocation {
+    pub(crate) layer: String,
+    pub(crate) allocation: String,
+    pub(crate) unit: Expression,
+    pub(crate) buckets: u32,
+    /// Only a running allocation assigns arms; draft and concluded
+    /// allocations resolve every unit to the default.
+    pub(crate) running: bool,
+    pub(crate) eligibility: Option<Expression>,
+    pub(crate) arms: Vec<RuntimeArm>,
+    pub(crate) default: RuntimeSelectedValue,
+    /// Whether unit/eligibility read `context` or other variables.
+    pub(crate) uses_context: bool,
+}
+
+/// One arm's inclusive bucket claim and the value it assigns.
+#[derive(Debug)]
+pub(crate) struct RuntimeArm {
+    pub(crate) name: String,
+    pub(crate) start: u32,
+    pub(crate) end: u32,
     pub(crate) value: RuntimeSelectedValue,
 }
 
@@ -346,6 +375,7 @@ impl<'a> RuntimeCompiler<'a> {
             default,
             rules,
             query,
+            assignments,
             ..
         } = &variable.resolve
         else {
@@ -381,10 +411,172 @@ impl<'a> RuntimeCompiler<'a> {
             "query" => {
                 self.compile_variable_query(index, variable, type_kind, default, rules, query)
             }
+            "allocation" => self.compile_variable_allocation(
+                index,
+                variable,
+                type_kind,
+                default,
+                rules,
+                assignments,
+            ),
             other => Err(RototoError::new(format!(
-                "unknown resolution method: {other}; supported methods are rules and query"
+                "unknown resolution method: {other}; supported methods are rules, query, \
+                 and allocation"
             ))),
         }
+    }
+
+    fn compile_variable_allocation(
+        &self,
+        index: &SemanticIndex,
+        variable: &VariableNode,
+        type_kind: &VariableTypeKind,
+        default: &ProjectField<JsonValue>,
+        rules: &RuleCollection,
+        assignments: &Option<Box<AssignmentsNode>>,
+    ) -> Result<RuntimeResolution> {
+        if !matches!(rules, RuleCollection::Rules(rules) if rules.is_empty()) {
+            return Err(RototoError::new(
+                "method = \"allocation\" must not declare [[resolve.rule]] tables",
+            ));
+        }
+        let Some(assignments) = assignments else {
+            return Err(RototoError::new(
+                "method = \"allocation\" must declare allocation = \"<allocation-id>\"",
+            ));
+        };
+        let ProjectField::Present(allocation_id) = &assignments.allocation else {
+            return Err(RototoError::new(
+                "method = \"allocation\" must declare allocation = \"<allocation-id>\"",
+            ));
+        };
+
+        let Some((layer, allocation)) = index.layers.values().find_map(|layer| {
+            layer
+                .allocations
+                .iter()
+                .find(|candidate| {
+                    matches!(&candidate.id, ProjectField::Present(id) if id.value == allocation_id.value)
+                })
+                .map(|allocation| (layer, allocation))
+        }) else {
+            return Err(RototoError::new(format!(
+                "variable references unknown allocation: {}",
+                allocation_id.value
+            )));
+        };
+
+        let ProjectField::Present(unit) = &layer.unit else {
+            return Err(RototoError::new(format!(
+                "layer must declare unit: {}",
+                layer.id
+            )));
+        };
+        let buckets = match &layer.buckets {
+            ProjectField::Present(buckets) if buckets.value >= 1 => buckets.value as u32,
+            _ => {
+                return Err(RototoError::new(format!(
+                    "layer must declare buckets as a positive integer: {}",
+                    layer.id
+                )));
+            }
+        };
+        let running = match &allocation.status {
+            None => true,
+            Some(ProjectField::Present(status)) => status.value == "running",
+            Some(_) => {
+                return Err(RototoError::new(
+                    "allocation status must be draft, running, or concluded",
+                ));
+            }
+        };
+        let eligibility = match &allocation.eligibility {
+            None => None,
+            Some(ProjectField::Present(eligibility)) => Some(eligibility.value.clone()),
+            Some(_) => {
+                return Err(RototoError::new(
+                    "allocation eligibility must be a CEL expression string",
+                ));
+            }
+        };
+
+        let mut assigned: BTreeMap<&str, RuntimeSelectedValue> = BTreeMap::new();
+        for assign in &assignments.assigns {
+            if assign.invalid_shape {
+                return Err(RototoError::new("assign must be a table"));
+            }
+            let ProjectField::Present(arm) = &assign.arm else {
+                return Err(RototoError::new("assign must declare arm"));
+            };
+            let value = present_json(&assign.value, "assign must declare a value")?;
+            let value = self.compile_variable_value(index, variable, type_kind, &value.value)?;
+            if assigned.insert(arm.value.as_str(), value).is_some() {
+                return Err(RototoError::new(format!(
+                    "arm is assigned more than once: {}",
+                    arm.value
+                )));
+            }
+        }
+
+        let mut arms = Vec::new();
+        for arm in &allocation.arms {
+            let ProjectField::Present(name) = &arm.name else {
+                return Err(RototoError::new("arm must declare name"));
+            };
+            let ProjectField::Present(range) = &arm.buckets else {
+                return Err(RototoError::new("arm must declare buckets"));
+            };
+            let Some((start, end)) = parse_arm_buckets(&range.value) else {
+                return Err(RototoError::new(format!(
+                    "arm buckets must be \"<start>-<end>\" or \"<bucket>\": {}",
+                    range.value
+                )));
+            };
+            let Some(value) = assigned.remove(name.value.as_str()) else {
+                return Err(RototoError::new(format!(
+                    "assign is missing for arm: {}",
+                    name.value
+                )));
+            };
+            arms.push(RuntimeArm {
+                name: name.value.clone(),
+                start,
+                end,
+                value,
+            });
+        }
+        if let Some((stray, _)) = assigned.into_iter().next() {
+            return Err(RototoError::new(format!(
+                "assign names an arm the allocation does not declare: {stray}"
+            )));
+        }
+
+        let default = present_json(
+            default,
+            "method = \"allocation\" must declare a default for units in no arm",
+        )?;
+        let default = self.compile_variable_value(index, variable, type_kind, &default.value)?;
+
+        let uses_context = [Some(&unit.value), eligibility.as_ref()]
+            .into_iter()
+            .flatten()
+            .any(|expression| {
+                let references = expression.references();
+                !references.variables.is_empty()
+                    || references.context_paths.iter().any(|path| !path.is_empty())
+            });
+
+        Ok(RuntimeResolution::Allocation(Box::new(RuntimeAllocation {
+            layer: layer.id.clone(),
+            allocation: allocation_id.value.clone(),
+            unit: unit.value.clone(),
+            buckets,
+            running,
+            eligibility,
+            arms,
+            default,
+            uses_context,
+        })))
     }
 
     fn compile_variable_query(

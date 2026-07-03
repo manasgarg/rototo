@@ -1618,6 +1618,48 @@ fn canonical_rule_fixtures() -> &'static [CanonicalRuleFixture] {
             }],
         },
         CanonicalRuleFixture {
+            rule: RototoRuleId::VariableAllocationShape,
+            package: "tests/fixtures/packages/rules/project/variable-allocation-shape",
+            success: false,
+            expected: &[ExpectedDiagnostic {
+                rule: "rototo/variable-allocation-shape",
+                severity: "error",
+                stage: LintStage::Project,
+                entity: ExpectedEntity::Variable("cta"),
+                primary: ExpectedPrimaryLocation::Document {
+                    path: "variables/cta.toml",
+                    range: Some(ExpectedRange {
+                        start_line: 3,
+                        start_character: 0,
+                        end_line: 6,
+                        end_character: 22,
+                    }),
+                },
+                related: &[],
+            }],
+        },
+        CanonicalRuleFixture {
+            rule: RototoRuleId::VariableUnknownAllocation,
+            package: "tests/fixtures/packages/rules/project/variable-unknown-allocation",
+            success: false,
+            expected: &[ExpectedDiagnostic {
+                rule: "rototo/variable-unknown-allocation",
+                severity: "error",
+                stage: LintStage::Project,
+                entity: ExpectedEntity::Variable("cta"),
+                primary: ExpectedPrimaryLocation::Document {
+                    path: "variables/cta.toml",
+                    range: Some(ExpectedRange {
+                        start_line: 5,
+                        start_character: 13,
+                        end_line: 5,
+                        end_character: 22,
+                    }),
+                },
+                related: &[],
+            }],
+        },
+        CanonicalRuleFixture {
             rule: RototoRuleId::VariableQueryShape,
             package: "tests/fixtures/packages/rules/project/variable-query-shape",
             success: false,
@@ -2343,6 +2385,8 @@ fn lint_failures_expected_rule_ids() -> &'static [&'static str] {
         "rototo/variable-rule-shape",
         "rototo/variable-rule-undeclared-context-path",
         "rototo/variable-rule-unknown-variable",
+        "rototo/variable-allocation-shape",
+        "rototo/variable-unknown-allocation",
         "rototo/variable-unknown-type",
         "rototo/variable-unknown-value",
         "rototo/variable-value-type-mismatch",

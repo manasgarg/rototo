@@ -152,7 +152,7 @@ fn lint_resolve_shape(
     index: &SemanticIndex,
     variable: &VariableNode,
 ) {
-    let (method, default, rules, query) = match &variable.resolve {
+    let (method, default, rules, query, assignments) = match &variable.resolve {
         ResolveNode::Missing { location } => {
             push_project_diagnostic(
                 diagnostics,
@@ -178,31 +178,31 @@ fn lint_resolve_shape(
             default,
             rules,
             query,
+            assignments,
             ..
-        } => (method, default, rules, query),
+        } => (method, default, rules, query, assignments),
     };
 
     let method_name = match method {
         None => "rules",
-        Some(method) if matches!(method.value.as_str(), "rules" | "query") => method.value.as_str(),
+        Some(method) if matches!(method.value.as_str(), "rules" | "query" | "allocation") => {
+            method.value.as_str()
+        }
         Some(method) => {
             push_project_diagnostic(
                 diagnostics,
                 RototoRuleId::VariableResolveShape,
                 variable.field_target(SemanticField::VariableResolve),
                 method.location.clone(),
-                "resolve method must be \"rules\" or \"query\"",
+                "resolve method must be \"rules\", \"query\", or \"allocation\"",
             );
             return;
         }
     };
 
-    if method_name == "query" {
-        lint_query_shape(diagnostics, index, variable, rules, query);
-        return;
-    }
-
-    if let Some(query) = query {
+    if method_name != "query"
+        && let Some(query) = query
+    {
         push_project_diagnostic(
             diagnostics,
             RototoRuleId::VariableQueryShape,
@@ -211,6 +211,27 @@ fn lint_resolve_shape(
             "query parameters (from, filter, sort, order, limit) are only valid with \
              method = \"query\"",
         );
+    }
+    if method_name != "allocation"
+        && let Some(assignments) = assignments
+    {
+        push_project_diagnostic(
+            diagnostics,
+            RototoRuleId::VariableAllocationShape,
+            variable.field_target(SemanticField::VariableResolve),
+            assignments.location.clone(),
+            "allocation parameters (allocation, [[resolve.assign]]) are only valid with \
+             method = \"allocation\"",
+        );
+    }
+
+    if method_name == "query" {
+        lint_query_shape(diagnostics, index, variable, rules, query);
+        return;
+    }
+    if method_name == "allocation" {
+        lint_allocation_shape(diagnostics, index, variable, default, rules, assignments);
+        return;
     }
 
     if field_is_not_present(default) {
@@ -234,6 +255,178 @@ fn lint_resolve_shape(
         RuleCollection::Rules(rules) => {
             for rule in rules {
                 lint_variable_rule_shape(diagnostics, variable, rule);
+            }
+        }
+    }
+}
+
+/// Coherence checks for `method = "allocation"`: the variable consumes one
+/// allocation, covers exactly that allocation's arms, and keeps a default for
+/// units in no arm (ineligible, unclaimed buckets, or a non-running
+/// allocation).
+fn lint_allocation_shape(
+    diagnostics: &mut Vec<LintDiagnostic>,
+    index: &SemanticIndex,
+    variable: &VariableNode,
+    default: &ProjectField<JsonValue>,
+    rules: &RuleCollection,
+    assignments: &Option<Box<AssignmentsNode>>,
+) {
+    match rules {
+        RuleCollection::Rules(rules) if rules.is_empty() => {}
+        RuleCollection::Rules(rules) => push_project_diagnostic(
+            diagnostics,
+            RototoRuleId::VariableAllocationShape,
+            variable.field_target(SemanticField::VariableResolve),
+            rules[0].location.clone(),
+            "method = \"allocation\" must not declare [[resolve.rule]] tables",
+        ),
+        RuleCollection::Invalid { location } => push_project_diagnostic(
+            diagnostics,
+            RototoRuleId::VariableAllocationShape,
+            variable.field_target(SemanticField::VariableResolve),
+            location.clone(),
+            "method = \"allocation\" must not declare [[resolve.rule]] tables",
+        ),
+    }
+
+    if field_is_not_present(default) {
+        push_project_diagnostic(
+            diagnostics,
+            RototoRuleId::VariableResolveMissingDefault,
+            variable.field_target(SemanticField::VariableResolveDefault),
+            default.location(),
+            "method = \"allocation\" must declare a default for units in no arm",
+        );
+    }
+
+    let Some(assignments) = assignments else {
+        push_project_diagnostic(
+            diagnostics,
+            RototoRuleId::VariableAllocationShape,
+            variable.field_target(SemanticField::VariableResolve),
+            variable.resolve.location(),
+            "method = \"allocation\" must declare allocation = \"<allocation-id>\"",
+        );
+        return;
+    };
+
+    let allocation = match &assignments.allocation {
+        ProjectField::Present(allocation) => {
+            let declared = index.layers.values().find_map(|layer| {
+                layer.allocations.iter().find(|candidate| {
+                    matches!(&candidate.id, ProjectField::Present(id) if id.value == allocation.value)
+                })
+            });
+            if declared.is_none() {
+                push_project_diagnostic(
+                    diagnostics,
+                    RototoRuleId::VariableUnknownAllocation,
+                    variable.field_target(SemanticField::VariableAllocation),
+                    allocation.location.clone(),
+                    format!(
+                        "variable references unknown allocation: {}",
+                        allocation.value
+                    ),
+                );
+            }
+            declared
+        }
+        ProjectField::Invalid { location } | ProjectField::Missing { location } => {
+            push_project_diagnostic(
+                diagnostics,
+                RototoRuleId::VariableAllocationShape,
+                variable.field_target(SemanticField::VariableAllocation),
+                location.clone(),
+                "method = \"allocation\" must declare allocation = \"<allocation-id>\"",
+            );
+            None
+        }
+    };
+
+    if assignments.assigns_invalid {
+        push_project_diagnostic(
+            diagnostics,
+            RototoRuleId::VariableAllocationShape,
+            variable.field_target(SemanticField::VariableResolve),
+            assignments.location.clone(),
+            "assign must use [[resolve.assign]] tables",
+        );
+    }
+
+    let mut assigned: Vec<&str> = Vec::new();
+    for assign in &assignments.assigns {
+        if assign.invalid_shape {
+            push_project_diagnostic(
+                diagnostics,
+                RototoRuleId::VariableAllocationShape,
+                variable.field_target(SemanticField::VariableResolve),
+                assign.location.clone(),
+                "assign must be a table",
+            );
+            continue;
+        }
+        match &assign.arm {
+            ProjectField::Present(arm) => {
+                if assigned.contains(&arm.value.as_str()) {
+                    push_project_diagnostic(
+                        diagnostics,
+                        RototoRuleId::VariableAllocationShape,
+                        variable.field_target(SemanticField::VariableResolve),
+                        arm.location.clone(),
+                        format!("arm is assigned more than once: {}", arm.value),
+                    );
+                }
+                assigned.push(arm.value.as_str());
+                if let Some(allocation) = allocation {
+                    let known = allocation.arms.iter().any(|candidate| {
+                        matches!(&candidate.name, ProjectField::Present(name) if name.value == arm.value)
+                    });
+                    if !known {
+                        push_project_diagnostic(
+                            diagnostics,
+                            RototoRuleId::VariableAllocationShape,
+                            variable.field_target(SemanticField::VariableResolve),
+                            arm.location.clone(),
+                            format!(
+                                "assign names an arm the allocation does not declare: {}",
+                                arm.value
+                            ),
+                        );
+                    }
+                }
+            }
+            field => push_project_diagnostic(
+                diagnostics,
+                RototoRuleId::VariableAllocationShape,
+                variable.field_target(SemanticField::VariableResolve),
+                field.location(),
+                "assign must declare arm",
+            ),
+        }
+        if field_is_not_present(&assign.value) {
+            push_project_diagnostic(
+                diagnostics,
+                RototoRuleId::VariableAllocationShape,
+                variable.field_target(SemanticField::VariableAssignValue),
+                assign.value.location(),
+                "assign must declare a value",
+            );
+        }
+    }
+
+    if let Some(allocation) = allocation {
+        for arm in &allocation.arms {
+            if let ProjectField::Present(name) = &arm.name
+                && !assigned.contains(&name.value.as_str())
+            {
+                push_project_diagnostic(
+                    diagnostics,
+                    RototoRuleId::VariableAllocationShape,
+                    variable.field_target(SemanticField::VariableResolve),
+                    assignments.location.clone(),
+                    format!("assign is missing for arm: {}", name.value),
+                );
             }
         }
     }
@@ -729,8 +922,8 @@ fn lint_enum_list_resolve_values(
     });
 }
 
-/// Visit the resolve default and every literal rule value with its semantic
-/// target, value, location, and human label.
+/// Visit the resolve default, every literal rule value, and every assign
+/// value with its semantic target, value, location, and human label.
 fn for_each_resolve_value(
     variable: &VariableNode,
     mut visit: impl FnMut(
@@ -750,6 +943,21 @@ fn for_each_resolve_value(
             &default.location,
             "resolve default",
         );
+    }
+    if let Some(assignments) = variable.resolve.as_assignments() {
+        for assign in &assignments.assigns {
+            if assign.invalid_shape {
+                continue;
+            }
+            if let ProjectField::Present(value) = &assign.value {
+                visit(
+                    variable.field_target(SemanticField::VariableAssignValue),
+                    &value.value,
+                    &value.location,
+                    "assign value",
+                );
+            }
+        }
     }
     let RuleCollection::Rules(rules) = rules else {
         return;
@@ -774,37 +982,9 @@ fn lint_primitive_resolve_values(
     variable: &VariableNode,
     primitive: PrimitiveType,
 ) {
-    let ResolveNode::Resolve { default, rules, .. } = &variable.resolve else {
-        return;
-    };
-    if let ProjectField::Present(default) = default.as_ref() {
-        lint_primitive_value(
-            diagnostics,
-            variable.field_target(SemanticField::VariableResolveDefault),
-            &default.value,
-            &default.location,
-            primitive,
-            "resolve default",
-        );
-    }
-    let RuleCollection::Rules(rules) = rules else {
-        return;
-    };
-    for rule in rules {
-        if rule.invalid_shape {
-            continue;
-        }
-        if let ProjectField::Present(value) = &rule.value {
-            lint_primitive_value(
-                diagnostics,
-                rule.field_target(&variable.id, SemanticField::VariableRuleValue),
-                &value.value,
-                &value.location,
-                primitive,
-                "rule value",
-            );
-        }
-    }
+    for_each_resolve_value(variable, |target, value, value_location, label| {
+        lint_primitive_value(diagnostics, target, value, value_location, primitive, label);
+    });
 }
 
 fn lint_primitive_list_resolve_values(
@@ -812,37 +992,9 @@ fn lint_primitive_list_resolve_values(
     variable: &VariableNode,
     primitive: PrimitiveType,
 ) {
-    let ResolveNode::Resolve { default, rules, .. } = &variable.resolve else {
-        return;
-    };
-    if let ProjectField::Present(default) = default.as_ref() {
-        lint_primitive_list_value(
-            diagnostics,
-            variable.field_target(SemanticField::VariableResolveDefault),
-            &default.value,
-            &default.location,
-            primitive,
-            "resolve default",
-        );
-    }
-    let RuleCollection::Rules(rules) = rules else {
-        return;
-    };
-    for rule in rules {
-        if rule.invalid_shape {
-            continue;
-        }
-        if let ProjectField::Present(value) = &rule.value {
-            lint_primitive_list_value(
-                diagnostics,
-                rule.field_target(&variable.id, SemanticField::VariableRuleValue),
-                &value.value,
-                &value.location,
-                primitive,
-                "rule value",
-            );
-        }
-    }
+    for_each_resolve_value(variable, |target, value, value_location, label| {
+        lint_primitive_list_value(diagnostics, target, value, value_location, primitive, label);
+    });
 }
 
 fn lint_primitive_list_value(
@@ -904,70 +1056,18 @@ fn lint_primitive_value(
 }
 
 fn lint_catalog_resolve_values(diagnostics: &mut Vec<LintDiagnostic>, variable: &VariableNode) {
-    let ResolveNode::Resolve { default, rules, .. } = &variable.resolve else {
-        return;
-    };
-    if let ProjectField::Present(default) = default.as_ref() {
-        lint_catalog_selector(
-            diagnostics,
-            variable.field_target(SemanticField::VariableResolveDefault),
-            &default.value,
-            &default.location,
-            "resolve default",
-        );
-    }
-    let RuleCollection::Rules(rules) = rules else {
-        return;
-    };
-    for rule in rules {
-        if rule.invalid_shape {
-            continue;
-        }
-        if let ProjectField::Present(value) = &rule.value {
-            lint_catalog_selector(
-                diagnostics,
-                rule.field_target(&variable.id, SemanticField::VariableRuleValue),
-                &value.value,
-                &value.location,
-                "rule value",
-            );
-        }
-    }
+    for_each_resolve_value(variable, |target, value, value_location, label| {
+        lint_catalog_selector(diagnostics, target, value, value_location, label);
+    });
 }
 
 fn lint_catalog_list_resolve_values(
     diagnostics: &mut Vec<LintDiagnostic>,
     variable: &VariableNode,
 ) {
-    let ResolveNode::Resolve { default, rules, .. } = &variable.resolve else {
-        return;
-    };
-    if let ProjectField::Present(default) = default.as_ref() {
-        lint_catalog_selector_list(
-            diagnostics,
-            variable.field_target(SemanticField::VariableResolveDefault),
-            &default.value,
-            &default.location,
-            "resolve default",
-        );
-    }
-    let RuleCollection::Rules(rules) = rules else {
-        return;
-    };
-    for rule in rules {
-        if rule.invalid_shape {
-            continue;
-        }
-        if let ProjectField::Present(value) = &rule.value {
-            lint_catalog_selector_list(
-                diagnostics,
-                rule.field_target(&variable.id, SemanticField::VariableRuleValue),
-                &value.value,
-                &value.location,
-                "rule value",
-            );
-        }
-    }
+    for_each_resolve_value(variable, |target, value, value_location, label| {
+        lint_catalog_selector_list(diagnostics, target, value, value_location, label);
+    });
 }
 
 fn lint_catalog_selector(

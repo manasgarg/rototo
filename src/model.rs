@@ -456,6 +456,25 @@ pub struct VariableResolutionTrace {
     pub default_value: serde_json::Value,
     pub default_source: VariableResolutionSource,
     pub rules: Vec<VariableRuleResolutionTrace>,
+    /// The arm assignment behind a `method = "allocation"` resolution: which
+    /// layer and allocation were consulted, whether the unit was enrolled, and
+    /// which bucket and arm it landed in.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub allocation: Option<VariableAllocationTrace>,
+}
+
+#[derive(Debug, Clone, serde::Serialize)]
+#[serde(rename_all = "snake_case")]
+pub struct VariableAllocationTrace {
+    pub layer: String,
+    pub allocation: String,
+    /// False when the allocation is not running or the unit failed the
+    /// eligibility gate; the variable then resolves to its default.
+    pub enrolled: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub bucket: Option<u32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub arm: Option<String>,
 }
 
 #[derive(Debug, Clone, serde::Serialize)]

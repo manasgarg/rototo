@@ -445,6 +445,29 @@ fn print_variable_resolution_trace(trace: &VariableResolutionTrace) -> Result<()
             }
         );
     }
+    if let Some(allocation) = &trace.allocation {
+        let assignment = match (&allocation.arm, allocation.enrolled) {
+            (Some(arm), _) => format!(
+                "bucket {} {} arm {}",
+                allocation.bucket.unwrap_or_default(),
+                style::arrow(),
+                style::sea_bold(arm)
+            ),
+            (None, true) => match allocation.bucket {
+                Some(bucket) => format!("bucket {bucket} {} no arm", style::arrow()),
+                None => "no arm".to_owned(),
+            },
+            (None, false) => style::dim("not enrolled").to_string(),
+        };
+        println!(
+            "    {} {}/{} {} {}",
+            style::dim("allocation"),
+            style::sea(&allocation.layer),
+            style::sea(&allocation.allocation),
+            style::arrow(),
+            assignment
+        );
+    }
     println!(
         "    {} {} {}",
         style::dim("default"),
