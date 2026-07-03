@@ -18,6 +18,17 @@ fn lints_basic_package() {
 }
 
 #[test]
+fn lints_acme_overlay_package() {
+    // The tenant overlay composes over examples/basic (union, tombstone,
+    // patch, resolve override, namespaced addition) and must stay lint-clean.
+    Command::cargo_bin("rototo")
+        .unwrap()
+        .args(["lint", "examples/acme-overlay"])
+        .assert()
+        .success();
+}
+
+#[test]
 fn lints_basic_package_as_json_with_documents() {
     let lint = lint_json("examples/basic", true);
 

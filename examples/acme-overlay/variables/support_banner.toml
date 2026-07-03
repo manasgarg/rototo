@@ -1,0 +1,10 @@
+[resolve]
+default = "hidden"
+
+[[resolve.rule]]
+when = 'variables["acme/account_team_hours"]'
+value = "acme_hours"
+
+[[resolve.rule]]
+when = 'variables["mobile_users"]'
+value = "mobile_help"
