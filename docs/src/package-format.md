@@ -982,9 +982,53 @@ A rule registration has five parts:
 - `target` - what the rule looks at (here, the entries of a catalog).
 - `handler` - the name of the function rototo calls for each target.
 
+There's also an optional `severity` (`"error"` or `"warning"`, default
+`"error"`), and `target` itself defaults to `/`, the whole package.
+
 The handler returns a list of problems. Each problem just needs a `message`;
-returning an empty list `{}` means "all good." The [diagnostics
+returning an empty list `{}` means "all good." A problem can also carry a
+`path` (a pointer into the target's value, used to anchor the diagnostic to
+the exact line) and a `field`. The [diagnostics
 reference](./diagnostics.md) covers how these show up next to the built-in ones.
+
+### Target addresses
+
+`target` is a logical address, not a file path - it survived the model/data
+layout change unchanged, and it's how one rule fans out. A plural address runs
+the handler once per instance; a singular one pins a single target:
+
+- `/` - the whole package, once.
+- `/variables`, `/variables/<id>` - every variable, or one.
+- `/variables/<id>/values`, `/variables/<id>/values/<key>` - a variable's
+  declared values.
+- `/variables/<id>/rules`, `/variables/<id>/rules/<index>` - a variable's
+  resolve rules, by position.
+- `/catalogs`, `/catalogs/<id>` - every catalog, or one.
+- `/catalogs/<id>/entries`, `/catalogs/<id>/entries/<key>` - a catalog's
+  entries. This is the workhorse: one handler, run once per entry.
+- `/evaluation-contexts`, `/evaluation-contexts/<id>` - context schemas.
+- `/evaluation-contexts/<id>/samples`,
+  `/evaluation-contexts/<id>/samples/<key>` - a context's samples.
+
+### What the handler receives
+
+The handler's first argument is always the whole `package`: `root`,
+`manifest`, and maps of `variables`, `catalogs`, and `evaluation_contexts` by
+id, so a rule about one entry can still cross-check anything else. The second
+argument is the target instance, and its shape follows the address. Every
+shape carries a `kind` field naming itself:
+
+- a **catalog entry** is `{ kind, catalog, key, path, value }` - `value` is
+  the entry's data, which is what most rules inspect;
+- a **variable** is `{ kind, id, path, description, declaration, values,
+  resolve, toml }`;
+- a **value** is `{ kind, variable, key, value, origin }`;
+- a **rule** is `{ kind, variable, index, when, value }`;
+- a **catalog** is `{ kind, id, path, json, entries }` - `json` is the schema;
+- an **evaluation context** is `{ kind, id, path, json, samples }`;
+- a **sample** is `{ kind, evaluation_context, key, path, value }`;
+- the **package** target (`/`) gets `{ kind, root, manifest, extends }` -
+  everything else is already on the first argument.
 
 ## How it all gets distributed
 

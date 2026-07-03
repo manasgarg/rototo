@@ -213,9 +213,10 @@ wrong here."
 
 A couple of guardrails worth knowing, since they shape what your Lua can do: the
 handlers run in a locked-down sandbox - just the `table`, `string`, `utf8`, and
-`math` libraries, no file or network access - with limits on memory, work, and a
-two-second timeout per handler. Custom lint is for *inspecting* the package, not
-reaching outside it.
+`math` libraries, no file or network access. The limits are concrete: 16 MB of
+Lua memory, one million VM instructions per handler run, and a two-second
+timeout, and hitting any of them fails that rule loudly instead of hanging
+lint. Custom lint is for *inspecting* the package, not reaching outside it.
 
 ## The JSON shape
 

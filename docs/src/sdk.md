@@ -250,6 +250,31 @@ if err != nil {
 ```
 :::
 
+### Tuning refresh
+
+`RefreshOptions` has three knobs beyond the period, and the defaults are meant
+to be left alone until you have a reason:
+
+- **`with_period(duration)`** - how often to re-check the source. No period
+  means no background refresh: the package loads once and stays put. A source
+  pinned to an immutable ref (a commit hash) can never produce a new result,
+  so periodic refresh is disabled for it and the SDK logs a warning at load.
+- **`with_failure_backoff(min, max)`** - what happens after a failed refresh.
+  The loop retries with exponential backoff: the first failure waits `min`,
+  each consecutive failure doubles the wait, and `max` caps it. Defaults are
+  5 seconds and 5 minutes. The last good package serves the whole time; the
+  backoff only spaces out the retries.
+- **`with_max_staleness(duration)`** - your freshness budget, for health
+  checks. Rototo doesn't act on this itself; it's the threshold you hand to
+  `status().stale(...)` to answer "has it been too long since a successful
+  refresh?" Wire that into a readiness probe or an alert, and a source that's
+  been failing for an hour becomes visible instead of silently stale.
+
+The current state is always one call away: `status()` returns the last
+attempt and success times, the consecutive-failure count, the last error
+string, and whether a refresh is running right now; `snapshot()` bundles that
+with the current package identity for one-line logging.
+
 ## Watching refreshes happen
 
 A refreshing package works fine if you never look at it. But the moment you run
@@ -310,6 +335,27 @@ consumer that falls behind drops the *oldest* events rather than stalling the
 service. So treat events as the audit trail of what changed and when, and treat
 the snapshot (the current state, which you can always ask for) as the source of
 truth you reconcile against.
+
+The event itself is a flat record, and every field exists to be joined across
+instances:
+
+- **`event_type`** - one of `loaded` (the initial load), `refresh_started`,
+  `unchanged`, `refreshed`, `failed`, `immutable` (a refresh was asked of a
+  pinned source), or `shutdown`.
+- **`event_id`** - a unique id for deduplicating shipped logs.
+- **`source`** - the package source with any embedded credentials redacted,
+  safe to log as-is.
+- **`previous` / `current`** - the package identity on each side of the event:
+  source fingerprint, load time, and release ref where the source has one.
+  A `refreshed` event with both sides is exactly the "instance X moved from
+  release A to B" line your dashboard wants.
+- **`attempted_at` / `completed_at` / `duration`** - when and how long.
+- **`outcome`** - for a completed check: `unchanged`, `refreshed`, or
+  `immutable`.
+- **`consecutive_failures` / `error`** - how deep a failure streak is and what
+  the last error said.
+- **`sdk`** - which SDK and version emitted the event, for fleets that mix
+  languages.
 
 ## Tracing a single resolution
 
@@ -447,6 +493,44 @@ already validated upstream.
 TypeScript, Go, and Java, and the crate version in Rust. The Python wheel
 displays its ecosystem-normalized spelling (`0.1.0a5`) in package metadata, but
 the version the runtime reports is the canonical one.
+
+## Load options
+
+Every loader takes options; in Rust they're a `LoadOptions` value, in the
+other SDKs they're the load call's option bag. Four things live there:
+
+- **Lint mode.** `load` runs the lint gate and refuses a failing package;
+  `with_lint(LintMode::Skip)` turns the gate off, which is what `inspect` does
+  for you (next section). Leave it on for anything that serves values.
+- **Source auth.** `with_source_auth` carries the bearer token for private
+  HTTPS archive sources - the SDK-side twin of `--package-token`.
+- **Trace capacity.** The buffer depth of the trace-event stream. A consumer
+  that falls behind drops the oldest events past this depth and sees a dropped
+  marker with the count.
+- **Refresh capacity.** The same, for the refresh-event stream.
+
+Per-resolve options are separate and small: `ResolveOptions` holds
+`validate_context` (the schema check described above, on by default) and
+`trace` (compute a resolution trace for this call).
+
+## Asking a package what it is
+
+A loaded package can identify itself, which matters the moment logs from two
+instances disagree:
+
+- **`identity()`** - the package's identity as one value: the redacted source,
+  the source fingerprint, and the load time. Log it at startup and every
+  "which config is this box on?" question becomes grep.
+- **`source_fingerprint()`** - the fingerprint alone: a stable hash of the
+  staged content, so two instances serving identical bytes agree on it even
+  if they loaded at different times.
+- **`loaded_at()`** - when this package was staged.
+- **`immutable_source()`** - whether the source is pinned (a commit ref), and
+  so can never refresh into something new.
+- **`source_layers()`** - for a composed package, the sources it was flattened
+  from, in order.
+- **`inspection()` and `context_schema()`** - the staged package data and the
+  evaluation-context schema, for tools that introspect rather than resolve.
 
 ## Inspecting without the lint gate
 

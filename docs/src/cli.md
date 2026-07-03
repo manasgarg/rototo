@@ -320,8 +320,17 @@ rototo docs --export ./site       # export the whole thing as static HTML
 - **`--export [dir]`** - write the docs as a static HTML site (defaults to
   `./site`).
 
-(There are also `--package-readme`, `--out`, and `--docs-base-url` flags used by
-the release tooling to generate SDK package READMEs from these docs.)
+Three more flags exist for the release tooling, which generates each SDK's
+package README from these docs so registry pages can't drift from the source:
+
+- **`--package-readme <sdk>`** - generate the packaged README for one SDK:
+  `python`, `typescript`, `java`, or `go`.
+- **`--out <file>`** - where to write it, e.g. `sdks/python/README.md`.
+- **`--docs-base-url <url>`** - the base URL to use for internal docs links in
+  the generated README, since relative links don't resolve on a registry page.
+
+A freshness test in CI regenerates these and fails if the committed files
+differ, so if you edit the root README, rerun the generation for all four SDKs.
 
 ## setup - wire up your shell, editor, and agent
 
@@ -364,10 +373,15 @@ The main flags:
   `ROTOTO_CONSOLE_DATA_DIR`).
 - **`--public-url <url>`** - the public origin, for running behind a reverse
   proxy (also `ROTOTO_CONSOLE_PUBLIC_URL`).
-- **`--state ephemeral|persistent`**, **`--deployment local|hosted`**,
-  **`--write disabled|pull-request|direct-push`** - control persistence,
-  deployment mode, and how edits are written back. Each has a sensible default
-  based on whether you opened a local folder or a remote source.
+- **`--state ephemeral|persistent`** - whether console state (repos, drafts,
+  sessions) survives a restart. Defaults to `ephemeral` for a local folder
+  package and `persistent` otherwise.
+- **`--deployment local|hosted`** - single-user local mode versus a hosted
+  deployment. Defaults to `local` when `--package` is given, `hosted`
+  otherwise.
+- **`--write disabled|pull-request|direct-push`** - how branch edits leave the
+  console: not at all, as GitHub pull requests, or pushed directly. Defaults
+  to `direct-push` for a local fixed package and `pull-request` otherwise.
 
 ## lsp - the language server
 
