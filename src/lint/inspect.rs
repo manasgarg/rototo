@@ -247,7 +247,7 @@ async fn inspect_variable(
     let trace = match (runtime, &request.context) {
         (Some(runtime), Some(context)) => {
             runtime.validate_context_for_variable(id, context)?;
-            Some(trace_variable_unchecked(runtime, id, context)?)
+            Some(trace_variable_unchecked(runtime, id, context, None)?)
         }
         _ => None,
     };
@@ -619,7 +619,7 @@ fn variable_sample_coverage(
     let mut default_covered = false;
     let mut sample_count = 0;
     for sample in &samples {
-        let Ok(trace) = trace_variable_unchecked(runtime, id, sample) else {
+        let Ok(trace) = trace_variable_unchecked(runtime, id, sample, None) else {
             continue;
         };
         sample_count += 1;

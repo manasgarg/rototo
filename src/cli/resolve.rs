@@ -46,7 +46,15 @@ pub(crate) async fn run_resolve(
     let context = parse_context(&args.context).await?;
     let context_gaps =
         resolve_context_gaps(package.path(), &inspection, &selectors, &context).await?;
-    match trace_selected_resolutions(package.path(), &inspection, &selectors, &context).await {
+    match trace_selected_resolutions(
+        package.path(),
+        &inspection,
+        &selectors,
+        &context,
+        args.tenant.as_deref(),
+    )
+    .await
+    {
         Ok(variables) => {
             print_resolutions(package.path(), &variables, &[], &context_gaps, json)?;
             Ok(ExitCode::SUCCESS)
@@ -68,10 +76,17 @@ async fn trace_selected_resolutions(
     inspection: &PackageInspection,
     selectors: &TargetSelectors,
     context: &JsonValue,
+    tenant: Option<&str>,
 ) -> Result<Vec<VariableResolutionTrace>> {
     let mut variables = Vec::new();
     for id in selected_variable_id_list(inspection, &selectors.variables) {
-        variables.push(trace_variable_resolution(package, &id, context).await?);
+        let trace = match tenant {
+            Some(tenant) => {
+                rototo::trace_variable_resolution_for_tenant(package, &id, context, tenant).await?
+            }
+            None => trace_variable_resolution(package, &id, context).await?,
+        };
+        variables.push(trace);
     }
     Ok(variables)
 }

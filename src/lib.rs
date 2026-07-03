@@ -30,7 +30,8 @@ pub use package::{
     read_variable, read_variables,
 };
 pub use resolve::{
-    resolve_variable, resolve_variables, trace_variable_resolution, trace_variable_resolutions,
+    resolve_variable, resolve_variable_for_tenant, resolve_variables, trace_variable_resolution,
+    trace_variable_resolution_for_tenant, trace_variable_resolutions,
 };
 pub use sdk::{
     EvaluationContext, LintMode, LoadOptions, Package, PackageIdentity, PackageLayerIdentity,

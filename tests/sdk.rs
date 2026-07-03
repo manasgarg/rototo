@@ -949,6 +949,7 @@ async fn package_sdk_resolves_from_context_only() {
             ResolveOptions {
                 validate_context: false,
                 trace: false,
+                tenant: None,
             },
         )
         .unwrap();
@@ -1039,6 +1040,7 @@ async fn package_sdk_can_bypass_context_validation_explicitly() {
             ResolveOptions {
                 validate_context: false,
                 trace: false,
+                tenant: None,
             },
         )
         .unwrap();
@@ -1290,6 +1292,7 @@ async fn app_requested_trace_is_emitted_to_subscriber() {
             ResolveOptions {
                 validate_context: false,
                 trace: true,
+                tenant: None,
             },
         )
         .unwrap();
@@ -1329,6 +1332,7 @@ async fn package_trace_policy_emits_for_matching_resolution() {
             ResolveOptions {
                 validate_context: false,
                 trace: false,
+                tenant: None,
             },
         )
         .unwrap();
@@ -1357,6 +1361,7 @@ async fn package_trace_policy_does_not_emit_for_other_users() {
             ResolveOptions {
                 validate_context: false,
                 trace: false,
+                tenant: None,
             },
         )
         .unwrap();
@@ -1381,6 +1386,7 @@ async fn resolving_without_subscribers_skips_tracing() {
             ResolveOptions {
                 validate_context: false,
                 trace: true,
+                tenant: None,
             },
         )
         .unwrap();

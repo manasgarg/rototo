@@ -33,9 +33,10 @@ pub(crate) fn resolve_variable_traced_unchecked(
     runtime: &RuntimePackage,
     id: &str,
     context: &JsonValue,
+    tenant: Option<&str>,
     app_requested: bool,
 ) -> Result<(VariableResolution, Option<VariableTraceCapture>)> {
-    let mut state = ResolutionState::new(runtime, context);
+    let mut state = ResolutionState::new_for_tenant(runtime, context, tenant.map(str::to_owned));
     let trace = resolve_variable_trace_with_state(runtime, &mut state, id)?;
     let resolution = trace.resolution.clone();
     let policies = evaluate_trace_policies(&mut state, ResolvingTarget::Variable(id))?;
@@ -77,7 +78,20 @@ pub async fn resolve_variable(
 ) -> Result<VariableResolution> {
     let runtime = compile_runtime_package(package_root).await?;
     runtime.validate_context_for_variable(id, context)?;
-    resolve_variable_unchecked(&runtime, id, context)
+    resolve_variable_unchecked(&runtime, id, context, None)
+}
+
+/// Resolve a variable for one tenant: the same resolution with `env.tenant`
+/// bound to the tenant id, captured once like `env.now`.
+pub async fn resolve_variable_for_tenant(
+    package_root: &Path,
+    id: &str,
+    context: &JsonValue,
+    tenant: &str,
+) -> Result<VariableResolution> {
+    let runtime = compile_runtime_package(package_root).await?;
+    runtime.validate_context_for_variable(id, context)?;
+    resolve_variable_unchecked(&runtime, id, context, Some(tenant))
 }
 
 pub async fn trace_variable_resolution(
@@ -87,15 +101,29 @@ pub async fn trace_variable_resolution(
 ) -> Result<VariableResolutionTrace> {
     let runtime = compile_runtime_package(package_root).await?;
     runtime.validate_context_for_variable(id, context)?;
-    trace_variable_unchecked(&runtime, id, context)
+    trace_variable_unchecked(&runtime, id, context, None)
+}
+
+/// Trace a variable resolution for one tenant: the same trace with
+/// `env.tenant` bound to the tenant id.
+pub async fn trace_variable_resolution_for_tenant(
+    package_root: &Path,
+    id: &str,
+    context: &JsonValue,
+    tenant: &str,
+) -> Result<VariableResolutionTrace> {
+    let runtime = compile_runtime_package(package_root).await?;
+    runtime.validate_context_for_variable(id, context)?;
+    trace_variable_unchecked(&runtime, id, context, Some(tenant))
 }
 
 pub(crate) fn resolve_variable_unchecked(
     runtime: &RuntimePackage,
     id: &str,
     context: &JsonValue,
+    tenant: Option<&str>,
 ) -> Result<VariableResolution> {
-    let mut state = ResolutionState::new(runtime, context);
+    let mut state = ResolutionState::new_for_tenant(runtime, context, tenant.map(str::to_owned));
     resolve_variable_with_state(runtime, &mut state, id)
 }
 
@@ -103,8 +131,9 @@ pub(crate) fn trace_variable_unchecked(
     runtime: &RuntimePackage,
     id: &str,
     context: &JsonValue,
+    tenant: Option<&str>,
 ) -> Result<VariableResolutionTrace> {
-    let mut state = ResolutionState::new(runtime, context);
+    let mut state = ResolutionState::new_for_tenant(runtime, context, tenant.map(str::to_owned));
     resolve_variable_trace_with_state(runtime, &mut state, id)
 }
 
@@ -130,8 +159,16 @@ pub(crate) fn resolve_variables_unchecked(
     runtime: &RuntimePackage,
     context: &JsonValue,
 ) -> Result<Vec<VariableResolution>> {
+    resolve_variables_unchecked_for_tenant(runtime, context, None)
+}
+
+pub(crate) fn resolve_variables_unchecked_for_tenant(
+    runtime: &RuntimePackage,
+    context: &JsonValue,
+    tenant: Option<&str>,
+) -> Result<Vec<VariableResolution>> {
     let ids: Vec<String> = runtime.variables.keys().cloned().collect();
-    let mut state = ResolutionState::new(runtime, context);
+    let mut state = ResolutionState::new_for_tenant(runtime, context, tenant.map(str::to_owned));
 
     let mut resolutions = Vec::new();
     for id in ids {
@@ -144,11 +181,20 @@ pub(crate) fn trace_variable_resolutions_unchecked(
     runtime: &RuntimePackage,
     context: &JsonValue,
 ) -> Result<Vec<VariableResolutionTrace>> {
+    trace_variable_resolutions_unchecked_for_tenant(runtime, context, None)
+}
+
+pub(crate) fn trace_variable_resolutions_unchecked_for_tenant(
+    runtime: &RuntimePackage,
+    context: &JsonValue,
+    tenant: Option<&str>,
+) -> Result<Vec<VariableResolutionTrace>> {
     let ids: Vec<String> = runtime.variables.keys().cloned().collect();
 
     let mut traces = Vec::new();
     for id in ids {
-        let mut state = ResolutionState::new(runtime, context);
+        let mut state =
+            ResolutionState::new_for_tenant(runtime, context, tenant.map(str::to_owned));
         traces.push(resolve_variable_trace_with_state(runtime, &mut state, &id)?);
     }
     Ok(traces)
@@ -463,6 +509,9 @@ struct ResolutionState<'a> {
     /// once when the resolution starts so every `env.now` in one resolution sees
     /// the same instant.
     now: String,
+    /// The tenant of a tenant-scoped resolution, exposed as `env.tenant`.
+    /// Captured once, like `env.now`.
+    tenant: Option<String>,
     variable_cache: HashMap<String, JsonValue>,
     /// Ids currently being resolved, for cycle detection.
     resolving: HashSet<String>,
@@ -472,14 +521,23 @@ impl RefResolver for ResolutionState<'_> {
     fn variable_value(&mut self, id: &str) -> Result<JsonValue> {
         self.resolve_variable_value(id)
     }
+
+    fn tenant(&self) -> Option<&str> {
+        self.tenant.as_deref()
+    }
 }
 
 impl<'a> ResolutionState<'a> {
-    fn new(runtime: &'a RuntimePackage, context: &'a JsonValue) -> Self {
+    fn new_for_tenant(
+        runtime: &'a RuntimePackage,
+        context: &'a JsonValue,
+        tenant: Option<String>,
+    ) -> Self {
         Self {
             runtime,
             context,
             now: crate::predicate::now_rfc3339(),
+            tenant,
             variable_cache: HashMap::new(),
             resolving: HashSet::new(),
         }
@@ -1573,6 +1631,29 @@ value = "save time"
         assert!(
             unclaimed > 0,
             "some of 10 units should fall outside 2 of 100 buckets"
+        );
+    }
+
+    #[tokio::test]
+    async fn env_tenant_binds_in_tenant_scoped_resolutions_only() {
+        let package =
+            package_with_conditions(&[("acme_only", condition(r#"env.tenant == "acme""#))]);
+        let context = serde_json::json!({});
+
+        let runtime = compile_runtime_package(package.path()).await.unwrap();
+        let resolution =
+            resolve_variable_unchecked(&runtime, "acme_only", &context, Some("acme")).unwrap();
+        assert_eq!(resolution.value, true);
+        let resolution =
+            resolve_variable_unchecked(&runtime, "acme_only", &context, Some("globex")).unwrap();
+        assert_eq!(resolution.value, false);
+
+        // Outside a tenant-scoped call, reading env.tenant fails loudly
+        // instead of comparing against null.
+        let err = resolve_variable_unchecked(&runtime, "acme_only", &context, None).unwrap_err();
+        assert!(
+            err.to_string().contains("resolution is not tenant-scoped"),
+            "{err}"
         );
     }
 
