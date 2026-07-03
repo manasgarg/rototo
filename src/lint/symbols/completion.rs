@@ -573,7 +573,8 @@ fn expression_completion_items(
 
     match expression_completion_state(&cursor.prefix) {
         ExpressionCompletionState::Operand => {
-            let mut items = typed_operand_completion_items(snapshot, path, &cursor);
+            let mut items = call_argument_completion_items(&snapshot.index, &cursor.prefix);
+            items.extend(typed_operand_completion_items(snapshot, path, &cursor));
             items.extend(expression_root_completion_items(
                 cursor.key == ExpressionKey::Query,
             ));
@@ -1039,6 +1040,100 @@ fn current_variable_query_catalog_id(index: &SemanticIndex, path: &str) -> Optio
         VariableTypeKind::Catalog(catalog) => Some(catalog.clone()),
         kind => kind.list_catalog().map(ToOwned::to_owned),
     }
+}
+
+/// Argument-position completion: when the cursor sits inside a function call
+/// whose argument has a closed or well-known set, offer that set ahead of the
+/// generic operands. Today that is `bucket(value, salt, start, end)`: the
+/// value argument is a diversion unit, so declared layer units are offered,
+/// and the salt argument is a layer id by convention (sharing a layer's salt
+/// makes the expression agree with that layer's bucket positions).
+fn call_argument_completion_items(
+    index: &SemanticIndex,
+    prefix: &str,
+) -> Vec<PackageCompletionItem> {
+    let Some((function, argument)) = enclosing_call_argument(prefix) else {
+        return Vec::new();
+    };
+    match (function.as_str(), argument) {
+        ("bucket", 0) => index
+            .layers
+            .values()
+            .filter_map(|layer| match &layer.unit {
+                ProjectField::Present(unit) => Some(unit.value.source().to_owned()),
+                _ => None,
+            })
+            .collect::<std::collections::BTreeSet<_>>()
+            .into_iter()
+            .map(|unit| {
+                PackageCompletionItem::new(unit, PackageCompletionItemKind::Value, "layer unit")
+            })
+            .collect(),
+        ("bucket", 1) => index
+            .layers
+            .keys()
+            .map(|id| {
+                PackageCompletionItem::new(
+                    format!("\"{id}\""),
+                    PackageCompletionItemKind::Value,
+                    "layer id",
+                )
+            })
+            .collect(),
+        _ => Vec::new(),
+    }
+}
+
+/// The innermost unclosed function call the cursor's prefix sits inside, with
+/// the zero-based index of the argument under the cursor. `None` when the
+/// cursor is not inside a call, the call has no bare-identifier callee, or
+/// the cursor sits inside a string literal.
+fn enclosing_call_argument(prefix: &str) -> Option<(String, usize)> {
+    let mut stack: Vec<(Option<String>, usize)> = Vec::new();
+    let mut in_string: Option<char> = None;
+    let mut last_token: Option<(usize, usize)> = None;
+    for (index, ch) in prefix.char_indices() {
+        if let Some(quote) = in_string {
+            if ch == quote {
+                in_string = None;
+            }
+            continue;
+        }
+        match ch {
+            '"' | '\'' => in_string = Some(ch),
+            '(' => {
+                let name = last_token
+                    .map(|(start, end)| &prefix[start..end])
+                    .filter(|name| !name.contains('.'))
+                    .map(str::to_owned);
+                stack.push((name, 0));
+                last_token = None;
+            }
+            ')' => {
+                stack.pop();
+                last_token = None;
+            }
+            ',' => {
+                if let Some(top) = stack.last_mut() {
+                    top.1 += 1;
+                }
+                last_token = None;
+            }
+            ch if is_expression_token_char(ch) => {
+                last_token = match last_token {
+                    Some((start, end)) if end == index => Some((start, index + ch.len_utf8())),
+                    _ => Some((index, index + ch.len_utf8())),
+                };
+            }
+            ch if ch.is_whitespace() => {}
+            _ => last_token = None,
+        }
+    }
+    if in_string.is_some() {
+        return None;
+    }
+    let (name, argument) = stack.pop()?;
+    Some((name?, argument))
 }
 
 fn expression_root_completion_items(include_entry: bool) -> Vec<PackageCompletionItem> {

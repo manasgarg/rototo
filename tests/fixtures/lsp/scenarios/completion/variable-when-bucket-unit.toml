@@ -1,0 +1,33 @@
+# Inside bucket()'s value argument, the declared layers' unit expressions are
+# offered: diverting on the same unit as a layer is what makes the bucket
+# positions line up.
+package = "basic"
+file = "variables/message.toml"
+
+overlay = '''
+schema_version = 1
+type = "string"
+
+[resolve]
+default = "hello"
+
+[[resolve.rule]]
+when = 'bucket($0'
+value = "welcome"
+'''
+
+[[also_open]]
+file = "layers/checkout.toml"
+text = '''
+schema_version = 1
+unit = "context.user.id"
+buckets = 1000
+'''
+
+[[expect.includes]]
+label = "context.user.id"
+detail = "layer unit"
+
+[[expect.includes]]
+label = "context."
+detail = "expression root"

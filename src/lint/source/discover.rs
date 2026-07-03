@@ -403,6 +403,10 @@ fn overlay_document_kind(path: &str) -> Option<DocumentKind> {
                 }
             })
         }
+        ["layers", file] if file.ends_with(".toml") => {
+            let id = file.strip_suffix(".toml")?;
+            (!id.is_empty()).then(|| DocumentKind::Layer { id: id.to_owned() })
+        }
         ["lint", file] if file.ends_with(".lua") => Some(DocumentKind::CustomLint),
         _ => None,
     }
