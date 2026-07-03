@@ -573,6 +573,62 @@ rototo lint app-config --json
 
 Lint is where the package model comes together. Variables define what applications ask for, rules and condition variables define when values apply, catalogs hold reusable structured values, context schemas define runtime inputs, and lint checks that all of it forms a coherent package before release.
 
+## Composition
+
+Sooner or later one package isn't enough. The usual reason is a tenant: Acme runs on your standard configuration except for a handful of differences - one banner only they see, one banner they don't, different rules for when banners show. If the only tool is "copy the base package and edit it", those few facts get buried inside a full copy, and every later change to the base has to be re-copied by hand. The copy drifts, and nobody can tell the intentional differences from the stale ones.
+
+Composition lets a package say only what differs. The overlay package lists its parents in the manifest:
+
+```toml
+schema_version = 1
+extends = ["../basic"]
+```
+
+Rototo flattens the layers into one package - parents in `extends` order, the child last - and everything downstream (lint, resolution, archives) sees the flattened result. Most files combine the simple way: a file replaces the file at the same path in the layers below, whole. But the three things a tenant actually needs to change compose structurally, and each follows its own law:
+
+- **The contract narrows only.** An overlay may not change a variable's `type`; restating the same type is fine, declaring a different one fails the load. Applications were written against that type, and an overlay doesn't get to rewrite it quietly.
+- **Values override atomically.** An overlay variable file merges by top-level key, so a file holding only a `[resolve]` block replaces the base's resolution whole - default, rules, everything - while the type and description stay with the base. There is no merging of individual rules, because half of one layer's rule list plus half of another's is a resolution nobody wrote or reviewed.
+- **Membership is union minus tombstones.** A catalog's active entries are the base's entries plus the overlay's, minus the ones the overlay explicitly disables, with field-level patches applied.
+
+The `examples/acme-overlay` package in the repository shows all three on top of `examples/basic`, in five files. A new entry is just an entry: `data/catalogs/support_banner/acme_hours.toml` adds a banner only this tenant has. Removing one is a **tombstone**:
+
+```toml
+# data/catalogs/support_banner/german_hours.tombstone.toml
+tombstone = true
+reason = "Acme routes German-language support through its account team"
+```
+
+Changing one field of an entry is a **patch** - every field it doesn't mention is inherited from the base:
+
+```toml
+# data/catalogs/support_banner/mobile_help.patch.toml
+body = "Chat with the Acme support desk without leaving the app."
+```
+
+And choosing different rules is an overlay variable file that declares nothing but its resolution:
+
+```toml
+# variables/support_banner.toml
+[resolve]
+default = "hidden"
+
+[[resolve.rule]]
+when = 'variables["acme/account_team_hours"]'
+value = "acme_hours"
+
+[[resolve.rule]]
+when = 'variables["mobile_users"]'
+value = "mobile_help"
+```
+
+The `catalog:support_banner` type stays with the base. The first rule leans on `variables/acme/account_team_hours.toml`, a condition variable the overlay adds under a subdirectory: the path becomes the namespaced id `acme/account_team_hours`, so tenant-internal conditions can't collide with base ids.
+
+The composed membership then flows everywhere on its own. The base has a query variable, `active_support_banners`, that selects every enabled banner. Resolved through the overlay, it returns `acme_hours`, skips `german_hours`, and carries the patched `mobile_help` body - and the overlay never touched that variable.
+
+Two changes stay deliberately loud. Tombstoning an entry a base variable still references fails lint (`rototo/variable-unknown-value`): you disabled data someone depends on, so you must also override that variable's resolution, which is exactly what the example does. And changing a variable's type fails the load outright. Both are the failure modes that make hand-maintained copies dangerous, surfaced at review time instead of at runtime.
+
+There is a reviewer-facing property here too. An overlay that touches only `data/` and `variables/` visibly changed data and resolution, not the contract - the diff says so by its paths alone. The exact file shapes and merge rules live in the [package format](./package-format.md) reference.
+
 ## Putting It Together
 
 A Rototo package is the unit that gets reviewed and released. Inside it, variables define the values applications ask for, rules choose values for runtime situations, condition variables give shared conditions a name, catalogs hold structured reusable values, layers and allocations assign units to rollout and experiment arms, context carries runtime facts from the application, schemas define the contracts, and lint checks that the whole thing is releasable.

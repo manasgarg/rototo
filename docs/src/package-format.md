@@ -55,7 +55,10 @@ First, **the file name is the id**. A file at `variables/checkout_redesign.toml`
 defines a variable whose id is `checkout_redesign`. A catalog schema at
 `model/catalogs/checkout_redesign.schema.json` defines a catalog whose id is
 `checkout_redesign`. You never write the id *inside* the file - the filename
-already said it.
+already said it. Variable files can also live in subdirectories, and the
+subdirectory becomes a namespace: `variables/acme/in_trial.toml` defines the
+variable `acme/in_trial`, referenced as `variables["acme/in_trial"]` in
+expressions.
 
 Second, **ids are snake_case**. Every id rototo recognizes - variables, enums,
 catalogs, catalog entries, evaluation contexts, samples - is lowercase letters,
@@ -96,7 +99,10 @@ Each entry follows the exact same source grammar you'd type on the command line.
 Relative paths are resolved against this package, so a package and its parents
 can travel together. (When you build a distributable archive with `rototo
 package`, the `extends` list gets flattened in and stripped out - the archive is
-already self-contained, so there's nothing left to point at.)
+already self-contained, so there's nothing left to point at.) How the layers
+actually combine - which files replace and which compose - gets its own
+section, [Extending: how the layers combine](#extending-how-the-layers-combine),
+right after this one.
 
 The second is `[[trace]]`, which turns on resolution tracing for specific cases
 without redeploying your app. You can have as many as you like:
@@ -109,6 +115,71 @@ when = 'env.resolving.variable == "checkout_redesign" && context.user.id == "use
 The `when` is an [expression](./expressions.md) - same language as everywhere
 else. We cover what tracing is for in [Using Rototo](./adoption.md); here, just
 know it's a manifest thing.
+
+## Extending: how the layers combine
+
+When a package extends others, rototo flattens them into one file tree before
+anything else happens - lint, resolution, `rototo package`, all of it sees the
+flattened result. Parents flatten in `extends` order, the child comes last, and
+the same rules apply between two parents as between a parent and the child.
+Flattening is deterministic: the layers are processed in a sorted, fixed order,
+so the same inputs always produce the same flattened package.
+
+The default rule is the simple one: **a file replaces the file at the same path
+in the layers below, whole.** That's still what happens for `model/` schemas
+(catalog, enum, and context), `data/enums/`, `layers/`, and `lint/` files. But
+three file shapes compose structurally instead, because whole-file replacement
+can't say the things an overlay needs to say: it can't disable one base catalog
+entry, can't change one field of an entry, and it forces you to copy an entire
+variable file just to change its resolution.
+
+### Variable files merge by top-level key
+
+A `variables/**.toml` file that sits on top of an existing base file doesn't
+replace it whole. It merges by top-level key: every key the overlay file
+declares (`type`, `description`, `[resolve]`, and so on) replaces the base's
+key whole, and every key it leaves out is inherited. So an overlay file
+containing nothing but a `[resolve]` block swaps the variable's resolution
+atomically - default, rules, everything - while `type`, `description`, and
+`schema_version` stay with the base. There is no key-level merge *inside*
+`[resolve]`: the topmost layer's resolve block wins whole.
+
+One guardrail: an overlay may not change a variable's `type`. Restating the
+same type is fine; declaring a different one fails the load with "overlay
+changes the variable's type from X to Y". The type is the contract applications
+were written against, and an overlay doesn't get to rewrite it quietly.
+
+An overlay can also add variables of its own, and subdirectories keep them out
+of the base's way: `variables/acme/in_trial.toml` defines the namespaced
+variable `acme/in_trial`, referenced as `variables["acme/in_trial"]`.
+
+### Catalog entries: union, tombstones, and patches
+
+Catalog entries compose as a set. The active entries of a catalog are the
+entries the layers below provide, plus the entries this layer provides, minus
+the entries this layer tombstones, with field patches applied. Two file shapes
+drive the minus and the patch, both keyed by path next to the entries they act
+on:
+
+- `data/catalogs/<catalog>/<entry>.tombstone.toml` disables the entry a layer
+  below provided. The tombstone file itself never appears in the flattened
+  package. By convention it contains `tombstone = true` and an optional
+  `reason = "..."`.
+- `data/catalogs/<catalog>/<entry>.patch.toml` overrides fields of the entry
+  below: tables merge recursively, scalars and arrays replace, and any field
+  the patch doesn't mention is inherited.
+
+Both shapes have to point at something real. A tombstone with no entry in the
+layers below fails the load ("tombstone has no catalog entry to disable in the
+layers below"), and an orphaned patch fails the same way. A single layer that
+both provides `<entry>.toml` and tombstones or patches that same entry also
+fails the load - it's contradicting itself.
+
+Tombstoning an entry someone depends on is deliberately loud. If a base
+variable still names the tombstoned entry, lint catches it as
+`rototo/variable-unknown-value`, and the overlay has to override that
+variable's resolution too. Disabling data quietly out from under a variable is
+exactly the drift this is designed to surface.
 
 ## Variables: the values your app actually reads
 
