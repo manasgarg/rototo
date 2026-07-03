@@ -1,0 +1,43 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "description": "Schema for email template catalog values.",
+  "$id": "rototo://catalogs/email_template.schema.json",
+  "type": "object",
+  "required": [
+    "subject",
+    "body"
+  ],
+  "properties": {
+    "subject": {
+      "type": "string"
+    },
+    "body": {
+      "type": "string"
+    },
+    "variants": {
+      "type": "object",
+      "properties": {
+        "default": {
+          "type": "object",
+          "required": [
+            "subject"
+          ],
+          "properties": {
+            "subject": {
+              "type": "string"
+            }
+          },
+          "additionalProperties": false
+        }
+      },
+      "additionalProperties": false
+    }
+  },
+  "additionalProperties": false,
+  "$defs": {
+    "email_template_ref": {
+      "type": "string",
+      "x-rototo-ref": "catalog:email_template"
+    }
+  }
+}

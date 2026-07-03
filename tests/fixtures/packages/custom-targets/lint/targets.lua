@@ -11,7 +11,7 @@ function register(lint)
     id = "targets/variable-type",
     title = "Variable type target was checked",
     help = "Update the variable type policy.",
-    target = "/variables/agent-config",
+    target = "/variables/agent_config",
     handler = "check_variable",
   })
 
@@ -19,7 +19,7 @@ function register(lint)
     id = "targets/returned-variable-type",
     title = "Returned variable type field was checked",
     help = "Update the returned field policy.",
-    target = "/variables/agent-config",
+    target = "/variables/agent_config",
     handler = "check_returned_variable_field",
   })
 
@@ -27,7 +27,7 @@ function register(lint)
     id = "targets/invalid-returned-field",
     title = "Invalid returned field fell back",
     help = "Update the invalid returned field policy.",
-    target = "/variables/agent-config",
+    target = "/variables/agent_config",
     handler = "check_invalid_returned_field",
   })
 
@@ -43,7 +43,7 @@ function register(lint)
     id = "targets/catalog-entry-json-pointer",
     title = "Catalog entry target can point at value JSON",
     help = "Update the catalog entry pointer policy.",
-    target = "/catalogs/agent-config/entries/standard",
+    target = "/catalogs/agent_config/entries/standard",
     handler = "check_catalog_entry_value",
   })
 end
@@ -102,7 +102,7 @@ function check_returned_variable_field(package, variable)
 end
 
 function check_invalid_returned_field(package, variable)
-  if variable.id == "agent-config" then
+  if variable.id == "agent_config" then
     return {
       {
         message = "variable target fell back for invalid returned field",
@@ -117,7 +117,7 @@ function check_package_variable_default(package, target)
   return {
     {
       message = "package target checked variable default",
-      path = "/variables/agent-config/resolve/default",
+      path = "/variables/agent_config/resolve/default",
     },
   }
 end

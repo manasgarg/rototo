@@ -188,7 +188,7 @@ fn custom_diagnostic_catalog_entries_do_not_claim_variable_entity() {
 fn lists_custom_lint_example_diagnostics() {
     Command::cargo_bin("rototo")
         .unwrap()
-        .args(["show", "examples/custom-lint", "--lint-rules"])
+        .args(["show", "examples/custom_lint", "--lint-rules"])
         .assert()
         .success()
         .stdout(predicate::str::contains("operations/message-not-empty"));

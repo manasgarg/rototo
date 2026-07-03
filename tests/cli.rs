@@ -76,7 +76,7 @@ fn resolve_reports_missing_context_attributes() {
             "resolve",
             "examples/basic",
             "--variable",
-            "premium-users",
+            "premium_users",
             "--context",
             "lane=dev",
         ])
@@ -95,7 +95,7 @@ fn resolve_succeeds_without_context_gaps() {
             "resolve",
             "examples/basic",
             "--variable",
-            "premium-users",
+            "premium_users",
             "--context",
             "user.tier=premium",
         ])
@@ -187,7 +187,7 @@ fn diff_defaults_to_head_vs_worktree_for_local_package() {
     init_git_repo(&repo);
 
     fs::write(
-        package.join("variables/summary-token-budget.toml"),
+        package.join("variables/summary_token_budget.toml"),
         variable_toml(2400),
     )
     .unwrap();
@@ -219,7 +219,7 @@ fn diff_compares_explicit_git_refs() {
     init_git_repo(&repo);
 
     fs::write(
-        package.join("variables/summary-token-budget.toml"),
+        package.join("variables/summary_token_budget.toml"),
         variable_toml(2400),
     )
     .unwrap();
@@ -250,7 +250,7 @@ fn diff_uses_cli_design_system_colors_when_forced() {
     init_git_repo(&repo);
 
     fs::write(
-        package.join("variables/summary-token-budget.toml"),
+        package.join("variables/summary_token_budget.toml"),
         variable_toml(2400),
     )
     .unwrap();
@@ -741,7 +741,7 @@ fn write_basic_package(package: &Path, default: i64) {
     fs::create_dir_all(package.join("variables")).unwrap();
     fs::write(package.join("rototo-package.toml"), "schema_version = 1\n").unwrap();
     fs::write(
-        package.join("variables/summary-token-budget.toml"),
+        package.join("variables/summary_token_budget.toml"),
         variable_toml(default),
     )
     .unwrap();

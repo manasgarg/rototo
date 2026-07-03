@@ -360,6 +360,12 @@ rototo_rules! {
         title: "Variable values are not allowed",
         help: "Remove [values] and put literal values directly under [resolve].",
     },
+    IdNotSnakeCase => {
+        id: "id-not-snake-case",
+        entity: Package,
+        title: "Identifier is not snake_case",
+        help: "rototo-recognized ids appear in TOML tables and CEL expressions, where a hyphen is the minus operator; use lowercase letters, digits, and underscores, with / for namespacing.",
+    },
     VariableUnknownEnum => {
         id: "variable-unknown-enum",
         entity: Variable,

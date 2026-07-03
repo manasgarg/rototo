@@ -13,7 +13,7 @@ fn diff_json_reports_semantic_value_change_and_resolution_impact() {
     copy_dir(Path::new("examples/basic"), &before);
     copy_dir(Path::new("examples/basic"), &after);
 
-    let variable_path = after.join("variables/premium-message.toml");
+    let variable_path = after.join("variables/premium_message.toml");
     let variable = fs::read_to_string(&variable_path).unwrap();
     fs::write(
         &variable_path,
@@ -29,7 +29,7 @@ fn diff_json_reports_semantic_value_change_and_resolution_impact() {
         &after,
         &[
             "--context",
-            "@examples/basic/model/context/request-samples/premium-enterprise.json",
+            "@examples/basic/model/context/request-samples/premium_enterprise.json",
             "--context",
             "lane=stage",
         ],
@@ -41,10 +41,10 @@ fn diff_json_reports_semantic_value_change_and_resolution_impact() {
         .find(|change| {
             change["kind"] == "variable_rule_value_changed"
                 && change["target"]["entity"]["kind"] == "rule"
-                && change["target"]["entity"]["variable"] == "premium-message"
+                && change["target"]["entity"]["variable"] == "premium_message"
                 && change["target"]["entity"]["index"] == 0
         })
-        .expect("premium-message rule value change");
+        .expect("premium_message rule value change");
     assert_eq!(value_change["before"], "Welcome back, premium member.");
     assert_eq!(
         value_change["after"],
@@ -54,8 +54,8 @@ fn diff_json_reports_semantic_value_change_and_resolution_impact() {
     let impacts = diff["resolution_impacts"].as_array().unwrap();
     let impact = impacts
         .iter()
-        .find(|impact| impact["variable"] == "premium-message")
-        .expect("premium-message resolution impact");
+        .find(|impact| impact["variable"] == "premium_message")
+        .expect("premium_message resolution impact");
     assert_eq!(impact["before"]["source"]["kind"], "literal");
     assert_eq!(impact["after"]["source"]["kind"], "literal");
     assert_eq!(impact["before"]["value"], "Welcome back, premium member.");
@@ -91,7 +91,7 @@ fn diff_json_reports_added_and_removed_package_entities() {
     copy_dir(Path::new("examples/basic"), &after);
 
     write_file(
-        &before.join("variables/retired-message.toml"),
+        &before.join("variables/retired_message.toml"),
         r#"schema_version = 1
 
 description = "Before-only variable"
@@ -102,7 +102,7 @@ default = "retired"
 "#,
     );
     write_file(
-        &after.join("variables/new-message.toml"),
+        &after.join("variables/new_message.toml"),
         r#"schema_version = 1
 
 description = "After-only variable"
@@ -131,7 +131,7 @@ default = "new"
     );
 
     write_file(
-        &before.join("data/catalogs/support-banner/retired.toml"),
+        &before.join("data/catalogs/support_banner/retired.toml"),
         r#"enabled = false
 tone = "quiet"
 heading = "Retired"
@@ -140,7 +140,7 @@ cta = "Dismiss"
 "#,
     );
     write_file(
-        &after.join("data/catalogs/support-banner/new.toml"),
+        &after.join("data/catalogs/support_banner/new.toml"),
         r#"enabled = true
 tone = "help"
 heading = "New"
@@ -155,13 +155,13 @@ cta = "Open"
         &diff,
         "variable_added",
         "variable",
-        &[("id", "new-message")],
+        &[("id", "new_message")],
     );
     assert_entity_change(
         &diff,
         "variable_removed",
         "variable",
-        &[("id", "retired-message")],
+        &[("id", "retired_message")],
     );
     assert_entity_change(&diff, "catalog_added", "catalog", &[("id", "new")]);
     assert_entity_change(&diff, "catalog_removed", "catalog", &[("id", "retired")]);
@@ -170,7 +170,7 @@ cta = "Open"
         &diff,
         "catalog_entry_added",
         "catalog_entry",
-        &[("catalog", "support-banner"), ("key", "new")],
+        &[("catalog", "support_banner"), ("key", "new")],
     );
     assert_eq!(added_entry["after"]["heading"], "New");
 
@@ -178,7 +178,7 @@ cta = "Open"
         &diff,
         "catalog_entry_removed",
         "catalog_entry",
-        &[("catalog", "support-banner"), ("key", "retired")],
+        &[("catalog", "support_banner"), ("key", "retired")],
     );
     assert_eq!(removed_entry["before"]["heading"], "Retired");
 }
@@ -191,15 +191,15 @@ fn diff_json_reports_resolve_default_and_rule_condition_changes() {
     copy_dir(Path::new("examples/basic"), &before);
     copy_dir(Path::new("examples/basic"), &after);
 
-    let variable_path = after.join("variables/support-banner.toml");
+    let variable_path = after.join("variables/support_banner.toml");
     let variable = fs::read_to_string(&variable_path).unwrap();
     fs::write(
         &variable_path,
         variable
             .replace(r#"default = "hidden""#, r#"default = "mobile_help""#)
             .replace(
-                r#"when = 'variables["mobile-users"]'"#,
-                r#"when = 'variables["enterprise-accounts"]'"#,
+                r#"when = 'variables["mobile_users"]'"#,
+                r#"when = 'variables["enterprise_accounts"]'"#,
             ),
     )
     .unwrap();
@@ -210,7 +210,7 @@ fn diff_json_reports_resolve_default_and_rule_condition_changes() {
         &diff,
         "variable_resolve_default_changed",
         "variable",
-        &[("id", "support-banner")],
+        &[("id", "support_banner")],
     );
     assert_eq!(default_change["before"], "hidden");
     assert_eq!(default_change["after"], "mobile_help");
@@ -220,12 +220,12 @@ fn diff_json_reports_resolve_default_and_rule_condition_changes() {
         .find(|change| {
             change["kind"] == "variable_rule_when_changed"
                 && change["target"]["entity"]["kind"] == "rule"
-                && change["target"]["entity"]["variable"] == "support-banner"
+                && change["target"]["entity"]["variable"] == "support_banner"
                 && change["target"]["entity"]["index"] == 0
         })
-        .expect("support-banner rule when change");
-    assert_eq!(when_change["before"], r#"variables["mobile-users"]"#);
-    assert_eq!(when_change["after"], r#"variables["enterprise-accounts"]"#);
+        .expect("support_banner rule when change");
+    assert_eq!(when_change["before"], r#"variables["mobile_users"]"#);
+    assert_eq!(when_change["after"], r#"variables["enterprise_accounts"]"#);
 }
 
 fn diff_json(before: &Path, after: &Path, extra_args: &[&str]) -> JsonValue {

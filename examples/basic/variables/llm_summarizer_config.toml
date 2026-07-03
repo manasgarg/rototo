@@ -1,0 +1,11 @@
+schema_version = 1
+
+description = "LLM settings for background summarization"
+type = "catalog:llm_summarizer_config"
+
+[resolve]
+default = "fast"
+
+[[resolve.rule]]
+when = 'variables["internal_staff"]'
+value = "rich"

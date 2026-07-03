@@ -27,7 +27,7 @@ pub(crate) struct ExpressionReferences {
     pub(crate) context_paths: BTreeSet<String>,
     pub(crate) entry_paths: BTreeSet<String>,
     /// Variable ids referenced through the `variables` root
-    /// (`variables.some_id` / `variables["some-id"]`). The referenced variable's
+    /// (`variables.some_id` / `variables["some_id"]`). The referenced variable's
     /// resolved value is bound in place, so expressions compose over other
     /// variables.
     pub(crate) variables: BTreeSet<String>,
@@ -1391,10 +1391,10 @@ mod tests {
     #[test]
     fn tracks_variable_and_entry_references() {
         let expr = Expression::parse(
-            r#"variables["enterprise-accounts"] && entry.id == "hero" && context.region == "eu""#,
+            r#"variables["enterprise_accounts"] && entry.id == "hero" && context.region == "eu""#,
         )
         .unwrap();
-        assert!(expr.references().variables.contains("enterprise-accounts"));
+        assert!(expr.references().variables.contains("enterprise_accounts"));
         assert!(expr.references().entry_paths.contains("id"));
         assert!(expr.references().context_paths.contains("region"));
     }
@@ -1402,12 +1402,12 @@ mod tests {
     #[test]
     fn tracks_variable_references_in_both_spellings() {
         let expr = Expression::parse(
-            r#"variables.premium_user && variables["beta-cohort"] && "sso" in variables.plan_features"#,
+            r#"variables.premium_user && variables["beta_cohort"] && "sso" in variables.plan_features"#,
         )
         .unwrap();
         assert_eq!(
             expr.references().variables,
-            string_set(&["premium_user", "beta-cohort", "plan_features"])
+            string_set(&["premium_user", "beta_cohort", "plan_features"])
         );
         // The variables root is provided by rototo, never an unknown root, and
         // extra trailing segments select into the referenced variable's value.
@@ -1420,10 +1420,10 @@ mod tests {
     fn evaluates_variable_references() {
         let context = serde_json::json!({});
         let expr =
-            Expression::parse(r#"variables["premium-user"] && variables.message == "on""#).unwrap();
+            Expression::parse(r#"variables["premium_user"] && variables.message == "on""#).unwrap();
         let mut refs = TestRefs {
             variables: &[
-                ("premium-user", JsonValue::Bool(true)),
+                ("premium_user", JsonValue::Bool(true)),
                 ("message", serde_json::json!("on")),
             ],
         };
@@ -1454,11 +1454,11 @@ mod tests {
     #[test]
     fn synthesizes_contexts_through_variable_references() {
         let premium = Expression::parse(r#"context.user.tier == "premium""#).unwrap();
-        let expr = Expression::parse(r#"variables["premium-user"] && context.account.seats >= 50"#)
+        let expr = Expression::parse(r#"variables["premium_user"] && context.account.seats >= 50"#)
             .unwrap();
         let context = expr
             .synthesize_context(true, &mut |id, want| {
-                assert_eq!(id, "premium-user");
+                assert_eq!(id, "premium_user");
                 premium.synthesize_context(want, &mut |_, _| None)
             })
             .expect("expected composed synthesis");
@@ -1550,19 +1550,19 @@ mod tests {
         // short-circuiting; it simply returns a value here.
         assert!(
             eval_bool_with_variables(
-                r#"true || variables["must-not-run"]"#,
+                r#"true || variables["must_not_run"]"#,
                 &context,
                 None,
-                &[("must-not-run", JsonValue::Bool(false))],
+                &[("must_not_run", JsonValue::Bool(false))],
             )
             .unwrap()
         );
         assert!(
             !eval_bool_with_variables(
-                r#"false && variables["must-not-run"]"#,
+                r#"false && variables["must_not_run"]"#,
                 &context,
                 None,
-                &[("must-not-run", JsonValue::Bool(false))],
+                &[("must_not_run", JsonValue::Bool(false))],
             )
             .unwrap()
         );
@@ -1644,12 +1644,12 @@ mod tests {
         );
         assert!(
             eval_bool_with_variables(
-                r#"variables["enterprise-accounts"] && variables["mobile-users"]"#,
+                r#"variables["enterprise_accounts"] && variables["mobile_users"]"#,
                 &context,
                 None,
                 &[
-                    ("enterprise-accounts", JsonValue::Bool(true)),
-                    ("mobile-users", JsonValue::Bool(true)),
+                    ("enterprise_accounts", JsonValue::Bool(true)),
+                    ("mobile_users", JsonValue::Bool(true)),
                 ],
             )
             .unwrap()
@@ -1781,8 +1781,8 @@ mod tests {
     fn extracts_references_from_nested_paths_functions_and_variables() {
         let expr = Expression::parse(
             r#"
-            variables["enterprise-accounts"]
-                && variables["mobile-users"]
+            variables["enterprise_accounts"]
+                && variables["mobile_users"]
                 && has(context.user.tier)
                 && context.request.country in ["DE", "NL"]
                 && entry.metadata.channel == context.channel
@@ -1794,7 +1794,7 @@ mod tests {
 
         assert_eq!(
             references.variables,
-            string_set(&["enterprise-accounts", "mobile-users"])
+            string_set(&["enterprise_accounts", "mobile_users"])
         );
         assert_eq!(
             references.context_paths,

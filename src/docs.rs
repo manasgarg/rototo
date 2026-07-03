@@ -278,7 +278,7 @@ fn render_redirects() -> String {
 pub fn render_homepage_html() -> String {
     let snippet = render_code_block(
         "toml",
-        r#"# variables/checkout-redesign.toml
+        r#"# variables/checkout_redesign.toml
 schema_version = 1
 type = "string"
 
@@ -293,7 +293,7 @@ value = "redesign"
     let resolve_snippet = render_code_block(
         "sh",
         r#"rototo resolve git+https://github.com/acme/config#main \
-  --variable checkout-redesign \
+  --variable checkout_redesign \
   --context user.tier=premium
 "#,
     );

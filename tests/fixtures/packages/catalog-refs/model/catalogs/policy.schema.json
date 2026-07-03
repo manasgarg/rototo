@@ -13,13 +13,13 @@
   "properties": {
     "email_subject": {
       "type": "string",
-      "x-rototo-ref": "catalog:email-template"
+      "x-rototo-ref": "catalog:email_template"
     },
     "message_template": {
       "type": "string",
       "x-rototo-ref": [
-        "catalog:email-template",
-        "catalog:sms-template"
+        "catalog:email_template",
+        "catalog:sms_template"
       ]
     },
     "object_template": {
@@ -31,8 +31,8 @@
       "properties": {
         "catalog": {
           "enum": [
-            "email-template",
-            "sms-template"
+            "email_template",
+            "sms_template"
           ]
         },
         "entry": {
@@ -47,7 +47,7 @@
       "x-rototo-ref": true
     },
     "external_ref_template": {
-      "$ref": "email-template.schema.json#/$defs/email_template_ref"
+      "$ref": "email_template.schema.json#/$defs/email_template_ref"
     },
     "ref_template": {
       "$ref": "#/$defs/email_template_ref"
@@ -57,7 +57,7 @@
   "$defs": {
     "email_template_ref": {
       "type": "string",
-      "x-rototo-ref": "catalog:email-template"
+      "x-rototo-ref": "catalog:email_template"
     }
   }
 }

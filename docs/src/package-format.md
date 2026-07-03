@@ -18,24 +18,24 @@ all of this for you. This is just so you know what goes where:
 my-package/
 ├── rototo-package.toml              # the manifest - marks this folder as a package
 ├── variables/                       # the values your app reads
-│   ├── premium-users.toml
-│   └── checkout-redesign.toml
+│   ├── premium_users.toml
+│   └── checkout_redesign.toml
 ├── catalogs/                        # structured value sets + their schemas
-│   ├── checkout-redesign.schema.json
+│   ├── checkout_redesign.schema.json
 │   └── checkout-redesign-entries/
 │       └── control.toml
 ├── evaluation-contexts/             # the shape of the facts your app passes in
 │   ├── request.schema.json
 │   └── request-samples/
-│       └── premium-enterprise.json
+│       └── premium_enterprise.json
 └── lint/                            # your own custom checks, in Lua
-    └── checkout-redesign.lua
+    └── checkout_redesign.lua
 ```
 
 The one rule that ties it together: **the file name is the id**. A file at
-`variables/checkout-redesign.toml` defines a variable whose id is
-`checkout-redesign`. A catalog schema at `catalogs/checkout-redesign.schema.json`
-defines a catalog whose id is `checkout-redesign`. You never write the id
+`variables/checkout_redesign.toml` defines a variable whose id is
+`checkout_redesign`. A catalog schema at `catalogs/checkout_redesign.schema.json`
+defines a catalog whose id is `checkout_redesign`. You never write the id
 *inside* the file - the filename already said it.
 
 ## The manifest: `rototo-package.toml`
@@ -73,7 +73,7 @@ without redeploying your app. You can have as many as you like:
 
 ```toml
 [[trace]]
-when = 'env.resolving.variable == "checkout-redesign" && context.user.id == "user-123"'
+when = 'env.resolving.variable == "checkout_redesign" && context.user.id == "user-123"'
 ```
 
 The `when` is an [expression](./expressions.md) - same language as everywhere
@@ -86,7 +86,7 @@ A **variable** is the thing your application asks for at runtime. It has a type,
 a default, and an optional list of rules that override the default when some
 condition holds.
 
-The simplest kind is a plain on/off flag. Here's `user-is-admin.toml`:
+The simplest kind is a plain on/off flag. Here's `user_is_admin.toml`:
 
 ```toml
 schema_version = 1
@@ -97,7 +97,7 @@ type = "bool"
 default = false
 
 [[resolve.rule]]
-when = 'variables["admin-users"]'
+when = 'variables["admin_users"]'
 value = true
 ```
 
@@ -123,7 +123,7 @@ both rejected. Declare a `type` and put your literal values directly under
 
 ## Condition variables: naming a runtime condition
 
-That `variables["admin-users"]` in the rule above deserves a closer look. "Is
+That `variables["admin_users"]` in the rule above deserves a closer look. "Is
 this a premium user?" "Is this request coming from Europe?" Conditions like
 these tend to show up in more than one variable, and repeating the same
 expression everywhere is how definitions drift apart.
@@ -131,7 +131,7 @@ expression everywhere is how definitions drift apart.
 The fix is to give the condition a name - and in rototo, a named condition is
 just a bool variable. By convention we call it a **condition variable**: type
 `bool`, default `false`, and a rule that flips it to `true` when the condition
-holds. Here's `eu-users.toml`:
+holds. Here's `eu_users.toml`:
 
 ```toml
 schema_version = 1
@@ -159,13 +159,13 @@ type = "bool"
 default = false
 
 [[resolve.rule]]
-when = '(variables["premium-users"]) && (variables["beta-rollout-bucket"])'
+when = '(variables["premium_users"]) && (variables["beta_rollout_bucket"])'
 value = true
 ```
 
 There's nothing special about a condition variable to rototo - it resolves like
 any other bool, and your app can resolve it directly if it wants the yes/no
-answer itself. The convention is for readers: a bool named `eu-users` with a
+answer itself. The convention is for readers: a bool named `eu_users` with a
 `false` default reads as "the condition this package uses to mean an EU user."
 How `variables[...]` references work (lazy, memoized, cycles rejected) is
 covered in the [expressions reference](./expressions.md).
@@ -190,10 +190,10 @@ The `type` field decides what shape a value can take. The built-in types are:
 
 The `list<...>` form lets you say what's *in* the list. The item can be a
 primitive or a catalog reference - `list<string>`, `list<int>`,
-`list<catalog:payment-methods>`. What you can't do is nest lists inside lists:
+`list<catalog:payment_methods>`. What you can't do is nest lists inside lists:
 `list<list<string>>` is rejected. One level deep is the limit.
 
-Here's a plain list variable, `payment-methods.toml`:
+Here's a plain list variable, `payment_methods.toml`:
 
 ```toml
 schema_version = 1
@@ -204,7 +204,7 @@ type = "list"
 default = ["card", "paypal"]
 
 [[resolve.rule]]
-when = 'variables["mobile-users"]'
+when = 'variables["mobile_users"]'
 value = ["card", "apple_pay", "google_pay"]
 ```
 
@@ -218,7 +218,7 @@ schema.
 
 A catalog comes in two parts. First, the schema, at
 `catalogs/<id>.schema.json` - an ordinary JSON Schema describing what every
-entry must look like. Here's `checkout-redesign.schema.json`:
+entry must look like. Here's `checkout_redesign.schema.json`:
 
 ```json
 {
@@ -256,13 +256,13 @@ entry ids:
 ```toml
 schema_version = 1
 description = "Checkout page content and layout variant"
-type = "catalog:checkout-redesign"
+type = "catalog:checkout_redesign"
 
 [resolve]
 default = "control"
 
 [[resolve.rule]]
-when = 'variables["premium-users"]'
+when = 'variables["premium_users"]'
 value = "premium"
 ```
 
@@ -315,7 +315,7 @@ release, not during one.
 Alongside the schema you can keep sample contexts, in
 `evaluation-contexts/<id>-samples/`. Each is a JSON file - the filename is the
 sample's id - that has to validate against the schema. Here's
-`premium-enterprise.json`:
+`premium_enterprise.json`:
 
 ```json
 {
@@ -340,7 +340,7 @@ tier must never get more than five projects." "A checkout heading can't be
 empty." Those go in `lint/`, written in Lua.
 
 A lint file defines a `register` function, and inside it you register one or more
-rules. Here's `checkout-redesign.lua`:
+rules. Here's `checkout_redesign.lua`:
 
 ```lua
 function register(lint)
@@ -348,7 +348,7 @@ function register(lint)
     id = "consumer-experience/checkout-heading-required",
     title = "Checkout heading is missing",
     help = "Set heading to visible checkout copy.",
-    target = "/catalogs/checkout-redesign/entries",
+    target = "/catalogs/checkout_redesign/entries",
     handler = "check_heading",
   })
 end

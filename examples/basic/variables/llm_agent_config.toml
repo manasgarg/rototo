@@ -1,0 +1,11 @@
+schema_version = 1
+
+description = "LLM settings for the main agent loop"
+type = "catalog:llm_agent_config"
+
+[resolve]
+default = "standard"
+
+[[resolve.rule]]
+when = 'variables["enterprise_accounts"]'
+value = "enterprise"

@@ -154,13 +154,13 @@ async fn sdk_inspects_package() {
         inspection
             .variables
             .iter()
-            .any(|variable| variable.uri == "variable://premium-users")
+            .any(|variable| variable.uri == "variable://premium_users")
     );
     assert!(
         inspection
             .variables
             .iter()
-            .any(|variable| variable.uri == "variable://checkout-redesign")
+            .any(|variable| variable.uri == "variable://checkout_redesign")
     );
     assert!(
         inspection.evaluation_contexts.iter().any(
@@ -171,7 +171,7 @@ async fn sdk_inspects_package() {
         inspection
             .linters
             .iter()
-            .any(|linter| linter.id == "checkout-redesign")
+            .any(|linter| linter.id == "checkout_redesign")
     );
 }
 
@@ -184,7 +184,7 @@ async fn sdk_lints_package() {
 
 #[tokio::test]
 async fn sdk_lints_condition_variable() {
-    let lint = lint_variable("examples/basic".as_ref(), "premium-users")
+    let lint = lint_variable("examples/basic".as_ref(), "premium_users")
         .await
         .unwrap();
 
@@ -199,7 +199,7 @@ async fn sdk_lists_variables_for_apps() {
     assert!(
         variables
             .iter()
-            .any(|variable| variable.uri == "variable://checkout-redesign")
+            .any(|variable| variable.uri == "variable://checkout_redesign")
     );
 }
 
@@ -211,17 +211,17 @@ async fn sdk_lists_catalogs_for_apps() {
     assert!(
         catalogs
             .iter()
-            .any(|catalog| catalog.uri == "catalog://checkout-redesign")
+            .any(|catalog| catalog.uri == "catalog://checkout_redesign")
     );
 }
 
 #[tokio::test]
 async fn sdk_reads_variable_config() {
-    let variable = read_variable("examples/basic".as_ref(), "checkout-redesign")
+    let variable = read_variable("examples/basic".as_ref(), "checkout_redesign")
         .await
         .unwrap();
 
-    assert_eq!(variable.id, "checkout-redesign");
+    assert_eq!(variable.id, "checkout_redesign");
     assert_eq!(
         variable.value["description"],
         "Checkout page content and layout variant"
@@ -230,17 +230,17 @@ async fn sdk_reads_variable_config() {
 
 #[tokio::test]
 async fn sdk_reads_catalog_config() {
-    let catalog = read_catalog("examples/basic".as_ref(), "checkout-redesign")
+    let catalog = read_catalog("examples/basic".as_ref(), "checkout_redesign")
         .await
         .unwrap();
 
-    assert_eq!(catalog.id, "checkout-redesign");
+    assert_eq!(catalog.id, "checkout_redesign");
     assert_eq!(catalog.value["entries"]["premium"]["variant"], "premium");
 }
 
 #[tokio::test]
 async fn sdk_reads_primitive_variable_values() {
-    let variable = read_variable("examples/basic".as_ref(), "premium-message")
+    let variable = read_variable("examples/basic".as_ref(), "premium_message")
         .await
         .unwrap();
 
@@ -321,8 +321,8 @@ async fn sdk_sample_app_runs() {
         ])
         .assert()
         .success()
-        .stdout(predicate::str::contains("premium-users: true"))
-        .stdout(predicate::str::contains("enterprise-accounts: true"))
+        .stdout(predicate::str::contains("premium_users: true"))
+        .stdout(predicate::str::contains("enterprise_accounts: true"))
         .stdout(predicate::str::contains("checkout variant: premium"))
         .stdout(predicate::str::contains("agent model: gpt-5"))
         .stdout(predicate::str::contains(
@@ -338,7 +338,7 @@ async fn sdk_reads_condition_variable_configs() {
     assert!(
         variables
             .iter()
-            .any(|variable| variable.uri == "variable://premium-users")
+            .any(|variable| variable.uri == "variable://premium_users")
     );
 }
 
@@ -367,7 +367,7 @@ async fn package_sdk_loads_file_source() {
             .inspection()
             .variables
             .iter()
-            .any(|variable| variable.id == "checkout-redesign")
+            .any(|variable| variable.id == "checkout_redesign")
     );
 }
 
@@ -488,7 +488,7 @@ async fn refreshing_package_refreshes_when_parent_layer_changes() {
     )
     .await
     .unwrap();
-    write_string_variable(&base, "base-only", "before").await;
+    write_string_variable(&base, "base_only", "before").await;
 
     tokio::fs::create_dir_all(&child).await.unwrap();
     tokio::fs::write(
@@ -499,7 +499,7 @@ extends = ["../base"]
     )
     .await
     .unwrap();
-    write_string_variable(&child, "child-only", "child").await;
+    write_string_variable(&child, "child_only", "child").await;
 
     let package = RefreshingPackage::load(child.to_string_lossy(), RefreshOptions::new())
         .await
@@ -508,13 +508,13 @@ extends = ["../base"]
 
     assert_eq!(
         package
-            .resolve_variable("base-only", &context)
+            .resolve_variable("base_only", &context)
             .unwrap()
             .value,
         "before"
     );
 
-    write_string_variable(&base, "base-only", "after").await;
+    write_string_variable(&base, "base_only", "after").await;
 
     assert_eq!(
         package.refresh_now().await.unwrap(),
@@ -522,7 +522,7 @@ extends = ["../base"]
     );
     assert_eq!(
         package
-            .resolve_variable("base-only", &context)
+            .resolve_variable("base_only", &context)
             .unwrap()
             .value,
         "after"
@@ -738,7 +738,7 @@ async fn sdk_resolves_condition_variable() {
         }
     });
 
-    let resolution = resolve_variable("examples/basic".as_ref(), "premium-users", &context)
+    let resolution = resolve_variable("examples/basic".as_ref(), "premium_users", &context)
         .await
         .unwrap();
 
@@ -753,11 +753,11 @@ async fn sdk_resolves_variable() {
         }
     });
 
-    let resolution = resolve_variable("examples/basic".as_ref(), "checkout-redesign", &context)
+    let resolution = resolve_variable("examples/basic".as_ref(), "checkout_redesign", &context)
         .await
         .unwrap();
 
-    assert_catalog_source(&resolution.source, "checkout-redesign", "premium");
+    assert_catalog_source(&resolution.source, "checkout_redesign", "premium");
     assert_eq!(resolution.value["variant"], "premium");
 }
 
@@ -769,7 +769,7 @@ async fn sdk_resolves_primitive_variable() {
         }
     });
 
-    let resolution = resolve_variable("examples/basic".as_ref(), "premium-message", &context)
+    let resolution = resolve_variable("examples/basic".as_ref(), "premium_message", &context)
         .await
         .unwrap();
 
@@ -813,7 +813,7 @@ async fn package_sdk_loads_layered_package_with_child_overrides() {
     .await
     .unwrap();
     write_string_variable(&base, "message", "base").await;
-    write_string_variable(&base, "base-only", "base-only").await;
+    write_string_variable(&base, "base_only", "base_only").await;
 
     tokio::fs::create_dir_all(&child).await.unwrap();
     tokio::fs::write(
@@ -825,7 +825,7 @@ extends = ["../base"]
     .await
     .unwrap();
     write_string_variable(&child, "message", "child").await;
-    write_string_variable(&child, "child-only", "child-only").await;
+    write_string_variable(&child, "child_only", "child_only").await;
 
     let package = Package::load(child.to_str().unwrap()).await.unwrap();
     let context = EvaluationContext::from_json(serde_json::json!({})).unwrap();
@@ -837,17 +837,17 @@ extends = ["../base"]
     );
     assert_eq!(
         package
-            .resolve_variable("base-only", &context)
+            .resolve_variable("base_only", &context)
             .unwrap()
             .value,
-        "base-only"
+        "base_only"
     );
     assert_eq!(
         package
-            .resolve_variable("child-only", &context)
+            .resolve_variable("child_only", &context)
             .unwrap()
             .value,
-        "child-only"
+        "child_only"
     );
 }
 
@@ -889,10 +889,10 @@ async fn package_sdk_resolves_with_context_contract() {
     .unwrap();
 
     let resolution = package
-        .resolve_variable("checkout-redesign", &context)
+        .resolve_variable("checkout_redesign", &context)
         .unwrap();
 
-    assert_catalog_source(&resolution.source, "checkout-redesign", "premium");
+    assert_catalog_source(&resolution.source, "checkout_redesign", "premium");
 }
 
 #[tokio::test]
@@ -904,7 +904,7 @@ async fn package_sdk_validates_evaluation_context_against_schema() {
     .unwrap();
 
     let err = package
-        .resolve_variable("premium-users", &context)
+        .resolve_variable("premium_users", &context)
         .unwrap_err();
 
     assert!(
@@ -924,7 +924,7 @@ async fn package_sdk_rejects_missing_condition_context_even_when_schema_allows_i
     .unwrap();
 
     let err = package
-        .resolve_variable("premium-users", &context)
+        .resolve_variable("premium_users", &context)
         .unwrap_err();
 
     assert!(err.to_string().contains("No such key"));
@@ -943,7 +943,7 @@ async fn package_sdk_resolves_from_context_only() {
 
     let resolution = package
         .resolve_variable_with_options(
-            "checkout-redesign",
+            "checkout_redesign",
             &context,
             ResolveOptions {
                 validate_context: false,
@@ -952,7 +952,7 @@ async fn package_sdk_resolves_from_context_only() {
         )
         .unwrap();
 
-    assert_catalog_source(&resolution.source, "checkout-redesign", "premium");
+    assert_catalog_source(&resolution.source, "checkout_redesign", "premium");
 }
 
 #[tokio::test]
@@ -1033,7 +1033,7 @@ async fn package_sdk_can_bypass_context_validation_explicitly() {
 
     let resolution = package
         .resolve_variable_with_options(
-            "premium-users",
+            "premium_users",
             &context,
             ResolveOptions {
                 validate_context: false,
@@ -1284,7 +1284,7 @@ async fn app_requested_trace_is_emitted_to_subscriber() {
     .unwrap();
     package
         .resolve_variable_with_options(
-            "checkout-redesign",
+            "checkout_redesign",
             &nonmatching,
             ResolveOptions {
                 validate_context: false,
@@ -1301,7 +1301,7 @@ async fn app_requested_trace_is_emitted_to_subscriber() {
     assert!(event.provenance.policies.is_empty());
     let json = event.to_json();
     assert_eq!(json["targetKind"], serde_json::json!("variable"));
-    assert_eq!(json["targetId"], serde_json::json!("checkout-redesign"));
+    assert_eq!(json["targetId"], serde_json::json!("checkout_redesign"));
     assert_eq!(json["provenance"]["appRequested"], serde_json::json!(true));
     // The full execution detail and request context ride along.
     assert!(json["detail"]["resolution"].is_object());
@@ -1323,7 +1323,7 @@ async fn package_trace_policy_emits_for_matching_resolution() {
     // env.resolving.variable and context.user.id both match.
     package
         .resolve_variable_with_options(
-            "checkout-redesign",
+            "checkout_redesign",
             &context,
             ResolveOptions {
                 validate_context: false,
@@ -1351,7 +1351,7 @@ async fn package_trace_policy_does_not_emit_for_other_users() {
 
     package
         .resolve_variable_with_options(
-            "checkout-redesign",
+            "checkout_redesign",
             &context,
             ResolveOptions {
                 validate_context: false,
@@ -1375,7 +1375,7 @@ async fn resolving_without_subscribers_skips_tracing() {
     // No subscriber: resolution still succeeds and the policy is never emitted.
     let resolution = package
         .resolve_variable_with_options(
-            "checkout-redesign",
+            "checkout_redesign",
             &context,
             ResolveOptions {
                 validate_context: false,
@@ -1383,7 +1383,7 @@ async fn resolving_without_subscribers_skips_tracing() {
             },
         )
         .unwrap();
-    assert_eq!(resolution.id, "checkout-redesign");
+    assert_eq!(resolution.id, "checkout_redesign");
 }
 
 #[tokio::test]

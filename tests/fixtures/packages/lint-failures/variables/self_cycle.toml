@@ -1,0 +1,11 @@
+schema_version = 1
+
+description = "Condition that references itself"
+type = "bool"
+
+[resolve]
+default = false
+
+[[resolve.rule]]
+when = 'variables["self_cycle"]'
+value = true

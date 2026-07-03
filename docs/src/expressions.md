@@ -55,19 +55,19 @@ Outside of a query, `entry` doesn't exist - there's no entry to talk about.
 
 `variables` reads the resolved value of *another* variable, by its id. Write it
 with a dot (`variables.premium`) or with brackets when the id has hyphens
-(`variables["premium-users"]`).
+(`variables["premium_users"]`).
 
 This is how a named condition gets reused. Define the condition once as a bool
 variable (a "condition variable": `type = "bool"`, default `false`, a rule that
 sets it `true`), and every other rule can lean on it by name:
 
 ```toml
-when = '(variables["premium-users"]) && (variables["beta-rollout-bucket"])'
+when = '(variables["premium_users"]) && (variables["beta_rollout_bucket"])'
 ```
 
 The referenced variable resolves lazily, against the same context, and the
 result is memoized for the rest of that one resolution - so ten rules reading
-`variables["premium-users"]` cost one evaluation, and they all see the same
+`variables["premium_users"]` cost one evaluation, and they all see the same
 answer. A chain of variables referencing each other is fine; a *cycle* is not.
 Lint catches cycles at edit time (`rototo/variable-reference-cycle`), and
 resolution refuses them too.
@@ -88,7 +88,7 @@ resolution refuses them too.
 
   ```toml
   [[trace]]
-  when = 'env.resolving.variable == "checkout-redesign" && context.user.id == "tester-123"'
+  when = 'env.resolving.variable == "checkout_redesign" && context.user.id == "tester-123"'
   ```
 
 ### What you can't read
@@ -157,7 +157,7 @@ something to "10% of users" and have that 10% stay the same 10% from one request
 to the next.
 
 ```toml
-when = '(bucket(context.user.id, "checkout-redesign-2026-05", 0, 1000))'
+when = '(bucket(context.user.id, "checkout_redesign_2026_05", 0, 1000))'
 ```
 
 You call it `bucket(value, salt, start, end)`. Here's the idea:
@@ -186,7 +186,7 @@ them, and rototo keeps every entry the query says yes to.
 
 ```toml
 [[resolve.rule]]
-query = 'entry.channel == context.channel && entry.active == true && variables["premium-users"]'
+query = 'entry.channel == context.channel && entry.active == true && variables["premium_users"]'
 ```
 
 rototo runs that expression once per catalog entry. For each entry, `entry` is

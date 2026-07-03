@@ -17,21 +17,21 @@
     },
     "unknown_entry": {
       "type": "string",
-      "x-rototo-ref": "catalog:email-template"
+      "x-rototo-ref": "catalog:email_template"
     },
     "invalid_pointer": {
       "type": "string",
-      "x-rototo-ref": "catalog:email-template"
+      "x-rototo-ref": "catalog:email_template"
     },
     "missing_pointer": {
       "type": "string",
-      "x-rototo-ref": "catalog:email-template"
+      "x-rototo-ref": "catalog:email_template"
     },
     "ambiguous_template": {
       "type": "string",
       "x-rototo-ref": [
-        "catalog:email-template",
-        "catalog:sms-template"
+        "catalog:email_template",
+        "catalog:sms_template"
       ]
     }
   },

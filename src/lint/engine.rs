@@ -314,7 +314,7 @@ end
             &reference_snapshot.lint,
             "rototo/variable-rule-unknown-variable",
         );
-        assert_eq!(reference.primary.path, "variables/checkout-redesign.toml");
+        assert_eq!(reference.primary.path, "variables/checkout_redesign.toml");
         assert_eq!(reference.primary.range.unwrap().start.line, 8);
         assert_eq!(reference.primary.range.unwrap().start.character, 7);
         assert_eq!(reference.primary.range.unwrap().end.line, 8);
@@ -351,7 +351,7 @@ end
         assert_eq!(registration.location.path, "lint/targets.lua");
         assert!(matches!(
             &registration.selector.address,
-            RegisteredLintAddress::Variable { id } if id == "agent-config"
+            RegisteredLintAddress::Variable { id } if id == "agent_config"
         ));
     }
 

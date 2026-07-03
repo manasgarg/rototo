@@ -1,0 +1,11 @@
+schema_version = 1
+
+description = "Whether to show administrator navigation affordances"
+type = "bool"
+
+[resolve]
+default = false
+
+[[resolve.rule]]
+when = 'variables["admin_users"]'
+value = true

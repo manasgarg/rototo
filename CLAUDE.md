@@ -103,11 +103,11 @@ policies. Variables resolve by taking the first matching rule value, otherwise
 the default value.
 
 ```sh
-rototo resolve examples/basic --variable premium-users \
+rototo resolve examples/basic --variable premium_users \
   --context user.tier=premium
 
-rototo resolve examples/basic --variable checkout-redesign \
-  --context @examples/basic/evaluation-contexts/request-samples/premium-enterprise.json
+rototo resolve examples/basic --variable checkout_redesign \
+  --context @examples/basic/evaluation-contexts/request-samples/premium_enterprise.json
 ```
 
 ## Console

@@ -15,8 +15,8 @@ cargo install rototo --version 0.1.0-alpha.6
 
 Now, create a configuration package for the application:
 ```sh
-# Create app-config package with a variable named free-shipping-threshold
-rototo init app-config --variable free-shipping-threshold
+# Create app-config package with a variable named free_shipping_threshold
+rototo init app-config --variable free_shipping_threshold
 ```
 
 You should see the following in `app-config/` dir:
@@ -26,13 +26,13 @@ app-config
 ├── rototo-package.toml
 ├── evaluation-contexts
 └── variables
-    └── free-shipping-threshold.toml
+    └── free_shipping_threshold.toml
 ├── catalogs
 ├── lint
 5 directories, 2 files
 ```
 
-We explain the package model in [Rototo Concepts](docs/src/concepts.md). For now, we would focus on the variable `free-shipping-threshold`. Replace the contents of `free-shipping-threshold.toml` with the following:
+We explain the package model in [Rototo Concepts](docs/src/concepts.md). For now, we would focus on the variable `free_shipping_threshold`. Replace the contents of `free_shipping_threshold.toml` with the following:
 ```toml
 schema_version = 1
 description = "$ threshold for free shipping."
@@ -51,21 +51,21 @@ We can now validate our configuration to ensure that we got it right:
 rototo lint app-config
 ```
 
-We can further ensure that `free-shipping-threshold` resolves as expected.
+We can further ensure that `free_shipping_threshold` resolves as expected.
 
 ```sh
 # default value: should give 50
-rototo resolve app-config --variable free-shipping-threshold
+rototo resolve app-config --variable free_shipping_threshold
 ```
 
 ```sh
 # standard account tier: should give 50
-rototo resolve app-config --variable free-shipping-threshold --context account.tier=standard
+rototo resolve app-config --variable free_shipping_threshold --context account.tier=standard
 ```
 
 ```sh
 # premium account tier: should give 25
-rototo resolve app-config --variable free-shipping-threshold --context account.tier=premium
+rototo resolve app-config --variable free_shipping_threshold --context account.tier=premium
 ```
 
 ### Load the configuration package and resolve the threshold
@@ -90,7 +90,7 @@ use std::time::Duration;
 use rototo::{EvaluationContext, RefreshOptions, RefreshingPackage};
 use serde_json::json;
 
-const VARIABLE_ID: &str = "free-shipping-threshold";
+const VARIABLE_ID: &str = "free_shipping_threshold";
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -117,7 +117,7 @@ import asyncio
 
 import rototo
 
-VARIABLE_ID = "free-shipping-threshold"
+VARIABLE_ID = "free_shipping_threshold"
 
 
 def print_threshold(app_config, tier):
@@ -146,7 +146,7 @@ asyncio.run(main())
 ```typescript
 import { RefreshingPackage } from "rototo";
 
-const VARIABLE_ID = "free-shipping-threshold";
+const VARIABLE_ID = "free_shipping_threshold";
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
 const appConfig = await RefreshingPackage.load("app-config", { periodSeconds: 1 });
@@ -172,7 +172,7 @@ import dev.rototo.VariableResolution;
 import java.util.Map;
 
 public class HelloRototo {
-    static final String VARIABLE_ID = "free-shipping-threshold";
+    static final String VARIABLE_ID = "free_shipping_threshold";
 
     public static void main(String[] args) throws Exception {
         RefreshingPackage appConfig = RefreshingPackage.load(
@@ -210,7 +210,7 @@ import (
     "github.com/manasgarg/rototo/sdks/go"
 )
 
-const variableID = "free-shipping-threshold"
+const variableID = "free_shipping_threshold"
 
 func main() {
     ctx := context.Background()
@@ -248,7 +248,7 @@ standard: 50 USD
 premium: 25 USD
 ```
 
-Now leave it running, open `free-shipping-threshold.toml`, change the default
+Now leave it running, open `free_shipping_threshold.toml`, change the default
 value to 35, and save. Because the program reloads the package every second, the
 next tick picks up your change on its own - no restart:
 

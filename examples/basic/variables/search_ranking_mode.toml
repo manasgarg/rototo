@@ -1,0 +1,19 @@
+schema_version = 1
+
+description = "Search ranking algorithm for catalog queries"
+type = "string"
+
+[resolve]
+default = "classic"
+
+[[resolve.rule]]
+when = 'variables["lane_dev"]'
+value = "semantic"
+
+[[resolve.rule]]
+when = 'variables["lane_stage"]'
+value = "hybrid"
+
+[[resolve.rule]]
+when = 'variables["premium_beta_users"]'
+value = "hybrid"

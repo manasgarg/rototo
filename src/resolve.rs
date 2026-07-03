@@ -713,8 +713,8 @@ mod tests {
             ("free", predicate("user.tier", "eq", r#""free""#)),
             ("premium-derived", condition(r#"variables["premium"]"#)),
             ("free-derived", condition(r#"variables["free"]"#)),
-            ("cycle-a", condition(r#"variables["cycle-b"]"#)),
-            ("cycle-b", condition(r#"variables["cycle-a"]"#)),
+            ("cycle_a", condition(r#"variables["cycle_b"]"#)),
+            ("cycle_b", condition(r#"variables["cycle_a"]"#)),
         ]);
         let context = serde_json::json!({ "user": { "tier": "premium" } });
 
@@ -728,7 +728,7 @@ mod tests {
                 .await
                 .unwrap()
         );
-        let err = resolve_condition(package.path(), "cycle-a", &context)
+        let err = resolve_condition(package.path(), "cycle_a", &context)
             .await
             .unwrap_err();
         assert!(
@@ -764,7 +764,7 @@ value = "premium"
         assert_eq!(fallback.value, serde_json::json!("control"));
 
         std::fs::write(
-            package.path().join("variables/bad-rule.toml"),
+            package.path().join("variables/bad_rule.toml"),
             r#"schema_version = 1
 type = "string"
 
@@ -774,7 +774,7 @@ rule = ["not-a-table"]
 "#,
         )
         .unwrap();
-        let err = resolve_variable(package.path(), "bad-rule", &context)
+        let err = resolve_variable(package.path(), "bad_rule", &context)
             .await
             .unwrap_err();
         assert!(err.to_string().contains("rule must be a table"));
@@ -785,7 +785,7 @@ rule = ["not-a-table"]
         let package = package_with_conditions(&[]);
         std::fs::create_dir_all(package.path().join("variables")).unwrap();
         std::fs::write(
-            package.path().join("variables/premium-user.toml"),
+            package.path().join("variables/premium_user.toml"),
             r#"schema_version = 1
 type = "bool"
 
@@ -807,7 +807,7 @@ type = "string"
 default = "control"
 
 [[resolve.rule]]
-when = 'variables["premium-user"]'
+when = 'variables["premium_user"]'
 value = "premium"
 "#,
         )
@@ -827,7 +827,7 @@ value = "welcome back"
         )
         .unwrap();
         std::fs::write(
-            package.path().join("variables/loop-a.toml"),
+            package.path().join("variables/loop_a.toml"),
             r#"schema_version = 1
 type = "bool"
 
@@ -835,13 +835,13 @@ type = "bool"
 default = false
 
 [[resolve.rule]]
-when = 'variables["loop-b"]'
+when = 'variables["loop_b"]'
 value = true
 "#,
         )
         .unwrap();
         std::fs::write(
-            package.path().join("variables/loop-b.toml"),
+            package.path().join("variables/loop_b.toml"),
             r#"schema_version = 1
 type = "bool"
 
@@ -849,7 +849,7 @@ type = "bool"
 default = false
 
 [[resolve.rule]]
-when = 'variables["loop-a"]'
+when = 'variables["loop_a"]'
 value = true
 "#,
         )
@@ -869,13 +869,13 @@ value = true
         assert_eq!(message.value, serde_json::json!("control"));
 
         // A non-bool variable value referenced with the dot form, two hops deep
-        // (greeting -> message -> premium-user).
+        // (greeting -> message -> premium_user).
         let greeting = resolve_variable(package.path(), "greeting", &premium)
             .await
             .unwrap();
         assert_eq!(greeting.value, serde_json::json!("welcome back"));
 
-        let err = resolve_variable(package.path(), "loop-a", &premium)
+        let err = resolve_variable(package.path(), "loop_a", &premium)
             .await
             .unwrap_err();
         assert!(
@@ -918,14 +918,14 @@ value = true
         let package =
             package_with_conditions(&[("premium", condition(r#"context.user.tier == "premium""#))]);
         std::fs::create_dir_all(package.path().join("model/catalogs")).unwrap();
-        std::fs::create_dir_all(package.path().join("data/catalogs/message-template")).unwrap();
-        std::fs::create_dir_all(package.path().join("data/catalogs/hero-banner")).unwrap();
+        std::fs::create_dir_all(package.path().join("data/catalogs/message_template")).unwrap();
+        std::fs::create_dir_all(package.path().join("data/catalogs/hero_banner")).unwrap();
         std::fs::create_dir_all(package.path().join("data/catalogs/page")).unwrap();
         std::fs::create_dir_all(package.path().join("variables")).unwrap();
         std::fs::write(
             package
                 .path()
-                .join("model/catalogs/message-template.schema.json"),
+                .join("model/catalogs/message_template.schema.json"),
             r#"{
   "type": "object",
   "required": ["channel", "active", "body"],
@@ -941,7 +941,7 @@ value = true
         std::fs::write(
             package
                 .path()
-                .join("data/catalogs/message-template/email.toml"),
+                .join("data/catalogs/message_template/email.toml"),
             r#"channel = "email"
 active = true
 body = "Email body"
@@ -951,7 +951,7 @@ body = "Email body"
         std::fs::write(
             package
                 .path()
-                .join("data/catalogs/message-template/sms.toml"),
+                .join("data/catalogs/message_template/sms.toml"),
             r#"channel = "sms"
 active = false
 body = "SMS body"
@@ -961,7 +961,7 @@ body = "SMS body"
         std::fs::write(
             package.path().join("variables/templates.toml"),
             r#"schema_version = 1
-type = "list<catalog:message-template>"
+type = "list<catalog:message_template>"
 
 [resolve]
 default = []
@@ -974,7 +974,7 @@ query = "entry.channel == context.channel && entry.active == true && variables[\
         std::fs::write(
             package
                 .path()
-                .join("model/catalogs/hero-banner.schema.json"),
+                .join("model/catalogs/hero_banner.schema.json"),
             r#"{
   "type": "object",
   "required": ["cta"],
@@ -986,7 +986,7 @@ query = "entry.channel == context.channel && entry.active == true && variables[\
         )
         .unwrap();
         std::fs::write(
-            package.path().join("data/catalogs/hero-banner/home.toml"),
+            package.path().join("data/catalogs/hero_banner/home.toml"),
             r#"cta = "Buy"
 "#,
         )
@@ -999,7 +999,7 @@ query = "entry.channel == context.channel && entry.active == true && variables[\
   "properties": {
     "hero": {
       "type": "string",
-      "x-rototo-ref": "catalog:hero-banner"
+      "x-rototo-ref": "catalog:hero_banner"
     },
     "title": { "type": "string" }
   }

@@ -50,7 +50,7 @@ the same: a singular flag picks one thing by id (and repeats), a plural flag
 picks all of that kind.
 
 ```sh
-rototo lint --variable checkout-redesign        # just this variable
+rototo lint --variable checkout_redesign        # just this variable
 rototo lint --variable a --variable b           # a couple of them
 rototo lint --variables                          # every variable
 ```
@@ -99,7 +99,7 @@ argument is a local path (not a source).
 ```sh
 rototo init app-config                              # a fresh, empty package
 rototo init app-config --variable free-shipping     # + a variable template
-rototo init app-config --catalog checkout-redesign  # + a catalog template
+rototo init app-config --catalog checkout_redesign  # + a catalog template
 rototo init app-config --evaluation-context         # + an evaluation context
 rototo init app-config --evaluation-context request # named "request"
 ```
@@ -168,8 +168,8 @@ right before review: a reviewer reads the file diff, and `inspect` shows whether
 the model still lines up with those edits.
 
 ```sh
-rototo inspect app-config --variable checkout-redesign
-rototo inspect app-config --variable premium-users
+rototo inspect app-config --variable checkout_redesign
+rototo inspect app-config --variable premium_users
 rototo inspect app-config --context user.tier=premium
 ```
 
@@ -184,11 +184,11 @@ the cases that must never drift.
 
 ```sh
 # a variable, against a sample context
-rototo resolve app-config --variable checkout-redesign \
+rototo resolve app-config --variable checkout_redesign \
   --context @app-config/evaluation-contexts/request-samples/premium.json
 
 # a condition variable, against an inline fact
-rototo resolve app-config --variable premium-users --context user.tier=premium
+rototo resolve app-config --variable premium_users --context user.tier=premium
 ```
 
 It only takes the variable selectors (resolving a catalog or rule doesn't mean
@@ -209,14 +209,14 @@ debugging - the default and every rule that was considered:
   "variables": [
     {
       "resolution": {
-        "id": "checkout-redesign",
+        "id": "checkout_redesign",
         "value": { "variant": "premium" },
-        "source": { "kind": "catalog", "catalog": "checkout-redesign", "value": "premium" }
+        "source": { "kind": "catalog", "catalog": "checkout_redesign", "value": "premium" }
       },
       "default_value": { "variant": "control" },
-      "default_source": { "kind": "catalog", "catalog": "checkout-redesign", "value": "control" },
+      "default_source": { "kind": "catalog", "catalog": "checkout_redesign", "value": "control" },
       "rules": [
-        { "index": 0, "condition": "variables[\"premium-users\"]", "value": { }, "matched": true }
+        { "index": 0, "condition": "variables[\"premium_users\"]", "value": { }, "matched": true }
       ]
     }
   ]
@@ -257,7 +257,7 @@ to turn "here's how this behaves" into something concrete.
 
 ```sh
 rototo fixtures app-config --variables
-rototo fixtures app-config --variable checkout-redesign
+rototo fixtures app-config --variable checkout_redesign
 rototo fixtures app-config --variables --context-form json
 ```
 

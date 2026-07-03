@@ -1,0 +1,11 @@
+schema_version = 1
+
+description = "Checkout page content and layout variant"
+type = "catalog:checkout_redesign"
+
+[resolve]
+default = "control"
+
+[[resolve.rule]]
+when = 'variables["premium_users"]'
+value = "premium"

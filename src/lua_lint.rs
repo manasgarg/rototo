@@ -374,7 +374,7 @@ mod tests {
     async fn custom_lint_registration_errors_use_safe_chunk_names() {
         let err = register_pipeline_lint(RegisterLintInput {
             lint_path: PathBuf::from(
-                "/tmp/.tmpWrGs2H/clone/examples/basic/lint/checkout-redesign.lua",
+                "/tmp/.tmpWrGs2H/clone/examples/basic/lint/checkout_redesign.lua",
             ),
             script: "function register(lint)\n  lint:on({})\nend".to_owned(),
         })
@@ -383,7 +383,7 @@ mod tests {
         let message = err.to_string();
 
         assert!(
-            message.contains("lint/checkout-redesign.lua:2"),
+            message.contains("lint/checkout_redesign.lua:2"),
             "{message}"
         );
         assert!(!message.contains("/tmp"), "{message}");
@@ -420,7 +420,7 @@ mod tests {
             package: serde_json::json!({}),
             target: serde_json::json!({}),
             lint_path: PathBuf::from(
-                "/tmp/.tmpWrGs2H/clone/examples/basic/lint/checkout-redesign.lua",
+                "/tmp/.tmpWrGs2H/clone/examples/basic/lint/checkout_redesign.lua",
             ),
             script: r#"
                 function check(package, target)
@@ -435,7 +435,7 @@ mod tests {
         let message = err.to_string();
 
         assert!(
-            message.contains("lint/checkout-redesign.lua:3"),
+            message.contains("lint/checkout_redesign.lua:3"),
             "{message}"
         );
         assert!(!message.contains("/tmp"), "{message}");

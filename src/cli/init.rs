@@ -555,7 +555,7 @@ fn package_manifest_template() -> String {
 # being resolved.
 #
 # [[trace]]
-# when = 'env.resolving.variable == "checkout-redesign" && context.user.id == "tester-123"'
+# when = 'env.resolving.variable == "checkout_redesign" && context.user.id == "tester-123"'
 "#
     .to_owned()
 }
@@ -598,7 +598,7 @@ default = "control"
 # "condition" variable can name a runtime condition other variables share.
 #
 # [[resolve.rule]]
-# when = 'variables["premium-users"]'
+# when = 'variables["premium_users"]'
 # value = "treatment"
 
 # For catalog-backed variables, set:
@@ -611,7 +611,7 @@ default = "control"
 # default = "control"
 #
 # [[resolve.rule]]
-# when = 'variables["premium-users"]'
+# when = 'variables["premium_users"]'
 # value = "premium"
 
 # For list<catalog:...> variables, rules may select entries with `query`
@@ -623,7 +623,7 @@ default = "control"
 # default = []
 #
 # [[resolve.rule]]
-# query = 'entry.enabled == true && variables["premium-users"]'
+# query = 'entry.enabled == true && variables["premium_users"]'
 "#
     )
 }

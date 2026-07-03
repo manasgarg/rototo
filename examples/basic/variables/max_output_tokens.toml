@@ -1,0 +1,19 @@
+schema_version = 1
+
+description = "Maximum response token budget for interactive completions"
+type = "int"
+
+[resolve]
+default = 2400
+
+[[resolve.rule]]
+when = 'variables["lane_stage"]'
+value = 1200
+
+[[resolve.rule]]
+when = 'variables["lane_dev"]'
+value = 5000
+
+[[resolve.rule]]
+when = 'variables["enterprise_accounts"]'
+value = 5000

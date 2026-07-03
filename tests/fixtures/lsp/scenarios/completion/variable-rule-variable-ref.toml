@@ -1,6 +1,6 @@
 # Inside a variable rule's `when` expression, after `variables["`, the useful
 # suggestions are variable ids from the package. Base package extends, variable
-# values, predicate operators, and custom-lint field names do not belong here.
+# values, predicate operators, and custom_lint field names do not belong here.
 # An unsaved manifest overlay is also open to prove completion reads the same
 # snapshot (including sibling overlays) the rest of the server uses.
 package = "basic"

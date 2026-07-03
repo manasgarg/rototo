@@ -1,0 +1,15 @@
+schema_version = 1
+
+description = "Payment methods enabled at checkout"
+type = "list"
+
+[resolve]
+default = ["card", "paypal"]
+
+[[resolve.rule]]
+when = 'variables["mobile_users"]'
+value = ["card", "apple_pay", "google_pay"]
+
+[[resolve.rule]]
+when = 'variables["enterprise_accounts"]'
+value = ["card", "invoice", "wire_transfer"]

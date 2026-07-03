@@ -23,13 +23,13 @@ fn lints_basic_package_as_json_with_documents() {
 
     assert!(lint["diagnostics"].as_array().unwrap().is_empty());
     assert!(document_paths(&lint).contains(&"rototo-package.toml".to_owned()));
-    assert!(document_paths(&lint).contains(&"variables/premium-users.toml".to_owned()));
-    assert!(document_paths(&lint).contains(&"variables/checkout-redesign.toml".to_owned()));
+    assert!(document_paths(&lint).contains(&"variables/premium_users.toml".to_owned()));
+    assert!(document_paths(&lint).contains(&"variables/checkout_redesign.toml".to_owned()));
     assert!(
-        document_paths(&lint).contains(&"model/catalogs/llm-agent-config.schema.json".to_owned())
+        document_paths(&lint).contains(&"model/catalogs/llm_agent_config.schema.json".to_owned())
     );
     assert!(
-        document_paths(&lint).contains(&"data/catalogs/llm-agent-config/local.toml".to_owned())
+        document_paths(&lint).contains(&"data/catalogs/llm_agent_config/local.toml".to_owned())
     );
     assert!(document_paths(&lint).contains(&"model/context/request.schema.json".to_owned()));
 }
@@ -39,7 +39,7 @@ fn lints_curated_examples() {
     for package in [
         "examples/quickstart",
         "examples/production",
-        "examples/custom-lint",
+        "examples/custom_lint",
     ] {
         let lint = lint_json(package, true);
         assert!(
@@ -66,10 +66,10 @@ fn reports_catalog_reference_failures() {
     assert_eq!(messages.len(), 5, "{lint:#}");
     for expected in [
         "$.unknown_catalog references unknown catalog: missing-template",
-        "$.unknown_entry references unknown email-template entry: absent",
+        "$.unknown_entry references unknown email_template entry: absent",
         "$.invalid_pointer references invalid JSON Pointer: body",
-        "$.missing_pointer references missing path /missing in email-template entry: welcome",
-        "$.ambiguous_template references ambiguous catalog entry shared; found in catalogs: email-template, sms-template",
+        "$.missing_pointer references missing path /missing in email_template entry: welcome",
+        "$.ambiguous_template references ambiguous catalog entry shared; found in catalogs: email_template, sms_template",
     ] {
         assert!(
             messages.contains(&expected.to_owned()),
@@ -453,27 +453,27 @@ fn reports_project_stage_variable_shape_failures() {
     assert_project_rule(
         &lint,
         "rototo/variable-schema-version",
-        "variables/missing-schema-version.toml",
+        "variables/missing_schema_version.toml",
     );
     assert_project_rule(
         &lint,
         "rototo/variable-type-source",
-        "variables/type-or-schema.toml",
+        "variables/type_or_schema.toml",
     );
     assert_project_rule(
         &lint,
         "rototo/variable-resolve-missing-default",
-        "variables/resolve-missing-default.toml",
+        "variables/resolve_missing_default.toml",
     );
     assert_project_rule(
         &lint,
         "rototo/variable-resolve-shape",
-        "variables/resolve-shape.toml",
+        "variables/resolve_shape.toml",
     );
     assert_project_rule(
         &lint,
         "rototo/variable-rule-shape",
-        "variables/rule-shape.toml",
+        "variables/rule_shape.toml",
     );
 }
 
@@ -484,7 +484,7 @@ fn reports_project_stage_variable_when_failures() {
     assert_project_rule(
         &lint,
         "rototo/variable-rule-shape",
-        "variables/bad-value-shape.toml",
+        "variables/bad_value_shape.toml",
     );
 }
 
@@ -503,19 +503,19 @@ fn enums_declare_members_and_type_variables() {
     )
     .unwrap();
     std::fs::write(
-        root.join("model/enums/plan-tiers.toml"),
+        root.join("model/enums/plan_tiers.toml"),
         "schema_version = 1\ndescription = \"Plan tiers\"\ntype = \"string\"\n",
     )
     .unwrap();
     std::fs::write(
-        root.join("data/enums/plan-tiers.toml"),
+        root.join("data/enums/plan_tiers.toml"),
         "members = [\"free\", \"team\", \"business\"]\n",
     )
     .unwrap();
     std::fs::write(
-        root.join("variables/plan-tier.toml"),
+        root.join("variables/plan_tier.toml"),
         r#"schema_version = 1
-type = "enum:plan-tiers"
+type = "enum:plan_tiers"
 
 [resolve]
 default = "free"
@@ -534,7 +534,7 @@ value = "team"
     std::fs::create_dir_all(root.join("model/context/request-samples")).unwrap();
     std::fs::write(
         root.join("model/catalogs/plans.schema.json"),
-        r#"{"type":"object","required":["tier"],"properties":{"tier":{"type":"string","x-rototo-ref":"enum:plan-tiers"}}}"#,
+        r#"{"type":"object","required":["tier"],"properties":{"tier":{"type":"string","x-rototo-ref":"enum:plan_tiers"}}}"#,
     )
     .unwrap();
     std::fs::write(
@@ -570,9 +570,9 @@ value = "team"
     // A value outside the member set is rejected, an unknown enum is rejected,
     // and both halves of the enum must exist.
     std::fs::write(
-        root.join("variables/bad-tier.toml"),
+        root.join("variables/bad_tier.toml"),
         r#"schema_version = 1
-type = "enum:plan-tiers"
+type = "enum:plan_tiers"
 
 [resolve]
 default = "platinum"
@@ -580,7 +580,7 @@ default = "platinum"
     )
     .unwrap();
     std::fs::write(
-        root.join("variables/unknown-enum.toml"),
+        root.join("variables/unknown_enum.toml"),
         r#"schema_version = 1
 type = "enum:missing"
 
@@ -687,7 +687,7 @@ fn reports_variable_rule_without_selector() {
             .iter()
             .any(|diagnostic| {
                 diagnostic["stage"] == "project"
-                    && diagnostic["location"]["path"] == "variables/missing-rule-selector.toml"
+                    && diagnostic["location"]["path"] == "variables/missing_rule_selector.toml"
             }),
         "{lint:#}"
     );
@@ -798,18 +798,18 @@ fn reports_reference_stage_failures() {
     assert_reference_rule(
         &lint,
         "rototo/variable-rule-unknown-variable",
-        "variables/bad-resolve.toml",
+        "variables/bad_resolve.toml",
     );
     assert_reference_rule(
         &lint,
         "rototo/variable-unknown-value",
-        "variables/bad-resolve.toml",
+        "variables/bad_resolve.toml",
     );
     let unknown_variable = diagnostic_for_rule(&lint, "rototo/variable-rule-unknown-variable");
     assert_eq!(unknown_variable["target"]["entity"]["kind"], "rule");
     assert_eq!(
         unknown_variable["target"]["entity"]["variable"],
-        "bad-resolve"
+        "bad_resolve"
     );
     assert_eq!(
         unknown_variable["target"]["field"]["kind"],
@@ -831,35 +831,35 @@ fn reports_value_stage_failures() {
     assert_value_rule(
         &lint,
         "rototo/catalog-entry-schema-mismatch",
-        "data/catalogs/bad-schema-value/broken.toml",
+        "data/catalogs/bad_schema_value/broken.toml",
     );
     assert_value_rule(
         &lint,
         "rototo/variable-value-type-mismatch",
-        "variables/bad-type-value.toml",
+        "variables/bad_type_value.toml",
     );
     assert_value_rule(
         &lint,
         "rototo/variable-unknown-type",
-        "variables/unknown-type.toml",
+        "variables/unknown_type.toml",
     );
 
     let unknown_type = diagnostic_for_rule(&lint, "rototo/variable-unknown-type");
     assert_eq!(unknown_type["target"]["entity"]["kind"], "variable");
-    assert_eq!(unknown_type["target"]["entity"]["id"], "unknown-type");
+    assert_eq!(unknown_type["target"]["entity"]["id"], "unknown_type");
     assert!(unknown_type["location"]["range"].is_object());
 
     let schema_mismatch = diagnostic_for_rule(&lint, "rototo/catalog-entry-schema-mismatch");
     assert_eq!(schema_mismatch["target"]["entity"]["kind"], "catalog_entry");
     assert_eq!(
         schema_mismatch["target"]["entity"]["catalog"],
-        "bad-schema-value"
+        "bad_schema_value"
     );
     assert_eq!(schema_mismatch["target"]["entity"]["key"], "broken");
 
     let type_mismatch = diagnostic_for_rule(&lint, "rototo/variable-value-type-mismatch");
     assert_eq!(type_mismatch["target"]["entity"]["kind"], "variable");
-    assert_eq!(type_mismatch["target"]["entity"]["id"], "bad-type-value");
+    assert_eq!(type_mismatch["target"]["entity"]["id"], "bad_type_value");
     assert_eq!(
         type_mismatch["target"]["field"]["kind"],
         "variable_resolve_default"
@@ -937,17 +937,17 @@ fn lint_failures_fixture_covers_graph_rules() {
     assert_graph_rule(
         &lint,
         "rototo/variable-reference-cycle",
-        "variables/cycle-a.toml",
+        "variables/cycle_a.toml",
     );
     assert_graph_rule(
         &lint,
         "rototo/variable-reference-cycle",
-        "variables/self-cycle.toml",
+        "variables/self_cycle.toml",
     );
     assert_graph_rule(
         &lint,
         "rototo/variable-rule-shadowed",
-        "variables/graph-warnings.toml",
+        "variables/graph_warnings.toml",
     );
 }
 
@@ -973,21 +973,21 @@ fn reports_package_custom_lint_failures() {
     assert_policy_rule(
         &lint,
         "fixture/custom-variable-rejected",
-        "variables/custom-lint.toml",
+        "variables/custom_lint.toml",
     );
     assert_policy_rule(
         &lint,
         "fixture/custom-value-rejected",
-        "variables/custom-value-lint.toml",
+        "variables/custom_value_lint.toml",
     );
 
     let variable = diagnostic_for_rule(&lint, "fixture/custom-variable-rejected");
     assert_eq!(variable["target"]["entity"]["kind"], "variable");
-    assert_eq!(variable["target"]["entity"]["id"], "custom-lint");
+    assert_eq!(variable["target"]["entity"]["id"], "custom_lint");
 
     let value = diagnostic_for_rule(&lint, "fixture/custom-value-rejected");
     assert_eq!(value["target"]["entity"]["kind"], "variable");
-    assert_eq!(value["target"]["entity"]["id"], "custom-value-lint");
+    assert_eq!(value["target"]["entity"]["id"], "custom_value_lint");
     assert_eq!(value["target"]["field"]["kind"], "variable_resolve_default");
 }
 
@@ -998,12 +998,12 @@ fn reports_custom_lint_contract_failures() {
     assert_policy_rule(
         &lint,
         "rototo/custom-lint-failed",
-        "variables/custom-failed.toml",
+        "variables/custom_failed.toml",
     );
     assert_policy_rule(
         &lint,
         "payments/max-token-budget",
-        "variables/custom-valid.toml",
+        "variables/custom_valid.toml",
     );
 }
 
@@ -1019,12 +1019,12 @@ fn reports_registered_custom_lint_failures() {
     assert_policy_rule(
         &lint,
         "payments/max-token-budget",
-        "variables/agent-config.toml",
+        "variables/agent_config.toml",
     );
 
     let diagnostic = diagnostic_for_rule(&lint, "payments/max-token-budget");
     assert_eq!(diagnostic["target"]["entity"]["kind"], "variable");
-    assert_eq!(diagnostic["target"]["entity"]["id"], "agent-config");
+    assert_eq!(diagnostic["target"]["entity"]["id"], "agent_config");
     assert_eq!(diagnostic["stage"], "policy");
     assert!(diagnostic["location"]["range"].is_object());
 }
@@ -1064,27 +1064,27 @@ fn reports_registered_custom_lint_targets() {
     assert_policy_rule(
         &lint,
         "targets/variable-type",
-        "variables/agent-config.toml",
+        "variables/agent_config.toml",
     );
     assert_policy_rule(
         &lint,
         "targets/returned-variable-type",
-        "variables/agent-config.toml",
+        "variables/agent_config.toml",
     );
     assert_policy_rule(
         &lint,
         "targets/invalid-returned-field",
-        "variables/agent-config.toml",
+        "variables/agent_config.toml",
     );
     assert_policy_rule(
         &lint,
         "targets/package-variable-default",
-        "variables/agent-config.toml",
+        "variables/agent_config.toml",
     );
     assert_policy_rule(
         &lint,
         "targets/catalog-entry-json-pointer",
-        "data/catalogs/agent-config/standard.toml",
+        "data/catalogs/agent_config/standard.toml",
     );
     let package = diagnostic_for_rule(&lint, "targets/package-extends");
     assert_eq!(package["target"]["entity"]["kind"], "package");
@@ -1093,13 +1093,13 @@ fn reports_registered_custom_lint_targets() {
 
     let variable = diagnostic_for_rule(&lint, "targets/variable-type");
     assert_eq!(variable["target"]["entity"]["kind"], "variable");
-    assert_eq!(variable["target"]["entity"]["id"], "agent-config");
+    assert_eq!(variable["target"]["entity"]["id"], "agent_config");
     assert_eq!(variable["stage"], "policy");
     assert!(variable["location"]["range"].is_object());
 
     let returned = diagnostic_for_rule(&lint, "targets/returned-variable-type");
     assert_eq!(returned["target"]["entity"]["kind"], "variable");
-    assert_eq!(returned["target"]["entity"]["id"], "agent-config");
+    assert_eq!(returned["target"]["entity"]["id"], "agent_config");
     assert_eq!(returned["location"]["range"]["start"]["line"], 3);
     assert!(
         returned["location"]["range"]["start"]["character"]
@@ -1110,12 +1110,12 @@ fn reports_registered_custom_lint_targets() {
 
     let invalid = diagnostic_for_rule(&lint, "targets/invalid-returned-field");
     assert_eq!(invalid["target"]["entity"]["kind"], "variable");
-    assert_eq!(invalid["target"]["entity"]["id"], "agent-config");
+    assert_eq!(invalid["target"]["entity"]["id"], "agent_config");
     assert!(invalid["location"]["range"].is_null());
 
     let default = diagnostic_for_rule(&lint, "targets/package-variable-default");
     assert_eq!(default["target"]["entity"]["kind"], "variable");
-    assert_eq!(default["target"]["entity"]["id"], "agent-config");
+    assert_eq!(default["target"]["entity"]["id"], "agent_config");
     assert_eq!(
         default["target"]["field"]["kind"],
         "variable_resolve_default"
@@ -1124,7 +1124,7 @@ fn reports_registered_custom_lint_targets() {
 
     let catalog_entry = diagnostic_for_rule(&lint, "targets/catalog-entry-json-pointer");
     assert_eq!(catalog_entry["target"]["entity"]["kind"], "catalog_entry");
-    assert_eq!(catalog_entry["target"]["entity"]["catalog"], "agent-config");
+    assert_eq!(catalog_entry["target"]["entity"]["catalog"], "agent_config");
     assert_eq!(catalog_entry["target"]["entity"]["key"], "standard");
     assert_eq!(catalog_entry["target"]["field"]["kind"], "value_json_path");
     assert_eq!(
@@ -1588,11 +1588,11 @@ fn canonical_rule_fixtures() -> &'static [CanonicalRuleFixture] {
                 severity: "error",
                 stage: LintStage::Reference,
                 entity: ExpectedEntity::Rule {
-                    variable: "checkout-redesign",
+                    variable: "checkout_redesign",
                     index: 0,
                 },
                 primary: ExpectedPrimaryLocation::Document {
-                    path: "variables/checkout-redesign.toml",
+                    path: "variables/checkout_redesign.toml",
                     range: Some(ExpectedRange {
                         start_line: 8,
                         start_character: 7,
@@ -1612,9 +1612,9 @@ fn canonical_rule_fixtures() -> &'static [CanonicalRuleFixture] {
                     rule: "rototo/variable-reference-cycle",
                     severity: "error",
                     stage: LintStage::Graph,
-                    entity: ExpectedEntity::Variable("loop-a"),
+                    entity: ExpectedEntity::Variable("loop_a"),
                     primary: ExpectedPrimaryLocation::Document {
-                        path: "variables/loop-a.toml",
+                        path: "variables/loop_a.toml",
                         range: Some(ExpectedRange {
                             start_line: 7,
                             start_character: 7,
@@ -1623,23 +1623,23 @@ fn canonical_rule_fixtures() -> &'static [CanonicalRuleFixture] {
                         }),
                     },
                     related: &[ExpectedRelatedLocation {
-                        path: "variables/loop-b.toml",
+                        path: "variables/loop_b.toml",
                         range: Some(ExpectedRange {
                             start_line: 7,
                             start_character: 7,
                             end_line: 7,
                             end_character: 28,
                         }),
-                        message: "cycle reference: loop-b -> loop-a",
+                        message: "cycle reference: loop_b -> loop_a",
                     }],
                 },
                 ExpectedDiagnostic {
                     rule: "rototo/variable-reference-cycle",
                     severity: "error",
                     stage: LintStage::Graph,
-                    entity: ExpectedEntity::Variable("loop-b"),
+                    entity: ExpectedEntity::Variable("loop_b"),
                     primary: ExpectedPrimaryLocation::Document {
-                        path: "variables/loop-b.toml",
+                        path: "variables/loop_b.toml",
                         range: Some(ExpectedRange {
                             start_line: 7,
                             start_character: 7,
@@ -1648,17 +1648,33 @@ fn canonical_rule_fixtures() -> &'static [CanonicalRuleFixture] {
                         }),
                     },
                     related: &[ExpectedRelatedLocation {
-                        path: "variables/loop-a.toml",
+                        path: "variables/loop_a.toml",
                         range: Some(ExpectedRange {
                             start_line: 7,
                             start_character: 7,
                             end_line: 7,
                             end_character: 28,
                         }),
-                        message: "cycle reference: loop-a -> loop-b",
+                        message: "cycle reference: loop_a -> loop_b",
                     }],
                 },
             ],
+        },
+        CanonicalRuleFixture {
+            rule: RototoRuleId::IdNotSnakeCase,
+            package: "tests/fixtures/packages/rules/project/id-not-snake-case",
+            success: false,
+            expected: &[ExpectedDiagnostic {
+                rule: "rototo/id-not-snake-case",
+                severity: "error",
+                stage: LintStage::Project,
+                entity: ExpectedEntity::Variable("premium-users"),
+                primary: ExpectedPrimaryLocation::Document {
+                    path: "variables/premium-users.toml",
+                    range: None,
+                },
+                related: &[],
+            }],
         },
         CanonicalRuleFixture {
             rule: RototoRuleId::VariableUnknownType,
@@ -2236,7 +2252,7 @@ fn intentionally_malformed_fixture_files() -> &'static [&'static str] {
         "context-schema-invalid-json/model/context/request.schema.json",
         "invalid-package-file-toml/variables/broken.toml",
         "invalid-package-toml/rototo-package.toml",
-        "rules/parse/variable-external-value-parse-failed/variables/external-message-values/broken.toml",
+        "rules/parse/variable-external-value-parse-failed/variables/external_message-values/broken.toml",
         "rules/parse/variable-parse-failed/variables/broken.toml",
         "rules/parse/package-manifest-parse-failed/rototo-package.toml",
         "schema-contract-parse-failed/model/catalogs/message.schema.json",

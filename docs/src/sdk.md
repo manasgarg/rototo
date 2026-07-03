@@ -36,7 +36,7 @@ let context = EvaluationContext::from_json(serde_json::json!({
     "user": { "tier": "premium" }
 }))?;
 
-let resolution = package.resolve_variable("premium-message", &context)?;
+let resolution = package.resolve_variable("premium_message", &context)?;
 println!("{}", resolution.value); // the resolved JSON value
 ```
 
@@ -46,7 +46,7 @@ import rototo
 package = await rototo.Package.load("examples/basic")
 
 resolution = package.resolve_variable(
-    "premium-message",
+    "premium_message",
     {"user": {"tier": "premium"}},
 )
 print(resolution.value)  # the resolved JSON value
@@ -57,7 +57,7 @@ import { Package } from "rototo";
 
 const pkg = await Package.load("examples/basic");
 
-const resolution = pkg.resolveVariable("premium-message", {
+const resolution = pkg.resolveVariable("premium_message", {
   user: { tier: "premium" },
 });
 console.log(resolution.value); // the resolved JSON value
@@ -71,7 +71,7 @@ import java.util.Map;
 Package pkg = Package.load("examples/basic").get();
 
 VariableResolution resolution = pkg.resolveVariable(
-    "premium-message",
+    "premium_message",
     Map.of("user", Map.of("tier", "premium"))
 );
 System.out.println(resolution.value()); // the resolved JSON value
@@ -84,7 +84,7 @@ if err != nil {
 }
 defer pkg.Close(ctx)
 
-resolution, err := pkg.ResolveVariable("premium-message", map[string]any{
+resolution, err := pkg.ResolveVariable("premium_message", map[string]any{
     "user": map[string]any{"tier": "premium"},
 }, nil)
 if err != nil {
@@ -119,20 +119,20 @@ one like any other variable, and its `value` is a plain boolean.
 
 :::sdk-snippet resolve-condition
 ```rust
-let resolution = package.resolve_variable("premium-users", &context)?;
+let resolution = package.resolve_variable("premium_users", &context)?;
 if resolution.value == serde_json::json!(true) {
     // ...
 }
 ```
 
 ```python
-resolution = package.resolve_variable("premium-users", {"user": {"tier": "premium"}})
+resolution = package.resolve_variable("premium_users", {"user": {"tier": "premium"}})
 if resolution.value:
     ...
 ```
 
 ```typescript
-const resolution = pkg.resolveVariable("premium-users", {
+const resolution = pkg.resolveVariable("premium_users", {
   user: { tier: "premium" },
 });
 if (resolution.value === true) {
@@ -142,14 +142,14 @@ if (resolution.value === true) {
 
 ```java
 VariableResolution resolution = pkg.resolveVariable(
-    "premium-users",
+    "premium_users",
     Map.of("user", Map.of("tier", "premium"))
 );
 boolean isPremium = Boolean.TRUE.equals(resolution.value());
 ```
 
 ```go
-resolution, err := pkg.ResolveVariable("premium-users", map[string]any{
+resolution, err := pkg.ResolveVariable("premium_users", map[string]any{
     "user": map[string]any{"tier": "premium"},
 }, nil)
 if err != nil {
@@ -184,7 +184,7 @@ let package = RefreshingPackage::load(
     RefreshOptions::new().with_period(Duration::from_secs(300)),
 ).await?;
 
-let resolution = package.resolve_variable("premium-message", &context)?;
+let resolution = package.resolve_variable("premium_message", &context)?;
 
 // on shutdown:
 package.shutdown().await;
@@ -196,7 +196,7 @@ package = await rototo.RefreshingPackage.load(
     period_seconds=300,
 )
 
-resolution = package.resolve_variable("premium-message", {"user": {"tier": "premium"}})
+resolution = package.resolve_variable("premium_message", {"user": {"tier": "premium"}})
 
 # on shutdown:
 await package.shutdown()
@@ -210,7 +210,7 @@ const pkg = await RefreshingPackage.load(
   { periodSeconds: 300 },
 );
 
-const resolution = pkg.resolveVariable("premium-message", {
+const resolution = pkg.resolveVariable("premium_message", {
   user: { tier: "premium" },
 });
 
@@ -226,7 +226,7 @@ RefreshingPackage pkg = RefreshingPackage.load(
 ).get();
 
 VariableResolution resolution = pkg.resolveVariable(
-    "premium-message",
+    "premium_message",
     Map.of("user", Map.of("tier", "premium"))
 );
 
@@ -241,7 +241,7 @@ if err != nil {
 }
 defer pkg.Shutdown(ctx)
 
-resolution, err := pkg.ResolveVariable("premium-message", map[string]any{
+resolution, err := pkg.ResolveVariable("premium_message", map[string]any{
     "user": map[string]any{"tier": "premium"},
 }, nil)
 if err != nil {
@@ -336,24 +336,24 @@ trace option to the resolve call:
 use rototo::ResolveOptions;
 
 let options = ResolveOptions { trace: true, ..ResolveOptions::default() };
-let resolution = package.resolve_variable_with_options("checkout-redesign", &context, options)?;
+let resolution = package.resolve_variable_with_options("checkout_redesign", &context, options)?;
 ```
 
 ```python
-resolution = package.resolve_variable("checkout-redesign", context, trace=True)
+resolution = package.resolve_variable("checkout_redesign", context, trace=True)
 ```
 
 ```typescript
-const resolution = pkg.resolveVariable("checkout-redesign", context, { trace: true });
+const resolution = pkg.resolveVariable("checkout_redesign", context, { trace: true });
 ```
 
 ```java
 VariableResolution resolution = pkg.resolveVariable(
-    "checkout-redesign", context, ResolveOptions.trace(true));
+    "checkout_redesign", context, ResolveOptions.trace(true));
 ```
 
 ```go
-resolution, err := pkg.ResolveVariable("checkout-redesign", context, &rototo.ResolveOptions{Trace: true})
+resolution, err := pkg.ResolveVariable("checkout_redesign", context, &rototo.ResolveOptions{Trace: true})
 ```
 :::
 

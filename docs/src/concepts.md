@@ -114,7 +114,7 @@ A condition variable is a named runtime condition. It looks at facts from the ap
 
 Condition variables exist because configuration decisions often share the same conditions. If several variables need to know whether an account is on an enterprise plan, that condition deserves one name and one definition - so the package can review and change it in one place instead of repeating the same predicate across many rules.
 
-There's no separate entity for this: a named condition is just a bool variable, shaped by convention. It has `type = "bool"`, a default of `false`, and a rule that sets it to `true` when the condition holds. Here's one called `enterprise-account`:
+There's no separate entity for this: a named condition is just a bool variable, shaped by convention. It has `type = "bool"`, a default of `false`, and a rule that sets it to `true` when the condition holds. Here's one called `enterprise_account`:
 
 ```toml
 schema_version = 1
@@ -138,11 +138,11 @@ type = "int"
 default = 2000
 
 [[resolve.rule]]
-when = 'variables["enterprise-account"]'
+when = 'variables["enterprise_account"]'
 value = 5000
 ```
 
-When Rototo resolves the variable, it resolves `enterprise-account` against the same context the application passed in, lazily and at most once per resolution.
+When Rototo resolves the variable, it resolves `enterprise_account` against the same context the application passed in, lazily and at most once per resolution.
 
 ```sh
 rototo resolve app-config \
@@ -150,7 +150,7 @@ rototo resolve app-config \
   --context account.plan=enterprise
 ```
 
-The rule matches because `enterprise-account` comes out true, so the selected value is `5000`.
+The rule matches because `enterprise_account` comes out true, so the selected value is `5000`.
 
 Condition variables can also build on other condition variables, so the package can compose named conditions out of smaller named conditions while keeping the rules readable. Reference cycles are the one thing Rototo refuses: lint flags them (`rototo/variable-reference-cycle`) and resolution rejects them. The useful line to hold: condition variables describe *when* a configuration choice applies, and the variables that reference them describe *what* value the application gets.
 
@@ -160,7 +160,7 @@ Condition variables can also build on other condition variables, so the package 
 
 The strings in `when` (and the `query` form used for catalog-backed variables) aren't some bespoke Rototo syntax. They're a subset of [CEL](https://cel.dev), the Common Expression Language. CEL is a small, well-specified, side-effect-free language built for exactly this job: evaluating a boolean (or a value) against a structured input, safely and predictably. Reusing it means the syntax is already documented and stable, and the evaluation holds no surprises - no loops, no assignment, no I/O.
 
-Rototo evaluates these expressions and adds two things on top of plain CEL. First, four input roots are always in scope. `context` is the runtime facts the application passes in. `entry` is the catalog entry under consideration in a `query`. `variables` reads another variable's resolved value - `variables["enterprise-account"]` is how a rule leans on a condition variable; the referenced variable resolves lazily and is memoized for the rest of that resolution. And `env` is everything Rototo itself provides - kept separate so that what the application supplies (`context`) stays visibly distinct from what the control plane supplies. Today `env` has one member you can use in rules: `env.now`, the evaluation timestamp, an RFC3339 string Rototo captures once per resolution. Second, a set of named functions that configuration conditions keep reaching for - things like `startsWith`, `matches`, `semver`, `cidr`, `bucket`, and the `timeBefore`/`timeBetween` family. So a `when` expression is ordinary CEL - `==`, `&&`, `in`, `has()`, indexing, comparisons - against those roots, plus those functions.
+Rototo evaluates these expressions and adds two things on top of plain CEL. First, four input roots are always in scope. `context` is the runtime facts the application passes in. `entry` is the catalog entry under consideration in a `query`. `variables` reads another variable's resolved value - `variables["enterprise_account"]` is how a rule leans on a condition variable; the referenced variable resolves lazily and is memoized for the rest of that resolution. And `env` is everything Rototo itself provides - kept separate so that what the application supplies (`context`) stays visibly distinct from what the control plane supplies. Today `env` has one member you can use in rules: `env.now`, the evaluation timestamp, an RFC3339 string Rototo captures once per resolution. Second, a set of named functions that configuration conditions keep reaching for - things like `startsWith`, `matches`, `semver`, `cidr`, `bucket`, and the `timeBefore`/`timeBetween` family. So a `when` expression is ordinary CEL - `==`, `&&`, `in`, `has()`, indexing, comparisons - against those roots, plus those functions.
 
 `env.now` reads the wall clock, so a condition that depends on it resolves differently as time passes. That's exactly right for a launch window meant to open on its own, but it does mean the same package version is no longer a pure function of the context you pass. When you need a resolution you can reproduce - in a test, a `diff`, or an audit - pass the evaluation time in `context` and compare against that path instead, so the timestamp is an input you control rather than the ambient clock.
 
@@ -191,7 +191,7 @@ For example, here's a catalog schema for LLM parameters:
 Save that as:
 
 ```sh
-catalogs/llm-parameters.schema.json
+catalogs/llm_parameters.schema.json
 ```
 
 Then add catalog entries under a matching entries folder:
@@ -223,13 +223,13 @@ Now a variable can select from that catalog:
 
 ```toml
 schema_version = 1
-type = "catalog:llm-parameters"
+type = "catalog:llm_parameters"
 
 [resolve]
 default = "standard"
 
 [[resolve.rule]]
-when = 'variables["enterprise-account"]'
+when = 'variables["enterprise_account"]'
 value = "enterprise"
 ```
 
@@ -243,7 +243,7 @@ Sometimes the application doesn't want one catalog entry - it wants a filtered l
 
 Catalog queries handle that. A variable can resolve to `list<catalog:...>` and use a query to pick the matching entries.
 
-First, add an `enabled` field to the `llm-parameters` catalog schema:
+First, add an `enabled` field to the `llm_parameters` catalog schema:
 
 ```json
 {
@@ -276,7 +276,7 @@ Now define a variable that returns the enabled entries:
 
 ```toml
 schema_version = 1
-type = "list<catalog:llm-parameters>"
+type = "list<catalog:llm_parameters>"
 
 [resolve]
 default = []
@@ -393,10 +393,10 @@ This describes the runtime facts the application may pass into resolution. When 
 The second is the catalog schema:
 
 ```
-catalogs/llm-parameters.schema.json
+catalogs/llm_parameters.schema.json
 ```
 
-This describes every entry in the `llm-parameters` catalog. If the schema says `max_output_tokens` must be an integer and `temperature` must sit between 0 and 2, every entry has to satisfy that contract.
+This describes every entry in the `llm_parameters` catalog. If the schema says `max_output_tokens` must be an integer and `temperature` must sit between 0 and 2, every entry has to satisfy that contract.
 
 For example, this entry is valid:
 
@@ -446,7 +446,7 @@ function register(lint)
     id = "ai/llm-temperature-limit",
     title = "Enabled LLM temperature is too high",
     help = "Keep enabled LLM parameter sets at or below temperature 1.0.",
-    target = "/catalogs/llm-parameters/entries",
+    target = "/catalogs/llm_parameters/entries",
     handler = "check_temperature",
   })
 end

@@ -4,6 +4,6 @@ external_ref_template = "welcome#/body"
 ref_template = "welcome#/body"
 
 [object_template]
-catalog = "sms-template"
+catalog = "sms_template"
 entry = "sms_payment_failed"
 pointer = "/body"

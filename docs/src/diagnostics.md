@@ -148,7 +148,7 @@ function register(lint)
     id = "consumer-experience/checkout-heading-required",
     title = "Checkout heading is missing",
     help = "Set heading to visible checkout copy.",
-    target = "/catalogs/checkout-redesign/entries",
+    target = "/catalogs/checkout_redesign/entries",
     severity = "error",
     handler = "check_heading",
   })
@@ -194,7 +194,7 @@ with the fields you'll actually use up top:
   "message": "value 3 does not match declared type bool",
   "help": "Use a value matching the variable's declared type.",
   "location": {
-    "path": "variables/checkout-redesign.toml",
+    "path": "variables/checkout_redesign.toml",
     "range": {
       "start": { "line": 8, "character": 8 },
       "end": { "line": 8, "character": 9 }
@@ -202,7 +202,7 @@ with the fields you'll actually use up top:
   },
   "stage": "value",
   "target": {
-    "entity": { "kind": "variable", "id": "checkout-redesign" },
+    "entity": { "kind": "variable", "id": "checkout_redesign" },
     "field": { "kind": "resolveDefault" }
   },
   "related": [

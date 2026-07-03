@@ -17,12 +17,12 @@ async fn semantic_model_projects_entities_references_and_ranges() {
     let catalog = model
         .catalogs
         .iter()
-        .find(|catalog| catalog.id == "support-banner")
-        .expect("support-banner catalog");
+        .find(|catalog| catalog.id == "support_banner")
+        .expect("support_banner catalog");
     assert!(
         catalog
             .path
-            .ends_with("model/catalogs/support-banner.schema.json")
+            .ends_with("model/catalogs/support_banner.schema.json")
     );
     assert_eq!(
         catalog
@@ -36,18 +36,18 @@ async fn semantic_model_projects_entities_references_and_ranges() {
     let variable = model
         .variables
         .iter()
-        .find(|variable| variable.id == "support-banner")
-        .expect("support-banner variable");
+        .find(|variable| variable.id == "support_banner")
+        .expect("support_banner variable");
     assert_eq!(variable.declaration.kind, "catalog");
     assert_eq!(
         variable.declaration.value.as_deref(),
-        Some("support-banner")
+        Some("support_banner")
     );
     assert!(
         variable
             .location
             .path
-            .ends_with("variables/support-banner.toml")
+            .ends_with("variables/support_banner.toml")
     );
 
     let resolve = variable.resolve.as_ref().expect("resolve section");
@@ -64,7 +64,7 @@ async fn semantic_model_projects_entities_references_and_ranges() {
     let rule = &resolve.rules[0];
     assert_eq!(
         rule.when.as_ref().and_then(|field| field.value.as_deref()),
-        Some("variables[\"mobile-users\"]")
+        Some("variables[\"mobile_users\"]")
     );
     assert!(
         rule.when
@@ -76,25 +76,25 @@ async fn semantic_model_projects_entities_references_and_ranges() {
     let object = model
         .catalog_entries
         .iter()
-        .find(|object| object.catalog == "support-banner" && object.key == "mobile_help")
-        .expect("support-banner/mobile_help object");
+        .find(|object| object.catalog == "support_banner" && object.key == "mobile_help")
+        .expect("support_banner/mobile_help object");
     assert!(object.value.is_object());
 
     // The reference graph covers rule conditions and selected catalog values.
     let rule_condition_edge = model.references.iter().any(|reference| {
-        matches!(&reference.from, ModelEntityRef::Variable { id } if id == "support-banner")
-            && matches!(&reference.to, ModelEntityRef::Variable { id } if id == "mobile-users")
+        matches!(&reference.from, ModelEntityRef::Variable { id } if id == "support_banner")
+            && matches!(&reference.to, ModelEntityRef::Variable { id } if id == "mobile_users")
     });
     assert!(
         rule_condition_edge,
         "variable rule condition -> condition variable edge"
     );
     let object_edge = model.references.iter().any(|reference| {
-        matches!(&reference.from, ModelEntityRef::Variable { id } if id == "support-banner")
+        matches!(&reference.from, ModelEntityRef::Variable { id } if id == "support_banner")
             && matches!(
                 &reference.to,
                 ModelEntityRef::CatalogEntry { catalog, key }
-                    if catalog == "support-banner" && key == "mobile_help"
+                    if catalog == "support_banner" && key == "mobile_help"
             )
     });
     assert!(object_edge, "variable value -> catalog value edge");
@@ -155,7 +155,7 @@ value = true
     );
     write_file(
         root,
-        "model/catalogs/message-template.schema.json",
+        "model/catalogs/message_template.schema.json",
         r#"{
   "type": "object",
   "required": ["channel", "active", "body"],
@@ -169,7 +169,7 @@ value = true
     );
     write_file(
         root,
-        "data/catalogs/message-template/email.toml",
+        "data/catalogs/message_template/email.toml",
         r#"channel = "email"
 active = true
 body = "Email body"
@@ -180,7 +180,7 @@ body = "Email body"
         "variables/templates.toml",
         r#"schema_version = 1
 
-type = "list<catalog:message-template>"
+type = "list<catalog:message_template>"
 
 [resolve]
 default = []
@@ -202,7 +202,7 @@ query = 'entry.channel == context.channel && entry.active == true && variables["
     assert_eq!(variable.declaration.kind, "primitive");
     assert_eq!(
         variable.declaration.value.as_deref(),
-        Some("list<catalog:message-template>")
+        Some("list<catalog:message_template>")
     );
     let rule = &variable.resolve.as_ref().expect("resolve section").rules[0];
     assert_eq!(rule.index, 0);

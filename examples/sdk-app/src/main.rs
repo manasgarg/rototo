@@ -45,22 +45,22 @@ async fn main() -> Result<(), Box<dyn Error>> {
         }
     }))?;
 
-    let premium_users = package.resolve_variable("premium-users", &context)?;
+    let premium_users = package.resolve_variable("premium_users", &context)?;
     let premium_users: bool = serde_json::from_value(premium_users.value)?;
-    let enterprise_accounts = package.resolve_variable("enterprise-accounts", &context)?;
+    let enterprise_accounts = package.resolve_variable("enterprise_accounts", &context)?;
     let enterprise_accounts: bool = serde_json::from_value(enterprise_accounts.value)?;
 
-    let checkout = package.resolve_variable("checkout-redesign", &context)?;
+    let checkout = package.resolve_variable("checkout_redesign", &context)?;
     let checkout: CheckoutPage = serde_json::from_value(checkout.value)?;
 
-    let llm_config = package.resolve_variable("llm-agent-config", &context)?;
+    let llm_config = package.resolve_variable("llm_agent_config", &context)?;
     let llm_config: LlmConfig = serde_json::from_value(llm_config.value)?;
 
-    let message = package.resolve_variable("premium-message", &context)?;
+    let message = package.resolve_variable("premium_message", &context)?;
     let message: String = serde_json::from_value(message.value)?;
 
-    println!("premium-users: {premium_users}");
-    println!("enterprise-accounts: {enterprise_accounts}");
+    println!("premium_users: {premium_users}");
+    println!("enterprise_accounts: {enterprise_accounts}");
     println!();
     println!("checkout variant: {}", checkout.variant);
     println!("checkout heading: {}", checkout.heading);

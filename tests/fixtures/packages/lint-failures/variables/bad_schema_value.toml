@@ -1,0 +1,7 @@
+schema_version = 1
+
+description = "Catalog-backed variable with an entry that does not match"
+type = "catalog:bad_schema_value"
+
+[resolve]
+default = "default"

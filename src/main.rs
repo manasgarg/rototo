@@ -647,12 +647,12 @@ fn top_level_help() -> String {
     out.push('\n');
     for example in [
         "init config",
-        "init config --variable premium-users",
-        "fixtures examples/basic --variable tenant-limits",
+        "init config --variable premium_users",
+        "fixtures examples/basic --variable tenant_limits",
         "lint examples/basic",
         "show examples/basic --variables",
-        "diff examples/basic --context @examples/basic/model/context/request-samples/premium-enterprise.json",
-        "resolve examples/basic --variable checkout-redesign --context lane=prod --context user.tier=premium",
+        "diff examples/basic --context @examples/basic/model/context/request-samples/premium_enterprise.json",
+        "resolve examples/basic --variable checkout_redesign --context lane=prod --context user.tier=premium",
         "package examples/basic --output dist",
         "docs -p motivation",
         "setup --shell zsh",

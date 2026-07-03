@@ -132,7 +132,7 @@ fn build_runtime_section(meta: &SdkReadme, program: &str) -> String {
          premium: 25 USD\n\
          ```\n\
          \n\
-         Now edit `free-shipping-threshold.toml`, change the default to 35, and save. Because the package refreshes every second, the next tick shows:\n\
+         Now edit `free_shipping_threshold.toml`, change the default to 35, and save. Because the package refreshes every second, the next tick shows:\n\
          \n\
          ```text\n\
          ---\n\

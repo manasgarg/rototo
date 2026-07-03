@@ -101,7 +101,7 @@ The powerful one is to let the package decide. You add a `[[trace]]` policy to `
 
 ```toml
 [[trace]]
-when = 'env.resolving.variable == "checkout-redesign" && context.user.id == "tester-123"'
+when = 'env.resolving.variable == "checkout_redesign" && context.user.id == "tester-123"'
 ```
 
 The other way is for the app to ask for a trace on a specific call, when the app itself knows the request is interesting (a `?debug=1` flag, a support session, a sampled request):
@@ -111,24 +111,24 @@ The other way is for the app to ask for a trace on a specific call, when the app
 use rototo::ResolveOptions;
 
 let options = ResolveOptions { trace: true, ..ResolveOptions::default() };
-let resolution = package.resolve_variable_with_options("checkout-redesign", &context, options)?;
+let resolution = package.resolve_variable_with_options("checkout_redesign", &context, options)?;
 ```
 
 ```python
-resolution = package.resolve_variable("checkout-redesign", context, trace=True)
+resolution = package.resolve_variable("checkout_redesign", context, trace=True)
 ```
 
 ```typescript
-const resolution = pkg.resolveVariable("checkout-redesign", context, { trace: true });
+const resolution = pkg.resolveVariable("checkout_redesign", context, { trace: true });
 ```
 
 ```java
 VariableResolution resolution = pkg.resolveVariable(
-    "checkout-redesign", context, ResolveOptions.trace(true));
+    "checkout_redesign", context, ResolveOptions.trace(true));
 ```
 
 ```go
-resolution, err := pkg.ResolveVariable("checkout-redesign", context, &rototo.ResolveOptions{Trace: true})
+resolution, err := pkg.ResolveVariable("checkout_redesign", context, &rototo.ResolveOptions{Trace: true})
 ```
 :::
 

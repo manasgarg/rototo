@@ -1,0 +1,11 @@
+schema_version = 1
+
+description = "Startup observability settings for rototo console"
+type = "catalog:console_observability"
+
+[resolve]
+default = "standard"
+
+[[resolve.rule]]
+when = 'variables["startup_dev_console"]'
+value = "dev"

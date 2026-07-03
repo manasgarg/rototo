@@ -10,17 +10,17 @@ fn fixtures_command_prints_resolve_commands() {
             "fixtures",
             "examples/basic",
             "--variable",
-            "user-is-admin",
+            "user_is_admin",
             "--variable",
-            "premium-users",
+            "premium_users",
         ])
         .assert()
         .success()
         .stdout(predicate::str::contains(
-            "rototo resolve examples/basic --variable user-is-admin",
+            "rototo resolve examples/basic --variable user_is_admin",
         ))
         .stdout(predicate::str::contains(
-            "rototo resolve examples/basic --variable premium-users --context",
+            "rototo resolve examples/basic --variable premium_users --context",
         ))
         .stdout(predicate::str::contains("# =>"));
 }
@@ -32,8 +32,8 @@ fn fixtures_command_defaults_to_whole_package() {
         .args(["fixtures", "examples/basic"])
         .assert()
         .success()
-        .stdout(predicate::str::contains("--variable user-is-admin"))
-        .stdout(predicate::str::contains("--variable premium-users"));
+        .stdout(predicate::str::contains("--variable user_is_admin"))
+        .stdout(predicate::str::contains("--variable premium_users"));
 }
 
 #[test]
@@ -44,7 +44,7 @@ fn fixtures_command_renders_json_context_form() {
             "fixtures",
             "examples/basic",
             "--variable",
-            "premium-users",
+            "premium_users",
             "--context-form",
             "json",
         ])
@@ -62,13 +62,13 @@ fn fixtures_command_json_output_describes_invocations() {
             "fixtures",
             "examples/basic",
             "--variable",
-            "user-is-admin",
+            "user_is_admin",
             "--json",
         ])
         .assert()
         .success()
         .stdout(predicate::str::contains(
-            "\"target\": \"variable:user-is-admin\"",
+            "\"target\": \"variable:user_is_admin\"",
         ))
         .stdout(predicate::str::contains("\"command\":"))
         .stdout(predicate::str::contains("\"expect\":"))
@@ -83,7 +83,7 @@ fn printed_resolve_command_runs_end_to_end() {
     let output = Command::cargo_bin("rototo")
         .unwrap()
         .env("NO_COLOR", "1")
-        .args(["fixtures", "examples/basic", "--variable", "user-is-admin"])
+        .args(["fixtures", "examples/basic", "--variable", "user_is_admin"])
         .output()
         .unwrap();
     assert!(output.status.success());

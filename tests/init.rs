@@ -46,12 +46,12 @@ fn init_entity_implicitly_creates_package_skeleton() {
             "init",
             package.to_str().unwrap(),
             "--variable",
-            "max-output-tokens",
+            "max_output_tokens",
         ])
         .assert()
         .success()
         .stdout(predicate::str::contains("rototo-package.toml"))
-        .stdout(predicate::str::contains("variables/max-output-tokens.toml"));
+        .stdout(predicate::str::contains("variables/max_output_tokens.toml"));
 
     assert!(package.join("rototo-package.toml").is_file());
     assert!(package.join("variables").is_dir());
@@ -59,7 +59,7 @@ fn init_entity_implicitly_creates_package_skeleton() {
     assert!(package.join("data/catalogs").is_dir());
     assert!(package.join("model/context").is_dir());
     assert!(package.join("lint").is_dir());
-    assert!(package.join("variables/max-output-tokens.toml").is_file());
+    assert!(package.join("variables/max_output_tokens.toml").is_file());
 
     Command::cargo_bin("rototo")
         .unwrap()
@@ -80,13 +80,13 @@ fn init_variable_and_context_templates() {
             "init",
             package.to_str().unwrap(),
             "--variable",
-            "premium-users",
+            "premium_users",
         ])
         .assert()
         .success();
 
     fs::write(
-        package.join("variables/premium-users.toml"),
+        package.join("variables/premium_users.toml"),
         r#"schema_version = 1
 type = "bool"
 
@@ -131,7 +131,7 @@ fn init_variable_and_catalog_templates() {
             "init",
             package.to_str().unwrap(),
             "--variable",
-            "checkout-redesign",
+            "checkout_redesign",
         ])
         .assert()
         .success();
@@ -142,12 +142,12 @@ fn init_variable_and_catalog_templates() {
             "init",
             package.to_str().unwrap(),
             "--catalog",
-            "checkout-redesign",
+            "checkout_redesign",
         ])
         .assert()
         .success();
 
-    let variable = fs::read_to_string(package.join("variables/checkout-redesign.toml")).unwrap();
+    let variable = fs::read_to_string(package.join("variables/checkout_redesign.toml")).unwrap();
     assert!(variable.contains("type = \"string\""));
     assert!(variable.contains("[resolve]"));
     assert!(variable.contains("bool, int, number, string"));
@@ -156,11 +156,11 @@ fn init_variable_and_catalog_templates() {
     assert!(!variable.contains("[env."));
 
     let catalog =
-        fs::read_to_string(package.join("model/catalogs/checkout-redesign.schema.json")).unwrap();
+        fs::read_to_string(package.join("model/catalogs/checkout_redesign.schema.json")).unwrap();
     assert!(catalog.contains("\"$schema\""));
     assert!(
         package
-            .join("data/catalogs/checkout-redesign/default.toml")
+            .join("data/catalogs/checkout_redesign/default.toml")
             .is_file()
     );
 
@@ -221,7 +221,7 @@ fn init_context_infers_variable_paths_with_types() {
     init_package(&package);
 
     fs::write(
-        package.join("variables/premium-users.toml"),
+        package.join("variables/premium_users.toml"),
         r#"schema_version = 1
 type = "bool"
 
@@ -235,7 +235,7 @@ value = true
     )
     .unwrap();
     fs::write(
-        package.join("variables/checkout-redesign.toml"),
+        package.join("variables/checkout_redesign.toml"),
         r#"schema_version = 1
 type = "string"
 
@@ -243,7 +243,7 @@ type = "string"
 default = "control"
 
 [[resolve.rule]]
-when = 'variables["premium-users"] && context.account.seats >= 10 && context.flags.enabled'
+when = 'variables["premium_users"] && context.account.seats >= 10 && context.flags.enabled'
 value = "treatment"
 "#,
     )
@@ -277,7 +277,7 @@ fn init_context_update_adds_missing_paths_and_reports_conflicts() {
     init_package(&package);
 
     fs::write(
-        package.join("variables/checkout-redesign.toml"),
+        package.join("variables/checkout_redesign.toml"),
         r#"schema_version = 1
 type = "string"
 

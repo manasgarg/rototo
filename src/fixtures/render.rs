@@ -187,7 +187,7 @@ mod tests {
     fn shell_quote_leaves_safe_tokens_bare() {
         assert_eq!(shell_quote("user.tier=premium"), "user.tier=premium");
         assert_eq!(shell_quote("examples/basic"), "examples/basic");
-        assert_eq!(shell_quote("max-output-tokens"), "max-output-tokens");
+        assert_eq!(shell_quote("max_output_tokens"), "max_output_tokens");
     }
 
     #[test]
