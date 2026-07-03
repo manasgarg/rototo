@@ -64,6 +64,8 @@ pub(super) fn parse_sources(
         match &document.kind {
             DocumentKind::Manifest
             | DocumentKind::Variable { .. }
+            | DocumentKind::EnumDeclaration { .. }
+            | DocumentKind::EnumMembers { .. }
             | DocumentKind::CatalogEntry { .. } => {
                 toml::parse_toml_document(document, &mut syntax, diagnostics);
             }

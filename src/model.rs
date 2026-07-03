@@ -107,6 +107,8 @@ pub struct SourceDocumentSummary {
 pub enum SourceKind {
     Manifest,
     Variable,
+    Enum,
+    EnumMembers,
     Catalog,
     CatalogEntry,
     EvaluationContext,

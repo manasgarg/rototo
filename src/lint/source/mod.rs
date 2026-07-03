@@ -107,6 +107,12 @@ pub(super) enum DocumentKind {
     Variable {
         id: String,
     },
+    EnumDeclaration {
+        id: String,
+    },
+    EnumMembers {
+        id: String,
+    },
     Catalog {
         id: String,
     },
@@ -129,6 +135,8 @@ impl DocumentKind {
         match self {
             Self::Manifest => SourceKind::Manifest,
             Self::Variable { .. } => SourceKind::Variable,
+            Self::EnumDeclaration { .. } => SourceKind::Enum,
+            Self::EnumMembers { .. } => SourceKind::EnumMembers,
             Self::Catalog { .. } => SourceKind::Catalog,
             Self::CatalogEntry { .. } => SourceKind::CatalogEntry,
             Self::EvaluationContext { .. } => SourceKind::EvaluationContext,

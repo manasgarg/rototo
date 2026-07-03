@@ -80,6 +80,8 @@ fn parse_failed_rule(kind: &DocumentKind) -> RototoRuleId {
     match kind {
         DocumentKind::Manifest => RototoRuleId::PackageManifestParseFailed,
         DocumentKind::Variable { .. } => RototoRuleId::VariableParseFailed,
+        DocumentKind::EnumDeclaration { .. } => RototoRuleId::EnumParseFailed,
+        DocumentKind::EnumMembers { .. } => RototoRuleId::EnumMembersParseFailed,
         DocumentKind::Catalog { .. } => RototoRuleId::CatalogParseFailed,
         DocumentKind::CatalogEntry { .. } => RototoRuleId::CatalogEntryParseFailed,
         DocumentKind::EvaluationContext { .. } => RototoRuleId::EvaluationContextParseFailed,
@@ -94,6 +96,9 @@ fn entity_for_document(document: &SourceDocument) -> SemanticEntity {
     match &document.kind {
         DocumentKind::Manifest => SemanticEntity::Manifest,
         DocumentKind::Variable { id } => SemanticEntity::Variable { id: id.clone() },
+        DocumentKind::EnumDeclaration { id } | DocumentKind::EnumMembers { id } => {
+            SemanticEntity::Enum { id: id.clone() }
+        }
         DocumentKind::Catalog { id } => SemanticEntity::Catalog { id: id.clone() },
         DocumentKind::CatalogEntry {
             catalog_id,

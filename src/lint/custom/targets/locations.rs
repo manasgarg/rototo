@@ -38,6 +38,7 @@ fn resolve_output_pointer(
 ) -> Option<RegisteredLintOutputAnchor> {
     match entity {
         SemanticEntity::Package => package_pointer(ctx, tokens),
+        SemanticEntity::Enum { .. } => None,
         SemanticEntity::Variable { id } => variable_pointer(ctx, id, tokens),
         SemanticEntity::Value { variable, key } => value_pointer(ctx, variable, key, tokens),
         SemanticEntity::Rule { variable, index } => rule_pointer(ctx, variable, *index, tokens),
@@ -212,6 +213,11 @@ fn entity_location(ctx: &LintContext, entity: &SemanticEntity) -> Option<Diagnos
             .get(evaluation_context)
             .and_then(|entries| entries.get(key))
             .map(|entry| entry.location.clone()),
+        SemanticEntity::Enum { id } => ctx
+            .index
+            .enums
+            .get(id)
+            .map(|declaration| declaration.location.clone()),
         SemanticEntity::Manifest | SemanticEntity::CustomLint { .. } => None,
     }
 }

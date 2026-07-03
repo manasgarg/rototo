@@ -10,7 +10,8 @@ use crate::diagnostics::{
 use crate::expression::Expression;
 
 use super::ids::{
-    CatalogId, EvaluationContextId, EvaluationContextSampleId, PackagePath, ValueKey, VariableId,
+    CatalogId, EnumId, EvaluationContextId, EvaluationContextSampleId, PackagePath, ValueKey,
+    VariableId,
 };
 use super::targets::RegisteredLintSelector;
 
@@ -106,15 +107,25 @@ impl TypeSourceNode {
 pub(in crate::lint) enum VariableTypeKind {
     Primitive(String),
     Catalog(String),
+    Enum(String),
     List(Box<VariableTypeKind>),
 }
 
 impl VariableTypeKind {
     pub(in crate::lint) fn catalog_ids(&self) -> Vec<&str> {
         match self {
-            Self::Primitive(_) => Vec::new(),
+            Self::Primitive(_) | Self::Enum(_) => Vec::new(),
             Self::Catalog(catalog) => vec![catalog.as_str()],
             Self::List(item) => item.catalog_ids(),
+        }
+    }
+
+    #[allow(dead_code)]
+    pub(in crate::lint) fn enum_ids(&self) -> Vec<&str> {
+        match self {
+            Self::Primitive(_) | Self::Catalog(_) => Vec::new(),
+            Self::Enum(id) => vec![id.as_str()],
+            Self::List(item) => item.enum_ids(),
         }
     }
 
@@ -164,7 +175,64 @@ fn parse_variable_type(value: &str) -> Option<VariableTypeKind> {
         }
         return Some(VariableTypeKind::Catalog(catalog.to_owned()));
     }
+    if let Some(id) = value.strip_prefix("enum:") {
+        if id.is_empty() {
+            return None;
+        }
+        return Some(VariableTypeKind::Enum(id.to_owned()));
+    }
     Some(VariableTypeKind::Primitive(value.to_owned()))
+}
+
+/// A named enum declaration under `model/enums/<id>.toml`: the contract half
+/// (the member scalar type), with the members themselves under
+/// `data/enums/<id>.toml`.
+pub(in crate::lint) struct EnumNode {
+    #[allow(dead_code)]
+    pub(in crate::lint) doc: DocId,
+    pub(in crate::lint) id: EnumId,
+    pub(in crate::lint) location: DiagnosticLocation,
+    pub(in crate::lint) schema_version: ProjectField<i64>,
+    #[allow(dead_code)]
+    pub(in crate::lint) description: Option<ProjectField<String>>,
+    pub(in crate::lint) member_type: ProjectField<String>,
+}
+
+impl EnumNode {
+    pub(in crate::lint) fn target(&self) -> SemanticTarget {
+        SemanticEntity::Enum {
+            id: self.id.clone(),
+        }
+        .into()
+    }
+
+    #[allow(dead_code)]
+    pub(in crate::lint) fn field_target(&self, field: SemanticField) -> SemanticTarget {
+        SemanticTarget::field(
+            SemanticEntity::Enum {
+                id: self.id.clone(),
+            },
+            field,
+        )
+    }
+}
+
+/// The data half of an enum: `members = [...]` under `data/enums/<id>.toml`.
+pub(in crate::lint) struct EnumMembersNode {
+    #[allow(dead_code)]
+    pub(in crate::lint) doc: DocId,
+    pub(in crate::lint) id: EnumId,
+    pub(in crate::lint) location: DiagnosticLocation,
+    pub(in crate::lint) members: ProjectField<Vec<Spanned<JsonValue>>>,
+}
+
+impl EnumMembersNode {
+    pub(in crate::lint) fn target(&self) -> SemanticTarget {
+        SemanticEntity::Enum {
+            id: self.id.clone(),
+        }
+        .into()
+    }
 }
 
 pub(in crate::lint) struct CatalogNode {

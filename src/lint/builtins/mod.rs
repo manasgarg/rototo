@@ -1,4 +1,5 @@
 mod catalog;
+mod enums;
 mod evaluation_context;
 mod graph;
 mod package;
@@ -13,6 +14,7 @@ pub(super) fn run_project(ctx: &mut LintContext) {
     package::lint_trace_policies(ctx);
     evaluation_context::lint_evaluation_context_schemas(ctx);
     catalog::lint_catalog_shapes(ctx);
+    enums::lint_enum_shapes(ctx);
     variable::lint_variable_shapes(ctx);
     variable::lint_variable_expression_roots(ctx);
 }

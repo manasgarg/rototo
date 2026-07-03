@@ -42,6 +42,43 @@ impl SourceStore {
         Ok(())
     }
 
+    pub(crate) async fn add_enum_documents(&mut self) -> Result<()> {
+        for (directory, declaration) in [("model/enums", true), ("data/enums", false)] {
+            let directory_path = self.root.join(directory);
+            let entries = match sorted_directory_entries(&directory_path).await {
+                Ok(entries) => entries,
+                Err(err) if err.kind() == std::io::ErrorKind::NotFound => continue,
+                Err(err) => {
+                    return Err(RototoError::new(format!(
+                        "failed to read {}: {err}",
+                        directory_path.display()
+                    )));
+                }
+            };
+            for path in entries {
+                if path.extension().and_then(|extension| extension.to_str()) != Some("toml") {
+                    continue;
+                }
+                let Some(stem) = path.file_stem().and_then(|stem| stem.to_str()) else {
+                    continue;
+                };
+                let relative_path =
+                    PathBuf::from(directory).join(path.file_name().expect("entry has filename"));
+                let kind = if declaration {
+                    DocumentKind::EnumDeclaration {
+                        id: stem.to_owned(),
+                    }
+                } else {
+                    DocumentKind::EnumMembers {
+                        id: stem.to_owned(),
+                    }
+                };
+                self.add_disk_document(relative_path, kind).await;
+            }
+        }
+        Ok(())
+    }
+
     pub(crate) async fn add_catalog_documents(&mut self) -> Result<()> {
         let directory = self.root.join("model/catalogs");
         let entries = match sorted_directory_entries(&directory).await {
@@ -294,6 +331,14 @@ fn overlay_document_kind(path: &str) -> Option<DocumentKind> {
         ["variables", file] if file.ends_with(".toml") => {
             let id = file.strip_suffix(".toml")?;
             (!id.is_empty()).then(|| DocumentKind::Variable { id: id.to_owned() })
+        }
+        ["model", "enums", file] if file.ends_with(".toml") => {
+            let id = file.strip_suffix(".toml")?;
+            (!id.is_empty()).then(|| DocumentKind::EnumDeclaration { id: id.to_owned() })
+        }
+        ["data", "enums", file] if file.ends_with(".toml") => {
+            let id = file.strip_suffix(".toml")?;
+            (!id.is_empty()).then(|| DocumentKind::EnumMembers { id: id.to_owned() })
         }
         ["model", "catalogs", file] if file.ends_with(".schema.json") => {
             let id = file.strip_suffix(".schema.json")?;

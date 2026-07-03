@@ -489,6 +489,104 @@ fn reports_project_stage_variable_when_failures() {
 }
 
 #[test]
+fn enums_declare_members_and_type_variables() {
+    let temp = tempfile::TempDir::new().unwrap();
+    let root = temp.path();
+    std::fs::create_dir_all(root.join("model/enums")).unwrap();
+    std::fs::create_dir_all(root.join("data/enums")).unwrap();
+    std::fs::create_dir_all(root.join("variables")).unwrap();
+    std::fs::create_dir_all(root.join("model/context")).unwrap();
+    std::fs::write(root.join("rototo-package.toml"), "schema_version = 1\n").unwrap();
+    std::fs::write(
+        root.join("model/context/request.schema.json"),
+        r#"{"type":"object","properties":{"account":{"type":"object","properties":{"paid":{"type":"boolean"}}}}}"#,
+    )
+    .unwrap();
+    std::fs::write(
+        root.join("model/enums/plan-tiers.toml"),
+        "schema_version = 1\ndescription = \"Plan tiers\"\ntype = \"string\"\n",
+    )
+    .unwrap();
+    std::fs::write(
+        root.join("data/enums/plan-tiers.toml"),
+        "members = [\"free\", \"team\", \"business\"]\n",
+    )
+    .unwrap();
+    std::fs::write(
+        root.join("variables/plan-tier.toml"),
+        r#"schema_version = 1
+type = "enum:plan-tiers"
+
+[resolve]
+default = "free"
+
+[[resolve.rule]]
+when = 'context.account.paid == true'
+value = "team"
+"#,
+    )
+    .unwrap();
+
+    let lint = lint_json(root.to_str().unwrap(), true);
+    assert!(
+        lint["diagnostics"].as_array().unwrap().is_empty(),
+        "{lint:#}"
+    );
+
+    // A value outside the member set is rejected, an unknown enum is rejected,
+    // and both halves of the enum must exist.
+    std::fs::write(
+        root.join("variables/bad-tier.toml"),
+        r#"schema_version = 1
+type = "enum:plan-tiers"
+
+[resolve]
+default = "platinum"
+"#,
+    )
+    .unwrap();
+    std::fs::write(
+        root.join("variables/unknown-enum.toml"),
+        r#"schema_version = 1
+type = "enum:missing"
+
+[resolve]
+default = "anything"
+"#,
+    )
+    .unwrap();
+    std::fs::write(
+        root.join("model/enums/orphan.toml"),
+        "schema_version = 1\ntype = \"string\"\n",
+    )
+    .unwrap();
+    std::fs::write(
+        root.join("data/enums/undeclared.toml"),
+        "members = [\"a\"]\n",
+    )
+    .unwrap();
+
+    let lint = lint_json(root.to_str().unwrap(), false);
+    let rules = diagnostic_rules(&lint);
+    assert!(
+        rules.contains(&"rototo/variable-unknown-value".to_owned()),
+        "{lint:#}"
+    );
+    assert!(
+        rules.contains(&"rototo/variable-unknown-enum".to_owned()),
+        "{lint:#}"
+    );
+    assert!(
+        rules.contains(&"rototo/enum-members-missing".to_owned()),
+        "{lint:#}"
+    );
+    assert!(
+        rules.contains(&"rototo/enum-members-undeclared".to_owned()),
+        "{lint:#}"
+    );
+}
+
+#[test]
 fn reports_variable_rule_without_selector() {
     let lint = lint_json("tests/fixtures/packages/lint-failures", false);
 
@@ -1699,6 +1797,30 @@ fn canonical_rule_fixtures() -> &'static [CanonicalRuleFixture] {
 
 fn pending_canonical_rule_fixtures() -> &'static [PendingCanonicalRuleFixture] {
     &[
+        PendingCanonicalRuleFixture {
+            rule: RototoRuleId::EnumParseFailed,
+        },
+        PendingCanonicalRuleFixture {
+            rule: RototoRuleId::EnumSchemaVersion,
+        },
+        PendingCanonicalRuleFixture {
+            rule: RototoRuleId::EnumShape,
+        },
+        PendingCanonicalRuleFixture {
+            rule: RototoRuleId::EnumMembersParseFailed,
+        },
+        PendingCanonicalRuleFixture {
+            rule: RototoRuleId::EnumMembersShape,
+        },
+        PendingCanonicalRuleFixture {
+            rule: RototoRuleId::EnumMembersMissing,
+        },
+        PendingCanonicalRuleFixture {
+            rule: RototoRuleId::EnumMembersUndeclared,
+        },
+        PendingCanonicalRuleFixture {
+            rule: RototoRuleId::VariableUnknownEnum,
+        },
         PendingCanonicalRuleFixture {
             rule: RototoRuleId::TraceWhenMissing,
         },

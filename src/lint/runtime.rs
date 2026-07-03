@@ -310,6 +310,10 @@ fn validate_variable_type_kind(index: &SemanticIndex, type_kind: &VariableTypeKi
         VariableTypeKind::Catalog(catalog) => Err(RototoError::new(format!(
             "variable references unknown catalog: {catalog}"
         ))),
+        VariableTypeKind::Enum(id) if index.enums.contains_key(id) => Ok(()),
+        VariableTypeKind::Enum(id) => Err(RototoError::new(format!(
+            "variable references unknown enum: {id}"
+        ))),
         VariableTypeKind::List(item) => validate_variable_type_kind(index, item),
     }
 }
@@ -401,6 +405,7 @@ impl<'a> RuntimeCompiler<'a> {
         value: &JsonValue,
     ) -> Result<RuntimeSelectedValue> {
         match type_kind {
+            VariableTypeKind::Enum(_) => Ok(RuntimeSelectedValue::Literal(value.clone())),
             VariableTypeKind::Catalog(catalog) => {
                 let name = value.as_str().ok_or_else(|| {
                     RototoError::new(format!(

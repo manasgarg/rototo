@@ -363,8 +363,17 @@ pub(super) fn lint_variable_values(ctx: &mut LintContext) {
                 lint_primitive_resolve_values(&mut diagnostics, variable, primitive);
             }
             VariableTypeKind::Catalog(_) => lint_catalog_resolve_values(&mut diagnostics, variable),
+            VariableTypeKind::Enum(id) => {
+                lint_enum_resolve_values(&mut diagnostics, ctx, variable, &type_kind.location, id);
+            }
             VariableTypeKind::List(item) => {
-                lint_list_resolve_values(&mut diagnostics, variable, &type_kind.location, item);
+                lint_list_resolve_values(
+                    &mut diagnostics,
+                    ctx,
+                    variable,
+                    &type_kind.location,
+                    item,
+                );
             }
         }
     }
@@ -392,6 +401,7 @@ fn lint_primitive_type(
 
 fn lint_list_resolve_values(
     diagnostics: &mut Vec<LintDiagnostic>,
+    ctx: &LintContext,
     variable: &VariableNode,
     location: &crate::diagnostics::DiagnosticLocation,
     item: &VariableTypeKind,
@@ -405,6 +415,9 @@ fn lint_list_resolve_values(
             };
             lint_primitive_list_resolve_values(diagnostics, variable, primitive);
         }
+        VariableTypeKind::Enum(id) => {
+            lint_enum_list_resolve_values(diagnostics, ctx, variable, location, id);
+        }
         VariableTypeKind::List(_) => push_value_diagnostic(
             diagnostics,
             RototoRuleId::VariableUnknownType,
@@ -412,6 +425,144 @@ fn lint_list_resolve_values(
             location.clone(),
             "nested list variable types are not supported",
         ),
+    }
+}
+
+/// The declared members of an enum, when both halves are present and valid.
+/// Missing pieces are reported by the enum lints, so value validation simply
+/// skips when it cannot know the member set.
+fn enum_member_values<'a>(ctx: &'a LintContext, id: &str) -> Option<Vec<&'a JsonValue>> {
+    if !ctx.index.enums.contains_key(id) {
+        return None;
+    }
+    let members = ctx.index.enum_members.get(id)?;
+    let ProjectField::Present(members) = &members.members else {
+        return None;
+    };
+    Some(members.value.iter().map(|member| &member.value).collect())
+}
+
+fn lint_enum_resolve_values(
+    diagnostics: &mut Vec<LintDiagnostic>,
+    ctx: &LintContext,
+    variable: &VariableNode,
+    location: &crate::diagnostics::DiagnosticLocation,
+    id: &str,
+) {
+    if !ctx.index.enums.contains_key(id) {
+        push_value_diagnostic(
+            diagnostics,
+            RototoRuleId::VariableUnknownEnum,
+            variable.field_target(SemanticField::VariableType),
+            location.clone(),
+            format!("variable references unknown enum: {id}"),
+        );
+        return;
+    }
+    let Some(members) = enum_member_values(ctx, id) else {
+        return;
+    };
+    for_each_resolve_value(variable, |target, value, value_location, label| {
+        if !members.contains(&value) {
+            push_value_diagnostic(
+                diagnostics,
+                RototoRuleId::VariableUnknownValue,
+                target,
+                value_location.clone(),
+                format!(
+                    "{label} is not a member of enum {id}: {}",
+                    value_label(value)
+                ),
+            );
+        }
+    });
+}
+
+fn lint_enum_list_resolve_values(
+    diagnostics: &mut Vec<LintDiagnostic>,
+    ctx: &LintContext,
+    variable: &VariableNode,
+    location: &crate::diagnostics::DiagnosticLocation,
+    id: &str,
+) {
+    if !ctx.index.enums.contains_key(id) {
+        push_value_diagnostic(
+            diagnostics,
+            RototoRuleId::VariableUnknownEnum,
+            variable.field_target(SemanticField::VariableType),
+            location.clone(),
+            format!("variable references unknown enum: {id}"),
+        );
+        return;
+    }
+    let Some(members) = enum_member_values(ctx, id) else {
+        return;
+    };
+    for_each_resolve_value(variable, |target, value, value_location, label| {
+        let Some(values) = value.as_array() else {
+            push_value_diagnostic(
+                diagnostics,
+                RototoRuleId::VariableValueTypeMismatch,
+                target,
+                value_location.clone(),
+                format!("{label} for list<enum> variable must be a list"),
+            );
+            return;
+        };
+        for value in values {
+            if !members.contains(&value) {
+                push_value_diagnostic(
+                    diagnostics,
+                    RototoRuleId::VariableUnknownValue,
+                    variable.field_target(SemanticField::VariableResolveDefault),
+                    value_location.clone(),
+                    format!(
+                        "{label} is not a member of enum {id}: {}",
+                        value_label(value)
+                    ),
+                );
+            }
+        }
+    });
+}
+
+/// Visit the resolve default and every literal rule value with its semantic
+/// target, value, location, and human label.
+fn for_each_resolve_value(
+    variable: &VariableNode,
+    mut visit: impl FnMut(
+        crate::diagnostics::SemanticTarget,
+        &JsonValue,
+        &crate::diagnostics::DiagnosticLocation,
+        &str,
+    ),
+) {
+    let ResolveNode::Resolve { default, rules, .. } = &variable.resolve else {
+        return;
+    };
+    if let ProjectField::Present(default) = default.as_ref() {
+        visit(
+            variable.field_target(SemanticField::VariableResolveDefault),
+            &default.value,
+            &default.location,
+            "resolve default",
+        );
+    }
+    let RuleCollection::Rules(rules) = rules else {
+        return;
+    };
+    for rule in rules {
+        if rule.invalid_shape || rule.query.is_some() {
+            continue;
+        }
+        if let ProjectField::Present(value) = &rule.value {
+            visit(
+                rule.field_target(&variable.id, SemanticField::VariableRuleValue),
+                &value.value,
+                &value.location,
+                "rule value",
+            );
+        }
     }
 }
 

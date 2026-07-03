@@ -5,7 +5,7 @@ mod targets;
 use std::collections::BTreeMap;
 
 pub(super) use ids::{
-    CatalogId, EvaluationContextId, EvaluationContextSampleId, ValueKey, VariableId,
+    CatalogId, EnumId, EvaluationContextId, EvaluationContextSampleId, ValueKey, VariableId,
 };
 pub(super) use nodes::*;
 pub(super) use targets::{RegisteredLintAddress, RegisteredLintSelector};
@@ -13,6 +13,8 @@ pub(super) use targets::{RegisteredLintAddress, RegisteredLintSelector};
 #[derive(Default)]
 pub(super) struct SemanticIndex {
     pub(super) manifest: Option<ManifestNode>,
+    pub(super) enums: BTreeMap<EnumId, EnumNode>,
+    pub(super) enum_members: BTreeMap<EnumId, EnumMembersNode>,
     pub(super) variables: BTreeMap<VariableId, VariableNode>,
     pub(super) catalogs: BTreeMap<CatalogId, CatalogNode>,
     pub(super) catalog_entries: BTreeMap<CatalogId, BTreeMap<ValueKey, CatalogEntryNode>>,

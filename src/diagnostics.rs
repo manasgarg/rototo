@@ -7,6 +7,7 @@ use serde::{Serialize, Serializer};
 pub enum DiagnosticEntity {
     Package,
     Qualifier,
+    Enum,
     Variable,
     Catalog,
     CatalogEntry,
@@ -358,6 +359,54 @@ rototo_rules! {
         entity: Variable,
         title: "Variable values are not allowed",
         help: "Remove [values] and put literal values directly under [resolve].",
+    },
+    VariableUnknownEnum => {
+        id: "variable-unknown-enum",
+        entity: Variable,
+        title: "Variable references an unknown enum",
+        help: "Declare the enum under model/enums/<id>.toml or fix the enum:<id> type.",
+    },
+    EnumParseFailed => {
+        id: "enum-parse-failed",
+        entity: Enum,
+        title: "Enum TOML file could not be parsed",
+        help: "Fix the TOML syntax error in the enum file.",
+    },
+    EnumSchemaVersion => {
+        id: "enum-schema-version",
+        entity: Enum,
+        title: "Enum schema version is missing or unsupported",
+        help: "Declare schema_version = 1 in the enum declaration.",
+    },
+    EnumShape => {
+        id: "enum-shape",
+        entity: Enum,
+        title: "Enum declaration is invalid",
+        help: "Declare type as one of string, int, number, or bool.",
+    },
+    EnumMembersParseFailed => {
+        id: "enum-members-parse-failed",
+        entity: Enum,
+        title: "Enum members TOML file could not be parsed",
+        help: "Fix the TOML syntax error in the enum members file.",
+    },
+    EnumMembersShape => {
+        id: "enum-members-shape",
+        entity: Enum,
+        title: "Enum members are invalid",
+        help: "Declare members as a non-empty array of distinct values matching the enum's declared type.",
+    },
+    EnumMembersMissing => {
+        id: "enum-members-missing",
+        entity: Enum,
+        title: "Enum declares no members",
+        help: "Add the members under data/enums/<id>.toml.",
+    },
+    EnumMembersUndeclared => {
+        id: "enum-members-undeclared",
+        entity: Enum,
+        title: "Enum members have no declaration",
+        help: "Declare the enum under model/enums/<id>.toml.",
     },
     VariableUnknownValue => {
         id: "variable-unknown-value",
@@ -755,6 +804,9 @@ pub enum SemanticEntity {
     Package,
     Manifest,
     Variable {
+        id: String,
+    },
+    Enum {
         id: String,
     },
     Catalog {

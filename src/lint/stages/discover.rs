@@ -73,6 +73,7 @@ pub(super) async fn run(ctx: &mut LintContext) -> Result<()> {
     ctx.source
         .add_named_toml_documents("variables", DocumentCollection::Variables)
         .await?;
+    ctx.source.add_enum_documents().await?;
     ctx.source.add_catalog_documents().await?;
     ctx.source.add_evaluation_context_documents().await?;
     ctx.source.add_custom_lint_documents().await?;
