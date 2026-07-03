@@ -280,7 +280,7 @@ freely: a tenant's own namespaced variables, its own catalogs and enums, its
 own layers. Whether those minted ids are *well named* is a lint concern
 (`rototo/id-not-snake-case` and friends), not a permission.
 
-### The five operations
+### The four operations
 
 Each operation names one on-disk shape the layer above can produce:
 
@@ -289,23 +289,27 @@ Each operation names one on-disk shape the layer above can produce:
 | `add` | a new `<entry>.toml` in a governed catalog, or a member file under `data/enums/` for a declared enum that had none below |
 | `update` | an `<entry>.patch.toml` over a base catalog entry, or a `data/enums/<id>.toml` that unions members into the base's set |
 | `delete` | an `<entry>.deleted.toml` disabling a base catalog entry |
-| `constrain` | touching a base schema under `model/` - a catalog schema, an enum declaration, or an evaluation-context schema and its samples |
 | `override` | replacing a base variable's `[resolve]` block, or a base layer file under `layers/` |
 
 Grants go in `allowed_operations`; `denied_operations` subtracts from them and
 wins. An operation absent from `allowed_operations` is denied - that's the
 default-closed part.
 
-Two shapes are deliberately *not* operations. Replacing a whole base catalog
+Some shapes are deliberately *not* operations. Replacing a whole base catalog
 entry file is rejected toward the structural shapes: "governance does not
 model replacing catalog entry `<entry>` wholesale; use `<entry>.patch.toml` to
-update fields or `<entry>.deleted.toml` to disable it". And replacing a lint
-file the layer below owns is rejected outright.
+update fields or `<entry>.deleted.toml` to disable it". Replacing a lint file
+the layer below owns is rejected outright.
 
-One honest boundary on `constrain`: granting it means the overlay may modify
-that schema file. Rototo does not yet check that the modified schema only
-narrows the base's shape - under a `constrain` grant, the shape stays
-trust-based for now.
+Base schema files are in that group too, and it's worth saying why. Under a
+governed base, an overlay can never change what the base declared under
+`model/`: not a catalog schema, not an enum declaration, not an evaluation
+context schema or its samples. There is no grant for it. The reason is that a
+schema edit can widen a contract just as easily as narrow it, and no one can
+tell the difference by looking at the grant. When an overlay genuinely needs a
+tighter contract than its base ships, it writes a custom lint rule under
+`lint/`: the base's schema stays the shared floor, and the overlay's lint rule
+is the overlay's own, reviewable, tightening on top of it.
 
 ### Scoping update and delete
 

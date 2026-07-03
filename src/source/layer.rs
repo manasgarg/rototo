@@ -208,20 +208,16 @@ fn check_governed_file(
             contract.check_ceiling(&super::governance::parse_contract_value(&value))
         }
         ["model", "catalogs", file] => match stem(file, ".schema.json") {
-            Some(id) if exists(relative) => {
-                contract.check("catalog", &id, Operation::Constrain, None, &[])
-            }
+            Some(id) if exists(relative) => Err(schema_edit_denied("catalog schema", &id)),
             _ => Ok(()),
         },
         ["model", "enums", file] => match stem(file, ".toml") {
-            Some(id) if exists(relative) => {
-                contract.check("enum", &id, Operation::Constrain, None, &[])
-            }
+            Some(id) if exists(relative) => Err(schema_edit_denied("enum declaration", &id)),
             _ => Ok(()),
         },
         ["model", "context", file] => match stem(file, ".schema.json") {
             Some(id) if exists(relative) => {
-                contract.check("evaluation_context", &id, Operation::Constrain, None, &[])
+                Err(schema_edit_denied("evaluation context schema", &id))
             }
             _ => Ok(()),
         },
@@ -230,7 +226,10 @@ fn check_governed_file(
                 if exists(Path::new(&format!("model/context/{id}.schema.json")))
                     && exists(relative) =>
             {
-                contract.check("evaluation_context", id, Operation::Constrain, None, &[])
+                Err(RototoError::new(format!(
+                    "governance does not allow an overlay to change a base sample for \
+                     evaluation context {id}; add a new sample file instead"
+                )))
             }
             _ => Ok(()),
         },
@@ -293,6 +292,16 @@ fn check_governed_file(
         ))),
         _ => Ok(()),
     }
+}
+
+/// A governed base's `model/` files are not editable from above at all: an
+/// overlay narrows a base contract with a custom lint rule under `lint/`,
+/// never by changing the schema file.
+fn schema_edit_denied(what: &str, id: &str) -> RototoError {
+    RototoError::new(format!(
+        "governance does not allow an overlay to change a base {what} {id}; narrow the \
+         contract with a custom lint rule under lint/ instead"
+    ))
 }
 
 /// The top-level keys of a patch file, which are the fields it updates.

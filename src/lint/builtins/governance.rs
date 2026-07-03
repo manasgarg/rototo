@@ -6,7 +6,7 @@ use super::super::stages::push_project_diagnostic;
 
 /// The five governed operations; only update and delete carry a scope,
 /// expressed through the update_policy and delete_policy tables.
-const OPERATIONS: &[&str] = &["add", "update", "delete", "constrain", "override"];
+const OPERATIONS: &[&str] = &["add", "update", "delete", "override"];
 
 pub(super) fn lint_governance_shape(ctx: &mut LintContext) {
     let Some(governance) = &ctx.index.governance else {
@@ -71,8 +71,8 @@ pub(super) fn lint_governance_shape(ctx: &mut LintContext) {
                                 target(),
                                 operation.location.clone(),
                                 format!(
-                                    "governance operations are add, update, delete, constrain, \
-                                     and override: {}",
+                                    "governance operations are add, update, delete, and \
+                                     override: {}",
                                     operation.value
                                 ),
                             );

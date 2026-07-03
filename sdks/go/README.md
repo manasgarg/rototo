@@ -227,39 +227,24 @@ remains:
    changes are not atomic in effect.
 10. **Weighted rollout units.** Tenant-unit migrations where one tenant is a
     third of the load.
-11. **Query projection.** A query can filter, sort, and limit, but not project:
-    a variable takes whole entries, so "just the feature list of the selected
-    plan" means resolving the whole plan and reading the field in code.
-12. **The one-hop dereference built-in.** Following a catalog reference to an
+11. **The one-hop dereference built-in.** Following a catalog reference to an
     expression-typed field during a query, so audiences can carry authored
     conditions instead of fixed data bounds.
-13. **Compatibility gate.** Check base-package evolution against existing
-    overlays before release: which renames and retirements break which tenant,
-    found before the release instead of after. This is also what tells a
-    harmless removal of a dead entry apart from an overlay rule referencing
-    one.
-14. **Schema narrowing verification.** A `constrain` grant is trust-based
-    today: composition checks that the grant exists, not that the overlay's
-    schema actually narrows the base's. Verifying it needs a CUE-style meet
-    over schemas.
-15. **Correlated assignment across layers.** Two layers cannot share a
-    diversion, so there is no way to deliberately correlate arm assignment
-    between them.
-16. **Contract lockdown for vertical layers.** Environment layering wants a
+12. **Contract lockdown for vertical layers.** Environment layering wants a
     package-level governance default (a wildcard grant), and an overlay can
     still introduce a brand-new variable without any grant. "Environments
     differ in values, never in contract" is convention plus review, not yet a
     hard guarantee.
-17. **The custom-lint execution boundary.** Loading a package runs its Lua lint
+13. **The custom-lint execution boundary.** Loading a package runs its Lua lint
     today, including for remote sources you do not control. The invariant to
     establish: loading or resolving a package never executes package-supplied
     code; only author-time gates (pre-push, CI) do.
-18. **Nested trace provenance.** A resolution trace says which rule matched,
+14. **Nested trace provenance.** A resolution trace says which rule matched,
     but not why a referenced condition variable was true; the trace should
     follow the reference chain. Related: variables have no visibility marker
     yet (app-facing versus internal helper), so the cross-variable dependency
     graph is disciplined only by convention.
-19. **The web console, re-attached.** The console predates the current package
+15. **The web console, re-attached.** The console predates the current package
     layout, composition, and resolution methods; it is parked outside the core
     gate until it is brought back up against today's engine.
 

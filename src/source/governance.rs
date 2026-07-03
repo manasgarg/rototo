@@ -11,13 +11,12 @@ use std::path::Path;
 
 use crate::error::{Result, RototoError};
 
-/// The five governed operations. Only `update` and `delete` carry a scope.
+/// The four governed operations. Only `update` and `delete` carry a scope.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) enum Operation {
     Add,
     Update,
     Delete,
-    Constrain,
     Override,
 }
 
@@ -27,7 +26,6 @@ impl Operation {
             Self::Add => "add",
             Self::Update => "update",
             Self::Delete => "delete",
-            Self::Constrain => "constrain",
             Self::Override => "override",
         }
     }
@@ -37,7 +35,6 @@ impl Operation {
             "add" => Some(Self::Add),
             "update" => Some(Self::Update),
             "delete" => Some(Self::Delete),
-            "constrain" => Some(Self::Constrain),
             "override" => Some(Self::Override),
             _ => None,
         }

@@ -477,7 +477,7 @@ async fn governed_base_denies_ungranted_operations() {
     let err = Package::load(overlay.to_string_lossy()).await.unwrap_err();
     assert!(err.to_string().contains("use growth.patch.toml"), "{err}");
 
-    // Touching the schema needs constrain, which the contract does not grant.
+    // Touching a base schema is never grantable; narrowing is custom lint.
     let overlay = temp.path().join("overlay-schema");
     write(
         &overlay,
@@ -489,7 +489,7 @@ async fn governed_base_denies_ungranted_operations() {
     let err = Package::load(overlay.to_string_lossy()).await.unwrap_err();
     assert!(
         err.to_string()
-            .contains("governance denies constrain on catalog.plans"),
+            .contains("governance does not allow an overlay to change a base catalog schema"),
         "{err}"
     );
 
@@ -543,12 +543,12 @@ async fn governance_grants_cannot_exceed_the_inherited_ceiling() {
         "schema_version = 1\nextends = [\"../base\"]\n",
     )
     .await;
-    // The overlay tries to hand its own sub-layers constrain, which the base
+    // The overlay tries to hand its own sub-layers override, which the base
     // never granted the overlay itself.
     write(
         &overlay,
         "governance.toml",
-        "[catalog.plans]\nallowed_operations = [\"constrain\"]\n",
+        "[catalog.plans]\nallowed_operations = [\"override\"]\n",
     )
     .await;
 
