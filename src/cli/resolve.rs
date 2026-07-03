@@ -6,18 +6,17 @@ use serde::Serialize;
 use serde_json::Value as JsonValue;
 
 use rototo::model::{
-    InspectSelection, PackageInspectRequest, PackageInspection, QualifierResolutionTrace,
-    VariableResolutionTrace,
+    InspectSelection, PackageInspectRequest, PackageInspection, VariableResolutionTrace,
 };
 use rototo::{
     Result, RototoError, SourceOptions, diagnostics_catalog_for_package, inspect_package,
-    inspect_package_report, trace_qualifier_resolution, trace_variable_resolution,
+    inspect_package_report, trace_variable_resolution,
 };
 
 use crate::style;
 use crate::{
     ResolveArgs, SelectedIds, Selection, TargetSelectors, package_source_or_current, parse_context,
-    selected_qualifier_ids, selected_variable_ids, validate_package_selectors,
+    selected_variable_ids, validate_package_selectors,
 };
 
 pub(crate) async fn run_resolve(
@@ -28,7 +27,7 @@ pub(crate) async fn run_resolve(
     let selectors = TargetSelectors::from_resolve_args(&args.selectors);
     if !selectors.has_resolvable_targets() {
         return Err(RototoError::new(
-            "resolve requires at least one --variable, --variables, --qualifier, or --qualifiers selector",
+            "resolve requires at least one --variable or --variables selector",
         ));
     }
     let package = package_source_or_current(args.package, source_options).await?;
@@ -40,7 +39,7 @@ pub(crate) async fn run_resolve(
         let model = rototo::lint::package_semantic_model(package.path()).await?;
         let contexts =
             trace_sample_resolutions(package.path(), &inspection, &selectors, &model).await?;
-        print_resolutions(package.path(), &[], &[], &contexts, &[], json)?;
+        print_resolutions(package.path(), &[], &contexts, &[], json)?;
         return Ok(ExitCode::SUCCESS);
     }
 
@@ -48,15 +47,8 @@ pub(crate) async fn run_resolve(
     let context_gaps =
         resolve_context_gaps(package.path(), &inspection, &selectors, &context).await?;
     match trace_selected_resolutions(package.path(), &inspection, &selectors, &context).await {
-        Ok((variables, qualifiers)) => {
-            print_resolutions(
-                package.path(),
-                &variables,
-                &qualifiers,
-                &[],
-                &context_gaps,
-                json,
-            )?;
+        Ok(variables) => {
+            print_resolutions(package.path(), &variables, &[], &context_gaps, json)?;
             Ok(ExitCode::SUCCESS)
         }
         Err(err) => {
@@ -64,7 +56,7 @@ pub(crate) async fn run_resolve(
             // mistyped attribute. Surface the full set of invocation gaps so the
             // caller can fix the context in one pass rather than one path at a time.
             if !context_gaps.is_empty() {
-                print_resolutions(package.path(), &[], &[], &[], &context_gaps, json)?;
+                print_resolutions(package.path(), &[], &[], &context_gaps, json)?;
             }
             Err(err)
         }
@@ -76,18 +68,12 @@ async fn trace_selected_resolutions(
     inspection: &PackageInspection,
     selectors: &TargetSelectors,
     context: &JsonValue,
-) -> Result<(Vec<VariableResolutionTrace>, Vec<QualifierResolutionTrace>)> {
+) -> Result<Vec<VariableResolutionTrace>> {
     let mut variables = Vec::new();
     for id in selected_variable_id_list(inspection, &selectors.variables) {
         variables.push(trace_variable_resolution(package, &id, context).await?);
     }
-
-    let mut qualifiers = Vec::new();
-    for id in selected_qualifier_id_list(inspection, &selectors.qualifiers) {
-        qualifiers.push(trace_qualifier_resolution(package, &id, context).await?);
-    }
-
-    Ok((variables, qualifiers))
+    Ok(variables)
 }
 
 async fn trace_sample_resolutions(
@@ -97,9 +83,7 @@ async fn trace_sample_resolutions(
     model: &rototo::lint::PackageSemanticModel,
 ) -> Result<Vec<ContextResolveOutput>> {
     let variable_ids = selected_variable_id_list(inspection, &selectors.variables);
-    let qualifier_ids = selected_qualifier_id_list(inspection, &selectors.qualifiers);
     let variable_contexts = variable_evaluation_contexts(model);
-    let qualifier_contexts = qualifier_evaluation_contexts(model);
     let variable_has_rules = variable_rule_presence(model);
     let samples = stored_evaluation_contexts(model);
 
@@ -113,18 +97,9 @@ async fn trace_sample_resolutions(
             requested_contexts.extend(contexts);
         }
     }
-    for qualifier in &qualifier_ids {
-        requested_contexts.extend(
-            qualifier_contexts
-                .get(qualifier)
-                .cloned()
-                .unwrap_or_default(),
-        );
-    }
 
     let mut runs = Vec::new();
     let mut resolved_variables = BTreeSet::new();
-    let mut resolved_qualifiers = BTreeSet::new();
     for sample in samples
         .iter()
         .filter(|sample| requested_contexts.contains(&sample.evaluation_context))
@@ -140,24 +115,11 @@ async fn trace_sample_resolutions(
             }
         }
 
-        let mut qualifiers = Vec::new();
-        for qualifier in &qualifier_ids {
-            if qualifier_contexts
-                .get(qualifier)
-                .is_some_and(|contexts| contexts.contains(&sample.evaluation_context))
-            {
-                qualifiers
-                    .push(trace_qualifier_resolution(package, qualifier, &sample.value).await?);
-                resolved_qualifiers.insert(qualifier.clone());
-            }
-        }
-
-        if !variables.is_empty() || !qualifiers.is_empty() {
+        if !variables.is_empty() {
             runs.push(ContextResolveOutput {
                 evaluation_context: Some(sample.evaluation_context.clone()),
                 sample: Some(sample.key.clone()),
                 variables,
-                qualifiers,
             });
         }
     }
@@ -178,16 +140,14 @@ async fn trace_sample_resolutions(
             evaluation_context: None,
             sample: None,
             variables,
-            qualifiers: Vec::new(),
         });
     }
 
-    let unresolved = unresolved_resolution_targets(
-        &variable_ids,
-        &qualifier_ids,
-        &resolved_variables,
-        &resolved_qualifiers,
-    );
+    let unresolved = variable_ids
+        .iter()
+        .filter(|variable| !resolved_variables.contains(*variable))
+        .map(|variable| format!("variable://{variable}"))
+        .collect::<Vec<_>>();
     if !unresolved.is_empty() {
         return Err(RototoError::new(format!(
             "no stored evaluation context sample matched selected target(s): {}",
@@ -236,21 +196,6 @@ fn variable_evaluation_contexts(
         .collect()
 }
 
-fn qualifier_evaluation_contexts(
-    model: &rototo::lint::PackageSemanticModel,
-) -> BTreeMap<String, BTreeSet<String>> {
-    model
-        .qualifier_evaluation_contexts
-        .iter()
-        .map(|compatibility| {
-            (
-                compatibility.qualifier.clone(),
-                compatibility.evaluation_contexts.iter().cloned().collect(),
-            )
-        })
-        .collect()
-}
-
 fn variable_rule_presence(model: &rototo::lint::PackageSemanticModel) -> BTreeMap<String, bool> {
     model
         .variables
@@ -265,26 +210,6 @@ fn variable_rule_presence(model: &rototo::lint::PackageSemanticModel) -> BTreeMa
             )
         })
         .collect()
-}
-
-fn unresolved_resolution_targets(
-    variable_ids: &[String],
-    qualifier_ids: &[String],
-    resolved_variables: &BTreeSet<String>,
-    resolved_qualifiers: &BTreeSet<String>,
-) -> Vec<String> {
-    let mut unresolved = Vec::new();
-    for variable in variable_ids {
-        if !resolved_variables.contains(variable) {
-            unresolved.push(format!("variable://{variable}"));
-        }
-    }
-    for qualifier in qualifier_ids {
-        if !resolved_qualifiers.contains(qualifier) {
-            unresolved.push(format!("qualifier://{qualifier}"));
-        }
-    }
-    unresolved
 }
 
 fn selected_variable_id_list(
@@ -302,26 +227,10 @@ fn selected_variable_id_list(
     }
 }
 
-fn selected_qualifier_id_list(
-    inspection: &PackageInspection,
-    selection: &Selection<String>,
-) -> Vec<String> {
-    match selected_qualifier_ids(inspection, selection) {
-        SelectedIds::None => Vec::new(),
-        SelectedIds::Some(ids) => ids,
-        SelectedIds::All => inspection
-            .qualifiers
-            .iter()
-            .map(|qualifier| qualifier.id.clone())
-            .collect(),
-    }
-}
-
 #[derive(Debug, Serialize)]
 struct ResolveOutput<'a> {
     package: String,
     variables: &'a [VariableResolutionTrace],
-    qualifiers: &'a [QualifierResolutionTrace],
     #[serde(skip_serializing_if = "is_empty_slice")]
     contexts: &'a [ContextResolveOutput],
     #[serde(skip_serializing_if = "is_empty_slice")]
@@ -354,7 +263,6 @@ struct ContextResolveOutput {
     #[serde(skip_serializing_if = "Option::is_none")]
     sample: Option<String>,
     variables: Vec<VariableResolutionTrace>,
-    qualifiers: Vec<QualifierResolutionTrace>,
 }
 
 fn is_empty_slice<T>(value: &&[T]) -> bool {
@@ -368,27 +276,16 @@ async fn resolve_context_gaps(
     context: &JsonValue,
 ) -> Result<Vec<ContextResolveGap>> {
     let variable_ids = selected_variable_id_list(inspection, &selectors.variables);
-    let qualifier_ids = selected_qualifier_id_list(inspection, &selectors.qualifiers);
     let report = inspect_package_report(
         package,
         PackageInspectRequest {
             variables: id_selection(variable_ids),
-            qualifiers: id_selection(qualifier_ids),
             ..PackageInspectRequest::default()
         },
     )
     .await?;
 
     let mut gaps = Vec::new();
-    for qualifier in &report.qualifiers {
-        if let Some(gap) = target_context_gap(
-            &format!("qualifier://{}", qualifier.id),
-            &qualifier.context_attributes,
-            context,
-        ) {
-            gaps.push(gap);
-        }
-    }
     for variable in &report.variables {
         if let Some(gap) = target_context_gap(
             &format!("variable://{}", variable.id),
@@ -462,7 +359,6 @@ fn json_value_type_label(value: &JsonValue) -> &'static str {
 fn print_resolutions(
     package: &Path,
     variables: &[VariableResolutionTrace],
-    qualifiers: &[QualifierResolutionTrace],
     contexts: &[ContextResolveOutput],
     context_gaps: &[ContextResolveGap],
     json: bool,
@@ -473,7 +369,6 @@ fn print_resolutions(
             serde_json::to_string_pretty(&ResolveOutput {
                 package: package.display().to_string(),
                 variables,
-                qualifiers,
                 contexts,
                 context_gaps,
             })
@@ -487,17 +382,10 @@ fn print_resolutions(
         style::label("package"),
         style::bold(&package.display().to_string())
     );
-    let count = variables.len() + qualifiers.len();
-    let mut index = 0;
-    for trace in variables {
+    let count = variables.len();
+    for (index, trace) in variables.iter().enumerate() {
         print_resolve_separator(index, count);
-        index += 1;
         print_variable_resolution_trace(trace)?;
-    }
-    for trace in qualifiers {
-        print_resolve_separator(index, count);
-        index += 1;
-        print_qualifier_resolution_trace(trace)?;
     }
     if !contexts.is_empty() {
         let count = contexts.len();
@@ -542,12 +430,6 @@ fn print_resolve_separator(index: usize, count: usize) {
 
 fn print_variable_resolution_trace(trace: &VariableResolutionTrace) -> Result<()> {
     println!("variable: {}", style::sea(&trace.resolution.id));
-    if !trace.qualifier_traces.is_empty() {
-        println!("  {}", style::subhead("qualifiers"));
-        for qualifier in &trace.qualifier_traces {
-            print_nested_qualifier_resolution_trace(qualifier)?;
-        }
-    }
     println!("  {}", style::subhead("pathway"));
     for rule in &trace.rules {
         println!(
@@ -590,20 +472,6 @@ fn resolution_source_label(source: &rototo::model::VariableResolutionSource) -> 
     }
 }
 
-fn print_qualifier_resolution_trace(trace: &QualifierResolutionTrace) -> Result<()> {
-    println!("qualifier: {}", style::sea(&trace.id));
-    println!("  {} {}", style::subhead("when"), style::info(&trace.when));
-    println!(
-        "  result: {}",
-        if trace.value {
-            style::ok("true")
-        } else {
-            style::dim("false")
-        }
-    );
-    Ok(())
-}
-
 fn print_context_resolution_trace(context: &ContextResolveOutput) -> Result<()> {
     match (&context.evaluation_context, &context.sample) {
         (Some(evaluation_context), Some(sample)) => {
@@ -615,36 +483,11 @@ fn print_context_resolution_trace(context: &ContextResolveOutput) -> Result<()> 
         }
     }
 
-    let count = context.variables.len() + context.qualifiers.len();
-    let mut index = 0;
-    for trace in &context.variables {
+    let count = context.variables.len();
+    for (index, trace) in context.variables.iter().enumerate() {
         print_resolve_separator(index, count);
-        index += 1;
         print_variable_resolution_trace(trace)?;
     }
-    for trace in &context.qualifiers {
-        print_resolve_separator(index, count);
-        index += 1;
-        print_qualifier_resolution_trace(trace)?;
-    }
-    Ok(())
-}
-
-fn print_nested_qualifier_resolution_trace(trace: &QualifierResolutionTrace) -> Result<()> {
-    println!("    qualifier: {}", style::sea(&trace.id));
-    println!(
-        "      {} {}",
-        style::subhead("when"),
-        style::info(&trace.when)
-    );
-    println!(
-        "      result: {}",
-        if trace.value {
-            style::ok("true")
-        } else {
-            style::dim("false")
-        }
-    );
     Ok(())
 }
 

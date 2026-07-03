@@ -1,5 +1,0 @@
-schema_version = 1
-
-description = "Premium account condition"
-
-when = '(context.account.tier == "premium")'

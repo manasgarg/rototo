@@ -4,11 +4,10 @@ use super::PackageLintSnapshot;
 use crate::expression::{ContextScalarType, Expression};
 
 use super::index::{ProjectField, SemanticIndex};
-use super::references::{ReferenceIndex, ReferenceSource, ReferenceTarget};
+use super::references::ReferenceIndex;
 
 #[derive(Debug, Clone, Default)]
 pub(crate) struct EvaluationContextCompatibility {
-    pub(crate) qualifiers: BTreeMap<String, BTreeSet<String>>,
     pub(crate) variables: BTreeMap<String, BTreeSet<String>>,
 }
 
@@ -22,16 +21,9 @@ pub(in crate::lint) fn compatibility_for(
 ) -> EvaluationContextCompatibility {
     let mut builder = CompatibilityBuilder {
         index,
-        qualifier_cache: BTreeMap::new(),
         variable_cache: BTreeMap::new(),
         visiting: BTreeSet::new(),
     };
-
-    let mut qualifiers = BTreeMap::new();
-    for qualifier_id in index.qualifiers.keys() {
-        let contexts = builder.qualifier_contexts(qualifier_id);
-        qualifiers.insert(qualifier_id.clone(), contexts);
-    }
 
     let mut variables = BTreeMap::new();
     for variable_id in index.variables.keys() {
@@ -39,45 +31,16 @@ pub(in crate::lint) fn compatibility_for(
         variables.insert(variable_id.clone(), contexts);
     }
 
-    EvaluationContextCompatibility {
-        qualifiers,
-        variables,
-    }
+    EvaluationContextCompatibility { variables }
 }
 
 struct CompatibilityBuilder<'a> {
     index: &'a SemanticIndex,
-    qualifier_cache: BTreeMap<String, BTreeSet<String>>,
     variable_cache: BTreeMap<String, Option<BTreeSet<String>>>,
     visiting: BTreeSet<String>,
 }
 
 impl<'a> CompatibilityBuilder<'a> {
-    fn qualifier_contexts(&mut self, qualifier_id: &str) -> BTreeSet<String> {
-        if let Some(contexts) = self.qualifier_cache.get(qualifier_id) {
-            return contexts.clone();
-        }
-        if !self.visiting.insert(qualifier_id.to_owned()) {
-            return BTreeSet::new();
-        }
-
-        let contexts = self.qualifier_contexts_uncached(qualifier_id);
-        self.visiting.remove(qualifier_id);
-        self.qualifier_cache
-            .insert(qualifier_id.to_owned(), contexts.clone());
-        contexts
-    }
-
-    fn qualifier_contexts_uncached(&mut self, qualifier_id: &str) -> BTreeSet<String> {
-        let Some(qualifier) = self.index.qualifiers.get(qualifier_id) else {
-            return BTreeSet::new();
-        };
-        let ProjectField::Present(when) = &qualifier.when else {
-            return BTreeSet::new();
-        };
-        self.expression_contexts(&when.value)
-    }
-
     /// The evaluation contexts compatible with a variable's rule expressions,
     /// following `variables["<id>"]` references transitively. `None` means the
     /// variable imposes no context requirement (no rules, or no rule carries a
@@ -132,14 +95,6 @@ impl<'a> CompatibilityBuilder<'a> {
     fn expression_contexts(&mut self, expression: &Expression) -> BTreeSet<String> {
         let mut contexts: Option<BTreeSet<String>> = None;
 
-        for qualifier in &expression.references().qualifiers {
-            let nested_contexts = self.qualifier_contexts(qualifier);
-            contexts = Some(match contexts {
-                Some(current) => current.intersection(&nested_contexts).cloned().collect(),
-                None => nested_contexts,
-            });
-        }
-
         for variable in &expression.references().variables {
             let Some(nested_contexts) = self.variable_contexts(variable) else {
                 continue;
@@ -184,19 +139,6 @@ impl<'a> CompatibilityBuilder<'a> {
     }
 }
 
-pub(in crate::lint) fn qualifier_uses_context_attribute(
-    references: &ReferenceIndex,
-    qualifier_id: &str,
-) -> bool {
-    references.edges().iter().any(|edge| {
-        matches!(
-            &edge.source,
-            ReferenceSource::QualifierWhenContextAttribute { qualifier }
-                if qualifier == qualifier_id
-        ) && matches!(&edge.target, ReferenceTarget::ContextAttribute(_))
-    })
-}
-
 pub(in crate::lint) fn variable_rule_condition_reference_count(
     index: &SemanticIndex,
     variable_id: &str,
@@ -219,8 +161,7 @@ pub(in crate::lint) fn variable_rule_condition_reference_count(
                                 return false;
                             };
                             let references = expression.value.references();
-                            !references.qualifiers.is_empty()
-                                || !references.context_paths.is_empty()
+                            !references.variables.is_empty() || !references.context_paths.is_empty()
                         })
                 })
                 .count()

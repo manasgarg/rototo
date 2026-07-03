@@ -6,10 +6,10 @@ use serde_json::Value as JsonValue;
 
 use crate::error::{Result, RototoError};
 use crate::model::{
-    PackageInspectReport, PackageInspectRequest, QualifierInspectReport, QualifierResolutionTrace,
-    RulePathwayInspectReport, VariableInspectReport, VariableResolutionTrace,
+    PackageInspectReport, PackageInspectRequest, RulePathwayInspectReport, VariableInspectReport,
+    VariableResolutionTrace,
 };
-use crate::resolve::{trace_qualifier_resolution, trace_variable_resolution};
+use crate::resolve::trace_variable_resolution;
 use crate::source::{SourceOptions, stage_package_source};
 
 mod context_factory;
@@ -22,19 +22,17 @@ pub use render::{ContextForm, render_command, render_comment};
 #[derive(Clone, Debug, Default)]
 pub struct FixtureGenerateSelection {
     pub variables: FixtureTargetSelection,
-    pub qualifiers: FixtureTargetSelection,
 }
 
 impl FixtureGenerateSelection {
     pub fn all() -> Self {
         Self {
             variables: FixtureTargetSelection::All,
-            qualifiers: FixtureTargetSelection::All,
         }
     }
 
     fn normalized(self) -> Self {
-        if self.variables.is_none() && self.qualifiers.is_none() {
+        if self.variables.is_none() {
             Self::all()
         } else {
             self
@@ -61,7 +59,7 @@ impl FixtureTargetSelection {
 }
 
 /// A single `rototo resolve` invocation that exercises one behavior case of a
-/// variable or qualifier. The CLI renders these into runnable command lines;
+/// variable. The CLI renders these into runnable command lines;
 /// nothing is persisted to disk.
 #[derive(Clone, Debug)]
 pub struct ResolveInvocation {
@@ -76,7 +74,6 @@ pub struct ResolveInvocation {
 #[derive(Clone, Debug)]
 pub enum ResolveTarget {
     Variable(String),
-    Qualifier(String),
 }
 
 impl ResolveTarget {
@@ -84,7 +81,6 @@ impl ResolveTarget {
     pub fn label(&self) -> String {
         match self {
             Self::Variable(id) => format!("variable:{id}"),
-            Self::Qualifier(id) => format!("qualifier:{id}"),
         }
     }
 
@@ -92,13 +88,12 @@ impl ResolveTarget {
     pub fn selector_flag(&self) -> &'static str {
         match self {
             Self::Variable(_) => "--variable",
-            Self::Qualifier(_) => "--qualifier",
         }
     }
 
     pub fn id(&self) -> &str {
         match self {
-            Self::Variable(id) | Self::Qualifier(id) => id,
+            Self::Variable(id) => id,
         }
     }
 }
@@ -111,9 +106,6 @@ pub enum ResolveExpectation {
     Variable {
         value: JsonValue,
         matched: MatchedBy,
-    },
-    Qualifier {
-        value: bool,
     },
 }
 
@@ -136,20 +128,9 @@ pub async fn generate_resolve_invocations(
         crate::inspect_package_report(staged.path(), PackageInspectRequest::default()).await?;
 
     let variable_ids = selected_variable_ids(&report, &selection.variables)?;
-    let qualifier_ids = selected_qualifier_ids(&report, &selection.qualifiers)?;
     let factory = ContextFactory::new(&report);
 
     let mut invocations = Vec::new();
-
-    for id in qualifier_ids {
-        let qualifier = report
-            .qualifiers
-            .iter()
-            .find(|qualifier| qualifier.id == id)
-            .expect("selected qualifier id was validated");
-        generate_qualifier_invocations(staged.path(), qualifier, &factory, &mut invocations)
-            .await?;
-    }
 
     for id in variable_ids {
         let variable = report
@@ -174,20 +155,6 @@ fn selected_variable_ids(
     )
 }
 
-fn selected_qualifier_ids(
-    report: &PackageInspectReport,
-    selection: &FixtureTargetSelection,
-) -> Result<Vec<String>> {
-    selected_ids(
-        selection,
-        report
-            .qualifiers
-            .iter()
-            .map(|qualifier| qualifier.id.as_str()),
-        "qualifier",
-    )
-}
-
 fn selected_ids<'a>(
     selection: &FixtureTargetSelection,
     available: impl Iterator<Item = &'a str>,
@@ -209,47 +176,6 @@ fn selected_ids<'a>(
                 .collect())
         }
     }
-}
-
-async fn generate_qualifier_invocations(
-    package: &Path,
-    qualifier: &QualifierInspectReport,
-    factory: &ContextFactory,
-    out: &mut Vec<ResolveInvocation>,
-) -> Result<()> {
-    let target = ResolveTarget::Qualifier(qualifier.id.clone());
-
-    if let Some((context, trace)) =
-        sampled_qualifier_context(package, &qualifier.id, true, factory).await?
-    {
-        out.push(ResolveInvocation {
-            target: target.clone(),
-            case_id: "matches".to_owned(),
-            title: "Matches when the qualifier condition is true".to_owned(),
-            because: Some(
-                "An evaluation context sample satisfies the qualifier condition.".to_owned(),
-            ),
-            context,
-            expect: ResolveExpectation::Qualifier { value: trace.value },
-        });
-    }
-
-    if let Some((context, trace)) =
-        sampled_qualifier_context(package, &qualifier.id, false, factory).await?
-    {
-        out.push(ResolveInvocation {
-            target,
-            case_id: "does-not-match".to_owned(),
-            title: "Does not match when the qualifier condition is false".to_owned(),
-            because: Some(
-                "An evaluation context sample does not satisfy the qualifier condition.".to_owned(),
-            ),
-            context,
-            expect: ResolveExpectation::Qualifier { value: trace.value },
-        });
-    }
-
-    Ok(())
 }
 
 async fn generate_variable_invocations(
@@ -371,24 +297,6 @@ async fn variable_default_context(
             && trace.rules.iter().all(|rule| !rule.matched)
         {
             return Ok(Some(context.clone()));
-        }
-    }
-
-    Ok(None)
-}
-
-/// The first candidate context that drives `qualifier` to `desired`.
-async fn sampled_qualifier_context(
-    package: &Path,
-    qualifier: &str,
-    desired: bool,
-    factory: &ContextFactory,
-) -> Result<Option<(JsonValue, QualifierResolutionTrace)>> {
-    for context in factory.candidate_contexts() {
-        if let Ok(trace) = trace_qualifier_resolution(package, qualifier, context).await
-            && trace.value == desired
-        {
-            return Ok(Some((context.clone(), trace)));
         }
     }
 

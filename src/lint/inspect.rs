@@ -9,11 +9,11 @@ use crate::model::{
     EvaluationContextSampleInspectReport, InspectRuntimeStatus, InspectSelection,
     LintAuthorityInspectReport, LintRuleInspectReport, LinterInspectReport,
     LinterRegistrationInspectReport, PackageInspectReport, PackageInspectRequest,
-    QualifierInspectReport, QualifierSampleCoverageReport, ReferenceInspectReport,
-    ResolveInspectReport, RulePathwayInspectReport, RuleSampleCoverageReport, ValueInspectReport,
-    VariableInspectReport, VariableSampleCoverageReport,
+    ReferenceInspectReport, ResolveInspectReport, RulePathwayInspectReport,
+    RuleSampleCoverageReport, ValueInspectReport, VariableInspectReport,
+    VariableSampleCoverageReport,
 };
-use crate::resolve::{trace_qualifier_unchecked, trace_variable_unchecked};
+use crate::resolve::trace_variable_unchecked;
 
 use super::evaluation_context::{
     ContextPathTypeFit, context_path_declaration, context_path_type_fit, variable_resolve_rules,
@@ -35,18 +35,12 @@ pub(crate) async fn inspect_snapshot(
 
     let inventory = request.variables.is_none()
         && request.catalogs.is_none()
-        && request.qualifiers.is_none()
         && request.lint_rules.is_none()
         && request.lint_authorities.is_none()
         && request.linters.is_none();
     let variable_ids = selected_ids(
         &request.variables,
         snapshot.index.variables.keys().map(String::as_str),
-        inventory,
-    );
-    let qualifier_ids = selected_ids(
-        &request.qualifiers,
-        snapshot.index.qualifiers.keys().map(String::as_str),
         inventory,
     );
     let catalog_ids = selected_ids(
@@ -58,11 +52,6 @@ pub(crate) async fn inspect_snapshot(
     let mut variables = Vec::new();
     for id in variable_ids {
         variables.push(inspect_variable(snapshot, runtime, request, &id).await?);
-    }
-
-    let mut qualifiers = Vec::new();
-    for id in qualifier_ids {
-        qualifiers.push(inspect_qualifier(snapshot, runtime, request, &id).await?);
     }
 
     let mut catalogs = Vec::new();
@@ -87,7 +76,6 @@ pub(crate) async fn inspect_snapshot(
         evaluation_contexts,
         catalogs,
         variables,
-        qualifiers,
         lint_rules,
         lint_authorities,
         linters,
@@ -98,9 +86,9 @@ fn validate_context_request(request: &PackageInspectRequest) -> Result<()> {
     if request.context.is_none() {
         return Ok(());
     }
-    if !request.variables.is_some_or_all() && !request.qualifiers.is_some_or_all() {
+    if !request.variables.is_some_or_all() {
         return Err(RototoError::new(
-            "inspect --context requires at least one --variable, --variables, --qualifier, or --qualifiers selector",
+            "inspect --context requires at least one --variable or --variables selector",
         ));
     }
     Ok(())
@@ -115,13 +103,6 @@ fn validate_request(
         if !snapshot.index.variables.contains_key(id) {
             return Err(RototoError::new(format!(
                 "variable not found: variable://{id}"
-            )));
-        }
-    }
-    for id in request.qualifiers.explicit_values() {
-        if !snapshot.index.qualifiers.contains_key(id) {
-            return Err(RototoError::new(format!(
-                "qualifier not found: qualifier://{id}"
             )));
         }
     }
@@ -291,61 +272,6 @@ async fn inspect_variable(
         values: variable_values(variable, &snapshot.index),
         resolve: variable_resolve(variable),
         dependencies,
-        sample_coverage,
-        diagnostics,
-        trace,
-    })
-}
-
-async fn inspect_qualifier(
-    snapshot: &PackageLintSnapshot,
-    runtime: Option<&RuntimePackage>,
-    request: &PackageInspectRequest,
-    id: &str,
-) -> Result<QualifierInspectReport> {
-    let qualifier = snapshot
-        .index
-        .qualifiers
-        .get(id)
-        .ok_or_else(|| RototoError::new(format!("qualifier not found: qualifier://{id}")))?;
-    let (_source_uri, path) = document_uri_path(snapshot, qualifier.doc);
-    let diagnostics = snapshot
-        .lint
-        .diagnostics
-        .iter()
-        .filter(|diagnostic| diagnostic_belongs_to_qualifier(diagnostic, id))
-        .cloned()
-        .collect();
-    let trace = match (runtime, &request.context) {
-        (Some(runtime), Some(context)) => {
-            runtime.validate_context_for_qualifier(id, context)?;
-            Some(trace_qualifier_unchecked(runtime, id, context)?)
-        }
-        _ => None,
-    };
-    let evaluation_contexts: Vec<String> = snapshot
-        .evaluation_context_compatibility()
-        .qualifiers
-        .remove(id)
-        .unwrap_or_default()
-        .into_iter()
-        .collect();
-    let sample_coverage = runtime
-        .and_then(|runtime| qualifier_sample_coverage(snapshot, runtime, id, &evaluation_contexts));
-
-    Ok(QualifierInspectReport {
-        id: id.to_owned(),
-        uri: format!("qualifier://{id}"),
-        path,
-        description: qualifier
-            .description
-            .as_ref()
-            .and_then(present_string_value),
-        evaluation_contexts,
-        context_attributes: qualifier_context_attributes(snapshot, qualifier),
-        when: qualifier_when(qualifier),
-        dependencies: qualifier_dependencies(snapshot, id),
-        consumers: qualifier_consumers(snapshot, id),
         sample_coverage,
         diagnostics,
         trace,
@@ -534,41 +460,35 @@ fn variable_dependencies(
     snapshot: &PackageLintSnapshot,
     variable: &str,
 ) -> DependencyInspectReport {
-    let mut qualifiers = BTreeSet::new();
+    let mut variables = BTreeSet::new();
     let mut context_paths = BTreeSet::new();
     let mut catalogs = BTreeSet::new();
 
+    collect_variable_dependencies(
+        snapshot,
+        variable,
+        &mut variables,
+        &mut context_paths,
+        &mut BTreeSet::new(),
+    );
+    variables.remove(variable);
+
     for edge in snapshot.references.edges() {
-        match (&edge.source, &edge.target) {
-            (
-                ReferenceSource::VariableRuleConditionQualifier {
-                    variable: source_variable,
-                    ..
-                },
-                ReferenceTarget::Qualifier(qualifier),
-            ) if source_variable == variable && edge.is_resolved() => {
-                collect_qualifier_dependencies(
-                    snapshot,
-                    qualifier,
-                    &mut qualifiers,
-                    &mut context_paths,
-                    &mut BTreeSet::new(),
-                );
-            }
-            (
-                ReferenceSource::VariableCatalog {
-                    variable: source_variable,
-                },
-                ReferenceTarget::Catalog(catalog),
-            ) if source_variable == variable && edge.is_resolved() => {
-                catalogs.insert(catalog.clone());
-            }
-            _ => {}
+        if let (
+            ReferenceSource::VariableCatalog {
+                variable: source_variable,
+            },
+            ReferenceTarget::Catalog(catalog),
+        ) = (&edge.source, &edge.target)
+            && source_variable == variable
+            && edge.is_resolved()
+        {
+            catalogs.insert(catalog.clone());
         }
     }
 
     DependencyInspectReport {
-        qualifiers: qualifiers.into_iter().collect(),
+        variables: variables.into_iter().collect(),
         context_paths: context_paths.into_iter().collect(),
         catalogs: catalogs.into_iter().collect(),
     }
@@ -579,34 +499,13 @@ fn catalog_dependencies(
     _catalog: &str,
 ) -> DependencyInspectReport {
     DependencyInspectReport {
-        qualifiers: Vec::new(),
+        variables: Vec::new(),
         context_paths: Vec::new(),
         catalogs: Vec::new(),
     }
 }
 
-fn qualifier_dependencies(
-    snapshot: &PackageLintSnapshot,
-    qualifier: &str,
-) -> DependencyInspectReport {
-    let mut qualifiers = BTreeSet::new();
-    let mut context_paths = BTreeSet::new();
-    collect_qualifier_dependencies(
-        snapshot,
-        qualifier,
-        &mut qualifiers,
-        &mut context_paths,
-        &mut BTreeSet::new(),
-    );
-    qualifiers.remove(qualifier);
-    DependencyInspectReport {
-        qualifiers: qualifiers.into_iter().collect(),
-        context_paths: context_paths.into_iter().collect(),
-        catalogs: Vec::new(),
-    }
-}
-
-/// Every sample defined under any of the variable's or qualifier's compatible
+/// Every sample defined under any of the variable's compatible
 /// evaluation contexts, as raw context values to resolve against.
 fn compatible_context_samples(
     snapshot: &PackageLintSnapshot,
@@ -664,48 +563,6 @@ fn variable_sample_coverage(
         default_covered,
         rules,
     })
-}
-
-fn qualifier_sample_coverage(
-    snapshot: &PackageLintSnapshot,
-    runtime: &RuntimePackage,
-    id: &str,
-    compatible: &[String],
-) -> Option<QualifierSampleCoverageReport> {
-    let samples = compatible_context_samples(snapshot, compatible);
-    if samples.is_empty() {
-        return None;
-    }
-    let mut evaluated_true = false;
-    let mut evaluated_false = false;
-    let mut sample_count = 0;
-    for sample in &samples {
-        let Ok(trace) = trace_qualifier_unchecked(runtime, id, sample) else {
-            continue;
-        };
-        sample_count += 1;
-        if trace.value {
-            evaluated_true = true;
-        } else {
-            evaluated_false = true;
-        }
-    }
-    Some(QualifierSampleCoverageReport {
-        sample_count,
-        evaluated_true,
-        evaluated_false,
-    })
-}
-
-fn qualifier_context_attributes(
-    snapshot: &PackageLintSnapshot,
-    qualifier: &QualifierNode,
-) -> Vec<ContextAttributeInspectReport> {
-    let mut expressions = Vec::new();
-    if let ProjectField::Present(when) = &qualifier.when {
-        expressions.push(&when.value);
-    }
-    context_attributes_for_expressions(snapshot, expressions)
 }
 
 fn variable_context_attributes(
@@ -800,69 +657,43 @@ fn context_attribute_status(
     if satisfied { "ok" } else { "type_mismatch" }.to_owned()
 }
 
-fn collect_qualifier_dependencies(
+/// Walk `variables["<id>"]` references transitively from `variable`, recording
+/// every reachable variable (including `variable` itself) and every context
+/// path any of their rule expressions read.
+fn collect_variable_dependencies(
     snapshot: &PackageLintSnapshot,
-    qualifier: &str,
-    qualifiers: &mut BTreeSet<String>,
+    variable: &str,
+    variables: &mut BTreeSet<String>,
     context_paths: &mut BTreeSet<String>,
     seen: &mut BTreeSet<String>,
 ) {
-    if !seen.insert(qualifier.to_owned()) {
+    if !seen.insert(variable.to_owned()) {
         return;
     }
-    qualifiers.insert(qualifier.to_owned());
-    for edge in snapshot.references.edges() {
-        match (&edge.source, &edge.target) {
-            (
-                ReferenceSource::QualifierWhenContextAttribute {
-                    qualifier: source_qualifier,
-                },
-                ReferenceTarget::ContextAttribute(context_path),
-            ) if source_qualifier == qualifier => {
-                context_paths.insert(context_path.clone());
+    variables.insert(variable.to_owned());
+    let Some(node) = snapshot.index.variables.get(variable) else {
+        return;
+    };
+    let Some(rules) = variable_resolve_rules(node) else {
+        return;
+    };
+    for rule in rules {
+        for expression in [&rule.when, &rule.query].into_iter().flatten() {
+            let ProjectField::Present(expression) = expression else {
+                continue;
+            };
+            for path in &expression.value.references().context_paths {
+                if !path.is_empty() {
+                    context_paths.insert(path.clone());
+                }
             }
-            (
-                ReferenceSource::QualifierWhenQualifier {
-                    qualifier: source_qualifier,
-                },
-                ReferenceTarget::Qualifier(nested),
-            ) if source_qualifier == qualifier && edge.is_resolved() => {
-                collect_qualifier_dependencies(snapshot, nested, qualifiers, context_paths, seen);
+            for nested in &expression.value.references().variables {
+                if snapshot.index.variables.contains_key(nested) {
+                    collect_variable_dependencies(snapshot, nested, variables, context_paths, seen);
+                }
             }
-            _ => {}
         }
     }
-}
-
-fn qualifier_when(qualifier: &QualifierNode) -> Option<String> {
-    match &qualifier.when {
-        ProjectField::Present(when) => Some(when.value.source().to_owned()),
-        ProjectField::Invalid { .. } | ProjectField::Missing { .. } => None,
-    }
-}
-
-fn qualifier_consumers(
-    snapshot: &PackageLintSnapshot,
-    qualifier: &str,
-) -> Vec<ReferenceInspectReport> {
-    snapshot
-        .references
-        .edges()
-        .iter()
-        .filter_map(|edge| {
-            let ReferenceTarget::Qualifier(target) = &edge.target else {
-                return None;
-            };
-            if target != qualifier {
-                return None;
-            }
-            Some(ReferenceInspectReport {
-                kind: reference_source_kind(&edge.source).to_owned(),
-                label: reference_source_label(&edge.source),
-                location: edge.location.clone(),
-            })
-        })
-        .collect()
 }
 
 fn catalog_consumers(snapshot: &PackageLintSnapshot, catalog: &str) -> Vec<ReferenceInspectReport> {
@@ -888,10 +719,8 @@ fn catalog_consumers(snapshot: &PackageLintSnapshot, catalog: &str) -> Vec<Refer
 
 fn reference_source_kind(source: &ReferenceSource) -> &'static str {
     match source {
-        ReferenceSource::QualifierWhenQualifier { .. }
-        | ReferenceSource::QualifierWhenContextAttribute { .. } => "qualifier",
-        ReferenceSource::VariableRuleConditionQualifier { .. }
-        | ReferenceSource::VariableRuleConditionVariable { .. }
+        ReferenceSource::VariableRuleConditionVariable { .. }
+        | ReferenceSource::VariableRuleContextAttribute { .. }
         | ReferenceSource::VariableRuleValue { .. }
         | ReferenceSource::VariableResolveDefault { .. }
         | ReferenceSource::VariableCatalog { .. } => "variable",
@@ -900,12 +729,8 @@ fn reference_source_kind(source: &ReferenceSource) -> &'static str {
 
 fn reference_source_label(source: &ReferenceSource) -> String {
     match source {
-        ReferenceSource::QualifierWhenQualifier { qualifier }
-        | ReferenceSource::QualifierWhenContextAttribute { qualifier } => {
-            format!("qualifier {qualifier} when")
-        }
-        ReferenceSource::VariableRuleConditionQualifier { variable, rule }
-        | ReferenceSource::VariableRuleConditionVariable { variable, rule }
+        ReferenceSource::VariableRuleConditionVariable { variable, rule }
+        | ReferenceSource::VariableRuleContextAttribute { variable, rule }
         | ReferenceSource::VariableRuleValue { variable, rule } => {
             format!("variable {variable} resolve.rule[{rule}]")
         }
@@ -939,7 +764,6 @@ fn diagnostic_matches_request(
 ) -> bool {
     selection_matches_variable(&request.variables, diagnostic)
         || selection_matches_catalog(&request.catalogs, diagnostic)
-        || selection_matches_qualifier(&request.qualifiers, diagnostic)
         || selection_matches_lint_rule(&request.lint_rules, diagnostic)
         || selection_matches_lint_authority(&request.lint_authorities, diagnostic)
         || selection_matches_linter(&request.linters, diagnostic)
@@ -952,16 +776,6 @@ fn selection_matches_variable(selection: &InspectSelection, diagnostic: &LintDia
         InspectSelection::Some(ids) => ids
             .iter()
             .any(|id| diagnostic_belongs_to_variable(diagnostic, id)),
-    }
-}
-
-fn selection_matches_qualifier(selection: &InspectSelection, diagnostic: &LintDiagnostic) -> bool {
-    match selection {
-        InspectSelection::None => false,
-        InspectSelection::All => diagnostic_is_qualifier_related(diagnostic),
-        InspectSelection::Some(ids) => ids
-            .iter()
-            .any(|id| diagnostic_belongs_to_qualifier(diagnostic, id)),
     }
 }
 
@@ -1036,20 +850,6 @@ fn diagnostic_belongs_to_catalog(diagnostic: &LintDiagnostic, id: &str) -> bool 
         || matches!(&diagnostic.target.entity, SemanticEntity::CatalogEntry { catalog, .. } if catalog == id)
         || diagnostic.primary.path == catalog_path
         || diagnostic.primary.path.starts_with(&catalog_entries_prefix)
-}
-
-fn diagnostic_is_qualifier_related(diagnostic: &LintDiagnostic) -> bool {
-    matches!(
-        diagnostic.target.entity,
-        SemanticEntity::Qualifier { .. } | SemanticEntity::Predicate { .. }
-    ) || diagnostic.primary.path.starts_with("qualifiers/")
-}
-
-fn diagnostic_belongs_to_qualifier(diagnostic: &LintDiagnostic, id: &str) -> bool {
-    let qualifier_path = format!("qualifiers/{id}.toml");
-    matches!(&diagnostic.target.entity, SemanticEntity::Qualifier { id: diagnostic_id } if diagnostic_id == id)
-        || matches!(&diagnostic.target.entity, SemanticEntity::Predicate { qualifier, .. } if qualifier == id)
-        || diagnostic.primary.path == qualifier_path
 }
 
 fn diagnostic_is_linter_related(diagnostic: &LintDiagnostic) -> bool {
@@ -1248,8 +1048,6 @@ fn linter_id(path: &str) -> Option<String> {
 fn registered_address_label(address: &RegisteredLintAddress) -> String {
     match address {
         RegisteredLintAddress::Package => "/".to_owned(),
-        RegisteredLintAddress::Qualifiers => "/qualifiers".to_owned(),
-        RegisteredLintAddress::Qualifier { id } => format!("/qualifiers/{id}"),
         RegisteredLintAddress::Variables => "/variables".to_owned(),
         RegisteredLintAddress::Variable { id } => format!("/variables/{id}"),
         RegisteredLintAddress::VariableValues { variable } => {

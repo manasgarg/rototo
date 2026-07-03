@@ -63,7 +63,6 @@ pub(super) fn parse_sources(
 
         match &document.kind {
             DocumentKind::Manifest
-            | DocumentKind::Qualifier { .. }
             | DocumentKind::Variable { .. }
             | DocumentKind::CatalogEntry { .. } => {
                 toml::parse_toml_document(document, &mut syntax, diagnostics);

@@ -104,9 +104,6 @@ impl SourceStore {
 #[derive(Clone)]
 pub(super) enum DocumentKind {
     Manifest,
-    Qualifier {
-        id: String,
-    },
     Variable {
         id: String,
     },
@@ -131,7 +128,6 @@ impl DocumentKind {
     fn summary_kind(&self) -> SourceKind {
         match self {
             Self::Manifest => SourceKind::Manifest,
-            Self::Qualifier { .. } => SourceKind::Qualifier,
             Self::Variable { .. } => SourceKind::Variable,
             Self::Catalog { .. } => SourceKind::Catalog,
             Self::CatalogEntry { .. } => SourceKind::CatalogEntry,
@@ -172,6 +168,5 @@ impl SourceDocument {
 
 #[derive(Clone, Copy)]
 pub(super) enum DocumentCollection {
-    Qualifiers,
     Variables,
 }

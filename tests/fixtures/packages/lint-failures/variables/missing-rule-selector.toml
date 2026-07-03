@@ -1,0 +1,10 @@
+schema_version = 1
+
+description = "Variable rule that declares neither when nor query"
+type = "bool"
+
+[resolve]
+default = false
+
+[[resolve.rule]]
+value = true

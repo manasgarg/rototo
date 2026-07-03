@@ -32,9 +32,6 @@ impl SourceStore {
             let relative_path =
                 PathBuf::from(directory).join(path.file_name().expect("entry has filename"));
             let kind = match collection {
-                DocumentCollection::Qualifiers => DocumentKind::Qualifier {
-                    id: stem.to_owned(),
-                },
                 DocumentCollection::Variables => DocumentKind::Variable {
                     id: stem.to_owned(),
                 },
@@ -297,10 +294,6 @@ fn overlay_document_kind(path: &str) -> Option<DocumentKind> {
     }
     let parts = path.split('/').collect::<Vec<_>>();
     match parts.as_slice() {
-        ["qualifiers", file] if file.ends_with(".toml") => {
-            let id = file.strip_suffix(".toml")?;
-            (!id.is_empty()).then(|| DocumentKind::Qualifier { id: id.to_owned() })
-        }
         ["variables", file] if file.ends_with(".toml") => {
             let id = file.strip_suffix(".toml")?;
             (!id.is_empty()).then(|| DocumentKind::Variable { id: id.to_owned() })

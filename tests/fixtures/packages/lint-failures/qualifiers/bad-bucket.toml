@@ -1,5 +1,0 @@
-schema_version = 1
-
-description = "Invalid bucket qualifier"
-
-when = '(bucket(context.user.id, "bad-bucket", 9000, 1000))'

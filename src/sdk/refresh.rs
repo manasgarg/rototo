@@ -206,24 +206,6 @@ impl RefreshingPackage {
         );
     }
 
-    pub fn resolve_qualifier(
-        &self,
-        id: impl AsRef<str>,
-        context: &EvaluationContext,
-    ) -> Result<bool> {
-        self.current().resolve_qualifier(id.as_ref(), context)
-    }
-
-    pub fn resolve_qualifier_with_options(
-        &self,
-        id: impl AsRef<str>,
-        context: &EvaluationContext,
-        options: ResolveOptions,
-    ) -> Result<bool> {
-        self.current()
-            .resolve_qualifier_with_options(id.as_ref(), context, options)
-    }
-
     pub fn resolve_variable(
         &self,
         id: impl AsRef<str>,

@@ -354,11 +354,11 @@ async fn sdk_reads_diagnostic_catalog() {
     let catalog = diagnostics_catalog_for_package("examples/basic".as_ref())
         .await
         .unwrap();
-    let diagnostic = diagnostic_for_rule(&catalog, "rototo/qualifier-parse-failed").unwrap();
+    let diagnostic = diagnostic_for_rule(&catalog, "rototo/variable-parse-failed").unwrap();
 
     assert_eq!(
         diagnostic.entity,
-        Some(rototo::diagnostics::DiagnosticEntity::Qualifier)
+        Some(rototo::diagnostics::DiagnosticEntity::Variable)
     );
 }
 
@@ -869,11 +869,11 @@ async fn package_sdk_rejects_package_when_lint_fails() {
 
 #[tokio::test]
 async fn package_sdk_loads_package_when_lint_only_warns() {
-    let package = Package::load("tests/fixtures/packages/rules/graph/qualifier-unreferenced")
+    let package = Package::load("tests/fixtures/packages/rules/graph/variable-rule-shadowed")
         .await
         .unwrap();
 
-    assert_eq!(package.inspection().qualifiers[0].id, "unused");
+    assert!(!package.inspection().variables.is_empty());
 }
 
 #[tokio::test]
@@ -1397,15 +1397,15 @@ async fn resolving_without_subscribers_skips_tracing() {
 async fn env_resolving_outside_trace_policy_is_rejected() {
     let temp = tempfile::TempDir::new().unwrap();
     let root = temp.path().join("pkg");
-    tokio::fs::create_dir_all(root.join("qualifiers"))
+    tokio::fs::create_dir_all(root.join("variables"))
         .await
         .unwrap();
     tokio::fs::write(root.join("rototo-package.toml"), "schema_version = 1\n")
         .await
         .unwrap();
     tokio::fs::write(
-        root.join("qualifiers/leaky.toml"),
-        "schema_version = 1\nwhen = 'env.resolving.variable == \"x\"'\n",
+        root.join("variables/leaky.toml"),
+        "schema_version = 1\ntype = \"bool\"\n\n[resolve]\ndefault = false\n\n[[resolve.rule]]\nwhen = 'env.resolving.variable == \"x\"'\nvalue = true\n",
     )
     .await
     .unwrap();
@@ -1421,7 +1421,7 @@ async fn env_resolving_outside_trace_policy_is_rejected() {
     let lint = lint_package(root.as_path()).await.unwrap();
     assert!(
         lint.diagnostics.iter().any(|diagnostic| {
-            diagnostic.rule.as_string() == "rototo/qualifier-when-invalid-reference"
+            diagnostic.rule.as_string() == "rototo/variable-rule-invalid-reference"
                 && diagnostic.message.contains("env.resolving")
         }),
         "expected env.resolving rejection diagnostic"

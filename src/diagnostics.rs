@@ -66,6 +66,14 @@ macro_rules! rototo_rules {
                         | Self::PackageContextSchemaAttribute
                         | Self::PackageContextSchemaReservedField
                         | Self::PackageContextSchemaMissing
+                        | Self::QualifierParseFailed
+                        | Self::QualifierSchemaVersion
+                        | Self::QualifierWhenMissing
+                        | Self::QualifierWhenShape
+                        | Self::QualifierWhenUnknownQualifier
+                        | Self::QualifierWhenUndeclaredContextPath
+                        | Self::QualifierWhenInvalidReference
+                        | Self::QualifierWhenContextPathTypeMismatch
                         | Self::QualifierPredicateMissing
                         | Self::QualifierPredicateShape
                         | Self::QualifierPredicateUnknownOp
@@ -74,6 +82,12 @@ macro_rules! rototo_rules {
                         | Self::QualifierPredicateValue
                         | Self::QualifierPredicateContextTypeMismatch
                         | Self::QualifierPredicateDuplicate
+                        | Self::QualifierNoCompatibleEvaluationContext
+                        | Self::QualifierCycle
+                        | Self::QualifierUnreferenced
+                        | Self::QualifierUnreachable
+                        | Self::VariableRuleUnknownQualifier
+                        | Self::EvaluationContextReservedField
                         | Self::CatalogSchemaVersion
                         | Self::CatalogSchemaRef
                 )
@@ -740,13 +754,6 @@ pub enum LintStage {
 pub enum SemanticEntity {
     Package,
     Manifest,
-    Qualifier {
-        id: String,
-    },
-    Predicate {
-        qualifier: String,
-        index: usize,
-    },
     Variable {
         id: String,
     },
@@ -783,14 +790,6 @@ pub enum SemanticField {
     PackageExtends,
     SchemaVersion,
     Description,
-    QualifierWhen,
-    QualifierPredicates,
-    PredicateAttribute,
-    PredicateOp,
-    PredicateNot,
-    PredicateValue,
-    PredicateSalt,
-    PredicateRange,
     VariableType,
     VariableSchema,
     VariableValues,

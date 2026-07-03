@@ -79,7 +79,6 @@ fn ceil_char_boundary(text: &str, mut offset: usize) -> usize {
 fn parse_failed_rule(kind: &DocumentKind) -> RototoRuleId {
     match kind {
         DocumentKind::Manifest => RototoRuleId::PackageManifestParseFailed,
-        DocumentKind::Qualifier { .. } => RototoRuleId::QualifierParseFailed,
         DocumentKind::Variable { .. } => RototoRuleId::VariableParseFailed,
         DocumentKind::Catalog { .. } => RototoRuleId::CatalogParseFailed,
         DocumentKind::CatalogEntry { .. } => RototoRuleId::CatalogEntryParseFailed,
@@ -94,7 +93,6 @@ fn parse_failed_rule(kind: &DocumentKind) -> RototoRuleId {
 fn entity_for_document(document: &SourceDocument) -> SemanticEntity {
     match &document.kind {
         DocumentKind::Manifest => SemanticEntity::Manifest,
-        DocumentKind::Qualifier { id } => SemanticEntity::Qualifier { id: id.clone() },
         DocumentKind::Variable { id } => SemanticEntity::Variable { id: id.clone() },
         DocumentKind::Catalog { id } => SemanticEntity::Catalog { id: id.clone() },
         DocumentKind::CatalogEntry {

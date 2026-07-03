@@ -6,10 +6,6 @@ pub(in crate::lint) struct RegisteredLintSelector {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(in crate::lint) enum RegisteredLintAddress {
     Package,
-    Qualifiers,
-    Qualifier {
-        id: String,
-    },
     Variables,
     Variable {
         id: String,

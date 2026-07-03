@@ -15,11 +15,9 @@ use super::{PackageLintSnapshot, lint_package_snapshot};
 #[derive(Debug)]
 pub(crate) struct RuntimePackage {
     pub(crate) evaluation_contexts: BTreeMap<String, RuntimeEvaluationContext>,
-    pub(crate) qualifier_evaluation_contexts: BTreeMap<String, BTreeSet<String>>,
     pub(crate) variable_evaluation_contexts: BTreeMap<String, BTreeSet<String>>,
     pub(crate) catalog_schemas: BTreeMap<String, JsonValue>,
     pub(crate) catalog_entries: BTreeMap<String, BTreeMap<String, JsonValue>>,
-    pub(crate) qualifiers: BTreeMap<String, RuntimeQualifier>,
     pub(crate) variables: BTreeMap<String, RuntimeVariable>,
     pub(crate) trace_policies: Vec<RuntimeTracePolicy>,
 }
@@ -27,20 +25,6 @@ pub(crate) struct RuntimePackage {
 impl RuntimePackage {
     pub(crate) fn validate_context(&self, context: &JsonValue) -> Result<()> {
         self.validate_context_against(context, None)
-    }
-
-    pub(crate) fn validate_context_for_qualifier(
-        &self,
-        qualifier: &str,
-        context: &JsonValue,
-    ) -> Result<()> {
-        let allowed = self
-            .qualifier_evaluation_contexts
-            .get(qualifier)
-            .ok_or_else(|| {
-                RototoError::new(format!("qualifier not found: qualifier://{qualifier}"))
-            })?;
-        self.validate_context_against(context, Some(allowed))
     }
 
     pub(crate) fn validate_context_for_variable(
@@ -101,11 +85,6 @@ impl RuntimePackage {
 pub(crate) struct RuntimeEvaluationContext {
     pub(crate) schema: JsonValue,
     pub(crate) validator: Arc<Validator>,
-}
-
-#[derive(Debug)]
-pub(crate) struct RuntimeQualifier {
-    pub(crate) when: Expression,
 }
 
 /// A compiled `[[trace]]` policy. Its `when` is evaluated against each
@@ -196,17 +175,14 @@ impl<'a> RuntimeCompiler<'a> {
         let compatibility = self.snapshot.evaluation_context_compatibility();
         let catalog_schemas = self.compile_catalog_schemas(index);
         let catalog_entries = self.compile_catalog_entries(index);
-        let qualifiers = self.compile_qualifiers(index)?;
         let variables = self.compile_variables(index)?;
         let trace_policies = Self::compile_trace_policies(manifest)?;
 
         Ok(RuntimePackage {
             evaluation_contexts,
-            qualifier_evaluation_contexts: compatibility.qualifiers,
             variable_evaluation_contexts: compatibility.variables,
             catalog_schemas,
             catalog_entries,
-            qualifiers,
             variables,
             trace_policies,
         })
@@ -291,47 +267,6 @@ impl<'a> RuntimeCompiler<'a> {
         Ok(evaluation_contexts)
     }
 
-    fn compile_qualifiers(
-        &self,
-        index: &SemanticIndex,
-    ) -> Result<BTreeMap<String, RuntimeQualifier>> {
-        let mut qualifiers = BTreeMap::new();
-        for qualifier in index.qualifiers.values() {
-            if !integer_field_is(&qualifier.schema_version, 1) {
-                return Err(RototoError::new(format!(
-                    "qualifier must declare schema_version = 1: {}",
-                    qualifier.id
-                )));
-            }
-
-            let when = match &qualifier.when {
-                ProjectField::Present(when) => when.value.clone(),
-                ProjectField::Invalid { .. } => {
-                    return Err(RototoError::new(format!(
-                        "qualifier when expression is invalid: {}",
-                        qualifier.id
-                    )));
-                }
-                ProjectField::Missing { .. } => {
-                    return Err(RototoError::new(format!(
-                        "qualifier must declare when: {}",
-                        qualifier.id
-                    )));
-                }
-            };
-
-            if let PredicateCollection::Invalid { .. } = &qualifier.predicates {
-                return Err(RototoError::new(format!(
-                    "[[predicate]] is no longer supported; use when = \"...\": {}",
-                    qualifier.id
-                )));
-            }
-
-            qualifiers.insert(qualifier.id.clone(), RuntimeQualifier { when });
-        }
-        Ok(qualifiers)
-    }
-
     fn compile_variables(
         &self,
         index: &SemanticIndex,
@@ -413,12 +348,6 @@ impl<'a> RuntimeCompiler<'a> {
     ) -> Result<RuntimeRule> {
         if rule.invalid_shape {
             return Err(RototoError::new("rule must be a table"));
-        }
-
-        if rule.legacy_qualifier.is_some() {
-            return Err(RototoError::new(
-                "rule qualifier is no longer supported; use when = 'env.qualifier[\"<id>\"]'",
-            ));
         }
 
         let when = match &rule.when {

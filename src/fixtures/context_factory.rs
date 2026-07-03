@@ -2,14 +2,14 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use serde_json::Value as JsonValue;
 
-use crate::expression::{Expression, SynthRef, empty_context, merge_context};
+use crate::expression::{Expression, empty_context, merge_context};
 use crate::model::{PackageInspectReport, VariableInspectReport};
 
 /// A pool of candidate `context` objects for fixture generation.
 ///
 /// Each context is either a stored evaluation-context sample or one synthesized
-/// from a qualifier or variable-rule expression to drive a specific outcome
-/// (a qualifier matching, a rule firing, the default falling through). Fixture
+/// from a variable-rule expression to drive a specific outcome (a condition
+/// variable matching, a rule firing, the default falling through). Fixture
 /// generation traces every candidate through real resolution and keeps the
 /// first that produces the case it is after, so an imperfect synthesis is
 /// discarded rather than emitted.
@@ -17,12 +17,10 @@ pub(super) struct ContextFactory {
     contexts: Vec<JsonValue>,
 }
 
-/// The invertible conditions of a package: every qualifier's `when`, and for
-/// each bool "condition" variable the `when` expressions of its literal-`true`
-/// rules. Synthesis composes them when an expression references a qualifier
-/// (`env.qualifier["id"]`) or a variable (`variables.id`).
+/// The invertible conditions of a package: for each bool "condition" variable,
+/// the `when` expressions of its literal-`true` rules. Synthesis composes them
+/// when an expression references a variable (`variables.id`).
 struct Conditions {
-    qualifiers: BTreeMap<String, Expression>,
     /// Bool variables in the simple condition shape (rules carrying literal
     /// `true` values over a `false` default). Driving one true satisfies any
     /// rule's `when`; driving it false falsifies every rule's `when` so the
@@ -45,15 +43,6 @@ impl ContextFactory {
             }
         }
 
-        // A context that drives each qualifier to each outcome.
-        for qualifier in &report.qualifiers {
-            for want in [true, false] {
-                if let Some(context) = conditions.synthesize_qualifier(&qualifier.id, want) {
-                    contexts.push(context);
-                }
-            }
-        }
-
         // For each variable: a context that falls through to the default, and
         // one that fires each rule (with earlier rules kept false so the rule
         // under test is the one that wins).
@@ -72,18 +61,6 @@ impl ContextFactory {
 
 impl Conditions {
     fn new(report: &PackageInspectReport) -> Self {
-        // Parse every qualifier `when` once so synthesis can compose qualifiers
-        // referenced from other qualifiers and from variable rules.
-        let qualifiers: BTreeMap<String, Expression> = report
-            .qualifiers
-            .iter()
-            .filter_map(|qualifier| {
-                let source = qualifier.when.as_deref()?;
-                let expression = Expression::parse(source).ok()?;
-                Some((qualifier.id.clone(), expression))
-            })
-            .collect();
-
         let variables: BTreeMap<String, Vec<Expression>> = report
             .variables
             .iter()
@@ -106,39 +83,16 @@ impl Conditions {
             })
             .collect();
 
-        Self {
-            qualifiers,
-            variables,
-        }
+        Self { variables }
     }
 
-    fn synthesize_qualifier(&self, id: &str, want: bool) -> Option<JsonValue> {
-        self.synthesize(SynthRef::Qualifier(id), want, &mut BTreeSet::new())
-    }
-
-    fn synthesize(
-        &self,
-        reference: SynthRef<'_>,
-        want: bool,
-        stack: &mut BTreeSet<String>,
-    ) -> Option<JsonValue> {
-        let key = match reference {
-            SynthRef::Qualifier(id) => format!("qualifier://{id}"),
-            SynthRef::Variable(id) => format!("variable://{id}"),
-        };
-        if !stack.insert(key.clone()) {
+    fn synthesize(&self, id: &str, want: bool, stack: &mut BTreeSet<String>) -> Option<JsonValue> {
+        if !stack.insert(id.to_owned()) {
             // A reference cycle; resolution would reject it, so synthesis bails.
             return None;
         }
-        let result = match reference {
-            SynthRef::Qualifier(id) => self.qualifiers.get(id).and_then(|expression| {
-                expression.synthesize_context(want, &mut |nested, nested_want| {
-                    self.synthesize(nested, nested_want, stack)
-                })
-            }),
-            SynthRef::Variable(id) => self.synthesize_condition_variable(id, want, stack),
-        };
-        stack.remove(&key);
+        let result = self.synthesize_condition_variable(id, want, stack);
+        stack.remove(id);
         result
     }
 
@@ -215,10 +169,9 @@ fn push_variable_contexts(
 /// `when` (a `query` rule, or a malformed expression) cannot be inverted and
 /// yields `None`, which fails the surrounding merge.
 fn synth(conditions: &Conditions, rule: &Option<Expression>, want: bool) -> Option<JsonValue> {
-    rule.as_ref()?
-        .synthesize_context(want, &mut |reference, want| {
-            conditions.synthesize(reference, want, &mut BTreeSet::new())
-        })
+    rule.as_ref()?.synthesize_context(want, &mut |id, want| {
+        conditions.synthesize(id, want, &mut BTreeSet::new())
+    })
 }
 
 /// Merge a sequence of optional contexts into one, failing if any is `None` or

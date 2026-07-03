@@ -6,5 +6,5 @@ type = "string"
 default = "control"
 
 [[resolve.rule]]
-when = 'env.qualifier["premium-users"]'
+when = 'context.user.tier == "premium"'
 value = "control"

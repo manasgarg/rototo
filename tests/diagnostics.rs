@@ -11,9 +11,9 @@ fn lists_global_diagnostics() {
         .stdout(predicate::str::contains("rule"))
         .stdout(predicate::str::contains("entity"))
         .stdout(predicate::str::contains("rototo/package-not-found"))
-        .stdout(predicate::str::contains("rototo/qualifier-parse-failed"))
+        .stdout(predicate::str::contains("rototo/variable-parse-failed"))
         .stdout(predicate::str::contains(
-            "Qualifier TOML file could not be parsed",
+            "Variable TOML file could not be parsed",
         ))
         .stdout(predicate::str::contains("help:").not());
 }
@@ -25,7 +25,7 @@ fn lists_package_scoped_diagnostics_when_requested() {
         .args(["show", "examples/basic", "--lint-rules"])
         .assert()
         .success()
-        .stdout(predicate::str::contains("rototo/qualifier-parse-failed"))
+        .stdout(predicate::str::contains("rototo/variable-parse-failed"))
         .stdout(predicate::str::contains(
             "consumer-experience/checkout-heading-required",
         ))
@@ -45,7 +45,7 @@ fn lists_global_diagnostics_as_json() {
             r#""rule": "rototo/package-not-found""#,
         ))
         .stdout(predicate::str::contains(
-            r#""rule": "rototo/qualifier-unreferenced""#,
+            r#""rule": "rototo/variable-rule-shadowed""#,
         ))
         .stdout(predicate::str::contains(r#""severity": "warning""#));
 }
@@ -83,6 +83,12 @@ fn retired_rototo_rules_are_not_listed() {
         "rototo/package-context-schema-reserved-field",
         "rototo/package-context-schema-missing",
         "rototo/qualifier-predicate-context-type-mismatch",
+        "rototo/qualifier-parse-failed",
+        "rototo/qualifier-when-unknown-qualifier",
+        "rototo/qualifier-cycle",
+        "rototo/qualifier-unreferenced",
+        "rototo/variable-rule-unknown-qualifier",
+        "rototo/evaluation-context-reserved-field",
         "rototo/catalog-schema-version",
         "rototo/catalog-schema-ref",
     ] {
@@ -97,11 +103,11 @@ fn retired_rototo_rules_are_not_listed() {
 fn gets_package_diagnostic() {
     Command::cargo_bin("rototo")
         .unwrap()
-        .args(["show", "--lint-rule", "rototo/qualifier-parse-failed"])
+        .args(["show", "--lint-rule", "rototo/variable-parse-failed"])
         .assert()
         .success()
-        .stdout(predicate::str::contains("rototo/qualifier-parse-failed"))
-        .stdout(predicate::str::contains("entity: qualifier"));
+        .stdout(predicate::str::contains("rototo/variable-parse-failed"))
+        .stdout(predicate::str::contains("entity: variable"));
 }
 
 #[test]

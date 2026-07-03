@@ -2,7 +2,6 @@ mod catalog;
 mod evaluation_context;
 mod fields;
 mod manifest;
-mod qualifier;
 mod variable;
 
 use super::index::{CustomLintFileNode, SemanticIndex};
@@ -21,14 +20,6 @@ pub(super) fn build_semantic_index(source: &SourceStore, syntax: &SyntaxIndex) -
                     continue;
                 };
                 index.manifest = Some(manifest::project_manifest(document, toml));
-            }
-            DocumentKind::Qualifier { id } => {
-                let Some(toml) = syntax.toml.get(&document.id) else {
-                    continue;
-                };
-                index
-                    .qualifiers
-                    .insert(id.clone(), qualifier::project_qualifier(document, toml, id));
             }
             DocumentKind::Variable { id } => {
                 let Some(toml) = syntax.toml.get(&document.id) else {

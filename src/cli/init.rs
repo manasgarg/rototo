@@ -21,7 +21,6 @@ pub(crate) async fn run_init(args: InitArgs, json: bool, quiet: bool) -> Result<
 
 enum InitTarget {
     Package,
-    Qualifier(String),
     Variable(String),
     Catalog(String),
     Context { id: String, update: bool },
@@ -31,11 +30,6 @@ fn init_target(args: &InitArgs) -> Result<InitTarget> {
     let mut count = 0;
     let mut target = InitTarget::Package;
 
-    if let Some(id) = &args.qualifier {
-        count += 1;
-        validate_template_id("qualifier", id)?;
-        target = InitTarget::Qualifier(id.clone());
-    }
     if let Some(id) = &args.variable {
         count += 1;
         validate_template_id("variable", id)?;
@@ -57,7 +51,7 @@ fn init_target(args: &InitArgs) -> Result<InitTarget> {
 
     if count > 1 {
         return Err(RototoError::new(
-            "init accepts one entity flag at a time: --qualifier, --variable, --catalog, or --evaluation-context",
+            "init accepts one entity flag at a time: --variable, --catalog, or --evaluation-context",
         ));
     }
 
@@ -100,18 +94,6 @@ async fn build_init_plan(package: &Path, target: InitTarget) -> Result<InitPlan>
     let initialized = package_initialized(package).await?;
     match target {
         InitTarget::Package => Ok(InitPlan::from_entries(package_init_plan(package))),
-        InitTarget::Qualifier(id) => {
-            let mut plan = implicit_package_init_plan(package, initialized);
-            if initialized {
-                plan.push(InitPlanEntry::directory(package.join("qualifiers")));
-            }
-            plan.push(InitPlanEntry::file(
-                "qualifier",
-                package.join("qualifiers").join(format!("{id}.toml")),
-                qualifier_template(&id),
-            ));
-            Ok(InitPlan::from_entries(plan))
-        }
         InitTarget::Variable(id) => {
             let mut plan = implicit_package_init_plan(package, initialized);
             if initialized {
@@ -190,7 +172,6 @@ fn package_init_plan(package: &Path) -> Vec<InitPlanEntry> {
             package.join("rototo-package.toml"),
             package_manifest_template(),
         ),
-        InitPlanEntry::directory(package.join("qualifiers")),
         InitPlanEntry::directory(package.join("variables")),
         InitPlanEntry::directory(package.join("catalogs")),
         InitPlanEntry::directory(package.join("evaluation-contexts")),
@@ -571,68 +552,14 @@ fn package_manifest_template() -> String {
 # Optional resolution tracing. Each [[trace]] policy emits a full resolution
 # trace to the SDK trace stream whenever its `when` matches, with no app
 # redeploy. Use it to debug a specific production resolution from reviewed
-# config. `when` reads context.* and env.qualifier["<id>"] like any expression,
-# and may additionally read env.resolving.variable / env.resolving.qualifier —
-# the entity currently being resolved.
+# config. `when` reads context.* and variables["<id>"] like any expression,
+# and may additionally read env.resolving.variable, the variable currently
+# being resolved.
 #
 # [[trace]]
 # when = 'env.resolving.variable == "checkout-redesign" && context.user.id == "tester-123"'
 "#
     .to_owned()
-}
-
-fn qualifier_template(id: &str) -> String {
-    let description = toml_string(&format!(
-        "Edit this description to explain when {id} should match"
-    ));
-    format!(
-        r#"schema_version = 1
-
-# Explain the named runtime condition this qualifier represents.
-description = {description}
-
-# Required. `when` must evaluate to true or false.
-# It can read runtime context with `context.*` and compose existing qualifiers
-# with `env.qualifier["<qualifier-id>"]`.
-when = 'context.user.tier == "premium"'
-
-# Common condition shapes:
-#
-# Equality / inequality:
-# when = 'context.user.tier == "premium"'
-# when = 'context.user.tier != "free"'
-#
-# Numeric comparisons:
-# when = 'context.account.seats >= 100'
-#
-# Boolean fields:
-# when = 'context.flags.internal == true'
-#
-# Membership:
-# when = 'context.request.country in ["DE", "FR", "NL"]'
-#
-# Composition:
-# when = 'context.user.tier == "premium" && context.account.seats >= 100'
-# when = 'env.qualifier["beta-rollout"] && context.user.tier == "premium"'
-# when = '!(env.qualifier["internal-staff"])'
-#
-# Stable rollout buckets. Bucket ranges are start-inclusive and end-exclusive.
-# `0, 1000` is roughly 1.5% of the 0..65536 bucket space.
-# when = 'bucket(context.user.id, "{id}-rollout", 0, 1000)'
-#
-# Other supported helpers include has, prefix, suffix, contains, regex, glob,
-# semver, time_before/time_after/time_between, cidr, path, and size.
-#
-# Time gating reads `env.now`, the evaluation timestamp rototo captures per
-# resolution. It reads the wall clock, so pass time in context when you need a
-# reproducible resolution.
-# when = 'time_at_or_after(env.now, "2026-07-01T00:00:00Z")'
-#
-# Context paths used here should be declared in an evaluation context schema.
-# After editing conditions, run:
-# rototo init <package> --evaluation-context --update
-"#
-    )
 }
 
 fn variable_template(id: &str) -> String {
@@ -666,14 +593,15 @@ default = "control"
 # Rules are evaluated top to bottom. The first matching rule selects its value.
 #
 # [[resolve.rule]]
-# when = 'env.qualifier["premium-users"]'
-# value = "treatment"
-
-# Rule conditions can also read context directly.
-#
-# [[resolve.rule]]
 # when = 'context.account.plan == "enterprise" && context.account.seats >= 100'
 # value = "enterprise"
+
+# Rule conditions can also read other variables' resolved values, so a bool
+# "condition" variable can name a runtime condition other variables share.
+#
+# [[resolve.rule]]
+# when = 'variables["premium-users"]'
+# value = "treatment"
 
 # For catalog-backed variables, set:
 #
@@ -685,7 +613,7 @@ default = "control"
 # default = "control"
 #
 # [[resolve.rule]]
-# when = 'env.qualifier["premium-users"]'
+# when = 'variables["premium-users"]'
 # value = "premium"
 
 # For list<catalog:...> variables, rules may select entries with `query`
@@ -697,7 +625,7 @@ default = "control"
 # default = []
 #
 # [[resolve.rule]]
-# query = 'entry.enabled == true && env.qualifier["premium-users"]'
+# query = 'entry.enabled == true && variables["premium-users"]'
 "#
     )
 }
@@ -754,16 +682,12 @@ async fn inferred_context_attributes(
         package,
         PackageInspectRequest {
             variables: InspectSelection::All,
-            qualifiers: InspectSelection::All,
             ..PackageInspectRequest::default()
         },
     )
     .await?;
 
     let mut attributes = BTreeMap::new();
-    for qualifier in &report.qualifiers {
-        collect_inferred_context_attributes(&qualifier.context_attributes, &mut attributes);
-    }
     for variable in &report.variables {
         collect_inferred_context_attributes(&variable.context_attributes, &mut attributes);
     }

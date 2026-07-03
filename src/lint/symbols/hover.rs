@@ -21,7 +21,6 @@ pub(crate) fn hover(
     let mut candidates = Vec::new();
     push_diagnostic_hover_candidates(snapshot, path, position, &mut candidates);
     push_manifest_hover_candidates(&snapshot.index, path, position, &mut candidates);
-    push_qualifier_hover_candidates(&snapshot.index, path, position, &mut candidates);
     push_variable_hover_candidates(&snapshot.index, path, position, &mut candidates);
     push_catalog_hover_candidates(&snapshot.index, path, position, &mut candidates);
     sort_hover_candidates(&mut candidates);
@@ -57,30 +56,6 @@ fn push_manifest_hover_candidates(
     candidates: &mut Vec<HoverCandidate>,
 ) {
     let _ = (path, position, candidates);
-}
-
-fn push_qualifier_hover_candidates(
-    index: &SemanticIndex,
-    path: &str,
-    position: SourcePosition,
-    candidates: &mut Vec<HoverCandidate>,
-) {
-    for qualifier in index.qualifiers.values() {
-        if qualifier.location.path != path {
-            continue;
-        }
-
-        if let Some(ProjectField::Present(description)) = &qualifier.description {
-            push_hover_candidate(
-                candidates,
-                path,
-                position,
-                &description.location,
-                2,
-                qualifier_hover_contents(qualifier),
-            );
-        }
-    }
 }
 
 fn push_variable_hover_candidates(
@@ -263,16 +238,6 @@ fn file_hover(index: &SemanticIndex, path: &str) -> Option<PackageHover> {
         })
         .or_else(|| {
             index
-                .qualifiers
-                .values()
-                .find(|qualifier| qualifier.location.path == path)
-                .map(|qualifier| PackageHover {
-                    contents: qualifier_hover_contents(qualifier),
-                    location: qualifier.location.clone(),
-                })
-        })
-        .or_else(|| {
-            index
                 .catalogs
                 .values()
                 .find(|catalog| catalog.location.path == path)
@@ -325,15 +290,6 @@ fn custom_rule_definition(
         .rules
         .get(rule)
         .map(|rule| rule.definition.clone())
-}
-
-fn qualifier_hover_contents(qualifier: &QualifierNode) -> String {
-    let mut contents = format!("### Qualifier `{}`", qualifier.id);
-    if let Some(description) = project_field_string(&qualifier.description) {
-        contents.push_str("\n\n");
-        contents.push_str(description);
-    }
-    contents
 }
 
 fn variable_hover_contents(variable: &VariableNode) -> String {

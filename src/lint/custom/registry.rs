@@ -186,8 +186,6 @@ fn selector_key(selector: &RegisteredLintSelector) -> String {
 fn address_key(address: &RegisteredLintAddress) -> String {
     match address {
         RegisteredLintAddress::Package => "/".to_owned(),
-        RegisteredLintAddress::Qualifiers => "/qualifiers".to_owned(),
-        RegisteredLintAddress::Qualifier { id } => format!("/qualifiers/{id}"),
         RegisteredLintAddress::Variables => "/variables".to_owned(),
         RegisteredLintAddress::Variable { id } => format!("/variables/{id}"),
         RegisteredLintAddress::VariableValues { variable } => {
@@ -292,10 +290,6 @@ fn parse_registered_lint_address(
         .collect::<Vec<_>>();
     let address = match segments.as_slice() {
         [] => RegisteredLintAddress::Package,
-        ["qualifiers"] => RegisteredLintAddress::Qualifiers,
-        ["qualifiers", id] => RegisteredLintAddress::Qualifier {
-            id: parse_address_id(target, id)?,
-        },
         ["variables"] => RegisteredLintAddress::Variables,
         ["variables", id] => RegisteredLintAddress::Variable {
             id: parse_address_id(target, id)?,

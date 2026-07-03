@@ -22,9 +22,6 @@ pub(crate) fn registered_lint_package(ctx: &LintContext) -> JsonValue {
         "version": 1,
         "root": ctx.source.root.display().to_string(),
         "manifest": package_manifest_data(ctx),
-        "qualifiers": ctx.index.qualifiers.iter()
-            .map(|(id, qualifier)| (id.clone(), qualifier_data(ctx, qualifier)))
-            .collect::<BTreeMap<_, _>>(),
         "variables": ctx.index.variables.iter()
             .map(|(id, variable)| (id.clone(), variable_data(ctx, variable)))
             .collect::<BTreeMap<_, _>>(),
@@ -43,19 +40,6 @@ pub(crate) fn registered_lint_targets(
 ) -> Vec<RegisteredLintTargetInstance> {
     match &selector.address {
         RegisteredLintAddress::Package => registered_package_target(ctx).into_iter().collect(),
-        RegisteredLintAddress::Qualifiers => ctx
-            .index
-            .qualifiers
-            .values()
-            .filter_map(|qualifier| registered_qualifier_target(ctx, qualifier))
-            .collect(),
-        RegisteredLintAddress::Qualifier { id } => ctx
-            .index
-            .qualifiers
-            .get(id)
-            .and_then(|qualifier| registered_qualifier_target(ctx, qualifier))
-            .into_iter()
-            .collect(),
         RegisteredLintAddress::Variables => ctx
             .index
             .variables
@@ -169,18 +153,6 @@ fn registered_package_target(ctx: &LintContext) -> Option<RegisteredLintTargetIn
         target: SemanticEntity::Package.into(),
         location: registered_package_location(ctx, manifest, None),
         data: package_target_data(ctx),
-    })
-}
-
-fn registered_qualifier_target(
-    ctx: &LintContext,
-    qualifier: &QualifierNode,
-) -> Option<RegisteredLintTargetInstance> {
-    ctx.source.documents.get(&qualifier.doc)?;
-    Some(RegisteredLintTargetInstance {
-        target: qualifier.target(),
-        location: qualifier.location.clone(),
-        data: qualifier_data(ctx, qualifier),
     })
 }
 
@@ -327,19 +299,6 @@ fn package_extends_data(manifest: &ManifestNode) -> Vec<String> {
         }
         PackageExtendsCollection::Missing | PackageExtendsCollection::Invalid { .. } => Vec::new(),
     }
-}
-
-fn qualifier_data(ctx: &LintContext, qualifier: &QualifierNode) -> JsonValue {
-    let document = ctx.source.documents.get(&qualifier.doc);
-    serde_json::json!({
-        "kind": "qualifier",
-        "id": qualifier.id,
-        "uri": document.map(|document| document.uri.clone()),
-        "path": document.map(|document| document.path.clone()),
-        "description": optional_project_string(&qualifier.description),
-        "when": project_expression(&qualifier.when),
-        "toml": parsed_toml_json(ctx, qualifier.doc),
-    })
 }
 
 fn variable_data(ctx: &LintContext, variable: &VariableNode) -> JsonValue {

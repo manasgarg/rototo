@@ -21,7 +21,6 @@ pub const SEMANTIC_MODEL_VERSION: u32 = 3;
 #[serde(rename_all = "camelCase")]
 pub struct PackageSemanticModel {
     pub version: u32,
-    pub qualifiers: Vec<QualifierModel>,
     pub variables: Vec<VariableModel>,
     pub catalogs: Vec<CatalogModel>,
     pub catalog_entries: Vec<CatalogEntryModel>,
@@ -29,7 +28,6 @@ pub struct PackageSemanticModel {
     pub evaluation_context_samples: Vec<EvaluationContextSampleModel>,
     pub linters: Vec<LinterModel>,
     pub references: Vec<ReferenceModel>,
-    pub qualifier_evaluation_contexts: Vec<QualifierEvaluationContextModel>,
     pub variable_evaluation_contexts: Vec<VariableEvaluationContextModel>,
 }
 
@@ -58,17 +56,6 @@ pub struct ModelValueField {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub value: Option<JsonValue>,
     pub location: ModelLocation,
-}
-
-#[derive(Debug, Clone, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct QualifierModel {
-    pub id: String,
-    pub location: ModelLocation,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub description: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub when: Option<ModelField>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -174,13 +161,6 @@ pub struct EvaluationContextSampleModel {
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
-pub struct QualifierEvaluationContextModel {
-    pub qualifier: String,
-    pub evaluation_contexts: Vec<String>,
-}
-
-#[derive(Debug, Clone, Serialize)]
-#[serde(rename_all = "camelCase")]
 pub struct VariableEvaluationContextModel {
     pub variable: String,
     pub evaluation_contexts: Vec<String>,
@@ -216,8 +196,6 @@ pub struct ReferenceModel {
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase", tag = "kind")]
 pub enum ModelReferenceVia {
-    QualifierWhen,
-    QualifierWhenContextAttribute,
     VariableCatalog,
     ResolveDefault,
     RuleCondition { index: usize },
@@ -227,9 +205,6 @@ pub enum ModelReferenceVia {
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase", tag = "kind")]
 pub enum ModelEntityRef {
-    Qualifier {
-        id: String,
-    },
     Variable {
         id: String,
     },
@@ -259,23 +234,6 @@ pub enum ModelEntityRef {
 impl PackageLintSnapshot {
     pub(crate) fn semantic_model(&self) -> PackageSemanticModel {
         let index = &self.index;
-        let qualifiers = index
-            .qualifiers
-            .values()
-            .map(|node| QualifierModel {
-                id: node.id.clone(),
-                location: model_location(&node.location),
-                description: present_string(&node.description),
-                when: Some(ModelField {
-                    value: match &node.when {
-                        ProjectField::Present(when) => Some(when.value.source().to_owned()),
-                        ProjectField::Invalid { .. } | ProjectField::Missing { .. } => None,
-                    },
-                    location: model_location(&node.when.location()),
-                }),
-            })
-            .collect();
-
         let variables = index
             .variables
             .values()
@@ -462,14 +420,6 @@ impl PackageLintSnapshot {
             .collect();
 
         let compatibility = self.evaluation_context_compatibility();
-        let qualifier_evaluation_contexts = compatibility
-            .qualifiers
-            .into_iter()
-            .map(|(qualifier, contexts)| QualifierEvaluationContextModel {
-                qualifier,
-                evaluation_contexts: contexts.into_iter().collect(),
-            })
-            .collect();
         let variable_evaluation_contexts = compatibility
             .variables
             .into_iter()
@@ -481,7 +431,6 @@ impl PackageLintSnapshot {
 
         PackageSemanticModel {
             version: SEMANTIC_MODEL_VERSION,
-            qualifiers,
             variables,
             catalogs,
             catalog_entries,
@@ -489,7 +438,6 @@ impl PackageLintSnapshot {
             evaluation_context_samples,
             linters,
             references,
-            qualifier_evaluation_contexts,
             variable_evaluation_contexts,
         }
     }
@@ -531,14 +479,10 @@ fn present_string(field: &Option<ProjectField<String>>) -> Option<String> {
 
 fn reference_via(source: &ReferenceSource) -> ModelReferenceVia {
     match source {
-        ReferenceSource::QualifierWhenQualifier { .. } => ModelReferenceVia::QualifierWhen,
-        ReferenceSource::QualifierWhenContextAttribute { .. } => {
-            ModelReferenceVia::QualifierWhenContextAttribute
-        }
         ReferenceSource::VariableCatalog { .. } => ModelReferenceVia::VariableCatalog,
         ReferenceSource::VariableResolveDefault { .. } => ModelReferenceVia::ResolveDefault,
-        ReferenceSource::VariableRuleConditionQualifier { rule, .. }
-        | ReferenceSource::VariableRuleConditionVariable { rule, .. } => {
+        ReferenceSource::VariableRuleConditionVariable { rule, .. }
+        | ReferenceSource::VariableRuleContextAttribute { rule, .. } => {
             ModelReferenceVia::RuleCondition { index: *rule }
         }
         ReferenceSource::VariableRuleValue { rule, .. } => {
@@ -549,16 +493,10 @@ fn reference_via(source: &ReferenceSource) -> ModelReferenceVia {
 
 fn reference_source_ref(source: &ReferenceSource) -> ModelEntityRef {
     match source {
-        ReferenceSource::QualifierWhenQualifier { qualifier }
-        | ReferenceSource::QualifierWhenContextAttribute { qualifier } => {
-            ModelEntityRef::Qualifier {
-                id: qualifier.clone(),
-            }
-        }
         ReferenceSource::VariableCatalog { variable }
         | ReferenceSource::VariableResolveDefault { variable }
-        | ReferenceSource::VariableRuleConditionQualifier { variable, .. }
         | ReferenceSource::VariableRuleConditionVariable { variable, .. }
+        | ReferenceSource::VariableRuleContextAttribute { variable, .. }
         | ReferenceSource::VariableRuleValue { variable, .. } => ModelEntityRef::Variable {
             id: variable.clone(),
         },
@@ -570,7 +508,6 @@ fn reference_target_ref(target: &ReferenceTarget) -> ModelEntityRef {
         ReferenceTarget::ContextAttribute(name) => {
             ModelEntityRef::ContextAttribute { name: name.clone() }
         }
-        ReferenceTarget::Qualifier(id) => ModelEntityRef::Qualifier { id: id.clone() },
         ReferenceTarget::Variable(id) => ModelEntityRef::Variable { id: id.clone() },
         ReferenceTarget::Catalog(id) => ModelEntityRef::Catalog { id: id.clone() },
         ReferenceTarget::CatalogEntry { catalog, value } => ModelEntityRef::CatalogEntry {

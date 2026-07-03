@@ -139,11 +139,18 @@ async fn semantic_model_projects_query_rules_and_evaluation_context_compatibilit
     );
     write_file(
         root,
-        "qualifiers/premium.toml",
+        "variables/premium.toml",
         r#"schema_version = 1
 
 description = "Premium users"
+type = "bool"
+
+[resolve]
+default = false
+
+[[resolve.rule]]
 when = 'context.user.tier == "premium"'
+value = true
 "#,
     );
     write_file(
@@ -179,7 +186,7 @@ type = "list<catalog:message-template>"
 default = []
 
 [[resolve.rule]]
-query = 'entry.channel == context.channel && entry.active == true && env.qualifier["premium"]'
+query = 'entry.channel == context.channel && entry.active == true && variables["premium"]'
 "#,
     );
 
@@ -203,9 +210,7 @@ query = 'entry.channel == context.channel && entry.active == true && env.qualifi
     let query = rule.query.as_ref().expect("query field");
     assert_eq!(
         query.value.as_deref(),
-        Some(
-            r#"entry.channel == context.channel && entry.active == true && env.qualifier["premium"]"#
-        )
+        Some(r#"entry.channel == context.channel && entry.active == true && variables["premium"]"#)
     );
     assert!(
         query.location.range.is_some(),
@@ -219,12 +224,12 @@ query = 'entry.channel == context.channel && entry.active == true && env.qualifi
         .expect("evaluation context sample");
     assert_eq!(sample.value.as_ref().unwrap()["channel"], "email");
 
-    let qualifier_contexts = model
-        .qualifier_evaluation_contexts
+    let premium_contexts = model
+        .variable_evaluation_contexts
         .iter()
-        .find(|entry| entry.qualifier == "premium")
+        .find(|entry| entry.variable == "premium")
         .expect("premium evaluation-context compatibility");
-    assert_eq!(qualifier_contexts.evaluation_contexts, vec!["request"]);
+    assert_eq!(premium_contexts.evaluation_contexts, vec!["request"]);
 
     let variable_contexts = model
         .variable_evaluation_contexts
@@ -233,28 +238,12 @@ query = 'entry.channel == context.channel && entry.active == true && env.qualifi
         .expect("templates evaluation-context compatibility");
     assert_eq!(variable_contexts.evaluation_contexts, vec!["request"]);
 
-    let query_qualifier_edge = model.references.iter().any(|reference| {
+    let query_condition_edge = model.references.iter().any(|reference| {
         matches!(&reference.from, ModelEntityRef::Variable { id } if id == "templates")
-            && matches!(&reference.to, ModelEntityRef::Qualifier { id } if id == "premium")
+            && matches!(&reference.to, ModelEntityRef::Variable { id } if id == "premium")
             && matches!(&reference.via, ModelReferenceVia::RuleCondition { index } if *index == 0)
     });
-    assert!(query_qualifier_edge, "query qualifier reference edge");
-
-    let context_attribute_edge = model.references.iter().any(|reference| {
-        matches!(&reference.from, ModelEntityRef::Qualifier { id } if id == "premium")
-            && matches!(
-                &reference.to,
-                ModelEntityRef::ContextAttribute { name } if name == "user.tier"
-            )
-            && matches!(
-                reference.via,
-                ModelReferenceVia::QualifierWhenContextAttribute
-            )
-    });
-    assert!(
-        context_attribute_edge,
-        "qualifier context attribute reference edge"
-    );
+    assert!(query_condition_edge, "query condition reference edge");
 }
 
 fn write_file(root: &Path, path: &str, contents: &str) {

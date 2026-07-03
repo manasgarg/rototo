@@ -195,9 +195,16 @@ default = "hello"
 "#,
             ),
             (
-                "qualifiers/premium.toml",
+                "variables/premium.toml",
                 r#"schema_version = 1
+type = "bool"
+
+[resolve]
+default = false
+
+[[resolve.rule]]
 when = "context.account.tier == \"premium\""
+value = true
 "#,
             ),
             (
@@ -209,7 +216,7 @@ type = "catalog:message"
 default = "default"
 
 [[resolve.rule]]
-when = 'env.qualifier["premium"]'
+when = 'variables["premium"]'
 value = "premium"
 "#,
             ),
@@ -281,7 +288,7 @@ end
         assert!(lint.diagnostics.is_empty(), "{:#?}", lint.diagnostics);
         for expected in [
             PACKAGE_MANIFEST,
-            "qualifiers/premium.toml",
+            "variables/premium.toml",
             "variables/message.toml",
             "catalogs/message.schema.json",
             "catalogs/message-entries/default.toml",
@@ -302,19 +309,19 @@ end
     #[tokio::test]
     async fn snapshot_diagnostic_ranges_cover_references() {
         let reference_snapshot = lint_package_snapshot(LintInput::new(PathBuf::from(
-            "tests/fixtures/packages/rules/reference/variable-rule-unknown-qualifier",
+            "tests/fixtures/packages/rules/reference/variable-rule-unknown-variable",
         )))
         .await
         .unwrap();
         let reference = diagnostic_by_rule(
             &reference_snapshot.lint,
-            "rototo/variable-rule-unknown-qualifier",
+            "rototo/variable-rule-unknown-variable",
         );
         assert_eq!(reference.primary.path, "variables/checkout-redesign.toml");
         assert_eq!(reference.primary.range.unwrap().start.line, 8);
         assert_eq!(reference.primary.range.unwrap().start.character, 7);
         assert_eq!(reference.primary.range.unwrap().end.line, 8);
-        assert_eq!(reference.primary.range.unwrap().end.character, 39);
+        assert_eq!(reference.primary.range.unwrap().end.character, 34);
     }
 
     #[tokio::test]
@@ -404,17 +411,31 @@ end
         .await
         .unwrap();
         tokio::fs::write(
-            root.join("qualifiers/beta.toml"),
+            root.join("variables/beta.toml"),
             r#"schema_version = 1
+type = "bool"
+
+[resolve]
+default = false
+
+[[resolve.rule]]
 when = "context.account.beta == true"
+value = true
 "#,
         )
         .await
         .unwrap();
         tokio::fs::write(
-            root.join("qualifiers/premium.toml"),
+            root.join("variables/premium.toml"),
             r#"schema_version = 1
-when = "env.qualifier[\"beta\"] && context.account.region == \"eu\""
+type = "bool"
+
+[resolve]
+default = false
+
+[[resolve.rule]]
+when = "variables[\"beta\"] && context.account.region == \"eu\""
+value = true
 "#,
         )
         .await
@@ -428,11 +449,11 @@ type = "catalog:message"
 default = "missing"
 
 [[resolve.rule]]
-when = 'env.qualifier["premium"]'
+when = 'variables["premium"]'
 value = "welcome"
 
 [[resolve.rule]]
-when = 'env.qualifier["missing"]'
+when = 'variables["missing"]'
 value = "absent"
 "#,
         )
@@ -468,21 +489,18 @@ value = "absent"
             .unwrap();
 
         assert!(snapshot.references.edges().iter().any(|edge| {
-            matches!(edge.source, ReferenceSource::QualifierWhenQualifier { .. })
-                && edge.target == ReferenceTarget::Qualifier("beta".to_owned())
+            matches!(
+                &edge.source,
+                ReferenceSource::VariableRuleConditionVariable { variable, .. }
+                    if variable == "premium"
+            ) && edge.target == ReferenceTarget::Variable("beta".to_owned())
                 && edge.is_resolved()
         }));
         assert!(snapshot.references.edges().iter().any(|edge| {
             matches!(
                 edge.source,
-                ReferenceSource::QualifierWhenContextAttribute { .. }
-            ) && edge.target == ReferenceTarget::ContextAttribute("account.region".to_owned())
-        }));
-        assert!(snapshot.references.edges().iter().any(|edge| {
-            matches!(
-                edge.source,
-                ReferenceSource::VariableRuleConditionQualifier { .. }
-            ) && edge.target == ReferenceTarget::Qualifier("missing".to_owned())
+                ReferenceSource::VariableRuleConditionVariable { .. }
+            ) && edge.target == ReferenceTarget::Variable("missing".to_owned())
                 && !edge.is_resolved()
         }));
         assert!(snapshot.references.edges().iter().any(|edge| {
@@ -495,15 +513,12 @@ value = "absent"
                 && !edge.is_resolved()
         }));
 
-        let referenced_qualifiers = snapshot.references.referenced_qualifier_ids();
-        assert!(referenced_qualifiers.contains("beta"));
-        assert!(referenced_qualifiers.contains("premium"));
         assert!(snapshot.references.edges().iter().any(|edge| {
             matches!(
                 &edge.source,
-                ReferenceSource::VariableRuleConditionQualifier { variable, rule }
+                ReferenceSource::VariableRuleConditionVariable { variable, rule }
                     if variable == "message" && *rule == 0
-            ) && edge.target == ReferenceTarget::Qualifier("premium".to_owned())
+            ) && edge.target == ReferenceTarget::Variable("premium".to_owned())
                 && edge.location.path == "variables/message.toml"
                 && edge.is_resolved()
         }));

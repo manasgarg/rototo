@@ -30,7 +30,7 @@ pub(super) fn lint_variable_shapes(ctx: &mut LintContext) {
 }
 
 /// Flag root identifiers a variable rule `when`/`query` expression uses that
-/// rototo does not provide: the legacy bare `qualifier[...]` root, unknown `env`
+/// rototo does not provide: the retired qualifier roots, unknown `env`
 /// members, and any other unknown identifier.
 pub(super) fn lint_variable_expression_roots(ctx: &mut LintContext) {
     let diagnostics = &mut ctx.diagnostics;
@@ -186,16 +186,6 @@ fn lint_variable_rule_shape(
         return;
     }
 
-    if let Some(location) = &rule.legacy_qualifier {
-        push_project_diagnostic(
-            diagnostics,
-            RototoRuleId::VariableRuleShape,
-            rule.target(&variable.id),
-            location.clone(),
-            "rule qualifier is no longer supported; use when = 'env.qualifier[\"<id>\"]'",
-        );
-    }
-
     if let Some(ProjectField::Invalid { location } | ProjectField::Missing { location }) =
         &rule.when
     {
@@ -237,8 +227,7 @@ fn lint_variable_rule_shape(
     }
 
     let has_selector = matches!(rule.when, Some(ProjectField::Present(_)))
-        || matches!(rule.query, Some(ProjectField::Present(_)))
-        || rule.legacy_qualifier.is_some();
+        || matches!(rule.query, Some(ProjectField::Present(_)));
     if !has_selector {
         push_project_diagnostic(
             diagnostics,
@@ -306,19 +295,6 @@ pub(super) fn lint_variable_references(ctx: &mut LintContext) {
                     format!("resolve default references unknown catalog value: {value}"),
                 );
             }
-            (
-                ReferenceSource::VariableRuleConditionQualifier {
-                    variable: _,
-                    rule: _,
-                },
-                ReferenceTarget::Qualifier(qualifier),
-            ) => push_reference_diagnostic(
-                &mut diagnostics,
-                RototoRuleId::VariableRuleUnknownQualifier,
-                edge.semantic_target.clone(),
-                edge.location.clone(),
-                format!("rule references unknown qualifier: {qualifier}"),
-            ),
             (
                 ReferenceSource::VariableRuleConditionVariable {
                     variable: _,

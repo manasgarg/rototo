@@ -72,18 +72,6 @@ async fn run_contract_case(case: &ContractCase) -> Result<JsonValue, String> {
                 "diagnostics": lint.diagnostics.len(),
             }))
         }
-        "resolve_qualifier" => {
-            let package = Package::load(&case.package)
-                .await
-                .map_err(|err| err.to_string())?;
-            let context = EvaluationContext::from_json(case.context.clone())
-                .map_err(|err| err.to_string())?;
-            let id = case_id(case)?;
-            let resolution = package
-                .resolve_qualifier(id, &context)
-                .map_err(|err| err.to_string())?;
-            serde_json::to_value(resolution).map_err(|err| err.to_string())
-        }
         "resolve_variable" => {
             let package = Package::load(&case.package)
                 .await

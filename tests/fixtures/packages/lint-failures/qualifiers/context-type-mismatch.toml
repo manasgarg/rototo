@@ -1,5 +1,0 @@
-schema_version = 1
-
-description = "Qualifier comparing a string-typed context path as if it were a number"
-
-when = '(context.user.tier >= 5)'

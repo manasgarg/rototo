@@ -6,7 +6,7 @@ use toml::Value;
 use crate::error::{Result, RototoError};
 use crate::model::{
     CatalogConfig, CatalogInspection, EvaluationContextInspection, LinterInspection,
-    PackageInspection, QualifierConfig, QualifierInspection, VariableConfig, VariableInspection,
+    PackageInspection, VariableConfig, VariableInspection,
 };
 
 const PACKAGE_MANIFEST: &str = "rototo-package.toml";
@@ -20,7 +20,6 @@ pub async fn inspect_package(package_root: &Path) -> Result<PackageInspection> {
     validate_package_manifest(&manifest)?;
     let evaluation_contexts = discover_evaluation_contexts(&package_root).await?;
     let catalogs = discover_catalogs(&package_root).await?;
-    let qualifiers = discover_qualifiers(&package_root).await?;
     let variables = discover_variables(&package_root).await?;
     let linters = discover_linters(&package_root).await?;
 
@@ -28,7 +27,6 @@ pub async fn inspect_package(package_root: &Path) -> Result<PackageInspection> {
         root: package_root,
         evaluation_contexts,
         catalogs,
-        qualifiers,
         variables,
         linters,
     })
@@ -78,17 +76,6 @@ pub async fn read_variable_toml(
     read_toml(&package_root.join(&variable.path)).await
 }
 
-pub fn qualifier_for_id<'a>(
-    inspection: &'a PackageInspection,
-    id: &str,
-) -> Result<&'a QualifierInspection> {
-    inspection
-        .qualifiers
-        .iter()
-        .find(|qualifier| qualifier.id == id)
-        .ok_or_else(|| RototoError::new(format!("qualifier not found: qualifier://{id}")))
-}
-
 pub fn variable_for_id<'a>(
     inspection: &'a PackageInspection,
     id: &str,
@@ -111,22 +98,12 @@ pub fn catalog_for_id<'a>(
         .ok_or_else(|| RototoError::new(format!("catalog not found: catalog://{id}")))
 }
 
-pub async fn list_qualifiers(package_root: &Path) -> Result<Vec<QualifierInspection>> {
-    Ok(inspect_package(package_root).await?.qualifiers)
-}
-
 pub async fn list_variables(package_root: &Path) -> Result<Vec<VariableInspection>> {
     Ok(inspect_package(package_root).await?.variables)
 }
 
 pub async fn list_catalogs(package_root: &Path) -> Result<Vec<CatalogInspection>> {
     Ok(inspect_package(package_root).await?.catalogs)
-}
-
-pub async fn read_qualifier(package_root: &Path, id: &str) -> Result<QualifierConfig> {
-    let inspection = inspect_package(package_root).await?;
-    let qualifier = qualifier_for_id(&inspection, id)?;
-    qualifier_config(&inspection.root, qualifier).await
 }
 
 pub async fn read_variable(package_root: &Path, id: &str) -> Result<VariableConfig> {
@@ -139,15 +116,6 @@ pub async fn read_catalog(package_root: &Path, id: &str) -> Result<CatalogConfig
     let inspection = inspect_package(package_root).await?;
     let catalog = catalog_for_id(&inspection, id)?;
     catalog_config(&inspection.root, catalog).await
-}
-
-pub async fn read_qualifiers(package_root: &Path) -> Result<Vec<QualifierConfig>> {
-    let inspection = inspect_package(package_root).await?;
-    let mut configs = Vec::new();
-    for qualifier in &inspection.qualifiers {
-        configs.push(qualifier_config(&inspection.root, qualifier).await?);
-    }
-    Ok(configs)
 }
 
 pub async fn read_variables(package_root: &Path) -> Result<Vec<VariableConfig>> {
@@ -206,21 +174,6 @@ pub fn package_extends_sources(manifest: &Value) -> Result<Vec<String>> {
         sources.push(source.to_owned());
     }
     Ok(sources)
-}
-
-async fn qualifier_config(
-    package_root: &Path,
-    qualifier: &QualifierInspection,
-) -> Result<QualifierConfig> {
-    let value = serde_json::to_value(read_toml(&package_root.join(&qualifier.path)).await?)
-        .map_err(|err| RototoError::new(err.to_string()))?;
-
-    Ok(QualifierConfig {
-        id: qualifier.id.clone(),
-        uri: qualifier.uri.clone(),
-        path: qualifier.path.clone(),
-        value,
-    })
 }
 
 async fn variable_config(
@@ -295,21 +248,6 @@ async fn read_catalog_entries_toml(
         );
     }
     Ok(catalog_entries)
-}
-
-async fn discover_qualifiers(package_root: &Path) -> Result<Vec<QualifierInspection>> {
-    let mut qualifiers = Vec::new();
-    for path in discover_named_toml_files(package_root, "qualifiers").await? {
-        let id = id_from_path(&path)?;
-        let relative_path = relative_path(package_root, &path)?;
-        qualifiers.push(QualifierInspection {
-            uri: format!("qualifier://{id}"),
-            id,
-            path: relative_path,
-        });
-    }
-    qualifiers.sort_by(|left, right| left.uri.cmp(&right.uri));
-    Ok(qualifiers)
 }
 
 async fn discover_variables(package_root: &Path) -> Result<Vec<VariableInspection>> {

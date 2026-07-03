@@ -8,14 +8,6 @@ function register(lint)
   })
 
   lint:rule({
-    id = "targets/qualifier-when",
-    title = "Qualifier when target was checked",
-    help = "Update the qualifier condition policy.",
-    target = "/qualifiers/premium-users",
-    handler = "check_qualifier_when",
-  })
-
-  lint:rule({
     id = "targets/variable-type",
     title = "Variable type target was checked",
     help = "Update the variable type policy.",
@@ -81,19 +73,6 @@ function check_package(package, target)
       path = "/manifest/extends",
     },
   }
-end
-
-function check_qualifier_when(package, qualifier)
-  if qualifier.when == 'context.account.tier == "premium"' or
-      qualifier.when == '(context.account.tier == "premium")' then
-    return {
-      {
-        message = "qualifier target checked when",
-        path = "/when",
-      },
-    }
-  end
-  return {}
 end
 
 function check_variable(package, variable)

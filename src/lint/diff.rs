@@ -22,7 +22,6 @@ pub(crate) async fn diff_packages(
 
     let mut changes = Vec::new();
     diff_variables(&before_model, &after_model, &mut changes);
-    diff_qualifiers(&before_model, &after_model, &mut changes);
     diff_catalogs(&before_model, &after_model, &mut changes);
 
     let resolution_impacts = match context {
@@ -41,7 +40,6 @@ pub(crate) async fn diff_packages(
 #[derive(Default)]
 struct PackageSemanticModel {
     variables: BTreeMap<String, VariableSemantic>,
-    qualifiers: BTreeMap<String, QualifierSemantic>,
     catalogs: BTreeMap<String, CatalogSemantic>,
     catalog_entries: BTreeMap<(String, String), CatalogEntrySemantic>,
 }
@@ -54,17 +52,6 @@ impl PackageSemanticModel {
                 .variables
                 .values()
                 .map(|variable| (variable.id.clone(), VariableSemantic::from_node(variable)))
-                .collect(),
-            qualifiers: snapshot
-                .index
-                .qualifiers
-                .values()
-                .map(|qualifier| {
-                    (
-                        qualifier.id.clone(),
-                        QualifierSemantic::from_node(qualifier),
-                    )
-                })
                 .collect(),
             catalogs: snapshot
                 .index
@@ -146,30 +133,6 @@ impl VariableSemantic {
                 .collect(),
             resolve_default,
             rules,
-        }
-    }
-}
-
-struct QualifierSemantic {
-    target: SemanticTarget,
-    location: DiagnosticLocation,
-    when: Option<FieldSemantic<String>>,
-}
-
-impl QualifierSemantic {
-    fn from_node(qualifier: &QualifierNode) -> Self {
-        let when = match &qualifier.when {
-            ProjectField::Present(value) => Some(FieldSemantic {
-                target: qualifier.field_target(SemanticField::QualifierWhen),
-                location: value.location.clone(),
-                value: value.value.source().to_owned(),
-            }),
-            ProjectField::Invalid { .. } | ProjectField::Missing { .. } => None,
-        };
-        Self {
-            target: qualifier.target(),
-            location: qualifier.location.clone(),
-            when,
         }
     }
 }
@@ -374,30 +337,6 @@ fn diff_rules(before: &[RuleSemantic], after: &[RuleSemantic], changes: &mut Vec
                     &before.value,
                     &after.value,
                 );
-            }
-            (None, None) => {}
-        }
-    }
-}
-
-fn diff_qualifiers(
-    before: &PackageSemanticModel,
-    after: &PackageSemanticModel,
-    changes: &mut Vec<SemanticChange>,
-) {
-    for id in sorted_keys(before.qualifiers.keys(), after.qualifiers.keys()) {
-        match (before.qualifiers.get(&id), after.qualifiers.get(&id)) {
-            (None, Some(after)) => {
-                push_added(changes, "qualifier_added", &after.target, &after.location)
-            }
-            (Some(before), None) => push_removed(
-                changes,
-                "qualifier_removed",
-                &before.target,
-                &before.location,
-            ),
-            (Some(before), Some(after)) => {
-                diff_optional_field(changes, "qualifier_when_changed", &before.when, &after.when);
             }
             (None, None) => {}
         }

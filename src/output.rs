@@ -12,10 +12,7 @@ use rototo::diagnostics::{
 use rototo::error::{Result, RototoError};
 use rototo::model::{InspectRuntimeStatus, PackageDiff, PackageInspectReport};
 use rototo::model::{PackageInspection, PackageLint};
-use rototo::package::{
-    catalog_for_id, qualifier_for_id, read_catalog_json, read_toml, read_variable_toml,
-    variable_for_id,
-};
+use rototo::package::{catalog_for_id, read_catalog_json, read_variable_toml, variable_for_id};
 
 #[derive(Debug, Serialize)]
 struct PackageFileJson<'a> {
@@ -32,12 +29,6 @@ struct PackageLintJson<'a> {
 }
 
 #[derive(Debug, Serialize)]
-struct QualifierListJson<'a> {
-    package: String,
-    qualifiers: Vec<PackageFileJson<'a>>,
-}
-
-#[derive(Debug, Serialize)]
 struct VariableListJson<'a> {
     package: String,
     variables: Vec<PackageFileJson<'a>>,
@@ -47,15 +38,6 @@ struct VariableListJson<'a> {
 struct CatalogListJson<'a> {
     package: String,
     catalogs: Vec<PackageFileJson<'a>>,
-}
-
-#[derive(Debug, Serialize)]
-struct QualifierGetJson {
-    package: String,
-    id: String,
-    uri: String,
-    path: String,
-    value: serde_json::Value,
 }
 
 #[derive(Debug, Serialize)]
@@ -174,55 +156,6 @@ pub(crate) fn print_inspect_report(report: &PackageInspectReport, json: bool) ->
             if !evaluation_context.diagnostics.is_empty() {
                 println!("    {}", style::subhead("diagnostics"));
                 print_diagnostics(&evaluation_context.diagnostics);
-            }
-        }
-    }
-
-    if !report.qualifiers.is_empty() {
-        println!("{}", style::label("qualifiers"));
-        let count = report.qualifiers.len();
-        for (index, qualifier) in report.qualifiers.iter().enumerate() {
-            print_entity_separator(index, count);
-            println!("  qualifier: {}", style::sea(&qualifier.id));
-            if let Some(description) = &qualifier.description {
-                println!("    description: {description}");
-            }
-            if let Some(when) = &qualifier.when {
-                println!("    {} {}", style::subhead("when"), style::info(when));
-            }
-            print_compatible_evaluation_contexts(&qualifier.evaluation_contexts, "    ");
-            print_context_attributes(&qualifier.context_attributes, "    ");
-            print_qualifier_sample_coverage(qualifier.sample_coverage.as_ref(), "    ");
-            print_dependencies(&qualifier.dependencies, "    ");
-            if !qualifier.consumers.is_empty() {
-                println!("    {}", style::subhead("consumed by"));
-                for consumer in &qualifier.consumers {
-                    println!(
-                        "      {}  {}",
-                        style::sea(&consumer.label),
-                        style::dim(&consumer.location.path)
-                    );
-                }
-            }
-            if !qualifier.diagnostics.is_empty() {
-                println!("    {}", style::subhead("diagnostics"));
-                print_diagnostics(&qualifier.diagnostics);
-            }
-            if let Some(trace) = &qualifier.trace {
-                println!(
-                    "    {} {}",
-                    style::dim("trace:"),
-                    if trace.value {
-                        style::ok("true")
-                    } else {
-                        style::dim("false")
-                    }
-                );
-                println!(
-                    "      {} {}",
-                    style::subhead("when"),
-                    style::info(&trace.when)
-                );
             }
         }
     }
@@ -408,29 +341,6 @@ fn print_compatible_evaluation_contexts(evaluation_contexts: &[String], indent: 
     for evaluation_context in evaluation_contexts {
         println!("{indent}  {}", style::sea(evaluation_context));
     }
-}
-
-fn print_qualifier_sample_coverage(
-    coverage: Option<&rototo::model::QualifierSampleCoverageReport>,
-    indent: &str,
-) {
-    let Some(coverage) = coverage else {
-        return;
-    };
-    let mark = |covered: bool, label: &str| {
-        if covered {
-            style::ok(label)
-        } else {
-            style::warn(&format!("{label} (no sample)"))
-        }
-    };
-    println!(
-        "{indent}{} {}  {}  {}",
-        style::subhead("sample coverage"),
-        style::dim(&format!("{} sample(s)", coverage.sample_count)),
-        mark(coverage.evaluated_true, "true"),
-        mark(coverage.evaluated_false, "false"),
-    );
 }
 
 fn print_variable_sample_coverage(
@@ -647,9 +557,6 @@ fn semantic_change_description(kind: &str) -> &'static str {
         "variable_rule_when_changed" => "variable rule condition changed",
         "variable_rule_query_changed" => "variable rule catalog query changed",
         "variable_rule_value_changed" => "variable rule value changed",
-        "qualifier_added" => "qualifier added",
-        "qualifier_removed" => "qualifier removed",
-        "qualifier_when_changed" => "qualifier condition changed",
         "catalog_added" => "catalog added",
         "catalog_removed" => "catalog removed",
         "catalog_schema_changed" => "catalog schema changed",
@@ -747,18 +654,18 @@ fn linter_registration_target(
 }
 
 fn print_dependencies(dependencies: &rototo::model::DependencyInspectReport, indent: &str) {
-    if dependencies.qualifiers.is_empty()
+    if dependencies.variables.is_empty()
         && dependencies.context_paths.is_empty()
         && dependencies.catalogs.is_empty()
     {
         return;
     }
     println!("{indent}{}", style::subhead("depends on"));
-    for qualifier in &dependencies.qualifiers {
+    for variable in &dependencies.variables {
         println!(
             "{indent}  {} {}",
-            style::dim("qualifier"),
-            style::sea(qualifier)
+            style::dim("variable"),
+            style::sea(variable)
         );
     }
     for context_path in &dependencies.context_paths {
@@ -775,44 +682,6 @@ fn print_dependencies(dependencies: &rototo::model::DependencyInspectReport, ind
             style::sea(catalog)
         );
     }
-}
-
-pub(crate) async fn print_qualifier_list(inspection: &PackageInspection, json: bool) -> Result<()> {
-    if json {
-        println!(
-            "{}",
-            serde_json::to_string_pretty(&QualifierListJson {
-                package: inspection.root.display().to_string(),
-                qualifiers: inspection
-                    .qualifiers
-                    .iter()
-                    .map(|qualifier| {
-                        package_file_json(&qualifier.id, &qualifier.uri, &qualifier.path)
-                    })
-                    .collect(),
-            })
-            .map_err(|err| RototoError::new(err.to_string()))?
-        );
-        return Ok(());
-    }
-
-    println!(
-        "{} {}",
-        style::label("qualifiers"),
-        style::bold(&inspection.qualifiers.len().to_string())
-    );
-    for qualifier in &inspection.qualifiers {
-        match read_toml(&inspection.root.join(&qualifier.path)).await {
-            Ok(value) => print_qualifier_summary(qualifier.id.as_str(), &qualifier.path, &value),
-            Err(err) => print_unavailable_summary(
-                qualifier.id.as_str(),
-                "path",
-                &qualifier.path,
-                &err.to_string(),
-            ),
-        }
-    }
-    Ok(())
 }
 
 pub(crate) async fn print_variable_list(inspection: &PackageInspection, json: bool) -> Result<()> {
@@ -887,37 +756,6 @@ pub(crate) async fn print_catalog_list(inspection: &PackageInspection, json: boo
     Ok(())
 }
 
-pub(crate) async fn print_qualifier_get(
-    inspection: &PackageInspection,
-    id: &str,
-    json: bool,
-) -> Result<()> {
-    let qualifier = qualifier_for_id(inspection, id)?;
-    let path = inspection.root.join(&qualifier.path);
-
-    if json {
-        let value = serde_json::to_value(read_toml(&path).await?)
-            .map_err(|err| RototoError::new(err.to_string()))?;
-        println!(
-            "{}",
-            serde_json::to_string_pretty(&QualifierGetJson {
-                package: inspection.root.display().to_string(),
-                id: qualifier.id.clone(),
-                uri: qualifier.uri.clone(),
-                path: qualifier.path.display().to_string(),
-                value,
-            })
-            .map_err(|err| RototoError::new(err.to_string()))?
-        );
-        return Ok(());
-    }
-
-    let value = read_toml(&path).await?;
-    print_qualifier_detail(qualifier.id.as_str(), &qualifier.path, &value);
-    print_source_header();
-    print_package_file(&path).await
-}
-
 pub(crate) async fn print_variable_get(
     inspection: &PackageInspection,
     id: &str,
@@ -985,21 +823,6 @@ pub(crate) async fn print_catalog_get(
     Ok(())
 }
 
-fn print_qualifier_summary(id: &str, path: &Path, value: &TomlValue) {
-    println!("  {}", style::sea(id));
-    println!(
-        "    {} {}",
-        style::dim("path:"),
-        style::dim(&path.display().to_string())
-    );
-    if let Some(description) = toml_string(value, "description") {
-        println!("    description: {description}");
-    }
-    if let Some(when) = toml_string(value, "when") {
-        println!("    {} {}", style::subhead("when"), style::info(when));
-    }
-}
-
 fn print_variable_summary(id: &str, path: &Path, value: &TomlValue) -> Result<()> {
     let type_label = toml_string(value, "type").unwrap_or("<missing>");
     println!("  {}", style::sea(id));
@@ -1047,21 +870,6 @@ fn print_unavailable_summary(id: &str, path_label: &str, path: &Path, reason: &s
     );
     println!("    status: {}", style::warn("unavailable"));
     println!("    reason: {reason}");
-}
-
-fn print_qualifier_detail(id: &str, path: &Path, value: &TomlValue) {
-    println!("qualifier: {}", style::sea(id));
-    println!(
-        "  {} {}",
-        style::dim("path:"),
-        style::dim(&path.display().to_string())
-    );
-    if let Some(description) = toml_string(value, "description") {
-        println!("  description: {description}");
-    }
-    if let Some(when) = toml_string(value, "when") {
-        println!("  {} {}", style::subhead("when"), style::info(when));
-    }
 }
 
 fn print_variable_detail(id: &str, path: &Path, value: &TomlValue) -> Result<()> {
@@ -1213,16 +1021,6 @@ fn package_file_json<'a>(id: &'a str, uri: &'a str, path: &Path) -> PackageFileJ
     }
 }
 
-async fn print_package_file(path: &Path) -> Result<()> {
-    print!(
-        "{}",
-        tokio::fs::read_to_string(path)
-            .await
-            .map_err(|err| RototoError::new(format!("failed to read {}: {err}", path.display())))?
-    );
-    Ok(())
-}
-
 fn print_diagnostics(diagnostics: &[LintDiagnostic]) {
     for diagnostic in diagnostics {
         println!(
@@ -1274,10 +1072,6 @@ fn semantic_entity_label(entity: &SemanticEntity) -> String {
     match entity {
         SemanticEntity::Package => "package".to_owned(),
         SemanticEntity::Manifest => "manifest".to_owned(),
-        SemanticEntity::Qualifier { id } => format!("qualifier:{id}"),
-        SemanticEntity::Predicate { qualifier, index } => {
-            format!("qualifier:{qualifier}.predicate[{index}]")
-        }
         SemanticEntity::Variable { id } => format!("variable:{id}"),
         SemanticEntity::EvaluationContext { id } => format!("evaluation-context:{id}"),
         SemanticEntity::EvaluationContextSample {
@@ -1301,14 +1095,6 @@ fn semantic_field_label(field: &SemanticField) -> String {
         SemanticField::PackageExtends => "extends".to_owned(),
         SemanticField::SchemaVersion => "schema_version".to_owned(),
         SemanticField::Description => "description".to_owned(),
-        SemanticField::QualifierWhen => "when".to_owned(),
-        SemanticField::QualifierPredicates => "predicates".to_owned(),
-        SemanticField::PredicateAttribute => "attribute".to_owned(),
-        SemanticField::PredicateOp => "op".to_owned(),
-        SemanticField::PredicateNot => "not".to_owned(),
-        SemanticField::PredicateValue => "value".to_owned(),
-        SemanticField::PredicateSalt => "salt".to_owned(),
-        SemanticField::PredicateRange => "range".to_owned(),
         SemanticField::VariableType => "type".to_owned(),
         SemanticField::VariableSchema => "schema".to_owned(),
         SemanticField::VariableValues => "values".to_owned(),

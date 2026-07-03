@@ -1,4 +1,0 @@
-schema_version = 1
-description = "Runtime condition for object bucket."
-
-when = '(bucket(context.account.profile, "profile", 0, 1000))'

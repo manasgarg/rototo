@@ -1,0 +1,24 @@
+# A partial token at an operand position offers expression roots and supported
+# function names.
+package = "basic"
+file = "variables/premium.toml"
+
+overlay = '''
+schema_version = 1
+type = "bool"
+
+[resolve]
+default = false
+
+[[resolve.rule]]
+when = "buck$0"
+value = true
+'''
+
+[[expect.includes]]
+label = "bucket("
+detail = "expression function"
+
+[[expect.includes]]
+label = "context."
+detail = "expression root"

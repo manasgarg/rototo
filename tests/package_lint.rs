@@ -281,20 +281,7 @@ fn reports_package_file_parse_failed() {
     let lint = lint_json("tests/fixtures/packages/invalid-package-file-toml", false);
     let rules = diagnostic_rules(&lint);
 
-    assert_eq!(
-        rules,
-        vec![
-            "rototo/qualifier-parse-failed".to_owned(),
-            "rototo/variable-parse-failed".to_owned(),
-        ]
-    );
-
-    let qualifier = diagnostic_for_rule(&lint, "rototo/qualifier-parse-failed");
-    assert_eq!(qualifier["stage"], "parse");
-    assert_eq!(qualifier["target"]["entity"]["kind"], "qualifier");
-    assert_eq!(qualifier["target"]["entity"]["id"], "broken");
-    assert_eq!(qualifier["location"]["path"], "qualifiers/broken.toml");
-    assert!(qualifier["location"]["range"].is_object());
+    assert_eq!(rules, vec!["rototo/variable-parse-failed".to_owned()]);
 
     let variable = diagnostic_for_rule(&lint, "rototo/variable-parse-failed");
     assert_eq!(variable["stage"], "parse");
@@ -445,44 +432,16 @@ fn reports_package_context_schema_attribute_failures() {
 
     assert_eq!(
         diagnostic["rule"],
-        "rototo/qualifier-when-undeclared-context-path"
+        "rototo/variable-rule-undeclared-context-path"
     );
     assert_eq!(diagnostic["stage"], "graph");
-    assert_eq!(diagnostic["target"]["entity"]["kind"], "qualifier");
-    assert_eq!(
-        diagnostic["target"]["entity"]["id"],
-        "missing-context-contract"
-    );
+    assert_eq!(diagnostic["target"]["entity"]["kind"], "rule");
+    assert_eq!(diagnostic["target"]["entity"]["variable"], "message");
     assert_eq!(
         diagnostic["message"],
-        "when expression references undeclared context path: context.account.plan"
+        "rule references undeclared context path: context.account.plan"
     );
-    assert_eq!(
-        diagnostic["location"]["path"],
-        "qualifiers/missing-context-contract.toml"
-    );
-    assert!(diagnostic["location"]["range"].is_null());
-}
-
-#[test]
-fn reports_project_stage_qualifier_shape_failures() {
-    let lint = lint_json("tests/fixtures/packages/rule-coverage", false);
-
-    assert_project_rule(
-        &lint,
-        "rototo/qualifier-schema-version",
-        "qualifiers/missing-schema-version.toml",
-    );
-    assert_project_rule(
-        &lint,
-        "rototo/qualifier-when-missing",
-        "qualifiers/missing-predicate.toml",
-    );
-    assert_project_rule(
-        &lint,
-        "rototo/qualifier-when-shape",
-        "qualifiers/predicate-shape.toml",
-    );
+    assert_eq!(diagnostic["location"]["path"], "variables/message.toml");
 }
 
 #[test]
@@ -517,24 +476,28 @@ fn reports_project_stage_variable_shape_failures() {
 }
 
 #[test]
-fn reports_project_stage_qualifier_when_failures() {
-    let lint = lint_json("tests/fixtures/packages/lint-failures", false);
-
-    assert_project_rule(
-        &lint,
-        "rototo/qualifier-when-shape",
-        "qualifiers/bad-value-shape.toml",
-    );
-}
-
-#[test]
-fn reports_legacy_variable_rule_qualifier_field() {
+fn reports_project_stage_variable_when_failures() {
     let lint = lint_json("tests/fixtures/packages/lint-failures", false);
 
     assert_project_rule(
         &lint,
         "rototo/variable-rule-shape",
-        "variables/legacy-rule-qualifier.toml",
+        "variables/bad-value-shape.toml",
+    );
+}
+
+#[test]
+fn reports_variable_rule_without_selector() {
+    let lint = lint_json("tests/fixtures/packages/lint-failures", false);
+
+    assert!(
+        diagnostics_for_rule(&lint, "rototo/variable-rule-shape")
+            .iter()
+            .any(|diagnostic| {
+                diagnostic["stage"] == "project"
+                    && diagnostic["location"]["path"] == "variables/missing-rule-selector.toml"
+            }),
+        "{lint:#}"
     );
 }
 
@@ -640,12 +603,7 @@ fn reports_reference_stage_failures() {
 
     assert_reference_rule(
         &lint,
-        "rototo/qualifier-when-unknown-qualifier",
-        "qualifiers/bad-reference.toml",
-    );
-    assert_reference_rule(
-        &lint,
-        "rototo/variable-rule-unknown-qualifier",
+        "rototo/variable-rule-unknown-variable",
         "variables/bad-resolve.toml",
     );
     assert_reference_rule(
@@ -653,10 +611,16 @@ fn reports_reference_stage_failures() {
         "rototo/variable-unknown-value",
         "variables/bad-resolve.toml",
     );
-    let qualifier = diagnostic_for_rule(&lint, "rototo/qualifier-when-unknown-qualifier");
-    assert_eq!(qualifier["target"]["entity"]["kind"], "qualifier");
-    assert_eq!(qualifier["target"]["entity"]["id"], "bad-reference");
-    assert_eq!(qualifier["target"]["field"]["kind"], "qualifier_when");
+    let unknown_variable = diagnostic_for_rule(&lint, "rototo/variable-rule-unknown-variable");
+    assert_eq!(unknown_variable["target"]["entity"]["kind"], "rule");
+    assert_eq!(
+        unknown_variable["target"]["entity"]["variable"],
+        "bad-resolve"
+    );
+    assert_eq!(
+        unknown_variable["target"]["field"]["kind"],
+        "variable_rule_when"
+    );
 
     let unknown_value_messages =
         diagnostic_messages_for_rule(&lint, "rototo/variable-unknown-value");
@@ -664,39 +628,6 @@ fn reports_reference_stage_failures() {
         unknown_value_messages
             .contains(&"rule references unknown catalog value: another-missing-value".to_owned())
     );
-}
-
-#[test]
-fn canonical_reference_fixture_reports_variable_rule_unknown_qualifier() {
-    let lint = lint_json(
-        "tests/fixtures/packages/rules/reference/variable-rule-unknown-qualifier",
-        false,
-    );
-
-    assert_only_expected_diagnostic(
-        &lint,
-        ExpectedDiagnostic {
-            rule: "rototo/variable-rule-unknown-qualifier",
-            severity: "error",
-            stage: LintStage::Reference,
-            entity: ExpectedEntity::Rule {
-                variable: "checkout-redesign",
-                index: 0,
-            },
-            primary: ExpectedPrimaryLocation::Document {
-                path: "variables/checkout-redesign.toml",
-                range: Some(ExpectedRange {
-                    start_line: 8,
-                    start_character: 7,
-                    end_line: 8,
-                    end_character: 39,
-                }),
-            },
-            related: &[],
-        },
-    );
-    let diagnostic = only_diagnostic(&lint);
-    assert_eq!(diagnostic["target"]["field"]["kind"], "variable_rule_when");
 }
 
 #[test]
@@ -789,95 +720,6 @@ fn schema_contract_skips_value_validation_when_schema_cannot_parse() {
 }
 
 #[test]
-fn reports_graph_stage_qualifier_cycles() {
-    let lint = lint_json("tests/fixtures/packages/rules/graph/qualifier-cycle", false);
-    let diagnostics = diagnostics_for_rule(&lint, "rototo/qualifier-cycle");
-
-    assert_eq!(diagnostics.len(), 3, "{lint:#}");
-    assert!(
-        diagnostics
-            .iter()
-            .all(|diagnostic| diagnostic["stage"] == "graph")
-    );
-    assert!(
-        diagnostics
-            .iter()
-            .all(|diagnostic| diagnostic["severity"] == "error")
-    );
-    assert!(
-        diagnostics
-            .iter()
-            .all(|diagnostic| diagnostic["location"]["range"].is_object())
-    );
-    assert!(
-        diagnostics
-            .iter()
-            .any(|diagnostic| diagnostic["target"]["entity"]["id"] == "self")
-    );
-    assert!(
-        diagnostics
-            .iter()
-            .any(|diagnostic| diagnostic["target"]["entity"]["id"] == "alpha")
-    );
-    assert!(
-        diagnostics
-            .iter()
-            .any(|diagnostic| diagnostic["target"]["entity"]["id"] == "beta")
-    );
-
-    let alpha = diagnostics
-        .iter()
-        .find(|diagnostic| diagnostic["target"]["entity"]["id"] == "alpha")
-        .unwrap();
-    assert_eq!(
-        alpha["message"],
-        "qualifier participates in a reference cycle with: alpha, beta"
-    );
-    assert!(!alpha["related"].as_array().unwrap().is_empty());
-}
-
-#[test]
-fn reports_graph_stage_qualifier_unreferenced_warning_without_failing() {
-    let lint = lint_json(
-        "tests/fixtures/packages/rules/graph/qualifier-unreferenced",
-        true,
-    );
-    let diagnostic = only_diagnostic(&lint);
-
-    assert_eq!(diagnostic["rule"], "rototo/qualifier-unreferenced");
-    assert_eq!(diagnostic["severity"], "warning");
-    assert_eq!(diagnostic["stage"], "graph");
-    assert_eq!(diagnostic["target"]["entity"]["kind"], "qualifier");
-    assert_eq!(diagnostic["target"]["entity"]["id"], "unused");
-}
-
-#[test]
-fn self_referencing_qualifier_does_not_also_report_unreferenced() {
-    let temp = tempfile::TempDir::new().unwrap();
-    let root = temp.path();
-    std::fs::create_dir_all(root.join("qualifiers")).unwrap();
-    std::fs::write(
-        root.join("rototo-package.toml"),
-        r#"schema_version = 1
-"#,
-    )
-    .unwrap();
-    std::fs::write(
-        root.join("qualifiers/self.toml"),
-        r#"schema_version = 1
-
-when = "env.qualifier[\"self\"]"
-"#,
-    )
-    .unwrap();
-
-    let lint = lint_json(root.to_str().unwrap(), false);
-    let rules = diagnostic_rules(&lint);
-
-    assert_eq!(rules, vec!["rototo/qualifier-cycle"], "{lint:#}");
-}
-
-#[test]
 fn reports_graph_stage_shadowed_rule_warning_without_failing() {
     let lint = lint_json(
         "tests/fixtures/packages/rules/graph/variable-rule-shadowed",
@@ -898,11 +740,15 @@ fn reports_graph_stage_shadowed_rule_warning_without_failing() {
 fn lint_failures_fixture_covers_graph_rules() {
     let lint = lint_json("tests/fixtures/packages/lint-failures", false);
 
-    assert_graph_rule(&lint, "rototo/qualifier-cycle", "qualifiers/cycle-a.toml");
     assert_graph_rule(
         &lint,
-        "rototo/qualifier-unreferenced",
-        "qualifiers/unreferenced.toml",
+        "rototo/variable-reference-cycle",
+        "variables/cycle-a.toml",
+    );
+    assert_graph_rule(
+        &lint,
+        "rototo/variable-reference-cycle",
+        "variables/self-cycle.toml",
     );
     assert_graph_rule(
         &lint,
@@ -1023,11 +869,6 @@ fn reports_registered_custom_lint_targets() {
     assert_policy_rule(&lint, "targets/package-extends", "rototo-package.toml");
     assert_policy_rule(
         &lint,
-        "targets/qualifier-when",
-        "qualifiers/premium-users.toml",
-    );
-    assert_policy_rule(
-        &lint,
         "targets/variable-type",
         "variables/agent-config.toml",
     );
@@ -1055,13 +896,6 @@ fn reports_registered_custom_lint_targets() {
     assert_eq!(package["target"]["entity"]["kind"], "package");
     assert_eq!(package["stage"], "policy");
     assert!(package["location"]["range"].is_object());
-
-    let qualifier = diagnostic_for_rule(&lint, "targets/qualifier-when");
-    assert_eq!(qualifier["target"]["entity"]["kind"], "qualifier");
-    assert_eq!(qualifier["target"]["entity"]["id"], "premium-users");
-    assert_eq!(qualifier["target"]["field"]["kind"], "qualifier_when");
-    assert_eq!(qualifier["stage"], "policy");
-    assert!(qualifier["location"]["range"].is_object());
 
     let variable = diagnostic_for_rule(&lint, "targets/variable-type");
     assert_eq!(variable["target"]["entity"]["kind"], "variable");
@@ -1143,7 +977,7 @@ fn flags_cidr_use_of_a_context_path_without_an_ip_format() {
     let diagnostics = lint["diagnostics"].as_array().unwrap();
     assert!(
         diagnostics.iter().any(|diagnostic| {
-            diagnostic["rule"].as_str() == Some("rototo/qualifier-when-context-path-type-mismatch")
+            diagnostic["rule"].as_str() == Some("rototo/variable-rule-context-path-type-mismatch")
                 && diagnostic["message"]
                     .as_str()
                     .unwrap_or_default()
@@ -1396,27 +1230,6 @@ fn canonical_rule_fixtures() -> &'static [CanonicalRuleFixture] {
             }],
         },
         CanonicalRuleFixture {
-            rule: RototoRuleId::QualifierParseFailed,
-            package: "tests/fixtures/packages/rules/parse/qualifier-parse-failed",
-            success: false,
-            expected: &[ExpectedDiagnostic {
-                rule: "rototo/qualifier-parse-failed",
-                severity: "error",
-                stage: LintStage::Parse,
-                entity: ExpectedEntity::Qualifier("broken"),
-                primary: ExpectedPrimaryLocation::Document {
-                    path: "qualifiers/broken.toml",
-                    range: Some(ExpectedRange {
-                        start_line: 3,
-                        start_character: 10,
-                        end_line: 4,
-                        end_character: 0,
-                    }),
-                },
-                related: &[],
-            }],
-        },
-        CanonicalRuleFixture {
             rule: RototoRuleId::VariableParseFailed,
             package: "tests/fixtures/packages/rules/parse/variable-parse-failed",
             success: false,
@@ -1449,59 +1262,6 @@ fn canonical_rule_fixtures() -> &'static [CanonicalRuleFixture] {
                 primary: ExpectedPrimaryLocation::Document {
                     path: "rototo-package.toml",
                     range: None,
-                },
-                related: &[],
-            }],
-        },
-        CanonicalRuleFixture {
-            rule: RototoRuleId::QualifierSchemaVersion,
-            package: "tests/fixtures/packages/rules/project/qualifier-schema-version",
-            success: false,
-            expected: &[ExpectedDiagnostic {
-                rule: "rototo/qualifier-schema-version",
-                severity: "error",
-                stage: LintStage::Project,
-                entity: ExpectedEntity::Qualifier("premium-users"),
-                primary: ExpectedPrimaryLocation::Document {
-                    path: "qualifiers/premium-users.toml",
-                    range: None,
-                },
-                related: &[],
-            }],
-        },
-        CanonicalRuleFixture {
-            rule: RototoRuleId::QualifierWhenMissing,
-            package: "tests/fixtures/packages/rules/project/qualifier-predicate-missing",
-            success: false,
-            expected: &[ExpectedDiagnostic {
-                rule: "rototo/qualifier-when-missing",
-                severity: "error",
-                stage: LintStage::Project,
-                entity: ExpectedEntity::Qualifier("premium-users"),
-                primary: ExpectedPrimaryLocation::Document {
-                    path: "qualifiers/premium-users.toml",
-                    range: None,
-                },
-                related: &[],
-            }],
-        },
-        CanonicalRuleFixture {
-            rule: RototoRuleId::QualifierWhenShape,
-            package: "tests/fixtures/packages/rules/project/qualifier-predicate-shape",
-            success: false,
-            expected: &[ExpectedDiagnostic {
-                rule: "rototo/qualifier-when-shape",
-                severity: "error",
-                stage: LintStage::Project,
-                entity: ExpectedEntity::Qualifier("premium-users"),
-                primary: ExpectedPrimaryLocation::Document {
-                    path: "qualifiers/premium-users.toml",
-                    range: Some(ExpectedRange {
-                        start_line: 3,
-                        start_character: 7,
-                        end_line: 3,
-                        end_character: 28,
-                    }),
                 },
                 related: &[],
             }],
@@ -1605,27 +1365,6 @@ fn canonical_rule_fixtures() -> &'static [CanonicalRuleFixture] {
             }],
         },
         CanonicalRuleFixture {
-            rule: RototoRuleId::QualifierWhenUnknownQualifier,
-            package: "tests/fixtures/packages/rules/reference/qualifier-predicate-unknown-qualifier",
-            success: false,
-            expected: &[ExpectedDiagnostic {
-                rule: "rototo/qualifier-when-unknown-qualifier",
-                severity: "error",
-                stage: LintStage::Reference,
-                entity: ExpectedEntity::Qualifier("derived"),
-                primary: ExpectedPrimaryLocation::Document {
-                    path: "qualifiers/derived.toml",
-                    range: Some(ExpectedRange {
-                        start_line: 3,
-                        start_character: 7,
-                        end_line: 3,
-                        end_character: 35,
-                    }),
-                },
-                related: &[],
-            }],
-        },
-        CanonicalRuleFixture {
             rule: RototoRuleId::VariableUnknownValue,
             package: "tests/fixtures/packages/rules/reference/variable-unknown-value",
             success: false,
@@ -1641,30 +1380,6 @@ fn canonical_rule_fixtures() -> &'static [CanonicalRuleFixture] {
                         start_character: 10,
                         end_line: 5,
                         end_character: 19,
-                    }),
-                },
-                related: &[],
-            }],
-        },
-        CanonicalRuleFixture {
-            rule: RototoRuleId::VariableRuleUnknownQualifier,
-            package: "tests/fixtures/packages/rules/reference/variable-rule-unknown-qualifier",
-            success: false,
-            expected: &[ExpectedDiagnostic {
-                rule: "rototo/variable-rule-unknown-qualifier",
-                severity: "error",
-                stage: LintStage::Reference,
-                entity: ExpectedEntity::Rule {
-                    variable: "checkout-redesign",
-                    index: 0,
-                },
-                primary: ExpectedPrimaryLocation::Document {
-                    path: "variables/checkout-redesign.toml",
-                    range: Some(ExpectedRange {
-                        start_line: 8,
-                        start_character: 7,
-                        end_line: 8,
-                        end_character: 39,
                     }),
                 },
                 related: &[],
@@ -1794,124 +1509,6 @@ fn canonical_rule_fixtures() -> &'static [CanonicalRuleFixture] {
             }],
         },
         CanonicalRuleFixture {
-            rule: RototoRuleId::QualifierCycle,
-            package: "tests/fixtures/packages/rules/graph/qualifier-cycle",
-            success: false,
-            expected: &[
-                ExpectedDiagnostic {
-                    rule: "rototo/qualifier-cycle",
-                    severity: "error",
-                    stage: LintStage::Graph,
-                    entity: ExpectedEntity::Qualifier("alpha"),
-                    primary: ExpectedPrimaryLocation::Document {
-                        path: "qualifiers/alpha.toml",
-                        range: Some(ExpectedRange {
-                            start_line: 3,
-                            start_character: 7,
-                            end_line: 3,
-                            end_character: 32,
-                        }),
-                    },
-                    related: &[ExpectedRelatedLocation {
-                        path: "qualifiers/beta.toml",
-                        range: Some(ExpectedRange {
-                            start_line: 3,
-                            start_character: 7,
-                            end_line: 3,
-                            end_character: 33,
-                        }),
-                        message: "cycle reference: beta -> alpha",
-                    }],
-                },
-                ExpectedDiagnostic {
-                    rule: "rototo/qualifier-cycle",
-                    severity: "error",
-                    stage: LintStage::Graph,
-                    entity: ExpectedEntity::Qualifier("beta"),
-                    primary: ExpectedPrimaryLocation::Document {
-                        path: "qualifiers/beta.toml",
-                        range: Some(ExpectedRange {
-                            start_line: 3,
-                            start_character: 7,
-                            end_line: 3,
-                            end_character: 33,
-                        }),
-                    },
-                    related: &[ExpectedRelatedLocation {
-                        path: "qualifiers/alpha.toml",
-                        range: Some(ExpectedRange {
-                            start_line: 3,
-                            start_character: 7,
-                            end_line: 3,
-                            end_character: 32,
-                        }),
-                        message: "cycle reference: alpha -> beta",
-                    }],
-                },
-                ExpectedDiagnostic {
-                    rule: "rototo/qualifier-cycle",
-                    severity: "error",
-                    stage: LintStage::Graph,
-                    entity: ExpectedEntity::Qualifier("self"),
-                    primary: ExpectedPrimaryLocation::Document {
-                        path: "qualifiers/self.toml",
-                        range: Some(ExpectedRange {
-                            start_line: 3,
-                            start_character: 7,
-                            end_line: 3,
-                            end_character: 32,
-                        }),
-                    },
-                    related: &[],
-                },
-            ],
-        },
-        CanonicalRuleFixture {
-            rule: RototoRuleId::QualifierUnreferenced,
-            package: "tests/fixtures/packages/rules/graph/qualifier-unreferenced",
-            success: true,
-            expected: &[ExpectedDiagnostic {
-                rule: "rototo/qualifier-unreferenced",
-                severity: "warning",
-                stage: LintStage::Graph,
-                entity: ExpectedEntity::Qualifier("unused"),
-                primary: ExpectedPrimaryLocation::Document {
-                    path: "qualifiers/unused.toml",
-                    range: None,
-                },
-                related: &[],
-            }],
-        },
-        CanonicalRuleFixture {
-            rule: RototoRuleId::QualifierUnreachable,
-            package: "tests/fixtures/packages/rules/graph/qualifier-unreachable",
-            success: true,
-            expected: &[
-                ExpectedDiagnostic {
-                    rule: "rototo/qualifier-unreachable",
-                    severity: "warning",
-                    stage: LintStage::Graph,
-                    entity: ExpectedEntity::Qualifier("dead-leaf"),
-                    primary: ExpectedPrimaryLocation::Document {
-                        path: "qualifiers/dead-leaf.toml",
-                        range: None,
-                    },
-                    related: &[],
-                },
-                ExpectedDiagnostic {
-                    rule: "rototo/qualifier-unreferenced",
-                    severity: "warning",
-                    stage: LintStage::Graph,
-                    entity: ExpectedEntity::Qualifier("dead-root"),
-                    primary: ExpectedPrimaryLocation::Document {
-                        path: "qualifiers/dead-root.toml",
-                        range: None,
-                    },
-                    related: &[],
-                },
-            ],
-        },
-        CanonicalRuleFixture {
             rule: RototoRuleId::VariableRuleShadowed,
             package: "tests/fixtures/packages/rules/graph/variable-rule-shadowed",
             success: true,
@@ -1940,7 +1537,7 @@ fn canonical_rule_fixtures() -> &'static [CanonicalRuleFixture] {
                         end_line: 8,
                         end_character: 39,
                     }),
-                    message: "first rule using condition: env.qualifier[\"premium-users\"]",
+                    message: "first rule using condition: context.user.tier == \"premium\"",
                 }],
             }],
         },
@@ -2108,9 +1705,6 @@ fn pending_canonical_rule_fixtures() -> &'static [PendingCanonicalRuleFixture] {
             rule: RototoRuleId::TraceWhenInvalidReference,
         },
         PendingCanonicalRuleFixture {
-            rule: RototoRuleId::QualifierWhenInvalidReference,
-        },
-        PendingCanonicalRuleFixture {
             rule: RototoRuleId::VariableRuleInvalidReference,
         },
         PendingCanonicalRuleFixture {
@@ -2141,22 +1735,10 @@ fn pending_canonical_rule_fixtures() -> &'static [PendingCanonicalRuleFixture] {
             rule: RototoRuleId::EvaluationContextSchemaInvalid,
         },
         PendingCanonicalRuleFixture {
-            rule: RototoRuleId::EvaluationContextReservedField,
-        },
-        PendingCanonicalRuleFixture {
             rule: RototoRuleId::EvaluationContextSampleSchemaMismatch,
         },
         PendingCanonicalRuleFixture {
             rule: RototoRuleId::EvaluationContextSampleShape,
-        },
-        PendingCanonicalRuleFixture {
-            rule: RototoRuleId::QualifierNoCompatibleEvaluationContext,
-        },
-        PendingCanonicalRuleFixture {
-            rule: RototoRuleId::QualifierWhenUndeclaredContextPath,
-        },
-        PendingCanonicalRuleFixture {
-            rule: RototoRuleId::QualifierWhenContextPathTypeMismatch,
         },
         PendingCanonicalRuleFixture {
             rule: RototoRuleId::VariableEvaluationContextConflict,
@@ -2411,26 +1993,20 @@ fn lint_failures_expected_rule_ids() -> &'static [&'static str] {
         "fixture/custom-variable-rejected",
         "rototo/catalog-entry-schema-mismatch",
         "rototo/catalog-schema-invalid",
-        "rototo/qualifier-cycle",
-        "rototo/qualifier-no-compatible-evaluation-context",
-        "rototo/qualifier-unreferenced",
-        "rototo/qualifier-when-context-path-type-mismatch",
-        "rototo/qualifier-when-invalid-reference",
-        "rototo/qualifier-when-undeclared-context-path",
-        "rototo/qualifier-when-shape",
-        "rototo/qualifier-when-unknown-qualifier",
         "rototo/schema-ui-unknown-widget",
         "rototo/schema-ui-widget-params",
         "rototo/schema-ui-widget-type-mismatch",
         "rototo/trace-when-invalid-reference",
         "rototo/trace-when-missing",
         "rototo/trace-when-shape",
+        "rototo/variable-evaluation-context-conflict",
+        "rototo/variable-reference-cycle",
         "rototo/variable-rule-context-path-type-mismatch",
         "rototo/variable-rule-invalid-reference",
         "rototo/variable-rule-shadowed",
         "rototo/variable-rule-shape",
         "rototo/variable-rule-undeclared-context-path",
-        "rototo/variable-rule-unknown-qualifier",
+        "rototo/variable-rule-unknown-variable",
         "rototo/variable-unknown-type",
         "rototo/variable-unknown-value",
         "rototo/variable-value-type-mismatch",
@@ -2440,10 +2016,8 @@ fn lint_failures_expected_rule_ids() -> &'static [&'static str] {
 fn intentionally_malformed_fixture_files() -> &'static [&'static str] {
     &[
         "context-schema-invalid-json/evaluation-contexts/request.schema.json",
-        "invalid-package-file-toml/qualifiers/broken.toml",
         "invalid-package-file-toml/variables/broken.toml",
         "invalid-package-toml/rototo-package.toml",
-        "rules/parse/qualifier-parse-failed/qualifiers/broken.toml",
         "rules/parse/variable-external-value-parse-failed/variables/external-message-values/broken.toml",
         "rules/parse/variable-parse-failed/variables/broken.toml",
         "rules/parse/package-manifest-parse-failed/rototo-package.toml",

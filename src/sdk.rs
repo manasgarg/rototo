@@ -10,10 +10,7 @@ use crate::error::{Result, RototoError};
 use crate::lint::{
     LintInput, RuntimePackage, compile_runtime_package_from_snapshot, lint_package_snapshot,
 };
-use crate::model::{
-    PackageInspection, PackageLint, QualifierResolutionTrace, VariableResolution,
-    VariableResolutionTrace,
-};
+use crate::model::{PackageInspection, PackageLint, VariableResolution, VariableResolutionTrace};
 use crate::package::inspect_package;
 use crate::source::{
     SourceAuth, SourceFingerprint, SourceLayer, SourceOptions, StagedPackage, load_package_source,
@@ -213,55 +210,6 @@ impl Package {
 
     pub fn validate_context(&self, context: &EvaluationContext) -> Result<()> {
         self.runtime()?.validate_context(context.value())
-    }
-
-    pub fn resolve_qualifier(
-        &self,
-        id: impl AsRef<str>,
-        context: &EvaluationContext,
-    ) -> Result<bool> {
-        self.resolve_qualifier_with_options(id, context, ResolveOptions::default())
-    }
-
-    pub fn resolve_qualifier_with_options(
-        &self,
-        id: impl AsRef<str>,
-        context: &EvaluationContext,
-        options: ResolveOptions,
-    ) -> Result<bool> {
-        let runtime = self.runtime()?;
-        if options.validate_context {
-            runtime.validate_context_for_qualifier(id.as_ref(), context.value())?;
-        }
-        if !self.tracing_active(options, runtime) {
-            return crate::resolve::resolve_qualifier_unchecked(
-                runtime,
-                id.as_ref(),
-                context.value(),
-            );
-        }
-        let (value, capture) = crate::resolve::resolve_qualifier_traced_unchecked(
-            runtime,
-            id.as_ref(),
-            context.value(),
-            options.trace,
-        )?;
-        if let Some(capture) = capture {
-            self.trace.emit(TraceEvent::new(
-                TraceTarget::Qualifier {
-                    id: id.as_ref().to_owned(),
-                },
-                context.value().clone(),
-                TraceDetail::Qualifier(capture.trace),
-                TraceProvenance {
-                    app_requested: options.trace,
-                    policies: capture.policies,
-                },
-                self.identity(),
-                SystemTime::now(),
-            ));
-        }
-        Ok(value)
     }
 
     /// Tracing runs only when someone is listening and there is something to
@@ -586,20 +534,18 @@ impl TraceStreamItem {
 #[derive(Clone, Debug)]
 pub enum TraceTarget {
     Variable { id: String },
-    Qualifier { id: String },
 }
 
 impl TraceTarget {
     pub fn kind(&self) -> &'static str {
         match self {
             TraceTarget::Variable { .. } => "variable",
-            TraceTarget::Qualifier { .. } => "qualifier",
         }
     }
 
     pub fn id(&self) -> &str {
         match self {
-            TraceTarget::Variable { id } | TraceTarget::Qualifier { id } => id,
+            TraceTarget::Variable { id } => id,
         }
     }
 }
@@ -610,7 +556,7 @@ impl TraceEvent {
         self.target.id()
     }
 
-    /// `"variable"` or `"qualifier"`.
+    /// `"variable"`.
     pub fn target_kind(&self) -> &'static str {
         self.target.kind()
     }
@@ -620,14 +566,12 @@ impl TraceEvent {
 #[derive(Clone, Debug)]
 pub enum TraceDetail {
     Variable(Box<VariableResolutionTrace>),
-    Qualifier(QualifierResolutionTrace),
 }
 
 impl TraceDetail {
     fn to_json(&self) -> JsonValue {
         match self {
             TraceDetail::Variable(trace) => serde_json::to_value(trace).unwrap_or(JsonValue::Null),
-            TraceDetail::Qualifier(trace) => serde_json::to_value(trace).unwrap_or(JsonValue::Null),
         }
     }
 }

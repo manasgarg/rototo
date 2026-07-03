@@ -207,7 +207,6 @@ fn project_rule_from_value(
         return VariableRuleNode {
             index,
             location: location.clone(),
-            legacy_qualifier: None,
             when: None,
             query: None,
             value: ProjectField::Invalid { location },
@@ -228,9 +227,6 @@ fn project_rule_from_table_like(
     VariableRuleNode {
         index,
         location: location.clone(),
-        legacy_qualifier: table
-            .get("qualifier")
-            .map(|item| item_location(document, item)),
         when: optional_expression_field(document, table, "when"),
         query: optional_expression_field(document, table, "query"),
         value: json_field(document, table, "value", location.clone()),

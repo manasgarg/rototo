@@ -176,9 +176,6 @@ default = "hello"
         // kind, not from a shallow TOML/JSON parse of the current document.
         let tempdir = tempfile::tempdir().unwrap();
         let root = tempdir.path();
-        tokio::fs::create_dir_all(root.join("qualifiers"))
-            .await
-            .unwrap();
         tokio::fs::create_dir_all(root.join("variables"))
             .await
             .unwrap();
@@ -195,11 +192,18 @@ extends = ["../base"]
         )
         .await
         .unwrap();
-        let qualifier_path = root.join("qualifiers/premium.toml");
+        let condition_path = root.join("variables/premium.toml");
         tokio::fs::write(
-            &qualifier_path,
+            &condition_path,
             r#"schema_version = 1
+type = "bool"
+
+[resolve]
+default = false
+
+[[resolve.rule]]
 when = "context.account.tier == \"premium\""
+value = true
 "#,
         )
         .await
@@ -249,7 +253,7 @@ type = "string"
 default = "hello"
 
 [[resolve.rule]]
-when = 'env.qualifier["premium"]'
+when = 'variables["premium"]'
 value = "welcome"
 "#,
                 }
@@ -267,18 +271,18 @@ value = "welcome"
         let extends = child_symbol(&manifest_symbols, "extends");
         assert!(extends.children.iter().any(|child| child.name == "../base"));
 
-        // A qualifier definition is exposed as the named qualifier in the
+        // A condition variable is exposed as the named variable in the
         // editor outline.
-        let qualifier_symbols = server
+        let condition_symbols = server
             .document_symbols(json!({
                 "textDocument": {
-                    "uri": format!("file://{}", qualifier_path.display())
+                    "uri": format!("file://{}", condition_path.display())
                 }
             }))
             .await
             .unwrap();
-        let qualifier = child_symbol(&qualifier_symbols, "premium");
-        assert!(qualifier.children.is_empty());
+        let condition = child_symbol(&condition_symbols, "premium");
+        assert!(!condition.children.is_empty());
 
         // The variable outline includes the unsaved resolve rule, proving that
         // document symbols are snapshot-backed and overlay-aware.
@@ -297,7 +301,7 @@ value = "welcome"
             resolve
                 .children
                 .iter()
-                .any(|child| child.name == "rule 1: env.qualifier[\"premium\"] -> \"welcome\"")
+                .any(|child| child.name == "rule 1: variables[\"premium\"] -> \"welcome\"")
         );
         assert_eq!(
             tokio::fs::read_to_string(&variable_path).await.unwrap(),
@@ -330,13 +334,10 @@ value = "welcome"
     #[tokio::test]
     async fn lsp_hover_uses_snapshot_index_and_unsaved_overlays() {
         // Hover should explain the rototo concept under the cursor: descriptions,
-        // variable types, rule selections, qualifier definitions, and lint
-        // failures. The source of truth is again the overlay-aware snapshot.
+        // variable types, rule selections, and lint failures. The source of
+        // truth is again the overlay-aware snapshot.
         let tempdir = tempfile::tempdir().unwrap();
         let root = tempdir.path();
-        tokio::fs::create_dir_all(root.join("qualifiers"))
-            .await
-            .unwrap();
         tokio::fs::create_dir_all(root.join("variables"))
             .await
             .unwrap();
@@ -355,12 +356,19 @@ value = "welcome"
         )
         .await
         .unwrap();
-        let qualifier_path = root.join("qualifiers/premium.toml");
+        let condition_path = root.join("variables/premium.toml");
         tokio::fs::write(
-            &qualifier_path,
+            &condition_path,
             r#"schema_version = 1
 description = "Premium accounts"
+type = "bool"
+
+[resolve]
+default = false
+
+[[resolve.rule]]
 when = "context.account.tier == \"premium\""
+value = true
 "#,
         )
         .await
@@ -430,7 +438,7 @@ type = "string"
 default = "hello"
 
 [[resolve.rule]]
-when = 'env.qualifier["premium"]'
+when = 'variables["premium"]'
 value = "welcome"
 "#,
                 }
@@ -450,11 +458,7 @@ value = "welcome"
             "selects value `\"welcome\"`",
         );
         assert_hover_contains(
-            &hover_contents(&server, &qualifier_path, 1, 17).await,
-            "Premium accounts",
-        );
-        assert_hover_contains(
-            &hover_contents(&server, &qualifier_path, 1, 17).await,
+            &hover_contents(&server, &condition_path, 1, 17).await,
             "Premium accounts",
         );
 
@@ -497,9 +501,6 @@ default = "hello"
         // the cursor is inside a query expression, not only inside rule `when`.
         let tempdir = tempfile::tempdir().unwrap();
         let root = tempdir.path();
-        tokio::fs::create_dir_all(root.join("qualifiers"))
-            .await
-            .unwrap();
         tokio::fs::create_dir_all(root.join("variables"))
             .await
             .unwrap();
@@ -513,11 +514,18 @@ default = "hello"
         )
         .await
         .unwrap();
-        let qualifier_path = root.join("qualifiers/premium.toml");
+        let condition_path = root.join("variables/premium.toml");
         tokio::fs::write(
-            &qualifier_path,
+            &condition_path,
             r#"schema_version = 1
+type = "bool"
+
+[resolve]
+default = false
+
+[[resolve.rule]]
 when = "context.account.tier == \"premium\""
+value = true
 "#,
         )
         .await
@@ -553,7 +561,7 @@ type = "list<catalog:message>"
 default = []
 
 [[resolve.rule]]
-query = 'env.qualifier["premium"]'
+query = 'variables["premium"]'
 "#,
                 }
             }))
@@ -573,7 +581,7 @@ query = 'env.qualifier["premium"]'
             resolve
                 .children
                 .iter()
-                .any(|child| child.name == "rule 1: env.qualifier[\"premium\"]")
+                .any(|child| child.name == "rule 1: variables[\"premium\"]")
         );
 
         let completions = server
@@ -583,27 +591,27 @@ query = 'env.qualifier["premium"]'
                 },
                 "position": {
                     "line": 7,
-                    "character": 25
+                    "character": 20
                 }
             }))
             .await
             .unwrap();
-        assert_completion(&completions, "premium", "qualifier");
+        assert_completion(&completions, "premium", "variable");
 
         assert_hover_contains(
-            &hover_contents(&server, &variable_path, 7, 25).await,
-            "Condition `env.qualifier[\"premium\"]`.",
+            &hover_contents(&server, &variable_path, 7, 20).await,
+            "Condition `variables[\"premium\"]`.",
         );
 
-        let definition = definition_location(&server, &variable_path, 7, 25).await;
-        assert!(definition.uri.ends_with("/qualifiers/premium.toml"));
+        let definition = definition_location(&server, &variable_path, 7, 20).await;
+        assert!(definition.uri.ends_with("/variables/premium.toml"));
 
-        let references = reference_locations(&server, &variable_path, 7, 25, true).await;
+        let references = reference_locations(&server, &variable_path, 7, 20, true).await;
         assert_eq!(references.len(), 2);
         assert!(
             references
                 .iter()
-                .any(|location| location.uri.ends_with("/qualifiers/premium.toml"))
+                .any(|location| location.uri.ends_with("/variables/premium.toml"))
         );
         assert!(
             references
@@ -620,13 +628,10 @@ query = 'env.qualifier["premium"]'
     #[tokio::test]
     async fn lsp_definition_uses_snapshot_index_and_unsaved_overlays() {
         // Go-to-definition should follow rototo references across package
-        // concepts: catalog-backed variable types, qualifier rules, and
-        // qualifier composition.
+        // concepts: catalog-backed variable types, rule conditions, and
+        // condition composition.
         let tempdir = tempfile::tempdir().unwrap();
         let root = tempdir.path();
-        tokio::fs::create_dir_all(root.join("qualifiers"))
-            .await
-            .unwrap();
         tokio::fs::create_dir_all(root.join("variables"))
             .await
             .unwrap();
@@ -643,20 +648,34 @@ query = 'env.qualifier["premium"]'
         )
         .await
         .unwrap();
-        let beta_qualifier_path = root.join("qualifiers/beta.toml");
+        let beta_condition_path = root.join("variables/beta.toml");
         tokio::fs::write(
-            &beta_qualifier_path,
+            &beta_condition_path,
             r#"schema_version = 1
+type = "bool"
+
+[resolve]
+default = false
+
+[[resolve.rule]]
 when = "context.account.beta == true"
+value = true
 "#,
         )
         .await
         .unwrap();
-        let premium_qualifier_path = root.join("qualifiers/premium.toml");
+        let premium_condition_path = root.join("variables/premium.toml");
         tokio::fs::write(
-            &premium_qualifier_path,
+            &premium_condition_path,
             r#"schema_version = 1
-when = "env.qualifier[\"beta\"]"
+type = "bool"
+
+[resolve]
+default = false
+
+[[resolve.rule]]
+when = "variables[\"beta\"]"
+value = true
 "#,
         )
         .await
@@ -684,7 +703,7 @@ default = "hello"
 
         let mut server = LspServer::new();
         server.package_root = Some(tokio::fs::canonicalize(root).await.unwrap());
-        // The variable only becomes catalog-backed and qualifier-referencing in
+        // The variable only becomes catalog-backed and condition-referencing in
         // the unsaved editor buffer, so every definition below also checks that
         // go-to-definition is overlay-aware.
         server
@@ -699,7 +718,7 @@ type = "catalog:message"
 default = "welcome"
 
 [[resolve.rule]]
-when = 'env.qualifier["premium"]'
+when = 'variables["premium"]'
 value = "welcome"
 "#,
                 }
@@ -714,17 +733,17 @@ value = "welcome"
                 .ends_with("/catalogs/message.schema.json")
         );
 
-        // A variable resolve rule's qualifier id jumps to the qualifier file.
-        let qualifier_definition = definition_location(&server, &variable_path, 7, 18).await;
+        // A variable resolve rule's condition reference jumps to the variable file.
+        let condition_definition = definition_location(&server, &variable_path, 7, 15).await;
         assert!(
-            qualifier_definition
+            condition_definition
                 .uri
-                .ends_with("/qualifiers/premium.toml")
+                .ends_with("/variables/premium.toml")
         );
 
-        // A composed qualifier reference jumps to the qualifier it depends on.
-        let when_definition = definition_location(&server, &premium_qualifier_path, 1, 20).await;
-        assert!(when_definition.uri.ends_with("/qualifiers/beta.toml"));
+        // A composed condition reference jumps to the variable it depends on.
+        let when_definition = definition_location(&server, &premium_condition_path, 7, 15).await;
+        assert!(when_definition.uri.ends_with("/variables/beta.toml"));
 
         assert_eq!(
             tokio::fs::read_to_string(&variable_path).await.unwrap(),
@@ -738,9 +757,6 @@ value = "welcome"
         // but return every declaration/use site for the symbol under the cursor.
         let tempdir = tempfile::tempdir().unwrap();
         let root = tempdir.path();
-        tokio::fs::create_dir_all(root.join("qualifiers"))
-            .await
-            .unwrap();
         tokio::fs::create_dir_all(root.join("variables"))
             .await
             .unwrap();
@@ -757,29 +773,50 @@ value = "welcome"
         )
         .await
         .unwrap();
-        let beta_qualifier_path = root.join("qualifiers/beta.toml");
+        let beta_condition_path = root.join("variables/beta.toml");
         tokio::fs::write(
-            &beta_qualifier_path,
+            &beta_condition_path,
             r#"schema_version = 1
+type = "bool"
+
+[resolve]
+default = false
+
+[[resolve.rule]]
 when = "context.account.beta == true"
+value = true
 "#,
         )
         .await
         .unwrap();
-        let gamma_qualifier_path = root.join("qualifiers/gamma.toml");
+        let gamma_condition_path = root.join("variables/gamma.toml");
         tokio::fs::write(
-            &gamma_qualifier_path,
+            &gamma_condition_path,
             r#"schema_version = 1
+type = "bool"
+
+[resolve]
+default = false
+
+[[resolve.rule]]
 when = "context.account.beta == true"
+value = true
 "#,
         )
         .await
         .unwrap();
-        let premium_qualifier_path = root.join("qualifiers/premium.toml");
+        let premium_condition_path = root.join("variables/premium.toml");
         tokio::fs::write(
-            &premium_qualifier_path,
+            &premium_condition_path,
             r#"schema_version = 1
-when = "env.qualifier[\"beta\"]"
+type = "bool"
+
+[resolve]
+default = false
+
+[[resolve.rule]]
+when = "variables[\"beta\"]"
+value = true
 "#,
         )
         .await
@@ -828,35 +865,35 @@ type = "catalog:message"
 default = "welcome"
 
 [[resolve.rule]]
-when = 'env.qualifier["premium"]'
+when = 'variables["premium"]'
 value = "welcome"
 "#,
                 }
             }))
             .unwrap();
 
-        // `beta` is declared in its own qualifier file and used by `premium`.
-        let beta_references = reference_locations(&server, &beta_qualifier_path, 0, 0, true).await;
+        // `beta` is declared in its own variable file and used by `premium`.
+        let beta_references = reference_locations(&server, &beta_condition_path, 0, 0, true).await;
         assert_eq!(beta_references.len(), 2);
         assert!(
             beta_references
                 .iter()
-                .any(|location| location.uri.ends_with("/qualifiers/beta.toml"))
+                .any(|location| location.uri.ends_with("/variables/beta.toml"))
         );
         assert!(
             beta_references
                 .iter()
-                .any(|location| location.uri.ends_with("/qualifiers/premium.toml"))
+                .any(|location| location.uri.ends_with("/variables/premium.toml"))
         );
 
-        // `premium` is declared as a qualifier and used by the unsaved variable
-        // rule.
-        let premium_references = reference_locations(&server, &variable_path, 7, 18, true).await;
+        // `premium` is declared as a condition variable and used by the unsaved
+        // variable rule.
+        let premium_references = reference_locations(&server, &variable_path, 7, 15, true).await;
         assert_eq!(premium_references.len(), 2);
         assert!(
             premium_references
                 .iter()
-                .any(|location| location.uri.ends_with("/qualifiers/premium.toml"))
+                .any(|location| location.uri.ends_with("/variables/premium.toml"))
         );
         assert!(
             premium_references
@@ -880,20 +917,20 @@ value = "welcome"
                 .ends_with("/catalogs/message-entries/welcome.toml")
         }));
 
-        // Context attributes are also indexed. Both qualifiers read
+        // Context attributes are also indexed. Both condition variables read
         // `account.beta`, so they should both be returned.
         let context_attribute_references =
-            reference_locations(&server, &beta_qualifier_path, 1, 20, true).await;
+            reference_locations(&server, &beta_condition_path, 7, 20, true).await;
         assert_eq!(context_attribute_references.len(), 2);
         assert!(
             context_attribute_references
                 .iter()
-                .any(|location| location.uri.ends_with("/qualifiers/beta.toml"))
+                .any(|location| location.uri.ends_with("/variables/beta.toml"))
         );
         assert!(
             context_attribute_references
                 .iter()
-                .any(|location| location.uri.ends_with("/qualifiers/gamma.toml"))
+                .any(|location| location.uri.ends_with("/variables/gamma.toml"))
         );
 
         assert_eq!(
@@ -1021,7 +1058,7 @@ value = "welcome"
         server
             .open_document(json!({
                 "textDocument": {
-                    "uri": "file:///pkg/qualifiers/q.toml",
+                    "uri": "file:///pkg/variables/q.toml",
                     "text": "schema_version = 1\nwhen = \"a\"\n",
                     "version": 1
                 }
@@ -1031,7 +1068,7 @@ value = "welcome"
         // Replace the single character `a` on line 1 (columns 8..9) with `premium`.
         server
             .change_document(json!({
-                "textDocument": { "uri": "file:///pkg/qualifiers/q.toml", "version": 2 },
+                "textDocument": { "uri": "file:///pkg/variables/q.toml", "version": 2 },
                 "contentChanges": [{
                     "range": {
                         "start": { "line": 1, "character": 8 },
@@ -1043,19 +1080,19 @@ value = "welcome"
             .unwrap();
 
         assert_eq!(
-            server.overlay_text("qualifiers/q.toml"),
+            server.overlay_text("variables/q.toml"),
             Some("schema_version = 1\nwhen = \"premium\"\n")
         );
 
         // A change without a range still replaces the whole document.
         server
             .change_document(json!({
-                "textDocument": { "uri": "file:///pkg/qualifiers/q.toml", "version": 3 },
+                "textDocument": { "uri": "file:///pkg/variables/q.toml", "version": 3 },
                 "contentChanges": [{ "text": "schema_version = 1\n" }]
             }))
             .unwrap();
         assert_eq!(
-            server.overlay_text("qualifiers/q.toml"),
+            server.overlay_text("variables/q.toml"),
             Some("schema_version = 1\n")
         );
     }

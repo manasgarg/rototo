@@ -15,14 +15,12 @@ fn init_creates_package_skeleton() {
         .success()
         .stdout(predicate::str::contains("package:"))
         .stdout(predicate::str::contains("rototo-package.toml"))
-        .stdout(predicate::str::contains("qualifiers"))
         .stdout(predicate::str::contains("variables"))
         .stdout(predicate::str::contains("catalogs"))
         .stdout(predicate::str::contains("evaluation-contexts"))
         .stdout(predicate::str::contains("lint"));
 
     assert!(package.join("rototo-package.toml").is_file());
-    assert!(package.join("qualifiers").is_dir());
     assert!(package.join("variables").is_dir());
     assert!(package.join("catalogs").is_dir());
     assert!(package.join("evaluation-contexts").is_dir());
@@ -54,7 +52,6 @@ fn init_entity_implicitly_creates_package_skeleton() {
         .stdout(predicate::str::contains("variables/max-output-tokens.toml"));
 
     assert!(package.join("rototo-package.toml").is_file());
-    assert!(package.join("qualifiers").is_dir());
     assert!(package.join("variables").is_dir());
     assert!(package.join("catalogs").is_dir());
     assert!(package.join("evaluation-contexts").is_dir());
@@ -69,7 +66,7 @@ fn init_entity_implicitly_creates_package_skeleton() {
 }
 
 #[test]
-fn init_qualifier_and_context_templates() {
+fn init_variable_and_context_templates() {
     let temp = tempfile::tempdir().unwrap();
     let package = temp.path().join("config");
     init_package(&package);
@@ -79,25 +76,32 @@ fn init_qualifier_and_context_templates() {
         .args([
             "init",
             package.to_str().unwrap(),
-            "--qualifier",
+            "--variable",
             "premium-users",
         ])
         .assert()
         .success();
+
+    fs::write(
+        package.join("variables/premium-users.toml"),
+        r#"schema_version = 1
+type = "bool"
+
+[resolve]
+default = false
+
+[[resolve.rule]]
+when = 'context.user.tier == "premium"'
+value = true
+"#,
+    )
+    .unwrap();
 
     Command::cargo_bin("rototo")
         .unwrap()
         .args(["init", package.to_str().unwrap(), "--evaluation-context"])
         .assert()
         .success();
-
-    let qualifier = fs::read_to_string(package.join("qualifiers/premium-users.toml")).unwrap();
-    assert!(qualifier.contains("schema_version = 1"));
-    assert!(qualifier.contains("when = 'context.user.tier == \"premium\"'"));
-    assert!(qualifier.contains("context.request.country in"));
-    assert!(qualifier.contains("context.account.seats >= 100"));
-    assert!(qualifier.contains("bucket(context.user.id"));
-    assert!(qualifier.contains("rototo init <package> --evaluation-context --update"));
 
     let schema = read_json(package.join("evaluation-contexts/evaluation.schema.json"));
     assert_eq!(
@@ -212,15 +216,22 @@ fn init_rejects_invalid_evaluation_context_id() {
 }
 
 #[test]
-fn init_context_infers_variable_and_qualifier_paths_with_types() {
+fn init_context_infers_variable_paths_with_types() {
     let temp = tempfile::tempdir().unwrap();
     let package = temp.path().join("config");
     init_package(&package);
 
     fs::write(
-        package.join("qualifiers/premium-users.toml"),
+        package.join("variables/premium-users.toml"),
         r#"schema_version = 1
+type = "bool"
+
+[resolve]
+default = false
+
+[[resolve.rule]]
 when = 'context.user.tier == "premium"'
+value = true
 "#,
     )
     .unwrap();
@@ -233,7 +244,7 @@ type = "string"
 default = "control"
 
 [[resolve.rule]]
-when = 'env.qualifier["premium-users"] && context.account.seats >= 10 && context.flags.enabled'
+when = 'variables["premium-users"] && context.account.seats >= 10 && context.flags.enabled'
 value = "treatment"
 "#,
     )

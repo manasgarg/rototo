@@ -12,12 +12,6 @@ pub(crate) fn document_symbols(index: &SemanticIndex, path: &str) -> Vec<Package
         symbols.push(symbol);
     }
 
-    for qualifier in index.qualifiers.values() {
-        if qualifier.location.path == path {
-            symbols.push(qualifier_document_symbol(qualifier));
-        }
-    }
-
     for variable in index.variables.values() {
         if variable.location.path == path {
             symbols.push(variable_document_symbol(variable));
@@ -68,15 +62,6 @@ fn package_extends_symbol(extends: &PackageExtendsCollection) -> Option<PackageD
                 .collect(),
         )),
     }
-}
-
-fn qualifier_document_symbol(qualifier: &QualifierNode) -> PackageDocumentSymbol {
-    PackageDocumentSymbol::new(
-        qualifier.id.clone(),
-        PackageDocumentSymbolKind::Qualifier,
-        qualifier.location.clone(),
-        Vec::new(),
-    )
 }
 
 fn variable_document_symbol(variable: &VariableNode) -> PackageDocumentSymbol {

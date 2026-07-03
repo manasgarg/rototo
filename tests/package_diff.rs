@@ -114,23 +114,6 @@ default = "new"
     );
 
     write_file(
-        &before.join("qualifiers/retired-users.toml"),
-        r#"schema_version = 1
-
-description = "Before-only qualifier"
-when = 'context.user.tier == "legacy"'
-"#,
-    );
-    write_file(
-        &after.join("qualifiers/new-users.toml"),
-        r#"schema_version = 1
-
-description = "After-only qualifier"
-when = 'context.user.tier == "new"'
-"#,
-    );
-
-    write_file(
         &before.join("catalogs/retired.schema.json"),
         r#"{
   "type": "object",
@@ -179,18 +162,6 @@ cta = "Open"
         "variable_removed",
         "variable",
         &[("id", "retired-message")],
-    );
-    assert_entity_change(
-        &diff,
-        "qualifier_added",
-        "qualifier",
-        &[("id", "new-users")],
-    );
-    assert_entity_change(
-        &diff,
-        "qualifier_removed",
-        "qualifier",
-        &[("id", "retired-users")],
     );
     assert_entity_change(&diff, "catalog_added", "catalog", &[("id", "new")]);
     assert_entity_change(&diff, "catalog_removed", "catalog", &[("id", "retired")]);

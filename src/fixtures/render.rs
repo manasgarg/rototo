@@ -42,7 +42,6 @@ pub fn render_command(
 /// Renders the trailing `# => ...` comment describing the expected result.
 pub fn render_comment(invocation: &ResolveInvocation) -> String {
     match &invocation.expect {
-        ResolveExpectation::Qualifier { value } => format!("# => {value}"),
         ResolveExpectation::Variable { value, matched } => {
             let value = compact(value);
             match matched {

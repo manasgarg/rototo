@@ -6,8 +6,7 @@ use super::super::engine::LintContext;
 use super::super::evaluation_context::{
     ContextPathTypeFit, compatibility_for as evaluation_context_compatibility_for,
     context_path_type_fit, expected_type_label, path_declared_in_any_context,
-    qualifier_uses_context_attribute, variable_resolve_rules,
-    variable_rule_condition_reference_count,
+    variable_resolve_rules, variable_rule_condition_reference_count,
 };
 use super::super::index::{ProjectField, SemanticIndex};
 use super::super::references::{ReferenceSource, ReferenceTarget};
@@ -26,29 +25,6 @@ pub(super) fn lint_evaluation_context_schemas(ctx: &mut LintContext) {
                 format!("evaluation context schema is invalid: {message}"),
             );
         }
-    }
-}
-
-pub(super) fn lint_evaluation_context_reserved_fields(ctx: &mut LintContext) {
-    let diagnostics = &mut ctx.diagnostics;
-    for evaluation_context in ctx.index.evaluation_contexts.values() {
-        let Some(json) = evaluation_context.json.as_ref() else {
-            continue;
-        };
-        if !json
-            .get("properties")
-            .and_then(serde_json::Value::as_object)
-            .is_some_and(|properties| properties.contains_key("qualifier"))
-        {
-            continue;
-        }
-        push_project_diagnostic(
-            diagnostics,
-            RototoRuleId::EvaluationContextReservedField,
-            evaluation_context.field_target(SemanticField::SchemaJson),
-            evaluation_context.location.clone(),
-            "evaluation context schema declares reserved top-level field: qualifier",
-        );
     }
 }
 
@@ -109,29 +85,7 @@ pub(super) fn lint_evaluation_context_samples(ctx: &mut LintContext) {
 
 pub(super) fn lint_undeclared_context_paths(ctx: &mut LintContext) {
     let mut diagnostics = Vec::new();
-    let qualifiers_with_errors = qualifiers_with_existing_errors(ctx);
     let variables_with_errors = variables_with_existing_errors(ctx);
-
-    for qualifier in ctx.index.qualifiers.values() {
-        if qualifiers_with_errors.contains(&qualifier.id) {
-            continue;
-        }
-        let ProjectField::Present(when) = &qualifier.when else {
-            continue;
-        };
-        for path in &when.value.references().context_paths {
-            if path.is_empty() || path_declared_in_any_context(&ctx.index, path) {
-                continue;
-            }
-            push_graph_diagnostic(
-                &mut diagnostics,
-                RototoRuleId::QualifierWhenUndeclaredContextPath,
-                qualifier.target(),
-                qualifier.location.clone(),
-                format!("when expression references undeclared context path: context.{path}"),
-            );
-        }
-    }
 
     for (variable_id, variable) in &ctx.index.variables {
         if variables_with_errors.contains(variable_id) {
@@ -166,32 +120,7 @@ pub(super) fn lint_undeclared_context_paths(ctx: &mut LintContext) {
 
 pub(super) fn lint_context_path_types(ctx: &mut LintContext) {
     let mut diagnostics = Vec::new();
-    let qualifiers_with_errors = qualifiers_with_existing_errors(ctx);
     let variables_with_errors = variables_with_existing_errors(ctx);
-
-    for qualifier in ctx.index.qualifiers.values() {
-        if qualifiers_with_errors.contains(&qualifier.id) {
-            continue;
-        }
-        let ProjectField::Present(when) = &qualifier.when else {
-            continue;
-        };
-        for (path, constraints) in &when.value.references().context_path_types {
-            let Some(expected) = type_mismatch_label(&ctx.index, path, constraints) else {
-                continue;
-            };
-            push_graph_diagnostic(
-                &mut diagnostics,
-                RototoRuleId::QualifierWhenContextPathTypeMismatch,
-                qualifier.target(),
-                qualifier.location.clone(),
-                format!(
-                    "when expression uses context path context.{path} as {expected}, \
-                     which no evaluation context declares with a matching type"
-                ),
-            );
-        }
-    }
 
     for (variable_id, variable) in &ctx.index.variables {
         if variables_with_errors.contains(variable_id) {
@@ -262,38 +191,11 @@ fn type_mismatch_label(
 pub(super) fn lint_evaluation_context_compatibility(ctx: &mut LintContext) {
     let compatibility = evaluation_context_compatibility_for(&ctx.index, &ctx.references);
     let mut diagnostics = Vec::new();
-    let qualifiers_with_errors = qualifiers_with_existing_errors(ctx);
     let variables_with_errors = variables_with_existing_errors(ctx);
-    let mut qualifiers_without_context = BTreeSet::new();
-
-    for qualifier in ctx.index.qualifiers.values() {
-        if qualifiers_with_errors.contains(&qualifier.id) {
-            continue;
-        }
-        let contexts = compatibility
-            .qualifiers
-            .get(&qualifier.id)
-            .cloned()
-            .unwrap_or_default();
-        if contexts.is_empty() && qualifier_uses_context_attribute(&ctx.references, &qualifier.id) {
-            qualifiers_without_context.insert(qualifier.id.clone());
-            push_graph_diagnostic(
-                &mut diagnostics,
-                RototoRuleId::QualifierNoCompatibleEvaluationContext,
-                qualifier.target(),
-                qualifier.location.clone(),
-                format!(
-                    "qualifier {} has no compatible evaluation context",
-                    qualifier.id
-                ),
-            );
-        }
-    }
 
     for variable in ctx.index.variables.values() {
         if variables_with_errors.contains(&variable.id)
-            || variable_references_error_qualifier(ctx, &variable.id, &qualifiers_with_errors)
-            || variable_references_error_qualifier(ctx, &variable.id, &qualifiers_without_context)
+            || variable_references_error_variable(ctx, &variable.id, &variables_with_errors)
         {
             continue;
         }
@@ -322,18 +224,6 @@ pub(super) fn lint_evaluation_context_compatibility(ctx: &mut LintContext) {
     ctx.diagnostics.extend(diagnostics);
 }
 
-fn qualifiers_with_existing_errors(ctx: &LintContext) -> BTreeSet<String> {
-    ctx.diagnostics
-        .iter()
-        .filter(|diagnostic| diagnostic.severity == Severity::Error)
-        .filter_map(|diagnostic| match &diagnostic.target.entity {
-            SemanticEntity::Qualifier { id } => Some(id.clone()),
-            SemanticEntity::Predicate { qualifier, .. } => Some(qualifier.clone()),
-            _ => None,
-        })
-        .collect()
-}
-
 fn variables_with_existing_errors(ctx: &LintContext) -> BTreeSet<String> {
     ctx.diagnostics
         .iter()
@@ -347,19 +237,19 @@ fn variables_with_existing_errors(ctx: &LintContext) -> BTreeSet<String> {
         .collect()
 }
 
-fn variable_references_error_qualifier(
+fn variable_references_error_variable(
     ctx: &LintContext,
     variable_id: &str,
-    qualifiers_with_errors: &BTreeSet<String>,
+    variables_with_errors: &BTreeSet<String>,
 ) -> bool {
     ctx.references.edges().iter().any(|edge| {
         matches!(
             &edge.source,
-            ReferenceSource::VariableRuleConditionQualifier { variable, .. }
+            ReferenceSource::VariableRuleConditionVariable { variable, .. }
                 if variable == variable_id
         ) && matches!(
             &edge.target,
-            ReferenceTarget::Qualifier(qualifier) if qualifiers_with_errors.contains(qualifier)
+            ReferenceTarget::Variable(referenced) if variables_with_errors.contains(referenced)
         )
     })
 }

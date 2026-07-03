@@ -1,3 +1,0 @@
-description = "Missing qualifier schema_version"
-
-when = '(context.user.tier == "premium")'

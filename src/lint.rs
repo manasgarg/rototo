@@ -5,7 +5,7 @@ use crate::diagnostics::{
     DiagnosticCatalogEntry, LintDiagnostic, RototoRuleId, SemanticEntity, SourcePosition,
 };
 use crate::error::{Result, RototoError};
-use crate::model::{CatalogLint, PackageDiff, PackageLint, QualifierLint, VariableLint};
+use crate::model::{CatalogLint, PackageDiff, PackageLint, VariableLint};
 
 mod builtins;
 mod catalog_schema;
@@ -38,9 +38,8 @@ pub(crate) use runtime::{
 pub use semantic_model::{
     CatalogEntryModel, CatalogModel, DeclarationModel, EvaluationContextModel,
     EvaluationContextSampleModel, LinterModel, LinterRuleModel, ModelEntityRef, ModelField,
-    ModelLocation, ModelReferenceVia, ModelValueField, PackageSemanticModel,
-    QualifierEvaluationContextModel, QualifierModel, ReferenceModel, ResolveModel, RuleModel,
-    ValueModel, VariableEvaluationContextModel, VariableModel,
+    ModelLocation, ModelReferenceVia, ModelValueField, PackageSemanticModel, ReferenceModel,
+    ResolveModel, RuleModel, ValueModel, VariableEvaluationContextModel, VariableModel,
 };
 pub(crate) use symbols::{
     PackageCompletionItem, PackageCompletionItemKind, PackageDefinition, PackageDocumentSymbol,
@@ -65,26 +64,6 @@ pub async fn diff_packages(
     context: Option<&serde_json::Value>,
 ) -> Result<PackageDiff> {
     diff::diff_packages(before_root, after_root, context).await
-}
-
-pub async fn lint_qualifier(package_root: &Path, id: &str) -> Result<QualifierLint> {
-    let lint = lint_package(package_root).await?;
-    let path = format!("qualifiers/{id}.toml");
-    if !lint.documents.iter().any(|document| document.path == path) {
-        return Err(RototoError::new(format!(
-            "qualifier not found: qualifier://{id}"
-        )));
-    }
-
-    Ok(QualifierLint {
-        root: lint.root,
-        id: id.to_owned(),
-        diagnostics: lint
-            .diagnostics
-            .into_iter()
-            .filter(|diagnostic| diagnostic_belongs_to_qualifier(diagnostic, id, &path))
-            .collect(),
-    })
 }
 
 pub async fn lint_variable(package_root: &Path, id: &str) -> Result<VariableLint> {
@@ -125,12 +104,6 @@ pub async fn lint_catalog(package_root: &Path, id: &str) -> Result<CatalogLint> 
             .filter(|diagnostic| diagnostic_belongs_to_catalog(diagnostic, id, &path))
             .collect(),
     })
-}
-
-fn diagnostic_belongs_to_qualifier(diagnostic: &LintDiagnostic, id: &str, path: &str) -> bool {
-    matches!(&diagnostic.target.entity, SemanticEntity::Qualifier { id: diagnostic_id } if diagnostic_id == id)
-        || matches!(&diagnostic.target.entity, SemanticEntity::Predicate { qualifier, .. } if qualifier == id)
-        || diagnostic.primary.path == path
 }
 
 fn diagnostic_belongs_to_variable(diagnostic: &LintDiagnostic, id: &str, path: &str) -> bool {

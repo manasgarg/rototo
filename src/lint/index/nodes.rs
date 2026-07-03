@@ -10,8 +10,7 @@ use crate::diagnostics::{
 use crate::expression::Expression;
 
 use super::ids::{
-    CatalogId, EvaluationContextId, EvaluationContextSampleId, PackagePath, QualifierId, ValueKey,
-    VariableId,
+    CatalogId, EvaluationContextId, EvaluationContextSampleId, PackagePath, ValueKey, VariableId,
 };
 use super::targets::RegisteredLintSelector;
 
@@ -50,39 +49,6 @@ pub(in crate::lint) enum PackageExtendsCollection {
         location: DiagnosticLocation,
         values: Vec<PackageExtendNode>,
     },
-}
-
-pub(in crate::lint) struct QualifierNode {
-    pub(in crate::lint) doc: DocId,
-    pub(in crate::lint) id: QualifierId,
-    pub(in crate::lint) location: DiagnosticLocation,
-    pub(in crate::lint) schema_version: ProjectField<i64>,
-    pub(in crate::lint) description: Option<ProjectField<String>>,
-    pub(in crate::lint) when: ProjectField<Expression>,
-    pub(in crate::lint) predicates: PredicateCollection,
-}
-
-impl QualifierNode {
-    pub(in crate::lint) fn target(&self) -> SemanticTarget {
-        SemanticEntity::Qualifier {
-            id: self.id.clone(),
-        }
-        .into()
-    }
-
-    pub(in crate::lint) fn field_target(&self, field: SemanticField) -> SemanticTarget {
-        SemanticTarget::field(
-            SemanticEntity::Qualifier {
-                id: self.id.clone(),
-            },
-            field,
-        )
-    }
-}
-
-pub(in crate::lint) enum PredicateCollection {
-    Absent,
-    Invalid { location: DiagnosticLocation },
 }
 
 pub(in crate::lint) struct VariableNode {
@@ -400,7 +366,6 @@ pub(in crate::lint) enum RuleCollection {
 pub(in crate::lint) struct VariableRuleNode {
     pub(in crate::lint) index: usize,
     pub(in crate::lint) location: DiagnosticLocation,
-    pub(in crate::lint) legacy_qualifier: Option<DiagnosticLocation>,
     pub(in crate::lint) when: Option<ProjectField<Expression>>,
     pub(in crate::lint) query: Option<ProjectField<Expression>>,
     pub(in crate::lint) value: ProjectField<JsonValue>,

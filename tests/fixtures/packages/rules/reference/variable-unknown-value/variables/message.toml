@@ -6,5 +6,5 @@ type = "catalog:message"
 default = "missing"
 
 [[resolve.rule]]
-when = 'env.qualifier["always"]'
+when = 'context.user.tier == "premium"'
 value = "control"

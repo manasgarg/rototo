@@ -4,7 +4,7 @@ type = "string"
 [resolve]
 default = "off"
 
-# `env.bogus` is not a real env member (only env.qualifier[...] and env.now are).
+# `env.bogus` is not a real env member (only env.now is).
 # Expect rototo/variable-rule-invalid-reference.
 [[resolve.rule]]
 when = "env.bogus"

@@ -69,7 +69,6 @@ fn shows_package_inventory_as_json_including_top_level_entries() {
             r#""path": "evaluation-contexts/request.schema.json""#,
         ))
         .stdout(predicate::str::contains(r#""catalogs": ["#))
-        .stdout(predicate::str::contains(r#""qualifiers": ["#))
         .stdout(predicate::str::contains(r#""variables": ["#))
         .stdout(predicate::str::contains(r#""lint_authorities": ["#))
         .stdout(predicate::str::contains(
@@ -463,14 +462,14 @@ fn resolve_rejects_missing_target() {
 }
 
 #[test]
-fn missing_qualifier_id_fails() {
+fn missing_variable_id_fails() {
     Command::cargo_bin("rototo")
         .unwrap()
-        .args(["show", "examples/basic", "--qualifier", "missing"])
+        .args(["show", "examples/basic", "--variable", "missing"])
         .assert()
         .failure()
         .stderr(predicate::str::contains(
-            "qualifier not found: qualifier://missing",
+            "variable not found: variable://missing",
         ));
 }
 
@@ -478,7 +477,7 @@ fn missing_qualifier_id_fails() {
 fn missing_package_context_fails() {
     Command::cargo_bin("rototo")
         .unwrap()
-        .args(["show", "--qualifiers"])
+        .args(["show", "--variables"])
         .assert()
         .failure()
         .stderr(predicate::str::contains(

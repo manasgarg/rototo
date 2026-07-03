@@ -410,7 +410,7 @@ fn resolve_help_omits_lint_selectors() {
         .assert()
         .success()
         .stdout(predicate::str::contains("--variable"))
-        .stdout(predicate::str::contains("--qualifier"))
+        .stdout(predicate::str::contains("--qualifier").not())
         .stdout(predicate::str::contains("--context"))
         .stdout(predicate::str::contains("--lint-rule").not())
         .stdout(predicate::str::contains("--lint-authority").not())

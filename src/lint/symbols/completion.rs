@@ -16,24 +16,6 @@ struct TomlCompletionSpec {
     insert_text: &'static str,
 }
 
-const QUALIFIER_TOP_LEVEL_COMPLETIONS: &[TomlCompletionSpec] = &[
-    TomlCompletionSpec {
-        label: "schema_version",
-        detail: "qualifier field",
-        insert_text: "schema_version = 1",
-    },
-    TomlCompletionSpec {
-        label: "description",
-        detail: "qualifier field",
-        insert_text: "description = \"\"",
-    },
-    TomlCompletionSpec {
-        label: "when",
-        detail: "qualifier field",
-        insert_text: "when = \"\"",
-    },
-];
-
 const VARIABLE_TOP_LEVEL_COMPLETIONS: &[TomlCompletionSpec] = &[
     TomlCompletionSpec {
         label: "schema_version",
@@ -186,20 +168,12 @@ pub(crate) fn completion_items(
 
     let preserve_order = match completion_context(snapshot, path, position) {
         CompletionContext::Manifest => false,
-        CompletionContext::Qualifier => {
-            items.extend(qualifier_field_completion_items(snapshot, path, position));
-            true
-        }
-        CompletionContext::QualifierExpression => {
-            items.extend(qualifier_completion_items(&snapshot.index));
-            false
-        }
         CompletionContext::Variable => {
             items.extend(variable_field_completion_items(snapshot, path, position));
             true
         }
         CompletionContext::VariableExpression => {
-            items.extend(qualifier_completion_items(&snapshot.index));
+            items.extend(variable_completion_items(&snapshot.index));
             items.extend(current_variable_value_completion_items(
                 &snapshot.index,
                 path,
@@ -287,8 +261,6 @@ fn trailing_bare_key(prefix: &str) -> &str {
 
 enum CompletionContext {
     Manifest,
-    Qualifier,
-    QualifierExpression,
     Variable,
     VariableExpression,
     CatalogEntry,
@@ -305,21 +277,12 @@ fn completion_context(
         return CompletionContext::Manifest;
     }
 
-    if snapshot
-        .index
-        .qualifiers
-        .values()
-        .any(|qualifier| location_contains_position(&qualifier.when.location(), path, position))
-    {
-        return CompletionContext::QualifierExpression;
-    }
     if variable_expression_at_position(&snapshot.index, path, position) {
         return CompletionContext::VariableExpression;
     }
 
     match document_kind(snapshot, path) {
         Some(SourceKind::CustomLint) => return CompletionContext::CustomLint,
-        Some(SourceKind::Qualifier) => return CompletionContext::Qualifier,
         Some(SourceKind::Variable) => return CompletionContext::Variable,
         Some(SourceKind::CatalogEntry) => return CompletionContext::CatalogEntry,
         _ => {}
@@ -333,14 +296,6 @@ fn completion_context(
         .any(|file| file.path == path)
     {
         return CompletionContext::CustomLint;
-    }
-    if snapshot
-        .index
-        .qualifiers
-        .values()
-        .any(|qualifier| qualifier.location.path == path)
-    {
-        return CompletionContext::Qualifier;
     }
     if let Some(variable) = current_variable_for_path(&snapshot.index, path) {
         let _ = variable;
@@ -359,18 +314,6 @@ fn document_kind(snapshot: &PackageLintSnapshot, path: &str) -> Option<SourceKin
         .iter()
         .find(|document| document.path == path)
         .map(|document| document.kind.clone())
-}
-
-fn qualifier_field_completion_items(
-    snapshot: &PackageLintSnapshot,
-    path: &str,
-    position: SourcePosition,
-) -> Vec<PackageCompletionItem> {
-    let context = toml_completion_context(snapshot, path, position);
-    if context.table.is_some() {
-        return Vec::new();
-    }
-    toml_completion_items(QUALIFIER_TOP_LEVEL_COMPLETIONS, &context)
 }
 
 fn variable_field_completion_items(
@@ -538,14 +481,11 @@ fn expression_completion_items(
     position: SourcePosition,
 ) -> Option<Vec<PackageCompletionItem>> {
     let source_kind = document_kind(snapshot, path)?;
-    if !matches!(source_kind, SourceKind::Qualifier | SourceKind::Variable) {
+    if !matches!(source_kind, SourceKind::Variable) {
         return None;
     }
 
     let cursor = expression_cursor_at_position(snapshot, path, position)?;
-    if matches!(source_kind, SourceKind::Qualifier) && cursor.key != ExpressionKey::When {
-        return None;
-    }
 
     // The path, qualifier-reference, and operand completions all replace the
     // dotted/identifier token under the cursor; only the operator completions
@@ -553,8 +493,8 @@ fn expression_completion_items(
     let token_range =
         |token: &str| single_line_replace_range(position, token.encode_utf16().count());
 
-    if qualifier_reference_prefix(&cursor.prefix).is_some() {
-        let mut items = qualifier_completion_items(&snapshot.index);
+    if variable_reference_prefix(&cursor.prefix).is_some() {
+        let mut items = variable_completion_items(&snapshot.index);
         stamp_replace_range(&mut items, token_range(&cursor.token));
         return Some(items);
     }
@@ -788,8 +728,8 @@ fn is_expression_token_char(ch: char) -> bool {
     ch.is_ascii_alphanumeric() || matches!(ch, '_' | '-' | '.')
 }
 
-fn qualifier_reference_prefix(prefix: &str) -> Option<&str> {
-    ["env.qualifier[\"", "env.qualifier['"]
+fn variable_reference_prefix(prefix: &str) -> Option<&str> {
+    ["variables[\"", "variables['"]
         .into_iter()
         .filter_map(|needle| {
             prefix
@@ -927,11 +867,9 @@ fn expression_root_completion_items(include_entry: bool) -> Vec<PackageCompletio
         .collect()
 }
 
-/// Members of the `env` root: the qualifier map and the evaluation timestamp.
-/// Offered once the cursor is inside an `env.` token, before the qualifier id
-/// completion that `env.qualifier["` triggers.
+/// Members of the `env` root: the evaluation timestamp.
 fn env_member_completion_items() -> Vec<PackageCompletionItem> {
-    ["env.qualifier[\"", "env.now"]
+    ["env.now"]
         .into_iter()
         .map(|member| {
             PackageCompletionItem::new(
@@ -1055,15 +993,15 @@ fn variable_expression_at_position(
     })
 }
 
-fn qualifier_completion_items(index: &SemanticIndex) -> Vec<PackageCompletionItem> {
+fn variable_completion_items(index: &SemanticIndex) -> Vec<PackageCompletionItem> {
     index
-        .qualifiers
+        .variables
         .keys()
-        .map(|qualifier| {
+        .map(|variable| {
             PackageCompletionItem::new(
-                qualifier.clone(),
-                PackageCompletionItemKind::Qualifier,
-                "qualifier",
+                variable.clone(),
+                PackageCompletionItemKind::Variable,
+                "variable",
             )
         })
         .collect()
@@ -1154,7 +1092,7 @@ fn deduplicate_package_completion_items_preserving_order(items: &mut Vec<Package
 
 fn completion_item_kind_rank(kind: PackageCompletionItemKind) -> u8 {
     match kind {
-        PackageCompletionItemKind::Qualifier => 0,
+        PackageCompletionItemKind::Variable => 0,
         PackageCompletionItemKind::Value => 1,
         PackageCompletionItemKind::FieldSelector => 2,
         PackageCompletionItemKind::Function => 3,

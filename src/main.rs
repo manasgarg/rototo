@@ -13,18 +13,16 @@ use serde::Serialize;
 
 use crate::output::{
     print_catalog_get, print_catalog_list, print_diagnostic_catalog_entry, print_inspect_report,
-    print_package_lint, print_qualifier_get, print_qualifier_list, print_variable_get,
-    print_variable_list,
+    print_package_lint, print_variable_get, print_variable_list,
 };
 use rototo::diagnostics::{DiagnosticCatalogEntry, LintDiagnostic, SemanticEntity, Severity};
 use rototo::model::{
     CatalogInspection, DiagnosticCatalog, EvaluationContextInspection, InspectSelection,
-    LinterInspection, PackageInspectRequest, PackageInspection, PackageLint, QualifierInspection,
-    VariableInspection,
+    LinterInspection, PackageInspectRequest, PackageInspection, PackageLint, VariableInspection,
 };
 use rototo::package::{
-    catalog_for_id, package_extends_sources, qualifier_for_id, read_catalog_json, read_toml,
-    read_variable_toml, variable_for_id,
+    catalog_for_id, package_extends_sources, read_catalog_json, read_toml, read_variable_toml,
+    variable_for_id,
 };
 use rototo::{
     Result, RototoError, SourceAuth, SourceOptions, StagedPackage, diagnostic_for_rule,
@@ -77,9 +75,9 @@ enum Command {
     Inspect(InspectArgs),
     /// Compare package semantics across Git refs or the worktree.
     Diff(DiffArgs),
-    /// Display package config, variables, qualifiers, and lint metadata.
+    /// Display package config, variables, catalogs, and lint metadata.
     Show(PackageCommandArgs),
-    /// Evaluate variables or qualifiers with runtime context.
+    /// Evaluate variables with runtime context.
     Resolve(ResolveArgs),
     /// Build a deterministic, content-addressed distributable archive.
     Package(PackageArgs),
@@ -99,10 +97,6 @@ struct InitArgs {
     /// Local package path to initialize or modify.
     #[arg(value_name = "PACKAGE")]
     package: PathBuf,
-
-    /// Create a qualifier template with this id.
-    #[arg(long = "qualifier", value_name = "ID")]
-    qualifier: Option<String>,
 
     /// Create a variable template with this id.
     #[arg(long = "variable", value_name = "ID")]
@@ -153,14 +147,6 @@ struct FixturesArgs {
     /// Select all variables.
     #[arg(long = "variables", action = ArgAction::SetTrue)]
     all_variables: bool,
-
-    /// Select one qualifier id. Repeatable.
-    #[arg(long = "qualifier", value_name = "ID")]
-    qualifiers: Vec<String>,
-
-    /// Select all qualifiers.
-    #[arg(long = "qualifiers", action = ArgAction::SetTrue)]
-    all_qualifiers: bool,
 
     /// How to render context in printed commands.
     #[arg(long = "context-form", value_enum, default_value_t = ContextForm::Path)]
@@ -246,14 +232,6 @@ struct SelectorArgs {
     #[arg(long = "catalogs", action = ArgAction::SetTrue)]
     all_catalogs: bool,
 
-    /// Select one qualifier id. Repeatable.
-    #[arg(long = "qualifier", value_name = "ID")]
-    qualifiers: Vec<String>,
-
-    /// Select all qualifiers.
-    #[arg(long = "qualifiers", action = ArgAction::SetTrue)]
-    all_qualifiers: bool,
-
     /// Select one diagnostic rule id. Repeatable.
     #[arg(long = "lint-rule", value_name = "AUTHORITY/RULE")]
     lint_rules: Vec<String>,
@@ -288,14 +266,6 @@ struct ResolveSelectorArgs {
     /// Select all variables.
     #[arg(long = "variables", action = ArgAction::SetTrue)]
     all_variables: bool,
-
-    /// Select one qualifier id. Repeatable.
-    #[arg(long = "qualifier", value_name = "ID")]
-    qualifiers: Vec<String>,
-
-    /// Select all qualifiers.
-    #[arg(long = "qualifiers", action = ArgAction::SetTrue)]
-    all_qualifiers: bool,
 }
 
 #[derive(Debug, Args)]
@@ -573,7 +543,6 @@ enum SetupAgentArg {
 struct TargetSelectors {
     variables: Selection<String>,
     catalogs: Selection<String>,
-    qualifiers: Selection<String>,
     lint_rules: Selection<String>,
     lint_authorities: Selection<String>,
     linters: Selection<String>,
@@ -609,7 +578,6 @@ impl TargetSelectors {
         Self {
             variables: selection(args.all_variables, &args.variables),
             catalogs: selection(args.all_catalogs, &args.catalogs),
-            qualifiers: selection(args.all_qualifiers, &args.qualifiers),
             lint_rules: selection(args.all_lint_rules, &args.lint_rules),
             lint_authorities: selection(args.all_lint_authorities, &args.lint_authorities),
             linters: selection(args.all_linters, &args.linters),
@@ -620,7 +588,6 @@ impl TargetSelectors {
         Self {
             variables: selection(args.all_variables, &args.variables),
             catalogs: Selection::None,
-            qualifiers: selection(args.all_qualifiers, &args.qualifiers),
             lint_rules: Selection::None,
             lint_authorities: Selection::None,
             linters: Selection::None,
@@ -630,20 +597,18 @@ impl TargetSelectors {
     fn is_empty(&self) -> bool {
         self.variables.is_none()
             && self.catalogs.is_none()
-            && self.qualifiers.is_none()
             && self.lint_rules.is_none()
             && self.lint_authorities.is_none()
             && self.linters.is_none()
     }
 
     fn has_resolvable_targets(&self) -> bool {
-        self.variables.is_some_or_all() || self.qualifiers.is_some_or_all()
+        self.variables.is_some_or_all()
     }
 
     fn is_global_catalog_query(&self) -> bool {
         self.variables.is_none()
             && self.catalogs.is_none()
-            && self.qualifiers.is_none()
             && self.linters.is_none()
             && (self.lint_rules.is_some_or_all() || self.lint_authorities.is_some_or_all())
     }
@@ -682,7 +647,7 @@ fn top_level_help() -> String {
     out.push('\n');
     for example in [
         "init config",
-        "init config --qualifier premium-users",
+        "init config --variable premium-users",
         "fixtures examples/basic --variable tenant-limits",
         "lint examples/basic",
         "show examples/basic --variables",
@@ -730,11 +695,11 @@ fn top_level_help_template() -> String {
     ));
     out.push_str(&command(
         "show",
-        "Display package config, variables, qualifiers, and lint metadata",
+        "Display package config, variables, catalogs, and lint metadata",
     ));
     out.push_str(&command(
         "resolve",
-        "Evaluate variables or qualifiers with runtime context",
+        "Evaluate variables with runtime context",
     ));
     out.push_str(&command(
         "package",
@@ -845,19 +810,14 @@ fn fixture_generate_selection(args: &FixturesArgs) -> rototo::fixtures::FixtureG
     // With no selector flags at all, generate fixtures for the whole package, the
     // same way `lint`, `show`, and `inspect` treat an empty selector set. Without
     // this default, bare `rototo fixtures` would select nothing and print nothing.
-    let no_selectors = !args.all_variables
-        && args.variables.is_empty()
-        && !args.all_qualifiers
-        && args.qualifiers.is_empty();
+    let no_selectors = !args.all_variables && args.variables.is_empty();
     if no_selectors {
         return rototo::fixtures::FixtureGenerateSelection {
             variables: rototo::fixtures::FixtureTargetSelection::All,
-            qualifiers: rototo::fixtures::FixtureTargetSelection::All,
         };
     }
     rototo::fixtures::FixtureGenerateSelection {
         variables: fixture_target_selection(args.all_variables, &args.variables),
-        qualifiers: fixture_target_selection(args.all_qualifiers, &args.qualifiers),
     }
 }
 
@@ -1026,7 +986,6 @@ async fn run_inspect(
         PackageInspectRequest {
             variables: inspect_selection(&selectors.variables),
             catalogs: inspect_selection(&selectors.catalogs),
-            qualifiers: inspect_selection(&selectors.qualifiers),
             lint_rules: inspect_selection(&selectors.lint_rules),
             lint_authorities: inspect_selection(&selectors.lint_authorities),
             linters: inspect_selection(&selectors.linters),
@@ -1115,23 +1074,6 @@ fn selected_variable_ids(
     }
 }
 
-fn selected_qualifier_ids(
-    inspection: &PackageInspection,
-    selection: &Selection<String>,
-) -> SelectedIds {
-    match selection {
-        Selection::None => SelectedIds::None,
-        Selection::All => SelectedIds::All,
-        Selection::Some(ids) => SelectedIds::Some(ordered_selected_ids(
-            ids,
-            inspection
-                .qualifiers
-                .iter()
-                .map(|qualifier| qualifier.id.as_str()),
-        )),
-    }
-}
-
 fn ordered_selected_ids<'a>(
     ids: &BTreeSet<String>,
     package_order: impl Iterator<Item = &'a str>,
@@ -1170,17 +1112,6 @@ fn validate_package_selectors(
         if !inspection.catalogs.iter().any(|catalog| catalog.id == *id) {
             return Err(RototoError::new(format!(
                 "catalog not found: catalog://{id}"
-            )));
-        }
-    }
-    for id in selectors.qualifiers.explicit_values() {
-        if !inspection
-            .qualifiers
-            .iter()
-            .any(|qualifier| qualifier.id == *id)
-        {
-            return Err(RototoError::new(format!(
-                "qualifier not found: qualifier://{id}"
             )));
         }
     }
@@ -1223,7 +1154,6 @@ fn filter_lint(lint: PackageLint, selectors: &TargetSelectors) -> PackageLint {
 fn diagnostic_matches_selectors(diagnostic: &LintDiagnostic, selectors: &TargetSelectors) -> bool {
     selection_matches_variable(&selectors.variables, diagnostic)
         || selection_matches_catalog(&selectors.catalogs, diagnostic)
-        || selection_matches_qualifier(&selectors.qualifiers, diagnostic)
         || selection_matches_lint_rule(&selectors.lint_rules, diagnostic)
         || selection_matches_lint_authority(&selectors.lint_authorities, diagnostic)
         || selection_matches_linter(&selectors.linters, diagnostic)
@@ -1236,16 +1166,6 @@ fn selection_matches_variable(selection: &Selection<String>, diagnostic: &LintDi
         Selection::Some(ids) => ids
             .iter()
             .any(|id| diagnostic_belongs_to_variable(diagnostic, id)),
-    }
-}
-
-fn selection_matches_qualifier(selection: &Selection<String>, diagnostic: &LintDiagnostic) -> bool {
-    match selection {
-        Selection::None => false,
-        Selection::All => diagnostic_is_qualifier_related(diagnostic),
-        Selection::Some(ids) => ids
-            .iter()
-            .any(|id| diagnostic_belongs_to_qualifier(diagnostic, id)),
     }
 }
 
@@ -1322,20 +1242,6 @@ fn diagnostic_belongs_to_catalog(diagnostic: &LintDiagnostic, id: &str) -> bool 
         || diagnostic.primary.path.starts_with(&catalog_entries_prefix)
 }
 
-fn diagnostic_is_qualifier_related(diagnostic: &LintDiagnostic) -> bool {
-    matches!(
-        diagnostic.target.entity,
-        SemanticEntity::Qualifier { .. } | SemanticEntity::Predicate { .. }
-    ) || diagnostic.primary.path.starts_with("qualifiers/")
-}
-
-fn diagnostic_belongs_to_qualifier(diagnostic: &LintDiagnostic, id: &str) -> bool {
-    let qualifier_path = format!("qualifiers/{id}.toml");
-    matches!(&diagnostic.target.entity, SemanticEntity::Qualifier { id: diagnostic_id } if diagnostic_id == id)
-        || matches!(&diagnostic.target.entity, SemanticEntity::Predicate { qualifier, .. } if qualifier == id)
-        || diagnostic.primary.path == qualifier_path
-}
-
 fn diagnostic_is_linter_related(diagnostic: &LintDiagnostic) -> bool {
     matches!(diagnostic.target.entity, SemanticEntity::CustomLint { .. })
         || diagnostic.primary.path.starts_with("lint/")
@@ -1384,16 +1290,6 @@ async fn show_selected_targets(
         }
         Selection::None => {}
     }
-    match &selectors.qualifiers {
-        Selection::All => print_qualifier_list(inspection, false).await?,
-        Selection::Some(ids) => {
-            for id in ordered_selected_ids(ids, inspection.qualifiers.iter().map(|q| q.id.as_str()))
-            {
-                print_qualifier_get(inspection, &id, false).await?;
-            }
-        }
-        Selection::None => {}
-    }
     print_selected_lint_rules(catalog, selectors, false)?;
     print_selected_linters(inspection, selectors, false)?;
     Ok(())
@@ -1406,7 +1302,6 @@ struct PackageView {
     evaluation_contexts: Vec<PackageFileView>,
     catalogs: Vec<PackageFileView>,
     variables: Vec<PackageFileView>,
-    qualifiers: Vec<PackageFileView>,
     lint_rules: Vec<DiagnosticCatalogEntryView>,
     lint_authorities: Vec<LintAuthorityView>,
     linters: Vec<LinterInspection>,
@@ -1451,11 +1346,6 @@ async fn package_inventory_view(
         catalogs.push(catalog_view(inspection, catalog, false).await?);
     }
 
-    let mut qualifiers = Vec::new();
-    for qualifier in &inspection.qualifiers {
-        qualifiers.push(qualifier_view(inspection, qualifier, false).await?);
-    }
-
     let evaluation_contexts = inspection
         .evaluation_contexts
         .iter()
@@ -1468,7 +1358,6 @@ async fn package_inventory_view(
         evaluation_contexts,
         catalogs,
         variables,
-        qualifiers,
         lint_rules: Vec::new(),
         lint_authorities: package_lint_authorities(catalog),
         linters: inspection.linters.clone(),
@@ -1482,7 +1371,6 @@ async fn selected_package_view(
 ) -> Result<PackageView> {
     let mut variables = Vec::new();
     let mut catalogs = Vec::new();
-    let mut qualifiers = Vec::new();
     let mut lint_rules = selected_lint_rule_entries(catalog, selectors);
     let mut lint_authorities = selected_lint_authorities(catalog, selectors);
     let mut linters = selected_linters(inspection, selectors);
@@ -1516,21 +1404,6 @@ async fn selected_package_view(
         }
         Selection::None => {}
     }
-    match &selectors.qualifiers {
-        Selection::All => {
-            for qualifier in &inspection.qualifiers {
-                qualifiers.push(qualifier_view(inspection, qualifier, false).await?);
-            }
-        }
-        Selection::Some(ids) => {
-            for id in ordered_selected_ids(ids, inspection.qualifiers.iter().map(|q| q.id.as_str()))
-            {
-                let qualifier = qualifier_for_id(inspection, &id)?;
-                qualifiers.push(qualifier_view(inspection, qualifier, true).await?);
-            }
-        }
-        Selection::None => {}
-    }
     if matches!(selectors.lint_rules, Selection::All) {
         lint_rules = catalog.diagnostics.iter().map(catalog_entry_view).collect();
     }
@@ -1547,7 +1420,6 @@ async fn selected_package_view(
         evaluation_contexts: Vec::new(),
         catalogs,
         variables,
-        qualifiers,
         lint_rules,
         lint_authorities,
         linters,
@@ -1593,27 +1465,6 @@ async fn catalog_view(
     })
 }
 
-async fn qualifier_view(
-    inspection: &PackageInspection,
-    qualifier: &QualifierInspection,
-    include_value: bool,
-) -> Result<PackageFileView> {
-    let value = if include_value {
-        Some(
-            serde_json::to_value(read_toml(&inspection.root.join(&qualifier.path)).await?)
-                .map_err(|err| RototoError::new(err.to_string()))?,
-        )
-    } else {
-        None
-    };
-    Ok(PackageFileView {
-        id: qualifier.id.clone(),
-        uri: qualifier.uri.clone(),
-        path: qualifier.path.display().to_string(),
-        value,
-    })
-}
-
 fn evaluation_context_view(evaluation_context: &EvaluationContextInspection) -> PackageFileView {
     PackageFileView {
         id: evaluation_context.id.clone(),
@@ -1652,20 +1503,6 @@ fn print_package_view(command: &str, view: &PackageView, json: bool) -> Result<(
                 "  {}  {}",
                 style::sea(&evaluation_context.id),
                 style::dim(&evaluation_context.path)
-            );
-        }
-    }
-    if !view.qualifiers.is_empty() {
-        println!(
-            "{} {}",
-            style::label("qualifiers"),
-            style::bold(&view.qualifiers.len().to_string())
-        );
-        for qualifier in &view.qualifiers {
-            println!(
-                "  {}  {}",
-                style::sea(&qualifier.id),
-                style::dim(&qualifier.path)
             );
         }
     }

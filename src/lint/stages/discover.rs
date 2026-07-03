@@ -71,9 +71,6 @@ pub(super) async fn run(ctx: &mut LintContext) -> Result<()> {
     }
 
     ctx.source
-        .add_named_toml_documents("qualifiers", DocumentCollection::Qualifiers)
-        .await?;
-    ctx.source
         .add_named_toml_documents("variables", DocumentCollection::Variables)
         .await?;
     ctx.source.add_catalog_documents().await?;
