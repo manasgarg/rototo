@@ -197,7 +197,9 @@ anything), plus `--context`.
 The human output walks the resolution pathway: each rule prints as
 `rule[N] if <condition> -> <value> (matched|skipped)`, then the default, then
 the result with its source. A condition variable reads the same way - its value
-just happens to be `true` or `false`.
+just happens to be `true` or `false`. An allocation-backed variable prints its
+assignment instead of rules, e.g.
+`allocation checkout/cta_copy_test -> bucket 967 -> arm benefit_led`.
 
 The `--json` output is the stable interface for tests. A variable resolution
 gives you the chosen `value`, where it came from (`source`), and - handy for

@@ -106,12 +106,20 @@ roughly where a finding is coming from.
   entries, enum-backed variables use declared enums and stay inside the member
   set, and rule `when` expressions reference real variables and declared
   context paths with the right types. This group also flags variables whose
-  references form a cycle. (e.g. `rototo/variable-value-type-mismatch`,
+  references form a cycle. Allocation-backed variables (`method =
+  "allocation"`) name a real allocation and cover its arms exactly. (e.g.
+  `rototo/variable-value-type-mismatch`,
   `rototo/variable-rule-unknown-variable`, `rototo/variable-unknown-enum`,
-  `rototo/variable-reference-cycle`)
+  `rototo/variable-reference-cycle`, `rototo/variable-unknown-allocation`,
+  `rototo/variable-allocation-shape`)
 - **Variable rules** - warnings about rules that can never fire because an
   earlier rule shadows them, or rules that just re-select the default anyway.
   (e.g. `rototo/variable-rule-shadowed`)
+- **Layers** - each layer file under `layers/` parses, declares
+  `schema_version = 1`, has a valid `unit` and `buckets`, and its allocations
+  are well-shaped, with arms across the whole layer claiming disjoint buckets.
+  (e.g. `rototo/layer-parse-failed`, `rototo/layer-schema-version`,
+  `rototo/layer-shape`, `rototo/layer-bucket-overlap`)
 - **Catalogs** - schemas are valid JSON Schema, and any UI widget hints make
   sense for the property they're on. (e.g. `rototo/catalog-schema-invalid`)
 - **Catalog entries** - each entry parses, validates against its catalog's

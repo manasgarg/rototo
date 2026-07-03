@@ -9,6 +9,8 @@ Here's the one-line version of each concept:
 - **Rule**: a conditional value for a variable. Each rule says "when this condition holds, use this value."
 - **Condition variable**: a bool variable that gives a runtime condition a name, so many other variables can reuse it.
 - **Catalog**: a named set of allowed values a variable can pick from. Handy for objects that follow a schema (LLM parameters, say).
+- **Layer**: a stable line of buckets that units (users, say) hash onto, for rollouts and experiments.
+- **Allocation**: a named claim on a layer's buckets, divided among arms. Variables read it so an experiment's variables all see one assignment.
 - **Enum**: a named closed set of scalar values. It answers "is this value one of the allowed ones?" when a full catalog would be too heavy.
 - **Context**: the runtime facts the application hands in.
 - **Schema**: validation for package structure, context, catalog entries, or selected values.
@@ -165,7 +167,7 @@ Condition variables can also build on other condition variables, so the package 
 
 ## The expression language
 
-The strings in `when` (and a catalog query's `filter` and `sort`) aren't some bespoke Rototo syntax. They're a subset of [CEL](https://cel.dev), the Common Expression Language. CEL is a small, well-specified, side-effect-free language built for exactly this job: evaluating a boolean (or a value) against a structured input, safely and predictably. Reusing it means the syntax is already documented and stable, and the evaluation holds no surprises - no loops, no assignment, no I/O.
+The strings in `when` (and a catalog query's `filter` and `sort`, a layer's `unit`, and an allocation's `eligibility`) aren't some bespoke Rototo syntax. They're a subset of [CEL](https://cel.dev), the Common Expression Language. CEL is a small, well-specified, side-effect-free language built for exactly this job: evaluating a boolean (or a value) against a structured input, safely and predictably. Reusing it means the syntax is already documented and stable, and the evaluation holds no surprises - no loops, no assignment, no I/O.
 
 Rototo evaluates these expressions and adds two things on top of plain CEL. First, four input roots are always in scope. `context` is the runtime facts the application passes in. `entry` is the catalog entry under consideration in a query `filter` or `sort`. `variables` reads another variable's resolved value - `variables["enterprise_account"]` is how a rule leans on a condition variable; the referenced variable resolves lazily and is memoized for the rest of that resolution. And `env` is everything Rototo itself provides - kept separate so that what the application supplies (`context`) stays visibly distinct from what the control plane supplies. Today `env` has one member you can use in rules: `env.now`, the evaluation timestamp, an RFC3339 string Rototo captures once per resolution. Second, a set of named functions that configuration conditions keep reaching for - things like `startsWith`, `matches`, `semver`, `cidr`, `bucket`, and the `timeBefore`/`timeBetween` family. So a `when` expression is ordinary CEL - `==`, `&&`, `in`, `has()`, indexing, comparisons - against those roots, plus those functions.
 
@@ -296,6 +298,73 @@ When the application resolves this variable, Rototo runs the `filter` against ea
 That gives the application a reviewed, validated set of dropdown options without hardcoding the choices in the UI. Rototo owns which entries exist and which are enabled; the application owns how to render the list it gets back.
 
 The same shape works when the application wants exactly one entry, because "which entry applies" is often a data question rather than a rule-list question: pick the pricing plan whose tier matches `context.account.tier`, or the highest-priority enabled banner. Give the variable `type = "catalog:<id>"` instead of the list type and add a `sort`, and the top entry wins - "the best match" expressed once, instead of one rule per entry. Without a `sort`, the filter has to match exactly one entry, or resolution errors rather than guessing.
+
+## Layers and Allocations
+
+So far every value has been a function of the context: same facts in, same value out. But two common situations need something else - an assignment.
+
+The first is a gradual rollout. You want the new checkout behavior for 20% of users, and you want the *same* 20% on every request. If a user flips between old and new behavior as they click around, you can't trust anything the rollout tells you. And when you grow 20% to 50%, that should be a package edit under review, not a redeploy.
+
+The second is an experiment. You're testing two versions of the checkout copy, and the experiment usually drives several variables at once - the copy, the layout, the CTA. Each of those variables has to read the *same* assignment for a given user. If each one hashed the user on its own, someone could get the new layout with the old copy, and your results would be measuring a combination nobody designed.
+
+Both need a deterministic, shared assignment of each unit (usually a user) to a variant. That's what a **layer** provides. A layer hashes each unit to a stable position on a line of buckets; that position never moves. An **allocation** claims a set of those buckets and divides them among **arms**. Allocations in one layer claim disjoint buckets, so a unit is in at most one of them. Different layers are independent lines, safe to overlap, because each layer's allocations drive different variables. A rollout and an experiment are the same shape used differently: one arm growing versus two arms splitting.
+
+A layer is one file under `layers/`. Here's `layers/checkout.toml`:
+
+```toml
+schema_version = 1
+description = "Checkout page experiments, diverted by user id"
+unit = "context.user.id"
+buckets = 1000
+
+[[allocation]]
+id = "cta_copy_test"
+status = "running"
+eligibility = '!variables["enterprise_accounts"]'
+
+[[allocation.arm]]
+name = "control"
+buckets = "0-499"
+
+[[allocation.arm]]
+name = "benefit_led"
+buckets = "500-999"
+```
+
+The `unit` expression says what gets hashed - here, the user id from the context. The layer has 1000 buckets, and the `cta_copy_test` allocation claims all of them: buckets 0 through 499 are the `control` arm, 500 through 999 are `benefit_led`. The `eligibility` gate keeps enterprise accounts out entirely, leaning on a condition variable the package already has.
+
+A variable joins the experiment with the third resolve method, `method = "allocation"`. Here's `variables/checkout_cta_copy.toml`:
+
+```toml
+schema_version = 1
+description = "Call-to-action copy on the checkout button"
+type = "string"
+
+[resolve]
+method = "allocation"
+allocation = "cta_copy_test"
+default = "Place order"
+
+[[resolve.assign]]
+arm = "control"
+value = "Place order"
+
+[[resolve.assign]]
+arm = "benefit_led"
+value = "Place order, arrives in 2 days"
+```
+
+One `[[resolve.assign]]` per arm, and a required `default` for everyone the allocation doesn't cover: ineligible users, unclaimed buckets, or an allocation whose `status` is draft or concluded. A second variable in the same experiment - the layout, say - would name the same allocation and pick its own values per arm, and every user would land on the same arm in both.
+
+The trace shows exactly what happened. Resolve with a context and the pathway includes the assignment:
+
+```text
+allocation checkout/cta_copy_test -> bucket 967 -> arm benefit_led
+```
+
+The hash is deterministic and stable across Rototo releases, so bucket 967 is where that user id lives in the `checkout` layer, forever. Growing a rollout means widening an arm's bucket range in a reviewed package edit. Concluding an experiment means flipping `status` to `"concluded"` (everyone gets the default) or shipping the winning value as the new default - also package edits.
+
+The boundary to hold: Rototo's job is assignment - deterministic, reproducible, recorded in the trace. Exposure logging ("this user saw this arm") belongs to the consuming application or SDK; analysis of the results belongs to your analytics stack. The loop is: Rototo assigns, the app exposes, analysis picks a winner, a package edit ships it.
 
 ## Enum
 
@@ -506,7 +575,7 @@ Lint is where the package model comes together. Variables define what applicatio
 
 ## Putting It Together
 
-A Rototo package is the unit that gets reviewed and released. Inside it, variables define the values applications ask for, rules choose values for runtime situations, condition variables give shared conditions a name, catalogs hold structured reusable values, context carries runtime facts from the application, schemas define the contracts, and lint checks that the whole thing is releasable.
+A Rototo package is the unit that gets reviewed and released. Inside it, variables define the values applications ask for, rules choose values for runtime situations, condition variables give shared conditions a name, catalogs hold structured reusable values, layers and allocations assign units to rollout and experiment arms, context carries runtime facts from the application, schemas define the contracts, and lint checks that the whole thing is releasable.
 
 At runtime, the application doesn't read individual TOML or JSON files. It loads a package source and resolves named variables with context:
 

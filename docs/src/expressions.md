@@ -1,9 +1,11 @@
 # The Expression Language
 
-Two places in a package ask a question about the runtime: a variable rule's
-`when` ("does this rule apply?") and a catalog query's `filter` ("does this
-entry belong in the result?"). Both are written in the same little expression
-language, and this page is the whole language in one sitting.
+A few places in a package ask a question about the runtime: a variable rule's
+`when` ("does this rule apply?"), a catalog query's `filter` ("does this
+entry belong in the result?"), a layer's `unit` ("what value do we hash for
+this request?"), and an allocation's `eligibility` ("is this unit enrolled?").
+All of them are written in the same little expression language, and this page
+is the whole language in one sitting.
 
 If you've ever written a CEL expression, this will feel familiar - it *is* a
 subset of CEL under the hood. But you don't need to know CEL to read on. The
@@ -179,9 +181,15 @@ The `salt` is what lets you run independent rollouts. Change the salt and you ge
 a fresh, unrelated 10% - so two different features rolling out to "10%" don't
 hit the exact same users.
 
+`bucket` is the inline form, good for a one-off condition inside a single
+rule. When several variables need to read one shared assignment - an
+experiment driving the layout, the copy, and the CTA together - that's a layer
+and `method = "allocation"`, covered below and on the
+[concepts page](./concepts.md).
+
 ## Queries: picking catalog entries with an expression
 
-The last place expressions show up is a catalog query - a variable whose
+Expressions also show up in a catalog query - a variable whose
 `[resolve]` block declares `method = "query"` and reads its value straight out
 of a catalog's entries. Which entries match is often a fact the entries
 already carry, so instead of hardcoding the answer in the variable, the query's
@@ -213,6 +221,32 @@ expression language's side there are just two slots: `filter` asks a question
 like a `when` does, `sort` produces a value. Both read the same roots
 (`context`, `entry`, `variables[...]`, `env.now`) and use all the same
 operators and functions - the only new thing is that `entry` is now in play.
+
+## Layers: `unit` and `eligibility`
+
+The last two slots live in a layer file - the shared bucket lines behind
+`method = "allocation"` variables (the [concepts page](./concepts.md) tells
+that story). A layer has a `unit` expression, and each of its allocations can
+have an `eligibility` expression:
+
+```toml
+unit = "context.user.id"
+
+[[allocation]]
+id = "cta_copy_test"
+eligibility = '!variables["enterprise_accounts"]'
+```
+
+`unit` produces the value that gets hashed onto the layer's buckets - usually
+a stable id. It may read `context` only: no `variables`, no `entry`. That
+restriction is what keeps assignment a pure function of the request, so the
+same user lands on the same bucket every time.
+
+`eligibility` asks a question like a `when` does: is this unit enrolled in the
+allocation at all? It can read `context` and `variables[...]` - handy for
+keeping a whole named condition's worth of users out of an experiment - but
+not `entry`. There's no catalog entry in play here, so `entry` doesn't exist,
+same as outside a query.
 
 ## A note on stability
 

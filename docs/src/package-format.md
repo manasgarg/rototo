@@ -20,6 +20,8 @@ my-package/
 ├── variables/                       # the values your app reads
 │   ├── premium_users.toml
 │   └── checkout_redesign.toml
+├── layers/                          # shared bucket lines for rollouts and experiments
+│   └── checkout.toml
 ├── model/                           # contracts: what values must look like
 │   ├── catalogs/
 │   │   └── checkout_redesign.schema.json
@@ -141,10 +143,12 @@ The fields:
 - `type` - required. What kind of value this is (next section).
 - `[resolve]` - required. Holds an optional `method`, the `default`, and the
   rules.
-- `method` - optional, `"rules"` or `"query"`. Absent means `"rules"`: the
-  first matching rule's value wins, else the default. `"query"` swaps the
-  rules for a catalog query; the fields for that live in
+- `method` - optional, `"rules"`, `"query"`, or `"allocation"`. Absent means
+  `"rules"`: the first matching rule's value wins, else the default. `"query"`
+  swaps the rules for a catalog query; the fields for that live in
   [Catalog queries](#catalog-queries-picking-entries-from-data) below.
+  `"allocation"` swaps them for an arm assignment from a layer; see
+  [Layers](#layers-shared-assignment-for-rollouts-and-experiments) below.
 - `default` - required under the rules method.
 - `[[resolve.rule]]` - zero or more. Each has a `when` condition and a `value`.
 
@@ -353,9 +357,144 @@ What the query produces depends on the variable's type:
   matching several is a resolution error (add a `sort` or narrow the filter).
   No matches means the `default` if you declared one, otherwise an error.
 
-The two methods don't mix. `method = "query"` must not declare
+Methods don't mix. `method = "query"` must not declare
 `[[resolve.rule]]` tables, and the query keys are rejected under the rules
 method. Lint enforces all of this shape as `rototo/variable-query-shape`.
+
+## Layers: shared assignment for rollouts and experiments
+
+Rolling a change out to 20% of users, or A/B testing two versions of the
+checkout copy, needs a deterministic answer to "which variant does this user
+get?" - the same answer on every request, and the same answer for every
+variable the experiment drives. If the layout, the copy, and the CTA each
+hashed the user independently, one user could see the new layout with the old
+copy. That's why the assignment is a shared, named thing in the package - an
+**allocation** inside a **layer** - and not a per-variable setting.
+
+The mental model: a layer hashes each unit (say, `context.user.id`) to a
+stable position on a line of buckets, and that position never moves. An
+allocation claims a set of those buckets and divides them among **arms**.
+Allocations in one layer claim disjoint buckets, so a unit sits in at most one
+of them. Different layers are independent lines - it's safe for the same user
+to be in an experiment in two different layers, because each layer's
+allocations drive different variables. A rollout and an experiment are the
+same shape used differently: a rollout is one arm growing its bucket range, an
+experiment is two or more arms splitting one.
+
+### The layer file
+
+Each layer is one TOML file under `layers/`, and as usual the file stem is the
+layer's id (snake_case). Here's `layers/checkout.toml` from `examples/basic`:
+
+```toml
+schema_version = 1
+description = "Checkout page experiments, diverted by user id"
+unit = "context.user.id"
+buckets = 1000
+
+[[allocation]]
+id = "cta_copy_test"
+status = "running"
+eligibility = '!variables["enterprise_accounts"]'
+
+[[allocation.arm]]
+name = "control"
+buckets = "0-499"
+
+[[allocation.arm]]
+name = "benefit_led"
+buckets = "500-999"
+```
+
+The layer-level fields:
+
+- `schema_version` - always `1` (`rototo/layer-schema-version` if it isn't).
+- `description` - optional, recommended.
+- `unit` - required. A CEL [expression](./expressions.md) over `context` that
+  produces the value to hash - usually a stable id like the user id. It reads
+  `context` only: no `variables`, no `entry`.
+- `buckets` - required. A positive integer, the length of the line. Buckets
+  are numbered `0` to `buckets - 1`.
+
+Then each `[[allocation]]`:
+
+- `id` - required. Unique across **all** layers, not just this one, because a
+  variable names its allocation without a layer qualifier.
+- `status` - optional, one of `"draft"`, `"running"`, or `"concluded"`.
+  Defaults to `"running"`. Only a running allocation assigns arms; while an
+  allocation is draft or concluded, every unit resolves to the variable's
+  default. That makes concluding an experiment a package edit, not a scramble.
+- `eligibility` - optional. A boolean expression deciding who is enrolled at
+  all. It can read `context` and `variables[...]` - so a condition variable
+  like `enterprise_accounts` can keep a whole class of accounts out of an
+  experiment - but not `entry`.
+
+And each `[[allocation.arm]]`:
+
+- `name` - required, snake_case, unique within the allocation.
+- `buckets` - required. An inclusive range string like `"0-499"`, or a single
+  bucket like `"7"`.
+
+Arms across all allocations in a layer must claim disjoint buckets -
+`rototo/layer-bucket-overlap` if two claims collide. Buckets nobody claims are
+fine; a unit landing there is simply in no allocation. A file that doesn't
+parse is `rototo/layer-parse-failed`, and anything else structurally off
+(a missing `unit`, a zero `buckets`, a malformed range, a duplicate arm name)
+is `rototo/layer-shape`.
+
+### The variable side: `method = "allocation"`
+
+A variable joins an allocation by declaring the third resolve method. Here's
+`variables/checkout_cta_copy.toml`:
+
+```toml
+schema_version = 1
+description = "Call-to-action copy on the checkout button"
+type = "string"
+
+[resolve]
+method = "allocation"
+allocation = "cta_copy_test"
+default = "Place order"
+
+[[resolve.assign]]
+arm = "control"
+value = "Place order"
+
+[[resolve.assign]]
+arm = "benefit_led"
+value = "Place order, arrives in 2 days"
+```
+
+- `allocation` - required, the id of exactly one allocation. Since allocation
+  ids are globally unique, this also pins the variable to exactly one layer.
+  An id no layer declares is `rototo/variable-unknown-allocation`.
+- `default` - **required**. Any unit that doesn't get an arm - ineligible, in
+  an unclaimed bucket, or in a draft or concluded allocation - resolves to it.
+- `[[resolve.assign]]` - exactly one per arm of the allocation. Each has the
+  `arm` name and the `value` that arm assigns. A missing arm, a stray arm the
+  allocation doesn't declare, or a duplicate is `rototo/variable-allocation-shape`.
+
+Assign values are type-checked against the variable's declared `type`, exactly
+like rule values. And as with queries, methods don't mix: `method =
+"allocation"` must not declare `[[resolve.rule]]` tables or query keys.
+
+At resolve time, rototo evaluates the layer's `unit` expression against the
+caller's context, hashes the result (FNV-1a, salted with the layer id, so it's
+deterministic and stable across rototo releases), and lands on a bucket. If the
+allocation is running and the unit passes `eligibility`, the arm claiming that
+bucket assigns its value. The resolution trace records the layer, the
+allocation, enrollment, the bucket, and the arm, and `rototo resolve` prints
+the assignment in the pathway:
+
+```text
+allocation checkout/cta_copy_test -> bucket 967 -> arm benefit_led
+```
+
+One boundary worth stating: rototo's job here is assignment - deterministic,
+reproducible, recorded in the trace. Exposure logging ("unit U saw arm A")
+belongs to the consuming app or SDK, and shipping the winning arm is a package
+edit, not runtime state.
 
 ## Enums: closed sets of scalar values
 
