@@ -25,12 +25,11 @@ $> tree app-config
 app-config
 ├── rototo-package.toml
 ├── evaluation-contexts
-├── qualifiers
 └── variables
     └── free-shipping-threshold.toml
 ├── catalogs
 ├── lint
-6 directories, 2 files
+5 directories, 2 files
 ```
 
 We explain the package model in [Rototo Concepts](docs/src/concepts.md). For now, we would focus on the variable `free-shipping-threshold`. Replace the contents of `free-shipping-threshold.toml` with the following:

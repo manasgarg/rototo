@@ -1,9 +1,9 @@
 # The Expression Language
 
-Two places in a package ask a question about the runtime: a qualifier's `when`
-("is this a premium user?") and a variable rule's `when` or `query` ("does this
-rule apply?"). Both are written in the same little expression language, and this
-page is the whole language in one sitting.
+Two places in a package ask a question about the runtime: a variable rule's
+`when` ("does this rule apply?") and a rule's `query` ("which catalog entries
+belong in this list?"). Both are written in the same little expression
+language, and this page is the whole language in one sitting.
 
 If you've ever written a CEL expression, this will feel familiar - it *is* a
 subset of CEL under the hood. But you don't need to know CEL to read on. The
@@ -14,13 +14,13 @@ expressions look a lot like a condition in any programming language: comparisons
 when = '(context.user.tier == "premium")'
 ```
 
-That's a real qualifier condition. It reads "the user's tier is premium," and
-when that's true, the qualifier matches. Let's unpack what an expression can
-actually reach.
+That's a real rule condition. It reads "the user's tier is premium," and when
+that's true, the rule matches. Let's unpack what an expression can actually
+reach.
 
-## The three things an expression can read
+## The four things an expression can read
 
-An expression can only look at three roots. That's it - three names, and
+An expression can only look at four roots. That's it - four names, and
 everything hangs off them. Keeping the list short is what makes expressions easy
 to reason about and easy for lint to check.
 
@@ -51,27 +51,40 @@ query = "entry.enabled == true"
 
 Outside of a query, `entry` doesn't exist - there's no entry to talk about.
 
+### `variables` - other variables' resolved values
+
+`variables` reads the resolved value of *another* variable, by its id. Write it
+with a dot (`variables.premium`) or with brackets when the id has hyphens
+(`variables["premium-users"]`).
+
+This is how a named condition gets reused. Define the condition once as a bool
+variable (a "condition variable": `type = "bool"`, default `false`, a rule that
+sets it `true`), and every other rule can lean on it by name:
+
+```toml
+when = '(variables["premium-users"]) && (variables["beta-rollout-bucket"])'
+```
+
+The referenced variable resolves lazily, against the same context, and the
+result is memoized for the rest of that one resolution - so ten rules reading
+`variables["premium-users"]` cost one evaluation, and they all see the same
+answer. A chain of variables referencing each other is fine; a *cycle* is not.
+Lint catches cycles at edit time (`rototo/variable-reference-cycle`), and
+resolution refuses them too.
+
 ### `env` - what rototo provides
 
 `env` is the stuff rototo fills in for you. It has a small, fixed set of members:
-
-- **`env.qualifier["<id>"]`** - the yes/no result of *another* qualifier, by its
-  id. This is how qualifiers build on each other:
-
-  ```toml
-  when = '(env.qualifier["premium-users"]) && (env.qualifier["beta-rollout-bucket"])'
-  ```
 
 - **`env.now`** - the current time, as an RFC3339 string. It's captured once at
   the start of a resolution, so every mention of `env.now` in that one
   resolution sees the exact same instant. No risk of two checks disagreeing
   because a millisecond ticked over.
 
-- **`env.resolving.variable`** and **`env.resolving.qualifier`** - the id of
-  whatever's being resolved right now (one will be set, the other null). These
-  are special: they *only* work inside a `[[trace]]` policy in the manifest. A
-  qualifier or a rule can't read them, and that's deliberate - a condition has to
-  be a function of the request, not of who happens to be asking.
+- **`env.resolving.variable`** - the id of the variable being resolved right
+  now. This one is special: it *only* works inside a `[[trace]]` policy in the
+  manifest. A rule can't read it, and that's deliberate - a condition has to be
+  a function of the request, not of who happens to be asking.
 
   ```toml
   [[trace]]
@@ -80,10 +93,12 @@ Outside of a query, `entry` doesn't exist - there's no entry to talk about.
 
 ### What you can't read
 
-Anything outside those three roots is rejected at lint time. Two cases come up
+Anything outside those four roots is rejected at lint time. Two cases come up
 most:
 
-- The old bare `qualifier["id"]` form. It's gone - write `env.qualifier["id"]`.
+- The retired qualifier spellings, `qualifier["id"]` and `env.qualifier["id"]`.
+  Qualifiers were dissolved into condition variables - write
+  `variables["id"]` instead, and lint's error points you there.
 - Made-up `env` members like `env.region` or a typo like `env.noww`. If it isn't
   one of the members above, lint stops you.
 
@@ -171,13 +186,13 @@ them, and rototo keeps every entry the query says yes to.
 
 ```toml
 [[resolve.rule]]
-query = "entry.channel == context.channel && entry.active == true && env.qualifier[\"premium\"]"
+query = 'entry.channel == context.channel && entry.active == true && variables["premium-users"]'
 ```
 
 rototo runs that expression once per catalog entry. For each entry, `entry` is
-that entry, `context` and `env` are the same as everywhere else, and if the whole
-thing comes out true, the entry makes the list. The result is every matching
-entry, in order.
+that entry, `context`, `variables`, and `env` are the same as everywhere else,
+and if the whole thing comes out true, the entry makes the list. The result is
+every matching entry, in order.
 
 A simpler one:
 
@@ -186,7 +201,7 @@ query = "entry.enabled == true"
 ```
 
 That's "give me every enabled entry." Queries read the same roots as a `when`
-(`context`, `entry`, `env.qualifier[...]`, `env.now`) and use all the same
+(`context`, `entry`, `variables[...]`, `env.now`) and use all the same
 operators and functions - the only new thing is that `entry` is now in play.
 
 ## A note on stability

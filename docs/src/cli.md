@@ -12,7 +12,7 @@ rototo <verb> [package-source] [selectors] [flags]
 
 A **verb** says what to do (`lint`, `resolve`, `show`…). The **package source**
 says which package to do it to. **Selectors** narrow it down to specific
-variables or qualifiers. And a few **flags** work everywhere. Let's cover the
+variables or catalogs. And a few **flags** work everywhere. Let's cover the
 things that are shared first, then go command by command.
 
 ## The package argument
@@ -60,15 +60,14 @@ The full set of selectors:
 | Singular (repeatable) | Plural (all) | Picks |
 | --- | --- | --- |
 | `--variable <id>` | `--variables` | variables |
-| `--qualifier <id>` | `--qualifiers` | qualifiers |
 | `--catalog <id>` | `--catalogs` | catalogs |
 | `--lint-rule <authority/rule>` | `--lint-rules` | diagnostic rules |
 | `--lint-authority <authority>` | `--lint-authorities` | lint authorities |
 | `--linter <id>` | `--linters` | your Lua linters |
 
 Not every command takes every selector - `resolve` and `fixtures`, for instance,
-only deal in variables and qualifiers, because resolving a catalog or a lint rule
-doesn't mean anything. The per-command sections below say which ones apply.
+only deal in variables, because resolving a catalog or a lint rule doesn't mean
+anything. The per-command sections below say which ones apply.
 
 ## Context inputs
 
@@ -100,14 +99,13 @@ argument is a local path (not a source).
 ```sh
 rototo init app-config                              # a fresh, empty package
 rototo init app-config --variable free-shipping     # + a variable template
-rototo init app-config --qualifier premium-users    # + a qualifier template
 rototo init app-config --catalog checkout-redesign  # + a catalog template
 rototo init app-config --evaluation-context         # + an evaluation context
 rototo init app-config --evaluation-context request # named "request"
 ```
 
-Each `--qualifier`, `--variable`, `--catalog`, and `--evaluation-context` takes
-the id to create. `--evaluation-context` is special: give it a name, or leave the
+Each `--variable`, `--catalog`, and `--evaluation-context` takes the id to
+create. `--evaluation-context` is special: give it a name, or leave the
 name off and it creates `evaluation-contexts/evaluation.schema.json`.
 
 Useful extras:
@@ -149,9 +147,9 @@ An empty `diagnostics` list means a clean package.
 ## show - a readable inventory
 
 `show` is the quick "what's in here?" It lists the package's variables,
-qualifiers, catalogs, and lint metadata in an easy-to-read form. Reach for it
-when you want to confirm a file you edited actually became the variable or
-qualifier you intended.
+catalogs, and lint metadata in an easy-to-read form. Reach for it when you want
+to confirm a file you edited actually became the variable or catalog you
+intended.
 
 ```sh
 rototo show app-config
@@ -171,7 +169,7 @@ the model still lines up with those edits.
 
 ```sh
 rototo inspect app-config --variable checkout-redesign
-rototo inspect app-config --qualifier premium-users
+rototo inspect app-config --variable premium-users
 rototo inspect app-config --context user.tier=premium
 ```
 
@@ -181,20 +179,25 @@ specific facts), and `--json`.
 ## resolve - evaluate against real facts
 
 `resolve` is where you test behavior. Hand it a context and it tells you what a
-variable or qualifier actually comes out to. This is also the command CI leans on
-to protect the cases that must never drift.
+variable actually comes out to. This is also the command CI leans on to protect
+the cases that must never drift.
 
 ```sh
 # a variable, against a sample context
 rototo resolve app-config --variable checkout-redesign \
   --context @app-config/evaluation-contexts/request-samples/premium.json
 
-# a qualifier, against an inline fact
-rototo resolve app-config --qualifier premium-users --context user.tier=premium
+# a condition variable, against an inline fact
+rototo resolve app-config --variable premium-users --context user.tier=premium
 ```
 
-It only takes the variable and qualifier selectors (resolving a catalog or rule
-doesn't mean anything), plus `--context`.
+It only takes the variable selectors (resolving a catalog or rule doesn't mean
+anything), plus `--context`.
+
+The human output walks the resolution pathway: each rule prints as
+`rule[N] if <condition> -> <value> (matched|skipped)`, then the default, then
+the result with its source. A condition variable reads the same way - its value
+just happens to be `true` or `false`.
 
 The `--json` output is the stable interface for tests. A variable resolution
 gives you the chosen `value`, where it came from (`source`), and - handy for
@@ -212,21 +215,10 @@ debugging - the default and every rule that was considered:
       },
       "default_value": { "variant": "control" },
       "default_source": { "kind": "catalog", "catalog": "checkout-redesign", "value": "control" },
-      "rules": [ { "index": 0, "condition": "env.qualifier[\"premium-users\"]", "value": { } } ]
+      "rules": [
+        { "index": 0, "condition": "variables[\"premium-users\"]", "value": { }, "matched": true }
+      ]
     }
-  ],
-  "qualifiers": []
-}
-```
-
-A qualifier resolution is simpler - its `value` is just true or false:
-
-```json
-{
-  "package": "app-config",
-  "variables": [],
-  "qualifiers": [
-    { "id": "premium-users", "when": "(context.user.tier == \"premium\")", "value": true }
   ]
 }
 ```
@@ -237,9 +229,9 @@ entry, or `catalog_list` for a `list<catalog:...>` query result.
 ## diff - what changed, behaviorally
 
 A file diff shows *what* changed in the TOML. `diff` shows what that change
-*does* - which variable now picks a different value, which qualifier started
-matching. The argument is a local path, because it works across git refs of that
-checkout.
+*does* - which variable now picks a different value, which condition variable
+started coming out true. The argument is a local path, because it works across
+git refs of that checkout.
 
 ```sh
 # working tree vs HEAD (the default)
@@ -265,11 +257,11 @@ to turn "here's how this behaves" into something concrete.
 
 ```sh
 rototo fixtures app-config --variables
-rototo fixtures app-config --variable checkout-redesign --qualifiers
+rototo fixtures app-config --variable checkout-redesign
 rototo fixtures app-config --variables --context-form json
 ```
 
-Takes the variable and qualifier selectors. The one extra flag:
+Takes the variable selectors. The one extra flag:
 
 - **`--context-form path|json`** - how the printed context looks. `path` (the
   default) breaks it into `--context a.b=value` arguments; `json` emits a single

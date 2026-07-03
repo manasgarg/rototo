@@ -149,7 +149,7 @@ rototo_rules! {
         id: "trace-when-invalid-reference",
         entity: Package,
         title: "Trace policy when references an unknown identifier",
-        help: "Trace when reads context.<path>, env.qualifier[\"<id>\"], env.now, and env.resolving.variable / env.resolving.qualifier.",
+        help: "Trace when reads context.<path>, variables[\"<id>\"], env.now, and env.resolving.variable.",
     },
     PackageContextSchemaRef => {
         id: "package-context-schema-ref",
@@ -459,7 +459,7 @@ rototo_rules! {
         id: "variable-rule-invalid-reference",
         entity: Rule,
         title: "Variable rule references an identifier rototo does not provide",
-        help: "Expressions read context.<path>, entry.<path> (in queries), env.qualifier[\"<id>\"], and env.now. Reference qualifiers as env.qualifier[\"<id>\"].",
+        help: "Expressions read context.<path>, entry.<path> (in queries), variables[\"<id>\"], and env.now. Reference other variables as variables[\"<id>\"].",
     },
     VariableRuleContextPathTypeMismatch => {
         id: "variable-rule-context-path-type-mismatch",

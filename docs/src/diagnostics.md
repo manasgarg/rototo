@@ -7,7 +7,7 @@ and how your own custom checks fit in alongside them.
 
 The thing to hold onto: lint isn't a smoke test that just says "looks fine." It
 actually understands rototo's model - that a variable's type matches its values,
-that a qualifier references a real qualifier, that a catalog entry fits its
+that a rule references a real variable, that a catalog entry fits its
 schema - and each kind of problem has its own stable name you can point at.
 
 ## What a diagnostic looks like
@@ -37,7 +37,7 @@ hyphenated name:
 
 ```text
 rototo/variable-unknown-value
-rototo/qualifier-when-missing
+rototo/variable-reference-cycle
 rototo/catalog-entry-schema-mismatch
 ```
 
@@ -93,16 +93,12 @@ roughly where a finding is coming from.
 - **Evaluation contexts** - context schemas are valid JSON Schema, don't use
   reserved fields, and every sample matches its schema. (e.g.
   `rototo/evaluation-context-sample-schema-mismatch`)
-- **Qualifiers** - they parse, declare a version, have a `when`, and that `when`
-  only references real qualifiers and declared context paths with the right
-  types. This group also flags qualifiers that form a cycle, and warns about ones
-  nothing uses. (e.g. `rototo/qualifier-when-unknown-qualifier`,
-  `rototo/qualifier-cycle`, `rototo/qualifier-unreferenced`)
 - **Variables** - they parse, declare a `type` and a `[resolve]` default, their
   values match the declared type, catalog-backed variables point at real catalog
-  entries, and rule `when` expressions reference real qualifiers and context
-  paths. (e.g. `rototo/variable-value-type-mismatch`,
-  `rototo/variable-unknown-value`, `rototo/variable-resolve-missing-default`)
+  entries, and rule `when` expressions reference real variables and declared
+  context paths with the right types. This group also flags variables whose
+  references form a cycle. (e.g. `rototo/variable-value-type-mismatch`,
+  `rototo/variable-rule-unknown-variable`, `rototo/variable-reference-cycle`)
 - **Variable rules** - warnings about rules that can never fire because an
   earlier rule shadows them, or rules that just re-select the default anyway.
   (e.g. `rototo/variable-rule-shadowed`)
@@ -116,19 +112,25 @@ roughly where a finding is coming from.
 A good rule of thumb: if the rule name starts with the thing you just edited, the
 finding is about that thing.
 
+One historical note: earlier rototo versions had a separate qualifier entity
+with its own `rototo/qualifier-*` rules. Qualifiers were dissolved into
+condition variables (plain bool variables), so those rule ids are retired: they
+no longer fire, they don't appear in the catalog, and they stay reserved rather
+than being reused for something new.
+
 ## Errors versus warnings
 
 There are only two severities, and the line between them is simple.
 
 An **error** means the package can't be trusted to run - a value doesn't match
-its type, a qualifier points at one that doesn't exist, an entry breaks its
+its type, a rule points at a variable that doesn't exist, an entry breaks its
 schema. `Package::load` in the SDK rejects a package with lint errors, so these
 genuinely block a release.
 
 A **warning** is something you probably want to know but that won't break
-anything: a qualifier nothing references, a rule that can never fire, a custom
-lint file that registered no rules. Warnings are how lint nudges you toward a
-cleaner package without standing in your way.
+anything: a rule that can never fire, a rule that just re-selects the default,
+a custom lint file that registered no rules. Warnings are how lint nudges you
+toward a cleaner package without standing in your way.
 
 ## Your own checks, in Lua
 

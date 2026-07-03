@@ -487,7 +487,7 @@ fn expression_completion_items(
 
     let cursor = expression_cursor_at_position(snapshot, path, position)?;
 
-    // The path, qualifier-reference, and operand completions all replace the
+    // The path, variable-reference, and operand completions all replace the
     // dotted/identifier token under the cursor; only the operator completions
     // replace a trailing `&`/`|` instead.
     let token_range =

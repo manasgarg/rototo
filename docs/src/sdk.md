@@ -3,7 +3,7 @@
 The CLI is for authoring, checking, and operating a package. The **SDK** is for
 the other side: your running application, asking rototo for config values at
 request time. This page covers that runtime surface - load a package, resolve
-variables and qualifiers, and keep a long-running service refreshed.
+variables, and keep a long-running service refreshed.
 
 rototo ships SDKs for Rust, Python, TypeScript, Go, and Java. They're all thin,
 idiomatic wrappers over the same Rust core, so they behave identically - same
@@ -109,49 +109,53 @@ A variable resolution carries three things:
 For a catalog-backed variable, `value` is the full structured entry - heading,
 image, body, whatever the catalog defines - not just the entry's name.
 
-## Resolving a qualifier
+## Resolving a condition variable
 
-Sometimes you don't want a value, you just want to know whether a named condition
-holds - "is this a premium user?" That's a qualifier, and it resolves to a plain
-boolean.
+Sometimes you don't want a config value, you just want to know whether a named
+condition holds - "is this a premium user?" Packages name those conditions as
+**condition variables**: bool variables that default to `false` and flip to
+`true` when the condition matches. There's no special API for them - you resolve
+one like any other variable, and its `value` is a plain boolean.
 
-:::sdk-snippet resolve-qualifier
+:::sdk-snippet resolve-condition
 ```rust
-let is_premium = package.resolve_qualifier("premium-users", &context)?;
-if is_premium {
+let resolution = package.resolve_variable("premium-users", &context)?;
+if resolution.value == serde_json::json!(true) {
     // ...
 }
 ```
 
 ```python
-is_premium = package.resolve_qualifier("premium-users", {"user": {"tier": "premium"}})
-if is_premium:
+resolution = package.resolve_variable("premium-users", {"user": {"tier": "premium"}})
+if resolution.value:
     ...
 ```
 
 ```typescript
-const isPremium = pkg.resolveQualifier("premium-users", {
+const resolution = pkg.resolveVariable("premium-users", {
   user: { tier: "premium" },
 });
-if (isPremium) {
+if (resolution.value === true) {
   // ...
 }
 ```
 
 ```java
-Boolean isPremium = pkg.resolveQualifier(
+VariableResolution resolution = pkg.resolveVariable(
     "premium-users",
     Map.of("user", Map.of("tier", "premium"))
 );
+boolean isPremium = Boolean.TRUE.equals(resolution.value());
 ```
 
 ```go
-isPremium, err := pkg.ResolveQualifier("premium-users", map[string]any{
+resolution, err := pkg.ResolveVariable("premium-users", map[string]any{
     "user": map[string]any{"tier": "premium"},
 }, nil)
 if err != nil {
     return err
 }
+isPremium := resolution.Value == true
 ```
 :::
 
@@ -312,8 +316,8 @@ truth you reconcile against.
 Refresh events tell you which package is live. The other question that shows up
 - usually as a support ticket - is "why did *this one user* get *this* value?"
 That's what a **trace** answers: the full record of one resolve, the rules it
-tried, which one matched, every qualifier outcome, and the context it ran
-against.
+tried, which one matched, the other variables it consulted along the way, and
+the context it ran against.
 
 Traces are verbose and meant for debugging, so they're emitted selectively, and
 there are two ways to decide which resolutions to trace.

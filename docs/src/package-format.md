@@ -17,9 +17,8 @@ all of this for you. This is just so you know what goes where:
 ```text
 my-package/
 ├── rototo-package.toml              # the manifest - marks this folder as a package
-├── qualifiers/                      # named runtime conditions
-│   └── premium-users.toml
 ├── variables/                       # the values your app reads
+│   ├── premium-users.toml
 │   └── checkout-redesign.toml
 ├── catalogs/                        # structured value sets + their schemas
 │   ├── checkout-redesign.schema.json
@@ -35,9 +34,9 @@ my-package/
 
 The one rule that ties it together: **the file name is the id**. A file at
 `variables/checkout-redesign.toml` defines a variable whose id is
-`checkout-redesign`. A qualifier at `qualifiers/premium-users.toml` has the id
-`premium-users`. You never write the id *inside* the file - the filename already
-said it.
+`checkout-redesign`. A catalog schema at `catalogs/checkout-redesign.schema.json`
+defines a catalog whose id is `checkout-redesign`. You never write the id
+*inside* the file - the filename already said it.
 
 ## The manifest: `rototo-package.toml`
 
@@ -55,8 +54,8 @@ it's how rototo knows it's reading a format it understands.
 There are two optional things you can add.
 
 The first is `extends`, for when this package builds on top of others - shared
-defaults, a common set of qualifiers, that kind of thing. You list the parent
-packages as [package sources](./package-sources.md):
+defaults, a common set of condition variables, that kind of thing. You list the
+parent packages as [package sources](./package-sources.md):
 
 ```toml
 schema_version = 1
@@ -81,51 +80,13 @@ The `when` is an [expression](./expressions.md) - same language as everywhere
 else. We cover what tracing is for in [Using Rototo](./adoption.md); here, just
 know it's a manifest thing.
 
-## Qualifiers: naming a runtime condition
-
-A **qualifier** gives a name to a yes/no condition about the runtime. "Is this a
-premium user?" "Is this request coming from Europe?" Naming it once means your
-variables can refer to it by that name instead of repeating the same logic
-everywhere.
-
-Each qualifier is one file under `qualifiers/`. Here's `eu-users.toml`:
-
-```toml
-schema_version = 1
-description = "Users whose country is in the European operating region"
-when = '(context.request.country in ["DE","FR","ES","IT","NL","SE"])'
-```
-
-Three fields:
-
-- `schema_version` - always `1`.
-- `description` - optional, but write one; it's what shows up when someone's
-  trying to understand the package.
-- `when` - the condition itself, written as an [expression](./expressions.md).
-  When it's true for the current request, the qualifier "matches."
-
-Qualifiers can lean on each other, too. This one is true only when two *other*
-qualifiers are both true:
-
-```toml
-schema_version = 1
-description = "Premium users who are also in the beta rollout bucket"
-when = '(env.qualifier["premium-users"]) && (env.qualifier["beta-rollout-bucket"])'
-```
-
-That `env.qualifier["..."]` is how you reference another qualifier by its id.
-More on that in the [expressions reference](./expressions.md).
-
-One thing that's *gone*: older versions used `[[predicate]]` blocks. Those are
-rejected now - use a `when` string instead.
-
 ## Variables: the values your app actually reads
 
 A **variable** is the thing your application asks for at runtime. It has a type,
 a default, and an optional list of rules that override the default when some
 condition holds.
 
-The simplest kind is a plain on/off flag. Here's `admin-ui.toml`:
+The simplest kind is a plain on/off flag. Here's `user-is-admin.toml`:
 
 ```toml
 schema_version = 1
@@ -136,7 +97,7 @@ type = "bool"
 default = false
 
 [[resolve.rule]]
-when = 'env.qualifier["admin-users"]'
+when = 'variables["admin-users"]'
 value = true
 ```
 
@@ -156,9 +117,62 @@ The fields:
 Both the default and every rule value have to match the declared `type` - rototo
 checks that for you, so a `bool` variable can't accidentally default to a string.
 
-Like qualifiers, variables shed some old syntax: a top-level `schema` field and a
-`[values]` section are both rejected. Declare a `type` and put your literal
-values directly under `[resolve]`.
+Some old syntax is gone: a top-level `schema` field and a `[values]` section are
+both rejected. Declare a `type` and put your literal values directly under
+`[resolve]`.
+
+## Condition variables: naming a runtime condition
+
+That `variables["admin-users"]` in the rule above deserves a closer look. "Is
+this a premium user?" "Is this request coming from Europe?" Conditions like
+these tend to show up in more than one variable, and repeating the same
+expression everywhere is how definitions drift apart.
+
+The fix is to give the condition a name - and in rototo, a named condition is
+just a bool variable. By convention we call it a **condition variable**: type
+`bool`, default `false`, and a rule that flips it to `true` when the condition
+holds. Here's `eu-users.toml`:
+
+```toml
+schema_version = 1
+description = "Users whose country is in the European operating region"
+type = "bool"
+
+[resolve]
+default = false
+
+[[resolve.rule]]
+when = '(context.request.country in ["DE","FR","ES","IT","NL","SE"])'
+value = true
+```
+
+Any other variable's rule can now read that condition by name, with the
+`variables["<id>"]` root. Conditions can lean on each other, too. This one is
+true only when two *other* condition variables are both true:
+
+```toml
+schema_version = 1
+description = "Premium users who are also in the beta rollout bucket"
+type = "bool"
+
+[resolve]
+default = false
+
+[[resolve.rule]]
+when = '(variables["premium-users"]) && (variables["beta-rollout-bucket"])'
+value = true
+```
+
+There's nothing special about a condition variable to rototo - it resolves like
+any other bool, and your app can resolve it directly if it wants the yes/no
+answer itself. The convention is for readers: a bool named `eu-users` with a
+`false` default reads as "the condition this package uses to mean an EU user."
+How `variables[...]` references work (lazy, memoized, cycles rejected) is
+covered in the [expressions reference](./expressions.md).
+
+(Older packages had a separate `qualifiers/` folder for this. Qualifiers were
+dissolved into condition variables; a `qualifiers/` directory is no longer part
+of the format.)
 
 ## Variable types
 
@@ -190,7 +204,7 @@ type = "list"
 default = ["card", "paypal"]
 
 [[resolve.rule]]
-when = 'env.qualifier["mobile-users"]'
+when = 'variables["mobile-users"]'
 value = ["card", "apple_pay", "google_pay"]
 ```
 
@@ -248,7 +262,7 @@ type = "catalog:checkout-redesign"
 default = "control"
 
 [[resolve.rule]]
-when = 'env.qualifier["premium-users"]'
+when = 'variables["premium-users"]'
 value = "premium"
 ```
 
@@ -294,7 +308,7 @@ Schema. Here's a trimmed `request.schema.json`:
 }
 ```
 
-This is what lets lint catch drift: if a qualifier reads `context.user.tier` but
+This is what lets lint catch drift: if a rule reads `context.user.tier` but
 your schema never mentions it, that's a problem you want to hear about before a
 release, not during one.
 

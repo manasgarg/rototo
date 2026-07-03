@@ -391,9 +391,6 @@ end
 
         let tempdir = tempfile::tempdir().unwrap();
         let root = tempdir.path();
-        tokio::fs::create_dir_all(root.join("qualifiers"))
-            .await
-            .unwrap();
         tokio::fs::create_dir_all(root.join("variables"))
             .await
             .unwrap();

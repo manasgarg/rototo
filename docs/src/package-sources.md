@@ -171,7 +171,7 @@ way you find out about a permissions problem in CI, not at 2am.
 ## When one package builds on another
 
 A package can stand on top of other packages - shared defaults, a common set of
-qualifiers, that sort of thing. It does that by listing other sources in its
+condition variables, that sort of thing. It does that by listing other sources in its
 `rototo-package.toml`, and here's the part that matters for this page: those
 parent sources use the **exact same grammar** as everything above. A parent can
 be a local folder, a git repo with `#ref:subdir`, or an HTTPS archive.

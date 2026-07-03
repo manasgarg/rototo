@@ -1610,7 +1610,7 @@ mod tests {
     }
 
     #[test]
-    fn evaluates_context_paths_entry_paths_and_qualifiers() {
+    fn evaluates_context_paths_entry_paths_and_variables() {
         let context = serde_json::json!({
             "account.plan": "enterprise",
             "account": {

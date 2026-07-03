@@ -286,7 +286,7 @@ type = "string"
 default = "classic"
 
 [[resolve.rule]]
-when = 'env.qualifier["premium-users"]'
+when = 'context.user.tier == "premium"'
 value = "redesign"
 "#,
     );
@@ -359,7 +359,7 @@ value = "redesign"
       <div class="home-card">
         <h3>Declared</h3>
         <p>
-          Variables, qualifiers, and JSON Schemas live as files under
+          Variables, catalogs, and JSON Schemas live as files under
           <code>rototo-package.toml</code>. Every change has an author, a
           diff, and a history.
         </p>
@@ -367,7 +367,7 @@ value = "redesign"
       <div class="home-card">
         <h3>Validated</h3>
         <p>
-          Lint understands the package semantically: unknown qualifiers,
+          Lint understands the package semantically: unknown references,
           values that break their schema, and rules that can never match are
           caught before merge, not in production.
         </p>
