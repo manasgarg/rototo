@@ -80,7 +80,6 @@ impl JsPackage {
         context: JsonValue,
         validate_context: Option<bool>,
         trace: Option<bool>,
-        tenant: Option<String>,
     ) -> Result<JsonValue> {
         let context = EvaluationContext::from_json(context).map_err(js_err)?;
         let resolution = self
@@ -88,11 +87,7 @@ impl JsPackage {
             .resolve_variable_with_options(
                 &id,
                 &context,
-                resolve_options(
-                    validate_context.unwrap_or(true),
-                    trace.unwrap_or(false),
-                    tenant,
-                ),
+                resolve_options(validate_context.unwrap_or(true), trace.unwrap_or(false)),
             )
             .map_err(js_err)?;
         Ok(serde_json::json!({
@@ -142,7 +137,6 @@ impl JsRefreshingPackage {
         context: JsonValue,
         validate_context: Option<bool>,
         trace: Option<bool>,
-        tenant: Option<String>,
     ) -> Result<JsonValue> {
         let context = EvaluationContext::from_json(context).map_err(js_err)?;
         let guard = self.inner.blocking_lock();
@@ -151,11 +145,7 @@ impl JsRefreshingPackage {
             .resolve_variable_with_options(
                 &id,
                 &context,
-                resolve_options(
-                    validate_context.unwrap_or(true),
-                    trace.unwrap_or(false),
-                    tenant,
-                ),
+                resolve_options(validate_context.unwrap_or(true), trace.unwrap_or(false)),
             )
             .map_err(js_err)?;
         Ok(serde_json::json!({
@@ -312,11 +302,10 @@ fn refresh_options(period_seconds: Option<f64>) -> Result<RefreshOptions> {
     Ok(options)
 }
 
-fn resolve_options(validate_context: bool, trace: bool, tenant: Option<String>) -> ResolveOptions {
+fn resolve_options(validate_context: bool, trace: bool) -> ResolveOptions {
     ResolveOptions {
         validate_context,
         trace,
-        tenant,
     }
 }
 

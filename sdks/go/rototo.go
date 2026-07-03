@@ -45,9 +45,6 @@ type ResolveOptions struct {
 	// Trace emits a resolution trace for this call onto the trace stream. It
 	// only produces output while something is subscribed via TraceEvents.
 	Trace bool
-	// Tenant scopes the resolution to one tenant: expressions read the id as
-	// env.tenant. Empty means the resolution is not tenant-scoped.
-	Tenant string
 }
 
 // RefreshingPackageOptions configures RefreshingPackage loading.
@@ -266,7 +263,7 @@ func (w *Package) ResolveVariable(
 		return nil, err
 	}
 	defer unlock()
-	text, err := nativePackageResolveVariable(handle, id, contextJSON, validateContext(options), traceEnabled(options), tenant(options))
+	text, err := nativePackageResolveVariable(handle, id, contextJSON, validateContext(options), traceEnabled(options))
 	if err != nil {
 		return nil, err
 	}
@@ -342,7 +339,6 @@ func (w *RefreshingPackage) ResolveVariable(
 		contextJSON,
 		validateContext(options),
 		traceEnabled(options),
-		tenant(options),
 	)
 	if err != nil {
 		return nil, err
@@ -610,13 +606,6 @@ func validateContext(options *ResolveOptions) bool {
 
 func traceEnabled(options *ResolveOptions) bool {
 	return options != nil && options.Trace
-}
-
-func tenant(options *ResolveOptions) string {
-	if options == nil {
-		return ""
-	}
-	return options.Tenant
 }
 
 func nativeError(message string) error {

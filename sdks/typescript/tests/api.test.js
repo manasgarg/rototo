@@ -1,8 +1,6 @@
 import assert from "node:assert/strict";
-import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
 import { test } from "node:test";
-import { dirname, join, resolve } from "node:path";
+import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { RototoError, Package } from "../dist/index.js";
@@ -24,47 +22,6 @@ test("package exposes TypeScript runtime resolution API", async () => {
     assert.deepEqual(variable.source, { kind: "literal" });
     assert.equal(variable.value, "Welcome back, premium member.");
     assert.equal(condition.value, true);
-});
-
-test("resolution can be tenant-scoped", async () => {
-    const root = mkdtempSync(join(tmpdir(), "rototo-tenant-"));
-    try {
-        writeFileSync(join(root, "rototo-package.toml"), "schema_version = 1\n");
-        mkdirSync(join(root, "variables"));
-        writeFileSync(
-            join(root, "variables", "greeting.toml"),
-            [
-                "schema_version = 1",
-                'type = "string"',
-                "",
-                "[resolve]",
-                'default = "hello"',
-                "",
-                "[[resolve.rule]]",
-                "when = 'env.tenant == \"acme\"'",
-                'value = "hello acme"',
-                "",
-            ].join("\n"),
-        );
-        const pkg = await Package.load(root);
-
-        const scoped = pkg.resolveVariable("greeting", {}, { tenant: "acme" });
-        assert.equal(scoped.value, "hello acme");
-
-        const other = pkg.resolveVariable("greeting", {}, { tenant: "globex" });
-        assert.equal(other.value, "hello");
-
-        // Without a tenant, a rule that reads env.tenant fails loudly instead
-        // of comparing against null.
-        assert.throws(
-            () => pkg.resolveVariable("greeting", {}),
-            (error) =>
-                error instanceof RototoError &&
-                error.message.includes("resolution is not tenant-scoped"),
-        );
-    } finally {
-        rmSync(root, { recursive: true, force: true });
-    }
 });
 
 test("inspected package can lint but not resolve", async () => {

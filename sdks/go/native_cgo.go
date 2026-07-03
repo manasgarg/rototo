@@ -65,11 +65,11 @@ typedef RototoGoStringResult (*rototo_go_version_fn)(void);
 typedef RototoGoHandleResult (*rototo_go_package_load_fn)(const char*, const char*, const char*);
 typedef RototoGoHandleResult (*rototo_go_package_inspect_fn)(const char*, const char*);
 typedef RototoGoStringResult (*rototo_go_package_string_fn)(void*);
-typedef RototoGoStringResult (*rototo_go_package_resolve_fn)(void*, const char*, const char*, int, int, const char*);
+typedef RototoGoStringResult (*rototo_go_package_resolve_fn)(void*, const char*, const char*, int, int);
 typedef void (*rototo_go_handle_free_fn)(void*);
 typedef RototoGoHandleResult (*rototo_go_refreshing_package_load_fn)(const char*, double, int, const char*, const char*);
 typedef RototoGoStringResult (*rototo_go_refreshing_package_string_fn)(void*);
-typedef RototoGoStringResult (*rototo_go_refreshing_package_resolve_fn)(void*, const char*, const char*, int, int, const char*);
+typedef RototoGoStringResult (*rototo_go_refreshing_package_resolve_fn)(void*, const char*, const char*, int, int);
 typedef RototoGoVoidResult (*rototo_go_refreshing_package_void_fn)(void*);
 typedef void (*rototo_go_string_result_free_fn)(RototoGoStringResult*);
 typedef void (*rototo_go_handle_result_free_fn)(RototoGoHandleResult*);
@@ -87,8 +87,8 @@ static RototoGoHandleResult rototo_go_call_package_inspect(void* fn, const char*
 static RototoGoStringResult rototo_go_call_package_string(void* fn, void* handle) {
     return ((rototo_go_package_string_fn)fn)(handle);
 }
-static RototoGoStringResult rototo_go_call_package_resolve(void* fn, void* handle, const char* id, const char* context, int validate_context, int trace, const char* tenant) {
-    return ((rototo_go_package_resolve_fn)fn)(handle, id, context, validate_context, trace, tenant);
+static RototoGoStringResult rototo_go_call_package_resolve(void* fn, void* handle, const char* id, const char* context, int validate_context, int trace) {
+    return ((rototo_go_package_resolve_fn)fn)(handle, id, context, validate_context, trace);
 }
 static void rototo_go_call_handle_free(void* fn, void* handle) {
     ((rototo_go_handle_free_fn)fn)(handle);
@@ -99,8 +99,8 @@ static RototoGoHandleResult rototo_go_call_refreshing_package_load(void* fn, con
 static RototoGoStringResult rototo_go_call_refreshing_package_string(void* fn, void* handle) {
     return ((rototo_go_refreshing_package_string_fn)fn)(handle);
 }
-static RototoGoStringResult rototo_go_call_refreshing_package_resolve(void* fn, void* handle, const char* id, const char* context, int validate_context, int trace, const char* tenant) {
-    return ((rototo_go_refreshing_package_resolve_fn)fn)(handle, id, context, validate_context, trace, tenant);
+static RototoGoStringResult rototo_go_call_refreshing_package_resolve(void* fn, void* handle, const char* id, const char* context, int validate_context, int trace) {
+    return ((rototo_go_refreshing_package_resolve_fn)fn)(handle, id, context, validate_context, trace);
 }
 static RototoGoVoidResult rototo_go_call_refreshing_package_void(void* fn, void* handle) {
     return ((rototo_go_refreshing_package_void_fn)fn)(handle);
@@ -316,7 +316,7 @@ func nativePackageLint(handle nativeHandle) (string, error) {
 	return stringResult(result)
 }
 
-func nativePackageResolveVariable(handle nativeHandle, id, contextJSON string, validateContext bool, trace bool, tenant string) (string, error) {
+func nativePackageResolveVariable(handle nativeHandle, id, contextJSON string, validateContext bool, trace bool) (string, error) {
 	if err := ensureNative(); err != nil {
 		return "", err
 	}
@@ -324,9 +324,7 @@ func nativePackageResolveVariable(handle nativeHandle, id, contextJSON string, v
 	cContext := C.CString(contextJSON)
 	defer C.free(unsafe.Pointer(cID))
 	defer C.free(unsafe.Pointer(cContext))
-	cTenant, freeTenant := optionalCString(tenant)
-	defer freeTenant()
-	result := C.rototo_go_call_package_resolve(native.packageResolveVariable, pointer(handle), cID, cContext, cBool(validateContext), cBool(trace), cTenant)
+	result := C.rototo_go_call_package_resolve(native.packageResolveVariable, pointer(handle), cID, cContext, cBool(validateContext), cBool(trace))
 	defer C.rototo_go_call_string_result_free(native.stringResultFree, &result)
 	return stringResult(result)
 }
@@ -366,7 +364,7 @@ func nativeRefreshingPackageLoad(source string, periodSeconds *float64, packageT
 	return handleResult(result)
 }
 
-func nativeRefreshingPackageResolveVariable(handle nativeHandle, id, contextJSON string, validateContext bool, trace bool, tenant string) (string, error) {
+func nativeRefreshingPackageResolveVariable(handle nativeHandle, id, contextJSON string, validateContext bool, trace bool) (string, error) {
 	if err := ensureNative(); err != nil {
 		return "", err
 	}
@@ -374,9 +372,7 @@ func nativeRefreshingPackageResolveVariable(handle nativeHandle, id, contextJSON
 	cContext := C.CString(contextJSON)
 	defer C.free(unsafe.Pointer(cID))
 	defer C.free(unsafe.Pointer(cContext))
-	cTenant, freeTenant := optionalCString(tenant)
-	defer freeTenant()
-	result := C.rototo_go_call_refreshing_package_resolve(native.refreshingPackageResolveVariable, pointer(handle), cID, cContext, cBool(validateContext), cBool(trace), cTenant)
+	result := C.rototo_go_call_refreshing_package_resolve(native.refreshingPackageResolveVariable, pointer(handle), cID, cContext, cBool(validateContext), cBool(trace))
 	defer C.rototo_go_call_string_result_free(native.stringResultFree, &result)
 	return stringResult(result)
 }

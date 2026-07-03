@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import tempfile
 import unittest
 from pathlib import Path
 
@@ -63,40 +62,3 @@ class ApiTest(unittest.IsolatedAsyncioTestCase):
             await rototo.Package.load(EXAMPLES_BASIC, lint="warn")
 
         self.assertIn("lint must be 'deny' or 'skip'", str(raised.exception))
-
-    async def test_resolution_can_be_tenant_scoped(self) -> None:
-        with tempfile.TemporaryDirectory() as root:
-            write_tenant_package(Path(root))
-            package = await rototo.Package.load(root)
-
-            scoped = package.resolve_variable("greeting", {}, tenant="acme")
-            self.assertEqual(scoped.value, "hello acme")
-
-            other = package.resolve_variable("greeting", {}, tenant="globex")
-            self.assertEqual(other.value, "hello")
-
-            # Without a tenant, a rule that reads env.tenant fails loudly
-            # instead of comparing against null.
-            with self.assertRaises(rototo.RototoError) as raised:
-                package.resolve_variable("greeting", {})
-            self.assertIn(
-                "resolution is not tenant-scoped",
-                str(raised.exception),
-            )
-
-
-def write_tenant_package(root: Path) -> None:
-    (root / "rototo-package.toml").write_text("schema_version = 1\n")
-    variables = root / "variables"
-    variables.mkdir()
-    (variables / "greeting.toml").write_text(
-        "schema_version = 1\n"
-        'type = "string"\n'
-        "\n"
-        "[resolve]\n"
-        'default = "hello"\n'
-        "\n"
-        "[[resolve.rule]]\n"
-        "when = 'env.tenant == \"acme\"'\n"
-        'value = "hello acme"\n'
-    )

@@ -78,8 +78,7 @@ public final class Package implements AutoCloseable {
                 id,
                 Json.stringify(context),
                 resolved.validateContext(),
-                resolved.trace(),
-                resolved.tenant());
+                resolved.trace());
         Map<String, Object> value = Json.asObject(Json.parse(json));
         return new VariableResolution(
                 Json.asString(value.get("id")),

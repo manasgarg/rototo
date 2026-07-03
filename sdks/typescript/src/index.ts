@@ -60,9 +60,6 @@ export type ResolveOptions = {
     /** Emit a resolution trace for this call onto the trace stream. Only
      * produces output while something is subscribed via `traceEvents()`. */
     trace?: boolean;
-    /** Scope the resolution to one tenant, whose id expressions read as
-     * `env.tenant`. */
-    tenant?: string;
 };
 
 export type RefreshingPackageOptions = LoadOptions & {
@@ -337,7 +334,6 @@ export class Package {
                 context,
                 options.validateContext ?? true,
                 options.trace ?? false,
-                options.tenant,
             );
         } catch (error) {
             throw toRototoError(error);
@@ -398,7 +394,6 @@ export class RefreshingPackage {
                 context,
                 options.validateContext ?? true,
                 options.trace ?? false,
-                options.tenant,
             );
         } catch (error) {
             throw toRototoError(error);

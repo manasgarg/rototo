@@ -28,7 +28,7 @@ func nativePackageLint(handle nativeHandle) (string, error) {
 	return "", cgoDisabled()
 }
 
-func nativePackageResolveVariable(handle nativeHandle, id, contextJSON string, validateContext bool, trace bool, tenant string) (string, error) {
+func nativePackageResolveVariable(handle nativeHandle, id, contextJSON string, validateContext bool, trace bool) (string, error) {
 	return "", cgoDisabled()
 }
 
@@ -38,7 +38,7 @@ func nativeRefreshingPackageLoad(source string, periodSeconds *float64, packageT
 	return 0, cgoDisabled()
 }
 
-func nativeRefreshingPackageResolveVariable(handle nativeHandle, id, contextJSON string, validateContext bool, trace bool, tenant string) (string, error) {
+func nativeRefreshingPackageResolveVariable(handle nativeHandle, id, contextJSON string, validateContext bool, trace bool) (string, error) {
 	return "", cgoDisabled()
 }
 

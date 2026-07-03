@@ -20,12 +20,7 @@ final class Native {
     static native String packageLintNative(long handle);
 
     static native String packageResolveVariableNative(
-            long handle,
-            String id,
-            String contextJson,
-            boolean validateContext,
-            boolean trace,
-            String tenant);
+            long handle, String id, String contextJson, boolean validateContext, boolean trace);
 
     static native void packageFreeNative(long handle);
 
@@ -37,12 +32,7 @@ final class Native {
             String lint);
 
     static native String refreshingPackageResolveVariableNative(
-            long handle,
-            String id,
-            String contextJson,
-            boolean validateContext,
-            boolean trace,
-            String tenant);
+            long handle, String id, String contextJson, boolean validateContext, boolean trace);
 
     static native String refreshingPackageRefreshNowNative(long handle);
 

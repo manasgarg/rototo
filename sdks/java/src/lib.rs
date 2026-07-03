@@ -125,13 +125,12 @@ pub extern "system" fn Java_dev_rototo_Native_packageResolveVariableNative(
     context_json: JString<'_>,
     validate_context: jboolean,
     trace: jboolean,
-    tenant: JString<'_>,
 ) -> jstring {
     jni_call_string(&mut env, |env| {
         let package = package_from_handle(handle)?;
         let id = required_string(env, id, "id")?;
         let context = evaluation_context(env, context_json)?;
-        let options = resolve_options(validate_context, trace, optional_string(env, tenant)?);
+        let options = resolve_options(validate_context, trace);
         let resolution = package
             .resolve_variable_with_options(&id, &context, options)
             .map_err(|err| err.to_string())?;
@@ -197,13 +196,12 @@ pub extern "system" fn Java_dev_rototo_Native_refreshingPackageResolveVariableNa
     context_json: JString<'_>,
     validate_context: jboolean,
     trace: jboolean,
-    tenant: JString<'_>,
 ) -> jstring {
     jni_call_string(&mut env, |env| {
         let package = refreshing_package_from_handle(handle)?;
         let id = required_string(env, id, "id")?;
         let context = evaluation_context(env, context_json)?;
-        let options = resolve_options(validate_context, trace, optional_string(env, tenant)?);
+        let options = resolve_options(validate_context, trace);
         let guard = package.inner.blocking_lock();
         let package = active_refreshing_package(&guard)?;
         let resolution = package
@@ -487,15 +485,10 @@ fn refresh_options(
     Ok(options)
 }
 
-fn resolve_options(
-    validate_context: jboolean,
-    trace: jboolean,
-    tenant: Option<String>,
-) -> ResolveOptions {
+fn resolve_options(validate_context: jboolean, trace: jboolean) -> ResolveOptions {
     ResolveOptions {
         validate_context: validate_context != 0,
         trace: trace != 0,
-        tenant,
     }
 }
 

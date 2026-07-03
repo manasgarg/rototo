@@ -14,7 +14,6 @@ public final class JavaSdkTest {
     public static void main(String[] args) throws Exception {
         api();
         contract();
-        tenant();
         refresh();
         events();
         traceEvents();
@@ -130,44 +129,6 @@ public final class JavaSdkTest {
         assertEquals(Json.asString(result.get("id")), actual.id(), name + " id");
         assertEquals(result.get("value"), actual.value(), name + " value");
         assertEquals(result.get("source"), actual.source(), name + " source");
-    }
-
-    private static void tenant() throws Exception {
-        Path root = Files.createTempDirectory("rototo-java-tenant");
-        writeTenantPackage(root);
-        try (Package pkg = await(Package.load(root.toString()))) {
-            VariableResolution scoped = pkg.resolveVariable(
-                    "greeting",
-                    Map.of(),
-                    ResolveOptions.tenant("acme"));
-            assertEquals("Hello, acme.", scoped.value(), "tenant-scoped value");
-
-            VariableResolution other = pkg.resolveVariable(
-                    "greeting",
-                    Map.of(),
-                    ResolveOptions.defaults().withTenant("globex"));
-            assertEquals("Hello.", other.value(), "other-tenant value");
-
-            assertRototoError(
-                    () -> pkg.resolveVariable("greeting", Map.of()),
-                    "resolution is not tenant-scoped");
-        } finally {
-            deleteRecursively(root);
-        }
-    }
-
-    private static void writeTenantPackage(Path root) throws Exception {
-        Files.createDirectories(root.resolve("variables"));
-        Files.writeString(root.resolve("rototo-package.toml"), "schema_version = 1\n");
-        Files.writeString(
-                root.resolve("variables").resolve("greeting.toml"),
-                "schema_version = 1\n"
-                        + "type = \"string\"\n\n"
-                        + "[resolve]\n"
-                        + "default = \"Hello.\"\n\n"
-                        + "[[resolve.rule]]\n"
-                        + "when = 'env.tenant == \"acme\"'\n"
-                        + "value = \"Hello, acme.\"\n");
     }
 
     private static void refresh() throws Exception {
