@@ -835,3 +835,177 @@ async fn deleting_every_enum_member_fails_the_load() {
         "unexpected error: {err}"
     );
 }
+
+/// A small standalone base with one bool variable, for multi-base extends
+/// tests.
+async fn write_named_base(root: &Path, variable: &str) {
+    write(root, "rototo-package.toml", "schema_version = 1\n").await;
+    write(
+        root,
+        &format!("variables/{variable}.toml"),
+        r#"schema_version = 1
+type = "bool"
+
+[resolve]
+default = true
+"#,
+    )
+    .await;
+}
+
+#[tokio::test]
+async fn extends_composes_disjoint_sibling_bases() {
+    let temp = tempfile::TempDir::new().unwrap();
+    let billing = temp.path().join("billing");
+    let regional = temp.path().join("regional");
+    let app = temp.path().join("app");
+    write_named_base(&billing, "billing_enabled").await;
+    write_named_base(&regional, "regional_enabled").await;
+    write(
+        &app,
+        "rototo-package.toml",
+        "schema_version = 1\nextends = [\"../billing\", \"../regional\"]\n",
+    )
+    .await;
+
+    let package = Package::load(app.to_string_lossy()).await.unwrap();
+    let context = EvaluationContext::from_json(serde_json::json!({})).unwrap();
+    assert_eq!(
+        package
+            .resolve_variable("billing_enabled", &context)
+            .unwrap()
+            .value,
+        true
+    );
+    assert_eq!(
+        package
+            .resolve_variable("regional_enabled", &context)
+            .unwrap()
+            .value,
+        true
+    );
+}
+
+#[tokio::test]
+async fn sibling_bases_conflict_on_the_same_file() {
+    let temp = tempfile::TempDir::new().unwrap();
+    let one = temp.path().join("one");
+    let two = temp.path().join("two");
+    let app = temp.path().join("app");
+    write_named_base(&one, "shared").await;
+    write_named_base(&two, "shared").await;
+    // Same variable id, different default: neither base was authored as an
+    // overlay of the other, so this must not silently merge.
+    write(
+        &two,
+        "variables/shared.toml",
+        r#"schema_version = 1
+type = "bool"
+
+[resolve]
+default = false
+"#,
+    )
+    .await;
+    write(
+        &app,
+        "rototo-package.toml",
+        "schema_version = 1\nextends = [\"../one\", \"../two\"]\n",
+    )
+    .await;
+
+    let err = Package::load(app.to_string_lossy()).await.unwrap_err();
+    assert!(
+        err.to_string().contains("extends bases conflict on"),
+        "unexpected error: {err}"
+    );
+}
+
+#[tokio::test]
+async fn diamond_ancestry_composes_the_shared_base_once() {
+    let temp = tempfile::TempDir::new().unwrap();
+    let core = temp.path().join("core");
+    let left = temp.path().join("left");
+    let right = temp.path().join("right");
+    let app = temp.path().join("app");
+    write_named_base(&core, "core_enabled").await;
+    // The shared ancestor carries governance; identical restatements of its
+    // files through both branches must not read as governed updates.
+    write(
+        &core,
+        "governance.toml",
+        "[variable.core_enabled]\nallowed_operations = []\n",
+    )
+    .await;
+    write(
+        &left,
+        "rototo-package.toml",
+        "schema_version = 1\nextends = [\"../core\"]\n",
+    )
+    .await;
+    write(
+        &left,
+        "variables/left_enabled.toml",
+        "schema_version = 1\ntype = \"bool\"\n\n[resolve]\ndefault = true\n",
+    )
+    .await;
+    write(
+        &right,
+        "rototo-package.toml",
+        "schema_version = 1\nextends = [\"../core\"]\n",
+    )
+    .await;
+    write(
+        &right,
+        "variables/right_enabled.toml",
+        "schema_version = 1\ntype = \"bool\"\n\n[resolve]\ndefault = true\n",
+    )
+    .await;
+    write(
+        &app,
+        "rototo-package.toml",
+        "schema_version = 1\nextends = [\"../left\", \"../right\"]\n",
+    )
+    .await;
+
+    let package = Package::load(app.to_string_lossy()).await.unwrap();
+    let context = EvaluationContext::from_json(serde_json::json!({})).unwrap();
+    for id in ["core_enabled", "left_enabled", "right_enabled"] {
+        assert_eq!(
+            package.resolve_variable(id, &context).unwrap().value,
+            true,
+            "{id}"
+        );
+    }
+}
+
+#[tokio::test]
+async fn sibling_base_may_not_touch_another_siblings_catalog() {
+    let temp = tempfile::TempDir::new().unwrap();
+    let base = temp.path().join("base");
+    let rogue = temp.path().join("rogue");
+    let app = temp.path().join("app");
+    write_base(&base).await;
+    // A package with no extends of its own carrying a raw deleted marker: as
+    // a sibling base it would reach across and remove another base's entry.
+    write(&rogue, "rototo-package.toml", "schema_version = 1\n").await;
+    write(
+        &rogue,
+        "data/catalogs/plans/free.deleted.toml",
+        "deleted = true\n",
+    )
+    .await;
+    write(
+        &app,
+        "rototo-package.toml",
+        "schema_version = 1\nextends = [\"../base\", \"../rogue\"]\n",
+    )
+    .await;
+
+    let err = Package::load(app.to_string_lossy()).await.unwrap_err();
+    assert!(
+        err.to_string()
+            .contains("extends bases conflict on catalog plans"),
+        "unexpected error: {err}"
+    );
+}

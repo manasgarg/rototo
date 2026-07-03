@@ -90,6 +90,7 @@ async fn project_package_source_graph(
     };
     let mut layers = Vec::new();
     let mut immutable = true;
+    let sibling_entities = std::sync::Arc::new(std::sync::Mutex::new(BTreeMap::new()));
     for parent_source in &extends {
         let parent =
             load_package_source_graph(parent_source, options, local_mode, Some(base), stack)
@@ -100,6 +101,7 @@ async fn project_package_source_graph(
             &target,
             false,
             layer_label(&parent, parent_source),
+            Some(sibling_entities.clone()),
         )
         .await?;
         immutable &= parent.immutable();
@@ -112,7 +114,7 @@ async fn project_package_source_graph(
         .last()
         .map(|layer| layer.source().to_owned())
         .unwrap_or_else(|| "package".to_owned());
-    copy_package_layer(loaded.staged().path(), &target, true, child_label).await?;
+    copy_package_layer(loaded.staged().path(), &target, true, child_label, None).await?;
     immutable &= loaded.immutable();
     layers.extend(loaded.layers().iter().cloned());
     let fingerprint = combined_layer_fingerprint(&layers);
@@ -164,6 +166,12 @@ fn enforce_layer_governance_sync(layer: &Path, target: &Path) -> Result<()> {
             let Ok(relative) = path.strip_prefix(layer) else {
                 continue;
             };
+            // Restating a file byte-identical to the projection's is never a
+            // semantic change; it is how diamond ancestry looks when two
+            // bases share an ancestor and both carry its files unchanged.
+            if file_identical(&path, &target.join(relative)) {
+                continue;
+            }
             check_governed_file(&contract, &path, relative, target)?;
         }
     }
@@ -319,6 +327,7 @@ async fn copy_package_layer(
     target: &Path,
     include_manifest: bool,
     label: String,
+    sibling_entities: Option<std::sync::Arc<std::sync::Mutex<BTreeMap<String, String>>>>,
 ) -> Result<()> {
     let source = source.to_path_buf();
     let target = target.to_path_buf();
@@ -328,6 +337,10 @@ async fn copy_package_layer(
         // finer labels win over the layer's single label.
         let nested = read_provenance(&source);
         let mut provenance = BTreeMap::new();
+        let siblings = sibling_entities.as_ref().map(|provided| SiblingBases {
+            label: &label,
+            provided,
+        });
         copy_package_layer_recursive(
             &source,
             &target,
@@ -338,6 +351,7 @@ async fn copy_package_layer(
                 nested: &nested,
                 recorded: std::cell::RefCell::new(&mut provenance),
             },
+            siblings.as_ref(),
         )?;
         if !provenance.is_empty() {
             let mut merged = read_provenance(&target);
@@ -366,6 +380,82 @@ impl LayerProvenance<'_> {
         self.recorded
             .borrow_mut()
             .insert(variable_id.to_owned(), label);
+    }
+}
+
+/// While the bases of one `extends` list land, tracks which base provided
+/// each entity in the projection. The bases are siblings: none of them was
+/// authored as an overlay of another, so a later base touching an entity an
+/// earlier base declared is a conflict, not a composition. The one exception
+/// is a byte-identical restatement of the same file - that is how diamond
+/// ancestry looks when two bases share an ancestor and both carry its files
+/// unchanged.
+struct SiblingBases<'a> {
+    label: &'a str,
+    provided: &'a std::sync::Mutex<BTreeMap<String, String>>,
+}
+
+impl SiblingBases<'_> {
+    /// Admit one file landing. Returns `Ok(true)` when the landing should be
+    /// skipped (an identical restatement of another sibling's file); errors
+    /// when it would silently merge over or mutate another sibling's entity.
+    fn admit(&self, relative: &Path, source_path: &Path, projected: &Path) -> Result<bool> {
+        let key = sibling_entity_key(relative);
+        let mut provided = self.provided.lock().expect("sibling entity map poisoned");
+        match provided.get(&key) {
+            Some(owner) if owner != self.label => {
+                if projected.is_file() && file_identical(source_path, projected) {
+                    return Ok(true);
+                }
+                Err(RototoError::new(format!(
+                    "package extends bases conflict on {key}: {} and {} both provide it; make one base extend the other or move the shared piece into one package",
+                    owner, self.label
+                )))
+            }
+            _ => {
+                provided.insert(key, self.label.to_owned());
+                Ok(false)
+            }
+        }
+    }
+}
+
+/// The entity one projected file belongs to, for sibling-base conflict
+/// detection: every file of a catalog (schema, entries, markers), enum
+/// (declaration, members), evaluation context (schema, samples), variable, or
+/// layer maps to that entity's key. Files outside the entity model conflict
+/// per path.
+fn sibling_entity_key(relative: &Path) -> String {
+    let components: Vec<&str> = relative
+        .iter()
+        .filter_map(|component| component.to_str())
+        .collect();
+    let stem = |file: &str, suffix: &str| file.strip_suffix(suffix).map(str::to_owned);
+    match components.as_slice() {
+        ["model", "catalogs", file] => stem(file, ".schema.json").map(|id| format!("catalog {id}")),
+        ["data", "catalogs", catalog, _] => Some(format!("catalog {catalog}")),
+        ["model", "enums", file] | ["data", "enums", file] => {
+            stem(file, ".toml").map(|id| format!("enum {id}"))
+        }
+        ["model", "context", file] => {
+            stem(file, ".schema.json").map(|id| format!("evaluation context {id}"))
+        }
+        ["model", "context", samples, _] => samples
+            .strip_suffix("-samples")
+            .map(|id| format!("evaluation context {id}")),
+        ["layers", file] => stem(file, ".toml").map(|id| format!("layer {id}")),
+        ["variables", ..] => variable_id_for_relative(relative).map(|id| format!("variable {id}")),
+        _ => None,
+    }
+    .unwrap_or_else(|| format!("file {}", relative.display()))
+}
+
+/// Whether two paths hold byte-identical files. Missing files are never
+/// identical to anything.
+fn file_identical(left: &Path, right: &Path) -> bool {
+    match (std::fs::read(left), std::fs::read(right)) {
+        (Ok(left), Ok(right)) => left == right,
+        _ => false,
     }
 }
 
@@ -413,6 +503,7 @@ fn copy_package_layer_recursive(
     include_manifest: bool,
     relative: &Path,
     provenance: &LayerProvenance<'_>,
+    siblings: Option<&SiblingBases<'_>>,
 ) -> Result<()> {
     let metadata = std::fs::metadata(source).map_err(|err| {
         RototoError::new(format!(
@@ -478,6 +569,7 @@ fn copy_package_layer_recursive(
                 include_manifest,
                 &relative_path,
                 provenance,
+                siblings,
             )?;
         } else if metadata.is_file() {
             if target_path.is_dir() {
@@ -495,6 +587,11 @@ fn copy_package_layer_recursive(
                         parent.display()
                     ))
                 })?;
+            }
+            if let Some(siblings) = siblings
+                && siblings.admit(&relative_path, &source_path, &target_path)?
+            {
+                continue;
             }
             compose_package_layer_file(
                 &source_path,
@@ -1001,7 +1098,7 @@ extends = ["../base", "  "]
         .await
         .unwrap();
 
-        copy_package_layer(&source, &target, false, "test-layer".to_owned())
+        copy_package_layer(&source, &target, false, "test-layer".to_owned(), None)
             .await
             .unwrap();
 

@@ -120,10 +120,29 @@ know it's a manifest thing.
 
 When a package extends others, rototo flattens them into one file tree before
 anything else happens - lint, resolution, `rototo package`, all of it sees the
-flattened result. Parents flatten in `extends` order, the child comes last, and
-the same rules apply between two parents as between a parent and the child.
+flattened result. Parents flatten in `extends` order, the child comes last.
 Flattening is deterministic: the layers are processed in a sorted, fixed order,
 so the same inputs always produce the same flattened package.
+
+The composition rules below describe the child landing on its bases - the
+overlay relationship, where one package was authored to change another. Two
+bases in the same `extends` list are a different relationship: siblings.
+Neither was authored as an overlay of the other, so nothing about them may
+silently merge. Each base is flattened on its own first, then the results
+union: the composed package has every variable, catalog, enum, evaluation
+context, and layer from every base, and the bases have to be disjoint at the
+entity level. Two bases touching the same entity - the same variable id, the
+same catalog (schema, entries, or markers), the same enum, context, or layer -
+fails the load ("package extends bases conflict on ..."). If two bases
+genuinely share configuration, make one extend the other or move the shared
+piece into one package. The one exception is diamond ancestry: two bases
+extending a common ancestor both carry its files, and byte-identical
+restatements of the same file are fine.
+
+Governance stays per-base: each base's `governance.toml` governs its own
+entities against the layers that land after it, so the extending package
+needs each base's grants for what it changes in that base, and a base with no
+`governance.toml` stays ungoverned as usual.
 
 The default rule is the simple one: **a file replaces the file at the same path
 in the layers below, whole.** That's still what happens for `model/` schemas
