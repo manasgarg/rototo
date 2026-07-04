@@ -756,6 +756,22 @@ mod tests {
                 r#"timeBetween(context.user.created_at, "2026-06-21T00:00:00Z", "2026-06-22T00:00:00Z")"#,
                 true,
             ),
+            (
+                r#"timeAfter(context.user.created_at, "2026-06-21T00:00:00Z")"#,
+                true,
+            ),
+            (
+                r#"timeBefore(context.user.created_at, "2026-06-22T00:00:00Z")"#,
+                true,
+            ),
+            (
+                r#"time_at_or_before(context.user.created_at, "2026-06-21T12:30:00Z")"#,
+                true,
+            ),
+            (
+                r#"time_at_or_after(context.user.created_at, "2026-06-21T12:30:00Z")"#,
+                true,
+            ),
             (r#"cidr(context.user.ip, "192.168.1.0/24")"#, true),
             (
                 r#"cidr(context.user.ip, ["10.0.0.0/8", "192.168.0.0/16"])"#,
@@ -959,5 +975,13 @@ mod tests {
     fn returns_none_for_uninvertible_shapes() {
         // A free-form string function the synthesizer does not model.
         assert!(synth(r#"context.user.email.endsWith("@rototo.dev")"#, true).is_none());
+    }
+
+    #[test]
+    fn bucket_synthesis_gives_up_after_the_candidate_budget() {
+        // An empty bucket range is never satisfiable; the candidate search
+        // stops at MAX_BUCKET_CANDIDATES and reports no context instead of
+        // spinning forever.
+        assert!(synth(r#"bucket(context.user.id, "salt", 7, 7)"#, true).is_none());
     }
 }
