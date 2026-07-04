@@ -25,6 +25,13 @@ The enforcement source of truth is `src/source/layer.rs`
 
 Given a base package and one overlay whose `extends` names it.
 
+design: this section's premise changes under task #37. Deny-by-default
+becomes unconditional, so "no governance" stops being an open mode; these
+rows will be re-premised as "given a base that grants the operation". The
+merge mechanics they pin are unaffected - the permission check runs in
+front of the merge, not instead of it. The variable rows V1/V4 additionally
+change under task #36 (update markers replace bare restatement).
+
 ### Variables
 
 | # | When the overlay... | Then... | Coverage |
