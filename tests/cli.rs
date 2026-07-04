@@ -801,6 +801,66 @@ fn package_writes_a_deterministic_content_addressed_archive() {
 }
 
 #[test]
+fn package_unpacked_writes_the_flattened_projection() {
+    let temp = tempfile::tempdir().unwrap();
+    let target = temp.path().join("projection");
+
+    Command::cargo_bin("rototo")
+        .unwrap()
+        .args(["package", "examples/acme-overlay", "--unpacked"])
+        .arg(&target)
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("unpacked"));
+
+    // The projection stands alone: extends is stripped from the manifest.
+    let manifest = fs::read_to_string(target.join("rototo-package.toml")).unwrap();
+    assert!(!manifest.contains("extends"), "{manifest}");
+    // Markers are consumed by composition, not carried into the projection.
+    assert!(!target.join("variables/support_banner.update.toml").exists());
+    assert!(
+        !target
+            .join("data/catalogs/support_banner/german_hours.deleted.toml")
+            .exists()
+    );
+    assert!(
+        !target
+            .join("data/catalogs/support_banner/mobile_help.update.toml")
+            .exists()
+    );
+    // The composed results are: the updated variable, the merged entry, and
+    // the base entry the overlay deleted is gone.
+    assert!(target.join("variables/support_banner.toml").exists());
+    assert!(
+        target
+            .join("data/catalogs/support_banner/mobile_help.toml")
+            .exists()
+    );
+    assert!(
+        !target
+            .join("data/catalogs/support_banner/german_hours.toml")
+            .exists()
+    );
+}
+
+#[test]
+fn package_unpacked_refuses_a_non_empty_target() {
+    let temp = tempfile::tempdir().unwrap();
+    let target = temp.path().join("projection");
+    fs::create_dir_all(&target).unwrap();
+    fs::write(target.join("stale.txt"), "leftover").unwrap();
+
+    Command::cargo_bin("rototo")
+        .unwrap()
+        .env("NO_COLOR", "1")
+        .args(["package", "examples/basic", "--unpacked"])
+        .arg(&target)
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("is not empty"));
+}
+
+#[test]
 fn package_help_is_listed() {
     Command::cargo_bin("rototo")
         .unwrap()

@@ -294,14 +294,22 @@ idea as the [package sources](./package-sources.md) and
 [format](./package-format.md) pages describe.)
 
 ```sh
-rototo package app-config              # writes into the current directory
-rototo package app-config -o ./dist    # ...or somewhere else
+rototo package app-config                     # writes into the current directory
+rototo package app-config -o ./dist           # ...or somewhere else
+rototo package app-config --unpacked ./flat   # plain directory, not an archive
 ```
 
 - **`--output <dir>`** / **`-o`** - where to write the archive. Defaults to `.`.
+- **`--unpacked <dir>`** - write the flattened projection as a plain directory
+  instead of an archive. Same pipeline as the archive: `extends` parents are
+  merged in, update and deleted markers are consumed, the manifest drops its
+  `extends` key, and lint has to pass. This is the easiest way to see exactly
+  what an overlay composes to. The target directory must be empty or absent -
+  `package` refuses to write over existing files. Mutually exclusive with
+  `--output`.
 
-The file is named by its own SHA-256 digest, so the same package always produces
-the same file name and bytes.
+The archive file is named by its own SHA-256 digest, so the same package always
+produces the same file name and bytes.
 
 ## docs - read the bundled documentation
 

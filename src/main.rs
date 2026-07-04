@@ -291,6 +291,11 @@ struct PackageArgs {
     /// Directory to write the content-addressed archive into.
     #[arg(short = 'o', long = "output", value_name = "DIR", default_value = ".")]
     output: PathBuf,
+
+    /// Write the flattened projection as a plain directory instead of an
+    /// archive. The directory must be empty or absent.
+    #[arg(long = "unpacked", value_name = "DIR", conflicts_with = "output")]
+    unpacked: Option<PathBuf>,
 }
 
 #[derive(Debug, Args)]

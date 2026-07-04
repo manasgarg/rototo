@@ -1134,3 +1134,10 @@ That determinism is what makes a release trustworthy: the same commit always
 gives the same digest, so a digest is a precise, reproducible name for "exactly
 this config." How you serve and load that archive is the [package
 sources](./package-sources.md) story.
+
+Either way it is written, the output is the **projection**: `extends` parents
+merged in, update and deleted markers consumed, the `extends` key stripped from
+the manifest. If you want to look at that projection instead of shipping it,
+`rototo package --unpacked <dir>` writes the same tree as a plain directory.
+That's the fastest way to answer "what does this overlay actually compose to?"
+without untarring anything.
