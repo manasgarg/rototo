@@ -1597,3 +1597,47 @@ async fn refreshing_package_on_fallback_keeps_serving_while_the_primary_stays_do
     let resolution = package.resolve_variable("message", &context).unwrap();
     assert_eq!(resolution.value, "bundled");
 }
+
+/// The fallback goes through the identical pipeline, lint gate included:
+/// there is no leniency for the degraded path. A lint-failing fallback is a
+/// failed fallback.
+#[tokio::test]
+async fn a_lint_failing_fallback_is_a_failed_fallback() {
+    let temp = tempfile::TempDir::new().unwrap();
+    let primary = temp.path().join("missing-primary");
+    let fallback = temp.path().join("bundled");
+    tokio::fs::create_dir_all(&fallback).await.unwrap();
+    // Missing schema_version fails lint under the default LintMode::Deny.
+    tokio::fs::write(fallback.join("rototo-package.toml"), "name = \"broken\"\n")
+        .await
+        .unwrap();
+
+    let err = Package::load_with_options(
+        primary.to_string_lossy(),
+        LoadOptions::new().with_fallback_source(fallback.to_string_lossy()),
+    )
+    .await
+    .unwrap_err()
+    .to_string();
+
+    assert!(err.contains("also failed"), "{err}");
+}
+
+/// Remote sources stage into temporary directories the Package owns: the
+/// staged checkout exists while the package is alive and is removed when the
+/// package is dropped.
+#[tokio::test]
+async fn dropping_a_package_removes_its_staged_checkout() {
+    let (_temp, _root, source) = git_package_repo("hello").await;
+
+    let package = Package::load(&source).await.unwrap();
+    let staged_root = package.root().to_path_buf();
+    assert!(tokio::fs::metadata(&staged_root).await.is_ok());
+
+    drop(package);
+    assert!(
+        tokio::fs::metadata(&staged_root).await.is_err(),
+        "staged checkout should be cleaned up: {}",
+        staged_root.display()
+    );
+}
