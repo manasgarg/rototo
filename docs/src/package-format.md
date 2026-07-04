@@ -55,10 +55,17 @@ First, **the file name is the id**. A file at `variables/checkout_redesign.toml`
 defines a variable whose id is `checkout_redesign`. A catalog schema at
 `model/catalogs/checkout_redesign.schema.json` defines a catalog whose id is
 `checkout_redesign`. You never write the id *inside* the file - the filename
-already said it. Variable files can also live in subdirectories, and the
-subdirectory becomes a namespace: `variables/acme/in_trial.toml` defines the
-variable `acme/in_trial`, referenced as `variables["acme/in_trial"]` in
-expressions.
+already said it. Subdirectories are namespaces, for every collection alike:
+`variables/acme/in_trial.toml` is the variable `acme/in_trial` (referenced as
+`variables["acme/in_trial"]` in expressions), `model/enums/acme/tier.toml` is
+the enum `acme/tier`, `model/catalogs/acme/plans.schema.json` is the catalog
+`acme/plans` with its entries under `data/catalogs/acme/plans/`, and the same
+holds for evaluation contexts and layers. Catalog entry ids themselves stay
+flat: an entry is always a direct child of its catalog's data directory.
+
+A file that sits under a rototo-owned directory but maps to no entity - a
+mistyped suffix, an entry directory for a catalog with no schema - draws a
+lint warning, `rototo/unrecognized-file`, instead of being silently ignored.
 
 Second, **ids are snake_case**. Every id rototo recognizes - variables, enums,
 catalogs, catalog entries, evaluation contexts, samples - is lowercase letters,

@@ -532,6 +532,97 @@ async fn a_base_without_a_contract_denies_modification() {
     );
 }
 
+#[tokio::test]
+async fn directories_namespace_every_collection() {
+    let temp = tempfile::TempDir::new().unwrap();
+    let base = temp.path().join("base");
+    let overlay = temp.path().join("overlay");
+    // A base whose enum and catalog live under namespace directories: the
+    // ids are acme/tier and acme/plans.
+    write(&base, "rototo-package.toml", "schema_version = 1\n").await;
+    write(
+        &base,
+        "governance.toml",
+        "[defaults]\nallowed_operations = [\"add\", \"update\", \"delete\"]\n",
+    )
+    .await;
+    write(
+        &base,
+        "model/enums/acme/tier.toml",
+        "schema_version = 1\ntype = \"string\"\n",
+    )
+    .await;
+    write(
+        &base,
+        "data/enums/acme/tier.toml",
+        "members = [\"standard\", \"premium\"]\n",
+    )
+    .await;
+    write(
+        &base,
+        "model/catalogs/acme/plans.schema.json",
+        r#"{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "name": { "type": "string" },
+    "tier": { "type": "string", "x-rototo-ref": "enum:acme/tier" }
+  },
+  "required": ["name", "tier"],
+  "additionalProperties": false
+}
+"#,
+    )
+    .await;
+    write(
+        &base,
+        "data/catalogs/acme/plans/basic.toml",
+        "name = \"Basic\"\ntier = \"standard\"\n",
+    )
+    .await;
+    write(
+        &base,
+        "variables/plan.toml",
+        "schema_version = 1\ntype = \"catalog:acme/plans\"\n\n[resolve]\ndefault = \"basic\"\n",
+    )
+    .await;
+
+    // The base stands on its own with namespaced ids throughout.
+    let package = Package::load(base.to_string_lossy()).await.unwrap();
+    let context = EvaluationContext::from_json(serde_json::json!({})).unwrap();
+    let resolution = package.resolve_variable("plan", &context).unwrap();
+    assert_eq!(resolution.value["name"], "Basic");
+
+    // An overlay updates the namespaced catalog's entry through the marker
+    // and unions a member into the namespaced enum.
+    write(
+        &overlay,
+        "rototo-package.toml",
+        "schema_version = 1\nextends = [\"../base\"]\n",
+    )
+    .await;
+    write(
+        &overlay,
+        "data/catalogs/acme/plans/basic.update.toml",
+        "name = \"Basic Plus\"\n",
+    )
+    .await;
+    write(
+        &overlay,
+        "data/enums/acme/tier.toml",
+        "members = [\"enterprise\"]\n",
+    )
+    .await;
+
+    let package = Package::load(overlay.to_string_lossy()).await.unwrap();
+    let resolution = package.resolve_variable("plan", &context).unwrap();
+    assert_eq!(resolution.value["name"], "Basic Plus");
+    let members = tokio::fs::read_to_string(package.root().join("data/enums/acme/tier.toml"))
+        .await
+        .unwrap();
+    assert!(members.contains("enterprise"), "{members}");
+}
+
 /// The base's layering contract for the governed tests: entries may be
 /// added, prices updated (never on free), any plan but free disabled, and
 /// active_plan's resolution updatable.

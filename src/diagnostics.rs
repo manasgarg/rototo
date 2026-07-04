@@ -118,6 +118,13 @@ rototo_rules! {
         title: "Package was not found",
         help: "Pass a path to an existing rototo package directory.",
     },
+    UnrecognizedFile => {
+        id: "unrecognized-file",
+        entity: Package,
+        title: "File maps to no rototo entity",
+        help: "The file sits under a rototo-owned directory but no entity claims it, so nothing will read it. Move it to the path that names what it is (check the spelling and suffix), or remove it.",
+        severity: Warning,
+    },
     PackageManifestMissing => {
         id: "package-manifest-missing",
         entity: Package,

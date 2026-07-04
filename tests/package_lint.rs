@@ -1506,6 +1506,22 @@ fn canonical_rule_fixtures() -> &'static [CanonicalRuleFixture] {
             }],
         },
         CanonicalRuleFixture {
+            rule: RototoRuleId::UnrecognizedFile,
+            package: "tests/fixtures/packages/rules/discover/unrecognized-file",
+            success: true,
+            expected: &[ExpectedDiagnostic {
+                rule: "rototo/unrecognized-file",
+                severity: "warning",
+                stage: LintStage::Discover,
+                entity: ExpectedEntity::Package,
+                primary: ExpectedPrimaryLocation::Document {
+                    path: "model/enums/typo/tier.tml",
+                    range: None,
+                },
+                related: &[],
+            }],
+        },
+        CanonicalRuleFixture {
             rule: RototoRuleId::PackageManifestParseFailed,
             package: "tests/fixtures/packages/rules/parse/package-manifest-parse-failed",
             success: false,

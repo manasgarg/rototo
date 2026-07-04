@@ -197,6 +197,12 @@ fn check_governed_file(
         .collect();
     let exists = |candidate: &Path| target.join(candidate).is_file();
     let stem = |file: &str, suffix: &str| file.strip_suffix(suffix).map(str::to_owned);
+    // Directories namespace ids for every collection: the id is the joined
+    // path below the collection root, suffix stripped.
+    let namespaced = |parts: &[&str], suffix: &str| -> Option<String> {
+        let id = parts.join("/").strip_suffix(suffix)?.to_owned();
+        (!id.is_empty() && !id.ends_with('/')).then_some(id)
+    };
 
     match components.as_slice() {
         // The manifest is the layer's own identity, and the governance file
@@ -234,33 +240,35 @@ fn check_governed_file(
                 any_declared_below,
             )
         }
-        ["model", "catalogs", file] => match stem(file, ".schema.json") {
+        ["model", "catalogs", ..] => match namespaced(&components[2..], ".schema.json") {
             Some(id) if exists(relative) => Err(schema_edit_denied("catalog schema", &id)),
             _ => Ok(()),
         },
-        ["model", "enums", file] => match stem(file, ".toml") {
+        ["model", "enums", ..] => match namespaced(&components[2..], ".toml") {
             Some(id) if exists(relative) => Err(schema_edit_denied("enum declaration", &id)),
             _ => Ok(()),
         },
-        ["model", "context", file] => match stem(file, ".schema.json") {
+        ["model", "context", .., samples, _] if samples.ends_with("-samples") => {
+            match namespaced(&components[2..components.len() - 1], "-samples") {
+                Some(id)
+                    if exists(Path::new(&format!("model/context/{id}.schema.json")))
+                        && exists(relative) =>
+                {
+                    Err(RototoError::new(format!(
+                        "governance does not allow an overlay to change a base sample for \
+                         evaluation context {id}; add a new sample file instead"
+                    )))
+                }
+                _ => Ok(()),
+            }
+        }
+        ["model", "context", ..] => match namespaced(&components[2..], ".schema.json") {
             Some(id) if exists(relative) => {
                 Err(schema_edit_denied("evaluation context schema", &id))
             }
             _ => Ok(()),
         },
-        ["model", "context", samples, _] => match samples.strip_suffix("-samples") {
-            Some(id)
-                if exists(Path::new(&format!("model/context/{id}.schema.json")))
-                    && exists(relative) =>
-            {
-                Err(RototoError::new(format!(
-                    "governance does not allow an overlay to change a base sample for \
-                     evaluation context {id}; add a new sample file instead"
-                )))
-            }
-            _ => Ok(()),
-        },
-        ["data", "enums", file] => match stem(file, ".toml") {
+        ["data", "enums", ..] => match namespaced(&components[2..], ".toml") {
             Some(id) if exists(relative) => {
                 contract.check("enum", &id, Operation::Update, None, &[])
             }
@@ -269,7 +277,8 @@ fn check_governed_file(
             }
             _ => Ok(()),
         },
-        ["data", "catalogs", catalog, file] => {
+        ["data", "catalogs", middle @ .., file] if !middle.is_empty() => {
+            let catalog = &middle.join("/");
             let declared = exists(Path::new(&format!("model/catalogs/{catalog}.schema.json")));
             if !declared {
                 // A catalog this layer introduces is its own to fill.
@@ -319,7 +328,7 @@ fn check_governed_file(
             }
             Ok(())
         }
-        ["layers", file] => match stem(file, ".toml") {
+        ["layers", ..] => match namespaced(&components[1..], ".toml") {
             Some(id) if exists(relative) => {
                 contract.check("layer", &id, Operation::Update, None, &[])
             }
@@ -481,24 +490,34 @@ fn sibling_entity_key(relative: &Path) -> String {
         .filter_map(|component| component.to_str())
         .collect();
     let stem = |file: &str, suffix: &str| file.strip_suffix(suffix).map(str::to_owned);
+    let namespaced = |parts: &[&str], suffix: &str| -> Option<String> {
+        let id = parts.join("/").strip_suffix(suffix)?.to_owned();
+        (!id.is_empty() && !id.ends_with('/')).then_some(id)
+    };
     match components.as_slice() {
-        ["model", "catalogs", file] => {
-            stem(file, ".schema.json").map(|id| format!("catalog {id} schema"))
+        ["model", "catalogs", ..] => {
+            namespaced(&components[2..], ".schema.json").map(|id| format!("catalog {id} schema"))
         }
-        ["data", "catalogs", catalog, file] => stem(file, ".deleted.toml")
-            .or_else(|| stem(file, ".update.toml"))
-            .or_else(|| stem(file, ".toml"))
-            .map(|entry| format!("catalog {catalog} entry {entry}")),
-        ["model", "enums", file] | ["data", "enums", file] => {
-            stem(file, ".toml").map(|id| format!("enum {id}"))
+        ["data", "catalogs", middle @ .., file] if !middle.is_empty() => {
+            let catalog = middle.join("/");
+            stem(file, ".deleted.toml")
+                .or_else(|| stem(file, ".update.toml"))
+                .or_else(|| stem(file, ".toml"))
+                .map(|entry| format!("catalog {catalog} entry {entry}"))
         }
-        ["model", "context", file] => {
-            stem(file, ".schema.json").map(|id| format!("evaluation context {id}"))
+        ["model", "enums", ..] => {
+            namespaced(&components[2..], ".toml").map(|id| format!("enum {id}"))
         }
-        ["model", "context", samples, _] => samples
-            .strip_suffix("-samples")
+        ["data", "enums", ..] => {
+            namespaced(&components[2..], ".toml").map(|id| format!("enum {id}"))
+        }
+        ["model", "context", .., samples, _] if samples.ends_with("-samples") => {
+            namespaced(&components[2..components.len() - 1], "-samples")
+                .map(|id| format!("evaluation context {id}"))
+        }
+        ["model", "context", ..] => namespaced(&components[2..], ".schema.json")
             .map(|id| format!("evaluation context {id}")),
-        ["layers", file] => stem(file, ".toml").map(|id| format!("layer {id}")),
+        ["layers", ..] => namespaced(&components[1..], ".toml").map(|id| format!("layer {id}")),
         ["variables", ..] => variable_id_for_relative(relative).map(|id| format!("variable {id}")),
         _ => None,
     }
@@ -708,7 +727,7 @@ fn classify_layer_file(
         .filter_map(|component| component.to_str())
         .collect();
     match components.as_slice() {
-        ["data", "catalogs", _, _] => {
+        ["data", "catalogs", middle @ .., _] if !middle.is_empty() => {
             if let Some(entry) = file_name.strip_suffix(".deleted.toml") {
                 return LayerFileComposition::CatalogEntryDeleted {
                     entry: entry.to_owned(),
@@ -727,7 +746,7 @@ fn classify_layer_file(
         ["variables", .., _] if target_exists && file_name.ends_with(".toml") => {
             LayerFileComposition::VariableRestate
         }
-        ["data", "enums", _] if file_name.ends_with(".toml") => {
+        ["data", "enums", ..] if file_name.ends_with(".toml") => {
             LayerFileComposition::EnumMembersCompose
         }
         _ => LayerFileComposition::Replace,

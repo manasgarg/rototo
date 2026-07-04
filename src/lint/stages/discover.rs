@@ -90,6 +90,50 @@ pub(super) async fn run(ctx: &mut LintContext) -> Result<()> {
     ctx.source.add_evaluation_context_documents().await?;
     ctx.source.add_custom_lint_documents().await?;
     ctx.source.add_overlay_documents().await?;
+    report_unrecognized_files(ctx).await;
 
     Ok(())
+}
+
+/// Every file under a rototo-owned directory should map to an entity the
+/// package declares; a file nothing claims would otherwise vanish silently
+/// (a mistyped suffix, an enum members file for an undeclared enum, a
+/// catalog entry under a catalog with no schema). Warn on each one.
+async fn report_unrecognized_files(ctx: &mut LintContext) {
+    for owned in ["model", "data", "variables", "layers"] {
+        let root = ctx.source.root.join(owned);
+        let mut pending = vec![root.clone()];
+        while let Some(directory) = pending.pop() {
+            let Ok(mut entries) = tokio::fs::read_dir(&directory).await else {
+                continue;
+            };
+            while let Some(entry) = entries.next_entry().await.ok().flatten() {
+                let path = entry.path();
+                let Ok(metadata) = tokio::fs::metadata(&path).await else {
+                    continue;
+                };
+                if metadata.is_dir() {
+                    pending.push(path);
+                    continue;
+                }
+                let Ok(relative) = path.strip_prefix(&ctx.source.root) else {
+                    continue;
+                };
+                let Some(relative) = relative.to_str() else {
+                    continue;
+                };
+                let relative = relative.replace(std::path::MAIN_SEPARATOR, "/");
+                if ctx.source.document_by_path(&relative).is_some() {
+                    continue;
+                }
+                ctx.diagnostics.push(LintDiagnostic::rototo(
+                    RototoRuleId::UnrecognizedFile,
+                    LintStage::Discover,
+                    SemanticEntity::Package,
+                    DiagnosticLocation::package_root(relative.clone()),
+                    format!("no rototo entity claims this file: {relative}"),
+                ));
+            }
+        }
+    }
 }

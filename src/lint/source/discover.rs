@@ -51,7 +51,7 @@ impl SourceStore {
     pub(crate) async fn add_enum_documents(&mut self) -> Result<()> {
         for (directory, declaration) in [("model/enums", true), ("data/enums", false)] {
             let directory_path = self.root.join(directory);
-            let entries = match sorted_directory_entries(&directory_path).await {
+            let entries = match sorted_directory_entries_recursive(&directory_path).await {
                 Ok(entries) => entries,
                 Err(err) if err.kind() == std::io::ErrorKind::NotFound => continue,
                 Err(err) => {
@@ -62,22 +62,15 @@ impl SourceStore {
                 }
             };
             for path in entries {
-                if path.extension().and_then(|extension| extension.to_str()) != Some("toml") {
-                    continue;
-                }
-                let Some(stem) = path.file_stem().and_then(|stem| stem.to_str()) else {
+                let Some(id) = namespaced_id(&directory_path, &path, ".toml") else {
                     continue;
                 };
                 let relative_path =
-                    PathBuf::from(directory).join(path.file_name().expect("entry has filename"));
+                    PathBuf::from(directory).join(path.strip_prefix(&directory_path).unwrap());
                 let kind = if declaration {
-                    DocumentKind::EnumDeclaration {
-                        id: stem.to_owned(),
-                    }
+                    DocumentKind::EnumDeclaration { id }
                 } else {
-                    DocumentKind::EnumMembers {
-                        id: stem.to_owned(),
-                    }
+                    DocumentKind::EnumMembers { id }
                 };
                 self.add_disk_document(relative_path, kind).await;
             }
@@ -87,7 +80,7 @@ impl SourceStore {
 
     pub(crate) async fn add_layer_documents(&mut self) -> Result<()> {
         let directory_path = self.root.join("layers");
-        let entries = match sorted_directory_entries(&directory_path).await {
+        let entries = match sorted_directory_entries_recursive(&directory_path).await {
             Ok(entries) => entries,
             Err(err) if err.kind() == std::io::ErrorKind::NotFound => return Ok(()),
             Err(err) => {
@@ -98,28 +91,20 @@ impl SourceStore {
             }
         };
         for path in entries {
-            if path.extension().and_then(|extension| extension.to_str()) != Some("toml") {
-                continue;
-            }
-            let Some(stem) = path.file_stem().and_then(|stem| stem.to_str()) else {
+            let Some(id) = namespaced_id(&directory_path, &path, ".toml") else {
                 continue;
             };
             let relative_path =
-                PathBuf::from("layers").join(path.file_name().expect("entry has filename"));
-            self.add_disk_document(
-                relative_path,
-                DocumentKind::Layer {
-                    id: stem.to_owned(),
-                },
-            )
-            .await;
+                PathBuf::from("layers").join(path.strip_prefix(&directory_path).unwrap());
+            self.add_disk_document(relative_path, DocumentKind::Layer { id })
+                .await;
         }
         Ok(())
     }
 
     pub(crate) async fn add_catalog_documents(&mut self) -> Result<()> {
         let directory = self.root.join("model/catalogs");
-        let entries = match sorted_directory_entries(&directory).await {
+        let entries = match sorted_directory_entries_recursive(&directory).await {
             Ok(entries) => entries,
             Err(err) if err.kind() == std::io::ErrorKind::NotFound => return Ok(()),
             Err(err) => {
@@ -131,19 +116,14 @@ impl SourceStore {
         };
 
         for path in entries {
-            let Some(file_name) = path.file_name().and_then(|file_name| file_name.to_str()) else {
+            let Some(id) = namespaced_id(&directory, &path, ".schema.json") else {
                 continue;
             };
-            let Some(id) = file_name.strip_suffix(".schema.json") else {
-                continue;
-            };
-            if id.is_empty() {
-                continue;
-            }
-            let relative_path = PathBuf::from("model/catalogs").join(file_name);
-            self.add_disk_document(relative_path, DocumentKind::Catalog { id: id.to_owned() })
+            let relative_path =
+                PathBuf::from("model/catalogs").join(path.strip_prefix(&directory).unwrap());
+            self.add_disk_document(relative_path, DocumentKind::Catalog { id: id.clone() })
                 .await;
-            self.add_catalog_entry_documents(id).await?;
+            self.add_catalog_entry_documents(&id).await?;
         }
 
         Ok(())
@@ -208,7 +188,7 @@ impl SourceStore {
 
     pub(crate) async fn add_evaluation_context_documents(&mut self) -> Result<()> {
         let directory = self.root.join("model/context");
-        let entries = match sorted_directory_entries(&directory).await {
+        let entries = match sorted_directory_entries_recursive(&directory).await {
             Ok(entries) => entries,
             Err(err) if err.kind() == std::io::ErrorKind::NotFound => return Ok(()),
             Err(err) => {
@@ -220,22 +200,32 @@ impl SourceStore {
         };
 
         for path in entries {
-            let Some(file_name) = path.file_name().and_then(|file_name| file_name.to_str()) else {
-                continue;
-            };
-            let Some(id) = file_name.strip_suffix(".schema.json") else {
-                continue;
-            };
-            if id.is_empty() {
+            // Files inside a `<id>-samples/` directory are samples, not
+            // schemas, whatever their name.
+            let in_samples_dir = path
+                .strip_prefix(&directory)
+                .ok()
+                .and_then(|relative| relative.parent())
+                .is_some_and(|parent| {
+                    parent
+                        .iter()
+                        .filter_map(|component| component.to_str())
+                        .any(|component| component.ends_with("-samples"))
+                });
+            if in_samples_dir {
                 continue;
             }
-            let relative_path = PathBuf::from("model/context").join(file_name);
+            let Some(id) = namespaced_id(&directory, &path, ".schema.json") else {
+                continue;
+            };
+            let relative_path =
+                PathBuf::from("model/context").join(path.strip_prefix(&directory).unwrap());
             self.add_disk_document(
                 relative_path,
-                DocumentKind::EvaluationContext { id: id.to_owned() },
+                DocumentKind::EvaluationContext { id: id.clone() },
             )
             .await;
-            self.add_evaluation_context_sample_documents(id).await?;
+            self.add_evaluation_context_sample_documents(&id).await?;
         }
 
         Ok(())
@@ -360,52 +350,74 @@ impl SourceStore {
     }
 }
 
+/// The namespaced id a file under a collection directory names: the path
+/// relative to the collection root, separators normalized to `/`, with the
+/// given suffix stripped. Directories are namespaces for every rototo
+/// collection, so `model/enums/acme/tier.toml` is the enum `acme/tier`.
+fn namespaced_id(base: &Path, path: &Path, suffix: &str) -> Option<String> {
+    let relative = path.strip_prefix(base).ok()?;
+    let relative = relative.to_str()?.replace(std::path::MAIN_SEPARATOR, "/");
+    let id = relative.strip_suffix(suffix)?;
+    (!id.is_empty() && !id.ends_with('/')).then(|| id.to_owned())
+}
+
 fn overlay_document_kind(path: &str) -> Option<DocumentKind> {
     if path == "rototo-package.toml" {
         return Some(DocumentKind::Manifest);
     }
+    let joined = |parts: &[&str], suffix: &str| -> Option<String> {
+        let id = parts.join("/").strip_suffix(suffix)?.to_owned();
+        (!id.is_empty() && !id.ends_with('/')).then_some(id)
+    };
     let parts = path.split('/').collect::<Vec<_>>();
     match parts.as_slice() {
-        ["variables", file] if file.ends_with(".toml") => {
-            let id = file.strip_suffix(".toml")?;
-            (!id.is_empty()).then(|| DocumentKind::Variable { id: id.to_owned() })
+        // Update and deleted markers are consumed at flatten time; an
+        // unsaved marker is not a lintable document on its own.
+        ["variables", rest @ .., file]
+            if file.ends_with(".toml")
+                && !file.ends_with(".update.toml")
+                && !file.ends_with(".deleted.toml") =>
+        {
+            let _ = rest;
+            joined(&parts[1..], ".toml").map(|id| DocumentKind::Variable { id })
         }
-        ["model", "enums", file] if file.ends_with(".toml") => {
-            let id = file.strip_suffix(".toml")?;
-            (!id.is_empty()).then(|| DocumentKind::EnumDeclaration { id: id.to_owned() })
+        ["model", "enums", .., file] if file.ends_with(".toml") => {
+            joined(&parts[2..], ".toml").map(|id| DocumentKind::EnumDeclaration { id })
         }
-        ["data", "enums", file] if file.ends_with(".toml") => {
-            let id = file.strip_suffix(".toml")?;
-            (!id.is_empty()).then(|| DocumentKind::EnumMembers { id: id.to_owned() })
+        ["data", "enums", .., file] if file.ends_with(".toml") => {
+            joined(&parts[2..], ".toml").map(|id| DocumentKind::EnumMembers { id })
         }
-        ["model", "catalogs", file] if file.ends_with(".schema.json") => {
-            let id = file.strip_suffix(".schema.json")?;
-            (!id.is_empty()).then(|| DocumentKind::Catalog { id: id.to_owned() })
+        ["model", "catalogs", .., file] if file.ends_with(".schema.json") => {
+            joined(&parts[2..], ".schema.json").map(|id| DocumentKind::Catalog { id })
         }
-        ["data", "catalogs", catalog_id, file] if file.ends_with(".toml") => {
+        ["data", "catalogs", middle @ .., file]
+            if !middle.is_empty()
+                && file.ends_with(".toml")
+                && !file.ends_with(".update.toml")
+                && !file.ends_with(".deleted.toml") =>
+        {
+            let catalog_id = middle.join("/");
             let entry_id = file.strip_suffix(".toml")?;
-            (!catalog_id.is_empty() && !entry_id.is_empty()).then(|| DocumentKind::CatalogEntry {
-                catalog_id: (*catalog_id).to_owned(),
+            (!entry_id.is_empty()).then(|| DocumentKind::CatalogEntry {
+                catalog_id,
                 entry_id: entry_id.to_owned(),
             })
         }
-        ["model", "context", file] if file.ends_with(".schema.json") => {
-            let id = file.strip_suffix(".schema.json")?;
-            (!id.is_empty()).then(|| DocumentKind::EvaluationContext { id: id.to_owned() })
-        }
-        ["model", "context", dir, file] if dir.ends_with("-samples") && file.ends_with(".json") => {
-            let evaluation_context_id = dir.strip_suffix("-samples")?;
+        ["model", "context", .., dir, file]
+            if dir.ends_with("-samples") && file.ends_with(".json") =>
+        {
+            let evaluation_context_id = joined(&parts[2..parts.len() - 1], "-samples")?;
             let sample_id = file.strip_suffix(".json")?;
-            (!evaluation_context_id.is_empty() && !sample_id.is_empty()).then(|| {
-                DocumentKind::EvaluationContextSample {
-                    evaluation_context_id: evaluation_context_id.to_owned(),
-                    sample_id: sample_id.to_owned(),
-                }
+            (!sample_id.is_empty()).then(|| DocumentKind::EvaluationContextSample {
+                evaluation_context_id,
+                sample_id: sample_id.to_owned(),
             })
         }
-        ["layers", file] if file.ends_with(".toml") => {
-            let id = file.strip_suffix(".toml")?;
-            (!id.is_empty()).then(|| DocumentKind::Layer { id: id.to_owned() })
+        ["model", "context", .., file] if file.ends_with(".schema.json") => {
+            joined(&parts[2..], ".schema.json").map(|id| DocumentKind::EvaluationContext { id })
+        }
+        ["layers", .., file] if file.ends_with(".toml") => {
+            joined(&parts[1..], ".toml").map(|id| DocumentKind::Layer { id })
         }
         ["lint", file] if file.ends_with(".lua") => Some(DocumentKind::CustomLint),
         _ => None,

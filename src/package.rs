@@ -251,7 +251,9 @@ async fn read_catalog_entries_toml(
 async fn discover_variables(package_root: &Path) -> Result<Vec<VariableInspection>> {
     let mut variables = Vec::new();
     for path in discover_named_toml_files(package_root, "variables").await? {
-        let id = id_from_path(&path)?;
+        let Some(id) = namespaced_id_from_path(package_root, "variables", &path, ".toml") else {
+            continue;
+        };
         let relative_path = relative_path(package_root, &path)?;
         variables.push(VariableInspection {
             uri: format!("variable://{id}"),
@@ -266,7 +268,9 @@ async fn discover_variables(package_root: &Path) -> Result<Vec<VariableInspectio
 async fn discover_catalogs(package_root: &Path) -> Result<Vec<CatalogInspection>> {
     let mut catalogs = Vec::new();
     for path in discover_named_files(package_root, "model/catalogs", "json").await? {
-        let Some(id) = catalog_id_from_path(&path) else {
+        let Some(id) =
+            namespaced_id_from_path(package_root, "model/catalogs", &path, ".schema.json")
+        else {
             continue;
         };
         let relative_path = relative_path(package_root, &path)?;
@@ -285,7 +289,22 @@ async fn discover_evaluation_contexts(
 ) -> Result<Vec<EvaluationContextInspection>> {
     let mut evaluation_contexts = Vec::new();
     for path in discover_named_files(package_root, "model/context", "json").await? {
-        let Some(id) = evaluation_context_id_from_path(&path) else {
+        if path
+            .strip_prefix(package_root.join("model/context"))
+            .ok()
+            .and_then(|relative| relative.parent())
+            .is_some_and(|parent| {
+                parent
+                    .iter()
+                    .filter_map(|component| component.to_str())
+                    .any(|component| component.ends_with("-samples"))
+            })
+        {
+            continue;
+        }
+        let Some(id) =
+            namespaced_id_from_path(package_root, "model/context", &path, ".schema.json")
+        else {
             continue;
         };
         let relative_path = relative_path(package_root, &path)?;
@@ -337,23 +356,29 @@ async fn discover_named_files(
     dir: &str,
     extension: &str,
 ) -> Result<Vec<PathBuf>> {
+    // Directories namespace ids for every collection, so discovery walks
+    // subdirectories too.
     let dir = package_root.join(dir);
     let mut paths = Vec::new();
-    let Ok(mut entries) = tokio::fs::read_dir(&dir).await else {
-        return Ok(paths);
-    };
-    while let Some(entry) = entries
-        .next_entry()
-        .await
-        .map_err(|err| RototoError::new(format!("failed to read {}: {err}", dir.display())))?
-    {
-        let path = entry.path();
-        if path.extension().and_then(|value| value.to_str()) == Some(extension)
-            && tokio::fs::metadata(&path)
-                .await
-                .is_ok_and(|metadata| metadata.is_file())
-        {
-            paths.push(path);
+    let mut pending = vec![dir.clone()];
+    while let Some(directory) = pending.pop() {
+        let Ok(mut entries) = tokio::fs::read_dir(&directory).await else {
+            continue;
+        };
+        while let Some(entry) = entries.next_entry().await.map_err(|err| {
+            RototoError::new(format!("failed to read {}: {err}", directory.display()))
+        })? {
+            let path = entry.path();
+            let Ok(metadata) = tokio::fs::metadata(&path).await else {
+                continue;
+            };
+            if metadata.is_dir() {
+                pending.push(path);
+            } else if metadata.is_file()
+                && path.extension().and_then(|value| value.to_str()) == Some(extension)
+            {
+                paths.push(path);
+            }
         }
     }
     Ok(paths)
@@ -366,20 +391,18 @@ fn id_from_path(path: &Path) -> Result<String> {
         .ok_or_else(|| RototoError::new(format!("path has no valid id: {path:?}")))
 }
 
-fn evaluation_context_id_from_path(path: &Path) -> Option<String> {
-    path.file_name()
-        .and_then(|file_name| file_name.to_str())
-        .and_then(|file_name| file_name.strip_suffix(".schema.json"))
-        .filter(|id| !id.is_empty())
-        .map(str::to_owned)
-}
-
-fn catalog_id_from_path(path: &Path) -> Option<String> {
-    path.file_name()
-        .and_then(|file_name| file_name.to_str())
-        .and_then(|file_name| file_name.strip_suffix(".schema.json"))
-        .filter(|id| !id.is_empty())
-        .map(str::to_owned)
+/// The namespaced id a file names below its collection root: the relative
+/// path with separators normalized to `/` and the suffix stripped.
+fn namespaced_id_from_path(
+    package_root: &Path,
+    dir: &str,
+    path: &Path,
+    suffix: &str,
+) -> Option<String> {
+    let relative = path.strip_prefix(package_root.join(dir)).ok()?;
+    let relative = relative.to_str()?.replace(std::path::MAIN_SEPARATOR, "/");
+    let id = relative.strip_suffix(suffix)?;
+    (!id.is_empty() && !id.ends_with('/')).then(|| id.to_owned())
 }
 
 fn relative_path(package_root: &Path, path: &Path) -> Result<PathBuf> {
