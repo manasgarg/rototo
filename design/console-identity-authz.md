@@ -120,8 +120,14 @@ deployment configuration with three settings:
   identities already attached to a principal or matching an open invitation.
   Anyone else gets a "not enrolled" screen, and no principal row is created.
 - `domain-allowlist`: an identity whose verified email matches a configured
-  domain list auto-enrolls as a new principal with zero grants. Useful for
-  orgs that want everyone visible but nothing accessible by default.
+  domain list auto-enrolls as a new principal with zero grants at first
+  sign-in. Useful for orgs that want everyone visible but nothing accessible
+  by default. Enrollment happens at sign-in rather than lazily at first
+  grant: granting requires a principal to exist, and materializing
+  principals from emails later would reintroduce email as a key through the
+  back door. The cost is a few zero-grant rows from curious visitors, who
+  see an empty console; the benefit is that administrators pick grantees
+  from people who have actually signed in.
 - `open`: auto-enroll with zero grants. Demo and evaluation deployments only.
 
 Invitations are created by administrators: target email, optional provider
@@ -199,8 +205,8 @@ GitHub identity, permissions are read from GitHub and mapped:
 | --- | --- |
 | repo `pull` permission | `view` on the source tree and everything under it |
 | repo `push` permission | `propose` likewise |
-| CODEOWNERS match on the touched paths (directly or via team) | `approve` for those entities |
-| repo `maintain` or `admin` | `approve` anywhere in the repo (when no CODEOWNERS applies) |
+| requested reviewer or team on an open pull request (GitHub's own CODEOWNERS evaluation) | `approve` for that proposed change |
+| repo `maintain` or `admin` | `approve`, as the prediction before a change is proposed |
 | repo `admin` | `administer` on the source tree |
 
 Backend A also reads the target branch's protection rules, because they
@@ -214,9 +220,20 @@ renders it honestly (marking the change as landed without independent
 review) rather than refusing; a rule the user can walk around with plain
 `git push` is not a rule, only friction.
 
+CODEOWNERS is deliberately not parsed. Once a change is proposed and a pull
+request exists, GitHub evaluates ownership itself: requested reviewers and
+teams are populated from CODEOWNERS, and the review decision says whether
+requirements are met. Approval queues and "who can land this" read that
+computed truth off the pull request. Before a proposal exists, `approve` is
+predicted coarsely from `maintain` or `admin`; a conservative prediction
+there is harmless because GitHub's own answer replaces it the moment the
+change is proposed. A hand-rolled CODEOWNERS parser would be a shadow
+reimplementation of GitHub semantics that drifts; it gets built only if the
+coarse prediction proves misleading in practice.
+
 Facts are fetched with the subject's own token (collaborator permission,
-team membership, CODEOWNERS content, branch protection) and cached with a
-short TTL, around one to five minutes. Staleness is acceptable in this phase because Backend A is
+team membership, branch protection, review state on open pull requests) and
+cached with a short TTL, around one to five minutes. Staleness is acceptable in this phase because Backend A is
 **advisory**: the write itself still runs with the user's token, so GitHub
 remains the authority at the moment of the operation. The console's decision
 exists to render honest UI (grey the button before the doomed attempt, build
@@ -268,9 +285,13 @@ view < propose < approve < administer
   at this scope.
 
 The ordering (approve implies propose, administer implies approve) matches
-GitHub's own semantics and keeps v1 simple. If a real need appears for
-"may approve but not propose", actions become independent sets; the grants
-schema does not care.
+GitHub's own semantics and keeps v1 simple. Splitting `administer` from
+`approve` would prevent nothing: an administrator can always grant
+themselves approve, so the split's only real value is making that
+escalation an explicit, logged act in `authz_audit` instead of an implied
+power. That is a compliance nicety, not a v1 need. If a real need appears
+for "may approve but not propose", actions become independent sets; the
+grants schema does not care.
 
 ### 5.2 Resources
 
@@ -294,7 +315,12 @@ Resource ids must survive renames where the underlying thing survives.
 Source trees have stable generated ids already. Packages are identified by
 path within a source tree; a package move is a new resource and grants do not
 follow it silently. That is a known sharp edge, accepted for v1 and flagged by
-grant diagnostics (section 6.3) when a grant points at nothing.
+grant diagnostics (section 6.3) when a grant points at nothing. If durable
+package identity is ever needed, it belongs in the package itself: a declared
+name in `rototo-package.toml` that travels through git, with grants
+referencing the declared id. It does not belong in the console store, and
+git-rename heuristics are ruled out either way. That is a package-format
+change that must be motivated by more than rename-resilient grants.
 
 ### 5.3 Groups
 
@@ -409,6 +435,13 @@ to Layer 2.
 rework, credentials on identity rows, `decide` with Backend A, every console
 route moved onto the seam, `/api/me` rework. User-visible behavior is almost
 unchanged; the deliverable is the spine plus honest capability rendering.
+Phase A ships no new admin surface: the existing source-tree screens are
+gated on `administer` (registration becomes deployment-level in hosted
+mode), and `ROTOTO_CONSOLE_ADMINS` covers bootstrap. Offboarding rides on
+GitHub and fails closed: a deprovisioned user's token dies, so every
+decision and write fails on live GitHub facts, leaving any surviving
+session an authenticated shell over nothing. At most, a read-only list of
+principals seen may ride along for operator sanity.
 
 **Phase B (mixed org).** OIDC provider, enrollment policies, invitations,
 identity linking, groups, grants, admin surface, grant diagnostics, lineage
@@ -434,18 +467,27 @@ Phase A alone ships and B follows; if so, they ship together.
   list-shaped questions ("everything this principal may see") outgrow
   hand-rolled evaluation; the `decide` seam is the insertion point.
 
-## 11. Open questions
+## 11. Resolved positions and revisit triggers
 
-1. Is the strict action ordering right long-term, specifically
-   `administer` implying `approve`? Matches GitHub today; revisit with
-   surfaces.
-2. Package identity across moves: accept grant breakage on package renames
-   (current position), or introduce stable package ids in the store?
-3. Backend A's `approve` mapping leans on CODEOWNERS; how much CODEOWNERS
-   parsing fidelity is worth building versus falling back to
-   maintain-or-admin approval only?
-4. Should enrollment auto-create principals on `domain-allowlist` at sign-in
-   time (specced) or lazily at first grant? Sign-in-time is simpler and makes
-   people visible to administrators early.
-5. Does Phase A need any admin UI at all (grants do not exist yet in it), or
-   is `ROTOTO_CONSOLE_ADMINS` plus GitHub-derived decisions enough until B?
+Earlier open questions are resolved into the body above. What remains is
+the trigger that should reopen each one:
+
+- **Action ordering** (5.1): reopen when Layer 4 surfaces introduce named
+  approver policies, which reference groups directly and shrink the ladder
+  to a fallback rule, or if a compliance requirement demands that
+  administrator self-escalation be a granted act rather than an implied
+  power.
+- **Package identity** (5.2): reopen if a declared package name lands in
+  `rototo-package.toml` for reasons of its own; grants should then switch
+  to it.
+- **CODEOWNERS fidelity** (4.1): reopen if the coarse pre-proposal
+  prediction (maintain-or-admin approves) misleads users often enough to
+  hurt.
+- **Enrollment timing** (3.4): no trigger expected; sign-in-time creation
+  stands.
+- **Phase A admin surface** (9): reopen only if a hosted Phase A deployment
+  needs principal disablement before Phase B lands.
+
+One genuinely open product decision remains, owned by phasing (section 9):
+whether the first shipped org release includes non-GitHub internal
+stakeholders, which decides whether Phase A ships alone or together with B.
