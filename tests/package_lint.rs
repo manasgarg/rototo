@@ -2792,3 +2792,93 @@ fn pending_rules_fire_from_scratch_packages() {
         );
     }
 }
+
+/// A Lua rule claiming the rototo authority is rejected at registration:
+/// rototo/<rule-id> identifies built-in diagnostics only.
+#[test]
+fn lua_rules_may_not_claim_the_rototo_authority() {
+    let tempdir = tempfile::tempdir().unwrap();
+    std::fs::write(
+        tempdir.path().join("rototo-package.toml"),
+        "schema_version = 1\n",
+    )
+    .unwrap();
+    std::fs::create_dir_all(tempdir.path().join("lint")).unwrap();
+    std::fs::write(
+        tempdir.path().join("lint/sneaky.lua"),
+        r#"function register(lint)
+  lint:rule({
+    id = "rototo/sneaky",
+    title = "Sneaky",
+    help = "Claims the reserved authority.",
+    target = "/",
+    handler = "check",
+  })
+end
+
+function check(package, target)
+  return {}
+end
+"#,
+    )
+    .unwrap();
+
+    let lint = lint_json(&tempdir.path().to_string_lossy(), false);
+    let messages = diagnostic_messages_for_rule(&lint, "rototo/custom-lint-registration-invalid");
+    assert!(
+        messages
+            .iter()
+            .any(|message| message.contains("reserved for built-in")),
+        "{messages:#?}"
+    );
+}
+
+/// Pinned current behavior, recorded for the review pass: only lint/*.lua
+/// files directly in the lint directory are discovered. A Lua file in a
+/// subdirectory is ignored silently; unlike model/, data/, variables/, and
+/// layers/, the unrecognized-file walker does not cover lint/, so nothing
+/// warns about it either.
+#[test]
+fn nested_lua_files_are_silently_ignored_today() {
+    let tempdir = tempfile::tempdir().unwrap();
+    std::fs::write(
+        tempdir.path().join("rototo-package.toml"),
+        "schema_version = 1\n",
+    )
+    .unwrap();
+    std::fs::create_dir_all(tempdir.path().join("lint/sub")).unwrap();
+    std::fs::write(
+        tempdir.path().join("lint/sub/nested.lua"),
+        r#"function register(lint)
+  lint:rule({
+    id = "nested/fires",
+    title = "Nested",
+    help = "Would fire if discovered.",
+    target = "/",
+    handler = "check",
+  })
+end
+
+function check(package, target)
+  return { { message = "fired" } }
+end
+"#,
+    )
+    .unwrap();
+
+    let lint = lint_json(&tempdir.path().to_string_lossy(), true);
+    assert!(
+        lint["diagnostics"].as_array().unwrap().is_empty(),
+        "{lint:#}"
+    );
+    let documents = lint["documents"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|document| document["path"].as_str().unwrap().to_owned())
+        .collect::<Vec<_>>();
+    assert!(
+        !documents.iter().any(|path| path.contains("nested.lua")),
+        "{documents:?}"
+    );
+}

@@ -1196,3 +1196,35 @@ impl Severity {
         }
     }
 }
+
+#[cfg(test)]
+mod custom_rule_id_tests {
+    use super::CustomRuleId;
+
+    #[test]
+    fn custom_rule_ids_take_authority_slash_rule_in_kebab_case() {
+        assert!(CustomRuleId::parse("payments/max-token-budget").is_ok());
+        assert!(CustomRuleId::parse("a1/b2-c3").is_ok());
+    }
+
+    #[test]
+    fn the_rototo_authority_is_reserved_for_built_ins() {
+        let err = CustomRuleId::parse("rototo/sneaky").unwrap_err();
+        assert!(err.to_string().contains("reserved for built-in"));
+    }
+
+    #[test]
+    fn malformed_custom_rule_ids_are_rejected() {
+        for id in [
+            "no-slash",
+            "too/many/segments",
+            "/leading",
+            "trailing/",
+            "Upper/case",
+            "spaces in/rule",
+            "under_score/rule",
+        ] {
+            assert!(CustomRuleId::parse(id).is_err(), "{id} should be rejected");
+        }
+    }
+}
