@@ -219,3 +219,27 @@ mod tests {
         assert!(err.to_string().contains("must not begin with '-'"));
     }
 }
+
+#[cfg(test)]
+mod fragment_tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn file_sources_reject_fragments() {
+        let err = stage_package_source("file:///tmp/package#main", &SourceOptions::new())
+            .await
+            .unwrap_err();
+        assert!(
+            err.to_string()
+                .contains("file:// package sources do not support fragments")
+        );
+
+        let err = stage_package_source("file:///tmp/package#:subdir", &SourceOptions::new())
+            .await
+            .unwrap_err();
+        assert!(
+            err.to_string()
+                .contains("file:// package sources do not support fragments")
+        );
+    }
+}

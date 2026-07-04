@@ -2321,3 +2321,177 @@ end
         lint.diagnostics
     );
 }
+
+/// Two packages extending each other must fail the load with the cycle
+/// spelled out, not recurse forever.
+#[tokio::test]
+async fn extends_cycles_fail_the_load() {
+    let tempdir = tempfile::tempdir().unwrap();
+    let left = tempdir.path().join("left");
+    let right = tempdir.path().join("right");
+    write(
+        &left,
+        "rototo-package.toml",
+        "schema_version = 1\nextends = [\"../right\"]\n",
+    )
+    .await;
+    write(
+        &right,
+        "rototo-package.toml",
+        "schema_version = 1\nextends = [\"../left\"]\n",
+    )
+    .await;
+
+    let err = Package::load(left.to_string_lossy()).await.unwrap_err();
+    assert!(
+        err.to_string().contains("package extends cycle detected"),
+        "unexpected error: {err}"
+    );
+}
+
+/// A package extending itself is the smallest cycle.
+#[tokio::test]
+async fn a_package_extending_itself_fails_the_load() {
+    let tempdir = tempfile::tempdir().unwrap();
+    let root = tempdir.path().join("selfish");
+    write(
+        &root,
+        "rototo-package.toml",
+        "schema_version = 1\nextends = [\".\"]\n",
+    )
+    .await;
+
+    let err = Package::load(root.to_string_lossy()).await.unwrap_err();
+    assert!(
+        err.to_string().contains("package extends cycle detected"),
+        "unexpected error: {err}"
+    );
+}
+
+/// Chains deeper than 32 fail with the depth named, so a runaway graph is an
+/// error instead of unbounded staging work.
+#[tokio::test]
+async fn extends_chains_deeper_than_the_limit_fail_the_load() {
+    let tempdir = tempfile::tempdir().unwrap();
+    // Package 0 is the root; package i extends package i+1; the last one is
+    // a plain base. 33 packages exceed the depth limit of 32.
+    let count = 34;
+    for i in 0..count {
+        let root = tempdir.path().join(format!("pkg{i}"));
+        let manifest = if i + 1 < count {
+            format!("schema_version = 1\nextends = [\"../pkg{}\"]\n", i + 1)
+        } else {
+            "schema_version = 1\n".to_owned()
+        };
+        write(&root, "rototo-package.toml", &manifest).await;
+    }
+
+    let err = Package::load(tempdir.path().join("pkg0").to_string_lossy())
+        .await
+        .unwrap_err();
+    assert!(
+        err.to_string()
+            .contains("package extends depth exceeded 32"),
+        "unexpected error: {err}"
+    );
+}
+
+async fn run_git(repo: &Path, args: &[&str]) {
+    let output = tokio::process::Command::new("git")
+        .arg("-C")
+        .arg(repo)
+        .args(args)
+        .output()
+        .await
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "git {args:?} failed: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+}
+
+async fn commit_git_package(repo: &Path) {
+    run_git(repo, &["init"]).await;
+    run_git(repo, &["config", "user.email", "rototo@example.com"]).await;
+    run_git(repo, &["config", "user.name", "Rototo Tests"]).await;
+    run_git(repo, &["add", "."]).await;
+    run_git(repo, &["commit", "-m", "initial"]).await;
+}
+
+/// A minimal base package granting its overlays broad rights, with one
+/// string variable the overlay can see.
+async fn write_remote_base(root: &Path) {
+    write(root, "rototo-package.toml", "schema_version = 1\n").await;
+    write(
+        root,
+        "governance.toml",
+        "[defaults]\nallowed_operations = [\"add\", \"update\", \"delete\"]\n",
+    )
+    .await;
+    write(
+        root,
+        "variables/greeting.toml",
+        "schema_version = 1\ntype = \"string\"\n\n[resolve]\ndefault = \"hello\"\n",
+    )
+    .await;
+}
+
+/// A local package can extend a git source: the extends list takes the same
+/// source grammar as a package argument.
+#[tokio::test]
+async fn a_local_package_can_extend_a_git_source() {
+    let tempdir = tempfile::tempdir().unwrap();
+    let base_repo = tempdir.path().join("base-repo");
+    write_remote_base(&base_repo).await;
+    commit_git_package(&base_repo).await;
+
+    let overlay = tempdir.path().join("overlay");
+    write(
+        &overlay,
+        "rototo-package.toml",
+        &format!(
+            "schema_version = 1\nextends = [\"git+file://{}\"]\n",
+            base_repo.display()
+        ),
+    )
+    .await;
+
+    let package = Package::load(overlay.to_string_lossy()).await.unwrap();
+    let context = EvaluationContext::from_json(serde_json::json!({})).unwrap();
+    let value = package.resolve_variable("greeting", &context).unwrap();
+    assert_eq!(value.value.as_str(), Some("hello"));
+}
+
+/// A staged (fetched) package may not extend `git+file://`: from a remote
+/// package that is a read of the loading machine's disk, exactly like
+/// `file://`. Truly remote parents (`git+https://`, `git+ssh://`, `https://`)
+/// pass through; the local-filesystem schemes are the escape.
+#[tokio::test]
+async fn a_staged_package_may_not_extend_a_local_git_source() {
+    let tempdir = tempfile::tempdir().unwrap();
+    let base_repo = tempdir.path().join("base-repo");
+    write_remote_base(&base_repo).await;
+    commit_git_package(&base_repo).await;
+
+    let overlay_repo = tempdir.path().join("overlay-repo");
+    write(
+        &overlay_repo,
+        "rototo-package.toml",
+        &format!(
+            "schema_version = 1\nextends = [\"git+file://{}\"]\n",
+            base_repo.display()
+        ),
+    )
+    .await;
+    commit_git_package(&overlay_repo).await;
+
+    let err = Package::load(format!("git+file://{}", overlay_repo.display()))
+        .await
+        .unwrap_err();
+    assert!(
+        err.to_string()
+            .contains("package extends source escapes a staged package"),
+        "unexpected error: {err}"
+    );
+}

@@ -798,3 +798,96 @@ mod tests {
         );
     }
 }
+
+#[cfg(test)]
+mod auth_tests {
+    use super::super::auth::ScopedBearerTokens;
+    use super::*;
+
+    fn authorization_header(request: reqwest::RequestBuilder) -> Option<String> {
+        let request = request.build().unwrap();
+        request
+            .headers()
+            .get(reqwest::header::AUTHORIZATION)
+            .map(|value| value.to_str().unwrap().to_owned())
+    }
+
+    fn get(url: &str) -> reqwest::RequestBuilder {
+        reqwest::Client::new().get(url)
+    }
+
+    #[test]
+    fn anonymous_requests_carry_no_authorization_header() {
+        let options = SourceOptions::new();
+        let url = "https://config.example.com/pkg.tar.gz";
+        let request = apply_archive_auth(get(url), url, &options).unwrap();
+        assert_eq!(authorization_header(request), None);
+    }
+
+    #[test]
+    fn a_bare_token_attaches_and_binds_to_the_first_origin() {
+        let options = SourceOptions::new().with_auth(SourceAuth::Bearer("secret".to_owned()));
+        let url = "https://config.example.com/pkg.tar.gz";
+        let request = apply_archive_auth(get(url), url, &options).unwrap();
+        assert_eq!(
+            authorization_header(request).as_deref(),
+            Some("Bearer secret")
+        );
+
+        // The same origin keeps working; a second origin is refused rather
+        // than receiving a token minted for the first.
+        let same_origin = "https://config.example.com/other.tar.gz";
+        let _ = apply_archive_auth(get(same_origin), same_origin, &options).unwrap();
+        let other_origin = "https://cdn.example.net/pkg.tar.gz";
+        let err = apply_archive_auth(get(other_origin), other_origin, &options).unwrap_err();
+        assert!(err.to_string().contains("https://cdn.example.net"));
+    }
+
+    #[test]
+    fn scoped_tokens_attach_on_match_and_stay_silent_otherwise() {
+        let tokens = ScopedBearerTokens::new()
+            .with_prefix("https://config.example.com/team-a", "team-a-token")
+            .unwrap();
+        let options = SourceOptions::new().with_auth(SourceAuth::Scoped(tokens));
+
+        let matching = "https://config.example.com/team-a/pkg.tar.gz";
+        let request = apply_archive_auth(get(matching), matching, &options).unwrap();
+        assert_eq!(
+            authorization_header(request).as_deref(),
+            Some("Bearer team-a-token")
+        );
+
+        let unmatched = "https://config.example.com/team-b/pkg.tar.gz";
+        let request = apply_archive_auth(get(unmatched), unmatched, &options).unwrap();
+        assert_eq!(authorization_header(request), None);
+    }
+
+    #[test]
+    fn auth_failure_hints_name_the_credential_that_was_sent() {
+        let url = "https://config.example.com/team-a/pkg.tar.gz";
+
+        let anonymous = SourceOptions::new();
+        let hint = auth_failure_hint(reqwest::StatusCode::UNAUTHORIZED, url, &anonymous);
+        assert!(hint.contains("no package token configured"));
+        assert!(hint.contains("https://config.example.com"));
+
+        let bare = SourceOptions::new().with_auth(SourceAuth::Bearer("secret".to_owned()));
+        let hint = auth_failure_hint(reqwest::StatusCode::FORBIDDEN, url, &bare);
+        assert!(hint.contains("bare package token"));
+
+        let tokens = ScopedBearerTokens::new()
+            .with_prefix("https://config.example.com/team-a", "token")
+            .unwrap();
+        let scoped = SourceOptions::new().with_auth(SourceAuth::Scoped(tokens.clone()));
+        let hint = auth_failure_hint(reqwest::StatusCode::UNAUTHORIZED, url, &scoped);
+        assert!(hint.contains("scoped to https://config.example.com/team-a"));
+
+        let unmatched_url = "https://cdn.example.net/pkg.tar.gz";
+        let hint = auth_failure_hint(reqwest::StatusCode::UNAUTHORIZED, unmatched_url, &scoped);
+        assert!(hint.contains("no package token entry matched"));
+
+        // A non-auth status never gets an auth hint.
+        let hint = auth_failure_hint(reqwest::StatusCode::NOT_FOUND, url, &scoped);
+        assert!(hint.is_empty());
+    }
+}
