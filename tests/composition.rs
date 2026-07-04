@@ -1381,3 +1381,911 @@ async fn sibling_base_may_not_touch_another_siblings_catalog() {
         "unexpected error: {err}"
     );
 }
+
+// --- governance kind sweep -------------------------------------------------
+
+async fn write_contract_base(root: &Path) {
+    write(root, "rototo-package.toml", "schema_version = 1\n").await;
+    write(
+        root,
+        "model/enums/tier.toml",
+        "schema_version = 1\ntype = \"string\"\n",
+    )
+    .await;
+    write(root, "data/enums/tier.toml", "members = [\"standard\"]\n").await;
+    write(
+        root,
+        "model/context/request.schema.json",
+        r#"{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "additionalProperties": true,
+  "properties": { "region": { "type": "string" } }
+}
+"#,
+    )
+    .await;
+    write(
+        root,
+        "model/context/request-samples/eu.json",
+        "{ \"region\": \"eu\" }\n",
+    )
+    .await;
+}
+
+fn extends_manifest() -> &'static str {
+    "schema_version = 1\nextends = [\"../base\"]\n"
+}
+
+#[tokio::test]
+async fn governed_model_files_are_never_editable() {
+    let temp = tempfile::TempDir::new().unwrap();
+    let base = temp.path().join("base");
+    write_contract_base(&base).await;
+
+    // G9: a base enum declaration.
+    let overlay = temp.path().join("overlay-enum");
+    write(&overlay, "rototo-package.toml", extends_manifest()).await;
+    write(
+        &overlay,
+        "model/enums/tier.toml",
+        "schema_version = 1\ntype = \"int\"\n",
+    )
+    .await;
+    let err = Package::load(overlay.to_string_lossy()).await.unwrap_err();
+    assert!(
+        err.to_string()
+            .contains("governance does not allow an overlay to change a base enum declaration"),
+        "{err}"
+    );
+
+    // G10: a base evaluation context schema.
+    let overlay = temp.path().join("overlay-context");
+    write(&overlay, "rototo-package.toml", extends_manifest()).await;
+    write(&overlay, "model/context/request.schema.json", "{}\n").await;
+    let err = Package::load(overlay.to_string_lossy()).await.unwrap_err();
+    assert!(
+        err.to_string().contains(
+            "governance does not allow an overlay to change a base evaluation context schema"
+        ),
+        "{err}"
+    );
+}
+
+#[tokio::test]
+async fn governed_samples_reject_edits_but_admit_additions() {
+    let temp = tempfile::TempDir::new().unwrap();
+    let base = temp.path().join("base");
+    write_contract_base(&base).await;
+
+    // G11a: restating a base sample with different content.
+    let overlay = temp.path().join("overlay-edit");
+    write(&overlay, "rototo-package.toml", extends_manifest()).await;
+    write(
+        &overlay,
+        "model/context/request-samples/eu.json",
+        "{ \"region\": \"eu-west\" }\n",
+    )
+    .await;
+    let err = Package::load(overlay.to_string_lossy()).await.unwrap_err();
+    assert!(
+        err.to_string()
+            .contains("change a base sample for evaluation context request"),
+        "{err}"
+    );
+
+    // G11b: a new sample file needs no grant at all.
+    let overlay = temp.path().join("overlay-add");
+    write(&overlay, "rototo-package.toml", extends_manifest()).await;
+    write(
+        &overlay,
+        "model/context/request-samples/us.json",
+        "{ \"region\": \"us\" }\n",
+    )
+    .await;
+    Package::load(overlay.to_string_lossy()).await.unwrap();
+}
+
+#[tokio::test]
+async fn governed_enum_members_check_update_and_add() {
+    let temp = tempfile::TempDir::new().unwrap();
+
+    // G12: the base has a member set; providing another is an update.
+    let base = temp.path().join("base");
+    write_contract_base(&base).await;
+    let overlay = temp.path().join("overlay-update");
+    write(&overlay, "rototo-package.toml", extends_manifest()).await;
+    write(&overlay, "data/enums/tier.toml", "members = [\"gold\"]\n").await;
+    let err = Package::load(overlay.to_string_lossy()).await.unwrap_err();
+    assert!(
+        err.to_string()
+            .contains("governance denies update on enum.tier"),
+        "{err}"
+    );
+    write(
+        &base,
+        "governance.toml",
+        "[enum.tier]\nallowed_operations = [\"update\"]\n",
+    )
+    .await;
+    Package::load(overlay.to_string_lossy()).await.unwrap();
+
+    // G13: the base declares the enum with no member file; members are an add.
+    let base2 = temp.path().join("base2");
+    write(&base2, "rototo-package.toml", "schema_version = 1\n").await;
+    write(
+        &base2,
+        "model/enums/size.toml",
+        "schema_version = 1\ntype = \"string\"\n",
+    )
+    .await;
+    let overlay = temp.path().join("overlay-add");
+    write(
+        &overlay,
+        "rototo-package.toml",
+        "schema_version = 1\nextends = [\"../base2\"]\n",
+    )
+    .await;
+    write(
+        &overlay,
+        "data/enums/size.toml",
+        "members = [\"s\", \"m\"]\n",
+    )
+    .await;
+    let err = Package::load(overlay.to_string_lossy()).await.unwrap_err();
+    assert!(
+        err.to_string()
+            .contains("governance denies add on enum.size"),
+        "{err}"
+    );
+    write(
+        &base2,
+        "governance.toml",
+        "[enum.size]\nallowed_operations = [\"add\"]\n",
+    )
+    .await;
+    Package::load(overlay.to_string_lossy()).await.unwrap();
+}
+
+#[tokio::test]
+async fn governed_namespaced_variable_targets() {
+    let temp = tempfile::TempDir::new().unwrap();
+    let base = temp.path().join("base");
+    write(&base, "rototo-package.toml", "schema_version = 1\n").await;
+    write(
+        &base,
+        "variables/acme/flag.toml",
+        "schema_version = 1\ntype = \"bool\"\n\n[resolve]\ndefault = false\n",
+    )
+    .await;
+    let overlay = temp.path().join("overlay");
+    write(&overlay, "rototo-package.toml", extends_manifest()).await;
+    write(
+        &overlay,
+        "variables/acme/flag.update.toml",
+        "[resolve]\ndefault = true\n",
+    )
+    .await;
+
+    let err = Package::load(overlay.to_string_lossy()).await.unwrap_err();
+    assert!(
+        err.to_string()
+            .contains("governance denies update on variable.acme/flag"),
+        "{err}"
+    );
+
+    // The governance target quotes the namespaced id.
+    write(
+        &base,
+        "governance.toml",
+        "[variable.\"acme/flag\"]\nallowed_operations = [\"update\"]\n",
+    )
+    .await;
+    Package::load(overlay.to_string_lossy()).await.unwrap();
+}
+
+#[tokio::test]
+async fn governed_layer_updates_need_the_update_grant() {
+    let temp = tempfile::TempDir::new().unwrap();
+    let base = temp.path().join("base");
+    write(&base, "rototo-package.toml", "schema_version = 1\n").await;
+    write(
+        &base,
+        "layers/checkout.toml",
+        "schema_version = 1\nunit = \"context.user.id\"\nbuckets = 1000\n",
+    )
+    .await;
+    let overlay = temp.path().join("overlay");
+    write(&overlay, "rototo-package.toml", extends_manifest()).await;
+    // Changing buckets silently reassigns enrolled units; that is exactly
+    // what the update grant gates.
+    write(
+        &overlay,
+        "layers/checkout.toml",
+        "schema_version = 1\nunit = \"context.user.id\"\nbuckets = 500\n",
+    )
+    .await;
+
+    let err = Package::load(overlay.to_string_lossy()).await.unwrap_err();
+    assert!(
+        err.to_string()
+            .contains("governance denies update on layer.checkout"),
+        "{err}"
+    );
+
+    write(
+        &base,
+        "governance.toml",
+        "[layer.checkout]\nallowed_operations = [\"update\"]\n",
+    )
+    .await;
+    Package::load(overlay.to_string_lossy()).await.unwrap();
+}
+
+#[tokio::test]
+async fn governed_lint_files_cannot_be_replaced() {
+    let temp = tempfile::TempDir::new().unwrap();
+    let base = temp.path().join("base");
+    write(&base, "rototo-package.toml", "schema_version = 1\n").await;
+    write(&base, "lint/checks.lua", "function register(lint)\nend\n").await;
+    let overlay = temp.path().join("overlay");
+    write(&overlay, "rototo-package.toml", extends_manifest()).await;
+    write(
+        &overlay,
+        "lint/checks.lua",
+        "function register(lint)\n  -- reworded\nend\n",
+    )
+    .await;
+
+    let err = Package::load(overlay.to_string_lossy()).await.unwrap_err();
+    assert!(
+        err.to_string()
+            .contains("governance does not model replacing a lint file the base owns"),
+        "{err}"
+    );
+}
+
+#[tokio::test]
+async fn overlay_minted_catalogs_are_ungoverned() {
+    let temp = tempfile::TempDir::new().unwrap();
+    let base = temp.path().join("base");
+    write_base(&base).await;
+    write(&base, "governance.toml", PLANS_GOVERNANCE).await;
+
+    // The overlay introduces its own catalog next to the strictly governed
+    // base: schema, entry, everything, without any grant.
+    let overlay = temp.path().join("overlay");
+    write(&overlay, "rototo-package.toml", extends_manifest()).await;
+    write(
+        &overlay,
+        "model/catalogs/acme_addons.schema.json",
+        r#"{
+  "type": "object",
+  "required": ["name"],
+  "properties": { "name": { "type": "string" } },
+  "additionalProperties": false
+}
+"#,
+    )
+    .await;
+    write(
+        &overlay,
+        "data/catalogs/acme_addons/sso.toml",
+        "name = \"SSO\"\n",
+    )
+    .await;
+
+    Package::load(overlay.to_string_lossy()).await.unwrap();
+}
+
+#[tokio::test]
+async fn unparseable_overlay_governance_fails_the_load() {
+    let temp = tempfile::TempDir::new().unwrap();
+    let base = temp.path().join("base");
+    write_base(&base).await;
+    let overlay = temp.path().join("overlay");
+    write(&overlay, "rototo-package.toml", extends_manifest()).await;
+    write(&overlay, "governance.toml", "not toml ((\n").await;
+
+    let err = Package::load(overlay.to_string_lossy()).await.unwrap_err();
+    assert!(
+        err.to_string()
+            .contains("failed to parse the overlay governance.toml"),
+        "{err}"
+    );
+}
+
+#[tokio::test]
+async fn granted_deletes_and_updates_walk_the_allowed_side() {
+    let temp = tempfile::TempDir::new().unwrap();
+    let base = temp.path().join("base");
+    write_base(&base).await;
+    write(&base, "governance.toml", PLANS_GOVERNANCE).await;
+
+    // G3: deleting growth is inside the delete policy. The base rule that
+    // selected growth has to go with it, through the granted variable update.
+    let overlay = temp.path().join("overlay-delete");
+    write(&overlay, "rototo-package.toml", extends_manifest()).await;
+    write(
+        &overlay,
+        "data/catalogs/plans/growth.deleted.toml",
+        "deleted = true\n",
+    )
+    .await;
+    write(
+        &overlay,
+        "variables/active_plan.update.toml",
+        "[resolve]\ndefault = \"free\"\n",
+    )
+    .await;
+    let package = Package::load(overlay.to_string_lossy()).await.unwrap();
+    assert!(
+        !package
+            .root()
+            .join("data/catalogs/plans/growth.toml")
+            .is_file()
+    );
+
+    // G4: updating a field inside allowed_fields on a permitted entry.
+    let overlay = temp.path().join("overlay-update");
+    write(&overlay, "rototo-package.toml", extends_manifest()).await;
+    write(
+        &overlay,
+        "data/catalogs/plans/growth.update.toml",
+        "monthly_price = 79\n",
+    )
+    .await;
+    let package = Package::load(overlay.to_string_lossy()).await.unwrap();
+    let context = EvaluationContext::from_json(serde_json::json!({
+        "account": { "paid": true }
+    }))
+    .unwrap();
+    let resolution = package.resolve_variable("active_plan", &context).unwrap();
+    assert_eq!(resolution.value["monthly_price"], 79);
+
+    // G6: the update policy's entry denylist wins over the field allowlist.
+    let overlay = temp.path().join("overlay-denied-entry");
+    write(&overlay, "rototo-package.toml", extends_manifest()).await;
+    write(
+        &overlay,
+        "data/catalogs/plans/free.update.toml",
+        "monthly_price = 1\n",
+    )
+    .await;
+    let err = Package::load(overlay.to_string_lossy()).await.unwrap_err();
+    assert!(
+        err.to_string()
+            .contains("governance denies update of entry free on catalog.plans"),
+        "{err}"
+    );
+}
+
+#[tokio::test]
+async fn defaults_grants_yield_to_entity_denies() {
+    let temp = tempfile::TempDir::new().unwrap();
+    let base = temp.path().join("base");
+    write_base(&base).await;
+    write(
+        &base,
+        "governance.toml",
+        "[defaults]\nallowed_operations = [\"add\", \"update\", \"delete\"]\n\n\
+         [catalog.plans]\ndenied_operations = [\"delete\"]\n",
+    )
+    .await;
+
+    // The defaults open update everywhere...
+    let overlay = temp.path().join("overlay-update");
+    write(&overlay, "rototo-package.toml", extends_manifest()).await;
+    write(
+        &overlay,
+        "data/catalogs/plans/growth.update.toml",
+        "monthly_price = 59\n",
+    )
+    .await;
+    Package::load(overlay.to_string_lossy()).await.unwrap();
+
+    // ...but the entity's own deny wins over the defaults grant.
+    let overlay = temp.path().join("overlay-delete");
+    write(&overlay, "rototo-package.toml", extends_manifest()).await;
+    write(
+        &overlay,
+        "data/catalogs/plans/free.deleted.toml",
+        "deleted = true\n",
+    )
+    .await;
+    let err = Package::load(overlay.to_string_lossy()).await.unwrap_err();
+    assert!(
+        err.to_string()
+            .contains("governance denies delete on catalog.plans"),
+        "{err}"
+    );
+}
+
+#[tokio::test]
+async fn defaults_ceiling_is_enforced() {
+    let temp = tempfile::TempDir::new().unwrap();
+    let base = temp.path().join("base");
+    write_base(&base).await;
+    write(&base, "governance.toml", PLANS_GOVERNANCE).await;
+
+    // The base granted per-entity operations, never a default; an overlay
+    // handing its own sub-overlays a broad [defaults] exceeds the ceiling.
+    let overlay = temp.path().join("overlay");
+    write(&overlay, "rototo-package.toml", extends_manifest()).await;
+    write(
+        &overlay,
+        "governance.toml",
+        "[defaults]\nallowed_operations = [\"add\"]\n",
+    )
+    .await;
+
+    let err = Package::load(overlay.to_string_lossy()).await.unwrap_err();
+    assert!(
+        err.to_string()
+            .contains("governance grant exceeds the inherited ceiling: [defaults] allows add"),
+        "{err}"
+    );
+}
+
+// --- sibling symmetry, depth, and merge details ------------------------------
+
+#[tokio::test]
+async fn same_layer_update_and_deleted_marker_conflict() {
+    let temp = tempfile::TempDir::new().unwrap();
+    let base = temp.path().join("base");
+    let overlay = temp.path().join("overlay");
+    write_base(&base).await;
+    write(&overlay, "rototo-package.toml", extends_manifest()).await;
+    write(
+        &overlay,
+        "data/catalogs/plans/growth.update.toml",
+        "monthly_price = 59\n",
+    )
+    .await;
+    write(
+        &overlay,
+        "data/catalogs/plans/growth.deleted.toml",
+        "deleted = true\n",
+    )
+    .await;
+
+    let err = Package::load(overlay.to_string_lossy()).await.unwrap_err();
+    assert!(
+        err.to_string().contains(
+            "package both declares an update and a deleted marker for catalog entry growth"
+        ),
+        "{err}"
+    );
+}
+
+#[tokio::test]
+async fn sibling_base_may_not_update_another_siblings_entry() {
+    let temp = tempfile::TempDir::new().unwrap();
+    let base = temp.path().join("base");
+    let rogue = temp.path().join("rogue");
+    let app = temp.path().join("app");
+    write_base(&base).await;
+    write(&rogue, "rototo-package.toml", "schema_version = 1\n").await;
+    write(
+        &rogue,
+        "data/catalogs/plans/growth.update.toml",
+        "monthly_price = 1\n",
+    )
+    .await;
+    write(
+        &app,
+        "rototo-package.toml",
+        "schema_version = 1\nextends = [\"../base\", \"../rogue\"]\n",
+    )
+    .await;
+
+    let err = Package::load(app.to_string_lossy()).await.unwrap_err();
+    assert!(
+        err.to_string()
+            .contains("extends bases conflict on catalog plans entry growth"),
+        "{err}"
+    );
+}
+
+#[tokio::test]
+async fn sibling_bases_conflict_on_diverging_catalog_schemas() {
+    let temp = tempfile::TempDir::new().unwrap();
+    let left = temp.path().join("left");
+    let right = temp.path().join("right");
+    let app = temp.path().join("app");
+    write_base(&left).await;
+    write_base(&right).await;
+    // Same catalog, one field renamed: the schemas diverge while every other
+    // file rides through byte-identical.
+    let schema = tokio::fs::read_to_string(left.join("model/catalogs/plans.schema.json"))
+        .await
+        .unwrap();
+    tokio::fs::write(
+        right.join("model/catalogs/plans.schema.json"),
+        schema.replace("monthly_price", "price_per_month"),
+    )
+    .await
+    .unwrap();
+    write(
+        &app,
+        "rototo-package.toml",
+        "schema_version = 1\nextends = [\"../left\", \"../right\"]\n",
+    )
+    .await;
+
+    let err = Package::load(app.to_string_lossy()).await.unwrap_err();
+    assert!(
+        err.to_string()
+            .contains("extends bases conflict on catalog plans schema"),
+        "{err}"
+    );
+}
+
+#[tokio::test]
+async fn sibling_bases_conflict_on_the_same_layer_id() {
+    let temp = tempfile::TempDir::new().unwrap();
+    let left = temp.path().join("left");
+    let right = temp.path().join("right");
+    let app = temp.path().join("app");
+    for (root, buckets) in [(&left, "1000"), (&right, "500")] {
+        write(root, "rototo-package.toml", "schema_version = 1\n").await;
+        write(
+            root,
+            "layers/checkout.toml",
+            &format!("schema_version = 1\nunit = \"context.user.id\"\nbuckets = {buckets}\n"),
+        )
+        .await;
+    }
+    write(
+        &app,
+        "rototo-package.toml",
+        "schema_version = 1\nextends = [\"../left\", \"../right\"]\n",
+    )
+    .await;
+
+    let err = Package::load(app.to_string_lossy()).await.unwrap_err();
+    assert!(
+        err.to_string()
+            .contains("extends bases conflict on layer checkout"),
+        "{err}"
+    );
+}
+
+#[tokio::test]
+async fn sibling_bases_conflict_on_the_same_lint_file() {
+    let temp = tempfile::TempDir::new().unwrap();
+    let left = temp.path().join("left");
+    let right = temp.path().join("right");
+    let app = temp.path().join("app");
+    for (root, body) in [(&left, "-- left\n"), (&right, "-- right\n")] {
+        write(root, "rototo-package.toml", "schema_version = 1\n").await;
+        write(
+            root,
+            "lint/checks.lua",
+            &format!("function register(lint)\n{body}end\n"),
+        )
+        .await;
+    }
+    write(
+        &app,
+        "rototo-package.toml",
+        "schema_version = 1\nextends = [\"../left\", \"../right\"]\n",
+    )
+    .await;
+
+    let err = Package::load(app.to_string_lossy()).await.unwrap_err();
+    assert!(
+        err.to_string()
+            .contains("extends bases conflict on file lint/checks.lua"),
+        "{err}"
+    );
+}
+
+#[tokio::test]
+async fn sibling_enum_declaration_and_members_conflict() {
+    // One base declares the enum, the other provides its members. The two
+    // halves of one enum belong to one owner: siblings may not split an
+    // entity between them, so this is a conflict, deliberately.
+    let temp = tempfile::TempDir::new().unwrap();
+    let left = temp.path().join("left");
+    let right = temp.path().join("right");
+    let app = temp.path().join("app");
+    write(&left, "rototo-package.toml", "schema_version = 1\n").await;
+    write(
+        &left,
+        "model/enums/tier.toml",
+        "schema_version = 1\ntype = \"string\"\n",
+    )
+    .await;
+    write(&right, "rototo-package.toml", "schema_version = 1\n").await;
+    write(&right, "data/enums/tier.toml", "members = [\"gold\"]\n").await;
+    write(
+        &app,
+        "rototo-package.toml",
+        "schema_version = 1\nextends = [\"../left\", \"../right\"]\n",
+    )
+    .await;
+
+    let err = Package::load(app.to_string_lossy()).await.unwrap_err();
+    assert!(
+        err.to_string()
+            .contains("extends bases conflict on enum tier"),
+        "{err}"
+    );
+}
+
+#[tokio::test]
+async fn sibling_bases_add_disjoint_samples_to_a_shared_context() {
+    let temp = tempfile::TempDir::new().unwrap();
+    let core = temp.path().join("core");
+    let left = temp.path().join("left");
+    let right = temp.path().join("right");
+    let app = temp.path().join("app");
+    write_contract_base(&core).await;
+    // Each sibling adds its own sample; the shared schema and the core's own
+    // sample ride through byte-identical.
+    write(
+        &left,
+        "rototo-package.toml",
+        "schema_version = 1\nextends = [\"../core\"]\n",
+    )
+    .await;
+    write(
+        &left,
+        "model/context/request-samples/left.json",
+        "{ \"region\": \"left\" }\n",
+    )
+    .await;
+    write(
+        &right,
+        "rototo-package.toml",
+        "schema_version = 1\nextends = [\"../core\"]\n",
+    )
+    .await;
+    write(
+        &right,
+        "model/context/request-samples/right.json",
+        "{ \"region\": \"right\" }\n",
+    )
+    .await;
+    write(
+        &app,
+        "rototo-package.toml",
+        "schema_version = 1\nextends = [\"../left\", \"../right\"]\n",
+    )
+    .await;
+
+    let package = Package::load(app.to_string_lossy()).await.unwrap();
+    for sample in ["eu", "left", "right"] {
+        assert!(
+            package
+                .root()
+                .join(format!("model/context/request-samples/{sample}.json"))
+                .is_file(),
+            "{sample}"
+        );
+    }
+
+    // The same sample id with different content still conflicts.
+    write(
+        &right,
+        "model/context/request-samples/left.json",
+        "{ \"region\": \"other\" }\n",
+    )
+    .await;
+    let err = Package::load(app.to_string_lossy()).await.unwrap_err();
+    assert!(
+        err.to_string()
+            .contains("extends bases conflict on evaluation context request sample left.json"),
+        "{err}"
+    );
+}
+
+#[tokio::test]
+async fn a_three_deep_chain_composes_bottom_up() {
+    let temp = tempfile::TempDir::new().unwrap();
+    let core = temp.path().join("core");
+    let mid = temp.path().join("mid");
+    let app = temp.path().join("app");
+    write_base(&core).await;
+
+    // The middle package updates the entry and the variable; the app updates
+    // the entry again on top of the middle's result.
+    write(
+        &mid,
+        "rototo-package.toml",
+        "schema_version = 1\nextends = [\"../core\"]\n",
+    )
+    .await;
+    write(
+        &mid,
+        "data/catalogs/plans/growth.update.toml",
+        "monthly_price = 59\n\n[limits]\nseats = 25\n",
+    )
+    .await;
+    write(
+        &mid,
+        "variables/active_plan.update.toml",
+        "[resolve]\ndefault = \"growth\"\n",
+    )
+    .await;
+    write(
+        &app,
+        "rototo-package.toml",
+        "schema_version = 1\nextends = [\"../mid\"]\n",
+    )
+    .await;
+    write(
+        &app,
+        "data/catalogs/plans/growth.update.toml",
+        "monthly_price = 99\n",
+    )
+    .await;
+
+    let package = Package::load(app.to_string_lossy()).await.unwrap();
+    let context = EvaluationContext::from_json(serde_json::json!({})).unwrap();
+    let resolution = package.resolve_variable("active_plan", &context).unwrap();
+    // C9/D1: the app's update landed on the middle's result - its own field
+    // won, the middle's nested limits update survived, the core's name rode
+    // through.
+    assert_eq!(resolution.value["monthly_price"], 99);
+    assert_eq!(resolution.value["limits"]["seats"], 25);
+    assert_eq!(resolution.value["name"], "Growth");
+
+    // D2: the resolve provenance survives the second flatten - the middle
+    // package's [resolve] won, and the trace says so even when the middle
+    // arrived at the app pre-flattened.
+    let staged = Package::inspect(app.to_string_lossy()).await.unwrap();
+    let trace =
+        rototo::trace_variable_resolution(staged.root(), "active_plan", &serde_json::json!({}))
+            .await
+            .unwrap();
+    let provenance = trace.provenance.expect("composed package has provenance");
+    assert!(provenance.contains("mid"), "{provenance}");
+}
+
+#[tokio::test]
+async fn governance_binds_through_a_three_deep_chain() {
+    let temp = tempfile::TempDir::new().unwrap();
+    let core = temp.path().join("core");
+    let mid = temp.path().join("mid");
+    let app = temp.path().join("app");
+    // The core grants nothing beyond adds on its catalog; the middle package
+    // passes through untouched; the app two levels up is still bound.
+    write_base(&core).await;
+    write(
+        &core,
+        "governance.toml",
+        "[catalog.plans]\nallowed_operations = [\"add\"]\n",
+    )
+    .await;
+    write(
+        &mid,
+        "rototo-package.toml",
+        "schema_version = 1\nextends = [\"../core\"]\n",
+    )
+    .await;
+    write(
+        &mid,
+        "data/catalogs/plans/team.toml",
+        "name = \"Team\"\nmonthly_price = 99\n",
+    )
+    .await;
+    write(
+        &app,
+        "rototo-package.toml",
+        "schema_version = 1\nextends = [\"../mid\"]\n",
+    )
+    .await;
+    write(
+        &app,
+        "variables/active_plan.update.toml",
+        "[resolve]\ndefault = \"team\"\n",
+    )
+    .await;
+
+    let err = Package::load(app.to_string_lossy()).await.unwrap_err();
+    assert!(
+        err.to_string()
+            .contains("governance denies update on variable.active_plan"),
+        "{err}"
+    );
+}
+
+#[tokio::test]
+async fn catalog_update_replaces_arrays_wholesale() {
+    let temp = tempfile::TempDir::new().unwrap();
+    let base = temp.path().join("base");
+    let overlay = temp.path().join("overlay");
+    write(&base, "rototo-package.toml", "schema_version = 1\n").await;
+    write(
+        &base,
+        "governance.toml",
+        "[defaults]\nallowed_operations = [\"add\", \"update\", \"delete\"]\n",
+    )
+    .await;
+    write(
+        &base,
+        "model/catalogs/gates.schema.json",
+        r#"{
+  "type": "object",
+  "required": ["name", "regions"],
+  "properties": {
+    "name": { "type": "string" },
+    "regions": { "type": "array", "items": { "type": "string" } }
+  },
+  "additionalProperties": false
+}
+"#,
+    )
+    .await;
+    write(
+        &base,
+        "data/catalogs/gates/rollout.toml",
+        "name = \"Rollout\"\nregions = [\"eu\", \"us\"]\n",
+    )
+    .await;
+    write(&overlay, "rototo-package.toml", extends_manifest()).await;
+    write(
+        &overlay,
+        "data/catalogs/gates/rollout.update.toml",
+        "regions = [\"apac\"]\n",
+    )
+    .await;
+
+    let package = Package::load(overlay.to_string_lossy()).await.unwrap();
+    let entry = tokio::fs::read_to_string(package.root().join("data/catalogs/gates/rollout.toml"))
+        .await
+        .unwrap();
+    // No concatenation: the overlay's array replaced the base's whole.
+    assert!(entry.contains("apac"), "{entry}");
+    assert!(!entry.contains("eu"), "{entry}");
+    assert!(entry.contains("Rollout"), "{entry}");
+}
+
+#[tokio::test]
+async fn overlay_lint_rules_run_against_the_composed_package() {
+    let temp = tempfile::TempDir::new().unwrap();
+    let base = temp.path().join("base");
+    let overlay = temp.path().join("overlay");
+    write_base(&base).await;
+    write(&overlay, "rototo-package.toml", extends_manifest()).await;
+    // The overlay's own rule judges a base-provided entry.
+    write(
+        &overlay,
+        "lint/pricing.lua",
+        r#"function register(lint)
+  lint:rule({
+    id = "acme/no-free-plans",
+    title = "Free plans are not offered",
+    help = "Every plan must carry a price.",
+    target = "/catalogs/plans/entries",
+    handler = "check_price",
+  })
+end
+
+function check_price(package, entry)
+  if entry.value.monthly_price == 0 then
+    return {
+      { message = "plan " .. entry.key .. " has no price" }
+    }
+  end
+  return {}
+end
+"#,
+    )
+    .await;
+
+    let err = Package::load(overlay.to_string_lossy()).await.unwrap_err();
+    assert!(err.to_string().contains("lint failed"), "{err}");
+    let staged = Package::inspect(overlay.to_string_lossy()).await.unwrap();
+    let lint = staged.lint().await.unwrap();
+    assert!(
+        lint.diagnostics.iter().any(|diagnostic| {
+            diagnostic.rule.as_string() == "acme/no-free-plans"
+                && diagnostic.message.contains("free")
+        }),
+        "{:#?}",
+        lint.diagnostics
+    );
+}

@@ -286,6 +286,16 @@ fn check_governed_file(
             }
             if let Some(entry) = stem(file, ".deleted.toml") {
                 reject_same_layer_entry(source_path, &entry, "a deleted marker")?;
+                if source_path
+                    .parent()
+                    .map(|parent| parent.join(format!("{entry}.update.toml")))
+                    .is_some_and(|sibling| sibling.is_file())
+                {
+                    return Err(RototoError::new(format!(
+                        "package both declares an update and a deleted marker for catalog \
+                         entry {entry}; updating and removing it are contradictory"
+                    )));
+                }
                 return contract.check("catalog", catalog, Operation::Delete, Some(&entry), &[]);
             }
             if let Some(entry) = stem(file, ".update.toml") {
@@ -511,9 +521,13 @@ fn sibling_entity_key(relative: &Path) -> String {
         ["data", "enums", ..] => {
             namespaced(&components[2..], ".toml").map(|id| format!("enum {id}"))
         }
-        ["model", "context", .., samples, _] if samples.ends_with("-samples") => {
-            namespaced(&components[2..components.len() - 1], "-samples")
-                .map(|id| format!("evaluation context {id}"))
+        ["model", "context", .., samples, sample_file] if samples.ends_with("-samples") => {
+            namespaced(&components[2..components.len() - 1], "-samples").map(|id| {
+                // Samples are additive the way catalog entries are: two
+                // bases can each add their own samples for a shared
+                // ancestor's context, so each sample file is its own key.
+                format!("evaluation context {id} sample {sample_file}")
+            })
         }
         ["model", "context", ..] => namespaced(&components[2..], ".schema.json")
             .map(|id| format!("evaluation context {id}")),
@@ -777,6 +791,16 @@ fn compose_package_layer_file(
         }
         LayerFileComposition::CatalogEntryDeleted { entry } => {
             reject_same_layer_entry(source_path, &entry, "a deleted marker")?;
+            let update_sibling = source_path
+                .parent()
+                .map(|parent| parent.join(format!("{entry}.update.toml")))
+                .filter(|sibling| sibling.is_file());
+            if update_sibling.is_some() {
+                return Err(RototoError::new(format!(
+                    "package both declares an update and a deleted marker for catalog entry \
+                     {entry}; updating and removing it are contradictory"
+                )));
+            }
             let entry_path = target_dir.join(format!("{entry}.toml"));
             if !entry_path.is_file() {
                 return Err(RototoError::new(format!(

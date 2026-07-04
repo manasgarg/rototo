@@ -52,13 +52,13 @@ base's decision.
 |---|---|---|---|
 | C1 | adds a new entry file | the entry lands next to the base's entries | `overlay_composes_membership_values_and_additions` |
 | C2 | updates an entry (`<entry>.update.toml`) with scalars and a nested table | updated scalars replace, nested tables recurse, unmentioned fields are inherited | `overlay_composes_membership_values_and_additions` |
-| C3 | updates a field whose value is an array | the array replaces the base array wholesale, no concatenation | GAP |
+| C3 | updates a field whose value is an array | the array replaces the base array wholesale, no concatenation | `catalog_update_replaces_arrays_wholesale` |
 | C4 | writes `<entry>.deleted.toml` for a base entry | the entry is gone from the projection and references to it become `rototo/variable-unknown-value` lint failures | `overlay_deleted_marker_removes_the_base_entry` |
 | C5 | writes a deleted marker for an entry no layer below provides | the load fails: "deleted marker has no catalog entry to remove" | `orphan_deleted_and_update_markers_fail_loudly` |
 | C6 | writes an update marker for an entry no layer below provides | the load fails: "update has no catalog entry to update" | `orphan_deleted_and_update_markers_fail_loudly` |
 | C7 | provides an entry and its deleted marker in the same layer | the load fails naming both files | `same_layer_entry_and_deleted_marker_conflict` |
-| C8 | provides an update marker and a deleted marker for one entry in the same layer | undefined today: `reject_same_layer_entry` only guards against the entry file itself, so both markers apply in directory order. design: this should fail the load like C7 | GAP |
-| C9 | updates an entry a layer below already updated (chain of three packages) | updates apply bottom-up; the top update sees the middle update's result | GAP (no depth-3 chain test at all, see D1) |
+| C8 | provides an update marker and a deleted marker for one entry in the same layer | the load fails: updating and removing an entry are contradictory | `same_layer_update_and_deleted_marker_conflict` |
+| C9 | updates an entry a layer below already updated (chain of three packages) | updates apply bottom-up; the top update sees the middle update's result | `a_three_deep_chain_composes_bottom_up` |
 
 ### Enums
 
@@ -69,16 +69,16 @@ base's decision.
 | E3 | deletes a member no layer below declares | the load fails | `orphan_enum_member_deletes_fail_loudly` |
 | E4 | adds and deletes the same member in one layer | the load fails | `same_layer_enum_member_add_and_delete_conflict` |
 | E5 | deletes every remaining member | the load fails; an enum cannot compose to empty | `deleting_every_enum_member_fails_the_load` |
-| E6 | restates the base's `model/enums/<id>.toml` with a different `type` | undefined today: the file overwrites and existing members may stop matching. design: should enum declarations get the V3 treatment (type change is an error, restating is legal)? | GAP |
+| E6 | restates the base's `model/enums/<id>.toml` at all (byte-identical excepted) | the load fails: `model/` files are never editable from above, so an enum's type cannot change | `governed_model_files_are_never_editable` |
 
 ### Contracts, samples, layers, lint (ungoverned overlay)
 
 | # | When the overlay... | Then... | Coverage |
 |---|---|---|---|
-| S1 | replaces a base catalog schema | the file overwrites, and base entries must validate against the new schema or lint fails | GAP |
-| S2 | adds a sample file to a base evaluation context's `-samples/` directory | the sample validates against the base schema like any other | GAP |
-| L1 | restates a base `layers/<id>.toml` with different buckets or unit | the overlay file wins wholesale. design: should bucket count or unit changes get a guard, since they reassign enrolled units silently? | GAP |
-| X1 | adds a `lint/*.lua` rule | the rule runs against the whole composed package, base files included | GAP |
+| S1 | replaces a base catalog schema | the load fails unconditionally (G8); there is no ungoverned schema replacement | `governed_base_denies_ungranted_operations` |
+| S2 | adds a sample file to a base evaluation context's `-samples/` directory | allowed without any grant; the sample validates against the base schema like any other | `governed_samples_reject_edits_but_admit_additions` |
+| L1 | restates a base `layers/<id>.toml` with different buckets or unit | the load fails unless the contract grants `update` on `layer.<id>`; reassigning enrolled units is exactly what the grant gates | `governed_layer_updates_need_the_update_grant` |
+| X1 | adds a `lint/*.lua` rule | the rule runs against the whole composed package, base files included | `overlay_lint_rules_run_against_the_composed_package` |
 
 ## 2. Governance
 
@@ -98,32 +98,32 @@ not overlays of each other, so cross-sibling touching is a conflict (section
 |---|---|---|---|
 | G1 | adds a catalog entry under an `add` grant | the load succeeds | `governed_base_admits_the_granted_overlay` |
 | G2 | deletes an entry listed in `delete_policy.denied_entries` | the load fails: "governance denies delete of entry ... " | `governed_base_denies_ungranted_operations` |
-| G3 | deletes an entry the delete policy allows (`allowed_entries = ["*"]`, not denied) | the load succeeds and the entry is gone | GAP |
-| G4 | updates a field in `update_policy.allowed_fields` on a permitted entry | the load succeeds with the updated value | GAP |
+| G3 | deletes an entry the delete policy allows (`allowed_entries = ["*"]`, not denied) | the load succeeds and the entry is gone | `granted_deletes_and_updates_walk_the_allowed_side` |
+| G4 | updates a field in `update_policy.allowed_fields` on a permitted entry | the load succeeds with the updated value | `granted_deletes_and_updates_walk_the_allowed_side` |
 | G5 | updates a field outside `allowed_fields` | the load fails naming the field | `governed_base_denies_ungranted_operations` |
-| G6 | updates an allowed field on an entry in `update_policy.denied_entries` | the load fails naming the entry (deny wins over the field allowlist) | GAP |
+| G6 | updates an allowed field on an entry in `update_policy.denied_entries` | the load fails naming the entry (deny wins over the field allowlist) | `granted_deletes_and_updates_walk_the_allowed_side` |
 | G7 | restates a whole entry file the base owns | the load fails and points at `<entry>.update.toml` / `<entry>.deleted.toml` | `governed_base_denies_ungranted_operations` |
 | G8 | touches a base catalog schema | always denied; the error points at custom lint under `lint/` | `governed_base_denies_ungranted_operations` |
-| G9 | touches a base enum declaration (`model/enums/<id>.toml`) | always denied, same custom-lint pointer | GAP |
-| G10 | touches a base evaluation context schema | always denied, same custom-lint pointer | GAP |
-| G11a | restates a base sample file | denied: "add a new sample file instead" | GAP |
-| G11b | adds a new sample file for a base context | allowed without any grant | GAP |
-| G12 | provides `data/enums/<id>.toml` where the base already has one | the load fails unless the contract grants `update` on `enum.<id>` | GAP |
-| G13 | provides `data/enums/<id>.toml` where the base declares the enum but has no members file | the load fails unless the contract grants `add` on `enum.<id>` | GAP |
+| G9 | touches a base enum declaration (`model/enums/<id>.toml`) | always denied, same custom-lint pointer | `governed_model_files_are_never_editable` |
+| G10 | touches a base evaluation context schema | always denied, same custom-lint pointer | `governed_model_files_are_never_editable` |
+| G11a | restates a base sample file | denied: "add a new sample file instead" | `governed_samples_reject_edits_but_admit_additions` |
+| G11b | adds a new sample file for a base context | allowed without any grant | `governed_samples_reject_edits_but_admit_additions` |
+| G12 | provides `data/enums/<id>.toml` where the base already has one | the load fails unless the contract grants `update` on `enum.<id>` | `governed_enum_members_check_update_and_add` |
+| G13 | provides `data/enums/<id>.toml` where the base declares the enum but has no members file | the load fails unless the contract grants `add` on `enum.<id>` | `governed_enum_members_check_update_and_add` |
 | G14 | updates a base variable through `<id>.update.toml` under an `update` grant | the load succeeds and the overlay resolution wins | `governed_base_admits_the_granted_overlay` |
 | G15 | updates a base variable through `<id>.update.toml` with no `update` grant | the load fails: "governance denies update on variable.<id>" | `governed_base_denies_ungranted_operations` |
 | G16 | adds a brand-new variable id | always allowed; new ids mint freely | `governed_base_denies_ungranted_operations` |
-| G17 | restates a base namespaced variable (`variables/acme/foo.toml`) | the governance target is `variable."acme/foo"` (path separators become `/`) | GAP |
-| G18 | restates a base `layers/<id>.toml` | the load fails unless the contract grants `update` on `layer.<id>` | GAP |
-| G19 | restates a `lint/*.lua` file the base owns | the load fails: replacing a base lint file is not modeled | GAP |
-| G20 | introduces its own new catalog (schema + entries) | ungoverned; a catalog the overlay declares is its own to fill | GAP |
+| G17 | updates a base namespaced variable (`variables/acme/foo.update.toml`) | the governance target is `variable."acme/foo"` (path separators become `/`) | `governed_namespaced_variable_targets` |
+| G18 | restates a base `layers/<id>.toml` | the load fails unless the contract grants `update` on `layer.<id>` | `governed_layer_updates_need_the_update_grant` |
+| G19 | restates a `lint/*.lua` file the base owns | the load fails: replacing a base lint file is not modeled | `governed_lint_files_cannot_be_replaced` |
+| G20 | introduces its own new catalog (schema + entries) | ungoverned; a catalog the overlay declares is its own to fill | `overlay_minted_catalogs_are_ungoverned` |
 | G21 | grants its own sub-overlays an operation the base never granted it | the load fails: "governance grant exceeds the inherited ceiling" | `governance_grants_cannot_exceed_the_inherited_ceiling` |
 | G22 | re-grants a subset with more denies | narrowing is legal; the load succeeds | `governance_grants_cannot_exceed_the_inherited_ceiling` |
-| G23 | carries a governance.toml that does not parse | the load fails at enforcement time: "failed to parse the overlay governance.toml" | GAP |
+| G23 | carries a governance.toml that does not parse | the load fails at enforcement time: "failed to parse the overlay governance.toml" | `unparseable_overlay_governance_fails_the_load` |
 | G24 | (via diamond ancestry) restates a governed base file byte-identically | not treated as a governed update; the load succeeds | `diamond_ancestry_composes_the_shared_base_once` |
 | G25 | updates or deletes anything declared by a base with no governance.toml | the load fails: no contract means no grants; adding a new id still succeeds | `a_base_without_a_contract_denies_modification` |
-| G26 | operates under a `[defaults]` grant with a per-entity deny | the defaults grant applies to every base-declared entity; the entity's denied_operations wins over it | GAP (defaults grants are exercised by every section 1 test; the deny-wins interaction is not) |
-| G27 | declares its own `[defaults]` wider than the base's | the load fails: "[defaults] allows <op> but the base does not grant it as a default"; grants over entities the base does not declare stay free | GAP |
+| G26 | operates under a `[defaults]` grant with a per-entity deny | the defaults grant applies to every base-declared entity; the entity's denied_operations wins over it | `defaults_grants_yield_to_entity_denies` |
+| G27 | declares its own `[defaults]` wider than the base's | the load fails: "[defaults] allows <op> but the base does not grant it as a default"; grants over entities the base does not declare stay free | `defaults_ceiling_is_enforced` |
 
 The lint half of governance (parse-failed, shape, unknown-target,
 unscoped-update, empty allowlist) is covered in `tests/package_lint.rs`.
@@ -143,20 +143,20 @@ restatements, which is how diamond ancestry looks.
 | B4 | add distinct entries to a shared ancestor's catalog | both entries land; the catalog is shared additively | `sibling_bases_add_disjoint_entries_to_a_shared_catalog` |
 | B5 | provide the same catalog entry with different content | the load fails on "catalog <id> entry <entry>" | `sibling_bases_conflict_on_the_same_catalog_entry` |
 | B6 | one provides an entry, the other a deleted marker for it | the load fails on the shared entry key | `sibling_base_may_not_touch_another_siblings_catalog` |
-| B7 | one provides an entry, the other an update marker for it | the load fails on the shared entry key (same mechanism as B6, untested spelling) | GAP |
-| B8 | carry diverging schemas for the same catalog | the load fails on "catalog <id> schema" | GAP |
-| B9 | one declares `model/enums/<id>.toml`, the other provides `data/enums/<id>.toml` | conflicts today: both files map to one "enum <id>" key. design: members are additive between overlay and base (E1), so should sibling member sets union too? | GAP |
-| B10 | each add a different sample for the same evaluation context | conflicts today: samples share the context's key. design: samples are additive under an overlay (S2, G11b), so siblings sharing a context's sample directory is arguably B4, not B2 | GAP |
-| B11 | declare the same experimentation layer id | the load fails on "layer <id>" | GAP |
-| B12 | carry the same non-entity file (for example `lint/checks.lua`) with different content | the load fails per file path | GAP |
+| B7 | one provides an entry, the other an update marker for it | the load fails on the shared entry key | `sibling_base_may_not_update_another_siblings_entry` |
+| B8 | carry diverging schemas for the same catalog | the load fails on "catalog <id> schema" | `sibling_bases_conflict_on_diverging_catalog_schemas` |
+| B9 | one declares `model/enums/<id>.toml`, the other provides `data/enums/<id>.toml` | the load fails: the two halves of one enum belong to one owner, deliberately - member adjustment is the overlay relationship (E1), where governance gates it | `sibling_enum_declaration_and_members_conflict` |
+| B10 | each add a different sample for the same evaluation context | samples compose additively like catalog entries: each sample file is its own key, distinct samples land, the same sample id with different content conflicts | `sibling_bases_add_disjoint_samples_to_a_shared_context` |
+| B11 | declare the same experimentation layer id | the load fails on "layer <id>" | `sibling_bases_conflict_on_the_same_layer_id` |
+| B12 | carry the same non-entity file (for example `lint/checks.lua`) with different content | the load fails per file path | `sibling_bases_conflict_on_the_same_lint_file` |
 
 ## 4. Depth: chains longer than two
 
 | # | Given / When | Then | Coverage |
 |---|---|---|---|
-| D1 | A chain of three (app extends mid, mid extends core), each contributing to one catalog and one variable | markers and updates apply bottom-up; the app sees mid's edits to core before its own | GAP |
-| D2 | A base that is itself a flattened projection with a provenance sidecar | the finer per-variable labels from the sidecar win over the layer's single label in traces | GAP |
-| D3 | Governance declared at the bottom of a three-deep chain | the contract binds the top overlay, not just the immediate child | GAP |
+| D1 | A chain of three (app extends mid, mid extends core), each contributing to one catalog and one variable | markers and updates apply bottom-up; the app sees mid's edits to core before its own | `a_three_deep_chain_composes_bottom_up` |
+| D2 | A base that is itself a flattened projection with a provenance sidecar | the finer per-variable labels from the sidecar win over the layer's single label in traces | `a_three_deep_chain_composes_bottom_up` |
+| D3 | Governance declared at the bottom of a three-deep chain | the contract binds the top overlay, not just the immediate child | `governance_binds_through_a_three_deep_chain` |
 
 ## 5. Invariants better held by property tests
 
@@ -177,20 +177,20 @@ These are not rows; each quantifies over all inputs and belongs in a
 
 ## Current gap tally
 
-33 GAP rows. The clusters, in the order to close them:
+0 GAP rows. Every promise in this file is enforced by a named test. When you
+add or change composition behavior, add the row and the test together - an
+empty Coverage cell is a regression in this file's contract, not a note.
 
-1. Governance kind sweep (G9, G10, G11a/b, G12, G13, G17, G18, G19, G20,
-   G23): one test per row, all cheap, all exercising real dispatch arms in
-   `check_governed_file` that today have zero coverage.
-2. Governance granted and defaults paths (G3, G4, G6, G26, G27): the
-   PLANS_GOVERNANCE fixture already encodes the policies for the first
-   three; no test walks the allowed side of update or delete, deny-wins on
-   entries, the defaults-plus-entity-deny interaction, or the defaults
-   ceiling.
-3. Sibling symmetry (B7, B8, B11, B12): same guard, untested keys.
-4. Depth (D1, D2, D3, C9): no test composes more than two authored layers.
-5. Merge details (C3, S1, S2, X1, L1).
-6. Design questions before testing (E6, C8, B9, B10, L1): decide the
-   behavior first, then pin it. C8 is the sharpest: a same-layer update
-   marker plus deleted marker for one catalog entry is accepted today and
-   the result depends on file application order.
+Design questions resolved along the way, recorded so the reasoning survives:
+
+- C8: a same-layer update marker plus deleted marker fails the load; the two
+  markers contradict each other.
+- E6/S1: the enum-declaration and schema-replacement questions dissolved when
+  `model/` edits from above became unconditionally denied.
+- B9: siblings may not split an enum's declaration and members between them;
+  member adjustment belongs to the overlay relationship, where governance
+  gates it.
+- B10: sibling bases share a context's sample directory additively, one key
+  per sample file, mirroring catalog entries.
+- L1: layer restatement is gated by the `update` grant on `layer.<id>`;
+  bucket reassignment is exactly what the grant is for.

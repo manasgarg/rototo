@@ -149,8 +149,9 @@ union: the composed package has every variable, catalog, enum, evaluation
 context, and layer from every base, and the bases have to be disjoint. Two
 bases touching the same entity - the same variable id, the same enum, context,
 or layer - fails the load ("package extends bases conflict on ..."). Catalogs
-are the one place siblings may share: two bases can each add their own entries
-to a catalog they both inherit from a common ancestor, because entry files
+and evaluation context samples are the places siblings may share: two bases
+can each add their own entries to a catalog they both inherit from a common
+ancestor, or their own sample files for a shared context, because those files
 compose additively. The disjointness line just moves down a level - two bases
 providing the same entry, one base updating or deleting an entry another base
 provides, or two bases carrying different versions of the catalog schema, all
@@ -234,7 +235,9 @@ Both shapes have to point at something real. A deleted marker with no entry in
 the base packages fails the load ("deleted marker has no catalog entry to
 remove in the base packages"), and an orphaned update marker fails the same way. A
 single package that both provides `<entry>.toml` and deletes or updates that
-same entry also fails the load - it's contradicting itself.
+same entry also fails the load - it's contradicting itself. So does carrying
+both an update and a deleted marker for one entry: updating and removing it
+are contradictory.
 
 Deleting an entry someone depends on is deliberately loud. If a base variable
 still names the deleted entry, lint catches it as
