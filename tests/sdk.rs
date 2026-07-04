@@ -1641,3 +1641,70 @@ async fn dropping_a_package_removes_its_staged_checkout() {
         staged_root.display()
     );
 }
+
+/// A query-selected catalog value hydrates every x-rototo-ref form in the
+/// selected entry: `<entry>#<json-pointer>` refs, multi-catalog refs,
+/// dynamic `{catalog, entry, pointer}` objects, and refs reached through
+/// schema `$ref` indirection.
+///
+/// Recorded for the review pass: hydration currently runs only on the query
+/// path (`catalog_entry_view` in resolve_catalog_query). A rules- or
+/// default-selected value of the same catalog returns the raw entry with
+/// the ref strings unhydrated; see the resolution matrix.
+#[tokio::test]
+async fn query_resolution_hydrates_every_catalog_reference_form() {
+    let package = Package::load("tests/fixtures/packages/catalog-refs")
+        .await
+        .unwrap();
+    let context = EvaluationContext::from_json(serde_json::json!({})).unwrap();
+
+    let resolution = package
+        .resolve_variable("notification_policy", &context)
+        .unwrap();
+    let value = &resolution.value;
+
+    // <entry>#<pointer> into a nested table of another catalog.
+    assert_eq!(value["email_subject"], serde_json::json!("Default welcome"));
+    // Multi-catalog ref list, resolved into the sms catalog.
+    assert_eq!(
+        value["message_template"],
+        serde_json::json!("Payment failed")
+    );
+    // Dynamic {catalog, entry, pointer} object names its target at runtime.
+    assert_eq!(
+        value["object_template"],
+        serde_json::json!("Payment failed")
+    );
+    // Refs reached through same-document $ref indirection hydrate too.
+    assert_eq!(value["ref_template"], serde_json::json!("Welcome body"));
+    // Pinned current behavior, recorded for the review pass: a relative-file
+    // $ref (email_template.schema.json#/$defs/...) resolves at lint time
+    // through the schema compiler's base URI, but hydrate::resolve_schema_ref
+    // only matches rototo://catalogs/ URIs and exact $id values, so the ref
+    // string passes through unhydrated at resolve time.
+    assert_eq!(
+        value["external_ref_template"],
+        serde_json::json!("welcome#/body")
+    );
+}
+
+/// Pinned current behavior, recorded for the review pass: hydration runs
+/// only on the query path. The same catalog entry selected through
+/// [resolve] default (or rules) returns the raw entry: ref strings come
+/// through unhydrated. Whether rules-selected catalog values should hydrate
+/// like query-selected ones is an open question in the resolution matrix.
+#[tokio::test]
+async fn rules_selected_catalog_values_do_not_hydrate_today() {
+    let package = Package::load("tests/fixtures/packages/catalog-refs")
+        .await
+        .unwrap();
+    let context = EvaluationContext::from_json(serde_json::json!({})).unwrap();
+
+    let resolution = package
+        .resolve_variable("notification_policy_by_rule", &context)
+        .unwrap();
+    assert_eq!(
+        resolution.value["email_subject"],
+        serde_json::json!("welcome#/variants/default/subject")
+    );
+}
