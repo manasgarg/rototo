@@ -141,6 +141,11 @@ addressable, the grammar needs an escaping decision (percent-encoding the
 id, a different separator, or a bracketed segment). If not, the docs should
 say so where custom lint targets are described.
 
+Update 2026-07-05: superseded by a broader direction. design/addressing.md
+drafts one addressing grammar (class:id steps, # for JSON pointers into
+documents, prefix and relative forms) that resolves this finding as its
+step 2; the earlier #-only patch idea is folded into it.
+
 ### 7. Staleness resets when a fallback start succeeds
 
 Refresh matrix note. A fallback start records the fallback load as
