@@ -179,6 +179,45 @@ traces read it back as the trace's `provenance` field. You never edit that
 file; it's how `rototo resolve` can print `resolve from <source>` for a
 composed package.
 
+### Why the merge rules are shaped this way
+
+Every composition system ends up answering the same four questions, and the
+answers here are deliberate, so they are worth stating before the file
+shapes.
+
+**Lists have no merge.** The classic failure in overlay systems is partial
+updates inside arrays: which element does the overlay mean? Kubernetes grew
+per-field merge-key annotations to answer that, and the machinery is famously
+heavy. Rototo avoids the question structurally. Everything that would be a
+keyed list elsewhere - catalog entries, samples, variables - is a file in a
+directory, so "merge by key" is just the filesystem: the key is the filename.
+The one real list left, a variable's rule list, is ordered and positional, and
+splicing half of one package's rules into another's produces a resolution
+nobody wrote or reviewed. So rule lists never merge: an update's `[resolve]`
+block replaces the base's whole.
+
+**Inside one entry, fields merge; arrays replace.** A catalog entry's fields
+are independent facts, so an update names only the fields it changes and
+inherits the rest, recursing through nested tables. Arrays replace wholesale,
+never concatenate: merging two arrays invents an order and a membership
+nobody stated.
+
+**Deletion is a file, not a value.** Formats that delete with an in-band
+marker (JSON Merge Patch's `null`) lose the ability to ever set that value
+legitimately. A deleted marker is its own file, visible in the diff by its
+path alone, and it must name something real - an orphan marker fails the
+load.
+
+**Order means authorship.** An overlay chain is ordered because "I extend
+you" is a statement of intent, so the layer above wins. Sibling bases in one
+`extends` list carry no such statement, so between them there is no
+priority: agreement (byte-identical files) composes, disagreement fails the
+load. That is also why byte-identical restatement is always a no-op - it is
+what shared ancestry looks like, not an edit.
+
+The permission question - who may perform any of this - is governance's,
+covered [below](#governance-governancetoml), and it denies by default.
+
 ### Variables update through a marker
 
 An overlay never restates a base variable's file. It updates one with a
