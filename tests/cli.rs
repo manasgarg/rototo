@@ -970,3 +970,47 @@ fn package_token_prefix_without_a_token_is_rejected() {
         .failure()
         .stderr(predicate::str::contains("has no `=TOKEN`"));
 }
+
+/// Lint selectors filter which diagnostics count: a matching rule filter
+/// shows only that rule and keeps the failing exit; a filter matching
+/// nothing reports ok. Authority filtering selects the custom-lint side.
+#[test]
+fn lint_selectors_filter_diagnostics_and_exit_status() {
+    Command::cargo_bin("rototo")
+        .unwrap()
+        .args([
+            "lint",
+            "tests/fixtures/packages/lint-failures",
+            "--lint-rule",
+            "rototo/layer-shape",
+        ])
+        .assert()
+        .failure()
+        .stdout(predicate::str::contains("rototo/layer-shape"))
+        .stdout(predicate::str::contains("rototo/variable-rule-shape").not());
+
+    Command::cargo_bin("rototo")
+        .unwrap()
+        .args([
+            "lint",
+            "tests/fixtures/packages/lint-failures",
+            "--lint-rule",
+            "rototo/package-not-found",
+        ])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("ok:"));
+
+    Command::cargo_bin("rototo")
+        .unwrap()
+        .args([
+            "lint",
+            "tests/fixtures/packages/lint-failures",
+            "--lint-authority",
+            "fixture",
+        ])
+        .assert()
+        .failure()
+        .stdout(predicate::str::contains("fixture/custom-variable-rejected"))
+        .stdout(predicate::str::contains("rototo/").not());
+}

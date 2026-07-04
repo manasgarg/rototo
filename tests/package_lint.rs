@@ -2673,3 +2673,122 @@ fn relative_fixture_path(root: &Path, path: &Path) -> String {
     );
     relative
 }
+
+/// Fires each rule that had no firing test anywhere in the suite (the
+/// pending half of the canonical fixture table). One scratch package per
+/// rule; the assertion is containment, not exclusivity, since some shapes
+/// fire companion diagnostics too.
+#[test]
+fn pending_rules_fire_from_scratch_packages() {
+    let manifest = ("rototo-package.toml", "schema_version = 1\n");
+    let enum_decl = (
+        "model/enums/tier.toml",
+        "schema_version = 1\ntype = \"string\"\n",
+    );
+    let context_schema = (
+        "model/context/request.schema.json",
+        r#"{"type":"object","required":["user"],"properties":{"user":{"type":"object"}},"additionalProperties":false}"#,
+    );
+    let cases: &[(&str, &[(&str, &str)])] = &[
+        (
+            "rototo/enum-parse-failed",
+            &[manifest, ("model/enums/tier.toml", "= not toml\n")],
+        ),
+        (
+            "rototo/enum-schema-version",
+            &[
+                manifest,
+                (
+                    "model/enums/tier.toml",
+                    "schema_version = 2\ntype = \"string\"\n",
+                ),
+            ],
+        ),
+        (
+            "rototo/enum-shape",
+            &[
+                manifest,
+                (
+                    "model/enums/tier.toml",
+                    "schema_version = 1\ntype = \"object\"\n",
+                ),
+            ],
+        ),
+        (
+            "rototo/enum-members-parse-failed",
+            &[
+                manifest,
+                enum_decl,
+                ("data/enums/tier.toml", "= not toml\n"),
+            ],
+        ),
+        (
+            "rototo/variable-unknown-catalog",
+            &[
+                manifest,
+                (
+                    "variables/plan.toml",
+                    "schema_version = 1\ntype = \"catalog:missing\"\n\n[resolve]\ndefault = \"x\"\n",
+                ),
+            ],
+        ),
+        (
+            "rototo/catalog-entry-parse-failed",
+            &[
+                manifest,
+                (
+                    "model/catalogs/banner.schema.json",
+                    r#"{"type":"object","properties":{"message":{"type":"string"}}}"#,
+                ),
+                ("data/catalogs/banner/bad.toml", "= not toml\n"),
+            ],
+        ),
+        (
+            "rototo/evaluation-context-sample-schema-mismatch",
+            &[
+                manifest,
+                context_schema,
+                (
+                    "model/context/request-samples/bad.json",
+                    r#"{"unexpected":true}"#,
+                ),
+            ],
+        ),
+        (
+            "rototo/evaluation-context-sample-shape",
+            &[
+                manifest,
+                context_schema,
+                ("model/context/request-samples/list.json", "[1, 2]"),
+            ],
+        ),
+        (
+            "rototo/evaluation-context-sample-parse-failed",
+            &[
+                manifest,
+                context_schema,
+                ("model/context/request-samples/broken.json", "{ not json"),
+            ],
+        ),
+    ];
+
+    for (rule, files) in cases {
+        let tempdir = tempfile::tempdir().unwrap();
+        for (path, text) in *files {
+            let full = tempdir.path().join(path);
+            std::fs::create_dir_all(full.parent().unwrap()).unwrap();
+            std::fs::write(full, text).unwrap();
+        }
+        let lint = lint_json(&tempdir.path().to_string_lossy(), false);
+        let rules = lint["diagnostics"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|diagnostic| diagnostic["rule"].as_str().unwrap().to_owned())
+            .collect::<Vec<_>>();
+        assert!(
+            rules.iter().any(|fired| fired == rule),
+            "{rule} did not fire; got {rules:?}\n{lint:#}"
+        );
+    }
+}
