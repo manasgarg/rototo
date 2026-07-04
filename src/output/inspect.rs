@@ -1,47 +1,31 @@
-use std::path::Path;
+use super::*;
 
-use serde::Serialize;
-use toml::Value as TomlValue;
+use super::diff::resolution_source_label;
+use super::lint::{compact_json_option, print_diagnostics, variable_rule_condition};
 
-use crate::style;
-
-use rototo::diagnostics::{
-    DiagnosticCatalogEntry, DiagnosticEntity, DiagnosticLocation, LintDiagnostic, SemanticEntity,
-    SemanticField, SemanticTarget, Severity,
-};
-use rototo::error::{Result, RototoError};
-use rototo::model::{InspectRuntimeStatus, PackageDiff, PackageInspectReport};
-use rototo::model::{PackageInspection, PackageLint};
-use rototo::package::{catalog_for_id, read_catalog_json, read_variable_toml, variable_for_id};
+use crate::severity_label;
 
 #[derive(Debug, Serialize)]
-struct PackageFileJson<'a> {
+pub(super) struct PackageFileJson<'a> {
     id: &'a str,
     uri: &'a str,
     path: String,
 }
 
 #[derive(Debug, Serialize)]
-struct PackageLintJson<'a> {
-    package: String,
-    documents: &'a [rototo::model::SourceDocumentSummary],
-    diagnostics: &'a [LintDiagnostic],
-}
-
-#[derive(Debug, Serialize)]
-struct VariableListJson<'a> {
+pub(super) struct VariableListJson<'a> {
     package: String,
     variables: Vec<PackageFileJson<'a>>,
 }
 
 #[derive(Debug, Serialize)]
-struct CatalogListJson<'a> {
+pub(super) struct CatalogListJson<'a> {
     package: String,
     catalogs: Vec<PackageFileJson<'a>>,
 }
 
 #[derive(Debug, Serialize)]
-struct VariableGetJson {
+pub(super) struct VariableGetJson {
     package: String,
     id: String,
     uri: String,
@@ -50,38 +34,12 @@ struct VariableGetJson {
 }
 
 #[derive(Debug, Serialize)]
-struct CatalogGetJson {
+pub(super) struct CatalogGetJson {
     package: String,
     id: String,
     uri: String,
     path: String,
     value: serde_json::Value,
-}
-
-pub(crate) fn print_package_lint(lint: &PackageLint, json: bool, quiet: bool) -> Result<()> {
-    if json {
-        println!(
-            "{}",
-            serde_json::to_string_pretty(&PackageLintJson {
-                package: lint.root.display().to_string(),
-                documents: &lint.documents,
-                diagnostics: &lint.diagnostics,
-            })
-            .map_err(|err| RototoError::new(err.to_string()))?
-        );
-        return Ok(());
-    }
-
-    if lint.diagnostics.is_empty() {
-        if quiet {
-            return Ok(());
-        }
-        println!("{}", style::ok_line(&lint.root.display().to_string()));
-        return Ok(());
-    }
-
-    print_diagnostics(&lint.diagnostics);
-    Ok(())
 }
 
 pub(crate) fn print_inspect_report(report: &PackageInspectReport, json: bool) -> Result<()> {
@@ -333,7 +291,7 @@ pub(crate) fn print_inspect_report(report: &PackageInspectReport, json: bool) ->
     Ok(())
 }
 
-fn print_compatible_evaluation_contexts(evaluation_contexts: &[String], indent: &str) {
+pub(super) fn print_compatible_evaluation_contexts(evaluation_contexts: &[String], indent: &str) {
     if evaluation_contexts.is_empty() {
         return;
     }
@@ -343,7 +301,7 @@ fn print_compatible_evaluation_contexts(evaluation_contexts: &[String], indent: 
     }
 }
 
-fn print_variable_sample_coverage(
+pub(super) fn print_variable_sample_coverage(
     coverage: Option<&rototo::model::VariableSampleCoverageReport>,
     indent: &str,
 ) {
@@ -375,7 +333,7 @@ fn print_variable_sample_coverage(
     }
 }
 
-fn print_context_attributes(
+pub(super) fn print_context_attributes(
     attributes: &[rototo::model::ContextAttributeInspectReport],
     indent: &str,
 ) {
@@ -427,249 +385,16 @@ fn print_context_attributes(
     }
 }
 
-pub(crate) fn print_package_diff(diff: &PackageDiff, json: bool) -> Result<()> {
-    if json {
-        println!(
-            "{}",
-            serde_json::to_string_pretty(diff).map_err(|err| RototoError::new(err.to_string()))?
-        );
-        return Ok(());
-    }
-
-    println!("{} {}", style::label("before"), style::bold(&diff.before));
-    println!("{} {}", style::label("after"), style::bold(&diff.after));
-    if diff.changes.is_empty() {
-        println!(
-            "{} {}",
-            style::label("semantic changes"),
-            style::dim("none")
-        );
-    } else {
-        println!("{}", style::label("semantic changes"));
-        for change in &diff.changes {
-            print_semantic_change_header(change);
-            if let Some(location) = &change.before_location {
-                println!(
-                    "    {} {}",
-                    style::dim("before location:"),
-                    style::info(&diagnostic_location_label_for_location(location))
-                );
-            }
-            if let Some(location) = &change.after_location {
-                println!(
-                    "    {} {}",
-                    style::dim("after location:"),
-                    style::info(&diagnostic_location_label_for_location(location))
-                );
-            }
-            if change.before.is_some() || change.after.is_some() {
-                print_diff_value_line("before", &change.before, DiffSide::Before)?;
-                print_diff_value_line("after", &change.after, DiffSide::After)?;
-            }
-            if let Some(detail) = &change.detail {
-                println!(
-                    "    {} {}",
-                    style::dim("impact:"),
-                    style::info(&compact_json(detail)?)
-                );
-            }
-        }
-    }
-    if !diff.resolution_impacts.is_empty() {
-        println!("{}", style::label("resolution impact"));
-        for impact in &diff.resolution_impacts {
-            println!(
-                "  {} {}",
-                style::dim("variable:"),
-                style::sea(&impact.variable)
-            );
-            print_resolution_impact_line("before", &impact.before, DiffSide::Before)?;
-            print_resolution_impact_line("after", &impact.after, DiffSide::After)?;
-        }
-    }
-    Ok(())
-}
-
-#[derive(Clone, Copy)]
-enum DiffSide {
-    Before,
-    After,
-}
-
-fn print_semantic_change_header(change: &rototo::model::SemanticChange) {
-    let target = semantic_target_label(&change.target);
-    let description = semantic_change_description(&change.kind);
-    if !style::enabled() {
-        println!("  {}  {}", change.kind, target);
-        println!("    change: {description}");
-        return;
-    }
-
-    let marker = semantic_change_marker(change);
-    println!(
-        "  {} {}  {}",
-        style_diff_marker(marker),
-        style_diff_kind(description, marker),
-        style::sea(&target)
-    );
-    println!("    {} {}", style::dim("kind:"), style::dim(&change.kind));
-}
-
-fn semantic_change_marker(change: &rototo::model::SemanticChange) -> DiffChangeMarker {
-    if change.kind.ends_with("_added") || (change.before.is_none() && change.after.is_some()) {
-        DiffChangeMarker::Added
-    } else if change.kind.ends_with("_removed")
-        || (change.before.is_some() && change.after.is_none())
-    {
-        DiffChangeMarker::Removed
-    } else {
-        DiffChangeMarker::Changed
-    }
-}
-
-#[derive(Clone, Copy)]
-enum DiffChangeMarker {
-    Added,
-    Removed,
-    Changed,
-}
-
-fn style_diff_marker(marker: DiffChangeMarker) -> String {
-    match marker {
-        DiffChangeMarker::Added => style::ok("+"),
-        DiffChangeMarker::Removed => style::err("−"),
-        DiffChangeMarker::Changed => style::warn("~"),
-    }
-}
-
-fn style_diff_kind(kind: &str, marker: DiffChangeMarker) -> String {
-    match marker {
-        DiffChangeMarker::Added => style::ok(kind),
-        DiffChangeMarker::Removed => style::err(kind),
-        DiffChangeMarker::Changed => style::warn(kind),
-    }
-}
-
-fn semantic_change_description(kind: &str) -> &'static str {
-    match kind {
-        "variable_added" => "variable added",
-        "variable_removed" => "variable removed",
-        "variable_type_changed" => "variable type changed",
-        "variable_value_added" => "variable value added",
-        "variable_value_removed" => "variable value removed",
-        "variable_value_changed" => "variable value changed",
-        "variable_resolve_default_changed" => "variable resolve default changed",
-        "variable_rule_added" => "variable resolve rule added",
-        "variable_rule_removed" => "variable resolve rule removed",
-        "variable_rule_when_changed" => "variable rule condition changed",
-        "variable_rule_value_changed" => "variable rule value changed",
-        "catalog_added" => "catalog added",
-        "catalog_removed" => "catalog removed",
-        "catalog_schema_changed" => "catalog schema changed",
-        "variable_resolution_changed" => "variable resolution changed",
-        "layer_added" => "layer added",
-        "layer_removed" => "layer removed",
-        "layer_diversion_changed" => "layer diversion changed",
-        "allocation_added" => "allocation added",
-        "allocation_removed" => "allocation removed",
-        "allocation_status_changed" => "allocation status changed",
-        "allocation_eligibility_changed" => "allocation eligibility changed",
-        "allocation_arms_expanded" => "allocation arms expanded into unclaimed buckets",
-        "allocation_arms_reassigned" => "allocation arms reassigned claimed buckets",
-        "catalog_entry_added" => "catalog value added",
-        "catalog_entry_removed" => "catalog value removed",
-        "catalog_entry_changed" => "catalog value changed",
-        _ => "semantic change",
-    }
-}
-
-fn print_diff_value_line(
-    label: &str,
-    value: &Option<serde_json::Value>,
-    side: DiffSide,
-) -> Result<()> {
-    let value = compact_json_option(value)?;
-    if !style::enabled() {
-        println!("    {label}: {value}");
-        return Ok(());
-    }
-
-    println!(
-        "    {} {}",
-        style_diff_side_label(label, side),
-        style_diff_side_value(&value, side)
-    );
-    Ok(())
-}
-
-fn print_resolution_impact_line(
-    label: &str,
-    resolution: &rototo::model::VariableResolution,
-    side: DiffSide,
-) -> Result<()> {
-    let source = resolution_source_label(&resolution.source);
-    let value = compact_json(&resolution.value)?;
-    if !style::enabled() {
-        println!("    {label}: {source} {value}");
-        return Ok(());
-    }
-
-    println!(
-        "    {} {} {}",
-        style_diff_side_label(label, side),
-        style::dim(&source),
-        style_diff_side_value(&value, side)
-    );
-    Ok(())
-}
-
-fn style_diff_side_label(label: &str, side: DiffSide) -> String {
-    let label = format!("{label}:");
-    match side {
-        DiffSide::Before => style::err(&label),
-        DiffSide::After => style::ok(&label),
-    }
-}
-
-fn style_diff_side_value(value: &str, side: DiffSide) -> String {
-    if value == "<none>" {
-        return style::dim(value);
-    }
-    match side {
-        DiffSide::Before => style::err(value),
-        DiffSide::After => style::ok(value),
-    }
-}
-
-fn resolution_source_label(source: &rototo::model::VariableResolutionSource) -> String {
-    match source {
-        rototo::model::VariableResolutionSource::Literal => "literal".to_owned(),
-        rototo::model::VariableResolutionSource::Catalog { catalog, value } => {
-            format!("{catalog}:{value}")
-        }
-        rototo::model::VariableResolutionSource::CatalogList { catalog, values } => {
-            format!("{catalog}:[{}]", values.join(","))
-        }
-    }
-}
-
-fn print_entity_separator(index: usize, count: usize) {
-    if count > 1 && index > 0 {
-        println!("{}", style::hairline());
-    }
-}
-
-fn compact_json(value: &serde_json::Value) -> Result<String> {
-    serde_json::to_string(value).map_err(|err| RototoError::new(err.to_string()))
-}
-
-fn linter_registration_target(
+pub(super) fn linter_registration_target(
     registration: &rototo::model::LinterRegistrationInspectReport,
 ) -> String {
     registration.target.clone()
 }
 
-fn print_dependencies(dependencies: &rototo::model::DependencyInspectReport, indent: &str) {
+pub(super) fn print_dependencies(
+    dependencies: &rototo::model::DependencyInspectReport,
+    indent: &str,
+) {
     if dependencies.variables.is_empty()
         && dependencies.context_paths.is_empty()
         && dependencies.catalogs.is_empty()
@@ -839,7 +564,7 @@ pub(crate) async fn print_catalog_get(
     Ok(())
 }
 
-fn print_variable_summary(id: &str, path: &Path, value: &TomlValue) -> Result<()> {
+pub(super) fn print_variable_summary(id: &str, path: &Path, value: &TomlValue) -> Result<()> {
     let type_label = toml_string(value, "type").unwrap_or("<missing>");
     println!("  {}", style::sea(id));
     println!("    {} {}", style::dim("type:"), style::info(type_label));
@@ -855,7 +580,7 @@ fn print_variable_summary(id: &str, path: &Path, value: &TomlValue) -> Result<()
     Ok(())
 }
 
-fn print_catalog_summary(id: &str, path: &Path, value: &serde_json::Value) {
+pub(super) fn print_catalog_summary(id: &str, path: &Path, value: &serde_json::Value) {
     println!("  {}", style::sea(id));
     println!(
         "    {} {}",
@@ -877,7 +602,7 @@ fn print_catalog_summary(id: &str, path: &Path, value: &serde_json::Value) {
     }
 }
 
-fn print_unavailable_summary(id: &str, path_label: &str, path: &Path, reason: &str) {
+pub(super) fn print_unavailable_summary(id: &str, path_label: &str, path: &Path, reason: &str) {
     println!("  {}", style::sea(id));
     println!(
         "    {} {}",
@@ -888,7 +613,7 @@ fn print_unavailable_summary(id: &str, path_label: &str, path: &Path, reason: &s
     println!("    reason: {reason}");
 }
 
-fn print_variable_detail(id: &str, path: &Path, value: &TomlValue) -> Result<()> {
+pub(super) fn print_variable_detail(id: &str, path: &Path, value: &TomlValue) -> Result<()> {
     println!("variable: {}", style::sea(id));
     println!(
         "  {} {}",
@@ -904,7 +629,7 @@ fn print_variable_detail(id: &str, path: &Path, value: &TomlValue) -> Result<()>
     Ok(())
 }
 
-fn print_catalog_detail(id: &str, path: &Path, value: &serde_json::Value) {
+pub(super) fn print_catalog_detail(id: &str, path: &Path, value: &serde_json::Value) {
     println!("catalog: {}", style::sea(id));
     println!(
         "  {} {}",
@@ -926,7 +651,7 @@ fn print_catalog_detail(id: &str, path: &Path, value: &serde_json::Value) {
     }
 }
 
-fn print_variable_resolve_summary(value: &TomlValue, indent: &str) -> Result<()> {
+pub(super) fn print_variable_resolve_summary(value: &TomlValue, indent: &str) -> Result<()> {
     let Some(resolve) = value.get("resolve").and_then(TomlValue::as_table) else {
         return Ok(());
     };
@@ -949,7 +674,7 @@ fn print_variable_resolve_summary(value: &TomlValue, indent: &str) -> Result<()>
     Ok(())
 }
 
-fn print_variable_resolve_detail(value: &TomlValue) -> Result<()> {
+pub(super) fn print_variable_resolve_detail(value: &TomlValue) -> Result<()> {
     let Some(resolve) = value.get("resolve").and_then(TomlValue::as_table) else {
         return Ok(());
     };
@@ -983,187 +708,24 @@ fn print_variable_resolve_detail(value: &TomlValue) -> Result<()> {
     Ok(())
 }
 
-fn print_source_header() {
+pub(super) fn print_source_header() {
     println!();
     println!("{}", style::subhead("source"));
 }
 
-fn toml_string<'a>(value: &'a TomlValue, key: &str) -> Option<&'a str> {
+pub(super) fn toml_string<'a>(value: &'a TomlValue, key: &str) -> Option<&'a str> {
     value.get(key).and_then(TomlValue::as_str)
 }
 
-fn compact_toml_value(value: &TomlValue) -> Result<String> {
+pub(super) fn compact_toml_value(value: &TomlValue) -> Result<String> {
     let value = serde_json::to_value(value).map_err(|err| RototoError::new(err.to_string()))?;
     compact_json(&value)
 }
 
-fn plural_count(count: usize, singular: &str, plural: &str) -> String {
-    if count == 1 {
-        format!("{count} {singular}")
-    } else {
-        format!("{count} {plural}")
-    }
-}
-
-pub(crate) fn print_diagnostic_catalog_entry(
-    diagnostic: &DiagnosticCatalogEntry,
-    json: bool,
-) -> Result<()> {
-    if json {
-        println!(
-            "{}",
-            serde_json::to_string_pretty(diagnostic)
-                .map_err(|err| RototoError::new(err.to_string()))?
-        );
-        return Ok(());
-    }
-
-    println!("{}", diagnostic.rule);
-    if let Some(entity) = &diagnostic.entity {
-        println!("  entity: {}", diagnostic_entity_label(entity));
-    }
-    println!("  severity: {}", severity_label(&diagnostic.severity));
-    println!("  title: {}", diagnostic.title);
-    println!("  help: {}", diagnostic.help);
-    Ok(())
-}
-
-fn package_file_json<'a>(id: &'a str, uri: &'a str, path: &Path) -> PackageFileJson<'a> {
+pub(super) fn package_file_json<'a>(id: &'a str, uri: &'a str, path: &Path) -> PackageFileJson<'a> {
     PackageFileJson {
         id,
         uri,
         path: path.display().to_string(),
-    }
-}
-
-fn print_diagnostics(diagnostics: &[LintDiagnostic]) {
-    for diagnostic in diagnostics {
-        println!(
-            "{}: {}: {}",
-            style::severity_prefix(&diagnostic.severity, &diagnostic.rule.as_string()),
-            style::info(&diagnostic_location_label(diagnostic)),
-            diagnostic.message
-        );
-        println!("  {} {}", style::dim("help:"), style::dim(&diagnostic.help));
-        for related in &diagnostic.related {
-            println!(
-                "  {} {}: {}",
-                style::dim("note:"),
-                style::info(&diagnostic_location_label_for_location(&related.location)),
-                related.message
-            );
-        }
-    }
-}
-
-fn diagnostic_location_label(diagnostic: &LintDiagnostic) -> String {
-    diagnostic_location_label_for_location(&diagnostic.primary)
-}
-
-fn diagnostic_location_label_for_location(location: &DiagnosticLocation) -> String {
-    let Some(range) = location.range else {
-        return location.path.clone();
-    };
-    format!(
-        "{}:{}:{}",
-        location.path,
-        range.start.line + 1,
-        range.start.character + 1
-    )
-}
-
-fn semantic_target_label(target: &SemanticTarget) -> String {
-    match &target.field {
-        Some(field) => format!(
-            "{}.{}",
-            semantic_entity_label(&target.entity),
-            semantic_field_label(field)
-        ),
-        None => semantic_entity_label(&target.entity),
-    }
-}
-
-fn semantic_entity_label(entity: &SemanticEntity) -> String {
-    match entity {
-        SemanticEntity::Package => "package".to_owned(),
-        SemanticEntity::Manifest => "manifest".to_owned(),
-        SemanticEntity::Enum { id } => format!("enum:{id}"),
-        SemanticEntity::Layer { id } => format!("layer:{id}"),
-        SemanticEntity::Governance => "governance".to_owned(),
-        SemanticEntity::Variable { id } => format!("variable:{id}"),
-        SemanticEntity::EvaluationContext { id } => format!("evaluation-context:{id}"),
-        SemanticEntity::EvaluationContextSample {
-            evaluation_context,
-            key,
-        } => {
-            format!("evaluation-context:{evaluation_context}.entry:{key}")
-        }
-        SemanticEntity::Catalog { id } => format!("catalog:{id}"),
-        SemanticEntity::CatalogEntry { catalog, key } => format!("catalog:{catalog}.value:{key}"),
-        SemanticEntity::Value { variable, key } => format!("variable:{variable}.value:{key}"),
-        SemanticEntity::Rule { variable, index } => {
-            format!("variable:{variable}.rule[{index}]")
-        }
-        SemanticEntity::CustomLint { path } => format!("lint:{path}"),
-    }
-}
-
-fn semantic_field_label(field: &SemanticField) -> String {
-    match field {
-        SemanticField::PackageExtends => "extends".to_owned(),
-        SemanticField::SchemaVersion => "schema_version".to_owned(),
-        SemanticField::Description => "description".to_owned(),
-        SemanticField::VariableType => "type".to_owned(),
-        SemanticField::VariableSchema => "schema".to_owned(),
-        SemanticField::VariableValues => "values".to_owned(),
-        SemanticField::VariableResolve => "resolve".to_owned(),
-        SemanticField::VariableResolveDefault => "resolve.default".to_owned(),
-        SemanticField::VariableRuleWhen => "when".to_owned(),
-        SemanticField::VariableRuleValue => "value".to_owned(),
-        SemanticField::VariableQueryFilter => "filter".to_owned(),
-        SemanticField::VariableQuerySort => "sort".to_owned(),
-        SemanticField::VariableAllocation => "allocation".to_owned(),
-        SemanticField::VariableAssignValue => "assign.value".to_owned(),
-        SemanticField::Value => "value".to_owned(),
-        SemanticField::ValueJsonPath { path } => format!("value.{}", path.join(".")),
-        SemanticField::SchemaJson => "json".to_owned(),
-        SemanticField::SchemaJsonPath { path } => format!("json.{}", path.join(".")),
-        SemanticField::EvaluationContextSample => "entry".to_owned(),
-        SemanticField::CatalogEntry => "value".to_owned(),
-    }
-}
-
-fn compact_json_option(value: &Option<serde_json::Value>) -> Result<String> {
-    match value {
-        Some(value) => compact_json(value),
-        None => Ok("<none>".to_owned()),
-    }
-}
-
-fn variable_rule_condition(rule: &rototo::model::RulePathwayInspectReport) -> &str {
-    rule.when.as_deref().unwrap_or("<missing>")
-}
-
-fn severity_label(severity: &Severity) -> &'static str {
-    match severity {
-        Severity::Error => "error",
-        Severity::Warning => "warning",
-    }
-}
-
-fn diagnostic_entity_label(entity: &DiagnosticEntity) -> &'static str {
-    match entity {
-        DiagnosticEntity::Package => "package",
-        DiagnosticEntity::Qualifier => "qualifier",
-        DiagnosticEntity::Enum => "enum",
-        DiagnosticEntity::Layer => "layer",
-        DiagnosticEntity::Governance => "governance",
-        DiagnosticEntity::Variable => "variable",
-        DiagnosticEntity::EvaluationContext => "evaluation_context",
-        DiagnosticEntity::EvaluationContextSample => "evaluation_context_sample",
-        DiagnosticEntity::Catalog => "catalog",
-        DiagnosticEntity::CatalogEntry => "catalog_entry",
-        DiagnosticEntity::Value => "value",
-        DiagnosticEntity::Rule => "rule",
     }
 }
