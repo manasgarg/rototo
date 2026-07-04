@@ -32,7 +32,7 @@ Given a base package and one overlay whose `extends` names it.
 | V1 | restates a base variable with a bare `[resolve]` block | the resolve block swaps atomically; type and description are inherited from the base | `overlay_composes_membership_values_and_additions` |
 | V2 | adds a new namespaced variable (`variables/acme/in_trial.toml`) | the variable is discovered recursively as `acme/in_trial` and resolves | `overlay_composes_membership_values_and_additions` |
 | V3 | declares a different `type` for a base variable | the load fails naming both types | `overlay_cannot_change_a_variable_type` |
-| V4 | restates the same `type` | the load succeeds; restating is agreement | `overlay_cannot_change_a_variable_type` |
+| V4 | restates the same `type` | the load succeeds; restating is agreement. design: direction reversed, an overlay variable file should carry only the fields it overrides, and repeating an immutable field should be an error even when identical (task #36) | `overlay_cannot_change_a_variable_type` |
 | V5 | wins a variable's `[resolve]` | the resolution trace's `provenance` names the overlay | `trace_provenance_names_the_layer_that_owns_the_resolution` |
 
 ### Catalog entries
