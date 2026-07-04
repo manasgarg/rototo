@@ -1708,3 +1708,95 @@ async fn rules_selected_catalog_values_do_not_hydrate_today() {
         serde_json::json!("welcome#/variants/default/subject")
     );
 }
+
+/// The unpacked projection and the archive are two encodings of one
+/// artifact: the archive's entries are exactly the projection's files with
+/// identical bytes (plus the deterministic sha256 name the archive carries).
+#[tokio::test]
+async fn unpacked_projection_matches_the_archive_contents() {
+    use std::io::Read;
+
+    let temp = tempfile::TempDir::new().unwrap();
+    let target = temp.path().join("projection");
+    let options = rototo::SourceOptions::default();
+
+    let written = rototo::project_package("examples/acme-overlay", &options, &target)
+        .await
+        .unwrap();
+    let archive = rototo::pack_package("examples/acme-overlay", &options)
+        .await
+        .unwrap();
+
+    let decoder = flate2::read::GzDecoder::new(archive.bytes.as_slice());
+    let mut tar = tar::Archive::new(decoder);
+    let mut archive_files = std::collections::BTreeMap::new();
+    for entry in tar.entries().unwrap() {
+        let mut entry = entry.unwrap();
+        let path = entry.path().unwrap().display().to_string();
+        let mut bytes = Vec::new();
+        entry.read_to_end(&mut bytes).unwrap();
+        archive_files.insert(path, bytes);
+    }
+
+    let projected = written
+        .iter()
+        .cloned()
+        .collect::<std::collections::BTreeSet<_>>();
+    let archived = archive_files
+        .keys()
+        .cloned()
+        .collect::<std::collections::BTreeSet<_>>();
+    assert_eq!(projected, archived);
+
+    for (path, archive_bytes) in &archive_files {
+        let disk_bytes = tokio::fs::read(target.join(path)).await.unwrap();
+        assert_eq!(&disk_bytes, archive_bytes, "bytes differ for {path}");
+    }
+}
+
+/// Loading the projection resolves identically to loading the composed
+/// source: flattening is a change of representation, never of meaning.
+#[tokio::test]
+async fn projected_package_resolves_identically_to_the_composed_source() {
+    let temp = tempfile::TempDir::new().unwrap();
+    let target = temp.path().join("projection");
+    rototo::project_package(
+        "examples/acme-overlay",
+        &rototo::SourceOptions::default(),
+        &target,
+    )
+    .await
+    .unwrap();
+
+    let composed = Package::load("examples/acme-overlay").await.unwrap();
+    let projected = Package::load(target.to_string_lossy()).await.unwrap();
+
+    let context = EvaluationContext::from_json(serde_json::json!({})).unwrap();
+    let ids = rototo::list_variables("examples/acme-overlay".as_ref())
+        .await
+        .unwrap();
+    assert!(!ids.is_empty());
+    for variable in &ids {
+        let left = composed.resolve_variable(&variable.id, &context);
+        let right = projected.resolve_variable(&variable.id, &context);
+        match (left, right) {
+            (Ok(left), Ok(right)) => {
+                assert_eq!(left.value, right.value, "value differs for {}", variable.id);
+            }
+            (Err(left), Err(right)) => {
+                assert_eq!(
+                    left.to_string(),
+                    right.to_string(),
+                    "error differs for {}",
+                    variable.id
+                );
+            }
+            (left, right) => panic!(
+                "outcome differs for {}: composed {:?}, projected {:?}",
+                variable.id,
+                left.map(|resolution| resolution.value),
+                right.map(|resolution| resolution.value)
+            ),
+        }
+    }
+}
