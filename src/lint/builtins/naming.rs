@@ -18,9 +18,10 @@ pub(super) fn lint_id_naming(ctx: &mut LintContext) {
             // Deleted and update markers compose through extends and are
             // consumed when layers flatten; one surviving into lint has no
             // base package.
-            let message = if kind == "catalog entry"
-                && (id.ends_with(".deleted") || id.ends_with(".update"))
-            {
+            let is_marker_id = (kind == "catalog entry"
+                && (id.ends_with(".deleted") || id.ends_with(".update")))
+                || (kind == "variable" && id.ends_with(".update"));
+            let message = if is_marker_id {
                 format!(
                     "{kind} deleted and update markers apply to a base package through extends; \
                      this package has no base entry for them to compose with: {id}"

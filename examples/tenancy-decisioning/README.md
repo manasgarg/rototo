@@ -32,7 +32,7 @@ Use cases demonstrated (numbers are the use-case groups on the `use-cases` docs 
   `update_policy` allows.
 - **Delete**: `spring_sale.deleted.toml` removes a base banner for this
   tenant.
-- **Override**: `acme-tenant/variables/homepage_banner.toml` replaces the
+- **Update**: `acme-tenant/variables/homepage_banner.update.toml` replaces the
   `[resolve]` block atomically. It runs over the composed catalog, so Acme's add
   is a candidate and Acme's deleted banner is not.
 - **Narrowing**: Acme's `governance.toml` revokes delete and restricts update to

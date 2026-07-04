@@ -162,21 +162,37 @@ traces read it back as the trace's `provenance` field. You never edit that
 file; it's how `rototo resolve` can print `resolve from <source>` for a
 composed package.
 
-### Variable files merge by top-level key
+### Variables update through a marker
 
-A `variables/**.toml` file that sits on top of an existing base file doesn't
-replace it whole. It merges by top-level key: every key the overlay file
-declares (`type`, `description`, `[resolve]`, and so on) replaces the base's
-key whole, and every key it leaves out is inherited. So an overlay file
-containing nothing but a `[resolve]` block swaps the variable's resolution
-atomically - default, rules, everything - while `type`, `description`, and
-`schema_version` stay with the base. There is no key-level merge *inside*
-`[resolve]`: the topmost package's resolve block wins whole.
+An overlay never restates a base variable's file. It updates one with a
+marker, the same shape catalog entries use:
 
-One guardrail: an overlay may not change a variable's `type`. Restating the
-same type is fine; declaring a different one fails the load with "overlay
-changes the variable's type from X to Y". The type is the contract applications
-were written against, and an overlay doesn't get to rewrite it quietly.
+- `variables/<id>.update.toml` updates the base variable. The marker may
+  carry only `[resolve]` and `description` - the fields an overlay is allowed
+  to change. Each key it declares replaces the base's key whole; there is no
+  key-level merge *inside* `[resolve]`, the topmost package's resolve block
+  wins whole. The marker itself never lands in the flattened package.
+- A plain `variables/<id>.toml` is always an add. If the base already
+  declares the id, the load fails and points at the marker: "variable `<id>`
+  is declared in the base packages; update it with
+  `variables/<id>.update.toml` instead of restating the file". That keeps a
+  reviewer able to tell an add from an update by the file name alone.
+
+The marker may not carry `type` or `schema_version`, even restated with the
+base's exact values. The type is the contract applications were written
+against; repeating it in an overlay would force every reviewer to check it
+still agrees, and would silently pin the base's intent. An update file
+carries only what it changes.
+
+There is no `variables/<id>.deleted.toml`. An overlay never removes a base
+variable - every consumer resolving the id would break - it can only give
+the id different behavior. Removing a variable is the base's decision.
+
+An orphan marker (no base variable to update) fails the load, and one package
+providing both `<id>.toml` and `<id>.update.toml` is contradicting itself and
+fails too. The one exception to the no-restatement rule is a byte-identical
+copy of the base's file, which composes as a no-op - that is how diamond
+ancestry looks when two bases share an ancestor.
 
 An overlay can also add variables of its own, and subdirectories keep them out
 of the base's way: `variables/acme/in_trial.toml` defines the namespaced
@@ -291,7 +307,7 @@ Each operation names one on-disk shape the overlay can produce:
 | Operation | What the overlay does on disk |
 | --- | --- |
 | `add` | a new `<entry>.toml` in a governed catalog, or a member file under `data/enums/` for a declared enum that had none in the base |
-| `update` | an `<entry>.update.toml` over a base catalog entry, a `data/enums/<id>.toml` that unions members into the base's set, a replacement of a base variable's `[resolve]` block, or a replacement of a base layer file under `layers/` |
+| `update` | an `<entry>.update.toml` over a base catalog entry, a `data/enums/<id>.toml` that unions members into the base's set, a `variables/<id>.update.toml` over a base variable, or a replacement of a base layer file under `layers/` |
 | `delete` | an `<entry>.deleted.toml` disabling a base catalog entry |
 
 Grants go in `allowed_operations`; `denied_operations` subtracts from them and

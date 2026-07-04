@@ -825,7 +825,15 @@ extends = ["../base"]
     )
     .await
     .unwrap();
-    write_string_variable(&child, "message", "child").await;
+    tokio::fs::create_dir_all(child.join("variables"))
+        .await
+        .unwrap();
+    tokio::fs::write(
+        child.join("variables/message.update.toml"),
+        "[resolve]\ndefault = \"child\"\n",
+    )
+    .await
+    .unwrap();
     write_string_variable(&child, "child_only", "child_only").await;
 
     let package = Package::load(child.to_str().unwrap()).await.unwrap();

@@ -127,10 +127,10 @@ async fn write_overlay(root: &Path) {
         "monthly_price = 59\n\n[limits]\nseats = 25\n",
     )
     .await;
-    // OVERRIDE: a replacement [resolve] block; the type stays with the base.
+    // UPDATE: a replacement [resolve] block; the type stays with the base.
     write(
         root,
-        "variables/active_plan.toml",
+        "variables/active_plan.update.toml",
         r#"[resolve]
 default = "acme_enterprise"
 
@@ -319,7 +319,7 @@ async fn same_layer_entry_and_deleted_marker_conflict() {
 }
 
 #[tokio::test]
-async fn overlay_cannot_change_a_variable_type() {
+async fn variable_restatement_requires_the_update_marker() {
     let temp = tempfile::TempDir::new().unwrap();
     let base = temp.path().join("base");
     let overlay = temp.path().join("overlay");
@@ -339,17 +339,74 @@ async fn overlay_cannot_change_a_variable_type() {
 
     let err = Package::load(overlay.to_string_lossy()).await.unwrap_err();
     assert!(
+        err.to_string().contains(
+            "variable active_plan is declared in the base packages; update it with \
+             variables/active_plan.update.toml"
+        ),
+        "{err}"
+    );
+}
+
+#[tokio::test]
+async fn byte_identical_variable_restatement_is_a_noop() {
+    let temp = tempfile::TempDir::new().unwrap();
+    let base = temp.path().join("base");
+    let overlay = temp.path().join("overlay");
+    write_base(&base).await;
+    write(
+        &overlay,
+        "rototo-package.toml",
+        "schema_version = 1\nextends = [\"../base\"]\n",
+    )
+    .await;
+    // Restating the base's file byte for byte is how diamond ancestry looks;
+    // it composes as a no-op instead of demanding an update marker.
+    let original = tokio::fs::read(base.join("variables/active_plan.toml"))
+        .await
+        .unwrap();
+    tokio::fs::create_dir_all(overlay.join("variables"))
+        .await
+        .unwrap();
+    tokio::fs::write(overlay.join("variables/active_plan.toml"), original)
+        .await
+        .unwrap();
+
+    Package::load(overlay.to_string_lossy()).await.unwrap();
+}
+
+#[tokio::test]
+async fn variable_update_may_only_carry_resolve_and_description() {
+    let temp = tempfile::TempDir::new().unwrap();
+    let base = temp.path().join("base");
+    let overlay = temp.path().join("overlay");
+    write_base(&base).await;
+    write(
+        &overlay,
+        "rototo-package.toml",
+        "schema_version = 1\nextends = [\"../base\"]\n",
+    )
+    .await;
+    // Even restating the type the base already declares is an error: an
+    // update file carries only what it changes.
+    write(
+        &overlay,
+        "variables/active_plan.update.toml",
+        "type = \"catalog:plans\"\n\n[resolve]\ndefault = \"growth\"\n",
+    )
+    .await;
+
+    let err = Package::load(overlay.to_string_lossy()).await.unwrap_err();
+    assert!(
         err.to_string()
-            .contains("overlay changes the variable's type from catalog:plans to string"),
+            .contains("a variable update may only update [resolve] and description"),
         "{err}"
     );
 
-    // Restating the same type is allowed; narrowing a type means agreeing
-    // with it.
+    // The permitted keys compose: resolve swaps whole, description replaces.
     write(
         &overlay,
-        "variables/active_plan.toml",
-        "type = \"catalog:plans\"\n\n[resolve]\ndefault = \"growth\"\n",
+        "variables/active_plan.update.toml",
+        "description = \"Acme's plan selection\"\n\n[resolve]\ndefault = \"growth\"\n",
     )
     .await;
     let package = Package::load(overlay.to_string_lossy()).await.unwrap();
@@ -359,6 +416,66 @@ async fn overlay_cannot_change_a_variable_type() {
     .unwrap();
     let resolution = package.resolve_variable("active_plan", &context).unwrap();
     assert_eq!(resolution.value["name"], "Growth");
+}
+
+#[tokio::test]
+async fn orphan_variable_updates_fail_loudly() {
+    let temp = tempfile::TempDir::new().unwrap();
+    let base = temp.path().join("base");
+    let overlay = temp.path().join("overlay");
+    write_base(&base).await;
+    write(
+        &overlay,
+        "rototo-package.toml",
+        "schema_version = 1\nextends = [\"../base\"]\n",
+    )
+    .await;
+    write(
+        &overlay,
+        "variables/nonexistent.update.toml",
+        "[resolve]\ndefault = true\n",
+    )
+    .await;
+
+    let err = Package::load(overlay.to_string_lossy()).await.unwrap_err();
+    assert!(
+        err.to_string()
+            .contains("variable update has no base variable to update"),
+        "{err}"
+    );
+}
+
+#[tokio::test]
+async fn same_layer_variable_add_and_update_conflict() {
+    let temp = tempfile::TempDir::new().unwrap();
+    let base = temp.path().join("base");
+    let overlay = temp.path().join("overlay");
+    write_base(&base).await;
+    write(
+        &overlay,
+        "rototo-package.toml",
+        "schema_version = 1\nextends = [\"../base\"]\n",
+    )
+    .await;
+    write(
+        &overlay,
+        "variables/brand_new.toml",
+        "schema_version = 1\ntype = \"bool\"\n\n[resolve]\ndefault = false\n",
+    )
+    .await;
+    write(
+        &overlay,
+        "variables/brand_new.update.toml",
+        "[resolve]\ndefault = true\n",
+    )
+    .await;
+
+    let err = Package::load(overlay.to_string_lossy()).await.unwrap_err();
+    assert!(
+        err.to_string()
+            .contains("package both provides variable brand_new and declares an update for it"),
+        "{err}"
+    );
 }
 
 /// The base's layering contract for the governed tests: entries may be
@@ -397,7 +514,7 @@ async fn governed_base_admits_the_granted_overlay() {
         .unwrap();
     write(
         &overlay,
-        "variables/active_plan.toml",
+        "variables/active_plan.update.toml",
         "[resolve]\ndefault = \"acme_enterprise\"\n",
     )
     .await;
@@ -512,7 +629,7 @@ async fn governed_base_denies_ungranted_operations() {
     // ...but replacing a base variable's resolution needs the update grant.
     write(
         &overlay,
-        "variables/is_enterprise.toml",
+        "variables/is_enterprise.update.toml",
         "[resolve]\ndefault = true\n",
     )
     .await;

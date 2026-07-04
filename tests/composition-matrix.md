@@ -29,18 +29,24 @@ design: this section's premise changes under task #37. Deny-by-default
 becomes unconditional, so "no governance" stops being an open mode; these
 rows will be re-premised as "given a base that grants the operation". The
 merge mechanics they pin are unaffected - the permission check runs in
-front of the merge, not instead of it. The variable rows V1/V4 additionally
-change under task #36 (update markers replace bare restatement).
+front of the merge, not instead of it.
 
 ### Variables
 
 | # | When the overlay... | Then... | Coverage |
 |---|---|---|---|
-| V1 | restates a base variable with a bare `[resolve]` block | the resolve block swaps atomically; type and description are inherited from the base. design: overrides move to an explicit `<id>.update.toml` marker so a plain `<id>.toml` is always an add and an override announces itself; variables get no deleted marker (task #36) | `overlay_composes_membership_values_and_additions` |
+| V1 | writes `variables/<id>.update.toml` with a `[resolve]` block for a base variable | the resolve block swaps atomically; type and description stay with the base; the marker never lands in the projection | `overlay_composes_membership_values_and_additions` |
 | V2 | adds a new namespaced variable (`variables/acme/in_trial.toml`) | the variable is discovered recursively as `acme/in_trial` and resolves | `overlay_composes_membership_values_and_additions` |
-| V3 | declares a different `type` for a base variable | the load fails naming both types | `overlay_cannot_change_a_variable_type` |
-| V4 | restates the same `type` | the load succeeds; restating is agreement. design: direction reversed, an overlay variable file should carry only the fields it overrides, and repeating an immutable field should be an error even when identical (task #36) | `overlay_cannot_change_a_variable_type` |
-| V5 | wins a variable's `[resolve]` | the resolution trace's `provenance` names the overlay | `trace_provenance_names_the_layer_that_owns_the_resolution` |
+| V3 | restates a base variable's plain `<id>.toml` with different content | the load fails and points at `variables/<id>.update.toml` | `variable_restatement_requires_the_update_marker` |
+| V4 | restates a base variable's file byte-identically | the restatement composes as a no-op (diamond ancestry shape) | `byte_identical_variable_restatement_is_a_noop` |
+| V5 | wins a variable's `[resolve]` through the marker | the resolution trace's `provenance` names the overlay | `trace_provenance_names_the_layer_that_owns_the_resolution` |
+| V6 | puts any key other than `resolve` or `description` in an update marker, even restating the base's exact `type` | the load fails: "a variable update may only update [resolve] and description" | `variable_update_may_only_carry_resolve_and_description` |
+| V7 | writes an update marker for a variable no base declares | the load fails: "variable update has no base variable to update" | `orphan_variable_updates_fail_loudly` |
+| V8 | provides both `<id>.toml` and `<id>.update.toml` in one layer | the load fails; the package is contradicting itself | `same_layer_variable_add_and_update_conflict` |
+
+There is deliberately no `variables/<id>.deleted.toml`: an overlay never
+removes a base variable, it can only update its resolution. Removal is the
+base's decision.
 
 ### Catalog entries
 
@@ -104,8 +110,8 @@ above.
 | G11b | adds a new sample file for a base context | allowed without any grant | GAP |
 | G12 | provides `data/enums/<id>.toml` where the base already has one | the load fails unless the contract grants `update` on `enum.<id>` | GAP |
 | G13 | provides `data/enums/<id>.toml` where the base declares the enum but has no members file | the load fails unless the contract grants `add` on `enum.<id>` | GAP |
-| G14 | restates a base variable's `[resolve]` under an `update` grant | the load succeeds and the overlay resolution wins | `governed_base_admits_the_granted_overlay` |
-| G15 | restates a base variable with no `update` grant | the load fails: "governance denies update on variable.<id>" | `governed_base_denies_ungranted_operations` |
+| G14 | updates a base variable through `<id>.update.toml` under an `update` grant | the load succeeds and the overlay resolution wins | `governed_base_admits_the_granted_overlay` |
+| G15 | updates a base variable through `<id>.update.toml` with no `update` grant | the load fails: "governance denies update on variable.<id>" | `governed_base_denies_ungranted_operations` |
 | G16 | adds a brand-new variable id | always allowed; new ids mint freely | `governed_base_denies_ungranted_operations` |
 | G17 | restates a base namespaced variable (`variables/acme/foo.toml`) | the governance target is `variable."acme/foo"` (path separators become `/`) | GAP |
 | G18 | restates a base `layers/<id>.toml` | the load fails unless the contract grants `update` on `layer.<id>` | GAP |

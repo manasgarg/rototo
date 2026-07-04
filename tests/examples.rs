@@ -210,7 +210,7 @@ async fn billing_governance_locks_pricing_but_grants_the_rate_limit_override() {
     let overlay = overlay_extending("examples/billing").await;
     write(
         overlay.path(),
-        "variables/api_rate_limit_per_min.toml",
+        "variables/api_rate_limit_per_min.update.toml",
         "[resolve]\nmethod = \"rules\"\ndefault = 20000\n",
     )
     .await;

@@ -587,7 +587,7 @@ extends = ["../basic"]
 Rototo flattens the packages into one - bases in `extends` order, the extending package last - and everything downstream (lint, resolution, archives) sees the flattened result. Most files combine the simple way: a file replaces the file at the same path in the base packages, whole. But the three things a tenant actually needs to change compose structurally, and each follows its own law:
 
 - **The contract narrows only.** An overlay may not change a variable's `type`; restating the same type is fine, declaring a different one fails the load. Applications were written against that type, and an overlay doesn't get to rewrite it quietly.
-- **Values override atomically.** An overlay variable file merges by top-level key, so a file holding only a `[resolve]` block replaces the base's resolution whole - default, rules, everything - while the type and description stay with the base. There is no merging of individual rules, because half of one package's rule list plus half of another's is a resolution nobody wrote or reviewed.
+- **Values update atomically.** An overlay updates a base variable with a `variables/<id>.update.toml` marker holding the new `[resolve]` block, which replaces the base's resolution whole - default, rules, everything - while the type stays with the base. There is no merging of individual rules, because half of one package's rule list plus half of another's is a resolution nobody wrote or reviewed. A plain `<id>.toml` is always an add; restating a base variable's file fails the load and points at the marker.
 - **Membership is union minus deletes.** A catalog's active entries are the base's entries plus the overlay's, minus the ones the overlay explicitly deletes, with field-level updates applied. Enum members compose the same way: an overlay's `data/enums/<id>.toml` unions its `members` into the base's set and removes the values it names in `deleted`, so an overlay declares only its own adds and removals.
 
 The `examples/acme-overlay` package in the repository shows all three on top of `examples/basic`, in five files. A new entry is just an entry: `data/catalogs/support_banner/acme_hours.toml` adds a banner only this tenant has. Removing one is a **deleted marker**:
@@ -605,10 +605,10 @@ Changing one field of an entry is an **update** - every field it doesn't mention
 body = "Chat with the Acme support desk without leaving the app."
 ```
 
-And choosing different rules is an overlay variable file that declares nothing but its resolution:
+And choosing different rules is an update marker that declares nothing but the new resolution:
 
 ```toml
-# variables/support_banner.toml
+# variables/support_banner.update.toml
 [resolve]
 default = "hidden"
 

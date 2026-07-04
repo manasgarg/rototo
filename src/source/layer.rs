@@ -271,18 +271,27 @@ fn check_governed_file(
                 None => Ok(()),
             }
         }
-        ["variables", .., file] => match stem(file, ".toml") {
-            Some(_) if exists(relative) => {
-                let id = relative
-                    .strip_prefix("variables")
-                    .ok()
-                    .and_then(|path| path.with_extension("").to_str().map(str::to_owned))
-                    .map(|id| id.replace(std::path::MAIN_SEPARATOR, "/"))
+        ["variables", .., file] => {
+            let Some(id) = variable_id_for_relative(relative) else {
+                return Ok(());
+            };
+            if file.ends_with(".update.toml") {
+                let base_file = relative
+                    .parent()
+                    .map(|parent| parent.join(format!("{}.toml", file_stem_of(file))))
                     .unwrap_or_default();
-                contract.check("variable", &id, Operation::Update, None, &[])
+                if exists(&base_file) {
+                    return contract.check("variable", &id, Operation::Update, None, &[]);
+                }
+                // An orphan marker is a structural error the compose step
+                // reports; governance has nothing to say about it.
+                return Ok(());
             }
-            _ => Ok(()),
-        },
+            if exists(relative) {
+                return Err(variable_restate_denied(&id));
+            }
+            Ok(())
+        }
         ["layers", file] => match stem(file, ".toml") {
             Some(id) if exists(relative) => {
                 contract.check("layer", &id, Operation::Update, None, &[])
@@ -511,9 +520,12 @@ fn variable_id_for_relative(relative: &Path) -> Option<String> {
     if path.extension().and_then(|extension| extension.to_str()) != Some("toml") {
         return None;
     }
-    path.with_extension("")
+    let id = path
+        .with_extension("")
         .to_str()
-        .map(|id| id.replace(std::path::MAIN_SEPARATOR, "/"))
+        .map(|id| id.replace(std::path::MAIN_SEPARATOR, "/"))?;
+    // An update marker names the variable it updates, not a `.update` id.
+    Some(id.strip_suffix(".update").unwrap_or(&id).to_owned())
 }
 
 fn copy_package_layer_recursive(
@@ -641,10 +653,15 @@ enum LayerFileComposition {
     /// entry a layer below provided; fields the update does not mention are
     /// inherited.
     CatalogEntryUpdate { entry: String },
-    /// `variables/**.toml` over an existing file: top-level keys replace the
-    /// base's (so an overlay `[resolve]` block replaces the whole resolution),
-    /// keys the overlay does not declare are inherited.
-    VariableMerge,
+    /// `variables/**/<id>.update.toml`: update the base variable's resolution
+    /// (and description). The marker carries only the keys it changes; each
+    /// replaces the base's key whole, and the marker itself never lands in
+    /// the projection.
+    VariableUpdate,
+    /// A plain `variables/**.toml` over an existing base file. Byte-identical
+    /// restatement is a no-op (diamond ancestry); anything else is an error
+    /// pointing at the update marker.
+    VariableRestate,
     /// `data/enums/<id>.toml`: the member sets compose - the overlay's
     /// `members` union into the base's and its `deleted` values are removed
     /// from the result, keeping enum members tenant-adjustable data.
@@ -677,8 +694,11 @@ fn classify_layer_file(
             }
             LayerFileComposition::Replace
         }
+        ["variables", .., _] if file_name.ends_with(".update.toml") => {
+            LayerFileComposition::VariableUpdate
+        }
         ["variables", .., _] if target_exists && file_name.ends_with(".toml") => {
-            LayerFileComposition::VariableMerge
+            LayerFileComposition::VariableRestate
         }
         ["data", "enums", _] if file_name.ends_with(".toml") => {
             LayerFileComposition::EnumMembersCompose
@@ -740,18 +760,59 @@ fn compose_package_layer_file(
             deep_merge_toml(&mut base, update);
             write_layer_toml(&entry_path, &base)
         }
-        LayerFileComposition::VariableMerge => {
-            let mut base = read_layer_toml(&target_path)?;
-            let overlay = read_layer_toml(source_path)?;
-            let replaces_resolve = overlay
-                .as_table()
-                .is_some_and(|table| table.contains_key("resolve"));
-            merge_variable_toml(&mut base, overlay, relative)?;
-            write_layer_toml(&target_path, &base)?;
-            if replaces_resolve && let Some(id) = variable_id_for_relative(relative) {
+        LayerFileComposition::VariableUpdate => {
+            let id = variable_id_for_relative(relative).unwrap_or_default();
+            let sibling = source_path
+                .parent()
+                .map(|parent| parent.join(format!("{}.toml", file_stem_of(&file_name))))
+                .filter(|sibling| sibling.is_file());
+            if sibling.is_some() {
+                return Err(RototoError::new(format!(
+                    "package both provides variable {id} and declares an update for it"
+                )));
+            }
+            let entry_path = target_dir.join(format!("{}.toml", file_stem_of(&file_name)));
+            if !entry_path.is_file() {
+                return Err(RototoError::new(format!(
+                    "variable update has no base variable to update in the base packages: {}",
+                    relative.display()
+                )));
+            }
+            let update = read_layer_toml(source_path)?;
+            let Some(update_table) = update.as_table() else {
+                return Err(RototoError::new(format!(
+                    "variable update is not a TOML table: {}",
+                    relative.display()
+                )));
+            };
+            for key in update_table.keys() {
+                if key != "resolve" && key != "description" {
+                    return Err(RototoError::new(format!(
+                        "a variable update may only update [resolve] and description; {} \
+                         declares {key}, which stays with the base",
+                        relative.display()
+                    )));
+                }
+            }
+            let replaces_resolve = update_table.contains_key("resolve");
+            let mut base = read_layer_toml(&entry_path)?;
+            if let Some(base_table) = base.as_table_mut() {
+                for (key, value) in update_table {
+                    base_table.insert(key.clone(), value.clone());
+                }
+            }
+            write_layer_toml(&entry_path, &base)?;
+            if replaces_resolve && !id.is_empty() {
                 provenance.record(&id);
             }
             Ok(())
+        }
+        LayerFileComposition::VariableRestate => {
+            if file_identical(source_path, &target_path) {
+                return Ok(());
+            }
+            let id = variable_id_for_relative(relative).unwrap_or_default();
+            Err(variable_restate_denied(&id))
         }
         LayerFileComposition::EnumMembersCompose => {
             let overlay = read_layer_toml(source_path)?;
@@ -915,33 +976,21 @@ fn compose_enum_members(
 /// Merge an overlay variable file over the base's: every top-level key the
 /// overlay declares replaces the base's key whole, so `[resolve]` swaps
 /// atomically and the type (and anything else left out) stays with the base.
-///
-/// The type is the one key that may not change: shape composes by narrowing
-/// only, and for a variable's type the only narrowing is restating it. An
-/// overlay that declares a different type is contradicting the contract, not
-/// overriding a value.
-fn merge_variable_toml(
-    base: &mut toml::Value,
-    overlay: toml::Value,
-    relative: &Path,
-) -> Result<()> {
-    let (toml::Value::Table(base), toml::Value::Table(overlay)) = (base, overlay) else {
-        return Ok(());
-    };
-    if let (Some(toml::Value::String(below)), Some(toml::Value::String(above))) =
-        (base.get("type"), overlay.get("type"))
-        && below != above
-    {
-        return Err(RototoError::new(format!(
-            "overlay changes the variable's type from {below} to {above}: {}; \
-             the type stays with the layer that declared it",
-            relative.display()
-        )));
-    }
-    for (key, value) in overlay {
-        base.insert(key, value);
-    }
-    Ok(())
+/// A plain variable file may never restate a base variable: the update
+/// marker is the only spelling for changing one, so a reviewer can tell an
+/// add from an update by the file name alone.
+fn variable_restate_denied(id: &str) -> RototoError {
+    RototoError::new(format!(
+        "variable {id} is declared in the base packages; update it with \
+         variables/{id}.update.toml instead of restating the file"
+    ))
+}
+
+/// The file stem with a trailing `.update` marker suffix removed, so
+/// `active_plan.update.toml` names the variable `active_plan`.
+fn file_stem_of(file_name: &str) -> &str {
+    let stem = file_name.strip_suffix(".toml").unwrap_or(file_name);
+    stem.strip_suffix(".update").unwrap_or(stem)
 }
 
 async fn read_package_extends(root: &Path) -> Result<Vec<String>> {
