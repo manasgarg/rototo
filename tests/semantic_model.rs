@@ -263,3 +263,20 @@ fn write_file(root: &Path, path: &str, contents: &str) {
     }
     fs::write(path, contents).unwrap();
 }
+
+/// Two independent lint pipelines over the same package must project
+/// byte-identical semantic models: discovery order, node maps, reference
+/// lists, and locations are all deterministic.
+#[tokio::test]
+async fn semantic_model_projection_is_deterministic_across_runs() {
+    let first = package_semantic_model(Path::new("examples/basic"))
+        .await
+        .expect("first run");
+    let second = package_semantic_model(Path::new("examples/basic"))
+        .await
+        .expect("second run");
+
+    let first_json = serde_json::to_string(&first).expect("serialize first");
+    let second_json = serde_json::to_string(&second).expect("serialize second");
+    assert_eq!(first_json, second_json);
+}

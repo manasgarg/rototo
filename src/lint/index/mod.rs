@@ -2,6 +2,9 @@ mod ids;
 mod nodes;
 mod targets;
 
+#[cfg(test)]
+mod tests;
+
 use std::collections::BTreeMap;
 
 pub(super) use ids::{

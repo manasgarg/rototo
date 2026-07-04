@@ -373,3 +373,132 @@ fn unsupported_registration_target<T>(
         format!("custom lint registration has unsupported target: {target}"),
     ))
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Every supported custom-lint target address, its parsed form, and the
+    /// canonical rendering. Parsing then rendering must return the input:
+    /// the address grammar in the docs and the registry's internal keys are
+    /// one grammar.
+    #[test]
+    fn registered_lint_addresses_round_trip_between_grammar_and_parse() {
+        let cases: Vec<(&str, RegisteredLintAddress)> = vec![
+            ("/", RegisteredLintAddress::Package),
+            ("/variables", RegisteredLintAddress::Variables),
+            (
+                "/variables/flag",
+                RegisteredLintAddress::Variable {
+                    id: "flag".to_owned(),
+                },
+            ),
+            (
+                "/variables/flag/values",
+                RegisteredLintAddress::VariableValues {
+                    variable: "flag".to_owned(),
+                },
+            ),
+            (
+                "/variables/flag/values/on",
+                RegisteredLintAddress::VariableValue {
+                    variable: "flag".to_owned(),
+                    key: "on".to_owned(),
+                },
+            ),
+            (
+                "/variables/flag/rules",
+                RegisteredLintAddress::VariableRules {
+                    variable: "flag".to_owned(),
+                },
+            ),
+            (
+                "/variables/flag/rules/2",
+                RegisteredLintAddress::VariableRule {
+                    variable: "flag".to_owned(),
+                    index: 2,
+                },
+            ),
+            ("/catalogs", RegisteredLintAddress::Catalogs),
+            (
+                "/catalogs/banner",
+                RegisteredLintAddress::Catalog {
+                    id: "banner".to_owned(),
+                },
+            ),
+            (
+                "/catalogs/banner/entries",
+                RegisteredLintAddress::CatalogEntries {
+                    catalog: "banner".to_owned(),
+                },
+            ),
+            (
+                "/catalogs/banner/entries/default",
+                RegisteredLintAddress::CatalogEntry {
+                    catalog: "banner".to_owned(),
+                    key: "default".to_owned(),
+                },
+            ),
+            (
+                "/evaluation-contexts",
+                RegisteredLintAddress::EvaluationContexts,
+            ),
+            (
+                "/evaluation-contexts/request",
+                RegisteredLintAddress::EvaluationContext {
+                    id: "request".to_owned(),
+                },
+            ),
+            (
+                "/evaluation-contexts/request/samples",
+                RegisteredLintAddress::EvaluationContextSamples {
+                    evaluation_context: "request".to_owned(),
+                },
+            ),
+            (
+                "/evaluation-contexts/request/samples/basic",
+                RegisteredLintAddress::EvaluationContextSample {
+                    evaluation_context: "request".to_owned(),
+                    key: "basic".to_owned(),
+                },
+            ),
+        ];
+        for (address, expected) in cases {
+            let parsed = parse_registered_lint_address(address)
+                .unwrap_or_else(|(_, message)| panic!("{address} should parse: {message}"));
+            assert_eq!(parsed, expected, "{address} parsed to the wrong address");
+            assert_eq!(
+                address_key(&parsed),
+                address,
+                "{address} did not round-trip through address_key"
+            );
+        }
+    }
+
+    #[test]
+    fn unsupported_lint_addresses_are_rejected() {
+        for address in [
+            "variables",
+            "/unknown",
+            "/catalogs/banner/entries/default/extra",
+            "/variables/flag/rules/not-a-number",
+            // A namespaced id contains '/', which the address grammar reads
+            // as a path separator: namespaced entities cannot be addressed
+            // today. Pinned here so a future grammar change is deliberate.
+            "/variables/acme/in_trial",
+        ] {
+            assert!(
+                parse_registered_lint_address(address).is_err(),
+                "{address} should be rejected"
+            );
+        }
+    }
+
+    /// A trailing slash normalizes away rather than reading as an empty
+    /// trailing segment.
+    #[test]
+    fn trailing_slashes_normalize_in_lint_addresses() {
+        let parsed = parse_registered_lint_address("/variables/").unwrap();
+        assert_eq!(parsed, RegisteredLintAddress::Variables);
+    }
+}
