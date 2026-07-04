@@ -17,6 +17,15 @@ async fn write(root: &Path, path: &str, contents: &str) {
 /// A base package with a `plans` catalog (free, growth) and an `active_plan`
 /// variable resolved by rules.
 async fn write_base(root: &Path) {
+    // Deny-by-default is unconditional; this base opens itself to its own
+    // overlays with a broad [defaults] grant.
+    write(
+        root,
+        "governance.toml",
+        "[defaults]\nallowed_operations = [\"add\", \"update\", \"delete\"]\n",
+    )
+    .await;
+
     write(root, "rototo-package.toml", "schema_version = 1\n").await;
     write(
         root,
@@ -478,6 +487,51 @@ async fn same_layer_variable_add_and_update_conflict() {
     );
 }
 
+#[tokio::test]
+async fn a_base_without_a_contract_denies_modification() {
+    let temp = tempfile::TempDir::new().unwrap();
+    let base = temp.path().join("base");
+    let overlay = temp.path().join("overlay");
+    // A bare base: no governance.toml at all. Deny-by-default is
+    // unconditional, so the overlay may add next to it but not modify it.
+    write(&base, "rototo-package.toml", "schema_version = 1\n").await;
+    write(
+        &base,
+        "variables/greeting.toml",
+        "schema_version = 1\ntype = \"string\"\n\n[resolve]\ndefault = \"hello\"\n",
+    )
+    .await;
+    write(
+        &overlay,
+        "rototo-package.toml",
+        "schema_version = 1\nextends = [\"../base\"]\n",
+    )
+    .await;
+    write(
+        &overlay,
+        "variables/farewell.toml",
+        "schema_version = 1\ntype = \"string\"\n\n[resolve]\ndefault = \"bye\"\n",
+    )
+    .await;
+
+    // Adding a new id is free.
+    Package::load(overlay.to_string_lossy()).await.unwrap();
+
+    // Updating the base's variable is not: no contract means no grants.
+    write(
+        &overlay,
+        "variables/greeting.update.toml",
+        "[resolve]\ndefault = \"hi\"\n",
+    )
+    .await;
+    let err = Package::load(overlay.to_string_lossy()).await.unwrap_err();
+    assert!(
+        err.to_string()
+            .contains("governance denies update on variable.greeting"),
+        "{err}"
+    );
+}
+
 /// The base's layering contract for the governed tests: entries may be
 /// added, prices updated (never on free), any plan but free disabled, and
 /// active_plan's resolution updatable.
@@ -773,6 +827,15 @@ value = "us"
 /// A base with an enum both halves declared, ready for an overlay to compose
 /// member deletes against.
 async fn write_enum_base(root: &Path) {
+    // Deny-by-default is unconditional; this base opens itself to its own
+    // overlays with a broad [defaults] grant.
+    write(
+        root,
+        "governance.toml",
+        "[defaults]\nallowed_operations = [\"add\", \"update\", \"delete\"]\n",
+    )
+    .await;
+
     write_base(root).await;
     write(
         root,
@@ -956,6 +1019,15 @@ async fn deleting_every_enum_member_fails_the_load() {
 /// A small standalone base with one bool variable, for multi-base extends
 /// tests.
 async fn write_named_base(root: &Path, variable: &str) {
+    // Deny-by-default is unconditional; this base opens itself to its own
+    // overlays with a broad [defaults] grant.
+    write(
+        root,
+        "governance.toml",
+        "[defaults]\nallowed_operations = [\"add\", \"update\", \"delete\"]\n",
+    )
+    .await;
+
     write(root, "rototo-package.toml", "schema_version = 1\n").await;
     write(
         root,

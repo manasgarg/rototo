@@ -633,9 +633,16 @@ Composition also keeps its own receipts. When the packages flatten, rototo recor
 
 ## Governance
 
-Composition as described so far has a gap. Everything an overlay *can* say, it *may* say: it can delete any entry, update any field, swap any resolution. For one team splitting a package across files, that's fine - they review each other's changes. For a tenant it's exactly wrong. The app ships a contract, and a tenant overlay should only move within it. Nobody wants Acme's overlay to be able to delete the `free` plan.
+Everything the previous section showed an overlay doing - deleting an entry, updating a field, swapping a resolution - is permission-gated. Governance denies by default, unconditionally: an overlay may always add new ids next to a base, but modifying anything the base declared needs a grant from that base, and a base with no `governance.toml` grants nothing. Nobody wants Acme's overlay to be able to delete the `free` plan, and under deny-by-default that isn't a policy someone remembered to write - it's what happens when the base never said otherwise.
 
-Governance closes that gap. It's a dial on every capability that each successive overlay can only turn further down - never back up. The base package writes a `governance.toml` at its root, and from then on the overlay is **default-closed** over base-declared entities: any operation the contract doesn't grant fails the load with `governance denies <op> on <kind>.<id>`. A package with no `governance.toml` stays ungoverned, so plain `extends` splitting keeps working unchanged.
+The grants live in `governance.toml` at the base's root. For a base whose overlays are its own team, one broad block opens everything - that is what `examples/basic` does so `examples/acme-overlay` can rework it:
+
+```toml
+[defaults]
+allowed_operations = ["add", "update", "delete"]
+```
+
+For a tenant base, the contract is per entity, and it reads as a dial each successive overlay can only turn further down - never back up. Any operation the contract doesn't grant fails the load with `governance denies <op> on <kind>.<id>`.
 
 Here's the contract for the plans example:
 

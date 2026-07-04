@@ -1,0 +1,6 @@
+# This package is its own team's base: overlays like examples/acme-overlay are
+# written by the same people who own these files. Deny-by-default is
+# unconditional, so even a same-team base says out loud what its overlays may
+# do; the [defaults] block is the broad-open spelling of that.
+[defaults]
+allowed_operations = ["add", "update", "delete"]

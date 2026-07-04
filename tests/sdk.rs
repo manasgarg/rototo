@@ -815,6 +815,12 @@ async fn package_sdk_loads_layered_package_with_child_overrides() {
     .unwrap();
     write_string_variable(&base, "message", "base").await;
     write_string_variable(&base, "base_only", "base_only").await;
+    tokio::fs::write(
+        base.join("governance.toml"),
+        "[defaults]\nallowed_operations = [\"add\", \"update\", \"delete\"]\n",
+    )
+    .await
+    .unwrap();
 
     tokio::fs::create_dir_all(&child).await.unwrap();
     tokio::fs::write(

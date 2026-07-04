@@ -1,10 +1,13 @@
 //! Compose-time enforcement of the `governance.toml` layering contract.
 //!
-//! When the projection built from the layers below carries a governance
-//! contract, the next layer up is default-closed: every operation it performs
-//! on a base-declared entity needs a grant. A projection with no
-//! `governance.toml` is ungoverned and composes freely, which keeps plain
-//! `extends` splitting (one team, several files) working unchanged.
+//! Governance denies by default, unconditionally: every operation a layer
+//! performs on a base-declared entity needs a grant from the projection
+//! built from the layers below, and a projection with no `governance.toml`
+//! grants nothing - it is closed to modification from above. New ids still
+//! mint freely. A base opens itself up with a `[defaults]` block (typically
+//! `allowed_operations = ["add", "update", "delete"]` for one team splitting
+//! a package across files) and per-entity blocks refine below it; deny wins
+//! from either level.
 
 use std::collections::BTreeMap;
 use std::path::Path;
@@ -43,6 +46,10 @@ impl Operation {
 #[derive(Debug, Default)]
 pub(super) struct GovernanceContract {
     blocks: BTreeMap<(String, String), Gate>,
+    /// The `[defaults]` block: grants applying to every base-declared entity
+    /// a per-entity block doesn't override, so a same-team base can open
+    /// itself with one block.
+    defaults: Option<Gate>,
 }
 
 #[derive(Debug, Default)]
@@ -61,13 +68,19 @@ struct Policy {
     denied_fields: Option<Vec<String>>,
 }
 
-/// Read the contract carried by a projection, if any. Parse and shape errors
-/// are left for lint to report with locations; enforcement treats an
-/// unreadable contract as ungoverned rather than failing the load twice.
-pub(super) fn read_governance_contract(root: &Path) -> Option<GovernanceContract> {
-    let text = std::fs::read_to_string(root.join("governance.toml")).ok()?;
-    let value = text.parse::<toml::Value>().ok()?;
-    Some(parse_contract(&value))
+/// Read the contract carried by a projection. A projection with no
+/// `governance.toml` yields the empty contract, which grants nothing: deny
+/// by default is unconditional. Parse and shape errors are left for lint to
+/// report with locations; enforcement treats an unreadable contract as
+/// empty rather than failing the load twice.
+pub(super) fn read_governance_contract(root: &Path) -> GovernanceContract {
+    let Ok(text) = std::fs::read_to_string(root.join("governance.toml")) else {
+        return GovernanceContract::default();
+    };
+    let Ok(value) = text.parse::<toml::Value>() else {
+        return GovernanceContract::default();
+    };
+    parse_contract(&value)
 }
 
 pub(super) fn parse_contract_value(value: &toml::Value) -> GovernanceContract {
@@ -83,6 +96,15 @@ fn parse_contract(value: &toml::Value) -> GovernanceContract {
         let Some(blocks) = blocks.as_table() else {
             continue;
         };
+        if kind == "defaults" {
+            contract.defaults = Some(Gate {
+                allowed: operations(blocks.get("allowed_operations")),
+                denied: operations(blocks.get("denied_operations")),
+                update_policy: blocks.get("update_policy").map(parse_policy),
+                delete_policy: blocks.get("delete_policy").map(parse_policy),
+            });
+            continue;
+        }
         for (id, block) in blocks {
             let Some(block) = block.as_table() else {
                 continue;
@@ -133,14 +155,18 @@ impl GovernanceContract {
         self.blocks.get(&(kind.to_owned(), id.to_owned()))
     }
 
-    /// Whether the gate turns an operation on for a target. Default-closed:
-    /// no block, or an operation absent from `allowed_operations`, is denied.
-    /// Deny wins over allow.
+    /// Whether the contract turns an operation on for a target. Deny by
+    /// default: an operation is allowed only if the entity's block or the
+    /// `[defaults]` block grants it, and denied if either denies it - deny
+    /// wins over allow, from either level.
     fn operation_allowed(&self, kind: &str, id: &str, operation: Operation) -> bool {
-        let Some(gate) = self.gate(kind, id) else {
-            return false;
-        };
-        gate.allowed.contains(&operation) && !gate.denied.contains(&operation)
+        let gate = self.gate(kind, id);
+        let defaults = self.defaults.as_ref();
+        let denied = gate.is_some_and(|gate| gate.denied.contains(&operation))
+            || defaults.is_some_and(|gate| gate.denied.contains(&operation));
+        let allowed = gate.is_some_and(|gate| gate.allowed.contains(&operation))
+            || defaults.is_some_and(|gate| gate.allowed.contains(&operation));
+        allowed && !denied
     }
 
     /// Check one operation the layer above performs; the error tells the
@@ -159,13 +185,25 @@ impl GovernanceContract {
                 operation.name()
             )));
         }
+        // The entity's own policy scopes the operation; a block without one
+        // falls back to the defaults' policy.
         let policy = match operation {
             Operation::Update => self
                 .gate(kind, id)
-                .and_then(|gate| gate.update_policy.as_ref()),
+                .and_then(|gate| gate.update_policy.as_ref())
+                .or_else(|| {
+                    self.defaults
+                        .as_ref()
+                        .and_then(|gate| gate.update_policy.as_ref())
+                }),
             Operation::Delete => self
                 .gate(kind, id)
-                .and_then(|gate| gate.delete_policy.as_ref()),
+                .and_then(|gate| gate.delete_policy.as_ref())
+                .or_else(|| {
+                    self.defaults
+                        .as_ref()
+                        .and_then(|gate| gate.delete_policy.as_ref())
+                }),
             _ => None,
         };
         let Some(policy) = policy else {
@@ -194,8 +232,41 @@ impl GovernanceContract {
     /// below it must fit inside what this contract grants that layer. An
     /// excessive grant is rejected, not silently clamped, so the author sees
     /// it and either drops the rule or asks the layer above to widen.
-    pub(super) fn check_ceiling(&self, lower: &GovernanceContract) -> Result<()> {
+    /// `declared_below` reports whether the projection below declares an
+    /// entity; grants over ids it does not declare are free (new ids mint
+    /// freely, and so does governing them). `any_declared_below` gates the
+    /// [defaults] comparison: a first layer landing on an empty projection
+    /// constrains nothing.
+    pub(super) fn check_ceiling(
+        &self,
+        lower: &GovernanceContract,
+        declared_below: &dyn Fn(&str, &str) -> bool,
+        any_declared_below: bool,
+    ) -> Result<()> {
+        // A lower [defaults] block grants across every base-declared entity,
+        // so it must fit inside this contract's own defaults: conservative,
+        // but a broad grant below a narrow ceiling is exactly the mistake
+        // this check exists to catch.
+        if let Some(lower_defaults) = &lower.defaults
+            && any_declared_below
+        {
+            for operation in &lower_defaults.allowed {
+                let within = self.defaults.as_ref().is_some_and(|ceiling| {
+                    ceiling.allowed.contains(operation) && !ceiling.denied.contains(operation)
+                });
+                if !within {
+                    return Err(RototoError::new(format!(
+                        "governance grant exceeds the inherited ceiling: [defaults] allows \
+                         {} but the base does not grant it as a default",
+                        operation.name()
+                    )));
+                }
+            }
+        }
         for ((kind, id), gate) in &lower.blocks {
+            if !declared_below(kind, id) {
+                continue;
+            }
             for operation in &gate.allowed {
                 if !self.operation_allowed(kind, id, *operation) {
                     return Err(RototoError::new(format!(
@@ -412,7 +483,7 @@ allowed_fields = ["monthly_price"]
 denied_entries = ["free"]
 "#,
         );
-        assert!(above.check_ceiling(&narrower).is_ok());
+        assert!(above.check_ceiling(&narrower, &|_, _| true, true).is_ok());
 
         let wider_operation = contract(
             r#"
@@ -420,7 +491,11 @@ denied_entries = ["free"]
 allowed_operations = ["update", "delete"]
 "#,
         );
-        assert!(above.check_ceiling(&wider_operation).is_err());
+        assert!(
+            above
+                .check_ceiling(&wider_operation, &|_, _| true, true)
+                .is_err()
+        );
 
         let wider_fields = contract(
             r#"
@@ -431,6 +506,10 @@ allowed_operations = ["update"]
 allowed_fields = ["name"]
 "#,
         );
-        assert!(above.check_ceiling(&wider_fields).is_err());
+        assert!(
+            above
+                .check_ceiling(&wider_fields, &|_, _| true, true)
+                .is_err()
+        );
     }
 }

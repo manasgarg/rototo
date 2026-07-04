@@ -21,15 +21,13 @@ The enforcement source of truth is `src/source/layer.rs`
 (`check_governed_file`, `sibling_entity_key`, `SiblingBases::admit`) and
 `src/source/governance.rs`.
 
-## 1. Overlay over one base: merge semantics (no governance)
+## 1. Overlay over one base: merge semantics
 
-Given a base package and one overlay whose `extends` names it.
-
-design: this section's premise changes under task #37. Deny-by-default
-becomes unconditional, so "no governance" stops being an open mode; these
-rows will be re-premised as "given a base that grants the operation". The
-merge mechanics they pin are unaffected - the permission check runs in
-front of the merge, not instead of it.
+Given a base package that grants the operation (in the tests, a broad
+`[defaults] allowed_operations = ["add", "update", "delete"]` contract) and
+one overlay whose `extends` names it. Deny-by-default is unconditional, so
+these rows are about what the operations *do* once permitted; section 2
+covers who may perform them.
 
 ### Variables
 
@@ -82,17 +80,19 @@ base's decision.
 | L1 | restates a base `layers/<id>.toml` with different buckets or unit | the overlay file wins wholesale. design: should bucket count or unit changes get a guard, since they reassign enrolled units silently? | GAP |
 | X1 | adds a `lint/*.lua` rule | the rule runs against the whole composed package, base files included | GAP |
 
-## 2. Governance: the base declares governance.toml
+## 2. Governance
 
-Given a base with a governance contract and an overlay extending it. The
-grantable operations are add, update, and delete; the retired names
-`constrain` and `override` are not accepted. design: deny-by-default
-becomes unconditional (task #37) - a base
-without governance.toml is closed to modification from above, so section 1's
-"no governance" premise becomes "the base grants the operation". The rows
-below describe today's behavior. `model/` files are never
-grantable: schemas are narrowed with overlay custom lint, never edited from
-above.
+Deny by default, unconditionally: an overlay may always mint new ids, but
+modifying anything a base declared needs a grant, and a base without a
+`governance.toml` grants nothing - the file is where grants live, not a
+switch. The grantable operations are add, update, and delete; the retired
+names `constrain` and `override` are not accepted. A `[defaults]` block
+grants across all base-declared entities, per-entity blocks refine it, and
+deny wins from either level. `model/` files are never grantable: schemas are
+narrowed with overlay custom lint, never edited from above. Governance runs
+between a child and its bases only - sibling bases in one extends list are
+not overlays of each other, so cross-sibling touching is a conflict (section
+3), not a governed operation.
 
 | # | When the overlay... | Then... | Coverage |
 |---|---|---|---|
@@ -121,6 +121,9 @@ above.
 | G22 | re-grants a subset with more denies | narrowing is legal; the load succeeds | `governance_grants_cannot_exceed_the_inherited_ceiling` |
 | G23 | carries a governance.toml that does not parse | the load fails at enforcement time: "failed to parse the overlay governance.toml" | GAP |
 | G24 | (via diamond ancestry) restates a governed base file byte-identically | not treated as a governed update; the load succeeds | `diamond_ancestry_composes_the_shared_base_once` |
+| G25 | updates or deletes anything declared by a base with no governance.toml | the load fails: no contract means no grants; adding a new id still succeeds | `a_base_without_a_contract_denies_modification` |
+| G26 | operates under a `[defaults]` grant with a per-entity deny | the defaults grant applies to every base-declared entity; the entity's denied_operations wins over it | GAP (defaults grants are exercised by every section 1 test; the deny-wins interaction is not) |
+| G27 | declares its own `[defaults]` wider than the base's | the load fails: "[defaults] allows <op> but the base does not grant it as a default"; grants over entities the base does not declare stay free | GAP |
 
 The lint half of governance (parse-failed, shape, unknown-target,
 unscoped-update, empty allowlist) is covered in `tests/package_lint.rs`.
@@ -174,18 +177,20 @@ These are not rows; each quantifies over all inputs and belongs in a
 
 ## Current gap tally
 
-25 GAP rows. The clusters, in the order I would close them:
+33 GAP rows. The clusters, in the order to close them:
 
 1. Governance kind sweep (G9, G10, G11a/b, G12, G13, G17, G18, G19, G20,
    G23): one test per row, all cheap, all exercising real dispatch arms in
    `check_governed_file` that today have zero coverage.
-2. Governance granted-path sweep (G3, G4, G6): the PLANS_GOVERNANCE fixture
-   already encodes these policies; no test walks the allowed side of update
-   or delete, nor deny-wins on entries.
+2. Governance granted and defaults paths (G3, G4, G6, G26, G27): the
+   PLANS_GOVERNANCE fixture already encodes the policies for the first
+   three; no test walks the allowed side of update or delete, deny-wins on
+   entries, the defaults-plus-entity-deny interaction, or the defaults
+   ceiling.
 3. Sibling symmetry (B7, B8, B11, B12): same guard, untested keys.
 4. Depth (D1, D2, D3, C9): no test composes more than two authored layers.
-5. Merge details (C3, C8, S1, S2, X1, L1).
+5. Merge details (C3, S1, S2, X1, L1).
 6. Design questions before testing (E6, C8, B9, B10, L1): decide the
-   behavior first, then pin it. C8 is the sharpest: a same-layer update marker plus
-   deleted marker is accepted today and the result depends on file
-   application order.
+   behavior first, then pin it. C8 is the sharpest: a same-layer update
+   marker plus deleted marker for one catalog entry is accepted today and
+   the result depends on file application order.

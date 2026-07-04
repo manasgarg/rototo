@@ -95,7 +95,10 @@ async fn project_package_source_graph(
         let parent =
             load_package_source_graph(parent_source, options, local_mode, Some(base), stack)
                 .await?;
-        enforce_layer_governance(parent.staged().path(), &target).await?;
+        // No governance enforcement between siblings: none of the bases is
+        // an overlay of another, each already enforced its own extends
+        // chain while being projected, and a base touching another base's
+        // entity is a sibling conflict, not a governed operation.
         copy_package_layer(
             parent.staged().path(),
             &target,
@@ -127,9 +130,10 @@ async fn project_package_source_graph(
 }
 
 /// Enforce the layering contract carried by the projection built so far on
-/// the layer about to land on it. A projection with no governance.toml is
-/// ungoverned; with one, the incoming layer is default-closed over the
-/// entities the projection declares.
+/// the layer about to land on it. The incoming layer is default-closed over
+/// the entities the projection declares; the projection's governance.toml
+/// (or its [defaults] block) is where grants come from, and no file means
+/// no grants.
 async fn enforce_layer_governance(layer: &Path, target: &Path) -> Result<()> {
     let layer = layer.to_path_buf();
     let target = target.to_path_buf();
@@ -139,9 +143,9 @@ async fn enforce_layer_governance(layer: &Path, target: &Path) -> Result<()> {
 }
 
 fn enforce_layer_governance_sync(layer: &Path, target: &Path) -> Result<()> {
-    let Some(contract) = read_governance_contract(target) else {
-        return Ok(());
-    };
+    // Deny by default is unconditional: a projection without a
+    // governance.toml yields the empty contract, which grants nothing.
+    let contract = read_governance_contract(target);
 
     let mut pending = vec![layer.to_path_buf()];
     while let Some(directory) = pending.pop() {
@@ -154,10 +158,13 @@ fn enforce_layer_governance_sync(layer: &Path, target: &Path) -> Result<()> {
                 )));
             }
         };
-        for entry in entries {
-            let entry = entry.map_err(|err| {
+        let mut entries = entries
+            .collect::<std::io::Result<Vec<_>>>()
+            .map_err(|err| {
                 RototoError::new(format!("failed to read package source entry: {err}"))
             })?;
+        entries.sort_by_key(|entry| entry.file_name());
+        for entry in entries {
             let path = entry.path();
             if path.is_dir() {
                 pending.push(path);
@@ -207,7 +214,25 @@ fn check_governed_file(
                     "failed to parse the overlay governance.toml: {err}"
                 ))
             })?;
-            contract.check_ceiling(&super::governance::parse_contract_value(&value))
+            let declared_below = |kind: &str, id: &str| -> bool {
+                let path = match kind {
+                    "catalog" => format!("model/catalogs/{id}.schema.json"),
+                    "enum" => format!("model/enums/{id}.toml"),
+                    "variable" => format!("variables/{id}.toml"),
+                    "evaluation_context" => format!("model/context/{id}.schema.json"),
+                    "layer" => format!("layers/{id}.toml"),
+                    _ => return true,
+                };
+                target.join(path).is_file()
+            };
+            let any_declared_below = ["model", "variables", "data", "layers"]
+                .iter()
+                .any(|dir| target.join(dir).is_dir());
+            contract.check_ceiling(
+                &super::governance::parse_contract_value(&value),
+                &declared_below,
+                any_declared_below,
+            )
         }
         ["model", "catalogs", file] => match stem(file, ".schema.json") {
             Some(id) if exists(relative) => Err(schema_edit_denied("catalog schema", &id)),
@@ -251,9 +276,11 @@ fn check_governed_file(
                 return Ok(());
             }
             if let Some(entry) = stem(file, ".deleted.toml") {
+                reject_same_layer_entry(source_path, &entry, "a deleted marker")?;
                 return contract.check("catalog", catalog, Operation::Delete, Some(&entry), &[]);
             }
             if let Some(entry) = stem(file, ".update.toml") {
+                reject_same_layer_entry(source_path, &entry, "an update")?;
                 let fields = toml_top_level_keys(source_path)?;
                 return contract.check(
                     "catalog",

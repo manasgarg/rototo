@@ -124,6 +124,15 @@ flattened result. Parents flatten in `extends` order, the child comes last.
 Flattening is deterministic: the packages are processed in a sorted, fixed order,
 so the same inputs always produce the same flattened package.
 
+One premise before the mechanics: modifying a base is permission-gated.
+Adding new ids is always free, but every update or delete of something a
+base declared needs that base to grant it in `governance.toml` - deny by
+default is unconditional, and a base without the file grants nothing. The
+composition rules below describe what the operations *do*; the
+[governance section](#governance-governancetoml) describes who may perform
+them. A base whose overlays are its own team typically opens itself with one
+broad `[defaults]` grant.
+
 The composition rules below describe the child landing on its bases - the
 overlay relationship, where one package was authored to change another. Two
 bases in the same `extends` list are a different relationship: siblings.
@@ -287,13 +296,30 @@ Read that as a contract: the overlay may add plan entries, may update
 except `free`, and may update `active_plan`'s resolution. Everything else it
 might try on a base-declared entity is denied.
 
-### Default-closed, over base entities only
+### Deny by default, unconditionally
 
-A projection with no `governance.toml` is ungoverned: plain `extends` splitting
-composes freely, exactly as the previous section describes. The moment the
-base carries one, the overlay is **default-closed** over
-base-declared entities. Any operation the contract doesn't grant fails the
-load with `governance denies <op> on <kind>.<id>`.
+Governance denies by default whether or not the file exists. A base with no
+`governance.toml` grants nothing: an overlay can add new ids next to it, but
+any update or delete of something the base declared fails the load with
+`governance denies <op> on <kind>.<id>`. The file is not a switch that turns
+governance on - it is simply where the grants live, and no file means no
+grants.
+
+For a base whose overlays are its own team, spelling out every grant would be
+noise. That is what the top-level `[defaults]` block is for:
+
+```toml
+[defaults]
+allowed_operations = ["add", "update", "delete"]
+```
+
+`[defaults]` grants across every base-declared entity that a per-entity block
+doesn't speak for itself. Per-entity blocks refine below it, and deny wins
+from either level: a `[defaults]` grant of `delete` plus a
+`[catalog.plans] denied_operations = ["delete"]` means everything but plans
+entries can be deleted. `[defaults]` can carry `update_policy` and
+`delete_policy` tables too, which apply where the entity's own block has
+none.
 
 The contract governs what the base declared, nothing more. New ids mint
 freely: a tenant's own namespaced variables, its own catalogs and enums, its

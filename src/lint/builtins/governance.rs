@@ -24,14 +24,18 @@ pub(super) fn lint_governance_shape(ctx: &mut LintContext) {
             kind.location.clone(),
             format!(
                 "governance blocks are keyed [<kind>.<id>] with kind one of catalog, enum, \
-                 variable, evaluation_context, or layer: {}",
+                 variable, evaluation_context, or layer, or the top-level [defaults] block: {}",
                 kind.value
             ),
         );
     }
 
     for block in &governance.blocks {
-        let label = format!("{}.{}", block.kind, block.id);
+        let label = if block.kind == "defaults" {
+            "defaults".to_owned()
+        } else {
+            format!("{}.{}", block.kind, block.id)
+        };
 
         for key in &block.unknown_keys {
             push_project_diagnostic(
@@ -46,7 +50,7 @@ pub(super) fn lint_governance_shape(ctx: &mut LintContext) {
             );
         }
 
-        if !governed_target_exists(ctx, &block.kind, &block.id) {
+        if block.kind != "defaults" && !governed_target_exists(ctx, &block.kind, &block.id) {
             push_project_diagnostic(
                 &mut diagnostics,
                 RototoRuleId::GovernanceUnknownTarget,
@@ -173,7 +177,7 @@ fn lint_policy(
                 // Field names are a fixed set: a field glob matching nothing
                 // in the catalog schema is an error. Entry lists may name
                 // entries an overlay adds later, so they are not checked.
-                if key.ends_with("_fields") && block.kind == "catalog" {
+                if key.ends_with("_fields") && block.kind == "catalog" && !block.id.is_empty() {
                     for item in &items.value {
                         if !field_pattern_matches_schema(ctx, &block.id, &item.value) {
                             push_project_diagnostic(

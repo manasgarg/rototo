@@ -13,6 +13,52 @@ pub(crate) fn project_governance(document: &SourceDocument, toml: &ParsedToml) -
 
     if let Some(root) = toml.root_table() {
         for (kind_key, kind_item) in root.iter() {
+            // The [defaults] block grants across every base-declared entity;
+            // its keys sit directly on the table rather than under an id.
+            if kind_key.name.as_ref() == "defaults" {
+                let block_location = item_location(document, kind_item);
+                let Some(block) = kind_item.as_table() else {
+                    blocks.push(GovernanceBlockNode {
+                        location: block_location.clone(),
+                        kind: "defaults".to_owned(),
+                        id: String::new(),
+                        allowed_operations: Some(ProjectField::Invalid {
+                            location: block_location,
+                        }),
+                        denied_operations: None,
+                        update_policy: None,
+                        delete_policy: None,
+                        unknown_keys: Vec::new(),
+                    });
+                    continue;
+                };
+                let mut unknown_keys = Vec::new();
+                for (key, item) in block.iter() {
+                    if !matches!(
+                        key.name.as_ref(),
+                        "allowed_operations"
+                            | "denied_operations"
+                            | "update_policy"
+                            | "delete_policy"
+                    ) {
+                        unknown_keys.push(Spanned {
+                            value: key.name.to_string(),
+                            location: item_location(document, item),
+                        });
+                    }
+                }
+                blocks.push(GovernanceBlockNode {
+                    location: block_location,
+                    kind: "defaults".to_owned(),
+                    id: String::new(),
+                    allowed_operations: string_list(document, block, "allowed_operations"),
+                    denied_operations: string_list(document, block, "denied_operations"),
+                    update_policy: policy(document, block, "update_policy"),
+                    delete_policy: policy(document, block, "delete_policy"),
+                    unknown_keys,
+                });
+                continue;
+            }
             if !GOVERNED_KINDS.contains(&kind_key.name.as_ref()) {
                 unknown_kinds.push(Spanned {
                     value: kind_key.name.to_string(),
