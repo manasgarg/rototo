@@ -74,9 +74,10 @@ Given a base package and one overlay whose `extends` names it.
 Given a base with a governance contract and an overlay extending it. The
 grantable operations are add, update, delete, and override. design: override
 collapses into update (task #36), leaving three operations and one marker
-grammar; and the deny-everything default stops being implied by the file's
-presence - the contract states its default posture explicitly (task #37).
-The rows below describe today's behavior. `model/` files are never
+grammar; and deny-by-default becomes unconditional (task #37) - a base
+without governance.toml is closed to modification from above, so section 1's
+"no governance" premise becomes "the base grants the operation". The rows
+below describe today's behavior. `model/` files are never
 grantable: schemas are narrowed with overlay custom lint, never edited from
 above.
 
