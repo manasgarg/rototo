@@ -40,6 +40,7 @@ pub use sdk::{
     source_fingerprint_to_json,
 };
 pub use source::{
-    SourceAuth, SourceFingerprint, SourceLayer, SourceOptions, SourceProbe, StagedPackage,
-    probe_package_source, stage_package_source,
+    ScopedBearerTokens, SourceAuth, SourceFingerprint, SourceLayer, SourceOptions, SourceProbe,
+    StagedPackage, probe_package_source, source_auth_from_package_token_entries,
+    stage_package_source,
 };

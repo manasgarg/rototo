@@ -544,8 +544,12 @@ other SDKs they're the load call's option bag. Five things live there:
 - **Lint mode.** `load` runs the lint gate and refuses a failing package;
   `with_lint(LintMode::Skip)` turns the gate off, which is what `inspect` does
   for you (next section). Leave it on for anything that serves values.
-- **Source auth.** `with_source_auth` carries the bearer token for private
-  HTTPS archive sources - the SDK-side twin of `--package-token`.
+- **Source auth.** `with_source_auth` carries bearer tokens for private HTTPS
+  archive sources - the SDK-side twin of `--package-token`. Two shapes: a
+  single token (binds to the load graph's one archive origin) or a map from
+  `https://` URL prefixes to tokens, where the longest matching prefix wins
+  and unmatched requests go out anonymous. Git sources authenticate through
+  git itself.
 - **Fallback source.** `with_fallback_source` names a second source to load
   when the primary fails, so a broken config fetch degrades your start instead
   of blocking it. The full story is in

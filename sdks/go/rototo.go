@@ -36,6 +36,10 @@ type LoadOptions struct {
 	// loaded through the same pipeline when the primary source fails for any
 	// reason. Typically a local path to a bundled, app-tested copy.
 	FallbackSource string
+	// PackageTokens maps https:// URL prefixes to bearer tokens; the longest
+	// matching prefix wins and unmatched requests go out anonymous. Mutually
+	// exclusive with PackageToken.
+	PackageTokens map[string]string
 }
 
 // InspectOptions configures Package inspection.
@@ -57,6 +61,7 @@ type RefreshingPackageOptions struct {
 	PackageToken   string
 	Lint           LintMode
 	FallbackSource string
+	PackageTokens  map[string]string
 }
 
 // Package is a loaded rototo package handle.
@@ -176,7 +181,11 @@ func Load(ctx context.Context, source string, options *LoadOptions) (*Package, e
 	if lint == "" {
 		lint = LintDeny
 	}
-	handle, err := nativePackageLoad(source, options.PackageToken, string(lint), options.FallbackSource)
+	tokensJSON, err := packageTokensJSON(options.PackageTokens)
+	if err != nil {
+		return nil, err
+	}
+	handle, err := nativePackageLoad(source, options.PackageToken, string(lint), options.FallbackSource, tokensJSON)
 	if err != nil {
 		return nil, err
 	}
@@ -320,12 +329,17 @@ func LoadRefreshing(
 	if lint == "" {
 		lint = LintDeny
 	}
+	tokensJSON, err := packageTokensJSON(options.PackageTokens)
+	if err != nil {
+		return nil, err
+	}
 	handle, err := nativeRefreshingPackageLoad(
 		source,
 		options.PeriodSeconds,
 		options.PackageToken,
 		string(lint),
 		options.FallbackSource,
+		tokensJSON,
 	)
 	if err != nil {
 		return nil, err
@@ -625,6 +639,19 @@ func validateContext(options *ResolveOptions) bool {
 
 func traceEnabled(options *ResolveOptions) bool {
 	return options != nil && options.Trace
+}
+
+// packageTokensJSON carries the scoped-token map across the C boundary as a
+// JSON object; empty maps travel as the absent string.
+func packageTokensJSON(tokens map[string]string) (string, error) {
+	if len(tokens) == 0 {
+		return "", nil
+	}
+	data, err := json.Marshal(tokens)
+	if err != nil {
+		return "", err
+	}
+	return string(data), nil
 }
 
 func nativeError(message string) error {

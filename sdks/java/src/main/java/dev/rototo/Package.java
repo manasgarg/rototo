@@ -25,7 +25,10 @@ public final class Package implements AutoCloseable {
                         source,
                         resolved.packageToken(),
                         resolved.lint().wireValue(),
-                        resolved.fallbackSource())),
+                        resolved.fallbackSource(),
+                        resolved.packageTokens() == null
+                                ? null
+                                : Json.stringify(resolved.packageTokens()))),
                 Rototo.executor());
     }
 

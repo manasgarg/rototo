@@ -8,8 +8,8 @@ use pyo3_async_runtimes::tokio::future_into_py;
 use pythonize::{depythonize, pythonize};
 use rototo::{
     EvaluationContext, LintMode, LoadOptions, PackageIdentity, PackageLayerIdentity, RefreshEvent,
-    RefreshEventSummary, RefreshOptions, RefreshSnapshot, ResolveOptions, SourceAuth,
-    SourceFingerprint, SourceOptions, TraceStreamItem, TraceSubscription,
+    RefreshEventSummary, RefreshOptions, RefreshSnapshot, ResolveOptions, ScopedBearerTokens,
+    SourceAuth, SourceFingerprint, SourceOptions, TraceStreamItem, TraceSubscription,
 };
 use serde_json::Value as JsonValue;
 use tokio::sync::{Mutex, broadcast};
@@ -29,15 +29,16 @@ struct PyPackage {
 #[pymethods]
 impl PyPackage {
     #[staticmethod]
-    #[pyo3(signature = (source, *, package_token = None, lint = "deny", fallback_source = None))]
+    #[pyo3(signature = (source, *, package_token = None, package_tokens = None, lint = "deny", fallback_source = None))]
     fn load<'py>(
         py: Python<'py>,
         source: String,
         package_token: Option<String>,
+        package_tokens: Option<Vec<(String, String)>>,
         lint: &str,
         fallback_source: Option<String>,
     ) -> PyResult<Bound<'py, PyAny>> {
-        let options = load_options(package_token, lint, fallback_source)?;
+        let options = load_options(package_token, package_tokens, lint, fallback_source)?;
         future_into_py(py, async move {
             let package = rototo::Package::load_with_options(source, options)
                 .await
@@ -129,16 +130,17 @@ struct PyRefreshingPackage {
 #[pymethods]
 impl PyRefreshingPackage {
     #[staticmethod]
-    #[pyo3(signature = (source, *, period_seconds = None, package_token = None, lint = "deny", fallback_source = None))]
+    #[pyo3(signature = (source, *, period_seconds = None, package_token = None, package_tokens = None, lint = "deny", fallback_source = None))]
     fn load<'py>(
         py: Python<'py>,
         source: String,
         period_seconds: Option<f64>,
         package_token: Option<String>,
+        package_tokens: Option<Vec<(String, String)>>,
         lint: &str,
         fallback_source: Option<String>,
     ) -> PyResult<Bound<'py, PyAny>> {
-        let load_options = load_options(package_token, lint, fallback_source)?;
+        let load_options = load_options(package_token, package_tokens, lint, fallback_source)?;
         let refresh_options = refresh_options(period_seconds)?;
         future_into_py(py, async move {
             let package =
@@ -321,6 +323,7 @@ fn source_options(package_token: Option<String>) -> SourceOptions {
 
 fn load_options(
     package_token: Option<String>,
+    package_tokens: Option<Vec<(String, String)>>,
     lint: &str,
     fallback_source: Option<String>,
 ) -> PyResult<LoadOptions> {
@@ -335,14 +338,33 @@ fn load_options(
     };
     let mut options = LoadOptions::new()
         .with_lint(lint)
-        .with_source_auth(match package_token {
-            Some(token) => SourceAuth::Bearer(token),
-            None => SourceAuth::None,
-        });
+        .with_source_auth(source_auth(package_token, package_tokens)?);
     if let Some(fallback) = fallback_source {
         options = options.with_fallback_source(fallback);
     }
     Ok(options)
+}
+
+fn source_auth(
+    package_token: Option<String>,
+    package_tokens: Option<Vec<(String, String)>>,
+) -> PyResult<SourceAuth> {
+    match (package_token, package_tokens) {
+        (Some(_), Some(_)) => Err(PyValueError::new_err(
+            "package_token and package_tokens cannot both be set; scope every token",
+        )),
+        (Some(token), None) => Ok(SourceAuth::Bearer(token)),
+        (None, Some(entries)) => {
+            let mut entries = entries;
+            entries.sort();
+            let mut scoped = ScopedBearerTokens::new();
+            for (prefix, token) in entries {
+                scoped = scoped.with_prefix(prefix, token).map_err(py_err)?;
+            }
+            Ok(SourceAuth::Scoped(scoped))
+        }
+        (None, None) => Ok(SourceAuth::None),
+    }
 }
 
 fn refresh_options(period_seconds: Option<f64>) -> PyResult<RefreshOptions> {

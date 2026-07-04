@@ -13,6 +13,7 @@ import java.util.concurrent.atomic.AtomicReference;
 public final class JavaSdkTest {
     public static void main(String[] args) throws Exception {
         api();
+        packageTokens();
         contract();
         refresh();
         events();
@@ -49,6 +50,35 @@ public final class JavaSdkTest {
                     () -> inspected.resolveVariable("premium_message", Map.of()),
                     "package was loaded without a runtime model");
         }
+    }
+
+    private static void packageTokens() throws Exception {
+        // Scoped tokens map https:// URL prefixes to bearer tokens; they never
+        // touch a local load, so parsing and loading both succeed.
+        try (Package pkg = await(Package.load(
+                "examples/basic",
+                LoadOptions.builder()
+                        .packageTokens(Map.of("https://config.acme.com/team-a", "token"))
+                        .build()))) {
+            assertEquals(false, pkg.servedFallback(), "local load served fallback");
+        }
+
+        assertRototoError(
+                Package.load(
+                        "examples/basic",
+                        LoadOptions.builder()
+                                .packageToken("bare")
+                                .packageTokens(Map.of("https://config.acme.com", "scoped"))
+                                .build()),
+                "cannot both be set");
+
+        assertRototoError(
+                Package.load(
+                        "examples/basic",
+                        LoadOptions.builder()
+                                .packageTokens(Map.of("http://config.acme.com", "token"))
+                                .build()),
+                "must start with https://");
     }
 
     private static void contract() throws Exception {

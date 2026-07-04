@@ -97,6 +97,42 @@ func TestLoadRejectsInvalidLintMode(t *testing.T) {
 	}
 }
 
+func TestScopedPackageTokensLoadAndStayOffLocalSources(t *testing.T) {
+	pkg, err := Load(context.Background(), basicPackage(), &LoadOptions{
+		PackageTokens: map[string]string{"https://config.acme.com/team-a": "token"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer closePackage(t, pkg)
+	servedFallback, err := pkg.ServedFallback()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if servedFallback {
+		t.Fatal("local load unexpectedly served the fallback")
+	}
+}
+
+func TestBareAndScopedPackageTokensAreMutuallyExclusive(t *testing.T) {
+	_, err := Load(context.Background(), basicPackage(), &LoadOptions{
+		PackageToken:  "bare",
+		PackageTokens: map[string]string{"https://config.acme.com": "scoped"},
+	})
+	if err == nil || !strings.Contains(err.Error(), "cannot both be set") {
+		t.Fatalf("expected mutual-exclusion error, got %v", err)
+	}
+}
+
+func TestScopedPackageTokenPrefixesAreValidated(t *testing.T) {
+	_, err := Load(context.Background(), basicPackage(), &LoadOptions{
+		PackageTokens: map[string]string{"http://config.acme.com": "token"},
+	})
+	if err == nil || !strings.Contains(err.Error(), "must start with https://") {
+		t.Fatalf("expected prefix validation error, got %v", err)
+	}
+}
+
 func TestRefreshingPackageRefreshesLocalSource(t *testing.T) {
 	root := t.TempDir()
 	writePackage(t, root, "hello")

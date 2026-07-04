@@ -147,22 +147,65 @@ oversight - config is exactly the kind of thing you don't want a network snoop
 or man-in-the-middle messing with, so the unencrypted forms are turned off on
 purpose. If you try one, rototo tells you to use `https://` instead.
 
-## Private sources need a token
+## Private archives need a token
 
-If your repo or archive is private, rototo needs a credential to fetch it. It
-uses a **bearer token**, and there are two ways to hand it over:
+If an `https://` archive is private, rototo sends a **bearer token** with the
+fetch. One important boundary first: this covers archive sources only. Git
+sources (`git+https://`, `git+ssh://`) authenticate through git itself - your
+SSH keys, credential helpers, or `gh auth` - and rototo stays out of that.
+
+The simple case is one private archive host:
 
 ```sh
 # as a flag
-rototo lint git+https://github.com/acme/private-config.git --package-token "$TOKEN"
+rototo lint https://config.acme.com/checkout/current.tar.gz --package-token "$TOKEN"
 
 # or as an environment variable
-ROTOTO_PACKAGE_TOKEN="$TOKEN" rototo lint git+https://github.com/acme/private-config.git
+ROTOTO_PACKAGE_TOKEN="$TOKEN" rototo lint https://config.acme.com/checkout/current.tar.gz
 ```
 
-The environment variable is the friendlier choice for CI and for running
-services, since you set it once and forget it. The same token flows through to
-private HTTPS archives, too.
+A bare token like that binds to a **single archive origin**: the first host the
+load fetches an archive from. That's deliberate. A composed package can pull
+archives from more than one host, and a token minted for one of them must not
+be broadcast to the others. If a load with a bare token touches a second
+origin, it fails and tells you to scope your tokens.
+
+Scoping is the general form. An entry is `PREFIX=TOKEN`, where the prefix is an
+`https://` URL prefix:
+
+```sh
+rototo lint ./overlay \
+  --package-token "https://config.acme.com/team-a=$TEAM_A_TOKEN" \
+  --package-token "https://archives.example.net=$PARTNER_TOKEN"
+```
+
+The environment variable takes the same entries, separated by whitespace:
+
+```sh
+ROTOTO_PACKAGE_TOKEN="https://config.acme.com/team-a=$TEAM_A_TOKEN https://archives.example.net=$PARTNER_TOKEN"
+```
+
+The rules are small and worth knowing:
+
+- **Longest matching prefix wins.** A token for
+  `https://config.acme.com/team-a` beats one for `https://config.acme.com`
+  when the archive lives under `/team-a`. Prefixes match at path boundaries:
+  `/team` never covers `/teammate`.
+- **No match means anonymous.** A request to a host you didn't scope a token
+  for carries no credential at all - a secret never goes somewhere you didn't
+  name.
+- **The `https://` spelling is what makes an entry scoped**, never the `=`
+  sign. A base64 token that happens to end in `=` padding is still one bare
+  token.
+- **A bare token must stand alone.** Mixing it with scoped entries, or passing
+  two bare tokens, is an error - there'd be no unambiguous answer for who gets
+  what.
+- **Tokens never follow a cross-origin redirect.** If an archive host
+  redirects to a different host, the request continues without the
+  Authorization header.
+
+In the SDKs, the same two shapes exist as load options: a single token string,
+or a map from URL prefixes to tokens.
 
 One habit worth keeping: when CI checks that production can really load the
 released package, use the *same* authenticated source production will use. That

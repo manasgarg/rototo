@@ -6,12 +6,12 @@ use tokio::io::AsyncWriteExt;
 use crate::error::{Result, RototoError};
 
 use super::PACKAGE_MANIFEST;
+use super::auth::SourceAuth;
 use super::path::{async_is_file, relative_path_is_safe, select_subdir};
 #[cfg(feature = "console")]
 use super::types::StagedSourceTree;
 use super::types::{
-    LoadedPackageSource, SourceAuth, SourceFingerprint, SourceLayer, SourceOptions, SourceProbe,
-    StagedPackage,
+    LoadedPackageSource, SourceFingerprint, SourceLayer, SourceOptions, SourceProbe, StagedPackage,
 };
 use super::uri::SourceUri;
 
@@ -92,10 +92,7 @@ async fn extract_https_archive(
 ) -> Result<ExtractedArchive> {
     let url = format!("{}://{}", uri.scheme, uri.base);
     let client = https_archive_client(options)?;
-    let mut request = client.get(&url);
-    if let SourceAuth::Bearer(token) = options.auth() {
-        request = request.bearer_auth(token);
-    }
+    let request = apply_archive_auth(client.get(&url), &url, options)?;
     let response = request
         .send()
         .await
@@ -109,7 +106,8 @@ async fn extract_https_archive(
             format!(": {preview}")
         };
         return Err(RototoError::new(format!(
-            "failed to fetch package archive: HTTP {status}{detail}"
+            "failed to fetch package archive: HTTP {status}{detail}{}",
+            auth_failure_hint(status, &url, options)
         )));
     }
     let fingerprint = response_fingerprint(&response);
@@ -168,10 +166,7 @@ pub(super) async fn probe_https_archive(
     }
     let url = format!("{}://{}", uri.scheme, uri.base);
     let client = https_archive_client(options)?;
-    let mut request = client.head(&url);
-    if let SourceAuth::Bearer(token) = options.auth() {
-        request = request.bearer_auth(token);
-    }
+    let request = apply_archive_auth(client.head(&url), &url, options)?;
     let response = request
         .send()
         .await
@@ -179,7 +174,8 @@ pub(super) async fn probe_https_archive(
     let status = response.status();
     if !status.is_success() {
         return Err(RototoError::new(format!(
-            "failed to check package archive: HTTP {status}"
+            "failed to check package archive: HTTP {status}{}",
+            auth_failure_hint(status, &url, options)
         )));
     }
     let Some(fingerprint) = response_fingerprint(&response) else {
@@ -189,6 +185,56 @@ pub(super) async fn probe_https_archive(
         Ok(SourceProbe::Unchanged)
     } else {
         Ok(SourceProbe::Changed(Some(fingerprint)))
+    }
+}
+
+/// Attaches the bearer token this request's URL is entitled to. A bare token
+/// binds to the load graph's single archive origin (a second distinct origin
+/// fails the load); scoped tokens go to the longest matching prefix, and a
+/// URL no prefix matches goes out anonymous.
+///
+/// Tokens are attached per request, so on a redirect reqwest owns the header:
+/// its redirect layer strips `Authorization` whenever the redirect target's
+/// host or port differs from the previous hop
+/// (`reqwest::redirect::remove_sensitive_headers`), so a token never follows
+/// a cross-origin redirect.
+fn apply_archive_auth(
+    request: reqwest::RequestBuilder,
+    url: &str,
+    options: &SourceOptions,
+) -> Result<reqwest::RequestBuilder> {
+    match options.auth() {
+        SourceAuth::None => Ok(request),
+        SourceAuth::Bearer(token) => {
+            options.bearer_origin().bind(url)?;
+            Ok(request.bearer_auth(token))
+        }
+        SourceAuth::Scoped(tokens) => match tokens.token_for(url) {
+            Some(token) => Ok(request.bearer_auth(token)),
+            None => Ok(request),
+        },
+    }
+}
+
+/// Names what credential a failed archive request carried, so a 401 or 403
+/// says which entry to fix instead of leaving the operator to guess.
+fn auth_failure_hint(status: reqwest::StatusCode, url: &str, options: &SourceOptions) -> String {
+    if !matches!(
+        status,
+        reqwest::StatusCode::UNAUTHORIZED | reqwest::StatusCode::FORBIDDEN
+    ) {
+        return String::new();
+    }
+    let origin = super::auth::archive_origin(url);
+    match options.auth() {
+        SourceAuth::None => format!(
+            " (no package token configured; pass --package-token {origin}/...=TOKEN or set ROTOTO_PACKAGE_TOKEN)"
+        ),
+        SourceAuth::Bearer(_) => " (sent the bare package token)".to_owned(),
+        SourceAuth::Scoped(tokens) => match tokens.matching_prefix(url) {
+            Some(prefix) => format!(" (sent the token scoped to {prefix})"),
+            None => format!(" (no package token entry matched this URL; add {origin}/...=TOKEN)"),
+        },
     }
 }
 

@@ -178,6 +178,16 @@ class RefreshEvent:
         )
 
 
+def _token_entries(
+    package_tokens: Mapping[str, str] | None,
+) -> list[tuple[str, str]] | None:
+    """package_tokens maps https:// URL prefixes to bearer tokens; the longest
+    matching prefix wins and unmatched requests go out anonymous."""
+    if package_tokens is None:
+        return None
+    return [(prefix, token) for prefix, token in package_tokens.items()]
+
+
 class Package:
     """Loaded rototo package."""
 
@@ -190,12 +200,14 @@ class Package:
         source: str,
         *,
         package_token: str | None = None,
+        package_tokens: Mapping[str, str] | None = None,
         lint: str = "deny",
         fallback_source: str | None = None,
     ) -> Package:
         inner = await _Package.load(
             str(source),
             package_token=package_token,
+            package_tokens=_token_entries(package_tokens),
             lint=lint,
             fallback_source=fallback_source,
         )
@@ -275,6 +287,7 @@ class RefreshingPackage:
         *,
         period_seconds: float | None = None,
         package_token: str | None = None,
+        package_tokens: Mapping[str, str] | None = None,
         lint: str = "deny",
         fallback_source: str | None = None,
     ) -> RefreshingPackage:
@@ -282,6 +295,7 @@ class RefreshingPackage:
             str(source),
             period_seconds=period_seconds,
             package_token=package_token,
+            package_tokens=_token_entries(package_tokens),
             lint=lint,
             fallback_source=fallback_source,
         )

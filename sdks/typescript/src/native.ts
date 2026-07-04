@@ -23,6 +23,7 @@ type NativePackageConstructor = {
         packageToken?: string,
         lint?: "deny" | "skip",
         fallbackSource?: string,
+        packageTokens?: Record<string, string>,
     ): Promise<NativePackage>;
     inspect(source: string, packageToken?: string): Promise<NativePackage>;
 };
@@ -58,6 +59,7 @@ type NativeRefreshingPackageConstructor = {
         packageToken?: string,
         lint?: "deny" | "skip",
         fallbackSource?: string,
+        packageTokens?: Record<string, string>,
     ): Promise<NativeRefreshingPackage>;
 };
 

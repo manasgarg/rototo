@@ -1,16 +1,23 @@
 package dev.rototo;
 
 public final class LoadOptions {
-    private static final LoadOptions DEFAULT = new LoadOptions(null, LintMode.DENY, null);
+    private static final LoadOptions DEFAULT = new LoadOptions(null, LintMode.DENY, null, null);
 
     private final String packageToken;
     private final LintMode lint;
     private final String fallbackSource;
+    private final java.util.Map<String, String> packageTokens;
 
-    private LoadOptions(String packageToken, LintMode lint, String fallbackSource) {
+    private LoadOptions(
+            String packageToken,
+            LintMode lint,
+            String fallbackSource,
+            java.util.Map<String, String> packageTokens) {
         this.packageToken = packageToken;
         this.lint = lint == null ? LintMode.DENY : lint;
         this.fallbackSource = fallbackSource;
+        this.packageTokens =
+                packageTokens == null ? null : java.util.Map.copyOf(packageTokens);
     }
 
     public static LoadOptions defaults() {
@@ -34,10 +41,16 @@ public final class LoadOptions {
         return fallbackSource;
     }
 
+    /** Bearer tokens scoped to https:// URL prefixes, or null. */
+    public java.util.Map<String, String> packageTokens() {
+        return packageTokens;
+    }
+
     public static final class Builder {
         private String packageToken;
         private LintMode lint = LintMode.DENY;
         private String fallbackSource;
+        private java.util.Map<String, String> packageTokens;
 
         private Builder() {}
 
@@ -61,8 +74,18 @@ public final class LoadOptions {
             return this;
         }
 
+        /**
+         * Bearer tokens scoped to https:// URL prefixes; the longest matching
+         * prefix wins and unmatched requests go out anonymous. Mutually
+         * exclusive with packageToken.
+         */
+        public Builder packageTokens(java.util.Map<String, String> packageTokens) {
+            this.packageTokens = packageTokens;
+            return this;
+        }
+
         public LoadOptions build() {
-            return new LoadOptions(packageToken, lint, fallbackSource);
+            return new LoadOptions(packageToken, lint, fallbackSource, packageTokens);
         }
     }
 }

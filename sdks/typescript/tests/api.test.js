@@ -70,3 +70,35 @@ test("load rejects invalid lint mode", async () => {
             error.message.includes("lint must be 'deny' or 'skip'"),
     );
 });
+
+test("scoped package tokens load and stay off local sources", async () => {
+    const pkg = await Package.load(EXAMPLES_BASIC, {
+        packageTokens: { "https://config.acme.com/team-a": "token" },
+    });
+    assert.equal(pkg.servedFallback, false);
+});
+
+test("bare and scoped package tokens are mutually exclusive", async () => {
+    await assert.rejects(
+        () =>
+            Package.load(EXAMPLES_BASIC, {
+                packageToken: "bare",
+                packageTokens: { "https://config.acme.com": "scoped" },
+            }),
+        (error) =>
+            error instanceof RototoError &&
+            error.message.includes("cannot both be set"),
+    );
+});
+
+test("scoped package token prefixes are validated", async () => {
+    await assert.rejects(
+        () =>
+            Package.load(EXAMPLES_BASIC, {
+                packageTokens: { "http://config.acme.com": "token" },
+            }),
+        (error) =>
+            error instanceof RototoError &&
+            error.message.includes("must start with https://"),
+    );
+});

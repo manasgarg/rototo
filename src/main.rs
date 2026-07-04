@@ -45,15 +45,18 @@ struct Cli {
     #[arg(long, global = true, action = ArgAction::SetTrue)]
     json: bool,
 
-    /// Bearer token for https:// package archive downloads.
+    /// Bearer token for https:// package archive downloads. Repeatable: a
+    /// bare TOKEN covers a single archive origin; PREFIX=TOKEN entries scope
+    /// tokens to https:// URL prefixes (longest match wins). The
+    /// ROTOTO_PACKAGE_TOKEN environment variable takes the same entries,
+    /// whitespace-separated.
     #[arg(
-        long,
+        long = "package-token",
         global = true,
-        env = "ROTOTO_PACKAGE_TOKEN",
-        hide_env_values = true,
-        value_name = "TOKEN"
+        action = ArgAction::Append,
+        value_name = "TOKEN|PREFIX=TOKEN"
     )]
-    package_token: Option<String>,
+    package_token: Vec<String>,
 
     /// Suppress success output from lint commands.
     #[arg(long, global = true, action = ArgAction::SetTrue)]
@@ -754,7 +757,7 @@ async fn main() -> ExitCode {
 
 async fn run() -> Result<ExitCode> {
     let cli = Cli::parse();
-    let source_options = source_options(&cli);
+    let source_options = source_options(&cli)?;
 
     match cli.command {
         Command::Init(args) => cli::init::run_init(args, cli.json, cli.quiet).await,
@@ -779,7 +782,14 @@ async fn run() -> Result<ExitCode> {
                 state_mode: args.state.map(Into::into),
                 deployment: args.deployment.map(Into::into),
                 write_policy: args.write.map(Into::into),
-                package_token: cli.package_token.clone(),
+                // The console's ambient GitHub token is the single-origin
+                // spelling; scoped archive entries do not apply to it.
+                package_token: match package_token_entries(&cli).as_slice() {
+                    [single] if !single.to_ascii_lowercase().starts_with("https://") => {
+                        Some(single.clone())
+                    }
+                    _ => None,
+                },
             })
             .await?;
             Ok(ExitCode::SUCCESS)
@@ -1919,11 +1929,22 @@ async fn package_source_string_or_current(package: Option<String>) -> Result<Str
     }
 }
 
-fn source_options(cli: &Cli) -> SourceOptions {
-    match &cli.package_token {
-        Some(token) => SourceOptions::new().with_auth(SourceAuth::Bearer(token.clone())),
-        None => SourceOptions::new(),
+/// Combines --package-token occurrences with whitespace-separated
+/// ROTOTO_PACKAGE_TOKEN entries; both surfaces share one entry grammar.
+fn package_token_entries(cli: &Cli) -> Vec<String> {
+    let mut entries = cli.package_token.clone();
+    if let Ok(value) = std::env::var("ROTOTO_PACKAGE_TOKEN") {
+        entries.extend(value.split_whitespace().map(str::to_owned));
     }
+    entries
+}
+
+fn source_options(cli: &Cli) -> Result<SourceOptions> {
+    let auth = rototo::source_auth_from_package_token_entries(&package_token_entries(cli))?;
+    Ok(match auth {
+        SourceAuth::None => SourceOptions::new(),
+        auth => SourceOptions::new().with_auth(auth),
+    })
 }
 
 fn severity_label(severity: &Severity) -> &'static str {

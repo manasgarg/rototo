@@ -48,6 +48,10 @@ export type LintMode = "deny" | "skip";
 
 export type LoadOptions = {
     packageToken?: string;
+    /** Bearer tokens scoped to https:// URL prefixes; the longest matching
+     * prefix wins and unmatched requests go out anonymous. Mutually
+     * exclusive with packageToken. */
+    packageTokens?: Record<string, string>;
     lint?: LintMode;
     /** Fallback package source for degraded starts: loaded through the same
      * pipeline when the primary source fails for any reason. Typically a
@@ -283,6 +287,7 @@ export class Package {
                 options.packageToken,
                 options.lint ?? "deny",
                 options.fallbackSource,
+                options.packageTokens,
             );
             return new Package(inner);
         } catch (error) {
@@ -389,6 +394,7 @@ export class RefreshingPackage {
                 options.packageToken,
                 options.lint ?? "deny",
                 options.fallbackSource,
+                options.packageTokens,
             );
             return new RefreshingPackage(inner);
         } catch (error) {

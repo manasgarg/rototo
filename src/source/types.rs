@@ -7,9 +7,14 @@ const DEFAULT_MAX_ARCHIVE_BYTES: u64 = 50 * 1024 * 1024;
 pub(super) const DEFAULT_MAX_DECOMPRESSED_ARCHIVE_BYTES: u64 = 200 * 1024 * 1024;
 pub(super) const DEFAULT_MAX_ARCHIVE_ENTRIES: u64 = 10_000;
 
+use super::auth::{BearerOriginBinding, SourceAuth};
+
 #[derive(Clone, Debug)]
 pub struct SourceOptions {
     auth: SourceAuth,
+    /// The origin a bare bearer token has bound to, shared across clones so
+    /// every fetch in one load graph agrees.
+    bearer_origin: BearerOriginBinding,
     git_timeout: Duration,
     http_timeout: Duration,
     max_archive_bytes: u64,
@@ -24,6 +29,10 @@ impl SourceOptions {
 
     pub fn auth(&self) -> &SourceAuth {
         &self.auth
+    }
+
+    pub(super) fn bearer_origin(&self) -> &BearerOriginBinding {
+        &self.bearer_origin
     }
 
     pub fn git_timeout(&self) -> Duration {
@@ -81,6 +90,7 @@ impl Default for SourceOptions {
     fn default() -> Self {
         Self {
             auth: SourceAuth::None,
+            bearer_origin: BearerOriginBinding::default(),
             git_timeout: Duration::from_secs(60),
             http_timeout: Duration::from_secs(30),
             max_archive_bytes: DEFAULT_MAX_ARCHIVE_BYTES,
@@ -88,12 +98,6 @@ impl Default for SourceOptions {
             max_archive_entries: DEFAULT_MAX_ARCHIVE_ENTRIES,
         }
     }
-}
-
-#[derive(Clone, Debug)]
-pub enum SourceAuth {
-    None,
-    Bearer(String),
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]

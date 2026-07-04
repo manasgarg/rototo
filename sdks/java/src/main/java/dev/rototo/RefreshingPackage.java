@@ -31,7 +31,10 @@ public final class RefreshingPackage implements AutoCloseable {
                         periodSeconds != null,
                         resolved.packageToken(),
                         resolved.lint().wireValue(),
-                        resolved.fallbackSource())),
+                        resolved.fallbackSource(),
+                        resolved.packageTokens() == null
+                                ? null
+                                : Json.stringify(resolved.packageTokens()))),
                 Rototo.executor());
     }
 

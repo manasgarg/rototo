@@ -5,8 +5,8 @@ use jni::JNIEnv;
 use jni::objects::{JClass, JString};
 use jni::sys::{jboolean, jdouble, jlong, jstring};
 use rototo::{
-    EvaluationContext, LintMode, LoadOptions, RefreshOptions, ResolveOptions, SourceAuth,
-    SourceFingerprint, SourceOptions, TraceSubscription,
+    EvaluationContext, LintMode, LoadOptions, RefreshOptions, ResolveOptions, ScopedBearerTokens,
+    SourceAuth, SourceFingerprint, SourceOptions, TraceSubscription,
 };
 use serde_json::Value as JsonValue;
 use tokio::runtime::{Builder, Runtime};
@@ -42,13 +42,15 @@ pub extern "system" fn Java_dev_rototo_Native_packageLoadNative(
     package_token: JString<'_>,
     lint: JString<'_>,
     fallback_source: JString<'_>,
+    package_tokens_json: JString<'_>,
 ) -> jlong {
     jni_call_long(&mut env, |env| {
         let source = required_string(env, source, "source")?;
         let package_token = optional_string(env, package_token)?;
         let lint = required_string(env, lint, "lint")?;
         let fallback_source = optional_string(env, fallback_source)?;
-        let options = load_options(package_token, &lint, fallback_source)?;
+        let package_tokens = optional_string(env, package_tokens_json)?;
+        let options = load_options(package_token, package_tokens, &lint, fallback_source)?;
         let package = runtime()
             .block_on(rototo::Package::load_with_options(source, options))
             .map_err(|err| err.to_string())?;
@@ -182,13 +184,15 @@ pub extern "system" fn Java_dev_rototo_Native_refreshingPackageLoadNative(
     package_token: JString<'_>,
     lint: JString<'_>,
     fallback_source: JString<'_>,
+    package_tokens_json: JString<'_>,
 ) -> jlong {
     jni_call_long(&mut env, |env| {
         let source = required_string(env, source, "source")?;
         let package_token = optional_string(env, package_token)?;
         let lint = required_string(env, lint, "lint")?;
         let fallback_source = optional_string(env, fallback_source)?;
-        let load_options = load_options(package_token, &lint, fallback_source)?;
+        let package_tokens = optional_string(env, package_tokens_json)?;
+        let load_options = load_options(package_token, package_tokens, &lint, fallback_source)?;
         let refresh_options = refresh_options(period_seconds, has_period_seconds)?;
         let package = runtime()
             .block_on(rototo::RefreshingPackage::load_with_options(
@@ -475,6 +479,7 @@ fn source_options(package_token: Option<String>) -> SourceOptions {
 
 fn load_options(
     package_token: Option<String>,
+    package_tokens_json: Option<String>,
     lint: &str,
     fallback_source: Option<String>,
 ) -> Result<LoadOptions, String> {
@@ -485,14 +490,41 @@ fn load_options(
     };
     let mut options = LoadOptions::new()
         .with_lint(lint)
-        .with_source_auth(match package_token {
-            Some(token) => SourceAuth::Bearer(token),
-            None => SourceAuth::None,
-        });
+        .with_source_auth(source_auth(package_token, package_tokens_json)?);
     if let Some(fallback) = fallback_source {
         options = options.with_fallback_source(fallback);
     }
     Ok(options)
+}
+
+fn source_auth(
+    package_token: Option<String>,
+    package_tokens_json: Option<String>,
+) -> Result<SourceAuth, String> {
+    let scoped_entries = match package_tokens_json {
+        None => None,
+        Some(json) => {
+            let map: std::collections::BTreeMap<String, String> = serde_json::from_str(&json)
+                .map_err(|err| format!("invalid packageTokens: {err}"))?;
+            Some(map)
+        }
+    };
+    match (package_token, scoped_entries) {
+        (Some(_), Some(_)) => {
+            Err("packageToken and packageTokens cannot both be set; scope every token".to_owned())
+        }
+        (Some(token), None) => Ok(SourceAuth::Bearer(token)),
+        (None, Some(entries)) => {
+            let mut scoped = ScopedBearerTokens::new();
+            for (prefix, token) in entries {
+                scoped = scoped
+                    .with_prefix(prefix, token)
+                    .map_err(|err| err.to_string())?;
+            }
+            Ok(SourceAuth::Scoped(scoped))
+        }
+        (None, None) => Ok(SourceAuth::None),
+    }
 }
 
 fn refresh_options(

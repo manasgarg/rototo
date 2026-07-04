@@ -10,7 +10,11 @@ final class Native {
     static native String versionNative();
 
     static native long packageLoadNative(
-            String source, String packageToken, String lint, String fallbackSource);
+            String source,
+            String packageToken,
+            String lint,
+            String fallbackSource,
+            String packageTokensJson);
 
     static native long packageInspectNative(String source, String packageToken);
 
@@ -33,7 +37,8 @@ final class Native {
             boolean hasPeriodSeconds,
             String packageToken,
             String lint,
-            String fallbackSource);
+            String fallbackSource,
+            String packageTokensJson);
 
     static native String refreshingPackageResolveVariableNative(
             long handle, String id, String contextJson, boolean validateContext, boolean trace);

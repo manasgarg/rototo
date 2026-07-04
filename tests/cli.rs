@@ -896,3 +896,77 @@ fn git(repo: &Path, args: &[&str]) {
         String::from_utf8_lossy(&output.stderr)
     );
 }
+
+#[test]
+fn package_token_entries_share_one_grammar_across_flag_and_env() {
+    // Two bare tokens (one from the flag, one from the environment) are
+    // ambiguous: a bare token is single-origin sugar and must stand alone.
+    Command::cargo_bin("rototo")
+        .unwrap()
+        .env("NO_COLOR", "1")
+        .env("ROTOTO_PACKAGE_TOKEN", "env-token")
+        .args(["lint", "examples/basic", "--package-token", "flag-token"])
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("more than one bare package token"));
+}
+
+#[test]
+fn package_token_rejects_mixing_bare_and_scoped_entries() {
+    Command::cargo_bin("rototo")
+        .unwrap()
+        .env("NO_COLOR", "1")
+        .args([
+            "lint",
+            "examples/basic",
+            "--package-token",
+            "bare-token",
+            "--package-token",
+            "https://config.acme.com=scoped",
+        ])
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("cannot be mixed"));
+}
+
+#[test]
+fn package_token_accepts_base64_padded_bare_tokens() {
+    // A padded token ends in '=' but is still one bare token, because entry
+    // classification keys on the https:// spelling, never on '='.
+    Command::cargo_bin("rototo")
+        .unwrap()
+        .env("ROTOTO_PACKAGE_TOKEN", "dG9rZW4=")
+        .args(["--quiet", "lint", "examples/basic"])
+        .assert()
+        .success();
+}
+
+#[test]
+fn package_token_env_takes_whitespace_separated_scoped_entries() {
+    // Scoped entries never touch local loads; parsing them must succeed.
+    Command::cargo_bin("rototo")
+        .unwrap()
+        .env(
+            "ROTOTO_PACKAGE_TOKEN",
+            "https://config.acme.com/team-a=one https://archives.example.net=two",
+        )
+        .args(["--quiet", "lint", "examples/basic"])
+        .assert()
+        .success();
+}
+
+#[test]
+fn package_token_prefix_without_a_token_is_rejected() {
+    Command::cargo_bin("rototo")
+        .unwrap()
+        .env("NO_COLOR", "1")
+        .args([
+            "lint",
+            "examples/basic",
+            "--package-token",
+            "https://config.acme.com",
+        ])
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("has no `=TOKEN`"));
+}
