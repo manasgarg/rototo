@@ -104,7 +104,10 @@ extends = ["../shared-config", "git+https://github.com/acme/base-config.git#main
 
 Each entry follows the exact same source grammar you'd type on the command line.
 Relative paths are resolved against this package, so a package and its parents
-can travel together. (When you build a distributable archive with `rototo
+can travel together. The full rules for what an `extends` entry may point at -
+including why a remotely staged package can't reach into your filesystem, and
+the depth and cycle limits - are in [the package sources
+reference](./package-sources.md#the-rules-for-sources-in-extends). (When you build a distributable archive with `rototo
 package`, the `extends` list gets flattened in and stripped out - the archive is
 already self-contained, so there's nothing left to point at.) How the layers
 actually combine - which files replace and which compose - gets its own

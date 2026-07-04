@@ -179,8 +179,33 @@ be a local folder, a git repo with `#ref:subdir`, or an HTTPS archive.
 Relative paths in that list are resolved against the package doing the
 extending, so a package and the parents it leans on can travel together. The
 mechanics of how packages combine live in the [package format
-reference](./package-format.md); the only thing to remember here is that there's
-nothing new to learn about the sources themselves.
+reference](./package-format.md); what belongs on this page is how the sources
+in that list behave.
+
+### The rules for sources in `extends`
+
+- **Every format works.** Local paths, `file://`, `git+https://`, `git+ssh://`,
+  `git+file://`, and `https://` archives, including the `#ref:subdir` and
+  `#:subdir` fragments. If you can type it as a package argument, you can list
+  it in `extends`.
+- **Relative paths resolve against the extending package**, not against
+  wherever you happened to run the command. That's what lets a repo carry
+  `extends = ["../shared-config"]` and load the same way from CI, your laptop,
+  or an app.
+- **A remote package can't reach into your filesystem.** Once a package has
+  been staged from a git or archive source, its `extends` entries may only be
+  relative paths inside its own checkout or other remote sources. An absolute
+  path, a `file://` entry, or a `../` that climbs out of the checkout fails
+  with "escapes a staged package". A fetched package naming `/etc` or your
+  home directory is not a composition feature; it's a problem.
+- **Remote extending remote is the cross-team shape.** A team publishes its
+  base package at a git ref or archive URL; your package extends it by that
+  source. Pin the parent to an immutable ref (a commit hash or a
+  content-addressed archive) when you want reproducible builds - the same
+  child commit then always composes against the same parent bytes.
+- **Chains have limits.** Extends can nest, and parents can have parents, up
+  to a depth of 32. A cycle (a package that ends up extending itself through
+  any chain) fails the load with the cycle spelled out.
 
 ## The whole grammar on one page
 
