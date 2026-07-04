@@ -74,6 +74,25 @@ public final class JavaSdkTest {
                 continue;
             }
 
+            if (operation.equals("load_package_with_fallback")) {
+                LoadOptions options = LoadOptions.builder()
+                        .fallbackSource(Json.asString(testCase.get("fallback")))
+                        .build();
+                CompletableFuture<Package> future = Package.load(packageSource, options);
+                if (ok) {
+                    try (Package pkg = await(future)) {
+                        Map<String, Object> result = Json.asObject(expect.get("result"));
+                        assertEquals(
+                                result.get("servedFallback"),
+                                pkg.servedFallback(),
+                                name + " servedFallback");
+                    }
+                } else {
+                    assertRototoError(future, expectedError(expect));
+                }
+                continue;
+            }
+
             try (Package pkg = await(Package.load(packageSource))) {
                 switch (operation) {
                     case "lint_package":

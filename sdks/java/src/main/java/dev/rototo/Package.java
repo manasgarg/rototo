@@ -24,7 +24,8 @@ public final class Package implements AutoCloseable {
                 () -> new Package(Native.packageLoadNative(
                         source,
                         resolved.packageToken(),
-                        resolved.lint().wireValue())),
+                        resolved.lint().wireValue(),
+                        resolved.fallbackSource())),
                 Rototo.executor());
     }
 
@@ -44,6 +45,14 @@ public final class Package implements AutoCloseable {
 
     public String root() {
         return Native.packageRootNative(openHandle());
+    }
+
+    /**
+     * True when this package was loaded from the fallback source because the
+     * primary source failed.
+     */
+    public boolean servedFallback() {
+        return Native.packageServedFallbackNative(openHandle());
     }
 
     public PackageIdentity identity() {

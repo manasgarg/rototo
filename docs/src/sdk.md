@@ -275,6 +275,48 @@ attempt and success times, the consecutive-failure count, the last error
 string, and whether a refresh is running right now; `snapshot()` bundles that
 with the current package identity for one-line logging.
 
+### Starting degraded on a bundled fallback
+
+Refresh protects a service that is already running: a failed refresh keeps the
+last good package serving. But it can't help at startup, because there is no
+last good package yet. If the config source is down when your process boots,
+the load fails and the process doesn't start - your app's availability is now
+coupled to your config host's.
+
+The fallback source breaks that coupling. Ship the app with a copy of the
+package it was tested against - a directory in the container image or app
+bundle - and name it in the load options:
+
+```rust
+let package = RefreshingPackage::load_with_options(
+    "https://config.acme.com/checkout/current.tar.gz",
+    LoadOptions::new().with_fallback_source("/app/config-bundled"),
+    RefreshOptions::new().with_period(Duration::from_secs(300)),
+)
+.await?;
+```
+
+The rules are strict so behavior stays predictable:
+
+- A healthy primary always wins. The fallback only loads when the primary
+  fails - fetch, auth, staging, parse, or the lint gate - and it goes through
+  the exact same pipeline with no leniency. If both fail, you get one error
+  naming both attempts and reasons, primary first.
+- A refreshing package that started on the fallback keeps refreshing **from
+  the primary** on the normal period and backoff. The fallback is static; it
+  is never refreshed from. The first successful refresh is the ordinary
+  refreshed event, and the primary is serving again.
+- Starting on the fallback emits a `fallback_loaded` event carrying why the
+  primary failed, and `status().serving_fallback()` stays true until the
+  primary recovers. Pair it with `with_max_staleness` in your health checks so
+  running degraded too long becomes an alarm, not a surprise.
+
+To produce the bundled copy, project the same package your pipeline ships:
+`rototo package <source> --unpacked /app/config-bundled` writes the flattened
+tree as a plain directory at build time. An immutable-ref primary plus a
+bundled fallback from the same commit is the reproducible shape: you can say
+exactly what config any instance is serving, degraded or not.
+
 ## Watching refreshes happen
 
 A refreshing package works fine if you never look at it. But the moment you run
@@ -497,13 +539,17 @@ the version the runtime reports is the canonical one.
 ## Load options
 
 Every loader takes options; in Rust they're a `LoadOptions` value, in the
-other SDKs they're the load call's option bag. Four things live there:
+other SDKs they're the load call's option bag. Five things live there:
 
 - **Lint mode.** `load` runs the lint gate and refuses a failing package;
   `with_lint(LintMode::Skip)` turns the gate off, which is what `inspect` does
   for you (next section). Leave it on for anything that serves values.
 - **Source auth.** `with_source_auth` carries the bearer token for private
   HTTPS archive sources - the SDK-side twin of `--package-token`.
+- **Fallback source.** `with_fallback_source` names a second source to load
+  when the primary fails, so a broken config fetch degrades your start instead
+  of blocking it. The full story is in
+  [Starting degraded on a bundled fallback](#starting-degraded-on-a-bundled-fallback).
 - **Trace capacity.** The buffer depth of the trace-event stream. A consumer
   that falls behind drops the oldest events past this depth and sees a dropped
   marker with the count.

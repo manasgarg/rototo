@@ -1,7 +1,7 @@
 use serde::Deserialize;
 use serde_json::Value as JsonValue;
 
-use rototo::{EvaluationContext, Package};
+use rototo::{EvaluationContext, LoadOptions, Package};
 
 #[derive(Debug, Deserialize)]
 struct ContractCase {
@@ -10,6 +10,7 @@ struct ContractCase {
     package: String,
     operation: String,
     id: Option<String>,
+    fallback: Option<String>,
     #[serde(default)]
     context: JsonValue,
     expect: ContractExpectation,
@@ -83,6 +84,19 @@ async fn run_contract_case(case: &ContractCase) -> Result<JsonValue, String> {
                 .resolve_variable(id, &context)
                 .map_err(|err| err.to_string())?;
             serde_json::to_value(resolution).map_err(|err| err.to_string())
+        }
+        "load_package_with_fallback" => {
+            let fallback = case
+                .fallback
+                .as_deref()
+                .ok_or_else(|| format!("contract case `{}` is missing fallback", case.name))?;
+            let package = Package::load_with_options(
+                &case.package,
+                LoadOptions::new().with_fallback_source(fallback),
+            )
+            .await
+            .map_err(|err| err.to_string())?;
+            Ok(serde_json::json!({ "servedFallback": package.served_fallback() }))
         }
         "package_identity" => {
             let package = Package::load(&case.package)

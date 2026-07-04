@@ -8,7 +8,7 @@ func nativeVersion() (string, error) {
 	return "", cgoDisabled()
 }
 
-func nativePackageLoad(source, packageToken, lint string) (nativeHandle, error) {
+func nativePackageLoad(source, packageToken, lint, fallbackSource string) (nativeHandle, error) {
 	return 0, cgoDisabled()
 }
 
@@ -32,9 +32,13 @@ func nativePackageResolveVariable(handle nativeHandle, id, contextJSON string, v
 	return "", cgoDisabled()
 }
 
+func nativePackageServedFallback(handle nativeHandle) (bool, error) {
+	return false, cgoDisabled()
+}
+
 func nativePackageFree(handle nativeHandle) {}
 
-func nativeRefreshingPackageLoad(source string, periodSeconds *float64, packageToken, lint string) (nativeHandle, error) {
+func nativeRefreshingPackageLoad(source string, periodSeconds *float64, packageToken, lint, fallbackSource string) (nativeHandle, error) {
 	return 0, cgoDisabled()
 }
 

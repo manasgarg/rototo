@@ -62,12 +62,13 @@ typedef struct {
 } RototoGoVoidResult;
 
 typedef RototoGoStringResult (*rototo_go_version_fn)(void);
-typedef RototoGoHandleResult (*rototo_go_package_load_fn)(const char*, const char*, const char*);
+typedef RototoGoHandleResult (*rototo_go_package_load_fn)(const char*, const char*, const char*, const char*);
 typedef RototoGoHandleResult (*rototo_go_package_inspect_fn)(const char*, const char*);
 typedef RototoGoStringResult (*rototo_go_package_string_fn)(void*);
+typedef int (*rototo_go_package_flag_fn)(void*);
 typedef RototoGoStringResult (*rototo_go_package_resolve_fn)(void*, const char*, const char*, int, int);
 typedef void (*rototo_go_handle_free_fn)(void*);
-typedef RototoGoHandleResult (*rototo_go_refreshing_package_load_fn)(const char*, double, int, const char*, const char*);
+typedef RototoGoHandleResult (*rototo_go_refreshing_package_load_fn)(const char*, double, int, const char*, const char*, const char*);
 typedef RototoGoStringResult (*rototo_go_refreshing_package_string_fn)(void*);
 typedef RototoGoStringResult (*rototo_go_refreshing_package_resolve_fn)(void*, const char*, const char*, int, int);
 typedef RototoGoVoidResult (*rototo_go_refreshing_package_void_fn)(void*);
@@ -78,8 +79,11 @@ typedef void (*rototo_go_void_result_free_fn)(RototoGoVoidResult*);
 static RototoGoStringResult rototo_go_call_version(void* fn) {
     return ((rototo_go_version_fn)fn)();
 }
-static RototoGoHandleResult rototo_go_call_package_load(void* fn, const char* source, const char* token, const char* lint) {
-    return ((rototo_go_package_load_fn)fn)(source, token, lint);
+static RototoGoHandleResult rototo_go_call_package_load(void* fn, const char* source, const char* token, const char* lint, const char* fallback_source) {
+    return ((rototo_go_package_load_fn)fn)(source, token, lint, fallback_source);
+}
+static int rototo_go_call_package_flag(void* fn, void* handle) {
+    return ((rototo_go_package_flag_fn)fn)(handle);
 }
 static RototoGoHandleResult rototo_go_call_package_inspect(void* fn, const char* source, const char* token) {
     return ((rototo_go_package_inspect_fn)fn)(source, token);
@@ -93,8 +97,8 @@ static RototoGoStringResult rototo_go_call_package_resolve(void* fn, void* handl
 static void rototo_go_call_handle_free(void* fn, void* handle) {
     ((rototo_go_handle_free_fn)fn)(handle);
 }
-static RototoGoHandleResult rototo_go_call_refreshing_package_load(void* fn, const char* source, double period_seconds, int has_period_seconds, const char* token, const char* lint) {
-    return ((rototo_go_refreshing_package_load_fn)fn)(source, period_seconds, has_period_seconds, token, lint);
+static RototoGoHandleResult rototo_go_call_refreshing_package_load(void* fn, const char* source, double period_seconds, int has_period_seconds, const char* token, const char* lint, const char* fallback_source) {
+    return ((rototo_go_refreshing_package_load_fn)fn)(source, period_seconds, has_period_seconds, token, lint, fallback_source);
 }
 static RototoGoStringResult rototo_go_call_refreshing_package_string(void* fn, void* handle) {
     return ((rototo_go_refreshing_package_string_fn)fn)(handle);
@@ -135,6 +139,7 @@ type nativeSymbols struct {
 	packageLoad                       unsafe.Pointer
 	packageInspect                    unsafe.Pointer
 	packageRoot                       unsafe.Pointer
+	packageServedFallback             unsafe.Pointer
 	packageIdentity                   unsafe.Pointer
 	packageLint                       unsafe.Pointer
 	packageResolveVariable            unsafe.Pointer
@@ -206,6 +211,7 @@ func loadNative() error {
 	native.packageLoad = symbol("rototo_go_package_load")
 	native.packageInspect = symbol("rototo_go_package_inspect")
 	native.packageRoot = symbol("rototo_go_package_root")
+	native.packageServedFallback = symbol("rototo_go_package_served_fallback")
 	native.packageIdentity = symbol("rototo_go_package_identity")
 	native.packageLint = symbol("rototo_go_package_lint")
 	native.packageResolveVariable = symbol("rototo_go_package_resolve_variable")
@@ -261,7 +267,7 @@ func nativeVersion() (string, error) {
 	return stringResult(result)
 }
 
-func nativePackageLoad(source, packageToken, lint string) (nativeHandle, error) {
+func nativePackageLoad(source, packageToken, lint, fallbackSource string) (nativeHandle, error) {
 	if err := ensureNative(); err != nil {
 		return 0, err
 	}
@@ -271,9 +277,18 @@ func nativePackageLoad(source, packageToken, lint string) (nativeHandle, error) 
 	defer C.free(unsafe.Pointer(cLint))
 	cToken, freeToken := optionalCString(packageToken)
 	defer freeToken()
-	result := C.rototo_go_call_package_load(native.packageLoad, cSource, cToken, cLint)
+	cFallback, freeFallback := optionalCString(fallbackSource)
+	defer freeFallback()
+	result := C.rototo_go_call_package_load(native.packageLoad, cSource, cToken, cLint, cFallback)
 	defer C.rototo_go_call_handle_result_free(native.handleResultFree, &result)
 	return handleResult(result)
+}
+
+func nativePackageServedFallback(handle nativeHandle) (bool, error) {
+	if err := ensureNative(); err != nil {
+		return false, err
+	}
+	return C.rototo_go_call_package_flag(native.packageServedFallback, pointer(handle)) != 0, nil
 }
 
 func nativePackageInspect(source, packageToken string) (nativeHandle, error) {
@@ -336,7 +351,7 @@ func nativePackageFree(handle nativeHandle) {
 	C.rototo_go_call_handle_free(native.packageFree, pointer(handle))
 }
 
-func nativeRefreshingPackageLoad(source string, periodSeconds *float64, packageToken, lint string) (nativeHandle, error) {
+func nativeRefreshingPackageLoad(source string, periodSeconds *float64, packageToken, lint, fallbackSource string) (nativeHandle, error) {
 	if err := ensureNative(); err != nil {
 		return 0, err
 	}
@@ -346,6 +361,8 @@ func nativeRefreshingPackageLoad(source string, periodSeconds *float64, packageT
 	defer C.free(unsafe.Pointer(cLint))
 	cToken, freeToken := optionalCString(packageToken)
 	defer freeToken()
+	cFallback, freeFallback := optionalCString(fallbackSource)
+	defer freeFallback()
 	var seconds C.double
 	var hasSeconds C.int
 	if periodSeconds != nil {
@@ -359,6 +376,7 @@ func nativeRefreshingPackageLoad(source string, periodSeconds *float64, packageT
 		hasSeconds,
 		cToken,
 		cLint,
+		cFallback,
 	)
 	defer C.rototo_go_call_handle_result_free(native.handleResultFree, &result)
 	return handleResult(result)

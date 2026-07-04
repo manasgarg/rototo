@@ -14,8 +14,8 @@ use crate::source::{
 
 use super::{
     EvaluationContext, LoadOptions, Package, PackageIdentity, RedactedPackageSource,
-    ResolveOptions, SdkIdentity, TraceChannel, TraceSubscription, redacted_source,
-    system_time_to_unix_seconds,
+    ResolveOptions, SdkIdentity, TraceChannel, TraceSubscription, fallback_load_error,
+    redacted_source, system_time_to_unix_seconds,
 };
 
 pub struct RefreshingPackage {
@@ -51,18 +51,47 @@ impl RefreshingPackage {
     ) -> Result<Self> {
         let source = source.as_ref().to_owned();
         let attempted_at = SystemTime::now();
-        let package = Package::load_snapshot_with_options(&source, load_options.clone()).await?;
+        let mut primary_error = None;
+        let package = match Package::load_snapshot_with_options(&source, load_options.clone()).await
+        {
+            Ok(package) => package,
+            Err(primary_err) => {
+                let Some(fallback) = load_options.fallback_source() else {
+                    return Err(primary_err);
+                };
+                let fallback = fallback.to_owned();
+                tracing::warn!(
+                    source = %redacted_source(&source),
+                    fallback = %redacted_source(&fallback),
+                    error = %primary_err,
+                    "primary package source failed to load; starting on the fallback package"
+                );
+                let mut package =
+                    Package::load_snapshot_with_options(&fallback, load_options.clone())
+                        .await
+                        .map_err(|fallback_err| {
+                            fallback_load_error(&source, &primary_err, &fallback, &fallback_err)
+                        })?;
+                package.served_fallback = true;
+                primary_error = Some(primary_err.to_string());
+                package
+            }
+        };
+        let serving_fallback = package.served_fallback();
         let loaded_at = package.loaded_at();
         let identity = package.identity();
-        let immutable = package.immutable_source();
+        // While serving the fallback, the primary's mutability is unknown, so
+        // the refresh loop must keep running to recover the primary.
+        let immutable = package.immutable_source() && !serving_fallback;
         let status = Arc::new(RwLock::new(RefreshStatus {
             current_fingerprint: package.source_fingerprint().cloned(),
             last_success: Some(loaded_at),
             last_attempt: None,
             consecutive_failures: 0,
-            last_error: None,
+            last_error: primary_error.clone(),
             refreshing: false,
             immutable,
+            serving_fallback,
         }));
         if immutable && refresh_options.period().is_some() {
             tracing::warn!(
@@ -81,10 +110,15 @@ impl RefreshingPackage {
             last_event: Arc::new(RwLock::new(None)),
             trace,
         };
+        let event_type = if serving_fallback {
+            RefreshEventType::FallbackLoaded
+        } else {
+            RefreshEventType::Loaded
+        };
         emit_event(
             &state,
             RefreshEvent::new(
-                RefreshEventType::Loaded,
+                event_type,
                 &source,
                 None,
                 Some(identity),
@@ -92,7 +126,8 @@ impl RefreshingPackage {
                 loaded_at,
                 None,
                 0,
-                None,
+                // A fallback start carries why the primary failed.
+                primary_error,
             ),
         );
         let (shutdown, receiver) = watch::channel(false);
@@ -160,6 +195,7 @@ impl RefreshingPackage {
             last_error: status.last_error,
             refreshing: status.refreshing,
             immutable: status.immutable,
+            serving_fallback: status.serving_fallback,
         }
     }
 
@@ -304,6 +340,10 @@ pub struct RefreshStatus {
     pub last_error: Option<String>,
     pub refreshing: bool,
     pub immutable: bool,
+    /// True while the serving package came from the fallback source instead of
+    /// the primary. Pairs with [`RefreshStatus::stale`]: an app can alarm on
+    /// running degraded for too long.
+    pub serving_fallback: bool,
 }
 
 impl RefreshStatus {
@@ -311,6 +351,12 @@ impl RefreshStatus {
         self.last_success
             .and_then(|last_success| last_success.elapsed().ok())
             .is_some_and(|age| age > max_staleness)
+    }
+
+    /// True while the serving package came from the fallback source instead of
+    /// the primary. Clears on the first successful refresh from the primary.
+    pub fn serving_fallback(&self) -> bool {
+        self.serving_fallback
     }
 }
 
@@ -434,7 +480,7 @@ async fn refresh_once_inner(
     state: &RefreshState,
     attempted_at: SystemTime,
 ) -> Result<RefreshOutcome> {
-    let (previous_fingerprint, previous_identity, layers) = {
+    let (previous_fingerprint, previous_identity, layers, serving_fallback) = {
         let current = state
             .current
             .read()
@@ -443,16 +489,24 @@ async fn refresh_once_inner(
             current.source_fingerprint().cloned(),
             current.identity(),
             current.source_layers().to_vec(),
+            current.served_fallback(),
         )
     };
-    match probe_package_source_graph(
-        source,
-        load_options.source(),
-        previous_fingerprint.as_ref(),
-        &layers,
-    )
-    .await?
-    {
+    // While serving the fallback, the current fingerprint describes the
+    // fallback package, not the primary; skip change probing and attempt a
+    // full load from the primary until it recovers.
+    let probe = if serving_fallback {
+        SourceProbe::Unknown
+    } else {
+        probe_package_source_graph(
+            source,
+            load_options.source(),
+            previous_fingerprint.as_ref(),
+            &layers,
+        )
+        .await?
+    };
+    match probe {
         SourceProbe::Unchanged => {
             tracing::debug!(source = %redacted_source(source), "package source is unchanged");
             emit_event(
@@ -537,6 +591,9 @@ async fn refresh_once_inner(
         status.consecutive_failures = 0;
         status.last_error = None;
         status.immutable = immutable;
+        // A successful refresh always loads from the primary, so a fallback
+        // start ends here; primary recovery is this ordinary refreshed event.
+        status.serving_fallback = false;
     }
     tracing::info!(
         source = %redacted_source(source),
@@ -628,6 +685,7 @@ pub struct RefreshSnapshot {
     pub last_error: Option<String>,
     pub refreshing: bool,
     pub immutable: bool,
+    pub serving_fallback: bool,
 }
 
 impl RefreshSnapshot {
@@ -641,6 +699,7 @@ impl RefreshSnapshot {
             "lastError": self.last_error,
             "refreshing": self.refreshing,
             "immutable": self.immutable,
+            "servingFallback": self.serving_fallback,
         })
     }
 }
@@ -749,6 +808,9 @@ impl RefreshEvent {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum RefreshEventType {
     Loaded,
+    /// The primary source failed at startup and the fallback package is
+    /// serving. The event's `error` carries the primary failure reason.
+    FallbackLoaded,
     RefreshStarted,
     Unchanged,
     Refreshed,
@@ -761,6 +823,7 @@ impl RefreshEventType {
     pub fn as_str(&self) -> &'static str {
         match self {
             RefreshEventType::Loaded => "loaded",
+            RefreshEventType::FallbackLoaded => "fallback_loaded",
             RefreshEventType::RefreshStarted => "refresh_started",
             RefreshEventType::Unchanged => "unchanged",
             RefreshEventType::Refreshed => "refreshed",

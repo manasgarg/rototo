@@ -45,6 +45,13 @@ async function runCase(contractCase) {
         return pkg.resolveVariable(contractCase.id, contractCase.context ?? {});
     }
 
+    if (operation === "load_package_with_fallback") {
+        const pkg = await Package.load(packageSource, {
+            fallbackSource: resolve(ROOT, contractCase.fallback),
+        });
+        return { servedFallback: pkg.servedFallback };
+    }
+
     if (operation === "package_identity") {
         const pkg = await Package.load(packageSource);
         const identity = pkg.identity();

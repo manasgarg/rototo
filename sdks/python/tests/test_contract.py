@@ -50,6 +50,13 @@ async def run_case(case: dict[str, Any]) -> dict[str, Any]:
             "source": result.source,
         }
 
+    if operation == "load_package_with_fallback":
+        package = await rototo.Package.load(
+            package_source,
+            fallback_source=str(ROOT / case["fallback"]),
+        )
+        return {"servedFallback": package.served_fallback}
+
     if operation == "package_identity":
         package = await rototo.Package.load(package_source)
         identity = package.identity()

@@ -30,7 +30,8 @@ public final class RefreshingPackage implements AutoCloseable {
                         periodSeconds == null ? 0.0 : periodSeconds,
                         periodSeconds != null,
                         resolved.packageToken(),
-                        resolved.lint().wireValue())),
+                        resolved.lint().wireValue(),
+                        resolved.fallbackSource())),
                 Rototo.executor());
     }
 
@@ -77,7 +78,8 @@ public final class RefreshingPackage implements AutoCloseable {
                     Json.asLong(value.get("consecutiveFailures")),
                     Json.asNullableString(value.get("lastError")),
                     Json.asBoolean(value.get("refreshing")),
-                    Json.asBoolean(value.get("immutable")));
+                    Json.asBoolean(value.get("immutable")),
+                    Json.asBoolean(value.get("servingFallback")));
         }, Rototo.executor());
     }
 

@@ -27,8 +27,9 @@ impl JsPackage {
         source: String,
         package_token: Option<String>,
         lint: Option<String>,
+        fallback_source: Option<String>,
     ) -> Result<Self> {
-        let options = load_options(package_token, lint.as_deref())?;
+        let options = load_options(package_token, lint.as_deref(), fallback_source)?;
         let package = rototo::Package::load_with_options(source, options)
             .await
             .map_err(js_err)?;
@@ -51,6 +52,11 @@ impl JsPackage {
     #[napi]
     pub fn root(&self) -> String {
         self.inner.root().display().to_string()
+    }
+
+    #[napi(js_name = "servedFallback")]
+    pub fn served_fallback(&self) -> bool {
+        self.inner.served_fallback()
     }
 
     #[napi]
@@ -118,8 +124,9 @@ impl JsRefreshingPackage {
         period_seconds: Option<f64>,
         package_token: Option<String>,
         lint: Option<String>,
+        fallback_source: Option<String>,
     ) -> Result<Self> {
-        let load_options = load_options(package_token, lint.as_deref())?;
+        let load_options = load_options(package_token, lint.as_deref(), fallback_source)?;
         let refresh_options = refresh_options(period_seconds)?;
         let package =
             rototo::RefreshingPackage::load_with_options(source, load_options, refresh_options)
@@ -271,7 +278,11 @@ fn source_options(package_token: Option<String>) -> SourceOptions {
     }
 }
 
-fn load_options(package_token: Option<String>, lint: Option<&str>) -> Result<LoadOptions> {
+fn load_options(
+    package_token: Option<String>,
+    lint: Option<&str>,
+    fallback_source: Option<String>,
+) -> Result<LoadOptions> {
     let lint = match lint.unwrap_or("deny") {
         "deny" => LintMode::Deny,
         "skip" => LintMode::Skip,
@@ -281,12 +292,16 @@ fn load_options(package_token: Option<String>, lint: Option<&str>) -> Result<Loa
             )));
         }
     };
-    Ok(LoadOptions::new()
+    let mut options = LoadOptions::new()
         .with_lint(lint)
         .with_source_auth(match package_token {
             Some(token) => SourceAuth::Bearer(token),
             None => SourceAuth::None,
-        }))
+        });
+    if let Some(fallback) = fallback_source {
+        options = options.with_fallback_source(fallback);
+    }
+    Ok(options)
 }
 
 fn refresh_options(period_seconds: Option<f64>) -> Result<RefreshOptions> {
@@ -322,6 +337,7 @@ fn refresh_status_to_json(status: rototo::RefreshStatus) -> JsonValue {
         "lastError": status.last_error,
         "refreshing": status.refreshing,
         "immutable": status.immutable,
+        "servingFallback": status.serving_fallback,
     })
 }
 

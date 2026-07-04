@@ -41,12 +41,14 @@ pub extern "system" fn Java_dev_rototo_Native_packageLoadNative(
     source: JString<'_>,
     package_token: JString<'_>,
     lint: JString<'_>,
+    fallback_source: JString<'_>,
 ) -> jlong {
     jni_call_long(&mut env, |env| {
         let source = required_string(env, source, "source")?;
         let package_token = optional_string(env, package_token)?;
         let lint = required_string(env, lint, "lint")?;
-        let options = load_options(package_token, &lint)?;
+        let fallback_source = optional_string(env, fallback_source)?;
+        let options = load_options(package_token, &lint, fallback_source)?;
         let package = runtime()
             .block_on(rototo::Package::load_with_options(source, options))
             .map_err(|err| err.to_string())?;
@@ -82,6 +84,18 @@ pub extern "system" fn Java_dev_rototo_Native_packageRootNative(
     jni_call_string(&mut env, |env| {
         let package = package_from_handle(handle)?;
         env_string(env, &package.root().display().to_string())
+    })
+}
+
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_dev_rototo_Native_packageServedFallbackNative(
+    mut env: JNIEnv<'_>,
+    _class: JClass<'_>,
+    handle: jlong,
+) -> jboolean {
+    jni_call_bool(&mut env, |_env| {
+        let package = package_from_handle(handle)?;
+        Ok(package.served_fallback())
     })
 }
 
@@ -167,12 +181,14 @@ pub extern "system" fn Java_dev_rototo_Native_refreshingPackageLoadNative(
     has_period_seconds: jboolean,
     package_token: JString<'_>,
     lint: JString<'_>,
+    fallback_source: JString<'_>,
 ) -> jlong {
     jni_call_long(&mut env, |env| {
         let source = required_string(env, source, "source")?;
         let package_token = optional_string(env, package_token)?;
         let lint = required_string(env, lint, "lint")?;
-        let load_options = load_options(package_token, &lint)?;
+        let fallback_source = optional_string(env, fallback_source)?;
+        let load_options = load_options(package_token, &lint, fallback_source)?;
         let refresh_options = refresh_options(period_seconds, has_period_seconds)?;
         let package = runtime()
             .block_on(rototo::RefreshingPackage::load_with_options(
@@ -457,18 +473,26 @@ fn source_options(package_token: Option<String>) -> SourceOptions {
     }
 }
 
-fn load_options(package_token: Option<String>, lint: &str) -> Result<LoadOptions, String> {
+fn load_options(
+    package_token: Option<String>,
+    lint: &str,
+    fallback_source: Option<String>,
+) -> Result<LoadOptions, String> {
     let lint = match lint {
         "deny" => LintMode::Deny,
         "skip" => LintMode::Skip,
         other => return Err(format!("lint must be 'deny' or 'skip', got {other:?}")),
     };
-    Ok(LoadOptions::new()
+    let mut options = LoadOptions::new()
         .with_lint(lint)
         .with_source_auth(match package_token {
             Some(token) => SourceAuth::Bearer(token),
             None => SourceAuth::None,
-        }))
+        });
+    if let Some(fallback) = fallback_source {
+        options = options.with_fallback_source(fallback);
+    }
+    Ok(options)
 }
 
 fn refresh_options(
@@ -547,6 +571,7 @@ fn refresh_status_to_json(status: rototo::RefreshStatus) -> JsonValue {
         "lastError": status.last_error,
         "refreshing": status.refreshing,
         "immutable": status.immutable,
+        "servingFallback": status.serving_fallback,
     })
 }
 
@@ -620,6 +645,19 @@ fn jni_call_long(
 ) -> jlong {
     match f(env) {
         Ok(value) => value,
+        Err(err) => {
+            throw_rototo(env, err);
+            0
+        }
+    }
+}
+
+fn jni_call_bool(
+    env: &mut JNIEnv<'_>,
+    f: impl FnOnce(&mut JNIEnv<'_>) -> Result<bool, String>,
+) -> jboolean {
+    match f(env) {
+        Ok(value) => jboolean::from(value),
         Err(err) => {
             throw_rototo(env, err);
             0

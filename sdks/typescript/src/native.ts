@@ -4,6 +4,7 @@ const require = createRequire(import.meta.url);
 
 type NativePackage = {
     root(): string;
+    servedFallback(): boolean;
     identity(): PackageIdentityJson;
     lint(): Promise<PackageLintJson>;
     semanticModel(): Promise<JsonValue>;
@@ -21,6 +22,7 @@ type NativePackageConstructor = {
         source: string,
         packageToken?: string,
         lint?: "deny" | "skip",
+        fallbackSource?: string,
     ): Promise<NativePackage>;
     inspect(source: string, packageToken?: string): Promise<NativePackage>;
 };
@@ -55,6 +57,7 @@ type NativeRefreshingPackageConstructor = {
         periodSeconds?: number,
         packageToken?: string,
         lint?: "deny" | "skip",
+        fallbackSource?: string,
     ): Promise<NativeRefreshingPackage>;
 };
 
@@ -91,6 +94,7 @@ export type RefreshStatusJson = {
     lastError: string | null;
     refreshing: boolean;
     immutable: boolean;
+    servingFallback: boolean;
 };
 
 export type PackageLayerIdentityJson = {
@@ -125,6 +129,7 @@ export type RefreshSnapshotJson = {
     lastError: string | null;
     refreshing: boolean;
     immutable: boolean;
+    servingFallback: boolean;
 };
 
 export type SdkIdentityJson = {

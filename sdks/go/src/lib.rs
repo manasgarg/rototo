@@ -52,12 +52,14 @@ pub extern "C" fn rototo_go_package_load(
     source: *const c_char,
     package_token: *const c_char,
     lint: *const c_char,
+    fallback_source: *const c_char,
 ) -> RototoGoHandleResult {
     handle_result(|| {
         let source = required_string(source, "source")?;
         let package_token = optional_string(package_token)?;
         let lint = required_string(lint, "lint")?;
-        let options = load_options(package_token, &lint)?;
+        let fallback_source = optional_string(fallback_source)?;
+        let options = load_options(package_token, &lint, fallback_source)?;
         let package = runtime()
             .block_on(rototo::Package::load_with_options(source, options))
             .map_err(|err| err.to_string())?;
@@ -88,6 +90,14 @@ pub extern "C" fn rototo_go_package_root(handle: *mut c_void) -> RototoGoStringR
         let package = package_from_handle(handle)?;
         Ok(package.root().display().to_string())
     })
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn rototo_go_package_served_fallback(handle: *mut c_void) -> c_int {
+    let Ok(package) = package_from_handle(handle) else {
+        return 0;
+    };
+    c_int::from(package.served_fallback())
 }
 
 #[unsafe(no_mangle)]
@@ -152,12 +162,14 @@ pub extern "C" fn rototo_go_refreshing_package_load(
     has_period_seconds: c_int,
     package_token: *const c_char,
     lint: *const c_char,
+    fallback_source: *const c_char,
 ) -> RototoGoHandleResult {
     handle_result(|| {
         let source = required_string(source, "source")?;
         let package_token = optional_string(package_token)?;
         let lint = required_string(lint, "lint")?;
-        let load_options = load_options(package_token, &lint)?;
+        let fallback_source = optional_string(fallback_source)?;
+        let load_options = load_options(package_token, &lint, fallback_source)?;
         let refresh_options = refresh_options(period_seconds, has_period_seconds)?;
         let package = runtime()
             .block_on(rototo::RefreshingPackage::load_with_options(
@@ -545,7 +557,11 @@ fn source_options(package_token: Option<String>) -> SourceOptions {
     }
 }
 
-fn load_options(package_token: Option<String>, lint: &str) -> Result<LoadOptions, String> {
+fn load_options(
+    package_token: Option<String>,
+    lint: &str,
+    fallback_source: Option<String>,
+) -> Result<LoadOptions, String> {
     let lint = match lint {
         "deny" => LintMode::Deny,
         "skip" => LintMode::Skip,
@@ -553,12 +569,16 @@ fn load_options(package_token: Option<String>, lint: &str) -> Result<LoadOptions
             return Err(format!("lint must be 'deny' or 'skip', got {other:?}"));
         }
     };
-    Ok(LoadOptions::new()
+    let mut options = LoadOptions::new()
         .with_lint(lint)
         .with_source_auth(match package_token {
             Some(token) => SourceAuth::Bearer(token),
             None => SourceAuth::None,
-        }))
+        });
+    if let Some(fallback) = fallback_source {
+        options = options.with_fallback_source(fallback);
+    }
+    Ok(options)
 }
 
 fn refresh_options(
@@ -640,6 +660,7 @@ fn refresh_status_to_json(status: rototo::RefreshStatus) -> serde_json::Value {
         "lastError": status.last_error,
         "refreshing": status.refreshing,
         "immutable": status.immutable,
+        "servingFallback": status.serving_fallback,
     })
 }
 

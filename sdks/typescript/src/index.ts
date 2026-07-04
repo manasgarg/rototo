@@ -49,6 +49,10 @@ export type LintMode = "deny" | "skip";
 export type LoadOptions = {
     packageToken?: string;
     lint?: LintMode;
+    /** Fallback package source for degraded starts: loaded through the same
+     * pipeline when the primary source fails for any reason. Typically a
+     * local path to a bundled, app-tested copy of the package. */
+    fallbackSource?: string;
 };
 
 export type InspectOptions = {
@@ -80,6 +84,7 @@ export type RefreshStatus = {
     lastError: string | null;
     refreshing: boolean;
     immutable: boolean;
+    servingFallback: boolean;
 };
 
 export type PackageLint = {
@@ -277,6 +282,7 @@ export class Package {
                 String(source),
                 options.packageToken,
                 options.lint ?? "deny",
+                options.fallbackSource,
             );
             return new Package(inner);
         } catch (error) {
@@ -301,6 +307,12 @@ export class Package {
 
     get root(): string {
         return this.inner.root();
+    }
+
+    /** True when this package was loaded from the fallback source because the
+     * primary source failed. */
+    get servedFallback(): boolean {
+        return this.inner.servedFallback();
     }
 
     identity(): PackageIdentity {
@@ -376,6 +388,7 @@ export class RefreshingPackage {
                 options.periodSeconds,
                 options.packageToken,
                 options.lint ?? "deny",
+                options.fallbackSource,
             );
             return new RefreshingPackage(inner);
         } catch (error) {

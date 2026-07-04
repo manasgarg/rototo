@@ -32,6 +32,10 @@ const (
 type LoadOptions struct {
 	PackageToken string
 	Lint         LintMode
+	// FallbackSource names a fallback package source for degraded starts:
+	// loaded through the same pipeline when the primary source fails for any
+	// reason. Typically a local path to a bundled, app-tested copy.
+	FallbackSource string
 }
 
 // InspectOptions configures Package inspection.
@@ -49,9 +53,10 @@ type ResolveOptions struct {
 
 // RefreshingPackageOptions configures RefreshingPackage loading.
 type RefreshingPackageOptions struct {
-	PeriodSeconds *float64
-	PackageToken  string
-	Lint          LintMode
+	PeriodSeconds  *float64
+	PackageToken   string
+	Lint           LintMode
+	FallbackSource string
 }
 
 // Package is a loaded rototo package handle.
@@ -82,6 +87,7 @@ type RefreshStatus struct {
 	LastError           *string  `json:"lastError"`
 	Refreshing          bool     `json:"refreshing"`
 	Immutable           bool     `json:"immutable"`
+	ServingFallback     bool     `json:"servingFallback"`
 }
 
 // PackageLayerIdentity is the identity of one layer in a layered package.
@@ -120,6 +126,7 @@ type RefreshSnapshot struct {
 	LastError           *string              `json:"lastError"`
 	Refreshing          bool                 `json:"refreshing"`
 	Immutable           bool                 `json:"immutable"`
+	ServingFallback     bool                 `json:"servingFallback"`
 }
 
 // SdkIdentity identifies the SDK that emitted a refresh event.
@@ -169,7 +176,7 @@ func Load(ctx context.Context, source string, options *LoadOptions) (*Package, e
 	if lint == "" {
 		lint = LintDeny
 	}
-	handle, err := nativePackageLoad(source, options.PackageToken, string(lint))
+	handle, err := nativePackageLoad(source, options.PackageToken, string(lint), options.FallbackSource)
 	if err != nil {
 		return nil, err
 	}
@@ -207,6 +214,17 @@ func (w *Package) Root() (string, error) {
 	}
 	defer unlock()
 	return nativePackageRoot(handle)
+}
+
+// ServedFallback reports whether this package was loaded from the fallback
+// source because the primary source failed.
+func (w *Package) ServedFallback() (bool, error) {
+	handle, unlock, err := w.activeHandle()
+	if err != nil {
+		return false, err
+	}
+	defer unlock()
+	return nativePackageServedFallback(handle)
 }
 
 // Identity returns the stable identity of the loaded package.
@@ -307,6 +325,7 @@ func LoadRefreshing(
 		options.PeriodSeconds,
 		options.PackageToken,
 		string(lint),
+		options.FallbackSource,
 	)
 	if err != nil {
 		return nil, err

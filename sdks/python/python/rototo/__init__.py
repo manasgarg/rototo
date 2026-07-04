@@ -32,6 +32,7 @@ class RefreshStatus:
     last_error: str | None
     refreshing: bool
     immutable: bool
+    serving_fallback: bool
 
 
 @dataclass(frozen=True)
@@ -116,6 +117,7 @@ class RefreshSnapshot:
     last_error: str | None
     refreshing: bool
     immutable: bool
+    serving_fallback: bool
 
     @classmethod
     def _from_dict(cls, data: Mapping[str, Any]) -> RefreshSnapshot:
@@ -133,6 +135,7 @@ class RefreshSnapshot:
             last_error=data["last_error"],
             refreshing=data["refreshing"],
             immutable=data["immutable"],
+            serving_fallback=data["serving_fallback"],
         )
 
 
@@ -188,11 +191,13 @@ class Package:
         *,
         package_token: str | None = None,
         lint: str = "deny",
+        fallback_source: str | None = None,
     ) -> Package:
         inner = await _Package.load(
             str(source),
             package_token=package_token,
             lint=lint,
+            fallback_source=fallback_source,
         )
         return cls(inner)
 
@@ -209,6 +214,12 @@ class Package:
     @property
     def root(self) -> str:
         return self._inner.root()
+
+    @property
+    def served_fallback(self) -> bool:
+        """True when this package was loaded from the fallback source because
+        the primary source failed."""
+        return self._inner.served_fallback()
 
     def identity(self) -> PackageIdentity:
         return PackageIdentity._from_dict(self._inner.identity())
@@ -265,12 +276,14 @@ class RefreshingPackage:
         period_seconds: float | None = None,
         package_token: str | None = None,
         lint: str = "deny",
+        fallback_source: str | None = None,
     ) -> RefreshingPackage:
         inner = await _RefreshingPackage.load(
             str(source),
             period_seconds=period_seconds,
             package_token=package_token,
             lint=lint,
+            fallback_source=fallback_source,
         )
         return cls(inner)
 

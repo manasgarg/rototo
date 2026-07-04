@@ -1435,3 +1435,160 @@ async fn env_resolving_outside_trace_policy_is_rejected() {
         "expected env.resolving rejection diagnostic"
     );
 }
+
+#[tokio::test]
+async fn package_loads_the_fallback_when_the_primary_is_unavailable() {
+    let temp = tempfile::TempDir::new().unwrap();
+    let fallback = temp.path().join("bundled");
+    write_minimal_package_with_message(&fallback, "bundled").await;
+    let primary = temp.path().join("does-not-exist");
+
+    let package = Package::load_with_options(
+        primary.to_string_lossy(),
+        LoadOptions::new().with_fallback_source(fallback.to_string_lossy()),
+    )
+    .await
+    .unwrap();
+
+    assert!(package.served_fallback());
+    let context = EvaluationContext::from_json(serde_json::json!({})).unwrap();
+    let resolution = package.resolve_variable("message", &context).unwrap();
+    assert_eq!(resolution.value, "bundled");
+}
+
+#[tokio::test]
+async fn package_falls_back_when_the_primary_fails_lint() {
+    let temp = tempfile::TempDir::new().unwrap();
+    let primary = temp.path().join("primary");
+    let fallback = temp.path().join("bundled");
+    tokio::fs::create_dir_all(&primary).await.unwrap();
+    // Missing schema_version fails lint under the default LintMode::Deny.
+    tokio::fs::write(primary.join("rototo-package.toml"), "name = \"broken\"\n")
+        .await
+        .unwrap();
+    write_minimal_package_with_message(&fallback, "bundled").await;
+
+    let package = Package::load_with_options(
+        primary.to_string_lossy(),
+        LoadOptions::new().with_fallback_source(fallback.to_string_lossy()),
+    )
+    .await
+    .unwrap();
+
+    assert!(package.served_fallback());
+}
+
+#[tokio::test]
+async fn package_prefers_a_healthy_primary_over_the_fallback() {
+    let temp = tempfile::TempDir::new().unwrap();
+    let primary = temp.path().join("primary");
+    let fallback = temp.path().join("bundled");
+    write_minimal_package_with_message(&primary, "primary").await;
+    write_minimal_package_with_message(&fallback, "bundled").await;
+
+    let package = Package::load_with_options(
+        primary.to_string_lossy(),
+        LoadOptions::new().with_fallback_source(fallback.to_string_lossy()),
+    )
+    .await
+    .unwrap();
+
+    assert!(!package.served_fallback());
+    let context = EvaluationContext::from_json(serde_json::json!({})).unwrap();
+    let resolution = package.resolve_variable("message", &context).unwrap();
+    assert_eq!(resolution.value, "primary");
+}
+
+#[tokio::test]
+async fn package_load_error_names_both_attempts_when_both_fail() {
+    let temp = tempfile::TempDir::new().unwrap();
+    let primary = temp.path().join("missing-primary");
+    let fallback = temp.path().join("missing-fallback");
+
+    let err = Package::load_with_options(
+        primary.to_string_lossy(),
+        LoadOptions::new().with_fallback_source(fallback.to_string_lossy()),
+    )
+    .await
+    .unwrap_err()
+    .to_string();
+
+    // One error, primary attempt first, both sources and reasons named.
+    assert!(err.contains("missing-primary"), "{err}");
+    assert!(err.contains("also failed"), "{err}");
+    assert!(err.contains("missing-fallback"), "{err}");
+    let primary_index = err.find("missing-primary").unwrap();
+    let fallback_index = err.find("missing-fallback").unwrap();
+    assert!(primary_index < fallback_index, "{err}");
+}
+
+#[tokio::test]
+async fn refreshing_package_starts_on_the_fallback_and_recovers_the_primary() {
+    let temp = tempfile::TempDir::new().unwrap();
+    let primary = temp.path().join("primary");
+    let fallback = temp.path().join("bundled");
+    write_minimal_package_with_message(&fallback, "bundled").await;
+    // The primary exists but is corrupted at startup.
+    tokio::fs::create_dir_all(&primary).await.unwrap();
+    tokio::fs::write(primary.join("rototo-package.toml"), "not = [valid")
+        .await
+        .unwrap();
+
+    let package = RefreshingPackage::load_with_options(
+        primary.to_string_lossy(),
+        LoadOptions::new().with_fallback_source(fallback.to_string_lossy()),
+        RefreshOptions::new(),
+    )
+    .await
+    .unwrap();
+    let context = EvaluationContext::from_json(serde_json::json!({})).unwrap();
+
+    // Serving the fallback, and saying so.
+    assert!(package.status().serving_fallback());
+    assert!(package.current().served_fallback());
+    let resolution = package.resolve_variable("message", &context).unwrap();
+    assert_eq!(resolution.value, "bundled");
+
+    // The startup event is fallback_loaded and carries the primary failure.
+    let snapshot = package.snapshot();
+    let last_event = snapshot.last_event.unwrap();
+    assert_eq!(last_event.event_type, RefreshEventType::FallbackLoaded);
+    assert!(snapshot.serving_fallback);
+    assert!(package.status().last_error.is_some());
+
+    // Refresh keeps targeting the primary; recovery is an ordinary refresh.
+    write_minimal_package_with_message(&primary, "primary").await;
+    assert_eq!(
+        package.refresh_now().await.unwrap(),
+        RefreshOutcome::Refreshed
+    );
+    assert!(!package.status().serving_fallback());
+    assert!(!package.current().served_fallback());
+    let resolution = package.resolve_variable("message", &context).unwrap();
+    assert_eq!(resolution.value, "primary");
+}
+
+#[tokio::test]
+async fn refreshing_package_on_fallback_keeps_serving_while_the_primary_stays_down() {
+    let temp = tempfile::TempDir::new().unwrap();
+    let primary = temp.path().join("missing-primary");
+    let fallback = temp.path().join("bundled");
+    write_minimal_package_with_message(&fallback, "bundled").await;
+
+    let package = RefreshingPackage::load_with_options(
+        primary.to_string_lossy(),
+        LoadOptions::new().with_fallback_source(fallback.to_string_lossy()),
+        RefreshOptions::new(),
+    )
+    .await
+    .unwrap();
+    let context = EvaluationContext::from_json(serde_json::json!({})).unwrap();
+
+    // A refresh attempt against the still-missing primary fails without
+    // falling back again or disturbing the serving package.
+    assert!(package.refresh_now().await.is_err());
+    assert!(package.status().serving_fallback());
+    assert_eq!(package.status().consecutive_failures, 1);
+    let resolution = package.resolve_variable("message", &context).unwrap();
+    assert_eq!(resolution.value, "bundled");
+}

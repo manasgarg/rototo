@@ -251,6 +251,7 @@ type contractCase struct {
 	Name      string         `json:"name"`
 	Operation string         `json:"operation"`
 	Package   string         `json:"package"`
+	Fallback  string         `json:"fallback"`
 	ID        string         `json:"id"`
 	Context   map[string]any `json:"context"`
 	Expect    contractExpect `json:"expect"`
@@ -305,6 +306,18 @@ func runContractCase(t *testing.T, sdkCase contractCase) (any, error) {
 			"value":  result.Value,
 			"source": result.Source,
 		}, nil
+	case "load_package_with_fallback":
+		fallback := filepath.Join(repoRoot(t), filepath.FromSlash(sdkCase.Fallback))
+		pkg, err := Load(context.Background(), source, &LoadOptions{FallbackSource: fallback})
+		if err != nil {
+			return nil, err
+		}
+		defer closePackage(t, pkg)
+		servedFallback, err := pkg.ServedFallback()
+		if err != nil {
+			return nil, err
+		}
+		return map[string]any{"servedFallback": servedFallback}, nil
 	case "package_identity":
 		pkg, err := Load(context.Background(), source, nil)
 		if err != nil {

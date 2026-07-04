@@ -29,14 +29,15 @@ struct PyPackage {
 #[pymethods]
 impl PyPackage {
     #[staticmethod]
-    #[pyo3(signature = (source, *, package_token = None, lint = "deny"))]
+    #[pyo3(signature = (source, *, package_token = None, lint = "deny", fallback_source = None))]
     fn load<'py>(
         py: Python<'py>,
         source: String,
         package_token: Option<String>,
         lint: &str,
+        fallback_source: Option<String>,
     ) -> PyResult<Bound<'py, PyAny>> {
-        let options = load_options(package_token, lint)?;
+        let options = load_options(package_token, lint, fallback_source)?;
         future_into_py(py, async move {
             let package = rototo::Package::load_with_options(source, options)
                 .await
@@ -77,6 +78,10 @@ impl PyPackage {
 
     fn root(&self) -> String {
         self.inner.root().display().to_string()
+    }
+
+    fn served_fallback(&self) -> bool {
+        self.inner.served_fallback()
     }
 
     fn identity(&self, py: Python<'_>) -> PyResult<Py<PyAny>> {
@@ -124,15 +129,16 @@ struct PyRefreshingPackage {
 #[pymethods]
 impl PyRefreshingPackage {
     #[staticmethod]
-    #[pyo3(signature = (source, *, period_seconds = None, package_token = None, lint = "deny"))]
+    #[pyo3(signature = (source, *, period_seconds = None, package_token = None, lint = "deny", fallback_source = None))]
     fn load<'py>(
         py: Python<'py>,
         source: String,
         period_seconds: Option<f64>,
         package_token: Option<String>,
         lint: &str,
+        fallback_source: Option<String>,
     ) -> PyResult<Bound<'py, PyAny>> {
-        let load_options = load_options(package_token, lint)?;
+        let load_options = load_options(package_token, lint, fallback_source)?;
         let refresh_options = refresh_options(period_seconds)?;
         future_into_py(py, async move {
             let package =
@@ -313,7 +319,11 @@ fn source_options(package_token: Option<String>) -> SourceOptions {
     }
 }
 
-fn load_options(package_token: Option<String>, lint: &str) -> PyResult<LoadOptions> {
+fn load_options(
+    package_token: Option<String>,
+    lint: &str,
+    fallback_source: Option<String>,
+) -> PyResult<LoadOptions> {
     let lint = match lint {
         "deny" => LintMode::Deny,
         "skip" => LintMode::Skip,
@@ -323,12 +333,16 @@ fn load_options(package_token: Option<String>, lint: &str) -> PyResult<LoadOptio
             )));
         }
     };
-    Ok(LoadOptions::new()
+    let mut options = LoadOptions::new()
         .with_lint(lint)
         .with_source_auth(match package_token {
             Some(token) => SourceAuth::Bearer(token),
             None => SourceAuth::None,
-        }))
+        });
+    if let Some(fallback) = fallback_source {
+        options = options.with_fallback_source(fallback);
+    }
+    Ok(options)
 }
 
 fn refresh_options(period_seconds: Option<f64>) -> PyResult<RefreshOptions> {
@@ -395,6 +409,7 @@ fn refresh_status_to_py(py: Python<'_>, status: rototo::RefreshStatus) -> PyResu
         "last_error": status.last_error,
         "refreshing": status.refreshing,
         "immutable": status.immutable,
+        "serving_fallback": status.serving_fallback,
     });
     json_to_py(py, &value)
 }
@@ -472,6 +487,7 @@ fn refresh_snapshot_to_json(snapshot: &RefreshSnapshot) -> JsonValue {
         "last_error": snapshot.last_error,
         "refreshing": snapshot.refreshing,
         "immutable": snapshot.immutable,
+        "serving_fallback": snapshot.serving_fallback,
     })
 }
 

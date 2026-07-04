@@ -34,6 +34,9 @@ pub struct Package {
     source_fingerprint: Option<SourceFingerprint>,
     immutable_source: bool,
     source_layers: Vec<SourceLayer>,
+    /// True when this package was loaded from the fallback source because the
+    /// primary failed. See [`LoadOptions::with_fallback_source`].
+    served_fallback: bool,
     /// Sink for resolution trace events. A standalone package owns its channel;
     /// a `RefreshingPackage` injects one shared channel into every package it
     /// loads so subscriptions survive refresh swaps.
@@ -46,11 +49,38 @@ impl Package {
     }
 
     pub async fn load_with_options(source: impl AsRef<str>, options: LoadOptions) -> Result<Self> {
+        let source = source.as_ref();
+        let primary = match Self::load_one_with_options(source, &options).await {
+            Ok(mut package) => {
+                package.trace = Arc::new(TraceChannel::new(options.trace_capacity()));
+                return Ok(package);
+            }
+            Err(err) => err,
+        };
+        let Some(fallback) = options.fallback_source() else {
+            return Err(primary);
+        };
+        let fallback = fallback.to_owned();
+        match Self::load_one_with_options(&fallback, &options).await {
+            Ok(mut package) => {
+                package.served_fallback = true;
+                package.trace = Arc::new(TraceChannel::new(options.trace_capacity()));
+                Ok(package)
+            }
+            Err(fallback_err) => Err(fallback_load_error(
+                source,
+                &primary,
+                &fallback,
+                &fallback_err,
+            )),
+        }
+    }
+
+    async fn load_one_with_options(source: &str, options: &LoadOptions) -> Result<Self> {
         let mut package = Self::stage_and_inspect(source, options.source()).await?;
         if options.lint() == LintMode::Deny {
             package.compile_runtime_after_lint().await?;
         }
-        package.trace = Arc::new(TraceChannel::new(options.trace_capacity()));
         Ok(package)
     }
 
@@ -112,8 +142,16 @@ impl Package {
             source_fingerprint,
             immutable_source,
             source_layers,
+            served_fallback: false,
             trace: Arc::new(TraceChannel::new(DEFAULT_TRACE_EVENT_CAPACITY)),
         })
+    }
+
+    /// True when this package was loaded from the fallback source because the
+    /// primary source failed. Health checks should read this instead of
+    /// string-matching URIs in [`Package::identity`].
+    pub fn served_fallback(&self) -> bool {
+        self.served_fallback
     }
 
     /// Replace this package's trace channel. Used to size the channel from
@@ -288,6 +326,22 @@ const DEFAULT_REFRESH_EVENT_CAPACITY: usize = 64;
 /// [`LoadOptions::with_trace_capacity`] to match a deployment's traffic and
 /// memory budget.
 const DEFAULT_TRACE_EVENT_CAPACITY: usize = 256;
+
+/// One error for a start where both the primary and the fallback source
+/// failed, naming both attempts and reasons, primary first. Sources are
+/// redacted; the reasons are the underlying load errors verbatim.
+pub(super) fn fallback_load_error(
+    primary: &str,
+    primary_err: &RototoError,
+    fallback: &str,
+    fallback_err: &RototoError,
+) -> RototoError {
+    RototoError::new(format!(
+        "failed to load package from primary `{}`: {primary_err}; fallback `{}` also failed: {fallback_err}",
+        redacted_source(primary),
+        redacted_source(fallback),
+    ))
+}
 
 /// Redact credentials from a package source string: userinfo is replaced with
 /// `<redacted>`, never carrying a bearer token. Scheme, host, path, ref, and
@@ -680,6 +734,7 @@ pub struct LoadOptions {
     source: SourceOptions,
     trace_capacity: usize,
     refresh_capacity: usize,
+    fallback_source: Option<String>,
 }
 
 impl LoadOptions {
@@ -726,6 +781,24 @@ impl LoadOptions {
         self.refresh_capacity = capacity.max(1);
         self
     }
+
+    /// The fallback package source, if one is configured.
+    pub fn fallback_source(&self) -> Option<&str> {
+        self.fallback_source.as_deref()
+    }
+
+    /// Name a fallback package source for degraded starts. When the primary
+    /// source fails to load for any reason (fetch, auth, staging, parse, or a
+    /// lint failure under [`LintMode::Deny`]), the SDK loads this source
+    /// through the identical pipeline instead of failing the start. Typically
+    /// a local path to a bundled, app-tested copy of the package. A healthy
+    /// primary always wins; if both fail, the load error names both attempts.
+    /// A [`RefreshingPackage`] started on the fallback keeps refreshing from
+    /// the primary; the fallback itself is never refreshed from.
+    pub fn with_fallback_source(mut self, source: impl Into<String>) -> Self {
+        self.fallback_source = Some(source.into());
+        self
+    }
 }
 
 impl Default for LoadOptions {
@@ -735,6 +808,7 @@ impl Default for LoadOptions {
             source: SourceOptions::default(),
             trace_capacity: DEFAULT_TRACE_EVENT_CAPACITY,
             refresh_capacity: DEFAULT_REFRESH_EVENT_CAPACITY,
+            fallback_source: None,
         }
     }
 }
@@ -853,6 +927,7 @@ mod tests {
     #[test]
     fn event_type_names_are_snake_case() {
         assert_eq!(RefreshEventType::Loaded.as_str(), "loaded");
+        assert_eq!(RefreshEventType::FallbackLoaded.as_str(), "fallback_loaded");
         assert_eq!(RefreshEventType::RefreshStarted.as_str(), "refresh_started");
         assert_eq!(RefreshEventType::Refreshed.as_str(), "refreshed");
         assert_eq!(RefreshEventType::Failed.as_str(), "failed");
