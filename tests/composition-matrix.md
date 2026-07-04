@@ -72,9 +72,11 @@ Given a base package and one overlay whose `extends` names it.
 ## 2. Governance: the base declares governance.toml
 
 Given a base with a governance contract and an overlay extending it. The
-grantable operations are add, update, delete, and override. `model/` files
-are never grantable: schemas are narrowed with overlay custom lint, never
-edited from above.
+grantable operations are add, update, delete, and override. design: override
+collapses into update (task #36), leaving three operations and one marker
+grammar; the rows below describe today's behavior. `model/` files are never
+grantable: schemas are narrowed with overlay custom lint, never edited from
+above.
 
 | # | When the overlay... | Then... | Coverage |
 |---|---|---|---|
