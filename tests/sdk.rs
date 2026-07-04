@@ -1231,6 +1231,7 @@ async fn refreshing_package_snapshot_includes_identity_and_last_event() {
 
     let json = snapshot.to_json();
     assert_eq!(json["immutable"], serde_json::json!(false));
+    assert_eq!(json["servingFallback"], serde_json::json!(false));
     assert!(
         json["identity"]["releaseId"]
             .as_str()
@@ -1551,6 +1552,10 @@ async fn refreshing_package_starts_on_the_fallback_and_recovers_the_primary() {
 
     // The startup event is fallback_loaded and carries the primary failure.
     let snapshot = package.snapshot();
+    assert_eq!(
+        snapshot.to_json()["servingFallback"],
+        serde_json::json!(true)
+    );
     let last_event = snapshot.last_event.unwrap();
     assert_eq!(last_event.event_type, RefreshEventType::FallbackLoaded);
     assert!(snapshot.serving_fallback);

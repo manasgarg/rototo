@@ -841,3 +841,63 @@ fn refresh_outcome_str(outcome: RefreshOutcome) -> &'static str {
         RefreshOutcome::Immutable => "immutable",
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn options(min_secs: u64, max_secs: u64) -> RefreshOptions {
+        RefreshOptions::new()
+            .with_failure_backoff(Duration::from_secs(min_secs), Duration::from_secs(max_secs))
+    }
+
+    #[test]
+    fn failure_backoff_doubles_from_the_minimum_and_caps_at_the_maximum() {
+        let options = options(1, 60);
+        assert_eq!(failure_backoff(0, &options), Duration::ZERO);
+        assert_eq!(failure_backoff(1, &options), Duration::from_secs(1));
+        assert_eq!(failure_backoff(2, &options), Duration::from_secs(2));
+        assert_eq!(failure_backoff(3, &options), Duration::from_secs(4));
+        assert_eq!(failure_backoff(7, &options), Duration::from_secs(60));
+        assert_eq!(failure_backoff(1_000, &options), Duration::from_secs(60));
+        assert_eq!(failure_backoff(u64::MAX, &options), Duration::from_secs(60));
+    }
+
+    #[test]
+    fn failure_backoff_with_equal_bounds_is_constant() {
+        let options = options(30, 30);
+        assert_eq!(failure_backoff(1, &options), Duration::from_secs(30));
+        assert_eq!(failure_backoff(10, &options), Duration::from_secs(30));
+    }
+
+    fn status_with_last_success(last_success: Option<SystemTime>) -> RefreshStatus {
+        RefreshStatus {
+            current_fingerprint: None,
+            last_success,
+            last_attempt: None,
+            consecutive_failures: 0,
+            last_error: None,
+            refreshing: false,
+            immutable: false,
+            serving_fallback: false,
+        }
+    }
+
+    #[test]
+    fn staleness_measures_the_age_of_the_last_success() {
+        let hour_ago = SystemTime::now() - Duration::from_secs(3_600);
+        let status = status_with_last_success(Some(hour_ago));
+        assert!(status.stale(Duration::from_secs(60)));
+        assert!(!status.stale(Duration::from_secs(7_200)));
+    }
+
+    #[test]
+    fn a_status_with_no_success_is_never_stale() {
+        // stale() answers "how old is the config we are serving"; a package
+        // that never loaded has nothing to be stale. In practice load
+        // always records a success (a fallback start included), so this arm
+        // only guards hand-built statuses.
+        let status = status_with_last_success(None);
+        assert!(!status.stale(Duration::ZERO));
+    }
+}
