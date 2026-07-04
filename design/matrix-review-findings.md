@@ -39,6 +39,13 @@ selected value is materialized. Needs a look at trace output and the `id`
 injection (hydration also injects the entry id), which would be a visible
 change for rules-path consumers.
 
+Manas: i think we should separate the hydration for the purpose of resolution
+from hydration for the app needs. for now, the app should always receive entries
+that have not been hydrated. we would need to add functionality to sdk that
+would help app discover catalogs + enums and load their entries. we should think
+through the kind of api we should have here (package reflection + visitor +
+lookup?)
+
 ### 2. Relative-file `$ref` is hydrated by lint but not by resolution
 
 Resolution matrix H2, pinned by the `external_ref_template` assertion in
@@ -59,6 +66,8 @@ lint-clean while exhibiting the mismatch.
 
 Likely fix direction: resolve relative URIs in `resolve_schema_ref` against
 the current catalog's base URI, mirroring what the compiler does.
+
+Manas: we should fix this.
 
 ### 3. Batch resolve and batch trace use different evaluation state
 
@@ -82,6 +91,8 @@ Likely fix direction: one shared state per batch in both functions, or per
 variable in both; shared-per-batch matches the single-resolution semantics
 of `env.now` least surprisingly for a batch labeled "one resolution run".
 
+Manas: fix this.
+
 ### 4. A Lua file in a lint subdirectory is ignored with no warning
 
 Lua lint matrix D2, pinned by `nested_lua_files_are_silently_ignored_today`
@@ -99,6 +110,8 @@ The cheapest fix is adding `lint` to the unrecognized-file walker; deciding
 whether `lint/` should namespace recursively like everything else is the
 larger question.
 
+Manas: fix this. lint/ can namespace like other entities.
+
 ### 5. The staged-package escape docs omit `git+file://`
 
 Source matrix E2 note, pinned by
@@ -109,6 +122,8 @@ as a filesystem escape, same as `file://` and absolute paths. The
 package-sources reference says "every format works" in `extends` and lists
 only `file://`, absolute paths, and escaping `../` as staged-package
 escapes. The docs bullet should name `git+file://`.
+
+Manas: fix this
 
 ## Needs a decision
 
@@ -203,3 +218,26 @@ between the SDK load matrix (F1-F5) and the refresh matrix (S2/R5-R7,
 consistent, including the deliberate no-second-hop rule); diagnostics
 identity between the lint matrix and the Lua matrix (consistent, the
 reservation is now enforced and tested from both sides).
+
+### 11. The address grammar still offers `values` targets for a retired concept
+
+Found while discussing finding 6 (added 2026-07-05).
+
+`/variables/<id>/values` and `/variables/<id>/values/<key>` are accepted
+registration targets, but `[values]` is the legacy variable format and
+`rototo/variable-values-disallowed` rejects it as an error. The index still
+projects inline values (correctly, so the disallowed diagnostic can point
+at each one), which is what the target binds to; in a lint-clean package
+the target can never match anything. A rule registered against it is dead
+code that registers without complaint.
+
+Also corrects finding 6's example: the live grammar collision for
+namespaced ids is with `rules` (and `entries`/`samples`), not `values`.
+A variable named `payments/rules` is legal today; `values` should not be
+part of the collision analysis because it should likely leave the grammar
+altogether.
+
+Decide: drop the two `values` address forms (a breaking change for any Lua
+rule that names them, though such rules cannot fire in valid packages), or
+keep them until the legacy format's index modeling goes too. Dropping them
+also simplifies the finding-6 escaping decision by one reserved word.
