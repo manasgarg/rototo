@@ -3,15 +3,15 @@
 Resolution (`src/resolve.rs`, hydration in `src/resolve/hydrate.rs`) is the
 runtime answer to "what value does this variable have for this context".
 This file is the executable inventory of its promises, in the same form as
-`tests/composition-matrix.md`. Unless a row says otherwise, tests are the
+`tests/docs/composition-matrix.md`. Unless a row says otherwise, tests are the
 inline suite in `src/resolve.rs`; `tests/qualifier_variable.rs` holds the
 CLI-level resolve tests (the file predates the variable rename), and
 `tests/sdk.rs` holds the SDK-level ones.
 
 Boundaries: expression evaluation semantics live in
-`tests/expression-matrix.md`; context validation at the API boundary is the
+`tests/docs/expression-matrix.md`; context validation at the API boundary is the
 SDK load matrix's section 4; trace provenance across layers is
-`tests/composition-matrix.md` V5/D2.
+`tests/docs/composition-matrix.md` V5/D2.
 
 ## 1. Selection: rules, defaults, fail-closed
 

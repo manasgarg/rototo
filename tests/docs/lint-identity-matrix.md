@@ -4,7 +4,7 @@ Lint is core behavior, and its diagnostics are an API: rule ids are stable
 identifiers that tooling, docs, and suppression workflows key on. This file
 inventories the engine's meta-promises, the identity rules, and the
 machinery that keeps per-rule coverage honest, in the same form as
-`tests/composition-matrix.md`. Unless a row says otherwise, tests live in
+`tests/docs/composition-matrix.md`. Unless a row says otherwise, tests live in
 `tests/package_lint.rs`.
 
 What this file deliberately does not do: re-list every individual rule.
@@ -19,7 +19,7 @@ inventory; duplicating it here would rot.
 | I1 | Every built-in rule id is flat `rototo/<rule-id>`: starts with `rototo/`, exactly one slash, never nested | `builtin_diagnostic_rule_ids_are_flat_rototo_ids` |
 | I2 | Retired rule ids (the whole `rototo/qualifier-*` family and the other dissolved rules) never appear in the diagnostics catalog | `retired_rototo_rules_are_not_listed` (`tests/diagnostics.rs`) |
 | I3 | Retired ids are never reused: `RototoRuleId::is_retired` gates them out of `iter()`, so a reused id would collide in the enum first | by construction (`src/diagnostics.rs`); I1 and I2 are the observable halves |
-| I4 | Custom rules are `<authority>/<rule-id>` with a non-`rototo` authority; the `rototo` authority is reserved | custom-lint matrix (`tests/lua-lint-matrix.md`); `CustomRuleId::parse` unit behavior |
+| I4 | Custom rules are `<authority>/<rule-id>` with a non-`rototo` authority; the `rototo` authority is reserved | custom-lint matrix (`tests/docs/lua-lint-matrix.md`); `CustomRuleId::parse` unit behavior |
 | I5 | Custom catalog entries never claim a built-in entity | `custom_diagnostic_catalog_entries_do_not_claim_variable_entity` (`tests/diagnostics.rs`) |
 
 ## 2. The diagnostics catalog

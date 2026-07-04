@@ -2,7 +2,7 @@
 //! symbol provider, and inspection view reads from. These tests pin the
 //! index's own promises (discovery, isolation, locations, targets) rather
 //! than any single consumer's behavior. The row inventory lives in
-//! `tests/semantic-index-matrix.md`.
+//! `tests/docs/semantic-index-matrix.md`.
 
 use std::path::Path;
 

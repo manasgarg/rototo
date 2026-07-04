@@ -5,11 +5,11 @@ services live on: it loads once at startup, keeps serving last-known-good
 through failures, probes for changes, recovers a degraded start from the
 fallback, and narrates all of it through status and events. This file is the
 executable inventory of that machine's promises, in the same form as
-`tests/composition-matrix.md`. Unless a row says otherwise, tests live in
+`tests/docs/composition-matrix.md`. Unless a row says otherwise, tests live in
 `tests/sdk.rs`.
 
 Load semantics (what a single `Package::load` does, fallback selection
-included) belong to `tests/sdk-load-matrix.md`; this file starts where the
+included) belong to `tests/docs/sdk-load-matrix.md`; this file starts where the
 loaded package becomes the serving state of a running process.
 
 ## 1. Startup

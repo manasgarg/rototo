@@ -4,11 +4,11 @@ The language server (`src/lsp/`) is one thin protocol layer over the lint
 snapshot: every feature (diagnostics, completion, hover, definition,
 references, symbols) reads the same `PackageLintSnapshot` the CLI lint
 builds. This file is the executable inventory of the server's promises, in
-the same form as `tests/composition-matrix.md`. Unless a row says
+the same form as `tests/docs/composition-matrix.md`. Unless a row says
 otherwise, tests are the inline suite in `src/lsp/mod.rs`.
 
 The foundation invariant, one snapshot feeds all features, is an index
-property: its rows live in `tests/semantic-index-matrix.md` section 6
+property: its rows live in `tests/docs/semantic-index-matrix.md` section 6
 (consumer consistency) and are not re-proven per feature here.
 
 ## 1. Session lifecycle and transport

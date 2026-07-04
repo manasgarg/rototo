@@ -4,14 +4,14 @@ Package sources are rototo's security boundary: every load starts with a
 source string, and everything the loader does with it (parsing, staging,
 extends resolution, credentials) decides what bytes end up trusted as
 configuration. This file is the executable inventory of those promises, in
-the same Given / When / Then form as `tests/composition-matrix.md`. A GAP row
+the same Given / When / Then form as `tests/docs/composition-matrix.md`. A GAP row
 is a promise we currently keep only by reading the code; a "pinned by"
 row is a deliberate non-test with its verification note.
 
 The source of truth is `src/source/`: `uri.rs` (grammar), `load.rs`
 (dispatch), `local.rs` / `git.rs` / `archive.rs` (staging), `auth.rs`
 (credentials), and `layer/graph.rs` (the extends graph). Merge semantics
-after staging belong to `tests/composition-matrix.md`, not here.
+after staging belong to `tests/docs/composition-matrix.md`, not here.
 
 ## 1. Source grammar
 
@@ -85,7 +85,7 @@ Delivery on the wire:
 ## 4. The extends graph
 
 Staging composes a graph of sources before any merge happens. The merge rows
-live in `tests/composition-matrix.md`; these rows are about which sources the
+live in `tests/docs/composition-matrix.md`; these rows are about which sources the
 graph will follow at all.
 
 | # | Given / When | Then | Coverage |

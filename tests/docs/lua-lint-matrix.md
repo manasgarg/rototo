@@ -3,12 +3,12 @@
 Package-local lint rules are untrusted code rototo executes: `lint/*.lua`
 files register rules that run against the composed package. That makes this
 a sandbox boundary as much as an extension point. This file inventories the
-contract, in the same form as `tests/composition-matrix.md`. The runtime is
+contract, in the same form as `tests/docs/composition-matrix.md`. The runtime is
 `src/lua_lint.rs`; registration, marshalling, and targeting live in
 `src/lint/custom/`.
 
 Rule-id identity (authority grammar, `rototo` reservation) overlaps
-`tests/lint-identity-matrix.md` I4; the enforcement rows live here.
+`tests/docs/lint-identity-matrix.md` I4; the enforcement rows live here.
 
 ## 1. The sandbox
 

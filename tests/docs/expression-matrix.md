@@ -5,12 +5,12 @@ Rototo's `when` and `query` expressions are a CEL subset: the `cel` crate
 schema-aware front-end around it (`src/expression/`): the four roots,
 reference extraction, constraint inference, and fixture-context synthesis.
 This file is the executable inventory of that contract, in the same form as
-`tests/composition-matrix.md`. Unless a row says otherwise, tests are the
+`tests/docs/composition-matrix.md`. Unless a row says otherwise, tests are the
 inline suite in `src/expression/mod.rs`.
 
 Boundaries: what lint does with an invalid expression (which rule fires,
 where the diagnostic points) belongs to the lint matrices; what resolution
-does with an evaluated result belongs to `tests/resolution-matrix.md`.
+does with an evaluated result belongs to `tests/docs/resolution-matrix.md`.
 
 ## 1. Roots: exactly four, everything else rejected
 

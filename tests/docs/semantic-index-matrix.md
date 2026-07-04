@@ -5,7 +5,7 @@ tree stands on: every built-in rule, the reference walker, hover, completion,
 go-to-definition, document symbols, inspect views, and the public semantic
 model all read from the one index a lint pipeline builds. This file is the
 executable inventory of what the index itself promises, in the same
-Given / When / Then form as `tests/composition-matrix.md`: every row names the
+Given / When / Then form as `tests/docs/composition-matrix.md`: every row names the
 test that proves it, and a GAP row is a promise we currently keep only by
 reading the code.
 

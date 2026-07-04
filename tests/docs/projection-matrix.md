@@ -3,7 +3,7 @@
 `rototo package` (`src/pack.rs`) turns a package source into a distributable
 artifact: a deterministic `.tar.gz` for object stores, or with `--unpacked`,
 the same flattened projection as a plain directory. This file inventories
-those promises, in the same form as `tests/composition-matrix.md`. Unless a
+those promises, in the same form as `tests/docs/composition-matrix.md`. Unless a
 row says otherwise, tests are the inline suite in `src/pack.rs`.
 
 What flattening does to `extends` semantics (markers consumed, governance

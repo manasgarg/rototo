@@ -4,13 +4,13 @@
 front door: one call that stages a source, lints it, compiles the runtime,
 and hands back a package apps can resolve from. This file is the executable
 inventory of those promises, in the same form as
-`tests/composition-matrix.md`. Unless a row says otherwise, tests live in
+`tests/docs/composition-matrix.md`. Unless a row says otherwise, tests live in
 `tests/sdk.rs`.
 
 Boundaries: source grammar and staging security live in
-`tests/source-auth-matrix.md`; the running-process lifecycle lives in
-`tests/refresh-matrix.md`; what resolution does with the loaded package
-lives in `tests/resolution-matrix.md`.
+`tests/docs/source-auth-matrix.md`; the running-process lifecycle lives in
+`tests/docs/refresh-matrix.md`; what resolution does with the loaded package
+lives in `tests/docs/resolution-matrix.md`.
 
 ## 1. Load pipeline
 
