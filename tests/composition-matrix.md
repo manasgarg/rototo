@@ -35,7 +35,7 @@ covers who may perform them.
 |---|---|---|---|
 | V1 | writes `variables/<id>.update.toml` with a `[resolve]` block for a base variable | the resolve block swaps atomically; type and description stay with the base; the marker never lands in the projection | `overlay_composes_membership_values_and_additions` |
 | V2 | adds a new namespaced variable (`variables/acme/in_trial.toml`) | the variable is discovered recursively as `acme/in_trial` and resolves | `overlay_composes_membership_values_and_additions` |
-| V3 | restates a base variable's plain `<id>.toml` with different content | the load fails and points at `variables/<id>.update.toml` | `variable_restatement_requires_the_update_marker` |
+| V3 | restates a base variable's plain `<id>.toml` with different content, at any namespace depth | the load fails and points at `variables/<id>.update.toml`, with the namespaced id in the path | `variable_restatement_requires_the_update_marker` |
 | V4 | restates a base variable's file byte-identically | the restatement composes as a no-op (diamond ancestry shape) | `byte_identical_variable_restatement_is_a_noop` |
 | V5 | wins a variable's `[resolve]` through the marker | the resolution trace's `provenance` names the overlay | `trace_provenance_names_the_layer_that_owns_the_resolution` |
 | V6 | puts any key other than `resolve` or `description` in an update marker, even restating the base's exact `type` | the load fails: "a variable update may only update [resolve] and description" | `variable_update_may_only_carry_resolve_and_description` |

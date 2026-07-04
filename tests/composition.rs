@@ -354,6 +354,38 @@ async fn variable_restatement_requires_the_update_marker() {
         ),
         "{err}"
     );
+
+    // The same rule holds one namespace down: the id is the relative path,
+    // and the error points at the marker next to the nested file.
+    let base2 = temp.path().join("base2");
+    let overlay2 = temp.path().join("overlay2");
+    write(&base2, "rototo-package.toml", "schema_version = 1\n").await;
+    write(
+        &base2,
+        "variables/acme/flag.toml",
+        "schema_version = 1\ntype = \"bool\"\n\n[resolve]\ndefault = false\n",
+    )
+    .await;
+    write(
+        &overlay2,
+        "rototo-package.toml",
+        "schema_version = 1\nextends = [\"../base2\"]\n",
+    )
+    .await;
+    write(
+        &overlay2,
+        "variables/acme/flag.toml",
+        "schema_version = 1\ntype = \"bool\"\n\n[resolve]\ndefault = true\n",
+    )
+    .await;
+    let err = Package::load(overlay2.to_string_lossy()).await.unwrap_err();
+    assert!(
+        err.to_string().contains(
+            "variable acme/flag is declared in the base packages; update it with \
+             variables/acme/flag.update.toml"
+        ),
+        "{err}"
+    );
 }
 
 #[tokio::test]
