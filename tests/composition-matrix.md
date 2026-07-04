@@ -79,9 +79,9 @@ change under task #36 (update markers replace bare restatement).
 ## 2. Governance: the base declares governance.toml
 
 Given a base with a governance contract and an overlay extending it. The
-grantable operations are add, update, delete, and override. design: override
-collapses into update (task #36), leaving three operations and one marker
-grammar; and deny-by-default becomes unconditional (task #37) - a base
+grantable operations are add, update, and delete; the retired names
+`constrain` and `override` are not accepted. design: deny-by-default
+becomes unconditional (task #37) - a base
 without governance.toml is closed to modification from above, so section 1's
 "no governance" premise becomes "the base grants the operation". The rows
 below describe today's behavior. `model/` files are never
@@ -102,13 +102,13 @@ above.
 | G10 | touches a base evaluation context schema | always denied, same custom-lint pointer | GAP |
 | G11a | restates a base sample file | denied: "add a new sample file instead" | GAP |
 | G11b | adds a new sample file for a base context | allowed without any grant | GAP |
-| G12 | provides `data/enums/<id>.toml` where the base already has one | checked as `update` on `enum.<id>` | GAP |
-| G13 | provides `data/enums/<id>.toml` where the base declares the enum but has no members file | checked as `add` on `enum.<id>` | GAP |
-| G14 | restates a base variable's `[resolve]` under an `override` grant | the load succeeds and the overlay resolution wins | `governed_base_admits_the_granted_overlay` |
-| G15 | restates a base variable with no `override` grant | the load fails: "governance denies override on variable.<id>" | `governed_base_denies_ungranted_operations` |
+| G12 | provides `data/enums/<id>.toml` where the base already has one | the load fails unless the contract grants `update` on `enum.<id>` | GAP |
+| G13 | provides `data/enums/<id>.toml` where the base declares the enum but has no members file | the load fails unless the contract grants `add` on `enum.<id>` | GAP |
+| G14 | restates a base variable's `[resolve]` under an `update` grant | the load succeeds and the overlay resolution wins | `governed_base_admits_the_granted_overlay` |
+| G15 | restates a base variable with no `update` grant | the load fails: "governance denies update on variable.<id>" | `governed_base_denies_ungranted_operations` |
 | G16 | adds a brand-new variable id | always allowed; new ids mint freely | `governed_base_denies_ungranted_operations` |
 | G17 | restates a base namespaced variable (`variables/acme/foo.toml`) | the governance target is `variable."acme/foo"` (path separators become `/`) | GAP |
-| G18 | restates a base `layers/<id>.toml` | checked as `override` on `layer.<id>` | GAP |
+| G18 | restates a base `layers/<id>.toml` | the load fails unless the contract grants `update` on `layer.<id>` | GAP |
 | G19 | restates a `lint/*.lua` file the base owns | the load fails: replacing a base lint file is not modeled | GAP |
 | G20 | introduces its own new catalog (schema + entries) | ungoverned; a catalog the overlay declares is its own to fill | GAP |
 | G21 | grants its own sub-overlays an operation the base never granted it | the load fails: "governance grant exceeds the inherited ceiling" | `governance_grants_cannot_exceed_the_inherited_ceiling` |

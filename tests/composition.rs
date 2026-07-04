@@ -120,7 +120,7 @@ async fn write_overlay(root: &Path) {
         "deleted = true\nreason = \"Acme does not offer a free plan\"\n",
     )
     .await;
-    // PATCH: negotiated price; other fields (name, limits) inherited.
+    // UPDATE: negotiated price; other fields (name, limits) inherited.
     write(
         root,
         "data/catalogs/plans/growth.update.toml",
@@ -182,7 +182,7 @@ async fn overlay_composes_membership_values_and_additions() {
     }))
     .unwrap();
     let resolution = package.resolve_variable("active_plan", &context).unwrap();
-    // PATCH: negotiated price and seat limit override the base fields,
+    // UPDATE: negotiated price and seat limit override the base fields,
     // fields the update does not mention are inherited.
     assert_eq!(resolution.value["name"], "Growth");
     assert_eq!(resolution.value["monthly_price"], 59);
@@ -363,7 +363,7 @@ async fn overlay_cannot_change_a_variable_type() {
 
 /// The base's layering contract for the governed tests: entries may be
 /// added, prices updated (never on free), any plan but free disabled, and
-/// active_plan's resolution overridden.
+/// active_plan's resolution updatable.
 const PLANS_GOVERNANCE: &str = r#"[catalog.plans]
 allowed_operations = ["add", "update", "delete"]
 
@@ -376,7 +376,7 @@ allowed_entries = ["*"]
 denied_entries = ["free"]
 
 [variable.active_plan]
-allowed_operations = ["override"]
+allowed_operations = ["update"]
 "#;
 
 #[tokio::test]
@@ -509,7 +509,7 @@ async fn governed_base_denies_ungranted_operations() {
     .await;
     // Adding a brand-new variable mints an id and is fine...
     Package::load(overlay.to_string_lossy()).await.unwrap();
-    // ...but replacing a base variable's resolution needs the override grant.
+    // ...but replacing a base variable's resolution needs the update grant.
     write(
         &overlay,
         "variables/is_enterprise.toml",
@@ -525,7 +525,7 @@ async fn governed_base_denies_ungranted_operations() {
     let err = Package::load(overlay.to_string_lossy()).await.unwrap_err();
     assert!(
         err.to_string()
-            .contains("governance denies override on variable.is_enterprise"),
+            .contains("governance denies update on variable.is_enterprise"),
         "{err}"
     );
 }
@@ -543,12 +543,12 @@ async fn governance_grants_cannot_exceed_the_inherited_ceiling() {
         "schema_version = 1\nextends = [\"../base\"]\n",
     )
     .await;
-    // The overlay tries to hand its own sub-layers override, which the base
-    // never granted the overlay itself.
+    // The overlay tries to hand its own sub-layers delete on the variable,
+    // which the base never granted the overlay itself.
     write(
         &overlay,
         "governance.toml",
-        "[catalog.plans]\nallowed_operations = [\"override\"]\n",
+        "[variable.active_plan]\nallowed_operations = [\"delete\"]\n",
     )
     .await;
 

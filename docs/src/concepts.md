@@ -652,10 +652,10 @@ allowed_entries = ["*"]
 denied_entries = ["free"]
 
 [variable.active_plan]
-allowed_operations = ["override"]
+allowed_operations = ["update"]
 ```
 
-A tenant may add plan entries, update `monthly_price` and `limits` on any plan except `free`, delete any plan except `free`, and override how `active_plan` resolves. That's the whole grant. Updating a plan's `name`, deleting `free`, or touching the plans schema all fail the load, by name.
+A tenant may add plan entries, update `monthly_price` and `limits` on any plan except `free`, delete any plan except `free`, and update how `active_plan` resolves. That's the whole grant. Updating a plan's `name`, deleting `free`, or touching the plans schema all fail the load, by name.
 
 Authoring a contract is two moves:
 

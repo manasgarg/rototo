@@ -4,9 +4,10 @@ use super::super::engine::LintContext;
 use super::super::index::*;
 use super::super::stages::push_project_diagnostic;
 
-/// The four governed operations; only update and delete carry a scope,
-/// expressed through the update_policy and delete_policy tables.
-const OPERATIONS: &[&str] = &["add", "update", "delete", "override"];
+/// The three governed operations; only update and delete carry a scope,
+/// expressed through the update_policy and delete_policy tables. The retired
+/// names `constrain` and `override` must not be accepted.
+const OPERATIONS: &[&str] = &["add", "update", "delete"];
 
 pub(super) fn lint_governance_shape(ctx: &mut LintContext) {
     let Some(governance) = &ctx.index.governance else {
@@ -71,8 +72,7 @@ pub(super) fn lint_governance_shape(ctx: &mut LintContext) {
                                 target(),
                                 operation.location.clone(),
                                 format!(
-                                    "governance operations are add, update, delete, and \
-                                     override: {}",
+                                    "governance operations are add, update, and delete: {}",
                                     operation.value
                                 ),
                             );
@@ -98,7 +98,7 @@ pub(super) fn lint_governance_shape(ctx: &mut LintContext) {
             let Some(policy) = policy else {
                 // A scoped operation gated on with no policy applies to
                 // everything; for update that silently includes future fields.
-                if operation == "update" && allowed.contains(&"update") {
+                if operation == "update" && allowed.contains(&"update") && block.kind == "catalog" {
                     push_project_diagnostic(
                         &mut diagnostics,
                         RototoRuleId::GovernanceUnscopedUpdate,

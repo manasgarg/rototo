@@ -263,12 +263,12 @@ allowed_entries = ["*"]
 denied_entries = ["free"]
 
 [variable.active_plan]
-allowed_operations = ["override"]
+allowed_operations = ["update"]
 ```
 
 Read that as a contract: the overlay may add plan entries, may update
 `monthly_price` and `limits` on any plan except `free`, may delete any plan
-except `free`, and may override `active_plan`'s resolution. Everything else it
+except `free`, and may update `active_plan`'s resolution. Everything else it
 might try on a base-declared entity is denied.
 
 ### Default-closed, over base entities only
@@ -284,19 +284,19 @@ freely: a tenant's own namespaced variables, its own catalogs and enums, its
 own layers. Whether those minted ids are *well named* is a lint concern
 (`rototo/id-not-snake-case` and friends), not a permission.
 
-### The four operations
+### The three operations
 
 Each operation names one on-disk shape the overlay can produce:
 
 | Operation | What the overlay does on disk |
 | --- | --- |
 | `add` | a new `<entry>.toml` in a governed catalog, or a member file under `data/enums/` for a declared enum that had none in the base |
-| `update` | an `<entry>.update.toml` over a base catalog entry, or a `data/enums/<id>.toml` that unions members into the base's set |
+| `update` | an `<entry>.update.toml` over a base catalog entry, a `data/enums/<id>.toml` that unions members into the base's set, a replacement of a base variable's `[resolve]` block, or a replacement of a base layer file under `layers/` |
 | `delete` | an `<entry>.deleted.toml` disabling a base catalog entry |
-| `override` | replacing a base variable's `[resolve]` block, or a base layer file under `layers/` |
 
 Grants go in `allowed_operations`; `denied_operations` subtracts from them and
-wins. An operation absent from `allowed_operations` is denied - that's the
+wins. The retired operation names `constrain` and `override` are not accepted
+and will not be reused. An operation absent from `allowed_operations` is denied - that's the
 default-closed part.
 
 Some shapes are deliberately *not* operations. Replacing a whole base catalog

@@ -279,13 +279,13 @@ fn check_governed_file(
                     .and_then(|path| path.with_extension("").to_str().map(str::to_owned))
                     .map(|id| id.replace(std::path::MAIN_SEPARATOR, "/"))
                     .unwrap_or_default();
-                contract.check("variable", &id, Operation::Override, None, &[])
+                contract.check("variable", &id, Operation::Update, None, &[])
             }
             _ => Ok(()),
         },
         ["layers", file] => match stem(file, ".toml") {
             Some(id) if exists(relative) => {
-                contract.check("layer", &id, Operation::Override, None, &[])
+                contract.check("layer", &id, Operation::Update, None, &[])
             }
             _ => Ok(()),
         },

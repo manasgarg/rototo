@@ -23,5 +23,5 @@ denied_operations = []
 
 # Tenants may replace the banner decision wholesale (a complete [resolve] block).
 [variable.homepage_banner]
-allowed_operations = ["override"]
+allowed_operations = ["update"]
 denied_operations = []

@@ -492,7 +492,7 @@ rototo_rules! {
         id: "governance-shape",
         entity: Governance,
         title: "Governance contract is invalid",
-        help: "governance.toml declares [<kind>.<id>] blocks (catalog, enum, variable, evaluation_context, or layer) with allowed_operations/denied_operations drawn from add, update, delete, and override, plus update_policy/delete_policy tables whose allowed_*/denied_* lists name entries and fields. Policies exist only for update and delete; an allowlist must not be empty.",
+        help: "governance.toml declares [<kind>.<id>] blocks (catalog, enum, variable, evaluation_context, or layer) with allowed_operations/denied_operations drawn from add, update, and delete, plus update_policy/delete_policy tables whose allowed_*/denied_* lists name entries and fields. Policies exist only for update and delete; an allowlist must not be empty.",
     },
     GovernanceUnknownTarget => {
         id: "governance-unknown-target",

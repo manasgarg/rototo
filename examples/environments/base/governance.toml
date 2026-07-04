@@ -1,7 +1,7 @@
 # Governance for the thumbnail service's environment layering.
 #
 # Environment overlays may replace VALUES but never the CONTRACT: every variable
-# grants override, nothing else grants anything, so dev and staging can differ in
+# grants update, nothing else grants anything, so dev and staging can differ in
 # values while schemas, enums, and the variable set stay identical everywhere.
 #
 # FRICTION FINDING (deliberately preserved): governance blocks are per-entity, so
@@ -11,21 +11,21 @@
 # is the evidence.
 
 [variable.storage_bucket]
-allowed_operations = ["override"]
+allowed_operations = ["update"]
 denied_operations = []
 
 [variable.origin_timeout_ms]
-allowed_operations = ["override"]
+allowed_operations = ["update"]
 denied_operations = []
 
 [variable.max_upload_mb]
-allowed_operations = ["override"]
+allowed_operations = ["update"]
 denied_operations = []
 
 [variable.enable_debug_endpoints]
-allowed_operations = ["override"]
+allowed_operations = ["update"]
 denied_operations = []
 
 [variable.log_level]
-allowed_operations = ["override"]
+allowed_operations = ["update"]
 denied_operations = []
