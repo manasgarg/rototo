@@ -167,8 +167,8 @@ decide(subject, action, resource, context) -> Decision
 - `action`: one of the verbs in section 5.1.
 - `resource`: one node of the resource tree in section 5.2.
 - `context`: request facts a rule may need. v1 defines one: `author`, the
-  proposing principal of the change under review, so policy can forbid
-  self-approval without a special case in every route.
+  proposing principal of the change under review, so two-person policies
+  (section 5.1) can be evaluated without a special case in every route.
 - `Decision`: allow or deny, plus a machine-readable explanation: which grant,
   derivation, or backend produced the answer. Every allow can say why in one
   sentence.
@@ -203,9 +203,20 @@ GitHub identity, permissions are read from GitHub and mapped:
 | repo `maintain` or `admin` | `approve` anywhere in the repo (when no CODEOWNERS applies) |
 | repo `admin` | `administer` on the source tree |
 
+Backend A also reads the target branch's protection rules, because they
+carry the repository's change policy, not just its permissions: whether
+reviews are required decides whether a proposer may land their own change,
+and an unprotected branch plus push permission means propose and approve
+collapse into direct application, exactly as `git push` would. One principle
+binds this backend: **advisory means never stricter than the authority.** If
+GitHub would accept a direct push or a self-merge, the console allows it and
+renders it honestly (marking the change as landed without independent
+review) rather than refusing; a rule the user can walk around with plain
+`git push` is not a rule, only friction.
+
 Facts are fetched with the subject's own token (collaborator permission,
-team membership, CODEOWNERS content) and cached with a short TTL, around one
-to five minutes. Staleness is acceptable in this phase because Backend A is
+team membership, CODEOWNERS content, branch protection) and cached with a
+short TTL, around one to five minutes. Staleness is acceptable in this phase because Backend A is
 **advisory**: the write itself still runs with the user's token, so GitHub
 remains the authority at the moment of the operation. The console's decision
 exists to render honest UI (grey the button before the doomed attempt, build
@@ -245,8 +256,14 @@ view < propose < approve < administer
 - `propose`: create and edit change branches, commit through the console,
   open a change for review. In a pull-request-policy deployment, editing IS
   proposing; there is no separate edit verb.
-- `approve`: approve and land someone's proposed change. Self-approval is
-  refused via the `author` context regardless of grants.
+- `approve`: approve and land a proposed change. Whether a proposer may land
+  their own change is policy, not a hard invariant. Under Backend A the
+  policy is the repository's: branch protection requiring review means no
+  self-landing, and an unprotected branch means direct application is
+  allowed. Under Backend B it is a deployment or scope-level setting,
+  defaulting to requiring a second person, because there the console is the
+  only enforcement point. The `author` context exists so this policy has
+  something to evaluate.
 - `administer`: manage grants, groups, invitations, and source registration
   at this scope.
 
