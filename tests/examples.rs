@@ -255,7 +255,7 @@ async fn tenancy_base_ranks_banners_by_audience_and_priority() {
 }
 
 #[tokio::test]
-async fn tenancy_overlay_composes_add_patch_and_delete() {
+async fn tenancy_overlay_composes_add_update_and_delete() {
     let package = load("examples/tenancy-decisioning/acme-tenant").await;
 
     // Acme's added banner wins for its returning-visitor audience.
@@ -268,7 +268,7 @@ async fn tenancy_overlay_composes_add_patch_and_delete() {
     assert_eq!(banner.value["id"], json!("acme_flash_sale"));
 
     // The base welcome banner still fires for new visitors, re-worded by
-    // Acme's patch; only the patched fields changed.
+    // Acme's update; only the updated fields changed.
     let first_visit = context(json!({
         "visitor": { "id": "v4", "visits": 1, "lifetime_spend": 0 }
     }));
@@ -289,7 +289,7 @@ async fn tenancy_base_governance_scopes_updates_and_protects_the_floor() {
     let overlay = overlay_extending("examples/tenancy-decisioning/base").await;
     write(
         overlay.path(),
-        "data/catalogs/banners/welcome.patch.toml",
+        "data/catalogs/banners/welcome.update.toml",
         "priority = 99\n",
     )
     .await;

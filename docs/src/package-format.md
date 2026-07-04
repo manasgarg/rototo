@@ -136,7 +136,7 @@ or layer - fails the load ("package extends bases conflict on ..."). Catalogs
 are the one place siblings may share: two bases can each add their own entries
 to a catalog they both inherit from a common ancestor, because entry files
 compose additively. The disjointness line just moves down a level - two bases
-providing the same entry, one base patching or deleting an entry another base
+providing the same entry, one base updating or deleting an entry another base
 provides, or two bases carrying different versions of the catalog schema, all
 still fail the load. If two bases genuinely share more than that, make one
 extend the other or move the shared piece into one package. Diamond ancestry
@@ -182,26 +182,26 @@ An overlay can also add variables of its own, and subdirectories keep them out
 of the base's way: `variables/acme/in_trial.toml` defines the namespaced
 variable `acme/in_trial`, referenced as `variables["acme/in_trial"]`.
 
-### Catalog entries: union, deletes, and patches
+### Catalog entries: union, deletes, and updates
 
 Catalog entries compose as a set. The active entries of a catalog are the
 entries the base packages provide, plus the entries this package provides, minus
-the entries this package deletes, with field patches applied. Two file shapes
-drive the minus and the patch, both keyed by path next to the entries they act
+the entries this package deletes, with field updates applied. Two file shapes
+drive the minus and the update, both keyed by path next to the entries they act
 on:
 
 - `data/catalogs/<catalog>/<entry>.deleted.toml` removes the entry a base
   package provided from this package's view. The base file is untouched; the
   marker file itself never appears in the flattened package. By convention it
   contains `deleted = true` and an optional `reason = "..."`.
-- `data/catalogs/<catalog>/<entry>.patch.toml` overrides fields of the entry
+- `data/catalogs/<catalog>/<entry>.update.toml` updates fields of the entry
   below: tables merge recursively, scalars and arrays replace, and any field
-  the patch doesn't mention is inherited.
+  the update doesn't mention is inherited.
 
 Both shapes have to point at something real. A deleted marker with no entry in
 the base packages fails the load ("deleted marker has no catalog entry to
-remove in the base packages"), and an orphaned patch fails the same way. A
-single package that both provides `<entry>.toml` and deletes or patches that
+remove in the base packages"), and an orphaned update marker fails the same way. A
+single package that both provides `<entry>.toml` and deletes or updates that
 same entry also fails the load - it's contradicting itself.
 
 Deleting an entry someone depends on is deliberately loud. If a base variable
@@ -291,7 +291,7 @@ Each operation names one on-disk shape the overlay can produce:
 | Operation | What the overlay does on disk |
 | --- | --- |
 | `add` | a new `<entry>.toml` in a governed catalog, or a member file under `data/enums/` for a declared enum that had none in the base |
-| `update` | an `<entry>.patch.toml` over a base catalog entry, or a `data/enums/<id>.toml` that unions members into the base's set |
+| `update` | an `<entry>.update.toml` over a base catalog entry, or a `data/enums/<id>.toml` that unions members into the base's set |
 | `delete` | an `<entry>.deleted.toml` disabling a base catalog entry |
 | `override` | replacing a base variable's `[resolve]` block, or a base layer file under `layers/` |
 
@@ -301,7 +301,7 @@ default-closed part.
 
 Some shapes are deliberately *not* operations. Replacing a whole base catalog
 entry file is rejected toward the structural shapes: "governance does not
-model replacing catalog entry `<entry>` wholesale; use `<entry>.patch.toml` to
+model replacing catalog entry `<entry>` wholesale; use `<entry>.update.toml` to
 update fields or `<entry>.deleted.toml` to disable it". Replacing a lint file
 the base owns is rejected outright.
 

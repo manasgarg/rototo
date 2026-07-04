@@ -1,5 +1,5 @@
 //! Structured composition through `extends`: an overlay package unions,
-//! deletes, and patches catalog entries, replaces a variable's `[resolve]`
+//! deletes, and updates catalog entries, replaces a variable's `[resolve]`
 //! block while inheriting its type, and adds namespaced variables of its own.
 
 use std::path::Path;
@@ -123,7 +123,7 @@ async fn write_overlay(root: &Path) {
     // PATCH: negotiated price; other fields (name, limits) inherited.
     write(
         root,
-        "data/catalogs/plans/growth.patch.toml",
+        "data/catalogs/plans/growth.update.toml",
         "monthly_price = 59\n\n[limits]\nseats = 25\n",
     )
     .await;
@@ -183,7 +183,7 @@ async fn overlay_composes_membership_values_and_additions() {
     .unwrap();
     let resolution = package.resolve_variable("active_plan", &context).unwrap();
     // PATCH: negotiated price and seat limit override the base fields,
-    // unpatched fields are inherited.
+    // fields the update does not mention are inherited.
     assert_eq!(resolution.value["name"], "Growth");
     assert_eq!(resolution.value["monthly_price"], 59);
     assert_eq!(resolution.value["limits"]["seats"], 25);
@@ -243,7 +243,7 @@ default = "free"
 }
 
 #[tokio::test]
-async fn orphan_deleted_markers_and_patches_fail_loudly() {
+async fn orphan_deleted_and_update_markers_fail_loudly() {
     let temp = tempfile::TempDir::new().unwrap();
     let base = temp.path().join("base");
     let overlay = temp.path().join("overlay");
@@ -273,14 +273,14 @@ async fn orphan_deleted_markers_and_patches_fail_loudly() {
         .unwrap();
     write(
         &overlay,
-        "data/catalogs/plans/nonexistent.patch.toml",
+        "data/catalogs/plans/nonexistent.update.toml",
         "monthly_price = 1\n",
     )
     .await;
     let err = Package::load(overlay.to_string_lossy()).await.unwrap_err();
     assert!(
         err.to_string()
-            .contains("patch has no catalog entry to override"),
+            .contains("update has no catalog entry to update"),
         "{err}"
     );
 }
@@ -362,7 +362,7 @@ async fn overlay_cannot_change_a_variable_type() {
 }
 
 /// The base's layering contract for the governed tests: entries may be
-/// added, prices patched (never on free), any plan but free disabled, and
+/// added, prices updated (never on free), any plan but free disabled, and
 /// active_plan's resolution overridden.
 const PLANS_GOVERNANCE: &str = r#"[catalog.plans]
 allowed_operations = ["add", "update", "delete"]
@@ -388,11 +388,11 @@ async fn governed_base_admits_the_granted_overlay() {
     write(&base, "governance.toml", PLANS_GOVERNANCE).await;
     write_overlay(&overlay).await;
     // The stock overlay deletes free, which the contract denies; point the
-    // deleted marker at growth instead and drop the growth patch.
+    // deleted marker at growth instead and drop the growth update.
     tokio::fs::remove_file(overlay.join("data/catalogs/plans/free.deleted.toml"))
         .await
         .unwrap();
-    tokio::fs::remove_file(overlay.join("data/catalogs/plans/growth.patch.toml"))
+    tokio::fs::remove_file(overlay.join("data/catalogs/plans/growth.update.toml"))
         .await
         .unwrap();
     write(
@@ -449,7 +449,7 @@ async fn governed_base_denies_ungranted_operations() {
     .await;
     write(
         &overlay,
-        "data/catalogs/plans/growth.patch.toml",
+        "data/catalogs/plans/growth.update.toml",
         "name = \"Renamed\"\n",
     )
     .await;
@@ -475,7 +475,7 @@ async fn governed_base_denies_ungranted_operations() {
     )
     .await;
     let err = Package::load(overlay.to_string_lossy()).await.unwrap_err();
-    assert!(err.to_string().contains("use growth.patch.toml"), "{err}");
+    assert!(err.to_string().contains("use growth.update.toml"), "{err}");
 
     // Touching a base schema is never grantable; narrowing is custom lint.
     let overlay = temp.path().join("overlay-schema");

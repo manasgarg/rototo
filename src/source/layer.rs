@@ -253,7 +253,7 @@ fn check_governed_file(
             if let Some(entry) = stem(file, ".deleted.toml") {
                 return contract.check("catalog", catalog, Operation::Delete, Some(&entry), &[]);
             }
-            if let Some(entry) = stem(file, ".patch.toml") {
+            if let Some(entry) = stem(file, ".update.toml") {
                 let fields = toml_top_level_keys(source_path)?;
                 return contract.check(
                     "catalog",
@@ -265,7 +265,7 @@ fn check_governed_file(
             }
             match stem(file, ".toml") {
                 Some(entry) if exists(relative) => Err(RototoError::new(format!(
-                    "governance does not model replacing catalog entry {entry} wholesale;                      use {entry}.patch.toml to update fields or {entry}.deleted.toml to                      remove it"
+                    "governance does not model replacing catalog entry {entry} wholesale;                      use {entry}.update.toml to update fields or {entry}.deleted.toml to                      remove it"
                 ))),
                 Some(_) => contract.check("catalog", catalog, Operation::Add, None, &[]),
                 None => Ok(()),
@@ -306,7 +306,7 @@ fn schema_edit_denied(what: &str, id: &str) -> RototoError {
     ))
 }
 
-/// The top-level keys of a patch file, which are the fields it updates.
+/// The top-level keys of an update file, which are the fields it updates.
 fn toml_top_level_keys(path: &Path) -> Result<Vec<String>> {
     let value = read_layer_toml(path)?;
     Ok(value
@@ -450,7 +450,7 @@ fn sibling_entity_key(relative: &Path) -> String {
             stem(file, ".schema.json").map(|id| format!("catalog {id} schema"))
         }
         ["data", "catalogs", catalog, file] => stem(file, ".deleted.toml")
-            .or_else(|| stem(file, ".patch.toml"))
+            .or_else(|| stem(file, ".update.toml"))
             .or_else(|| stem(file, ".toml"))
             .map(|entry| format!("catalog {catalog} entry {entry}")),
         ["model", "enums", file] | ["data", "enums", file] => {
@@ -637,9 +637,10 @@ enum LayerFileComposition {
     /// below provided. The deleted marker itself never lands in the
     /// projection.
     CatalogEntryDeleted { entry: String },
-    /// `data/catalogs/<id>/<entry>.patch.toml`: field-level override of the
-    /// entry a layer below provided; unpatched fields are inherited.
-    CatalogEntryPatch { entry: String },
+    /// `data/catalogs/<id>/<entry>.update.toml`: field-level update of the
+    /// entry a layer below provided; fields the update does not mention are
+    /// inherited.
+    CatalogEntryUpdate { entry: String },
     /// `variables/**.toml` over an existing file: top-level keys replace the
     /// base's (so an overlay `[resolve]` block replaces the whole resolution),
     /// keys the overlay does not declare are inherited.
@@ -669,8 +670,8 @@ fn classify_layer_file(
                     entry: entry.to_owned(),
                 };
             }
-            if let Some(entry) = file_name.strip_suffix(".patch.toml") {
-                return LayerFileComposition::CatalogEntryPatch {
+            if let Some(entry) = file_name.strip_suffix(".update.toml") {
+                return LayerFileComposition::CatalogEntryUpdate {
                     entry: entry.to_owned(),
                 };
             }
@@ -709,7 +710,7 @@ fn compose_package_layer_file(
             Ok(())
         }
         LayerFileComposition::CatalogEntryDeleted { entry } => {
-            reject_same_layer_entry(source_path, &entry, "deleted marker")?;
+            reject_same_layer_entry(source_path, &entry, "a deleted marker")?;
             let entry_path = target_dir.join(format!("{entry}.toml"));
             if !entry_path.is_file() {
                 return Err(RototoError::new(format!(
@@ -725,18 +726,18 @@ fn compose_package_layer_file(
             })?;
             Ok(())
         }
-        LayerFileComposition::CatalogEntryPatch { entry } => {
-            reject_same_layer_entry(source_path, &entry, "patch")?;
+        LayerFileComposition::CatalogEntryUpdate { entry } => {
+            reject_same_layer_entry(source_path, &entry, "an update")?;
             let entry_path = target_dir.join(format!("{entry}.toml"));
             if !entry_path.is_file() {
                 return Err(RototoError::new(format!(
-                    "patch has no catalog entry to override in the base packages: {}",
+                    "update has no catalog entry to update in the base packages: {}",
                     relative.display()
                 )));
             }
             let mut base = read_layer_toml(&entry_path)?;
-            let patch = read_layer_toml(source_path)?;
-            deep_merge_toml(&mut base, patch);
+            let update = read_layer_toml(source_path)?;
+            deep_merge_toml(&mut base, update);
             write_layer_toml(&entry_path, &base)
         }
         LayerFileComposition::VariableMerge => {
@@ -779,7 +780,7 @@ fn compose_package_layer_file(
     }
 }
 
-/// A layer that both provides `<entry>.toml` and deletes or patches the
+/// A layer that both provides `<entry>.toml` and deletes or updates the
 /// same entry is contradicting itself; composition targets the layers below.
 fn reject_same_layer_entry(source_path: &Path, entry: &str, operation: &str) -> Result<()> {
     let sibling = source_path
@@ -788,7 +789,7 @@ fn reject_same_layer_entry(source_path: &Path, entry: &str, operation: &str) -> 
         .filter(|sibling| sibling.is_file());
     if sibling.is_some() {
         return Err(RototoError::new(format!(
-            "package both provides catalog entry {entry} and declares a {operation} for it"
+            "package both provides catalog entry {entry} and declares {operation} for it"
         )));
     }
     Ok(())
@@ -820,12 +821,13 @@ fn write_layer_toml(path: &Path, value: &toml::Value) -> Result<()> {
     })
 }
 
-/// Deep merge for catalog entry patches: tables merge recursively, everything
-/// else (scalars, arrays) replaces, and unpatched fields are inherited.
-fn deep_merge_toml(base: &mut toml::Value, patch: toml::Value) {
-    match (base, patch) {
-        (toml::Value::Table(base), toml::Value::Table(patch)) => {
-            for (key, value) in patch {
+/// Deep merge for catalog entry updates: tables merge recursively, everything
+/// else (scalars, arrays) replaces, and fields the update does not mention are
+/// inherited.
+fn deep_merge_toml(base: &mut toml::Value, update: toml::Value) {
+    match (base, update) {
+        (toml::Value::Table(base), toml::Value::Table(update)) => {
+            for (key, value) in update {
                 match base.get_mut(&key) {
                     Some(existing) => deep_merge_toml(existing, value),
                     None => {
@@ -834,7 +836,7 @@ fn deep_merge_toml(base: &mut toml::Value, patch: toml::Value) {
                 }
             }
         }
-        (base, patch) => *base = patch,
+        (base, update) => *base = update,
     }
 }
 

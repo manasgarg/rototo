@@ -186,7 +186,7 @@ identity resolution, and Terraform-style enforcement of resolved state all
 belong to the application or its other tools.)
 
 For orientation, the things that used to be on this list and are now shipped
-and demonstrated under `examples/`: structured composition (entry add, patch,
+and demonstrated under `examples/`: structured composition (entry add, update,
 and delete; atomic `[resolve]` override; namespaced variables; enum member
 union and delete), the `governance.toml` layering contract enforced at compose time,
 layers and allocations for rollouts and experiments, catalog queries with

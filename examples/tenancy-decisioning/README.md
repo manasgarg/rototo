@@ -19,7 +19,7 @@ Use cases demonstrated (numbers are the use-case groups on the `use-cases` docs 
 | Use case | Where |
 | --- | --- |
 | 5 Per-tenant overrides | `acme-tenant/` end to end |
-| 5 White-label composition: add, patch, delete | `acme-tenant/data/catalogs/banners/` |
+| 5 White-label composition: add, update, delete | `acme-tenant/data/catalogs/banners/` |
 | 5 Delegated administration | `acme-tenant/governance.toml` narrowing for Acme's own teams |
 | 6 Ranked selection | `base/variables/homepage_banner.toml` |
 | 6 Audience-conditioned content | `base/data/catalogs/audiences/` |
@@ -28,7 +28,7 @@ Use cases demonstrated (numbers are the use-case groups on the `use-cases` docs 
 ## Every composition mechanism, once
 
 - **Add**: `acme_flash_sale.toml` unions a new banner in.
-- **Patch**: `welcome.patch.toml` re-words creative; only the fields the base's
+- **Patch**: `welcome.update.toml` re-words creative; only the fields the base's
   `update_policy` allows.
 - **Delete**: `spring_sale.deleted.toml` removes a base banner for this
   tenant.
@@ -55,10 +55,10 @@ Covered by `tests/examples.rs` and `tests/package_lint.rs`:
 - Composing `acme-tenant` over `base` yields: `acme_flash_sale` present,
   `welcome` re-worded, `spring_sale` absent, `default_banner` untouched.
 - A returning Acme visitor resolves `homepage_banner` to `acme_flash_sale`
-  (priority 95 beats everything); a first-time visitor gets the patched
+  (priority 95 beats everything); a first-time visitor gets the updated
   `welcome`; in the base, a high-spend visitor gets `loyalty_thanks` and a
   visitor matching no audience falls back to `default_banner`.
-- Governance rejections at compose time: a patch touching `priority` fails with
+- Governance rejections at compose time: an update touching `priority` fails with
   "governance denies update of field priority on catalog.banners", and a
   deleted marker for `default_banner` fails with "governance denies delete of entry
   default_banner on catalog.banners".

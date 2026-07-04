@@ -15,14 +15,14 @@ pub(super) fn lint_id_naming(ctx: &mut LintContext) {
                      location: crate::diagnostics::DiagnosticLocation,
                      kind: &str| {
         if !id_is_snake_case(id) {
-            // Deleted markers and patches compose through extends and are
+            // Deleted and update markers compose through extends and are
             // consumed when layers flatten; one surviving into lint has no
             // base package.
             let message = if kind == "catalog entry"
-                && (id.ends_with(".deleted") || id.ends_with(".patch"))
+                && (id.ends_with(".deleted") || id.ends_with(".update"))
             {
                 format!(
-                    "{kind} deleted markers and patches apply to a base package through extends; \
+                    "{kind} deleted and update markers apply to a base package through extends; \
                      this package has no base entry for them to compose with: {id}"
                 )
             } else {

@@ -47,14 +47,14 @@ change under task #36 (update markers replace bare restatement).
 | # | When the overlay... | Then... | Coverage |
 |---|---|---|---|
 | C1 | adds a new entry file | the entry lands next to the base's entries | `overlay_composes_membership_values_and_additions` |
-| C2 | patches an entry (`<entry>.patch.toml`) with scalars and a nested table | patched scalars replace, nested tables recurse, unpatched fields are inherited | `overlay_composes_membership_values_and_additions` |
-| C3 | patches a field whose value is an array | the array replaces the base array wholesale, no concatenation | GAP |
+| C2 | updates an entry (`<entry>.update.toml`) with scalars and a nested table | updated scalars replace, nested tables recurse, unmentioned fields are inherited | `overlay_composes_membership_values_and_additions` |
+| C3 | updates a field whose value is an array | the array replaces the base array wholesale, no concatenation | GAP |
 | C4 | writes `<entry>.deleted.toml` for a base entry | the entry is gone from the projection and references to it become `rototo/variable-unknown-value` lint failures | `overlay_deleted_marker_removes_the_base_entry` |
-| C5 | writes a deleted marker for an entry no layer below provides | the load fails: "deleted marker has no catalog entry to remove" | `orphan_deleted_markers_and_patches_fail_loudly` |
-| C6 | writes a patch for an entry no layer below provides | the load fails: "patch has no catalog entry to override" | `orphan_deleted_markers_and_patches_fail_loudly` |
+| C5 | writes a deleted marker for an entry no layer below provides | the load fails: "deleted marker has no catalog entry to remove" | `orphan_deleted_and_update_markers_fail_loudly` |
+| C6 | writes an update marker for an entry no layer below provides | the load fails: "update has no catalog entry to update" | `orphan_deleted_and_update_markers_fail_loudly` |
 | C7 | provides an entry and its deleted marker in the same layer | the load fails naming both files | `same_layer_entry_and_deleted_marker_conflict` |
-| C8 | provides a patch and a deleted marker for one entry in the same layer | undefined today: `reject_same_layer_entry` only guards against the entry file itself, so both markers apply in directory order. design: this should fail the load like C7 | GAP |
-| C9 | patches an entry a layer below already patched (chain of three packages) | patches apply bottom-up; the top patch sees the middle patch's result | GAP (no depth-3 chain test at all, see D1) |
+| C8 | provides an update marker and a deleted marker for one entry in the same layer | undefined today: `reject_same_layer_entry` only guards against the entry file itself, so both markers apply in directory order. design: this should fail the load like C7 | GAP |
+| C9 | updates an entry a layer below already updated (chain of three packages) | updates apply bottom-up; the top update sees the middle update's result | GAP (no depth-3 chain test at all, see D1) |
 
 ### Enums
 
@@ -93,10 +93,10 @@ above.
 | G1 | adds a catalog entry under an `add` grant | the load succeeds | `governed_base_admits_the_granted_overlay` |
 | G2 | deletes an entry listed in `delete_policy.denied_entries` | the load fails: "governance denies delete of entry ... " | `governed_base_denies_ungranted_operations` |
 | G3 | deletes an entry the delete policy allows (`allowed_entries = ["*"]`, not denied) | the load succeeds and the entry is gone | GAP |
-| G4 | patches a field in `update_policy.allowed_fields` on a permitted entry | the load succeeds with the patched value | GAP |
-| G5 | patches a field outside `allowed_fields` | the load fails naming the field | `governed_base_denies_ungranted_operations` |
-| G6 | patches an allowed field on an entry in `update_policy.denied_entries` | the load fails naming the entry (deny wins over the field allowlist) | GAP |
-| G7 | restates a whole entry file the base owns | the load fails and points at `<entry>.patch.toml` / `<entry>.deleted.toml` | `governed_base_denies_ungranted_operations` |
+| G4 | updates a field in `update_policy.allowed_fields` on a permitted entry | the load succeeds with the updated value | GAP |
+| G5 | updates a field outside `allowed_fields` | the load fails naming the field | `governed_base_denies_ungranted_operations` |
+| G6 | updates an allowed field on an entry in `update_policy.denied_entries` | the load fails naming the entry (deny wins over the field allowlist) | GAP |
+| G7 | restates a whole entry file the base owns | the load fails and points at `<entry>.update.toml` / `<entry>.deleted.toml` | `governed_base_denies_ungranted_operations` |
 | G8 | touches a base catalog schema | always denied; the error points at custom lint under `lint/` | `governed_base_denies_ungranted_operations` |
 | G9 | touches a base enum declaration (`model/enums/<id>.toml`) | always denied, same custom-lint pointer | GAP |
 | G10 | touches a base evaluation context schema | always denied, same custom-lint pointer | GAP |
@@ -134,7 +134,7 @@ restatements, which is how diamond ancestry looks.
 | B4 | add distinct entries to a shared ancestor's catalog | both entries land; the catalog is shared additively | `sibling_bases_add_disjoint_entries_to_a_shared_catalog` |
 | B5 | provide the same catalog entry with different content | the load fails on "catalog <id> entry <entry>" | `sibling_bases_conflict_on_the_same_catalog_entry` |
 | B6 | one provides an entry, the other a deleted marker for it | the load fails on the shared entry key | `sibling_base_may_not_touch_another_siblings_catalog` |
-| B7 | one provides an entry, the other a patch for it | the load fails on the shared entry key (same mechanism as B6, untested spelling) | GAP |
+| B7 | one provides an entry, the other an update marker for it | the load fails on the shared entry key (same mechanism as B6, untested spelling) | GAP |
 | B8 | carry diverging schemas for the same catalog | the load fails on "catalog <id> schema" | GAP |
 | B9 | one declares `model/enums/<id>.toml`, the other provides `data/enums/<id>.toml` | conflicts today: both files map to one "enum <id>" key. design: members are additive between overlay and base (E1), so should sibling member sets union too? | GAP |
 | B10 | each add a different sample for the same evaluation context | conflicts today: samples share the context's key. design: samples are additive under an overlay (S2, G11b), so siblings sharing a context's sample directory is arguably B4, not B2 | GAP |
@@ -145,7 +145,7 @@ restatements, which is how diamond ancestry looks.
 
 | # | Given / When | Then | Coverage |
 |---|---|---|---|
-| D1 | A chain of three (app extends mid, mid extends core), each contributing to one catalog and one variable | markers and patches apply bottom-up; the app sees mid's edits to core before its own | GAP |
+| D1 | A chain of three (app extends mid, mid extends core), each contributing to one catalog and one variable | markers and updates apply bottom-up; the app sees mid's edits to core before its own | GAP |
 | D2 | A base that is itself a flattened projection with a provenance sidecar | the finer per-variable labels from the sidecar win over the layer's single label in traces | GAP |
 | D3 | Governance declared at the bottom of a three-deep chain | the contract binds the top overlay, not just the immediate child | GAP |
 
@@ -163,7 +163,7 @@ These are not rows; each quantifies over all inputs and belongs in a
   claimed + released + reassigned = |buckets whose assignment differs|,
   and `allocation_arms_expanded` implies released = reassigned = 0.
 - Diffing any package against itself reports no changes.
-- Catalog patch merge is associative over a chain: patch(patch(e, p1), p2)
+- Catalog update merge is associative over a chain: update(update(e, p1), p2)
   equals applying the flattened composition of p1 then p2.
 
 ## Current gap tally
@@ -180,6 +180,6 @@ These are not rows; each quantifies over all inputs and belongs in a
 4. Depth (D1, D2, D3, C9): no test composes more than two authored layers.
 5. Merge details (C3, C8, S1, S2, X1, L1).
 6. Design questions before testing (E6, C8, B9, B10, L1): decide the
-   behavior first, then pin it. C8 is the sharpest: a same-layer patch plus
+   behavior first, then pin it. C8 is the sharpest: a same-layer update marker plus
    deleted marker is accepted today and the result depends on file
    application order.
