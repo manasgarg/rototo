@@ -41,23 +41,36 @@ with two extra requirements:
 
 ```
 address      = entity-path [ "#" json-pointer ]
-entity-path  = segment *( "/" segment )
-segment      = class ":" [ id-part ]        ; a class marker starts a new step
-             | id-part                      ; extends the current step's id
+entity-path  = step *( "." step )
+step         = class ":" [ id ]
 json-pointer = RFC 6901 pointer ("" or "/a/b/0", with ~0 and ~1 escapes)
 ```
 
-Parsing is purely lexical, which is the whole point:
+Every character has exactly one job, and parsing is purely lexical:
 
-- Split at the first `#`. Everything after it is a JSON pointer into a
-  document. Everything before it is the entity path.
-- Walk the entity path segments. A segment containing `:` starts a new
-  `(class, id)` step; segments without `:` append to the current step's
-  id. This is unambiguous because ids are lowercase snake_case with `/`;
-  they can never contain `:` or `#`.
+- `#` separates the entity path from a JSON pointer. Split at the first
+  one; ids can never contain `#`.
+- `.` separates containment steps (a catalog from its entry, a context
+  from its sample). Ids can never contain `.`, so splitting the entity
+  path on `.` is unambiguous, and containment is visible at a glance.
+- `:` binds a class to an id within one step.
+- `/` appears only inside ids, and means only namespacing.
 - A step whose id is empty (`variable:`) addresses the class collective.
 - A step whose id ends with `/` (`variable:payments/`) addresses the
   namespace subtree under that prefix.
+
+The pointer does not walk a raw file. It walks the entity's **logical
+projection**: the JSON view of the entity that the semantic model already
+defines, whose every field carries a source location in the index. For
+most entities the projection mirrors the single file, so pointers look
+exactly like the file you are editing. The projection earns its keep
+where one entity spans files: an enum is declared in
+`model/enums/<id>.toml` and its members live in `data/enums/<id>.toml`,
+but logically it is one entity, so `enum:tier#/type` and
+`enum:tier#/members/1` are both fragments of `enum:tier`, and each
+resolves to an exact location in whichever file declares it. The
+model/data split is a package-format convention; addresses do not leak
+it.
 
 The class vocabulary (singular, matching the existing `catalog:` /
 `enum:` idiom in `x-rototo-ref`):
@@ -70,19 +83,21 @@ The class vocabulary (singular, matching the existing `catalog:` /
 | `variable:` | `variables/**.toml` | no |
 | `catalog:` | `model/catalogs/**.schema.json` | no |
 | `entry:` | `data/catalogs/<catalog>/**.toml`, nested under a catalog | no |
-| `enum:` | `model/enums/**.toml` | no |
-| `members:` | `data/enums/<enum>.toml`, nested under an enum | yes per enum |
+| `enum:` | `model/enums/**.toml` plus `data/enums/**.toml`, one entity | no |
 | `evaluation-context:` | `model/context/**.schema.json` | no |
 | `sample:` | `model/context/<id>-samples/*.json`, nested under a context | no |
 | `layer:` | `layers/**.toml` | no |
 | `linter:` | `lint/*.lua` | no |
 
-Nesting exists **only** where the child is a separate document: entries
-under a catalog, samples under a context, the members file under an enum.
-Everything inside one document is addressed with a real JSON pointer, not
-a made-up logical segment. In particular, rules stop being pseudo-entities
-in addresses: rule 0 of a variable is `#/resolve/rule/0`, the actual TOML
-path, not `/rules/0`. One meaning for `#` everywhere.
+Nesting exists **only** where the child is its own entity: a separate
+document with its own id that other things reference individually.
+Entries under a catalog and samples under a context qualify. Enum
+members do not: the members file has no id of its own and nothing
+references a member as an entity, so members are fields of the enum,
+reached through its projection. Everything below the entity level is a
+real JSON pointer; rules stop being pseudo-entities, and rule 0 of a
+variable is `#/resolve/rule/0`, the path you see in the file, not
+`/rules/0`. One meaning for `#` everywhere.
 
 Reserved characters: `:` and `#` never appear in ids (the
 `id-not-snake-case` rule already guarantees the character set). `/` inside
@@ -138,30 +153,30 @@ Absolute (package-relative) addresses, from coarse to fine:
 | `catalog:support_banner` | one catalog (the schema document) |
 | `catalog:support_banner#/properties/message` | a field declaration in the schema |
 | `catalog:acme/banner` | a namespaced catalog |
-| `catalog:acme/banner/entry:` | all entries of that catalog |
-| `catalog:acme/banner/entry:default` | one entry |
-| `catalog:acme/banner/entry:promo/summer` | a namespaced entry (works because the id slot owns everything after `entry:`) |
-| `catalog:acme/banner/entry:default#/message` | a field of an entry |
-| `enum:tier` | the enum declaration (`model/enums/tier.toml`) |
-| `enum:tier#/type` | its member type |
-| `enum:tier/members:` | the member set (`data/enums/tier.toml`; singleton child, id empty) |
-| `enum:tier/members:#/members/1` | the second member |
+| `catalog:acme/banner.entry:` | all entries of that catalog |
+| `catalog:acme/banner.entry:default` | one entry |
+| `catalog:acme/banner.entry:promo/summer` | a namespaced entry; the `.` shows where the catalog ends and the entry begins |
+| `catalog:acme/banner.entry:default#/message` | a field of an entry |
+| `enum:tier` | the enum, declaration and members as one entity |
+| `enum:tier#/type` | its member type (location: `model/enums/tier.toml`) |
+| `enum:tier#/members` | the member set (location: `data/enums/tier.toml`) |
+| `enum:tier#/members/1` | the second member |
 | `evaluation-context:request` | the context schema |
 | `evaluation-context:request#/properties/user/properties/tier` | one declared context path |
-| `evaluation-context:request/sample:` | all samples of that context |
-| `evaluation-context:request/sample:premium` | one sample |
-| `evaluation-context:request/sample:premium#/user/tier` | a value inside the sample |
+| `evaluation-context:request.sample:` | all samples of that context |
+| `evaluation-context:request.sample:premium` | one sample |
+| `evaluation-context:request.sample:premium#/user/tier` | a value inside the sample |
 | `layer:rollout` | one layer |
 | `layer:rollout#/allocation/0/arm/1/buckets` | an arm's bucket range |
 | `linter:budget` | one Lua lint file (no `#` support: Lua is not a JSON document) |
 
 Worked parses, to show the lexical rule doing its job:
 
-- `catalog:acme/banner/entry:promo/summer#/message` splits at `#`; the
-  entity path segments are `catalog:acme`, `banner`, `entry:promo`,
-  `summer`. `catalog:` starts step one and collects `acme/banner`;
-  `entry:` starts step two and collects `promo/summer`. No reserved words,
-  no precedence.
+- `catalog:acme/banner.entry:promo/summer#/message` splits at `#` first,
+  then the entity path splits at `.` into two steps: class `catalog` with
+  id `acme/banner`, class `entry` with id `promo/summer`. Every `/` is
+  namespacing; the one `.` is containment. No reserved words, no
+  precedence.
 - `variable:payments/rules` is the variable named `payments/rules`,
   full stop. The old ambiguity is gone because "the rules of a variable"
   is now `variable:payments#/resolve/rule`, on the other side of `#`.
@@ -181,9 +196,9 @@ Where the bases come from in practice:
 
 - **Entry references in catalog values.** A schema field pinned with
   `x-rototo-ref: "catalog:email_template"` gives the value string the
-  base `catalog:email_template/entry:` (a path ending in an open id
+  base `catalog:email_template.entry:` (a path ending in an open id
   slot). The value `welcome#/body` fills the slot:
-  `catalog:email_template/entry:welcome#/body`. This is exactly today's
+  `catalog:email_template.entry:welcome#/body`. This is exactly today's
   behavior, restated as the general rule.
 - **Custom lint handlers.** A rule targeted at
   `variable:payments/max_tokens` can report a diagnostic location as
@@ -217,9 +232,10 @@ The grammar is shared; what depth an address may stop at is per consumer.
   the same path.
 - **No namespace entities.** `variable:payments/` selects a subtree; it
   does not name an object. Namespaces stay id prefixes.
-- **No logical pointer segments.** If it is after `#`, it is an RFC 6901
-  pointer into the addressed document. `/rules/0`-style pseudo-paths are
-  gone.
+- **No logical pointer segments in the entity path.** Anything after
+  `#` is an RFC 6901 pointer into the entity's projection, which mirrors
+  the file except where the entity spans files. `/rules/0`-style
+  pseudo-paths in the entity path are gone.
 
 ## Migration
 
@@ -249,12 +265,12 @@ policy: no compatibility shims, loud rejections with the new spelling.
 
 ## Open questions
 
-1. **Enum members spelling.** `enum:tier/members:` (singleton child
-   class) is consistent but reads oddly. Alternative: fold members into
-   the declaration entity and give fragments two roots
-   (`enum:tier#/members/...` reaching into the data file), which breaks
-   the "one document per `#`" rule. The singleton child keeps the rule
-   clean; the spelling is the price. Leaning: keep `members:`.
+1. **Resolved: enum members are fragments, not a child class.**
+   Fragments walk the entity's logical projection rather than a raw
+   file, so `enum:tier#/members/1` reaches the data half directly and
+   the earlier `members:` singleton-child idea is dropped. The general
+   rule: child entities exist only for documents with their own ids
+   (entries, samples); everything else is projection fields.
 2. **Collective vs subtree for singletons.** `variable:` (collective) and
    `variable:payments/` (subtree) are distinct forms; should `variable:/`
    be valid? Proposal: no, reject it; the empty id is the collective and
