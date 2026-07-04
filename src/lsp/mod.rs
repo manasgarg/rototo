@@ -1063,6 +1063,32 @@ value = "welcome"
     }
 
     #[tokio::test]
+    async fn exit_before_shutdown_is_a_protocol_error() {
+        // The LSP lifecycle is initialize .. shutdown -> exit. An exit
+        // notification with no shutdown first ends the session with an error
+        // instead of a clean break, so a crashing editor is distinguishable
+        // from an orderly close.
+        let (client_io, server_io) = tokio::io::duplex(8192);
+        let (_client_read, mut client_write) = tokio::io::split(client_io);
+        let (server_read, server_write) = tokio::io::split(server_io);
+        let server =
+            tokio::spawn(async move { serve(BufReader::new(server_read), server_write).await });
+
+        write_lsp_message(
+            &mut client_write,
+            json!({
+                "jsonrpc": "2.0",
+                "method": "exit"
+            }),
+        )
+        .await;
+
+        let outcome = server.await.unwrap();
+        let err = outcome.expect_err("exit before shutdown should error");
+        assert!(err.to_string().contains("exit received before shutdown"));
+    }
+
+    #[tokio::test]
     async fn applies_incremental_document_changes() {
         // A ranged didChange splices the open buffer instead of resending the
         // whole document. The package root is synthetic: the buffers never touch
