@@ -64,12 +64,12 @@ base's decision.
 
 | # | When the overlay... | Then... | Coverage |
 |---|---|---|---|
-| E1 | provides `data/enums/<id>.toml` with `members` for a base enum | the member sets union | `overlay_enum_members_union_with_the_base` |
-| E2 | provides `deleted = [...]` next to `members` | the fold is (below + members) - deleted, and `deleted` never lands in the flattened file | `overlay_deletes_enum_members_from_the_base` |
-| E3 | deletes a member no layer below declares | the load fails | `orphan_enum_member_deletes_fail_loudly` |
-| E4 | adds and deletes the same member in one layer | the load fails | `same_layer_enum_member_add_and_delete_conflict` |
+| E1 | writes `enums/<id>.update.toml` with `members` for a base enum | the member sets union | `overlay_enum_members_union_with_the_base` |
+| E2 | provides `deleted = [...]` next to `members` in the marker | the fold is (below + members) - deleted, and the marker never lands in the flattened package | `overlay_deletes_enum_members_from_the_base` |
+| E3 | deletes a member no layer below declares, or writes a marker for an enum no base declares | the load fails | `orphan_enum_member_deletes_fail_loudly` |
+| E4 | adds and deletes the same member in one marker | the load fails | `same_layer_enum_member_add_and_delete_conflict` |
 | E5 | deletes every remaining member | the load fails; an enum cannot compose to empty | `deleting_every_enum_member_fails_the_load` |
-| E6 | restates the base's `model/enums/<id>.toml` at all (byte-identical excepted) | the load fails: `model/` files are never editable from above, so an enum's type cannot change | `governed_model_files_are_never_editable` |
+| E6 | restates the base's `enums/<id>.toml` at all (byte-identical excepted), or puts `type` in an update marker | the load fails: an enum's contract half is never editable from above; the marker carries only members, deleted, and description | `governed_model_files_are_never_editable` |
 
 ### Contracts, samples, layers, lint (ungoverned overlay)
 
@@ -104,12 +104,11 @@ not overlays of each other, so cross-sibling touching is a conflict (section
 | G6 | updates an allowed field on an entry in `update_policy.denied_entries` | the load fails naming the entry (deny wins over the field allowlist) | `granted_deletes_and_updates_walk_the_allowed_side` |
 | G7 | restates a whole entry file the base owns | the load fails and points at `<entry>.update.toml` / `<entry>.deleted.toml` | `governed_base_denies_ungranted_operations` |
 | G8 | touches a base catalog schema | always denied; the error points at custom lint under `lint/` | `governed_base_denies_ungranted_operations` |
-| G9 | touches a base enum declaration (`model/enums/<id>.toml`) | always denied, same custom-lint pointer | `governed_model_files_are_never_editable` |
+| G9 | restates a base enum file or puts `type` in an enum update marker | denied: the contract half is never updatable from above (single-file layout; the E6 row is the mechanism) | `governed_model_files_are_never_editable` |
 | G10 | touches a base evaluation context schema | always denied, same custom-lint pointer | `governed_model_files_are_never_editable` |
 | G11a | restates a base sample file | denied: "add a new sample file instead" | `governed_samples_reject_edits_but_admit_additions` |
 | G11b | adds a new sample file for a base context | allowed without any grant | `governed_samples_reject_edits_but_admit_additions` |
-| G12 | provides `data/enums/<id>.toml` where the base already has one | the load fails unless the contract grants `update` on `enum.<id>` | `governed_enum_members_check_update_and_add` |
-| G13 | provides `data/enums/<id>.toml` where the base declares the enum but has no members file | the load fails unless the contract grants `add` on `enum.<id>` | `governed_enum_members_check_update_and_add` |
+| G12 | writes `enums/<id>.update.toml` for a base enum | the load fails unless the contract grants `update` on `enum.<id>`; a brand-new enum id still mints freely | `governed_enum_members_check_update_and_add` |
 | G14 | updates a base variable through `<id>.update.toml` under an `update` grant | the load succeeds and the overlay resolution wins | `governed_base_admits_the_granted_overlay` |
 | G15 | updates a base variable through `<id>.update.toml` with no `update` grant | the load fails: "governance denies update on variable.<id>" | `governed_base_denies_ungranted_operations` |
 | G16 | adds a brand-new variable id | always allowed; new ids mint freely | `governed_base_denies_ungranted_operations` |
@@ -145,7 +144,7 @@ restatements, which is how diamond ancestry looks.
 | B6 | one provides an entry, the other a deleted marker for it | the load fails on the shared entry key | `sibling_base_may_not_touch_another_siblings_catalog` |
 | B7 | one provides an entry, the other an update marker for it | the load fails on the shared entry key | `sibling_base_may_not_update_another_siblings_entry` |
 | B8 | carry diverging schemas for the same catalog | the load fails on "catalog <id> schema" | `sibling_bases_conflict_on_diverging_catalog_schemas` |
-| B9 | one declares `model/enums/<id>.toml`, the other provides `data/enums/<id>.toml` | the load fails: the two halves of one enum belong to one owner, deliberately - member adjustment is the overlay relationship (E1), where governance gates it | `sibling_enum_declaration_and_members_conflict` |
+| B9 | both declare `enums/<id>.toml` with different content | the load fails: an enum belongs to one owner; member adjustment is the overlay relationship (E1), where governance gates it | `sibling_enum_declaration_and_members_conflict` |
 | B10 | each add a different sample for the same evaluation context | samples compose additively like catalog entries: each sample file is its own key, distinct samples land, the same sample id with different content conflicts | `sibling_bases_add_disjoint_samples_to_a_shared_context` |
 | B11 | declare the same experimentation layer id | the load fails on "layer <id>" | `sibling_bases_conflict_on_the_same_layer_id` |
 | B12 | carry the same non-entity file (for example `lint/checks.lua`) with different content | the load fails per file path | `sibling_bases_conflict_on_the_same_lint_file` |
@@ -186,10 +185,10 @@ Design questions resolved along the way, recorded so the reasoning survives:
 - C8: a same-layer update marker plus deleted marker fails the load; the two
   markers contradict each other.
 - E6/S1: the enum-declaration and schema-replacement questions dissolved when
-  `model/` edits from above became unconditionally denied.
-- B9: siblings may not split an enum's declaration and members between them;
-  member adjustment belongs to the overlay relationship, where governance
-  gates it.
+  contract edits from above became unconditionally denied; with single-file
+  enums the mechanism is the update marker's key restriction.
+- B9: siblings may not both declare one enum; member adjustment belongs to
+  the overlay relationship, where governance gates it.
 - B10: sibling bases share a context's sample directory additively, one key
   per sample file, mirroring catalog entries.
 - L1: layer restatement is gated by the `update` grant on `layer.<id>`;

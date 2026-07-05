@@ -370,16 +370,11 @@ The boundary to hold: Rototo's job is assignment - deterministic, reproducible, 
 
 Catalogs handle structured objects. But plenty of values are just one scalar from a short, closed list: a plan tier is `free`, `team`, or `business`, and nothing else. Declaring that as a plain `string` leaves the door open for a typo like `"buisness"` to ship. Building a catalog for it is overkill: there's no object, just a name.
 
-An enum answers the question "is this value one of the allowed ones?" It follows the same contract/values split as a catalog. The declaration under `model/enums/plan_tiers.toml` says what kind of scalar the members are:
+An enum answers the question "is this value one of the allowed ones?" It lives in one file, `enums/plan_tiers.toml`, the way a variable does: the contract (what kind of scalar the members are) and the values (which members exist) side by side:
 
 ```toml
 schema_version = 1
 type = "string"
-```
-
-And the members under `data/enums/plan_tiers.toml` say which values exist:
-
-```toml
 members = ["free", "team", "business"]
 ```
 
@@ -588,7 +583,7 @@ Rototo flattens the packages into one - bases in `extends` order, the extending 
 
 - **The contract narrows only.** An overlay may not change a variable's `type`; restating the same type is fine, declaring a different one fails the load. Applications were written against that type, and an overlay doesn't get to rewrite it quietly.
 - **Values update atomically.** An overlay updates a base variable with a `variables/<id>.update.toml` marker holding the new `[resolve]` block, which replaces the base's resolution whole - default, rules, everything - while the type stays with the base. There is no merging of individual rules, because half of one package's rule list plus half of another's is a resolution nobody wrote or reviewed. A plain `<id>.toml` is always an add; restating a base variable's file fails the load and points at the marker.
-- **Membership is union minus deletes.** A catalog's active entries are the base's entries plus the overlay's, minus the ones the overlay explicitly deletes, with field-level updates applied. Enum members compose the same way: an overlay's `data/enums/<id>.toml` unions its `members` into the base's set and removes the values it names in `deleted`, so an overlay declares only its own adds and removals.
+- **Membership is union minus deletes.** A catalog's active entries are the base's entries plus the overlay's, minus the ones the overlay explicitly deletes, with field-level updates applied. Enum members compose the same way: an overlay's `enums/<id>.update.toml` marker unions its `members` into the base's set and removes the values it names in `deleted`, so an overlay declares only its own adds and removals; the enum's `type` is never updatable from above.
 
 The `examples/acme-overlay` package in the repository shows all three on top of `examples/basic`, in five files. A new entry is just an entry: `data/catalogs/support_banner/acme_hours.toml` adds a banner only this tenant has. Removing one is a **deleted marker**:
 

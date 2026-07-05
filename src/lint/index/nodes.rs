@@ -184,9 +184,9 @@ fn parse_variable_type(value: &str) -> Option<VariableTypeKind> {
     Some(VariableTypeKind::Primitive(value.to_owned()))
 }
 
-/// A named enum declaration under `model/enums/<id>.toml`: the contract half
-/// (the member scalar type), with the members themselves under
-/// `data/enums/<id>.toml`.
+/// A named enum under `enums/<id>.toml`: one file holding the contract
+/// (the member scalar type) and the member set, like a variable holds its
+/// type and its resolution.
 pub(in crate::lint) struct EnumNode {
     #[allow(dead_code)]
     pub(in crate::lint) doc: DocId,
@@ -196,6 +196,11 @@ pub(in crate::lint) struct EnumNode {
     #[allow(dead_code)]
     pub(in crate::lint) description: Option<ProjectField<String>>,
     pub(in crate::lint) member_type: ProjectField<String>,
+    pub(in crate::lint) members: ProjectField<Vec<Spanned<JsonValue>>>,
+    /// Location of a `deleted` key. Deletes belong in update markers and
+    /// are consumed when layers flatten; one surviving into lint has no
+    /// base member set to remove from.
+    pub(in crate::lint) deleted: Option<DiagnosticLocation>,
 }
 
 impl EnumNode {
@@ -214,28 +219,6 @@ impl EnumNode {
             },
             field,
         )
-    }
-}
-
-/// The data half of an enum: `members = [...]` under `data/enums/<id>.toml`.
-pub(in crate::lint) struct EnumMembersNode {
-    #[allow(dead_code)]
-    pub(in crate::lint) doc: DocId,
-    pub(in crate::lint) id: EnumId,
-    pub(in crate::lint) location: DiagnosticLocation,
-    pub(in crate::lint) members: ProjectField<Vec<Spanned<JsonValue>>>,
-    /// Location of a `deleted` key. Deletes only mean something for an
-    /// overlay composing through extends and are consumed when layers
-    /// flatten, so one surviving into lint has no layer below.
-    pub(in crate::lint) deleted: Option<DiagnosticLocation>,
-}
-
-impl EnumMembersNode {
-    pub(in crate::lint) fn target(&self) -> SemanticTarget {
-        SemanticEntity::Enum {
-            id: self.id.clone(),
-        }
-        .into()
     }
 }
 

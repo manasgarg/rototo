@@ -193,7 +193,11 @@ pub(super) enum LayerFileComposition {
     /// `data/enums/<id>.toml`: the member sets compose - the overlay's
     /// `members` union into the base's and its `deleted` values are removed
     /// from the result, keeping enum members tenant-adjustable data.
-    EnumMembersCompose,
+    EnumUpdate,
+    /// `enums/<id>.toml` restating a base enum: byte-identical restatements
+    /// compose as a no-op (diamond ancestry); anything else is an error,
+    /// the update marker is the only spelling for changing one.
+    EnumRestate,
 }
 
 /// Classify a layer file by its package-relative path. Composition is
@@ -228,8 +232,9 @@ pub(super) fn classify_layer_file(
         ["variables", .., _] if target_exists && file_name.ends_with(".toml") => {
             LayerFileComposition::VariableRestate
         }
-        ["data", "enums", ..] if file_name.ends_with(".toml") => {
-            LayerFileComposition::EnumMembersCompose
+        ["enums", .., _] if file_name.ends_with(".update.toml") => LayerFileComposition::EnumUpdate,
+        ["enums", .., _] if target_exists && file_name.ends_with(".toml") => {
+            LayerFileComposition::EnumRestate
         }
         _ => LayerFileComposition::Replace,
     }
@@ -352,29 +357,59 @@ pub(super) fn compose_package_layer_file(
             let id = variable_id_for_relative(relative).unwrap_or_default();
             Err(variable_restate_denied(&id))
         }
-        LayerFileComposition::EnumMembersCompose => {
+        LayerFileComposition::EnumUpdate => {
+            // The marker file is enums/<id>.update.toml; it composes into
+            // the base's enums/<id>.toml and never lands in the projection.
+            let base_path = target_path
+                .file_name()
+                .and_then(|name| name.to_str())
+                .and_then(|name| name.strip_suffix(".update.toml"))
+                .zip(target_path.parent())
+                .map(|(stem, parent)| parent.join(format!("{stem}.toml")))
+                .unwrap_or_default();
+            if !base_path.is_file() {
+                return Err(RototoError::new(format!(
+                    "enum update has no base enum to update: {}",
+                    relative.display()
+                )));
+            }
             let overlay = read_layer_toml(source_path)?;
-            if !target_path.is_file() {
-                if overlay
-                    .as_table()
-                    .is_some_and(|table| table.contains_key("deleted"))
-                {
-                    return Err(RototoError::new(format!(
-                        "deleted enum members have no member set to remove in the base packages: {}",
-                        relative.display()
-                    )));
+            if let Some(table) = overlay.as_table() {
+                for key in table.keys() {
+                    if !matches!(key.as_str(), "members" | "deleted" | "description") {
+                        return Err(RototoError::new(format!(
+                            "an enum update may only update members, deleted, and \
+                             description; {} sets `{key}`",
+                            relative.display()
+                        )));
+                    }
                 }
-                std::fs::copy(source_path, &target_path).map_err(|err| {
-                    RototoError::new(format!(
-                        "failed to copy package source entry {}: {err}",
-                        source_path.display()
-                    ))
-                })?;
+            }
+            let mut base = read_layer_toml(&base_path)?;
+            if let (Some(base_table), Some(overlay_table)) =
+                (base.as_table_mut(), overlay.as_table())
+                && let Some(description) = overlay_table.get("description")
+            {
+                base_table.insert("description".to_owned(), description.clone());
+            }
+            compose_enum_members(&mut base, overlay, relative)?;
+            write_layer_toml(&base_path, &base)
+        }
+        LayerFileComposition::EnumRestate => {
+            if file_identical(source_path, &target_path) {
                 return Ok(());
             }
-            let mut base = read_layer_toml(&target_path)?;
-            compose_enum_members(&mut base, overlay, relative)?;
-            write_layer_toml(&target_path, &base)
+            let id = relative
+                .strip_prefix("enums")
+                .ok()
+                .and_then(|rest| rest.to_str())
+                .and_then(|rest| rest.strip_suffix(".toml"))
+                .unwrap_or_default()
+                .replace(std::path::MAIN_SEPARATOR, "/");
+            Err(RototoError::new(format!(
+                "enum {id} is declared in the base packages; update it with \
+                 enums/{id}.update.toml instead of restating the file"
+            )))
         }
     }
 }

@@ -62,22 +62,19 @@ default = false
 "#,
         ),
         (
-            "model/enums/tier.toml",
+            "enums/tier.toml",
             r#"schema_version = 1
 type = "string"
+members = ["basic", "premium"]
 "#,
         ),
         (
-            "data/enums/tier.toml",
-            "members = [\"basic\", \"premium\"]\n",
-        ),
-        (
-            "model/enums/acme/plan.toml",
+            "enums/acme/plan.toml",
             r#"schema_version = 1
 type = "string"
+members = ["trial"]
 "#,
         ),
-        ("data/enums/acme/plan.toml", "members = [\"trial\"]\n"),
         (
             "model/catalogs/banner.schema.json",
             r#"{
@@ -193,11 +190,7 @@ async fn every_package_file_kind_projects_to_exactly_one_node() {
         index.enums.keys().cloned().collect::<Vec<_>>(),
         vec!["acme/plan", "tier"]
     );
-    assert_eq!(
-        index.enum_members.keys().cloned().collect::<Vec<_>>(),
-        vec!["acme/plan", "tier"]
-    );
-    match &index.enum_members["tier"].members {
+    match &index.enums["tier"].members {
         ProjectField::Present(members) => assert_eq!(members.value.len(), 2),
         _ => panic!("tier members should project"),
     }
@@ -337,12 +330,9 @@ type = 5
 "#,
         ),
         (
-            "model/enums/tier.toml",
-            r#"schema_version = 1
-type = "string"
-"#,
+            "enums/tier.toml",
+            "schema_version = 1\ntype = \"string\"\nmembers = \"nope\"\n",
         ),
-        ("data/enums/tier.toml", "members = \"nope\"\n"),
         ("model/catalogs/bad.schema.json", "{ \"type\": [ }\n"),
         (
             "model/catalogs/uncompilable.schema.json",
@@ -356,10 +346,7 @@ type = "string"
     assert!(matches!(odd.type_source, TypeSourceNode::Invalid { .. }));
     assert!(matches!(odd.resolve, ResolveNode::Missing { .. }));
 
-    let members = index
-        .enum_members
-        .get("tier")
-        .expect("tier members keep a node");
+    let members = index.enums.get("tier").expect("tier keeps a node");
     assert!(matches!(members.members, ProjectField::Invalid { .. }));
 
     // A schema that fails to parse as JSON keeps its node with no compiled
@@ -418,8 +405,8 @@ async fn node_and_field_locations_span_their_declaring_lines() {
         sample.location.path,
         "model/context/request-samples/basic.json"
     );
-    let members = &index.enum_members["tier"];
-    assert_eq!(members.location.path, "data/enums/tier.toml");
+    let members = &index.enums["tier"];
+    assert_eq!(members.location.path, "enums/tier.toml");
     assert!(members.members.location().range.is_some());
 }
 

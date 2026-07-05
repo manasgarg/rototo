@@ -182,8 +182,7 @@ pub(super) fn enum_member_literal_items(
     index: &SemanticIndex,
     id: &str,
 ) -> Vec<PackageCompletionItem> {
-    let Some(ProjectField::Present(members)) =
-        index.enum_members.get(id).map(|members| &members.members)
+    let Some(ProjectField::Present(members)) = index.enums.get(id).map(|members| &members.members)
     else {
         return Vec::new();
     };

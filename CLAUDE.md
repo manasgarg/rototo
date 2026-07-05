@@ -42,10 +42,11 @@ The package format is rooted at `rototo-package.toml`:
   under the catalog directory is the (possibly namespaced) catalog value id;
   a subtree that is itself a longer catalog id belongs to that catalog, and
   overlapping catalog ids are a lint error (`rototo/catalog-id-overlap`).
-- `model/enums/<enum-id>.toml`: named enum declarations: `schema_version = 1`,
-  optional `description`, and `type` (one of `string`, `int`, `number`,
-  `bool`).
-- `data/enums/<enum-id>.toml`: enum member sets, `members = [...]`.
+- `enums/<enum-id>.toml`: named enums, one file each like variables:
+  `schema_version = 1`, optional `description`, `type` (one of `string`,
+  `int`, `number`, `bool`), and `members = [...]`. Overlays adjust members
+  through `enums/<enum-id>.update.toml` markers carrying only `members`,
+  `deleted`, and `description`; `type` is never updatable from above.
 - `model/context/*.schema.json`: JSON Schemas for runtime context objects (the
   concept is still called an evaluation context). The evaluation context id is
   the file name before `.schema.json`.
@@ -200,14 +201,12 @@ package structure and files:
   id).
 - rototo-recognized ids are lowercase snake_case with optional `/` namespacing
   (`rototo/id-not-snake-case`, error).
-- Enum declarations under `model/enums/*.toml` parse, declare
-  `schema_version = 1`, and declare `type` as one of `string`, `int`, `number`,
-  or `bool`. Member sets under `data/enums/*.toml` declare `members` as a
-  non-empty array of distinct values matching the declared type, and both
-  halves must exist (`rototo/enum-parse-failed`, `rototo/enum-schema-version`,
-  `rototo/enum-shape`, `rototo/enum-members-parse-failed`,
-  `rototo/enum-members-shape`, `rototo/enum-members-missing`,
-  `rototo/enum-members-undeclared`).
+- Enums under `enums/*.toml` parse, declare `schema_version = 1`, declare
+  `type` as one of `string`, `int`, `number`, or `bool`, and declare
+  `members` as a non-empty array of distinct values matching the declared
+  type (`rototo/enum-parse-failed`, `rototo/enum-schema-version`,
+  `rototo/enum-shape`). The retired `rototo/enum-members-*` rule ids from
+  the dissolved two-file layout stay reserved.
 - Catalog schemas under `model/catalogs/*.schema.json` parse and compile as
   JSON Schema. Catalog entries under `data/catalogs/<id>/*.toml` validate
   against their catalog schema, and `x-rototo-ref` targets resolve: catalog

@@ -1,3 +1,0 @@
-# The suffix is wrong: enum declarations end in .toml, so nothing claims this.
-schema_version = 1
-type = "string"

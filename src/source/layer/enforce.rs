@@ -115,10 +115,6 @@ pub(super) fn check_governed_file(
             Some(id) if exists(relative) => Err(schema_edit_denied("catalog schema", &id)),
             _ => Ok(()),
         },
-        ["model", "enums", ..] => match namespaced(&components[2..], ".toml") {
-            Some(id) if exists(relative) => Err(schema_edit_denied("enum declaration", &id)),
-            _ => Ok(()),
-        },
         ["model", "context", .., samples, _] if samples.ends_with("-samples") => {
             match namespaced(&components[2..components.len() - 1], "-samples") {
                 Some(id)
@@ -139,13 +135,20 @@ pub(super) fn check_governed_file(
             }
             _ => Ok(()),
         },
-        ["data", "enums", ..] => match namespaced(&components[2..], ".toml") {
-            Some(id) if exists(relative) => {
-                contract.check("enum", &id, Operation::Update, None, &[])
+        ["enums", .., file] if file.ends_with(".update.toml") => {
+            // The marker updates a base enum; the fields it may carry are
+            // compose-checked (members, deleted, description; never type).
+            match namespaced(&components[1..], ".update.toml") {
+                Some(id) if exists(Path::new(&format!("enums/{id}.toml"))) => {
+                    contract.check("enum", &id, Operation::Update, None, &[])
+                }
+                _ => Ok(()),
             }
-            Some(id) if exists(Path::new(&format!("model/enums/{id}.toml"))) => {
-                contract.check("enum", &id, Operation::Add, None, &[])
-            }
+        }
+        ["enums", ..] => match namespaced(&components[1..], ".toml") {
+            // Restating a base enum is rejected in composition (the update
+            // marker is the only spelling); a brand-new enum id mints freely.
+            Some(_) if exists(relative) => Ok(()),
             _ => Ok(()),
         },
         ["data", "catalogs", middle @ .., file] if !middle.is_empty() => {

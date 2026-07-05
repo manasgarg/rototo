@@ -100,7 +100,7 @@ pub(super) async fn run(ctx: &mut LintContext) -> Result<()> {
 /// (a mistyped suffix, an enum members file for an undeclared enum, a
 /// catalog entry under a catalog with no schema). Warn on each one.
 async fn report_unrecognized_files(ctx: &mut LintContext) {
-    for owned in ["model", "data", "variables", "layers"] {
+    for owned in ["model", "data", "variables", "enums", "layers"] {
         let root = ctx.source.root.join(owned);
         let mut pending = vec![root.clone()];
         while let Some(directory) = pending.pop() {

@@ -1,3 +1,5 @@
 schema_version = 1
 description = "Application log verbosity"
 type = "string"
+
+members = ["error", "warn", "info", "debug"]

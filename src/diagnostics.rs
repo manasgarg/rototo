@@ -93,6 +93,10 @@ macro_rules! rototo_rules {
                         | Self::EvaluationContextReservedField
                         | Self::CatalogSchemaVersion
                         | Self::CatalogSchemaRef
+                        | Self::EnumMembersParseFailed
+                        | Self::EnumMembersShape
+                        | Self::EnumMembersMissing
+                        | Self::EnumMembersUndeclared
                 )
             }
 

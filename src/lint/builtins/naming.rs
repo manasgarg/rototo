@@ -55,16 +55,6 @@ pub(super) fn lint_id_naming(ctx: &mut LintContext) {
             "enum",
         );
     }
-    for members in ctx.index.enum_members.values() {
-        if !ctx.index.enums.contains_key(&members.id) {
-            check(
-                &members.id,
-                members.target(),
-                members.location.clone(),
-                "enum",
-            );
-        }
-    }
     for layer in ctx.index.layers.values() {
         check(&layer.id, layer.target(), layer.location.clone(), "layer");
         for allocation in &layer.allocations {

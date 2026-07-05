@@ -6,11 +6,7 @@ use super::super::syntax::{ParsedToml, item_location};
 use super::fields::{integer_field, optional_string_field};
 use super::json_from_toml_value;
 
-pub(crate) fn project_enum_declaration(
-    document: &SourceDocument,
-    toml: &ParsedToml,
-    id: &str,
-) -> EnumNode {
+pub(crate) fn project_enum(document: &SourceDocument, toml: &ParsedToml, id: &str) -> EnumNode {
     let root = toml.root_table();
     let location = document.document_location();
     let schema_version = root
@@ -25,23 +21,6 @@ pub(crate) fn project_enum_declaration(
             location: location.clone(),
         });
 
-    EnumNode {
-        doc: document.id,
-        id: id.to_owned(),
-        location,
-        schema_version,
-        description,
-        member_type,
-    }
-}
-
-pub(crate) fn project_enum_members(
-    document: &SourceDocument,
-    toml: &ParsedToml,
-    id: &str,
-) -> EnumMembersNode {
-    let root = toml.root_table();
-    let location = document.document_location();
     let members = match root.and_then(|root| root.get("members")) {
         Some(item) => match item.as_array() {
             Some(values) => ProjectField::Present(Spanned {
@@ -67,10 +46,13 @@ pub(crate) fn project_enum_members(
         .and_then(|root| root.get("deleted"))
         .map(|item| item_location(document, item));
 
-    EnumMembersNode {
+    EnumNode {
         doc: document.id,
         id: id.to_owned(),
         location,
+        schema_version,
+        description,
+        member_type,
         members,
         deleted,
     }

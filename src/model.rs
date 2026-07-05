@@ -108,7 +108,6 @@ pub enum SourceKind {
     Manifest,
     Variable,
     Enum,
-    EnumMembers,
     Layer,
     Governance,
     Catalog,

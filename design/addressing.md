@@ -64,14 +64,10 @@ The pointer does not walk a raw file. It walks the entity's **logical
 projection**: the JSON view of the entity that the semantic model already
 defines, whose every field carries a source location in the index. For
 most entities the projection mirrors the single file, so pointers look
-exactly like the file you are editing. The projection earns its keep
-where one entity spans files: an enum is declared in
-`model/enums/<id>.toml` and its members live in `data/enums/<id>.toml`,
-but logically it is one entity, so `enum=tier#/type` and
-`enum=tier#/members/1` are both fragments of `enum=tier`, and each
-resolves to an exact location in whichever file declares it. The
-model/data split is a package-format convention; addresses do not leak
-it.
+exactly like the file you are editing. For every current entity the projection now mirrors one file (enums
+collapsed to single files after this was drafted), so pointers look
+exactly like the file being edited; the projection rule stays for any
+future entity that spans files.
 
 The class vocabulary (singular, matching the class names already used
 by `x-rototo-ref` and type declarations):
@@ -84,7 +80,7 @@ by `x-rototo-ref` and type declarations):
 | `variable=` | `variables/**.toml` | no |
 | `catalog=` | `model/catalogs/**.schema.json` | no |
 | `entry=` | `data/catalogs/<catalog>/**.toml`, nested under a catalog | no |
-| `enum=` | `model/enums/**.toml` plus `data/enums/**.toml`, one entity | no |
+| `enum=` | `enums/**.toml` | no |
 | `evaluation-context=` | `model/context/**.schema.json` | no |
 | `sample=` | `model/context/<id>-samples/*.json`, nested under a context | no |
 | `layer=` | `layers/**.toml` | no |
@@ -125,8 +121,7 @@ data/catalogs/
   support_banner/default.toml
   acme/banner/default.toml
   acme/banner/promo/summer.toml          (a namespaced entry)
-model/enums/tier.toml
-data/enums/tier.toml
+enums/tier.toml
 model/context/request.schema.json
 model/context/request-samples/premium.json
 layers/rollout.toml
@@ -158,9 +153,9 @@ Absolute (package-relative) addresses, from coarse to fine:
 | `catalog=acme/banner:entry=default` | one entry |
 | `catalog=acme/banner:entry=promo/summer` | a namespaced entry; the `:` shows where the catalog ends and the entry begins |
 | `catalog=acme/banner:entry=default#/message` | a field of an entry |
-| `enum=tier` | the enum, declaration and members as one entity |
-| `enum=tier#/type` | its member type (location: `model/enums/tier.toml`) |
-| `enum=tier#/members` | the member set (location: `data/enums/tier.toml`) |
+| `enum=tier` | the enum (one file, contract and members together) |
+| `enum=tier#/type` | its member type |
+| `enum=tier#/members` | the member set |
 | `enum=tier#/members/1` | the second member |
 | `evaluation-context=request` | the context schema |
 | `evaluation-context=request#/properties/user/properties/tier` | one declared context path |

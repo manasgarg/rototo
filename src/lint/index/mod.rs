@@ -19,7 +19,6 @@ pub(super) use targets::RegisteredLintSelector;
 pub(super) struct SemanticIndex {
     pub(super) manifest: Option<ManifestNode>,
     pub(super) enums: BTreeMap<EnumId, EnumNode>,
-    pub(super) enum_members: BTreeMap<EnumId, EnumMembersNode>,
     pub(super) layers: BTreeMap<LayerId, LayerNode>,
     pub(super) governance: Option<GovernanceNode>,
     pub(super) variables: BTreeMap<VariableId, VariableNode>,

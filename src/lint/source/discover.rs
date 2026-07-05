@@ -49,31 +49,28 @@ impl SourceStore {
     }
 
     pub(crate) async fn add_enum_documents(&mut self) -> Result<()> {
-        for (directory, declaration) in [("model/enums", true), ("data/enums", false)] {
-            let directory_path = self.root.join(directory);
-            let entries = match sorted_directory_entries_recursive(&directory_path).await {
-                Ok(entries) => entries,
-                Err(err) if err.kind() == std::io::ErrorKind::NotFound => continue,
-                Err(err) => {
-                    return Err(RototoError::new(format!(
-                        "failed to read {}: {err}",
-                        directory_path.display()
-                    )));
-                }
-            };
-            for path in entries {
-                let Some(id) = namespaced_id(&directory_path, &path, ".toml") else {
-                    continue;
-                };
-                let relative_path =
-                    PathBuf::from(directory).join(path.strip_prefix(&directory_path).unwrap());
-                let kind = if declaration {
-                    DocumentKind::EnumDeclaration { id }
-                } else {
-                    DocumentKind::EnumMembers { id }
-                };
-                self.add_disk_document(relative_path, kind).await;
+        let directory_path = self.root.join("enums");
+        let entries = match sorted_directory_entries_recursive(&directory_path).await {
+            Ok(entries) => entries,
+            Err(err) if err.kind() == std::io::ErrorKind::NotFound => return Ok(()),
+            Err(err) => {
+                return Err(RototoError::new(format!(
+                    "failed to read {}: {err}",
+                    directory_path.display()
+                )));
             }
+        };
+        for path in entries {
+            // Update markers are consumed when layers flatten; one that
+            // survives into lint would name the id `<x>.update`, which the
+            // id rule then flags, same as variables.
+            let Some(id) = namespaced_id(&directory_path, &path, ".toml") else {
+                continue;
+            };
+            let relative_path =
+                PathBuf::from("enums").join(path.strip_prefix(&directory_path).unwrap());
+            self.add_disk_document(relative_path, DocumentKind::Enum { id })
+                .await;
         }
         Ok(())
     }
@@ -424,11 +421,8 @@ fn overlay_document_kind(path: &str) -> Option<DocumentKind> {
             let _ = rest;
             joined(&parts[1..], ".toml").map(|id| DocumentKind::Variable { id })
         }
-        ["model", "enums", .., file] if file.ends_with(".toml") => {
-            joined(&parts[2..], ".toml").map(|id| DocumentKind::EnumDeclaration { id })
-        }
-        ["data", "enums", .., file] if file.ends_with(".toml") => {
-            joined(&parts[2..], ".toml").map(|id| DocumentKind::EnumMembers { id })
+        ["enums", .., file] if file.ends_with(".toml") && !file.ends_with(".update.toml") => {
+            joined(&parts[1..], ".toml").map(|id| DocumentKind::Enum { id })
         }
         ["model", "catalogs", .., file] if file.ends_with(".schema.json") => {
             joined(&parts[2..], ".schema.json").map(|id| DocumentKind::Catalog { id })

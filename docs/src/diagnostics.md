@@ -134,13 +134,10 @@ roughly where a finding is coming from.
   schema, and any `x-rototo-ref` values point at real catalog entries or enum
   members. (e.g. `rototo/catalog-entry-schema-mismatch`,
   `rototo/catalog-entry-unknown-reference`)
-- **Enums** - the declaration under `model/enums/` parses, declares
-  `schema_version = 1` and a scalar `type`; the members under `data/enums/`
-  parse, are non-empty, distinct, and match the declared type; and the two
-  halves both exist. (e.g. `rototo/enum-parse-failed`,
-  `rototo/enum-schema-version`, `rototo/enum-shape`,
-  `rototo/enum-members-parse-failed`, `rototo/enum-members-shape`,
-  `rototo/enum-members-missing`, `rototo/enum-members-undeclared`)
+- **Enums** - each file under `enums/` parses, declares
+  `schema_version = 1`, a scalar `type`, and a non-empty `members` array of
+  distinct values matching that type. (e.g. `rototo/enum-parse-failed`,
+  `rototo/enum-schema-version`, `rototo/enum-shape`)
 - **Custom lint** - your Lua files register cleanly, without conflicting or
   duplicate rule metadata. (e.g. `rototo/custom-lint-registration-invalid`)
 

@@ -64,8 +64,7 @@ pub(super) fn parse_sources(
         match &document.kind {
             DocumentKind::Manifest
             | DocumentKind::Variable { .. }
-            | DocumentKind::EnumDeclaration { .. }
-            | DocumentKind::EnumMembers { .. }
+            | DocumentKind::Enum { .. }
             | DocumentKind::Layer { .. }
             | DocumentKind::Governance
             | DocumentKind::CatalogEntry { .. } => {

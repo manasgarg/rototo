@@ -57,7 +57,7 @@ defines a variable whose id is `checkout_redesign`. A catalog schema at
 `checkout_redesign`. You never write the id *inside* the file - the filename
 already said it. Subdirectories are namespaces, for every collection alike:
 `variables/acme/in_trial.toml` is the variable `acme/in_trial` (referenced as
-`variables["acme/in_trial"]` in expressions), `model/enums/acme/tier.toml` is
+`variables["acme/in_trial"]` in expressions), `enums/acme/tier.toml` is
 the enum `acme/tier`, `model/catalogs/acme/plans.schema.json` is the catalog
 `acme/plans` with its entries under `data/catalogs/acme/plans/`, and the same
 holds for evaluation contexts and layers. Catalog entry ids themselves stay
@@ -289,19 +289,22 @@ exactly the drift this is designed to surface.
 
 ### Enum members: union and delete
 
-An overlay's `data/enums/<id>.toml` doesn't replace the base's member file - the
-member sets compose. `members` declares what the package adds, and `deleted`
-names the base members it removes:
+An overlay adjusts a base enum's members through an update marker,
+`enums/<id>.update.toml`, the same shape variables use. `members` declares
+what the package adds, and `deleted` names the base members it removes:
 
 ```toml
-# overlay's data/enums/plan_tiers.toml
+# overlay's enums/plan_tiers.update.toml
 members = ["acme_enterprise"]
 deleted = ["legacy_bronze"]
 ```
 
 The composed enum has the base's members plus `acme_enterprise`, minus
-`legacy_bronze`. The `deleted` key is consumed during flattening and never
-appears in the flattened package.
+`legacy_bronze`. The marker is consumed during flattening and never appears
+in the flattened package. A marker may carry only `members`, `deleted`, and
+`description`: the enum's `type` is the contract half and is never updatable
+from above, and restating `enums/<id>.toml` wholesale is rejected toward the
+marker.
 
 Deletes follow the same rules as catalog entry deletes. Every deleted value
 has to name a member some base package actually provides ("deleted enum member
@@ -384,8 +387,8 @@ Each operation names one on-disk shape the overlay can produce:
 
 | Operation | What the overlay does on disk |
 | --- | --- |
-| `add` | a new `<entry>.toml` in a governed catalog, or a member file under `data/enums/` for a declared enum that had none in the base |
-| `update` | an `<entry>.update.toml` over a base catalog entry, a `data/enums/<id>.toml` that unions members into the base's set, a `variables/<id>.update.toml` over a base variable, or a replacement of a base layer file under `layers/` |
+| `add` | a new `<entry>.toml` in a governed catalog |
+| `update` | an `<entry>.update.toml` over a base catalog entry, an `enums/<id>.update.toml` that adjusts a base enum's members, a `variables/<id>.update.toml` over a base variable, or a replacement of a base layer file under `layers/` |
 | `delete` | an `<entry>.deleted.toml` disabling a base catalog entry |
 
 Grants go in `allowed_operations`; `denied_operations` subtracts from them and
@@ -865,25 +868,19 @@ with several fields, and it's heavy machinery for "one of these five strings."
 An **enum** is the lightweight middle: it names a closed set of scalar values,
 and lint checks every use against that set.
 
-Like a catalog, an enum has a contract half and a values half. The declaration
-lives at `model/enums/<id>.toml` and says what kind of scalar the members are:
+An enum is one file, `enums/<id>.toml`, holding both the contract and the
+values, the way a variable holds its type and its resolution:
 
 ```toml
 schema_version = 1
 description = "Account plan tiers"
 type = "string"
-```
-
-The `type` is one of `string`, `int`, `number`, or `bool`. The members live at
-`data/enums/<id>.toml`, under the same id:
-
-```toml
 members = ["free", "team", "business"]
 ```
 
-The list has to be non-empty, free of duplicates, and every member has to match
-the declared type. Both halves have to exist - a declaration with no members and
-members with no declaration are each lint errors.
+The `type` is one of `string`, `int`, `number`, or `bool`. The member list
+has to be non-empty, free of duplicates, and every member has to match the
+declared type.
 
 To use an enum, give a variable the type `enum=<id>`:
 

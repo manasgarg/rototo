@@ -107,10 +107,7 @@ pub(super) enum DocumentKind {
     Variable {
         id: String,
     },
-    EnumDeclaration {
-        id: String,
-    },
-    EnumMembers {
+    Enum {
         id: String,
     },
     Layer {
@@ -139,8 +136,7 @@ impl DocumentKind {
         match self {
             Self::Manifest => SourceKind::Manifest,
             Self::Variable { .. } => SourceKind::Variable,
-            Self::EnumDeclaration { .. } => SourceKind::Enum,
-            Self::EnumMembers { .. } => SourceKind::EnumMembers,
+            Self::Enum { .. } => SourceKind::Enum,
             Self::Layer { .. } => SourceKind::Layer,
             Self::Governance => SourceKind::Governance,
             Self::Catalog { .. } => SourceKind::Catalog,

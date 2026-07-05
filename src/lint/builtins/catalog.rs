@@ -396,7 +396,7 @@ fn enum_member_values<'a>(ctx: &'a LintContext, id: &str) -> Option<Vec<&'a Json
     if !ctx.index.enums.contains_key(id) {
         return None;
     }
-    let members = ctx.index.enum_members.get(id)?;
+    let members = ctx.index.enums.get(id)?;
     let ProjectField::Present(members) = &members.members else {
         return None;
     };

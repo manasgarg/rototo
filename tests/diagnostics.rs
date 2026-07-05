@@ -91,6 +91,10 @@ fn retired_rototo_rules_are_not_listed() {
         "rototo/evaluation-context-reserved-field",
         "rototo/catalog-schema-version",
         "rototo/catalog-schema-ref",
+        "rototo/enum-members-parse-failed",
+        "rototo/enum-members-shape",
+        "rototo/enum-members-missing",
+        "rototo/enum-members-undeclared",
     ] {
         assert!(
             !rules.contains(&retired),

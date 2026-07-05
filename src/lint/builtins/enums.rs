@@ -21,9 +21,12 @@ pub(super) fn lint_enum_shapes(ctx: &mut LintContext) {
                 "enum must declare schema_version = 1",
             );
         }
-        match &declaration.member_type {
+        let member_type = match &declaration.member_type {
             ProjectField::Present(member_type)
-                if MEMBER_TYPES.contains(&member_type.value.as_str()) => {}
+                if MEMBER_TYPES.contains(&member_type.value.as_str()) =>
+            {
+                Some(member_type.value.as_str())
+            }
             ProjectField::Present(member_type) => {
                 push_project_diagnostic(
                     &mut diagnostics,
@@ -35,6 +38,7 @@ pub(super) fn lint_enum_shapes(ctx: &mut LintContext) {
                         member_type.value
                     ),
                 );
+                None
             }
             ProjectField::Invalid { location } | ProjectField::Missing { location } => {
                 push_project_diagnostic(
@@ -44,55 +48,31 @@ pub(super) fn lint_enum_shapes(ctx: &mut LintContext) {
                     location.clone(),
                     "enum must declare type as one of string, int, number, or bool",
                 );
+                None
             }
-        }
-        if !ctx.index.enum_members.contains_key(&declaration.id) {
-            push_project_diagnostic(
-                &mut diagnostics,
-                RototoRuleId::EnumMembersMissing,
-                declaration.target(),
-                declaration.location.clone(),
-                format!(
-                    "enum declares no members: add data/enums/{}.toml",
-                    declaration.id
-                ),
-            );
-        }
-    }
+        };
 
-    for members in ctx.index.enum_members.values() {
-        if let Some(location) = &members.deleted {
+        if let Some(location) = &declaration.deleted {
             push_project_diagnostic(
                 &mut diagnostics,
-                RototoRuleId::EnumMembersShape,
-                members.target(),
+                RototoRuleId::EnumShape,
+                declaration.target(),
                 location.clone(),
-                "deleted enum members apply to a base package through extends; \
-                 this package has no base member set for them to remove from",
+                "deleted enum members apply to a base package through an \
+                 enums/<id>.update.toml marker; this package has no base \
+                 member set for them to remove from",
             );
         }
-        let declaration = ctx.index.enums.get(&members.id);
-        if declaration.is_none() {
-            push_project_diagnostic(
-                &mut diagnostics,
-                RototoRuleId::EnumMembersUndeclared,
-                members.target(),
-                members.location.clone(),
-                format!(
-                    "enum members have no declaration: add model/enums/{}.toml",
-                    members.id
-                ),
-            );
-        }
-        let values = match &members.members {
+
+        let values = match &declaration.members {
             ProjectField::Present(values) => values,
             ProjectField::Invalid { location } | ProjectField::Missing { location } => {
                 push_project_diagnostic(
                     &mut diagnostics,
-                    RototoRuleId::EnumMembersShape,
-                    members.target(),
+                    RototoRuleId::EnumShape,
+                    declaration.target(),
                     location.clone(),
-                    "enum members file must declare members as an array",
+                    "enum must declare members as an array",
                 );
                 continue;
             }
@@ -100,17 +80,13 @@ pub(super) fn lint_enum_shapes(ctx: &mut LintContext) {
         if values.value.is_empty() {
             push_project_diagnostic(
                 &mut diagnostics,
-                RototoRuleId::EnumMembersShape,
-                members.target(),
+                RototoRuleId::EnumShape,
+                declaration.target(),
                 values.location.clone(),
                 "enum must declare at least one member",
             );
             continue;
         }
-        let member_type = declaration.and_then(|declaration| match &declaration.member_type {
-            ProjectField::Present(member_type) => Some(member_type.value.as_str()),
-            _ => None,
-        });
         let mut seen = Vec::new();
         for member in &values.value {
             if let Some(member_type) = member_type
@@ -118,8 +94,8 @@ pub(super) fn lint_enum_shapes(ctx: &mut LintContext) {
             {
                 push_project_diagnostic(
                     &mut diagnostics,
-                    RototoRuleId::EnumMembersShape,
-                    members.target(),
+                    RototoRuleId::EnumShape,
+                    declaration.target(),
                     member.location.clone(),
                     format!(
                         "enum member does not match declared type {member_type}: {}",
@@ -130,8 +106,8 @@ pub(super) fn lint_enum_shapes(ctx: &mut LintContext) {
             if seen.contains(&&member.value) {
                 push_project_diagnostic(
                     &mut diagnostics,
-                    RototoRuleId::EnumMembersShape,
-                    members.target(),
+                    RototoRuleId::EnumShape,
+                    declaration.target(),
                     member.location.clone(),
                     format!("enum member is duplicated: {}", member.value),
                 );

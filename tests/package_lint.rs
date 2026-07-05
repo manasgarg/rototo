@@ -563,8 +563,7 @@ fn reports_project_stage_variable_when_failures() {
 fn enums_declare_members_and_type_variables() {
     let temp = tempfile::TempDir::new().unwrap();
     let root = temp.path();
-    std::fs::create_dir_all(root.join("model/enums")).unwrap();
-    std::fs::create_dir_all(root.join("data/enums")).unwrap();
+    std::fs::create_dir_all(root.join("enums")).unwrap();
     std::fs::create_dir_all(root.join("variables")).unwrap();
     std::fs::create_dir_all(root.join("model/context")).unwrap();
     std::fs::write(root.join("rototo-package.toml"), "schema_version = 1\n").unwrap();
@@ -574,13 +573,8 @@ fn enums_declare_members_and_type_variables() {
     )
     .unwrap();
     std::fs::write(
-        root.join("model/enums/plan_tiers.toml"),
-        "schema_version = 1\ndescription = \"Plan tiers\"\ntype = \"string\"\n",
-    )
-    .unwrap();
-    std::fs::write(
-        root.join("data/enums/plan_tiers.toml"),
-        "members = [\"free\", \"team\", \"business\"]\n",
+        root.join("enums/plan_tiers.toml"),
+        "schema_version = 1\ndescription = \"Plan tiers\"\ntype = \"string\"\nmembers = [\"free\", \"team\", \"business\"]\n",
     )
     .unwrap();
     std::fs::write(
@@ -660,14 +654,12 @@ default = "anything"
 "#,
     )
     .unwrap();
+    // A single-file enum that forgets its members is an enum-shape error;
+    // the declaration/members split (and its missing/undeclared rules) is
+    // gone.
     std::fs::write(
-        root.join("model/enums/orphan.toml"),
+        root.join("enums/memberless.toml"),
         "schema_version = 1\ntype = \"string\"\n",
-    )
-    .unwrap();
-    std::fs::write(
-        root.join("data/enums/undeclared.toml"),
-        "members = [\"a\"]\n",
     )
     .unwrap();
 
@@ -681,12 +673,11 @@ default = "anything"
         rules.contains(&"rototo/variable-unknown-enum".to_owned()),
         "{lint:#}"
     );
+    let shape_messages = diagnostic_messages_for_rule(&lint, "rototo/enum-shape");
     assert!(
-        rules.contains(&"rototo/enum-members-missing".to_owned()),
-        "{lint:#}"
-    );
-    assert!(
-        rules.contains(&"rototo/enum-members-undeclared".to_owned()),
+        shape_messages
+            .iter()
+            .any(|message| message.contains("must declare members as an array")),
         "{lint:#}"
     );
 }
@@ -697,22 +688,16 @@ fn enum_member_deletes_need_a_layer_below() {
     // layers flatten; in a package with no base it has nothing to remove from.
     let temp = tempfile::TempDir::new().unwrap();
     let root = temp.path();
-    std::fs::create_dir_all(root.join("model/enums")).unwrap();
-    std::fs::create_dir_all(root.join("data/enums")).unwrap();
+    std::fs::create_dir_all(root.join("enums")).unwrap();
     std::fs::write(root.join("rototo-package.toml"), "schema_version = 1\n").unwrap();
     std::fs::write(
-        root.join("model/enums/plan_tiers.toml"),
-        "schema_version = 1\ntype = \"string\"\n",
-    )
-    .unwrap();
-    std::fs::write(
-        root.join("data/enums/plan_tiers.toml"),
-        "members = [\"basic\", \"pro\"]\ndeleted = [\"basic\"]\n",
+        root.join("enums/plan_tiers.toml"),
+        "schema_version = 1\ntype = \"string\"\nmembers = [\"basic\", \"pro\"]\ndeleted = [\"basic\"]\n",
     )
     .unwrap();
 
     let lint = lint_json(root.to_str().unwrap(), false);
-    let messages = diagnostic_messages_for_rule(&lint, "rototo/enum-members-shape");
+    let messages = diagnostic_messages_for_rule(&lint, "rototo/enum-shape");
     assert!(
         messages
             .iter()
@@ -1519,7 +1504,7 @@ fn canonical_rule_fixtures() -> &'static [CanonicalRuleFixture] {
                 stage: LintStage::Discover,
                 entity: ExpectedEntity::Package,
                 primary: ExpectedPrimaryLocation::Document {
-                    path: "model/enums/typo/tier.tml",
+                    path: "enums/typo/tier.tml",
                     range: None,
                 },
                 related: &[],
@@ -2275,18 +2260,6 @@ fn pending_canonical_rule_fixtures() -> &'static [PendingCanonicalRuleFixture] {
             rule: RototoRuleId::EnumShape,
         },
         PendingCanonicalRuleFixture {
-            rule: RototoRuleId::EnumMembersParseFailed,
-        },
-        PendingCanonicalRuleFixture {
-            rule: RototoRuleId::EnumMembersShape,
-        },
-        PendingCanonicalRuleFixture {
-            rule: RototoRuleId::EnumMembersMissing,
-        },
-        PendingCanonicalRuleFixture {
-            rule: RototoRuleId::EnumMembersUndeclared,
-        },
-        PendingCanonicalRuleFixture {
             rule: RototoRuleId::VariableUnknownEnum,
         },
         PendingCanonicalRuleFixture {
@@ -2701,10 +2674,6 @@ fn relative_fixture_path(root: &Path, path: &Path) -> String {
 #[test]
 fn pending_rules_fire_from_scratch_packages() {
     let manifest = ("rototo-package.toml", "schema_version = 1\n");
-    let enum_decl = (
-        "model/enums/tier.toml",
-        "schema_version = 1\ntype = \"string\"\n",
-    );
     let context_schema = (
         "model/context/request.schema.json",
         r#"{"type":"object","required":["user"],"properties":{"user":{"type":"object"}},"additionalProperties":false}"#,
@@ -2712,15 +2681,15 @@ fn pending_rules_fire_from_scratch_packages() {
     let cases: &[(&str, &[(&str, &str)])] = &[
         (
             "rototo/enum-parse-failed",
-            &[manifest, ("model/enums/tier.toml", "= not toml\n")],
+            &[manifest, ("enums/tier.toml", "= not toml\n")],
         ),
         (
             "rototo/enum-schema-version",
             &[
                 manifest,
                 (
-                    "model/enums/tier.toml",
-                    "schema_version = 2\ntype = \"string\"\n",
+                    "enums/tier.toml",
+                    "schema_version = 2\ntype = \"string\"\nmembers = [\"a\"]\n",
                 ),
             ],
         ),
@@ -2729,17 +2698,9 @@ fn pending_rules_fire_from_scratch_packages() {
             &[
                 manifest,
                 (
-                    "model/enums/tier.toml",
-                    "schema_version = 1\ntype = \"object\"\n",
+                    "enums/tier.toml",
+                    "schema_version = 1\ntype = \"object\"\nmembers = [\"a\"]\n",
                 ),
-            ],
-        ),
-        (
-            "rototo/enum-members-parse-failed",
-            &[
-                manifest,
-                enum_decl,
-                ("data/enums/tier.toml", "= not toml\n"),
             ],
         ),
         (
