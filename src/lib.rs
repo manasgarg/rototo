@@ -1,3 +1,4 @@
+pub(crate) mod address;
 #[cfg(feature = "console")]
 pub mod console;
 pub mod diagnostics;
