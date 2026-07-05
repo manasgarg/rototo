@@ -210,8 +210,7 @@ package structure and files:
   `type` as one of `string`, `int`, `number`, or `bool`, and declare
   `members` as a non-empty array of distinct values matching the declared
   type (`rototo/enum-parse-failed`, `rototo/enum-schema-version`,
-  `rototo/enum-shape`). The retired `rototo/enum-members-*` rule ids from
-  the dissolved two-file layout stay reserved.
+  `rototo/enum-shape`).
 - Catalog schemas under `model/catalogs/*.schema.json` parse and compile as
   JSON Schema. Catalog entries under `data/catalogs/<id>/*.toml` validate
   against their catalog schema, and `x-rototo-ref` targets resolve: catalog
@@ -233,8 +232,8 @@ paths. Lua/custom lint rules use
 `payments/max-token-budget`. The diagnostics catalog lists built-in rules
 globally and adds declared custom rules for a package-scoped catalog.
 
-The retired `rototo/qualifier-*` rule ids (from the dissolved qualifier
-entity) stay reserved: they must not fire and must not be reused for new rules.
+Retired rule ids carry no reservation machinery: when a rule dissolves,
+delete its variant, catalog metadata, fixtures, and tests outright.
 
 The failure fixture at `tests/fixtures/packages/lint-failures` is a compact
 coverage package for expected lint failures. Extend it when adding new lint

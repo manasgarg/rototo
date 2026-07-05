@@ -6,7 +6,6 @@ use serde::{Serialize, Serializer};
 #[serde(rename_all = "lowercase")]
 pub enum DiagnosticEntity {
     Package,
-    Qualifier,
     Enum,
     Layer,
     Governance,
@@ -56,48 +55,7 @@ macro_rules! rototo_rules {
             ];
 
             pub fn iter() -> impl Iterator<Item = Self> {
-                Self::ALL
-                    .iter()
-                    .copied()
-                    .filter(|rule| !rule.is_retired())
-            }
-
-            pub fn is_retired(self) -> bool {
-                matches!(
-                    self,
-                    Self::PackageContextSchemaRef
-                        | Self::PackageContextSchemaAttribute
-                        | Self::PackageContextSchemaReservedField
-                        | Self::PackageContextSchemaMissing
-                        | Self::QualifierParseFailed
-                        | Self::QualifierSchemaVersion
-                        | Self::QualifierWhenMissing
-                        | Self::QualifierWhenShape
-                        | Self::QualifierWhenUnknownQualifier
-                        | Self::QualifierWhenUndeclaredContextPath
-                        | Self::QualifierWhenInvalidReference
-                        | Self::QualifierWhenContextPathTypeMismatch
-                        | Self::QualifierPredicateMissing
-                        | Self::QualifierPredicateShape
-                        | Self::QualifierPredicateUnknownOp
-                        | Self::QualifierPredicateUnknownQualifier
-                        | Self::QualifierPredicateBucket
-                        | Self::QualifierPredicateValue
-                        | Self::QualifierPredicateContextTypeMismatch
-                        | Self::QualifierPredicateDuplicate
-                        | Self::QualifierNoCompatibleEvaluationContext
-                        | Self::QualifierCycle
-                        | Self::QualifierUnreferenced
-                        | Self::QualifierUnreachable
-                        | Self::VariableRuleUnknownQualifier
-                        | Self::EvaluationContextReservedField
-                        | Self::CatalogSchemaVersion
-                        | Self::CatalogSchemaRef
-                        | Self::EnumMembersParseFailed
-                        | Self::EnumMembersShape
-                        | Self::EnumMembersMissing
-                        | Self::EnumMembersUndeclared
-                )
+                Self::ALL.iter().copied()
             }
 
             pub fn meta(self) -> RuleMeta {
@@ -165,42 +123,11 @@ rototo_rules! {
         title: "Trace policy when references an unknown identifier",
         help: "Trace when reads context.<path>, variables[\"<id>\"], env.now, and env.resolving.variable.",
     },
-    PackageContextSchemaRef => {
-        id: "package-context-schema-ref",
-        entity: Package,
-        title: "Evaluation context schema is invalid",
-        help: "Retired. Use model/context/<id>.schema.json for evaluation context validation.",
-    },
-    PackageContextSchemaAttribute => {
-        id: "package-context-schema-attribute",
-        entity: Package,
-        title: "Qualifier context attribute is not declared by the evaluation context schema",
-        help: "Declare the context path in the package context schema or update the qualifier.",
-    },
-    PackageContextSchemaReservedField => {
-        id: "package-context-schema-reserved-field",
-        entity: Package,
-        title: "Evaluation context schema declares a reserved field",
-        help: "Rename the evaluation context field; qualifier is reserved for qualifier.<id> predicate references.",
-    },
-    PackageContextSchemaMissing => {
-        id: "package-context-schema-missing",
-        entity: Package,
-        title: "Evaluation context schema is missing",
-        help: "Retired. Add model/context/<id>.schema.json for evaluation context validation.",
-        severity: Warning,
-    },
     EvaluationContextSchemaInvalid => {
         id: "evaluation-context-schema-invalid",
         entity: EvaluationContext,
         title: "Evaluation context schema is invalid",
         help: "Fix the model/context/<id>.schema.json file so it parses and compiles as JSON Schema.",
-    },
-    EvaluationContextReservedField => {
-        id: "evaluation-context-reserved-field",
-        entity: EvaluationContext,
-        title: "Evaluation context schema declares a reserved field",
-        help: "Rename the evaluation context field; qualifier is reserved for qualifier.<id> predicate references.",
     },
     EvaluationContextSampleSchemaMismatch => {
         id: "evaluation-context-sample-schema-mismatch",
@@ -213,129 +140,6 @@ rototo_rules! {
         entity: EvaluationContextSample,
         title: "Evaluation context sample is invalid",
         help: "Evaluation context samples must parse as JSON objects.",
-    },
-    QualifierParseFailed => {
-        id: "qualifier-parse-failed",
-        entity: Qualifier,
-        title: "Qualifier TOML file could not be parsed",
-        help: "Fix the TOML syntax so rototo can parse the qualifier file.",
-    },
-    QualifierSchemaVersion => {
-        id: "qualifier-schema-version",
-        entity: Qualifier,
-        title: "Qualifier schema version is missing or unsupported",
-        help: "Declare schema_version = 1 in the qualifier file.",
-    },
-    QualifierWhenMissing => {
-        id: "qualifier-when-missing",
-        entity: Qualifier,
-        title: "Qualifier condition is missing",
-        help: "Add an expression with when = \"...\".",
-    },
-    QualifierWhenShape => {
-        id: "qualifier-when-shape",
-        entity: Qualifier,
-        title: "Qualifier condition is invalid",
-        help: "Use when = \"...\" with a valid expression.",
-    },
-    QualifierWhenUnknownQualifier => {
-        id: "qualifier-when-unknown-qualifier",
-        entity: Qualifier,
-        title: "Qualifier condition references an unknown qualifier",
-        help: "Create the referenced qualifier or update the qualifier reference in the when expression.",
-    },
-    QualifierWhenUndeclaredContextPath => {
-        id: "qualifier-when-undeclared-context-path",
-        entity: Qualifier,
-        title: "Qualifier when expression references an undeclared context path",
-        help: "Declare the attribute in an evaluation context schema under model/context/<id>.schema.json, or fix the path in the when expression.",
-    },
-    QualifierWhenInvalidReference => {
-        id: "qualifier-when-invalid-reference",
-        entity: Qualifier,
-        title: "Qualifier when expression references an identifier rototo does not provide",
-        help: "Expressions read context.<path>, env.qualifier[\"<id>\"], and env.now. Reference qualifiers as env.qualifier[\"<id>\"].",
-    },
-    QualifierWhenContextPathTypeMismatch => {
-        id: "qualifier-when-context-path-type-mismatch",
-        entity: Qualifier,
-        title: "Qualifier when expression uses a context path with the wrong type",
-        help: "Declare the context attribute with a type that matches how the when expression uses it, or change the comparison to match the declared type.",
-    },
-    QualifierPredicateMissing => {
-        id: "qualifier-predicate-missing",
-        entity: Qualifier,
-        title: "Qualifier predicate is missing",
-        help: "Retired. Use when = \"...\" with a valid expression.",
-    },
-    QualifierPredicateShape => {
-        id: "qualifier-predicate-shape",
-        entity: Qualifier,
-        title: "Qualifier predicate has the wrong shape",
-        help: "Retired. Use when = \"...\" with a valid expression.",
-    },
-    QualifierPredicateUnknownOp => {
-        id: "qualifier-predicate-unknown-op",
-        entity: Qualifier,
-        title: "Qualifier predicate uses an unknown operator",
-        help: "Use a supported predicate operator such as eq, in, gte, prefix, regex, semver, time_between, exists, between, contains_any, cidr, or bucket.",
-    },
-    QualifierPredicateUnknownQualifier => {
-        id: "qualifier-predicate-unknown-qualifier",
-        entity: Qualifier,
-        title: "Qualifier predicate references an unknown qualifier",
-        help: "Create the referenced qualifier or update the qualifier.<id> reference.",
-    },
-    QualifierPredicateBucket => {
-        id: "qualifier-predicate-bucket",
-        entity: Qualifier,
-        title: "Bucket predicate is invalid",
-        help: "Bucket predicates need salt and range = [start, end] with 0 <= start < end <= 10000.",
-    },
-    QualifierPredicateValue => {
-        id: "qualifier-predicate-value",
-        entity: Qualifier,
-        title: "Qualifier predicate value is invalid",
-        help: "Add a value with the shape required by the predicate operator.",
-    },
-    QualifierPredicateContextTypeMismatch => {
-        id: "qualifier-predicate-context-type-mismatch",
-        entity: Qualifier,
-        title: "Qualifier predicate does not match the evaluation context schema type",
-        help: "Update the predicate operator or value so it matches the context schema field type.",
-    },
-    QualifierNoCompatibleEvaluationContext => {
-        id: "qualifier-no-compatible-evaluation-context",
-        entity: Qualifier,
-        title: "Qualifier has no compatible evaluation context",
-        help: "Add an evaluation context schema under model/context/<id>.schema.json that declares the qualifier's context attributes, or update the qualifier predicates.",
-    },
-    QualifierPredicateDuplicate => {
-        id: "qualifier-predicate-duplicate",
-        entity: Qualifier,
-        title: "Qualifier predicate is duplicated",
-        help: "Remove duplicate predicates that do not change qualifier behavior.",
-        severity: Warning,
-    },
-    QualifierCycle => {
-        id: "qualifier-cycle",
-        entity: Qualifier,
-        title: "Qualifier references form a cycle",
-        help: "Remove the qualifier reference cycle so qualifier evaluation can terminate.",
-    },
-    QualifierUnreferenced => {
-        id: "qualifier-unreferenced",
-        entity: Qualifier,
-        title: "Qualifier is not referenced",
-        help: "Reference the qualifier from another qualifier or variable rule, or remove it.",
-        severity: Warning,
-    },
-    QualifierUnreachable => {
-        id: "qualifier-unreachable",
-        entity: Qualifier,
-        title: "Qualifier cannot affect resolution",
-        help: "Reference the qualifier from a reachable variable rule path, or remove it.",
-        severity: Warning,
     },
     VariableParseFailed => {
         id: "variable-parse-failed",
@@ -403,30 +207,6 @@ rototo_rules! {
         title: "Enum declaration is invalid",
         help: "Declare type as one of string, int, number, or bool.",
     },
-    EnumMembersParseFailed => {
-        id: "enum-members-parse-failed",
-        entity: Enum,
-        title: "Enum members TOML file could not be parsed",
-        help: "Fix the TOML syntax error in the enum members file.",
-    },
-    EnumMembersShape => {
-        id: "enum-members-shape",
-        entity: Enum,
-        title: "Enum members are invalid",
-        help: "Declare members as a non-empty array of distinct values matching the enum's declared type.",
-    },
-    EnumMembersMissing => {
-        id: "enum-members-missing",
-        entity: Enum,
-        title: "Enum declares no members",
-        help: "Add the members under data/enums/<id>.toml.",
-    },
-    EnumMembersUndeclared => {
-        id: "enum-members-undeclared",
-        entity: Enum,
-        title: "Enum members have no declaration",
-        help: "Declare the enum under model/enums/<id>.toml.",
-    },
     VariableUnknownValue => {
         id: "variable-unknown-value",
         entity: Variable,
@@ -450,18 +230,6 @@ rototo_rules! {
         entity: CatalogEntry,
         title: "Catalog value TOML file could not be parsed",
         help: "Fix the TOML syntax so rototo can parse the catalog value file.",
-    },
-    CatalogSchemaVersion => {
-        id: "catalog-schema-version",
-        entity: Catalog,
-        title: "Catalog schema version is missing or unsupported",
-        help: "Declare schema_version = 1 in the catalog file.",
-    },
-    CatalogSchemaRef => {
-        id: "catalog-schema-ref",
-        entity: Catalog,
-        title: "Catalog schema reference is invalid",
-        help: "Point schema to a readable valid JSON Schema file.",
     },
     CatalogIdOverlap => {
         id: "catalog-id-overlap",
@@ -571,12 +339,6 @@ rototo_rules! {
         entity: Variable,
         title: "Variable rule is invalid",
         help: "Rules must be tables with qualifier and value references.",
-    },
-    VariableRuleUnknownQualifier => {
-        id: "variable-rule-unknown-qualifier",
-        entity: Variable,
-        title: "Variable rule references an unknown qualifier",
-        help: "Create the referenced qualifier or update the rule.",
     },
     VariableRuleUnknownVariable => {
         id: "variable-rule-unknown-variable",

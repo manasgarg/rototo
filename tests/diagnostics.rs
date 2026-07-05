@@ -51,59 +51,6 @@ fn lists_global_diagnostics_as_json() {
 }
 
 #[test]
-fn retired_rototo_rules_are_not_listed() {
-    let output = Command::cargo_bin("rototo")
-        .unwrap()
-        .args(["show", "--lint-rules", "--json"])
-        .output()
-        .unwrap();
-
-    assert!(
-        output.status.success(),
-        "diagnostics list failed\nstdout:\n{}\nstderr:\n{}",
-        String::from_utf8_lossy(&output.stdout),
-        String::from_utf8_lossy(&output.stderr)
-    );
-    let diagnostics: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
-    let rules = diagnostics["diagnostics"]
-        .as_array()
-        .unwrap()
-        .iter()
-        .map(|diagnostic| diagnostic["rule"].as_str().unwrap())
-        .collect::<Vec<_>>();
-
-    for retired in [
-        "rototo/variable-lint-shape",
-        "rototo/qualifier-missing-table",
-        "rototo/variable-missing-table",
-        "rototo/variable-values-missing",
-        "rototo/variable-value-unused",
-        "rototo/package-context-schema-ref",
-        "rototo/package-context-schema-attribute",
-        "rototo/package-context-schema-reserved-field",
-        "rototo/package-context-schema-missing",
-        "rototo/qualifier-predicate-context-type-mismatch",
-        "rototo/qualifier-parse-failed",
-        "rototo/qualifier-when-unknown-qualifier",
-        "rototo/qualifier-cycle",
-        "rototo/qualifier-unreferenced",
-        "rototo/variable-rule-unknown-qualifier",
-        "rototo/evaluation-context-reserved-field",
-        "rototo/catalog-schema-version",
-        "rototo/catalog-schema-ref",
-        "rototo/enum-members-parse-failed",
-        "rototo/enum-members-shape",
-        "rototo/enum-members-missing",
-        "rototo/enum-members-undeclared",
-    ] {
-        assert!(
-            !rules.contains(&retired),
-            "retired rule is listed: {retired}"
-        );
-    }
-}
-
-#[test]
 fn gets_package_diagnostic() {
     Command::cargo_bin("rototo")
         .unwrap()

@@ -17,10 +17,12 @@ inventory; duplicating it here would rot.
 | # | Promise | Coverage |
 |---|---|---|
 | I1 | Every built-in rule id is flat `rototo/<rule-id>`: starts with `rototo/`, exactly one slash, never nested | `builtin_diagnostic_rule_ids_are_flat_rototo_ids` |
-| I2 | Retired rule ids (the whole `rototo/qualifier-*` family and the other dissolved rules) never appear in the diagnostics catalog | `retired_rototo_rules_are_not_listed` (`tests/diagnostics.rs`) |
-| I3 | Retired ids are never reused: `RototoRuleId::is_retired` gates them out of `iter()`, so a reused id would collide in the enum first | by construction (`src/diagnostics.rs`); I1 and I2 are the observable halves |
-| I4 | Custom rules are `<authority>/<rule-id>` with a non-`rototo` authority; the `rototo` authority is reserved | custom-lint matrix (`tests/docs/lua-lint-matrix.md`); `CustomRuleId::parse` unit behavior |
-| I5 | Custom catalog entries never claim a built-in entity | `custom_diagnostic_catalog_entries_do_not_claim_variable_entity` (`tests/diagnostics.rs`) |
+| I2 | Custom rules are `<authority>/<rule-id>` with a non-`rototo` authority; the `rototo` authority is reserved | custom-lint matrix (`tests/docs/lua-lint-matrix.md`); `CustomRuleId::parse` unit behavior |
+| I3 | Custom catalog entries never claim a built-in entity | `custom_diagnostic_catalog_entries_do_not_claim_variable_entity` (`tests/diagnostics.rs`) |
+
+Retired rule ids carry no machinery: when a rule dissolves, its variant,
+catalog metadata, fixtures, and tests are deleted outright (decided
+2026-07-05; there is no reserved-id list pre-stability).
 
 ## 2. The diagnostics catalog
 

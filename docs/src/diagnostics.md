@@ -146,9 +146,8 @@ finding is about that thing.
 
 One historical note: earlier rototo versions had a separate qualifier entity
 with its own `rototo/qualifier-*` rules. Qualifiers were dissolved into
-condition variables (plain bool variables), so those rule ids are retired: they
-no longer fire, they don't appear in the catalog, and they stay reserved rather
-than being reused for something new.
+condition variables (plain bool variables), so those rule ids are gone: they
+no longer fire and they don't appear in the catalog.
 
 ## Errors versus warnings
 

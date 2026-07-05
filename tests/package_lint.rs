@@ -1437,11 +1437,6 @@ struct ExpectedRange {
 enum ExpectedEntity {
     Package,
     Manifest,
-    Qualifier(&'static str),
-    Predicate {
-        qualifier: &'static str,
-        index: usize,
-    },
     Variable(&'static str),
     Value {
         variable: &'static str,
@@ -2517,16 +2512,6 @@ fn expected_entity_value(entity: ExpectedEntity) -> serde_json::Value {
     match entity {
         ExpectedEntity::Package => serde_json::json!({ "kind": "package" }),
         ExpectedEntity::Manifest => serde_json::json!({ "kind": "manifest" }),
-        ExpectedEntity::Qualifier(id) => {
-            serde_json::json!({ "kind": "qualifier", "id": id })
-        }
-        ExpectedEntity::Predicate { qualifier, index } => {
-            serde_json::json!({
-                "kind": "predicate",
-                "qualifier": qualifier,
-                "index": index,
-            })
-        }
         ExpectedEntity::Variable(id) => {
             serde_json::json!({ "kind": "variable", "id": id })
         }

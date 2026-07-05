@@ -174,7 +174,6 @@ pub(super) fn severity_label(severity: &Severity) -> &'static str {
 pub(super) fn diagnostic_entity_label(entity: &DiagnosticEntity) -> &'static str {
     match entity {
         DiagnosticEntity::Package => "package",
-        DiagnosticEntity::Qualifier => "qualifier",
         DiagnosticEntity::Enum => "enum",
         DiagnosticEntity::Layer => "layer",
         DiagnosticEntity::Governance => "governance",
