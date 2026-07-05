@@ -158,7 +158,7 @@ fn hydrate_catalog_reference_target(
     }
 }
 
-fn split_catalog_entry_ref(value: &str) -> Option<(&str, Option<&str>)> {
+pub(crate) fn split_catalog_entry_ref(value: &str) -> Option<(&str, Option<&str>)> {
     let Some((entry, pointer)) = value.split_once('#') else {
         return (!value.is_empty()).then_some((value, None));
     };
@@ -170,6 +170,144 @@ fn split_catalog_entry_ref(value: &str) -> Option<(&str, Option<&str>)> {
 
 fn is_json_pointer(value: &str) -> bool {
     value.is_empty() || value.starts_with('/')
+}
+
+/// One reference found in a catalog value: where it sits in the value (a
+/// JSON pointer) and what it names.
+pub(crate) struct CollectedReference {
+    pub(crate) pointer: String,
+    pub(crate) catalogs: Vec<String>,
+    pub(crate) entry: String,
+    pub(crate) entry_pointer: Option<String>,
+}
+
+/// Walks a value together with its catalog's schema and reports every field
+/// whose schema carries `x-rototo-ref`, without splicing anything: the
+/// reporting twin of hydration, for apps that follow references explicitly.
+pub(crate) fn collect_catalog_references(
+    runtime: &RuntimePackage,
+    catalog: &str,
+    value: &JsonValue,
+) -> Vec<CollectedReference> {
+    let mut found = Vec::new();
+    if let Some(schema) = runtime.catalog_schemas.get(catalog) {
+        collect_schema_references(runtime, catalog, schema, value, String::new(), &mut found);
+    }
+    found
+}
+
+fn collect_schema_references(
+    runtime: &RuntimePackage,
+    schema_catalog: &str,
+    schema: &JsonValue,
+    value: &JsonValue,
+    pointer: String,
+    found: &mut Vec<CollectedReference>,
+) {
+    if let Some(reference) = schema.get("$ref").and_then(JsonValue::as_str)
+        && let Some((catalog, schema)) = resolve_schema_ref(runtime, schema_catalog, reference)
+    {
+        let catalog = catalog.clone();
+        return collect_schema_references(runtime, &catalog, schema, value, pointer, found);
+    }
+
+    if let Some(ref_value) = schema.get("x-rototo-ref")
+        && let Some(reference) = classify_reference(ref_value, value, &pointer)
+    {
+        found.push(reference);
+        return;
+    }
+
+    if let (Some(properties), JsonValue::Object(object)) = (
+        schema.get("properties").and_then(JsonValue::as_object),
+        value,
+    ) {
+        for (key, subschema) in properties {
+            let Some(child) = object.get(key) else {
+                continue;
+            };
+            let escaped = key.replace('~', "~0").replace('/', "~1");
+            collect_schema_references(
+                runtime,
+                schema_catalog,
+                subschema,
+                child,
+                format!("{pointer}/{escaped}"),
+                found,
+            );
+        }
+    }
+
+    if let (Some(items), JsonValue::Array(values)) = (schema.get("items"), value) {
+        for (index, child) in values.iter().enumerate() {
+            collect_schema_references(
+                runtime,
+                schema_catalog,
+                items,
+                child,
+                format!("{pointer}/{index}"),
+                found,
+            );
+        }
+    }
+
+    for keyword in ["allOf", "anyOf", "oneOf"] {
+        let Some(schemas) = schema.get(keyword).and_then(JsonValue::as_array) else {
+            continue;
+        };
+        for subschema in schemas {
+            collect_schema_references(
+                runtime,
+                schema_catalog,
+                subschema,
+                value,
+                pointer.clone(),
+                found,
+            );
+        }
+    }
+}
+
+fn classify_reference(
+    ref_spec: &JsonValue,
+    value: &JsonValue,
+    pointer: &str,
+) -> Option<CollectedReference> {
+    if ref_spec == &JsonValue::Bool(true) {
+        let object = value.as_object()?;
+        return Some(CollectedReference {
+            pointer: pointer.to_owned(),
+            catalogs: vec![object.get("catalog")?.as_str()?.to_owned()],
+            entry: object.get("entry")?.as_str()?.to_owned(),
+            entry_pointer: object
+                .get("pointer")
+                .and_then(JsonValue::as_str)
+                .map(str::to_owned),
+        });
+    }
+    let catalogs: Vec<String> = if let Some(target) = ref_spec.as_str() {
+        vec![target.strip_prefix("catalog=")?.to_owned()]
+    } else if let Some(targets) = ref_spec.as_array() {
+        targets
+            .iter()
+            .filter_map(JsonValue::as_str)
+            .filter_map(|target| target.strip_prefix("catalog="))
+            .map(str::to_owned)
+            .collect()
+    } else {
+        return None;
+    };
+    if catalogs.is_empty() {
+        return None;
+    }
+    let target = value.as_str()?;
+    let (entry, entry_pointer) = split_catalog_entry_ref(target)?;
+    Some(CollectedReference {
+        pointer: pointer.to_owned(),
+        catalogs,
+        entry: entry.to_owned(),
+        entry_pointer: entry_pointer.map(str::to_owned),
+    })
 }
 
 fn resolve_schema_ref<'a>(

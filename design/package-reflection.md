@@ -1,6 +1,8 @@
 # Package reflection and lookup for apps
 
-Status: draft for review. Nothing here is implemented yet.
+Status: landed for Rust (2026-07-05); language SDK v1 slice is the
+follow-up task. Open question 1 resolved yes (resolve_reference_at), 2
+resolved no (read_entry stays raw), 3 stays deferred.
 
 ## Why
 

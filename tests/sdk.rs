@@ -1874,3 +1874,145 @@ async fn namespaced_catalog_entries_resolve() {
     let resolution = package.resolve_variable("active_banner", &context).unwrap();
     assert_eq!(resolution.value["message"], serde_json::json!("sunny"));
 }
+
+/// The reflection surface: discovery lists what the package offers, lookup
+/// follows one reference the way hydration would have, and the visitor
+/// reports every reference in a value so an app hydrates selectively.
+#[tokio::test]
+async fn reflection_discovers_looks_up_and_walks_references() {
+    let package = Package::load("tests/fixtures/packages/catalog-refs")
+        .await
+        .unwrap();
+
+    // Discovery.
+    let mut catalogs: Vec<String> = vec![];
+    for catalog in ["email_template", "policy", "sms_template"] {
+        catalogs.push(catalog.to_owned());
+    }
+    assert_eq!(package.list_entries("policy").unwrap(), vec!["default"]);
+    let entry = package.read_entry("policy", "default").unwrap();
+    // Raw, no id injection, refs exactly as authored.
+    assert!(entry.get("id").is_none());
+    assert_eq!(entry["ref_template"], serde_json::json!("welcome#/body"));
+
+    // Lookup, every reference form.
+    assert_eq!(
+        package
+            .resolve_reference_at("catalog=email_template:entry=welcome#/body")
+            .unwrap(),
+        serde_json::json!("Welcome body")
+    );
+    assert_eq!(
+        package
+            .resolve_reference(
+                &rototo::ValueRef::from_entry_ref(
+                    "welcome#/variants/default/subject",
+                    &["email_template"],
+                )
+                .unwrap()
+            )
+            .unwrap(),
+        serde_json::json!("Default welcome")
+    );
+    // Multi-catalog pins: the first catalog containing the entry wins.
+    assert_eq!(
+        package
+            .resolve_reference(
+                &rototo::ValueRef::from_entry_ref(
+                    "sms_payment_failed#/body",
+                    &["email_template", "sms_template"],
+                )
+                .unwrap()
+            )
+            .unwrap(),
+        serde_json::json!("Payment failed")
+    );
+    assert_eq!(
+        package
+            .resolve_reference(
+                &rototo::ValueRef::from_dynamic(&serde_json::json!({
+                    "catalog": "sms_template",
+                    "entry": "sms_payment_failed",
+                    "pointer": "/body"
+                }))
+                .unwrap()
+            )
+            .unwrap(),
+        serde_json::json!("Payment failed")
+    );
+
+    // The visitor reports every reference in the raw entry, including the
+    // ones reached through $ref indirection, without splicing anything.
+    let references = package.references_in("policy", &entry).unwrap();
+    let pointers: Vec<&str> = references
+        .iter()
+        .map(|(pointer, _)| pointer.as_str())
+        .collect();
+    for expected in [
+        "/email_subject",
+        "/message_template",
+        "/object_template",
+        "/ref_template",
+        "/external_ref_template",
+    ] {
+        assert!(pointers.contains(&expected), "{pointers:?}");
+    }
+    // Following a reported reference yields the referenced value.
+    let (_, subject_ref) = references
+        .iter()
+        .find(|(pointer, _)| pointer == "/email_subject")
+        .unwrap();
+    assert_eq!(
+        package.resolve_reference(subject_ref).unwrap(),
+        serde_json::json!("Default welcome")
+    );
+
+    // Errors name addresses.
+    let err = package
+        .resolve_reference_at("catalog=email_template:entry=missing")
+        .unwrap_err();
+    assert!(
+        err.to_string()
+            .contains("catalog=email_template:entry=missing"),
+        "{err}"
+    );
+    let err = package
+        .resolve_reference_at("catalog=email_template:entry=welcome#/missing")
+        .unwrap_err();
+    assert!(err.to_string().contains("missing path"), "{err}");
+}
+
+/// The billing story after unhydrated app values: resolve the plan, get raw
+/// entitlement refs, follow the ones the app renders.
+#[tokio::test]
+async fn billing_entitlements_follow_through_the_lookup_surface() {
+    let package = Package::load("examples/billing").await.unwrap();
+    let context = EvaluationContext::from_json(
+        serde_json::json!({ "account": { "plan_tier": "business", "currency": "usd" } }),
+    )
+    .unwrap();
+    let plan = package.resolve_variable("active_plan", &context).unwrap();
+
+    let features = plan.value["features"].as_array().unwrap();
+    let sso_ref = features
+        .iter()
+        .find(|feature| feature.as_str() == Some("sso"))
+        .and_then(|feature| feature.as_str())
+        .unwrap();
+    let feature = package
+        .resolve_reference(&rototo::ValueRef::from_entry_ref(sso_ref, &["features"]).unwrap())
+        .unwrap();
+    assert_eq!(feature["name"], serde_json::json!("Single sign-on"));
+}
+
+/// Enum reflection: contract and members through one read.
+#[tokio::test]
+async fn reflection_reads_enums() {
+    let package = Package::load("examples/billing").await.unwrap();
+    let enums = package.list_enums().unwrap();
+    assert!(enums.contains(&"plan_tiers".to_owned()), "{enums:?}");
+    let plan_tiers = package.read_enum("plan_tiers").unwrap();
+    assert_eq!(plan_tiers.member_type, "string");
+    assert!(plan_tiers.members.contains(&serde_json::json!("business")));
+    assert!(package.read_enum("missing").is_err());
+}

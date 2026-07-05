@@ -38,7 +38,7 @@ pub use sdk::{
     RedactedPackageSource, RefreshEvent, RefreshEventSummary, RefreshEventType, RefreshOptions,
     RefreshOutcome, RefreshSnapshot, RefreshStatus, RefreshingPackage, ResolveOptions, SdkIdentity,
     TraceDetail, TraceEvent, TraceProvenance, TraceStreamItem, TraceSubscription, TraceTarget,
-    source_fingerprint_to_json,
+    ValueRef, source_fingerprint_to_json,
 };
 pub use source::{
     ScopedBearerTokens, SourceAuth, SourceFingerprint, SourceLayer, SourceOptions, SourceProbe,

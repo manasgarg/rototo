@@ -48,6 +48,14 @@ pub struct VariableConfig {
     pub value: serde_json::Value,
 }
 
+#[derive(Clone, Debug, serde::Serialize)]
+pub struct EnumConfig {
+    pub id: String,
+    pub description: Option<String>,
+    pub member_type: String,
+    pub members: Vec<serde_json::Value>,
+}
+
 #[derive(Debug)]
 pub struct CatalogConfig {
     pub id: String,

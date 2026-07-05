@@ -18,11 +18,19 @@ pub(crate) struct RuntimePackage {
     pub(crate) variable_evaluation_contexts: BTreeMap<String, BTreeSet<String>>,
     pub(crate) catalog_schemas: BTreeMap<String, JsonValue>,
     pub(crate) catalog_entries: BTreeMap<String, BTreeMap<String, JsonValue>>,
+    pub(crate) enums: BTreeMap<String, RuntimeEnum>,
     pub(crate) variables: BTreeMap<String, RuntimeVariable>,
     pub(crate) trace_policies: Vec<RuntimeTracePolicy>,
     /// Which layer's `[resolve]` block each variable carries, read from the
     /// flatten's provenance sidecar. Empty for packages that never composed.
     pub(crate) resolve_provenance: BTreeMap<String, String>,
+}
+
+#[derive(Debug)]
+pub(crate) struct RuntimeEnum {
+    pub(crate) description: Option<String>,
+    pub(crate) member_type: String,
+    pub(crate) members: Vec<JsonValue>,
 }
 
 impl RuntimePackage {
@@ -231,6 +239,7 @@ impl<'a> RuntimeCompiler<'a> {
         let compatibility = self.snapshot.evaluation_context_compatibility();
         let catalog_schemas = self.compile_catalog_schemas(index);
         let catalog_entries = self.compile_catalog_entries(index);
+        let enums = Self::compile_enums(index);
         let variables = self.compile_variables(index)?;
         let trace_policies = Self::compile_trace_policies(manifest)?;
 
@@ -239,10 +248,47 @@ impl<'a> RuntimeCompiler<'a> {
             variable_evaluation_contexts: compatibility.variables,
             catalog_schemas,
             catalog_entries,
+            enums,
             variables,
             trace_policies,
             resolve_provenance: BTreeMap::new(),
         })
+    }
+
+    fn compile_enums(index: &SemanticIndex) -> BTreeMap<String, RuntimeEnum> {
+        index
+            .enums
+            .values()
+            .map(|declaration| {
+                let member_type = match &declaration.member_type {
+                    ProjectField::Present(member_type) => member_type.value.clone(),
+                    _ => String::new(),
+                };
+                let members = match &declaration.members {
+                    ProjectField::Present(members) => members
+                        .value
+                        .iter()
+                        .map(|member| member.value.clone())
+                        .collect(),
+                    _ => Vec::new(),
+                };
+                let description = declaration
+                    .description
+                    .as_ref()
+                    .and_then(|field| match field {
+                        ProjectField::Present(value) => Some(value.value.clone()),
+                        _ => None,
+                    });
+                (
+                    declaration.id.clone(),
+                    RuntimeEnum {
+                        description,
+                        member_type,
+                        members,
+                    },
+                )
+            })
+            .collect()
     }
 
     fn compile_trace_policies(manifest: &ManifestNode) -> Result<Vec<RuntimeTracePolicy>> {

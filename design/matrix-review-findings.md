@@ -51,8 +51,10 @@ resolution-internal) and #66 (design the reflection/lookup SDK API).
 
 Resolved 2026-07-05: #65 landed (query predicates see hydrated entry
 views; app-facing values are raw on every resolve method, with only the
-entry id injected on query results as identity). #66's design is drafted
-in design/package-reflection.md; implementation is the follow-up.
+entry id injected on query results as identity). The reflection/lookup
+surface (design/package-reflection.md) is implemented for Rust: read_enum
+and read_entry discovery, resolve_reference lookup, and the
+references_in visitor; the language SDK slice is the remaining follow-up.
 
 ### 2. Relative-file `$ref` is hydrated by lint but not by resolution
 

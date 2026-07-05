@@ -10,7 +10,9 @@ use crate::error::{Result, RototoError};
 use crate::lint::{
     LintInput, RuntimePackage, compile_runtime_package_from_snapshot, lint_package_snapshot,
 };
-use crate::model::{PackageInspection, PackageLint, VariableResolution, VariableResolutionTrace};
+use crate::model::{
+    EnumConfig, PackageInspection, PackageLint, VariableResolution, VariableResolutionTrace,
+};
 use crate::package::inspect_package;
 use crate::source::{
     SourceAuth, SourceFingerprint, SourceLayer, SourceOptions, StagedPackage, load_package_source,
@@ -312,6 +314,125 @@ impl Package {
                 "package was loaded without a runtime model; use Package::load with lint enabled",
             )
         })
+    }
+
+    /// Every enum id in the loaded package.
+    pub fn list_enums(&self) -> Result<Vec<String>> {
+        Ok(self.runtime()?.enums.keys().cloned().collect())
+    }
+
+    /// One enum, contract and members together.
+    pub fn read_enum(&self, id: impl AsRef<str>) -> Result<EnumConfig> {
+        let id = id.as_ref();
+        let declaration = self
+            .runtime()?
+            .enums
+            .get(id)
+            .ok_or_else(|| RototoError::new(format!("enum not found: enum={id}")))?;
+        Ok(EnumConfig {
+            id: id.to_owned(),
+            description: declaration.description.clone(),
+            member_type: declaration.member_type.clone(),
+            members: declaration.members.clone(),
+        })
+    }
+
+    /// Every entry id of one catalog. Ids only: enumerating a large catalog
+    /// should not clone its values.
+    pub fn list_entries(&self, catalog: impl AsRef<str>) -> Result<Vec<String>> {
+        let catalog = catalog.as_ref();
+        let entries = self
+            .runtime()?
+            .catalog_entries
+            .get(catalog)
+            .ok_or_else(|| RototoError::new(format!("catalog not found: catalog={catalog}")))?;
+        Ok(entries.keys().cloned().collect())
+    }
+
+    /// One raw entry, exactly as authored: no reference hydration, no id
+    /// injection (the caller passed the id in).
+    pub fn read_entry(
+        &self,
+        catalog: impl AsRef<str>,
+        entry: impl AsRef<str>,
+    ) -> Result<JsonValue> {
+        let catalog = catalog.as_ref();
+        let entry = entry.as_ref();
+        self.runtime()?
+            .catalog_entries
+            .get(catalog)
+            .and_then(|entries| entries.get(entry))
+            .cloned()
+            .ok_or_else(|| {
+                RototoError::new(format!(
+                    "catalog entry not found: catalog={catalog}:entry={entry}"
+                ))
+            })
+    }
+
+    /// Follows one reference the way hydration would have, on demand: same
+    /// entry lookup, same pointer application, same first-match rule for
+    /// multi-catalog pins. One hop; the returned value is the raw target.
+    pub fn resolve_reference(&self, reference: &ValueRef) -> Result<JsonValue> {
+        let runtime = self.runtime()?;
+        let catalog = reference
+            .catalogs
+            .iter()
+            .find(|catalog| {
+                runtime
+                    .catalog_entries
+                    .get(catalog.as_str())
+                    .is_some_and(|entries| entries.contains_key(&reference.entry))
+            })
+            .ok_or_else(|| {
+                RototoError::new(format!(
+                    "reference does not resolve: {} (no pinned catalog has the entry)",
+                    reference.address()
+                ))
+            })?;
+        let value = runtime.catalog_entries[catalog.as_str()][&reference.entry].clone();
+        match reference.pointer.as_deref() {
+            None | Some("") => Ok(value),
+            Some(pointer) => value.pointer(pointer).cloned().ok_or_else(|| {
+                RototoError::new(format!(
+                    "reference points at a missing path: {}",
+                    reference.address()
+                ))
+            }),
+        }
+    }
+
+    /// [`Package::resolve_reference`] from an address string:
+    /// `catalog=email_template:entry=welcome#/body`.
+    pub fn resolve_reference_at(&self, address: impl AsRef<str>) -> Result<JsonValue> {
+        self.resolve_reference(&ValueRef::parse(address.as_ref())?)
+    }
+
+    /// Walks a value together with its catalog's schema and reports every
+    /// field whose schema carries `x-rototo-ref`, as (JSON pointer into the
+    /// value, parsed reference). The reporting twin of hydration: apps
+    /// hydrate selectively with [`Package::resolve_reference`].
+    pub fn references_in(
+        &self,
+        catalog: impl AsRef<str>,
+        value: &JsonValue,
+    ) -> Result<Vec<(String, ValueRef)>> {
+        let runtime = self.runtime()?;
+        Ok(
+            crate::resolve::hydrate::collect_catalog_references(runtime, catalog.as_ref(), value)
+                .into_iter()
+                .map(|reference| {
+                    (
+                        reference.pointer,
+                        ValueRef {
+                            catalogs: reference.catalogs,
+                            entry: reference.entry,
+                            pointer: reference.entry_pointer,
+                        },
+                    )
+                })
+                .collect(),
+        )
     }
 }
 
@@ -934,4 +1055,106 @@ mod tests {
         assert_eq!(RefreshEventType::Immutable.as_str(), "immutable");
         assert_eq!(RefreshEventType::Shutdown.as_str(), "shutdown");
     }
+}
+
+/// A reference to a catalog entry (optionally a path inside it), the
+/// app-side twin of `x-rototo-ref`. Obtained from
+/// [`Package::references_in`], parsed from an address, or built from the
+/// raw reference forms package files use.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ValueRef {
+    /// Candidate catalogs, in pin order. A parsed address has exactly one;
+    /// a multi-catalog `x-rototo-ref` pin carries them all, and resolution
+    /// picks the first that contains the entry (hydration's rule).
+    catalogs: Vec<String>,
+    entry: String,
+    pointer: Option<String>,
+}
+
+impl ValueRef {
+    /// From an address: `catalog=email_template:entry=welcome#/body`.
+    pub fn parse(address: &str) -> Result<Self> {
+        let parsed = crate::address::Address::parse(address)?;
+        let steps = parsed.steps();
+        let [catalog_step, entry_step] = steps else {
+            return Err(invalid_value_ref(address));
+        };
+        let (
+            crate::address::EntityClass::Catalog,
+            crate::address::StepId::Entity(catalog),
+            crate::address::EntityClass::Entry,
+            crate::address::StepId::Entity(entry),
+        ) = (
+            catalog_step.class,
+            &catalog_step.id,
+            entry_step.class,
+            &entry_step.id,
+        )
+        else {
+            return Err(invalid_value_ref(address));
+        };
+        Ok(Self {
+            catalogs: vec![catalog.clone()],
+            entry: entry.clone(),
+            pointer: parsed.pointer().map(str::to_owned),
+        })
+    }
+
+    /// From a raw entry-reference string (`welcome#/body`) plus the pinned
+    /// target catalogs, mirroring `x-rototo-ref` semantics.
+    pub fn from_entry_ref(value: &str, pins: &[&str]) -> Result<Self> {
+        if pins.is_empty() {
+            return Err(RototoError::new(
+                "an entry reference needs at least one pinned catalog",
+            ));
+        }
+        let (entry, pointer) = crate::resolve::hydrate::split_catalog_entry_ref(value)
+            .ok_or_else(|| RototoError::new(format!("value is not an entry reference: {value}")))?;
+        Ok(Self {
+            catalogs: pins.iter().map(|pin| (*pin).to_owned()).collect(),
+            entry: entry.to_owned(),
+            pointer: pointer.map(str::to_owned),
+        })
+    }
+
+    /// From a dynamic reference object: `{ catalog, entry, pointer? }`.
+    pub fn from_dynamic(value: &JsonValue) -> Result<Self> {
+        let object = value
+            .as_object()
+            .ok_or_else(|| RototoError::new("a dynamic reference is an object"))?;
+        let catalog = object
+            .get("catalog")
+            .and_then(JsonValue::as_str)
+            .ok_or_else(|| RototoError::new("a dynamic reference names its catalog"))?;
+        let entry = object
+            .get("entry")
+            .and_then(JsonValue::as_str)
+            .ok_or_else(|| RototoError::new("a dynamic reference names its entry"))?;
+        Ok(Self {
+            catalogs: vec![catalog.to_owned()],
+            entry: entry.to_owned(),
+            pointer: object
+                .get("pointer")
+                .and_then(JsonValue::as_str)
+                .map(str::to_owned),
+        })
+    }
+
+    /// The canonical address. A multi-catalog reference renders its first
+    /// candidate; errors from resolution name the full candidate list.
+    pub fn address(&self) -> String {
+        let catalog = self.catalogs.first().map(String::as_str).unwrap_or("");
+        let mut address = format!("catalog={catalog}:entry={}", self.entry);
+        if let Some(pointer) = &self.pointer {
+            address.push('#');
+            address.push_str(pointer);
+        }
+        address
+    }
+}
+
+fn invalid_value_ref(address: &str) -> RototoError {
+    RototoError::new(format!(
+        "a value reference address is catalog=<id>:entry=<key>[#<json-pointer>], got `{address}`"
+    ))
 }

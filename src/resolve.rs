@@ -3,7 +3,7 @@ use std::path::Path;
 
 use serde_json::Value as JsonValue;
 
-mod hydrate;
+pub(crate) mod hydrate;
 
 use hydrate::catalog_entry_view;
 

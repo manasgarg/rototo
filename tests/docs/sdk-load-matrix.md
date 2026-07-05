@@ -72,7 +72,21 @@ the load-level contract that a context is checked before any rule runs.)
 | C4 | explicit opt-out | `resolve_variable_with_options` can bypass validation deliberately | `package_sdk_can_bypass_context_validation_explicitly` |
 | C5 | a context schema behind a symlink escaping the package | refused at load | `package_sdk_rejects_context_schema_symlink_escape` |
 
-## 5. Error surface
+## 5. Reflection and lookup
+
+The app-side surface for what hydration used to do implicitly
+(`design/package-reflection.md`; landed for Rust, language SDKs follow).
+
+| # | Given / When | Then | Coverage |
+|---|---|---|---|
+| X1 | `list_enums` / `read_enum` | enum ids; one enum's contract and members together; a missing id errors | `reflection_reads_enums` |
+| X2 | `list_entries` / `read_entry` | entry ids only; one raw entry as authored (no hydration, no id injection) | `reflection_discovers_looks_up_and_walks_references` |
+| X3 | `resolve_reference` / `resolve_reference_at` | one hop with hydration's exact semantics: entry lookup, pointer application, first-match rule for multi-catalog pins, raw target value; errors name the address | `reflection_discovers_looks_up_and_walks_references` |
+| X4 | `ValueRef` construction | from an address, from a raw entry-ref string plus its pins, or from a dynamic ref object; canonical `address()` rendering | `reflection_discovers_looks_up_and_walks_references` |
+| X5 | `references_in` | every `x-rototo-ref` field in a value reported as (pointer, reference), `$ref` indirection included, nothing spliced | `reflection_discovers_looks_up_and_walks_references` |
+| X6 | the post-hydration app story | resolve a variable, get raw refs, follow exactly the ones the app renders | `billing_entitlements_follow_through_the_lookup_surface` |
+
+## 6. Error surface
 
 | # | Given / When | Then | Coverage |
 |---|---|---|---|
