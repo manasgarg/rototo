@@ -13,12 +13,41 @@ import java.util.concurrent.atomic.AtomicReference;
 public final class JavaSdkTest {
     public static void main(String[] args) throws Exception {
         api();
+        reflection();
         packageTokens();
         contract();
         refresh();
         events();
         traceEvents();
         perCallTrace();
+    }
+
+    private static void reflection() throws Exception {
+        try (Package pkg = await(Package.load("examples/billing"))) {
+            if (!pkg.listEnums().contains("plan_tiers")) {
+                throw new AssertionError("plan_tiers missing: " + pkg.listEnums());
+            }
+            Map<String, Object> planTiers = pkg.readEnum("plan_tiers");
+            assertEquals("string", planTiers.get("memberType"), "enum member type");
+
+            if (!pkg.listEntries("features").contains("sso")) {
+                throw new AssertionError("sso missing: " + pkg.listEntries("features"));
+            }
+            Map<String, Object> sso = Json.asObject(pkg.readEntry("features", "sso"));
+            assertEquals("Single sign-on", sso.get("name"), "sso name");
+
+            assertEquals(
+                    "Single sign-on",
+                    pkg.resolveReference("catalog=features:entry=sso#/name"),
+                    "reference value");
+            assertEquals(
+                    "Single sign-on",
+                    pkg.resolveEntryRef("sso#/name", java.util.List.of("features")),
+                    "entry ref value");
+            assertRototoError(
+                    () -> pkg.resolveReference("catalog=features:entry=absent"),
+                    "does not resolve");
+        }
     }
 
     private static void api() throws Exception {
@@ -148,6 +177,49 @@ public final class JavaSdkTest {
                                 name + " releaseId");
                         assertEquals(
                                 result.get("immutable"), identity.immutable(), name + " immutable");
+                        break;
+                    }
+                    case "read_entry": {
+                        String catalog = Json.asString(testCase.get("catalog"));
+                        String entry = Json.asString(testCase.get("entry"));
+                        if (ok) {
+                            Map<String, Object> expectValue = Json.asObject(
+                                    Json.asObject(expect.get("result")).get("value"));
+                            Map<String, Object> actual = Json.asObject(pkg.readEntry(catalog, entry));
+                            for (Map.Entry<String, Object> field : expectValue.entrySet()) {
+                                assertEquals(
+                                        field.getValue(),
+                                        actual.get(field.getKey()),
+                                        name + " " + field.getKey());
+                            }
+                        } else {
+                            assertRototoError(
+                                    () -> pkg.readEntry(catalog, entry), expectedError(expect));
+                        }
+                        break;
+                    }
+                    case "read_enum": {
+                        Map<String, Object> result = Json.asObject(expect.get("result"));
+                        Map<String, Object> actual = pkg.readEnum(Json.asString(testCase.get("id")));
+                        for (Map.Entry<String, Object> field : result.entrySet()) {
+                            assertEquals(
+                                    field.getValue(),
+                                    actual.get(field.getKey()),
+                                    name + " " + field.getKey());
+                        }
+                        break;
+                    }
+                    case "resolve_reference": {
+                        String address = Json.asString(testCase.get("address"));
+                        if (ok) {
+                            assertEquals(
+                                    Json.asObject(expect.get("result")).get("value"),
+                                    pkg.resolveReference(address),
+                                    name + " value");
+                        } else {
+                            assertRototoError(
+                                    () -> pkg.resolveReference(address), expectedError(expect));
+                        }
                         break;
                     }
                     default:

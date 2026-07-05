@@ -162,6 +162,111 @@ pub extern "system" fn Java_dev_rototo_Native_packageResolveVariableNative(
 }
 
 #[unsafe(no_mangle)]
+pub extern "system" fn Java_dev_rototo_Native_packageListEnumsNative(
+    mut env: JNIEnv<'_>,
+    _class: JClass<'_>,
+    handle: jlong,
+) -> jstring {
+    jni_call_string(&mut env, |env| {
+        let package = package_from_handle(handle)?;
+        let enums = package.list_enums().map_err(|err| err.to_string())?;
+        env_json(env, serde_json::json!(enums))
+    })
+}
+
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_dev_rototo_Native_packageReadEnumNative(
+    mut env: JNIEnv<'_>,
+    _class: JClass<'_>,
+    handle: jlong,
+    id: JString<'_>,
+) -> jstring {
+    jni_call_string(&mut env, |env| {
+        let package = package_from_handle(handle)?;
+        let id = required_string(env, id, "id")?;
+        let config = package.read_enum(&id).map_err(|err| err.to_string())?;
+        env_json(env, config.to_json())
+    })
+}
+
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_dev_rototo_Native_packageListEntriesNative(
+    mut env: JNIEnv<'_>,
+    _class: JClass<'_>,
+    handle: jlong,
+    catalog: JString<'_>,
+) -> jstring {
+    jni_call_string(&mut env, |env| {
+        let package = package_from_handle(handle)?;
+        let catalog = required_string(env, catalog, "catalog")?;
+        let entries = package
+            .list_entries(&catalog)
+            .map_err(|err| err.to_string())?;
+        env_json(env, serde_json::json!(entries))
+    })
+}
+
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_dev_rototo_Native_packageReadEntryNative(
+    mut env: JNIEnv<'_>,
+    _class: JClass<'_>,
+    handle: jlong,
+    catalog: JString<'_>,
+    entry: JString<'_>,
+) -> jstring {
+    jni_call_string(&mut env, |env| {
+        let package = package_from_handle(handle)?;
+        let catalog = required_string(env, catalog, "catalog")?;
+        let entry = required_string(env, entry, "entry")?;
+        let value = package
+            .read_entry(&catalog, &entry)
+            .map_err(|err| err.to_string())?;
+        env_json(env, value)
+    })
+}
+
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_dev_rototo_Native_packageResolveReferenceNative(
+    mut env: JNIEnv<'_>,
+    _class: JClass<'_>,
+    handle: jlong,
+    address: JString<'_>,
+) -> jstring {
+    jni_call_string(&mut env, |env| {
+        let package = package_from_handle(handle)?;
+        let address = required_string(env, address, "address")?;
+        let value = package
+            .resolve_reference_at(&address)
+            .map_err(|err| err.to_string())?;
+        env_json(env, value)
+    })
+}
+
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_dev_rototo_Native_packageResolveEntryRefNative(
+    mut env: JNIEnv<'_>,
+    _class: JClass<'_>,
+    handle: jlong,
+    value: JString<'_>,
+    pins_json: JString<'_>,
+) -> jstring {
+    jni_call_string(&mut env, |env| {
+        let package = package_from_handle(handle)?;
+        let value = required_string(env, value, "value")?;
+        let pins_json = required_string(env, pins_json, "pins")?;
+        let pins: Vec<String> =
+            serde_json::from_str(&pins_json).map_err(|err| format!("invalid pins: {err}"))?;
+        let pins: Vec<&str> = pins.iter().map(String::as_str).collect();
+        let reference =
+            rototo::ValueRef::from_entry_ref(&value, &pins).map_err(|err| err.to_string())?;
+        let resolved = package
+            .resolve_reference(&reference)
+            .map_err(|err| err.to_string())?;
+        env_json(env, resolved)
+    })
+}
+
+#[unsafe(no_mangle)]
 pub extern "system" fn Java_dev_rototo_Native_packageFreeNative(
     _env: JNIEnv<'_>,
     _class: JClass<'_>,

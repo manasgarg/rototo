@@ -260,6 +260,32 @@ class Package:
             source=result["source"],
         )
 
+    def list_enums(self) -> list[str]:
+        """Every enum id in the loaded package."""
+        return self._inner.list_enums()
+
+    def read_enum(self, id: str) -> dict[str, Any]:
+        """One enum: id, description, memberType, and members."""
+        return self._inner.read_enum(id)
+
+    def list_entries(self, catalog: str) -> list[str]:
+        """Every entry id of one catalog."""
+        return self._inner.list_entries(catalog)
+
+    def read_entry(self, catalog: str, entry: str) -> Any:
+        """One raw catalog entry, exactly as authored."""
+        return self._inner.read_entry(catalog, entry)
+
+    def resolve_reference(self, address: str) -> Any:
+        """Follow one reference by address:
+        ``catalog=email_template:entry=welcome#/body``."""
+        return self._inner.resolve_reference(address)
+
+    def resolve_entry_ref(self, value: str, pins: list[str]) -> Any:
+        """Follow a raw entry-reference string against its pinned catalogs,
+        mirroring x-rototo-ref semantics."""
+        return self._inner.resolve_entry_ref(value, pins)
+
     async def trace_events(self) -> AsyncIterator[dict[str, Any]]:
         """Yield resolution trace stream items as they occur. Each item is a
         dict: a trace (``{"kind": "trace", "trace": {...}}``) or a drop marker
@@ -345,6 +371,32 @@ class RefreshingPackage:
             if event is None:
                 return
             yield RefreshEvent._from_dict(event)
+
+    def list_enums(self) -> list[str]:
+        """Every enum id in the loaded package."""
+        return self._inner.list_enums()
+
+    def read_enum(self, id: str) -> dict[str, Any]:
+        """One enum: id, description, memberType, and members."""
+        return self._inner.read_enum(id)
+
+    def list_entries(self, catalog: str) -> list[str]:
+        """Every entry id of one catalog."""
+        return self._inner.list_entries(catalog)
+
+    def read_entry(self, catalog: str, entry: str) -> Any:
+        """One raw catalog entry, exactly as authored."""
+        return self._inner.read_entry(catalog, entry)
+
+    def resolve_reference(self, address: str) -> Any:
+        """Follow one reference by address:
+        ``catalog=email_template:entry=welcome#/body``."""
+        return self._inner.resolve_reference(address)
+
+    def resolve_entry_ref(self, value: str, pins: list[str]) -> Any:
+        """Follow a raw entry-reference string against its pinned catalogs,
+        mirroring x-rototo-ref semantics."""
+        return self._inner.resolve_entry_ref(value, pins)
 
     async def trace_events(self) -> AsyncIterator[dict[str, Any]]:
         """Yield resolution trace stream items as they occur. Each item is a

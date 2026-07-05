@@ -56,6 +56,18 @@ pub struct EnumConfig {
     pub members: Vec<serde_json::Value>,
 }
 
+impl EnumConfig {
+    /// The camelCase wire shape the SDK bindings hand to apps.
+    pub fn to_json(&self) -> serde_json::Value {
+        serde_json::json!({
+            "id": self.id,
+            "description": self.description,
+            "memberType": self.member_type,
+            "members": self.members,
+        })
+    }
+}
+
 #[derive(Debug)]
 pub struct CatalogConfig {
     pub id: String,

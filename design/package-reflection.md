@@ -1,7 +1,8 @@
 # Package reflection and lookup for apps
 
-Status: landed for Rust (2026-07-05); language SDK v1 slice is the
-follow-up task. Open question 1 resolved yes (resolve_reference_at), 2
+Status: landed (2026-07-05) for Rust and all four language SDKs (the v1
+slice: discovery plus lookup; the visitor is Rust-only until a non-Rust
+consumer appears). Open question 1 resolved yes (resolve_reference_at), 2
 resolved no (read_entry stays raw), 3 stays deferred.
 
 ## Why

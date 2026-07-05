@@ -61,6 +61,21 @@ async function runCase(contractCase) {
         };
     }
 
+    if (operation === "read_entry") {
+        const pkg = await Package.load(packageSource);
+        return { value: pkg.readEntry(contractCase.catalog, contractCase.entry) };
+    }
+
+    if (operation === "read_enum") {
+        const pkg = await Package.load(packageSource);
+        return pkg.readEnum(contractCase.id);
+    }
+
+    if (operation === "resolve_reference") {
+        const pkg = await Package.load(packageSource);
+        return { value: pkg.resolveReference(contractCase.address) };
+    }
+
     throw new Error(`unsupported contract operation: ${operation}`);
 }
 

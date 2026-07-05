@@ -98,6 +98,50 @@ public final class Package implements AutoCloseable {
                 value.get("source"));
     }
 
+    /** Every enum id in the loaded package. */
+    public java.util.List<String> listEnums() {
+        String json = Native.packageListEnumsNative(openHandle());
+        return Json.asStringList(Json.parse(json));
+    }
+
+    /** One enum: id, description, memberType, and members. */
+    public Map<String, Object> readEnum(String id) {
+        Objects.requireNonNull(id, "id");
+        String json = Native.packageReadEnumNative(openHandle(), id);
+        return Json.asObject(Json.parse(json));
+    }
+
+    /** Every entry id of one catalog. */
+    public java.util.List<String> listEntries(String catalog) {
+        Objects.requireNonNull(catalog, "catalog");
+        String json = Native.packageListEntriesNative(openHandle(), catalog);
+        return Json.asStringList(Json.parse(json));
+    }
+
+    /** One raw catalog entry, exactly as authored. */
+    public Object readEntry(String catalog, String entry) {
+        Objects.requireNonNull(catalog, "catalog");
+        Objects.requireNonNull(entry, "entry");
+        String json = Native.packageReadEntryNative(openHandle(), catalog, entry);
+        return Json.parse(json);
+    }
+
+    /** Follow one reference by address: catalog=email_template:entry=welcome#/body. */
+    public Object resolveReference(String address) {
+        Objects.requireNonNull(address, "address");
+        String json = Native.packageResolveReferenceNative(openHandle(), address);
+        return Json.parse(json);
+    }
+
+    /** Follow a raw entry-reference string against its pinned catalogs. */
+    public Object resolveEntryRef(String value, java.util.List<String> pins) {
+        Objects.requireNonNull(value, "value");
+        Objects.requireNonNull(pins, "pins");
+        String json = Native.packageResolveEntryRefNative(
+                openHandle(), value, Json.stringify(pins));
+        return Json.parse(json);
+    }
+
     @Override
     public void close() {
         long current = handle.getAndSet(0);

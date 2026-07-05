@@ -65,6 +65,18 @@ async def run_case(case: dict[str, Any]) -> dict[str, Any]:
             "immutable": identity.immutable,
         }
 
+    if operation == "read_entry":
+        package = await rototo.Package.load(package_source)
+        return {"value": package.read_entry(case["catalog"], case["entry"])}
+
+    if operation == "read_enum":
+        package = await rototo.Package.load(package_source)
+        return package.read_enum(case["id"])
+
+    if operation == "resolve_reference":
+        package = await rototo.Package.load(package_source)
+        return {"value": package.resolve_reference(case["address"])}
+
     raise AssertionError(f"unsupported contract operation: {operation}")
 
 

@@ -301,6 +301,128 @@ func (w *Package) ResolveVariable(
 	return &resolution, nil
 }
 
+// EnumConfig is one enum: contract and members together.
+type EnumConfig struct {
+	ID          string  `json:"id"`
+	Description *string `json:"description"`
+	MemberType  string  `json:"memberType"`
+	Members     []any   `json:"members"`
+}
+
+// ListEnums lists every enum id in the loaded package.
+func (w *Package) ListEnums() ([]string, error) {
+	handle, unlock, err := w.activeHandle()
+	if err != nil {
+		return nil, err
+	}
+	defer unlock()
+	text, err := nativePackageListEnums(handle)
+	if err != nil {
+		return nil, err
+	}
+	var enums []string
+	if err := json.Unmarshal([]byte(text), &enums); err != nil {
+		return nil, err
+	}
+	return enums, nil
+}
+
+// ReadEnum reads one enum.
+func (w *Package) ReadEnum(id string) (*EnumConfig, error) {
+	handle, unlock, err := w.activeHandle()
+	if err != nil {
+		return nil, err
+	}
+	defer unlock()
+	text, err := nativePackageReadEnum(handle, id)
+	if err != nil {
+		return nil, err
+	}
+	var config EnumConfig
+	if err := json.Unmarshal([]byte(text), &config); err != nil {
+		return nil, err
+	}
+	return &config, nil
+}
+
+// ListEntries lists every entry id of one catalog.
+func (w *Package) ListEntries(catalog string) ([]string, error) {
+	handle, unlock, err := w.activeHandle()
+	if err != nil {
+		return nil, err
+	}
+	defer unlock()
+	text, err := nativePackageListEntries(handle, catalog)
+	if err != nil {
+		return nil, err
+	}
+	var entries []string
+	if err := json.Unmarshal([]byte(text), &entries); err != nil {
+		return nil, err
+	}
+	return entries, nil
+}
+
+// ReadEntry reads one raw catalog entry, exactly as authored.
+func (w *Package) ReadEntry(catalog, entry string) (any, error) {
+	handle, unlock, err := w.activeHandle()
+	if err != nil {
+		return nil, err
+	}
+	defer unlock()
+	text, err := nativePackageReadEntry(handle, catalog, entry)
+	if err != nil {
+		return nil, err
+	}
+	var value any
+	if err := json.Unmarshal([]byte(text), &value); err != nil {
+		return nil, err
+	}
+	return value, nil
+}
+
+// ResolveReference follows one reference by address:
+// catalog=email_template:entry=welcome#/body.
+func (w *Package) ResolveReference(address string) (any, error) {
+	handle, unlock, err := w.activeHandle()
+	if err != nil {
+		return nil, err
+	}
+	defer unlock()
+	text, err := nativePackageResolveReference(handle, address)
+	if err != nil {
+		return nil, err
+	}
+	var value any
+	if err := json.Unmarshal([]byte(text), &value); err != nil {
+		return nil, err
+	}
+	return value, nil
+}
+
+// ResolveEntryRef follows a raw entry-reference string against its pinned
+// catalogs, mirroring x-rototo-ref semantics.
+func (w *Package) ResolveEntryRef(value string, pins []string) (any, error) {
+	pinsJSON, err := json.Marshal(pins)
+	if err != nil {
+		return nil, err
+	}
+	handle, unlock, err := w.activeHandle()
+	if err != nil {
+		return nil, err
+	}
+	defer unlock()
+	text, err := nativePackageResolveEntryRef(handle, value, string(pinsJSON))
+	if err != nil {
+		return nil, err
+	}
+	var resolved any
+	if err := json.Unmarshal([]byte(text), &resolved); err != nil {
+		return nil, err
+	}
+	return resolved, nil
+}
+
 // Close releases the native package handle.
 func (w *Package) Close() error {
 	w.mu.Lock()

@@ -36,6 +36,30 @@ func nativePackageServedFallback(handle nativeHandle) (bool, error) {
 	return false, cgoDisabled()
 }
 
+func nativePackageListEnums(handle nativeHandle) (string, error) {
+	return "", cgoDisabled()
+}
+
+func nativePackageReadEnum(handle nativeHandle, id string) (string, error) {
+	return "", cgoDisabled()
+}
+
+func nativePackageListEntries(handle nativeHandle, catalog string) (string, error) {
+	return "", cgoDisabled()
+}
+
+func nativePackageReadEntry(handle nativeHandle, catalog, entry string) (string, error) {
+	return "", cgoDisabled()
+}
+
+func nativePackageResolveReference(handle nativeHandle, address string) (string, error) {
+	return "", cgoDisabled()
+}
+
+func nativePackageResolveEntryRef(handle nativeHandle, value, pinsJSON string) (string, error) {
+	return "", cgoDisabled()
+}
+
 func nativePackageFree(handle nativeHandle) {}
 
 func nativeRefreshingPackageLoad(source string, periodSeconds *float64, packageToken, lint, fallbackSource, packageTokensJSON string) (nativeHandle, error) {

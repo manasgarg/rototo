@@ -1,4 +1,5 @@
 import {
+    type EnumConfigJson,
     type JsonObject,
     type JsonValue,
     type RefreshOutcome,
@@ -274,6 +275,8 @@ export function version(): string {
     return VERSION;
 }
 
+export type EnumConfig = EnumConfigJson;
+
 export class Package {
     private constructor(private readonly inner: NativePackageHandle) {}
 
@@ -352,6 +355,62 @@ export class Package {
                 options.validateContext ?? true,
                 options.trace ?? false,
             );
+        } catch (error) {
+            throw toRototoError(error);
+        }
+    }
+
+    /** Every enum id in the loaded package. */
+    listEnums(): string[] {
+        try {
+            return this.inner.listEnums();
+        } catch (error) {
+            throw toRototoError(error);
+        }
+    }
+
+    /** One enum: id, description, memberType, and members. */
+    readEnum(id: string): EnumConfig {
+        try {
+            return this.inner.readEnum(id);
+        } catch (error) {
+            throw toRototoError(error);
+        }
+    }
+
+    /** Every entry id of one catalog. */
+    listEntries(catalog: string): string[] {
+        try {
+            return this.inner.listEntries(catalog);
+        } catch (error) {
+            throw toRototoError(error);
+        }
+    }
+
+    /** One raw catalog entry, exactly as authored. */
+    readEntry(catalog: string, entry: string): JsonValue {
+        try {
+            return this.inner.readEntry(catalog, entry);
+        } catch (error) {
+            throw toRototoError(error);
+        }
+    }
+
+    /** Follow one reference by address:
+        `catalog=email_template:entry=welcome#/body`. */
+    resolveReference(address: string): JsonValue {
+        try {
+            return this.inner.resolveReference(address);
+        } catch (error) {
+            throw toRototoError(error);
+        }
+    }
+
+    /** Follow a raw entry-reference string against its pinned catalogs,
+        mirroring x-rototo-ref semantics. */
+    resolveEntryRef(value: string, pins: string[]): JsonValue {
+        try {
+            return this.inner.resolveEntryRef(value, pins);
         } catch (error) {
             throw toRototoError(error);
         }

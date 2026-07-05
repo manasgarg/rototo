@@ -9,6 +9,7 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+	"slices"
 )
 
 func TestPackageExposesGoRuntimeResolutionAPI(t *testing.T) {
@@ -289,6 +290,9 @@ type contractCase struct {
 	Package   string         `json:"package"`
 	Fallback  string         `json:"fallback"`
 	ID        string         `json:"id"`
+	Catalog   string         `json:"catalog"`
+	Entry     string         `json:"entry"`
+	Address   string         `json:"address"`
 	Context   map[string]any `json:"context"`
 	Expect    contractExpect `json:"expect"`
 }
@@ -372,6 +376,48 @@ func runContractCase(t *testing.T, sdkCase contractCase) (any, error) {
 			"releaseId": releaseID,
 			"immutable": identity.Immutable,
 		}, nil
+	case "read_entry":
+		pkg, err := Load(context.Background(), source, nil)
+		if err != nil {
+			return nil, err
+		}
+		defer closePackage(t, pkg)
+		value, err := pkg.ReadEntry(sdkCase.Catalog, sdkCase.Entry)
+		if err != nil {
+			return nil, err
+		}
+		return map[string]any{"value": value}, nil
+	case "read_enum":
+		pkg, err := Load(context.Background(), source, nil)
+		if err != nil {
+			return nil, err
+		}
+		defer closePackage(t, pkg)
+		config, err := pkg.ReadEnum(sdkCase.ID)
+		if err != nil {
+			return nil, err
+		}
+		var description any
+		if config.Description != nil {
+			description = *config.Description
+		}
+		return map[string]any{
+			"id":          config.ID,
+			"description": description,
+			"memberType":  config.MemberType,
+			"members":     config.Members,
+		}, nil
+	case "resolve_reference":
+		pkg, err := Load(context.Background(), source, nil)
+		if err != nil {
+			return nil, err
+		}
+		defer closePackage(t, pkg)
+		value, err := pkg.ResolveReference(sdkCase.Address)
+		if err != nil {
+			return nil, err
+		}
+		return map[string]any{"value": value}, nil
 	default:
 		t.Fatalf("unsupported contract operation: %s", sdkCase.Operation)
 		return nil, nil
@@ -576,5 +622,54 @@ default = "` + message + `"
 `
 	if err := os.WriteFile(filepath.Join(variables, "message.toml"), []byte(contents), 0o644); err != nil {
 		t.Fatal(err)
+	}
+}
+
+
+func TestReflectionSurface(t *testing.T) {
+	pkg, err := Load(context.Background(), filepath.Join(repoRoot(t), "examples", "billing"), nil)
+	if err != nil {
+		t.Fatalf("load billing: %v", err)
+	}
+	defer closePackage(t, pkg)
+
+	enums, err := pkg.ListEnums()
+	if err != nil {
+		t.Fatalf("list enums: %v", err)
+	}
+	if !slices.Contains(enums, "plan_tiers") {
+		t.Fatalf("plan_tiers missing from %v", enums)
+	}
+	planTiers, err := pkg.ReadEnum("plan_tiers")
+	if err != nil {
+		t.Fatalf("read enum: %v", err)
+	}
+	if planTiers.MemberType != "string" {
+		t.Fatalf("unexpected member type %q", planTiers.MemberType)
+	}
+
+	entries, err := pkg.ListEntries("features")
+	if err != nil {
+		t.Fatalf("list entries: %v", err)
+	}
+	if !slices.Contains(entries, "sso") {
+		t.Fatalf("sso missing from %v", entries)
+	}
+	value, err := pkg.ResolveReference("catalog=features:entry=sso#/name")
+	if err != nil {
+		t.Fatalf("resolve reference: %v", err)
+	}
+	if value != "Single sign-on" {
+		t.Fatalf("unexpected reference value %v", value)
+	}
+	value, err = pkg.ResolveEntryRef("sso#/name", []string{"features"})
+	if err != nil {
+		t.Fatalf("resolve entry ref: %v", err)
+	}
+	if value != "Single sign-on" {
+		t.Fatalf("unexpected entry ref value %v", value)
+	}
+	if _, err := pkg.ResolveReference("catalog=features:entry=absent"); err == nil {
+		t.Fatalf("expected missing entry to error")
 	}
 }

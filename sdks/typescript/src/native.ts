@@ -14,6 +14,12 @@ type NativePackage = {
         validateContext?: boolean,
         trace?: boolean,
     ): VariableResolutionJson;
+    listEnums(): string[];
+    readEnum(id: string): EnumConfigJson;
+    listEntries(catalog: string): string[];
+    readEntry(catalog: string, entry: string): JsonValue;
+    resolveReference(address: string): JsonValue;
+    resolveEntryRef(value: string, pins: string[]): JsonValue;
     subscribeTraceEvents(): NativeTraceEvents;
 };
 
@@ -104,6 +110,13 @@ export type PackageLayerIdentityJson = {
     fingerprint: JsonValue | null;
     releaseId: string | null;
     immutable: boolean;
+};
+
+export type EnumConfigJson = {
+    id: string;
+    description: string | null;
+    memberType: string;
+    members: JsonValue[];
 };
 
 export type PackageIdentityJson = {

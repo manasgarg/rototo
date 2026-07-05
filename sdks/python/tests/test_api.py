@@ -88,3 +88,27 @@ class ApiTest(unittest.IsolatedAsyncioTestCase):
                 package_tokens={"http://config.acme.com": "token"},
             )
         self.assertIn("must start with https://", str(raised.exception))
+
+
+class ReflectionTest(unittest.IsolatedAsyncioTestCase):
+    async def test_reflection_surface(self) -> None:
+        package = await rototo.Package.load(str(ROOT / "examples" / "billing"))
+
+        self.assertIn("plan_tiers", package.list_enums())
+        plan_tiers = package.read_enum("plan_tiers")
+        self.assertEqual(plan_tiers["memberType"], "string")
+        self.assertIn("business", plan_tiers["members"])
+
+        entries = package.list_entries("features")
+        self.assertIn("sso", entries)
+        sso = package.read_entry("features", "sso")
+        self.assertEqual(sso["name"], "Single sign-on")
+
+        value = package.resolve_reference("catalog=features:entry=sso#/name")
+        self.assertEqual(value, "Single sign-on")
+        value = package.resolve_entry_ref("sso#/name", ["features"])
+        self.assertEqual(value, "Single sign-on")
+
+        with self.assertRaises(rototo.RototoError) as raised:
+            package.resolve_reference("catalog=features:entry=absent")
+        self.assertIn("does not resolve", str(raised.exception))

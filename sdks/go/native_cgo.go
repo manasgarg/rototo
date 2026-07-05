@@ -94,6 +94,10 @@ static RototoGoStringResult rototo_go_call_package_string(void* fn, void* handle
 static RototoGoStringResult rototo_go_call_package_resolve(void* fn, void* handle, const char* id, const char* context, int validate_context, int trace) {
     return ((rototo_go_package_resolve_fn)fn)(handle, id, context, validate_context, trace);
 }
+typedef RototoGoStringResult (*rototo_go_package_str2_fn)(void*, const char*, const char*);
+static RototoGoStringResult rototo_go_call_package_str2(void* fn, void* handle, const char* a, const char* b) {
+    return ((rototo_go_package_str2_fn)fn)(handle, a, b);
+}
 static void rototo_go_call_handle_free(void* fn, void* handle) {
     ((rototo_go_handle_free_fn)fn)(handle);
 }
@@ -143,6 +147,12 @@ type nativeSymbols struct {
 	packageIdentity                   unsafe.Pointer
 	packageLint                       unsafe.Pointer
 	packageResolveVariable            unsafe.Pointer
+	packageListEnums                  unsafe.Pointer
+	packageReadEnum                   unsafe.Pointer
+	packageListEntries                unsafe.Pointer
+	packageReadEntry                  unsafe.Pointer
+	packageResolveReference           unsafe.Pointer
+	packageResolveEntryRef            unsafe.Pointer
 	packageFree                       unsafe.Pointer
 	refreshingPackageLoad             unsafe.Pointer
 	refreshingPackageResolveVariable  unsafe.Pointer
@@ -215,6 +225,12 @@ func loadNative() error {
 	native.packageIdentity = symbol("rototo_go_package_identity")
 	native.packageLint = symbol("rototo_go_package_lint")
 	native.packageResolveVariable = symbol("rototo_go_package_resolve_variable")
+	native.packageListEnums = symbol("rototo_go_package_list_enums")
+	native.packageReadEnum = symbol("rototo_go_package_read_enum")
+	native.packageListEntries = symbol("rototo_go_package_list_entries")
+	native.packageReadEntry = symbol("rototo_go_package_read_entry")
+	native.packageResolveReference = symbol("rototo_go_package_resolve_reference")
+	native.packageResolveEntryRef = symbol("rototo_go_package_resolve_entry_ref")
 	native.packageFree = symbol("rototo_go_package_free")
 	native.refreshingPackageLoad = symbol("rototo_go_refreshing_package_load")
 	native.refreshingPackageResolveVariable = symbol("rototo_go_refreshing_package_resolve_variable")
@@ -344,6 +360,43 @@ func nativePackageResolveVariable(handle nativeHandle, id, contextJSON string, v
 	result := C.rototo_go_call_package_resolve(native.packageResolveVariable, pointer(handle), cID, cContext, cBool(validateContext), cBool(trace))
 	defer C.rototo_go_call_string_result_free(native.stringResultFree, &result)
 	return stringResult(result)
+}
+
+func nativePackageStr2(fn unsafe.Pointer, handle nativeHandle, a, b string) (string, error) {
+	if err := ensureNative(); err != nil {
+		return "", err
+	}
+	cA := C.CString(a)
+	cB := C.CString(b)
+	defer C.free(unsafe.Pointer(cA))
+	defer C.free(unsafe.Pointer(cB))
+	result := C.rototo_go_call_package_str2(fn, pointer(handle), cA, cB)
+	defer C.rototo_go_call_string_result_free(native.stringResultFree, &result)
+	return stringResult(result)
+}
+
+func nativePackageListEnums(handle nativeHandle) (string, error) {
+	return nativePackageStr2(native.packageListEnums, handle, "", "")
+}
+
+func nativePackageReadEnum(handle nativeHandle, id string) (string, error) {
+	return nativePackageStr2(native.packageReadEnum, handle, id, "")
+}
+
+func nativePackageListEntries(handle nativeHandle, catalog string) (string, error) {
+	return nativePackageStr2(native.packageListEntries, handle, catalog, "")
+}
+
+func nativePackageReadEntry(handle nativeHandle, catalog, entry string) (string, error) {
+	return nativePackageStr2(native.packageReadEntry, handle, catalog, entry)
+}
+
+func nativePackageResolveReference(handle nativeHandle, address string) (string, error) {
+	return nativePackageStr2(native.packageResolveReference, handle, address, "")
+}
+
+func nativePackageResolveEntryRef(handle nativeHandle, value, pinsJSON string) (string, error) {
+	return nativePackageStr2(native.packageResolveEntryRef, handle, value, pinsJSON)
 }
 
 func nativePackageFree(handle nativeHandle) {

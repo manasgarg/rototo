@@ -35,6 +35,15 @@ final class Json {
         throw new RototoException("expected JSON array");
     }
 
+    static List<String> asStringList(Object value) {
+        List<Object> values = asList(value);
+        List<String> strings = new java.util.ArrayList<>(values.size());
+        for (Object item : values) {
+            strings.add(asString(item));
+        }
+        return strings;
+    }
+
     static String asString(Object value) {
         if (value instanceof String) {
             return (String) value;

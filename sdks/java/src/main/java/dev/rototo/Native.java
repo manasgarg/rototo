@@ -29,6 +29,18 @@ final class Native {
     static native String packageResolveVariableNative(
             long handle, String id, String contextJson, boolean validateContext, boolean trace);
 
+    static native String packageListEnumsNative(long handle);
+
+    static native String packageReadEnumNative(long handle, String id);
+
+    static native String packageListEntriesNative(long handle, String catalog);
+
+    static native String packageReadEntryNative(long handle, String catalog, String entry);
+
+    static native String packageResolveReferenceNative(long handle, String address);
+
+    static native String packageResolveEntryRefNative(long handle, String value, String pinsJson);
+
     static native void packageFreeNative(long handle);
 
     static native long refreshingPackageLoadNative(

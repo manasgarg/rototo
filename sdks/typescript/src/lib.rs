@@ -110,6 +110,38 @@ impl JsPackage {
         }))
     }
 
+    #[napi(js_name = "listEnums")]
+    pub fn list_enums(&self) -> Result<Vec<String>> {
+        self.inner.list_enums().map_err(js_err)
+    }
+
+    #[napi(js_name = "readEnum")]
+    pub fn read_enum(&self, id: String) -> Result<JsonValue> {
+        Ok(self.inner.read_enum(&id).map_err(js_err)?.to_json())
+    }
+
+    #[napi(js_name = "listEntries")]
+    pub fn list_entries(&self, catalog: String) -> Result<Vec<String>> {
+        self.inner.list_entries(&catalog).map_err(js_err)
+    }
+
+    #[napi(js_name = "readEntry")]
+    pub fn read_entry(&self, catalog: String, entry: String) -> Result<JsonValue> {
+        self.inner.read_entry(&catalog, &entry).map_err(js_err)
+    }
+
+    #[napi(js_name = "resolveReference")]
+    pub fn resolve_reference(&self, address: String) -> Result<JsonValue> {
+        self.inner.resolve_reference_at(&address).map_err(js_err)
+    }
+
+    #[napi(js_name = "resolveEntryRef")]
+    pub fn resolve_entry_ref(&self, value: String, pins: Vec<String>) -> Result<JsonValue> {
+        let pins: Vec<&str> = pins.iter().map(String::as_str).collect();
+        let reference = rototo::ValueRef::from_entry_ref(&value, &pins).map_err(js_err)?;
+        self.inner.resolve_reference(&reference).map_err(js_err)
+    }
+
     #[napi(js_name = "subscribeTraceEvents")]
     pub fn subscribe_trace_events(&self) -> JsTraceEvents {
         JsTraceEvents {

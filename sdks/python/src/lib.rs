@@ -115,6 +115,41 @@ impl PyPackage {
         variable_resolution_to_py(py, resolution)
     }
 
+    fn list_enums(&self) -> PyResult<Vec<String>> {
+        self.inner.list_enums().map_err(py_err)
+    }
+
+    fn read_enum(&self, py: Python<'_>, id: String) -> PyResult<Py<PyAny>> {
+        let config = self.inner.read_enum(&id).map_err(py_err)?;
+        json_to_py(py, &config.to_json())
+    }
+
+    fn list_entries(&self, catalog: String) -> PyResult<Vec<String>> {
+        self.inner.list_entries(&catalog).map_err(py_err)
+    }
+
+    fn read_entry(&self, py: Python<'_>, catalog: String, entry: String) -> PyResult<Py<PyAny>> {
+        let value = self.inner.read_entry(&catalog, &entry).map_err(py_err)?;
+        json_to_py(py, &value)
+    }
+
+    fn resolve_reference(&self, py: Python<'_>, address: String) -> PyResult<Py<PyAny>> {
+        let value = self.inner.resolve_reference_at(&address).map_err(py_err)?;
+        json_to_py(py, &value)
+    }
+
+    fn resolve_entry_ref(
+        &self,
+        py: Python<'_>,
+        value: String,
+        pins: Vec<String>,
+    ) -> PyResult<Py<PyAny>> {
+        let pins: Vec<&str> = pins.iter().map(String::as_str).collect();
+        let reference = rototo::ValueRef::from_entry_ref(&value, &pins).map_err(py_err)?;
+        let resolved = self.inner.resolve_reference(&reference).map_err(py_err)?;
+        json_to_py(py, &resolved)
+    }
+
     fn subscribe_trace_events(&self) -> PyTraceEvents {
         PyTraceEvents {
             subscription: Arc::new(Mutex::new(self.inner.subscribe_trace_events())),

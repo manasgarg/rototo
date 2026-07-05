@@ -149,6 +149,104 @@ pub extern "C" fn rototo_go_package_resolve_variable(
 }
 
 #[unsafe(no_mangle)]
+pub extern "C" fn rototo_go_package_list_enums(
+    handle: *mut c_void,
+    _a: *const c_char,
+    _b: *const c_char,
+) -> RototoGoStringResult {
+    string_result(|| {
+        let package = package_from_handle(handle)?;
+        let enums = package.list_enums().map_err(|err| err.to_string())?;
+        json_string(serde_json::json!(enums))
+    })
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn rototo_go_package_read_enum(
+    handle: *mut c_void,
+    id: *const c_char,
+    _b: *const c_char,
+) -> RototoGoStringResult {
+    string_result(|| {
+        let package = package_from_handle(handle)?;
+        let id = required_string(id, "id")?;
+        let config = package.read_enum(&id).map_err(|err| err.to_string())?;
+        json_string(config.to_json())
+    })
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn rototo_go_package_list_entries(
+    handle: *mut c_void,
+    catalog: *const c_char,
+    _b: *const c_char,
+) -> RototoGoStringResult {
+    string_result(|| {
+        let package = package_from_handle(handle)?;
+        let catalog = required_string(catalog, "catalog")?;
+        let entries = package
+            .list_entries(&catalog)
+            .map_err(|err| err.to_string())?;
+        json_string(serde_json::json!(entries))
+    })
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn rototo_go_package_read_entry(
+    handle: *mut c_void,
+    catalog: *const c_char,
+    entry: *const c_char,
+) -> RototoGoStringResult {
+    string_result(|| {
+        let package = package_from_handle(handle)?;
+        let catalog = required_string(catalog, "catalog")?;
+        let entry = required_string(entry, "entry")?;
+        let value = package
+            .read_entry(&catalog, &entry)
+            .map_err(|err| err.to_string())?;
+        json_string(value)
+    })
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn rototo_go_package_resolve_reference(
+    handle: *mut c_void,
+    address: *const c_char,
+    _b: *const c_char,
+) -> RototoGoStringResult {
+    string_result(|| {
+        let package = package_from_handle(handle)?;
+        let address = required_string(address, "address")?;
+        let value = package
+            .resolve_reference_at(&address)
+            .map_err(|err| err.to_string())?;
+        json_string(value)
+    })
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn rototo_go_package_resolve_entry_ref(
+    handle: *mut c_void,
+    value: *const c_char,
+    pins_json: *const c_char,
+) -> RototoGoStringResult {
+    string_result(|| {
+        let package = package_from_handle(handle)?;
+        let value = required_string(value, "value")?;
+        let pins_json = required_string(pins_json, "pins")?;
+        let pins: Vec<String> =
+            serde_json::from_str(&pins_json).map_err(|err| format!("invalid pins: {err}"))?;
+        let pins: Vec<&str> = pins.iter().map(String::as_str).collect();
+        let reference =
+            rototo::ValueRef::from_entry_ref(&value, &pins).map_err(|err| err.to_string())?;
+        let resolved = package
+            .resolve_reference(&reference)
+            .map_err(|err| err.to_string())?;
+        json_string(resolved)
+    })
+}
+
+#[unsafe(no_mangle)]
 pub extern "C" fn rototo_go_package_free(handle: *mut c_void) {
     if !handle.is_null() {
         unsafe {
