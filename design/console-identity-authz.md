@@ -4,8 +4,9 @@ Status: draft for review. This is the Layer 1 spec for the console
 re-implementation: identity, principals, groups, and authorization. It records
 the decisions from the design discussion and marks what is deferred. Tenant
 users are out of scope here; where a decision would foreclose the tenant story,
-this spec notes the hook and moves on. The earlier `design/console.md` is a
-whole-console scratch draft and is superseded by per-layer specs as they land.
+this spec notes the hook and moves on. An earlier whole-console scratch draft
+(`design/console.md`) was removed once the four per-layer specs superseded
+it; recover it from git history if ever needed.
 
 ## 1. Where we start from
 
@@ -312,9 +313,9 @@ deployment
 
 Entity-level grants exist in the schema from day one but the v1 admin UI only
 needs deployment, source-tree, and package scopes; entity-scoped grants become
-load-bearing when Layer 4 surfaces want per-surface approvers. Surfaces will
-address entities, so nothing new is needed here beyond an `entity` kind for
-surfaces themselves.
+load-bearing when Layer 4 wants per-surface approvers. Surfaces themselves
+turned out to be ordinary catalog entries (`design/console-surfaces.md`), so
+they are already addressable entities and nothing new is needed here at all.
 
 Two collaboration decisions shape how grants are used:
 
@@ -501,11 +502,11 @@ Phase A alone ships and B follows; if so, they ship together.
 Earlier open questions are resolved into the body above. What remains is
 the trigger that should reopen each one:
 
-- **Action ordering** (5.1): reopen when Layer 4 surfaces introduce named
-  approver policies, which reference groups directly and shrink the ladder
-  to a fallback rule, or if a compliance requirement demands that
-  administrator self-escalation be a granted act rather than an implied
-  power.
+- **Action ordering** (5.1): Layer 4 has since landed named approver
+  policies (`approval = "role:..."` on surfaces), and the ladder survives as
+  the default for change sets no surface policy covers. What would still
+  reopen it: a compliance requirement that administrator self-escalation be
+  a granted act rather than an implied power.
 - **Package identity** (5.2): reopen if a declared package name lands in
   `rototo-package.toml` for reasons of its own; grants should then switch
   to it.

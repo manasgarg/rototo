@@ -81,8 +81,8 @@ Field by field:
   renderer must show near edits ("this knob hits 100% of traffic on the
   next refresh").
 - Each `bind` names entities with the addressing grammar
-  (`design/addressing.md`), its fourth consumer after lint targets, edit
-  operations, and grant scopes. `editable_fields`, `can_add`, and
+  (`design/addressing.md`), joining lint targets, edit operations, grant
+  scopes, and change records as its consumers. `editable_fields`, `can_add`, and
   `can_delete` bound the affordances; they can be narrower than grants and
   governance but never effectively wider, because enforcement lives below
   (Layer 1 checks grants, load-time governance checks packages, and the
