@@ -267,6 +267,41 @@ just never exposed them), and drop the qualifier-era wire fields. The LSP
 serves the raw-text path; the form path gets its diagnostics from staging
 lint after applying operations.
 
+## Cold start
+
+The cold-start principle from the surfaces spec (every empty state
+proposes its next step, and the next step is a change set) applies one
+layer down too, where the zeros are about authoring the model itself. A
+package has a natural dependency chain, and the workbench's empty states
+walk the user up it instead of assuming it is already climbed:
+
+```text
+context schema -> rules that read context -> samples -> previews
+```
+
+- **An empty package** (a manifest and nothing else) proposes its first
+  entities as one-click drafts through the same `create_*` operations. CLI
+  parity already exists (`rototo init` and its selectors); the workbench
+  offers the same scaffolds interactively.
+- **Rule authoring without a context schema**: expression completion and
+  validation have nothing to offer, so the rule editor says exactly that
+  and offers to create the schema plus a first sample in the same change
+  set, rather than presenting an empty autocomplete as if it were the
+  product.
+- **A variable with rules but no samples**: the preview panel does not sit
+  empty; it proposes synthesized boundary contexts derived from the
+  variable's own rules (the fixtures-machinery reuse described in the
+  system-view note's impact-confidence section) with one-click promotion
+  to real samples. The entity-level preview and the review-time impact
+  panel share this one fix.
+- **A reference picker that points at nothing** (a catalog-typed variable
+  with no catalogs, an enum field with no enum) offers to create the
+  missing target in the same change set, generalizing what today's entity
+  templates do by bundling a catalog schema with its first entry.
+
+None of this is a wizard bolted on the front; each item is the empty state
+of a panel that already exists, filled with the action that unblocks it.
+
 ## What this layer needs from the core (bindings inventory)
 
 Following the convention from Layer 1 section 12. Beyond Layer 2's staging
