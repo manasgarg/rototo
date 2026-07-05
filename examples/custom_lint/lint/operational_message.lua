@@ -3,7 +3,7 @@ function register(lint)
     id = "operations/message-not-empty",
     title = "Operational message is empty",
     help = "Set a non-empty message before releasing the package.",
-    target = "/variables/operational_message",
+    target = "variable=operational_message",
     handler = "check_message",
   })
 end

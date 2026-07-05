@@ -367,7 +367,7 @@ pub(super) fn selected_linters(
                 .filter(|registration| registration.file_path == file.path)
                 .map(|registration| LinterRegistrationInspectReport {
                     stage: format!("{:?}", registration.stage).to_lowercase(),
-                    target: registered_address_label(&registration.selector.address),
+                    target: registration.selector.address.to_string(),
                     rule: registration.rule.as_str().to_owned(),
                     handler: registration.handler.clone(),
                 })
@@ -423,41 +423,4 @@ pub(super) fn linter_id(path: &str) -> Option<String> {
     path.strip_prefix("lint/")
         .and_then(|path| path.strip_suffix(".lua"))
         .map(str::to_owned)
-}
-
-pub(super) fn registered_address_label(address: &RegisteredLintAddress) -> String {
-    match address {
-        RegisteredLintAddress::Package => "/".to_owned(),
-        RegisteredLintAddress::Variables => "/variables".to_owned(),
-        RegisteredLintAddress::Variable { id } => format!("/variables/{id}"),
-        RegisteredLintAddress::VariableValues { variable } => {
-            format!("/variables/{variable}/values")
-        }
-        RegisteredLintAddress::VariableValue { variable, key } => {
-            format!("/variables/{variable}/values/{key}")
-        }
-        RegisteredLintAddress::VariableRules { variable } => {
-            format!("/variables/{variable}/rules")
-        }
-        RegisteredLintAddress::VariableRule { variable, index } => {
-            format!("/variables/{variable}/rules/{index}")
-        }
-        RegisteredLintAddress::Catalogs => "/catalogs".to_owned(),
-        RegisteredLintAddress::Catalog { id } => format!("/catalogs/{id}"),
-        RegisteredLintAddress::CatalogEntries { catalog } => {
-            format!("/catalogs/{catalog}/entries")
-        }
-        RegisteredLintAddress::CatalogEntry { catalog, key } => {
-            format!("/catalogs/{catalog}/entries/{key}")
-        }
-        RegisteredLintAddress::EvaluationContexts => "/evaluation-contexts".to_owned(),
-        RegisteredLintAddress::EvaluationContext { id } => format!("/evaluation-contexts/{id}"),
-        RegisteredLintAddress::EvaluationContextSamples { evaluation_context } => {
-            format!("/evaluation-contexts/{evaluation_context}/samples")
-        }
-        RegisteredLintAddress::EvaluationContextSample {
-            evaluation_context,
-            key,
-        } => format!("/evaluation-contexts/{evaluation_context}/samples/{key}"),
-    }
 }

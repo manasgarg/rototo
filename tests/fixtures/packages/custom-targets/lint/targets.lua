@@ -3,7 +3,7 @@ function register(lint)
     id = "targets/package-extends",
     title = "Package extends target was checked",
     help = "Update the package extends policy.",
-    target = "/",
+    target = "package=",
     handler = "check_package",
   })
 
@@ -11,7 +11,7 @@ function register(lint)
     id = "targets/variable-type",
     title = "Variable type target was checked",
     help = "Update the variable type policy.",
-    target = "/variables/agent_config",
+    target = "variable=agent_config",
     handler = "check_variable",
   })
 
@@ -19,7 +19,7 @@ function register(lint)
     id = "targets/returned-variable-type",
     title = "Returned variable type field was checked",
     help = "Update the returned field policy.",
-    target = "/variables/agent_config",
+    target = "variable=agent_config",
     handler = "check_returned_variable_field",
   })
 
@@ -27,7 +27,7 @@ function register(lint)
     id = "targets/invalid-returned-field",
     title = "Invalid returned field fell back",
     help = "Update the invalid returned field policy.",
-    target = "/variables/agent_config",
+    target = "variable=agent_config",
     handler = "check_invalid_returned_field",
   })
 
@@ -35,7 +35,7 @@ function register(lint)
     id = "targets/package-variable-default",
     title = "Package target can point at a variable field",
     help = "Update the package variable pointer policy.",
-    target = "/",
+    target = "package=",
     handler = "check_package_variable_default",
   })
 
@@ -43,7 +43,7 @@ function register(lint)
     id = "targets/catalog-entry-json-pointer",
     title = "Catalog entry target can point at value JSON",
     help = "Update the catalog entry pointer policy.",
-    target = "/catalogs/agent_config/entries/standard",
+    target = "catalog=agent_config:entry=standard",
     handler = "check_catalog_entry_value",
   })
 end

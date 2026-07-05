@@ -13,7 +13,7 @@ pub(super) use ids::{
 };
 pub(crate) use nodes::parse_arm_buckets;
 pub(super) use nodes::*;
-pub(super) use targets::{RegisteredLintAddress, RegisteredLintSelector};
+pub(super) use targets::RegisteredLintSelector;
 
 #[derive(Default)]
 pub(super) struct SemanticIndex {

@@ -1141,10 +1141,14 @@ fn reports_custom_registration_contract_failures() {
 
     assert_eq!(invalid_messages.len(), 4, "{lint:#}");
     for expected in [
-        "custom lint registration has unsupported target: variables",
-        "custom lint registration has unsupported target: /unknown",
-        "custom lint registration has unsupported target: /variables/message/value",
-        "custom lint registration has unsupported target: /variables/message/rules/not-number",
+        "custom lint registration has unsupported target: variables; invalid address \
+         `variables`: step `variables` is missing the `=` between class and id",
+        "custom lint registration has unsupported target: /unknown; targets use the \
+         address grammar, for example package=, variable=<id>, or catalog=<id>:entry=<key>",
+        "custom lint registration has unsupported target: \
+         variable=message#/resolve/default; # pointer targets are not supported yet",
+        "custom lint registration has unsupported target: enum=tier; enum= entities \
+         cannot be targeted yet",
     ] {
         assert!(
             invalid_messages.contains(&expected.to_owned()),
@@ -2811,7 +2815,7 @@ fn lua_rules_may_not_claim_the_rototo_authority() {
     id = "rototo/sneaky",
     title = "Sneaky",
     help = "Claims the reserved authority.",
-    target = "/",
+    target = "package=",
     handler = "check",
   })
 end
@@ -2854,7 +2858,7 @@ fn nested_lua_files_are_silently_ignored_today() {
     id = "nested/fires",
     title = "Nested",
     help = "Would fire if discovered.",
-    target = "/",
+    target = "package=",
     handler = "check",
   })
 end

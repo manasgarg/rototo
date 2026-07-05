@@ -544,7 +544,7 @@ function register(lint)
     id = "ai/llm-temperature-limit",
     title = "Enabled LLM temperature is too high",
     help = "Keep enabled LLM parameter sets at or below temperature 1.0.",
-    target = "/catalogs/llm_parameters/entries",
+    target = "catalog=llm_parameters:entry=",
     handler = "check_temperature",
   })
 end

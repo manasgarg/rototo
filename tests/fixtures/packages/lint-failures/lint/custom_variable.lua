@@ -3,7 +3,7 @@ function register(lint)
     id = "fixture/custom-variable-rejected",
     title = "Custom variable lint rejected the variable",
     help = "Change the fixture or the Lua lint rule.",
-    target = "/variables/custom_lint",
+    target = "variable=custom_lint",
     handler = "reject_variable",
   })
 end

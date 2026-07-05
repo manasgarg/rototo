@@ -135,7 +135,7 @@ allowed_operations = ["update"]
     id = "acme/flag-check",
     title = "Flag check",
     help = "Test rule.",
-    target = "/variables/flag",
+    target = "variable=flag",
     handler = "check_flag",
   })
 end
@@ -236,10 +236,7 @@ async fn every_package_file_kind_projects_to_exactly_one_node() {
         .iter()
         .find(|registration| registration.rule.as_str() == "acme/flag-check")
         .expect("registered rule");
-    assert!(matches!(
-        &registration.selector.address,
-        RegisteredLintAddress::Variable { id } if id == "flag"
-    ));
+    assert_eq!(registration.selector.address.to_string(), "variable=flag");
 }
 
 #[tokio::test]

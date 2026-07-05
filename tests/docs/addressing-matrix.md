@@ -38,6 +38,7 @@ these rows are the grammar itself.
 
 ## Current gap tally
 
-0 GAP rows. As consumers port (custom lint targets, the `=` binder
-migration, diagnostics rendering), their acceptance rows land in their own
-matrices and reference this one for the grammar.
+0 GAP rows. Custom lint targets are ported (acceptance rows: semantic
+index matrix section 4 and the registry tests). The `=` binder migration
+and diagnostics rendering follow; their rows land in their own matrices
+and reference this one for the grammar.

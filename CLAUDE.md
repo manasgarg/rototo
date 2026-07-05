@@ -52,8 +52,10 @@ The package format is rooted at `rototo-package.toml`:
 - `lint/*.lua`: package-local custom lint rules.
 
 `model/` holds contracts, `data/` holds values. Custom-lint target addresses
-are logical names and did not change with the layout: still
-`/evaluation-contexts/<id>`, `/catalogs/<id>/entries/...`, and so on.
+use the package addressing grammar (`design/addressing.md`):
+`package=`, `variable=<id>`, `catalog=<id>:entry=<key>`,
+`evaluation-context=<id>:sample=<key>`, with empty ids as collectives and
+trailing-slash ids as namespace subtrees.
 
 rototo-recognized ids (variables, enums, catalogs, catalog entries, evaluation
 contexts, samples) must be lowercase snake_case, with `/` allowed for

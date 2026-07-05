@@ -3,7 +3,7 @@ function register(lint)
     id = "payments/max-token-budget",
     title = "Token budget exceeds payments policy",
     help = "Lower max_output_tokens or update the payments policy.",
-    target = "/variables",
+    target = "variable=",
     handler = "fail_variable",
   })
 end

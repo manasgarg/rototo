@@ -267,7 +267,7 @@ fn inspect_linter_output_is_readable() {
             "[0] consumer-experience/checkout-heading-required",
         ))
         .stdout(predicate::str::contains(
-            "target: /catalogs/checkout_redesign/entries",
+            "target: catalog=checkout_redesign:entry=",
         ))
         .stdout(predicate::str::contains("runs during: policy lint stage"))
         .stdout(predicate::str::contains("handler: check_heading"))

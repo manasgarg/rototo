@@ -82,7 +82,6 @@ mod tests {
     use crate::diagnostics::{CustomRuleId, LintStage};
 
     use super::super::PACKAGE_MANIFEST;
-    use super::super::index::RegisteredLintAddress;
     use super::super::input::OverlayDocument;
     use super::*;
 
@@ -349,10 +348,10 @@ end
         assert_eq!(registration.file_path, "lint/targets.lua");
         assert_eq!(registration.stage, LintStage::Policy);
         assert_eq!(registration.location.path, "lint/targets.lua");
-        assert!(matches!(
-            &registration.selector.address,
-            RegisteredLintAddress::Variable { id } if id == "agent_config"
-        ));
+        assert_eq!(
+            registration.selector.address.to_string(),
+            "variable=agent_config"
+        );
     }
 
     #[tokio::test]

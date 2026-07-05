@@ -3,7 +3,7 @@ function register(lint)
     id = "consumer-experience/checkout-heading-required",
     title = "Checkout heading is missing",
     help = "Set heading to visible checkout copy.",
-    target = "/catalogs/checkout_redesign/entries",
+    target = "catalog=checkout_redesign:entry=",
     handler = "check_heading",
   })
 
@@ -11,7 +11,7 @@ function register(lint)
     id = "consumer-experience/checkout-image-path",
     title = "Checkout image path is invalid",
     help = "Use an image URL under /images/checkout/.",
-    target = "/catalogs/checkout_redesign/entries",
+    target = "catalog=checkout_redesign:entry=",
     handler = "check_image_path",
   })
 end

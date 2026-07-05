@@ -3,7 +3,7 @@ function register(lint)
     id = "payments/check",
     title = "Payments check",
     help = "Fix the payments policy.",
-    target = "package",
+    target = "enum=tier",
     handler = "check",
   })
 end

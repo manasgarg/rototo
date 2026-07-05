@@ -12,13 +12,8 @@
 //! `=`, `:`, `.` or `#`, so parsing is purely lexical.
 //!
 //! This module is the source of truth for parsing, validation, relative
-//! resolution, and canonical rendering. Consumers (custom lint targets,
-//! `x-rototo-ref`, diagnostics rendering) port onto it one at a time; none
-//! are ported yet.
-
-// No consumer is ported yet; drop this with the first port (the custom
-// lint target migration).
-#![allow(dead_code)]
+//! resolution, and canonical rendering. Custom lint targets are ported;
+//! `x-rototo-ref`, type declarations, and diagnostics rendering follow.
 
 use std::fmt;
 
@@ -122,7 +117,9 @@ pub(crate) struct Step {
 
 /// How deep an address reaches. Consumers use this to enforce their
 /// acceptance tables (a lint target takes any depth; an `x-rototo-ref`
-/// demands `Collective`; and so on).
+/// demands `Collective`; and so on). The lint port matches on steps
+/// directly; the depth model waits for the next consumer.
+#[allow(dead_code)]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum AddressDepth {
     /// `package=`: the whole package.
@@ -270,6 +267,7 @@ impl Address {
     }
 
     /// How deep the entity path reaches, ignoring any pointer.
+    #[allow(dead_code)]
     pub(crate) fn depth(&self) -> AddressDepth {
         let last = self.last_step();
         match (&last.id, last.class) {
@@ -303,7 +301,9 @@ impl fmt::Display for Address {
 }
 
 /// A reference: an address string that may be relative, resolved against a
-/// base the context supplies (RFC 3986 style).
+/// base the context supplies (RFC 3986 style). No consumer is ported yet;
+/// entry references adopt this with the `=` binder migration.
+#[allow(dead_code)]
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) enum Reference {
     /// A class-marked path: package-absolute, the base is ignored.
@@ -316,6 +316,7 @@ pub(crate) enum Reference {
 }
 
 impl Reference {
+    #[allow(dead_code)]
     pub(crate) fn parse(source: &str) -> Result<Self> {
         if let Some(pointer) = source.strip_prefix('#') {
             return Ok(Self::FragmentOnly(validate_pointer(source, pointer)?));
@@ -339,6 +340,7 @@ impl Reference {
     }
 
     /// Resolves this reference against a base address.
+    #[allow(dead_code)]
     pub(crate) fn resolve(&self, base: &Address) -> Result<Address> {
         match self {
             Self::Absolute(address) => Ok(address.clone()),

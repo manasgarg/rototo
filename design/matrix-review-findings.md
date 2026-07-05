@@ -158,6 +158,10 @@ drafts one addressing grammar (class:id steps, # for JSON pointers into
 documents, prefix and relative forms) that resolves this finding as its
 step 2; the earlier #-only patch idea is folded into it.
 
+Resolved 2026-07-05: the lint-target port landed. Namespaced entities are
+targetable (variable=acme/in_trial), subtrees fan out
+(variable=payments/), and legacy spellings reject with a migration hint.
+
 ### 7. Staleness resets when a fallback start succeeds
 
 Refresh matrix note. A fallback start records the fallback load as
@@ -283,3 +287,7 @@ Decide: drop the two `values` address forms (a breaking change for any Lua
 rule that names them, though such rules cannot fire in valid packages), or
 keep them until the legacy format's index modeling goes too. Dropping them
 also simplifies the finding-6 escaping decision by one reserved word.
+
+Resolved 2026-07-05: the lint-target port removed the whole old grammar,
+values forms included; the new grammar never had them. Task #59 closes as
+superseded.

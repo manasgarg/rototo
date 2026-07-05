@@ -1087,22 +1087,26 @@ reference](./diagnostics.md) covers how these show up next to the built-in ones.
 
 ### Target addresses
 
-`target` is a logical address, not a file path - it survived the model/data
-layout change unchanged, and it's how one rule fans out. A plural address runs
-the handler once per instance; a singular one pins a single target:
+`target` is an address from rototo's addressing grammar, not a file path:
+`<class>=<id>`, with `:` between containment steps. An address that names a
+group runs the handler once per member; a concrete one pins a single target:
 
-- `/` - the whole package, once.
-- `/variables`, `/variables/<id>` - every variable, or one.
-- `/variables/<id>/values`, `/variables/<id>/values/<key>` - a variable's
-  declared values.
-- `/variables/<id>/rules`, `/variables/<id>/rules/<index>` - a variable's
-  resolve rules, by position.
-- `/catalogs`, `/catalogs/<id>` - every catalog, or one.
-- `/catalogs/<id>/entries`, `/catalogs/<id>/entries/<key>` - a catalog's
-  entries. This is the workhorse: one handler, run once per entry.
-- `/evaluation-contexts`, `/evaluation-contexts/<id>` - context schemas.
-- `/evaluation-contexts/<id>/samples`,
-  `/evaluation-contexts/<id>/samples/<key>` - a context's samples.
+- `package=` - the whole package, once. This is the default when `target`
+  is omitted.
+- `variable=`, `variable=<id>` - every variable, or one. Namespaced ids
+  work as written: `variable=payments/max_tokens`.
+- `variable=<prefix>/` - a namespace subtree: every variable under
+  `payments/`, one run each.
+- `catalog=`, `catalog=<id>` - every catalog, or one.
+- `catalog=<id>:entry=`, `catalog=<id>:entry=<key>` - a catalog's entries.
+  This is the workhorse: one handler, run once per entry.
+- `evaluation-context=`, `evaluation-context=<id>` - context schemas.
+- `evaluation-context=<id>:sample=`,
+  `evaluation-context=<id>:sample=<key>` - a context's samples.
+
+Rules are not separately addressable anymore; target the variable and read
+its `resolve` data in the handler. The old `/variables/...` path spellings
+are rejected with a hint that shows the new form.
 
 ### What the handler receives
 
@@ -1116,12 +1120,10 @@ shape carries a `kind` field naming itself:
   the entry's data, which is what most rules inspect;
 - a **variable** is `{ kind, id, path, description, declaration, values,
   resolve, toml }`;
-- a **value** is `{ kind, variable, key, value, origin }`;
-- a **rule** is `{ kind, variable, index, when, value }`;
 - a **catalog** is `{ kind, id, path, json, entries }` - `json` is the schema;
 - an **evaluation context** is `{ kind, id, path, json, samples }`;
 - a **sample** is `{ kind, evaluation_context, key, path, value }`;
-- the **package** target (`/`) gets `{ kind, root, manifest, extends }` -
+- the **package** target (`package=`) gets `{ kind, root, manifest, extends }` -
   everything else is already on the first argument.
 
 ## How it all gets distributed

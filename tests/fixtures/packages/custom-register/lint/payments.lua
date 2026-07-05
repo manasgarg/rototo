@@ -3,7 +3,7 @@ function register(lint)
     id = "payments/max-token-budget",
     title = "Token budget exceeds payments policy",
     help = "Lower max_output_tokens or update the payments policy.",
-    target = "/variables/agent_config",
+    target = "variable=agent_config",
     handler = "check_token_budget",
   })
 
@@ -11,7 +11,7 @@ function register(lint)
     id = "payments/max-token-budget",
     title = "Token budget exceeds payments policy",
     help = "Lower max_output_tokens or update the payments policy.",
-    target = "/variables/agent_config",
+    target = "variable=agent_config",
     handler = "missing_handler",
   })
 end

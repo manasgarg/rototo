@@ -2,14 +2,14 @@ use std::collections::BTreeMap;
 
 use serde_json::Value as JsonValue;
 
+use crate::address::{EntityClass, StepId};
 use crate::diagnostics::{DiagnosticLocation, SemanticEntity, SemanticTarget};
+use crate::lint::custom::RegisteredLintSelector;
 use crate::lint::custom::marshal::{expanded_variable_toml_json, parsed_toml_json};
-use crate::lint::custom::{RegisteredLintAddress, RegisteredLintSelector};
 use crate::lint::engine::{LintContext, variable_values};
 use crate::lint::index::*;
 
 use super::locations::registered_package_location;
-use super::{find_rule, find_value};
 
 pub(crate) struct RegisteredLintTargetInstance {
     pub(crate) target: SemanticTarget,
@@ -38,112 +38,79 @@ pub(crate) fn registered_lint_targets(
     ctx: &LintContext,
     selector: &RegisteredLintSelector,
 ) -> Vec<RegisteredLintTargetInstance> {
-    match &selector.address {
-        RegisteredLintAddress::Package => registered_package_target(ctx).into_iter().collect(),
-        RegisteredLintAddress::Variables => ctx
+    let steps = selector.address.steps();
+    match steps[0].class {
+        EntityClass::Package => registered_package_target(ctx).into_iter().collect(),
+        EntityClass::Variable => ctx
             .index
             .variables
-            .values()
-            .filter_map(|variable| registered_variable_target(ctx, variable))
+            .iter()
+            .filter(|(id, _)| step_id_matches(&steps[0].id, id))
+            .filter_map(|(_, variable)| registered_variable_target(ctx, variable))
             .collect(),
-        RegisteredLintAddress::Variable { id } => ctx
-            .index
-            .variables
-            .get(id)
-            .and_then(|variable| registered_variable_target(ctx, variable))
-            .into_iter()
-            .collect(),
-        RegisteredLintAddress::VariableValues { variable } => ctx
-            .index
-            .variables
-            .get(variable)
-            .into_iter()
-            .flat_map(registered_value_targets)
-            .collect(),
-        RegisteredLintAddress::VariableValue { variable, key } => ctx
-            .index
-            .variables
-            .get(variable)
-            .and_then(|variable| registered_value_target(variable, key))
-            .into_iter()
-            .collect(),
-        RegisteredLintAddress::VariableRules { variable } => ctx
-            .index
-            .variables
-            .get(variable)
-            .into_iter()
-            .flat_map(registered_rule_targets)
-            .collect(),
-        RegisteredLintAddress::VariableRule { variable, index } => ctx
-            .index
-            .variables
-            .get(variable)
-            .and_then(|variable| registered_rule_target(variable, *index))
-            .into_iter()
-            .collect(),
-        RegisteredLintAddress::Catalogs => ctx
+        EntityClass::Catalog if steps.len() == 1 => ctx
             .index
             .catalogs
-            .values()
-            .map(|catalog| registered_catalog_target(ctx, catalog))
+            .iter()
+            .filter(|(id, _)| step_id_matches(&steps[0].id, id))
+            .map(|(_, catalog)| registered_catalog_target(ctx, catalog))
             .collect(),
-        RegisteredLintAddress::Catalog { id } => ctx
-            .index
-            .catalogs
-            .get(id)
-            .map(|catalog| registered_catalog_target(ctx, catalog))
-            .into_iter()
-            .collect(),
-        RegisteredLintAddress::CatalogEntries { catalog } => ctx
-            .index
-            .catalog_entries
-            .get(catalog)
-            .into_iter()
-            .flat_map(|entries| entries.values().map(registered_catalog_entry_target))
-            .collect(),
-        RegisteredLintAddress::CatalogEntry { catalog, key } => ctx
-            .index
-            .catalog_entries
-            .get(catalog)
-            .and_then(|entries| entries.get(key))
-            .map(registered_catalog_entry_target)
-            .into_iter()
-            .collect(),
-        RegisteredLintAddress::EvaluationContexts => ctx
+        EntityClass::Catalog => {
+            let StepId::Entity(catalog_id) = &steps[0].id else {
+                return Vec::new();
+            };
+            ctx.index
+                .catalog_entries
+                .get(catalog_id)
+                .into_iter()
+                .flat_map(|entries| {
+                    entries
+                        .iter()
+                        .filter(|(key, _)| step_id_matches(&steps[1].id, key))
+                        .map(|(_, entry)| registered_catalog_entry_target(entry))
+                })
+                .collect()
+        }
+        EntityClass::EvaluationContext if steps.len() == 1 => ctx
             .index
             .evaluation_contexts
-            .values()
-            .map(|evaluation_context| registered_evaluation_context_target(ctx, evaluation_context))
-            .collect(),
-        RegisteredLintAddress::EvaluationContext { id } => ctx
-            .index
-            .evaluation_contexts
-            .get(id)
-            .map(|evaluation_context| registered_evaluation_context_target(ctx, evaluation_context))
-            .into_iter()
-            .collect(),
-        RegisteredLintAddress::EvaluationContextSamples { evaluation_context } => ctx
-            .index
-            .evaluation_context_samples
-            .get(evaluation_context)
-            .into_iter()
-            .flat_map(|entries| {
-                entries
-                    .values()
-                    .map(registered_evaluation_context_sample_target)
+            .iter()
+            .filter(|(id, _)| step_id_matches(&steps[0].id, id))
+            .map(|(_, evaluation_context)| {
+                registered_evaluation_context_target(ctx, evaluation_context)
             })
             .collect(),
-        RegisteredLintAddress::EvaluationContextSample {
-            evaluation_context,
-            key,
-        } => ctx
-            .index
-            .evaluation_context_samples
-            .get(evaluation_context)
-            .and_then(|entries| entries.get(key))
-            .map(registered_evaluation_context_sample_target)
-            .into_iter()
-            .collect(),
+        EntityClass::EvaluationContext => {
+            let StepId::Entity(evaluation_context_id) = &steps[0].id else {
+                return Vec::new();
+            };
+            ctx.index
+                .evaluation_context_samples
+                .get(evaluation_context_id)
+                .into_iter()
+                .flat_map(|samples| {
+                    samples
+                        .iter()
+                        .filter(|(key, _)| step_id_matches(&steps[1].id, key))
+                        .map(|(_, sample)| registered_evaluation_context_sample_target(sample))
+                })
+                .collect()
+        }
+        // Registration acceptance already rejected every other class.
+        _ => Vec::new(),
+    }
+}
+
+/// Whether one step's id selector admits an entity id: an empty id is the
+/// collective, a subtree matches its namespace prefix at a path boundary,
+/// and a concrete id matches exactly.
+fn step_id_matches(selector: &StepId, id: &str) -> bool {
+    match selector {
+        StepId::Empty => true,
+        StepId::Subtree(prefix) => id
+            .strip_prefix(prefix.as_str())
+            .is_some_and(|rest| rest.starts_with('/')),
+        StepId::Entity(entity) => entity == id,
     }
 }
 
@@ -166,61 +133,6 @@ fn registered_variable_target(
         location: variable.location.clone(),
         data: variable_data(ctx, variable),
     })
-}
-
-fn registered_value_targets(variable: &VariableNode) -> Vec<RegisteredLintTargetInstance> {
-    variable
-        .values
-        .inline_values
-        .values()
-        .map(registered_value_target_from_node)
-        .collect()
-}
-
-fn registered_value_target(
-    variable: &VariableNode,
-    key: &str,
-) -> Option<RegisteredLintTargetInstance> {
-    find_value(variable, key).map(registered_value_target_from_node)
-}
-
-fn registered_value_target_from_node(value: &ValueNode) -> RegisteredLintTargetInstance {
-    RegisteredLintTargetInstance {
-        target: value.target(),
-        location: value.location.clone(),
-        data: value_data(value),
-    }
-}
-
-fn registered_rule_targets(variable: &VariableNode) -> Vec<RegisteredLintTargetInstance> {
-    match &variable.resolve {
-        ResolveNode::Resolve {
-            rules: RuleCollection::Rules(rules),
-            ..
-        } => rules
-            .iter()
-            .map(|rule| registered_rule_target_from_node(&variable.id, rule))
-            .collect(),
-        _ => Vec::new(),
-    }
-}
-
-fn registered_rule_target(
-    variable: &VariableNode,
-    index: usize,
-) -> Option<RegisteredLintTargetInstance> {
-    find_rule(variable, index).map(|rule| registered_rule_target_from_node(&variable.id, rule))
-}
-
-fn registered_rule_target_from_node(
-    variable_id: &str,
-    rule: &VariableRuleNode,
-) -> RegisteredLintTargetInstance {
-    RegisteredLintTargetInstance {
-        target: rule.target(variable_id),
-        location: rule.location.clone(),
-        data: rule_data(variable_id, rule),
-    }
 }
 
 fn registered_catalog_target(

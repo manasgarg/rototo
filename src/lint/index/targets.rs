@@ -1,49 +1,9 @@
+use crate::address::Address;
+
+/// What a registered custom lint rule runs against: an address from the
+/// package addressing grammar (`src/address.rs`), depth-checked at
+/// registration time by `parse_registered_lint_selector`.
 #[derive(Clone)]
 pub(in crate::lint) struct RegisteredLintSelector {
-    pub(in crate::lint) address: RegisteredLintAddress,
-}
-
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub(in crate::lint) enum RegisteredLintAddress {
-    Package,
-    Variables,
-    Variable {
-        id: String,
-    },
-    VariableValues {
-        variable: String,
-    },
-    VariableValue {
-        variable: String,
-        key: String,
-    },
-    VariableRules {
-        variable: String,
-    },
-    VariableRule {
-        variable: String,
-        index: usize,
-    },
-    Catalogs,
-    Catalog {
-        id: String,
-    },
-    CatalogEntries {
-        catalog: String,
-    },
-    CatalogEntry {
-        catalog: String,
-        key: String,
-    },
-    EvaluationContexts,
-    EvaluationContext {
-        id: String,
-    },
-    EvaluationContextSamples {
-        evaluation_context: String,
-    },
-    EvaluationContextSample {
-        evaluation_context: String,
-        key: String,
-    },
+    pub(in crate::lint) address: Address,
 }

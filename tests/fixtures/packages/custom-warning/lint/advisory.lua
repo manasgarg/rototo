@@ -4,7 +4,7 @@ function register(lint)
     title = "Package policy advisory",
     help = "Review the advisory before release.",
     severity = "warning",
-    target = "/variables/message",
+    target = "variable=message",
     handler = "check_variable",
   })
 end

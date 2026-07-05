@@ -2291,7 +2291,7 @@ async fn overlay_lint_rules_run_against_the_composed_package() {
     id = "acme/no-free-plans",
     title = "Free plans are not offered",
     help = "Every plan must carry a price.",
-    target = "/catalogs/plans/entries",
+    target = "catalog=plans:entry=",
     handler = "check_price",
   })
 end

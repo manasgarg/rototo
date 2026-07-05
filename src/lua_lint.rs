@@ -121,7 +121,7 @@ fn registration_from_lua_table(table: Table) -> mlua::Result<RawCustomLintRegist
     Ok(RawCustomLintRegistration {
         target: table
             .get::<Option<String>>("target")?
-            .unwrap_or_else(|| "/".to_owned()),
+            .unwrap_or_else(|| "package=".to_owned()),
         id: required_registration_string(&table, "id")?,
         title: required_registration_string(&table, "title")?,
         help: required_registration_string(&table, "help")?,

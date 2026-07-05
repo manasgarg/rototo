@@ -3,7 +3,7 @@ function register(lint)
     id = "consumer-experience/message-not-empty",
     title = "Directory-backed message is empty",
     help = "Set a non-empty message.",
-    target = "/variables/premium_message",
+    target = "variable=premium_message",
     handler = "check_message",
   })
 end

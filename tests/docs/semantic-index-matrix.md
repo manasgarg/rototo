@@ -73,25 +73,22 @@ Positions are zero-based lines and characters.
 
 ## 4. Target addressing: one grammar for nodes and custom lint
 
-Custom lint rules select what they check with logical addresses like
-`/catalogs/<id>/entries/<key>`. Those addresses and the index's node targets
-must stay one grammar.
+Custom lint rules select what they check with addresses from the package
+addressing grammar (`variable=<id>`, `catalog=<id>:entry=<key>`); the
+grammar itself is owned by `tests/docs/addressing-matrix.md` and
+`src/address.rs`. These rows cover the lint-side acceptance and the index's
+node targets.
 
 | # | Given / When | Then | Coverage |
 |---|---|---|---|
-| T1 | every supported address form | parsing yields the expected `RegisteredLintAddress`, and rendering the parsed address returns the input string byte for byte | `registered_lint_addresses_round_trip_between_grammar_and_parse` (`src/lint/custom/registry.rs`) |
-| T2 | an unsupported address (no leading slash, unknown root, too many segments, non-numeric rule index) | registration is rejected with `rototo/custom-lint-registration-invalid` | `unsupported_lint_addresses_are_rejected` (`src/lint/custom/registry.rs`) |
-| T3 | a trailing slash on an address | it normalizes away instead of reading as an empty segment | `trailing_slashes_normalize_in_lint_addresses` (`src/lint/custom/registry.rs`) |
+| T1 | every accepted target depth (package, collectives, namespace subtrees, entities incl. namespaced, nested entities) | registration stores the canonical address | `lint_targets_accept_every_documented_depth` (`src/lint/custom/registry.rs`) |
+| T2 | a legacy `/variables/...` spelling, a `#` pointer target, an untargetable class, or a malformed address | registration is rejected with `rototo/custom-lint-registration-invalid` and a hint naming the problem | `legacy_target_spellings_get_the_migration_hint`, `pointer_targets_are_not_supported_yet`, `untargetable_classes_are_rejected_with_the_class_named`, `malformed_targets_carry_the_address_parse_reason` (`src/lint/custom/registry.rs`) |
 | T4 | each node kind | `target()` and `field_target()` produce the `SemanticEntity` carrying the node's own id | `every_package_file_kind_projects_to_exactly_one_node` (spot-checked per kind) |
 
-Design note, recorded for the review pass: a namespaced id contains `/`, which
-the address grammar reads as a path separator, so `/variables/acme/in_trial`
-is rejected and a namespaced variable cannot be targeted by custom lint at
-all. Worse, a variable literally named `acme/values` would collide with the
-`/variables/<id>/values` form if the grammar were naively widened. Today's
-behavior (rejection) is pinned by `unsupported_lint_addresses_are_rejected`;
-whether namespaced entities should be addressable, and with what escaping, is
-an open design question.
+The old design note about namespaced ids being unaddressable is resolved:
+the `=` binder owns everything after it, so `variable=acme/in_trial` and
+even `variable=payments/rules` are plain entity addresses (review finding
+6, resolved by the addressing port).
 
 ## 5. Determinism
 

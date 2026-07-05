@@ -183,7 +183,7 @@ function register(lint)
     id = "consumer-experience/checkout-heading-required",
     title = "Checkout heading is missing",
     help = "Set heading to visible checkout copy.",
-    target = "/catalogs/checkout_redesign/entries",
+    target = "catalog=checkout_redesign:entry=",
     severity = "error",
     handler = "check_heading",
   })
