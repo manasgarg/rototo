@@ -47,13 +47,12 @@ Rule-id identity (authority grammar, `rototo` reservation) overlaps
 
 | # | Given / When | Then | Coverage |
 |---|---|---|---|
-| D1 | `lint/<file>.lua` at the top of the lint directory | discovered, indexed, run | index matrix D8 and every row above |
-| D2 | a `.lua` file in a subdirectory (`lint/sub/x.lua`) | pinned current behavior: ignored silently, with no unrecognized-file warning, because the discover walker covers `model/`, `data/`, `variables/`, and `layers/` but not `lint/`. Needs a decision: either discover recursively like every other collection, or warn. | `nested_lua_files_are_silently_ignored_today` (`tests/package_lint.rs`) |
+| D1 | `lint/**.lua` at any depth | discovered, indexed, run; the linter id is the namespaced path under `lint/` (`payments/budget`) | `nested_lua_files_register_and_run` (`tests/package_lint.rs`), index matrix D8 |
+| D2 | a non-Lua stray under `lint/` | the unrecognized-file warning names it: `lint/` is a walked directory like every other rototo-owned one | `nested_lua_files_register_and_run` |
 
 ## Current gap tally
 
-0 GAP rows. One pinned-behavior row (D2) carries a needs-decision note for
-the review pass.
+0 GAP rows.
 
 When you add custom-lint capability (new address forms, new registration
 fields, new sandbox surface), add the row and the test together; an empty

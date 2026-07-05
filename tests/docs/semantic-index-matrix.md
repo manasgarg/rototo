@@ -40,7 +40,7 @@ node in the right map, keyed by the id its path encodes.
 | D7 | `governance.toml` with a `[<kind>.<id>]` block | a `GovernanceNode` whose blocks carry the kind and id; unknown kinds are collected, not dropped | `every_package_file_kind_projects_to_exactly_one_node` |
 | D8 | `lint/<file>.lua` registering a rule | a `CustomLintFileNode` plus a `CustomLintRegistration` with the parsed selector address | `every_package_file_kind_projects_to_exactly_one_node`, `snapshot_index_records_custom_lint_registry` (`src/lint/engine.rs`) |
 | D9 | a file under a rototo-owned directory that no entity claims (wrong extension, entry for an undeclared catalog) | no node anywhere, and a `rototo/unrecognized-file` warning naming the file: nothing vanishes silently | `unclaimed_files_produce_no_nodes_and_a_discover_warning` |
-| D10 | a symlink to a directory named like an entity file | discovery skips it rather than indexing a directory | `sorted_directory_entries_skips_symlinked_directories` (`src/lint/source/discover.rs`) |
+| D10 | a symlink to a directory named like an entity file | discovery skips it rather than indexing a directory | `directory_walks_skip_symlinked_directories` (`src/lint/source/discover.rs`) |
 | D11 | in-memory overlay documents only (no files on disk, the LSP's unsaved-buffer path) | the same kinds map from the same paths; a whole package can index from overlays alone | `snapshot_discovers_overlay_only_package_files` (`src/lint/engine.rs`) |
 | D12 | an overlay path for an `<id>.update.toml` or `<id>.deleted.toml` marker | no document and no node: markers are consumed at flatten time and an unsaved marker is not lintable on its own | `overlay_marker_paths_are_not_documents` |
 

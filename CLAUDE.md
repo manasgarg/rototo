@@ -53,7 +53,8 @@ The package format is rooted at `rototo-package.toml`:
 - `model/context/<context-id>-samples/**.json`: optional sample contexts used
   for fixtures, lint coverage, and docs examples. The path under the samples
   directory is the (possibly namespaced) sample id.
-- `lint/*.lua`: package-local custom lint rules.
+- `lint/**.lua`: package-local custom lint rules; the linter id is the
+  path under `lint/` (namespaced like every other collection).
 
 `model/` holds contracts, `data/` holds values. Custom-lint target addresses
 use the package addressing grammar (`design/addressing.md`):
@@ -217,7 +218,7 @@ package structure and files:
   compile as JSON Schema and use only `enum=<id>` targets in `x-rototo-ref`.
   Samples under `model/context/<id>-samples/*.json` validate against their
   evaluation context schema, including enum member checks.
-- Lua files under `lint/*.lua` define `register(lint)` and register rules with
+- Lua files under `lint/**.lua` define `register(lint)` and register rules with
   `lint:rule({ id, title, help, target, handler })`. Handlers return diagnostics
   with `message`; the registration owns the rule id. `rototo` is reserved for
   built-in diagnostics.

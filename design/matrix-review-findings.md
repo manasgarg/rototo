@@ -128,7 +128,9 @@ larger question.
 
 Manas: fix this. lint/ can namespace like other entities.
 
-Tasked 2026-07-05: #69.
+Tasked 2026-07-05: #69. Fixed 2026-07-05: lint/ discovers recursively
+(linter id = namespaced path) and joins the unrecognized-file walker;
+pinned by nested_lua_files_register_and_run.
 
 ### 5. The staged-package escape docs omit `git+file://`
 

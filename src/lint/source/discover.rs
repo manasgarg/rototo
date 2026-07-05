@@ -328,7 +328,7 @@ impl SourceStore {
 
     pub(crate) async fn add_custom_lint_documents(&mut self) -> Result<()> {
         let lint = self.root.join("lint");
-        let entries = match sorted_directory_entries(&lint).await {
+        let entries = match sorted_directory_entries_recursive(&lint).await {
             Ok(entries) => entries,
             Err(err) if err.kind() == std::io::ErrorKind::NotFound => return Ok(()),
             Err(err) => {
@@ -340,11 +340,12 @@ impl SourceStore {
         };
 
         for path in entries {
-            if path.extension().and_then(|extension| extension.to_str()) != Some("lua") {
+            // Namespaced like every other collection: the linter id is the
+            // path under lint/ (payments/budget for lint/payments/budget.lua).
+            if namespaced_id(&lint, &path, ".lua").is_none() {
                 continue;
             }
-            let relative_path =
-                PathBuf::from("lint").join(path.file_name().expect("entry has filename"));
+            let relative_path = PathBuf::from("lint").join(path.strip_prefix(&lint).unwrap());
             self.add_disk_document(relative_path, DocumentKind::CustomLint)
                 .await;
         }
@@ -462,7 +463,7 @@ fn overlay_document_kind(path: &str) -> Option<DocumentKind> {
         ["layers", .., file] if file.ends_with(".toml") => {
             joined(&parts[1..], ".toml").map(|id| DocumentKind::Layer { id })
         }
-        ["lint", file] if file.ends_with(".lua") => Some(DocumentKind::CustomLint),
+        ["lint", .., file] if file.ends_with(".lua") => Some(DocumentKind::CustomLint),
         _ => None,
     }
 }
@@ -473,28 +474,8 @@ fn overlay_entry_id(path: &str, prefix: &str, suffix: &str) -> Option<String> {
     (!key.is_empty() && !key.ends_with('/')).then(|| key.to_owned())
 }
 
-async fn sorted_directory_entries(path: &Path) -> std::io::Result<Vec<PathBuf>> {
-    let mut entries = Vec::new();
-    let mut read_dir = tokio::fs::read_dir(path).await?;
-    while let Some(entry) = read_dir.next_entry().await? {
-        let file_type = entry.file_type().await?;
-        if file_type.is_file()
-            || (file_type.is_symlink()
-                && tokio::fs::metadata(entry.path())
-                    .await
-                    .map(|metadata| metadata.is_file())
-                    .unwrap_or(true))
-        {
-            entries.push(entry.path());
-        }
-    }
-    entries.sort();
-    Ok(entries)
-}
-
-/// Like [`sorted_directory_entries`], but walking subdirectories too (for
-/// collections whose ids namespace with `/`). Symlinked directories are not
-/// followed.
+/// Directory entries in sorted order, walking subdirectories (every rototo
+/// collection namespaces with `/`). Symlinked directories are not followed.
 async fn sorted_directory_entries_recursive(path: &Path) -> std::io::Result<Vec<PathBuf>> {
     let mut entries = Vec::new();
     let mut pending = vec![path.to_path_buf()];
@@ -525,7 +506,7 @@ mod tests {
 
     #[cfg(unix)]
     #[tokio::test]
-    async fn sorted_directory_entries_skips_symlinked_directories() {
+    async fn directory_walks_skip_symlinked_directories() {
         let tempdir = tempfile::tempdir().unwrap();
         let root = tempdir.path();
         let target_dir = root.join("looks-like-file.toml");
@@ -535,7 +516,7 @@ mod tests {
             .unwrap();
         std::os::unix::fs::symlink(&target_dir, root.join("linked.toml")).unwrap();
 
-        let entries = sorted_directory_entries(root).await.unwrap();
+        let entries = sorted_directory_entries_recursive(root).await.unwrap();
         let names = entries
             .iter()
             .map(|path| path.file_name().unwrap().to_string_lossy().into_owned())

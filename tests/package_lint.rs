@@ -2814,13 +2814,12 @@ end
     );
 }
 
-/// Pinned current behavior, recorded for the review pass: only lint/*.lua
-/// files directly in the lint directory are discovered. A Lua file in a
-/// subdirectory is ignored silently; unlike model/, data/, variables/, and
-/// layers/, the unrecognized-file walker does not cover lint/, so nothing
-/// warns about it either.
+/// lint/ namespaces like every other collection: a Lua file in a
+/// subdirectory registers and runs (linter id payments/budget), and a
+/// non-Lua stray under lint/ gets the unrecognized-file warning instead of
+/// vanishing.
 #[test]
-fn nested_lua_files_are_silently_ignored_today() {
+fn nested_lua_files_register_and_run() {
     let tempdir = tempfile::tempdir().unwrap();
     std::fs::write(
         tempdir.path().join("rototo-package.toml"),
@@ -2847,9 +2846,16 @@ end
     )
     .unwrap();
 
-    let lint = lint_json(&tempdir.path().to_string_lossy(), true);
+    std::fs::write(tempdir.path().join("lint/readme.md"), "notes\n").unwrap();
+
+    let lint = lint_json(&tempdir.path().to_string_lossy(), false);
+    let messages = diagnostic_messages_for_rule(&lint, "nested/fires");
+    assert_eq!(messages, vec!["fired".to_owned()], "{lint:#}");
+    let unrecognized = diagnostic_messages_for_rule(&lint, "rototo/unrecognized-file");
     assert!(
-        lint["diagnostics"].as_array().unwrap().is_empty(),
+        unrecognized
+            .iter()
+            .any(|message| message.contains("lint/readme.md")),
         "{lint:#}"
     );
     let documents = lint["documents"]
@@ -2859,7 +2865,7 @@ end
         .map(|document| document["path"].as_str().unwrap().to_owned())
         .collect::<Vec<_>>();
     assert!(
-        !documents.iter().any(|path| path.contains("nested.lua")),
+        documents.iter().any(|path| path == "lint/sub/nested.lua"),
         "{documents:?}"
     );
 }
