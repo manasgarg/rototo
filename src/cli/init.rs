@@ -3,7 +3,9 @@ use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
 use serde::Serialize;
+use serde_json::json;
 
+use rototo::edit::{EditOperation, EditOptions, EditTree};
 use rototo::model::{InspectSelection, PackageInspectRequest};
 use rototo::{Result, RototoError, inspect_package_report};
 
@@ -99,11 +101,16 @@ async fn build_init_plan(package: &Path, target: InitTarget) -> Result<InitPlan>
             if initialized {
                 plan.push(InitPlanEntry::directory(package.join("variables")));
             }
-            plan.push(InitPlanEntry::file(
-                "variable",
-                package.join("variables").join(format!("{id}.toml")),
-                variable_template(&id),
-            ));
+            let operations = vec![EditOperation::CreateVariable {
+                id: id.clone(),
+                variable_type: "string".to_owned(),
+                description: Some(format!(
+                    "Edit this description to explain what {id} controls"
+                )),
+                default: json!("control"),
+            }];
+            let masks = vec![format!("variables/{id}.toml")];
+            plan.extend(engine_file_entries(package, &operations, &masks).await?);
             Ok(InitPlan::from_entries(plan))
         }
         InitTarget::Catalog(id) => {
@@ -111,21 +118,25 @@ async fn build_init_plan(package: &Path, target: InitTarget) -> Result<InitPlan>
             if initialized {
                 plan.push(InitPlanEntry::directory(package.join("model/catalogs")));
             }
-            plan.extend([
-                InitPlanEntry::directory(package.join("data/catalogs").join(&id)),
-                InitPlanEntry::file(
-                    "catalog",
-                    package
-                        .join("model/catalogs")
-                        .join(format!("{id}.schema.json")),
-                    catalog_schema_template()?,
-                ),
-                InitPlanEntry::file(
-                    "catalog_entry",
-                    package.join("data/catalogs").join(&id).join("default.toml"),
-                    catalog_entry_template(),
-                ),
-            ]);
+            plan.push(InitPlanEntry::directory(
+                package.join("data/catalogs").join(&id),
+            ));
+            let operations = vec![
+                EditOperation::CreateCatalog {
+                    id: id.clone(),
+                    schema: starter_catalog_schema(),
+                },
+                EditOperation::CreateEntry {
+                    catalog: id.clone(),
+                    key: "default".to_owned(),
+                    fields: json!({ "heading": "Edit this heading", "enabled": false }),
+                },
+            ];
+            let masks = vec![
+                format!("model/catalogs/{id}.schema.json"),
+                format!("data/catalogs/{id}/default.toml"),
+            ];
+            plan.extend(engine_file_entries(package, &operations, &masks).await?);
             Ok(InitPlan::from_entries(plan))
         }
         InitTarget::Context { id, update } => {
@@ -133,23 +144,81 @@ async fn build_init_plan(package: &Path, target: InitTarget) -> Result<InitPlan>
             if initialized {
                 plan.push(InitPlanEntry::directory(package.join("model/context")));
             }
-            let context_path = package
-                .join("model/context")
-                .join(format!("{id}.schema.json"));
-            let (content, schema_update) =
-                context_schema_template(package, &context_path, &id, initialized, update).await?;
-            let entry = if update {
-                InitPlanEntry::file_update("evaluation_context", context_path, content)
+            let attributes = if initialized {
+                inferred_context_attributes(package).await?
             } else {
-                InitPlanEntry::file("evaluation_context", context_path, content)
+                BTreeMap::new()
             };
-            plan.push(entry);
-            let mut init_plan = InitPlan::from_entries(plan);
-            if let Some(schema_update) = schema_update {
-                init_plan.schema_updates.push(schema_update);
+            if update {
+                let context_path = package
+                    .join("model/context")
+                    .join(format!("{id}.schema.json"));
+                let (content, schema_update) =
+                    update_context_schema_template(&context_path, &id, &attributes).await?;
+                plan.push(InitPlanEntry::file_update(
+                    "evaluation_context",
+                    context_path,
+                    content,
+                ));
+                let mut init_plan = InitPlan::from_entries(plan);
+                if let Some(schema_update) = schema_update {
+                    init_plan.schema_updates.push(schema_update);
+                }
+                return Ok(init_plan);
             }
-            Ok(init_plan)
+            let operations = vec![EditOperation::CreateContext {
+                id: id.clone(),
+                schema: context_schema_from_attributes(&attributes)?,
+            }];
+            let masks = vec![format!("model/context/{id}.schema.json")];
+            plan.extend(engine_file_entries(package, &operations, &masks).await?);
+            Ok(InitPlan::from_entries(plan))
         }
+    }
+}
+
+/// Runs the edit engine over a snapshot of the package to produce the
+/// entity files, so init and the console share one source of file shapes.
+/// Paths this plan intends to create are masked from the snapshot first:
+/// the engine always produces content, and whether an existing file may be
+/// overwritten stays an init decision (`--force`), applied at execute time.
+async fn engine_file_entries(
+    package: &Path,
+    operations: &[EditOperation],
+    masks: &[String],
+) -> Result<Vec<InitPlanEntry>> {
+    let mut tree = EditTree::snapshot(package).await?;
+    for mask in masks {
+        tree.remove(mask);
+    }
+    let outcome = rototo::edit::apply(&tree, operations, &EditOptions::default())?;
+    Ok(outcome
+        .plan
+        .writes
+        .into_iter()
+        .map(|write| {
+            InitPlanEntry::file(
+                init_file_kind(&write.path),
+                package.join(&write.path),
+                write.content,
+            )
+        })
+        .collect())
+}
+
+fn init_file_kind(path: &str) -> &'static str {
+    if path.starts_with("variables/") {
+        "variable"
+    } else if path.starts_with("model/catalogs/") {
+        "catalog"
+    } else if path.starts_with("data/catalogs/") {
+        "catalog_entry"
+    } else if path.contains("-samples/") {
+        "context_sample"
+    } else if path.starts_with("model/context/") {
+        "evaluation_context"
+    } else {
+        "file"
     }
 }
 
@@ -560,75 +629,8 @@ fn package_manifest_template() -> String {
     .to_owned()
 }
 
-fn variable_template(id: &str) -> String {
-    let description = toml_string(&format!(
-        "Edit this description to explain what {id} controls"
-    ));
-    format!(
-        r#"schema_version = 1
-
-# Explain what runtime behavior this variable controls.
-description = {description}
-
-# Required. Supported types:
-# bool, int, number, string, list, list<string>, list<int>, list<number>,
-# list<bool>, catalog=<catalog-id>, list<catalog=<catalog-id>>
-type = "string"
-
-[resolve]
-# Required. Used when no rule matches. The value must match `type`.
-default = "control"
-
-# Literal defaults by type:
-# default = true
-# default = 10
-# default = 0.25
-# default = "control"
-# default = ["email", "card"]
-# default = "catalog-entry-id"
-# default = ["catalog-entry-a", "catalog-entry-b"]
-
-# Rules are evaluated top to bottom. The first matching rule selects its value.
-#
-# [[resolve.rule]]
-# when = 'context.account.plan == "enterprise" && context.account.seats >= 100'
-# value = "enterprise"
-
-# Rule conditions can also read other variables' resolved values, so a bool
-# "condition" variable can name a runtime condition other variables share.
-#
-# [[resolve.rule]]
-# when = 'variables["premium_users"]'
-# value = "treatment"
-
-# For catalog-backed variables, set:
-#
-# type = "catalog:{id}"
-#
-# Then `default` and rule `value` select catalog entry ids:
-#
-# [resolve]
-# default = "control"
-#
-# [[resolve.rule]]
-# when = 'variables["premium_users"]'
-# value = "premium"
-
-# For catalog-backed variables, `method = "query"` selects entries from the
-# catalog instead of matching rules. `entry.*` reads each catalog entry.
-#
-# type = "list<catalog:{id}>"
-#
-# [resolve]
-# method = "query"
-# from = "{id}"
-# filter = 'entry.enabled == true && variables["premium_users"]'
-"#
-    )
-}
-
-fn catalog_schema_template() -> Result<String> {
-    let schema = serde_json::json!({
+fn starter_catalog_schema() -> serde_json::Value {
+    serde_json::json!({
         "$schema": "https://json-schema.org/draft/2020-12/schema",
         "description": "Edit this description to explain the catalog values",
         "type": "object",
@@ -638,38 +640,7 @@ fn catalog_schema_template() -> Result<String> {
             "enabled": { "type": "boolean" }
         },
         "required": ["heading", "enabled"]
-    });
-    pretty_json(&schema)
-}
-
-fn catalog_entry_template() -> String {
-    r#"heading = "Edit this heading"
-enabled = false
-"#
-    .to_owned()
-}
-
-async fn context_schema_template(
-    package: &Path,
-    context_path: &Path,
-    context_id: &str,
-    initialized: bool,
-    update: bool,
-) -> Result<(String, Option<InitSchemaUpdate>)> {
-    let attributes = if initialized {
-        inferred_context_attributes(package).await?
-    } else {
-        BTreeMap::new()
-    };
-
-    if update {
-        return update_context_schema_template(context_path, context_id, &attributes).await;
-    }
-
-    Ok((
-        pretty_json(&context_schema_from_attributes(&attributes)?)?,
-        None,
-    ))
+    })
 }
 
 async fn inferred_context_attributes(
@@ -1156,8 +1127,4 @@ fn pretty_json(value: &serde_json::Value) -> Result<String> {
         serde_json::to_string_pretty(value).map_err(|err| RototoError::new(err.to_string()))?;
     text.push('\n');
     Ok(text)
-}
-
-fn toml_string(value: &str) -> String {
-    toml::Value::String(value.to_owned()).to_string()
 }

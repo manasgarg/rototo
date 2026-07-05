@@ -83,6 +83,14 @@ impl EditTree {
         self.files.contains_key(path)
     }
 
+    /// Drops a file from the snapshot. Callers that intend to overwrite a
+    /// file (`rototo init --force`) mask it first so `create_*` operations
+    /// see a fresh slot; whether the overwrite is allowed stays the
+    /// caller's decision.
+    pub fn remove(&mut self, path: &str) {
+        self.files.remove(path);
+    }
+
     pub fn content(&self, path: &str) -> Option<&str> {
         self.files.get(path).map(String::as_str)
     }

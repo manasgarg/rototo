@@ -148,11 +148,11 @@ fn init_variable_and_catalog_templates() {
         .success();
 
     let variable = fs::read_to_string(package.join("variables/checkout_redesign.toml")).unwrap();
+    assert!(variable.contains("schema_version = 1"));
     assert!(variable.contains("type = \"string\""));
     assert!(variable.contains("[resolve]"));
-    assert!(variable.contains("bool, int, number, string"));
-    assert!(variable.contains("context.account.plan == \"enterprise\""));
-    assert!(variable.contains("filter = 'entry.enabled == true"));
+    assert!(variable.contains("default = \"control\""));
+    assert!(variable.contains("# The value when no rule matches."));
     assert!(!variable.contains("[env."));
 
     let catalog =
