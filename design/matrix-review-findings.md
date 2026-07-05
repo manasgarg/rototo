@@ -182,6 +182,15 @@ should reset the binding (the primary attempt is over), or scoped tokens
 are simply the answer for dual-archive setups and the error message is
 acceptable. Worth a test either way once decided.
 
+Resolved 2026-07-05: keep as-is. Resetting the binding would transmit a
+token minted for the primary's origin to the fallback's origin, which is
+the exact leak the guard exists to prevent; scoped tokens express the
+dual-archive setup correctly, and the recommended bundled-local fallback
+never touches the binding. Now pinned end to end by
+bare_token_binding_spans_primary_and_fallback_archive_origins
+(tests/sdk.rs) and sdk-load matrix row F6; the binding error already
+names both origins and shows the scoped-token spelling to write.
+
 ### 9. An unmatched lint selector reports "ok"
 
 Lint identity matrix S2, pinned by

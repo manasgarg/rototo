@@ -1800,3 +1800,45 @@ async fn projected_package_resolves_identically_to_the_composed_source() {
         }
     }
 }
+
+/// Pinned decision (matrix review finding 8, resolved keep-as-is): a bare
+/// token's single-origin binding spans the primary and fallback loads,
+/// because they share one SourceOptions. A primary archive attempt binds
+/// its origin even when the fetch fails, so an https fallback on a
+/// different origin is refused rather than receiving a token minted for
+/// the primary. Dual-archive fallbacks want scoped tokens; bundled local
+/// fallbacks (the recommended shape) never touch the binding.
+#[tokio::test]
+async fn bare_token_binding_spans_primary_and_fallback_archive_origins() {
+    // Both origins are unreachable loopback ports: the primary attempt
+    // still binds its origin at request-build time, before any I/O.
+    let package = Package::load_with_options(
+        "https://127.0.0.1:9/pkg.tar.gz",
+        LoadOptions::new()
+            .with_source_auth(rototo::SourceAuth::Bearer("secret".to_owned()))
+            .with_fallback_source("https://127.0.0.2:9/pkg.tar.gz"),
+    )
+    .await;
+
+    let err = package.unwrap_err().to_string();
+    assert!(err.contains("also failed"), "{err}");
+    assert!(
+        err.contains("a bare package token is bound to a single archive origin"),
+        "{err}"
+    );
+
+    // The same shape with a local fallback is unaffected: the binding
+    // guard never sees a second archive origin.
+    let temp = tempfile::TempDir::new().unwrap();
+    let fallback = temp.path().join("bundled");
+    write_minimal_package_with_message(&fallback, "bundled").await;
+    let package = Package::load_with_options(
+        "https://127.0.0.1:9/pkg.tar.gz",
+        LoadOptions::new()
+            .with_source_auth(rototo::SourceAuth::Bearer("secret".to_owned()))
+            .with_fallback_source(fallback.to_string_lossy()),
+    )
+    .await
+    .unwrap();
+    assert!(package.served_fallback());
+}

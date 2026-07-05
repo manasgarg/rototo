@@ -39,6 +39,7 @@ fallback start is the refresh matrix's S2/R5/R6/R7.)
 | F3 | is healthy | the primary wins; the fallback is never touched | `package_prefers_a_healthy_primary_over_the_fallback` |
 | F4 | and the fallback both fail | one error naming both attempts, primary first, with both reasons | `package_load_error_names_both_attempts_when_both_fail` |
 | F5 | fails and the fallback fails lint | the fallback went through the identical pipeline: a lint-failing fallback is a failed fallback (F4's error) | `a_lint_failing_fallback_is_a_failed_fallback` |
+| F6 | is an https archive with a bare token, and the fallback is an https archive on a different origin | the fallback is refused by the single-origin binding rather than receiving a token minted for the primary; scoped tokens are the dual-archive answer, and a local fallback never touches the binding (decided keep-as-is, review finding 8) | `bare_token_binding_spans_primary_and_fallback_archive_origins` |
 
 Cross-language: F1, F3, and F4 run through all four language SDKs as shared
 contract cases (`tests/sdk-contract/cases.jsonl`, operation
