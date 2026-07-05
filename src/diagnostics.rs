@@ -459,6 +459,12 @@ rototo_rules! {
         title: "Catalog schema reference is invalid",
         help: "Point schema to a readable valid JSON Schema file.",
     },
+    CatalogIdOverlap => {
+        id: "catalog-id-overlap",
+        entity: Catalog,
+        title: "Catalog id is a path prefix of another catalog",
+        help: "Rename one catalog so no catalog id is a path prefix of another; overlapping ids make entry files under the shared directory ambiguous.",
+    },
     CatalogSchemaInvalid => {
         id: "catalog-schema-invalid",
         entity: Catalog,

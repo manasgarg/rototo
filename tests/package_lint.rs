@@ -2197,6 +2197,22 @@ fn canonical_rule_fixtures() -> &'static [CanonicalRuleFixture] {
             }],
         },
         CanonicalRuleFixture {
+            rule: RototoRuleId::CatalogIdOverlap,
+            package: "tests/fixtures/packages/rules/project/catalog-id-overlap",
+            success: false,
+            expected: &[ExpectedDiagnostic {
+                rule: "rototo/catalog-id-overlap",
+                severity: "error",
+                stage: LintStage::Project,
+                entity: ExpectedEntity::Catalog("plans/regional"),
+                primary: ExpectedPrimaryLocation::Document {
+                    path: "model/catalogs/plans/regional.schema.json",
+                    range: None,
+                },
+                related: &[],
+            }],
+        },
+        CanonicalRuleFixture {
             rule: RototoRuleId::SchemaUiUnknownWidget,
             package: "tests/fixtures/packages/rules/project/schema-ui-unknown-widget",
             success: true,

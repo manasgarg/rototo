@@ -38,8 +38,10 @@ The package format is rooted at `rototo-package.toml`:
   `value = true`. Other variables reference it as `variables["<id>"]`.
 - `model/catalogs/*.schema.json`: JSON Schemas for catalog-backed values. The
   catalog id is the file name before `.schema.json`.
-- `data/catalogs/<catalog-id>/*.toml`: catalog value definitions. The file
-  stem is the catalog value id.
+- `data/catalogs/<catalog-id>/**.toml`: catalog value definitions. The path
+  under the catalog directory is the (possibly namespaced) catalog value id;
+  a subtree that is itself a longer catalog id belongs to that catalog, and
+  overlapping catalog ids are a lint error (`rototo/catalog-id-overlap`).
 - `model/enums/<enum-id>.toml`: named enum declarations: `schema_version = 1`,
   optional `description`, and `type` (one of `string`, `int`, `number`,
   `bool`).
@@ -47,8 +49,9 @@ The package format is rooted at `rototo-package.toml`:
 - `model/context/*.schema.json`: JSON Schemas for runtime context objects (the
   concept is still called an evaluation context). The evaluation context id is
   the file name before `.schema.json`.
-- `model/context/<context-id>-samples/*.json`: optional sample contexts used
-  for fixtures, lint coverage, and docs examples.
+- `model/context/<context-id>-samples/**.json`: optional sample contexts used
+  for fixtures, lint coverage, and docs examples. The path under the samples
+  directory is the (possibly namespaced) sample id.
 - `lint/*.lua`: package-local custom lint rules.
 
 `model/` holds contracts, `data/` holds values. Custom-lint target addresses

@@ -386,9 +386,18 @@ pub(super) fn reject_same_layer_entry(
     entry: &str,
     operation: &str,
 ) -> Result<()> {
-    let sibling = source_path
-        .parent()
-        .map(|parent| parent.join(format!("{entry}.toml")))
+    // The sibling lives next to the marker file, so it is found by the
+    // local file stem; `entry` may be namespaced and is for the message.
+    let local_stem = source_path
+        .file_name()
+        .and_then(|name| name.to_str())
+        .and_then(|name| {
+            name.strip_suffix(".deleted.toml")
+                .or_else(|| name.strip_suffix(".update.toml"))
+        });
+    let sibling = local_stem
+        .zip(source_path.parent())
+        .map(|(stem, parent)| parent.join(format!("{stem}.toml")))
         .filter(|sibling| sibling.is_file());
     if sibling.is_some() {
         return Err(RototoError::new(format!(

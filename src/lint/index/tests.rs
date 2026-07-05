@@ -89,6 +89,10 @@ type = "string"
         ),
         ("data/catalogs/banner/default.toml", "message = \"hello\"\n"),
         (
+            "data/catalogs/banner/promo/summer.toml",
+            "message = \"sunny\"\n",
+        ),
+        (
             "model/context/request.schema.json",
             r#"{
   "type": "object",
@@ -103,6 +107,10 @@ type = "string"
         (
             "model/context/request-samples/basic.json",
             r#"{ "user": { "tier": "premium", "id": "user-1" } }"#,
+        ),
+        (
+            "model/context/request-samples/eu/premium.json",
+            r#"{ "user": { "tier": "premium", "id": "user-2" } }"#,
         ),
         (
             "layers/rollout.toml",
@@ -202,9 +210,13 @@ async fn every_package_file_kind_projects_to_exactly_one_node() {
         .catalog_entries
         .get("banner")
         .expect("banner entries map");
-    assert_eq!(entries.keys().cloned().collect::<Vec<_>>(), vec!["default"]);
+    assert_eq!(
+        entries.keys().cloned().collect::<Vec<_>>(),
+        vec!["default", "promo/summer"]
+    );
     assert_eq!(entries["default"].catalog_id, "banner");
     assert_eq!(entries["default"].key, "default");
+    assert_eq!(entries["promo/summer"].key, "promo/summer");
 
     let request = index
         .evaluation_contexts
@@ -215,8 +227,15 @@ async fn every_package_file_kind_projects_to_exactly_one_node() {
         .evaluation_context_samples
         .get("request")
         .expect("request samples map");
-    assert_eq!(samples.keys().cloned().collect::<Vec<_>>(), vec!["basic"]);
+    assert_eq!(
+        samples.keys().cloned().collect::<Vec<_>>(),
+        vec!["basic", "eu/premium"]
+    );
     assert!(samples["basic"].value.is_some());
+    assert_eq!(
+        samples["eu/premium"].location.path,
+        "model/context/request-samples/eu/premium.json"
+    );
 
     let rollout = index.layers.get("rollout").expect("rollout layer node");
     assert_eq!(rollout.allocations.len(), 1);
@@ -402,6 +421,44 @@ async fn node_and_field_locations_span_their_declaring_lines() {
     let members = &index.enum_members["tier"];
     assert_eq!(members.location.path, "data/enums/tier.toml");
     assert!(members.members.location().range.is_some());
+}
+
+#[tokio::test]
+async fn a_longer_catalog_id_owns_its_data_subtree() {
+    // Overlapping catalog ids are a lint error (rototo/catalog-id-overlap),
+    // but discovery still resolves ownership deterministically: the longer
+    // id owns its subtree, so the index never double-claims a file.
+    let (_tempdir, snapshot) = scratch_snapshot(&[
+        ("rototo-package.toml", "schema_version = 1\n"),
+        (
+            "model/catalogs/plans.schema.json",
+            r#"{"type":"object","properties":{"name":{"type":"string"}}}"#,
+        ),
+        (
+            "model/catalogs/plans/regional.schema.json",
+            r#"{"type":"object","properties":{"name":{"type":"string"}}}"#,
+        ),
+        ("data/catalogs/plans/basic.toml", "name = \"basic\"\n"),
+        ("data/catalogs/plans/regional/eu.toml", "name = \"eu\"\n"),
+    ])
+    .await;
+    let index = &snapshot.index;
+
+    let plans = index.catalog_entries.get("plans").expect("plans entries");
+    assert_eq!(plans.keys().cloned().collect::<Vec<_>>(), vec!["basic"]);
+    let regional = index
+        .catalog_entries
+        .get("plans/regional")
+        .expect("regional entries");
+    assert_eq!(regional.keys().cloned().collect::<Vec<_>>(), vec!["eu"]);
+
+    assert!(
+        snapshot
+            .lint
+            .diagnostics
+            .iter()
+            .any(|diagnostic| { diagnostic.rule.as_string() == "rototo/catalog-id-overlap" })
+    );
 }
 
 #[tokio::test]

@@ -149,18 +149,36 @@ pub(super) fn check_governed_file(
             _ => Ok(()),
         },
         ["data", "catalogs", middle @ .., file] if !middle.is_empty() => {
-            let catalog = &middle.join("/");
-            let declared = exists(Path::new(&format!("model/catalogs/{catalog}.schema.json")));
-            if !declared {
+            // Entries namespace: data/catalogs/banner/promo/summer.toml can
+            // be entry promo/summer of catalog banner. The catalog is the
+            // longest directory prefix the base declares a schema for, so a
+            // nested entry of a governed catalog cannot dodge policy by
+            // looking like a deeper catalog.
+            let Some((catalog, entry_namespace)) = (1..=middle.len()).rev().find_map(|len| {
+                let candidate = middle[..len].join("/");
+                exists(Path::new(&format!(
+                    "model/catalogs/{candidate}.schema.json"
+                )))
+                .then(|| (candidate, middle[len..].join("/")))
+            }) else {
                 // A catalog this layer introduces is its own to fill.
                 return Ok(());
-            }
-            if let Some(entry) = stem(file, ".deleted.toml") {
+            };
+            let catalog = &catalog;
+            let entry_name = |stem: String| -> String {
+                if entry_namespace.is_empty() {
+                    stem
+                } else {
+                    format!("{entry_namespace}/{stem}")
+                }
+            };
+            if let Some(entry) = stem(file, ".deleted.toml").map(&entry_name) {
                 reject_same_layer_entry(source_path, &entry, "a deleted marker")?;
-                if source_path
-                    .parent()
-                    .map(|parent| parent.join(format!("{entry}.update.toml")))
-                    .is_some_and(|sibling| sibling.is_file())
+                if let Some(local_stem) = stem(file, ".deleted.toml")
+                    && source_path
+                        .parent()
+                        .map(|parent| parent.join(format!("{local_stem}.update.toml")))
+                        .is_some_and(|sibling| sibling.is_file())
                 {
                     return Err(RototoError::new(format!(
                         "package both declares an update and a deleted marker for catalog \
@@ -169,7 +187,7 @@ pub(super) fn check_governed_file(
                 }
                 return contract.check("catalog", catalog, Operation::Delete, Some(&entry), &[]);
             }
-            if let Some(entry) = stem(file, ".update.toml") {
+            if let Some(entry) = stem(file, ".update.toml").map(&entry_name) {
                 reject_same_layer_entry(source_path, &entry, "an update")?;
                 let fields = toml_top_level_keys(source_path)?;
                 return contract.check(
@@ -180,7 +198,7 @@ pub(super) fn check_governed_file(
                     &fields,
                 );
             }
-            match stem(file, ".toml") {
+            match stem(file, ".toml").map(&entry_name) {
                 Some(entry) if exists(relative) => Err(RototoError::new(format!(
                     "governance does not model replacing catalog entry {entry} wholesale;                      use {entry}.update.toml to update fields or {entry}.deleted.toml to                      remove it"
                 ))),

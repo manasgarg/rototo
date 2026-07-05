@@ -630,7 +630,11 @@ ordinary JSON Schema describing what every entry must look like. Here's
 ```
 
 Second, the entries, each a TOML file under `data/catalogs/<id>/`. The
-filename is the entry's id. Here's `data/catalogs/checkout_redesign/control.toml`:
+path under the catalog's directory is the entry's id, so entries can
+namespace with subdirectories: `promo/summer.toml` is the entry
+`promo/summer`. One rule keeps that unambiguous: no catalog id may be a
+path prefix of another (`rototo/catalog-id-overlap`), so a file always has
+exactly one owner. Here's `data/catalogs/checkout_redesign/control.toml`:
 
 ```toml
 variant = "control"
@@ -1017,7 +1021,8 @@ your schema never mentions it, that's a problem you want to hear about before a
 release, not during one.
 
 Alongside the schema you can keep sample contexts, in
-`model/context/<id>-samples/`. Each is a JSON file - the filename is the
+`model/context/<id>-samples/`. Each is a JSON file - the path under the
+samples directory is the
 sample's id - that has to validate against the schema, including any
 `x-rototo-ref` enum pins the schema declares. Here's
 `premium_enterprise.json`:

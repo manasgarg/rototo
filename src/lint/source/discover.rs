@@ -115,6 +115,10 @@ impl SourceStore {
             }
         };
 
+        // Two phases: every schema first, then entries. Entry namespacing
+        // needs the full catalog id set, so that catalog `a` does not claim
+        // the subtree that belongs to catalog `a/b`.
+        let mut ids = Vec::new();
         for path in entries {
             let Some(id) = namespaced_id(&directory, &path, ".schema.json") else {
                 continue;
@@ -123,15 +127,46 @@ impl SourceStore {
                 PathBuf::from("model/catalogs").join(path.strip_prefix(&directory).unwrap());
             self.add_disk_document(relative_path, DocumentKind::Catalog { id: id.clone() })
                 .await;
-            self.add_catalog_entry_documents(&id).await?;
+            ids.push(id);
+        }
+        for id in &ids {
+            self.add_catalog_entry_documents(id).await?;
         }
 
         Ok(())
     }
 
+    /// Every catalog id currently discovered, for subtree ownership checks.
+    fn known_catalog_ids(&self) -> Vec<String> {
+        self.documents
+            .values()
+            .filter_map(|document| match &document.kind {
+                DocumentKind::Catalog { id } => Some(id.clone()),
+                _ => None,
+            })
+            .collect()
+    }
+
     pub(crate) async fn add_catalog_entry_documents(&mut self, catalog_id: &str) -> Result<()> {
+        // Entries namespace recursively, but a subtree that is itself a
+        // longer catalog id belongs to that catalog: catalog `a` never
+        // claims files under data/catalogs/a/b/ when `a/b` is a catalog.
+        let owned_by_longer = |entry_id: &str, known: &[String]| {
+            known.iter().any(|other| {
+                other
+                    .strip_prefix(catalog_id)
+                    .and_then(|rest| rest.strip_prefix('/'))
+                    .is_some_and(|suffix| {
+                        entry_id
+                            .strip_prefix(suffix)
+                            .is_some_and(|rest| rest.starts_with('/'))
+                    })
+            })
+        };
+        let known = self.known_catalog_ids();
+
         let entries_dir = self.root.join("data/catalogs").join(catalog_id);
-        let entries = match sorted_directory_entries(&entries_dir).await {
+        let entries = match sorted_directory_entries_recursive(&entries_dir).await {
             Ok(entries) => entries,
             Err(err) if err.kind() == std::io::ErrorKind::NotFound => return Ok(()),
             Err(err) => {
@@ -143,20 +178,20 @@ impl SourceStore {
         };
 
         for path in entries {
-            if path.extension().and_then(|extension| extension.to_str()) != Some("toml") {
-                continue;
-            }
-            let Some(entry_id) = path.file_stem().and_then(|stem| stem.to_str()) else {
+            let Some(entry_id) = namespaced_id(&entries_dir, &path, ".toml") else {
                 continue;
             };
+            if owned_by_longer(&entry_id, &known) {
+                continue;
+            }
             let relative_path = PathBuf::from("data/catalogs")
                 .join(catalog_id)
-                .join(path.file_name().expect("entry has filename"));
+                .join(path.strip_prefix(&entries_dir).unwrap());
             self.add_disk_document(
                 relative_path,
                 DocumentKind::CatalogEntry {
                     catalog_id: catalog_id.to_owned(),
-                    entry_id: entry_id.to_owned(),
+                    entry_id,
                 },
             )
             .await;
@@ -173,6 +208,9 @@ impl SourceStore {
             let Some(entry_id) = overlay_entry_id(&path, &overlay_prefix, ".toml") else {
                 continue;
             };
+            if owned_by_longer(&entry_id, &known) {
+                continue;
+            }
             self.add_disk_document(
                 PathBuf::from(&path),
                 DocumentKind::CatalogEntry {
@@ -239,7 +277,7 @@ impl SourceStore {
             .root
             .join("model/context")
             .join(format!("{evaluation_context_id}-samples"));
-        let samples = match sorted_directory_entries(&samples_dir).await {
+        let samples = match sorted_directory_entries_recursive(&samples_dir).await {
             Ok(samples) => samples,
             Err(err) if err.kind() == std::io::ErrorKind::NotFound => return Ok(()),
             Err(err) => {
@@ -251,15 +289,12 @@ impl SourceStore {
         };
 
         for path in samples {
-            if path.extension().and_then(|extension| extension.to_str()) != Some("json") {
-                continue;
-            }
-            let Some(sample_id) = path.file_stem().and_then(|stem| stem.to_str()) else {
+            let Some(sample_id) = namespaced_id(&samples_dir, &path, ".json") else {
                 continue;
             };
             let relative_path = PathBuf::from("model/context")
                 .join(format!("{evaluation_context_id}-samples"))
-                .join(path.file_name().expect("entry has filename"));
+                .join(path.strip_prefix(&samples_dir).unwrap());
             self.add_disk_document(
                 relative_path,
                 DocumentKind::EvaluationContextSample {
@@ -321,7 +356,15 @@ impl SourceStore {
     }
 
     pub(crate) async fn add_overlay_documents(&mut self) -> Result<()> {
-        let paths = self.overlays.keys().cloned().collect::<Vec<_>>();
+        let mut paths = self.overlays.keys().cloned().collect::<Vec<_>>();
+        // Schemas declare the ids that own entry and sample subtrees, so
+        // they go first; the owner's scan then claims its files before the
+        // generic arms guess at them.
+        paths.sort_by_key(|path| {
+            let is_schema =
+                path.starts_with("model/catalogs/") || path.starts_with("model/context/");
+            (!is_schema, path.clone())
+        });
         for path in paths {
             if self.document_by_path(&path).is_some() {
                 continue;
@@ -403,14 +446,20 @@ fn overlay_document_kind(path: &str) -> Option<DocumentKind> {
                 entry_id: entry_id.to_owned(),
             })
         }
-        ["model", "context", .., dir, file]
-            if dir.ends_with("-samples") && file.ends_with(".json") =>
+        ["model", "context", rest @ ..]
+            if parts.len() > 3
+                && rest.last().is_some_and(|file| file.ends_with(".json"))
+                && rest.iter().any(|part| part.ends_with("-samples")) =>
         {
-            let evaluation_context_id = joined(&parts[2..parts.len() - 1], "-samples")?;
-            let sample_id = file.strip_suffix(".json")?;
-            (!sample_id.is_empty()).then(|| DocumentKind::EvaluationContextSample {
+            let samples_at = rest
+                .iter()
+                .position(|part| part.ends_with("-samples"))
+                .expect("checked above");
+            let evaluation_context_id = joined(&rest[..=samples_at], "-samples")?;
+            let sample_id = joined(&rest[samples_at + 1..], ".json")?;
+            Some(DocumentKind::EvaluationContextSample {
                 evaluation_context_id,
-                sample_id: sample_id.to_owned(),
+                sample_id,
             })
         }
         ["model", "context", .., file] if file.ends_with(".schema.json") => {
@@ -426,11 +475,8 @@ fn overlay_document_kind(path: &str) -> Option<DocumentKind> {
 
 fn overlay_entry_id(path: &str, prefix: &str, suffix: &str) -> Option<String> {
     let file = path.strip_prefix(prefix)?;
-    if file.contains('/') {
-        return None;
-    }
     let key = file.strip_suffix(suffix)?;
-    (!key.is_empty()).then(|| key.to_owned())
+    (!key.is_empty() && !key.ends_with('/')).then(|| key.to_owned())
 }
 
 async fn sorted_directory_entries(path: &Path) -> std::io::Result<Vec<PathBuf>> {

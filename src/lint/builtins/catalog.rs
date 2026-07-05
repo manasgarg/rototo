@@ -14,6 +14,29 @@ const CATALOG_REF_KEY: &str = "x-rototo-ref";
 
 pub(super) fn lint_catalog_shapes(ctx: &mut LintContext) {
     let mut diagnostics = Vec::new();
+    // Overlapping catalog ids make the data/catalogs layout ambiguous: an
+    // entry file under the shared directory could belong to either catalog.
+    // Discovery resolves it (the longer id owns its subtree), but the
+    // package should not rely on that; flag the longer id.
+    let ids: Vec<&String> = ctx.index.catalogs.keys().collect();
+    for id in &ids {
+        let Some(shorter) = ids.iter().find(|other| {
+            id.strip_prefix(other.as_str())
+                .is_some_and(|rest| rest.starts_with('/'))
+        }) else {
+            continue;
+        };
+        let catalog = &ctx.index.catalogs[id.as_str()];
+        push_project_diagnostic(
+            &mut diagnostics,
+            RototoRuleId::CatalogIdOverlap,
+            catalog.target(),
+            catalog.location.clone(),
+            format!(
+                "catalog id {id} is a path prefix collision: catalog {shorter} shares its                  data directory, so entry files under data/catalogs/{id}/ are ambiguous"
+            ),
+        );
+    }
     for catalog in ctx.index.catalogs.values() {
         if let Some(message) = &catalog.invalid_message {
             push_project_diagnostic(

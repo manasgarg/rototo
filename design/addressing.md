@@ -124,7 +124,7 @@ model/catalogs/
 data/catalogs/
   support_banner/default.toml
   acme/banner/default.toml
-  acme/banner/promo/summer.toml          (namespaced entry, post task #60)
+  acme/banner/promo/summer.toml          (a namespaced entry)
 model/enums/tier.toml
 data/enums/tier.toml
 model/context/request.schema.json
@@ -254,7 +254,9 @@ canonical rendering), then consumers port one at a time:
    disk between catalog `a` (entry `b/c`) and catalog `a/b` (entry `c`),
    and no address grammar can fix a filesystem ambiguity. Recommendation:
    make it a lint error for one catalog id to be a path prefix of
-   another, which keeps the disk layout bijective with addresses.
+   another, which keeps the disk layout bijective with addresses. Landed:
+   discovery gives the longer id its subtree deterministically and
+   `rototo/catalog-id-overlap` flags the overlap.
 4. Diagnostics: render `SemanticTarget` in the canonical form alongside
    the structured object.
 5. `x-rototo-ref` and entry references: entry references are unchanged

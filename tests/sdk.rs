@@ -1842,3 +1842,39 @@ async fn bare_token_binding_spans_primary_and_fallback_archive_origins() {
     .unwrap();
     assert!(package.served_fallback());
 }
+
+/// Namespaced catalog entries resolve end to end: the entry id is the
+/// path under the catalog's data directory, and variables reference it as
+/// written.
+#[tokio::test]
+async fn namespaced_catalog_entries_resolve() {
+    let temp = tempfile::TempDir::new().unwrap();
+    let root = temp.path();
+    for (path, text) in [
+        ("rototo-package.toml", "schema_version = 1\n"),
+        (
+            "model/catalogs/banner.schema.json",
+            r#"{"type":"object","properties":{"message":{"type":"string"}},"required":["message"],"additionalProperties":false}"#,
+        ),
+        ("data/catalogs/banner/default.toml", "message = \"hello\"\n"),
+        (
+            "data/catalogs/banner/promo/summer.toml",
+            "message = \"sunny\"\n",
+        ),
+        (
+            "variables/active_banner.toml",
+            "schema_version = 1\ntype = \"catalog=banner\"\n\n[resolve]\ndefault = \"promo/summer\"\n",
+        ),
+    ] {
+        let full = root.join(path);
+        tokio::fs::create_dir_all(full.parent().unwrap())
+            .await
+            .unwrap();
+        tokio::fs::write(full, text).await.unwrap();
+    }
+
+    let package = Package::load(root.to_string_lossy()).await.unwrap();
+    let context = EvaluationContext::from_json(serde_json::json!({})).unwrap();
+    let resolution = package.resolve_variable("active_banner", &context).unwrap();
+    assert_eq!(resolution.value["message"], serde_json::json!("sunny"));
+}

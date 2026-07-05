@@ -2495,3 +2495,52 @@ async fn a_staged_package_may_not_extend_a_local_git_source() {
         "unexpected error: {err}"
     );
 }
+
+/// A nested entry of a governed catalog is still that catalog's entry:
+/// governance derives the catalog as the longest declared schema prefix,
+/// so nesting an entry one directory deeper cannot dodge entry policies.
+#[tokio::test]
+async fn governance_reaches_nested_entries_of_a_governed_catalog() {
+    let tempdir = tempfile::tempdir().unwrap();
+    let base = tempdir.path().join("base");
+    write(&base, "rototo-package.toml", "schema_version = 1\n").await;
+    write(
+        &base,
+        "model/catalogs/banners.schema.json",
+        r#"{"type":"object","properties":{"message":{"type":"string"}}}"#,
+    )
+    .await;
+    write(
+        &base,
+        "data/catalogs/banners/promo/summer.toml",
+        "message = \"sunny\"\n",
+    )
+    .await;
+    write(
+        &base,
+        "governance.toml",
+        "[catalog.banners]\nallowed_operations = [\"update\"]\n\n[catalog.banners.update_policy]\nallowed_fields = [\"message\"]\ndenied_entries = [\"promo/summer\"]\n",
+    )
+    .await;
+
+    let overlay = tempdir.path().join("overlay");
+    write(
+        &overlay,
+        "rototo-package.toml",
+        "schema_version = 1\nextends = [\"../base\"]\n",
+    )
+    .await;
+    write(
+        &overlay,
+        "data/catalogs/banners/promo/summer.update.toml",
+        "message = \"rainy\"\n",
+    )
+    .await;
+
+    let err = Package::load(overlay.to_string_lossy()).await.unwrap_err();
+    assert!(
+        err.to_string()
+            .contains("governance denies update of entry promo/summer"),
+        "unexpected error: {err}"
+    );
+}
