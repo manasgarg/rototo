@@ -263,6 +263,25 @@ sequenceDiagram
     UI->>TS: lint / preview at new pin (read path above)
 ```
 
+### Where edits live before they are committed
+
+In the browser, and nowhere else. "One edit, one commit" means one *save* is
+one commit, not one proposal: a change set accumulates commits over days,
+and the branch is the durable draft. What is uncommitted is only the
+in-flight form or editor buffer since the last save, and that lives in the
+browser tab, exactly like unsaved changes in any editor. The server never
+holds uncommitted content; a console database that did would be the
+two-sources-of-truth trap Rule 1 exists to prevent.
+
+If the loss window ever matters, the fix is to commit sooner, not to store
+drafts: autosave-as-commit on the private draft branch, with squash-on-merge
+erasing the noise. In practice the window is small anyway. Domain edits
+(Layer 4) are complete edit plans the moment a control changes and can
+commit per change; only the workbench's free-text editor (Layer 3) has real
+buffer time, and browser-side autosave to localStorage is a fine convenience
+there. The LSP overlay that powers as-you-type diagnostics stays what it is
+today: ephemeral session state, preview, never truth.
+
 Two things deserve plain words.
 
 The "fails if head moved" part: when we ask GitHub to move the branch, we
