@@ -68,7 +68,7 @@ SDK load matrix's section 4; trace provenance across layers is
 | # | Given a selected catalog entry whose schema pins refs, when it is... | Then... | Coverage |
 |---|---|---|---|
 | H1 | query-selected | every ref form hydrates: `<entry>#<json-pointer>`, multi-catalog targets, dynamic `{catalog, entry, pointer}` objects, and refs behind same-document `$ref` indirection; cycles fall back to the raw value | `query_resolution_hydrates_every_catalog_reference_form` (`tests/sdk.rs`), `billing_resolves_the_plan_with_hydrated_entitlements` (`tests/examples.rs`) |
-| H2 | behind a relative-file `$ref` (`other.schema.json#/$defs/...`) | pinned current behavior: the ref string passes through unhydrated, even though lint resolves the same `$ref` through the schema compiler's base URI. Candidate bug for the review pass. | `query_resolution_hydrates_every_catalog_reference_form` (the `external_ref_template` assertion) |
+| H2 | behind a relative-file `$ref` (`other.schema.json#/$defs/...`) | hydrates like the same-document form: the relative URI resolves against the catalog's base, mirroring the lint-time compiler, namespaced catalogs included; escapes past the catalogs root are not references | `query_resolution_hydrates_every_catalog_reference_form` (`tests/sdk.rs`), `relative_schema_refs_resolve_against_the_catalog_base`, `relative_schema_refs_never_escape_or_misparse` (`src/resolve/hydrate.rs`) |
 | H3 | rules- or default-selected | pinned current behavior: the raw entry returns with ref strings unhydrated; only the query path hydrates. Needs a decision: the package format reference promises "hydration at resolve time" without qualifying the method. | `rules_selected_catalog_values_do_not_hydrate_today` (`tests/sdk.rs`) |
 
 ## 7. Trace
@@ -91,10 +91,10 @@ SDK load matrix's section 4; trace provenance across layers is
 
 ## Current gap tally
 
-0 GAP rows. Two pinned-behavior rows (H2, H3) carry candidate-bug /
-needs-decision notes for the review pass; X2 and X4 are by-construction
-rows whose observable halves are the cycle tests and the expression
-matrix's `env.now` rows.
+0 GAP rows. One pinned-behavior row (H3) carries the finding-1 decision
+(apps receive unhydrated entries; task #65); X2 and X4 are
+by-construction rows whose observable halves are the cycle tests and the
+expression matrix's `env.now` rows.
 
 When you add or change resolution behavior, add the row and the test
 together; an empty Coverage cell is a regression in this file's contract.

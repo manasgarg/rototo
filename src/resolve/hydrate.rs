@@ -187,14 +187,21 @@ fn resolve_schema_ref<'a>(
         .and_then(|path| path.strip_suffix(".schema.json"))
     {
         catalog.to_owned()
+    } else if let Some(catalog) = runtime
+        .catalog_schemas
+        .iter()
+        .find_map(|(catalog, schema)| {
+            (schema.get("$id").and_then(JsonValue::as_str) == Some(uri)).then(|| catalog.clone())
+        })
+    {
+        catalog
     } else {
-        runtime
-            .catalog_schemas
-            .iter()
-            .find_map(|(catalog, schema)| {
-                (schema.get("$id").and_then(JsonValue::as_str) == Some(uri))
-                    .then(|| catalog.clone())
-            })?
+        // A relative file reference, resolved against the current catalog's
+        // base URI exactly as the lint-time schema compiler does:
+        // `email_template.schema.json` inside `policy.schema.json` means
+        // rototo://catalogs/email_template.schema.json, and a namespaced
+        // catalog resolves siblings inside its own namespace.
+        resolve_relative_schema_uri(current_catalog, uri)?
     };
     let schema = runtime.catalog_schemas.get(&catalog)?;
     if pointer.is_empty() {
@@ -206,4 +213,72 @@ fn resolve_schema_ref<'a>(
         return None;
     };
     schema.pointer(pointer).map(|schema| (catalog, schema))
+}
+
+/// Resolves a relative schema file reference against the current catalog's
+/// base URI (`rototo://catalogs/<current>.schema.json`), mirroring the
+/// compiler's RFC 3986 relative resolution. Returns the referenced catalog
+/// id, or None when the reference climbs out of the catalogs root or does
+/// not name a schema file.
+fn resolve_relative_schema_uri(current_catalog: &str, uri: &str) -> Option<String> {
+    let target = uri.strip_suffix(".schema.json")?;
+    if target.is_empty() || uri.contains("://") || uri.starts_with('/') {
+        return None;
+    }
+    // The base directory is the current catalog's namespace.
+    let mut segments: Vec<&str> = match current_catalog.rsplit_once('/') {
+        Some((namespace, _)) => namespace.split('/').collect(),
+        None => Vec::new(),
+    };
+    for segment in target.split('/') {
+        match segment {
+            "" | "." => {}
+            ".." => {
+                segments.pop()?;
+            }
+            segment => segments.push(segment),
+        }
+    }
+    (!segments.is_empty()).then(|| segments.join("/"))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::resolve_relative_schema_uri;
+
+    #[test]
+    fn relative_schema_refs_resolve_against_the_catalog_base() {
+        assert_eq!(
+            resolve_relative_schema_uri("policy", "email_template.schema.json").as_deref(),
+            Some("email_template")
+        );
+        // A namespaced catalog resolves siblings inside its namespace.
+        assert_eq!(
+            resolve_relative_schema_uri("acme/banner", "peer.schema.json").as_deref(),
+            Some("acme/peer")
+        );
+        assert_eq!(
+            resolve_relative_schema_uri("acme/banner", "../top.schema.json").as_deref(),
+            Some("top")
+        );
+    }
+
+    #[test]
+    fn relative_schema_refs_never_escape_or_misparse() {
+        // Climbing out of the catalogs root is not a reference.
+        assert_eq!(
+            resolve_relative_schema_uri("policy", "../out.schema.json"),
+            None
+        );
+        // Absolute and non-schema references are left to the other arms.
+        assert_eq!(
+            resolve_relative_schema_uri("policy", "/abs.schema.json"),
+            None
+        );
+        assert_eq!(
+            resolve_relative_schema_uri("policy", "https://x/y.schema.json"),
+            None
+        );
+        assert_eq!(resolve_relative_schema_uri("policy", "other.json"), None);
+    }
 }

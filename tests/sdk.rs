@@ -1675,16 +1675,13 @@ async fn query_resolution_hydrates_every_catalog_reference_form() {
         value["object_template"],
         serde_json::json!("Payment failed")
     );
-    // Refs reached through same-document $ref indirection hydrate too.
+    // Refs reached through $ref indirection hydrate too, same-document and
+    // relative-file forms alike (the relative form resolves against the
+    // catalog's base URI, mirroring the lint-time compiler).
     assert_eq!(value["ref_template"], serde_json::json!("Welcome body"));
-    // Pinned current behavior, recorded for the review pass: a relative-file
-    // $ref (email_template.schema.json#/$defs/...) resolves at lint time
-    // through the schema compiler's base URI, but hydrate::resolve_schema_ref
-    // only matches rototo://catalogs/ URIs and exact $id values, so the ref
-    // string passes through unhydrated at resolve time.
     assert_eq!(
         value["external_ref_template"],
-        serde_json::json!("welcome#/body")
+        serde_json::json!("Welcome body")
     );
 }
 

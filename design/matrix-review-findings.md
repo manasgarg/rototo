@@ -72,7 +72,9 @@ the current catalog's base URI, mirroring what the compiler does.
 
 Manas: we should fix this.
 
-Tasked 2026-07-05: #67.
+Tasked 2026-07-05: #67. Fixed 2026-07-05: resolve_schema_ref resolves
+relative URIs against the catalog's base, namespaced catalogs included;
+the pinned assertion now expects hydration (resolution matrix H2).
 
 ### 3. Batch resolve and batch trace use different evaluation state
 
