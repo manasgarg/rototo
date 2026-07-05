@@ -169,6 +169,49 @@ jobs:
           name: ci-console-build-logs
           path: target/ci-logs
 
+  console-next:
+    # The console re-implementation gate (tranche C1 onward): kernel gate
+    # plus the new console server, with the decide() honesty tests and the
+    # latency budgets asserted against a release build of the bindings.
+    name: console-next
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: actions/setup-node@v6
+        with:
+          node-version: "24"
+          cache: npm
+          cache-dependency-path: |
+            apps/console-server/package-lock.json
+            apps/console-web/package-lock.json
+      - name: Cache cargo registry and git deps
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+          key: ${{ runner.os }}-cargo-${{ hashFiles('Cargo.lock', 'rust-toolchain.toml') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-
+      - name: Install just
+        run: cargo install just --locked
+      - name: Run console-next gate
+        shell: bash
+        run: |
+          set -o pipefail
+          mkdir -p target/ci-logs
+          just check-console-next 2>&1 | tee target/ci-logs/console-next.log
+      - name: Reproduce locally
+        if: failure()
+        run: 'echo "Run locally: just check-console-next"'
+      - name: Upload console-next logs
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ci-console-next-logs
+          path: target/ci-logs
+
   release-check:
     name: release-check
     runs-on: ubuntu-latest

@@ -77,6 +77,16 @@ _install-console-deps:
 _install-typescript-sdk-deps:
     npm --prefix sdks/typescript ci
 
+# Install the new console server dependencies.
+[group('01. setup')]
+_install-console-server-deps:
+    npm --prefix apps/console-server ci
+
+# Install the new console frontend dependencies.
+[group('01. setup')]
+_install-console-web-deps:
+    npm --prefix apps/console-web ci
+
 # Run the full console development stack: Rust API plus Vite UI.
 # Pass a package source to run local deployment against that source.
 [group('08. console')]
@@ -231,6 +241,8 @@ fmt:
     set -euo pipefail
     cargo fmt --all
     npm --prefix apps/console run format --if-present
+    npm --prefix apps/console-server run format --if-present
+    npm --prefix apps/console-web run format --if-present
     npm --prefix sdks/typescript run format --if-present
     if command -v gofmt >/dev/null; then
         gofmt -w sdks/go/*.go
@@ -247,6 +259,8 @@ fmt-check:
     set -euo pipefail
     cargo fmt --all -- --check
     npm --prefix apps/console run format:check --if-present
+    npm --prefix apps/console-server run format:check --if-present
+    npm --prefix apps/console-web run format:check --if-present
     npm --prefix sdks/typescript run format:check --if-present
     if command -v gofmt >/dev/null; then
         unformatted="$(gofmt -l sdks/go/*.go)"
@@ -456,6 +470,35 @@ check-core:
     cargo fmt --all -- --check
     cargo clippy --package rototo --no-default-features --all-targets -- -D warnings
     NO_COLOR=1 cargo test --package rototo --no-default-features --all-targets
+
+# Test the new console server: internal bindings (release build, so the
+# latency budgets gate for real), the decide() honesty tests, and the
+# latency harness.
+[group('04. test')]
+test-console-server:
+    #!/bin/bash
+    set -euo pipefail
+    cargo clippy --package rototo-console-native --all-targets -- -D warnings
+    npm --prefix apps/console-server run build:native
+    npm --prefix apps/console-server run check
+
+# Typecheck and build the new console frontend bundle.
+[group('04. test')]
+test-console-web:
+    npm --prefix apps/console-web run build
+
+# The console re-implementation gate from tranche C1 on: the kernel gate
+# plus the new console server (bindings, decide() honesty, latency budgets)
+# and the new frontend shell. Folds into `just check` at cutover (C7).
+[group('05. check')]
+check-console-next:
+    #!/bin/bash
+    set -euo pipefail
+    just check-core
+    just _install-console-server-deps
+    just test-console-server
+    just _install-console-web-deps
+    just test-console-web
 
 # Run the local pre-push gate.
 [group('05. check')]
