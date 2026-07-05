@@ -929,10 +929,18 @@ another catalog:
 
 An entry that sets `hero = "home"` now has to point at a real entry in the
 `hero_banner` catalog, and lint fails if it doesn't
-(`rototo/catalog-entry-unknown-reference`). At resolve time the reference is
-**hydrated**: your app gets the full `hero_banner` entry in place of the id, not
-the string. A value can also reach inside the target with
-`"<entry>#<json-pointer>"`, like `"home#/cta"`, to pull one field out.
+(`rototo/catalog-entry-unknown-reference`). A value can also reach inside
+the target with `"<entry>#<json-pointer>"`, like `"home#/cta"`, to name one
+field.
+
+What the reference does at resolve time is deliberately split. A query's
+`filter` and `sort` see the **hydrated** view: `entry.hero` is the full
+`hero_banner` entry (or the pointed-at field), so predicates can select on
+referenced data. The value your app receives stays **raw**: `hero` is the
+string `"home"`, exactly as authored, and an app that wants the banner
+follows the reference explicitly through the SDK's lookup surface. That
+keeps resolved value shapes independent of how much of the reference graph
+any one app needs.
 
 The target can be an array, `["catalog=email_template", "catalog=sms_template"]`,
 when a field may point into any of several catalogs. Lint then checks the value

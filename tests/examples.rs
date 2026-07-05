@@ -162,14 +162,17 @@ async fn billing_resolves_the_in_force_price_per_tier_and_currency() {
 }
 
 #[tokio::test]
-async fn billing_resolves_the_plan_with_hydrated_entitlements() {
+async fn billing_resolves_the_plan_with_raw_entitlement_refs() {
     let package = load("examples/billing").await;
 
+    // The app receives the raw entry: features stay the reference strings
+    // the package authored, and an app that wants the feature objects
+    // follows them explicitly (design/package-reflection.md).
     let business = context(json!({ "account": { "plan_tier": "business", "currency": "usd" } }));
     let plan = package.resolve_variable("active_plan", &business).unwrap();
     let features = plan.value["features"].as_array().unwrap();
     assert!(
-        features.iter().any(|feature| feature["id"] == json!("sso")),
+        features.contains(&json!("sso")),
         "business entitlements should include sso: {features:?}"
     );
 
@@ -177,8 +180,7 @@ async fn billing_resolves_the_plan_with_hydrated_entitlements() {
     let plan = package.resolve_variable("active_plan", &free).unwrap();
     assert_eq!(plan.value["seat_limit"], json!(3));
     let features = plan.value["features"].as_array().unwrap();
-    assert_eq!(features.len(), 1);
-    assert_eq!(features[0]["id"], json!("api_access"));
+    assert_eq!(features, &vec![json!("api_access")]);
 
     let quota = package
         .resolve_variable("api_rate_limit_per_min", &business)

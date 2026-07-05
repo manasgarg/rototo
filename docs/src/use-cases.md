@@ -120,9 +120,10 @@ authored ahead of its date, and the October increase in
 `data/catalogs/prices/team_usd_2026_10.toml` takes force at its instant with
 no human present.
 
-At resolve time references hydrate, so `active_plan` returns the whole plan
-entry, feature list included, and application code checks membership against
-resolved data instead of string constants.
+Query predicates see hydrated views, so selection can filter on referenced
+data; `active_plan` returns the raw plan entry, and application code follows
+the feature references it actually needs through the SDK's lookup surface
+instead of hard-coding string constants.
 
 ## 5. Tenant customization
 

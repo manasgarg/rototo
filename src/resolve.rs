@@ -355,6 +355,11 @@ fn resolve_catalog_query(
         .ok_or_else(|| RototoError::new(format!("catalog has no entries: {}", query.catalog)))?;
     let now = state.now.clone();
 
+    // Predicates evaluate against the hydrated entry view (`entry.x` sees
+    // referenced values), but the value returned to the app is the raw
+    // entry: hydration is for resolution, and apps follow references
+    // explicitly (design/package-reflection.md). The entry id is injected
+    // either way; identity is not hydration.
     let mut matches: Vec<(String, JsonValue)> = Vec::new();
     for (name, entry) in entries {
         let entry_view = catalog_entry_view(runtime, &query.catalog, name, entry);
@@ -411,7 +416,8 @@ fn resolve_catalog_query(
                 matches.len()
             )));
         }
-        let (name, value) = matches.into_iter().next().expect("non-empty matches");
+        let (name, _) = matches.into_iter().next().expect("non-empty matches");
+        let value = raw_entry_with_id(entries, &name);
         return Ok(RuntimeSelectedValue::Catalog {
             catalog: query.catalog.clone(),
             name,
@@ -425,12 +431,29 @@ fn resolve_catalog_query(
         return Ok(default.clone());
     }
 
-    let (names, values): (Vec<String>, Vec<JsonValue>) = matches.into_iter().unzip();
+    let names: Vec<String> = matches.into_iter().map(|(name, _)| name).collect();
+    let values: Vec<JsonValue> = names
+        .iter()
+        .map(|name| raw_entry_with_id(entries, name))
+        .collect();
     Ok(RuntimeSelectedValue::CatalogList {
         catalog: query.catalog.clone(),
         names,
         value: JsonValue::Array(values),
     })
+}
+
+/// The raw entry as the app receives it: no reference hydration, just the
+/// entry id injected so a runtime-selected entry stays identifiable.
+fn raw_entry_with_id(
+    entries: &std::collections::BTreeMap<String, JsonValue>,
+    name: &str,
+) -> JsonValue {
+    let mut value = entries.get(name).cloned().unwrap_or(JsonValue::Null);
+    if let JsonValue::Object(object) = &mut value {
+        object.insert("id".to_owned(), JsonValue::String(name.to_owned()));
+    }
+    value
 }
 
 fn query_sort_keys_comparable(left: &JsonValue, right: &JsonValue) -> bool {
@@ -1216,16 +1239,15 @@ filter = "entry.hero.cta == \"Buy\""
         let pages = resolve_variable(package.path(), "pages", &context)
             .await
             .unwrap();
+        // The app receives the raw entry: `hero` stays the reference
+        // string it was authored as (hydration is for query predicates).
         assert_eq!(
             pages.value,
             serde_json::json!([
                 {
                     "id": "home",
                     "title": "Home",
-                    "hero": {
-                        "id": "home",
-                        "cta": "Buy"
-                    }
+                    "hero": "home"
                 }
             ])
         );

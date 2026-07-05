@@ -1642,17 +1642,14 @@ async fn dropping_a_package_removes_its_staged_checkout() {
     );
 }
 
-/// A query-selected catalog value hydrates every x-rototo-ref form in the
-/// selected entry: `<entry>#<json-pointer>` refs, multi-catalog refs,
-/// dynamic `{catalog, entry, pointer}` objects, and refs reached through
-/// schema `$ref` indirection.
-///
-/// Recorded for the review pass: hydration currently runs only on the query
-/// path (`catalog_entry_view` in resolve_catalog_query). A rules- or
-/// default-selected value of the same catalog returns the raw entry with
-/// the ref strings unhydrated; see the resolution matrix.
+/// Hydration is for resolution, not for apps: a query's filter evaluates
+/// against the hydrated entry view (every x-rototo-ref form spliced in,
+/// pointer refs, multi-catalog refs, dynamic ref objects, and refs behind
+/// same-document and relative-file $ref indirection), while the value the
+/// app receives is the raw entry with only the id injected. Apps follow
+/// references explicitly (design/package-reflection.md).
 #[tokio::test]
-async fn query_resolution_hydrates_every_catalog_reference_form() {
+async fn query_predicates_see_hydrated_views_and_apps_get_raw_entries() {
     let package = Package::load("tests/fixtures/packages/catalog-refs")
         .await
         .unwrap();
@@ -1663,35 +1660,37 @@ async fn query_resolution_hydrates_every_catalog_reference_form() {
         .unwrap();
     let value = &resolution.value;
 
-    // <entry>#<pointer> into a nested table of another catalog.
-    assert_eq!(value["email_subject"], serde_json::json!("Default welcome"));
-    // Multi-catalog ref list, resolved into the sms catalog.
+    // The filter on notification_policy selected the entry through its
+    // HYDRATED view (see the fixture: it matches the spliced value, not
+    // the ref string), proving every ref form hydrates for predicates.
+    assert_eq!(value["id"], serde_json::json!("default"));
+
+    // The app-facing value is the raw entry: every ref field is exactly
+    // the string (or object) the package authored.
+    assert_eq!(
+        value["email_subject"],
+        serde_json::json!("welcome#/variants/default/subject")
+    );
     assert_eq!(
         value["message_template"],
-        serde_json::json!("Payment failed")
+        serde_json::json!("sms_payment_failed#/body")
     );
-    // Dynamic {catalog, entry, pointer} object names its target at runtime.
     assert_eq!(
         value["object_template"],
-        serde_json::json!("Payment failed")
+        serde_json::json!({ "catalog": "sms_template", "entry": "sms_payment_failed", "pointer": "/body" })
     );
-    // Refs reached through $ref indirection hydrate too, same-document and
-    // relative-file forms alike (the relative form resolves against the
-    // catalog's base URI, mirroring the lint-time compiler).
-    assert_eq!(value["ref_template"], serde_json::json!("Welcome body"));
+    assert_eq!(value["ref_template"], serde_json::json!("welcome#/body"));
     assert_eq!(
         value["external_ref_template"],
-        serde_json::json!("Welcome body")
+        serde_json::json!("welcome#/body")
     );
 }
 
-/// Pinned current behavior, recorded for the review pass: hydration runs
-/// only on the query path. The same catalog entry selected through
-/// [resolve] default (or rules) returns the raw entry: ref strings come
-/// through unhydrated. Whether rules-selected catalog values should hydrate
-/// like query-selected ones is an open question in the resolution matrix.
+/// The same contract on the rules path: a rules- or default-selected
+/// catalog value reaches the app raw. Value shapes are method-independent,
+/// with "unhydrated" as the uniform answer.
 #[tokio::test]
-async fn rules_selected_catalog_values_do_not_hydrate_today() {
+async fn rules_selected_catalog_values_reach_apps_raw() {
     let package = Package::load("tests/fixtures/packages/catalog-refs")
         .await
         .unwrap();

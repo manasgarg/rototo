@@ -49,6 +49,11 @@ lookup?)
 Tasked 2026-07-05: #65 (apps receive unhydrated entries; hydration becomes
 resolution-internal) and #66 (design the reflection/lookup SDK API).
 
+Resolved 2026-07-05: #65 landed (query predicates see hydrated entry
+views; app-facing values are raw on every resolve method, with only the
+entry id injected on query results as identity). #66's design is drafted
+in design/package-reflection.md; implementation is the follow-up.
+
 ### 2. Relative-file `$ref` is hydrated by lint but not by resolution
 
 Resolution matrix H2, pinned by the `external_ref_template` assertion in

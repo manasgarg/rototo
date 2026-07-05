@@ -74,7 +74,9 @@ kind-prefixed target:
 
 - `"x-rototo-ref": "catalog=<id>"` (or an array of `catalog=<id>` strings) pins
   a string field to entry ids of another catalog; `<entry>#<json-pointer>`
-  values, ambiguity checks, and hydration at resolve time apply.
+  values and ambiguity checks apply. Query predicates evaluate against
+  hydrated entry views, but the value an app receives is the raw entry:
+  apps follow references explicitly (design/package-reflection.md).
 - `"x-rototo-ref": true` marks an object field whose `{catalog, entry,
   pointer}` value names the target dynamically.
 - `"x-rototo-ref": "enum=<id>"` pins a field to an enum's member set; catalog
