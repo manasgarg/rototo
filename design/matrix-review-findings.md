@@ -46,6 +46,9 @@ would help app discover catalogs + enums and load their entries. we should think
 through the kind of api we should have here (package reflection + visitor +
 lookup?)
 
+Tasked 2026-07-05: #65 (apps receive unhydrated entries; hydration becomes
+resolution-internal) and #66 (design the reflection/lookup SDK API).
+
 ### 2. Relative-file `$ref` is hydrated by lint but not by resolution
 
 Resolution matrix H2, pinned by the `external_ref_template` assertion in
@@ -68,6 +71,8 @@ Likely fix direction: resolve relative URIs in `resolve_schema_ref` against
 the current catalog's base URI, mirroring what the compiler does.
 
 Manas: we should fix this.
+
+Tasked 2026-07-05: #67.
 
 ### 3. Batch resolve and batch trace use different evaluation state
 
@@ -93,6 +98,8 @@ of `env.now` least surprisingly for a batch labeled "one resolution run".
 
 Manas: fix this.
 
+Tasked 2026-07-05: #68.
+
 ### 4. A Lua file in a lint subdirectory is ignored with no warning
 
 Lua lint matrix D2, pinned by `nested_lua_files_are_silently_ignored_today`
@@ -112,6 +119,8 @@ larger question.
 
 Manas: fix this. lint/ can namespace like other entities.
 
+Tasked 2026-07-05: #69.
+
 ### 5. The staged-package escape docs omit `git+file://`
 
 Source matrix E2 note, pinned by
@@ -124,6 +133,9 @@ only `file://`, absolute paths, and escaping `../` as staged-package
 escapes. The docs bullet should name `git+file://`.
 
 Manas: fix this
+
+Fixed 2026-07-05: the escape bullet in docs/src/package-sources.md now
+names git+file:// alongside file:// and absolute paths.
 
 ## Needs a decision
 
@@ -205,6 +217,9 @@ keep semantics but say "ok (selection)" or similar, or document the
 behavior prominently. The pinned test makes whatever decision lands here a
 deliberate change.
 
+Resolved 2026-07-05: accepted as-is. Selection semantics stand; the pinned
+test is the record.
+
 ### 10. Immutability discovered late never stands the loop down cleanly
 
 Refresh matrix note. If a channel URL starts mutable and later becomes
@@ -212,6 +227,8 @@ pinned content (or vice versa), the loop discovers `Immutable` per attempt
 but the startup decision about spawning the loop was already made. Current
 behavior is safe (extra probes, no wrong results); recorded so the behavior
 is a choice rather than an accident.
+
+Resolved 2026-07-05: accepted as-is.
 
 ## Accepted gaps, reassessed and kept
 

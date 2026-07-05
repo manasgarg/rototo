@@ -238,8 +238,8 @@ in that list behave.
 - **A remote package can't reach into your filesystem.** Once a package has
   been staged from a git or archive source, its `extends` entries may only be
   relative paths inside its own checkout or other remote sources. An absolute
-  path, a `file://` entry, or a `../` that climbs out of the checkout fails
-  with "escapes a staged package". A fetched package naming `/etc` or your
+  path, a `file://` entry, a `git+file://` entry, or a `../` that climbs out
+  of the checkout fails with "escapes a staged package". A fetched package naming `/etc` or your
   home directory is not a composition feature; it's a problem.
 - **Remote extending remote is the cross-team shape.** A team publishes its
   base package at a git ref or archive URL; your package extends it by that
