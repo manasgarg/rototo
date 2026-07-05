@@ -109,6 +109,33 @@ An approver reading those three panels knows what changed, what it does,
 and whether it is healthy, in that order. That is an informed decision in
 domain terms, which is the point of this whole redesign.
 
+### Impact confidence
+
+The execution delta has a failure mode worth designing against: with thin
+samples, "no outcome changes" reads as safety when it is actually
+blindness. Three rules keep it honest:
+
+- **Impact always carries its denominator.** The panel states its basis:
+  "against 5 sample contexts, covering 3 of 4 rules on the touched
+  entities" (the core's sample-coverage reports compute this today). When
+  a changed rule is exercised by no sample, the panel says so explicitly
+  instead of implying safety.
+- **Synthesized boundary contexts fill the gaps.** The conditions
+  themselves say which contexts matter: a rule testing
+  `context.account.tier == "premium"` implies contexts on both sides of
+  that boundary. This is the `rototo fixtures` machinery, reused. The
+  panel augments saved samples with synthesized contexts for the touched
+  entities, clearly labeled as synthetic.
+- **Gaps convert to samples in the same change set.** When a synthesized
+  context reveals an outcome change no saved sample covers, one click adds
+  it as a real sample (`create_sample`, Layer 3) to the change set under
+  review. The sample corpus grows as a side effect of editing, which is
+  the only way corpora actually grow.
+
+Capturing real production contexts as samples is the natural fourth step;
+it belongs to the deferred observability integration and is noted here as
+a hook, not designed.
+
 One pre-edit affordance rides the structure facet at ring 0: **blast
 radius**. Opening a control or entity editor shows what depends on the
 thing: referencing entities (the reference closure, pointed downstream),
@@ -145,3 +172,5 @@ Small and few:
   them).
 - Fleet health and the validity delta are composition of lint the console
   already runs; provenance rendering reads the existing sidecar.
+- Impact confidence reuses the fixtures machinery for context synthesis
+  and the inspect report's sample-coverage data for the denominator.

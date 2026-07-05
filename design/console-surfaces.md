@@ -316,6 +316,34 @@ data, read like any other.
 - Workflow state machines. Workflows remain guided editing (a decided
   scope); the only lifecycle state in the system stays the change set.
 
+## Cold start
+
+Empty states are where consoles quietly fail, so they are designed, not
+left over. The principle: **every empty state proposes its next step, and
+the next step is a change set.** No dead ends, no blank panels.
+
+- **A package with no surfaces** still works fully (the workbench and the
+  model lens render everything). The domain lens shows a developer-facing
+  suggestion panel instead of blankness: the console knows the package's
+  shape (bool variables suggest a flags surface, catalogs suggest tables),
+  and one click drafts a change set creating the suggested entries through
+  ordinary `create_*` operations. Suggestions are proposals, never
+  automatic writes; accepting one is also, quietly, the user's first tour
+  of the change-set flow, on a change that cannot hurt anything.
+- **Schema vendoring is never manual.** The first surface's change set
+  carries `console_surfaces.schema.json` into `model/catalogs/`; nobody
+  copies files. The freshness diagnostic above owns staleness from then on.
+- **A granted user with nothing to see** (surfaces exist, none match their
+  audience or grants) is told why and who can change it: the home names
+  the deployment's administrators for exactly this case, instead of
+  rendering an empty screen.
+- **No sample contexts** hollows out previews and the impact panel; that
+  mitigation lives in the system-view note's impact-confidence section,
+  because it matters most at review time.
+
+Cold-start suggestions ship with the floor (build order step 1); they are
+the floor's empty state, not a separate feature.
+
 ## Build order
 
 1. **Floor**: the surfaces catalog schema, load-time validation, the null
