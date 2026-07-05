@@ -311,6 +311,11 @@ rototo package app-config --unpacked ./flat   # plain directory, not an archive
 The archive file is named by its own SHA-256 digest, so the same package always
 produces the same file name and bytes.
 
+One thing deliberately stays out of the output: your custom lint under `lint/`.
+Those rules are a review-time gate, and `package` has already enforced them (it
+refuses to build anything that isn't lint-clean), so the shipped artifact
+carries only what the runtime reads.
+
 ## docs - read the bundled documentation
 
 rototo ships its own docs inside the binary - these very pages - so you (and your

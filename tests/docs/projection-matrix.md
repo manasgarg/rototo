@@ -17,6 +17,7 @@ rows are about the artifact.
 | A1 | packing the same source twice | byte-identical archives with the same `sha256:` content-addressed name: safe to cache hard, safe to promote | `pack_package_is_deterministic_and_content_addressed` (`src/pack.rs`), `package_writes_a_deterministic_content_addressed_archive` (`tests/cli.rs`) |
 | A2 | a source with `extends` | the packed manifest carries no `extends`: the archive is self-contained by construction | `pack_package_strips_extends_from_the_manifest` |
 | A3 | a source that fails lint | packing is refused: an artifact that would fail its consumers never gets built | `pack_package_rejects_lint_failures` |
+| A4 | a source with custom lint under `lint/` | the artifact leaves `lint/` out, in both encodings: custom lint is a review-time gate already enforced by A3, not something the runtime reads | `pack_package_leaves_custom_lint_out_of_the_archive`, `project_package_leaves_custom_lint_out_of_the_projection` |
 
 ## 2. The unpacked projection
 

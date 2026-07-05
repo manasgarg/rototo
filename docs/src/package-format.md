@@ -1152,7 +1152,9 @@ sources](./package-sources.md) story.
 
 Either way it is written, the output is the **projection**: `extends` parents
 merged in, update and deleted markers consumed, the `extends` key stripped from
-the manifest. If you want to look at that projection instead of shipping it,
+the manifest, and the review-time `lint/` directory left out (packaging already
+required the package to be lint-clean, so the artifact carries only what the
+runtime reads). If you want to look at that projection instead of shipping it,
 `rototo package --unpacked <dir>` writes the same tree as a plain directory.
 That's the fastest way to answer "what does this overlay actually compose to?"
 without untarring anything.

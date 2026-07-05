@@ -14,6 +14,10 @@
 //! resulting digest is the same `sha256:<digest>` content hash the SDK derives
 //! when it later downloads the archive, so the name an operator publishes and
 //! the identity an instance reports are the same value.
+//!
+//! The projection is a runtime artifact, not a copy of the repository: custom
+//! lint under `lint/` is a review-time gate, enforced here before any bytes
+//! are produced, and is left out of the archive and the unpacked tree.
 
 use std::io::Cursor;
 use std::path::{Path, PathBuf};
@@ -202,6 +206,9 @@ fn build_archive(root: &Path) -> Result<Vec<u8>> {
 /// Recursively collects regular files under `dir` as `(archive_path, absolute)`
 /// pairs, where `archive_path` is the slash-separated path relative to `root`.
 /// Skips `.git` metadata and symlinks; the loader rejects both on extraction.
+/// Also skips the root-level `lint/` directory: custom lint is a review-time
+/// gate, already enforced before any bytes are produced, so the release
+/// artifact does not carry it.
 fn collect_files(root: &Path, dir: &Path, files: &mut Vec<(String, PathBuf)>) -> Result<()> {
     let entries = std::fs::read_dir(dir).map_err(|err| {
         RototoError::new(format!(
@@ -214,6 +221,9 @@ fn collect_files(root: &Path, dir: &Path, files: &mut Vec<(String, PathBuf)>) ->
             .map_err(|err| RototoError::new(format!("failed to read package entry: {err}")))?;
         let file_name = entry.file_name();
         if file_name == ".git" {
+            continue;
+        }
+        if file_name == "lint" && dir == root {
             continue;
         }
         let file_type = entry.file_type().map_err(|err| {
@@ -432,6 +442,66 @@ mod tests {
         assert!(!target.join(PACKAGE_MANIFEST).exists());
     }
 
+    /// A custom lint file that registers a variable-collective rule whose
+    /// handler accepts everything; the package stays lint-clean with it.
+    async fn write_custom_lint(root: &Path) {
+        tokio::fs::create_dir_all(root.join("lint")).await.unwrap();
+        tokio::fs::write(
+            root.join("lint/budget.lua"),
+            "function register(lint)\n  lint:rule({\n    id = \"fixture/allow-all\",\n    title = \"Allow all\",\n    help = \"Never fires.\",\n    target = \"variable=\",\n    handler = \"check\",\n  })\nend\n\nfunction check(target)\n  return {}\nend\n",
+        )
+        .await
+        .unwrap();
+    }
+
+    #[tokio::test]
+    async fn pack_package_leaves_custom_lint_out_of_the_archive() {
+        let temp = tempfile::TempDir::new().unwrap();
+        let root = temp.path().join("package");
+        tokio::fs::create_dir_all(&root).await.unwrap();
+        write_package(&root).await;
+        write_custom_lint(&root).await;
+
+        let archive = pack_package(&root.display().to_string(), &SourceOptions::default())
+            .await
+            .unwrap();
+
+        let paths = archive_entry_paths(&archive.bytes);
+        assert!(
+            paths.iter().all(|path| !path.starts_with("lint/")),
+            "archive carries custom lint: {paths:?}"
+        );
+        assert!(
+            paths.contains(&"variables/flag.toml".to_owned()),
+            "{paths:?}"
+        );
+    }
+
+    #[tokio::test]
+    async fn project_package_leaves_custom_lint_out_of_the_projection() {
+        let temp = tempfile::TempDir::new().unwrap();
+        let root = temp.path().join("package");
+        let target = temp.path().join("out");
+        tokio::fs::create_dir_all(&root).await.unwrap();
+        write_package(&root).await;
+        write_custom_lint(&root).await;
+
+        let written = project_package(
+            &root.display().to_string(),
+            &SourceOptions::default(),
+            &target,
+        )
+        .await
+        .unwrap();
+
+        assert!(
+            written.iter().all(|path| !path.starts_with("lint/")),
+            "projection carries custom lint: {written:?}"
+        );
+        assert!(!target.join("lint").exists());
+        assert!(target.join("variables/flag.toml").exists());
+    }
+
     #[tokio::test]
     async fn pack_package_rejects_lint_failures() {
         let temp = tempfile::TempDir::new().unwrap();
@@ -446,6 +516,23 @@ mod tests {
             .await
             .unwrap_err();
         assert!(err.to_string().contains("lint error"), "{err}");
+    }
+
+    fn archive_entry_paths(bytes: &[u8]) -> Vec<String> {
+        let decoder = flate2::read::GzDecoder::new(Cursor::new(bytes));
+        let mut archive = tar::Archive::new(decoder);
+        archive
+            .entries()
+            .unwrap()
+            .map(|entry| {
+                entry
+                    .unwrap()
+                    .path()
+                    .unwrap()
+                    .to_string_lossy()
+                    .into_owned()
+            })
+            .collect()
     }
 
     fn read_archive_entry(bytes: &[u8], wanted: &str) -> Vec<u8> {
