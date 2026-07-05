@@ -288,14 +288,10 @@ policy: no compatibility shims, loud rejections with the new spelling.
    (`layer=rollout#/allocation/0`), positional like rules. If positional
    addressing proves too brittle for governance of layers, an
    id-keyed pointer convention would need designing; out of scope now.
-5. **How far does the `=` binder reach?** Two shipped surfaces bind class
-   to id with a colon today: `x-rototo-ref` pins (`"catalog:banner"`) and
-   variable type declarations (`type = "catalog:banner"`,
-   `list<enum:tier>`). Carrying both spellings forever is the worst
-   outcome. Leaning: migrate both to `=` so one binding character exists
-   everywhere (`"catalog=banner"`, `type = "catalog=banner"`,
-   `list<enum=tier>`), accepted as a one-time churn across packages,
-   examples, and docs under the clean-break policy. The fallback is
-   migrating only `x-rototo-ref` (it is an address) and declaring type
-   expressions a separate sublanguage, at the cost of two spellings
-   living side by side in the same schema files.
+5. **Resolved: the `=` binder reaches everywhere.** Both colon-bound
+   surfaces migrate: `x-rototo-ref` pins become `"catalog=banner"` and
+   variable type declarations become `type = "catalog=banner"` /
+   `list<enum=banner>` spellings. One binding character everywhere; the
+   one-time churn across packages, examples, and docs is accepted under
+   the clean-break policy. Old spellings are rejected with the new
+   spelling in the error message.
