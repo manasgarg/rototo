@@ -1,7 +1,7 @@
 schema_version = 1
 
 description = "Nested account limits and enabled tenant features"
-type = "catalog:tenant_limits"
+type = "catalog=tenant_limits"
 
 [resolve]
 default = "growth"

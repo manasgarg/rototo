@@ -1,7 +1,7 @@
 schema_version = 1
 
 description = "LLM agent profile loaded by production services"
-type = "catalog:agent_config"
+type = "catalog=agent_config"
 
 [resolve]
 default = "standard"

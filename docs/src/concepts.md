@@ -232,7 +232,7 @@ Now a variable can select from that catalog:
 
 ```toml
 schema_version = 1
-type = "catalog:llm_parameters"
+type = "catalog=llm_parameters"
 
 [resolve]
 default = "standard"
@@ -285,7 +285,7 @@ Now define a variable that returns the enabled entries:
 
 ```toml
 schema_version = 1
-type = "list<catalog:llm_parameters>"
+type = "list<catalog=llm_parameters>"
 
 [resolve]
 method = "query"
@@ -297,7 +297,7 @@ When the application resolves this variable, Rototo runs the `filter` against ea
 
 That gives the application a reviewed, validated set of dropdown options without hardcoding the choices in the UI. Rototo owns which entries exist and which are enabled; the application owns how to render the list it gets back.
 
-The same shape works when the application wants exactly one entry, because "which entry applies" is often a data question rather than a rule-list question: pick the pricing plan whose tier matches `context.account.tier`, or the highest-priority enabled banner. Give the variable `type = "catalog:<id>"` instead of the list type and add a `sort`, and the top entry wins - "the best match" expressed once, instead of one rule per entry. Without a `sort`, the filter has to match exactly one entry, or resolution errors rather than guessing.
+The same shape works when the application wants exactly one entry, because "which entry applies" is often a data question rather than a rule-list question: pick the pricing plan whose tier matches `context.account.tier`, or the highest-priority enabled banner. Give the variable `type = "catalog=<id>"` instead of the list type and add a `sort`, and the top entry wins - "the best match" expressed once, instead of one rule per entry. Without a `sort`, the filter has to match exactly one entry, or resolution errors rather than guessing.
 
 ## Layers and Allocations
 
@@ -383,9 +383,9 @@ And the members under `data/enums/plan_tiers.toml` say which values exist:
 members = ["free", "team", "business"]
 ```
 
-A variable uses it with `type = "enum:plan_tiers"` (or `list<enum:plan_tiers>` for a list). From then on, every default and rule value in that variable has to be a member, and lint fails the package on anything else. A misspelled member is unreleasable, which is exactly what you want.
+A variable uses it with `type = "enum=plan_tiers"` (or `list<enum=plan_tiers>` for a list). From then on, every default and rule value in that variable has to be a member, and lint fails the package on anything else. A misspelled member is unreleasable, which is exactly what you want.
 
-Enums also show up inside schemas. A catalog schema or an evaluation context schema can pin a field to an enum with `"x-rototo-ref": "enum:plan_tiers"`, so catalog entries and sample contexts get the same member check. The [package format](./package-format.md) page covers that annotation in full.
+Enums also show up inside schemas. A catalog schema or an evaluation context schema can pin a field to an enum with `"x-rototo-ref": "enum=plan_tiers"`, so catalog entries and sample contexts get the same member check. The [package format](./package-format.md) page covers that annotation in full.
 
 ## Context
 
@@ -621,7 +621,7 @@ when = 'variables["mobile_users"]'
 value = "mobile_help"
 ```
 
-The `catalog:support_banner` type stays with the base. The first rule leans on `variables/acme/account_team_hours.toml`, a condition variable the overlay adds under a subdirectory: the path becomes the namespaced id `acme/account_team_hours`, so tenant-internal conditions can't collide with base ids.
+The `catalog=support_banner` type stays with the base. The first rule leans on `variables/acme/account_team_hours.toml`, a condition variable the overlay adds under a subdirectory: the path becomes the namespaced id `acme/account_team_hours`, so tenant-internal conditions can't collide with base ids.
 
 The composed membership then flows everywhere on its own. The base has a query variable, `active_support_banners`, that selects every enabled banner. Resolved through the overlay, it returns `acme_hours`, skips `german_hours`, and carries the updated `mobile_help` body - and the overlay never touched that variable.
 

@@ -1,7 +1,7 @@
 schema_version = 1
 
 description = "Per-request observability policy for rototo console"
-type = "catalog:console_request_observability"
+type = "catalog=console_request_observability"
 
 [resolve]
 default = "standard"

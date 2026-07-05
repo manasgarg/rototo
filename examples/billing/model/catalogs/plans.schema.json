@@ -4,10 +4,10 @@
   "title": "Plan",
   "properties": {
     "name": { "type": "string" },
-    "tier": { "type": "string", "x-rototo-ref": "enum:plan_tiers" },
+    "tier": { "type": "string", "x-rototo-ref": "enum=plan_tiers" },
     "features": {
       "type": "array",
-      "items": { "type": "string", "x-rototo-ref": "catalog:features" }
+      "items": { "type": "string", "x-rototo-ref": "catalog=features" }
     },
     "seat_limit": { "type": "integer", "minimum": 1 }
   },

@@ -349,13 +349,13 @@ rototo_rules! {
         id: "variable-type-source",
         entity: Variable,
         title: "Variable type source is invalid",
-        help: "Declare type as a primitive type or catalog:<catalog-id>.",
+        help: "Declare type as a primitive type or catalog=<catalog-id>.",
     },
     VariableUnknownType => {
         id: "variable-unknown-type",
         entity: Variable,
         title: "Variable type is unknown",
-        help: "Use one of bool, int, number, string, list, or catalog:<catalog-id>.",
+        help: "Use one of bool, int, number, string, list, or catalog=<catalog-id>.",
     },
     VariableUnknownCatalog => {
         id: "variable-unknown-catalog",
@@ -379,7 +379,7 @@ rototo_rules! {
         id: "variable-unknown-enum",
         entity: Variable,
         title: "Variable references an unknown enum",
-        help: "Declare the enum under model/enums/<id>.toml or fix the enum:<id> type.",
+        help: "Declare the enum under model/enums/<id>.toml or fix the enum=<id> type.",
     },
     EnumParseFailed => {
         id: "enum-parse-failed",
@@ -542,7 +542,7 @@ rototo_rules! {
         id: "variable-query-shape",
         entity: Variable,
         title: "Variable query resolution is invalid",
-        help: "method = \"query\" declares from = \"<catalog-id>\" plus optional filter, sort, order (asc or desc), limit (a positive integer), and default; it requires a catalog:<id> or list<catalog:<id>> type and no [[resolve.rule]] tables.",
+        help: "method = \"query\" declares from = \"<catalog-id>\" plus optional filter, sort, order (asc or desc), limit (a positive integer), and default; it requires a catalog=<id> or list<catalog=<id>> type and no [[resolve.rule]] tables.",
     },
     VariableAllocationShape => {
         id: "variable-allocation-shape",

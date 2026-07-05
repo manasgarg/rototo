@@ -1,5 +1,5 @@
 schema_version = 1
-type = "catalog:panel"
+type = "catalog=panel"
 description = "Panel variable"
 
 [resolve]

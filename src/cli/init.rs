@@ -572,7 +572,7 @@ description = {description}
 
 # Required. Supported types:
 # bool, int, number, string, list, list<string>, list<int>, list<number>,
-# list<bool>, catalog:<catalog-id>, list<catalog:<catalog-id>>
+# list<bool>, catalog=<catalog-id>, list<catalog=<catalog-id>>
 type = "string"
 
 [resolve]

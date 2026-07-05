@@ -93,7 +93,7 @@ projects = 20
         root,
         "variables/active_plan.toml",
         r#"schema_version = 1
-type = "catalog:plans"
+type = "catalog=plans"
 
 [resolve]
 default = "free"
@@ -213,7 +213,7 @@ async fn overlay_deleted_marker_removes_the_base_entry() {
         &overlay,
         "variables/wants_free.toml",
         r#"schema_version = 1
-type = "catalog:plans"
+type = "catalog=plans"
 
 [resolve]
 default = "free"
@@ -432,7 +432,7 @@ async fn variable_update_may_only_carry_resolve_and_description() {
     write(
         &overlay,
         "variables/active_plan.update.toml",
-        "type = \"catalog:plans\"\n\n[resolve]\ndefault = \"growth\"\n",
+        "type = \"catalog=plans\"\n\n[resolve]\ndefault = \"growth\"\n",
     )
     .await;
 
@@ -598,7 +598,7 @@ async fn directories_namespace_every_collection() {
   "type": "object",
   "properties": {
     "name": { "type": "string" },
-    "tier": { "type": "string", "x-rototo-ref": "enum:acme/tier" }
+    "tier": { "type": "string", "x-rototo-ref": "enum=acme/tier" }
   },
   "required": ["name", "tier"],
   "additionalProperties": false
@@ -615,7 +615,7 @@ async fn directories_namespace_every_collection() {
     write(
         &base,
         "variables/plan.toml",
-        "schema_version = 1\ntype = \"catalog:acme/plans\"\n\n[resolve]\ndefault = \"basic\"\n",
+        "schema_version = 1\ntype = \"catalog=acme/plans\"\n\n[resolve]\ndefault = \"basic\"\n",
     )
     .await;
 
@@ -925,7 +925,7 @@ async fn overlay_enum_members_union_with_the_base() {
         &overlay,
         "variables/home_region.toml",
         r#"schema_version = 1
-type = "enum:regions"
+type = "enum=regions"
 
 [resolve]
 default = "apac"
@@ -998,7 +998,7 @@ async fn overlay_deletes_enum_members_from_the_base() {
         &overlay,
         "variables/home_region.toml",
         r#"schema_version = 1
-type = "enum:regions"
+type = "enum=regions"
 
 [resolve]
 default = "apac"
@@ -1014,7 +1014,7 @@ default = "apac"
         &overlay,
         "variables/home_region.toml",
         r#"schema_version = 1
-type = "enum:regions"
+type = "enum=regions"
 
 [resolve]
 default = "legacy"

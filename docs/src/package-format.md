@@ -575,13 +575,13 @@ The `type` field decides what shape a value can take. The built-in types are:
 | `number` | a number with a fractional part |
 | `string` | text |
 | `list` | a plain list of values |
-| `catalog:<id>` | one entry from a catalog (see below) |
-| `enum:<id>` | one member of a named enum (see below) |
+| `catalog=<id>` | one entry from a catalog (see below) |
+| `enum=<id>` | one member of a named enum (see below) |
 | `list<...>` | a list of a specific item type |
 
 The `list<...>` form lets you say what's *in* the list. The item can be a
 primitive, a catalog reference, or an enum - `list<string>`, `list<int>`,
-`list<catalog:payment_methods>`, `list<enum:plan_tiers>`. What you can't do is
+`list<catalog=payment_methods>`, `list<enum=plan_tiers>`. What you can't do is
 nest lists inside lists: `list<list<string>>` is rejected. One level deep is
 the limit.
 
@@ -643,13 +643,13 @@ content = "Secure checkout in seconds."
 rototo converts that TOML to JSON and checks it against the schema, so an entry
 that's missing a field or has a typo gets caught at lint time, not in production.
 
-To use a catalog, give a variable the type `catalog:<id>` and let its values be
+To use a catalog, give a variable the type `catalog=<id>` and let its values be
 entry ids:
 
 ```toml
 schema_version = 1
 description = "Checkout page content and layout variant"
-type = "catalog:checkout_redesign"
+type = "catalog=checkout_redesign"
 
 [resolve]
 default = "control"
@@ -673,7 +673,7 @@ catalog's entries instead:
 
 ```toml
 schema_version = 1
-type = "list<catalog:llm_parameters>"
+type = "list<catalog=llm_parameters>"
 
 [resolve]
 method = "query"
@@ -701,10 +701,10 @@ The query keys sit flat on `[resolve]`:
 
 What the query produces depends on the variable's type:
 
-- `type = "list<catalog:<id>>"` - the value is every matching entry, after
+- `type = "list<catalog=<id>>"` - the value is every matching entry, after
   `sort` and `limit`. No matches means the `default` if you declared one,
   otherwise an empty list.
-- `type = "catalog:<id>"` - the value is one entry. With a `sort`, the top
+- `type = "catalog=<id>"` - the value is one entry. With a `sort`, the top
   entry wins. Without one, the `filter` has to match exactly one entry;
   matching several is a resolution error (add a `sort` or narrow the filter).
   No matches means the `default` if you declared one, otherwise an error.
@@ -881,12 +881,12 @@ The list has to be non-empty, free of duplicates, and every member has to match
 the declared type. Both halves have to exist - a declaration with no members and
 members with no declaration are each lint errors.
 
-To use an enum, give a variable the type `enum:<id>`:
+To use an enum, give a variable the type `enum=<id>`:
 
 ```toml
 schema_version = 1
 description = "The plan tier this account resolves to"
-type = "enum:plan_tiers"
+type = "enum=plan_tiers"
 
 [resolve]
 default = "free"
@@ -897,7 +897,7 @@ value = "team"
 ```
 
 Now every default and every rule value is checked against the member set. A
-typo'd `"buisness"` fails lint, and so does an `enum:<id>` type that names an
+typo'd `"buisness"` fails lint, and so does an `enum=<id>` type that names an
 enum the package doesn't declare. Enums also work inside schemas, through
 `x-rototo-ref` - that's next.
 
@@ -912,7 +912,7 @@ explicit, so lint can verify it and resolution can follow it.
 You put it on a field inside a JSON Schema, with a kind-prefixed target. The
 target says what the field's values must be.
 
-**`"x-rototo-ref": "catalog:<id>"`** pins a string field to the entry ids of
+**`"x-rototo-ref": "catalog=<id>"`** pins a string field to the entry ids of
 another catalog:
 
 ```json
@@ -920,7 +920,7 @@ another catalog:
   "type": "object",
   "required": ["hero", "title"],
   "properties": {
-    "hero": { "type": "string", "x-rototo-ref": "catalog:hero_banner" },
+    "hero": { "type": "string", "x-rototo-ref": "catalog=hero_banner" },
     "title": { "type": "string" }
   }
 }
@@ -933,7 +933,7 @@ An entry that sets `hero = "home"` now has to point at a real entry in the
 the string. A value can also reach inside the target with
 `"<entry>#<json-pointer>"`, like `"home#/cta"`, to pull one field out.
 
-The target can be an array, `["catalog:email_template", "catalog:sms_template"]`,
+The target can be an array, `["catalog=email_template", "catalog=sms_template"]`,
 when a field may point into any of several catalogs. Lint then checks the value
 against all of them and flags an entry id that exists in more than one - an
 ambiguous reference is an error, not a guess.
@@ -955,14 +955,14 @@ optional `pointer`:
 }
 ```
 
-**`"x-rototo-ref": "enum:<id>"`** pins a field to an enum's member set:
+**`"x-rototo-ref": "enum=<id>"`** pins a field to an enum's member set:
 
 ```json
 {
   "type": "object",
   "required": ["tier"],
   "properties": {
-    "tier": { "type": "string", "x-rototo-ref": "enum:plan_tiers" }
+    "tier": { "type": "string", "x-rototo-ref": "enum=plan_tiers" }
   }
 }
 ```

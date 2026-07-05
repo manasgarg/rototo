@@ -475,7 +475,7 @@ fn lint_query_shape(
             RototoRuleId::VariableQueryShape,
             variable.field_target(SemanticField::VariableType),
             variable.type_source.location(),
-            "method = \"query\" requires a catalog:<id> or list<catalog:<id>> type",
+            "method = \"query\" requires a catalog=<id> or list<catalog=<id>> type",
         );
     }
 
@@ -784,15 +784,31 @@ fn lint_primitive_type(
 ) -> Option<PrimitiveType> {
     let primitive = PrimitiveType::from_str(type_name);
     if primitive.is_none() {
+        let message = match retired_colon_binding(type_name) {
+            Some(spelling) => format!(
+                "variable declares unknown type: {type_name}; the binder is `=` now, write {spelling}"
+            ),
+            None => format!("variable declares unknown type: {type_name}"),
+        };
         push_value_diagnostic(
             diagnostics,
             RototoRuleId::VariableUnknownType,
             variable.field_target(SemanticField::VariableType),
             location.clone(),
-            format!("variable declares unknown type: {type_name}"),
+            message,
         );
     }
     primitive
+}
+
+/// Detects the retired `catalog:<id>` / `enum:<id>` colon spelling and
+/// returns the `=` form to write instead.
+fn retired_colon_binding(type_name: &str) -> Option<String> {
+    let (class, id) = type_name.split_once(':')?;
+    match crate::address::EntityClass::parse_name(class) {
+        Some(class) if !id.is_empty() => Some(format!("{}={id}", class.as_str())),
+        _ => None,
+    }
 }
 
 fn lint_list_resolve_values(

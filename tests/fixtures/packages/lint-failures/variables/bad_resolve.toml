@@ -1,7 +1,7 @@
 schema_version = 1
 
 description = "Variable with bad variable and value references"
-type = "catalog:bad_resolve"
+type = "catalog=bad_resolve"
 
 [resolve]
 default = "control"

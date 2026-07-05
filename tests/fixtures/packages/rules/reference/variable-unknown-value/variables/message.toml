@@ -1,6 +1,6 @@
 schema_version = 1
 description = "Configuration value for message."
-type = "catalog:message"
+type = "catalog=message"
 
 [resolve]
 default = "missing"

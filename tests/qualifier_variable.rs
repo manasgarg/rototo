@@ -25,7 +25,7 @@ fn lists_variables_from_discovered_package() {
         .stdout(predicate::str::contains("llm_agent_config"))
         .stdout(predicate::str::contains("tenant_limits"))
         .stdout(predicate::str::contains("user_is_admin"))
-        .stdout(predicate::str::contains("type: catalog:checkout_redesign"))
+        .stdout(predicate::str::contains("type: catalog=checkout_redesign"))
         .stdout(predicate::str::contains(
             "resolve: default \"control\" / 1 rule",
         ))

@@ -12,7 +12,7 @@
       },
       "required": ["id"]
     },
-    "region": { "type": "string", "x-rototo-ref": "enum:regions" }
+    "region": { "type": "string", "x-rototo-ref": "enum=regions" }
   },
   "required": ["user", "region"]
 }

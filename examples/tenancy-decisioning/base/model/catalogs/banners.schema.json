@@ -9,7 +9,7 @@
     "priority": { "type": "integer", "minimum": 0 },
     "audiences": {
       "type": "array",
-      "items": { "type": "string", "x-rototo-ref": "catalog:audiences" }
+      "items": { "type": "string", "x-rototo-ref": "catalog=audiences" }
     },
     "starts": { "type": "string", "format": "date-time" },
     "ends": { "type": "string", "format": "date-time" }

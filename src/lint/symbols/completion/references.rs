@@ -103,7 +103,7 @@ pub(super) fn path_completion_items(
 
 /// Value completions for the operand after a comparison: when the other side
 /// is a context or entry path pinned to a closed set (an `x-rototo-ref`
-/// `enum:<id>` or `catalog:<id>` annotation), the legal literals are known and
+/// `enum=<id>` or `catalog=<id>` annotation), the legal literals are known and
 /// offered ahead of the generic roots.
 pub(super) fn typed_operand_completion_items(
     snapshot: &PackageLintSnapshot,
@@ -167,10 +167,10 @@ pub(super) fn schema_ref_pin(schema: &JsonValue, segments: &[&str]) -> Option<Sc
         current = properties.get(*segment)?;
     }
     let target = current.get("x-rototo-ref")?.as_str()?;
-    if let Some(id) = target.strip_prefix("enum:") {
+    if let Some(id) = target.strip_prefix("enum=") {
         return Some(SchemaRefPin::Enum(id.to_owned()));
     }
-    if let Some(id) = target.strip_prefix("catalog:") {
+    if let Some(id) = target.strip_prefix("catalog=") {
         return Some(SchemaRefPin::Catalog(id.to_owned()));
     }
     None

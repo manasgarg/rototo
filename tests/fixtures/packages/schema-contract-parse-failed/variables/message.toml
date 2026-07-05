@@ -1,5 +1,5 @@
 schema_version = 1
-type = "catalog:message"
+type = "catalog=message"
 description = "Variable whose catalog schema cannot parse"
 
 [resolve]

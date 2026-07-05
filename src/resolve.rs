@@ -1123,7 +1123,7 @@ body = "SMS body"
         std::fs::write(
             package.path().join("variables/templates.toml"),
             r#"schema_version = 1
-type = "list<catalog:message_template>"
+type = "list<catalog=message_template>"
 
 [resolve]
 method = "query"
@@ -1160,7 +1160,7 @@ filter = "entry.channel == context.channel && entry.active == true && variables[
   "properties": {
     "hero": {
       "type": "string",
-      "x-rototo-ref": "catalog:hero_banner"
+      "x-rototo-ref": "catalog=hero_banner"
     },
     "title": { "type": "string" }
   }
@@ -1178,7 +1178,7 @@ title = "Home"
         std::fs::write(
             package.path().join("variables/pages.toml"),
             r#"schema_version = 1
-type = "list<catalog:page>"
+type = "list<catalog=page>"
 
 [resolve]
 method = "query"
@@ -1271,7 +1271,7 @@ filter = "entry.hero.cta == \"Buy\""
     async fn query_single_selects_the_top_entry_after_sort() {
         let package = package_with_query_variable(
             r#"schema_version = 1
-type = "catalog:plan"
+type = "catalog=plan"
 
 [resolve]
 method = "query"
@@ -1296,7 +1296,7 @@ order = "desc"
     async fn query_single_without_sort_requires_exactly_one_match() {
         let package = package_with_query_variable(
             r#"schema_version = 1
-type = "catalog:plan"
+type = "catalog=plan"
 
 [resolve]
 method = "query"
@@ -1315,7 +1315,7 @@ filter = "entry.price > 0"
     async fn query_single_with_no_match_uses_default_or_errors() {
         let package = package_with_query_variable(
             r#"schema_version = 1
-type = "catalog:plan"
+type = "catalog=plan"
 
 [resolve]
 method = "query"
@@ -1331,7 +1331,7 @@ default = "free"
 
         let package = package_with_query_variable(
             r#"schema_version = 1
-type = "catalog:plan"
+type = "catalog=plan"
 
 [resolve]
 method = "query"
@@ -1349,7 +1349,7 @@ filter = "entry.price > 1000"
     async fn query_list_sorts_and_limits_matches() {
         let package = package_with_query_variable(
             r#"schema_version = 1
-type = "list<catalog:plan>"
+type = "list<catalog=plan>"
 
 [resolve]
 method = "query"
@@ -1376,7 +1376,7 @@ limit = 2
     async fn query_list_with_no_match_is_empty_without_default() {
         let package = package_with_query_variable(
             r#"schema_version = 1
-type = "list<catalog:plan>"
+type = "list<catalog=plan>"
 
 [resolve]
 method = "query"
@@ -1394,7 +1394,7 @@ filter = "entry.price > 1000"
     async fn query_sort_keys_must_be_comparable() {
         let package = package_with_query_variable(
             r#"schema_version = 1
-type = "list<catalog:plan>"
+type = "list<catalog=plan>"
 
 [resolve]
 method = "query"

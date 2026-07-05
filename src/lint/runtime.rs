@@ -161,8 +161,8 @@ pub(crate) struct RuntimeArm {
 #[derive(Debug)]
 pub(crate) struct RuntimeQuery {
     pub(crate) catalog: String,
-    /// Whether the variable's type is `catalog:<id>` (the top entry wins)
-    /// rather than `list<catalog:<id>>` (every match is the value).
+    /// Whether the variable's type is `catalog=<id>` (the top entry wins)
+    /// rather than `list<catalog=<id>>` (every match is the value).
     pub(crate) single: bool,
     pub(crate) filter: Option<Expression>,
     pub(crate) sort: Option<Expression>,
@@ -611,13 +611,13 @@ impl<'a> RuntimeCompiler<'a> {
                 VariableTypeKind::Catalog(catalog) => (catalog.as_str(), false),
                 _ => {
                     return Err(RototoError::new(
-                        "method = \"query\" requires a catalog:<id> or list<catalog:<id>> type",
+                        "method = \"query\" requires a catalog=<id> or list<catalog=<id>> type",
                     ));
                 }
             },
             _ => {
                 return Err(RototoError::new(
-                    "method = \"query\" requires a catalog:<id> or list<catalog:<id>> type",
+                    "method = \"query\" requires a catalog=<id> or list<catalog=<id>> type",
                 ));
             }
         };

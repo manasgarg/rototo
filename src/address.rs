@@ -67,7 +67,10 @@ impl EntityClass {
         }
     }
 
-    fn parse(name: &str) -> Option<Self> {
+    /// Parses a class name (`catalog`, `evaluation-context`, ...). Shared
+    /// with every surface that spells `<class>=<id>` bindings: addresses,
+    /// `x-rototo-ref` targets, and variable type declarations.
+    pub(crate) fn parse_name(name: &str) -> Option<Self> {
         Self::ALL
             .iter()
             .copied()
@@ -159,7 +162,7 @@ impl Address {
                     format!("step `{segment}` is missing the `=` between class and id"),
                 ));
             };
-            let Some(class) = EntityClass::parse(class_name) else {
+            let Some(class) = EntityClass::parse_name(class_name) else {
                 return Err(invalid(
                     source,
                     format!(

@@ -141,7 +141,7 @@ fn is_supported_variable_type(value: &str) -> bool {
     if matches!(value, "bool" | "int" | "number" | "string" | "list") {
         return true;
     }
-    if let Some(catalog) = value.strip_prefix("catalog:") {
+    if let Some(catalog) = value.strip_prefix("catalog=") {
         return parse_entity_id(Some(catalog)).is_some();
     }
     let Some(inner) = value
@@ -155,7 +155,7 @@ fn is_supported_variable_type(value: &str) -> bool {
         return true;
     }
     inner
-        .strip_prefix("catalog:")
+        .strip_prefix("catalog=")
         .is_some_and(|catalog| parse_entity_id(Some(catalog)).is_some())
 }
 
@@ -216,7 +216,7 @@ fn variable_template(id: &str, variable_type: &str) -> String {
         "int" | "number" => "0",
         "list" => "[]",
         value if value.starts_with("list<") => "[]",
-        value if value.starts_with("catalog:") => "\"\"",
+        value if value.starts_with("catalog=") => "\"\"",
         _ => "\"control\"",
     };
     format!(
@@ -356,15 +356,15 @@ mod tests {
     fn variable_type_parser_keeps_list_and_catalog_types() {
         assert_eq!(parse_variable_type(Some("list<string>")), "list<string>");
         assert_eq!(
-            parse_variable_type(Some("list<catalog:banner>")),
-            "list<catalog:banner>"
+            parse_variable_type(Some("list<catalog=banner>")),
+            "list<catalog=banner>"
         );
         assert_eq!(
-            parse_variable_type(Some("catalog:banner")),
-            "catalog:banner"
+            parse_variable_type(Some("catalog=banner")),
+            "catalog=banner"
         );
         assert_eq!(parse_variable_type(Some("list<list<string>>")), "string");
-        assert_eq!(parse_variable_type(Some("catalog:bad id")), "string");
+        assert_eq!(parse_variable_type(Some("catalog=bad id")), "string");
     }
 
     #[test]

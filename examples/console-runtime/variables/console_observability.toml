@@ -1,7 +1,7 @@
 schema_version = 1
 
 description = "Startup observability settings for rototo console"
-type = "catalog:console_observability"
+type = "catalog=console_observability"
 
 [resolve]
 default = "standard"

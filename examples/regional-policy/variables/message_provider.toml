@@ -1,6 +1,6 @@
 schema_version = 1
 description = "Which delivery vendor carries this message"
-type = "catalog:providers"
+type = "catalog=providers"
 
 # Provider selection: the active provider for this (channel, jurisdiction) with
 # the highest priority. Failover during an incident is a two-line commit (mark

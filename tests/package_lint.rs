@@ -586,7 +586,7 @@ fn enums_declare_members_and_type_variables() {
     std::fs::write(
         root.join("variables/plan_tier.toml"),
         r#"schema_version = 1
-type = "enum:plan_tiers"
+type = "enum=plan_tiers"
 
 [resolve]
 default = "free"
@@ -605,7 +605,7 @@ value = "team"
     std::fs::create_dir_all(root.join("model/context/request-samples")).unwrap();
     std::fs::write(
         root.join("model/catalogs/plans.schema.json"),
-        r#"{"type":"object","required":["tier"],"properties":{"tier":{"type":"string","x-rototo-ref":"enum:plan_tiers"}}}"#,
+        r#"{"type":"object","required":["tier"],"properties":{"tier":{"type":"string","x-rototo-ref":"enum=plan_tiers"}}}"#,
     )
     .unwrap();
     std::fs::write(
@@ -643,7 +643,7 @@ value = "team"
     std::fs::write(
         root.join("variables/bad_tier.toml"),
         r#"schema_version = 1
-type = "enum:plan_tiers"
+type = "enum=plan_tiers"
 
 [resolve]
 default = "platinum"
@@ -653,7 +653,7 @@ default = "platinum"
     std::fs::write(
         root.join("variables/unknown_enum.toml"),
         r#"schema_version = 1
-type = "enum:missing"
+type = "enum=missing"
 
 [resolve]
 default = "anything"
@@ -820,7 +820,7 @@ fn catalog_value_file_can_represent_object_with_value_field() {
     std::fs::write(
         root.join("variables/message.toml"),
         r#"schema_version = 1
-type = "catalog:message"
+type = "catalog=message"
 
 [resolve]
 default = "default"
@@ -871,7 +871,7 @@ fn catalog_backed_variable_values_are_rejected_before_value_validation() {
     std::fs::write(
         root.join("variables/message.toml"),
         r#"schema_version = 1
-type = "catalog:message"
+type = "catalog=message"
 
 [values]
 default = "inline"
@@ -2732,7 +2732,7 @@ fn pending_rules_fire_from_scratch_packages() {
                 manifest,
                 (
                     "variables/plan.toml",
-                    "schema_version = 1\ntype = \"catalog:missing\"\n\n[resolve]\ndefault = \"x\"\n",
+                    "schema_version = 1\ntype = \"catalog=missing\"\n\n[resolve]\ndefault = \"x\"\n",
                 ),
             ],
         ),
@@ -2884,5 +2884,55 @@ end
     assert!(
         !documents.iter().any(|path| path.contains("nested.lua")),
         "{documents:?}"
+    );
+}
+
+/// The retired colon spellings get a migration hint naming the `=` form,
+/// both on variable types and on x-rototo-ref targets.
+#[test]
+fn retired_colon_bindings_get_the_equals_hint() {
+    let tempdir = tempfile::tempdir().unwrap();
+    std::fs::write(
+        tempdir.path().join("rototo-package.toml"),
+        "schema_version = 1\n",
+    )
+    .unwrap();
+    std::fs::create_dir_all(tempdir.path().join("variables")).unwrap();
+    std::fs::write(
+        tempdir.path().join("variables/plan.toml"),
+        "schema_version = 1\ntype = \"catalog:plans\"\n\n[resolve]\ndefault = \"x\"\n",
+    )
+    .unwrap();
+    std::fs::create_dir_all(tempdir.path().join("model/catalogs")).unwrap();
+    std::fs::write(
+        tempdir.path().join("model/catalogs/plans.schema.json"),
+        r#"{
+  "type": "object",
+  "properties": {
+    "tier": { "type": "string", "x-rototo-ref": "enum:tier" }
+  }
+}"#,
+    )
+    .unwrap();
+
+    let lint = lint_json(&tempdir.path().to_string_lossy(), false);
+    let type_messages = diagnostic_messages_for_rule(&lint, "rototo/variable-unknown-type");
+    assert!(
+        type_messages
+            .iter()
+            .any(|message| message.contains("the binder is `=` now, write catalog=plans")),
+        "{type_messages:#?}"
+    );
+    let all_messages: Vec<String> = lint["diagnostics"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|diagnostic| diagnostic["message"].as_str().unwrap().to_owned())
+        .collect();
+    assert!(
+        all_messages
+            .iter()
+            .any(|message| message.contains("binder is `=` now: write enum=tier")),
+        "{all_messages:#?}"
     );
 }

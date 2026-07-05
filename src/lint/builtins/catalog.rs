@@ -296,23 +296,36 @@ enum CatalogRefSpec {
     Object,
 }
 
-/// Parse one reference target: `catalog:<id>` or `enum:<id>`.
+/// Parse one reference target: `catalog=<id>` or `enum=<id>`. The class
+/// vocabulary is the address module's.
 fn parse_ref_target(value: &str) -> Result<(&'static str, String), String> {
-    if let Some(id) = value.strip_prefix("catalog:") {
-        if id.is_empty() {
-            return Err(format!("{CATALOG_REF_KEY} catalog id must not be empty"));
+    use crate::address::EntityClass;
+    let class = value
+        .split_once('=')
+        .and_then(|(class, _)| EntityClass::parse_name(class));
+    let id = value.split_once('=').map(|(_, id)| id).unwrap_or("");
+    match class {
+        Some(EntityClass::Catalog) if id.is_empty() => {
+            Err(format!("{CATALOG_REF_KEY} catalog id must not be empty"))
         }
-        return Ok(("catalog", id.to_owned()));
-    }
-    if let Some(id) = value.strip_prefix("enum:") {
-        if id.is_empty() {
-            return Err(format!("{CATALOG_REF_KEY} enum id must not be empty"));
+        Some(EntityClass::Catalog) => Ok(("catalog", id.to_owned())),
+        Some(EntityClass::Enum) if id.is_empty() => {
+            Err(format!("{CATALOG_REF_KEY} enum id must not be empty"))
         }
-        return Ok(("enum", id.to_owned()));
+        Some(EntityClass::Enum) => Ok(("enum", id.to_owned())),
+        _ => match value
+            .split_once(':')
+            .and_then(|(class, id)| Some((EntityClass::parse_name(class)?, id)))
+        {
+            Some((class, id)) if !id.is_empty() => Err(format!(
+                "{CATALOG_REF_KEY} binder is `=` now: write {}={id}",
+                class.as_str()
+            )),
+            _ => Err(format!(
+                "{CATALOG_REF_KEY} must name its target kind: catalog=<id> or enum=<id>"
+            )),
+        },
     }
-    Err(format!(
-        "{CATALOG_REF_KEY} must name its target kind: catalog:<id> or enum:<id>"
-    ))
 }
 
 fn catalog_ref_spec(value: &JsonValue) -> Result<CatalogRefSpec, String> {
@@ -342,7 +355,7 @@ fn catalog_ref_spec(value: &JsonValue) -> Result<CatalogRefSpec, String> {
                 ("catalog", id) => parsed.push(id),
                 _ => {
                     return Err(format!(
-                        "{CATALOG_REF_KEY} target array must contain only catalog:<id> targets"
+                        "{CATALOG_REF_KEY} target array must contain only catalog=<id> targets"
                     ));
                 }
             }
@@ -351,7 +364,7 @@ fn catalog_ref_spec(value: &JsonValue) -> Result<CatalogRefSpec, String> {
     }
 
     Err(format!(
-        "{CATALOG_REF_KEY} must be a catalog:<id> or enum:<id> string, a catalog:<id> array, or true"
+        "{CATALOG_REF_KEY} must be a catalog=<id> or enum=<id> string, a catalog=<id> array, or true"
     ))
 }
 

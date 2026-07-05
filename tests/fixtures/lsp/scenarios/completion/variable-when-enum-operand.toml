@@ -43,7 +43,7 @@ text = '''
       "properties": {
         "plan_tier": {
           "type": "string",
-          "x-rototo-ref": "enum:plan_tiers"
+          "x-rototo-ref": "enum=plan_tiers"
         }
       }
     }

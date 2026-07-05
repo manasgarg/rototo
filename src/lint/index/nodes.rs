@@ -169,17 +169,17 @@ fn parse_variable_type(value: &str) -> Option<VariableTypeKind> {
     {
         return parse_variable_type(inner).map(|item| VariableTypeKind::List(Box::new(item)));
     }
-    if let Some(catalog) = value.strip_prefix("catalog:") {
-        if catalog.is_empty() {
-            return None;
-        }
-        return Some(VariableTypeKind::Catalog(catalog.to_owned()));
-    }
-    if let Some(id) = value.strip_prefix("enum:") {
-        if id.is_empty() {
-            return None;
-        }
-        return Some(VariableTypeKind::Enum(id.to_owned()));
+    if let Some((class, id)) = value.split_once('=') {
+        return match crate::address::EntityClass::parse_name(class) {
+            Some(crate::address::EntityClass::Catalog) => {
+                (!id.is_empty()).then(|| VariableTypeKind::Catalog(id.to_owned()))
+            }
+            Some(crate::address::EntityClass::Enum) => {
+                (!id.is_empty()).then(|| VariableTypeKind::Enum(id.to_owned()))
+            }
+            // Any other binding is not a type; let the unknown-type rule name it.
+            _ => Some(VariableTypeKind::Primitive(value.to_owned())),
+        };
     }
     Some(VariableTypeKind::Primitive(value.to_owned()))
 }

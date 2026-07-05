@@ -1,6 +1,6 @@
 schema_version = 1
 description = "Which banner the homepage shows this visitor"
-type = "catalog:banners"
+type = "catalog=banners"
 
 # Ranked selection: keep banners inside their campaign window (if any) whose
 # audiences (if any) match, order by priority, top entry wins. entry.audiences

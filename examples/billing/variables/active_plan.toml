@@ -1,6 +1,6 @@
 schema_version = 1
 description = "The plan in force for this account's tier: entitlements and seat limit"
-type = "catalog:plans"
+type = "catalog=plans"
 
 # A keyed lookup: exactly one plan entry exists per tier, so the filter selects
 # it and the whole entry is the value. Application code reads the fields it

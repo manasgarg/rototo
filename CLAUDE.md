@@ -68,12 +68,12 @@ kebab-case.
 Schema fields can pin their values with the `x-rototo-ref` annotation, using a
 kind-prefixed target:
 
-- `"x-rototo-ref": "catalog:<id>"` (or an array of `catalog:<id>` strings) pins
+- `"x-rototo-ref": "catalog=<id>"` (or an array of `catalog=<id>` strings) pins
   a string field to entry ids of another catalog; `<entry>#<json-pointer>`
   values, ambiguity checks, and hydration at resolve time apply.
 - `"x-rototo-ref": true` marks an object field whose `{catalog, entry,
   pointer}` value names the target dynamically.
-- `"x-rototo-ref": "enum:<id>"` pins a field to an enum's member set; catalog
+- `"x-rototo-ref": "enum=<id>"` pins a field to an enum's member set; catalog
   entry values and evaluation-context sample values are checked against the
   members.
 
@@ -190,7 +190,7 @@ package structure and files:
   points at `variables["<id>"]`. Expression, bucket, and operator shapes are
   validated.
 - Variable types support `bool`, `int`, `number`, `string`, `list`,
-  `catalog:<id>`, `enum:<id>`, and `list<...>` where the list item is a
+  `catalog=<id>`, `enum=<id>`, and `list<...>` where the list item is a
   primitive, catalog, or enum type. Resolve defaults and rule values must match
   the declared type; for enum-typed variables every default and rule value must
   be a member of the enum (`rototo/variable-unknown-enum` for an unknown enum
@@ -210,7 +210,7 @@ package structure and files:
   against their catalog schema, and `x-rototo-ref` targets resolve: catalog
   targets to real entries, enum targets to declared members.
 - Evaluation context schemas under `model/context/*.schema.json` parse and
-  compile as JSON Schema and use only `enum:<id>` targets in `x-rototo-ref`.
+  compile as JSON Schema and use only `enum=<id>` targets in `x-rototo-ref`.
   Samples under `model/context/<id>-samples/*.json` validate against their
   evaluation context schema, including enum member checks.
 - Lua files under `lint/*.lua` define `register(lint)` and register rules with

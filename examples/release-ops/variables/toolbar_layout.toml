@@ -1,6 +1,6 @@
 schema_version = 1
 description = "Toolbar arrangement, under an A/B test"
-type = "enum:toolbar_layouts"
+type = "enum=toolbar_layouts"
 
 # An experiment whose values are enum members, so a typo in an arm's value is a
 # lint failure. `default` is what the unenrolled see: the holdback and the users

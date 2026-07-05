@@ -1,7 +1,7 @@
 schema_version = 1
 
 description = "Checkout page content and layout variant"
-type = "catalog:checkout_redesign"
+type = "catalog=checkout_redesign"
 
 [resolve]
 default = "control"

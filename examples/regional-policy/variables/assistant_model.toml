@@ -1,6 +1,6 @@
 schema_version = 1
 description = "Which AI model configuration the support assistant uses for this account"
-type = "catalog:models"
+type = "catalog=models"
 
 # Model, prompt version, and parameters change weekly; the application code that
 # calls the model does not. Cost policy is expressed as tiering (free accounts

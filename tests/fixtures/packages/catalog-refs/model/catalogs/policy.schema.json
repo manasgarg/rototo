@@ -13,13 +13,13 @@
   "properties": {
     "email_subject": {
       "type": "string",
-      "x-rototo-ref": "catalog:email_template"
+      "x-rototo-ref": "catalog=email_template"
     },
     "message_template": {
       "type": "string",
       "x-rototo-ref": [
-        "catalog:email_template",
-        "catalog:sms_template"
+        "catalog=email_template",
+        "catalog=sms_template"
       ]
     },
     "object_template": {
@@ -57,7 +57,7 @@
   "$defs": {
     "email_template_ref": {
       "type": "string",
-      "x-rototo-ref": "catalog:email_template"
+      "x-rototo-ref": "catalog=email_template"
     }
   }
 }

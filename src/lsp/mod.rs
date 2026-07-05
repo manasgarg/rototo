@@ -544,7 +544,7 @@ value = true
         .await
         .unwrap();
         let disk_variable = r#"schema_version = 1
-type = "list<catalog:message>"
+type = "list<catalog=message>"
 
 [resolve]
 default = []
@@ -562,7 +562,7 @@ default = []
                     "uri": format!("file://{}", variable_path.display()),
                     "version": 8,
                     "text": r#"schema_version = 1
-type = "list<catalog:message>"
+type = "list<catalog=message>"
 
 [resolve]
 method = "query"
@@ -721,7 +721,7 @@ default = "hello"
                     "uri": format!("file://{}", variable_path.display()),
                     "version": 6,
                     "text": r#"schema_version = 1
-type = "catalog:message"
+type = "catalog=message"
 
 [resolve]
 default = "welcome"
@@ -734,7 +734,7 @@ value = "welcome"
             }))
             .unwrap();
 
-        // The catalog type segment in `catalog:message` jumps to the schema.
+        // The catalog type segment in `catalog=message` jumps to the schema.
         let schema_definition = definition_location(&server, &variable_path, 1, 16).await;
         assert!(
             schema_definition
@@ -871,7 +871,7 @@ default = "hello"
                     "uri": format!("file://{}", variable_path.display()),
                     "version": 7,
                     "text": r#"schema_version = 1
-type = "catalog:message"
+type = "catalog=message"
 
 [resolve]
 default = "welcome"

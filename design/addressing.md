@@ -216,7 +216,7 @@ The grammar is shared; what depth an address may stop at is per consumer.
 | consumer | accepts | notes |
 |---|---|---|
 | custom lint `target` | `package=`, class collectives, namespace subtrees, entities, nested entities; optionally entity `#` pointer for field-scoped rules | collectives and subtrees fan out, one handler invocation per member. Replaces the whole `/variables/...` grammar; old spellings get a rejection message that shows the new form |
-| `x-rototo-ref` | class only (`catalog=acme/banner`, `enum=tier`, or an array of catalog classes) | semantics unchanged; the spelling migrates from today's `catalog:<id>` to `catalog=<id>` (open question 5). Dynamic `{catalog, entry, pointer}` objects could later accept a single address string |
+| `x-rototo-ref` | class only (`catalog=acme/banner`, `enum=tier`, or an array of catalog classes) | semantics unchanged; migrated from the old `catalog:<id>` spelling (landed with step 3). Dynamic `{catalog, entry, pointer}` objects could later accept a single address string |
 | entry reference values | bare id + fragment, against the pinned class | unchanged semantics (`welcome#/body`) |
 | governance targets | entities and namespace subtrees (`variable=payments/`) | today's `[variable."payments/max_tokens"]` TOML keys stay valid; addresses become the string form when policies need subtrees |
 | diagnostics (`target` in JSON output) | full entity address `#` field pointer, as the canonical serialization of `SemanticTarget` | today's structured object stays; the string form is additive |
@@ -244,11 +244,11 @@ One parser module becomes the source of truth (grammar, resolution,
 canonical rendering), then consumers port one at a time:
 
 1. Parser + resolver + canonical form, with exhaustive round-trip tests
-   (this is also where the matrix rows land).
+   (this is also where the matrix rows land). Landed: `src/address.rs`.
 2. Custom lint targets (fixes finding 6; supersedes the earlier `#`-only
    patch idea). Old spellings rejected with the new spelling in the
    message. Drop the dead `values` forms as part of this (task #59 folds
-   in or lands first).
+   in or lands first). Landed.
 3. Recursive entry/sample discovery (task #60). Note the grammar answers
    #60's ownership wrinkle: `data/catalogs/a/b/c.toml` is ambiguous on
    disk between catalog `a` (entry `b/c`) and catalog `a/b` (entry `c`),
@@ -260,8 +260,8 @@ canonical rendering), then consumers port one at a time:
 5. `x-rototo-ref` and entry references: entry references are unchanged
    (`welcome#/body` is already a relative address); `x-rototo-ref` pins
    respell from `catalog:<id>` to `catalog=<id>`, and variable type
-   declarations follow, per open question 5. Dynamic ref objects
-   optionally accept an address string.
+   declarations follow, per open question 5. Landed (the respell; dynamic
+   ref objects accepting an address string stays future work).
 6. Governance subtree grants, if and when wanted.
 
 Breaking changes land before any stability commitment, per project

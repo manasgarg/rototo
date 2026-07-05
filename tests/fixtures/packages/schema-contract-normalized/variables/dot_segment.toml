@@ -1,5 +1,5 @@
 schema_version = 1
-type = "catalog:dot_segment"
+type = "catalog=dot_segment"
 description = "Variable with a dot_segment catalog schema reference"
 
 [resolve]

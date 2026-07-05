@@ -106,15 +106,15 @@ fn hydrate_catalog_reference(
         return hydrate_catalog_reference_target(runtime, catalog, entry, pointer, value, stack);
     }
 
-    // Only catalog:<id> targets hydrate; enum members are already literal
+    // Only catalog=<id> targets hydrate; enum members are already literal
     // scalars, so an enum reference passes the value through untouched.
     let target_catalogs: Vec<&str> = if let Some(target) = ref_spec.as_str() {
-        vec![target.strip_prefix("catalog:")?]
+        vec![target.strip_prefix("catalog=")?]
     } else if let Some(targets) = ref_spec.as_array() {
         targets
             .iter()
             .filter_map(JsonValue::as_str)
-            .filter_map(|target| target.strip_prefix("catalog:"))
+            .filter_map(|target| target.strip_prefix("catalog="))
             .collect()
     } else {
         return None;

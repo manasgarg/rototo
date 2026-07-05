@@ -37,7 +37,7 @@
   "$defs": {
     "email_template_ref": {
       "type": "string",
-      "x-rototo-ref": "catalog:email_template"
+      "x-rototo-ref": "catalog=email_template"
     }
   }
 }

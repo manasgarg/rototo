@@ -7,15 +7,15 @@
       "type": "object",
       "properties": {
         "id": { "type": "string", "minLength": 1 },
-        "jurisdiction": { "type": "string", "x-rototo-ref": "enum:jurisdictions" },
-        "plan_tier": { "type": "string", "x-rototo-ref": "enum:plan_tiers" }
+        "jurisdiction": { "type": "string", "x-rototo-ref": "enum=jurisdictions" },
+        "plan_tier": { "type": "string", "x-rototo-ref": "enum=plan_tiers" }
       },
       "required": ["id", "jurisdiction", "plan_tier"]
     },
     "message": {
       "type": "object",
       "properties": {
-        "channel": { "type": "string", "x-rototo-ref": "enum:channels" }
+        "channel": { "type": "string", "x-rototo-ref": "enum=channels" }
       },
       "required": ["channel"]
     }

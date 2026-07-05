@@ -38,7 +38,7 @@ pub(super) fn lint_evaluation_context_schemas(ctx: &mut LintContext) {
 }
 
 /// Context schema fields may pin their values to an enum with
-/// `x-rototo-ref: "enum:<id>"`. Context facts are caller data, so catalog
+/// `x-rototo-ref: "enum=<id>"`. Context facts are caller data, so catalog
 /// targets are rejected here; enums are the only referenceable set.
 fn lint_context_enum_ref_shapes(
     diagnostics: &mut Vec<LintDiagnostic>,
@@ -70,7 +70,7 @@ fn lint_context_enum_ref_shapes(
                 evaluation_context.field_target(SemanticField::SchemaJson),
                 evaluation_context.location.clone(),
                 format!(
-                    "x-rototo-ref in evaluation context schemas must target enum:<id> at {pointer}"
+                    "x-rototo-ref in evaluation context schemas must target enum=<id> at {pointer}"
                 ),
             ),
         }
@@ -116,13 +116,13 @@ fn lint_context_enum_ref_shapes(
 }
 
 fn context_enum_ref_target(target: &str) -> Result<String, String> {
-    if let Some(id) = target.strip_prefix("enum:") {
+    if let Some(id) = target.strip_prefix("enum=") {
         if id.is_empty() {
             return Err("x-rototo-ref enum id must not be empty".to_owned());
         }
         return Ok(id.to_owned());
     }
-    Err("x-rototo-ref in evaluation context schemas must target enum:<id>".to_owned())
+    Err("x-rototo-ref in evaluation context schemas must target enum=<id>".to_owned())
 }
 
 pub(super) fn lint_evaluation_context_samples(ctx: &mut LintContext) {
@@ -184,7 +184,7 @@ pub(super) fn lint_evaluation_context_samples(ctx: &mut LintContext) {
 }
 
 /// Walk the context schema and the sample together, checking every field that
-/// pins its values with `x-rototo-ref: "enum:<id>"` against the enum's member
+/// pins its values with `x-rototo-ref: "enum=<id>"` against the enum's member
 /// set. Local `#/...` `$ref`s resolve against the schema root; anything else is
 /// out of scope for context schemas.
 #[allow(clippy::too_many_arguments)]
@@ -207,7 +207,7 @@ fn lint_sample_enum_refs(
     if let Some(id) = schema
         .get("x-rototo-ref")
         .and_then(JsonValue::as_str)
-        .and_then(|target| target.strip_prefix("enum:"))
+        .and_then(|target| target.strip_prefix("enum="))
         && let Some(members) = sample_enum_member_values(ctx, id)
         && !value.is_object()
         && !value.is_array()

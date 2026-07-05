@@ -209,7 +209,7 @@ value = true
             (
                 "variables/message.toml",
                 r#"schema_version = 1
-type = "catalog:message"
+type = "catalog=message"
 
 [resolve]
 default = "default"
@@ -439,7 +439,7 @@ value = true
         tokio::fs::write(
             root.join("variables/message.toml"),
             r#"schema_version = 1
-type = "catalog:message"
+type = "catalog=message"
 
 [resolve]
 default = "missing"
