@@ -156,6 +156,17 @@ too long, which works, but "time since the primary was last healthy" is not
 directly readable from the status. Decide whether that needs its own field
 or whether the pairing guidance is enough.
 
+Resolved 2026-07-05: the pairing guidance plus the event stream is enough.
+A fallback start emits a fallback_loaded refresh event carrying the
+primary failure reason (pinned by
+refreshing_package_starts_on_the_fallback_and_recovers_the_primary), each
+subsequent attempt emits a failed event, and recovery emits refreshed, so
+degradation onset and duration are reconstructible from events and logs.
+One nuance recorded: the startup event predates any subscriber, so it
+reaches consumers via snapshot().last_event and the warn log, not the
+broadcast subscription; event-stream-only monitoring sees the failed
+events but not the onset event.
+
 ### 8. A bare token's origin binding spans the primary and fallback loads
 
 Untested hypothesis from reading `BearerOriginBinding` and the fallback
