@@ -146,9 +146,12 @@ pub(crate) fn trace_variable_resolutions_unchecked(
 ) -> Result<Vec<VariableResolutionTrace>> {
     let ids: Vec<String> = runtime.variables.keys().cloned().collect();
 
+    // One state for the whole batch, exactly like resolve_variables: one
+    // env.now instant and one memoization cache, so a traced batch can
+    // never disagree with the resolved batch it explains.
+    let mut state = ResolutionState::new(runtime, context);
     let mut traces = Vec::new();
     for id in ids {
-        let mut state = ResolutionState::new(runtime, context);
         traces.push(resolve_variable_trace_with_state(runtime, &mut state, &id)?);
     }
     Ok(traces)
@@ -1627,6 +1630,49 @@ value = "save time"
             err.to_string()
                 .contains("expression did not evaluate to bool")
         );
+    }
+
+    #[tokio::test]
+    async fn batch_resolve_and_batch_trace_share_one_evaluation_state() {
+        // A shared condition variable referenced by several variables, and a
+        // batch resolve next to its traced twin: both run under one state
+        // (one env.now, one memoization cache), so the trace explains
+        // exactly what resolve did.
+        let package = tempfile::tempdir().unwrap();
+        let root = package.path();
+        std::fs::write(root.join("rototo-package.toml"), "schema_version = 1\n").unwrap();
+        std::fs::create_dir_all(root.join("variables")).unwrap();
+        std::fs::write(
+            root.join("variables/premium.toml"),
+            "schema_version = 1\ntype = \"bool\"\n\n[resolve]\ndefault = false\n\n[[resolve.rule]]\nwhen = 'context.tier == \"premium\"'\nvalue = true\n",
+        )
+        .unwrap();
+        for id in ["left", "right"] {
+            std::fs::write(
+                root.join(format!("variables/{id}.toml")),
+                "schema_version = 1\ntype = \"string\"\n\n[resolve]\ndefault = \"off\"\n\n[[resolve.rule]]\nwhen = 'variables[\"premium\"]'\nvalue = \"on\"\n",
+            )
+            .unwrap();
+        }
+
+        let runtime = compile_runtime_package(root).await.unwrap();
+        let context = serde_json::json!({ "tier": "premium" });
+
+        let resolutions = resolve_variables_unchecked(&runtime, &context).unwrap();
+        let traces = trace_variable_resolutions_unchecked(&runtime, &context).unwrap();
+        assert_eq!(resolutions.len(), traces.len());
+        for (resolution, trace) in resolutions.iter().zip(&traces) {
+            assert_eq!(resolution.id, trace.resolution.id);
+            assert_eq!(resolution.value, trace.resolution.value);
+        }
+        // The traced batch still records full per-variable detail even
+        // though the shared condition memoized after its first evaluation.
+        for trace in &traces {
+            if trace.resolution.id != "premium" {
+                assert_eq!(trace.rules.len(), 1);
+                assert!(trace.rules[0].matched);
+            }
+        }
     }
 
     fn package_with_conditions(conditions: &[(&str, String)]) -> tempfile::TempDir {

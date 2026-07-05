@@ -105,7 +105,9 @@ of `env.now` least surprisingly for a batch labeled "one resolution run".
 
 Manas: fix this.
 
-Tasked 2026-07-05: #68.
+Tasked 2026-07-05: #68. Fixed 2026-07-05: batch trace shares one state
+with batch resolve (one env.now, one memoization cache), pinned by
+batch_resolve_and_batch_trace_share_one_evaluation_state.
 
 ### 4. A Lua file in a lint subdirectory is ignored with no warning
 
@@ -252,9 +254,9 @@ Resolved 2026-07-05: accepted as-is.
 - Remote-extends-remote over real `git+https://` / `git+ssh://` stays
   unit-level (the pass-through arm of `resolve_extend_source`); an
   end-to-end run needs a git server.
-- Memoization and single-capture `env.now` (resolution matrix X2/X4)
-  remain by-construction rows; finding 3 above is the sharp edge worth
-  fixing in that area, after which a test can pin batch behavior.
+- Memoization and single-capture `env.now` (resolution matrix X2/X4) are
+  now tested at the batch level (finding 3's fix); the single-resolution
+  halves stay by-construction.
 - The nine pending lint rules now provably fire
   (`pending_rules_fire_from_scratch_packages`) but still lack canonical
   fixtures with asserted stage, entity, and location. Mechanical follow-up;

@@ -30,9 +30,9 @@ SDK load matrix's section 4; trace provenance across layers is
 | # | Given / When | Then | Coverage |
 |---|---|---|---|
 | X1 | `variables["<id>"]` chains | referenced variables resolve lazily, on first use | `resolves_cross_variable_references_and_cycles` |
-| X2 | the same referenced variable read by several rules or by a trace policy | one evaluation per resolution: values memoize in the per-resolution state, and trace policy conditions share the same cache | by construction (`ResolutionState::variable_cache`; the cache is also what makes X3's cycle detection work) |
+| X2 | the same referenced variable read by several rules, by a trace policy, or across a batch | one evaluation per resolution run: values memoize in the shared state, batch resolve and batch trace included, and a traced batch always agrees with the resolved batch it explains | `batch_resolve_and_batch_trace_share_one_evaluation_state` (`src/resolve.rs`); the cache is also what makes X3's cycle detection work |
 | X3 | a reference cycle reached at resolve time | resolution errors naming the cycle (the lint-time twin is `rototo/variable-reference-cycle`, `tests/package_lint.rs`) | `resolves_cross_variable_references_and_cycles`, `resolves_condition_indirection_and_cycles` |
-| X4 | `env.now` read in several expressions of one resolution | one instant, captured at resolution start (RFC3339) | by construction (`ResolutionState::new` captures `now` once; every evaluate call threads the same value) |
+| X4 | `env.now` read in several expressions of one resolution, or across a batch | one instant per resolution run, captured at state creation (RFC3339); batch resolve and batch trace share it | by construction (`ResolutionState::new` captures `now` once) plus `batch_resolve_and_batch_trace_share_one_evaluation_state` |
 
 ## 3. Buckets
 
@@ -96,8 +96,7 @@ through the reflection surface (`design/package-reflection.md`).
 
 ## Current gap tally
 
-0 GAP rows. X2 and X4 are by-construction rows whose observable halves
-are the cycle tests and the expression matrix's `env.now` rows.
+0 GAP rows.
 
 When you add or change resolution behavior, add the row and the test
 together; an empty Coverage cell is a regression in this file's contract.
