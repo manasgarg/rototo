@@ -26,7 +26,14 @@ include = [
 ]
 
 [workspace]
-members = ["examples/sdk-app", "sdks/go", "sdks/java", "sdks/python", "sdks/typescript"]
+members = [
+    "apps/console-server",
+    "examples/sdk-app",
+    "sdks/go",
+    "sdks/java",
+    "sdks/python",
+    "sdks/typescript",
+]
 resolver = "3"
 
 [features]
