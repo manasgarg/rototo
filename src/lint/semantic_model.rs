@@ -12,24 +12,62 @@ use crate::diagnostics::{DiagnosticLocation, SourceRange};
 use crate::expression::Expression;
 
 use super::PackageLintSnapshot;
-use super::index::{ProjectField, ResolveNode, RuleCollection, TypeSourceNode};
+use super::index::{
+    PackageExtendsCollection, ProjectField, ResolveNode, RuleCollection, TypeSourceNode,
+};
 use super::references::{ReferenceSource, ReferenceTarget};
 
-pub const SEMANTIC_MODEL_VERSION: u32 = 3;
+pub const SEMANTIC_MODEL_VERSION: u32 = 4;
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct PackageSemanticModel {
     pub version: u32,
+    /// The base package sources this package's manifest declares, in order.
+    /// Discovery composes these edges into the composition tree.
+    pub extends: Vec<PackageExtendModel>,
     pub variables: Vec<VariableModel>,
     pub layers: Vec<LayerModel>,
     pub catalogs: Vec<CatalogModel>,
     pub catalog_entries: Vec<CatalogEntryModel>,
+    pub enums: Vec<EnumModel>,
     pub evaluation_contexts: Vec<EvaluationContextModel>,
     pub evaluation_context_samples: Vec<EvaluationContextSampleModel>,
     pub linters: Vec<LinterModel>,
     pub references: Vec<ReferenceModel>,
     pub variable_evaluation_contexts: Vec<VariableEvaluationContextModel>,
+}
+
+impl PackageSemanticModel {
+    /// Every reference whose source is the given entity: what it uses.
+    pub fn references_from<'a>(
+        &'a self,
+        entity: &ModelEntityRef,
+    ) -> impl Iterator<Item = &'a ReferenceModel> {
+        self.references
+            .iter()
+            .filter(move |reference| &reference.from == entity)
+    }
+
+    /// Every reference pointing at the given entity: who uses it. The other
+    /// direction of [`Self::references_from`]; together they drive
+    /// connected-entities views and cross-package lineage closure.
+    pub fn references_to<'a>(
+        &'a self,
+        entity: &ModelEntityRef,
+    ) -> impl Iterator<Item = &'a ReferenceModel> {
+        self.references
+            .iter()
+            .filter(move |reference| &reference.to == entity)
+    }
+}
+
+/// One `extends` entry from the package manifest.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PackageExtendModel {
+    pub source: String,
+    pub location: ModelLocation,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -205,6 +243,17 @@ pub struct CatalogEntryModel {
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
+pub struct EnumModel {
+    pub id: String,
+    pub location: ModelLocation,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub description: Option<String>,
+    pub member_type: ModelField,
+    pub members: Vec<ModelValueField>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct EvaluationContextModel {
     pub id: String,
     pub path: String,
@@ -260,6 +309,10 @@ pub struct ReferenceModel {
     /// Where in the source entity the reference sits, so tools can render
     /// the relation semantically ("rule[1] checks ...").
     pub via: ModelReferenceVia,
+    /// Where the target is declared in this package; absent for a dangling
+    /// reference (or one a base package satisfies under composition).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub declaration: Option<ModelLocation>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -273,7 +326,7 @@ pub enum ModelReferenceVia {
     Allocation,
 }
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase", tag = "kind")]
 pub enum ModelEntityRef {
     Variable {
@@ -534,6 +587,40 @@ impl PackageLintSnapshot {
                 to: reference_target_ref(&edge.target),
                 location: model_location(&edge.location),
                 via: reference_via(&edge.source),
+                declaration: edge.declaration.as_ref().map(model_location),
+            })
+            .collect();
+
+        let extends = match index.manifest.as_ref().map(|manifest| &manifest.extends) {
+            Some(PackageExtendsCollection::Sources { values, .. }) => values
+                .iter()
+                .map(|extend| PackageExtendModel {
+                    source: extend.source.clone(),
+                    location: model_location(&extend.location),
+                })
+                .collect(),
+            _ => Vec::new(),
+        };
+
+        let enums = index
+            .enums
+            .values()
+            .map(|node| EnumModel {
+                id: node.id.clone(),
+                location: model_location(&node.location),
+                description: present_string(&node.description),
+                member_type: model_string_field(&node.member_type),
+                members: match &node.members {
+                    ProjectField::Present(members) => members
+                        .value
+                        .iter()
+                        .map(|member| ModelValueField {
+                            value: Some(member.value.clone()),
+                            location: model_location(&member.location),
+                        })
+                        .collect(),
+                    _ => Vec::new(),
+                },
             })
             .collect();
 
@@ -607,10 +694,12 @@ impl PackageLintSnapshot {
 
         PackageSemanticModel {
             version: SEMANTIC_MODEL_VERSION,
+            extends,
             variables,
             layers,
             catalogs,
             catalog_entries,
+            enums,
             evaluation_contexts,
             evaluation_context_samples,
             linters,

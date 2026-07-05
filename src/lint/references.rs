@@ -19,7 +19,9 @@ pub(super) struct ReferenceEdge {
     pub(super) semantic_target: SemanticTarget,
     pub(super) location: DiagnosticLocation,
     pub(super) target: ReferenceTarget,
-    declaration: Option<DiagnosticLocation>,
+    /// Where the target is declared in this package; `None` for a dangling
+    /// reference (or one satisfied by a base package under composition).
+    pub(super) declaration: Option<DiagnosticLocation>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]

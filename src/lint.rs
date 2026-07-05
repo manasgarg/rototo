@@ -37,10 +37,11 @@ pub(crate) use runtime::{
     RuntimeSelectedValue, compile_runtime_package, compile_runtime_package_from_snapshot,
 };
 pub use semantic_model::{
-    CatalogEntryModel, CatalogModel, DeclarationModel, EvaluationContextModel,
+    CatalogEntryModel, CatalogModel, DeclarationModel, EnumModel, EvaluationContextModel,
     EvaluationContextSampleModel, LinterModel, LinterRuleModel, ModelEntityRef, ModelField,
-    ModelLocation, ModelReferenceVia, ModelValueField, PackageSemanticModel, ReferenceModel,
-    ResolveModel, RuleModel, ValueModel, VariableEvaluationContextModel, VariableModel,
+    ModelLocation, ModelReferenceVia, ModelValueField, PackageExtendModel, PackageSemanticModel,
+    ReferenceModel, ResolveModel, RuleModel, ValueModel, VariableEvaluationContextModel,
+    VariableModel,
 };
 pub(crate) use symbols::{
     PackageCompletionItem, PackageCompletionItemKind, PackageDefinition, PackageDocumentSymbol,

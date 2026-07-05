@@ -9,7 +9,7 @@ async fn semantic_model_projects_entities_references_and_ranges() {
         .await
         .expect("examples/basic should produce a semantic model");
 
-    assert_eq!(model.version, 3);
+    assert_eq!(model.version, 4);
     assert!(!model.variables.is_empty());
     assert!(!model.catalogs.is_empty());
     assert!(!model.linters.is_empty());
@@ -99,10 +99,90 @@ async fn semantic_model_projects_entities_references_and_ranges() {
     });
     assert!(object_edge, "variable value -> catalog value edge");
 
+    // Both directions of the promoted reference queries answer from the
+    // same edge list: what an entity uses, and who uses it.
+    let mobile_users = ModelEntityRef::Variable {
+        id: "mobile_users".to_owned(),
+    };
+    let referencing: Vec<_> = model.references_to(&mobile_users).collect();
+    assert!(
+        referencing
+            .iter()
+            .any(|reference| matches!(&reference.from, ModelEntityRef::Variable { id } if id == "support_banner")),
+        "references_to answers who references mobile_users"
+    );
+    assert!(
+        referencing
+            .iter()
+            .all(|reference| reference.declaration.is_some()),
+        "in-package references carry their target's declaration"
+    );
+    let support_banner = ModelEntityRef::Variable {
+        id: "support_banner".to_owned(),
+    };
+    assert!(
+        model
+            .references_from(&support_banner)
+            .any(|reference| matches!(&reference.to, ModelEntityRef::Variable { id } if id == "mobile_users")),
+        "references_from answers what support_banner uses"
+    );
+
+    // A standalone package declares no extends edges.
+    assert!(model.extends.is_empty());
+
     // The model serializes with camelCase keys and tagged entity refs.
     let json = serde_json::to_value(&model).expect("model serializes");
     assert!(json["catalogEntries"].is_array());
     assert_eq!(json["references"][0]["from"]["kind"], "variable");
+}
+
+/// Discovery composes each package's declared `extends` edges into the
+/// composition tree, and enums are first-class entities in the model.
+#[tokio::test]
+async fn semantic_model_projects_extends_edges_and_enums() {
+    let overlay = package_semantic_model(Path::new("examples/acme-overlay"))
+        .await
+        .expect("examples/acme-overlay should produce a semantic model");
+    assert_eq!(
+        overlay
+            .extends
+            .iter()
+            .map(|extend| extend.source.as_str())
+            .collect::<Vec<_>>(),
+        vec!["../basic"]
+    );
+    assert!(
+        overlay.extends[0]
+            .location
+            .path
+            .ends_with("rototo-package.toml")
+    );
+
+    let release_ops = package_semantic_model(Path::new("examples/release-ops"))
+        .await
+        .expect("examples/release-ops should produce a semantic model");
+    let log_levels = release_ops
+        .enums
+        .iter()
+        .find(|entry| entry.id == "log_levels")
+        .expect("log_levels enum");
+    assert!(log_levels.location.path.ends_with("enums/log_levels.toml"));
+    assert_eq!(log_levels.member_type.value.as_deref(), Some("string"));
+    assert_eq!(
+        log_levels
+            .members
+            .iter()
+            .filter_map(|member| member.value.as_ref().and_then(|value| value.as_str()))
+            .collect::<Vec<_>>(),
+        vec!["error", "warn", "info", "debug"]
+    );
+    assert!(
+        log_levels
+            .members
+            .iter()
+            .all(|member| member.location.range.is_some()),
+        "member locations carry ranges for member-level edits"
+    );
 }
 
 #[tokio::test]
