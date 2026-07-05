@@ -139,6 +139,7 @@ Creation and deletion, any kind:
 | `create_entry {catalog, key, fields}` | |
 | `create_enum {id, type, members, description?}` | |
 | `create_context {id, schema}` | plus a default sample |
+| `create_layer {id, unit, buckets}` | hash unit and bucket count are fixed at creation |
 | `create_sample {context, key, content}` | |
 | `delete {target}` | owned: remove the file; inherited: `.deleted.toml` where the format has the shape, a clear refusal where it does not |
 
@@ -157,8 +158,9 @@ Variables:
 Rules are addressed by index on purpose: rules are positional in the format
 (first match wins), and the expected-pin staleness check from Layer 2
 handles the concurrent-save race. Stable rule handles would be format creep.
-A note for Layer 4: rollout-percentage controls compile to `update_rule`
-with a new bucket expression in `when`; no special operation exists.
+A note for Layer 4: gradual rollouts do not live in rules. They live in
+layers and allocations, and the rollout dial compiles to `set_arm_buckets`
+below.
 
 Catalog entries:
 
@@ -174,6 +176,22 @@ Enums:
 | `add_member {enum, value}` and `remove_member {enum, value}` | inherited enums compile to the update marker |
 | `set_description {enum, text?}` | |
 
+Layers and allocations (rollouts and experiments are first-class, not
+source-only):
+
+| Operation | Notes |
+| --- | --- |
+| `add_allocation {layer, id, status?, eligibility?, arms}` | arms and their bucket ranges are defined together |
+| `remove_allocation {layer, id}` | ending an experiment or rollout |
+| `set_allocation_status {layer, id, status}` | |
+| `set_allocation_eligibility {layer, id, when?}` | absent clears it |
+| `set_arm_buckets {layer, allocation, arm, buckets}` | the rollout dial: growing 20% to 50% is this one operation |
+
+The vocabulary deliberately has no operation for changing a layer's hash
+unit or bucket count. Doing that under live allocations silently reassigns
+every user, so it is a structural act: done in source, flagged by lint, and
+usually better expressed as a new layer.
+
 Samples:
 
 | Operation | Notes |
@@ -184,7 +202,7 @@ Samples:
 
 Catalog schemas, evaluation-context schemas (JSON Schema authoring is its
 own craft; a form over it would be worse than the editor), Lua linters,
-layers and allocations, `governance.toml`, and the package manifest. These
+`governance.toml`, and the package manifest. These
 are edited as raw text only. Any of them can graduate to operations later
 without touching the vocabulary above.
 
@@ -233,7 +251,7 @@ Every entity gets: rendered detail from the semantic model, the source text
 with diagnostics inline, its connected entities (from the promoted reference
 queries), and entity-scoped previews where resolution applies. The friendly
 form appears for the kinds with operations (variables, catalog entries,
-enums, samples); everything else is source-first. The catalog-entry form
+enums, samples, layers); everything else is source-first. The catalog-entry form
 keeps today's genuinely good schema-driven widgets (sliders, selects, tags,
 color and date inputs, driven by the catalog's JSON Schema, with enum
 references resolved to member lists); the widgets stay, only their save path
