@@ -491,3 +491,33 @@ the trigger that should reopen each one:
 One genuinely open product decision remains, owned by phasing (section 9):
 whether the first shipped org release includes non-GitHub internal
 stakeholders, which decides whether Phase A ships alone or together with B.
+
+## 12. Implementation platform note
+
+The re-implemented console server will be TypeScript, not Rust: routes,
+sessions, the store, enrollment flows, and `decide` all live in a Node
+process, with the Rust core reached through bindings the way the language
+SDKs bind it. This changes where this spec's code lives but none of its
+design; everything above is implementation-language neutral.
+
+Two consequences worth recording:
+
+- **The binding surface grows beyond the public SDK.** The Node SDK is
+  deliberately runtime-focused (load, resolve, refresh). The console needs
+  more from the core: staged package inspection with the full semantic
+  model, the reference graph (section 6 traverses it), lint diagnostics,
+  and in later layers resolution previews, edit planning, and the LSP
+  bridge. Expose these as a separate internal binding surface for the
+  console rather than widening the public SDK, which stays small per the
+  SDK guidance. Each layer's spec should carry its own bindings inventory;
+  Layer 1's is short: the semantic model with references, nothing else.
+- **Identity and authorization themselves need nothing from the core.**
+  OIDC, OAuth, sessions, grants, and Backend A's GitHub facts are all
+  well-served by the TypeScript ecosystem (openid-client, octokit) plus
+  SQLite. Token encryption at rest is reimplemented in TypeScript with the
+  same format and key semantics as `token_crypto` today.
+
+One open consequence belongs to the product-shape layer, not here: the
+single-binary story. `rototo console` currently serves an embedded SPA from
+the Rust binary; a TypeScript server changes how the console ships and
+starts. Recorded here so it is not lost; decided there.
