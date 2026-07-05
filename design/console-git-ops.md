@@ -129,6 +129,8 @@ change_sets         id (slug), source_tree_id, title,
 
 change_set_approvals change_set_id, principal_id, approved_at
 
+change_set_collaborators change_set_id, principal_id, added_by, added_at
+
 change_set_events   change_set_id, at, actor,
                     event (created|committed|submitted|approved|merged|...),
                     detail (commit sha, pr number, ...)
@@ -138,6 +140,7 @@ Reading it plainly: `source_trees` is the list of registered repos.
 `discovered_packages` is a rebuildable note of where the
 `rototo-package.toml` files are. `change_sets` is one row per proposed
 change. `change_set_approvals` records who approved what.
+`change_set_collaborators` records who a change set has been shared with.
 `change_set_events` is an append-only diary, and it is Layer 2's audit
 trail.
 
@@ -255,8 +258,10 @@ sequenceDiagram
     TS->>GH: where is the branch head?
     TS->>GH: upload blobs, build tree, create commit on head
     TS->>GH: move branch from head to new commit (fails if head moved)
-    alt branch moved meanwhile
+    alt branch moved, intervening changes disjoint from plan
         TS->>GH: re-read head, rebuild commit, retry (max 3)
+    else branch moved, overlapping paths
+        TS-->>UI: reject: changed under you, reload
     end
     TS->>ST: diary: committed <sha>
     TS-->>UI: new pin
@@ -292,9 +297,13 @@ trick databases call compare-and-swap, and it is what makes a multi-file
 edit land atomically or not at all (Rule 3).
 
 And the retry re-applies Priya's plan; it does not try to merge content.
-That is fine because a branch belongs to exactly one change set. If two
-writers race on it, that is Priya with two tabs open, not two different
-proposals fighting.
+For that to be safe, every edit plan carries the pin it was computed
+against. When the branch head has moved past that pin, we look at what the
+intervening commits touched. Files disjoint from the plan's paths: rebase
+the plan and apply automatically. Overlapping paths: reject with "this
+changed under you, reload" and show what changed. Silent last-writer-wins
+would be unacceptable once branches can be shared (see "Working together"
+below), and the same check protects the one-person-two-tabs case.
 
 ## Getting it approved and merged
 
@@ -330,6 +339,43 @@ Developers on the fast path skip all of this. Their own token made the
 commits, so GitHub's branch protection is the enforcement: they merge in
 the console or on GitHub, whichever they like, and the console just renders
 honestly what is allowed (Layer 1, Backend A).
+
+## Working together on a change set
+
+Collaboration comes down to three rules, all of them small.
+
+**Everyone who can see the package can see every change set that touches
+it.** No secret drafts: a change set is a proposal, and proposals are
+reviewable by construction. For GitHub users this was already true (repo
+read shows every branch); the console simply extends the same fact to
+App-path users by filtering the change-set list with package view grants.
+The one edge case is a repo holding several packages where a viewer can see
+only some of them: they see that the change set exists, its diff filtered
+to the packages they can view, and a plain count for the rest ("also
+touches 2 files in a package you cannot view").
+
+**You edit your own change sets, plus the ones shared with you.** The
+creator owns the change set: they edit, share, submit, and abandon it.
+Sharing adds collaborators (`change_set_collaborators`), and collaborators
+edit. The console refuses edit plans from anyone else. On the App path that
+refusal is real enforcement (Rule 5); for a developer with repository
+write it is a guardrail, since raw git will always let them push to any
+branch. Mixed credentials on one branch are fine: the acting credential is
+chosen per operation, and every commit attributes its own actor.
+
+**If you helped write it, you cannot approve it.** The two-person policy
+from Layer 1 evaluates `contributors`, meaning everyone who committed to
+the change set, not just its creator. Without this, sharing becomes a
+laundering trick: two people edit each other's change sets, approve in
+exchange, and the two-person rule checks a box while meaning nothing.
+
+One optional ratchet for deployments that want branch ownership enforced
+for everyone, developers included: a GitHub repository ruleset restricting
+pushes on `rototo-console/*` to the App alone. That turns ownership from
+console convention into git-level fact. The cost is real, so it is not the
+default: it closes the escape hatch of a developer picking up a console
+branch with normal git tooling, which means conflict fixes must then happen
+through the console workbench.
 
 ## When the world changes under you
 

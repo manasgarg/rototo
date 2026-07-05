@@ -172,9 +172,11 @@ decide(subject, action, resource, context) -> Decision
 - `subject`: a principal id.
 - `action`: one of the verbs in section 5.1.
 - `resource`: one node of the resource tree in section 5.2.
-- `context`: request facts a rule may need. v1 defines one: `author`, the
-  proposing principal of the change under review, so two-person policies
-  (section 5.1) can be evaluated without a special case in every route.
+- `context`: request facts a rule may need. v1 defines one: `contributors`,
+  the set of principals who committed to the change under review (its
+  creator plus any collaborator who committed, derived from the commits),
+  so two-person policies (section 5.1) can be evaluated without a special
+  case in every route.
 - `Decision`: allow or deny, plus a machine-readable explanation: which grant,
   derivation, or backend produced the answer. Every allow can say why in one
   sentence.
@@ -279,8 +281,11 @@ view < propose < approve < administer
   self-landing, and an unprotected branch means direct application is
   allowed. Under Backend B it is a deployment or scope-level setting,
   defaulting to requiring a second person, because there the console is the
-  only enforcement point. The `author` context exists so this policy has
-  something to evaluate.
+  only enforcement point. The `contributors` context is what the policy
+  evaluates, and it deliberately covers everyone who committed to the
+  change, not only its creator: once change sets can be shared (Layer 2), a
+  rule that excluded only the creator could be laundered by two people
+  editing each other's changes and approving in exchange.
 - `administer`: manage grants, groups, invitations, and source registration
   at this scope.
 
@@ -310,6 +315,27 @@ needs deployment, source-tree, and package scopes; entity-scoped grants become
 load-bearing when Layer 4 surfaces want per-surface approvers. Surfaces will
 address entities, so nothing new is needed here beyond an `entity` kind for
 surfaces themselves.
+
+Two collaboration decisions shape how grants are used:
+
+- **View is package-wide.** `view` grants attach at package scope or above;
+  there are no entity-level view grants in v1. Everyone who can see a
+  package sees all of it, because nobody makes good configuration decisions
+  while blindfolded to half the package. Constraining view below package
+  scope is deferred, and the redaction machinery in section 6.2 is the tool
+  waiting for it if that day comes.
+- **Propose can narrow to entities and fields.** A `propose` grant may carry
+  an entity scope and a field scope, expressed in the same shape as
+  governance's `update_policy` (`allowed_fields`, `allowed_entries`, and
+  friends), so the system has exactly one vocabulary for field scoping:
+  governance bounds packages against packages at load time, grants bound
+  people against entities at edit time. Field checks are semantic, not
+  git-level, because git cannot enforce anything finer than a file: the edit
+  pipeline computes the semantic diff of a proposed edit plan and validates
+  it against the grant before anything reaches the git layer. Like every
+  Backend B decision, this binds console-mediated (App credential) writes; a
+  principal with raw repository write is bounded by GitHub, not by these
+  grants.
 
 Resource ids must survive renames where the underlying thing survives.
 Source trees have stable generated ids already. Packages are identified by
@@ -353,8 +379,11 @@ see `active_plan` because it references `plans`, which you may edit") so an
 auditor can always answer "why can this person see this?".
 
 Under Backend A this derivation is inert: GitHub view is repo-wide, so the
-closure adds nothing. It becomes meaningful exactly when Backend B grants
-below-repo view scopes, and it ships with Backend B.
+closure adds nothing. Package-wide view grants (section 5.2) make it inert
+within a package as well. What remains is exactly the cross-package case: a
+reference that leaves the packages a principal can view, which is where the
+boundary rules below take over. The derivation still ships with Backend B,
+just with a smaller job.
 
 ### 6.2 Boundaries
 
